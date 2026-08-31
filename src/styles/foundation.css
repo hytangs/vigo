@@ -1,0 +1,74 @@
+/* Base document sizing and global reset. */
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+  font-size: 14px;
+}
+
+/* Accent palettes and shared focus treatment. */
+.app-shell {
+  height: 100svh;
+  min-width: 320px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+  --status-ready: var(--success);
+  --status-preparing: var(--accent-2);
+  --status-stale: var(--warn);
+  --status-blocked: var(--warn);
+  --status-error: var(--danger);
+  --status-idle: var(--text-muted);
+  --status-cancelled: var(--text-muted);
+}
+
+.app-frame {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.shell-body {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(350px, 390px) minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.app-shell.appearance-light {
+  --accent: #2563eb;
+  --accent-2: #0ea5e9;
+}
+
+.app-shell.accent-blue {
+  --accent: #8eeaf3;
+  --accent-2: #6da8ff;
+}
+
+.app-shell.accent-teal {
+  --accent: #35d0a1;
+  --accent-2: #6da8ff;
+}
+
+.app-shell.accent-graphite {
+  --accent: #b8c4d2;
+  --accent-2: #7f8fa3;
+}
+
+.app-shell button:focus-visible,
+.app-shell input:focus-visible,
+.app-shell select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-2) 62%, transparent);
+  outline-offset: 2px;
+}

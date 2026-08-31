@@ -1,0 +1,24 @@
+name: Nightly portable suite
+
+on:
+  schedule:
+    - cron: '37 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-portable-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run check:release-runtime:portable
+      - run: npm run benchmark:smoke -- --samples=51

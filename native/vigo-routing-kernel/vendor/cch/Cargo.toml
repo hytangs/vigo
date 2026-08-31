@@ -1,0 +1,16 @@
+[package]
+name = "cch"
+version = "0.3.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+description = "Vendored exact CCH kernel with deterministic parallel inertial ordering"
+publish = false
+
+[dependencies]
+memmap2 = "0.9"
+rayon = "1.10"
+
+[lints.clippy]
+all = "deny"
+pedantic = "warn"

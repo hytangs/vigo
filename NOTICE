@@ -1,0 +1,11 @@
+VIGO
+Copyright 2026 VIGO contributors
+
+This product includes the vendored cch crate, Copyright (c) 2026 Rodeapps,
+under the MIT License. The crate includes software derived from RoutingKit,
+Copyright (c) 2016 RoutingKit contributors, under the BSD 2-Clause License.
+
+The complete third-party license and attribution texts are retained in:
+
+  native/vigo-routing-kernel/vendor/cch/LICENSE
+  native/vigo-routing-kernel/vendor/cch/NOTICE

@@ -1,0 +1,36 @@
+name: Release package verification
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  macos-arm64:
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: cargo test --manifest-path native/vigo-routing-kernel/Cargo.toml
+      - run: cargo clippy --release --all-targets --all-features --target aarch64-apple-darwin --manifest-path native/vigo-routing-kernel/Cargo.toml -- -D warnings
+      - run: npm run release:macos
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: release/VIGO-*-mac-arm64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vigo-macos-arm64
+          path: |
+            release/VIGO-*-mac-arm64.zip
+            release/VIGO-*-mac-arm64.zip.sha256
+          if-no-files-found: error

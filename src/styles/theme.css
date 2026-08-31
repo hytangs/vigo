@@ -1,0 +1,2136 @@
+/* Base product palette */
+
+.app-shell {
+  --workspace-bg: #f3f4f3;
+  --panel: #f7f8f7;
+  --panel-strong: #ffffff;
+  --panel-soft: #eef0ee;
+  --border: rgba(15, 23, 42, 0.1);
+  --border-strong: rgba(15, 23, 42, 0.16);
+  --text-strong: #111315;
+  --text: #25292d;
+  --text-soft: #48515c;
+  --text-muted: #697382;
+  --success: #2f766a;
+  --warn: #a76210;
+  --danger: #c33f3f;
+  --shadow-soft: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 8px 24px rgba(15, 23, 42, 0.065);
+  --shadow-lg: 0 24px 64px rgba(15, 23, 42, 0.16);
+  --pq-radius: 10px;
+  --pq-focus: #2f766a;
+  --pq-surface-raised: #ffffff;
+  --pq-surface-hover: color-mix(in srgb, #2f766a 7%, var(--panel));
+  --workbench-surface: var(--panel);
+  --workbench-rule: var(--border);
+  color: var(--text);
+  background: var(--workspace-bg);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-rendering: optimizeLegibility;
+}
+
+.app-shell.appearance-light {
+  --workspace-bg: #f3f4f3;
+  --panel: #f7f8f7;
+  --panel-strong: #ffffff;
+  --panel-soft: #eef0ee;
+  --border: rgba(15, 23, 42, 0.1);
+  --border-strong: rgba(15, 23, 42, 0.16);
+  --text-strong: #111315;
+  --text: #25292d;
+  --text-soft: #48515c;
+  --text-muted: #697382;
+  --success: #2f766a;
+  --warn: #a76210;
+  --danger: #c33f3f;
+  --shadow-soft: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 8px 24px rgba(15, 23, 42, 0.065);
+  --shadow-lg: 0 24px 64px rgba(15, 23, 42, 0.16);
+  --pq-focus: #2f766a;
+  --pq-surface-raised: #ffffff;
+  --pq-surface-hover: color-mix(in srgb, #2f766a 7%, var(--panel));
+  --workbench-surface: var(--panel);
+  --workbench-rule: var(--border);
+  color-scheme: light;
+  color: var(--text);
+  background: var(--workspace-bg);
+}
+
+.app-shell.appearance-light.accent-blue {
+  --accent: #356f9d;
+  --accent-2: #2f766a;
+}
+
+.app-shell.appearance-light.accent-teal {
+  --accent: #2f766a;
+  --accent-2: #356f9d;
+}
+
+.app-shell.appearance-light.accent-graphite {
+  --accent: #536171;
+  --accent-2: #2f766a;
+}
+
+.app-shell.appearance-dark.accent-blue {
+  --accent: #79a9cf;
+  --accent-2: #78bcae;
+}
+
+.app-shell.appearance-dark.accent-teal {
+  --accent: #78bcae;
+  --accent-2: #79a9cf;
+}
+
+.app-shell.appearance-dark.accent-graphite {
+  --accent: #a4afbb;
+  --accent-2: #78bcae;
+}
+
+/* Integrated compact application chrome. */
+.topbar,
+.page-projects .topbar,
+.project-empty .topbar {
+  min-height: 50px;
+  grid-template-columns: minmax(178px, 0.75fr) minmax(260px, 520px) minmax(178px, 0.75fr);
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-strong) 96%, transparent);
+  box-shadow: none;
+  backdrop-filter: blur(16px);
+}
+
+.topbar-brand {
+  gap: 7px;
+}
+
+.topbar-mark-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+}
+
+.vigo-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 7px 18px rgba(15, 23, 42, 0.12);
+}
+
+.topbar-brand b {
+  color: var(--text-strong);
+  font-size: 0.8rem;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+}
+
+.topbar-project-action {
+  border-color: transparent;
+}
+
+.topbar-project-action:hover:not(:disabled) {
+  border-color: var(--border);
+}
+
+[data-vigo-native="macos"] .topbar,
+[data-vigo-native="macos"] .page-projects .topbar,
+[data-vigo-native="macos"] .project-empty .topbar {
+  min-height: 52px;
+  padding-left: 10px;
+  background: color-mix(in srgb, var(--panel-strong) 96%, transparent);
+}
+
+[data-vigo-native="macos"] .topbar-brand {
+  padding-left: 0;
+}
+
+/* Flat canvas and activity rail. */
+.app-sidebar,
+.app-shell.page-project .app-sidebar {
+  border-right-color: var(--border);
+}
+
+.sidebar-rail {
+  border-right-color: var(--border);
+}
+
+.sidebar-rail-button:hover:not(:disabled) {
+  border-color: transparent;
+}
+
+.sidebar-rail-button.is-active {
+  border-color: transparent;
+}
+
+.sidebar-panel {
+  border-right-color: var(--border);
+}
+
+.sidebar-panel-head {
+  gap: 4px;
+  padding: 3px 1px 9px;
+  border-bottom-color: var(--border);
+}
+
+.sidebar-panel-title strong {
+  font-size: 0.82rem;
+  font-weight: 680;
+}
+
+.route-tree-item {
+  height: 50px;
+  padding: 2px 0;
+}
+
+.route-tree-item .route-row {
+  height: 46px;
+  min-height: 46px;
+  grid-template-columns: 3px minmax(36px, auto) minmax(0, 1fr);
+  gap: 8px;
+  padding: 0 8px;
+  border-radius: 6px;
+}
+
+.route-tree-item .route-row > b {
+  width: 3px;
+  height: 24px;
+}
+
+.route-tree-item .route-row > strong {
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.route-tree-item .route-row > span {
+  font-size: 0.6rem;
+  font-weight: 500;
+}
+
+.route-tree-item .route-row:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--text-strong) 5%, transparent);
+}
+
+.route-tree-item .route-row.is-selected,
+.route-tree-item .route-row[aria-current="true"] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--route-color, var(--accent)) 8%, var(--panel));
+  box-shadow: inset 2px 0 0 var(--route-color, var(--accent));
+}
+
+/* Controls use compact radii, plain fills, and teal focus treatment. */
+.button,
+.icon-button,
+.sidebox,
+.sidebox-row button,
+.sidebox-lens-grid button,
+.sidebox-live,
+.project-dialog,
+.workspace-panel {
+  border-radius: 7px;
+  box-shadow: none;
+}
+
+.pathfinder-mode-selector,
+.pathfinder-location-stack,
+.pathfinder-time-preference,
+.pathfinder-time-field,
+.pathfinder-date-field,
+.pathfinder-segmented {
+  border-color: var(--border);
+  border-radius: 7px;
+  background: var(--panel-strong);
+}
+
+.pathfinder-mode-selector button.is-active,
+.pathfinder-time-preference button.is-active,
+.pathfinder-segmented button.is-active {
+  color: var(--text-strong);
+  background: var(--panel-strong);
+  box-shadow: inset 0 -2px 0 var(--accent-2);
+}
+
+.pathfinder-location-mark {
+  border-color: var(--accent-2);
+}
+
+.pathfinder-map-pick.is-active {
+  color: var(--text-strong);
+  background: color-mix(in srgb, var(--accent-2) 9%, transparent);
+}
+
+.pathfinder-directions-button {
+  border-color: #111315;
+}
+
+.app-shell.appearance-dark .pathfinder-directions-button:not(:disabled) {
+  border-color: #f2f4f7;
+  color: #090c10;
+  background: #f2f4f7;
+}
+
+/* Map overlays read as workspace tools instead of a second visual theme. */
+
+.app-shell.appearance-light .service-state-readout svg {
+  color: var(--accent-2);
+}
+
+.app-shell.appearance-light :is(
+  .service-state-readout small,
+  .map-live-card > small
+) {
+  color: var(--text-muted);
+}
+
+.app-shell.appearance-light :is(
+  .service-state-readout strong,
+  .map-live-card strong
+) {
+  color: var(--text-strong);
+}
+
+.app-shell.appearance-light .map-scope-actions button {
+  color: var(--text-muted);
+}
+
+.app-shell.appearance-light .map-scope-actions button:hover:not(:disabled) {
+  color: var(--text-strong);
+  background: var(--panel-soft);
+}
+
+.app-shell.appearance-light .service-playback-toggle,
+.app-shell.appearance-light .service-state-panel select,
+.app-shell.appearance-light .service-mode-switch,
+.app-shell.appearance-light .service-mode-switch button,
+.app-shell.appearance-light .service-playback-days button {
+  border-color: var(--border);
+  color: var(--text-muted);
+  background: var(--panel);
+}
+
+.app-shell.appearance-light .service-playback-toggle:hover,
+.app-shell.appearance-light .service-playback-days button:hover {
+  border-color: var(--border-strong);
+  color: var(--text-strong);
+  background: var(--panel-soft);
+}
+
+.app-shell.appearance-light .service-state-panel.is-playing .service-playback-toggle,
+.app-shell.appearance-light .service-playback-days button.is-active {
+  border-color: var(--accent-2);
+  color: #ffffff;
+  background: var(--accent-2);
+}
+
+.app-shell.appearance-light .service-playback-slider {
+  accent-color: var(--accent-2);
+}
+
+.map-scope-control,
+.service-state-panel {
+  border-radius: 14px;
+}
+
+.maplibregl-ctrl-group {
+  border-color: var(--border-strong);
+}
+
+/* Project switcher and dialogs use the same flat, readable hierarchy. */
+.workspace-switcher,
+.project-dialog {
+  background: var(--panel-strong);
+}
+
+.workspace-switcher-row:hover {
+  border-color: transparent;
+}
+
+.workspace-switcher-row.is-current {
+  border-color: transparent;
+}
+
+.project-dialog-backdrop {
+  background: rgba(15, 23, 42, 0.26);
+  backdrop-filter: blur(4px);
+}
+
+.project-dialog {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-lg);
+}
+
+@media (max-width: 760px) {
+  .topbar,
+  .page-projects .topbar,
+  .project-empty .topbar {
+    min-height: 48px;
+  }
+}
+
+@media (min-width: 621px) and (max-width: 760px) {
+  .app-shell.page-project:not(.project-empty):not(.view-data) .shell-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(300px, 56svh) minmax(0, 1fr);
+  }
+
+  .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar,
+  .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar:has(.route-browser-section.has-object-detail),
+  .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar:has(.sidebar-panel.is-explore .route-browser-section.has-object-detail) {
+    height: 100%;
+    max-height: none;
+  }
+
+  .route-investigation-shell,
+  .workbench.project-workbench.route-investigation-shell {
+    height: 100%;
+  }
+}
+
+/* Final VIGO light and dark variants */
+
+.app-shell,
+.app-shell.appearance-light {
+  --vigo-ink: #0c1624;
+  --vigo-lime: #aec43a;
+  --vigo-lime-strong: #718510;
+  --workspace-bg: #f3f5f4;
+  --panel: #f6f7f6;
+  --panel-strong: #ffffff;
+  --panel-soft: #f0f2f0;
+  --border: rgba(12, 22, 36, 0.1);
+  --border-strong: rgba(12, 22, 36, 0.16);
+  --text-strong: #101418;
+  --text: #272c31;
+  --text-soft: #4f5964;
+  --text-muted: #717b87;
+  --text-faint: #9aa2ab;
+  --accent: var(--vigo-lime-strong);
+  --accent-2: #2f766a;
+  --success: #47764c;
+  --warn: #9b6718;
+  --danger: #bf4541;
+  --shadow-soft: 0 8px 24px rgba(12, 22, 36, 0.06);
+  --shadow-lg: 0 22px 60px rgba(12, 22, 36, 0.14);
+  --pq-radius: 7px;
+  --pq-focus: #6f8c17;
+  --pq-surface-raised: #ffffff;
+  --pq-surface-hover: #f4f6f3;
+  --pq-rail-width: 48px;
+  --workbench-sidebar: clamp(368px, 27vw, 404px);
+  --routing-detail-width: clamp(310px, 24vw, 360px);
+  --workbench-surface: #ffffff;
+  --workbench-rule: var(--border);
+  --topbar-surface: #ffffff;
+  --rail-surface: #f4f5f4;
+  --control-surface: #f5f6f5;
+  --control-surface-strong: #ffffff;
+  --hover-surface: #edf0ed;
+  --active-surface: #e8ece6;
+  --map-surface: #eef1ef;
+  --map-control-surface: rgba(255, 255, 255, 0.96);
+  --map-control-muted: rgba(255, 255, 255, 0.84);
+  --primary-surface: #111315;
+  --primary-surface-hover: #292d31;
+  --primary-ink: #ffffff;
+  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+  color-scheme: light;
+  color: var(--text);
+  background: var(--workspace-bg);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-rendering: optimizeLegibility;
+}
+
+.app-shell.appearance-dark {
+  --vigo-ink: #eff2f5;
+  --vigo-lime: #b4c94a;
+  --vigo-lime-strong: #a6ba3f;
+  --workspace-bg: #080b0f;
+  --panel: #0f141a;
+  --panel-strong: #121820;
+  --panel-soft: #171e26;
+  --border: rgba(219, 231, 242, 0.1);
+  --border-strong: rgba(219, 231, 242, 0.17);
+  --text-strong: #f0f3f5;
+  --text: #d7dce2;
+  --text-soft: #aeb8c3;
+  --text-muted: #88939f;
+  --text-faint: #66727f;
+  --accent: var(--vigo-lime-strong);
+  --accent-2: #78bcae;
+  --success: #78bcae;
+  --warn: #d0a15b;
+  --danger: #ee7774;
+  --shadow-soft: 0 8px 24px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 22px 60px rgba(0, 0, 0, 0.38);
+  --pq-focus: #a6ba3f;
+  --pq-surface-raised: #151b22;
+  --pq-surface-hover: #1a222a;
+  --workbench-surface: #0f141a;
+  --workbench-rule: var(--border);
+  --topbar-surface: #11161c;
+  --rail-surface: #0d1217;
+  --control-surface: #171d24;
+  --control-surface-strong: #1a2129;
+  --hover-surface: #1b232b;
+  --active-surface: color-mix(in srgb, var(--vigo-lime-strong) 10%, var(--panel-soft));
+  --map-surface: #0d1217;
+  --map-control-surface: rgba(17, 22, 29, 0.96);
+  --map-control-muted: rgba(17, 22, 29, 0.86);
+  --primary-surface: #eef1f3;
+  --primary-surface-hover: #ffffff;
+  --primary-ink: #0b1014;
+  color-scheme: dark;
+  color: var(--text);
+  background: var(--workspace-bg);
+}
+
+.app-shell.appearance-light.accent-blue,
+.app-shell.appearance-light.accent-teal,
+.app-shell.appearance-light.accent-graphite {
+  --accent: var(--vigo-lime-strong);
+  --accent-2: #2f766a;
+}
+
+.app-shell button,
+.app-shell input,
+.app-shell select,
+.app-shell textarea {
+  font-family: inherit;
+}
+
+.app-shell button,
+.app-shell input,
+.app-shell select {
+  transition:
+    border-color 170ms var(--ease-standard),
+    background-color 170ms var(--ease-standard),
+    color 170ms var(--ease-standard),
+    box-shadow 170ms var(--ease-standard),
+    transform 170ms var(--ease-standard);
+}
+
+.app-shell button:focus-visible,
+.app-shell input:focus-visible,
+.app-shell select:focus-visible,
+.app-shell summary:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--vigo-lime-strong) 72%, white);
+  outline-offset: 2px;
+}
+
+/* Compact application bar. */
+.topbar,
+.page-projects .topbar,
+.project-empty .topbar,
+[data-vigo-native="macos"] .topbar,
+[data-vigo-native="macos"] .page-projects .topbar,
+[data-vigo-native="macos"] .project-empty .topbar {
+  min-height: 54px;
+  height: 54px;
+  grid-template-columns: var(--workbench-sidebar) minmax(260px, 1fr) auto;
+  gap: 12px;
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  background: var(--topbar-surface);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.topbar-brand,
+[data-vigo-native="macos"] .topbar-brand {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-right: 1px solid var(--border);
+}
+
+.topbar-mark-button,
+[data-vigo-native="macos"] .topbar-mark-button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 9px;
+  color: var(--vigo-ink);
+  background: transparent;
+  box-shadow: none;
+}
+
+.topbar-mark-button:hover,
+[data-vigo-native="macos"] .topbar-mark-button:hover {
+  border: 0;
+  color: var(--vigo-ink);
+  background: var(--hover-surface);
+  box-shadow: none;
+}
+
+.vigo-brand-mark {
+  width: 23px;
+  height: 19px;
+  display: block;
+}
+
+.vigo-brand-mark-source {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+.vigo-brand-mark-source.is-dark {
+  display: none;
+}
+
+.app-shell.appearance-dark .vigo-brand-mark-source.is-light {
+  display: none;
+}
+
+.app-shell.appearance-dark .vigo-brand-mark-source.is-dark {
+  display: block;
+}
+
+.topbar-brand-copy {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 0;
+  border-left: 0;
+}
+
+.topbar-brand b,
+[data-vigo-native="macos"] .topbar-brand b {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 0.76rem;
+  font-weight: 620;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.topbar-actions {
+  height: 100%;
+  padding: 0 14px 0 0;
+}
+
+.topbar-project-action {
+  min-height: 32px;
+  height: 32px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 0.73rem;
+  font-weight: 590;
+}
+
+.topbar-project-action svg {
+  color: currentColor;
+}
+
+.topbar-project-action:hover:not(:disabled) {
+  border: 0;
+  color: var(--text-strong);
+  background: var(--hover-surface);
+}
+
+/* Flat activity rail and quiet working panel. */
+.app-sidebar,
+.app-shell.page-project .app-sidebar {
+  grid-template-columns: 48px minmax(0, 1fr);
+  border-right: 1px solid var(--border);
+  background: var(--panel-strong);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.sidebar-rail {
+  gap: 6px;
+  padding: 6px 5px;
+  border-right: 1px solid var(--border);
+  background: var(--rail-surface);
+}
+
+.sidebar-rail-main,
+.sidebar-rail-bottom {
+  gap: 3px;
+}
+
+.sidebar-rail-button {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text-muted);
+  background: transparent;
+  box-shadow: none;
+}
+
+.sidebar-rail-button svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.75;
+}
+
+.sidebar-rail-button:hover:not(:disabled) {
+  border: 0;
+  color: var(--text-strong);
+  background: var(--hover-surface);
+}
+
+.sidebar-rail-button.is-active {
+  border: 0;
+  color: var(--text-strong);
+  background: var(--active-surface);
+  box-shadow: inset 2px 0 0 var(--vigo-lime-strong);
+}
+
+.sidebar-rail-button:disabled,
+.sidebar-rail-button:disabled:hover {
+  color: var(--text-faint);
+  background: transparent;
+  opacity: 0.42;
+}
+
+.sidebar-rail-label {
+  display: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-panel {
+  gap: 12px;
+  padding: 16px 18px 24px;
+  border: 0;
+  border-right: 0;
+  background: var(--panel-strong);
+  box-shadow: none;
+}
+
+.sidebar-panel-head,
+.sidebar-panel.is-pathfinder .sidebar-panel-head,
+.sidebar-panel.is-accessibility .sidebar-panel-head {
+  gap: 4px;
+  padding: 1px 1px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.sidebar-panel-title strong,
+.sidebar-panel.is-pathfinder .sidebar-panel-title strong,
+.sidebar-panel.is-accessibility .sidebar-panel-title strong {
+  color: var(--text-strong);
+  font-size: 1.08rem;
+  font-weight: 680;
+  letter-spacing: -0.018em;
+}
+
+.sidebar-panel-head p,
+.sidebar-context-line {
+  color: var(--text-muted);
+  font-size: 0.69rem;
+  font-weight: 500;
+}
+
+@keyframes vigo-surface-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.sidebar-panel > .sidebar-section {
+  animation: vigo-surface-in 220ms var(--ease-standard) both;
+}
+
+.sidebar-section-title strong {
+  color: var(--text-muted);
+  font-size: 0.61rem;
+  font-weight: 660;
+  letter-spacing: 0.065em;
+}
+
+.sidebox {
+  border-color: var(--border);
+  background: var(--panel-strong);
+  box-shadow: none;
+}
+
+.sidebar-panel.is-pathfinder {
+  gap: 10px;
+}
+
+.sidebar-panel.is-pathfinder .sidebox-pathfinder,
+.sidebox-pathfinder.pathfinder-query {
+  gap: 0;
+  padding: 0 1px 28px;
+  overflow-x: hidden;
+  overflow-y: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Pathfinder reads as one editor-like form, not a stack of cards. */
+.pathfinder-composer {
+  display: grid;
+  gap: 13px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.pathfinder-composer-heading {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 0 1px;
+}
+
+.pathfinder-composer-heading > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.pathfinder-composer-heading strong {
+  color: var(--text-strong);
+  font-size: 0.84rem;
+  font-weight: 690;
+  line-height: 1.2;
+}
+
+.pathfinder-composer-heading small {
+  color: var(--text-muted);
+  font-size: 0.67rem;
+  line-height: 1.35;
+}
+
+.pathfinder-new-route,
+.pathfinder-edit-route {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--text-strong);
+  background: var(--control-surface-strong);
+  font-size: 0.67rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.pathfinder-new-route:hover,
+.pathfinder-edit-route:hover {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border-strong));
+  background: var(--hover-surface);
+}
+
+.pathfinder-new-route svg {
+  color: var(--vigo-lime-strong);
+}
+
+.pathfinder-stage {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+}
+
+.pathfinder-stage-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.pathfinder-stage-actions .pathfinder-swap {
+  position: static;
+  width: auto;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text-muted);
+  background: transparent;
+  transform: none;
+  font-size: 0.66rem;
+  font-weight: 590;
+}
+
+.pathfinder-stage-actions .pathfinder-swap:hover:not(:disabled) {
+  border: 0;
+  color: var(--text-strong);
+  background: var(--hover-surface);
+}
+
+.pathfinder-mode-selector {
+  padding: 3px;
+  overflow: visible;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--control-surface);
+}
+
+.pathfinder-mode-selector button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.pathfinder-mode-selector button + button {
+  border-left: 0;
+}
+
+.pathfinder-mode-selector button.is-active {
+  color: var(--text-strong);
+  background: var(--control-surface-strong);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--text-strong) 8%, transparent);
+  transform: translateY(-1px);
+}
+
+.pathfinder-location-stack {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--control-surface-strong);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-strong) 4%, transparent);
+}
+
+.pathfinder-location-field {
+  position: relative;
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px 7px 13px;
+  background: var(--control-surface-strong);
+}
+
+.pathfinder-location-field + .pathfinder-location-field {
+  border-top: 1px solid var(--border);
+}
+
+.pathfinder-location-field:focus-within {
+  background: color-mix(in srgb, var(--vigo-lime-strong) 3%, var(--control-surface-strong));
+  box-shadow: inset 3px 0 0 var(--vigo-lime-strong);
+}
+
+.pathfinder-location-stack:focus-within {
+  border-color: color-mix(in srgb, var(--pq-focus) 50%, var(--border-strong));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pq-focus) 9%, transparent);
+}
+
+.pathfinder-location-mark {
+  position: relative;
+  z-index: 1;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--text-soft);
+  border-radius: 50%;
+  background: var(--control-surface-strong);
+}
+
+.pathfinder-location-mark.is-waypoint {
+  border-color: var(--text-muted);
+  background: var(--text-muted);
+}
+
+.pathfinder-location-mark.is-destination {
+  border-color: var(--vigo-lime-strong);
+  border-radius: 2px;
+  background: var(--vigo-lime);
+}
+
+.pathfinder-location-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.pathfinder-location-copy small,
+.pathfinder-date-field small {
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  font-weight: 640;
+  letter-spacing: 0.055em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.pathfinder-location-copy input {
+  width: 100%;
+  height: 29px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--text-strong);
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.86rem;
+  font-weight: 540;
+}
+
+.pathfinder-location-copy input::placeholder {
+  color: var(--text-muted);
+}
+
+.pathfinder-location-copy input:focus {
+  outline: 0;
+}
+
+.pathfinder-location-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  opacity: 0;
+}
+
+.pathfinder-location-field:hover .pathfinder-location-actions,
+.pathfinder-location-field:focus-within .pathfinder-location-actions {
+  opacity: 1;
+}
+
+.pathfinder-location-actions button {
+  width: 25px;
+  height: 25px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.pathfinder-location-actions button:hover:not(:disabled) {
+  color: var(--text-strong);
+  background: var(--hover-surface);
+}
+
+.pathfinder-location-actions button:disabled {
+  visibility: hidden;
+}
+
+.pathfinder-add-stop {
+  width: fit-content;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 0.7rem;
+  font-weight: 590;
+}
+
+.pathfinder-add-stop:hover:not(:disabled) {
+  color: var(--text-strong);
+  background: var(--hover-surface);
+}
+
+.pathfinder-add-stop:disabled {
+  opacity: 0.45;
+}
+
+.pathfinder-composer-tools {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pathfinder-location-footer {
+  min-width: 0;
+  min-height: 30px;
+  display: grid;
+}
+
+.pathfinder-map-pick {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 0.7rem;
+  font-weight: 570;
+}
+
+.pathfinder-map-pick:hover,
+.pathfinder-map-pick.is-active {
+  color: var(--text-strong);
+  background: var(--hover-surface);
+}
+
+.pathfinder-map-pick.is-active svg {
+  color: var(--vigo-lime-strong);
+}
+
+.pathfinder-map-pick {
+  min-width: 0;
+  flex: 0 1 auto;
+  white-space: nowrap;
+}
+
+.pathfinder-map-pick > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pathfinder-map-pick:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.pathfinder-ready-chip {
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-weight: 540;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pathfinder-ready-chip svg {
+  color: var(--success);
+}
+
+.pathfinder-location-footer {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
+  align-items: stretch;
+}
+
+.pathfinder-stop-controls {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.pathfinder-stop-controls .pathfinder-add-stop,
+.pathfinder-stop-controls .pathfinder-map-pick {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  color: var(--text-strong);
+  background: var(--control-surface-strong);
+  font-size: 0.69rem;
+  font-weight: 650;
+}
+
+.pathfinder-stop-controls .pathfinder-add-stop:hover:not(:disabled),
+.pathfinder-stop-controls .pathfinder-map-pick:hover:not(:disabled),
+.pathfinder-stop-controls .pathfinder-map-pick.is-active {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border-strong));
+  color: var(--text-strong);
+  background: var(--hover-surface);
+}
+
+.pathfinder-stop-controls .pathfinder-map-pick.is-active {
+  box-shadow: inset 3px 0 0 var(--vigo-lime-strong);
+}
+
+.pathfinder-stop-controls .pathfinder-map-pick.is-active svg {
+  color: var(--vigo-lime-strong);
+}
+
+.pathfinder-stop-controls .pathfinder-add-stop:disabled,
+.pathfinder-stop-controls .pathfinder-map-pick:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.pathfinder-composer-tools {
+  min-height: 20px;
+  justify-content: flex-start;
+}
+
+.pathfinder-ready-chip {
+  margin-left: 0;
+}
+
+.pathfinder-points-hint {
+  margin: 0;
+  padding: 0 2px;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  line-height: 1.4;
+}
+
+.pathfinder-points-hint strong {
+  color: var(--text-strong);
+  font-weight: 650;
+}
+
+.pathfinder-when {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.pathfinder-when-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 100px;
+  gap: 7px;
+}
+
+.pathfinder-time-preference,
+.pathfinder-time-field,
+.pathfinder-date-field,
+.pathfinder-segmented {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--control-surface);
+}
+
+.pathfinder-time-preference {
+  padding: 3px;
+}
+
+.pathfinder-time-preference button,
+.pathfinder-segmented button {
+  min-height: 31px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 0.69rem;
+  font-weight: 580;
+}
+
+.pathfinder-time-preference button + button,
+.pathfinder-segmented button + button {
+  border-left: 0;
+}
+
+.pathfinder-time-preference button.is-active,
+.pathfinder-segmented button.is-active {
+  color: var(--text-strong);
+  background: var(--control-surface-strong);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--text-strong) 7%, transparent);
+}
+
+.pathfinder-time-field {
+  padding: 0 9px;
+}
+
+.pathfinder-time-field input,
+.pathfinder-date-field input {
+  min-height: 32px;
+  color: var(--text-strong);
+  font-size: 0.72rem;
+  font-weight: 590;
+}
+
+.pathfinder-date-field {
+  min-height: 44px;
+  padding: 4px 10px;
+}
+
+.pathfinder-date-field.is-outside {
+  border-color: color-mix(in srgb, var(--warn) 42%, var(--border));
+  background: color-mix(in srgb, var(--warn) 6%, var(--control-surface-strong));
+}
+
+.pathfinder-street-depart-label {
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  font-weight: 600;
+}
+
+.pathfinder-stage-route {
+  padding-bottom: 2px;
+}
+
+.pathfinder-directions-button {
+  min-height: 44px;
+  border: 1px solid var(--primary-surface);
+  border-radius: 10px;
+  color: var(--primary-ink);
+  background: var(--primary-surface);
+  box-shadow: none;
+  font-size: 0.76rem;
+  font-weight: 640;
+}
+
+.pathfinder-directions-button:hover:not(:disabled) {
+  border-color: var(--primary-surface-hover);
+  color: var(--primary-ink);
+  background: var(--primary-surface-hover);
+  box-shadow: none;
+  transform: translateY(-1px);
+}
+
+.pathfinder-directions-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.995);
+}
+
+.pathfinder-directions-button:disabled {
+  border-color: var(--border);
+  color: var(--text-muted);
+  background: var(--panel-soft);
+  box-shadow: none;
+  opacity: 1;
+}
+
+.pathfinder-notice {
+  margin-top: 3px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--control-surface);
+  box-shadow: none;
+}
+
+.pathfinder-notice.is-warning,
+.pathfinder-notice.is-error {
+  border-color: color-mix(in srgb, currentColor 24%, var(--border));
+}
+
+.pathfinder-results {
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.pathfinder-results-head {
+  padding: 0 1px;
+}
+
+.pathfinder-results-head strong {
+  color: var(--text-strong);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.pathfinder-results-head small,
+.pathfinder-results-head > b {
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.65rem;
+  font-weight: 530;
+}
+
+.pathfinder-results-head > span {
+  display: grid;
+  gap: 2px;
+}
+
+.pathfinder-results-head > b {
+  white-space: nowrap;
+}
+
+.pathfinder-route-list {
+  gap: 0;
+  border-top: 1px solid var(--border);
+}
+
+.pathfinder-route-card {
+  gap: 6px;
+  padding: 12px 8px 11px 11px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--panel-strong);
+  box-shadow: none;
+}
+
+.pathfinder-route-rationale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 0.67rem;
+  font-style: normal;
+}
+
+.pathfinder-route-rationale em {
+  padding: 2px 5px;
+  border-radius: 999px;
+  color: var(--primary-ink);
+  background: var(--primary-surface);
+  font-size: 0.61rem;
+  font-style: normal;
+  font-weight: 690;
+}
+
+.pathfinder-route-rationale strong {
+  color: var(--text-strong);
+  font-size: 0.69rem;
+  font-weight: 660;
+}
+
+.pathfinder-route-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.pathfinder-route-metrics > span {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  background: var(--control-surface);
+}
+
+.pathfinder-route-metrics b {
+  color: var(--text-strong);
+  font-size: 0.7rem;
+  font-weight: 680;
+}
+
+.pathfinder-route-metrics small {
+  color: var(--text-muted);
+  font-size: 0.61rem;
+  font-weight: 560;
+}
+
+.pathfinder-route-card::before {
+  width: 2px;
+  background: transparent;
+}
+
+.pathfinder-route-card:hover {
+  border-color: var(--border);
+  background: var(--hover-surface);
+  box-shadow: none;
+}
+
+.pathfinder-route-card.is-active {
+  border-color: var(--border);
+  background: var(--active-surface);
+  box-shadow: inset 2px 0 0 var(--vigo-lime-strong);
+}
+
+.pathfinder-route-card.is-active::before {
+  background: transparent;
+}
+
+.pathfinder-route-time strong,
+.pathfinder-route-time b,
+.pathfinder-route-sequence {
+  color: var(--text-strong);
+  font-family: inherit;
+}
+
+.pathfinder-route-sequence,
+.pathfinder-route-open {
+  color: var(--text-muted);
+  font-family: inherit;
+}
+
+.pathfinder-route-open {
+  color: var(--text-strong);
+}
+
+.pathfinder-current-query {
+  min-width: 0;
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 10px 0 13px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pathfinder-current-query > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.pathfinder-current-query small {
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  font-weight: 680;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.pathfinder-current-query strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 0.78rem;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pathfinder-current-query strong b {
+  color: var(--vigo-lime-strong);
+}
+
+.pathfinder-current-query em {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pathfinder-current-query button {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  color: var(--text-strong);
+  background: var(--control-surface-strong);
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.pathfinder-current-query button:hover {
+  background: var(--hover-surface);
+}
+
+.pathfinder-current-query {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.pathfinder-current-query-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.pathfinder-current-query-actions button {
+  min-height: 32px;
+}
+
+.pathfinder-location-resolution {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--vigo-lime-strong) 34%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--vigo-lime-strong) 4%, var(--panel-strong));
+}
+
+.pathfinder-location-resolution > header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: start;
+  gap: 8px;
+}
+
+.pathfinder-location-resolution > header > span {
+  display: grid;
+  gap: 2px;
+}
+
+.pathfinder-location-resolution > header strong {
+  color: var(--text-strong);
+  font-size: 0.77rem;
+}
+
+.pathfinder-location-resolution > header small,
+.pathfinder-location-resolution legend span {
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  line-height: 1.4;
+}
+
+.pathfinder-location-resolution > header button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.pathfinder-location-resolution > header button:hover {
+  color: var(--text-strong);
+  background: var(--hover-surface);
+}
+
+.pathfinder-location-resolution fieldset {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.pathfinder-location-resolution legend {
+  display: flex;
+  gap: 5px;
+  padding: 0;
+  font-size: 0.65rem;
+}
+
+.pathfinder-location-resolution legend b {
+  color: var(--text-strong);
+}
+
+.pathfinder-choice-group {
+  display: grid;
+  gap: 4px;
+}
+
+.pathfinder-choice-group button {
+  min-width: 0;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-muted);
+  background: var(--control-surface-strong);
+  text-align: left;
+}
+
+.pathfinder-choice-group button:hover,
+.pathfinder-choice-group button:focus-visible {
+  border-color: color-mix(in srgb, var(--vigo-lime-strong) 48%, var(--border));
+  color: var(--text-strong);
+  background: var(--hover-surface);
+}
+
+.pathfinder-choice-group button > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.pathfinder-choice-group strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pathfinder-choice-group small {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+}
+
+.pathfinder-options {
+  margin-top: 7px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.pathfinder-options > summary {
+  min-height: 40px;
+  padding: 8px 1px;
+}
+
+.pathfinder-options[open] > summary {
+  border-bottom: 0;
+}
+
+.pathfinder-options-body {
+  padding: 4px 0 12px;
+}
+
+.pathfinder-point-sequence {
+  border: 0;
+  border-radius: 6px;
+  background: var(--control-surface);
+}
+
+.pathfinder-point-sequence b {
+  color: var(--primary-ink);
+  background: var(--primary-surface);
+}
+
+.pathfinder-street-note {
+  color: var(--text-muted);
+}
+
+/* Map remains the dominant canvas; controls use the same quiet tool language. */
+.route-investigation-shell,
+.workbench.project-workbench.route-investigation-shell {
+  gap: 0;
+  padding: 0;
+  background: var(--panel-strong);
+}
+
+.workspace-panel,
+.route-map-shell {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.route-map-shell {
+  border: 0;
+  background: var(--map-surface);
+}
+
+.route-map-shell .map-stage,
+.route-map-shell .maplibre-canvas,
+.route-map-shell .maplibregl-canvas {
+  opacity: 1;
+}
+
+.route-map-shell .map-stage::before {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.035), transparent 40%);
+}
+
+.maplibregl-ctrl-group {
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--map-control-surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.maplibregl-ctrl-group button {
+  background-color: transparent;
+}
+
+.maplibregl-ctrl-attrib {
+  color: var(--text-muted);
+  background: var(--map-control-muted) !important;
+}
+
+.maplibregl-ctrl-attrib a {
+  color: #2f766a;
+}
+
+.app-shell.appearance-light .map-scope-actions {
+  border-color: var(--border);
+  background: #f3f4f3;
+}
+
+.app-shell.appearance-light .map-scope-actions button.is-active {
+  color: #ffffff;
+  background: #2d363d;
+}
+
+.route-map-shell .map-empty,
+.app-shell.appearance-light .route-map-shell .map-empty {
+  inset: auto;
+  top: 16px;
+  left: 50%;
+  width: fit-content;
+  min-width: 220px;
+  max-width: min(400px, calc(100% - 48px));
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  gap: 3px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  color: var(--text-muted);
+  background: var(--map-control-surface);
+  box-shadow: var(--shadow-soft);
+  transform: translateX(-50%);
+  backdrop-filter: blur(16px);
+}
+
+.route-map-shell .map-empty strong {
+  color: var(--text-strong);
+  font-size: 0.75rem;
+  font-weight: 620;
+}
+
+.route-map-shell .map-empty small {
+  max-width: 330px;
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+/* Journey detail follows the same flat list hierarchy. */
+.routing-detail-panel {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--panel-strong);
+  box-shadow: var(--shadow-lg);
+}
+
+.routing-detail-head {
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  background: var(--panel-strong);
+}
+
+.routing-detail-head strong {
+  color: var(--text-strong);
+}
+
+.routing-detail-head b {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 590;
+}
+
+.routing-detail-head small {
+  color: var(--text-muted);
+  font-family: inherit;
+  letter-spacing: 0.07em;
+}
+
+.routing-detail-head button {
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background: var(--control-surface-strong);
+}
+
+.routing-detail-context > span,
+.sidebox-itinerary-summary span {
+  border-color: var(--border);
+  border-radius: 6px;
+  background: var(--control-surface);
+}
+
+.routing-choice-explanation {
+  display: grid;
+  gap: 7px;
+  margin: 12px 0 0;
+  padding: 11px;
+  border: 1px solid color-mix(in srgb, var(--vigo-lime-strong) 25%, var(--border));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--vigo-lime-strong) 4%, var(--control-surface));
+}
+
+.routing-choice-explanation > span {
+  display: grid;
+  gap: 2px;
+}
+
+.routing-choice-explanation small {
+  color: var(--text-muted);
+  font-size: 0.61rem;
+  font-weight: 680;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.routing-choice-explanation strong {
+  color: var(--text-strong);
+  font-size: 0.78rem;
+}
+
+.routing-choice-explanation p,
+.routing-evidence > p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.67rem;
+  line-height: 1.48;
+}
+
+.routing-evidence {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--border);
+}
+
+.routing-evidence summary {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-strong);
+  font-size: 0.72rem;
+  font-weight: 670;
+}
+
+.routing-evidence summary b {
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  font-weight: 580;
+}
+
+.routing-evidence dl {
+  display: grid;
+  gap: 0;
+  margin: 3px 0 9px;
+}
+
+.routing-evidence dl > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(88px, 0.75fr) minmax(0, 1.25fr);
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.65rem;
+}
+
+.routing-evidence dt {
+  color: var(--text-muted);
+}
+
+.routing-evidence dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-strong);
+  text-align: right;
+}
+
+.routing-detail-panel .sidebox-itinerary li,
+.sidebox-itinerary li {
+  border-color: var(--border);
+  border-radius: 7px;
+  background: var(--panel-strong);
+  box-shadow: none;
+}
+
+/* Project library stays list-first rather than using dashboard cards. */
+.workspace-switcher,
+.project-page.project-switcher {
+  background: var(--panel-strong);
+}
+
+.workspace-switcher-row {
+  border-color: var(--border);
+  border-radius: 0;
+  background: var(--panel-strong);
+  box-shadow: none;
+}
+
+.workspace-switcher-row:hover {
+  background: var(--hover-surface);
+}
+
+.workspace-switcher-row.is-current {
+  background: var(--active-surface);
+  box-shadow: inset 2px 0 0 var(--vigo-lime-strong);
+}
+
+.button-primary,
+.project-dialog-primary {
+  border-color: var(--primary-surface);
+  color: var(--primary-ink);
+  background: var(--primary-surface);
+  box-shadow: none;
+}
+
+.button-primary:hover:not(:disabled),
+.project-dialog-primary:hover:not(:disabled) {
+  border-color: var(--primary-surface-hover);
+  color: var(--primary-ink);
+  background: var(--primary-surface-hover);
+}
+
+.runtime-alert {
+  border-bottom-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+  background: color-mix(in srgb, var(--danger) 7%, var(--panel-strong));
+}
+
+.app-shell.appearance-dark .maplibregl-ctrl-icon {
+  filter: invert(1) opacity(0.82);
+}
+
+.app-shell.appearance-dark .maplibregl-ctrl-group button:hover {
+  background-color: var(--hover-surface);
+}
+
+@media (max-width: 980px) {
+  .app-shell,
+  .app-shell.appearance-light {
+    --workbench-sidebar: clamp(328px, 40vw, 360px);
+  }
+
+  .topbar,
+  .page-projects .topbar,
+  .project-empty .topbar,
+  [data-vigo-native="macos"] .topbar {
+    grid-template-columns: var(--workbench-sidebar) minmax(220px, 1fr) auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-shell.page-project .topbar,
+  .topbar,
+  [data-vigo-native="macos"] .topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .topbar-brand {
+    width: auto;
+    border-right: 0;
+  }
+
+  .topbar-mark-button,
+  [data-vigo-native="macos"] .topbar-mark-button {
+    width: 28px;
+    flex-basis: 28px;
+  }
+
+  .topbar-brand-copy {
+    display: none;
+  }
+
+  .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar,
+  .app-shell.page-project .app-sidebar,
+  .app-sidebar {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 45px;
+  }
+
+  .sidebar-panel {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .sidebar-rail {
+    grid-column: 1;
+    grid-row: 2;
+    min-height: 45px;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 4px 7px;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .sidebar-rail-main {
+    flex-direction: row;
+    justify-content: space-around;
+    gap: 3px;
+  }
+
+  .sidebar-rail-button {
+    width: min(62px, 23vw);
+    height: 36px;
+  }
+
+  .sidebar-rail-button.is-active {
+    box-shadow: inset 0 -2px 0 var(--vigo-lime-strong);
+  }
+
+  .app-shell.page-project:not(.view-data) .sidebar-rail {
+    grid-column: 1;
+    grid-row: 2;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 6px 8px;
+    border-top: 1px solid var(--border);
+    border-bottom: 0;
+  }
+
+  .app-shell.page-project:not(.view-data) .sidebar-rail-main .sidebar-rail-button {
+    width: min(62px, 18vw);
+    height: 38px;
+    padding-inline: 8px;
+  }
+
+  .sidebar-rail-bottom .sidebar-rail-button {
+    width: min(62px, 18vw);
+    padding-inline: 6px;
+  }
+
+  .app-shell.page-project:not(.view-data) .sidebar-rail-main .sidebar-rail-label,
+  .sidebar-rail-bottom .sidebar-rail-label {
+    display: block;
+    overflow: hidden;
+    font-size: 0.68rem;
+    font-weight: 590;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 520px) {
+  .sidebar-panel {
+    padding: 13px 11px 18px;
+  }
+
+  .pathfinder-when-row {
+    grid-template-columns: minmax(0, 1fr) 96px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell *,
+  .app-shell *::before,
+  .app-shell *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

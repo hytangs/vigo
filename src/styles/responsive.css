@@ -1,0 +1,308 @@
+/* Map theme adaptations */
+/* Light-mode compatibility overrides. */
+.app-shell.appearance-light .map-stage {
+  background: #f8fafc;
+}
+
+.app-shell.appearance-light .map-stage::before {
+  background:
+    linear-gradient(90deg, rgba(37, 99, 235, 0.035), transparent 36%, rgba(14, 165, 233, 0.025) 78%, transparent),
+    linear-gradient(180deg, rgba(241, 246, 252, 0.045), transparent 42%, rgba(226, 234, 243, 0.13));
+}
+
+.app-shell.appearance-light .maplibregl-ctrl-group {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.14);
+}
+
+.app-shell.appearance-light .maplibregl-ctrl-attrib {
+  color: #526173;
+  background: rgba(255, 255, 255, 0.78) !important;
+}
+
+.app-shell.appearance-light .map-live-card {
+  border-color: rgba(15, 23, 42, 0.12);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.9));
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
+}
+
+.app-shell.appearance-light .map-live-card strong,
+.app-shell.appearance-light .map-live-metrics b,
+.app-shell.appearance-light .map-vehicle-journey b {
+  color: var(--text-strong);
+}
+
+.app-shell.appearance-light .map-live-card > small,
+.app-shell.appearance-light .map-live-metrics small {
+  color: var(--text-muted);
+}
+
+.app-shell.appearance-light .map-live-metrics b,
+.app-shell.appearance-light .map-live-card > button {
+  border-color: rgba(15, 23, 42, 0.1);
+  background: rgba(15, 23, 42, 0.035);
+}
+
+.app-shell.appearance-light .map-vehicle-journey {
+  border-color: rgba(15, 23, 42, 0.1);
+  background: rgba(15, 23, 42, 0.025);
+}
+
+.app-shell.appearance-light .map-vehicle-journey > div + div {
+  border-top-color: rgba(15, 23, 42, 0.08);
+}
+
+.app-shell.appearance-light .map-vehicle-journey small {
+  color: var(--text-muted);
+}
+
+.app-shell.appearance-light .map-live-card > button {
+  color: var(--text-muted);
+}
+
+.app-shell.appearance-light .map-live-card > button:hover {
+  color: var(--text-strong);
+  border-color: rgba(15, 23, 42, 0.18);
+}
+
+
+.app-shell.appearance-light .map-empty {
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.app-shell.appearance-light .route-map-shell {
+  border-color: rgba(30, 44, 62, 0.16);
+  background: #dce7f0;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.82) inset,
+    0 16px 42px rgba(31, 45, 61, 0.13);
+}
+
+.app-shell.appearance-light .sidebox {
+  border-color: rgba(47, 117, 214, 0.12);
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.app-shell.appearance-light .sidebox-row button,
+.app-shell.appearance-light .sidebox-lens-grid button,
+.app-shell.appearance-light .sidebox-live {
+  color: #627184;
+  border-color: rgba(47, 117, 214, 0.12);
+  background: rgba(235, 241, 248, 0.72);
+}
+
+.app-shell.appearance-light .sidebox-row button:hover,
+.app-shell.appearance-light .sidebox-lens-grid button:hover,
+.app-shell.appearance-light .sidebox-live:hover {
+  color: #152235;
+  background: rgba(47, 117, 214, 0.08);
+}
+
+.app-shell.appearance-light .sidebox-row button.is-active,
+.app-shell.appearance-light .sidebox-lens-grid button.is-active {
+  color: #072a55;
+  border-color: rgba(47, 117, 214, 0.2);
+  background: rgba(47, 117, 214, 0.14);
+}
+
+.app-shell.appearance-light .sidebox-time-readout,
+.app-shell.appearance-light .sidebox-health-grid div,
+.app-shell.appearance-light .sidebox-itinerary li {
+  border-color: rgba(47, 117, 214, 0.12);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.app-shell.appearance-light .sidebox-time-readout strong,
+.app-shell.appearance-light .sidebox-insight strong,
+.app-shell.appearance-light .itinerary-step-main strong,
+.app-shell.appearance-light .sidebox-itinerary-summary b {
+  color: #0f172a;
+}
+
+.app-shell.appearance-light .sidebox-time-readout small,
+.app-shell.appearance-light .sidebox-insight small,
+.app-shell.appearance-light .itinerary-step-main small,
+.app-shell.appearance-light .itinerary-step-path,
+.app-shell.appearance-light .sidebox-itinerary p {
+  color: #617186;
+}
+
+.app-shell.appearance-light .sidebar-rail {
+  border-right-color: rgba(15, 23, 42, 0.08);
+  background: #f7fafd;
+}
+
+.app-shell.appearance-light .sidebar-rail-bottom {
+  border-top-color: rgba(15, 23, 42, 0.08);
+}
+
+.app-shell.appearance-light .sidebar-rail-button {
+  color: #68768a;
+}
+
+.app-shell.appearance-light .sidebar-rail-button:hover {
+  color: #0d1c2f;
+  background: rgba(47, 117, 214, 0.07);
+}
+
+.app-shell.appearance-light .sidebar-rail-button.is-active {
+  color: #075f70;
+  background: rgba(20, 184, 166, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(20, 184, 166, 0.24);
+}
+
+/* Responsive shell */
+/* Responsive layout rules. */
+@media (min-width: 621px) and (max-width: 980px) {
+  .service-state-panel.is-schedule {
+    grid-template-columns: auto minmax(120px, 1fr) 34px 78px;
+  }
+
+  .service-state-panel select {
+    width: 78px;
+  }
+
+  .service-playback-slider {
+    grid-column: 1 / 4;
+  }
+
+  .service-playback-days {
+    grid-column: 4;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .service-playback-days button {
+    min-width: 0;
+    padding: 0 3px;
+  }
+}
+
+@media (max-width: 620px) {
+
+  .shell-body,
+  .app-shell.page-project .shell-body,
+  .app-shell.page-project:not(.project-empty) .shell-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .app-shell.page-project .app-sidebar {
+    align-self: start;
+    grid-template-columns: 64px minmax(0, 1fr);
+    max-height: 42dvh;
+  }
+
+  .app-shell.page-project:not(.project-empty) .app-frame {
+    grid-column: 1;
+    min-height: 0;
+  }
+
+  .route-investigation-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 10px calc(70px + env(safe-area-inset-bottom, 0px));
+    overflow: auto;
+  }
+
+  .route-workspace {
+    flex: 0 0 clamp(300px, 52dvh, 520px);
+    min-height: clamp(300px, 52dvh, 520px);
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0;
+  }
+
+
+  .route-map-shell {
+    min-height: 0;
+    height: 100%;
+  }
+
+  .route-map-shell .map-stage,
+  .route-map-shell .maplibre-canvas {
+    min-height: 0;
+    height: 100%;
+  }
+
+  .service-state-panel {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+  }
+
+  .service-state-panel.is-schedule {
+    grid-template-columns: auto minmax(0, 1fr) 34px 78px;
+  }
+
+  .service-state-panel.is-live {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .service-playback-slider,
+  .service-playback-days {
+    grid-column: 1 / -1;
+  }
+
+  .service-playback-days {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .service-state-panel.is-live .service-live-meta {
+    grid-column: 1 / -1;
+    justify-items: start;
+  }
+
+}
+
+/* Icon rail + master-detail sidebar. */
+.app-sidebar {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+@media (max-width: 760px) {
+  .app-shell.page-project .topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .app-shell.page-project .topbar-project-action {
+    width: 32px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .app-shell.page-project .topbar-project-action span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 620px) {
+  .app-shell {
+    padding-bottom: 0;
+  }
+
+  .app-sidebar {
+    position: relative;
+    inset: auto;
+    z-index: 40;
+    width: auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+  }
+
+  .route-investigation-shell {
+    padding-bottom: 10px;
+  }
+}

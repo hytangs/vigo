@@ -1,0 +1,27 @@
+node_modules/
+dist/
+dist-cli/
+.DS_Store
+*.local
+.env
+.env.*
+
+# Project storage is intentionally outside the source tree by default.
+Vigo Projects/
+
+# Packaged release binaries (built via npm run release:macos)
+release/
+
+# Build and tool caches
+temp/
+tsconfig.tsbuildinfo
+native/*/target/
+native/*/vendor/*/target/
+native/*/*.node
+
+# Logs and scratch output
+*.log
+*.aux
+*.out
+logs/
+tmp/

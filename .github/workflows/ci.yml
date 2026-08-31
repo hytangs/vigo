@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  source-and-native-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run check:public
+      - run: npm run typecheck
+      - run: npm run check:security
+      - run: npm run check:rust-routing-targets
+      - run: cargo fmt --manifest-path native/vigo-routing-kernel/Cargo.toml -- --check
+      - run: cargo test --manifest-path native/vigo-routing-kernel/Cargo.toml
+      - run: cargo clippy --release --all-targets --all-features --manifest-path native/vigo-routing-kernel/Cargo.toml -- -D warnings
+
+  focused-engine:
+    name: Focused engine (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build:rust-routing-kernel
+      - run: npm run check:rust-routing-kernel
+      - run: npm run check:gtfs
+      - run: npm run check:cli
+      - run: npm run build
