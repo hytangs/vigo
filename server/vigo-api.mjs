@@ -17,6 +17,7 @@ import {
   resolveNationalInteractiveRoutingPreference,
 } from './national-gtfs-store.mjs'
 import { readNationalOsmStreetGeometry } from './national-osm-store.mjs'
+import { canonicalStoreArtifactIdentity } from './canonical-store-identity.mjs'
 import { readGtfsNetworkOverview, readGtfsRouteAnalysis } from './gtfs-analysis-store.mjs'
 import { decodeGtfsRealtimeFeed, gtfsRealtimeEnums as gtfsRealtime } from './gtfs-realtime-decoder.mjs'
 import { fetchSafeRealtimeBody } from './realtime-url-security.mjs'
@@ -378,18 +379,18 @@ function nationalRoutingPrewarmContext(context = {}) {
   }
 }
 
-async function nationalRouteArtifactIdentity(filePath) {
-  const stats = await fs.stat(filePath, { bigint: true })
-  return {
-    path: path.resolve(filePath),
-    size: stats.size.toString(),
-    mtimeNs: stats.mtimeNs.toString(),
-  }
+async function nationalRouteArtifactIdentity(filePath, kind = 'routing') {
+  return canonicalStoreArtifactIdentity(filePath, { kind })
 }
 
 async function cachedNationalRoutingServiceCoverage(storePath) {
   const identity = await nationalRouteArtifactIdentity(storePath)
-  const cacheKey = `${identity.path}\u0000${identity.size}\u0000${identity.mtimeNs}`
+  const cacheKey = [
+    identity.path,
+    identity.contentFingerprint,
+    identity.metadataGeneration,
+    identity.storageGeneration,
+  ].join('\u0000')
   const retained = nationalRoutingServiceCoverageCache.get(cacheKey)
   if (retained) {
     nationalRoutingServiceCoverageCache.delete(cacheKey)
@@ -411,7 +412,9 @@ async function cachedNationalRoutingServiceCoverage(storePath) {
 async function nationalRouteResponseCacheKey(storePath, streetStorePath, request) {
   const [routingStore, streetStore] = await Promise.all([
     nationalRouteArtifactIdentity(storePath),
-    streetStorePath ? nationalRouteArtifactIdentity(streetStorePath) : Promise.resolve(null),
+    streetStorePath
+      ? nationalRouteArtifactIdentity(streetStorePath, 'street')
+      : Promise.resolve(null),
   ])
   return crypto.createHash('sha256').update(JSON.stringify(stableRouteCacheValue({
     algorithmGeneration: nationalRouteResponseAlgorithmGeneration,
@@ -5212,7 +5215,7 @@ async function runScenarioAnalysis(projectId, body, signal, onProgress, onPrelim
   }
   const [storeIdentity, streetIdentity] = await Promise.all([
     nationalRouteArtifactIdentity(storePath),
-    streetPath ? nationalRouteArtifactIdentity(streetPath) : Promise.resolve(null),
+    streetPath ? nationalRouteArtifactIdentity(streetPath, 'street') : Promise.resolve(null),
   ])
   const baselineIdentity = crypto.createHash('sha256').update(JSON.stringify({
     appVersion,

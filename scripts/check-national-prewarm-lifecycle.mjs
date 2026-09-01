@@ -58,13 +58,32 @@ function storeKey(projectId) {
   return crypto.createHash('sha1').update(fixtureStorePath(projectId)).digest('hex').slice(0, 10)
 }
 
+function writeFixtureStore(storePath, projectId, kind) {
+  const database = new DatabaseSync(storePath)
+  try {
+    database.exec('CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    const insert = database.prepare('INSERT INTO metadata(key,value) VALUES(?,?)')
+    insert.run(
+      'schemaVersion',
+      JSON.stringify(kind === 'street' ? 'vigo.street.store.v3' : 'vigo.routing.store.v1'),
+    )
+    insert.run(
+      'sourceFingerprint',
+      JSON.stringify(crypto.createHash('sha256').update(`${projectId}:${kind}`).digest('hex')),
+    )
+    if (kind === 'routing') insert.run('storeId', JSON.stringify(projectId))
+  } finally {
+    database.close()
+  }
+}
+
 async function writeFixtureProject(projectId) {
   const metaPath = path.join(projectsPath, projectId, '.vigo')
   await fs.mkdir(path.join(metaPath, 'routing'), { recursive: true })
   await fs.mkdir(path.join(metaPath, 'osm'), { recursive: true })
   await fs.writeFile(path.join(metaPath, 'project.json'), `${JSON.stringify(fixtureProject(projectId))}\n`)
-  await fs.writeFile(fixtureStorePath(projectId), '')
-  await fs.writeFile(fixtureStreetStorePath(projectId), '')
+  writeFixtureStore(fixtureStorePath(projectId), projectId, 'routing')
+  writeFixtureStore(fixtureStreetStorePath(projectId), projectId, 'street')
   if (projectId === 'prewarm-outside-coverage') {
     const database = new DatabaseSync(fixtureStorePath(projectId))
     try {

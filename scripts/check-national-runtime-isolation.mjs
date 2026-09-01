@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { startInMemoryVigoApi } from './lib/in-memory-vigo-api.mjs'
 
@@ -11,6 +13,7 @@ const projectsPath = path.join(folder, 'projects')
 const configPath = path.join(folder, 'config')
 const projectIds = ['runtime-a', 'runtime-b', 'runtime-c']
 let apiRuntime
+const fixtureTimestamp = new Date('2026-01-01T00:00:00.000Z')
 
 function fixtureProject(projectId) {
   return {
@@ -30,9 +33,23 @@ function fixtureProject(projectId) {
 
 async function writeFixtureProject(projectId) {
   const metaPath = path.join(projectsPath, projectId, '.vigo')
+  const storePath = path.join(metaPath, 'routing', 'project.sqlite')
   await fs.mkdir(path.join(metaPath, 'routing'), { recursive: true })
   await fs.writeFile(path.join(metaPath, 'project.json'), `${JSON.stringify(fixtureProject(projectId))}\n`)
-  await fs.writeFile(path.join(metaPath, 'routing', 'project.sqlite'), '')
+  const database = new DatabaseSync(storePath)
+  try {
+    database.exec('CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    const insert = database.prepare('INSERT INTO metadata(key,value) VALUES(?,?)')
+    insert.run('schemaVersion', JSON.stringify('vigo.routing.store.v1'))
+    insert.run(
+      'sourceFingerprint',
+      JSON.stringify(crypto.createHash('sha256').update(`${projectId}:routing`).digest('hex')),
+    )
+    insert.run('storeId', JSON.stringify(projectId))
+  } finally {
+    database.close()
+  }
+  await fs.utimes(storePath, fixtureTimestamp, fixtureTimestamp)
 }
 
 async function startApi() {
@@ -210,9 +227,31 @@ try {
   assert.equal(retainedHealth.body.routingRuntime.workerCount, 0, 'A retained exact response must not recreate the retired worker.')
   assert(retainedHealth.body.routingRuntime.responseCache.hits >= 2)
   assert(retainedHealth.body.routingRuntime.responseCache.estimatedBytes <= retainedHealth.body.routingRuntime.responseCache.maxBytes)
-  await fs.appendFile(path.join(projectsPath, projectIds[0], '.vigo', 'routing', 'project.sqlite'), 'new-store-version')
+  const mutatedStorePath = path.join(projectsPath, projectIds[0], '.vigo', 'routing', 'project.sqlite')
+  const originalStoreStats = await fs.stat(mutatedStorePath, { bigint: true })
+  const mutatedDatabase = new DatabaseSync(mutatedStorePath)
+  try {
+    mutatedDatabase.prepare("UPDATE metadata SET value=? WHERE key='sourceFingerprint'")
+      .run(JSON.stringify('f'.repeat(64)))
+  } finally {
+    mutatedDatabase.close()
+  }
+  await fs.utimes(mutatedStorePath, fixtureTimestamp, fixtureTimestamp)
+  const mutatedStoreStats = await fs.stat(mutatedStorePath, { bigint: true })
+  assert.equal(mutatedStoreStats.size, originalStoreStats.size, 'The mutation fixture must retain the exact store byte length.')
+  assert.equal(mutatedStoreStats.mtimeNs, originalStoreStats.mtimeNs, 'The mutation fixture must restore the exact modification time.')
   const refreshedArtifactRoute = await postRoute(apiUrl, projectIds[0], { departMinutes: 480.75 })
-  assert.notEqual(refreshedArtifactRoute.plan.id, quickReplacement.plan.id, 'Routing-store identity changes must bypass retained responses.')
+  assert.notEqual(
+    refreshedArtifactRoute.plan.id,
+    quickReplacement.plan.id,
+    'A canonical fingerprint change at the same path, size, and mtime must bypass retained responses.',
+  )
+  const retainedRefreshedRoute = await postRoute(apiUrl, projectIds[0], { departMinutes: 480.75 })
+  assert.equal(
+    retainedRefreshedRoute.plan.id,
+    refreshedArtifactRoute.plan.id,
+    'The refreshed canonical store generation must establish its own reusable response-cache entry.',
+  )
   const boundedCacheHealth = await health(apiUrl)
   assert.equal(boundedCacheHealth.body.routingRuntime.responseCache.entries, 4)
   assert.equal(boundedCacheHealth.body.routingRuntime.responseCache.maxEntries, 4)
@@ -225,6 +264,7 @@ try {
     maxWorkers: boundedHealth.body.routingRuntime.maxWorkers,
     idleWorkerCount: idleHealth.body.routingRuntime.workerCount,
     retainedRouteMs: Number(retainedRouteMs.toFixed(1)),
+    sameSizeAndMtimeFingerprintMutation: true,
     responseCache: boundedCacheHealth.body.routingRuntime.responseCache,
     processRssBytes: boundedHealth.body.routingRuntime.processRssBytes,
     processRssGrowthBytes,

@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
+import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { startInMemoryVigoApi } from './lib/in-memory-vigo-api.mjs'
 
@@ -27,7 +29,19 @@ async function writeFixtureProject() {
       artifacts: [],
       routingStore: { schemaVersion: 'vigo.routing.store.v1', status: 'ready', fileName },
     })}\n`)
-    await fs.writeFile(path.join(metaPath, 'routing', fileName), '')
+    const database = new DatabaseSync(path.join(metaPath, 'routing', fileName))
+    try {
+      database.exec('CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+      const insert = database.prepare('INSERT INTO metadata(key,value) VALUES(?,?)')
+      insert.run('schemaVersion', JSON.stringify('vigo.routing.store.v1'))
+      insert.run(
+        'sourceFingerprint',
+        JSON.stringify(crypto.createHash('sha256').update(`${projectId}:routing`).digest('hex')),
+      )
+      insert.run('storeId', JSON.stringify(projectId))
+    } finally {
+      database.close()
+    }
   }
 }
 

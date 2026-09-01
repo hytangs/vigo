@@ -3,6 +3,13 @@
 VIGO is pre-release software. Entries describe public source and packaged
 artifacts; they do not imply operational validation or stable interfaces.
 
+## Unreleased
+
+- Bind API response and service-coverage caches to canonical store
+  fingerprints, complete metadata generations, and storage generations.
+- Separate release building from provenance attestation and pin GitHub Actions
+  to immutable revisions.
+
 ## 0.3.0 - 2026-08-31
 
 - Reject overflowed or out-of-bounds native snapshot descriptors before any
