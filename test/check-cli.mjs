@@ -36,6 +36,31 @@ try {
   assert(fs.existsSync(path.join(cityPath, 'routing', 'project.sqlite')))
   assert(fs.existsSync(path.join(cityPath, 'osm', 'street-index.sqlite')))
 
+  const originalManifest = fs.readFileSync(path.join(cityPath, 'network.json'), 'utf8')
+  const buildArguments = ['build', `--gtfs=${gtfsPath}`, `--osm=${osmPath}`, `--output=${cityPath}`]
+  assert.equal(invoke(buildArguments).status, 2, 'Replacing a City requires explicit --replace.')
+  const invalidGtfsPath = path.join(temporaryRoot, 'invalid.zip')
+  fs.writeFileSync(invalidGtfsPath, 'not a GTFS archive')
+  const failedReplacement = invoke([
+    'build', `--gtfs=${invalidGtfsPath}`, `--osm=${osmPath}`, `--output=${cityPath}`, '--replace',
+  ])
+  assert.equal(failedReplacement.status, 2, 'A failed compiler must fail the build.')
+  assert.equal(fs.readFileSync(path.join(cityPath, 'network.json'), 'utf8'), originalManifest)
+  const replacement = JSON.parse(run([...buildArguments, '--replace']))
+  assert.equal(replacement.name, city.name)
+  assert.notEqual(replacement.revisionId, city.revisionId)
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(cityPath, 'network.json'), 'utf8')), replacement)
+  assert(!fs.readdirSync(temporaryRoot).some((name) => name.startsWith('.fixture-city.vigo-')),
+    'Successful and failed compilation must release and clean staging directories.')
+
+  const merged = JSON.parse(run([
+    'build', `--gtfs=${gtfsPath}`, `--gtfs=${gtfsPath}`, '--gtfs-scope=east', '--gtfs-scope=west',
+    `--osm=${osmPath}`, `--output=${path.join(temporaryRoot, 'merged city')}`,
+  ]))
+  assert.equal(merged.name, 'merged city')
+  assert.deepEqual(merged.sources.gtfs.map((source) => source.scope), ['east', 'west'])
+  assert.equal(merged.routingStore.connectionCount, city.routingStore.connectionCount * 2)
+
   const help = run(['--help'])
   for (const command of ['build', 'capabilities', 'inspect', 'route', 'matrix', 'reach', 'compare']) {
     assert(help.includes(`vigo ${command}`), `Help is missing ${command}.`)
@@ -47,8 +72,8 @@ try {
 
   const inspected = JSON.parse(run(['inspect', `--city=${cityPath}`]))
   assert.equal(inspected.schemaVersion, 'vigo.city.inspect.v1')
-  assert.equal(inspected.revisionId, city.revisionId)
-  assert.equal(inspected.builtAt, city.builtAt)
+  assert.equal(inspected.revisionId, replacement.revisionId)
+  assert.equal(inspected.builtAt, replacement.builtAt)
   assert.equal(inspected.sources.gtfs[0].name, path.basename(gtfsPath))
   assert.equal(inspected.sources.osm.name, path.basename(osmPath))
 

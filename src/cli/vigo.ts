@@ -74,6 +74,7 @@ function cityRevisionId(builtAt: string) {
   return builtAt.replace(/[-:]/gu, '').replace(/\.(\d{3})Z$/u, '-$1Z')
 }
 const supportedCommands = new Set<string>([
+  '_build-city',
   '_build-osm-store',
   '_prepare-osm-drive',
   '_route-stream',
@@ -1352,6 +1353,38 @@ async function runOsmDriveCompiler(args: CliArguments) {
 }
 
 async function runBuildCity(args: CliArguments) {
+  const outputValue = value(args, 'output')
+  if (!outputValue.trim()) throw new Error('build requires --output')
+  const outputDirectory = path.resolve(outputValue)
+  if (outputDirectory === path.parse(outputDirectory).root) {
+    throw new Error('City output cannot be a filesystem root')
+  }
+  const replaceExisting = enabled(args, 'replace')
+  if (fs.existsSync(outputDirectory) && !replaceExisting) {
+    throw new Error(`City already exists; pass --replace to replace it: ${outputDirectory}`)
+  }
+  const stagingDirectory = createCityStagingDirectory(outputDirectory)
+  try {
+    // Native memory mappings outlive JavaScript cache eviction. Compile in a
+    // child and wait for its close event before renaming the directory so all
+    // mapped files and SQLite handles are released, including on Windows.
+    const compiler = startJsonCompiler('_build-city', [
+      ...values(args, 'gtfs').map((input) => `--gtfs=${input}`),
+      ...values(args, 'gtfs-scope').map((scope) => `--gtfs-scope=${scope}`),
+      `--osm=${value(args, 'osm')}`,
+      `--output=${stagingDirectory}`,
+      `--city-name=${path.basename(outputDirectory)}`,
+    ], 'City compiler')
+    const outcome = await compiler.outcome
+    if (outcome.error) throw outcome.error
+    publishCity(stagingDirectory, outputDirectory, { replace: replaceExisting })
+    process.stdout.write(`${JSON.stringify(outcome.result, null, 2)}\n`)
+  } finally {
+    fs.rmSync(stagingDirectory, { recursive: true, force: true })
+  }
+}
+
+async function runCityCompiler(args: CliArguments) {
   const gtfsValues = values(args, 'gtfs')
   const scopeValues = values(args, 'gtfs-scope')
   if (!gtfsValues.length) throw new Error('build requires at least one --gtfs GTFS ZIP')
@@ -1378,12 +1411,10 @@ async function runBuildCity(args: CliArguments) {
   const rawConcurrency = rawCompilerConcurrency(gtfsInputBytes, osmInputBytes)
   const parallelRawBuild = rawConcurrency.enabled
 
-  const replaceExisting = enabled(args, 'replace')
-  const outputExists = fs.existsSync(outputDirectory)
-  if (outputExists && !replaceExisting) {
-    throw new Error(`City already exists; pass --replace to replace it: ${outputDirectory}`)
+  const stagingDirectory = outputDirectory
+  if (fs.readdirSync(stagingDirectory).length) {
+    throw new Error('City compilation requires an empty staging directory')
   }
-  const stagingDirectory = createCityStagingDirectory(outputDirectory)
   const stagingRouting = path.join(stagingDirectory, 'routing')
   const stagingOsm = path.join(stagingDirectory, 'osm')
   const componentDirectory = path.join(stagingDirectory, 'components')
@@ -1497,9 +1528,8 @@ async function runBuildCity(args: CliArguments) {
     const gtfsRuntimeCompaction = compactNationalGtfsRuntimeStore(stagedRoutingStore)
     gtfsRuntimeCompactionMs = performance.now() - gtfsRuntimeCompactionStarted
 
-    // Release every cached reader before publishing the complete city package.
-    // On Windows an in-use previous package makes the single directory rename
-    // fail; the old package then remains intact instead of being partly replaced.
+    // Release cached readers now; native mappings are released on process exit
+    // before the parent publishes the complete City.
     disposeNationalGtfsStore(stagedRoutingStore)
     disposeNationalOsmStore(stagedStreetStore)
 
@@ -1520,7 +1550,7 @@ async function runBuildCity(args: CliArguments) {
       apiVersion,
       cityFormatVersion,
       kind: 'city',
-      name: path.basename(outputDirectory),
+      name: value(args, 'city-name', path.basename(outputDirectory)),
       revisionId: cityRevisionId(builtAt),
       builtAt,
       sources,
@@ -1616,7 +1646,6 @@ async function runBuildCity(args: CliArguments) {
     }
     fs.rmSync(componentDirectory, { recursive: true, force: true })
     fs.writeFileSync(path.join(stagingDirectory, 'network.json'), `${JSON.stringify(summary, null, 2)}\n`)
-    publishCity(stagingDirectory, outputDirectory, { replace: replaceExisting })
     process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`)
   } finally {
     if (osmCompiler?.child.exitCode === null) {
@@ -1627,7 +1656,6 @@ async function runBuildCity(args: CliArguments) {
       osmDriveCompiler.child.kill()
       await osmDriveCompiler.outcome
     }
-    fs.rmSync(stagingDirectory, { recursive: true, force: true })
   }
 }
 
@@ -1809,7 +1837,8 @@ if (args.has('version')) {
   process.stdout.write(usage())
 } else {
   try {
-    if (command === '_build-osm-store') await runOsmCompiler(args)
+    if (command === '_build-city') await runCityCompiler(args)
+    else if (command === '_build-osm-store') await runOsmCompiler(args)
     else if (command === '_prepare-osm-drive') await runOsmDriveCompiler(args)
     else if (command === 'build') await runBuildCity(args)
     else if (command === 'capabilities') writeProductInfo()
