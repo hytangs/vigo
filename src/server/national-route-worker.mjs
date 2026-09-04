@@ -559,6 +559,9 @@ parentPort.on('message', async (message) => {
           .map((coordinate) => coordinate.map(Number))
         : []
       const fallbackAnchors = shapeAnchorsForPoints(points, fallbackGeometry)
+      const unavailableShapeDetail = fallbackGeometry.length >= 2
+        ? 'The supplied GTFS shape could not be aligned to this edited gap.'
+        : 'Move the stops onto connected roads, import OSM coverage for this gap, or choose Straight-line estimate.'
       const fallbackRuntimes = Array.isArray(request.fallbackSegmentRuntimeMinutes)
         ? request.fallbackSegmentRuntimeMinutes.map((value) => {
             const numericValue = Number(value)
@@ -618,9 +621,7 @@ parentPort.on('message', async (message) => {
           result = {
             status: 'blocked',
             failedIndex: index,
-            detail: `${plan?.detail ?? `No drivable OSM path was found between stops ${index + 1} and ${index + 2}.`} ${fallbackGeometry.length >= 2
-              ? 'The supplied GTFS shape could not be aligned to this edited gap.'
-              : 'No published GTFS shape was supplied for this gap.'}`,
+            detail: `Stops ${index + 1} → ${index + 2}: ${plan?.detail ?? 'No drivable OSM path was found.'} ${unavailableShapeDetail}`,
             segments,
             snappedCoordinates,
             snapDistancesM,
@@ -640,9 +641,7 @@ parentPort.on('message', async (message) => {
           result = {
             status: 'blocked',
             failedIndex: index,
-            detail: `The OSM route between stops ${index + 1} and ${index + 2} returned incomplete geometry. ${fallbackGeometry.length >= 2
-              ? 'The supplied GTFS shape could not be aligned to this edited gap.'
-              : 'No published GTFS shape was supplied for this gap.'}`,
+            detail: `The OSM route between stops ${index + 1} and ${index + 2} returned incomplete geometry. ${unavailableShapeDetail}`,
             segments,
             snappedCoordinates,
             snapDistancesM,

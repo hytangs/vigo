@@ -177,8 +177,8 @@ function timeModelLabel(model: ScenarioTimeModel | undefined) {
   return model === 'estimate-distance' ? 'straight-line estimate' : 'published segment times'
 }
 
-function geometryModeLabel(mode: ScenarioGeometryMode | undefined) {
-  if (mode === 'auto-road') return 'GTFS shape + OSM road path'
+function geometryModeLabel(mode: ScenarioGeometryMode | undefined, kind: ScenarioChangeKind) {
+  if (mode === 'auto-road') return kind === 'add-line' ? 'OSM road path' : 'GTFS shape + OSM road path'
   if (mode === 'straight-line') return 'Straight-line path + speed'
   return 'Published shape + timetable'
 }
@@ -1078,7 +1078,7 @@ export function AnalyzePanel({
                               ? 'Removes every branch of this public route.'
                               : intervention.kind === 'remove-line'
                                 ? 'Removes only the selected GTFS branch.'
-                                : geometryModeLabel(intervention.geometryMode)}
+                                : geometryModeLabel(intervention.geometryMode, intervention.kind)}
                         </small>
                       </>
                     ) : null}
@@ -1095,16 +1095,18 @@ export function AnalyzePanel({
                                 event.currentTarget.value as ScenarioGeometryMode,
                               )}
                             >
-                              <option value="auto-road">Hybrid: GTFS shape + OSM roads</option>
+                              <option value="auto-road">OSM road path</option>
                               <option value="straight-line">Straight-line estimate</option>
                             </select>
                           </label>
                         ) : null}
                         <div>
-                          <strong>{geometryModeLabel(intervention.geometryMode)}</strong>
+                          <strong>{geometryModeLabel(intervention.geometryMode, intervention.kind)}</strong>
                           <small>
                             {intervention.geometryMode === 'auto-road'
-                              ? 'Keep untouched GTFS shapes. Trace only edited gaps on the local OSM road graph, keep the original A → B runtime, and add dwell at inserted stops. If OSM cannot connect a gap, use its published shape segment.'
+                              ? intervention.kind === 'add-line'
+                                ? 'Trace the new line through its ordered stops on the local OSM road network. Estimate travel time using the configured average speed and stop dwell.'
+                                : 'Keep untouched GTFS shapes. Trace only edited gaps on the local OSM road graph, keep the original A → B runtime, and add dwell at inserted stops. If OSM cannot connect a gap, use its published shape segment.'
                               : intervention.geometryMode === 'straight-line'
                                 ? 'Use direct stop-to-stop geometry and the configured average speed.'
                                 : 'Keep the published GTFS shape and published segment timing unless you choose another path mode.'}

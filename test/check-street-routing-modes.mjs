@@ -184,6 +184,21 @@ try {
   assert.equal(drive.diagnostics.searchStats.cchAccelerated, true)
   assert.equal(drive.diagnostics.searchStats.cchSource, 'in_memory')
 
+  // The shared snapshot also contains walk-only vertices. A map click on one
+  // must snap to a nearby road instead of becoming an isolated driving node.
+  const driveFromWalkNode = routeNationalStreetStore(currentStore, {
+    ...driveRequest,
+    origin: walkRequest.origin,
+  })
+  assert.equal(driveFromWalkNode.status, 'ready', 'Walk-only vertices must not capture driving snaps.')
+  assert(driveFromWalkNode.diagnostics.originSnapDistanceM > 100)
+  const driveToWalkNode = routeNationalStreetStore(currentStore, {
+    ...driveRequest,
+    destination: walkRequest.destination,
+  })
+  assert.equal(driveToWalkNode.status, 'ready', 'Driving destinations must snap to road vertices.')
+  assert(driveToWalkNode.diagnostics.destinationSnapDistanceM > 100)
+
   const acceleratedDrive = routeNationalStreetStore(currentStore, {
     ...driveRequest,
     departMinutes: 481,
@@ -366,6 +381,14 @@ try {
   assert.equal(Number(driveForward.durationMinutes.toFixed(3)), 0.2)
   assert.equal(driveReverse.status, 'blocked')
 
+  const driveMatrixFromWalkNodes = routeNationalStreetMatrix(currentStore, {
+    mode: 'drive',
+    origins: [walkRequest.origin],
+    destinations: [walkRequest.destination],
+    maxStreetKm: 20,
+  })
+  assert.equal(driveMatrixFromWalkNodes.rows[0].status, 'ready')
+
   const trafficDriveMatrix = routeNationalStreetMatrix(currentStore, {
     mode: 'drive',
     origins: [driveRequest.origin],
@@ -544,6 +567,41 @@ try {
   assert.equal(batchResult.result.publishedShapeSegmentCount, 1)
   assert.equal(batchResult.result.osmSegmentCount, 1)
   assert.equal(batchResult.metrics.operation, 'street-route-batch')
+
+  for (const [id, points, expectedStatus] of [
+    ['new-line-walk-nodes', [walkRequest.origin, walkRequest.destination], 'ready'],
+    ['new-line-one-way', [driveRequest.destination, driveRequest.origin], 'blocked'],
+  ]) {
+    const newLineWorker = new Worker(new URL('../src/server/national-route-worker.mjs', import.meta.url))
+    const { result: newLine } = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('New-line road inference timed out.')), 5_000)
+      newLineWorker.once('error', reject)
+      newLineWorker.on('message', (message) => {
+        if (message?.id !== id) return
+        clearTimeout(timeout)
+        if (message.type === 'failed') reject(new Error(message.error))
+        else if (message.type === 'complete') resolve(message)
+      })
+      newLineWorker.postMessage({
+        id,
+        operation: 'street-route-batch',
+        storePath: currentStore,
+        request: { streetStorePath: currentStore, maxStreetKm: 100, points },
+      })
+    }).finally(() => newLineWorker.terminate())
+    assert.equal(newLine.status, expectedStatus)
+    if (expectedStatus === 'ready') {
+      assert.equal(newLine.osmSegmentCount, 1)
+      assert.equal(newLine.fallbackSegmentCount ?? 0, 0)
+      assert.deepEqual(newLine.snappedCoordinates, [driveRequest.origin.coordinate, driveRequest.destination.coordinate])
+      assert(newLine.snapDistancesM.every((distance) => distance > 100))
+    } else {
+      assert.equal(newLine.failedIndex, 0)
+      assert.equal(newLine.segments.length, 0)
+      assert.match(newLine.detail, /Stops 1 → 2:/)
+      assert.match(newLine.detail, /connected roads/)
+    }
+  }
 
   const fallbackWorker = new Worker(new URL('../src/server/national-route-worker.mjs', import.meta.url))
   const fallbackResult = await new Promise((resolve, reject) => {

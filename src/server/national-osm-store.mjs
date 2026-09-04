@@ -1192,8 +1192,16 @@ function driveAcceleratorStoreIdentity(state) {
 }
 
 function createRuntimeDriveAccelerator(data, diagnostics = {}) {
+  // The shared node table includes walk-only vertices. Driving snaps must
+  // touch a drive edge; retain incoming-only endpoints of one-way roads too.
+  const driveNodeMask = new Uint8Array(data.nodeCount)
+  for (let index = 0; index < data.nodeCount; index += 1) {
+    if (data.edgeOffsets[index] < data.edgeOffsets[index + 1]) driveNodeMask[index] = 1
+  }
+  for (const target of data.edgeTargets) driveNodeMask[target] = 1
   return {
     ...data,
+    driveNodeMask,
     buildMs: diagnostics.buildMs ?? 0,
     loadMs: diagnostics.loadMs ?? 0,
     snapshotWriteMs: diagnostics.snapshotWriteMs ?? 0,
@@ -2554,7 +2562,7 @@ export function streetPathBetween(storePath, fromCoordinate, toCoordinate, maxDi
 function driveNodesWithinRadius(state, coordinateValue, radiusKm) {
   if (!state.driveAccelerator) return []
   return acceleratedNodesInBounds(state.driveAccelerator, coordinateValue, radiusKm)
-    .filter((node) => node.distanceKm <= radiusKm)
+    .filter((node) => state.driveAccelerator.driveNodeMask[node.nodeIndex] && node.distanceKm <= radiusKm)
     .sort((left, right) => left.distanceKm - right.distanceKm || left.node_id - right.node_id)
 }
 
