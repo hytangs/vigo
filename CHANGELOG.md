@@ -19,3 +19,86 @@ GTFS + OSM -> City -> Scenario -> Route | Matrix | Reach -> Result
 - Build, open, compute, and end-to-end timings remain separate.
 
 VIGO 0.3 intentionally removes the provisional commands, Python package, maintenance controls, and duplicate analysis surfaces that preceded this model. There is no compatibility layer.
+
+## Private development history
+
+Versions before 0.3.0 were private development milestones. These entries retain the dates and terminology recorded in the archived version notes.
+
+### 0.2.5 - 2026-08-21
+
+- Made GTFS and OSM preparation recoverable after restart, with cancellation, retained inputs, and retry support.
+- Unified routing statuses and preparation timings across the desktop, CLI, and Python interfaces.
+- Separated live vehicles from scheduled playback and preserved every route pattern within a feed-scoped service.
+- Reused resident native one-to-many routing for accessibility maps and returned complete reached-street geometry in packed edge bundles.
+
+### 0.2.4 - 2026-08-21
+
+- Consolidated OSM preparation around sealed runtime snapshots, persisted driving data, and the native pedestrian CCH index.
+- Refreshed GTFS and OSM readiness after import and reported missing or stale native indexes with rebuild instructions.
+- Added memory- and load-aware parallel compilation and verified the packaged native runtime with the Python wrapper.
+
+### 0.2.3 - 2026-08-15
+
+- Added accessible-area polygons and directed street-path views backed by the same native search.
+- Added feed- and branch-scoped stop insertion and movement, with published shapes or optional local OSM road inference.
+- Consolidated settings and source intake, and bundled the Rust kernel with the standalone desktop runtime.
+
+### 0.2.2 - 2026-08-14
+
+- Used feed-scoped GTFS route IDs consistently in catalogs, search, the route browser, and the service atlas.
+- Moved accessibility and finite-service scenario analysis onto the resident native timetable kernel.
+- Shared native street acceleration across analysis and point routing, with point surfaces and signed scenario differences.
+
+### 0.2.1 - 2026-08-11
+
+- Separated timetable-store admission from service-date and coordinate-access preparation.
+- Coalesced preparation work so an early route request waited for the same preparation operation.
+- Kept the prepared routing worker resident while its desktop workspace remained open.
+
+### 0.2.0 - 2026-08-01
+
+- Moved production graph and timetable search into the resident Rust Node-API kernel.
+- Brought street paths, scheduled transit, arrive-by routing, matrices, accessibility, and scenario propagation under native routing ownership.
+- Kept SQLite as durable storage and JavaScript as orchestration and presentation code.
+
+### 0.1.7 - 2026-07-31
+
+Git milestones recorded routing and release-hardening work under this label. Package metadata remained at 0.1.6; there was no separately versioned 0.1.7 package release.
+
+### 0.1.6 - 2026-07-28
+
+- Established the map-first transit workbench with Explore, Diagnose, Compare, Analyze, Review, and Publish modes.
+- Added a complete SQLite-backed service atlas and a shared left-side object inspector.
+- Supported local review records and evidence exports containing reports, findings, and route geometry.
+
+### 0.1.5 - 2026-07-20
+
+- Consolidated timetable queries into resident in-memory execution, using SQLite for compilation and persistence.
+- Removed SQL routing fallbacks and aligned desktop, HTTP, CLI, streaming, and Python requests on one executor.
+- Preserved boarding and alighting permissions at individual GTFS stop events, including through-riding.
+
+### 0.1.4 - 2026-07-18
+
+- Improved native macOS window controls, appearance, workspace-folder access, and compact layouts.
+- Opened a lightweight workspace library at startup and deferred project hydration and routing preparation until needed.
+- Improved route-result relevance, stop-search ranking, and the distinction between published and inferred geometry.
+
+### 0.1.3 - 2026-07-15
+
+- Established local-first macOS routing through the persisted desktop backend.
+- Prepared service and street snapshots before routing and presented distinct transit and graph-verified walking alternatives.
+
+### 0.1.2 - 2026-07-13
+
+- Introduced the standalone macOS app with a bundled local Node.js runtime and first-run workspace configuration.
+- Added multi-feed workspaces, GTFS profiling, map inspection, scheduled playback, and GTFS-Realtime inspection.
+- Added Pathfinder, local OSM walking data, timetable sidecars, and GeoJSON/GPX route export.
+
+### 0.1.1 - 2026-07-01
+
+Git history recorded this milestone while package metadata remained at 0.1.0. It was not a separately versioned package release.
+
+### 0.1.0 - 2026-06-30
+
+- Established the initial browser-first, local-first GTFS workspace.
+- Supported GTFS ZIP import, project storage, linked map and table views, feed validation, scheduled-vehicle projection, route and stop search, and optional realtime inspection.
