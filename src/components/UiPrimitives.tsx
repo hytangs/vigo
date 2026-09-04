@@ -1,8 +1,8 @@
 import { type ReactNode } from 'react'
 import { classNames } from '../domain'
-import { workspaceStatusMeta, type WorkspaceStatus } from '../app/status'
+import { activityStatusMeta, type ActivityStatus } from '../app/status'
 
-const statusClassNames: Record<WorkspaceStatus, string> = {
+const statusClassNames: Record<ActivityStatus, string> = {
   idle: 'is-idle',
   preparing: 'is-preparing',
   ready: 'is-ready',
@@ -53,11 +53,11 @@ export function StatusBadge({
   label,
   title,
 }: {
-  status: WorkspaceStatus
+  status: ActivityStatus
   label?: string
   title?: string
 }) {
-  const meta = workspaceStatusMeta(status)
+  const meta = activityStatusMeta(status)
   return (
     <span
       className={classNames('status-badge', statusClassNames[status])}

@@ -1,6 +1,6 @@
-import type { RoutingResultStatus } from '../routingModel'
+import type { RoutingExecutionStatus } from '../routingModel'
 
-export type ApiRoutingStatus = RoutingResultStatus
+export type ApiRoutingStatus = RoutingExecutionStatus
 
 export class ApiRequestError extends Error {
   readonly statusCode: number

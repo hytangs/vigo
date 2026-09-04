@@ -4,7 +4,7 @@ import { formatScheduleClock, type ScheduledVehicle } from './scheduledVehicles'
 
 export type ServiceVehicleMode = 'live' | 'schedule'
 
-export type ServiceVehicleCard = {
+type ServiceVehicleCard = {
   eyebrow: string
   title: string
   subtitle: string
@@ -17,7 +17,7 @@ export type ServiceVehicleCard = {
   metrics: Array<{ value: string; label: string }>
 }
 
-export type ServiceVehicle = {
+type ServiceVehicle = {
   id: string
   source: ServiceVehicleMode
   coordinate: LngLat

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { CheckCircle2, Server, XCircle } from 'lucide-react'
-import { requestNativeHomeFolder } from '../app/nativeBridge'
+import { requestDesktopHomeFolder } from '../app/desktopBridge'
 import type {
   ProjectDialogState,
   ProjectDraft,
@@ -104,7 +104,7 @@ export function ProjectEditorDialog({
 
   return (
     <div className="project-dialog-layer" role="presentation">
-      <button type="button" className="project-dialog-backdrop" aria-label="Close project editor" onClick={onClose} disabled={busy} />
+      <button type="button" className="project-dialog-backdrop" aria-label="Close City editor" onClick={onClose} disabled={busy} />
       <form
         ref={dialogRef}
         className="project-dialog"
@@ -118,15 +118,15 @@ export function ProjectEditorDialog({
         }}
       >
         <header>
-          <span>{isCreate ? 'New workspace' : 'Workspace identity'}</span>
-          <h2 id="project-editor-title">{isCreate ? 'Create workspace' : 'Rename workspace'}</h2>
-          <button type="button" aria-label="Close project editor" onClick={onClose} disabled={busy}>
+          <span>{isCreate ? 'New City' : 'City identity'}</span>
+          <h2 id="project-editor-title">{isCreate ? 'Create City' : 'Rename City'}</h2>
+          <button type="button" aria-label="Close City editor" onClick={onClose} disabled={busy}>
             <XCircle size={16} />
           </button>
         </header>
 
         <label>
-          <span>Workspace name</span>
+          <span>City name</span>
           <input
             ref={nameRef}
             value={draft.name}
@@ -153,7 +153,7 @@ export function ProjectEditorDialog({
             Cancel
           </button>
           <button type="submit" className="project-dialog-primary" disabled={busy || !draft.name.trim()}>
-            {busy ? 'Saving...' : isCreate ? 'Create workspace' : 'Save identity'}
+            {busy ? 'Saving...' : isCreate ? 'Create City' : 'Save identity'}
           </button>
         </footer>
       </form>
@@ -184,7 +184,7 @@ export function FirstRunSetupDialog({
     accent: 'blue',
     basemap: 'streets',
   })
-  const [nativeHint, setNativeHint] = useState('')
+  const [desktopHint, setDesktopHint] = useState('')
   const setupKey = `${config?.storageRoot ?? ''}:${config?.appearance ?? ''}:${config?.accent ?? ''}:${config?.basemap ?? ''}`
 
   useEffect(() => {
@@ -195,7 +195,7 @@ export function FirstRunSetupDialog({
       accent: config.accent,
       basemap: config.basemap,
     })
-    setNativeHint('')
+    setDesktopHint('')
   }, [setupKey])
 
   const canDismiss = Boolean(config && !config.setupRequired)
@@ -241,7 +241,7 @@ export function FirstRunSetupDialog({
           <Server size={18} />
           <span>
             <strong>VIGO runs as a private local app.</strong>
-            <small>Static GTFS/OSM import, project metadata, validation evidence, routing, and network review stay on this machine. Only optional GTFS-RT and remote map tiles use the network.</small>
+            <small>Static GTFS and OSM data, routing, and network review stay on this machine. Only optional GTFS-Realtime and remote map tiles use the network.</small>
           </span>
         </section>
 
@@ -260,17 +260,17 @@ export function FirstRunSetupDialog({
               className="project-dialog-secondary"
               disabled={busy || lockedStorage}
               onClick={() => {
-                const openedNative = requestNativeHomeFolder((path) => {
+                const openedDesktop = requestDesktopHomeFolder((path) => {
                   setDraft((current) => ({ ...current, storageRoot: path }))
-                  setNativeHint('Folder selected from macOS.')
+                  setDesktopHint('Folder selected from VIGO Studio.')
                 })
-                if (!openedNative) setNativeHint('Type a folder path, or use the default Documents folder in browser mode.')
+                if (!openedDesktop) setDesktopHint('Type a folder path, or use the default Documents folder in browser mode.')
               }}
             >
               Choose
             </button>
           </div>
-          <small>{lockedStorage ? 'Storage is locked by VIGO_PROJECTS_DIR.' : nativeHint || 'Projects are stored as folders with local metadata and routing indexes.'}</small>
+          <small>{lockedStorage ? 'The City library location is fixed by local configuration.' : desktopHint || 'Each City is stored as one complete folder.'}</small>
         </label>
 
         <div className="setup-choice-grid">

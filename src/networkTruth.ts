@@ -5,17 +5,6 @@ type ScopedEntity = {
   localId: string
 }
 
-export type NetworkTruthReport = {
-  tone: 'good' | 'watch' | 'risk'
-  score: number
-  title: string
-  detail: string
-  identityIssues: string[]
-  feedScopes: string[]
-  shapeBackedRoutes: number
-  inferredRoutes: number
-}
-
 const scopeDelimiter = '::'
 
 function parseScopedEntityId(value = ''): ScopedEntity {
@@ -35,15 +24,6 @@ function scopedEntityId(feedId: string, localId = '') {
 
 export function entityFeedScope(value = '') {
   return parseScopedEntityId(value).feedId
-}
-
-function entityLocalId(value = '') {
-  return parseScopedEntityId(value).localId
-}
-
-export function scopedRouteGroupKey(route: RouteMetric) {
-  const feedScope = entityFeedScope(route.id)
-  return `${feedScope}:${route.routeId || route.shortName || entityLocalId(route.id)}`
 }
 
 function scopedStopRoutes(feedId: string, stop: StopMetric) {
@@ -104,79 +84,5 @@ export function scopePreviewToFeed(feed: FeedSummary, preview: MapPreview): MapP
       fromStopId: scopedEntityId(feed.id, pathway.fromStopId),
       toStopId: scopedEntityId(feed.id, pathway.toStopId),
     })),
-  }
-}
-
-function previewFeedScopes(preview: MapPreview) {
-  return Array.from(new Set([
-    ...preview.routes.map((route) => entityFeedScope(route.id)),
-    ...preview.stops.map((stop) => entityFeedScope(stop.id)),
-  ].filter(Boolean))).sort()
-}
-
-export function assertPreviewScopeIntegrity(preview: MapPreview) {
-  const issues: string[] = []
-  const routeIds = new Set(preview.routes.map((route) => route.id))
-  const stopIds = new Set(preview.stops.map((stop) => stop.id))
-
-  for (const route of preview.routes) {
-    const routeScope = entityFeedScope(route.id)
-    if (!routeScope) issues.push(`route ${route.id} is not feed-scoped`)
-    if (route.patternId && entityFeedScope(route.patternId) !== routeScope) issues.push(`route ${route.id} has mismatched pattern scope`)
-
-    for (const stopId of route.stopIds) {
-      if (entityFeedScope(stopId) !== routeScope) issues.push(`route ${route.id} references out-of-scope stop ${stopId}`)
-      if (!stopIds.has(stopId)) issues.push(`route ${route.id} references missing stop ${stopId}`)
-    }
-  }
-
-  for (const stop of preview.stops) {
-    const stopScope = entityFeedScope(stop.id)
-    if (!stopScope) issues.push(`stop ${stop.id} is not feed-scoped`)
-    for (const routeRef of stop.routes) {
-      if (entityFeedScope(routeRef) !== stopScope) issues.push(`stop ${stop.id} references out-of-scope route ${routeRef}`)
-    }
-  }
-
-  for (const pair of preview.stopPairs ?? []) {
-    const pairScope = entityFeedScope(pair.id)
-    if (!pairScope) issues.push(`stop pair ${pair.id} is not feed-scoped`)
-    if (entityFeedScope(pair.patternId) !== pairScope) issues.push(`stop pair ${pair.id} has mismatched pattern scope`)
-    if (entityFeedScope(pair.fromStopId) !== pairScope || entityFeedScope(pair.toStopId) !== pairScope) issues.push(`stop pair ${pair.id} crosses feed scope`)
-    if (!routeIds.has(pair.patternId)) issues.push(`stop pair ${pair.id} references missing pattern ${pair.patternId}`)
-    if (!stopIds.has(pair.fromStopId) || !stopIds.has(pair.toStopId)) issues.push(`stop pair ${pair.id} references missing stops`)
-  }
-
-  return issues
-}
-
-export function buildNetworkTruthReport(feed: FeedSummary, preview: MapPreview): NetworkTruthReport {
-  const identityIssues = feed.source === 'bundle' ? assertPreviewScopeIntegrity(preview) : []
-  const feedScopes = previewFeedScopes(preview)
-  const inferredRoutes = preview.routes.filter((route) => route.geometrySource !== 'shape').length
-  const shapeBackedRoutes = preview.routes.length - inferredRoutes
-  const blockingWarnings = feed.warnings.filter((warning) => warning.severity === 'error').length
-  const score = Math.max(0, Math.min(100, 100 - identityIssues.length * 24 - blockingWarnings * 12 - inferredRoutes * 2))
-  const tone: NetworkTruthReport['tone'] = identityIssues.length || blockingWarnings ? 'risk' : inferredRoutes ? 'watch' : 'good'
-  const title = identityIssues.length
-    ? `${identityIssues.length} identity leak${identityIssues.length === 1 ? '' : 's'}`
-    : feed.source === 'bundle'
-      ? `${feedScopes.length} feed${feedScopes.length === 1 ? '' : 's'} isolated`
-      : 'Feed isolated'
-  const detail = identityIssues[0] ?? (
-    inferredRoutes
-      ? `${shapeBackedRoutes}/${preview.routes.length} patterns are shape-backed; inferred paths are capped.`
-      : `${preview.routes.length} patterns pass feed scope and geometry gates.`
-  )
-
-  return {
-    tone,
-    score,
-    title,
-    detail,
-    identityIssues,
-    feedScopes,
-    shapeBackedRoutes,
-    inferredRoutes,
   }
 }

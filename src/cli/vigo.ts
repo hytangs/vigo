@@ -1,0 +1,1827 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { spawn } from 'node:child_process'
+import { performance } from 'node:perf_hooks'
+import { once } from 'node:events'
+import { createInterface } from 'node:readline'
+import Papa from 'papaparse'
+import packageJson from '../../package.json'
+import {
+  apiVersion,
+  cityFormatVersion,
+  publicCliCommands,
+  resultSchemaVersion,
+  supportedReachRasterSizes,
+  vigoCapabilities,
+} from '../capabilities.mjs'
+import {
+  createCityStagingDirectory,
+  publishCity,
+  validateCityDirectory,
+} from '../city.mjs'
+import {
+  buildNationalGtfsStore,
+  compactNationalGtfsRuntimeStore,
+  disposeNationalGtfsStore,
+  ensureNationalGtfsOsmStopTransfers,
+  mergeNationalGtfsStores,
+  nationalGtfsRuntimeView,
+  prepareNationalGtfsRoutingContext,
+  prepareNationalGtfsNativeCoordinateAccess,
+  prepareNationalGtfsStore,
+  readNationalGtfsStoreMetadata,
+  routeNationalGtfsReach,
+  routeNationalGtfsDepartureWindow,
+  routeNationalGtfsMatrix,
+  routeNationalGtfsStore,
+} from '../server/national-gtfs-store.mjs'
+import {
+  buildNationalOsmDriveStore,
+  buildNationalOsmStore,
+  compactNationalOsmRuntimeStore,
+  disposeNationalOsmStore,
+  prepareNationalOsmNativeStore,
+  routeNationalStreetMatrix,
+  routeNationalStreetStore,
+} from '../server/national-osm-store.mjs'
+import { buildNativeStreetCchIndex } from '../server/native-routing-kernel.mjs'
+import { timingMilliseconds } from '../server/number-utils.mjs'
+import {
+  composeOrderedRoutingPlans,
+  routeOrderedRoutingSegments,
+  validateOrderedRoutingPoints,
+} from '../server/ordered-route-composition.mjs'
+import { compileReachScenario, rasterBounds, rasterContours } from '../server/reach.mjs'
+import { resolveServiceDay } from '../server/service-day.mjs'
+import type { ServiceDay } from '../domain'
+import type { RoutingExecutionStatus, RoutingPlan, RoutingPoint, RoutingTimePreference } from '../routingModel'
+
+type CliArguments = Map<string, string[]>
+type RouteResult = { plan: RoutingPlan | undefined; profileSampleCount: number; elapsedMs: number }
+
+const cliStartedAt = performance.now()
+const rawOsmWorkingSetMultiplier = 80
+const rawGtfsWorkingSetMultiplier = 20
+const rawCompilerFixedWorkingSetBytes = 256 * 1024 * 1024
+const publicResultMetadata = Object.freeze({
+  productVersion: packageJson.version,
+  apiVersion,
+  resultSchemaVersion,
+})
+
+function cityRevisionId(builtAt: string) {
+  return builtAt.replace(/[-:]/gu, '').replace(/\.(\d{3})Z$/u, '-$1Z')
+}
+const supportedCommands = new Set<string>([
+  '_build-osm-store',
+  '_prepare-osm-drive',
+  '_route-stream',
+  ...publicCliCommands,
+])
+
+function usage() {
+  return [
+    `VIGO ${packageJson.version}`,
+    '',
+    'Turn GTFS and OSM into a City. Ask it Route, Matrix, and Reach questions.',
+    '',
+    'Usage:',
+    '  vigo build --gtfs=/path/to/feed.zip --osm=/path/to/region.osm.pbf --output=/path/to/city',
+    '  vigo capabilities',
+    '  vigo inspect --city=/path/to/city',
+    '  vigo route --city=/path/to/city --request=/path/to/route.json [options]',
+    '  vigo route --city=/path/to/city --input=/path/to/ods.csv --output=/path/to/routes.csv [options]',
+    '  vigo matrix --city=/path/to/city --request=/path/to/matrix.json [options]',
+    '  vigo reach --city=/path/to/city --request=/path/to/reach.json [options]',
+    '  vigo compare --before=/path/to/result.json --after=/path/to/result.json',
+    '',
+    'Route CSV columns:',
+    '  id, origin_lon, origin_lat, destination_lon, destination_lat',
+    '  Optional: origin_stop_id, destination_stop_id, origin_name, destination_name',
+    '',
+    'Options:',
+    '  --city PATH                 Complete VIGO City directory',
+    '  --gtfs PATH                 GTFS ZIP for build; repeat for multiple sources',
+    '  --gtfs-scope VALUE          Optional unique scope for each repeated --gtfs',
+    '  --osm PATH                  OSM .pbf input for build',
+    '  --output PATH               City output, route CSV output, or comparison output',
+    '  --replace                   Replace an existing City',
+    '  --input PATH                Route CSV input',
+    '  --request PATH              JSON request for Route, Matrix, or Reach',
+    '  --mode VALUE                transit, walk, or drive',
+    '  --time HH:MM                Selected time (default: 08:00)',
+    '  --time-preference VALUE     depart or arrive (default: depart)',
+    '  --objective VALUE           earliest_arrival (default)',
+    '  --departure-window MIN      Centered departure profile, +/- integral minutes 0-30 (depart only)',
+    '  --service-day VALUE         weekday, saturday, or sunday (derived from date)',
+    '  --service-date YYYY-MM-DD   Required exact service date',
+    '  --max-walk KM               Physical walking budget (default: 1.2)',
+    '  --horizon MIN               Matrix time horizon (default: 480)',
+    '  --cutoffs MINUTES           Reach limits, comma-separated (default: 15,30,45,60)',
+    '  --extent-radius KM          Reach computation radius (default: 8)',
+    `  --raster-size N             Reach grid: ${supportedReachRasterSizes.join(', ')} (default: 96)`,
+    '  --walk-speed KPH            Walking speed for Reach (default: 4.8)',
+    '  --help                      Show this help',
+    '  --version                   Print the VIGO version',
+    '',
+    'Point JSON:',
+    '  A point is a stop ID string or {"stopId":"..."} or {"coordinate":[lon,lat]}.',
+    '',
+    'Matrix request JSON:',
+    '  {"origins":[{"id":"a","point":"A"}],"destinations":[{"id":"b","point":"B"}]}',
+    '',
+    'Reach request JSON:',
+    '  {"origin":{"coordinate":[lon,lat]},"cutoffsMinutes":[15,30,45,60],"extentRadiusKm":8,"rasterSize":96}',
+    '',
+  ].join('\n')
+}
+
+function parseArguments(argv: string[]) {
+  const args: CliArguments = new Map()
+  const positionals: string[] = []
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index]
+    if (!token.startsWith('--')) {
+      positionals.push(token)
+      continue
+    }
+    const equals = token.indexOf('=')
+    const name = token.slice(2, equals >= 0 ? equals : undefined)
+    let optionValue = equals >= 0 ? token.slice(equals + 1) : 'true'
+    if (equals < 0 && argv[index + 1] && !argv[index + 1].startsWith('-')) {
+      optionValue = argv[index + 1]
+      index += 1
+    }
+    args.set(name, [...(args.get(name) ?? []), optionValue])
+  }
+  return { command: positionals[0] ?? 'route', args }
+}
+
+function value(args: CliArguments, name: string, fallback = '') {
+  return args.get(name)?.at(-1) ?? fallback
+}
+
+function values(args: CliArguments, name: string) {
+  return args.get(name) ?? []
+}
+
+function enabled(args: CliArguments, name: string) {
+  return ['1', 'true', 'yes'].includes(value(args, name).trim().toLowerCase())
+}
+
+function parseClock(input: string) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(input.trim())
+  if (!match) throw new Error(`Invalid --time value: ${input}`)
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (minutes > 59 || hours > 29) throw new Error(`Invalid --time value: ${input}`)
+  return hours * 60 + minutes
+}
+
+function parseNumber(input: string, label: string, minimum = 0) {
+  const parsed = Number(input)
+  if (!Number.isFinite(parsed) || parsed < minimum) throw new Error(`Invalid --${label} value: ${input}`)
+  return parsed
+}
+
+function parseIntegerNumber(input: string, label: string, minimum = 0, maximum = Number.POSITIVE_INFINITY) {
+  const parsed = Number(input)
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    const range = Number.isFinite(maximum) ? ` in [${minimum}, ${maximum}]` : ` >= ${minimum}`
+    throw new Error(`Invalid --${label} value: ${input}; expected an integral number${range}`)
+  }
+  return parsed
+}
+
+function parseTimeMinutes(input: string, label = 'timeMinutes') {
+  const parsed = Number(input)
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0 || parsed >= 30 * 60) {
+    throw new Error(`Invalid --${label} value: ${input}; expected an integral minute in [0, 1800)`)
+  }
+  return parsed
+}
+
+function parseNdjsonTime(input: unknown, label: string) {
+  if (typeof input === 'string') return parseClock(input)
+  if (typeof input === 'number') return parseTimeMinutes(String(input), label)
+  throw new Error(`Invalid ${label} value: ${String(input)}; expected HH:MM or an integral minute`)
+}
+
+function normalizeServiceDate(input: string) {
+  const text = input.trim()
+  if (!text) return undefined
+  const dashed = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text)
+  const compact = /^(\d{4})(\d{2})(\d{2})$/.exec(text)
+  if (dashed) return text
+  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`
+  throw new Error(`Invalid --service-date value: ${input}`)
+}
+
+function numberField(row: Record<string, string>, names: string[]) {
+  for (const name of names) {
+    const raw = row[name]
+    if (raw === undefined || raw === null || String(raw).trim() === '') continue
+    const parsed = Number(raw)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return undefined
+}
+
+function openStopLookup(storePath: string) {
+  const view = nationalGtfsRuntimeView(storePath)
+  const routingStore = {
+    storeId: view.metadata.storeId,
+    connectionCount: view.metadata.connectionCount,
+  }
+  type StopRow = { stop_id: string; name: string; lon: number; lat: number }
+  return {
+    metadata: view.metadata,
+    routingStore,
+    point(stopId: string, label?: string): RoutingPoint | null {
+      const row = view.stop(stopId) as StopRow | null
+      if (!row || !Number.isFinite(row.lon) || !Number.isFinite(row.lat)) return null
+      return { stopId: row.stop_id, coordinate: [row.lon, row.lat], label: label || row.name || row.stop_id, source: 'stop' }
+    },
+  }
+}
+
+function coordinatePoint(longitude: unknown, latitude: unknown, label: string): RoutingPoint | null {
+  const coordinateNumber = (value: unknown) => {
+    if (
+      value === null
+      || value === undefined
+      || typeof value === 'boolean'
+      || (typeof value === 'string' && value.trim() === '')
+    ) return null
+    const number = Number(value)
+    return Number.isFinite(number) ? number : null
+  }
+  const lon = coordinateNumber(longitude)
+  const lat = coordinateNumber(latitude)
+  if (
+    lon === null
+    || lat === null
+    || lon < -180
+    || lon > 180
+    || lat < -90
+    || lat > 90
+  ) return null
+  return { coordinate: [lon, lat], label, source: 'map' }
+}
+
+function buildPoint(
+  row: Record<string, string>,
+  prefix: 'origin' | 'destination',
+  stopLookup: ReturnType<typeof openStopLookup>,
+): RoutingPoint | null {
+  const stopId = String(row[`${prefix}_stop_id`] || row[`${prefix}StopId`] || '').trim()
+  const explicitLabel = row[`${prefix}_name`] || row[`${prefix}Name`] || ''
+  if (stopId) return stopLookup.point(stopId, explicitLabel)
+  const label = explicitLabel || (prefix === 'origin' ? 'Starting point' : 'Destination')
+  const lon = numberField(row, [`${prefix}_lon`, `${prefix}_lng`, `${prefix}Lon`, `${prefix}Lng`, prefix === 'origin' ? 'from_lon' : 'to_lon'])
+  const lat = numberField(row, [`${prefix}_lat`, `${prefix}Lat`, prefix === 'origin' ? 'from_lat' : 'to_lat'])
+  if (lon === undefined || lat === undefined) return null
+  const point = coordinatePoint(lon, lat, label)
+  if (!point) throw new Error(`Invalid ${prefix} coordinate; longitude must be in [-180, 180] and latitude in [-90, 90]`)
+  return point
+}
+
+function requireStreetStoreForCoordinateEndpoints(
+  streetStorePath: string | undefined,
+  origin: RoutingPoint,
+  destination: RoutingPoint,
+  requestLabel: string,
+) {
+  if (streetStorePath || (origin.stopId && destination.stopId)) return
+  throw new Error(
+    `${requestLabel}: coordinate endpoints require a City built with OSM streets`,
+  )
+}
+
+function routeSequence(plan: RoutingPlan | undefined) {
+  if (!plan) return ''
+  return plan.legs
+    .filter((leg) => leg.type === 'ride')
+    .map((leg) => leg.routeShortName || leg.routeId || leg.routeFeatureId || '')
+    .filter((route, index, routes) => route && routes.indexOf(route) === index)
+    .join(' > ')
+}
+
+function decorateCliRoutingPlan(plan: RoutingPlan | undefined) {
+  if (!plan) return plan
+  const code = String(plan.diagnostics.failure?.code ?? plan.diagnostics.failureCode ?? '')
+  const category = String(plan.diagnostics.failure?.category ?? plan.diagnostics.failureCategory ?? '')
+  const routingStatus: RoutingExecutionStatus = plan.diagnostics.routingStatus ?? (
+    plan.status === 'ready'
+      ? 'ready'
+      : code.includes('stale') || code.includes('artifact')
+        ? 'stale'
+        : code.includes('cancel')
+          ? 'cancelled'
+          : category === 'unsupported_feature' || code.includes('unsupported')
+            ? 'unsupported'
+            : 'blocked'
+  )
+  return {
+    ...plan,
+    diagnostics: {
+      ...plan.diagnostics,
+      routingStatus,
+      routingStatusSchemaVersion: 'vigo.routing.status.v1' as const,
+    },
+  }
+}
+
+function routeOne(storePath: string, request: Record<string, unknown>, departureWindowMinutes: number): RouteResult {
+  const startedAt = performance.now()
+  if (request.timePreference === 'depart' && departureWindowMinutes > 0) {
+    const profile = routeNationalGtfsDepartureWindow(storePath, {
+      ...request,
+      departureWindowMinutes,
+      stepMinutes: 1,
+    })
+    return {
+      plan: decorateCliRoutingPlan(profile.plan),
+      profileSampleCount: profile.profile.sampleCount,
+      elapsedMs: performance.now() - startedAt,
+    }
+  }
+  return {
+    plan: decorateCliRoutingPlan(routeNationalGtfsStore(storePath, request)),
+    profileSampleCount: 0,
+    elapsedMs: performance.now() - startedAt,
+  }
+}
+
+function engineDescriptor(results: Iterable<RouteResult>) {
+  const algorithms = new Set<string>()
+  const methods = new Set<string>()
+  for (const result of results) {
+    const algorithm = result.plan?.diagnostics.algorithm
+    if (algorithm) algorithms.add(algorithm)
+    const methodUsed = result.plan?.diagnostics.methodUsed
+    for (const method of Array.isArray(methodUsed) ? methodUsed : methodUsed ? [methodUsed] : []) {
+      if (method) methods.add(String(method))
+    }
+  }
+  const algorithmList = [...algorithms].sort()
+  return {
+    name: 'VIGO',
+    algorithm: algorithmList.length === 1
+      ? algorithmList[0]
+      : algorithmList.length
+        ? 'mixed_exact_routing'
+        : 'no_route_executed',
+    algorithms: algorithmList,
+    methods: [...methods].sort(),
+    storage: 'sqlite-persisted-resident-compiled',
+    persistentStore: 'sqlite',
+    queryExecutor: 'resident-active-service-kernel',
+    sqlRouteExecutor: false,
+  }
+}
+
+function resolveRuntimePaths(args: CliArguments) {
+  const cityValue = value(args, 'city')
+  if (!cityValue) throw new Error('a query requires --city')
+  const cityPath = path.resolve(cityValue)
+  const storePath = path.join(cityPath, 'routing', 'project.sqlite')
+  const streetCandidate = path.join(cityPath, 'osm', 'street-index.sqlite')
+  const manifest = validateCityDirectory(cityPath) as Record<string, unknown>
+  if (!fs.existsSync(storePath)) throw new Error(`City timetable is missing: ${storePath}`)
+  return {
+    storePath,
+    streetStorePath: fs.existsSync(streetCandidate) ? streetCandidate : undefined,
+    cityPath,
+    city: {
+      name: manifest.name ?? path.basename(cityPath),
+      revisionId: manifest.revisionId ?? manifest.createdAt ?? null,
+    },
+  }
+}
+
+function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {}) {
+  if (args.has('routing-preference') || Object.hasOwn(request, 'routingPreference')) {
+    throw new Error('Unknown routing option; use --objective=earliest_arrival')
+  }
+  const timePreference = value(args, 'time-preference', 'depart') as RoutingTimePreference
+  if (!['depart', 'arrive'].includes(timePreference)) throw new Error(`Invalid --time-preference value: ${timePreference}`)
+  const objective = String(args.has('objective') ? value(args, 'objective') : request.objective ?? 'earliest_arrival')
+  if (objective !== 'earliest_arrival') {
+    throw new Error(`Invalid --objective value: ${objective}`)
+  }
+  const routingPreference = 'fastest'
+  const timeMinutes = parseClock(value(args, 'time', '08:00'))
+  const serviceDate = normalizeServiceDate(value(args, 'service-date'))
+  if (!serviceDate) throw new Error('--service-date is required for exact timetable routing')
+  const serviceDay = resolveServiceDay(serviceDate, value(args, 'service-day')) as ServiceDay
+  const maxWalkKm = parseNumber(value(args, 'max-walk', '1.2'), 'max-walk', 0.01)
+  const departureWindowMinutes = parseIntegerNumber(value(args, 'departure-window', '0'), 'departure-window', 0, 30)
+  if (timePreference === 'arrive' && departureWindowMinutes > 0) {
+    throw new Error('--departure-window is a centered departure profile; omit it for arrive-by search')
+  }
+  return {
+    serviceDay,
+    timePreference,
+    objective,
+    routingPreference,
+    timeMinutes,
+    serviceDate,
+    maxWalkKm,
+    departureWindowMinutes,
+  }
+}
+
+async function prepareRuntime(
+  storePath: string,
+  streetStorePath: string | undefined,
+  serviceDate: string | undefined,
+  serviceDay: ServiceDay,
+) {
+  const preparationStarted = performance.now()
+  const street = streetStorePath
+    ? prepareNationalOsmNativeStore(streetStorePath, { requireCurrentSchema: true })
+    : null
+  const transfers = streetStorePath
+    ? await ensureNationalGtfsOsmStopTransfers(storePath, streetStorePath)
+    : null
+  const routing = serviceDate
+    ? prepareNationalGtfsRoutingContext(storePath, {
+        serviceDate,
+        serviceDay,
+        streetStorePath,
+        allowServiceDateFallback: false,
+      })
+    : prepareNationalGtfsStore(storePath)
+  return {
+    elapsedMs: Number((performance.now() - preparationStarted).toFixed(3)),
+    routing,
+    street,
+    transfers,
+  }
+}
+
+function writeJsonResult(payload: Record<string, unknown>, outputValue = '') {
+  const serialized = `${JSON.stringify(payload, null, 2)}\n`
+  if (outputValue) {
+    const outputPath = path.resolve(outputValue)
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true })
+    fs.writeFileSync(outputPath, serialized)
+  }
+  process.stdout.write(serialized)
+}
+
+async function runRouteRequest(args: CliArguments) {
+  const { storePath, streetStorePath, city } = resolveRuntimePaths(args)
+  const request = readStructuredRequest(args, 'route')
+  const options = runtimeOptions(args, request)
+  const mode = String(value(args, 'mode', String(request.mode ?? 'transit')))
+  if (!['transit', 'walk', 'drive'].includes(mode)) {
+    throw new Error('route mode must be transit, walk, or drive')
+  }
+  const stopLookup = openStopLookup(storePath)
+  const origin = analyticalPoint(request.origin, 'Origin', stopLookup)
+  const destination = analyticalPoint(request.destination, 'Destination', stopLookup)
+  const waypointInputs = Array.isArray(request.waypoints) ? request.waypoints : []
+  const waypoints = waypointInputs.map((waypoint, index) => (
+    analyticalPoint(waypoint, `Waypoint ${index + 1}`, stopLookup)
+  ))
+  requireStreetStoreForCoordinateEndpoints(streetStorePath, origin, destination, 'Route')
+  if (mode !== 'transit' && [origin, ...waypoints, destination].some((point) => !point.coordinate)) {
+    throw new Error(`${mode} routes require coordinate points`)
+  }
+  const preparation = await prepareRuntime(
+    storePath,
+    streetStorePath,
+    options.serviceDate,
+    options.serviceDay,
+  )
+  const queryStarted = performance.now()
+  try {
+    const baseRequest = {
+      mode,
+      origin,
+      destination,
+      departMinutes: options.timeMinutes,
+      arriveMinutes: options.timeMinutes,
+      timePreference: options.timePreference,
+      routingPreference: options.routingPreference,
+      serviceDay: options.serviceDay,
+      serviceDate: options.serviceDate,
+      allowServiceDateFallback: false,
+      maxWalkKm: options.maxWalkKm,
+      streetStorePath,
+      departureWindowMinutes: options.departureWindowMinutes,
+      walkingSpeedKph: request.walkSpeedKph,
+      ...(mode === 'drive' && request.traffic ? { trafficSnapshot: request.traffic } : {}),
+    }
+    const routeSegment = async (segmentRequest: Record<string, any>) => (
+      mode === 'transit'
+        ? routeOne(
+            storePath,
+            segmentRequest,
+            Number(segmentRequest.departureWindowMinutes ?? 0),
+          ).plan
+        : routeNationalStreetStore(streetStorePath!, segmentRequest) as RoutingPlan
+    )
+    let routed: RouteResult
+    if (waypoints.length) {
+      const points = validateOrderedRoutingPoints(origin, waypoints, destination)
+      const components = await routeOrderedRoutingSegments(points, baseRequest, routeSegment)
+      routed = {
+        plan: composeOrderedRoutingPlans(components.componentPlans, points, baseRequest),
+        profileSampleCount: components.componentPlans.length,
+        elapsedMs: performance.now() - queryStarted,
+      }
+    } else {
+      routed = mode === 'transit'
+        ? routeOne(storePath, baseRequest, options.departureWindowMinutes)
+        : {
+            plan: routeNationalStreetStore(streetStorePath!, baseRequest) as RoutingPlan,
+            profileSampleCount: 1,
+            elapsedMs: 0,
+          }
+    }
+    const queryMs = performance.now() - queryStarted
+    writeJsonResult({
+      schemaVersion: 'vigo.result.route.v1',
+      ...publicResultMetadata,
+      kind: 'route',
+      status: routed.plan?.status ?? 'blocked',
+      city,
+      query: {
+        origin,
+        waypoints,
+        destination,
+        mode,
+        timeMinutes: options.timeMinutes,
+        timePreference: options.timePreference,
+        objective: options.objective,
+        serviceDate: options.serviceDate,
+        maxWalkKm: options.maxWalkKm,
+        departureWindowMinutes: options.departureWindowMinutes,
+      },
+      result: routed.plan ?? null,
+      warnings: [],
+      timing: {
+        buildMs: null,
+        openMs: preparation.elapsedMs,
+        computeMs: Number(queryMs.toFixed(3)),
+        endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)),
+      },
+    }, value(args, 'output'))
+  } finally {
+    disposeNationalGtfsStore(storePath)
+  }
+}
+
+async function runRoute(args: CliArguments) {
+  if (args.has('request')) return runRouteRequest(args)
+  const { storePath, streetStorePath, city } = resolveRuntimePaths(args)
+  const inputValue = value(args, 'input')
+  const outputValue = value(args, 'output')
+  const odPath = path.resolve(inputValue)
+  const outPath = path.resolve(outputValue)
+  if (!value(args, 'city') || !inputValue || !outputValue) {
+    throw new Error('route requires --city, --input, and --output')
+  }
+  for (const filePath of [odPath]) {
+    if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`)
+  }
+  const {
+    serviceDay,
+    timePreference,
+    objective,
+    routingPreference,
+    timeMinutes,
+    serviceDate,
+    maxWalkKm,
+    departureWindowMinutes,
+  } = runtimeOptions(args)
+
+  const preparation = await prepareRuntime(storePath, streetStorePath, serviceDate, serviceDay)
+  const parsed = Papa.parse<Record<string, string>>(fs.readFileSync(odPath, 'utf8'), { header: true, skipEmptyLines: true })
+  if (parsed.errors.length) throw new Error(`OD CSV parse failed: ${parsed.errors[0].message}`)
+  const stopLookup = openStopLookup(storePath)
+  const querySemantics = departureWindowMinutes > 0 ? 'centered_departure_profile' : timePreference === 'arrive' ? 'fixed_arrival' : 'fixed_departure'
+  const results: RouteResult[] = []
+  const rows: Array<Record<string, string | number>> = []
+  const fullResults: Array<{ id: string; plan: RoutingPlan | null; blockedReason?: string }> = []
+  const routingStarted = performance.now()
+  try {
+    for (let index = 0; index < parsed.data.length; index += 1) {
+      const input = parsed.data[index]
+      const id = input.id || input.student_id || input.od_id || `row_${index + 1}`
+      const origin = buildPoint(input, 'origin', stopLookup)
+      const destination = buildPoint(input, 'destination', stopLookup)
+      if (!origin || !destination) {
+        const blockedReason = 'missing or unknown origin/destination'
+        rows.push({ id, status: 'blocked', blocked_reason: blockedReason, walking_network: streetStorePath ? 'sqlite-osm' : 'direct', query_semantics: querySemantics })
+        fullResults.push({ id, plan: null, blockedReason })
+        continue
+      }
+      requireStreetStoreForCoordinateEndpoints(streetStorePath, origin, destination, `OD ${id}`)
+      const request = {
+        origin,
+        destination,
+        departMinutes: timeMinutes,
+        arriveMinutes: timeMinutes,
+        timePreference,
+        routingPreference,
+        serviceDay,
+        serviceDate,
+        allowServiceDateFallback: false,
+        maxWalkKm,
+        streetStorePath,
+      }
+      const result = routeOne(storePath, request, departureWindowMinutes)
+      results.push(result)
+      const plan = result.plan
+      fullResults.push({
+        id,
+        plan: plan ?? null,
+        ...(plan?.status === 'blocked' ? { blockedReason: `${plan.title}: ${plan.detail}` } : {}),
+      })
+      rows.push({
+        id,
+        status: plan?.status ?? 'blocked',
+        routing_status: plan?.diagnostics?.routingStatus ?? (plan?.status === 'ready' ? 'ready' : 'blocked'),
+        duration_min: plan?.durationMinutes ?? '',
+        depart_min: plan?.departMinutes ?? '',
+        arrive_min: plan?.arriveMinutes ?? '',
+        walk_min: plan?.walkMinutes ?? '',
+        wait_min: plan?.waitMinutes ?? '',
+        ride_min: plan?.rideMinutes ?? '',
+        transfers: plan?.transfers ?? '',
+        route_sequence: routeSequence(plan),
+        query_semantics: querySemantics,
+        profile_sample_count: result.profileSampleCount,
+        query_wall_ms: Number(result.elapsedMs.toFixed(3)),
+        blocked_reason: plan?.status === 'blocked' ? `${plan.title}: ${plan.detail}` : '',
+      })
+    }
+  } finally {
+    disposeNationalGtfsStore(storePath)
+  }
+
+  const routingElapsedMs = performance.now() - routingStarted
+  const outputStarted = performance.now()
+  const queryMetadata = {
+    semantics: querySemantics,
+    timeMinutes,
+    timePreference,
+    objective,
+    departureWindowMinutes,
+    serviceDay,
+    serviceDate: serviceDate ?? null,
+    maxWalkKm,
+  }
+  fs.mkdirSync(path.dirname(outPath), { recursive: true })
+  fs.writeFileSync(outPath, `${Papa.unparse(rows, { newline: '\n' })}\n`)
+  const outputElapsedMs = performance.now() - outputStarted
+  const ready = rows.filter((row) => row.status === 'ready').length
+  process.stdout.write(`${JSON.stringify({
+    schemaVersion: 'vigo.result.route.v1',
+    ...publicResultMetadata,
+    kind: 'route',
+    status: ready ? 'ready' : 'blocked',
+    city,
+    query: queryMetadata,
+    rows: { total: rows.length, ready, blocked: rows.length - ready },
+    timing: {
+      openMs: preparation.elapsedMs,
+      computeMs: Number(routingElapsedMs.toFixed(3)),
+      outputMs: Number(outputElapsedMs.toFixed(3)),
+      endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)),
+    },
+    output: outPath,
+    results: fullResults,
+  }, null, 2)}\n`)
+}
+
+function ndjsonPoint(
+  input: unknown,
+  fallbackLabel: string,
+  stopLookup: ReturnType<typeof openStopLookup>,
+): RoutingPoint {
+  if (typeof input === 'string') {
+    const point = stopLookup.point(input)
+    if (!point) throw new Error(`Unknown stop ID: ${input}`)
+    return point
+  }
+  if (!input || typeof input !== 'object') throw new Error(`${fallbackLabel} must be a stop ID or point object`)
+  const candidate = input as Record<string, unknown>
+  const stopId = typeof candidate.stopId === 'string' ? candidate.stopId.trim() : ''
+  const explicitLabel = typeof candidate.label === 'string' ? candidate.label.trim() : ''
+  if (stopId) {
+    const point = stopLookup.point(stopId, explicitLabel)
+    if (!point) throw new Error(`Unknown stop ID: ${stopId}`)
+    return point
+  }
+  const coordinate = candidate.coordinate
+  const point = Array.isArray(coordinate) && coordinate.length >= 2
+    ? coordinatePoint(coordinate[0], coordinate[1], explicitLabel || fallbackLabel)
+    : null
+  if (!point) throw new Error(`${fallbackLabel} requires a valid [longitude, latitude] coordinate`)
+  return { ...point, source: typeof candidate.source === 'string' ? candidate.source : 'map' }
+}
+
+const ndjsonSerializationMarker = '__VIGO_NDJSON_SERIALIZATION_MS__'
+
+function serializeNdjson(value: unknown) {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+  const timing = record?.timing && typeof record.timing === 'object' && !Array.isArray(record.timing)
+    ? record.timing as Record<string, unknown>
+    : null
+  if (!timing) {
+    const serialized = JSON.stringify(value)
+    if (serialized === undefined) throw new Error('NDJSON response is not serializable')
+    return serialized
+  }
+
+  timing.serializationMs = ndjsonSerializationMarker
+  const started = performance.now()
+  const serialized = JSON.stringify(value)
+  const serializationMs = Number((performance.now() - started).toFixed(3))
+  timing.serializationMs = serializationMs
+  if (serialized === undefined) throw new Error('NDJSON response is not serializable')
+  const marker = `\"serializationMs\":${JSON.stringify(ndjsonSerializationMarker)}`
+  const markerIndex = serialized.indexOf(marker)
+  if (markerIndex < 0) throw new Error('NDJSON serialization timing marker is missing')
+  const replacement = `\"serializationMs\":${serializationMs}`
+  return `${serialized.slice(0, markerIndex)}${replacement}${serialized.slice(markerIndex + marker.length)}`
+}
+
+async function writeNdjson(value: unknown) {
+  if (process.stdout.write(`${serializeNdjson(value)}\n`)) return
+  await once(process.stdout, 'drain')
+}
+
+async function runRouteStream(args: CliArguments) {
+  const { storePath, streetStorePath } = resolveRuntimePaths(args)
+  const defaults = runtimeOptions(args)
+  const preparation = await prepareRuntime(storePath, streetStorePath, defaults.serviceDate, defaults.serviceDay)
+  const stopLookup = openStopLookup(storePath)
+  const lines = createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: false })
+  let sequence = 0
+  try {
+    for await (const line of lines) {
+      if (!line.trim()) continue
+      sequence += 1
+      const requestStarted = performance.now()
+      let id = `request_${sequence}`
+      try {
+        const input = JSON.parse(line) as Record<string, unknown>
+        if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Each line must be a JSON object')
+        if (typeof input.id === 'string' && input.id.trim()) id = input.id.trim()
+        const origin = ndjsonPoint(input.origin, 'Origin', stopLookup)
+        const destination = ndjsonPoint(input.destination, 'Destination', stopLookup)
+        requireStreetStoreForCoordinateEndpoints(streetStorePath, origin, destination, `Request ${id}`)
+        const timePreference = (input.timePreference ?? defaults.timePreference) as RoutingTimePreference
+        if (!['depart', 'arrive'].includes(timePreference)) throw new Error('timePreference must be depart or arrive')
+        const objective = String(input.objective ?? defaults.objective)
+        if (objective !== 'earliest_arrival') {
+          throw new Error('objective must be earliest_arrival')
+        }
+        const routingPreference = 'fastest'
+        const timeMinutes = input.time !== undefined
+          ? parseNdjsonTime(input.time, 'time')
+          : input.timeMinutes === undefined
+            ? defaults.timeMinutes
+            : parseNdjsonTime(input.timeMinutes, 'timeMinutes')
+        const maxWalkKm = input.maxWalkKm === undefined
+          ? defaults.maxWalkKm
+          : parseNumber(String(input.maxWalkKm), 'maxWalkKm', 0.01)
+        const departureWindowMinutes = input.departureWindowMinutes === undefined
+          ? defaults.departureWindowMinutes
+          : parseIntegerNumber(String(input.departureWindowMinutes), 'departureWindowMinutes', 0, 30)
+        if (timePreference === 'arrive' && departureWindowMinutes > 0) {
+          throw new Error('departureWindowMinutes is only valid for depart searches')
+        }
+        const routed = routeOne(storePath, {
+          origin,
+          destination,
+          departMinutes: timeMinutes,
+          arriveMinutes: timeMinutes,
+          timePreference,
+          routingPreference,
+          serviceDay: defaults.serviceDay,
+          serviceDate: defaults.serviceDate,
+          allowServiceDateFallback: false,
+          maxWalkKm,
+          streetStorePath,
+        }, departureWindowMinutes)
+        const engine = engineDescriptor([routed])
+        await writeNdjson({
+          schemaVersion: 'vigo.result.route.v1',
+          ...publicResultMetadata,
+          sequence,
+          id,
+          status: 'ok',
+          routingStatus: routed.plan?.diagnostics?.routingStatus ?? (routed.plan?.status === 'ready' ? 'ready' : 'blocked'),
+          engine,
+          timing: {
+            requestMs: Number((performance.now() - requestStarted).toFixed(3)),
+            routeMs: Number(routed.elapsedMs.toFixed(3)),
+            engineQueryMs: timingMilliseconds(
+              routed.plan?.diagnostics.searchStats?.engineQueryMs,
+              null,
+            ),
+            preparationMs: sequence === 1 ? preparation.elapsedMs : 0,
+          },
+          routingStore: {
+            storeId: stopLookup.routingStore.storeId,
+            connectionCount: stopLookup.routingStore.connectionCount,
+          },
+          plan: routed.plan ?? null,
+          profileSampleCount: routed.profileSampleCount,
+        })
+      } catch (error) {
+        await writeNdjson({
+          schemaVersion: 'vigo.result.route.v1',
+          ...publicResultMetadata,
+          sequence,
+          id,
+          status: 'error',
+          routingStatus: 'error',
+          timing: { requestMs: Number((performance.now() - requestStarted).toFixed(3)) },
+          error: { message: error instanceof Error ? error.message : String(error) },
+        })
+      }
+    }
+  } finally {
+    disposeNationalGtfsStore(storePath)
+  }
+}
+
+function readStructuredRequest(args: CliArguments, command: string) {
+  const requestValue = value(args, 'request')
+  if (!requestValue.trim()) throw new Error(`${command} requires --request`)
+  const requestPath = path.resolve(requestValue)
+  if (!fs.existsSync(requestPath) || !fs.statSync(requestPath).isFile()) {
+    throw new Error(`Request file not found: ${requestPath}`)
+  }
+  if (fs.statSync(requestPath).size > 16 * 1024 * 1024) {
+    throw new Error(`${command} request exceeds the 16 MiB input limit`)
+  }
+  let request: unknown
+  try {
+    request = JSON.parse(fs.readFileSync(requestPath, 'utf8'))
+  } catch (error) {
+    throw new Error(
+      `${command} request is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+  if (!request || typeof request !== 'object' || Array.isArray(request)) {
+    throw new Error(`${command} request must be one JSON object`)
+  }
+  return request as Record<string, unknown>
+}
+
+function analyticalPoint(
+  value: unknown,
+  label: string,
+  stopLookup: ReturnType<typeof openStopLookup>,
+) {
+  return ndjsonPoint(value, label, stopLookup)
+}
+
+function matrixDestinations(
+  input: unknown,
+  stopLookup: ReturnType<typeof openStopLookup>,
+) {
+  if (!Array.isArray(input) || !input.length) {
+    throw new Error('matrix requires a non-empty destinations array')
+  }
+  if (input.length > 256) {
+    throw new Error('matrix is limited to 256 destinations')
+  }
+  const destinations = input.map((candidate, index) => {
+    const descriptor = candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+      ? candidate as Record<string, unknown>
+      : null
+    const pointInput = descriptor && Object.hasOwn(descriptor, 'point')
+      ? descriptor.point
+      : candidate
+    const id = String(
+      descriptor?.id
+      ?? (typeof pointInput === 'string' ? pointInput : `destination_${index + 1}`),
+    ).trim()
+    if (!id) throw new Error(`Destination ${index + 1} has an empty id`)
+    return {
+      id,
+      point: analyticalPoint(pointInput, `Destination ${id}`, stopLookup),
+    }
+  })
+  if (new Set(destinations.map((destination) => destination.id)).size !== destinations.length) {
+    throw new Error('matrix destination ids must be unique')
+  }
+  return destinations
+}
+
+function boundedAnalyticalNumber(
+  args: CliArguments,
+  request: Record<string, unknown>,
+  option: string,
+  field: string,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+) {
+  const candidate = args.has(option) ? value(args, option) : request[field] ?? fallback
+  const parsed = Number(candidate)
+  if (!Number.isFinite(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`Invalid --${option} value: ${String(candidate)}`)
+  }
+  return parsed
+}
+
+function analyticalRuntimeOptions(args: CliArguments, command: string, request: Record<string, unknown>) {
+  const options = runtimeOptions(args, request)
+  if (options.timePreference !== 'depart') {
+    throw new Error(`${command} supports fixed-departure routing only`)
+  }
+  if (options.departureWindowMinutes !== 0) {
+    throw new Error(`${command} does not support --departure-window`)
+  }
+  return options
+}
+
+function matrixOrigins(
+  request: Record<string, unknown>,
+  stopLookup: ReturnType<typeof openStopLookup>,
+) {
+  const source = request.origins
+  if (!Array.isArray(source) || !source.length) {
+    throw new Error('matrix requires a non-empty origins array')
+  }
+  if (source.length > 256) throw new Error('matrix is limited to 256 origins')
+  return source.map((candidate, index) => {
+    const descriptor = candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+      ? candidate as Record<string, unknown>
+      : null
+    const pointInput = descriptor && Object.hasOwn(descriptor, 'point')
+      ? descriptor.point
+      : candidate
+    const id = String(
+      descriptor?.id
+      ?? (typeof pointInput === 'string' ? pointInput : `origin_${index + 1}`),
+    ).trim()
+    if (!id) throw new Error(`Origin ${index + 1} has an empty id`)
+    return { id, point: analyticalPoint(pointInput, `Origin ${id}`, stopLookup) }
+  })
+}
+
+async function runMatrix(args: CliArguments) {
+  const { storePath, streetStorePath, city } = resolveRuntimePaths(args)
+  const request = readStructuredRequest(args, 'matrix')
+  const options = analyticalRuntimeOptions(args, 'matrix', request)
+  const mode = String(value(args, 'mode', String(request.mode ?? 'transit')))
+  if (!['transit', 'walk', 'drive'].includes(mode)) {
+    throw new Error('matrix mode must be transit, walk, or drive')
+  }
+  const matrixStrategy = 'auto'
+  const horizonMinutes = boundedAnalyticalNumber(
+    args,
+    request,
+    'horizon',
+    'horizonMinutes',
+    480,
+    1,
+    2_880,
+  )
+  const preparation = await prepareRuntime(
+    storePath,
+    streetStorePath,
+    options.serviceDate,
+    options.serviceDay,
+  )
+  const stopLookup = openStopLookup(storePath)
+  const origins = matrixOrigins(request, stopLookup)
+  const destinations = matrixDestinations(request.destinations, stopLookup)
+  if (
+    !streetStorePath
+    && (
+      origins.some((origin) => !origin.point.stopId)
+      || destinations.some((destination) => !destination.point.stopId)
+    )
+  ) {
+    throw new Error(
+      'matrix coordinate endpoints require a City with streets; only exact-stop requests may omit them',
+    )
+  }
+  if (origins.length * destinations.length > 50_000) {
+    throw new Error('matrix is limited to 50,000 origin-destination pairs')
+  }
+
+  const queryStarted = performance.now()
+  if (mode !== 'transit' && (
+    origins.some((origin) => !origin.point.coordinate)
+    || destinations.some((destination) => !destination.point.coordinate)
+  )) {
+    throw new Error(`${mode} matrices require coordinate points`)
+  }
+  const matrix = mode === 'transit'
+    ? routeNationalGtfsMatrix(storePath, {
+        origins: origins.map((origin) => origin.point),
+        destinations: destinations.map((destination) => destination.point),
+        departMinutes: options.timeMinutes,
+        timePreference: 'depart',
+        routingPreference: options.routingPreference,
+        serviceDay: options.serviceDay,
+        serviceDate: options.serviceDate,
+        allowServiceDateFallback: false,
+        maxWalkKm: options.maxWalkKm,
+        horizonMinutes,
+        matrixStrategy,
+        streetStorePath,
+      })
+    : routeNationalStreetMatrix(streetStorePath!, {
+        mode,
+        origins: origins.map((origin) => origin.point),
+        destinations: destinations.map((destination) => destination.point),
+        walkingSpeedKph: request.walkSpeedKph,
+        maxDistanceKm: request.maxDistanceKm,
+        ...(mode === 'drive' && request.traffic ? { trafficSnapshot: request.traffic } : {}),
+      })
+  const queryWallMs = performance.now() - queryStarted
+  const rows = matrix.rows.map((row: Record<string, unknown>) => ({
+    ...row,
+    originId: origins[Number(row.originIndex)]?.id ?? null,
+    destinationId: destinations[Number(row.destinationIndex)]?.id ?? null,
+  }))
+  const payload = {
+    schemaVersion: 'vigo.result.matrix.v1',
+    ...publicResultMetadata,
+    kind: 'matrix',
+    status: 'ready',
+    city,
+    warnings: [],
+    query: {
+      origins,
+      destinations,
+      mode,
+      objective: options.objective,
+      timeMinutes: options.timeMinutes,
+      serviceDate: options.serviceDate,
+      serviceDay: options.serviceDay,
+      maxWalkKm: options.maxWalkKm,
+      horizonMinutes,
+      matrixStrategy,
+    },
+    rows,
+    timing: {
+      openMs: preparation.elapsedMs,
+      computeMs: Number(queryWallMs.toFixed(3)),
+      endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)),
+    },
+  }
+  writeJsonResult(payload, value(args, 'output'))
+}
+
+function reachCutoffs(args: CliArguments, request: Record<string, unknown>) {
+  const source: unknown[] = args.has('cutoffs')
+    ? value(args, 'cutoffs').split(',')
+    : Array.isArray(request.cutoffsMinutes)
+      ? request.cutoffsMinutes
+      : [15, 30, 45, 60]
+  const cutoffs = [...new Set(source.map(Number))].sort((left, right) => left - right)
+  if (
+    !cutoffs.length
+    || cutoffs.some((cutoff) => !Number.isFinite(cutoff) || cutoff < 5 || cutoff > 240)
+  ) {
+    throw new Error('Reach cutoffs must be finite minutes between 5 and 240')
+  }
+  return cutoffs
+}
+
+async function runReach(args: CliArguments) {
+  const { storePath, streetStorePath, city } = resolveRuntimePaths(args)
+  if (!streetStorePath) throw new Error('reach requires a City with streets')
+  const request = readStructuredRequest(args, 'reach')
+  if (args.has('radius') || Object.hasOwn(request, 'radiusKm')) {
+    throw new Error('Unknown Reach extent; use --extent-radius or extentRadiusKm')
+  }
+  const options = analyticalRuntimeOptions(args, 'reach', request)
+  const cutoffsMinutes = reachCutoffs(args, request)
+  const radiusKm = boundedAnalyticalNumber(args, request, 'extent-radius', 'extentRadiusKm', 8, 1, 40)
+  const rasterSize = boundedAnalyticalNumber(
+    args,
+    request,
+    'raster-size',
+    'rasterSize',
+    96,
+    48,
+    1024,
+  )
+  if (![48, 64, 96, 128, 192, 256, 384, 512, 1024].includes(rasterSize)) {
+    throw new Error('--raster-size must be 48, 64, 96, 128, 192, 256, 384, 512, or 1024')
+  }
+  const walkSpeedKph = boundedAnalyticalNumber(
+    args,
+    request,
+    'walk-speed',
+    'walkSpeedKph',
+    4.8,
+    1,
+    8,
+  )
+  const { scenario, overlay } = compileReachScenario(request.scenario)
+  const preparation = await prepareRuntime(
+    storePath,
+    streetStorePath,
+    options.serviceDate,
+    options.serviceDay,
+  )
+  const stopLookup = openStopLookup(storePath)
+  const origin = analyticalPoint(request.origin, 'Origin', stopLookup)
+  const bounds = rasterBounds(origin, radiusKm)
+  const queryStarted = performance.now()
+  const range = routeNationalGtfsReach(storePath, {
+    origin,
+    departMinutes: options.timeMinutes,
+    serviceDate: options.serviceDate,
+    serviceDay: options.serviceDay,
+    maxWalkKm: options.maxWalkKm,
+    walkSpeedKph,
+    radiusKm,
+    cutoffMinutes: cutoffsMinutes.at(-1),
+    excludedRouteIds: scenario.excludedRouteIds,
+    excludedTripIds: scenario.excludedTripIds,
+    ...(overlay ? { scenarioOverlay: overlay } : {}),
+    surface: {
+      bounds,
+      width: rasterSize,
+      height: rasterSize,
+    },
+  }, { streetStorePath })
+  const queryWallMs = performance.now() - queryStarted
+  if (
+    !range.surface
+    || range.surface.schemaVersion !== 'vigo.street.network-raster.v1'
+    || !range.surface.values
+    || range.surface.values.length !== rasterSize ** 2
+  ) {
+    throw new Error('VIGO returned an invalid Reach surface')
+  }
+  const contourStarted = performance.now()
+  const contours = rasterContours(
+    range.surface.values,
+    rasterSize,
+    rasterSize,
+    bounds,
+    cutoffsMinutes,
+    'reach',
+  )
+  const contourMs = performance.now() - contourStarted
+  const payload = {
+    schemaVersion: 'vigo.result.reach.v1',
+    ...publicResultMetadata,
+    kind: 'reach',
+    status: 'ready',
+    city,
+    warnings: [],
+    query: {
+      origin,
+      timeMinutes: options.timeMinutes,
+      serviceDate: options.serviceDate,
+      serviceDay: options.serviceDay,
+      maxWalkKm: options.maxWalkKm,
+      walkSpeedKph,
+      extentRadiusKm: radiusKm,
+      rasterSize,
+      cutoffsMinutes,
+      scenario,
+    },
+    stops: range.stops,
+    scenarioStops: range.scenarioStops,
+    surface: {
+      ...range.surface,
+      values: Array.from(range.surface.values),
+    },
+    contours,
+    timing: {
+      openMs: preparation.elapsedMs,
+      computeMs: Number(queryWallMs.toFixed(3)),
+      contourMs: Number(contourMs.toFixed(3)),
+      endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)),
+    },
+  }
+  writeJsonResult(payload, value(args, 'output'))
+}
+
+function requiredRawInput(input: string, label: string, pattern: RegExp) {
+  if (!input.trim()) throw new Error(`build requires ${label}`)
+  const filePath = path.resolve(input)
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    throw new Error(`${label} file not found: ${filePath}`)
+  }
+  if (!pattern.test(filePath)) throw new Error(`${label} has an unsupported file name: ${filePath}`)
+  return filePath
+}
+
+function defaultGtfsScope(filePath: string, index: number) {
+  const base = path.basename(filePath).replace(/(?:\.gtfs)?\.zip$/iu, '')
+  return base.replace(/[^a-z0-9._-]+/giu, '-').replace(/^-+|-+$/gu, '') || `feed-${index + 1}`
+}
+
+function buildProgress(scope: string) {
+  let previousPhase = ''
+  return (event: Record<string, unknown>) => {
+    const phase = String(event.phase ?? 'Building')
+    if (phase === previousPhase && Number(event.progress ?? 0) < 1) return
+    previousPhase = phase
+    const detail = String(event.detail ?? '').trim()
+    process.stderr.write(`[${scope}] ${phase}${detail ? `: ${detail}` : ''}\n`)
+  }
+}
+
+function rawCompilerConcurrency(gtfsBytes: number, osmBytes: number) {
+  const estimatedPeakWorkingBytes = rawCompilerFixedWorkingSetBytes
+    + osmBytes * rawOsmWorkingSetMultiplier
+    + gtfsBytes * rawGtfsWorkingSetMultiplier
+  const hostMemoryGuardBytes = os.totalmem() * 0.55
+  const freeMemoryGuardBytes = Math.min(
+    estimatedPeakWorkingBytes * 0.75,
+    os.totalmem() * 0.02,
+  )
+  const freeMemoryAtBuildStartBytes = os.freemem()
+  const loadAverageAtBuildStart = os.loadavg()
+  const loadAverageGuard = Math.max(1, os.cpus().length * 2)
+  const loadAverageGuardPassed = loadAverageAtBuildStart[1] <= loadAverageGuard
+  return {
+    enabled: os.cpus().length >= 4
+      && os.totalmem() >= 8 * 1024 * 1024 * 1024
+      && estimatedPeakWorkingBytes <= hostMemoryGuardBytes
+      && freeMemoryAtBuildStartBytes >= freeMemoryGuardBytes
+      && loadAverageGuardPassed,
+    estimatedPeakWorkingBytes,
+    hostMemoryGuardBytes,
+    freeMemoryAtBuildStartBytes,
+    freeMemoryGuardBytes,
+    loadAverageAtBuildStart,
+    loadAverageGuard,
+    loadAverageGuardPassed,
+  }
+}
+
+function startJsonCompiler(command: string, compilerArguments: string[], label: string) {
+  const startedAt = performance.now()
+  const cliPath = path.resolve(process.argv[1])
+  const child = spawn(process.execPath, [
+    cliPath,
+    command,
+    ...compilerArguments,
+  ], {
+    stdio: ['ignore', 'pipe', 'inherit'],
+  })
+  let stdout = ''
+  let settled = false
+  child.stdout.setEncoding('utf8')
+  child.stdout.on('data', (chunk: string) => {
+    stdout += chunk
+    if (stdout.length > 16 * 1024 * 1024) child.kill()
+  })
+  const promise = new Promise<Record<string, unknown>>((resolve, reject) => {
+    child.once('error', (error) => {
+      if (settled) return
+      settled = true
+      reject(error)
+    })
+    child.once('close', (code, signal) => {
+      if (settled) return
+      settled = true
+      if (code !== 0) {
+        reject(new Error(`${label} exited with ${signal ?? code}.`))
+        return
+      }
+      try {
+        resolve(JSON.parse(stdout) as Record<string, unknown>)
+      } catch (error) {
+        reject(new Error(`${label} returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`))
+      }
+    })
+  })
+  return {
+    child,
+    startedAt,
+    outcome: promise.then((result) => ({ result }), (error) => ({ error })),
+  }
+}
+
+function startOsmCompiler(osmPbf: string, outputPath: string) {
+  return startJsonCompiler(
+    '_build-osm-store',
+    [`--osm-pbf=${osmPbf}`, `--output-store=${outputPath}`],
+    'OSM compiler',
+  )
+}
+
+function startOsmDriveCompiler(storePath: string) {
+  return startJsonCompiler(
+    '_prepare-osm-drive',
+    [`--street-store=${storePath}`],
+    'OSM drive compiler',
+  )
+}
+
+async function runOsmCompiler(args: CliArguments) {
+  const osmPbf = requiredRawInput(value(args, 'osm-pbf'), 'OSM PBF', /(?:\.osm)?\.pbf$/iu)
+  const outputPath = path.resolve(value(args, 'output-store'))
+  if (!value(args, 'output-store')) throw new Error('_build-osm-store requires --output-store')
+  const result = await buildNationalOsmStore({
+    pbfPath: osmPbf,
+    outputPath,
+    onProgress: buildProgress('osm'),
+  })
+  process.stdout.write(JSON.stringify(result))
+}
+
+async function runOsmDriveCompiler(args: CliArguments) {
+  const storePath = path.resolve(value(args, 'street-store'))
+  if (!value(args, 'street-store')) throw new Error('_prepare-osm-drive requires --street-store')
+  const result = buildNationalOsmDriveStore(storePath, {
+    persist: true,
+    prepareNative: false,
+    ensureIndexes: false,
+  })
+  process.stdout.write(JSON.stringify(result))
+}
+
+async function runBuildCity(args: CliArguments) {
+  const gtfsValues = values(args, 'gtfs')
+  const scopeValues = values(args, 'gtfs-scope')
+  if (!gtfsValues.length) throw new Error('build requires at least one --gtfs GTFS ZIP')
+  if (scopeValues.length && scopeValues.length !== gtfsValues.length) {
+    throw new Error('repeat --gtfs-scope once for every --gtfs input, or omit it')
+  }
+  const gtfs = gtfsValues.map((input, index) => ({
+    path: requiredRawInput(input, `GTFS ZIP ${index + 1}`, /\.zip$/iu),
+    scope: String(scopeValues[index] ?? defaultGtfsScope(input, index)).trim(),
+  }))
+  if (gtfs.some((feed) => !feed.scope)) throw new Error('GTFS scopes must be non-empty')
+  if (new Set(gtfs.map((feed) => feed.scope)).size !== gtfs.length) {
+    throw new Error('GTFS scopes must be unique; pass one --gtfs-scope for each feed')
+  }
+  const osmPbf = requiredRawInput(value(args, 'osm'), 'OSM PBF', /(?:\.osm)?\.pbf$/iu)
+  const outputValue = value(args, 'output')
+  if (!outputValue.trim()) throw new Error('build requires --output')
+  const outputDirectory = path.resolve(outputValue)
+  if (outputDirectory === path.parse(outputDirectory).root) {
+    throw new Error('City output cannot be a filesystem root')
+  }
+  const gtfsInputBytes = gtfs.reduce((sum, feed) => sum + fs.statSync(feed.path).size, 0)
+  const osmInputBytes = fs.statSync(osmPbf).size
+  const rawConcurrency = rawCompilerConcurrency(gtfsInputBytes, osmInputBytes)
+  const parallelRawBuild = rawConcurrency.enabled
+
+  const replaceExisting = enabled(args, 'replace')
+  const outputExists = fs.existsSync(outputDirectory)
+  if (outputExists && !replaceExisting) {
+    throw new Error(`City already exists; pass --replace to replace it: ${outputDirectory}`)
+  }
+  const stagingDirectory = createCityStagingDirectory(outputDirectory)
+  const stagingRouting = path.join(stagingDirectory, 'routing')
+  const stagingOsm = path.join(stagingDirectory, 'osm')
+  const componentDirectory = path.join(stagingDirectory, 'components')
+  fs.mkdirSync(stagingRouting, { recursive: true })
+  fs.mkdirSync(stagingOsm, { recursive: true })
+
+  const started = performance.now()
+  let gtfsBuildMs = 0
+  let gtfsMergeMs = 0
+  let osmBuildMs = 0
+  let streetCchBuildMs = 0
+  let stopTransferBuildMs = 0
+  let coordinateAccessBuildMs = 0
+  let osmRuntimeCompactionMs = 0
+  let gtfsRuntimeCompactionMs = 0
+  let osmCompiler: ReturnType<typeof startOsmCompiler> | null = null
+  let osmDriveCompiler: ReturnType<typeof startOsmDriveCompiler> | null = null
+  let osmDrivePreparation: Record<string, unknown> | null = null
+  const componentResults: Array<{ scope: string; path: string; result: Record<string, unknown> }> = []
+  try {
+    const stagedStreetStore = path.join(stagingOsm, 'street-index.sqlite')
+    if (parallelRawBuild) osmCompiler = startOsmCompiler(osmPbf, stagedStreetStore)
+    for (let index = 0; index < gtfs.length; index += 1) {
+      const feed = gtfs[index]
+      const storePath = gtfs.length === 1
+        ? path.join(stagingRouting, 'project.sqlite')
+        : path.join(componentDirectory, `${String(index + 1).padStart(2, '0')}-${feed.scope}.sqlite`)
+      const phaseStarted = performance.now()
+      const result = await buildNationalGtfsStore({
+        zipPath: feed.path,
+        outputPath: storePath,
+        onProgress: buildProgress(`gtfs:${feed.scope}`),
+      }) as Record<string, unknown>
+      gtfsBuildMs += performance.now() - phaseStarted
+      componentResults.push({ scope: feed.scope, path: storePath, result })
+    }
+
+    const stagedRoutingStore = path.join(stagingRouting, 'project.sqlite')
+    if (componentResults.length > 1) {
+      const mergeStarted = performance.now()
+      await mergeNationalGtfsStores({
+        stores: componentResults.map((component) => ({
+          scope: component.scope,
+          storePath: component.path,
+        })),
+        outputPath: stagedRoutingStore,
+        onProgress: buildProgress('gtfs:merge'),
+        removeSourcesAfterMerge: true,
+      })
+      gtfsMergeMs = performance.now() - mergeStarted
+    }
+
+    let streetResult: Record<string, unknown>
+    if (osmCompiler) {
+      const outcome = await osmCompiler.outcome
+      if (outcome.error) throw outcome.error
+      streetResult = outcome.result
+      osmBuildMs = performance.now() - osmCompiler.startedAt
+    } else {
+      const osmStarted = performance.now()
+      streetResult = await buildNationalOsmStore({
+        pbfPath: osmPbf,
+        outputPath: stagedStreetStore,
+        onProgress: buildProgress('osm'),
+      }) as Record<string, unknown>
+      osmBuildMs = performance.now() - osmStarted
+    }
+
+    if (Number(streetResult.driveEdgeCount ?? 0) > 0) {
+      // Build the driving snapshot in a separate resident process while the
+      // GTFS compilation is still in progress. The source graph is sealed only
+      // after this compiler finishes so no builder can race the compactor.
+      osmDriveCompiler = startOsmDriveCompiler(stagedStreetStore)
+    }
+
+    if (osmDriveCompiler) {
+      const outcome = await osmDriveCompiler.outcome
+      if (outcome.error) throw outcome.error
+      osmDrivePreparation = outcome.result
+    }
+
+    // Publish one runtime representation for every network size before any
+    // native routing preparation. The raw SQLite graph is compiler-only.
+    const osmRuntimeCompactionStarted = performance.now()
+    const osmRuntimeCompaction = compactNationalOsmRuntimeStore(stagedStreetStore, { requireDrive: true })
+    osmRuntimeCompactionMs = performance.now() - osmRuntimeCompactionStarted
+
+    const nativeStreet = prepareNationalOsmNativeStore(stagedStreetStore, { requireCurrentSchema: true })
+    if (!nativeStreet.ready) {
+      throw new Error(`Native street snapshot preparation failed: ${nativeStreet.error ?? nativeStreet.reason}`)
+    }
+    const streetCchStarted = performance.now()
+    const streetCch = buildNativeStreetCchIndex(stagedStreetStore)
+    streetCchBuildMs = performance.now() - streetCchStarted
+    const stopTransferStarted = performance.now()
+    const stopTransfers = await ensureNationalGtfsOsmStopTransfers(
+      stagedRoutingStore,
+      stagedStreetStore,
+      { onProgress: buildProgress('transfers') },
+    )
+    stopTransferBuildMs = performance.now() - stopTransferStarted
+    const coordinateAccessStarted = performance.now()
+    const coordinateAccess = prepareNationalGtfsNativeCoordinateAccess(
+      stagedRoutingStore,
+      stagedStreetStore,
+    )
+    coordinateAccessBuildMs = performance.now() - coordinateAccessStarted
+    if (!coordinateAccess.ready) throw new Error('Native coordinate access preparation failed.')
+
+    const gtfsRuntimeCompactionStarted = performance.now()
+    const gtfsRuntimeCompaction = compactNationalGtfsRuntimeStore(stagedRoutingStore)
+    gtfsRuntimeCompactionMs = performance.now() - gtfsRuntimeCompactionStarted
+
+    // Release every cached reader before publishing the complete city package.
+    // On Windows an in-use previous package makes the single directory rename
+    // fail; the old package then remains intact instead of being partly replaced.
+    disposeNationalGtfsStore(stagedRoutingStore)
+    disposeNationalOsmStore(stagedStreetStore)
+
+    const routingMetadata = readNationalGtfsStoreMetadata(stagedRoutingStore)
+    const builtAt = new Date().toISOString()
+    const sources = {
+      gtfs: gtfs.map((feed) => ({
+        name: path.basename(feed.path),
+        scope: feed.scope,
+      })),
+      osm: {
+        name: path.basename(osmPbf),
+      },
+    }
+    const summary = {
+      schemaVersion: 'vigo.city.v1',
+      productVersion: packageJson.version,
+      apiVersion,
+      cityFormatVersion,
+      kind: 'city',
+      name: path.basename(outputDirectory),
+      revisionId: cityRevisionId(builtAt),
+      builtAt,
+      sources,
+      inputs: {
+        gtfs: sources.gtfs,
+        osmPbf: {
+          name: sources.osm.name,
+        },
+      },
+      routingStore: {
+        routeCount: routingMetadata.routeCount,
+        stopCount: routingMetadata.stopCount,
+        tripCount: routingMetadata.tripCount,
+        connectionCount: routingMetadata.connectionCount,
+        departureIndexState: routingMetadata.departureIndexState ?? gtfsRuntimeCompaction.state,
+        runtimeCompaction: {
+          state: gtfsRuntimeCompaction.state,
+          bytesSaved: gtfsRuntimeCompaction.bytesSaved,
+        },
+        stopTransfers: {
+          edgeCount: stopTransfers.edgeCount,
+          candidateEdgeCount: stopTransfers.candidateEdgeCount,
+        },
+        nativeCoordinateAccess: {
+          profileKey: coordinateAccess.profileKey,
+          mode: 'exact-local-graph-frontier',
+          persistenceState: coordinateAccess.persistenceState,
+          snapshotBytes: coordinateAccess.snapshotBytes,
+          prepareMs: coordinateAccess.prepareMs,
+        },
+      },
+      streetStore: {
+        nodeCount: streetResult.nodeCount ?? null,
+        walkNodeCount: streetResult.walkNodeCount ?? null,
+        edgeCount: streetResult.edgeCount ?? null,
+        driveNodeCount: streetResult.driveNodeCount ?? null,
+        driveEdgeCount: streetResult.driveEdgeCount ?? null,
+        bytes: osmRuntimeCompaction.afterBytes,
+        storageLayout: osmRuntimeCompaction.storageLayout,
+        runtimeCompaction: {
+          storageLayout: osmRuntimeCompaction.storageLayout,
+          bytesSaved: osmRuntimeCompaction.bytesSaved,
+          driveSnapshot: osmRuntimeCompaction.drive?.snapshotPath
+            ? path.basename(osmRuntimeCompaction.drive.snapshotPath)
+            : null,
+        },
+        walkAccelerator: streetResult.walkAccelerator ?? null,
+        driveAccelerator: osmDrivePreparation
+          ? {
+              ready: osmDrivePreparation.ready,
+              source: osmDrivePreparation.source ?? null,
+              buildMs: osmDrivePreparation.buildMs ?? 0,
+              snapshotWriteMs: osmDrivePreparation.snapshotWriteMs ?? 0,
+              snapshotStatus: osmDrivePreparation.snapshotStatus ?? null,
+              reason: osmDrivePreparation.reason ?? null,
+              error: osmDrivePreparation.error ?? null,
+            }
+          : streetResult.driveAccelerator ?? null,
+        streetCch: {
+          ready: Number(streetCch.loaded?.cchArcCount ?? streetCch.cchArcCount ?? 0) > 0,
+          format: streetCch.format,
+          orderStrategy: streetCch.orderStrategy ?? 'inertial',
+          nodeCount: streetCch.nodeCount,
+          edgeCount: streetCch.edgeCount,
+          cchArcCount: streetCch.cchArcCount,
+          structureFile: path.basename(streetCch.structurePath),
+          metricFile: path.basename(streetCch.metricPath),
+        },
+      },
+      timing: {
+        totalMs: Number((performance.now() - started).toFixed(3)),
+        gtfsBuildMs: Number(gtfsBuildMs.toFixed(3)),
+        gtfsMergeMs: Number(gtfsMergeMs.toFixed(3)),
+        osmBuildMs: Number(osmBuildMs.toFixed(3)),
+        streetCchBuildMs: Number(streetCchBuildMs.toFixed(3)),
+        stopTransferBuildMs: Number(stopTransferBuildMs.toFixed(3)),
+        coordinateAccessBuildMs: Number(coordinateAccessBuildMs.toFixed(3)),
+        osmRuntimeCompactionMs: Number(osmRuntimeCompactionMs.toFixed(3)),
+        gtfsRuntimeCompactionMs: Number(gtfsRuntimeCompactionMs.toFixed(3)),
+        osmDrivePreparationMs: Number(osmDrivePreparation?.prepareMs ?? 0),
+        rawCompilerConcurrency: {
+          gtfsAndOsmParallel: parallelRawBuild,
+          parallelFallback: parallelRawBuild ? null : 'memory_or_load_guard',
+          estimatedPeakWorkingBytes: rawConcurrency.estimatedPeakWorkingBytes,
+          hostMemoryGuardBytes: rawConcurrency.hostMemoryGuardBytes,
+          freeMemoryAtBuildStartBytes: rawConcurrency.freeMemoryAtBuildStartBytes,
+          freeMemoryGuardBytes: rawConcurrency.freeMemoryGuardBytes,
+          loadAverageAtBuildStart: rawConcurrency.loadAverageAtBuildStart,
+          loadAverageGuard: rawConcurrency.loadAverageGuard,
+          loadAverageGuardPassed: rawConcurrency.loadAverageGuardPassed,
+        },
+      },
+    }
+    fs.rmSync(componentDirectory, { recursive: true, force: true })
+    fs.writeFileSync(path.join(stagingDirectory, 'network.json'), `${JSON.stringify(summary, null, 2)}\n`)
+    publishCity(stagingDirectory, outputDirectory, { replace: replaceExisting })
+    process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`)
+  } finally {
+    if (osmCompiler?.child.exitCode === null) {
+      osmCompiler.child.kill()
+      await osmCompiler.outcome
+    }
+    if (osmDriveCompiler?.child.exitCode === null) {
+      osmDriveCompiler.child.kill()
+      await osmDriveCompiler.outcome
+    }
+    fs.rmSync(stagingDirectory, { recursive: true, force: true })
+  }
+}
+
+function writeProductInfo() {
+  process.stdout.write(`${JSON.stringify(vigoCapabilities(packageJson.version), null, 2)}\n`)
+}
+
+function runInspect(args: CliArguments) {
+  const cityValue = value(args, 'city')
+  if (!cityValue) throw new Error('inspect requires --city; use vigo capabilities for runtime support')
+  const cityPath = path.resolve(cityValue)
+  const city = validateCityDirectory(cityPath) as Record<string, any>
+  writeJsonResult({
+    schemaVersion: 'vigo.city.inspect.v1',
+    productVersion: packageJson.version,
+    apiVersion,
+    cityFormatVersion,
+    kind: 'city',
+    name: city.name ?? path.basename(cityPath),
+    path: cityPath,
+    revisionId: city.revisionId ?? city.createdAt ?? null,
+    builtAt: city.builtAt ?? city.createdAt ?? null,
+    sources: {
+      gtfs: Array.isArray(city.sources?.gtfs ?? city.inputs?.gtfs)
+        ? (city.sources?.gtfs ?? city.inputs.gtfs).map((source: Record<string, unknown>) => ({
+            name: String(source.name ?? 'GTFS'),
+            scope: source.scope ?? null,
+          }))
+        : [],
+      osm: (city.sources?.osm?.name ?? city.inputs?.osmPbf?.name)
+        ? { name: String(city.sources?.osm?.name ?? city.inputs.osmPbf.name) }
+        : null,
+    },
+    counts: {
+      routes: city.routingStore?.routeCount ?? null,
+      stops: city.routingStore?.stopCount ?? null,
+      trips: city.routingStore?.tripCount ?? null,
+      connections: city.routingStore?.connectionCount ?? null,
+      streetNodes: city.streetStore?.nodeCount ?? null,
+      streetEdges: city.streetStore?.edgeCount ?? null,
+    },
+    builtInMs: city.timing?.totalMs ?? null,
+  })
+}
+
+function readResultFile(input: string, label: string) {
+  if (!input.trim()) throw new Error(`compare requires --${label}`)
+  const filePath = path.resolve(input)
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    throw new Error(`${label} result not found: ${filePath}`)
+  }
+  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${label} result must be one JSON object`)
+  }
+  return parsed as Record<string, any>
+}
+
+function resultKind(result: Record<string, any>) {
+  if (['route', 'matrix', 'reach'].includes(result.kind)) return result.kind
+  const schema = String(result.schemaVersion ?? '')
+  if (schema.includes('route')) return 'route'
+  if (schema.includes('matrix')) return 'matrix'
+  if (schema.includes('reach')) return 'reach'
+  throw new Error(`compare does not recognize ${schema || 'this result'}`)
+}
+
+function routeComparison(before: Record<string, any>, after: Record<string, any>) {
+  const left = before.result ?? before.plan ?? before.results?.[0]?.plan ?? null
+  const right = after.result ?? after.plan ?? after.results?.[0]?.plan ?? null
+  const leftDuration = Number(left?.durationMinutes)
+  const rightDuration = Number(right?.durationMinutes)
+  return {
+    beforeStatus: left?.status ?? before.status ?? 'unknown',
+    afterStatus: right?.status ?? after.status ?? 'unknown',
+    durationChangeMinutes: Number.isFinite(leftDuration) && Number.isFinite(rightDuration)
+      ? Number((rightDuration - leftDuration).toFixed(3))
+      : null,
+    transferChange: Number.isFinite(Number(left?.transfers)) && Number.isFinite(Number(right?.transfers))
+      ? Number(right.transfers) - Number(left.transfers)
+      : null,
+  }
+}
+
+function matrixComparison(before: Record<string, any>, after: Record<string, any>) {
+  const key = (row: Record<string, any>) => `${row.originId ?? row.originIndex}:${row.destinationId ?? row.destinationIndex}`
+  const left = new Map((before.rows ?? []).map((row: Record<string, any>) => [key(row), row]))
+  let faster = 0
+  let slower = 0
+  let unchanged = 0
+  let comparable = 0
+  let totalChange = 0
+  for (const row of after.rows ?? []) {
+    const previous = left.get(key(row)) as Record<string, any> | undefined
+    const beforeMinutes = Number(previous?.durationMinutes)
+    const afterMinutes = Number(row.durationMinutes)
+    if (!Number.isFinite(beforeMinutes) || !Number.isFinite(afterMinutes)) continue
+    const change = afterMinutes - beforeMinutes
+    comparable += 1
+    totalChange += change
+    if (change < -1e-9) faster += 1
+    else if (change > 1e-9) slower += 1
+    else unchanged += 1
+  }
+  return {
+    comparablePairs: comparable,
+    fasterPairs: faster,
+    slowerPairs: slower,
+    unchangedPairs: unchanged,
+    meanChangeMinutes: comparable ? Number((totalChange / comparable).toFixed(3)) : null,
+  }
+}
+
+function reachComparison(before: Record<string, any>, after: Record<string, any>) {
+  const left = before.surface?.values
+  const right = after.surface?.values
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+    throw new Error('Reach results must use the same grid before they can be compared')
+  }
+  let faster = 0
+  let slower = 0
+  let unchanged = 0
+  let comparable = 0
+  let totalChange = 0
+  for (let index = 0; index < left.length; index += 1) {
+    const beforeMinutes = Number(left[index])
+    const afterMinutes = Number(right[index])
+    if (!Number.isFinite(beforeMinutes) || !Number.isFinite(afterMinutes)) continue
+    const change = afterMinutes - beforeMinutes
+    comparable += 1
+    totalChange += change
+    if (change < -1e-9) faster += 1
+    else if (change > 1e-9) slower += 1
+    else unchanged += 1
+  }
+  return {
+    comparableCells: comparable,
+    fasterCells: faster,
+    slowerCells: slower,
+    unchangedCells: unchanged,
+    meanChangeMinutes: comparable ? Number((totalChange / comparable).toFixed(3)) : null,
+  }
+}
+
+function runCompare(args: CliArguments) {
+  const before = readResultFile(value(args, 'before'), 'before')
+  const after = readResultFile(value(args, 'after'), 'after')
+  const beforeKind = resultKind(before)
+  const afterKind = resultKind(after)
+  if (beforeKind !== afterKind) throw new Error('compare requires two Results from the same Query family')
+  const change = beforeKind === 'route'
+    ? routeComparison(before, after)
+    : beforeKind === 'matrix'
+      ? matrixComparison(before, after)
+      : reachComparison(before, after)
+  writeJsonResult({
+    schemaVersion: 'vigo.result.comparison.v1',
+    ...publicResultMetadata,
+    kind: 'comparison',
+    queryKind: beforeKind,
+    status: 'ready',
+    cities: {
+      before: before.city ?? null,
+      after: after.city ?? null,
+    },
+    change,
+  }, value(args, 'output'))
+}
+
+const { command, args } = parseArguments(process.argv.slice(2))
+if (args.has('version')) {
+  process.stdout.write(`${packageJson.version}\n`)
+} else if (!command) {
+  process.stdout.write(usage())
+} else if (!supportedCommands.has(command)) {
+  process.stderr.write(`Unknown command: ${command}\n\n${usage()}`)
+  process.exitCode = 2
+} else if (args.has('help')) {
+  process.stdout.write(usage())
+} else {
+  try {
+    if (command === '_build-osm-store') await runOsmCompiler(args)
+    else if (command === '_prepare-osm-drive') await runOsmDriveCompiler(args)
+    else if (command === 'build') await runBuildCity(args)
+    else if (command === 'capabilities') writeProductInfo()
+    else if (command === 'inspect') runInspect(args)
+    else if (command === 'reach') await runReach(args)
+    else if (command === 'matrix') await runMatrix(args)
+    else if (command === 'compare') runCompare(args)
+    else if (command === '_route-stream') await runRouteStream(args)
+    else await runRoute(args)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    process.stderr.write(`VIGO ${command} failed: ${message}\n\n${usage()}`)
+    process.exitCode = 2
+  }
+}

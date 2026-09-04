@@ -322,6 +322,7 @@ export function scheduledVehicleDiagnostics(
     return routeActiveAtServiceTime(route, serviceTime)
   })
   const clock = formatScheduleClock(clockMinutes)
+  const scheduledRoutes = activeRoutes.filter((route) => route.scheduledTrips?.length)
 
   if (!preview.routes.length) {
     return {
@@ -344,6 +345,14 @@ export function scheduledVehicleDiagnostics(
       tone: 'empty',
       title: 'No active service',
       detail: `No trusted routes are active at ${clock} on ${serviceDay}. Scrub time or change service day.`,
+    }
+  }
+
+  if (!scheduledRoutes.length) {
+    return {
+      tone: 'watch',
+      title: 'Schedule details not loaded',
+      detail: `Route geometry is active at ${clock}, but this view has no trip-level schedule to play. Open one route to load its service for the selected date.`,
     }
   }
 

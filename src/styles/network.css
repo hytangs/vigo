@@ -1,5 +1,5 @@
 /* Map */
-/* Map canvas, popovers, route workspace, and core map shell. */
+/* Map canvas, popovers, route surface, and core map shell. */
 .map-stage {
   position: relative;
   min-height: 0;
@@ -345,13 +345,13 @@
   overflow: hidden;
 }
 
-.route-workspace,
+.route-surface,
 .route-map-shell {
   min-width: 0;
   min-height: 0;
 }
 
-.route-workspace {
+.route-surface {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
 }

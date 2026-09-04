@@ -19,7 +19,7 @@ export type RoutingSearchStrategy =
 export type RoutingScheduleMode = 'exact' | 'interpolated-stop-time-gap' | 'realtime-adjusted' | 'none'
 export type RoutingWalkSource = 'osm' | 'direct' | 'transfer' | 'estimated' | 'station-selection'
 export type RoutingTimingPrecision = 'exact' | 'degraded' | 'source-equal-time'
-export type RoutingResultStatus = 'ready' | 'blocked' | 'unsupported' | 'stale' | 'cancelled' | 'error'
+export type RoutingExecutionStatus = 'ready' | 'blocked' | 'unsupported' | 'stale' | 'cancelled' | 'error'
 
 export type RoutingAccessAvailabilityHint = {
   role: 'origin' | 'destination'
@@ -123,7 +123,7 @@ export type RoutingPlan = {
     fallbackReason?: string
     failureCode?: string
     failureCategory?: string
-    routingStatus?: RoutingResultStatus
+    routingStatus?: RoutingExecutionStatus
     routingStatusSchemaVersion?: 'vigo.routing.status.v1'
     failure?: {
       code: string
@@ -133,7 +133,6 @@ export type RoutingPlan = {
       features?: Array<{ code: string; count?: number; detail?: string }>
     }
     dataSemantics?: {
-      sourceFingerprint?: string | null
       blockingFeatures?: Array<{ code: string; count?: number; detail?: string }>
       limitations?: Array<{ code: string; count?: number; exactness?: string; detail?: string }>
       transferGeneration?: Record<string, unknown> | null

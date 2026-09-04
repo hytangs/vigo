@@ -153,6 +153,53 @@ fn unpack_arc(
 /// ```
 pub struct PathQuery<'a> {
     cch: &'a CchView<'a>,
+    state: PathQueryState,
+}
+
+impl<'a> PathQuery<'a> {
+    /// Allocate reusable path buffers for one immutable structure.
+    #[must_use]
+    pub fn new(cch: &'a CchView<'a>) -> Self {
+        Self {
+            cch,
+            state: PathQueryState::new(cch),
+        }
+    }
+
+    /// Return the shortest path, recycling the previous query's buffers.
+    #[must_use]
+    pub fn path(&mut self, metric: &MetricView, source: u32, target: u32) -> Option<Vec<u32>> {
+        self.state.path(self.cch, metric, source, target)
+    }
+}
+
+/// Own an in-memory structure and its reusable path buffers without borrowing
+/// from the owning object. Metrics can change between calls; topology cannot.
+pub struct OwnedPathQuery {
+    structure: crate::Cch,
+    state: PathQueryState,
+}
+
+impl OwnedPathQuery {
+    #[must_use]
+    pub fn new(structure: crate::Cch) -> Self {
+        let state = PathQueryState::new(&structure.view());
+        Self { structure, state }
+    }
+
+    #[must_use]
+    pub fn structure(&self) -> &crate::Cch {
+        &self.structure
+    }
+
+    #[must_use]
+    pub fn path(&mut self, metric: &MetricView, source: u32, target: u32) -> Option<Vec<u32>> {
+        self.state
+            .path(&self.structure.view(), metric, source, target)
+    }
+}
+
+struct PathQueryState {
     /// Inverse rank: `order[rank[v]] = v`. Computed once in [`Self::new`] and
     /// never mutated thereafter (invariant; not part of the touched reset).
     order: Vec<u32>,
@@ -181,7 +228,7 @@ pub struct PathQuery<'a> {
     up_path: Vec<u32>,
 }
 
-impl<'a> PathQuery<'a> {
+impl PathQueryState {
     /// Allocate scratch buffers and compute the inverse-rank `order` for queries
     /// against `cch`. Do this once, then call [`Self::path`] repeatedly.
     ///
@@ -195,7 +242,7 @@ impl<'a> PathQuery<'a> {
     /// soundly (mirrors [`ElimTreeQuery::new`](crate::ElimTreeQuery)).
     #[must_use]
     #[allow(clippy::cast_possible_truncation)] // v < node_count ≤ u32::MAX by CCH invariant
-    pub fn new(cch: &'a CchView<'a>) -> Self {
+    fn new(cch: &CchView<'_>) -> Self {
         let n = cch.node_count() as usize;
         // The hot relaxation loops in `path` use `get_unchecked`/`_mut` to access
         // `fwd_dist[y]`/`fwd_pred[y]`/`bwd_dist[y]`/`bwd_pred[y]` where `y` is an
@@ -216,7 +263,6 @@ impl<'a> PathQuery<'a> {
         }
 
         Self {
-            cch,
             order,
             fwd_dist: vec![INF_WEIGHT; n],
             fwd_pred: vec![INVALID_ID; n],
@@ -242,7 +288,13 @@ impl<'a> PathQuery<'a> {
     #[must_use]
     #[allow(clippy::too_many_lines)] // faithful port of routingkit's path query — splitting obscures algorithm
     #[allow(clippy::many_single_char_names)] // s,t,x,y,l: conventional rank-space node variables
-    pub fn path(&mut self, metric: &MetricView, source: u32, target: u32) -> Option<Vec<u32>> {
+    fn path(
+        &mut self,
+        cch: &CchView<'_>,
+        metric: &MetricView,
+        source: u32,
+        target: u32,
+    ) -> Option<Vec<u32>> {
         if source == target {
             return Some(vec![source]);
         }
@@ -264,7 +316,6 @@ impl<'a> PathQuery<'a> {
         }
         self.bwd_touched.clear();
 
-        let cch = self.cch;
         // Hoist borrowed slices so the inner relaxation loops index plain
         // `&[u32]`s and slice each node's arc range once — letting the compiler
         // elide the per-arc bounds checks on `up_head` and the weight arrays.

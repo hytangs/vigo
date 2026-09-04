@@ -7,81 +7,114 @@
 
 <h1 align="center">VIGO</h1>
 
-<p align="center">
-  <strong>Visual Intelligence for GTFS Operations.</strong>
-</p>
+<p align="center"><strong>Turn city transport data into answers.</strong></p>
 
-<p align="center">
-  <a href="#build-from-source">Build from source</a> ·
-  <a href="docs/README.md">Documentation</a> ·
-  <a href="CHANGELOG.md">Changelog</a> ·
-  <a href="CONTRIBUTING.md">Contributing</a>
-</p>
+VIGO turns GTFS and OSM into a city model for routing, network-wide travel-time analysis, and service-change testing.
 
-VIGO—Visual Intelligence for GTFS Operations—is an experimental platform for
-inspecting, compiling, routing, and analyzing scheduled public-transit
-networks. This repository is the public home of the VIGO project. The codebase
-is currently being prepared for public release.
+Explore the City in VIGO Studio, automate it with the VIGO command, or install VIGO Python separately.
 
-The workbench brings feed inspection, network visualization, routing,
-accessibility, and service-scenario analysis together over one set of compiled
-network stores. A native Rust kernel owns timetable and street-network
-computation; the local API, command-line interface, and workbench use that same
-kernel rather than separate routing implementations.
+```text
+City → Scenario → Query → Result
+                   ├─ Route
+                   ├─ Matrix
+                   └─ Reach
+```
 
-> [!IMPORTANT]
-> VIGO is pre-release software. Interfaces, file formats, supported platforms,
-> and routing behavior may change before the first supported public release.
-> Do not use it for safety-critical, operational, or passenger-information
-> systems without independent validation.
+That is the complete product model.
 
-## Capabilities
+> VIGO 0.3 is pre-release software. Do not use it for safety-critical, operational, or passenger-information systems without independent validation.
 
-- Compile static GTFS schedules into local SQLite routing stores.
-- Inspect routes, stops, service patterns, and schedule coverage in a local
-  workbench.
-- Build directed walking and driving graphs from OpenStreetMap PBF extracts.
-- Route fixed-departure and arrive-by scheduled journeys.
-- Produce one-to-many matrices and accessibility ranges.
-- Apply query-scoped service scenarios without mutating the source timetable.
-- Use VIGO through a local CLI, loopback HTTP API, or web workbench.
+## What VIGO does
 
-The [public smoke benchmark](benchmarks/README.md) provides a deterministic,
-cache-disabled measurement path with input hashes, preparation time, warm
-p50/p95, memory, disk, and path checksums. It is intentionally a small pipeline
-check rather than a city-scale performance claim.
+### Build a City
 
-VIGO models the data it is given. It does not predict ridership, certify an
-agency schedule, or establish operational feasibility. See the
-[GTFS support matrix](docs/gtfs-support-matrix.md) and
-[known limitations](docs/known-routing-limitations.md) before interpreting a
-result.
+VIGO compiles one or more static GTFS sources and an OSM extract into one portable City directory. The timetable, streets, and required query data move together.
 
-## Repository scope
+### Ask three questions
 
-This public repository contains the VIGO workbench, native Rust computation
-kernel, JavaScript integration, build and packaging tools, focused tests, and
-current technical documentation. It intentionally excludes:
+- **Route** finds and explains travel between ordered points.
+- **Matrix** computes travel times between sets of origins and destinations.
+- **Reach** maps where the network can travel within stated time limits.
 
-- publication sources, identities, and generated validation output;
-- private datasets, agency-specific projects, local paths, and generated
-  experiment output;
-- internal performance suites, experimental harnesses, debug scripts, and one-off repair
-  tools;
-- release archives, generated binaries, notebooks, and language bindings.
+Depart-at, arrive-by, departure windows, transport modes, waypoints, batch work, realtime state, and supplied traffic are options or Scenario state. They are not separate products.
 
-Python bindings are a separate project. They may invoke a packaged VIGO
-runtime, but no Python package or second routing implementation belongs in this
-repository.
+### Compare change
+
+A Scenario is an immutable set of changes applied to one City revision. Compare acts on compatible Results from the unchanged City and a Scenario, or from two City revisions.
+
+Reach describes modeled network reach. VIGO reserves the word Accessibility for analyses that also include opportunities such as jobs, population, schools, or healthcare.
+
+## VIGO Studio
+
+VIGO Studio is the visual application:
+
+- **Explore** — map the City and inspect services, stops, stations, schedules, and live state.
+- **Route** — plan and explain point-to-point journeys.
+- **Analyze** — run Reach and compare service sources or planned changes.
+- **City** — manage data and settings.
+
+Matrix is available through the command line and VIGO Python in VIGO 0.3. Technical details appear with the Result that needs them, not as separate work areas.
+
+## VIGO Python
+
+VIGO Python is the separately installed Python interface. It uses the same nouns as Studio and the command line.
+
+```python
+import vigo
+
+with vigo.open("./washington-dc") as city:
+    route = city.route(
+        "A",
+        "B",
+        depart_at="08:00",
+        service_date="2026-09-04",
+    )
+    matrix = city.matrix(
+        {"home": "A"},
+        {"school": "B", "hospital": "C"},
+        depart_at="08:00",
+        service_date="2026-09-04",
+    )
+    reach = city.reach(
+        [-77.0365, 38.8977],
+        depart_at="08:00",
+        service_date="2026-09-04",
+    )
+```
+
+VIGO Python installs and imports as `vigo`.
+
+## Command line
+
+```text
+vigo build
+vigo capabilities
+vigo inspect
+vigo route
+vigo matrix
+vigo reach
+vigo compare
+```
+
+Example:
+
+```bash
+vigo build \
+  --gtfs ./feed.zip \
+  --osm ./region.osm.pbf \
+  --output ./city
+
+vigo route \
+  --city ./city \
+  --request ./route.json \
+  --service-date 2026-09-04
+```
+
+VIGO opens the selected City and manages query readiness automatically.
 
 ## Build from source
 
-The currently configured source targets are Apple-silicon macOS 13.5 or newer,
-Linux x64, and Windows x64. You need Git, Node.js 24.18.0 or newer, npm 11.6.2,
-and rustup; `rust-toolchain.toml` pins Rust, Clippy, and rustfmt. The repository's
-`.nvmrc`, package metadata, install preflight, and CI use the Node 24 baseline.
-Linux requires a GNU C toolchain; Windows requires the MSVC build tools. The
-packaged desktop artifact remains Apple-silicon macOS-only.
+The source build requires Node.js 24.18 or newer, npm 11.6 or newer, and the Rust toolchain selected by `rust-toolchain.toml`.
 
 ```bash
 git clone https://github.com/hytangs/vigo.git
@@ -92,60 +125,42 @@ npm test
 npm run dev
 ```
 
-The workbench opens at <http://127.0.0.1:5178> and the loopback API listens at
-<http://127.0.0.1:5179>. Python is not required.
+`npm run dev` starts the browser development view. To run the desktop application
+against the built files, use `npm run studio`.
 
-For a slower, explicit walkthrough, including raw GTFS and OSM inputs, read the
-[Quick Start](docs/quickstart.md). The [CLI tutorials](docs/tutorials/cli/README.md)
-cover network compilation, routing, matrices, and NDJSON streaming.
-
-## Interfaces
-
-| Interface | Entry point | Reference |
-| --- | --- | --- |
-| CLI | `npm run cli -- --help` after `npm run build` | [CLI contract](docs/vigo-cli.md) |
-| HTTP | `npm run api` | [Local HTTP API](docs/local-http-api.md) |
-| Workbench | `npm run dev` | [Quick Start](docs/quickstart.md) |
-| Native kernel | `native/vigo-routing-kernel/` | [Architecture](docs/development/architecture.md) |
-
-The HTTP service is designed for loopback use. It is not a hardened public
-network service.
-
-## Verification
-
-The public tree has three useful gates:
+Build the standalone desktop application with:
 
 ```bash
-npm test                 # public-boundary and development checks
-npm run check:release    # extended portable release checks
-npm run release:macos    # build and verify the standalone macOS archive
+npm run build:studio
 ```
 
-`npm run check:public` rejects excluded publication material, archives,
-notebooks, private paths, experimental harnesses, and common secret
-formats. Tests validate the declared software contract; they are not evidence
-of real-world service quality or universal GTFS support.
+The packaged VIGO Studio uses an internal memory channel between its interface
+and VIGO Engine. It does not open a local server port.
 
-## Project layout
+## Performance language
 
-| Path | Purpose |
-| --- | --- |
-| `native/vigo-routing-kernel/` | Rust timetable, street, and accessibility kernel |
-| `server/` | Local API, workers, stores, and response shaping |
-| `src/` | React workbench |
-| `scripts/` | Supported builds, packaging, and focused verification |
-| `docs/` | Current user and technical documentation |
+VIGO reports four different durations:
 
-Generated output belongs in ignored directories such as `dist/`, `dist-cli/`,
-`release/`, and Cargo `target/`; it must not be committed.
+- **Build** — source data becomes a City.
+- **Open** — a City revision becomes ready for queries.
+- **Compute** — the selected Route, Matrix, or Reach runs.
+- **End to end** — submission through complete Result.
 
-## Contributing
+Repeated Route calls may reuse one open process. VIGO does not present reuse as Query compute time.
 
-VIGO is still being prepared for public collaboration. Small, focused issues
-and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before
-changing routing behavior or data formats.
+## Documentation
 
-## License
+- [VIGO 0.3.0 Quickstart](docs/quickstart.md)
+- [VIGO 0.3.0 Developer Guide source](docs/developer-guide/VIGO-0.3.0-Developer-Guide.tex) — build the PDF with `npm run docs:developer-guide`
+- [Core concepts](docs/concepts.md)
+- [VIGO Studio Guide](docs/studio.md)
+- [Command line and VIGO Python](docs/programmatic.md)
+- [Data support](docs/gtfs-support-matrix.md)
+- [Known limits](docs/known-routing-limitations.md)
+- [Internal architecture](docs/development/architecture.md)
 
-VIGO is licensed under the [Apache License 2.0](LICENSE). Third-party
-attributions are retained in [NOTICE](NOTICE) and beside vendored dependencies.
+## Repository
+
+This repository contains VIGO Studio, the native computation core, the command line, build tools, tests, and documentation. It does not contain private data, unpublished comparisons, or the Python binding.
+
+VIGO is licensed under the [Apache License 2.0](LICENSE).

@@ -23,7 +23,7 @@ export type MapFirstRenderTracker = {
   basemapFailedAt?: number
 }
 
-export type MapFirstRenderTimings = {
+type MapFirstRenderTimings = {
   navigationToMapMountMs: number
   featureProcessingMs: number
   mapLoadMs?: number

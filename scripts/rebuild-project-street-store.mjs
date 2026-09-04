@@ -8,12 +8,15 @@ import {
   disposeNationalOsmStore,
   nationalOsmStoreDiagnostics,
   prepareNationalOsmNativeStore,
-} from '../server/national-osm-store.mjs'
+} from '../src/server/national-osm-store.mjs'
 import {
   ensureNationalGtfsOsmStopTransfers,
   readNationalGtfsStoreMetadata,
-} from '../server/national-gtfs-store.mjs'
-import { buildNativeStreetCchIndex } from '../server/native-routing-kernel.mjs'
+} from '../src/server/national-gtfs-store.mjs'
+import {
+  buildNativeStreetCchIndex,
+  normalizeNativeMilliseconds,
+} from '../src/server/native-routing-kernel.mjs'
 import { readProjectRoutingIdentity } from './lib/project-routing-store.mjs'
 
 function argValue(name, fallback = '') {
@@ -46,20 +49,16 @@ function compactCch(result) {
     edgeCount: result.edgeCount,
     cchArcCount: result.cchArcCount,
     distanceUnitsPerMeter: result.loaded?.distanceUnitsPerMeter ?? result.distanceUnitsPerMeter,
-    orderMs: Number(result.orderNs ?? 0) / 1e6,
-    buildMs: Number(result.structureNs ?? 0) / 1e6,
-    customizeMs: Number(result.customizationNs ?? 0) / 1e6,
-    persistMs: Number(result.persistenceNs ?? 0) / 1e6,
+    orderMs: normalizeNativeMilliseconds(result.orderNs),
+    buildMs: normalizeNativeMilliseconds(result.structureNs),
+    customizeMs: normalizeNativeMilliseconds(result.customizationNs),
+    persistMs: normalizeNativeMilliseconds(result.persistenceNs),
     structureFile: path.basename(result.structurePath),
     metricFile: path.basename(result.metricPath),
   }
 }
 
-function projectStreetMetadata(result, pbfPath, cch, previous) {
-  const preserveDatasetFingerprint = (
-    previous?.sourceFingerprint === result.sourceFingerprint
-    && previous?.datasetFingerprint
-  )
+function projectStreetMetadata(result, pbfPath, cch) {
   return {
     schemaVersion: result.schemaVersion,
     status: 'ready',
@@ -67,7 +66,6 @@ function projectStreetMetadata(result, pbfPath, cch, previous) {
     sourceModel: result.sourceModel,
     sourceBytes: result.sourceBytes,
     sourceFingerprint: result.sourceFingerprint,
-    sourceSha256: result.sourceFingerprint,
     bytes: result.bytes,
     storageLayout: result.storageLayout,
     runtimeCompaction: result.runtimeCompaction,
@@ -87,7 +85,6 @@ function projectStreetMetadata(result, pbfPath, cch, previous) {
     uncertainConveyingWayCount: result.uncertainConveyingWayCount,
     cch,
     builtAt: result.builtAt,
-    ...(preserveDatasetFingerprint ? { datasetFingerprint: previous.datasetFingerprint } : {}),
   }
 }
 
@@ -174,15 +171,9 @@ try {
         maximumNeighbors: osmStopTransfers.maximumNeighbors,
       },
     }
-    if (project.osmStreetIndex?.sourceFingerprint !== sealedStreetResult.sourceFingerprint) {
-      delete routingStore.datasetFingerprint
-    }
     const feeds = (project.feeds ?? []).map((feed) => {
       if (path.basename(feed.routingStore?.fileName ?? '') !== path.basename(identity.storePath)) return feed
       const feedRoutingStore = { ...feed.routingStore, ...routingStore }
-      if (project.osmStreetIndex?.sourceFingerprint !== sealedStreetResult.sourceFingerprint) {
-        delete feedRoutingStore.datasetFingerprint
-      }
       return { ...feed, routingStore: feedRoutingStore }
     })
     const updatedProject = {
@@ -194,7 +185,6 @@ try {
         sealedStreetResult,
         pbfPath,
         cch,
-        project.osmStreetIndex,
       ),
     }
     await atomicWriteJson(identity.metadataPath, updatedProject)
@@ -206,7 +196,7 @@ try {
       source: {
         path: pbfPath,
         bytes: pbfStats.size,
-        sha256: sealedStreetResult.sourceFingerprint,
+        sourceFingerprint: sealedStreetResult.sourceFingerprint,
       },
       previousStreetStore: project.osmStreetIndex,
       streetStore: updatedProject.osmStreetIndex,

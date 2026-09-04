@@ -2,8 +2,8 @@ import { formatNumber, type MapPreview, type VigoProject } from '../../domain'
 import { routeListLabel } from '../../app/routePresentation'
 import { findNetworkSearchHits, type NetworkSearchIndex } from '../../routingUi'
 
-export type SearchResultKind = 'route' | 'stop' | 'workspace' | 'command'
-export type SearchResultGroup = 'recent' | 'routes' | 'stops' | 'workspaces' | 'commands'
+type SearchResultKind = 'route' | 'stop' | 'city' | 'command'
+type SearchResultGroup = 'recent' | 'routes' | 'stops' | 'cities' | 'commands'
 
 export type SearchResult = {
   id: string
@@ -29,7 +29,7 @@ export const searchGroupLabels: Record<SearchResultGroup, string> = {
   recent: 'Recent',
   routes: 'Services',
   stops: 'Stops',
-  workspaces: 'Networks',
+  cities: 'Cities',
   commands: 'Actions',
 }
 
@@ -51,12 +51,12 @@ const searchCommands: SearchCommand[] = [
     keywords: 'route trip journey directions pathfinder origin destination plan',
   },
   {
-    id: 'command:accessibility',
+    id: 'command:analyze',
     kind: 'command',
     group: 'commands',
-    title: 'Evaluate access',
-    subtitle: 'Compare access and scenario evidence',
-    keywords: 'evidence access accessibility scenario intervention analysis',
+    title: 'Analyze Reach',
+    subtitle: 'Compute Reach or compare Scenarios',
+    keywords: 'reach scenario compare network analysis',
   },
   {
     id: 'command:data',
@@ -75,12 +75,12 @@ const searchCommands: SearchCommand[] = [
     keywords: 'settings preferences appearance theme runtime storage configure',
   },
   {
-    id: 'command:workspaces',
+    id: 'command:cities',
     kind: 'command',
     group: 'commands',
-    title: 'All networks',
-    subtitle: 'Switch or manage workspaces',
-    keywords: 'networks workspaces projects switch manage all',
+    title: 'All Cities',
+    subtitle: 'Open or manage Cities',
+    keywords: 'cities switch manage all',
   },
 ]
 
@@ -98,13 +98,13 @@ function commandResult(command: SearchCommand, group = command.group): SearchRes
   return { ...result, group }
 }
 
-function workspaceResult(project: VigoProject, group: SearchResultGroup = 'workspaces'): SearchResult {
+function cityResult(project: VigoProject, group: SearchResultGroup = 'cities'): SearchResult {
   return {
-    id: `workspace:${project.id}`,
-    kind: 'workspace',
+    id: `city:${project.id}`,
+    kind: 'city',
     group,
     title: project.name,
-    subtitle: `${formatNumber(project.summary.routes)} services · ${project.region || 'Local workspace'}`,
+    subtitle: `${formatNumber(project.summary.routes)} services · ${project.region || 'Local City'}`,
   }
 }
 
@@ -140,16 +140,16 @@ function recentResult(
 ): SearchResult | null {
   const command = searchCommands.find((item) => item.id === id)
   if (command) return commandResult(command, 'recent')
-  if (id.startsWith('workspace:')) {
-    const project = projects.find((item) => item.id === id.slice('workspace:'.length))
-    return project ? workspaceResult(project, 'recent') : null
-  }
   if (id.startsWith('route:')) return routeResult(preview, id.slice('route:'.length), 'recent')
   if (id.startsWith('stop:')) return stopResult(preview, id.slice('stop:'.length), 'recent')
+  if (id.startsWith('city:')) {
+    const city = projects.find((item) => item.id === id.slice('city:'.length))
+    return city ? cityResult(city, 'recent') : null
+  }
   return null
 }
 
-function workspaceMatchScore(project: VigoProject, query: string) {
+function cityMatchScore(project: VigoProject, query: string) {
   const fields = [project.name, project.region, project.id].map(normalize)
   if (fields.some((value) => value === query)) return 3
   if (fields.some((value) => value.startsWith(query))) return 2
@@ -195,15 +195,15 @@ export function buildSearchResults({
   }))
   const routes = networkResults.filter((result) => result.kind === 'route')
   const stops = networkResults.filter((result) => result.kind === 'stop')
-  const workspaces = projects
-    .map((project) => ({ project, score: workspaceMatchScore(project, normalizedQuery) }))
+  const cities = projects
+    .map((project) => ({ project, score: cityMatchScore(project, normalizedQuery) }))
     .filter(({ score }) => score > 0)
     .sort((left, right) => right.score - left.score || left.project.name.localeCompare(right.project.name))
     .slice(0, 4)
-    .map(({ project }) => workspaceResult(project))
+    .map(({ project }) => cityResult(project))
   const commands = searchCommands
     .filter((command) => normalize(`${command.title} ${command.subtitle} ${command.keywords}`).includes(normalizedQuery))
     .map((command) => commandResult(command))
 
-  return uniqueResults([...routes, ...stops, ...workspaces, ...commands]).slice(0, 16)
+  return uniqueResults([...routes, ...stops, ...cities, ...commands]).slice(0, 16)
 }

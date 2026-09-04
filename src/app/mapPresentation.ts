@@ -1,4 +1,5 @@
-import type { LngLat, StopMetric } from '../domain'
+import type { GtfsRouteStatusFilter, LngLat, MapPreview, RouteMetric, StopMetric } from '../domain'
+import { scopedRouteServiceKey, type RouteRenderMode } from '../routeServices'
 import { coordinateDistanceKm } from './geometry'
 
 export function inferredRouteJumpThresholdKm(distancesKm: number[]) {
@@ -127,4 +128,50 @@ export function spatiallySampleStops(stops: StopMetric[], limit: number, retaine
     sampled.push(...evenlySampleStops(candidates.filter((stop) => !sampledIds.has(stop.id)), boundedLimit - sampled.length))
   }
   return sampled
+}
+
+export function filterPreviewByStatus(preview: MapPreview, statusFilter: GtfsRouteStatusFilter): MapPreview {
+  if (statusFilter === 'all') return preview
+  const routes = preview.routes.filter((route) => route.status === statusFilter)
+  const visibleRouteRefs = new Set(routes.flatMap((route) => [
+    route.id,
+    route.routeId ?? route.id,
+    route.patternId ?? route.id,
+    route.shortName,
+  ]))
+  const visibleStopIds = new Set(routes.flatMap((route) => route.stopIds))
+  const visiblePatternIds = new Set(routes.map((route) => route.id))
+
+  return {
+    routes,
+    stops: preview.stops.filter((stop) => (
+      stop.routes.some((routeId) => visibleRouteRefs.has(routeId)) || visibleStopIds.has(stop.id)
+    )),
+    stopPairs: (preview.stopPairs ?? []).filter((pair) => visiblePatternIds.has(pair.patternId)),
+    coverage: preview.coverage,
+  }
+}
+
+export function previewForSelectedRoute(
+  preview: MapPreview,
+  selectedRoute?: RouteMetric,
+  renderMode: RouteRenderMode = 'service',
+): MapPreview {
+  if (!selectedRoute) return preview
+
+  const selectedPattern = preview.routes.find((route) => (
+    route.id === selectedRoute.id || route.patternId === selectedRoute.patternId
+  )) ?? selectedRoute
+  const routes = renderMode === 'pattern'
+    ? [selectedPattern]
+    : preview.routes.filter((route) => scopedRouteServiceKey(route) === scopedRouteServiceKey(selectedPattern))
+  const routeIds = new Set(routes.flatMap((route) => [route.id, route.patternId ?? route.id]))
+  const stopIds = new Set(routes.flatMap((route) => route.stopIds))
+
+  return {
+    routes,
+    stops: preview.stops.filter((stop) => stopIds.has(stop.id)),
+    stopPairs: (preview.stopPairs ?? []).filter((pair) => routeIds.has(pair.patternId)),
+    coverage: preview.coverage,
+  }
 }

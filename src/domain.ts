@@ -176,6 +176,7 @@ export type RouteMetric = {
   patternRank?: number
   serviceVariantCount?: number
   analysisSource?: 'atlas' | 'focused'
+  analysisServiceDate?: string
   geometrySource?: GeometrySource
   distanceKm?: number
   scheduledSpeedKph?: number
@@ -341,7 +342,6 @@ export type FeedSummary = {
   source: 'local-file' | 'url' | 'bundle'
   fileName: string
   fileSize: number
-  hash: string
   qualityScore: number
   routeCount: number
   stopCount: number
@@ -362,7 +362,6 @@ export type FeedSummary = {
     bytes: number
     connectionCount: number
     builtAt: string
-    sourceFingerprint?: string
     blockingRoutingFeatures?: Array<{ code: string; count: number; detail: string }>
     routingLimitations?: Array<{ code: string; count?: number; exactness?: string; detail: string }>
   }
@@ -430,7 +429,6 @@ export type VigoProject = {
     status: 'building' | 'ready' | 'failed'
     fileName: string
     sourceBytes: number
-    sourceFingerprint?: string
     bytes: number
     storageLayout?: string
     runtimeCompaction?: {
@@ -495,10 +493,10 @@ export const basemapShortLabels: Record<Basemap, string> = {
 
 export const basemapDescriptions: Record<Basemap, string> = {
   none: 'Clean analysis canvas with no geographic backdrop.',
-  offline: 'Street geometry from this workspace’s imported OSM PBF; no labels or network tiles.',
+  offline: 'Street geometry from this City’s imported OSM PBF; no labels or network tiles.',
   minimal: 'Quiet light OSM-derived context for route and stop review.',
   streets: 'Standard OpenStreetMap context; requires a network connection.',
-  dark: 'Dark OSM-derived context for the dark VIGO workspace.',
+  dark: 'Dark OSM-derived context for this City.',
   terrain: 'Modern, higher-contrast OSM-derived context with more place detail.',
 }
 

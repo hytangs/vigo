@@ -16,26 +16,11 @@
 }
 
 .topbar-brand {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
-
-.topbar-brand {
   color: var(--text-strong);
 }
 
 .topbar-mark-button {
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  background: transparent;
   cursor: pointer;
-}
-
-.topbar-mark-button:hover {
-  background: color-mix(in srgb, var(--panel-strong) 54%, transparent);
 }
 
 .vigo-mark {
@@ -45,13 +30,6 @@
 .topbar-brand span {
   color: var(--text-muted);
   font-weight: 860;
-}
-
-.topbar-brand b {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* Sidebar */
@@ -394,7 +372,7 @@
 }
 
 /* Projects */
-/* Project/workspace home surfaces and project-level browser views. */
+/* Project/surface home surfaces and project-level browser views. */
 .topbar-actions {
   min-width: 0;
   justify-content: flex-end;
@@ -477,7 +455,7 @@
   overflow: auto;
 }
 
-.workspace-source-intake {
+.surface-source-intake {
   width: min(820px, 100%);
   min-height: 100%;
   display: grid;
@@ -493,17 +471,17 @@
   box-shadow: var(--shadow-soft);
 }
 
-.workspace-source-intake-copy {
+.surface-source-intake-copy {
   display: grid;
   gap: 8px;
 }
 
-.workspace-source-intake-copy h1,
-.workspace-source-intake-copy p {
+.surface-source-intake-copy h1,
+.surface-source-intake-copy p {
   margin: 0;
 }
 
-.workspace-source-intake-copy h1 {
+.surface-source-intake-copy h1 {
   max-width: 16ch;
   color: var(--text-strong);
   font-size: clamp(2rem, 5vw, 4rem);
@@ -512,7 +490,7 @@
   letter-spacing: -0.04em;
 }
 
-.workspace-source-intake-copy p {
+.surface-source-intake-copy p {
   max-width: 54ch;
   color: var(--text-muted);
   font-size: 0.88rem;
@@ -520,13 +498,13 @@
   line-height: 1.5;
 }
 
-.workspace-source-statuses {
+.surface-source-statuses {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 10px;
 }
 
-.workspace-source-status {
+.surface-source-status {
   min-width: 0;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -538,12 +516,12 @@
   background: color-mix(in srgb, var(--panel-strong) 68%, transparent);
 }
 
-.workspace-source-status.is-ready {
+.surface-source-status.is-ready {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
   background: color-mix(in srgb, var(--accent) 9%, var(--panel-strong));
 }
 
-.workspace-source-status-icon {
+.surface-source-status-icon {
   display: grid;
   place-items: center;
   width: 30px;
@@ -553,42 +531,42 @@
   background: color-mix(in srgb, var(--text-muted) 10%, transparent);
 }
 
-.workspace-source-status.is-ready .workspace-source-status-icon {
+.surface-source-status.is-ready .surface-source-status-icon {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
-.workspace-source-status-copy {
+.surface-source-status-copy {
   min-width: 0;
   display: grid;
   gap: 3px;
 }
 
-.workspace-source-status-copy strong,
-.workspace-source-status-copy small {
+.surface-source-status-copy strong,
+.surface-source-status-copy small {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.workspace-source-status-copy strong {
+.surface-source-status-copy strong {
   color: var(--text-strong);
   font-size: 0.78rem;
   font-weight: 880;
 }
 
-.workspace-source-status-copy small {
+.surface-source-status-copy small {
   color: var(--text-muted);
   font-size: 0.66rem;
   font-weight: 730;
 }
 
-.workspace-source-status .status-badge {
+.surface-source-status .status-badge {
   justify-self: end;
 }
 
-.workspace-source-hint {
+.surface-source-hint {
   margin: 0;
   color: var(--text-muted);
   font-size: 0.72rem;
@@ -742,7 +720,7 @@
 }
 
 /* Dialogs */
-/* Project setup, drawers, evidence tasks, and feed table contracts. */
+/* City setup, drawers, detail tasks, and feed tables. */
 .project-dialog-layer {
   position: fixed;
   inset: 0;
@@ -1052,27 +1030,27 @@
   }
 }
 
-.feed-table-contract {
+.feed-table-panel {
   grid-column: 1 / -1;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
-.feed-table-contract .panel-heading h2 + p {
+.feed-table-panel .panel-heading h2 + p {
   margin: 3px 0 0;
   color: var(--text-muted);
   font-size: 0.58rem;
   font-weight: 620;
 }
 
-.table-contract-list {
+.feed-table-list {
   min-width: 0;
   display: grid;
   gap: 6px;
   padding: 8px;
 }
 
-.table-contract-row {
+.feed-table-row {
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1084,55 +1062,55 @@
   background: color-mix(in srgb, var(--panel-soft) 62%, transparent);
 }
 
-.table-contract-row.is-missing {
+.feed-table-row.is-missing {
   opacity: 0.58;
 }
 
-.table-contract-row.is-tides {
+.feed-table-row.is-tides {
   border-color: color-mix(in srgb, var(--accent-2) 34%, var(--border));
   background: color-mix(in srgb, var(--accent-2) 7%, var(--panel-soft));
 }
 
-.table-contract-row > span {
+.feed-table-row > span {
   min-width: 0;
   display: grid;
   gap: 2px;
 }
 
-.table-contract-row strong,
-.table-contract-row small {
+.feed-table-row strong,
+.feed-table-row small {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.table-contract-row strong {
+.feed-table-row strong {
   color: var(--text-strong);
   font-size: 0.72rem;
   font-weight: 870;
 }
 
-.table-contract-row small {
+.feed-table-row small {
   color: var(--text-muted);
   font-size: 0.58rem;
   font-weight: 760;
 }
 
-.table-contract-row b {
+.feed-table-row b {
   color: var(--text-strong);
   font-size: 0.7rem;
   font-weight: 900;
 }
 
-.table-contract-status {
+.feed-table-status {
   min-width: 86px;
   display: grid;
   justify-items: end;
   gap: 3px;
 }
 
-.table-contract-status em {
+.feed-table-status em {
   padding: 2px 5px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -1145,7 +1123,7 @@
   text-transform: uppercase;
 }
 
-.table-contract-row:not(.is-missing) .table-contract-status em {
+.feed-table-row:not(.is-missing) .feed-table-status em {
   color: var(--success);
   border-color: color-mix(in srgb, var(--success) 28%, var(--border));
 }
@@ -1174,7 +1152,7 @@
 
 /* Panels */
 /* Shared workbench panels, feed import, bundle, and metrics surfaces. */
-.workspace-panel {
+.surface-panel {
   min-width: 0;
   min-height: 0;
   overflow: hidden;

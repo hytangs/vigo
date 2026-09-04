@@ -213,7 +213,7 @@ export function ExploreObjectPanel({
 
   if (selectedStop && !selectedRoute) {
     return (
-      <section className="sidebar-section object-detail" aria-label="Selected stop evidence">
+      <section className="sidebar-section object-detail" aria-label="Selected stop details">
         <div className="object-detail-head">
           <span>Stop</span>
           <button type="button" onClick={onClearSelection}>Clear</button>
@@ -267,7 +267,7 @@ export function ExploreObjectPanel({
     : route.spanHours
 
   return (
-    <section className="sidebar-section object-detail" aria-label="Selected route evidence">
+    <section className="sidebar-section object-detail" aria-label="Selected route details">
       <div className="object-detail-head" style={{ '--route-color': route.color } as CSSProperties}>
         <span>{routeModeLabel(route.routeType)}</span>
         <button type="button" onClick={onClearSelection}>Clear</button>

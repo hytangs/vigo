@@ -1,4 +1,4 @@
-export type WorkspaceStatus =
+export type ActivityStatus =
   | 'idle'
   | 'preparing'
   | 'ready'
@@ -7,14 +7,14 @@ export type WorkspaceStatus =
   | 'error'
   | 'cancelled'
 
-export type WorkspaceStatusTone = 'neutral' | 'progress' | 'positive' | 'warning' | 'danger'
+type ActivityStatusTone = 'neutral' | 'progress' | 'positive' | 'warning' | 'danger'
 
-export type WorkspaceStatusMeta = {
+type ActivityStatusMeta = {
   label: string
-  tone: WorkspaceStatusTone
+  tone: ActivityStatusTone
 }
 
-const statusMeta: Record<WorkspaceStatus, WorkspaceStatusMeta> = {
+const statusMeta: Record<ActivityStatus, ActivityStatusMeta> = {
   idle: { label: 'Not ready', tone: 'neutral' },
   preparing: { label: 'Preparing', tone: 'progress' },
   ready: { label: 'Ready', tone: 'positive' },
@@ -24,12 +24,12 @@ const statusMeta: Record<WorkspaceStatus, WorkspaceStatusMeta> = {
   cancelled: { label: 'Cancelled', tone: 'neutral' },
 }
 
-export function workspaceStatusMeta(status: WorkspaceStatus): WorkspaceStatusMeta {
+export function activityStatusMeta(status: ActivityStatus): ActivityStatusMeta {
   return statusMeta[status]
 }
 
 /** Normalize backend, job, and routing vocabulary before it reaches the UI. */
-export function normalizeWorkspaceStatus(value: unknown): WorkspaceStatus {
+function normalizeActivityStatus(value: unknown): ActivityStatus {
   switch (String(value ?? '').trim().toLowerCase()) {
     case 'queued':
     case 'running':
@@ -70,10 +70,10 @@ export function normalizeWorkspaceStatus(value: unknown): WorkspaceStatus {
   }
 }
 
-export function statusFromJobStatus(value: unknown): WorkspaceStatus {
-  return normalizeWorkspaceStatus(value)
+export function statusFromJobStatus(value: unknown): ActivityStatus {
+  return normalizeActivityStatus(value)
 }
 
-export function statusFromStoreStatus(value: unknown): WorkspaceStatus {
-  return normalizeWorkspaceStatus(value)
+export function statusFromStoreStatus(value: unknown): ActivityStatus {
+  return normalizeActivityStatus(value)
 }

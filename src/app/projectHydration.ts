@@ -26,10 +26,10 @@ export function useProjectDetailHydration({
   const projectDetailRequestsRef = useRef(new Map<string, ProjectDetailRequest>())
   const projectsRef = useRef(projects)
   const selectedProjectIdRef = useRef(selectedProjectId)
-  const workspaceSelectionVersionRef = useRef(0)
-  const activeWorkspaceProjectIdRef = useRef('')
+  const citySelectionVersionRef = useRef(0)
+  const activeCityProjectIdRef = useRef('')
   const callbacksRef = useRef({ onSelectProject, onError })
-  const [workspacePreviewLoadingProjectId, setWorkspacePreviewLoadingProjectId] = useState('')
+  const [cityPreviewLoadingProjectId, setCityPreviewLoadingProjectId] = useState('')
 
   projectsRef.current = projects
   selectedProjectIdRef.current = selectedProjectId
@@ -66,41 +66,41 @@ export function useProjectDetailHydration({
   function cancelProjectDetail(projectId: string) {
     projectDetailRequestsRef.current.get(projectId)?.controller.abort()
     projectDetailRequestsRef.current.delete(projectId)
-    if (activeWorkspaceProjectIdRef.current === projectId) {
-      workspaceSelectionVersionRef.current += 1
-      setWorkspacePreviewLoadingProjectId('')
+    if (activeCityProjectIdRef.current === projectId) {
+      citySelectionVersionRef.current += 1
+      setCityPreviewLoadingProjectId('')
     }
   }
 
-  function beginWorkspaceSelection(projectId: string, projectSnapshot?: VigoProject[]) {
+  function beginCitySelection(projectId: string, projectSnapshot?: VigoProject[]) {
     if (!projectId) return
     if (projectSnapshot) projectsRef.current = projectSnapshot
 
-    const previousProjectId = activeWorkspaceProjectIdRef.current
+    const previousProjectId = activeCityProjectIdRef.current
     if (previousProjectId && previousProjectId !== projectId) cancelProjectDetail(previousProjectId)
 
-    const selectionVersion = workspaceSelectionVersionRef.current + 1
-    workspaceSelectionVersionRef.current = selectionVersion
-    activeWorkspaceProjectIdRef.current = projectId
+    const selectionVersion = citySelectionVersionRef.current + 1
+    citySelectionVersionRef.current = selectionVersion
+    activeCityProjectIdRef.current = projectId
     selectedProjectIdRef.current = projectId
     callbacksRef.current.onSelectProject(projectId)
-    setWorkspacePreviewLoadingProjectId(projectId)
+    setCityPreviewLoadingProjectId(projectId)
 
     void ensureProjectDetail(projectId).then(() => {
       if (
-        workspaceSelectionVersionRef.current !== selectionVersion ||
-        activeWorkspaceProjectIdRef.current !== projectId ||
+        citySelectionVersionRef.current !== selectionVersion ||
+        activeCityProjectIdRef.current !== projectId ||
         selectedProjectIdRef.current !== projectId
       ) return
-      setWorkspacePreviewLoadingProjectId('')
+      setCityPreviewLoadingProjectId('')
     }).catch((error) => {
       if (error instanceof DOMException && error.name === 'AbortError') return
       if (
-        workspaceSelectionVersionRef.current !== selectionVersion ||
-        activeWorkspaceProjectIdRef.current !== projectId ||
+        citySelectionVersionRef.current !== selectionVersion ||
+        activeCityProjectIdRef.current !== projectId ||
         selectedProjectIdRef.current !== projectId
       ) return
-      setWorkspacePreviewLoadingProjectId('')
+      setCityPreviewLoadingProjectId('')
       callbacksRef.current.onError(error instanceof Error ? error.message : 'Project detail unavailable')
     })
   }
@@ -111,9 +111,9 @@ export function useProjectDetailHydration({
   }, [])
 
   return {
-    beginWorkspaceSelection,
+    beginCitySelection,
     cancelProjectDetail,
     ensureProjectDetail,
-    workspacePreviewLoadingProjectId,
+    cityPreviewLoadingProjectId,
   }
 }

@@ -294,8 +294,7 @@
   .app-shell .topbar,
   .app-shell.page-project .topbar,
   .page-projects .topbar,
-  .project-empty .topbar,
-  [data-vigo-native="macos"] .topbar {
+  .project-empty .topbar {
     grid-template-columns: 36px minmax(0, 1fr) 36px;
     gap: 6px;
     padding: 6px 7px;

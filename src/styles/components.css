@@ -1,10 +1,10 @@
-/* Application chrome and workspace controls */
+/* Application chrome and surface controls */
 .app-shell {
   position: relative;
   isolation: isolate;
 }
 
-.workspace-panel,
+.surface-panel,
 .sidebar-panel-head,
 .project-dialog {
   border-color: color-mix(in srgb, var(--accent-2) 13%, var(--border));
@@ -61,10 +61,10 @@
 
 .route-investigation-shell {
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--workspace-bg) 78%, transparent), var(--workspace-bg));
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-bg) 78%, transparent), var(--surface-bg));
 }
 
-.workspace-panel {
+.surface-panel {
   border-radius: 12px;
 }
 
@@ -136,15 +136,15 @@
   border-radius: 7px;
 }
 
-.workspace-panel,
+.surface-panel,
 .sidebar-panel-head,
 .project-dialog {
   border-radius: 8px;
 }
 
-/* Operational workspace: map-first, flat tool surfaces, no nested card field. */
+/* Operational surface: map-first, flat tool surfaces, no nested card field. */
 .page-project .shell-body {
-  background: var(--workspace-bg);
+  background: var(--surface-bg);
 }
 
 .page-project .app-sidebar {
@@ -172,10 +172,10 @@
 }
 
 .route-investigation-shell,
-.route-workspace,
+.route-surface,
 .route-map-shell {
   border-radius: 0;
-  background: var(--workspace-bg);
+  background: var(--surface-bg);
 }
 
 .route-map-shell .map-stage,
@@ -255,15 +255,11 @@
   margin-left: 0;
 }
 
-.topbar-brand b {
-  text-transform: none;
-}
-
 .topbar-actions {
   gap: 5px;
 }
 
-.workspace-exit-action {
+.surface-exit-action {
   white-space: nowrap;
 }
 
@@ -436,7 +432,7 @@
   }
 }
 
-/* Simplified workspace switcher. */
+/* Simplified surface switcher. */
 .page-projects .shell-body,
 .project-empty .shell-body {
   grid-template-columns: minmax(0, 1fr) !important;
@@ -466,17 +462,17 @@
   display: block;
   padding: clamp(22px, 4vw, 52px);
   overflow: auto;
-  background: var(--workspace-bg);
+  background: var(--surface-bg);
 }
 
-.workspace-switcher-head,
-.workspace-switcher-list,
+.surface-switcher-head,
+.surface-switcher-list,
 .project-switcher > .project-empty-state {
   width: min(880px, 100%);
   margin-inline: auto;
 }
 
-.workspace-switcher-head {
+.surface-switcher-head {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -485,12 +481,12 @@
   border-bottom: 1px solid var(--border);
 }
 
-.workspace-switcher-head h1,
-.workspace-switcher-head p {
+.surface-switcher-head h1,
+.surface-switcher-head p {
   margin: 0;
 }
 
-.workspace-switcher-head h1 {
+.surface-switcher-head h1 {
   color: var(--text-strong);
   font-size: clamp(1.28rem, 2.2vw, 1.65rem);
   font-weight: 720;
@@ -498,34 +494,34 @@
   line-height: 1.2;
 }
 
-.workspace-switcher-head p {
+.surface-switcher-head p {
   margin-top: 5px;
   color: var(--text-muted);
   font-size: 0.72rem;
   line-height: 1.45;
 }
 
-.workspace-switcher-actions {
+.surface-switcher-actions {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.workspace-switcher-actions .icon-button {
+.surface-switcher-actions .icon-button {
   width: var(--pq-control-height);
   min-width: var(--pq-control-height);
   height: var(--pq-control-height);
 }
 
-.workspace-switcher-list {
+.surface-switcher-list {
   position: relative;
   display: grid;
   gap: 1px;
   padding-top: 10px;
 }
 
-.workspace-switcher-row {
+.surface-switcher-row {
   min-width: 0;
   min-height: 70px;
   display: grid;
@@ -534,7 +530,7 @@
   border: 1px solid transparent;
 }
 
-.workspace-switcher-open {
+.surface-switcher-open {
   min-width: 0;
   display: grid;
   grid-template-columns: 10px minmax(150px, 1.15fr) minmax(180px, 0.85fr) 20px;
@@ -549,11 +545,11 @@
   text-align: left;
 }
 
-.workspace-switcher-open:hover {
+.surface-switcher-open:hover {
   background: transparent;
 }
 
-.workspace-readiness-dot {
+.surface-readiness-dot {
   width: 8px;
   height: 8px;
   border: 1px solid var(--border-strong);
@@ -561,45 +557,45 @@
   background: var(--text-muted);
 }
 
-.workspace-readiness-dot.is-ready {
+.surface-readiness-dot.is-ready {
   border-color: color-mix(in srgb, var(--success) 66%, var(--border));
   background: var(--success);
 }
 
-.workspace-switcher-copy,
-.workspace-switcher-status {
+.surface-switcher-copy,
+.surface-switcher-status {
   min-width: 0;
   display: grid;
   gap: 3px;
 }
 
-.workspace-switcher-copy strong,
-.workspace-switcher-copy small,
-.workspace-switcher-status small {
+.surface-switcher-copy strong,
+.surface-switcher-copy small,
+.surface-switcher-status small {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.workspace-switcher-copy strong {
+.surface-switcher-copy strong {
   color: var(--text-strong);
   font-size: 0.82rem;
   font-weight: 690;
 }
 
-.workspace-switcher-copy small,
-.workspace-switcher-status small {
+.surface-switcher-copy small,
+.surface-switcher-status small {
   color: var(--text-muted);
   font-size: 0.63rem;
   font-weight: 500;
 }
 
-.workspace-switcher-open > svg {
+.surface-switcher-open > svg {
   color: var(--text-muted);
 }
 
-.workspace-switcher-row-actions {
+.surface-switcher-row-actions {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -608,19 +604,19 @@
   transition: opacity 120ms ease;
 }
 
-.workspace-switcher-row:hover .workspace-switcher-row-actions,
-.workspace-switcher-row:focus-within .workspace-switcher-row-actions,
-.workspace-switcher-row.is-current .workspace-switcher-row-actions {
+.surface-switcher-row:hover .surface-switcher-row-actions,
+.surface-switcher-row:focus-within .surface-switcher-row-actions,
+.surface-switcher-row.is-current .surface-switcher-row-actions {
   opacity: 1;
 }
 
-.workspace-switcher-row-actions .icon-button {
+.surface-switcher-row-actions .icon-button {
   width: 30px;
   min-width: 30px;
   height: 30px;
 }
 
-.workspace-switcher-loading {
+.surface-switcher-loading {
   min-height: 48px;
   display: flex;
   align-items: center;
@@ -630,7 +626,7 @@
   font-size: 0.7rem;
 }
 
-.workspace-switcher-loading > span {
+.surface-switcher-loading > span {
   width: 15px;
   height: 15px;
   border: 2px solid color-mix(in srgb, var(--accent) 28%, var(--border));
@@ -643,8 +639,8 @@
   to { transform: rotate(360deg); }
 }
 
-/* Loading is intentionally local to the affected workspace; navigation stays live. */
-.workspace-loading-overlay,
+/* Loading is intentionally local to the affected surface; navigation stays live. */
+.surface-loading-overlay,
 .loading-overlay {
   position: absolute;
   inset: 0;
@@ -655,11 +651,11 @@
   gap: 9px;
   padding: 18px;
   color: var(--text-soft);
-  background: color-mix(in srgb, var(--workspace-bg) 72%, transparent);
+  background: color-mix(in srgb, var(--surface-bg) 72%, transparent);
   backdrop-filter: blur(2px);
 }
 
-.workspace-loading-overlay > div,
+.surface-loading-overlay > div,
 .loading-overlay > div {
   min-height: 44px;
   display: flex;
@@ -674,13 +670,13 @@
   font-weight: 620;
 }
 
-.workspace-loading-overlay > strong {
+.surface-loading-overlay > strong {
   color: var(--text-strong);
   font-size: 0.7rem;
   font-weight: 620;
 }
 
-.workspace-preview-loading {
+.surface-preview-loading {
   position: static;
   width: 16px;
   height: 16px;
@@ -1241,7 +1237,7 @@
     gap: 8px;
   }
 
-  .topbar-project-action.workspace-exit-action {
+  .topbar-project-action.surface-exit-action {
     width: 32px;
     min-width: 32px;
     display: inline-flex;
@@ -1249,7 +1245,7 @@
     padding: 0;
   }
 
-  .workspace-exit-action span {
+  .surface-exit-action span {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -1258,7 +1254,7 @@
     white-space: nowrap;
   }
 
-  .workspace-switcher-open {
+  .surface-switcher-open {
     grid-template-columns: 10px minmax(130px, 1fr) minmax(140px, 0.8fr) 18px;
   }
 
@@ -1291,7 +1287,7 @@
   }
 
   .topbar-brand b,
-  .topbar-project-action:not(.workspace-exit-action) {
+  .topbar-project-action:not(.surface-exit-action) {
     display: none;
   }
 
@@ -1304,7 +1300,7 @@
     min-width: 30px;
   }
 
-  .topbar-project-action.workspace-exit-action {
+  .topbar-project-action.surface-exit-action {
     width: 32px;
     min-width: 32px;
     display: inline-flex;
@@ -1400,7 +1396,7 @@
     overflow: hidden;
   }
 
-  .route-workspace,
+  .route-surface,
   .route-map-shell {
     min-height: 0;
     height: 100%;
@@ -1410,13 +1406,13 @@
     padding: 18px 12px 28px;
   }
 
-  .workspace-switcher-head {
+  .surface-switcher-head {
     align-items: flex-start;
     gap: 12px;
     padding-bottom: 14px;
   }
 
-  .workspace-switcher-actions .button span {
+  .surface-switcher-actions .button span {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -1425,37 +1421,37 @@
     white-space: nowrap;
   }
 
-  .workspace-switcher-actions .button {
+  .surface-switcher-actions .button {
     width: var(--pq-control-height);
     padding: 0;
   }
 
-  .workspace-switcher-row {
+  .surface-switcher-row {
     min-height: 78px;
   }
 
-  .workspace-switcher-open {
+  .surface-switcher-open {
     grid-template-columns: 10px minmax(0, 1fr) 18px;
     gap: 10px;
     padding: 10px;
   }
 
-  .workspace-switcher-status {
+  .surface-switcher-status {
     grid-column: 2;
     grid-row: 2;
   }
 
-  .workspace-switcher-open > svg {
+  .surface-switcher-open > svg {
     grid-column: 3;
     grid-row: 1 / span 2;
   }
 
-  .workspace-switcher-row-actions {
+  .surface-switcher-row-actions {
     padding-right: 6px;
     opacity: 1;
   }
 
-  .workspace-switcher-row-actions .icon-button {
+  .surface-switcher-row-actions .icon-button {
     width: 28px;
     min-width: 28px;
     height: 28px;
@@ -1481,28 +1477,28 @@
 }
 
 @media (max-width: 390px) {
-  .workspace-switcher-head .eyebrow,
-  .workspace-switcher-head p,
-  .workspace-switcher-row-actions {
+  .surface-switcher-head .eyebrow,
+  .surface-switcher-head p,
+  .surface-switcher-row-actions {
     display: none;
   }
 
-  .workspace-switcher-row {
+  .surface-switcher-row {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .workspace-switcher-open {
+  .surface-switcher-open {
     padding-right: 9px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .workspace-switcher-row-actions {
+  .surface-switcher-row-actions {
     transition: none;
   }
 
-  .workspace-switcher-loading > span,
-  .workspace-preview-loading {
+  .surface-switcher-loading > span,
+  .surface-preview-loading {
     animation-duration: 1.5s;
   }
 
@@ -1515,7 +1511,7 @@
 @media (forced-colors: active) {
   .sidebar-rail-button.is-active,
   .route-tree-item .route-row.is-selected,
-  .workspace-switcher-row.is-current {
+  .surface-switcher-row.is-current {
     border: 2px solid Highlight;
   }
 }

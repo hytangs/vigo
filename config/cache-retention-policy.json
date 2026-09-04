@@ -11,13 +11,6 @@
   ],
   "scopes": [
     {
-      "id": "vite-build-output",
-      "kind": "ttl-root",
-      "path": "dist",
-      "maxAgeDays": 2,
-      "reason": "Vite output is regenerable and must not be treated as durable evidence."
-    },
-    {
       "id": "retired-cargo-debug",
       "kind": "retired-path",
       "path": "native/vigo-routing-kernel/target/debug",

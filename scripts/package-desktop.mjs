@@ -1,0 +1,158 @@
+import { packager } from '@electron/packager'
+import { constants } from 'node:fs'
+import { access, copyFile, cp, lstat, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
+const execFileAsync = promisify(execFile)
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const packageJson = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8'))
+const electronVersion = String(packageJson.devDependencies?.electron ?? '').replace(/^[^\d]*/u, '')
+const stagingRoot = path.join(repositoryRoot, 'temp', 'studio-package')
+const applicationRoot = path.join(stagingRoot, 'app')
+const releaseRoot = process.env.VIGO_RELEASE_ROOT
+  ? path.resolve(process.env.VIGO_RELEASE_ROOT)
+  : path.join(repositoryRoot, 'release')
+const serverRoot = path.join(applicationRoot, 'server')
+
+if (!electronVersion) throw new Error('package.json must pin an Electron development dependency.')
+await assertFile(path.join(repositoryRoot, 'public', 'index.html'), 'Missing built Studio. Run npm run build first.')
+await assertFile(path.join(repositoryRoot, 'public', 'vigo.mjs'), 'Missing built VIGO CLI. Run npm run build first.')
+await assertFile(
+  path.join(repositoryRoot, 'native', 'vigo-routing-kernel', 'vigo-routing-kernel.node'),
+  'Missing VIGO routing kernel. Run npm run build first.',
+)
+await assertFile(path.join(repositoryRoot, 'desktop', 'main.mjs'), 'Missing Electron main process.')
+await assertFile(path.join(repositoryRoot, 'desktop', 'preload.cjs'), 'Missing Electron preload.')
+
+await rm(stagingRoot, { force: true, recursive: true })
+await mkdir(applicationRoot, { recursive: true })
+await Promise.all([
+  cp(path.join(repositoryRoot, 'public'), path.join(applicationRoot, 'public'), {
+    mode: constants.COPYFILE_FICLONE,
+    recursive: true,
+  }),
+  cp(path.join(repositoryRoot, 'desktop'), path.join(applicationRoot, 'desktop'), {
+    mode: constants.COPYFILE_FICLONE,
+    recursive: true,
+  }),
+  copyFile(path.join(repositoryRoot, 'LICENSE'), path.join(applicationRoot, 'LICENSE')),
+  copyFile(path.join(repositoryRoot, 'NOTICE'), path.join(applicationRoot, 'NOTICE')),
+])
+
+await writeFile(path.join(applicationRoot, 'package.json'), `${JSON.stringify({
+  name: 'vigo-studio',
+  productName: 'VIGO Studio',
+  version: packageJson.version,
+  private: true,
+  type: 'module',
+  main: 'desktop/main.mjs',
+}, null, 2)}\n`)
+
+await bundleEngine()
+await mkdir(releaseRoot, { recursive: true })
+const applicationPaths = await packager({
+  dir: applicationRoot,
+  name: 'VIGO Studio',
+  platform: 'darwin',
+  arch: process.arch === 'arm64' ? 'arm64' : 'x64',
+  out: releaseRoot,
+  overwrite: true,
+  prune: false,
+  asar: false,
+  electronVersion,
+  icon: path.join(repositoryRoot, 'desktop', 'assets', 'VIGO.icns'),
+  appBundleId: 'app.vigo.studio',
+  appCategoryType: 'public.app-category.productivity',
+  appVersion: packageJson.version,
+  buildVersion: packageJson.version,
+  extendInfo: {
+    CFBundleDisplayName: 'VIGO Studio',
+    LSMinimumSystemVersion: '13.5',
+    NSDocumentsFolderUsageDescription: 'VIGO Studio reads and updates the City folders you choose.',
+  },
+})
+
+if (applicationPaths.length !== 1) {
+  throw new Error(`Electron packaging returned ${applicationPaths.length} application paths.`)
+}
+const packagedRoot = applicationPaths[0]
+const appBundle = path.join(packagedRoot, 'VIGO Studio.app')
+await assertFile(path.join(appBundle, 'Contents', 'MacOS', 'VIGO Studio'), 'Packaged Studio executable is missing.')
+await execFileAsync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', appBundle])
+await execFileAsync('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', appBundle])
+
+const bytes = await directoryBytes(appBundle)
+console.log(JSON.stringify({
+  status: 'packaged',
+  product: 'VIGO Studio',
+  version: packageJson.version,
+  electron: electronVersion,
+  architecture: process.arch,
+  transport: 'memory',
+  localPort: false,
+  bytes,
+  appBundle,
+}, null, 2))
+
+async function bundleEngine() {
+  await mkdir(serverRoot, { recursive: true })
+  const rolldown = path.join(repositoryRoot, 'node_modules', 'rolldown', 'bin', 'cli.mjs')
+  await assertFile(rolldown, 'Missing Rolldown. Run npm install first.')
+  const bundle = (input, args) => execFileAsync(process.execPath, [rolldown, input, ...args, '--format', 'esm', '--platform', 'node'], {
+    cwd: repositoryRoot,
+    maxBuffer: 16 * 1024 * 1024,
+  })
+
+  await bundle(path.join(repositoryRoot, 'src', 'server', 'vigo-api.mjs'), [
+    '--file', path.join(serverRoot, 'vigo-api.mjs'),
+  ])
+  await bundle(path.join(repositoryRoot, 'src', 'server', 'national-gtfs-worker.mjs'), [
+    '--file', path.join(serverRoot, 'national-gtfs-worker.mjs'),
+  ])
+  await bundle(path.join(repositoryRoot, 'src', 'server', 'national-osm-worker.mjs'), [
+    '--file', path.join(serverRoot, 'national-osm-worker.mjs'),
+  ])
+  await bundle(path.join(repositoryRoot, 'src', 'server', 'national-route-worker.mjs'), [
+    '--dir', serverRoot,
+    '--entryFileNames', 'national-route-worker.mjs',
+    '--chunkFileNames', 'route-[name].mjs',
+  ])
+  await copyFile(
+    path.join(repositoryRoot, 'native', 'vigo-routing-kernel', 'vigo-routing-kernel.node'),
+    path.join(serverRoot, 'vigo-routing-kernel.node'),
+    constants.COPYFILE_FICLONE,
+  )
+}
+
+async function assertFile(filePath, message) {
+  try {
+    await access(filePath, constants.R_OK)
+    const fileStats = await stat(filePath)
+    if (fileStats.isFile()) return
+  } catch {
+    // The single error below keeps packaging failures concise.
+  }
+  throw new Error(message)
+}
+
+async function directoryBytes(root) {
+  let total = 0
+  for (const entry of await fsEntries(root)) {
+    const entryStats = await lstat(entry)
+    if (entryStats.isSymbolicLink()) {
+      total += entryStats.size
+      continue
+    }
+    if (entryStats.isDirectory()) total += await directoryBytes(entry)
+    else if (entryStats.isFile()) total += entryStats.size
+  }
+  return total
+}
+
+async function fsEntries(root) {
+  const entries = await readdir(root)
+  return entries.map((entry) => path.join(root, entry))
+}

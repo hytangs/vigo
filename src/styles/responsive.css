@@ -207,7 +207,7 @@
     overflow: auto;
   }
 
-  .route-workspace {
+  .route-surface {
     flex: 0 0 clamp(300px, 52dvh, 520px);
     min-height: clamp(300px, 52dvh, 520px);
     display: grid;

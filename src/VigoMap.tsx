@@ -1,3 +1,4 @@
+import { setMapSourceData } from './app/mapSourceUpdates'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection as GeoJsonFeatureCollection, GeoJsonProperties, Geometry } from 'geojson'
 import { X } from 'lucide-react'
@@ -21,26 +22,26 @@ import {
 } from './app/mapFirstRenderTelemetry'
 import { inferredRouteJumpThresholdKm, routingLabelAnchor } from './app/mapPresentation'
 import { coordinateDistanceKm } from './app/geometry'
-import { reportNativeMapFailed, reportNativeMapPhase, reportNativeMapReady } from './app/nativeBridge'
+import { reportDesktopMapFailed, reportDesktopMapPhase, reportDesktopMapReady } from './app/desktopBridge'
 import { routeGeometryLabel } from './app/routePresentation'
-import { workspacePublicRouteKey } from './app/workspacePreview'
+import { cityPublicRouteKey } from './app/cityPreview'
 import { buildNetworkPerformanceProfile, type NetworkPerformanceProfile } from './networkPerformance'
 import { serviceKeyForRoute, type ServiceVehicleFrame } from './serviceVehicles'
 import type { RoutingPlan, RoutingPoint } from './routingModel'
 import { routingPinLabel } from './routingPointSequence'
 import {
-  accessibilityDifferenceColor,
-  accessibilityTimeColor,
-  scenarioComparisonColor,
-  type ScenarioAnalysisResult,
-  type ScenarioComparisonResult,
+  reachDifferenceColor,
+  reachTimeColor,
+  reachComparisonColor,
+  type ReachResult,
+  type ReachComparisonResult,
   type ScenarioRenderMode,
-  type ScenarioStreetEdgeEvidenceBundle,
-  type ScenarioStreetEdgeEvidenceSource,
+  type ScenarioStreetEdgeBundle,
+  type ScenarioStreetEdgeSource,
   type ScenarioStopDraft,
   type ScenarioView,
   type ServiceEdgeDecomposition,
-} from './scenarioAnalysis'
+} from './reach'
 
 type FeatureCollection = GeoJsonFeatureCollection<Geometry, GeoJsonProperties>
 
@@ -77,8 +78,8 @@ export type VigoMapProps = {
   routingPlan?: RoutingPlan | null
   routingStatusTitle?: string
   routingStatusDetail?: string
-  scenarioAnalysis?: ScenarioAnalysisResult | null
-  scenarioComparison?: ScenarioComparisonResult[] | null
+  reachResult?: ReachResult | null
+  reachComparison?: ReachComparisonResult[] | null
   serviceDecomposition?: ServiceEdgeDecomposition | null
   scenarioView?: ScenarioView
   scenarioRenderMode?: ScenarioRenderMode
@@ -113,13 +114,13 @@ const coverageLayerIds = ['vigo-coverage']
 const scenarioLayerIds = ['vigo-scenario-routes']
 const accessLayerIds = ['vigo-access-outer', 'vigo-access-middle', 'vigo-access-inner']
 const vehicleLayerIds = ['vigo-vehicle-halo', 'vigo-vehicles', 'vigo-vehicle-core', 'vigo-vehicle-headings', 'vigo-vehicle-labels']
-const routingLayerIds = ['vigo-routing-walk-casing', 'vigo-routing-walk', 'vigo-routing-drive-casing', 'vigo-routing-drive', 'vigo-routing-ride-casing', 'vigo-routing-ride', 'vigo-routing-labels', 'vigo-routing-pins']
-const scenarioAnalysisLayerIds = [
+const routingLayerIds = ['vigo-routing-walk-casing', 'vigo-routing-walk', 'vigo-routing-drive-casing', 'vigo-routing-drive', 'vigo-routing-ride-casing', 'vigo-routing-ride', 'vigo-routing-labels', 'vigo-routing-pin-halo', 'vigo-routing-pins']
+const reachResultLayerIds = [
   'vigo-scenario-area',
   'vigo-service-edges',
   'vigo-scenario-contours',
   'vigo-scenario-access-edges',
-  'vigo-scenario-analysis-route',
+  'vigo-reach-route',
   'vigo-scenario-sketch-line',
   'vigo-scenario-sketch-hit',
   'vigo-scenario-sketch-stops',
@@ -127,7 +128,7 @@ const scenarioAnalysisLayerIds = [
 ]
 const localStreetLayerIds = ['vigo-local-streets-casing', 'vigo-local-streets']
 
-function scenarioComparisonLayerIds(count: number) {
+function reachComparisonLayerIds(count: number) {
   return Array.from({ length: count }, (_, index) => [
     `vigo-scenario-comparison-${index}-area`,
     `vigo-scenario-comparison-${index}-access-edges`,
@@ -140,6 +141,33 @@ function existingScenarioComparisonLayerIds(map: MapLibreMap) {
     .map((layer) => layer.id)
     .filter((layerId) => layerId.startsWith('vigo-scenario-comparison-'))
 }
+
+function scheduleMapFrameUpdate(
+  map: MapLibreMap,
+  ready: boolean,
+  update: () => void,
+  removed: () => boolean,
+) {
+  let frame = 0
+  let cancelled = false
+  const run = () => {
+    if (!cancelled) update()
+  }
+  const schedule = () => {
+    if (frame) window.cancelAnimationFrame(frame)
+    frame = window.requestAnimationFrame(run)
+  }
+
+  if (ready || map.loaded()) schedule()
+  else map.once('load', schedule)
+
+  return () => {
+    cancelled = true
+    if (frame) window.cancelAnimationFrame(frame)
+    if (!removed()) map.off('load', schedule)
+  }
+}
+
 function pointToLngLat(point: Point): [number, number] {
   const lng = fallbackPreviewBounds.west + (point.x / 100) * (fallbackPreviewBounds.east - fallbackPreviewBounds.west)
   const lat = fallbackPreviewBounds.north - (point.y / 100) * (fallbackPreviewBounds.north - fallbackPreviewBounds.south)
@@ -287,7 +315,7 @@ function routeStopPairPaths(preview: MapPreview, stopsById: Map<string, StopMetr
   const paths = new Map<string, LngLat[]>()
 
   for (const route of preview.routes) {
-    const routeId = workspacePublicRouteKey(route)
+    const routeId = cityPublicRouteKey(route)
     if (allowedPatternIds && !allowedPatternIds.has(routeId)) continue
     const coordinates = routeCoordinates(route, stopsById)
     if (coordinates.length < 2 || route.stopIds.length < 2) continue
@@ -338,9 +366,9 @@ function routeFeatures(
     features: preview.routes
       .flatMap((route) => {
         const segments = routeLineSegments(route, stopsById)
-        const routeId = workspacePublicRouteKey(route)
+        const routeId = cityPublicRouteKey(route)
         const selectedPattern = highlightRouteGroup || routeId === selectedRouteId
-        // Route coordinates are GTFS evidence. Do not simplify or resample
+        // Route coordinates come from GTFS. Do not simplify or resample
         // them in the browser; derived stop-pair overlays retain their own
         // independent rendering budget below.
         const geometry = lineGeometryFromSegments(segments)
@@ -356,7 +384,7 @@ function routeFeatures(
           type: 'Feature' as const,
           geometry,
           properties: {
-            featureId: workspacePublicRouteKey(route),
+            featureId: cityPublicRouteKey(route),
             routeId: route.routeId ?? route.id,
             patternId: route.patternId ?? route.id,
             directionId: route.directionId ?? '',
@@ -613,23 +641,35 @@ function routingPinFeatures(
   origin: RoutingPoint | null | undefined,
   waypoints: RoutingPoint[],
   destination: RoutingPoint | null | undefined,
-  accessibilityMode = false,
+  plan?: RoutingPlan | null,
+  reachMode = false,
 ): FeatureCollection {
   const points = [origin, ...waypoints, destination].filter((point): point is RoutingPoint => Boolean(point))
+  const firstLeg = plan?.status === 'ready' ? plan.legs[0] : undefined
+  const lastLeg = plan?.status === 'ready' ? plan.legs.at(-1) : undefined
   const features: FeatureCollection['features'] = points.map((point, index) => {
     const pointKind = index === 0
       ? 'origin'
       : index === points.length - 1
         ? 'destination'
         : 'waypoint'
+    const plannedCoordinate = pointKind === 'origin'
+      && firstLeg?.type === 'walk'
+      && firstLeg.walkSource === 'osm'
+      ? firstLeg.coordinates[0]
+      : pointKind === 'destination'
+        && lastLeg?.type === 'walk'
+        && lastLeg.walkSource === 'osm'
+        ? lastLeg.coordinates.at(-1)
+        : undefined
     return {
       type: 'Feature',
-      geometry: { type: 'Point', coordinates: point.coordinate },
+      geometry: { type: 'Point', coordinates: plannedCoordinate ?? point.coordinate },
       properties: {
         pinType: routingPinLabel(index, points.length),
         label: point.label,
         pointKind,
-        zeroMinuteOrigin: accessibilityMode && pointKind === 'origin',
+        zeroMinuteOrigin: reachMode && pointKind === 'origin',
       },
     }
   })
@@ -664,7 +704,7 @@ function scenarioSketchFeatures(stops: ScenarioStopDraft[], geometry: LngLat[] =
 }
 
 function scenarioContourFeatures(
-  analysis: ScenarioAnalysisResult | null | undefined,
+  analysis: ReachResult | null | undefined,
   view: ScenarioView,
   cutoffMinutes: number,
 ): FeatureCollection {
@@ -683,7 +723,7 @@ function scenarioContourFeatures(
 }
 
 function scenarioAreaFeatures(
-  analysis: ScenarioAnalysisResult | null | undefined,
+  analysis: ReachResult | null | undefined,
   view: ScenarioView,
   cutoffMinutes: number,
 ): FeatureCollection {
@@ -720,8 +760,8 @@ type StreetEdgeCallback = (
 ) => void
 
 type ScenarioEdgeSources = {
-  baseline: ScenarioStreetEdgeEvidenceSource
-  scenario: ScenarioStreetEdgeEvidenceSource
+  baseline: ScenarioStreetEdgeSource
+  scenario: ScenarioStreetEdgeSource
 }
 
 const decodedStreetEdgeBundles = new WeakMap<object, DecodedStreetEdgeBundle>()
@@ -733,7 +773,7 @@ function decodeBase64Bytes(value: string) {
   return bytes.buffer
 }
 
-function decodeStreetEdgeBundle(bundle: ScenarioStreetEdgeEvidenceBundle): DecodedStreetEdgeBundle {
+function decodeStreetEdgeBundle(bundle: ScenarioStreetEdgeBundle): DecodedStreetEdgeBundle {
   const cached = decodedStreetEdgeBundles.get(bundle)
   if (cached) return cached
   const decoded = {
@@ -747,39 +787,39 @@ function decodeStreetEdgeBundle(bundle: ScenarioStreetEdgeEvidenceBundle): Decod
     || decoded.endpoints.length !== bundle.count * 2
     || decoded.edgeIds.length !== bundle.count
     || decoded.durations.length !== bundle.count
-  ) throw new Error('Accessibility street-edge bundle has inconsistent packed lengths.')
+  ) throw new Error('Reach street-edge bundle has inconsistent packed lengths.')
   decodedStreetEdgeBundles.set(bundle, decoded)
   return decoded
 }
 
-function resolveStreetEdgeSource(source: ScenarioStreetEdgeEvidenceSource, sources?: ScenarioEdgeSources) {
+function resolveStreetEdgeSource(source: ScenarioStreetEdgeSource, sources?: ScenarioEdgeSources) {
   let resolved = source
   const seen = new Set<string>()
   while (resolved.schemaVersion === 'vigo.street.edge-ref.v1') {
-    if (seen.has(resolved.source)) throw new Error('Accessibility street-edge reference cycle.')
+    if (seen.has(resolved.source)) throw new Error('Reach street-edge reference cycle.')
     seen.add(resolved.source)
     const next = sources?.[resolved.source]
-    if (!next) throw new Error(`Accessibility street-edge reference is missing: ${resolved.source}.`)
+    if (!next) throw new Error(`Reach street-edge reference is missing: ${resolved.source}.`)
     resolved = next
   }
   return resolved
 }
 
 function forEachStreetEdge(
-  source: ScenarioStreetEdgeEvidenceSource,
+  source: ScenarioStreetEdgeSource,
   callback: StreetEdgeCallback,
   sources?: ScenarioEdgeSources,
 ) {
   const resolved = resolveStreetEdgeSource(source, sources)
   if (resolved.schemaVersion !== 'vigo.street.edge-bundle.v1') {
-    throw new Error('Accessibility street-edge bundle schema is unsupported.')
+    throw new Error('Reach street-edge bundle schema is unsupported.')
   }
   const decoded = decodeStreetEdgeBundle(resolved)
   for (let index = 0; index < resolved.count; index += 1) {
     const fromNode = decoded.endpoints[index * 2] * 2
     const toNode = decoded.endpoints[index * 2 + 1] * 2
     if (fromNode + 1 >= decoded.nodes.length || toNode + 1 >= decoded.nodes.length) {
-      throw new Error('Accessibility street-edge bundle references an invalid node.')
+      throw new Error('Reach street-edge bundle references an invalid node.')
     }
     callback(
       [
@@ -791,15 +831,15 @@ function forEachStreetEdge(
   }
 }
 
-function indexedStreetEdges(source: ScenarioStreetEdgeEvidenceSource, sources?: ScenarioEdgeSources) {
+function indexedStreetEdges(source: ScenarioStreetEdgeSource, sources?: ScenarioEdgeSources) {
   const resolved = resolveStreetEdgeSource(source, sources)
   if (resolved.schemaVersion !== 'vigo.street.edge-bundle.v1') {
-    throw new Error('Accessibility street-edge bundle schema is unsupported.')
+    throw new Error('Reach street-edge bundle schema is unsupported.')
   }
   const decoded = decodeStreetEdgeBundle(resolved)
   for (let index = 1; index < decoded.edgeIds.length; index += 1) {
     if (decoded.edgeIds[index] <= decoded.edgeIds[index - 1]) {
-      throw new Error('Accessibility street-edge IDs must be strictly increasing.')
+      throw new Error('Reach street-edge IDs must be strictly increasing.')
     }
   }
   return { decoded }
@@ -813,7 +853,7 @@ function indexedEdgeCoordinates(decoded: DecodedStreetEdgeBundle, index: number)
   const fromNode = decoded.endpoints[index * 2] * 2
   const toNode = decoded.endpoints[index * 2 + 1] * 2
   if (fromNode + 1 >= decoded.nodes.length || toNode + 1 >= decoded.nodes.length) {
-    throw new Error('Accessibility street-edge bundle references an invalid node.')
+    throw new Error('Reach street-edge bundle references an invalid node.')
   }
   return [
     [decoded.nodes[fromNode], decoded.nodes[fromNode + 1]],
@@ -858,7 +898,7 @@ function indexedScenarioEdgeFeatures(
     const deltaMinutes = Number.isFinite(beforeMinutes) && Number.isFinite(afterMinutes)
       ? beforeMinutes - afterMinutes
       : Number.isFinite(afterMinutes) ? cutoffMinutes : -cutoffMinutes
-    const [red, green, blue] = accessibilityDifferenceColor(deltaMinutes)
+    const [red, green, blue] = reachDifferenceColor(deltaMinutes)
     const color = `rgb(${red}, ${green}, ${blue})`
     const group = groups.get(color) ?? { color, coordinates: [], count: 0 }
     const coordinates = indexedEdgeCoordinates(
@@ -894,14 +934,14 @@ function indexedScenarioEdgeFeatures(
 }
 
 function scenarioEdgeFeatures(
-  analysis: ScenarioAnalysisResult | null | undefined,
+  analysis: ReachResult | null | undefined,
   view: ScenarioView,
   cutoffMinutes: number,
 ): FeatureCollection {
   const edges = analysis?.surface.edges
   if (!edges) return emptyCollection
   const colorForDuration = (durationMinutes: number) => {
-    const [red, green, blue] = accessibilityTimeColor(cutoffMinutes > 0 ? durationMinutes / cutoffMinutes : 1)
+    const [red, green, blue] = reachTimeColor(cutoffMinutes > 0 ? durationMinutes / cutoffMinutes : 1)
     return `rgb(${red}, ${green}, ${blue})`
   }
   if (view !== 'comparison') {
@@ -920,8 +960,8 @@ function scenarioEdgeFeatures(
   return indexedScenarioEdgeFeatures(edges, cutoffMinutes)
 }
 
-function scenarioComparisonContourFeatures(
-  analysis: ScenarioAnalysisResult | null | undefined,
+function reachComparisonContourFeatures(
+  analysis: ReachResult | null | undefined,
   cutoffMinutes: number,
 ): FeatureCollection {
   if (!analysis) return emptyCollection
@@ -933,8 +973,8 @@ function scenarioComparisonContourFeatures(
   }
 }
 
-function scenarioComparisonAreaFeatures(
-  analysis: ScenarioAnalysisResult | null | undefined,
+function reachComparisonAreaFeatures(
+  analysis: ReachResult | null | undefined,
   cutoffMinutes: number,
   color: string,
 ): FeatureCollection {
@@ -951,8 +991,8 @@ function scenarioComparisonAreaFeatures(
   }
 }
 
-function scenarioComparisonEdgeFeatures(
-  analysis: ScenarioAnalysisResult,
+function reachComparisonEdgeFeatures(
+  analysis: ReachResult,
   cutoffMinutes: number,
   color: string,
 ): FeatureCollection {
@@ -1197,7 +1237,7 @@ function isFatalMapError(error: unknown) {
   return /webgl|web graphics|context lost|failed to initialize|invalid style|style.*failed|missing geojson source|(?:source|layer).*vigo-/.test(message)
 }
 
-function nativeMapTelemetryPayload(
+function desktopMapTelemetryPayload(
   tracker: MapFirstRenderTracker,
   feedName: string,
   sourceRouteFeatures: number,
@@ -1247,8 +1287,8 @@ function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
   if (!map.getSource('vigo-scenario-contours')) {
     map.addSource('vigo-scenario-contours', { type: 'geojson', data: emptyCollection })
   }
-  if (!map.getSource('vigo-scenario-analysis-route')) {
-    map.addSource('vigo-scenario-analysis-route', { type: 'geojson', data: emptyCollection })
+  if (!map.getSource('vigo-reach-route')) {
+    map.addSource('vigo-reach-route', { type: 'geojson', data: emptyCollection })
   }
   if (!map.getSource('vigo-scenario-sketch')) {
     map.addSource('vigo-scenario-sketch', { type: 'geojson', data: emptyCollection })
@@ -1327,11 +1367,11 @@ function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
       },
     })
   }
-  if (!map.getLayer('vigo-scenario-analysis-route')) {
+  if (!map.getLayer('vigo-reach-route')) {
     map.addLayer({
-      id: 'vigo-scenario-analysis-route',
+      id: 'vigo-reach-route',
       type: 'line',
-      source: 'vigo-scenario-analysis-route',
+      source: 'vigo-reach-route',
       paint: {
         'line-color': '#ffd166',
         'line-width': ['interpolate', ['linear'], ['zoom'], 7, 2, 13, 5] as ExpressionSpecification,
@@ -1418,7 +1458,7 @@ function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
 
   for (let index = 0; index < comparisonCount; index += 1) {
     const layerPrefix = `vigo-scenario-comparison-${index}`
-    const color = scenarioComparisonColor(index)
+    const color = reachComparisonColor(index)
     if (!map.getLayer(`${layerPrefix}-area`)) {
       map.addLayer({
         id: `${layerPrefix}-area`,
@@ -1840,41 +1880,53 @@ function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
     })
   }
 
-  if (!map.getLayer('vigo-routing-pins')) {
+  if (!map.getLayer('vigo-routing-pin-halo')) {
     map.addLayer({
-      id: 'vigo-routing-pins',
-      type: 'symbol',
+      id: 'vigo-routing-pin-halo',
+      type: 'circle',
       source: 'vigo-routing-pins',
-      layout: {
-        'text-field': [
-          'case',
-          ['==', ['get', 'zeroMinuteOrigin'], true],
-          ['concat', ['get', 'pinType'], ' · 0 min'],
-          ['get', 'pinType'],
-        ] as ExpressionSpecification,
-        'text-size': ['interpolate', ['linear'], ['zoom'], 8, 10, 13, 13],
-        'text-allow-overlap': true,
-        'text-ignore-placement': true,
-      },
       paint: {
-        'text-color': [
-          'case',
-          ['==', ['get', 'zeroMinuteOrigin'], true],
-          '#ffffff',
-          '#031013',
-        ] as ExpressionSpecification,
-        'text-halo-color': [
+        'circle-color': [
           'case',
           ['==', ['get', 'zeroMinuteOrigin'], true],
           '#3550ff',
           ['==', ['get', 'pointKind'], 'waypoint'],
-          '#f7d774',
+          '#f0b62e',
           ['==', ['get', 'pointKind'], 'destination'],
-          '#b8d630',
-          '#82e7ef',
+          '#9cbd23',
+          '#13b8c7',
         ] as ExpressionSpecification,
-        'text-halo-width': ['case', ['==', ['get', 'pointKind'], 'waypoint'], 5.8, 7.2] as ExpressionSpecification,
-        'text-opacity': 1,
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 7, 13, 11],
+        'circle-opacity': 0.2,
+        'circle-blur': 0.45,
+      },
+    })
+  }
+
+  if (!map.getLayer('vigo-routing-pins')) {
+    map.addLayer({
+      id: 'vigo-routing-pins',
+      type: 'circle',
+      source: 'vigo-routing-pins',
+      paint: {
+        'circle-color': [
+          'case',
+          ['==', ['get', 'zeroMinuteOrigin'], true],
+          '#3550ff',
+          ['==', ['get', 'pointKind'], 'waypoint'],
+          '#f0b62e',
+          ['==', ['get', 'pointKind'], 'destination'],
+          '#9cbd23',
+          '#13b8c7',
+        ] as ExpressionSpecification,
+        'circle-radius': [
+          'interpolate', ['linear'], ['zoom'],
+          7, ['case', ['==', ['get', 'zeroMinuteOrigin'], true], 5.5, 4.5],
+          13, ['case', ['==', ['get', 'zeroMinuteOrigin'], true], 8, 6.5],
+        ] as ExpressionSpecification,
+        'circle-stroke-color': '#f8fbff',
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 7, 1.5, 13, 2.5],
+        'circle-opacity': 1,
       },
     })
   }
@@ -2156,7 +2208,7 @@ function syncBasemap(map: MapLibreMap, basemap: Basemap, appearance: Appearance)
 function applyLayerVisibility(
   map: MapLibreMap,
   layers: LayerState,
-  options: { routingVisible?: boolean; scenarioAnalysisVisible?: boolean; scenarioComparisonCount?: number } = {},
+  options: { routingVisible?: boolean; reachResultVisible?: boolean; reachComparisonCount?: number } = {},
 ) {
   setVisibility(map, routeLayerIds, layers.routes)
   setVisibility(map, segmentLayerIds, layers.segments)
@@ -2167,12 +2219,12 @@ function applyLayerVisibility(
   setVisibility(map, accessLayerIds, layers.access)
   setVisibility(map, vehicleLayerIds, layers.routes)
   setVisibility(map, routingLayerIds, options.routingVisible ?? true)
-  setVisibility(map, scenarioAnalysisLayerIds, options.scenarioAnalysisVisible ?? false)
+  setVisibility(map, reachResultLayerIds, options.reachResultVisible ?? false)
   setVisibility(map, existingScenarioComparisonLayerIds(map), false)
   setVisibility(
     map,
-    scenarioComparisonLayerIds(options.scenarioComparisonCount ?? 0),
-    options.scenarioAnalysisVisible ?? false,
+    reachComparisonLayerIds(options.reachComparisonCount ?? 0),
+    options.reachResultVisible ?? false,
   )
 }
 
@@ -2333,8 +2385,8 @@ export function VigoMap({
   routingPlan,
   routingStatusTitle,
   routingStatusDetail,
-  scenarioAnalysis,
-  scenarioComparison,
+  reachResult,
+  reachComparison,
   serviceDecomposition,
   scenarioView = 'baseline',
   scenarioRenderMode = 'area',
@@ -2365,8 +2417,8 @@ export function VigoMap({
   const mapTelemetryRef = useRef<MapFirstRenderTracker | null>(null)
   const lastFitSignatureRef = useRef('')
   const lastRoutingFitSignatureRef = useRef('')
-  const lastNativeReadySignatureRef = useRef('')
-  const lastNativeFailureSignatureRef = useRef('')
+  const lastDesktopReadySignatureRef = useRef('')
+  const lastDesktopFailureSignatureRef = useRef('')
   const scenarioDragRef = useRef<{ index: number; moved: boolean } | null>(null)
   const suppressScenarioClickRef = useRef(false)
   const vehicleSourceStateRef = useRef<DynamicPointSourceState | null>(null)
@@ -2382,9 +2434,9 @@ export function VigoMap({
     const message = mapFailureMessage(error)
     setMapFailure(message)
     const failureSignature = `${feedNameRef.current}:${stage}:${message}`
-    if (failureSignature === lastNativeFailureSignatureRef.current) return
-    lastNativeFailureSignatureRef.current = failureSignature
-    reportNativeMapFailed({ feedName: feedNameRef.current, stage, message })
+    if (failureSignature === lastDesktopFailureSignatureRef.current) return
+    lastDesktopFailureSignatureRef.current = failureSignature
+    reportDesktopMapFailed({ feedName: feedNameRef.current, stage, message })
   }
   useEffect(() => {
     onMoveScenarioStopRef.current = onMoveScenarioStop
@@ -2402,15 +2454,15 @@ export function VigoMap({
     ...layers,
     routes: routingFocus || scenarioFocus ? false : focusMode === 'route' ? true : layers.routes,
     segments: routingFocus || scenarioFocus ? false : layers.segments,
-    // Keep transit stops available while an accessibility case is being
+    // Keep transit stops available while a Reach case is being
     // configured. Once a surface is ready, the result itself is represented
     // only by its area or street-path layer; settled OSM nodes stay internal.
-    stops: scenarioFocus ? !scenarioAnalysis : layers.stops,
+    stops: scenarioFocus ? !reachResult : layers.stops,
     transfers: routingFocus || scenarioFocus ? false : layers.transfers,
     coverage: routingFocus || scenarioFocus ? false : layers.coverage,
     scenario: routingFocus || scenarioFocus ? false : layers.scenario,
     access: routingFocus || scenarioFocus ? false : layers.access,
-  }), [focusMode, layers, routingFocus, scenarioAnalysis, scenarioFocus])
+  }), [focusMode, layers, routingFocus, reachResult, scenarioFocus])
   const routesGeoJson = useMemo(() => routeFeatures(preview, selectedRouteId, highlightRouteGroup), [highlightRouteGroup, preview, selectedRouteId])
   const segmentsGeoJson = useMemo(() => (effectiveLayers.segments ? segmentFeatures(preview, performanceProfile) : emptyCollection), [effectiveLayers.segments, performanceProfile, preview])
   const stopsGeoJson = useMemo(
@@ -2434,8 +2486,8 @@ export function VigoMap({
   )
   const routingGeoJson = useMemo(() => routingLineFeatures(routingPlan), [routingPlan])
   const routingPinsGeoJson = useMemo(
-    () => routingPinFeatures(routingOrigin, routingWaypoints, routingDestination, scenarioFocus),
-    [routingDestination, routingOrigin, routingWaypoints, scenarioFocus],
+    () => routingPinFeatures(routingOrigin, routingWaypoints, routingDestination, routingPlan, scenarioFocus),
+    [routingDestination, routingOrigin, routingPlan, routingWaypoints, scenarioFocus],
   )
   const scenarioSketchGeoJson = useMemo(
     () => scenarioSketchFeatures(scenarioSketchStops, scenarioSketchGeometry),
@@ -2443,48 +2495,48 @@ export function VigoMap({
   )
   const scenarioContoursGeoJson = useMemo(
     () => scenarioRenderMode === 'area'
-      ? scenarioContourFeatures(scenarioAnalysis, scenarioView, scenarioCutoffMinutes)
+      ? scenarioContourFeatures(reachResult, scenarioView, scenarioCutoffMinutes)
       : emptyCollection,
-    [scenarioAnalysis, scenarioCutoffMinutes, scenarioRenderMode, scenarioView],
+    [reachResult, scenarioCutoffMinutes, scenarioRenderMode, scenarioView],
   )
   const scenarioAreaGeoJson = useMemo(
     () => scenarioRenderMode === 'area'
-      ? scenarioAreaFeatures(scenarioAnalysis, scenarioView, scenarioCutoffMinutes)
+      ? scenarioAreaFeatures(reachResult, scenarioView, scenarioCutoffMinutes)
       : emptyCollection,
-    [scenarioAnalysis, scenarioCutoffMinutes, scenarioRenderMode, scenarioView],
+    [reachResult, scenarioCutoffMinutes, scenarioRenderMode, scenarioView],
   )
   const scenarioAccessEdgesGeoJson = useMemo(
     () => scenarioRenderMode === 'streets'
-      ? scenarioEdgeFeatures(scenarioAnalysis, scenarioView, scenarioCutoffMinutes)
+      ? scenarioEdgeFeatures(reachResult, scenarioView, scenarioCutoffMinutes)
       : emptyCollection,
-    [scenarioAnalysis, scenarioCutoffMinutes, scenarioRenderMode, scenarioView],
+    [reachResult, scenarioCutoffMinutes, scenarioRenderMode, scenarioView],
   )
   const comparisonEntries = useMemo(
-    () => scenarioComparison ?? [],
-    [scenarioComparison],
+    () => reachComparison ?? [],
+    [reachComparison],
   )
   const comparisonContoursGeoJson = useMemo(
     () => scenarioRenderMode === 'area'
-      ? comparisonEntries.map((entry) => scenarioComparisonContourFeatures(entry.analysis, scenarioCutoffMinutes))
+      ? comparisonEntries.map((entry) => reachComparisonContourFeatures(entry.result, scenarioCutoffMinutes))
       : comparisonEntries.map(() => emptyCollection),
     [comparisonEntries, scenarioCutoffMinutes, scenarioRenderMode],
   )
   const comparisonAreasGeoJson = useMemo(
     () => scenarioRenderMode === 'area'
-      ? comparisonEntries.map((entry, index) => scenarioComparisonAreaFeatures(
-        entry.analysis,
+      ? comparisonEntries.map((entry, index) => reachComparisonAreaFeatures(
+        entry.result,
         scenarioCutoffMinutes,
-        scenarioComparisonColor(index),
+        reachComparisonColor(index),
       ))
       : comparisonEntries.map(() => emptyCollection),
     [comparisonEntries, scenarioCutoffMinutes, scenarioRenderMode],
   )
   const comparisonAccessEdgesGeoJson = useMemo(
     () => scenarioRenderMode === 'streets'
-      ? comparisonEntries.map((entry, index) => scenarioComparisonEdgeFeatures(
-        entry.analysis,
+      ? comparisonEntries.map((entry, index) => reachComparisonEdgeFeatures(
+        entry.result,
         scenarioCutoffMinutes,
-        scenarioComparisonColor(index),
+        reachComparisonColor(index),
       ))
       : comparisonEntries.map(() => emptyCollection),
     [comparisonEntries, scenarioCutoffMinutes, scenarioRenderMode],
@@ -2505,9 +2557,9 @@ export function VigoMap({
   const fitSignature = useMemo(
     () => {
       const routePointCount = preview.routes.reduce((sum, route) => sum + (route.coordinates?.length ?? route.stopIds.length), 0)
-      const firstRouteId = preview.routes[0] ? workspacePublicRouteKey(preview.routes[0]) : 'none'
+      const firstRouteId = preview.routes[0] ? cityPublicRouteKey(preview.routes[0]) : 'none'
       const lastRoute = preview.routes[preview.routes.length - 1]
-      const lastRouteId = lastRoute ? workspacePublicRouteKey(lastRoute) : 'none'
+      const lastRouteId = lastRoute ? cityPublicRouteKey(lastRoute) : 'none'
       const firstStop = preview.stops[0]
       const lastStop = preview.stops[preview.stops.length - 1]
       const firstStopKey = firstStop ? `${firstStop.id}:${firstStop.lon ?? firstStop.x}:${firstStop.lat ?? firstStop.y}` : 'none'
@@ -2536,9 +2588,9 @@ export function VigoMap({
   useEffect(() => {
     const tracker = mapTelemetryRef.current
     if (!tracker || tracker.key !== mapTelemetryKey) return
-    reportNativeMapPhase({
+    reportDesktopMapPhase({
       phase: 'features-prepared',
-      ...nativeMapTelemetryPayload(tracker, feedName, routesGeoJson.features.length, stopsGeoJson.features.length),
+      ...desktopMapTelemetryPayload(tracker, feedName, routesGeoJson.features.length, stopsGeoJson.features.length),
     })
   }, [feedName, mapTelemetryKey, routesGeoJson.features.length, stopsGeoJson.features.length])
 
@@ -2591,9 +2643,9 @@ export function VigoMap({
     const reportPhase = (phase: MapFirstRenderPhase) => {
       const tracker = mapTelemetryRef.current
       if (!tracker) return
-      reportNativeMapPhase({
+      reportDesktopMapPhase({
         phase,
-        ...nativeMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
+        ...desktopMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
       })
     }
     const reportBasemapReadiness = () => {
@@ -2624,7 +2676,7 @@ export function VigoMap({
         if (tracker && markBasemapFailed(tracker, performance.now())) reportPhase('basemap-failed')
         return
       }
-      if (lastNativeReadySignatureRef.current || !isFatalMapError(event.error)) return
+      if (lastDesktopReadySignatureRef.current || !isFatalMapError(event.error)) return
       reportMapFailure('render', event.error)
     }
     const handleSourceData = (event: { sourceId?: string }) => {
@@ -2638,8 +2690,8 @@ export function VigoMap({
         ensureLayers(map, comparisonEntries.length)
         applyLayerVisibility(map, effectiveLayers, {
           routingVisible: routingEnabled || Boolean(routingPlan) || scenarioFocus,
-          scenarioAnalysisVisible: scenarioFocus,
-          scenarioComparisonCount: comparisonEntries.length,
+          reachResultVisible: scenarioFocus,
+          reachComparisonCount: comparisonEntries.length,
         })
         applyNetworkLensPaint(map, networkLens)
         const tracker = mapTelemetryRef.current
@@ -2708,27 +2760,24 @@ export function VigoMap({
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    let frame = 0
-    let cancelled = false
 
     const reportPhase = (phase: MapFirstRenderPhase) => {
       const tracker = mapTelemetryRef.current
       if (!tracker || tracker.key !== mapTelemetryKey) return
-      reportNativeMapPhase({
+      reportDesktopMapPhase({
         phase,
-        ...nativeMapTelemetryPayload(tracker, feedName, routesGeoJson.features.length, stopsGeoJson.features.length),
+        ...desktopMapTelemetryPayload(tracker, feedName, routesGeoJson.features.length, stopsGeoJson.features.length),
       })
     }
     const reportReadyIfRendered = () => {
-      if (cancelled) return
       const rendered = renderedMapFeatures(map, routesGeoJson.features.length, stopsGeoJson.features.length)
       if (!rendered) return
       const { state, renderedRoutes, renderedStops } = rendered
       map.off('render', reportReadyIfRendered)
 
-      const nativeReadySignature = `${feedName}:${fitSignature}:${state}:${renderedRoutes}:${renderedStops}`
-      if (nativeReadySignature === lastNativeReadySignatureRef.current) return
-      lastNativeReadySignatureRef.current = nativeReadySignature
+      const desktopReadySignature = `${feedName}:${fitSignature}:${state}:${renderedRoutes}:${renderedStops}`
+      if (desktopReadySignature === lastDesktopReadySignatureRef.current) return
+      lastDesktopReadySignatureRef.current = desktopReadySignature
       setMapFailure('')
       const tracker = mapTelemetryRef.current
       if (tracker && tracker.key === mapTelemetryKey && markLocalSourceRendered(tracker, performance.now())) {
@@ -2742,7 +2791,7 @@ export function VigoMap({
           reportPhase('basemap-ready')
         }
       }
-      reportNativeMapReady({
+      reportDesktopMapReady({
         feedName,
         state,
         routeFeatures: renderedRoutes,
@@ -2758,7 +2807,6 @@ export function VigoMap({
       })
     }
     const update = () => {
-      if (cancelled) return
       try {
         ensureLayers(map)
         const tracker = mapTelemetryRef.current
@@ -2770,13 +2818,13 @@ export function VigoMap({
           }
           markLocalSourceSubmitted(tracker, adoptedAt)
         }
-        source(map, 'vigo-routes').setData(routesGeoJson)
-        source(map, 'vigo-segments').setData(segmentsGeoJson)
-        source(map, 'vigo-stops').setData(stopsGeoJson)
-        source(map, 'vigo-access').setData(accessGeoJson)
+        setMapSourceData(source(map, 'vigo-routes'), routesGeoJson)
+        setMapSourceData(source(map, 'vigo-segments'), segmentsGeoJson)
+        setMapSourceData(source(map, 'vigo-stops'), stopsGeoJson)
+        setMapSourceData(source(map, 'vigo-access'), accessGeoJson)
         const showRoutingPlan = routingEnabled || Boolean(routingPlan) || scenarioFocus
-        source(map, 'vigo-routing').setData(showRoutingPlan ? routingGeoJson : emptyCollection)
-        source(map, 'vigo-routing-pins').setData(showRoutingPlan ? routingPinsGeoJson : emptyCollection)
+        setMapSourceData(source(map, 'vigo-routing'), showRoutingPlan ? routingGeoJson : emptyCollection)
+        setMapSourceData(source(map, 'vigo-routing-pins'), showRoutingPlan ? routingPinsGeoJson : emptyCollection)
         const shouldFit = fitSignature !== lastFitSignatureRef.current
         const bounds = shouldFit ? mapContentBounds(routesGeoJson, stopsGeoJson) : null
         if (bounds) {
@@ -2806,19 +2854,16 @@ export function VigoMap({
         reportMapFailure('render', error)
       }
     }
-    const scheduleUpdate = () => {
-      if (frame) window.cancelAnimationFrame(frame)
-      frame = window.requestAnimationFrame(update)
-    }
-
-    if (mapReadyRef.current || map.loaded()) scheduleUpdate()
-    else map.once('load', scheduleUpdate)
+    const cancelUpdate = scheduleMapFrameUpdate(
+      map,
+      mapReadyRef.current,
+      update,
+      () => mapRemovedRef.current,
+    )
 
     return () => {
-      cancelled = true
-      if (frame) window.cancelAnimationFrame(frame)
+      cancelUpdate()
       if (mapRemovedRef.current) return
-      map.off('load', scheduleUpdate)
       map.off('render', reportReadyIfRendered)
     }
   }, [accessGeoJson, feedName, fitSignature, mapTelemetryKey, mapVisualState, routesGeoJson, routingEnabled, routingFitSignature, routingGeoJson, routingPinsGeoJson, routingPlan, scenarioFocus, segmentsGeoJson, stopsGeoJson])
@@ -2828,37 +2873,30 @@ export function VigoMap({
     if (!map) return
     const update = () => {
       ensureLayers(map, comparisonEntries.length)
-      source(map, 'vigo-scenario-area').setData(scenarioAreaGeoJson)
-      source(map, 'vigo-scenario-access-edges').setData(scenarioAccessEdgesGeoJson)
-      source(map, 'vigo-service-edges').setData(serviceDecomposition?.featureCollection ?? emptyCollection)
-      source(map, 'vigo-scenario-contours').setData(scenarioContoursGeoJson)
-      source(map, 'vigo-scenario-analysis-route').setData(
-        scenarioAnalysis?.scenario.routes ?? emptyCollection,
+      setMapSourceData(source(map, 'vigo-scenario-area'), scenarioAreaGeoJson)
+      setMapSourceData(source(map, 'vigo-scenario-access-edges'), scenarioAccessEdgesGeoJson)
+      setMapSourceData(source(map, 'vigo-service-edges'), serviceDecomposition?.featureCollection ?? emptyCollection)
+      setMapSourceData(source(map, 'vigo-scenario-contours'), scenarioContoursGeoJson)
+      setMapSourceData(source(map, 'vigo-reach-route'),
+        reachResult?.scenario.routes ?? emptyCollection,
       )
-      source(map, 'vigo-scenario-sketch').setData(scenarioSketchGeoJson)
+      setMapSourceData(source(map, 'vigo-scenario-sketch'), scenarioSketchGeoJson)
       comparisonEntries.forEach((_entry, index) => {
-        source(map, `vigo-scenario-comparison-${index}-area`).setData(comparisonAreasGeoJson[index] ?? emptyCollection)
-        source(map, `vigo-scenario-comparison-${index}-access-edges`).setData(comparisonAccessEdgesGeoJson[index] ?? emptyCollection)
-        source(map, `vigo-scenario-comparison-${index}-contours`).setData(comparisonContoursGeoJson[index] ?? emptyCollection)
+        setMapSourceData(source(map, `vigo-scenario-comparison-${index}-area`), comparisonAreasGeoJson[index] ?? emptyCollection)
+        setMapSourceData(source(map, `vigo-scenario-comparison-${index}-access-edges`), comparisonAccessEdgesGeoJson[index] ?? emptyCollection)
+        setMapSourceData(source(map, `vigo-scenario-comparison-${index}-contours`), comparisonContoursGeoJson[index] ?? emptyCollection)
       })
-      setVisibility(map, scenarioAnalysisLayerIds, scenarioFocus)
+      setVisibility(map, reachResultLayerIds, scenarioFocus)
       setVisibility(map, ['vigo-scenario-area', 'vigo-scenario-contours'], scenarioFocus && scenarioRenderMode === 'area')
       setVisibility(map, ['vigo-scenario-access-edges'], scenarioFocus && scenarioRenderMode === 'streets')
       setVisibility(map, existingScenarioComparisonLayerIds(map), false)
-      setVisibility(map, scenarioComparisonLayerIds(comparisonEntries.length), scenarioFocus)
-      setVisibility(map, scenarioComparisonLayerIds(comparisonEntries.length).filter((layerId) => layerId.endsWith('-area') || layerId.endsWith('-contours')), scenarioFocus && scenarioRenderMode === 'area')
-      setVisibility(map, scenarioComparisonLayerIds(comparisonEntries.length).filter((layerId) => layerId.endsWith('-access-edges')), scenarioFocus && scenarioRenderMode === 'streets')
-      if (scenarioFocus && scenarioAnalysis) {
-        const [west, south, east, north] = scenarioAnalysis.surface.displayBounds
-          ?? scenarioAnalysis.surface.raster.bounds
-        map.fitBounds([[west, south], [east, north]], {
-          padding: routeFitPadding(map),
-          duration: 360,
-          maxZoom: 14,
-        })
-      } else if (scenarioFocus && comparisonEntries[0]) {
-        const [west, south, east, north] = comparisonEntries[0].analysis.surface.displayBounds
-          ?? comparisonEntries[0].analysis.surface.raster.bounds
+      setVisibility(map, reachComparisonLayerIds(comparisonEntries.length), scenarioFocus)
+      setVisibility(map, reachComparisonLayerIds(comparisonEntries.length).filter((layerId) => layerId.endsWith('-area') || layerId.endsWith('-contours')), scenarioFocus && scenarioRenderMode === 'area')
+      setVisibility(map, reachComparisonLayerIds(comparisonEntries.length).filter((layerId) => layerId.endsWith('-access-edges')), scenarioFocus && scenarioRenderMode === 'streets')
+      const focusedAnalysis = reachResult ?? comparisonEntries[0]?.result
+      if (scenarioFocus && focusedAnalysis) {
+        const [west, south, east, north] = focusedAnalysis.surface.displayBounds
+          ?? focusedAnalysis.surface.raster.bounds
         map.fitBounds([[west, south], [east, north]], {
           padding: routeFitPadding(map),
           duration: 360,
@@ -2872,32 +2910,21 @@ export function VigoMap({
       if (mapRemovedRef.current) return
       map.off('load', update)
     }
-  }, [comparisonAccessEdgesGeoJson, comparisonAreasGeoJson, comparisonContoursGeoJson, comparisonEntries, scenarioAccessEdgesGeoJson, scenarioAnalysis, scenarioAreaGeoJson, scenarioContoursGeoJson, scenarioFocus, scenarioRenderMode, scenarioSketchGeoJson, serviceDecomposition])
+  }, [comparisonAccessEdgesGeoJson, comparisonAreasGeoJson, comparisonContoursGeoJson, comparisonEntries, scenarioAccessEdgesGeoJson, reachResult, scenarioAreaGeoJson, scenarioContoursGeoJson, scenarioFocus, scenarioRenderMode, scenarioSketchGeoJson, serviceDecomposition])
 
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    let frame = 0
-    let cancelled = false
     const update = () => {
-      if (cancelled) return
       ensureLayers(map)
       updateDynamicPointSource(map, 'vigo-service-vehicles', vehicleGeoJson, vehicleSourceStateRef)
     }
-    const scheduleUpdate = () => {
-      if (frame) window.cancelAnimationFrame(frame)
-      frame = window.requestAnimationFrame(update)
-    }
-
-    if (mapReadyRef.current || map.loaded()) scheduleUpdate()
-    else map.once('load', scheduleUpdate)
-
-    return () => {
-      cancelled = true
-      if (frame) window.cancelAnimationFrame(frame)
-      if (mapRemovedRef.current) return
-      map.off('load', scheduleUpdate)
-    }
+    return scheduleMapFrameUpdate(
+      map,
+      mapReadyRef.current,
+      update,
+      () => mapRemovedRef.current,
+    )
   }, [vehicleGeoJson])
 
   useEffect(() => {
@@ -2919,9 +2946,9 @@ export function VigoMap({
       || (basemap === 'offline' && Boolean(map.getSource('vigo-local-streets') && map.isSourceLoaded('vigo-local-streets')))
       || (basemap !== 'offline' && Boolean(map.getSource('osm') && map.isSourceLoaded('osm')))
     if (ready && markBasemapReady(tracker, performance.now())) {
-      reportNativeMapPhase({
+      reportDesktopMapPhase({
         phase: 'basemap-ready',
-        ...nativeMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
+        ...desktopMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
       })
     }
   }, [appearance, basemap, hasDrawableNetwork, routesGeoJson.features.length, stopsGeoJson.features.length])
@@ -2949,9 +2976,9 @@ export function VigoMap({
     const reportLocalBasemapFailure = (error: unknown) => {
       const tracker = mapTelemetryRef.current
       if (tracker && markBasemapFailed(tracker, performance.now())) {
-        reportNativeMapPhase({
+        reportDesktopMapPhase({
           phase: 'basemap-failed',
-          ...nativeMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
+          ...desktopMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
         })
       }
       if (error instanceof Error && error.name !== 'AbortError') {
@@ -2965,9 +2992,9 @@ export function VigoMap({
         clearLocalStreetBasemap()
         const tracker = mapTelemetryRef.current
         if (basemap === 'offline' && tracker && markBasemapReady(tracker, performance.now())) {
-          reportNativeMapPhase({
+          reportDesktopMapPhase({
             phase: 'basemap-ready',
-            ...nativeMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
+            ...desktopMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
           })
         }
         return
@@ -3030,9 +3057,9 @@ export function VigoMap({
         })
         const tracker = mapTelemetryRef.current
         if (tracker && markBasemapReady(tracker, performance.now())) {
-          reportNativeMapPhase({
+          reportDesktopMapPhase({
             phase: 'basemap-ready',
-            ...nativeMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
+            ...desktopMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
           })
         }
       } catch (error) {
@@ -3086,7 +3113,7 @@ export function VigoMap({
     if (!map || !mapReadyRef.current) return
     applyLayerVisibility(map, effectiveLayers, {
       routingVisible: routingEnabled || Boolean(routingPlan) || scenarioFocus,
-      scenarioAnalysisVisible: scenarioFocus,
+      reachResultVisible: scenarioFocus,
     })
   }, [effectiveLayers, routingEnabled, routingPlan, scenarioFocus])
 

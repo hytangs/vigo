@@ -89,8 +89,10 @@ export function mergeGtfsRouteAnalysis(project: VigoProject, feedId: string, ana
   }
 }
 
-export function routeHasCompleteGtfsAnalysis(route: RouteMetric, preview: MapPreview) {
+export function routeHasCompleteGtfsAnalysis(route: RouteMetric, preview: MapPreview, serviceDate = '') {
   return route.analysisSource === 'focused'
+    && (!serviceDate || route.analysisServiceDate === serviceDate)
+    && Array.isArray(route.scheduledTrips)
     && route.stopIds.length >= 2
     && (route.coordinates?.length ?? 0) >= 2
     && route.spanHours > 0

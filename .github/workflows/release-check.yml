@@ -21,13 +21,13 @@ jobs:
       - run: npm ci
       - run: cargo test --manifest-path native/vigo-routing-kernel/Cargo.toml
       - run: cargo clippy --release --all-targets --all-features --target aarch64-apple-darwin --manifest-path native/vigo-routing-kernel/Cargo.toml -- -D warnings
-      - run: npm run release:macos
+      - run: npm run check:release
+      - run: npm run release:studio
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: vigo-macos-arm64
+          name: vigo-studio-macos-arm64
           path: |
-            release/VIGO-*-mac-arm64.zip
-            release/VIGO-*-mac-arm64.zip.sha256
+            release/VIGO-Studio-*-mac-arm64.zip
           if-no-files-found: error
 
   attest-macos-arm64:
@@ -40,8 +40,8 @@ jobs:
     steps:
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
-          name: vigo-macos-arm64
+          name: vigo-studio-macos-arm64
           path: release
       - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
-          subject-path: release/VIGO-*-mac-arm64.zip
+          subject-path: release/VIGO-Studio-*-mac-arm64.zip

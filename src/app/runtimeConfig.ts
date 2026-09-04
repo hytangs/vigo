@@ -2,7 +2,7 @@ import type { Appearance, Basemap } from '../domain'
 
 export type AppAccent = 'teal' | 'blue' | 'graphite'
 
-export type OfflineStatus = {
+type OfflineStatus = {
   localServer: boolean
   bundledApp: boolean
   storageWritable: boolean
@@ -24,7 +24,6 @@ export type VigoRuntimeConfig = {
   appearance: Appearance
   accent: AppAccent
   basemap: Basemap
-  automaticCacheCleanup: boolean
   offline: OfflineStatus
 }
 

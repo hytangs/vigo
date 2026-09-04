@@ -1,6 +1,5 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use std::cmp::Ordering;
 use std::time::Instant;
 
 const STATE_STRIDE: usize = 8;
@@ -378,7 +377,7 @@ struct ScalarLabel {
     arrival: f64,
     generation: u32,
     boardings: u16,
-    _padding: u16,
+    walking_seconds: u16,
 }
 
 impl Default for ScalarLabel {
@@ -387,7 +386,7 @@ impl Default for ScalarLabel {
             arrival: f64::INFINITY,
             generation: 0,
             boardings: u16::MAX,
-            _padding: 0,
+            walking_seconds: u16::MAX,
         }
     }
 }
@@ -839,6 +838,7 @@ struct SearchStats {
 struct BestState {
     arrival: f64,
     boardings: u16,
+    walking_seconds: f64,
     state: i32,
     destination_index: i32,
 }
@@ -848,10 +848,25 @@ impl Default for BestState {
         Self {
             arrival: f64::INFINITY,
             boardings: u16::MAX,
+            walking_seconds: f64::INFINITY,
             state: NO_STATE,
             destination_index: NO_STATE,
         }
     }
+}
+
+fn scalar_objective_better(
+    arrival: f64,
+    boardings: u16,
+    walking_seconds: f64,
+    retained_arrival: f64,
+    retained_boardings: u16,
+    retained_walking_seconds: f64,
+) -> bool {
+    arrival < retained_arrival
+        || (arrival == retained_arrival
+            && (boardings < retained_boardings
+                || (boardings == retained_boardings && walking_seconds < retained_walking_seconds)))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -881,11 +896,27 @@ fn relax_connection_scan(
     } else {
         0
     };
+    let predecessor_walking_seconds = if from_state >= 0 {
+        workspace.labels[from_state as usize].walking_seconds
+    } else {
+        0
+    };
     let boardings = predecessor_boardings.saturating_add(u16::from(kind == 2));
+    let walking_seconds = predecessor_walking_seconds.saturating_add(if kind == 1 || kind == 3 {
+        u16::try_from(duration).unwrap_or(u16::MAX)
+    } else {
+        0
+    });
     let retained = workspace.labels[state];
     if retained.generation == epoch
-        && (arrival > retained.arrival
-            || (arrival == retained.arrival && boardings >= retained.boardings))
+        && !scalar_objective_better(
+            arrival,
+            boardings,
+            f64::from(walking_seconds),
+            retained.arrival,
+            retained.boardings,
+            f64::from(retained.walking_seconds),
+        )
     {
         return NO_STATE;
     }
@@ -901,7 +932,7 @@ fn relax_connection_scan(
         arrival,
         generation: epoch,
         boardings,
-        _padding: 0,
+        walking_seconds,
     };
     workspace.predecessors[state] = ScalarPredecessor {
         state: from_state,
@@ -922,16 +953,37 @@ fn relax_connection_scan(
         && egress_ready
     {
         let destination_arrival = arrival + workspace.destination_egress[stop];
-        if destination_arrival < best.arrival
-            || (destination_arrival == best.arrival && boardings < best.boardings)
-        {
+        let destination_walking_seconds =
+            f64::from(walking_seconds) + workspace.destination_egress[stop];
+        if scalar_objective_better(
+            destination_arrival,
+            boardings,
+            destination_walking_seconds,
+            best.arrival,
+            best.boardings,
+            best.walking_seconds,
+        ) {
             best.arrival = destination_arrival;
             best.boardings = boardings;
+            best.walking_seconds = destination_walking_seconds;
             best.state = state as i32;
             best.destination_index = destination_index;
         }
     }
     state as i32
+}
+
+#[cfg(test)]
+mod scalar_objective_tests {
+    use super::scalar_objective_better;
+
+    #[test]
+    fn orders_arrival_then_boardings_then_walking_and_keeps_stable_ties() {
+        assert!(scalar_objective_better(99.0, 3, 900.0, 100.0, 1, 60.0));
+        assert!(scalar_objective_better(100.0, 1, 900.0, 100.0, 2, 60.0));
+        assert!(scalar_objective_better(100.0, 2, 59.0, 100.0, 2, 60.0));
+        assert!(!scalar_objective_better(100.0, 2, 60.0, 100.0, 2, 60.0));
+    }
 }
 
 fn departure_event_lower_bound(
@@ -951,6 +1003,35 @@ fn departure_event_lower_bound(
     low
 }
 
+#[inline]
+fn earliest_boardable_departure(
+    departure_offset: &[u32],
+    departure_events: &[DepartureEvent],
+    origin_stops: &[u32],
+    origin_walk_seconds: &[f64],
+    departure: f64,
+) -> f64 {
+    origin_stops
+        .iter()
+        .zip(origin_walk_seconds)
+        .filter_map(|(&stop, &walk_seconds)| {
+            let stop = stop as usize;
+            let end = departure_offset[stop + 1] as usize;
+            let cursor = departure_event_lower_bound(
+                departure_events,
+                departure_offset[stop] as usize,
+                end,
+                departure + walk_seconds,
+            );
+            if cursor < end {
+                Some(departure_events[cursor].departure as f64)
+            } else {
+                None
+            }
+        })
+        .fold(f64::INFINITY, f64::min)
+}
+
 fn scan_time_lower_bound(times: &[u32], value: f64) -> usize {
     let mut low = 0;
     let mut high = times.len();
@@ -963,6 +1044,93 @@ fn scan_time_lower_bound(times: &[u32], value: f64) -> usize {
         }
     }
     low
+}
+
+fn scan_time_upper_bound(times: &[u32], value: f64) -> usize {
+    let mut low = 0;
+    let mut high = times.len();
+    while low < high {
+        let middle = (low + high) >> 1;
+        if (times[middle] as f64) <= value {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    low
+}
+
+#[inline]
+fn retain_reverse_origin_offset(
+    workspace: &mut ScalarWorkspace,
+    epoch: u32,
+    stop: usize,
+    offset: f64,
+) {
+    let label = &mut workspace.labels[stop * STATE_STRIDE + (STATE_STRIDE - 1)];
+    if label.generation != epoch || offset < label.arrival {
+        label.generation = epoch;
+        label.arrival = offset;
+    }
+}
+
+#[inline]
+fn relax_reverse_post_ride_deadline(
+    workspace: &mut ScalarWorkspace,
+    epoch: u32,
+    stats: &mut SearchStats,
+    stop: usize,
+    deadline: f64,
+    earliest: f64,
+) {
+    if deadline < earliest {
+        return;
+    }
+    if workspace.destination_generation[stop] == epoch
+        && deadline <= workspace.destination_egress[stop]
+    {
+        return;
+    }
+    workspace.destination_generation[stop] = epoch;
+    workspace.destination_egress[stop] = deadline;
+    stats.relaxed_stops = stats.relaxed_stops.saturating_add(1);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn relax_reverse_transfer_target_deadline(
+    workspace: &mut ScalarWorkspace,
+    epoch: u32,
+    stats: &mut SearchStats,
+    target: usize,
+    deadline: f64,
+    earliest: f64,
+    reverse_transfer_offset: &[u32],
+    reverse_transfer_edges: &[TransferEdge],
+) {
+    if deadline < earliest {
+        return;
+    }
+    let label = &mut workspace.labels[target * STATE_STRIDE];
+    if label.generation == epoch && deadline <= label.arrival {
+        return;
+    }
+    label.generation = epoch;
+    label.arrival = deadline;
+    let start = reverse_transfer_offset[target] as usize;
+    let end = reverse_transfer_offset[target + 1] as usize;
+    stats.explicit_transfer_checks = stats
+        .explicit_transfer_checks
+        .saturating_add((end - start) as u32);
+    for edge in &reverse_transfer_edges[start..end] {
+        relax_reverse_post_ride_deadline(
+            workspace,
+            epoch,
+            stats,
+            edge.stop(),
+            deadline - f64::from(edge.duration()),
+            earliest,
+        );
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2795,6 +2963,14 @@ impl TimetableKernel {
         &mut self,
         input: TimetableQueryInput,
     ) -> napi::Result<TimetableQueryResult> {
+        self.route_scalar_csa_impl(&input, true)
+    }
+
+    fn route_scalar_csa_impl(
+        &mut self,
+        input: &TimetableQueryInput,
+        retain_journey: bool,
+    ) -> napi::Result<TimetableQueryResult> {
         let started = Instant::now();
         if input.origin_stops.len() != input.origin_walk_seconds.len()
             || input.origin_stops.len() != input.origin_candidate_indices.len()
@@ -2937,25 +3113,13 @@ impl TimetableKernel {
         let scan_start = if input.allow_pre_ride_transfers {
             input.departure
         } else {
-            input
-                .origin_stops
-                .iter()
-                .zip(&input.origin_walk_seconds)
-                .filter_map(|(&stop, &walk_seconds)| {
-                    let stop = stop as usize;
-                    let cursor = departure_event_lower_bound(
-                        departure_events,
-                        departure_offset[stop] as usize,
-                        departure_offset[stop + 1] as usize,
-                        input.departure + walk_seconds,
-                    );
-                    if cursor < departure_offset[stop + 1] as usize {
-                        Some(departure_events[cursor].departure as f64)
-                    } else {
-                        None
-                    }
-                })
-                .fold(f64::INFINITY, f64::min)
+            earliest_boardable_departure(
+                departure_offset,
+                departure_events,
+                &input.origin_stops,
+                &input.origin_walk_seconds,
+                input.departure,
+            )
         };
         let mut time_index = scan_time_lower_bound(scan_times, scan_start);
         while time_index < scan_times.len() {
@@ -3022,7 +3186,11 @@ impl TimetableKernel {
                                     < workspace.labels[retained].arrival
                                     || (workspace.labels[state].arrival
                                         == workspace.labels[retained].arrival
-                                        && state < retained)))
+                                        && (workspace.labels[state].walking_seconds
+                                            < workspace.labels[retained].walking_seconds
+                                            || (workspace.labels[state].walking_seconds
+                                                == workspace.labels[retained].walking_seconds
+                                                && state < retained)))))
                         {
                             boarding_state = state as i32;
                         }
@@ -3158,12 +3326,12 @@ impl TimetableKernel {
         }
         let scan_ns = scan_started.elapsed().as_nanos() as f64;
 
-        if best.state >= 0 {
+        if best.state >= 0 && retain_journey {
             forward_workspace.scalar_runs.fill(0);
             for run in workspace.touched_runs.iter().copied() {
                 set_run_bit(&mut forward_workspace.scalar_runs, run as usize);
             }
-            forward_workspace.scalar_identity = Some(ScalarEnvelopeIdentity::new(&input, &best));
+            forward_workspace.scalar_identity = Some(ScalarEnvelopeIdentity::new(input, &best));
         }
         if best.state < 0 {
             return Ok(TimetableQueryResult {
@@ -3195,45 +3363,49 @@ impl TimetableKernel {
             });
         }
 
-        let chain_started = Instant::now();
-        let mut chain = Vec::<JourneyChainStep>::new();
-        let mut state = best.state;
-        while state >= 0 {
-            let state_index = state as usize;
-            let predecessor_record = workspace.predecessors[state_index];
-            let kind = predecessor_record.kind;
-            let stop = (state_index / STATE_STRIDE) as i32;
-            if kind == 3 {
+        let (chain, chain_ns) = if retain_journey {
+            let chain_started = Instant::now();
+            let mut chain = Vec::<JourneyChainStep>::new();
+            let mut state = best.state;
+            while state >= 0 {
+                let state_index = state as usize;
+                let predecessor_record = workspace.predecessors[state_index];
+                let kind = predecessor_record.kind;
+                let stop = (state_index / STATE_STRIDE) as i32;
+                if kind == 3 {
+                    chain.push((
+                        3,
+                        NO_STATE,
+                        stop,
+                        predecessor_record.trip,
+                        0.0,
+                        0.0,
+                        predecessor_record.duration,
+                        workspace.labels[state_index].arrival,
+                    ));
+                    break;
+                }
+                let predecessor = predecessor_record.state;
+                if predecessor < 0 {
+                    break;
+                }
                 chain.push((
-                    3,
-                    NO_STATE,
+                    kind as u32,
+                    (predecessor as usize / STATE_STRIDE) as i32,
                     stop,
                     predecessor_record.trip,
-                    0.0,
-                    0.0,
+                    f64::from(predecessor_record.board_sequence_twice) * 0.5,
+                    f64::from(predecessor_record.alight_sequence_twice) * 0.5,
                     predecessor_record.duration,
                     workspace.labels[state_index].arrival,
                 ));
-                break;
+                state = predecessor;
             }
-            let predecessor = predecessor_record.state;
-            if predecessor < 0 {
-                break;
-            }
-            chain.push((
-                kind as u32,
-                (predecessor as usize / STATE_STRIDE) as i32,
-                stop,
-                predecessor_record.trip,
-                f64::from(predecessor_record.board_sequence_twice) * 0.5,
-                f64::from(predecessor_record.alight_sequence_twice) * 0.5,
-                predecessor_record.duration,
-                workspace.labels[state_index].arrival,
-            ));
-            state = predecessor;
-        }
-        chain.reverse();
-        let chain_ns = chain_started.elapsed().as_nanos() as f64;
+            chain.reverse();
+            (chain, chain_started.elapsed().as_nanos() as f64)
+        } else {
+            (Vec::new(), 0.0)
+        };
 
         Ok(TimetableQueryResult {
             supported: true,
@@ -3293,23 +3465,61 @@ impl TimetableKernel {
             ));
         }
 
+        let Self {
+            stop_count: _,
+            run_count: _,
+            departure_seconds: _,
+            arrival_seconds: _,
+            from_stop: _,
+            to_stop: _,
+            sequence: _,
+            segment_trip: _,
+            segment_run: _,
+            continuity_break: _,
+            can_board: _,
+            can_alight: _,
+            trip_start: _,
+            departure_offset: _,
+            departure_events: _,
+            transfer_offset,
+            transfer_edges,
+            forbidden_same_stop,
+            scan_events,
+            scan_times,
+            scan_time_offsets,
+            scan_arrivals,
+            scan_journeys: _,
+            run_start: _,
+            run_end: _,
+            reverse_transfer_offset,
+            reverse_transfer_edges,
+            exit_event_offset: _,
+            exit_events: _,
+            workspace,
+            many_workspace: _,
+            forward_workspace: _,
+            profile_workspace: _,
+        } = self;
+        let epoch = workspace.begin_query();
+
         // The production transfer projection admits at most one explicit
-        // transfer edge before the first ride. Build exactly that initial
-        // boarding frontier here so candidate generation and scalar
-        // feasibility use the same graph contract.
+        // transfer before the first ride. Store the minimum access offset in
+        // an unused scalar label slot so arrive-by adds no stop-sized query
+        // allocation.
         let maximum_offset = input.deadline - input.earliest;
-        let mut offsets = vec![f64::INFINITY; self.stop_count];
-        let mut touched_stops = Vec::<u32>::new();
+        let mut minimum_origin_offset = f64::INFINITY;
         for index in 0..input.origin_stops.len() {
             let stop = input.origin_stops[index] as usize;
             let offset = input.origin_walk_seconds[index];
-            if offset > maximum_offset || offset >= offsets[stop] {
+            let state = stop * STATE_STRIDE + (STATE_STRIDE - 1);
+            if offset > maximum_offset
+                || (workspace.labels[state].generation == epoch
+                    && offset >= workspace.labels[state].arrival)
+            {
                 continue;
             }
-            if !offsets[stop].is_finite() {
-                touched_stops.push(stop as u32);
-            }
-            offsets[stop] = offset;
+            retain_reverse_origin_offset(workspace, epoch, stop, offset);
+            minimum_origin_offset = minimum_origin_offset.min(offset);
         }
         if input.allow_pre_ride_transfers {
             for index in 0..input.origin_stops.len() {
@@ -3318,113 +3528,151 @@ impl TimetableKernel {
                 if source_offset > maximum_offset {
                     continue;
                 }
-                let start = self.transfer_offset[source] as usize;
-                let end = self.transfer_offset[source + 1] as usize;
-                for edge in &self.transfer_edges[start..end] {
+                let start = transfer_offset[source] as usize;
+                let end = transfer_offset[source + 1] as usize;
+                for edge in &transfer_edges[start..end] {
                     let target = edge.stop();
                     let offset = source_offset + f64::from(edge.duration());
-                    if offset > maximum_offset || offset >= offsets[target] {
+                    let state = target * STATE_STRIDE + (STATE_STRIDE - 1);
+                    if offset > maximum_offset
+                        || (workspace.labels[state].generation == epoch
+                            && offset >= workspace.labels[state].arrival)
+                    {
                         continue;
                     }
-                    if !offsets[target].is_finite() {
-                        touched_stops.push(target as u32);
-                    }
-                    offsets[target] = offset;
+                    retain_reverse_origin_offset(workspace, epoch, target, offset);
+                    minimum_origin_offset = minimum_origin_offset.min(offset);
                 }
             }
         }
 
-        // A latest feasible departure can be shifted forward until the first
-        // boarding event of its itinerary. Therefore this complete set of
-        // initial board-event offsets contains the exact monotone boundary.
-        let mut candidates = Vec::<f64>::new();
-        for stop in touched_stops {
-            let stop = stop as usize;
-            let offset = offsets[stop];
-            let start = self.departure_offset[stop] as usize;
-            let end = self.departure_offset[stop + 1] as usize;
-            let mut cursor = departure_event_lower_bound(
-                &self.departure_events,
-                start,
-                end,
-                input.earliest + offset,
+        // A post-ride state may finish directly, board another run after the
+        // standard same-stop interchange time, or traverse exactly one
+        // explicit transfer whose duration already represents interchange.
+        // Seed both deadline forms at each destination, then propagate every
+        // newly discovered boarding opportunity while scanning the timetable
+        // once in reverse time order.
+        let engine_started = Instant::now();
+        let mut stats = SearchStats::default();
+        let mut latest_destination_deadline = f64::NEG_INFINITY;
+        for index in 0..input.destination_stops.len() {
+            let stop = input.destination_stops[index] as usize;
+            let destination_deadline = input.deadline - input.destination_walk_seconds[index];
+            if destination_deadline < input.earliest {
+                continue;
+            }
+            latest_destination_deadline = latest_destination_deadline.max(destination_deadline);
+            relax_reverse_post_ride_deadline(
+                workspace,
+                epoch,
+                &mut stats,
+                stop,
+                destination_deadline,
+                input.earliest,
             );
-            while cursor < end {
-                let candidate = f64::from(self.departure_events[cursor].departure) - offset;
-                if candidate > input.deadline {
-                    break;
-                }
-                if candidate >= input.earliest {
-                    candidates.push(candidate);
-                }
-                cursor += 1;
-            }
+            relax_reverse_transfer_target_deadline(
+                workspace,
+                epoch,
+                &mut stats,
+                stop,
+                destination_deadline,
+                input.earliest,
+                reverse_transfer_offset,
+                reverse_transfer_edges,
+            );
         }
-        candidates.sort_by(|left, right| right.total_cmp(left));
-        candidates.dedup_by(|left, right| left.total_cmp(right) == Ordering::Equal);
-        let candidate_count = candidates.len().min(u32::MAX as usize) as u32;
-
-        let mut lower = 0_usize;
-        let mut upper = candidates.len();
         let mut latest_departure = None;
-        let mut verified_candidates = 0_u32;
-        let mut engine_query_ns = 0.0;
-        let mut scanned_departures = 0_u32;
-        let mut relaxed_stops = 0_u32;
-        let mut expanded_trip_runs = 0_u32;
-        let mut dominated_trip_boardings = 0_u32;
-        let mut explicit_transfer_checks = 0_u32;
-        while lower < upper {
-            let middle = (lower + upper) >> 1;
-            let departure = candidates[middle];
-            let result = self.route_scalar_csa(TimetableQueryInput {
-                origin_stops: input.origin_stops.clone(),
-                origin_walk_seconds: input.origin_walk_seconds.clone(),
-                origin_candidate_indices: input.origin_candidate_indices.clone(),
-                destination_stops: input.destination_stops.clone(),
-                destination_walk_seconds: input.destination_walk_seconds.clone(),
-                destination_candidate_indices: input.destination_candidate_indices.clone(),
-                departure,
-                horizon: input.deadline,
-                allow_pre_ride_transfers: input.allow_pre_ride_transfers,
-            })?;
-            verified_candidates = verified_candidates.saturating_add(1);
-            engine_query_ns += result.query_ns;
-            scanned_departures = scanned_departures.saturating_add(result.scanned_departures);
-            relaxed_stops = relaxed_stops.saturating_add(result.relaxed_stops);
-            expanded_trip_runs = expanded_trip_runs.saturating_add(result.expanded_trip_runs);
-            dominated_trip_boardings =
-                dominated_trip_boardings.saturating_add(result.dominated_trip_boardings);
-            explicit_transfer_checks =
-                explicit_transfer_checks.saturating_add(result.explicit_transfer_checks);
-            if !result.supported {
-                return Ok(TimetableArriveByQueryResult {
-                    supported: false,
-                    status: "unsupported".to_owned(),
-                    reason: result.reason,
-                    latest_departure: None,
-                    candidate_count,
-                    verified_candidates,
-                    query_ns: started.elapsed().as_nanos() as f64,
-                    engine_query_ns,
-                    scanned_departures,
-                    relaxed_stops,
-                    expanded_trip_runs,
-                    dominated_trip_boardings,
-                    explicit_transfer_checks,
-                });
+        let first_boarding = input.earliest + minimum_origin_offset;
+        let first_time = scan_time_lower_bound(scan_times, first_boarding);
+        let time_end = scan_time_upper_bound(scan_times, latest_destination_deadline);
+        'time_scan: for time_index in (first_time..time_end).rev() {
+            let departure = f64::from(scan_times[time_index]);
+            // Events are ordered by decreasing departure. Once even the
+            // shortest origin access cannot improve the retained departure,
+            // no earlier event can improve it either.
+            if latest_departure.is_some_and(|latest| departure - minimum_origin_offset <= latest) {
+                break;
             }
-            let feasible = result.status == "ready"
-                && result
-                    .best_arrival
-                    .is_some_and(|arrival| arrival <= input.deadline);
-            if feasible {
-                latest_departure = Some(departure);
-                upper = middle;
-            } else {
-                lower = middle + 1;
+            let start = scan_time_offsets[time_index] as usize;
+            let end = scan_time_offsets[time_index + 1] as usize;
+            stats.scanned_departures = stats
+                .scanned_departures
+                .saturating_add((end - start) as u32);
+            // Reversing the stable forward bucket order preserves exact
+            // zero-duration event ordering without a fixed-point pass.
+            for connection in (start..end).rev() {
+                let event = scan_events[connection];
+                let flags = event.flags();
+                let stop = event.source_stop();
+                let run = event.run();
+                let arrival = scan_arrivals[connection];
+                let run_was_feasible = workspace.run_generation[run] == epoch;
+                let direct_exit_feasible = flags & SCAN_CAN_ALIGHT != 0
+                    && workspace.destination_generation[arrival.to as usize] == epoch
+                    && f64::from(arrival.arrival)
+                        <= workspace.destination_egress[arrival.to as usize];
+                let boardable_path = run_was_feasible || direct_exit_feasible;
+
+                if flags & SCAN_CAN_BOARD != 0 && boardable_path {
+                    let origin_state = stop * STATE_STRIDE + (STATE_STRIDE - 1);
+                    if workspace.labels[origin_state].generation == epoch {
+                        let origin_offset = workspace.labels[origin_state].arrival;
+                        let candidate = departure - origin_offset;
+                        if candidate >= input.earliest
+                            && candidate <= input.deadline
+                            && latest_departure.is_none_or(|latest| candidate > latest)
+                        {
+                            latest_departure = Some(candidate);
+                            // This is the largest physical departure possible
+                            // at the latest timetable time still under
+                            // consideration. Neither the rest of this bucket
+                            // nor an earlier one can improve it.
+                            if origin_offset <= minimum_origin_offset {
+                                break 'time_scan;
+                            }
+                        }
+                    }
+
+                    if forbidden_same_stop[stop] == 0 {
+                        relax_reverse_post_ride_deadline(
+                            workspace,
+                            epoch,
+                            &mut stats,
+                            stop,
+                            departure - TRANSFER_BOARD_SLACK_SECONDS,
+                            input.earliest,
+                        );
+                        relax_reverse_transfer_target_deadline(
+                            workspace,
+                            epoch,
+                            &mut stats,
+                            stop,
+                            departure,
+                            input.earliest,
+                            reverse_transfer_offset,
+                            reverse_transfer_edges,
+                        );
+                    }
+                }
+
+                let bridge_exit_feasible = flags & SCAN_BRIDGE_EXIT != 0
+                    && workspace.destination_generation[stop] == epoch
+                    && departure <= workspace.destination_egress[stop];
+                if !run_was_feasible && (direct_exit_feasible || bridge_exit_feasible) {
+                    workspace.run_generation[run] = epoch;
+                    stats.expanded_trip_runs = stats.expanded_trip_runs.saturating_add(1);
+                } else if run_was_feasible && flags & SCAN_CAN_BOARD != 0 {
+                    stats.dominated_trip_boardings =
+                        stats.dominated_trip_boardings.saturating_add(1);
+                }
             }
         }
+        let engine_query_ns = engine_started.elapsed().as_nanos() as f64;
+        // The reverse scan resolves one exact upper boundary. The uncommon
+        // presentation-only recovery enumerates earlier departures lazily in
+        // JavaScript if forward materialization rejects that boundary.
+        let verified_candidates = u32::from(latest_departure.is_some());
+        let candidate_count = verified_candidates;
 
         Ok(TimetableArriveByQueryResult {
             supported: true,
@@ -3439,11 +3687,11 @@ impl TimetableKernel {
             verified_candidates,
             query_ns: started.elapsed().as_nanos() as f64,
             engine_query_ns,
-            scanned_departures,
-            relaxed_stops,
-            expanded_trip_runs,
-            dominated_trip_boardings,
-            explicit_transfer_checks,
+            scanned_departures: stats.scanned_departures,
+            relaxed_stops: stats.relaxed_stops,
+            expanded_trip_runs: stats.expanded_trip_runs,
+            dominated_trip_boardings: stats.dominated_trip_boardings,
+            explicit_transfer_checks: stats.explicit_transfer_checks,
         })
     }
 
@@ -3502,8 +3750,8 @@ impl TimetableKernel {
             can_board: _,
             can_alight: _,
             trip_start: _,
-            departure_offset: _,
-            departure_events: _,
+            departure_offset,
+            departure_events,
             transfer_offset,
             transfer_edges,
             forbidden_same_stop,
@@ -3524,6 +3772,7 @@ impl TimetableKernel {
             profile_workspace: _,
         } = self;
         let epoch = many_workspace.begin_query();
+        let has_excluded_trips = !input.excluded_trips.is_empty();
         for trip in &input.excluded_trips {
             many_workspace.excluded_trip_generation[*trip as usize] = epoch;
         }
@@ -3588,7 +3837,21 @@ impl TimetableKernel {
             });
         }
 
-        let mut time_index = scan_time_lower_bound(scan_times, input.departure);
+        // Coordinate access cannot board before its endpoint walk reaches an
+        // origin stop. Start at the first indexed departure that any origin
+        // can board; earlier timetable events are provably irrelevant.
+        let scan_start = if input.allow_pre_ride_transfers {
+            input.departure
+        } else {
+            earliest_boardable_departure(
+                departure_offset,
+                departure_events,
+                &input.origin_stops,
+                &input.origin_walk_seconds,
+                input.departure,
+            )
+        };
+        let mut time_index = scan_time_lower_bound(scan_times, scan_start);
         while time_index < scan_times.len() {
             let connection_departure = scan_times[time_index] as f64;
             if connection_departure > input.horizon {
@@ -3596,16 +3859,22 @@ impl TimetableKernel {
             }
             let start = scan_time_offsets[time_index] as usize;
             let end = scan_time_offsets[time_index + 1] as usize;
-            for connection in start..end {
-                let event = scan_events[connection];
+            stats.scanned_departures += (end - start) as u32;
+            let bucket_events = &scan_events[start..end];
+            let bucket_arrivals = &scan_arrivals[start..end];
+            for (offset, (&event, &arrival)) in
+                bucket_events.iter().zip(bucket_arrivals).enumerate()
+            {
+                let connection = start + offset;
                 let flags = event.flags();
                 let stop = event.source_stop();
                 let run = event.run();
-                stats.scanned_departures = stats.scanned_departures.saturating_add(1);
-                let trip = scan_journeys[connection].trip as usize;
-                if many_workspace.excluded_trip_generation[trip] == epoch {
-                    excluded_departures = excluded_departures.saturating_add(1);
-                    continue;
+                if has_excluded_trips {
+                    let trip = scan_journeys[connection].trip as usize;
+                    if many_workspace.excluded_trip_generation[trip] == epoch {
+                        excluded_departures = excluded_departures.saturating_add(1);
+                        continue;
+                    }
                 }
                 if flags & SCAN_CAN_BOARD != 0
                     && many_workspace.stop_generation[stop] == epoch
@@ -3673,7 +3942,6 @@ impl TimetableKernel {
                         );
                     }
                 }
-                let arrival = scan_arrivals[connection];
                 if flags & SCAN_CAN_ALIGHT == 0 || arrival.arrival as f64 > input.horizon {
                     continue;
                 }

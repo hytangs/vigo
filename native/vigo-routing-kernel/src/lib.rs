@@ -53,6 +53,8 @@ mod street_analysis;
 pub use street_analysis::*;
 mod exact_routing;
 pub use exact_routing::*;
+#[cfg(test)]
+mod routing_query_tests;
 
 use street_snapshot::Snapshot;
 
@@ -506,6 +508,7 @@ impl DynamicCchQuery {
     ) -> &[u32] {
         let generation = self.begin();
         if sources.is_empty() || targets.is_empty() {
+            self.output.resize(targets.len(), cch::INF_WEIGHT);
             return &self.output;
         }
         let elimination_tree_parent = cch.elimination_tree_parent;
@@ -2242,6 +2245,8 @@ pub struct CoordinateTimetableInput {
     pub member_timetable_stops: Uint32Array,
     pub departure: f64,
     pub horizon: f64,
+    pub arrive_by_earliest: Option<f64>,
+    pub arrive_by_deadline: Option<f64>,
     pub allow_pre_ride_transfers: bool,
     pub retain_full_frontier: bool,
     pub enable_direct_walk_dominance: bool,
@@ -2253,6 +2258,7 @@ pub struct CoordinateTimetableResult {
     pub endpoints: Option<EndpointRouteResult>,
     pub compact_endpoints: Option<CompactEndpointRouteResult>,
     pub timetable: Option<TimetableQueryResult>,
+    pub arrive_by: Option<TimetableArriveByQueryResult>,
     pub direct_walk_cch_checked: bool,
     pub direct_walk_distance_m: Option<f64>,
     pub direct_walk_query_ns: f64,
@@ -2268,6 +2274,8 @@ pub struct CoordinateTimetableResult {
     pub query_ns: f64,
     pub access_ns: f64,
     pub timetable_ns: f64,
+    pub arrive_by_ns: f64,
+    pub forward_timetable_ns: f64,
 }
 
 /// Fused arbitrary-coordinate origin access plus exact one-to-many timetable
@@ -3713,9 +3721,16 @@ impl CoordinateKernel {
             .ok_or_else(|| Error::from_reason("Rust routing access profile is not configured."))?
             .member_lons
             .len();
-        if input.member_timetable_stops.len() != member_count {
+        let arrive_by_bounds_valid = match (input.arrive_by_earliest, input.arrive_by_deadline) {
+            (None, None) => true,
+            (Some(earliest), Some(deadline)) => {
+                earliest.is_finite() && deadline.is_finite() && deadline >= earliest
+            }
+            _ => false,
+        };
+        if input.member_timetable_stops.len() != member_count || !arrive_by_bounds_valid {
             return Err(Error::from_reason(
-                "Coordinate timetable member-stop projection has the wrong length.",
+                "Coordinate timetable projection or arrive-by bounds are inconsistent.",
             ));
         }
         let access_started = Instant::now();
@@ -3859,6 +3874,9 @@ impl CoordinateKernel {
             direct_walk_path_query_ns = path_started.elapsed().as_nanos() as f64;
         }
         let timetable_started = Instant::now();
+        let mut arrive_by_result = None;
+        let mut arrive_by_ns = 0.0;
+        let mut forward_timetable_ns = 0.0;
         let mut timetable_result = if direct_walk_access_dominates {
             None
         } else {
@@ -3896,17 +3914,47 @@ impl CoordinateKernel {
                 destination_walk_seconds.push(walk_seconds as f64);
                 destination_candidate_indices.push(candidate as u32);
             }
-            Some(timetable.route_scalar_csa(TimetableQueryInput {
-                origin_stops,
-                origin_walk_seconds,
-                origin_candidate_indices,
-                destination_stops,
-                destination_walk_seconds,
-                destination_candidate_indices,
-                departure: input.departure,
-                horizon: input.horizon,
-                allow_pre_ride_transfers: input.allow_pre_ride_transfers,
-            })?)
+
+            let arrive_by_bounds = input.arrive_by_earliest.zip(input.arrive_by_deadline);
+            let departure = if let Some((earliest, deadline)) = arrive_by_bounds {
+                let reverse_started = Instant::now();
+                let reverse = timetable.route_arrive_by_csa(TimetableArriveByQueryInput {
+                    origin_stops: origin_stops.clone(),
+                    origin_walk_seconds: origin_walk_seconds.clone(),
+                    origin_candidate_indices: origin_candidate_indices.clone(),
+                    destination_stops: destination_stops.clone(),
+                    destination_walk_seconds: destination_walk_seconds.clone(),
+                    destination_candidate_indices: destination_candidate_indices.clone(),
+                    earliest,
+                    deadline,
+                    allow_pre_ride_transfers: input.allow_pre_ride_transfers,
+                })?;
+                arrive_by_ns = reverse_started.elapsed().as_nanos() as f64;
+                let latest_departure = reverse.latest_departure;
+                arrive_by_result = Some(reverse);
+                latest_departure
+            } else {
+                Some(input.departure)
+            };
+
+            if let Some(departure) = departure {
+                let forward_started = Instant::now();
+                let result = timetable.route_scalar_csa(TimetableQueryInput {
+                    origin_stops,
+                    origin_walk_seconds,
+                    origin_candidate_indices,
+                    destination_stops,
+                    destination_walk_seconds,
+                    destination_candidate_indices,
+                    departure,
+                    horizon: input.horizon,
+                    allow_pre_ride_transfers: input.allow_pre_ride_transfers,
+                })?;
+                forward_timetable_ns = forward_started.elapsed().as_nanos() as f64;
+                Some(result)
+            } else {
+                None
+            }
         };
         let timetable_ns = if direct_walk_access_dominates {
             0.0
@@ -3989,6 +4037,7 @@ impl CoordinateKernel {
             endpoints: (!(compact_frontier || direct_walk_access_dominates)).then_some(endpoints),
             compact_endpoints,
             timetable: timetable_result,
+            arrive_by: arrive_by_result,
             direct_walk_cch_checked,
             direct_walk_distance_m,
             direct_walk_query_ns,
@@ -4004,6 +4053,8 @@ impl CoordinateKernel {
             query_ns: started.elapsed().as_nanos() as f64,
             access_ns,
             timetable_ns,
+            arrive_by_ns,
+            forward_timetable_ns,
         })
     }
 
@@ -4479,7 +4530,7 @@ impl CoordinateKernel {
                 index,
                 targets,
                 input.default_maximum_walk_m,
-            ))
+            )?)
         } else {
             None
         };
@@ -4946,6 +4997,8 @@ impl CoordinateKernel {
                 "Rust street matrix routing requires a loaded current CCH index.",
             ));
         };
+        let buckets =
+            coordinate_matrix_buckets(index, &targets, origin_count, input.maximum_distance_m)?;
         for (origin, origin_snap_set) in origin_snaps.iter().enumerate() {
             let sources = origin_snap_set
                 .iter()
@@ -4956,6 +5009,7 @@ impl CoordinateKernel {
                 &sources,
                 &targets,
                 input.maximum_distance_m,
+                buckets.as_ref(),
             );
             for (destination, distance) in row.iter().copied().enumerate() {
                 let matrix_index = origin * destination_count + destination;
@@ -7272,6 +7326,7 @@ fn cch_distances_to_coordinate_targets(
     sources: &[(u32, u32)],
     targets: &CchCoordinateTargets,
     maximum_distance_m: f64,
+    buckets: Option<&CchTargetBuckets>,
 ) -> Vec<f64> {
     let maximum_distance_units = cch_distance_units(maximum_distance_m);
     let StreetCchIndex {
@@ -7280,7 +7335,24 @@ fn cch_distances_to_coordinate_targets(
         forward_query,
         ..
     } = index;
-    let raw = forward_query.distances(&structure.view(), &metric.view(), sources, &targets.nodes);
+    let mut bucket_distances;
+    let raw = if let Some(buckets) = buckets {
+        let (indices, distances, _) = forward_query.range_targets(
+            &structure.view(),
+            metric.view().forward,
+            buckets,
+            sources,
+            maximum_distance_units,
+            targets.nodes.len(),
+        );
+        bucket_distances = vec![cch::INF_WEIGHT; targets.nodes.len()];
+        for (&target, &distance) in indices.iter().zip(distances) {
+            bucket_distances[target as usize] = distance;
+        }
+        &bucket_distances
+    } else {
+        forward_query.distances(&structure.view(), &metric.view(), sources, &targets.nodes)
+    };
     let mut distances_m = vec![f64::INFINITY; targets.coordinates.len()];
     for (target, distance_m) in distances_m.iter_mut().enumerate() {
         let mut best = cch::INF_WEIGHT;
@@ -7339,7 +7411,7 @@ fn run_cch_coordinate_distances(
         .filter(|(_, distance)| *distance <= maximum_distance_units)
         .collect::<Vec<_>>();
     let mut distances_m =
-        cch_distances_to_coordinate_targets(index, &sources, targets, maximum_distance_m);
+        cch_distances_to_coordinate_targets(index, &sources, targets, maximum_distance_m, None);
     for (target, &(longitude, latitude)) in targets.coordinates.iter().enumerate() {
         if source_longitude == longitude && source_latitude == latitude {
             distances_m[target] = 0.0;
@@ -7352,20 +7424,47 @@ fn run_cch_coordinate_distances(
     ))
 }
 
+fn coordinate_matrix_buckets(
+    index: &StreetCchIndex,
+    targets: &CchCoordinateTargets,
+    origin_count: usize,
+    maximum_distance_m: f64,
+) -> napi::Result<Option<CchTargetBuckets>> {
+    // Amortize target-side distances across matrix rows. Small queries use the
+    // resident elimination-tree workspace and avoid graph-sized bucket setup.
+    if origin_count < 32 || targets.nodes.len() < 8 {
+        return Ok(None);
+    }
+    build_cch_target_buckets(
+        &index.structure.view(),
+        index.metric.view().backward,
+        &targets.nodes,
+        cch_distance_units(maximum_distance_m),
+    )
+    .map(Some)
+}
+
 fn run_cch_coordinate_distance_matrix(
     index: &mut StreetCchIndex,
     targets: &CchCoordinateTargets,
     maximum_distance_m: f64,
-) -> (Vec<f64>, u32, f64) {
+) -> napi::Result<(Vec<f64>, u32, f64)> {
     let started = Instant::now();
     let target_count = targets.coordinates.len();
+    let buckets = coordinate_matrix_buckets(index, targets, target_count, maximum_distance_m)?;
     let mut distances_m = vec![f64::INFINITY; target_count * target_count];
     let mut ready_pairs = 0_u32;
     for source in 0..target_count {
         let sources = (targets.offsets[source]..targets.offsets[source + 1])
             .map(|snap_index| (targets.nodes[snap_index], targets.snap_units[snap_index]))
             .collect::<Vec<_>>();
-        let row = cch_distances_to_coordinate_targets(index, &sources, targets, maximum_distance_m);
+        let row = cch_distances_to_coordinate_targets(
+            index,
+            &sources,
+            targets,
+            maximum_distance_m,
+            buckets.as_ref(),
+        );
         for (target, &row_distance) in row.iter().enumerate() {
             let matrix_index = source * target_count + target;
             if targets.coordinates[source] == targets.coordinates[target] {
@@ -7379,11 +7478,11 @@ fn run_cch_coordinate_distance_matrix(
             }
         }
     }
-    (
+    Ok((
         distances_m,
         ready_pairs,
         started.elapsed().as_nanos() as f64,
-    )
+    ))
 }
 
 fn run_cch_point_path(

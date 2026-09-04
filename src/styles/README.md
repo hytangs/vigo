@@ -9,7 +9,7 @@ rules to an existing owner instead of creating another `refresh`, `parity`, or
 - `network.css` — map, service playback, route detail, and sidebox surfaces.
 - `responsive.css` — light-mode compatibility and shell breakpoints.
 - `components.css` — shared controls and consolidated component refinements.
-- `workspaces.css` — accessibility, data, native-shell, and workbench surfaces.
+- `surfaces.css` — analyze, data, desktop-shell, and workbench surfaces.
 - `theme.css` — the current VIGO visual system and final app-wide treatment.
 - `features/*/*.css` — isolated feature styles, imported after the shared system.
 

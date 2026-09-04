@@ -1,55 +1,39 @@
 # VIGO documentation
 
-[← Project overview](../README.md)
+VIGO has one model across Studio, Python, and the command line:
 
-These pages document the current public source tree. VIGO—Visual Intelligence
-for GTFS Operations—is an experimental platform for inspecting, compiling,
-routing, and analyzing scheduled transit networks. It is still being prepared
-for public release, so interfaces and file formats may change. The
-documentation describes implemented behavior; it does not claim universal GTFS
-support or real-world operational validity.
+```text
+City -> Scenario -> Route | Matrix | Reach -> Result
+```
 
-## Start here
+## Getting started
 
-| Goal | Read |
-| --- | --- |
-| Build VIGO and create a first workspace | [Quick Start](quickstart.md) |
-| Learn the CLI from raw data to routing output | [CLI tutorials](tutorials/cli/README.md) |
-| Integrate through versioned process schemas | [CLI contract](vigo-cli.md) |
-| Use the loopback service | [Local HTTP API](local-http-api.md) |
-| Check supported source semantics | [GTFS support matrix](gtfs-support-matrix.md) |
-| Understand known boundaries | [Known routing limitations](known-routing-limitations.md) |
+- [VIGO 0.3.0 Quickstart](quickstart.md)
+- [Core concepts](concepts.md)
+- [VIGO 0.3.0 Developer Guide source](developer-guide/VIGO-0.3.0-Developer-Guide.tex) — build the PDF with `npm run docs:developer-guide`
 
-## User guides
+## VIGO Studio
 
-- [Network and GTFS visualizer](gtfs-visualizer.md)
-- [Routing](routing.md)
-- [Accessibility and scenarios](accessibility.md)
-- [Street routing](street-routing.md)
-- [Accessibility-map export](guides/accessibility-maps.md)
-- [Use cases](guides/use-cases.md)
-- [All tutorials](tutorials/README.md)
+- [VIGO Studio Guide](studio.md)
+- [Inspect GTFS services](gtfs-visualizer.md)
 
-## Engine and integration references
+## Programmatic use
 
-- [Algorithms](guides/algorithms.md)
-- [Development architecture](development/architecture.md)
-- [Module decomposition boundaries](development/module-boundaries.md)
-- [Routing contract](routing-contract.md)
-- [Scenario-analysis architecture](scenario-analysis-architecture.md)
-- [Cache and provenance](cache-provenance.md)
-- [macOS source packaging](development/macos-release.md)
-- [Release history](../CHANGELOG.md)
+- [Command line and VIGO Python](programmatic.md)
+- [Route](routing.md)
+- [Matrix](matrix.md)
+- [Reach](reach.md)
 
-## Reading the contracts
+## Data
 
-The support matrix defines which source semantics enter the compiled routing
-model. The routing and street contracts define behavior within that model. The
-limitations page records what is incomplete, approximate, platform-specific,
-or intentionally unsupported. Guides are explanatory and must not override
-those boundaries.
+- [GTFS support](gtfs-support-matrix.md)
+- [OSM street routing](street-routing.md)
+- [Known limits](known-routing-limitations.md)
 
-Public documentation must not include private datasets, agency-specific
-projects, local filesystem paths, experiment output, credentials, or generated
-archives. The changelog records public pre-releases; these pages document the
-current implementation.
+## Advanced
+
+- [Scenario semantics](scenarios.md)
+- [Performance](performance.md)
+- [Internal architecture](development/architecture.md)
+
+Product documentation does not require knowledge of internal storage or routing algorithms. Those details belong in the internal architecture pages.

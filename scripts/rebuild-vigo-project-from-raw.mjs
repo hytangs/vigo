@@ -16,19 +16,18 @@ import {
   nationalStaticTopologySidecarPath,
   prepareNationalGtfsNativeCoordinateAccess,
   readNationalGtfsStoreMetadata,
-} from '../server/national-gtfs-store.mjs'
+} from '../src/server/national-gtfs-store.mjs'
 import {
   buildNationalOsmStore,
   compactNationalOsmRuntimeStore,
   disposeNationalOsmStore,
   nationalOsmStoreDiagnostics,
   prepareNationalOsmNativeStore,
-} from '../server/national-osm-store.mjs'
-import { buildNativeStreetCchIndex } from '../server/native-routing-kernel.mjs'
+} from '../src/server/national-osm-store.mjs'
 import {
-  assertReleaseStoreProvenance,
-  routingDatasetIdentityFromInputs,
-} from './lib/project-routing-store.mjs'
+  buildNativeStreetCchIndex,
+  normalizeNativeMilliseconds,
+} from '../src/server/native-routing-kernel.mjs'
 
 function argValue(name, fallback = '') {
   const prefix = `--${name}=`
@@ -283,9 +282,9 @@ function validateBuiltStores({ routingPath, streetPath, inputRecords, feeds: fee
 
   const routingMetadata = readNationalGtfsStoreMetadata(routingPath)
   const routingInput = inputRecords.find((input) => input.kind === 'gtfs')
-  if (feedInputs.length === 1 && routingMetadata.sourceFingerprint !== routingInput?.sha256) {
+  if (feedInputs.length === 1 && routingMetadata.sourceFingerprint !== routingInput?.sourceFingerprint) {
     throw new Error(
-      `Routing source fingerprint mismatch: expected ${routingInput?.sha256}, `
+      `Routing source identity mismatch: expected ${routingInput?.sourceFingerprint}, `
       + `received ${routingMetadata.sourceFingerprint}`,
     )
   }
@@ -306,9 +305,9 @@ function validateBuiltStores({ routingPath, streetPath, inputRecords, feeds: fee
   if (streetMetadata.sourceModel !== 'pbf') {
     throw new Error(`Street store is not PBF-derived: ${streetMetadata.sourceModel ?? 'missing sourceModel'}`)
   }
-  if (streetMetadata.sourceFingerprint !== streetInput?.sha256) {
+  if (streetMetadata.sourceFingerprint !== streetInput?.sourceFingerprint) {
     throw new Error(
-      `Street source fingerprint mismatch: expected ${streetInput?.sha256}, `
+      `Street source identity mismatch: expected ${streetInput?.sourceFingerprint}, `
       + `received ${streetMetadata.sourceFingerprint}`,
     )
   }
@@ -324,21 +323,6 @@ function validateBuiltStores({ routingPath, streetPath, inputRecords, feeds: fee
       throw new Error(`Rebuilt street store is missing explicit direction provenance ${key}.`)
     }
   }
-  assertReleaseStoreProvenance({
-    gtfsMetadata: routingMetadata,
-    streetMetadata,
-    rebuildManifest: {
-      routingStore: { sourceFingerprint: routingMetadata.sourceFingerprint },
-      osmStreetIndex: {
-        sourceFingerprint: streetMetadata.sourceFingerprint,
-        sourceSha256: streetMetadata.sourceFingerprint,
-        directionRestrictedWayCount: streetMetadata.directionRestrictedWayCount,
-        directionExcludedWayCount: streetMetadata.directionExcludedWayCount,
-        uncertainConveyingWayCount: streetMetadata.uncertainConveyingWayCount,
-      },
-      inputs: inputRecords,
-    },
-  })
 }
 
 const projectsRoot = path.resolve(
@@ -351,6 +335,11 @@ const feeds = argValues('gtfs').map(feedDescriptor)
 const osmArgument = argValue('osm')
 const osmPath = osmArgument ? path.resolve(osmArgument) : ''
 const keepBackup = process.argv.includes('--keep-backup')
+const requestedParallelRawBuild = process.argv.includes('--parallel-raw-build')
+const requestedSequentialRawBuild = process.argv.includes('--sequential-raw-build')
+if (requestedParallelRawBuild && requestedSequentialRawBuild) {
+  throw new Error('--parallel-raw-build and --sequential-raw-build are mutually exclusive')
+}
 if (!projectId) throw new Error('--project is required.')
 if (!feeds.length) throw new Error('At least one --gtfs=scope:/path/feed.zip is required.')
 if (!osmPath) throw new Error('--osm=/path/extract.osm.pbf is required.')
@@ -442,8 +431,10 @@ try {
   const loadAverageAtBuildStart = os.loadavg()
   const parallelRawBuildLoadGuard = loadAverageAtBuildStart[1]
     <= Math.max(1, os.cpus().length * 2)
+  // Sequential compilation is the safe default. Parallelism is an explicit
+  // opt-in and still has to pass every host-memory/load guard below.
   const parallelRawBuild = (
-    !process.argv.includes('--sequential-raw-build')
+    requestedParallelRawBuild
     && os.cpus().length >= 4
     && os.totalmem() >= 8 * 1024 * 1024 * 1024
     && parallelRawBuildEstimatedBytes <= parallelRawBuildMemoryGuardBytes
@@ -534,19 +525,15 @@ try {
       scope: feeds[index].scope,
       path: feeds[index].zipPath,
       bytes: component.result.sourceBytes,
-      sha256: component.result.sourceFingerprint,
+      sourceFingerprint: component.result.sourceFingerprint,
     })),
     {
       kind: 'osm-pbf',
       path: osmPath,
       bytes: streetResult.sourceBytes,
-      sha256: streetResult.sourceFingerprint,
+      sourceFingerprint: streetResult.sourceFingerprint,
     },
   ])
-  const {
-    fingerprintInput,
-    datasetFingerprint,
-  } = routingDatasetIdentityFromInputs(inputRecords)
   const osmRuntimeCompaction = await timedPhase(
     'osm_runtime_compaction',
     () => compactNationalOsmRuntimeStore(streetPath, { requireDrive: true }),
@@ -583,10 +570,10 @@ try {
     cchArcCount: streetCchResult.cchArcCount,
     distanceUnitsPerMeter: streetCchResult.loaded?.distanceUnitsPerMeter
       ?? streetCchResult.distanceUnitsPerMeter,
-    orderMs: Number(streetCchResult.orderNs ?? 0) / 1e6,
-    buildMs: Number(streetCchResult.structureNs ?? 0) / 1e6,
-    customizeMs: Number(streetCchResult.customizationNs ?? 0) / 1e6,
-    persistMs: Number(streetCchResult.persistenceNs ?? 0) / 1e6,
+    orderMs: normalizeNativeMilliseconds(streetCchResult.orderNs),
+    buildMs: normalizeNativeMilliseconds(streetCchResult.structureNs),
+    customizeMs: normalizeNativeMilliseconds(streetCchResult.customizationNs),
+    persistMs: normalizeNativeMilliseconds(streetCchResult.persistenceNs),
     structureFile: path.basename(streetCchResult.structurePath),
     metricFile: path.basename(streetCchResult.metricPath),
   }
@@ -629,7 +616,6 @@ try {
   const routingStore = {
     ...feedSummary.routingStore,
     fileName: 'project.sqlite',
-    datasetFingerprint,
     departureIndexState: routingResult.departureIndexState,
     osmStopTransfers: {
       schemaVersion: osmStopTransfers.schemaVersion,
@@ -670,7 +656,6 @@ try {
       fileName: streetResult.sourceFile,
       sourceBytes: streetResult.sourceBytes,
       sourceFingerprint: streetResult.sourceFingerprint,
-      sourceSha256: streetResult.sourceFingerprint,
       bytes: streetResult.bytes,
       storageLayout: streetResult.storageLayout,
       driveSnapshot: streetResult.driveSnapshot,
@@ -683,24 +668,23 @@ try {
       uncertainConveyingWayCount: streetResult.uncertainConveyingWayCount,
       cch: streetCch,
       builtAt: streetResult.builtAt,
-      datasetFingerprint,
     },
   }
   const manifest = {
-    schemaVersion: 'vigo.project.raw_rebuild.v2',
+    schemaVersion: 'vigo.project.raw_rebuild.v3',
     rebuildId,
     projectId,
     builtAt: now,
-    datasetFingerprint,
-    fingerprintInput,
     inputs: inputRecords,
     routingStore,
     osmStreetIndex: project.osmStreetIndex,
     coldPreprocessing: {
-      timingBoundary: 'Wall time begins immediately after acquiring the rebuild lock, includes staging, adaptive parallel GTFS and OSM compilation with integrated source hashing, exact street CCH construction, stop-transfer preparation, and persisted native coordinate-access construction, and ends after generated stores pass integrity, feature, topology, and provenance validation; atomic publication and console serialization are excluded.',
+      timingBoundary: 'Wall time begins immediately after acquiring the rebuild lock, includes staging, sequential-by-default or explicitly requested memory-gated parallel GTFS and OSM compilation, exact street CCH construction, stop-transfer preparation, and persisted native coordinate-access construction, and ends after generated stores pass integrity, feature, and topology validation; atomic publication and console serialization are excluded.',
       phaseWallMs,
       rawCompilerConcurrency: {
+        requestedParallelRawBuild,
         gtfsAndOsmParallel: parallelRawBuild,
+        parallelFallback: requestedParallelRawBuild && !parallelRawBuild ? 'memory_or_load_guard' : null,
         estimatedPeakWorkingBytes: parallelRawBuildEstimatedBytes,
         hostMemoryGuardBytes: parallelRawBuildMemoryGuardBytes,
         freeMemoryAtBuildStartBytes,

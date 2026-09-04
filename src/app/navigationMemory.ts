@@ -1,7 +1,7 @@
 const navigationCookie = 'vigo_navigation_v1'
 const cookieMaxAgeSeconds = 60 * 60 * 24 * 365
 
-export type NavigationMemory = {
+type NavigationMemory = {
   lastProjectId: string
   lastRouteByProject: Record<string, string>
   recentSearchIds: string[]

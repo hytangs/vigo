@@ -44,7 +44,7 @@ import {
   type RoutingServiceCoverage,
   type RoutingServiceDateAvailability,
   type RoutingServiceDateOption,
-} from '../app/routingContracts'
+} from '../app/routingPlan'
 import {
   routingMaxWalkOptions,
   routingTimeOptions,
@@ -90,9 +90,7 @@ function routingChoiceExplanation(plan: RoutingPlan) {
   if (plan.choiceLabel === 'Shortest journey') {
     return 'Has the shortest leave-to-arrival journey time among the displayed options; waiting after the requested time is shown separately.'
   }
-  if (plan.choiceLabel === 'Best balance') {
-    return 'Selected by the declared time, transfer, and walking weights inside the bounded search window.'
-  }
+  if (plan.choiceLabel === 'Best balance') return 'Selected from the exact journeys retained for this departure window.'
   if (plan.travelMode === 'walk') return 'A walk-only path on the local directed pedestrian graph.'
   if (plan.travelMode === 'drive') {
     return plan.diagnostics.roadMetricMode === 'traffic-adjusted'
@@ -104,8 +102,8 @@ function routingChoiceExplanation(plan: RoutingPlan) {
 
 function routingProfileLabel(plan: RoutingPlan) {
   if (plan.travelMode !== 'transit') return plan.travelMode === 'drive' ? 'OSM drive' : 'OSM walk'
-  if (plan.diagnostics.searchProfile === 'balanced') return 'Balanced transit'
-  if (plan.diagnostics.searchProfile === 'fastest') return 'Fastest transit'
+  if (plan.diagnostics.searchProfile === 'balanced') return 'Transit'
+  if (plan.diagnostics.searchProfile === 'fastest') return 'Earliest arrival'
   if (plan.diagnostics.searchProfile === 'pareto') return 'Pareto transit'
   return 'Transit'
 }
@@ -114,7 +112,7 @@ function routingCertificationLabel(plan: RoutingPlan) {
   const certification = plan.diagnostics.paretoCertification as { status?: string } | undefined
   if (certification?.status === 'passed') return 'Bounded Pareto certification passed'
   if (plan.travelMode !== 'transit') return 'Directed street path'
-  if (plan.diagnostics.searchProfile === 'balanced') return 'Balanced frontier not certified'
+  if (plan.diagnostics.searchProfile === 'balanced') return 'Timetable result'
   return 'Scalar timetable result'
 }
 
@@ -141,7 +139,7 @@ function routingAccessHints(plan: RoutingPlan | null) {
 }
 
 function earliestTransitSummary(plans: RoutingPlan[]) {
-  const evidence = plans
+  const check = plans
     .map((plan) => plan.diagnostics.earliestTransit)
     .find((candidate) => candidate && typeof candidate === 'object') as {
       status?: string
@@ -150,16 +148,16 @@ function earliestTransitSummary(plans: RoutingPlan[]) {
       routeShortName?: string
       detail?: string
     } | undefined
-  if (evidence?.status === 'ready' && Number.isFinite(evidence.firstBoardingMinutes)) {
-    const boarding = formatScheduleClock(Number(evidence.firstBoardingMinutes))
-    const arrival = Number.isFinite(evidence.arriveMinutes)
-      ? ` · arrives ${formatScheduleClock(Number(evidence.arriveMinutes))}`
+  if (check?.status === 'ready' && Number.isFinite(check.firstBoardingMinutes)) {
+    const boarding = formatScheduleClock(Number(check.firstBoardingMinutes))
+    const arrival = Number.isFinite(check.arriveMinutes)
+      ? ` · arrives ${formatScheduleClock(Number(check.arriveMinutes))}`
       : ''
-    const route = evidence.routeShortName ? ` · ${evidence.routeShortName}` : ''
+    const route = check.routeShortName ? ` · ${check.routeShortName}` : ''
     return `Earliest transit: boards ${boarding}${arrival}${route}`
   }
-  if (evidence?.status === 'none') return evidence.detail || 'No transit option in this search window.'
-  if (evidence?.status === 'unavailable') return 'Earliest transit check unavailable.'
+  if (check?.status === 'none') return check.detail || 'No transit option in this search window.'
+  if (check?.status === 'unavailable') return 'Earliest transit check unavailable.'
   return ''
 }
 
@@ -284,7 +282,6 @@ export function RoutingDetailPanel({
 
   const routeSequence = routingPlanRouteSequence(plan) || plan.title
   const runtime = routingPlanRuntime(plan)
-  const sourceFingerprint = plan.diagnostics.dataSemantics?.sourceFingerprint
   const limitations = plan.diagnostics.dataSemantics?.limitations ?? []
   const serviceDate = plan.diagnostics.serviceDate
   const realtimeRouting = plan.diagnostics.realtimeRouting
@@ -296,7 +293,7 @@ export function RoutingDetailPanel({
   const trafficRouting = plan.diagnostics.traffic
   const trafficApplied = plan.diagnostics.roadMetricMode === 'traffic-adjusted'
     && trafficRouting?.status === 'applied'
-  const timingEvidence = plan.travelMode === 'drive'
+  const timingDetail = plan.travelMode === 'drive'
     ? trafficApplied
       ? `Traffic snapshot applied · ${trafficRouting.matchedEdges ?? 0} directed edges`
       : trafficRouting?.status === 'stale_fallback'
@@ -334,9 +331,9 @@ export function RoutingDetailPanel({
           <p>{routingChoiceExplanation(plan)}</p>
         </section>
         <RoutingItinerary plan={plan} />
-        <details className="routing-evidence">
+        <details className="routing-details">
           <summary>
-            <span>Routing evidence</span>
+            <span>Route details</span>
             <b>{routingProfileLabel(plan)}</b>
           </summary>
           <dl>
@@ -344,17 +341,11 @@ export function RoutingDetailPanel({
             <div><dt>Certification</dt><dd>{routingCertificationLabel(plan)}</dd></div>
             {serviceDate ? <div><dt>Service date</dt><dd>{serviceDate}</dd></div> : null}
             <div><dt>Access limit</dt><dd>{plan.maxWalkKm.toFixed(1)} km</dd></div>
-            <div><dt>{plan.travelMode === 'drive' ? 'Road metric' : 'Schedule'}</dt><dd>{timingEvidence}</dd></div>
-            {sourceFingerprint ? (
-              <div>
-                <dt>Source</dt>
-                <dd title={sourceFingerprint}>{sourceFingerprint.slice(0, 12)}…</dd>
-              </div>
-            ) : null}
+            <div><dt>{plan.travelMode === 'drive' ? 'Road metric' : 'Schedule'}</dt><dd>{timingDetail}</dd></div>
             {limitations.length ? <div><dt>Declared limits</dt><dd>{limitations.length} attached to this result</dd></div> : null}
-            {runtime ? <div><dt>Diagnostic timing</dt><dd title={`${runtime.title} This is request diagnostics, not controlled performance evidence.`}>{runtime.label}</dd></div> : null}
+            {runtime ? <div><dt>Query timing</dt><dd title={`${runtime.title} This describes only the current request.`}>{runtime.label}</dd></div> : null}
           </dl>
-          <p>Timing and route-choice diagnostics describe this request. They are not controlled performance or traveler-preference evidence.</p>
+          <p>Timing and route-choice details describe only this request.</p>
         </details>
       </div>
     </aside>
@@ -403,7 +394,7 @@ function PathfinderRouteList({
         <span>
           <strong>Displayed journeys</strong>
           <small>
-            Select one to inspect its path and evidence.
+            Select one to inspect its path and details.
             {earliestTransit ? ` ${earliestTransit}` : ''}
           </small>
         </span>
@@ -1048,7 +1039,7 @@ export function SidebarPathfinderBox({
       {routingResolvingLocations ? (
         <div className="pathfinder-notice is-loading" role="status" aria-live="polite">
           <LoaderCircle className="is-spinning" size={16} />
-          <span><strong>Finding route points</strong><small>Matching the ordered sequence against this workspace.</small></span>
+          <span><strong>Finding route points</strong><small>Matching the ordered sequence against this City.</small></span>
         </div>
       ) : routingLocationError ? (
         <div className="pathfinder-notice is-error" role="alert">
@@ -1060,18 +1051,18 @@ export function SidebarPathfinderBox({
           <AlertTriangle size={16} />
           <span>
             <strong>Combined routing index failed</strong>
-            <small>VIGO could not publish the multi-feed timetable. Open Manage workspace and retry the combined build.</small>
+            <small>VIGO could not build the combined timetable. Open City and retry.</small>
           </span>
-          <button type="button" onClick={onOpenFeed}>Open Manage</button>
+          <button type="button" onClick={onOpenFeed}>Open City</button>
         </div>
       ) : buildingCombinedSchedule ? (
         <div className="pathfinder-notice is-warning" role="status" aria-live="polite">
           <LoaderCircle className="is-spinning" size={16} />
           <span>
             <strong>Combining timetable feeds</strong>
-            <small>VIGO is building one exact project routing index from all ready GTFS feeds. Routing will unlock when the combined store is ready.</small>
+            <small>VIGO is building one timetable from the ready GTFS feeds. Route will be available when it finishes.</small>
           </span>
-          <button type="button" onClick={onOpenFeed}>Open Manage</button>
+          <button type="button" onClick={onOpenFeed}>Open City</button>
         </div>
       ) : preparingExactSchedule ? (
         <div className="pathfinder-notice is-loading" role="status" aria-live="polite">
@@ -1083,9 +1074,9 @@ export function SidebarPathfinderBox({
           <AlertTriangle size={16} />
           <span>
             <strong>No routing timetable ready</strong>
-            <small>Import or finish indexing a GTFS feed in Manage workspace.</small>
+            <small>Import or finish indexing a GTFS feed in City.</small>
           </span>
-          <button type="button" onClick={onOpenFeed}>Open Manage</button>
+          <button type="button" onClick={onOpenFeed}>Open City</button>
         </div>
       ) : routingActivity.kind === 'error' ? (
         <div className="pathfinder-notice is-error" role="alert">

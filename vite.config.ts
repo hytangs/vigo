@@ -5,10 +5,17 @@ const apiPort = Number(process.env.VIGO_PORT ?? process.env.VIGO_API_PORT ?? 517
 
 export default defineConfig({
   plugins: [react()],
+  publicDir: 'public',
   build: {
+    outDir: 'public',
+    emptyOutDir: false,
+    copyPublicDir: false,
     chunkSizeWarningLimit: 1100,
     rollupOptions: {
       output: {
+        entryFileNames: 'assets/app.js',
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: 'assets/[name][extname]',
         manualChunks(id) {
           if (id.includes('node_modules/maplibre-gl')) return 'maplibre'
           if (id.includes('node_modules/lucide-react')) return 'icons'

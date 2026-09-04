@@ -1,5 +1,5 @@
 import { parentPort, workerData } from 'node:worker_threads'
-import { buildNationalOsmStore } from '../../server/national-osm-store.mjs'
+import { buildNationalOsmStore } from '../../src/server/national-osm-store.mjs'
 
 if (!parentPort) throw new Error('Raw OSM build worker requires a parent thread.')
 

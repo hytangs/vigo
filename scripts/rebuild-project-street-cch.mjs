@@ -4,8 +4,9 @@ import { performance } from 'node:perf_hooks'
 import {
   buildNativeStreetCchIndex,
   disposeNativeRoutingKernel,
+  normalizeNativeMilliseconds,
   prepareNativeRoutingKernel,
-} from '../server/native-routing-kernel.mjs'
+} from '../src/server/native-routing-kernel.mjs'
 import { readProjectRoutingIdentity } from './lib/project-routing-store.mjs'
 
 function argValue(name, fallback = '') {
@@ -42,10 +43,10 @@ const cch = {
   structureFile: path.basename(result.structurePath),
   metricFile: path.basename(result.metricPath),
   manifestFile: path.basename(result.manifestPath),
-  ...(Number.isFinite(result.orderNs) ? { orderMs: result.orderNs / 1e6 } : {}),
-  ...(Number.isFinite(result.structureNs) ? { buildMs: result.structureNs / 1e6 } : {}),
-  ...(Number.isFinite(result.customizationNs) ? { customizeMs: result.customizationNs / 1e6 } : {}),
-  ...(Number.isFinite(result.persistenceNs) ? { persistMs: result.persistenceNs / 1e6 } : {}),
+  orderMs: normalizeNativeMilliseconds(result.orderNs),
+  buildMs: normalizeNativeMilliseconds(result.structureNs),
+  customizeMs: normalizeNativeMilliseconds(result.customizationNs),
+  persistMs: normalizeNativeMilliseconds(result.persistenceNs),
 }
 const updatedAt = new Date().toISOString()
 const project = {

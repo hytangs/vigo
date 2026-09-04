@@ -9,7 +9,7 @@ import {
   routingServiceDateOptions,
   type RoutingServiceCoverage,
   type RoutingServiceDateSuggestion,
-} from './routingContracts'
+} from './routingPlan'
 import type { RoutingDepartureWindowMinutes } from './uiOptions'
 
 type EarliestTransitEvidence = {
@@ -190,7 +190,7 @@ export function useNationalRouting({
           maxWalkKm,
           allowLongWalk,
           includeEarliestTransit: mode === 'transit',
-          routingPreference: 'balanced',
+          objective: 'earliest_arrival',
           maxStreetKm: mode === 'drive' ? 750 : 50,
           departureWindowMinutes: streetMode ? 0 : departureWindowMinutes,
           departureWindowDirection: !streetMode && departureWindowMinutes > 0 ? 'forward' : undefined,

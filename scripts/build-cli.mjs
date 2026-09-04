@@ -6,20 +6,22 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const outputRoot = join(repoRoot, 'dist-cli')
+const outputRoot = join(repoRoot, 'public')
 const outputFile = join(outputRoot, 'vigo.mjs')
+const retiredSplitRuntime = join(outputRoot, 'vigo-runtime.mjs')
 const rolldownCli = join(repoRoot, 'node_modules', 'rolldown', 'bin', 'cli.mjs')
 
 await readFile(rolldownCli)
-await rm(outputRoot, { force: true, recursive: true })
 await mkdir(outputRoot, { recursive: true })
+await Promise.all([rm(outputFile, { force: true }), rm(retiredSplitRuntime, { force: true })])
 await execFileAsync(process.execPath, [
   rolldownCli,
-  join(repoRoot, 'scripts', 'vigo-cli.ts'),
+  join(repoRoot, 'src', 'cli', 'vigo.ts'),
   '--file', outputFile,
   '--format', 'esm',
   '--platform', 'node',
   '--banner', '#!/usr/bin/env node',
+  '--minify',
 ], { cwd: repoRoot })
 await chmod(outputFile, 0o755)
 

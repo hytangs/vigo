@@ -38,5 +38,5 @@ function shutdown(code = 0) {
 process.on('SIGINT', () => shutdown(0))
 process.on('SIGTERM', () => shutdown(0))
 
-run('api', process.execPath, ['server/vigo-api.mjs'])
+run('api', process.execPath, ['src/server/vigo-api.mjs'])
 run('web', process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'dev:web'])

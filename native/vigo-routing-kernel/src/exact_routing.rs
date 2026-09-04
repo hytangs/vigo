@@ -142,7 +142,7 @@ impl PersistedDriveCch {
 }
 
 struct InMemoryDriveCch {
-    structure: cch::Cch,
+    path_query: cch::OwnedPathQuery,
     time_metric: cch::Metric,
     distance_metric: cch::Metric,
     traffic_metric: Option<cch::Metric>,
@@ -169,7 +169,7 @@ impl DriveCch {
                 } else {
                     index.time_metric.view()
                 };
-                cch::node_path(&index.structure.view(), &metric, source, target)
+                index.path_query.path(&metric, source, target)
             }
             Self::Persisted(index) => index.path(minimize_distance, source, target),
         }
@@ -178,7 +178,7 @@ impl DriveCch {
     fn time_distances(&self, sources: &[u32], targets: &[u32]) -> Vec<u32> {
         match self {
             Self::InMemory(index) => cch::distance_matrix(
-                &index.structure.view(),
+                &index.path_query.structure().view(),
                 &if index.traffic_active {
                     index
                         .traffic_metric
@@ -225,15 +225,16 @@ impl DriveCch {
     fn customize_traffic_time(&mut self, weights: &[u32]) -> napi::Result<()> {
         match self {
             Self::InMemory(index) => {
-                if index.structure.input_arc_to_cch_arc.len() != weights.len() {
+                let structure = index.path_query.structure();
+                if structure.input_arc_to_cch_arc.len() != weights.len() {
                     return Err(Error::from_reason(
                         "Drive CCH traffic metric does not match the resident input graph.",
                     ));
                 }
                 if let Some(metric) = &mut index.traffic_metric {
-                    index.structure.customizer().customize_into(weights, metric);
+                    structure.customizer().customize_into(weights, metric);
                 } else {
-                    index.traffic_metric = Some(index.structure.customize(weights));
+                    index.traffic_metric = Some(structure.customize(weights));
                 }
                 index.traffic_active = true;
             }
@@ -389,7 +390,7 @@ fn initialize_drive_cch(
 
     let Some((structure_path, time_path, distance_path)) = persisted_paths else {
         return Ok(DriveCch::InMemory(Box::new(InMemoryDriveCch {
-            structure,
+            path_query: cch::OwnedPathQuery::new(structure),
             time_metric,
             distance_metric,
             traffic_metric: None,

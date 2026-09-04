@@ -23,12 +23,12 @@ type IndexedResult = {
 function ResultIcon({ result }: { result: SearchResult }) {
   if (result.kind === 'route') return <Route size={16} />
   if (result.kind === 'stop') return <MapPin size={16} />
-  if (result.kind === 'workspace') return <FolderOpen size={16} />
+  if (result.kind === 'city') return <FolderOpen size={16} />
   if (result.id === 'command:pathfinder') return <Navigation2 size={16} />
-  if (result.id === 'command:accessibility') return <Radar size={16} />
+  if (result.id === 'command:analyze') return <Radar size={16} />
   if (result.id === 'command:data') return <Database size={16} />
   if (result.id === 'command:preferences') return <Settings2 size={16} />
-  if (result.id === 'command:workspaces') return <FolderOpen size={16} />
+  if (result.id === 'command:cities') return <FolderOpen size={16} />
   if (result.id === 'command:routes') return <Route size={16} />
   return <Command size={16} />
 }

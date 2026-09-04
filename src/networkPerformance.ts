@@ -1,6 +1,6 @@
 import type { MapPreview } from './domain'
 
-export type NetworkPerformanceMode = 'precision' | 'rapid' | 'atlas'
+type NetworkPerformanceMode = 'precision' | 'rapid' | 'atlas'
 
 export type NetworkPerformanceProfile = {
   mode: NetworkPerformanceMode
@@ -54,26 +54,25 @@ export function buildNetworkPerformanceProfile(preview: MapPreview, options: { p
     routeShapePoints: routeShapePointCount(preview),
   }
   const score = performanceScore(preview)
+  const precisionProfile = {
+    mode: 'precision',
+    title: 'Precision',
+    segmentPointBudget: 90,
+    stopBudget: Number.POSITIVE_INFINITY,
+    transferStopBudget: Number.POSITIVE_INFINITY,
+    segmentBudget: Number.POSITIVE_INFINITY,
+    routeListWindowSize: 80,
+  } as const
+  let profile: Omit<NetworkPerformanceProfile, 'score' | 'stats'>
 
   if (options.precise || stats.routes <= 4) {
-    return {
-      mode: 'precision',
-      score,
-      title: 'Precision',
+    profile = {
+      ...precisionProfile,
       detail: 'Selected route renders at full inspection fidelity.',
-      segmentPointBudget: 90,
-      stopBudget: Number.POSITIVE_INFINITY,
-      transferStopBudget: Number.POSITIVE_INFINITY,
-      segmentBudget: Number.POSITIVE_INFINITY,
-      routeListWindowSize: 80,
-      stats,
     }
-  }
-
-  if (stats.routes > 1_200 || stats.stops > 12_000 || stats.stopPairs > 36_000 || score > 4_800) {
-    return {
+  } else if (stats.routes > 1_200 || stats.stops > 12_000 || stats.stopPairs > 36_000 || score > 4_800) {
+    profile = {
       mode: 'atlas',
-      score,
       title: 'Atlas',
       detail: 'Complete network mode: every public service remains visible with SQLite-prepared linework.',
       segmentPointBudget: 28,
@@ -81,14 +80,10 @@ export function buildNetworkPerformanceProfile(preview: MapPreview, options: { p
       transferStopBudget: Number.POSITIVE_INFINITY,
       segmentBudget: 560,
       routeListWindowSize: 44,
-      stats,
     }
-  }
-
-  if (stats.routes > 280 || stats.stops > 3_200 || stats.stopPairs > 9_000 || score > 1_300) {
-    return {
+  } else if (stats.routes > 280 || stats.stops > 3_200 || stats.stopPairs > 9_000 || score > 1_300) {
+    profile = {
       mode: 'rapid',
-      score,
       title: 'Rapid',
       detail: 'Dense feed mode: all services render with bounded points per line.',
       segmentPointBudget: 54,
@@ -96,20 +91,13 @@ export function buildNetworkPerformanceProfile(preview: MapPreview, options: { p
       transferStopBudget: Number.POSITIVE_INFINITY,
       segmentBudget: 1_100,
       routeListWindowSize: 60,
-      stats,
+    }
+  } else {
+    profile = {
+      ...precisionProfile,
+      detail: 'Network is small enough for full-detail drawing.',
     }
   }
 
-  return {
-    mode: 'precision',
-    score,
-    title: 'Precision',
-    detail: 'Network is small enough for full-detail drawing.',
-    segmentPointBudget: 90,
-    stopBudget: Number.POSITIVE_INFINITY,
-    transferStopBudget: Number.POSITIVE_INFINITY,
-    segmentBudget: Number.POSITIVE_INFINITY,
-    routeListWindowSize: 80,
-    stats,
-  }
+  return { ...profile, score, stats }
 }

@@ -1,0 +1,36 @@
+# Scenario semantics
+
+A Scenario is an immutable set of changes tied to exactly one City revision.
+
+A Scenario may contain planned transit service changes, one live transit state, or one supplied traffic state. Walking limits, speeds, departure times, and cutoffs are Query options.
+
+Scenarios do not edit imported GTFS or OSM. A complete alternative feed creates another City revision. Drawing geometry in an editor does not create a computational change until it is attached to a valid service edit.
+
+Multiple nonconflicting planned changes may coexist. Conflicts require an explicit resolution. A Scenario never moves automatically to another City revision, and expired live state cannot be queried.
+
+VIGO 0.3 supports planned service changes in Reach, supplied traffic in Drive Route and Drive Matrix, and live transit routing in Studio. Inspect a combination with `city.supports(query)` or `scenario.supports(query)`. A valid unsupported combination raises `UnsupportedQuery`; it does not return a Result.
+
+## Planned service
+
+A planned service change states what changes and supplies enough information to run it: ordered stops, operating span, frequency, and travel-time assumptions. It never contains a precomputed network surface.
+
+```python
+proposal = city.scenario(
+    "Crosstown service",
+    services=[{
+        "operation": "add",
+        "name": "Crosstown",
+        "stops": [
+            {"label": "West", "coordinate": [-77.05, 38.90]},
+            {"label": "East", "coordinate": [-77.03, 38.91]},
+        ],
+        "headwayMinutes": 10,
+        "startMinutes": 300,
+        "endMinutes": 1500,
+        "averageSpeedKph": 22,
+    }],
+    without_routes=["route-to-remove"],
+)
+```
+
+`operation` is `add`, `augment`, or `replace`. `without_routes` removes selected scheduled route variants for the Scenario. These changes remain tied to the City revision used to create the Scenario.

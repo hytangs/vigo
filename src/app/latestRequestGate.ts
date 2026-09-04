@@ -1,4 +1,4 @@
-export type LatestRequestToken = Readonly<{
+type LatestRequestToken = Readonly<{
   controller: AbortController
   generation: number
 }>

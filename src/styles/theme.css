@@ -1,7 +1,7 @@
 /* Base product palette */
 
 .app-shell {
-  --workspace-bg: #f3f4f3;
+  --surface-bg: #f3f4f3;
   --panel: #f7f8f7;
   --panel-strong: #ffffff;
   --panel-soft: #eef0ee;
@@ -23,14 +23,14 @@
   --workbench-surface: var(--panel);
   --workbench-rule: var(--border);
   color: var(--text);
-  background: var(--workspace-bg);
+  background: var(--surface-bg);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-variant-numeric: tabular-nums;
   text-rendering: optimizeLegibility;
 }
 
 .app-shell.appearance-light {
-  --workspace-bg: #f3f4f3;
+  --surface-bg: #f3f4f3;
   --panel: #f7f8f7;
   --panel-strong: #ffffff;
   --panel-soft: #eef0ee;
@@ -52,7 +52,7 @@
   --workbench-rule: var(--border);
   color-scheme: light;
   color: var(--text);
-  background: var(--workspace-bg);
+  background: var(--surface-bg);
 }
 
 .app-shell.appearance-light.accent-blue {
@@ -86,28 +86,6 @@
 }
 
 /* Integrated compact application chrome. */
-.topbar,
-.page-projects .topbar,
-.project-empty .topbar {
-  min-height: 50px;
-  grid-template-columns: minmax(178px, 0.75fr) minmax(260px, 520px) minmax(178px, 0.75fr);
-  gap: 10px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--panel-strong) 96%, transparent);
-  box-shadow: none;
-  backdrop-filter: blur(16px);
-}
-
-.topbar-brand {
-  gap: 7px;
-}
-
-.topbar-mark-button {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-}
 
 .vigo-mark {
   width: 28px;
@@ -118,31 +96,12 @@
     0 7px 18px rgba(15, 23, 42, 0.12);
 }
 
-.topbar-brand b {
-  color: var(--text-strong);
-  font-size: 0.8rem;
-  font-weight: 650;
-  letter-spacing: -0.005em;
-}
-
 .topbar-project-action {
   border-color: transparent;
 }
 
 .topbar-project-action:hover:not(:disabled) {
   border-color: var(--border);
-}
-
-[data-vigo-native="macos"] .topbar,
-[data-vigo-native="macos"] .page-projects .topbar,
-[data-vigo-native="macos"] .project-empty .topbar {
-  min-height: 52px;
-  padding-left: 10px;
-  background: color-mix(in srgb, var(--panel-strong) 96%, transparent);
-}
-
-[data-vigo-native="macos"] .topbar-brand {
-  padding-left: 0;
 }
 
 /* Flat canvas and activity rail. */
@@ -227,7 +186,7 @@
 .sidebox-lens-grid button,
 .sidebox-live,
 .project-dialog,
-.workspace-panel {
+.surface-panel {
   border-radius: 7px;
   box-shadow: none;
 }
@@ -270,7 +229,7 @@
   background: #f2f4f7;
 }
 
-/* Map overlays read as workspace tools instead of a second visual theme. */
+/* Map overlays read as surface tools instead of a second visual theme. */
 
 .app-shell.appearance-light .service-state-readout svg {
   color: var(--accent-2);
@@ -337,16 +296,16 @@
 }
 
 /* Project switcher and dialogs use the same flat, readable hierarchy. */
-.workspace-switcher,
+.surface-switcher,
 .project-dialog {
   background: var(--panel-strong);
 }
 
-.workspace-switcher-row:hover {
+.surface-switcher-row:hover {
   border-color: transparent;
 }
 
-.workspace-switcher-row.is-current {
+.surface-switcher-row.is-current {
   border-color: transparent;
 }
 
@@ -394,7 +353,7 @@
   --vigo-ink: #0c1624;
   --vigo-lime: #aec43a;
   --vigo-lime-strong: #718510;
-  --workspace-bg: #f3f5f4;
+  --surface-bg: #f3f5f4;
   --panel: #f6f7f6;
   --panel-strong: #ffffff;
   --panel-soft: #f0f2f0;
@@ -436,7 +395,7 @@
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
   color-scheme: light;
   color: var(--text);
-  background: var(--workspace-bg);
+  background: var(--surface-bg);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
@@ -447,7 +406,7 @@
   --vigo-ink: #eff2f5;
   --vigo-lime: #b4c94a;
   --vigo-lime-strong: #a6ba3f;
-  --workspace-bg: #080b0f;
+  --surface-bg: #080b0f;
   --panel: #0f141a;
   --panel-strong: #121820;
   --panel-soft: #171e26;
@@ -484,7 +443,7 @@
   --primary-ink: #0b1014;
   color-scheme: dark;
   color: var(--text);
-  background: var(--workspace-bg);
+  background: var(--surface-bg);
 }
 
 .app-shell.appearance-light.accent-blue,
@@ -523,10 +482,7 @@
 /* Compact application bar. */
 .topbar,
 .page-projects .topbar,
-.project-empty .topbar,
-[data-vigo-native="macos"] .topbar,
-[data-vigo-native="macos"] .page-projects .topbar,
-[data-vigo-native="macos"] .project-empty .topbar {
+.project-empty .topbar {
   min-height: 54px;
   height: 54px;
   grid-template-columns: var(--workbench-sidebar) minmax(260px, 1fr) auto;
@@ -539,8 +495,7 @@
   backdrop-filter: none;
 }
 
-.topbar-brand,
-[data-vigo-native="macos"] .topbar-brand {
+.topbar-brand {
   min-width: 0;
   height: 100%;
   display: flex;
@@ -550,8 +505,7 @@
   border-right: 1px solid var(--border);
 }
 
-.topbar-mark-button,
-[data-vigo-native="macos"] .topbar-mark-button {
+.topbar-mark-button {
   width: 30px;
   height: 30px;
   display: grid;
@@ -566,8 +520,7 @@
   box-shadow: none;
 }
 
-.topbar-mark-button:hover,
-[data-vigo-native="macos"] .topbar-mark-button:hover {
+.topbar-mark-button:hover {
   border: 0;
   color: var(--vigo-ink);
   background: var(--hover-surface);
@@ -607,8 +560,7 @@
   border-left: 0;
 }
 
-.topbar-brand b,
-[data-vigo-native="macos"] .topbar-brand b {
+.topbar-brand b {
   min-width: 0;
   overflow: hidden;
   color: var(--text-soft);
@@ -624,6 +576,25 @@
 .topbar-actions {
   height: 100%;
   padding: 0 14px 0 0;
+}
+
+/* The packaged macOS window places its traffic lights inside this custom bar. */
+[data-vigo-desktop="macos"] .topbar,
+[data-vigo-desktop="macos"] .page-projects .topbar,
+[data-vigo-desktop="macos"] .project-empty .topbar {
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+
+[data-vigo-desktop="macos"] .topbar-brand {
+  padding-left: 82px;
+}
+
+[data-vigo-desktop="macos"] .topbar-mark-button,
+[data-vigo-desktop="macos"] .search-palette,
+[data-vigo-desktop="macos"] .topbar-actions {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
 }
 
 .topbar-project-action {
@@ -727,7 +698,7 @@
 
 .sidebar-panel-head,
 .sidebar-panel.is-pathfinder .sidebar-panel-head,
-.sidebar-panel.is-accessibility .sidebar-panel-head {
+.sidebar-panel.is-analyze .sidebar-panel-head {
   gap: 4px;
   padding: 1px 1px 12px;
   border: 0;
@@ -738,7 +709,7 @@
 
 .sidebar-panel-title strong,
 .sidebar-panel.is-pathfinder .sidebar-panel-title strong,
-.sidebar-panel.is-accessibility .sidebar-panel-title strong {
+.sidebar-panel.is-analyze .sidebar-panel-title strong {
   color: var(--text-strong);
   font-size: 1.08rem;
   font-weight: 680;
@@ -1731,7 +1702,7 @@
   background: var(--panel-strong);
 }
 
-.workspace-panel,
+.surface-panel,
 .route-map-shell {
   border-radius: 0;
   box-shadow: none;
@@ -1892,20 +1863,20 @@
 }
 
 .routing-choice-explanation p,
-.routing-evidence > p {
+.routing-details > p {
   margin: 0;
   color: var(--text-soft);
   font-size: 0.67rem;
   line-height: 1.48;
 }
 
-.routing-evidence {
+.routing-details {
   margin-top: 12px;
   padding-top: 11px;
   border-top: 1px solid var(--border);
 }
 
-.routing-evidence summary {
+.routing-details summary {
   min-height: 38px;
   display: flex;
   align-items: center;
@@ -1917,19 +1888,19 @@
   font-weight: 670;
 }
 
-.routing-evidence summary b {
+.routing-details summary b {
   color: var(--text-muted);
   font-size: 0.64rem;
   font-weight: 580;
 }
 
-.routing-evidence dl {
+.routing-details dl {
   display: grid;
   gap: 0;
   margin: 3px 0 9px;
 }
 
-.routing-evidence dl > div {
+.routing-details dl > div {
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(88px, 0.75fr) minmax(0, 1.25fr);
@@ -1939,11 +1910,11 @@
   font-size: 0.65rem;
 }
 
-.routing-evidence dt {
+.routing-details dt {
   color: var(--text-muted);
 }
 
-.routing-evidence dd {
+.routing-details dd {
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
@@ -1960,23 +1931,23 @@
 }
 
 /* Project library stays list-first rather than using dashboard cards. */
-.workspace-switcher,
+.surface-switcher,
 .project-page.project-switcher {
   background: var(--panel-strong);
 }
 
-.workspace-switcher-row {
+.surface-switcher-row {
   border-color: var(--border);
   border-radius: 0;
   background: var(--panel-strong);
   box-shadow: none;
 }
 
-.workspace-switcher-row:hover {
+.surface-switcher-row:hover {
   background: var(--hover-surface);
 }
 
-.workspace-switcher-row.is-current {
+.surface-switcher-row.is-current {
   background: var(--active-surface);
   box-shadow: inset 2px 0 0 var(--vigo-lime-strong);
 }
@@ -2017,16 +1988,14 @@
 
   .topbar,
   .page-projects .topbar,
-  .project-empty .topbar,
-  [data-vigo-native="macos"] .topbar {
+  .project-empty .topbar {
     grid-template-columns: var(--workbench-sidebar) minmax(220px, 1fr) auto;
   }
 }
 
 @media (max-width: 760px) {
   .app-shell.page-project .topbar,
-  .topbar,
-  [data-vigo-native="macos"] .topbar {
+  .topbar {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
@@ -2035,8 +2004,7 @@
     border-right: 0;
   }
 
-  .topbar-mark-button,
-  [data-vigo-native="macos"] .topbar-mark-button {
+  .topbar-mark-button {
     width: 28px;
     flex-basis: 28px;
   }

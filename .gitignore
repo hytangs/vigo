@@ -1,6 +1,4 @@
 node_modules/
-dist/
-dist-cli/
 .DS_Store
 *.local
 .env
@@ -18,6 +16,12 @@ tsconfig.tsbuildinfo
 native/*/target/
 native/*/vendor/*/target/
 native/*/*.node
+
+# Unified generated web and CLI output
+public/assets/
+public/index.html
+public/vigo.mjs
+output/
 
 # Logs and scratch output
 *.log
