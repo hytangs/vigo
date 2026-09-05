@@ -1,4 +1,3 @@
-import fs from 'node:fs/promises'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import {
@@ -7,18 +6,9 @@ import {
   normalizeNativeMilliseconds,
   prepareNativeRoutingKernel,
 } from '../src/server/native-routing-kernel.mjs'
+import { atomicWriteJson } from './lib/atomic-json.mjs'
+import { argValue } from './lib/cli-args.mjs'
 import { readProjectRoutingIdentity } from './lib/project-routing-store.mjs'
-
-function argValue(name, fallback = '') {
-  const prefix = `--${name}=`
-  return process.argv.slice(2).find((argument) => argument.startsWith(prefix))?.slice(prefix.length) ?? fallback
-}
-
-async function atomicWriteJson(filePath, value) {
-  const nextPath = `${filePath}.next`
-  await fs.writeFile(nextPath, `${JSON.stringify(value, null, 2)}\n`)
-  await fs.rename(nextPath, filePath)
-}
 
 const projectId = argValue('project')
 if (!projectId) throw new Error('--project=<project-id> is required.')

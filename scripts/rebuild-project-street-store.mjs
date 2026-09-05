@@ -17,12 +17,9 @@ import {
   buildNativeStreetCchIndex,
   normalizeNativeMilliseconds,
 } from '../src/server/native-routing-kernel.mjs'
+import { atomicWriteJson } from './lib/atomic-json.mjs'
+import { argValue } from './lib/cli-args.mjs'
 import { readProjectRoutingIdentity } from './lib/project-routing-store.mjs'
-
-function argValue(name, fallback = '') {
-  const prefix = `--${name}=`
-  return process.argv.slice(2).find((argument) => argument.startsWith(prefix))?.slice(prefix.length) ?? fallback
-}
 
 let lastProgressPhase = ''
 let lastProgressPercent = -1
@@ -32,12 +29,6 @@ function progress(update) {
   lastProgressPhase = update.phase
   lastProgressPercent = percent
   process.stdout.write(`[street-rebuild] ${percent}% ${update.phase}${update.detail ? ` / ${update.detail}` : ''}\n`)
-}
-
-async function atomicWriteJson(filePath, value) {
-  const nextPath = `${filePath}.next`
-  await fsp.writeFile(nextPath, `${JSON.stringify(value, null, 2)}\n`)
-  await fsp.rename(nextPath, filePath)
 }
 
 function compactCch(result) {

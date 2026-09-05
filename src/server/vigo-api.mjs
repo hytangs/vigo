@@ -1864,11 +1864,6 @@ async function readJson(filePath) {
   return JSON.parse(await fs.readFile(filePath, 'utf8'))
 }
 
-async function writeJson(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true })
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`)
-}
-
 async function writeJsonAtomic(filePath, value, options = {}) {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.${makeId('tmp')}`
@@ -3163,7 +3158,7 @@ async function commitIndexedFeed(projectId, body, options = {}) {
     sourceFeedIds: [feedId],
   }
 
-  await writeJson(path.join(projectMetaDir(projectId), 'artifacts', `${artifact.id}.json`), {
+  await writeJsonAtomic(path.join(projectMetaDir(projectId), 'artifacts', `${artifact.id}.json`), {
     ...artifact,
     payload: {
       qualityScore: feed.qualityScore,

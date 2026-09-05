@@ -1753,9 +1753,7 @@ function routeComparison(before: Record<string, any>, after: Record<string, any>
   }
 }
 
-function matrixComparison(before: Record<string, any>, after: Record<string, any>) {
-  const key = (row: Record<string, any>) => JSON.stringify([row.originId ?? row.originIndex, row.destinationId ?? row.destinationIndex])
-  const left = new Map((before.rows ?? []).map((row: Record<string, any>) => [key(row), row]))
+function comparisonCounts(pairs: Iterable<[any, any]>, unit: 'Pairs' | 'Cells') {
   let faster = 0
   let slower = 0
   let unchanged = 0
@@ -1763,11 +1761,7 @@ function matrixComparison(before: Record<string, any>, after: Record<string, any
   let totalChange = 0
   let newlyReachable = 0
   let noLongerReachable = 0
-  for (const row of after.rows ?? []) {
-    const previous = left.get(key(row)) as Record<string, any> | undefined
-    if (!previous) continue
-    const beforeMinutes = previous.status === 'blocked' ? null : previous.durationMinutes
-    const afterMinutes = row.status === 'blocked' ? null : row.durationMinutes
+  for (const [beforeMinutes, afterMinutes] of pairs) {
     if (!Number.isFinite(beforeMinutes) && Number.isFinite(afterMinutes)) newlyReachable += 1
     if (Number.isFinite(beforeMinutes) && !Number.isFinite(afterMinutes)) noLongerReachable += 1
     if (!Number.isFinite(beforeMinutes) || !Number.isFinite(afterMinutes)) continue
@@ -1779,14 +1773,28 @@ function matrixComparison(before: Record<string, any>, after: Record<string, any
     else unchanged += 1
   }
   return {
-    comparablePairs: comparable,
-    fasterPairs: faster,
-    slowerPairs: slower,
-    unchangedPairs: unchanged,
-    newlyReachablePairs: newlyReachable,
-    noLongerReachablePairs: noLongerReachable,
+    [`comparable${unit}`]: comparable,
+    [`faster${unit}`]: faster,
+    [`slower${unit}`]: slower,
+    [`unchanged${unit}`]: unchanged,
+    [`newlyReachable${unit}`]: newlyReachable,
+    [`noLongerReachable${unit}`]: noLongerReachable,
     meanChangeMinutes: comparable ? Number((totalChange / comparable).toFixed(3)) : null,
   }
+}
+
+function matrixComparison(before: Record<string, any>, after: Record<string, any>) {
+  const key = (row: Record<string, any>) => JSON.stringify([row.originId ?? row.originIndex, row.destinationId ?? row.destinationIndex])
+  const left = new Map((before.rows ?? []).map((row: Record<string, any>) => [key(row), row]))
+  const pairs: Array<[any, any]> = []
+  for (const row of after.rows ?? []) {
+    const previous = left.get(key(row)) as Record<string, any> | undefined
+    if (!previous) continue
+    const beforeMinutes = previous.status === 'blocked' ? null : previous.durationMinutes
+    const afterMinutes = row.status === 'blocked' ? null : row.durationMinutes
+    pairs.push([beforeMinutes, afterMinutes])
+  }
+  return comparisonCounts(pairs, 'Pairs')
 }
 
 function reachComparison(before: Record<string, any>, after: Record<string, any>) {
@@ -1804,35 +1812,10 @@ function reachComparison(before: Record<string, any>, after: Record<string, any>
     || JSON.stringify(grid.bounds) !== JSON.stringify(otherGrid?.bounds)) {
     throw new Error('Reach results must use the same grid before they can be compared')
   }
-  let faster = 0
-  let slower = 0
-  let unchanged = 0
-  let comparable = 0
-  let totalChange = 0
-  let newlyReachable = 0
-  let noLongerReachable = 0
-  for (let index = 0; index < left.length; index += 1) {
-    const beforeMinutes = left[index]
-    const afterMinutes = right[index]
-    if (!Number.isFinite(beforeMinutes) && Number.isFinite(afterMinutes)) newlyReachable += 1
-    if (Number.isFinite(beforeMinutes) && !Number.isFinite(afterMinutes)) noLongerReachable += 1
-    if (!Number.isFinite(beforeMinutes) || !Number.isFinite(afterMinutes)) continue
-    const change = afterMinutes - beforeMinutes
-    comparable += 1
-    totalChange += change
-    if (change < -1e-9) faster += 1
-    else if (change > 1e-9) slower += 1
-    else unchanged += 1
-  }
-  return {
-    comparableCells: comparable,
-    fasterCells: faster,
-    slowerCells: slower,
-    unchangedCells: unchanged,
-    newlyReachableCells: newlyReachable,
-    noLongerReachableCells: noLongerReachable,
-    meanChangeMinutes: comparable ? Number((totalChange / comparable).toFixed(3)) : null,
-  }
+  return comparisonCounts(
+    left.map((value, index) => [value, right[index]]),
+    'Cells',
+  )
 }
 
 function runCompare(args: CliArguments) {

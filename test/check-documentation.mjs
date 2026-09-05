@@ -66,6 +66,7 @@ assert.equal(packageJson.scripts?.['docs:developer-guide'], 'node scripts/build-
 assert.equal(packageJson.scripts?.['docs:api-guide'], undefined)
 
 const developerGuide = read('docs/developer-guide/VIGO-0.3.0-Developer-Guide.tex')
+const programmaticGuide = read('docs/programmatic.md')
 const developerGuideSource = `${developerGuide}\n${read('docs/developer-guide/vigo-developer-guide.sty')}`
 for (const statement of [
   'VIGO 0.3.0 Developer Guide',
@@ -80,6 +81,8 @@ for (const statement of [
 for (const removedSurface of ['\\vigotitlepage', '\\tableofcontents', '\\section{VIGO Studio}']) {
   assert(!developerGuide.includes(removedSurface), `Developer Guide retained legacy surface: ${removedSurface}`)
 }
+assert(!programmaticGuide.includes('Context.run(query)'), 'Programmatic guide retained the obsolete Context API.')
+assert(!developerGuide.includes('Context.run(query)'), 'Developer Guide retained the obsolete Context API.')
 
 const markdownFiles = [repositoryPath('README.md'), repositoryPath('.github/CONTRIBUTING.md'), ...walk(docsRoot).filter((file) => file.endsWith('.md'))]
 const forbidden = [

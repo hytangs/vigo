@@ -28,19 +28,8 @@ import {
   buildNativeStreetCchIndex,
   normalizeNativeMilliseconds,
 } from '../src/server/native-routing-kernel.mjs'
-
-function argValue(name, fallback = '') {
-  const prefix = `--${name}=`
-  const match = process.argv.slice(2).find((argument) => argument.startsWith(prefix))
-  return match ? match.slice(prefix.length) : fallback
-}
-
-function argValues(name) {
-  const prefix = `--${name}=`
-  return process.argv.slice(2)
-    .filter((argument) => argument.startsWith(prefix))
-    .map((argument) => argument.slice(prefix.length))
-}
+import { atomicWriteJson } from './lib/atomic-json.mjs'
+import { argValue, argValues } from './lib/cli-args.mjs'
 
 function feedDescriptor(value) {
   const separator = value.indexOf(':')
@@ -98,11 +87,6 @@ function startRawOsmBuild({ pbfPath, outputPath, onProgress, buildDrivingProfile
     })
   })
   return { worker, promise }
-}
-
-async function writeJson(filePath, value) {
-  await fsp.mkdir(path.dirname(filePath), { recursive: true })
-  await fsp.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`)
 }
 
 function compactFeedMetadata(feed, routingStore) {
@@ -199,7 +183,7 @@ async function writeVisibleProjectFiles(projectRoot, project) {
     + `${feed.routingStore.routingEligibility} SQLite routing at \`${feed.routingStore.storedAt}\`.`
   )).join('\n')
   await Promise.all([
-    writeJson(path.join(projectRoot, 'DATA_MANIFEST.json'), manifest),
+    atomicWriteJson(path.join(projectRoot, 'DATA_MANIFEST.json'), manifest),
     fsp.writeFile(path.join(projectRoot, 'README.md'), `# ${project.name}
 
 This VIGO project was rebuilt atomically from raw GTFS and OSM PBF sources.
@@ -711,8 +695,8 @@ try {
     },
   }
   await Promise.all([
-    writeJson(path.join(metadataRoot, 'project.json'), project),
-    writeJson(path.join(metadataRoot, 'rebuild-manifest.json'), manifest),
+    atomicWriteJson(path.join(metadataRoot, 'project.json'), project),
+    atomicWriteJson(path.join(metadataRoot, 'rebuild-manifest.json'), manifest),
     writeVisibleProjectFiles(stagingRoot, project),
   ])
 

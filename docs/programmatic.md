@@ -16,7 +16,7 @@ reach = proposal.run(vigo.Reach(...))
 comparison = vigo.compare(city.reach(...), reach)
 ```
 
-`Context.run(query)` is canonical. The `route`, `matrix`, and `reach` methods are convenience constructors only.
+`City.run(query)` and `Scenario.run(query)` are canonical. The `route`, `matrix`, and `reach` methods are convenience constructors only.
 
 Query objects can be stored and reused:
 
