@@ -131,7 +131,7 @@ const routingStoreIndexTables = Object.freeze({
   trips_route: 'trips',
   trips_service: 'trips',
 })
-const staticTopologySchemaVersion = 'vigo.routing.static-topology.v3'
+const staticTopologySchemaVersion = 'vigo.routing.static-topology.v4'
 const staticTopologySourceIdentityVersion = 'vigo.routing.static-topology-source.v3'
 const legacyStaticTopologySourceFingerprintVersion = 'vigo.routing.static-topology-source.v2'
 const monotonicNow = nodePerformance.now.bind(nodePerformance)
@@ -346,8 +346,8 @@ const activeServiceKernelSnapshotCacheBudgetBytes = Math.max(
     Math.floor(Number(process.env.VIGO_ACTIVE_KERNEL_SNAPSHOT_CACHE_BUDGET_BYTES ?? 512 * 1024 * 1024) || 0),
   ),
 )
-const activeServiceKernelSchemaVersion = 'vigo.routing.active-service-kernel.v12-rust-native'
-const activeServiceTransferProjectionVersion = 'single_edge_service_ingress.v4-rust-csr'
+const activeServiceKernelSchemaVersion = 'vigo.routing.active-service-kernel.v13-rust-native'
+const activeServiceTransferProjectionVersion = 'single_edge_service_ingress.v5-gtfs-minimum'
 const activeServiceKernelContextCacheMaxEntries = Math.max(
   1,
   Math.min(8, Math.floor(Number(process.env.VIGO_ACTIVE_KERNEL_CONTEXT_CACHE_MAX_ENTRIES ?? 2) || 0)),
@@ -5722,10 +5722,7 @@ function walkSeconds(distanceKm) {
 }
 
 function transferDurationSeconds(transfer) {
-  return Math.max(
-    transfer?.provenance === 'osm_certified_radial' ? 1 : 60,
-    numeric(transfer?.min_transfer_time, 0),
-  )
+  return Math.max(0, numeric(transfer?.min_transfer_time, 0))
 }
 
 function accessWalkSeconds(stop) {
@@ -7380,7 +7377,7 @@ function activeServiceKernelSnapshot(store) {
 const activeServiceKernelTypedArrayKeys = Object.freeze([
   'departureSeconds', 'arrivalSeconds', 'fromStop', 'toStop', 'sequence', 'segmentTrip', 'segmentRun', 'continuityBreak',
   'canBoard', 'canAlight',
-  'tripStart', 'departureOffset', 'departureOrder', 'transferOffset', 'transferTo', 'transferDuration', 'forbiddenSameStop',
+  'tripStart', 'departureOffset', 'departureOrder', 'transferOffset', 'transferTo', 'transferDuration', 'forbiddenSameStop', 'sameStopTransferMinimum',
 ])
 
 const activeServiceKernelDictionaryKeys = Object.freeze([
@@ -7616,6 +7613,7 @@ function loadPersistedActiveServiceKernel(
       || persisted.canAlight.length !== persisted.activeSegmentCount
       || persisted.tripStart.length !== persisted.tripIds.length + 1
       || persisted.transferDuration.length !== persisted.transferTo.length
+      || persisted.sameStopTransferMinimum.length !== persisted.stopIds.length
     ) throw new Error('Compact-kernel snapshot dimensions are invalid.')
     assertCompactCsrSnapshot(
       persisted.transferOffset,
@@ -7948,7 +7946,7 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
     let sourceExpandedTransferEdges = 0
     let excludedNonServiceTransferEdges = 0
     let excludedNonServiceStationMembers = 0
-    const addTransferTo = (fromId, toId, duration, minimumDuration = 60) => {
+    const addTransferTo = (fromId, toId, duration) => {
       if (fromId === toId) return
       const from = stopIndex.get(fromId)
       const to = stopIndex.get(toId)
@@ -7958,7 +7956,7 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
         to,
         Math.min(
           targets.get(to) ?? Number.POSITIVE_INFINITY,
-          Math.max(minimumDuration, numeric(duration, 0)),
+          Math.max(0, numeric(duration, 0)),
         ),
       )
       transferMaps.set(from, targets)
@@ -7975,7 +7973,6 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
           fromId,
           transfer.to_stop_id,
           transfer.min_transfer_time,
-          transfer.provenance === 'osm_certified_radial' ? 1 : 60,
         )
       }
     }
@@ -7985,7 +7982,11 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
       excludedNonServiceStationMembers += uniqueMembers.length - members.length
       for (const fromId of members) {
         for (const toId of members) {
-          if (!isForbiddenTransfer(store, fromId, toId)) addTransferTo(fromId, toId, 120)
+          // A published rule takes precedence over the station walking fallback.
+          if (!isForbiddenTransfer(store, fromId, toId)
+            && !transferMaps.get(stopIndex.get(fromId))?.has(stopIndex.get(toId))) {
+            addTransferTo(fromId, toId, 120)
+          }
         }
       }
     }
@@ -8011,8 +8012,11 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
     }
     transferMaps.clear()
     const forbiddenSameStop = new Uint8Array(stopCount)
+    const sameStopTransferMinimum = new Uint32Array(stopCount)
     for (let stop = 0; stop < stopCount; stop += 1) {
       if (isForbiddenTransfer(store, stopIds[stop], stopIds[stop])) forbiddenSameStop[stop] = 1
+      const rule = store.transfers.get(stopIds[stop])?.find((transfer) => transfer.to_stop_id === stopIds[stop])
+      if (rule) sameStopTransferMinimum[stop] = transferDurationSeconds(rule)
     }
 
     try { builder.exec('PRAGMA shrink_memory') } catch {}
@@ -8048,6 +8052,7 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
       transferTo,
       transferDuration,
       forbiddenSameStop,
+      sameStopTransferMinimum,
       transferProjectionVersion: activeServiceTransferProjectionVersion,
       transferProjectionVerified: true,
       sourceExpandedTransferEdges,

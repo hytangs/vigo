@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import { buildNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
@@ -13,7 +14,18 @@ import {
 } from '../src/server/national-osm-store.mjs'
 import { buildServiceEdgeDecomposition } from '../src/server/service-decomposition.mjs'
 
-const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-service-edge-'))
+// Resident street indexes retain native memory maps until process exit.
+// Let the parent remove the fixture only after the worker releases them.
+if (process.argv[2] !== '--worker') {
+  const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-service-edge-'))
+  try {
+    execFileSync(process.execPath, [import.meta.filename, '--worker', folder], { stdio: 'inherit' })
+  } finally {
+    await fs.rm(folder, { recursive: true, force: true })
+  }
+} else {
+  await checkServiceEdges(process.argv[3])
+}
 
 async function writeFeed(filePath, routeId, shapeId) {
   const zip = new JSZip()
@@ -50,7 +62,7 @@ async function writeFeed(filePath, routeId, shapeId) {
   await fs.writeFile(filePath, await zip.generateAsync({ type: 'nodebuffer' }))
 }
 
-try {
+async function checkServiceEdges(folder) {
   const baselineZip = path.join(folder, 'baseline.zip')
   const comparisonZip = path.join(folder, 'comparison.zip')
   const baselineStore = path.join(folder, 'baseline.sqlite')
@@ -121,6 +133,4 @@ try {
   assert(result.featureCollection.features.every((feature) => feature.properties.baseTripCount === 1))
   assert(result.featureCollection.features.every((feature) => feature.properties.comparisonTripCount === 1))
   console.log('service edge decomposition checks passed')
-} finally {
-  await fs.rm(folder, { recursive: true, force: true })
 }

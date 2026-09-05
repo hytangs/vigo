@@ -3,7 +3,7 @@ use napi_derive::napi;
 use std::time::Instant;
 
 const STATE_STRIDE: usize = 8;
-const TRANSFER_BOARD_SLACK_SECONDS: f64 = 180.0;
+const TRANSFER_BOARD_SLACK_SECONDS: f64 = 0.0;
 const NO_STATE: i32 = -1;
 const SCAN_CAN_BOARD: u8 = 1;
 const SCAN_CAN_ALIGHT: u8 = 2;
@@ -121,6 +121,7 @@ pub struct TimetableKernelInput {
     pub transfer_to: Uint32Array,
     pub transfer_duration: Uint32Array,
     pub forbidden_same_stop: Uint8Array,
+    pub same_stop_transfer_minimum: Option<Uint32Array>,
 }
 
 #[derive(Clone)]
@@ -1629,6 +1630,7 @@ fn execute_marked_run_round(
     transfer_offset: &[u32],
     transfer_edges: &[TransferEdge],
     forbidden_same_stop: &[u8],
+    same_stop_transfer_minimum: &[u32],
     run_start: &[u32],
     run_end: &[u32],
     stop_deadlines: &[u32],
@@ -1676,6 +1678,7 @@ fn execute_marked_run_round(
                     current.arrival,
                     flags & 4 != 0,
                     flags & 1 != 0,
+                    same_stop_transfer_minimum[stop],
                 ));
                 minimum_walking = minimum_walking.min(current.walking_seconds);
                 label = current.next;
@@ -1741,8 +1744,12 @@ fn execute_marked_run_round(
                     let mut label = workspace.transfer_label[state];
                     while label >= 0 {
                         let current = &workspace.labels[label as usize];
-                        if boarding_ready_time(current.arrival, flags & 4 != 0, flags & 1 != 0)
-                            <= connection_departure
+                        if boarding_ready_time(
+                            current.arrival,
+                            flags & 4 != 0,
+                            flags & 1 != 0,
+                            same_stop_transfer_minimum[stop],
+                        ) <= connection_departure
                             && current.walking_seconds < candidate_walking
                         {
                             candidate = label;
@@ -2579,10 +2586,7 @@ fn build_exact_deadline_corridor(
     for remaining in 0..boarding_upper_bound {
         let forward_round = boarding_upper_bound - remaining - 1;
         let forward_runs = forward_run_layers.map(|layers| &layers[forward_round]);
-        let prior_boardings = boarding_upper_bound - remaining - 1;
-        let layer_minimum_time = minimum_time.saturating_add(
-            (prior_boardings as u32).saturating_mul(TRANSFER_BOARD_SLACK_SECONDS as u32),
-        );
+        let layer_minimum_time = minimum_time;
         let target_deadlines = &stop_deadlines[remaining];
         let mut run_mask = vec![0_u8; run_count];
         let mut run_through_segment = vec![0_u32; run_count];
@@ -2693,10 +2697,15 @@ fn build_exact_deadline_corridor(
     }
 }
 
-fn boarding_ready_time(arrival: f64, has_ride: bool, transfer_episode_state: bool) -> f64 {
+fn boarding_ready_time(
+    arrival: f64,
+    has_ride: bool,
+    transfer_episode_state: bool,
+    minimum: u32,
+) -> f64 {
     arrival
         + if has_ride && transfer_episode_state {
-            TRANSFER_BOARD_SLACK_SECONDS
+            f64::from(minimum)
         } else {
             0.0
         }
@@ -2724,9 +2733,11 @@ pub struct TimetableKernel {
     transfer_offset: Vec<u32>,
     transfer_edges: Vec<TransferEdge>,
     forbidden_same_stop: Uint8Array,
+    same_stop_transfer_minimum: Vec<u32>,
     scan_events: Vec<ScanEvent>,
     scan_times: Vec<u32>,
     scan_time_offsets: Vec<u32>,
+    scan_time_needs_closure: Vec<bool>,
     scan_arrivals: Vec<ScanArrival>,
     scan_journeys: Vec<ScanJourney>,
     run_start: Vec<u32>,
@@ -2767,6 +2778,7 @@ impl TimetableKernel {
         let mut scan_events = Vec::with_capacity(segment_count);
         let mut scan_times = Vec::new();
         let mut scan_time_offsets = Vec::new();
+        let mut scan_time_needs_closure = Vec::new();
         let mut scan_arrivals = Vec::with_capacity(segment_count);
         let mut scan_journeys = Vec::with_capacity(segment_count);
         let mut prior_departure = None;
@@ -2776,12 +2788,19 @@ impl TimetableKernel {
             if prior_departure != Some(departure) {
                 scan_times.push(departure);
                 scan_time_offsets.push(scan_events.len() as u32);
+                scan_time_needs_closure.push(false);
                 prior_departure = Some(departure);
             }
             let bridge_exit = index > 0
                 && input.continuity_break[index] == 0
                 && input.segment_run[index - 1] == input.segment_run[index]
                 && input.to_stop[index - 1] != input.from_stop[index];
+            // Only zero-time arrivals and bridge exits can introduce another
+            // boarding at this timestamp. This exact dependency flag avoids
+            // revisiting buckets that cannot contain such a dependency.
+            if input.arrival_seconds[index] == departure || bridge_exit {
+                *scan_time_needs_closure.last_mut().unwrap() = true;
+            }
             let flags = (if input.can_board[index] == 1 {
                 SCAN_CAN_BOARD
             } else {
@@ -2941,9 +2960,13 @@ impl TimetableKernel {
             transfer_offset: input.transfer_offset.to_vec(),
             transfer_edges,
             forbidden_same_stop: input.forbidden_same_stop,
+            same_stop_transfer_minimum: input
+                .same_stop_transfer_minimum
+                .map_or_else(|| vec![0; stop_count], |values| values.to_vec()),
             scan_events,
             scan_times,
             scan_time_offsets,
+            scan_time_needs_closure,
             scan_arrivals,
             scan_journeys,
             run_start,
@@ -3016,9 +3039,11 @@ impl TimetableKernel {
             transfer_offset,
             transfer_edges,
             forbidden_same_stop,
+            same_stop_transfer_minimum,
             scan_events,
             scan_times,
             scan_time_offsets,
+            scan_time_needs_closure,
             scan_arrivals,
             scan_journeys,
             run_start: _,
@@ -3135,192 +3160,200 @@ impl TimetableKernel {
             }
             let start = scan_time_offsets[time_index] as usize;
             let end = scan_time_offsets[time_index + 1] as usize;
-            // Every event in this time bucket is visited exactly once; count
-            // the bucket in one operation instead of mutating diagnostics in
-            // the 15k-25k iteration scalar hot loop.
-            stats.scanned_departures += (end - start) as u32;
             let bucket_events = &scan_events[start..end];
             let bucket_arrivals = &scan_arrivals[start..end];
             let bucket_journeys = &scan_journeys[start..end];
-            for (offset, ((&event, &arrival), &journey)) in bucket_events
-                .iter()
-                .zip(bucket_arrivals)
-                .zip(bucket_journeys)
-                .enumerate()
-            {
-                let connection = start + offset;
-                let scan_flags = event.flags();
-                let stop = event.source_stop();
-                let run = event.run();
-                let mut boarding_state = NO_STATE;
-                if scan_flags & SCAN_CAN_BOARD != 0
-                    && workspace.active_stop_generation[stop] == epoch
-                    && workspace.active_state_mask[stop] != 0
+            loop {
+                let previous_changes = (stats.relaxed_stops, stats.expanded_trip_runs);
+                stats.scanned_departures += (end - start) as u32;
+                for (offset, ((&event, &arrival), &journey)) in bucket_events
+                    .iter()
+                    .zip(bucket_arrivals)
+                    .zip(bucket_journeys)
+                    .enumerate()
                 {
-                    let mut active_states = workspace.active_state_mask[stop];
-                    while active_states != 0 {
-                        let flags = active_states.trailing_zeros() as usize;
-                        active_states &= active_states - 1;
-                        let state = stop * STATE_STRIDE + flags;
-                        let has_ride = flags & 4 != 0;
-                        if has_ride && forbidden_same_stop[stop] == 1 {
-                            continue;
-                        }
-                        let needs_board_slack = flags & 1 != 0;
-                        if boarding_ready_time(
-                            workspace.labels[state].arrival,
-                            has_ride,
-                            needs_board_slack,
-                        ) > connection_departure
-                        {
-                            continue;
-                        }
-                        if boarding_state < 0 {
-                            boarding_state = state as i32;
-                            continue;
-                        }
-                        let retained = boarding_state as usize;
-                        if workspace.labels[state].boardings < workspace.labels[retained].boardings
-                            || (workspace.labels[state].boardings
-                                == workspace.labels[retained].boardings
-                                && (workspace.labels[state].arrival
-                                    < workspace.labels[retained].arrival
-                                    || (workspace.labels[state].arrival
-                                        == workspace.labels[retained].arrival
-                                        && (workspace.labels[state].walking_seconds
-                                            < workspace.labels[retained].walking_seconds
-                                            || (workspace.labels[state].walking_seconds
-                                                == workspace.labels[retained].walking_seconds
-                                                && state < retained)))))
-                        {
-                            boarding_state = state as i32;
-                        }
-                    }
-                }
-
-                let run_active = workspace.run_generation[run] == epoch;
-                let earlier_start = if run_active {
-                    workspace.expanded_run_start[run]
-                } else {
-                    NO_STATE
-                };
-                let mut run_updated = false;
-                if boarding_state >= 0 {
-                    let candidate_boardings = workspace.labels[boarding_state as usize]
-                        .boardings
-                        .saturating_add(1);
-                    let retained_boardings = if run_active {
-                        workspace.labels[workspace.run_predecessor_state[run] as usize]
-                            .boardings
-                            .saturating_add(1)
-                    } else {
-                        u16::MAX
-                    };
-                    if !run_active
-                        || candidate_boardings < retained_boardings
-                        || (candidate_boardings == retained_boardings
-                            && connection < earlier_start as usize)
+                    let connection = start + offset;
+                    let scan_flags = event.flags();
+                    let stop = event.source_stop();
+                    let run = event.run();
+                    let mut boarding_state = NO_STATE;
+                    if scan_flags & SCAN_CAN_BOARD != 0
+                        && workspace.active_stop_generation[stop] == epoch
+                        && workspace.active_state_mask[stop] != 0
                     {
-                        if !run_active {
-                            workspace.run_generation[run] = epoch;
-                            workspace.touched_runs.push(run as u32);
+                        let mut active_states = workspace.active_state_mask[stop];
+                        while active_states != 0 {
+                            let flags = active_states.trailing_zeros() as usize;
+                            active_states &= active_states - 1;
+                            let state = stop * STATE_STRIDE + flags;
+                            let has_ride = flags & 4 != 0;
+                            if has_ride && forbidden_same_stop[stop] == 1 {
+                                continue;
+                            }
+                            let needs_board_slack = flags & 1 != 0;
+                            if boarding_ready_time(
+                                workspace.labels[state].arrival,
+                                has_ride,
+                                needs_board_slack,
+                                same_stop_transfer_minimum[stop],
+                            ) > connection_departure
+                            {
+                                continue;
+                            }
+                            if boarding_state < 0 {
+                                boarding_state = state as i32;
+                                continue;
+                            }
+                            let retained = boarding_state as usize;
+                            if workspace.labels[state].boardings
+                                < workspace.labels[retained].boardings
+                                || (workspace.labels[state].boardings
+                                    == workspace.labels[retained].boardings
+                                    && (workspace.labels[state].arrival
+                                        < workspace.labels[retained].arrival
+                                        || (workspace.labels[state].arrival
+                                            == workspace.labels[retained].arrival
+                                            && (workspace.labels[state].walking_seconds
+                                                < workspace.labels[retained].walking_seconds
+                                                || (workspace.labels[state].walking_seconds
+                                                    == workspace.labels[retained]
+                                                        .walking_seconds
+                                                    && state < retained)))))
+                            {
+                                boarding_state = state as i32;
+                            }
                         }
-                        workspace.expanded_run_start[run] = connection as i32;
-                        workspace.run_predecessor_state[run] = boarding_state;
-                        run_updated = true;
-                        stats.expanded_trip_runs += 1;
-                    } else {
-                        stats.dominated_trip_boardings += 1;
                     }
-                }
-                if workspace.run_generation[run] != epoch
-                    || workspace.expanded_run_start[run] < 0
-                    || workspace.expanded_run_start[run] > connection as i32
-                {
-                    continue;
-                }
-                if run_updated {
-                    workspace.run_board_sequence[run] = journey.sequence;
-                }
-                let boarding = workspace.expanded_run_start[run] as usize;
-                let predecessor = workspace.run_predecessor_state[run];
-                let board_sequence = workspace.run_board_sequence[run] as f64;
-                let trip = journey.trip as i32;
-                if connection > boarding && scan_flags & SCAN_BRIDGE_EXIT != 0 {
-                    let bridge_arrival = connection_departure;
-                    if bridge_arrival <= input.horizon && bridge_arrival <= best.arrival {
-                        let bridge_stop = event.source_stop();
-                        let bridge_state = relax_connection_scan(
-                            workspace,
-                            epoch,
-                            &mut best,
-                            &mut stats,
-                            bridge_stop,
-                            bridge_arrival,
-                            true,
-                            true,
-                            true,
-                            predecessor,
-                            2,
-                            trip,
-                            board_sequence,
-                            journey.prior_sequence as f64 + 0.5,
-                            0,
-                        );
-                        if bridge_state >= 0 {
-                            expand_connection_scan_transfer_edges(
+
+                    let run_active = workspace.run_generation[run] == epoch;
+                    let earlier_start = if run_active {
+                        workspace.expanded_run_start[run]
+                    } else {
+                        NO_STATE
+                    };
+                    let mut run_updated = false;
+                    if boarding_state >= 0 {
+                        let candidate_boardings = workspace.labels[boarding_state as usize]
+                            .boardings
+                            .saturating_add(1);
+                        let retained_boardings = if run_active {
+                            workspace.labels[workspace.run_predecessor_state[run] as usize]
+                                .boardings
+                                .saturating_add(1)
+                        } else {
+                            u16::MAX
+                        };
+                        if !run_active
+                            || candidate_boardings < retained_boardings
+                            || (candidate_boardings == retained_boardings
+                                && connection < earlier_start as usize)
+                        {
+                            if !run_active {
+                                workspace.run_generation[run] = epoch;
+                                workspace.touched_runs.push(run as u32);
+                            }
+                            workspace.expanded_run_start[run] = connection as i32;
+                            workspace.run_predecessor_state[run] = boarding_state;
+                            run_updated = true;
+                            stats.expanded_trip_runs += 1;
+                        } else {
+                            stats.dominated_trip_boardings += 1;
+                        }
+                    }
+                    if workspace.run_generation[run] != epoch
+                        || workspace.expanded_run_start[run] < 0
+                        || workspace.expanded_run_start[run] > connection as i32
+                    {
+                        continue;
+                    }
+                    if run_updated {
+                        workspace.run_board_sequence[run] = journey.sequence;
+                    }
+                    let boarding = workspace.expanded_run_start[run] as usize;
+                    let predecessor = workspace.run_predecessor_state[run];
+                    let board_sequence = workspace.run_board_sequence[run] as f64;
+                    let trip = journey.trip as i32;
+                    if connection > boarding && scan_flags & SCAN_BRIDGE_EXIT != 0 {
+                        let bridge_arrival = connection_departure;
+                        if bridge_arrival <= input.horizon && bridge_arrival <= best.arrival {
+                            let bridge_stop = event.source_stop();
+                            let bridge_state = relax_connection_scan(
                                 workspace,
                                 epoch,
                                 &mut best,
                                 &mut stats,
-                                transfer_offset,
-                                transfer_edges,
                                 bridge_stop,
                                 bridge_arrival,
                                 true,
-                                bridge_state,
+                                true,
+                                true,
+                                predecessor,
+                                2,
+                                trip,
+                                board_sequence,
+                                journey.prior_sequence as f64 + 0.5,
+                                0,
                             );
+                            if bridge_state >= 0 {
+                                expand_connection_scan_transfer_edges(
+                                    workspace,
+                                    epoch,
+                                    &mut best,
+                                    &mut stats,
+                                    transfer_offset,
+                                    transfer_edges,
+                                    bridge_stop,
+                                    bridge_arrival,
+                                    true,
+                                    bridge_state,
+                                );
+                            }
                         }
                     }
-                }
-                let connection_arrival = arrival.arrival as f64;
-                if scan_flags & SCAN_CAN_ALIGHT == 0
-                    || connection_arrival > input.horizon
-                    || connection_arrival > best.arrival
-                {
-                    continue;
-                }
-                let alight_stop = arrival.to as usize;
-                let alight_state = relax_connection_scan(
-                    workspace,
-                    epoch,
-                    &mut best,
-                    &mut stats,
-                    alight_stop,
-                    connection_arrival,
-                    true,
-                    true,
-                    true,
-                    predecessor,
-                    2,
-                    trip,
-                    board_sequence,
-                    journey.sequence as f64,
-                    0,
-                );
-                if alight_state >= 0 {
-                    expand_connection_scan_transfer_edges(
+                    let connection_arrival = arrival.arrival as f64;
+                    if scan_flags & SCAN_CAN_ALIGHT == 0
+                        || connection_arrival > input.horizon
+                        || connection_arrival > best.arrival
+                    {
+                        continue;
+                    }
+                    let alight_stop = arrival.to as usize;
+                    let alight_state = relax_connection_scan(
                         workspace,
                         epoch,
                         &mut best,
                         &mut stats,
-                        transfer_offset,
-                        transfer_edges,
                         alight_stop,
                         connection_arrival,
                         true,
-                        alight_state,
+                        true,
+                        true,
+                        predecessor,
+                        2,
+                        trip,
+                        board_sequence,
+                        journey.sequence as f64,
+                        0,
                     );
+                    if alight_state >= 0 {
+                        expand_connection_scan_transfer_edges(
+                            workspace,
+                            epoch,
+                            &mut best,
+                            &mut stats,
+                            transfer_offset,
+                            transfer_edges,
+                            alight_stop,
+                            connection_arrival,
+                            true,
+                            alight_state,
+                        );
+                    }
+                }
+                if !scan_time_needs_closure[time_index]
+                    || previous_changes == (stats.relaxed_stops, stats.expanded_trip_runs)
+                {
+                    break;
                 }
             }
             time_index += 1;
@@ -3485,9 +3518,11 @@ impl TimetableKernel {
             transfer_offset,
             transfer_edges,
             forbidden_same_stop,
+            same_stop_transfer_minimum,
             scan_events,
             scan_times,
             scan_time_offsets,
+            scan_time_needs_closure,
             scan_arrivals,
             scan_journeys: _,
             run_start: _,
@@ -3596,75 +3631,89 @@ impl TimetableKernel {
             }
             let start = scan_time_offsets[time_index] as usize;
             let end = scan_time_offsets[time_index + 1] as usize;
-            stats.scanned_departures = stats
-                .scanned_departures
-                .saturating_add((end - start) as u32);
-            // Reversing the stable forward bucket order preserves exact
-            // zero-duration event ordering without a fixed-point pass.
-            for connection in (start..end).rev() {
-                let event = scan_events[connection];
-                let flags = event.flags();
-                let stop = event.source_stop();
-                let run = event.run();
-                let arrival = scan_arrivals[connection];
-                let run_was_feasible = workspace.run_generation[run] == epoch;
-                let direct_exit_feasible = flags & SCAN_CAN_ALIGHT != 0
-                    && workspace.destination_generation[arrival.to as usize] == epoch
-                    && f64::from(arrival.arrival)
-                        <= workspace.destination_egress[arrival.to as usize];
-                let boardable_path = run_was_feasible || direct_exit_feasible;
+            loop {
+                let previous_changes = (stats.relaxed_stops, stats.expanded_trip_runs);
+                stats.scanned_departures += (end - start) as u32;
+                for connection in (start..end).rev() {
+                    let event = scan_events[connection];
+                    let flags = event.flags();
+                    let stop = event.source_stop();
+                    let run = event.run();
+                    let arrival = scan_arrivals[connection];
+                    let run_was_feasible = workspace.run_generation[run] == epoch
+                        && workspace.expanded_run_start[run] >= connection as i32;
+                    let direct_exit_feasible = flags & SCAN_CAN_ALIGHT != 0
+                        && workspace.destination_generation[arrival.to as usize] == epoch
+                        && f64::from(arrival.arrival)
+                            <= workspace.destination_egress[arrival.to as usize];
+                    let boardable_path = run_was_feasible || direct_exit_feasible;
 
-                if flags & SCAN_CAN_BOARD != 0 && boardable_path {
-                    let origin_state = stop * STATE_STRIDE + (STATE_STRIDE - 1);
-                    if workspace.labels[origin_state].generation == epoch {
-                        let origin_offset = workspace.labels[origin_state].arrival;
-                        let candidate = departure - origin_offset;
-                        if candidate >= input.earliest
-                            && candidate <= input.deadline
-                            && latest_departure.is_none_or(|latest| candidate > latest)
-                        {
-                            latest_departure = Some(candidate);
-                            // This is the largest physical departure possible
-                            // at the latest timetable time still under
-                            // consideration. Neither the rest of this bucket
-                            // nor an earlier one can improve it.
-                            if origin_offset <= minimum_origin_offset {
-                                break 'time_scan;
+                    if flags & SCAN_CAN_BOARD != 0 && boardable_path {
+                        let origin_state = stop * STATE_STRIDE + (STATE_STRIDE - 1);
+                        if workspace.labels[origin_state].generation == epoch {
+                            let origin_offset = workspace.labels[origin_state].arrival;
+                            let candidate = departure - origin_offset;
+                            if candidate >= input.earliest
+                                && candidate <= input.deadline
+                                && latest_departure.is_none_or(|latest| candidate > latest)
+                            {
+                                latest_departure = Some(candidate);
+                                // This is the largest physical departure possible
+                                // at the latest timetable time still under
+                                // consideration. Neither the rest of this bucket
+                                // nor an earlier one can improve it.
+                                if origin_offset <= minimum_origin_offset {
+                                    break 'time_scan;
+                                }
                             }
+                        }
+
+                        if forbidden_same_stop[stop] == 0 {
+                            relax_reverse_post_ride_deadline(
+                                workspace,
+                                epoch,
+                                &mut stats,
+                                stop,
+                                departure - f64::from(same_stop_transfer_minimum[stop]),
+                                input.earliest,
+                            );
+                            relax_reverse_transfer_target_deadline(
+                                workspace,
+                                epoch,
+                                &mut stats,
+                                stop,
+                                departure,
+                                input.earliest,
+                                reverse_transfer_offset,
+                                reverse_transfer_edges,
+                            );
                         }
                     }
 
-                    if forbidden_same_stop[stop] == 0 {
-                        relax_reverse_post_ride_deadline(
-                            workspace,
-                            epoch,
-                            &mut stats,
-                            stop,
-                            departure - TRANSFER_BOARD_SLACK_SECONDS,
-                            input.earliest,
-                        );
-                        relax_reverse_transfer_target_deadline(
-                            workspace,
-                            epoch,
-                            &mut stats,
-                            stop,
-                            departure,
-                            input.earliest,
-                            reverse_transfer_offset,
-                            reverse_transfer_edges,
-                        );
+                    let bridge_exit_feasible = flags & SCAN_BRIDGE_EXIT != 0
+                        && workspace.destination_generation[stop] == epoch
+                        && departure <= workspace.destination_egress[stop];
+                    let exit_connection = if direct_exit_feasible {
+                        connection as i32
+                    } else {
+                        connection as i32 - 1
+                    };
+                    if (direct_exit_feasible || bridge_exit_feasible)
+                        && (workspace.run_generation[run] != epoch
+                            || exit_connection > workspace.expanded_run_start[run])
+                    {
+                        workspace.run_generation[run] = epoch;
+                        workspace.expanded_run_start[run] = exit_connection;
+                        stats.expanded_trip_runs = stats.expanded_trip_runs.saturating_add(1);
+                    } else if run_was_feasible && flags & SCAN_CAN_BOARD != 0 {
+                        stats.dominated_trip_boardings =
+                            stats.dominated_trip_boardings.saturating_add(1);
                     }
                 }
-
-                let bridge_exit_feasible = flags & SCAN_BRIDGE_EXIT != 0
-                    && workspace.destination_generation[stop] == epoch
-                    && departure <= workspace.destination_egress[stop];
-                if !run_was_feasible && (direct_exit_feasible || bridge_exit_feasible) {
-                    workspace.run_generation[run] = epoch;
-                    stats.expanded_trip_runs = stats.expanded_trip_runs.saturating_add(1);
-                } else if run_was_feasible && flags & SCAN_CAN_BOARD != 0 {
-                    stats.dominated_trip_boardings =
-                        stats.dominated_trip_boardings.saturating_add(1);
+                if !scan_time_needs_closure[time_index]
+                    || previous_changes == (stats.relaxed_stops, stats.expanded_trip_runs)
+                {
+                    break;
                 }
             }
         }
@@ -3756,9 +3805,11 @@ impl TimetableKernel {
             transfer_offset,
             transfer_edges,
             forbidden_same_stop,
+            same_stop_transfer_minimum,
             scan_events,
             scan_times,
             scan_time_offsets,
+            scan_time_needs_closure,
             scan_arrivals,
             scan_journeys,
             run_start: _,
@@ -3860,70 +3911,108 @@ impl TimetableKernel {
             }
             let start = scan_time_offsets[time_index] as usize;
             let end = scan_time_offsets[time_index + 1] as usize;
-            stats.scanned_departures += (end - start) as u32;
             let bucket_events = &scan_events[start..end];
             let bucket_arrivals = &scan_arrivals[start..end];
-            for (offset, (&event, &arrival)) in
-                bucket_events.iter().zip(bucket_arrivals).enumerate()
-            {
-                let connection = start + offset;
-                let flags = event.flags();
-                let stop = event.source_stop();
-                let run = event.run();
-                if has_excluded_trips {
-                    let trip = scan_journeys[connection].trip as usize;
-                    if many_workspace.excluded_trip_generation[trip] == epoch {
-                        excluded_departures = excluded_departures.saturating_add(1);
-                        continue;
-                    }
-                }
-                if flags & SCAN_CAN_BOARD != 0
-                    && many_workspace.stop_generation[stop] == epoch
-                    && many_workspace.active_state_mask[stop] != 0
+            loop {
+                let previous_changes = (stats.relaxed_stops, stats.expanded_trip_runs);
+                stats.scanned_departures += (end - start) as u32;
+                for (offset, (&event, &arrival)) in
+                    bucket_events.iter().zip(bucket_arrivals).enumerate()
                 {
-                    let mut active_states = many_workspace.active_state_mask[stop];
-                    let mut boardable = false;
-                    while active_states != 0 {
-                        let state_flags = active_states.trailing_zeros() as usize;
-                        active_states &= active_states - 1;
-                        let has_ride = state_flags & 4 != 0;
-                        if has_ride && forbidden_same_stop[stop] == 1 {
+                    let connection = start + offset;
+                    let flags = event.flags();
+                    let stop = event.source_stop();
+                    let run = event.run();
+                    if has_excluded_trips {
+                        let trip = scan_journeys[connection].trip as usize;
+                        if many_workspace.excluded_trip_generation[trip] == epoch {
+                            excluded_departures = excluded_departures.saturating_add(1);
                             continue;
                         }
-                        let state = stop * STATE_STRIDE + state_flags;
-                        if boarding_ready_time(
-                            many_workspace.labels[state],
-                            has_ride,
-                            state_flags & 1 != 0,
-                        ) <= connection_departure
-                        {
-                            boardable = true;
-                            break;
+                    }
+                    if flags & SCAN_CAN_BOARD != 0
+                        && many_workspace.stop_generation[stop] == epoch
+                        && many_workspace.active_state_mask[stop] != 0
+                    {
+                        let mut active_states = many_workspace.active_state_mask[stop];
+                        let mut boardable = false;
+                        while active_states != 0 {
+                            let state_flags = active_states.trailing_zeros() as usize;
+                            active_states &= active_states - 1;
+                            let has_ride = state_flags & 4 != 0;
+                            if has_ride && forbidden_same_stop[stop] == 1 {
+                                continue;
+                            }
+                            let state = stop * STATE_STRIDE + state_flags;
+                            if boarding_ready_time(
+                                many_workspace.labels[state],
+                                has_ride,
+                                state_flags & 1 != 0,
+                                same_stop_transfer_minimum[stop],
+                            ) <= connection_departure
+                            {
+                                boardable = true;
+                                break;
+                            }
+                        }
+                        if boardable {
+                            if many_workspace.run_generation[run] != epoch
+                                || (connection as u32) < many_workspace.run_boarding_connection[run]
+                            {
+                                many_workspace.run_generation[run] = epoch;
+                                many_workspace.run_boarding_connection[run] = connection as u32;
+                                stats.expanded_trip_runs =
+                                    stats.expanded_trip_runs.saturating_add(1);
+                            } else {
+                                stats.dominated_trip_boardings =
+                                    stats.dominated_trip_boardings.saturating_add(1);
+                            }
                         }
                     }
-                    if boardable {
-                        if many_workspace.run_generation[run] != epoch {
-                            many_workspace.run_generation[run] = epoch;
-                            many_workspace.run_boarding_connection[run] = connection as u32;
-                            stats.expanded_trip_runs = stats.expanded_trip_runs.saturating_add(1);
-                        } else {
-                            stats.dominated_trip_boardings =
-                                stats.dominated_trip_boardings.saturating_add(1);
+                    if many_workspace.run_generation[run] != epoch {
+                        continue;
+                    }
+                    let boarding = many_workspace.run_boarding_connection[run] as usize;
+                    if connection < boarding {
+                        continue;
+                    }
+                    if connection > boarding && flags & SCAN_BRIDGE_EXIT != 0 {
+                        let bridge_stop = event.source_stop();
+                        if relax_many(
+                            many_workspace,
+                            epoch,
+                            &mut stats,
+                            bridge_stop,
+                            connection_departure,
+                            true,
+                            true,
+                            true,
+                            input.horizon,
+                            false,
+                        ) {
+                            expand_many_transfer_edges(
+                                many_workspace,
+                                epoch,
+                                &mut stats,
+                                transfer_offset,
+                                transfer_edges,
+                                bridge_stop,
+                                connection_departure,
+                                true,
+                                input.horizon,
+                            );
                         }
                     }
-                }
-                if many_workspace.run_generation[run] != epoch {
-                    continue;
-                }
-                let boarding = many_workspace.run_boarding_connection[run] as usize;
-                if connection > boarding && flags & SCAN_BRIDGE_EXIT != 0 {
-                    let bridge_stop = event.source_stop();
+                    if flags & SCAN_CAN_ALIGHT == 0 || arrival.arrival as f64 > input.horizon {
+                        continue;
+                    }
+                    let alight_stop = arrival.to as usize;
                     if relax_many(
                         many_workspace,
                         epoch,
                         &mut stats,
-                        bridge_stop,
-                        connection_departure,
+                        alight_stop,
+                        arrival.arrival as f64,
                         true,
                         true,
                         true,
@@ -3936,40 +4025,17 @@ impl TimetableKernel {
                             &mut stats,
                             transfer_offset,
                             transfer_edges,
-                            bridge_stop,
-                            connection_departure,
+                            alight_stop,
+                            arrival.arrival as f64,
                             true,
                             input.horizon,
                         );
                     }
                 }
-                if flags & SCAN_CAN_ALIGHT == 0 || arrival.arrival as f64 > input.horizon {
-                    continue;
-                }
-                let alight_stop = arrival.to as usize;
-                if relax_many(
-                    many_workspace,
-                    epoch,
-                    &mut stats,
-                    alight_stop,
-                    arrival.arrival as f64,
-                    true,
-                    true,
-                    true,
-                    input.horizon,
-                    false,
-                ) {
-                    expand_many_transfer_edges(
-                        many_workspace,
-                        epoch,
-                        &mut stats,
-                        transfer_offset,
-                        transfer_edges,
-                        alight_stop,
-                        arrival.arrival as f64,
-                        true,
-                        input.horizon,
-                    );
+                if !scan_time_needs_closure[time_index]
+                    || previous_changes == (stats.relaxed_stops, stats.expanded_trip_runs)
+                {
+                    break;
                 }
             }
             time_index += 1;
@@ -4151,9 +4217,11 @@ impl TimetableKernel {
             transfer_offset,
             transfer_edges,
             forbidden_same_stop,
+            same_stop_transfer_minimum,
             scan_events,
             scan_times,
             scan_time_offsets,
+            scan_time_needs_closure,
             scan_arrivals,
             scan_journeys,
             run_start: _,
@@ -4281,71 +4349,136 @@ impl TimetableKernel {
                 break;
             }
 
-            if base_departure == connection_departure && base_time_index < scan_times.len() {
-                let start = scan_time_offsets[base_time_index] as usize;
-                let end = scan_time_offsets[base_time_index + 1] as usize;
-                for connection in start..end {
-                    let event = scan_events[connection];
-                    let flags = event.flags();
-                    let stop = event.source_stop();
-                    let run = event.run();
-                    stats.scanned_departures = stats.scanned_departures.saturating_add(1);
-                    let trip = scan_journeys[connection].trip as usize;
-                    if many_workspace.excluded_trip_generation[trip] == epoch {
-                        excluded_departures = excluded_departures.saturating_add(1);
-                        continue;
-                    }
-                    let mut boarding_state = NO_STATE;
-                    if flags & SCAN_CAN_BOARD != 0
-                        && many_workspace.stop_generation[stop] == epoch
-                        && many_workspace.active_state_mask[stop] != 0
-                    {
-                        let mut active_states = many_workspace.active_state_mask[stop];
-                        while active_states != 0 {
-                            let state_flags = active_states.trailing_zeros() as usize;
-                            active_states &= active_states - 1;
-                            let has_ride = state_flags & 4 != 0;
-                            if has_ride && forbidden_same_stop[stop] == 1 {
-                                continue;
+            let base_bucket_start = base_time_index;
+            let overlay_bucket_start = overlay_index;
+            let needs_closure = (base_departure == connection_departure
+                && scan_time_needs_closure
+                    .get(base_time_index)
+                    .copied()
+                    .unwrap_or(false))
+                || compiled.events[overlay_index..]
+                    .iter()
+                    .take_while(|event| event.departure == connection_departure)
+                    .any(|event| event.arrival == connection_departure);
+            loop {
+                let previous_changes = (stats.relaxed_stops, stats.expanded_trip_runs);
+                base_time_index = base_bucket_start;
+                overlay_index = overlay_bucket_start;
+                if base_departure == connection_departure && base_time_index < scan_times.len() {
+                    let start = scan_time_offsets[base_time_index] as usize;
+                    let end = scan_time_offsets[base_time_index + 1] as usize;
+                    for connection in start..end {
+                        let event = scan_events[connection];
+                        let flags = event.flags();
+                        let stop = event.source_stop();
+                        let run = event.run();
+                        stats.scanned_departures = stats.scanned_departures.saturating_add(1);
+                        let trip = scan_journeys[connection].trip as usize;
+                        if many_workspace.excluded_trip_generation[trip] == epoch {
+                            excluded_departures = excluded_departures.saturating_add(1);
+                            continue;
+                        }
+                        let mut boarding_state = NO_STATE;
+                        if flags & SCAN_CAN_BOARD != 0
+                            && many_workspace.stop_generation[stop] == epoch
+                            && many_workspace.active_state_mask[stop] != 0
+                        {
+                            let mut active_states = many_workspace.active_state_mask[stop];
+                            while active_states != 0 {
+                                let state_flags = active_states.trailing_zeros() as usize;
+                                active_states &= active_states - 1;
+                                let has_ride = state_flags & 4 != 0;
+                                if has_ride && forbidden_same_stop[stop] == 1 {
+                                    continue;
+                                }
+                                let state = stop * STATE_STRIDE + state_flags;
+                                if boarding_ready_time(
+                                    many_workspace.labels[state],
+                                    has_ride,
+                                    state_flags & 1 != 0,
+                                    same_stop_transfer_minimum[stop],
+                                ) <= f64::from(connection_departure)
+                                {
+                                    boarding_state = state as i32;
+                                    break;
+                                }
                             }
-                            let state = stop * STATE_STRIDE + state_flags;
-                            if boarding_ready_time(
-                                many_workspace.labels[state],
-                                has_ride,
-                                state_flags & 1 != 0,
-                            ) <= f64::from(connection_departure)
+                        }
+                        if boarding_state >= 0 {
+                            if many_workspace.run_generation[run] != epoch
+                                || (connection as u32) < many_workspace.run_boarding_connection[run]
                             {
-                                boarding_state = state as i32;
-                                break;
+                                many_workspace.run_generation[run] = epoch;
+                                many_workspace.run_boarding_connection[run] = connection as u32;
+                                many_workspace.run_boarding_state[run] = boarding_state;
+                                stats.expanded_trip_runs =
+                                    stats.expanded_trip_runs.saturating_add(1);
+                            } else {
+                                stats.dominated_trip_boardings =
+                                    stats.dominated_trip_boardings.saturating_add(1);
                             }
                         }
-                    }
-                    if boarding_state >= 0 {
                         if many_workspace.run_generation[run] != epoch {
-                            many_workspace.run_generation[run] = epoch;
-                            many_workspace.run_boarding_connection[run] = connection as u32;
-                            many_workspace.run_boarding_state[run] = boarding_state;
-                            stats.expanded_trip_runs = stats.expanded_trip_runs.saturating_add(1);
-                        } else {
-                            stats.dominated_trip_boardings =
-                                stats.dominated_trip_boardings.saturating_add(1);
+                            continue;
                         }
-                    }
-                    if many_workspace.run_generation[run] != epoch {
-                        continue;
-                    }
-                    let boarding = many_workspace.run_boarding_connection[run] as usize;
-                    let predecessor = many_workspace.run_boarding_state[run];
-                    let board_sequence = scan_journeys[boarding].sequence as f64;
-                    let trip = scan_journeys[connection].trip as i32;
-                    if connection > boarding && flags & SCAN_BRIDGE_EXIT != 0 {
-                        let bridge_stop = event.source_stop();
-                        let bridge_state = relax_many_record(
+                        let boarding = many_workspace.run_boarding_connection[run] as usize;
+                        if connection < boarding {
+                            continue;
+                        }
+                        let predecessor = many_workspace.run_boarding_state[run];
+                        let board_sequence = scan_journeys[boarding].sequence as f64;
+                        let trip = scan_journeys[connection].trip as i32;
+                        if connection > boarding && flags & SCAN_BRIDGE_EXIT != 0 {
+                            let bridge_stop = event.source_stop();
+                            let bridge_state = relax_many_record(
+                                many_workspace,
+                                epoch,
+                                &mut stats,
+                                bridge_stop,
+                                f64::from(connection_departure),
+                                true,
+                                true,
+                                true,
+                                input.horizon,
+                                false,
+                                predecessor,
+                                2,
+                                trip,
+                                board_sequence,
+                                scan_journeys[connection].prior_sequence as f64 + 0.5,
+                                0,
+                            );
+                            if bridge_state >= 0 {
+                                expand_many_combined_transfer_edges_chain(
+                                    many_workspace,
+                                    epoch,
+                                    &mut stats,
+                                    base_stop_count,
+                                    transfer_offset,
+                                    transfer_edges,
+                                    &input.supplemental_transfer_offsets,
+                                    &supplemental_transfer_edges,
+                                    bridge_stop,
+                                    f64::from(connection_departure),
+                                    true,
+                                    input.horizon,
+                                    bridge_state,
+                                );
+                            }
+                        }
+                        let arrival = scan_arrivals[connection];
+                        if flags & SCAN_CAN_ALIGHT == 0
+                            || f64::from(arrival.arrival) > input.horizon
+                        {
+                            continue;
+                        }
+                        let alight_stop = arrival.to as usize;
+                        let alight_state = relax_many_record(
                             many_workspace,
                             epoch,
                             &mut stats,
-                            bridge_stop,
-                            f64::from(connection_departure),
+                            alight_stop,
+                            f64::from(arrival.arrival),
                             true,
                             true,
                             true,
@@ -4355,10 +4488,10 @@ impl TimetableKernel {
                             2,
                             trip,
                             board_sequence,
-                            scan_journeys[connection].prior_sequence as f64 + 0.5,
+                            scan_journeys[connection].sequence as f64,
                             0,
                         );
-                        if bridge_state >= 0 {
+                        if alight_state >= 0 {
                             expand_many_combined_transfer_edges_chain(
                                 many_workspace,
                                 epoch,
@@ -4368,142 +4501,114 @@ impl TimetableKernel {
                                 transfer_edges,
                                 &input.supplemental_transfer_offsets,
                                 &supplemental_transfer_edges,
-                                bridge_stop,
-                                f64::from(connection_departure),
+                                alight_stop,
+                                f64::from(arrival.arrival),
                                 true,
                                 input.horizon,
-                                bridge_state,
+                                alight_state,
                             );
                         }
                     }
-                    let arrival = scan_arrivals[connection];
-                    if flags & SCAN_CAN_ALIGHT == 0 || f64::from(arrival.arrival) > input.horizon {
-                        continue;
-                    }
-                    let alight_stop = arrival.to as usize;
-                    let alight_state = relax_many_record(
-                        many_workspace,
-                        epoch,
-                        &mut stats,
-                        alight_stop,
-                        f64::from(arrival.arrival),
-                        true,
-                        true,
-                        true,
-                        input.horizon,
-                        false,
-                        predecessor,
-                        2,
-                        trip,
-                        board_sequence,
-                        scan_journeys[connection].sequence as f64,
-                        0,
-                    );
-                    if alight_state >= 0 {
-                        expand_many_combined_transfer_edges_chain(
-                            many_workspace,
-                            epoch,
-                            &mut stats,
-                            base_stop_count,
-                            transfer_offset,
-                            transfer_edges,
-                            &input.supplemental_transfer_offsets,
-                            &supplemental_transfer_edges,
-                            alight_stop,
-                            f64::from(arrival.arrival),
-                            true,
-                            input.horizon,
-                            alight_state,
-                        );
-                    }
+                    base_time_index += 1;
                 }
-                base_time_index += 1;
-            }
 
-            while overlay_index < compiled.events.len()
-                && compiled.events[overlay_index].departure == connection_departure
-            {
-                let event = compiled.events[overlay_index];
-                let run = base_run_count + event.run;
-                stats.scanned_departures = stats.scanned_departures.saturating_add(1);
-                let mut boarding_state = NO_STATE;
-                if event.can_board
-                    && many_workspace.stop_generation[event.from] == epoch
-                    && many_workspace.active_state_mask[event.from] != 0
+                while overlay_index < compiled.events.len()
+                    && compiled.events[overlay_index].departure == connection_departure
                 {
-                    let mut active_states = many_workspace.active_state_mask[event.from];
-                    while active_states != 0 {
-                        let state_flags = active_states.trailing_zeros() as usize;
-                        active_states &= active_states - 1;
-                        let has_ride = state_flags & 4 != 0;
-                        let state = event.from * STATE_STRIDE + state_flags;
-                        if boarding_ready_time(
-                            many_workspace.labels[state],
-                            has_ride,
-                            state_flags & 1 != 0,
-                        ) <= f64::from(event.departure)
-                        {
-                            boarding_state = state as i32;
-                            break;
+                    let event = compiled.events[overlay_index];
+                    let run = base_run_count + event.run;
+                    stats.scanned_departures = stats.scanned_departures.saturating_add(1);
+                    let mut boarding_state = NO_STATE;
+                    if event.can_board
+                        && many_workspace.stop_generation[event.from] == epoch
+                        && many_workspace.active_state_mask[event.from] != 0
+                    {
+                        let mut active_states = many_workspace.active_state_mask[event.from];
+                        while active_states != 0 {
+                            let state_flags = active_states.trailing_zeros() as usize;
+                            active_states &= active_states - 1;
+                            let has_ride = state_flags & 4 != 0;
+                            let state = event.from * STATE_STRIDE + state_flags;
+                            if boarding_ready_time(
+                                many_workspace.labels[state],
+                                has_ride,
+                                state_flags & 1 != 0,
+                                same_stop_transfer_minimum
+                                    .get(event.from)
+                                    .copied()
+                                    .unwrap_or(0),
+                            ) <= f64::from(event.departure)
+                            {
+                                boarding_state = state as i32;
+                                break;
+                            }
                         }
                     }
-                }
-                if boarding_state >= 0 {
-                    if many_workspace.run_generation[run] != epoch {
-                        many_workspace.run_generation[run] = epoch;
-                        many_workspace.run_boarding_connection[run] = overlay_index as u32;
-                        many_workspace.run_boarding_state[run] = boarding_state;
-                        stats.expanded_trip_runs = stats.expanded_trip_runs.saturating_add(1);
-                    } else {
-                        stats.dominated_trip_boardings =
-                            stats.dominated_trip_boardings.saturating_add(1);
+                    if boarding_state >= 0 {
+                        if many_workspace.run_generation[run] != epoch
+                            || (overlay_index as u32) < many_workspace.run_boarding_connection[run]
+                        {
+                            many_workspace.run_generation[run] = epoch;
+                            many_workspace.run_boarding_connection[run] = overlay_index as u32;
+                            many_workspace.run_boarding_state[run] = boarding_state;
+                            stats.expanded_trip_runs = stats.expanded_trip_runs.saturating_add(1);
+                        } else {
+                            stats.dominated_trip_boardings =
+                                stats.dominated_trip_boardings.saturating_add(1);
+                        }
                     }
-                }
-                if many_workspace.run_generation[run] == epoch
-                    && event.can_alight
-                    && f64::from(event.arrival) <= input.horizon
-                {
-                    let boarding = many_workspace.run_boarding_connection[run] as usize;
-                    let predecessor = many_workspace.run_boarding_state[run];
-                    let boarding_event = compiled.events[boarding];
-                    let overlay_trip = -(event.run as i32) - 2;
-                    let alight_state = relax_many_record(
-                        many_workspace,
-                        epoch,
-                        &mut stats,
-                        event.to,
-                        f64::from(event.arrival),
-                        true,
-                        true,
-                        true,
-                        input.horizon,
-                        false,
-                        predecessor,
-                        2,
-                        overlay_trip,
-                        boarding_event.sequence as f64,
-                        event.sequence as f64,
-                        0,
-                    );
-                    if alight_state >= 0 {
-                        expand_many_combined_transfer_edges_chain(
+                    if many_workspace.run_generation[run] == epoch
+                        && overlay_index >= many_workspace.run_boarding_connection[run] as usize
+                        && event.can_alight
+                        && f64::from(event.arrival) <= input.horizon
+                    {
+                        let boarding = many_workspace.run_boarding_connection[run] as usize;
+                        let predecessor = many_workspace.run_boarding_state[run];
+                        let boarding_event = compiled.events[boarding];
+                        let overlay_trip = -(event.run as i32) - 2;
+                        let alight_state = relax_many_record(
                             many_workspace,
                             epoch,
                             &mut stats,
-                            base_stop_count,
-                            transfer_offset,
-                            transfer_edges,
-                            &input.supplemental_transfer_offsets,
-                            &supplemental_transfer_edges,
                             event.to,
                             f64::from(event.arrival),
                             true,
+                            true,
+                            true,
                             input.horizon,
-                            alight_state,
+                            false,
+                            predecessor,
+                            2,
+                            overlay_trip,
+                            boarding_event.sequence as f64,
+                            event.sequence as f64,
+                            0,
                         );
+                        if alight_state >= 0 {
+                            expand_many_combined_transfer_edges_chain(
+                                many_workspace,
+                                epoch,
+                                &mut stats,
+                                base_stop_count,
+                                transfer_offset,
+                                transfer_edges,
+                                &input.supplemental_transfer_offsets,
+                                &supplemental_transfer_edges,
+                                event.to,
+                                f64::from(event.arrival),
+                                true,
+                                input.horizon,
+                                alight_state,
+                            );
+                        }
                     }
+                    overlay_index += 1;
                 }
-                overlay_index += 1;
+                if !needs_closure
+                    || previous_changes == (stats.relaxed_stops, stats.expanded_trip_runs)
+                {
+                    break;
+                }
             }
         }
 
@@ -4678,9 +4783,11 @@ impl TimetableKernel {
             transfer_offset,
             transfer_edges,
             forbidden_same_stop,
+            same_stop_transfer_minimum,
             scan_events,
             scan_times,
             scan_time_offsets,
+            scan_time_needs_closure: _,
             scan_arrivals,
             scan_journeys: _,
             run_start,
@@ -4950,6 +5057,7 @@ impl TimetableKernel {
                 transfer_offset,
                 transfer_edges,
                 forbidden_same_stop,
+                same_stop_transfer_minimum,
                 run_start,
                 run_end,
                 &corridor.stop_deadlines[remaining],
@@ -5094,7 +5202,8 @@ impl TimetableKernel {
             + self.can_board.len() * std::mem::size_of::<u8>()
             + self.can_alight.len() * std::mem::size_of::<u8>()
             + self.trip_start.len() * std::mem::size_of::<u32>()
-            + self.forbidden_same_stop.len() * std::mem::size_of::<u8>();
+            + self.forbidden_same_stop.len() * std::mem::size_of::<u8>()
+            + self.same_stop_transfer_minimum.len() * std::mem::size_of::<u32>();
         let native_index_bytes = self.departure_events.len()
             * std::mem::size_of::<DepartureEvent>()
             + self.departure_offset.len() * std::mem::size_of::<u32>()
@@ -5103,6 +5212,7 @@ impl TimetableKernel {
             + self.scan_events.len() * std::mem::size_of::<ScanEvent>()
             + self.scan_times.len() * std::mem::size_of::<u32>()
             + self.scan_time_offsets.len() * std::mem::size_of::<u32>()
+            + self.scan_time_needs_closure.len() * std::mem::size_of::<bool>()
             + self.scan_arrivals.len() * std::mem::size_of::<ScanArrival>()
             + self.scan_journeys.len() * std::mem::size_of::<ScanJourney>()
             + self.run_start.len() * std::mem::size_of::<u32>()

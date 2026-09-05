@@ -60,7 +60,7 @@ try {
   ].join('\n'))
   zip.file('routes.txt', [
     'route_id,route_short_name,route_long_name,route_type',
-    'DIRECT,DIRECT,Direct arrival with unpaid boarding slack,3',
+    'DIRECT,DIRECT,Direct arrival with a published transfer minimum,3',
     'FEED,FEED,Feeder to physical transfer,3',
     'OUT,OUT,Tight outbound connection,3',
     'CF1,CF1,Fast cache-policy feeder,3',
@@ -105,6 +105,7 @@ try {
   ].join('\n'))
   zip.file('transfers.txt', [
     'from_stop_id,to_stop_id,transfer_type,min_transfer_time',
+    'X,X,2,180',
     'Y,X,2,120',
     'L1,L2,2,120',
     'L2,L3,2,120',

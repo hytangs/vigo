@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 // Synthetic, directed grid: no external feeds, downloads, or private inputs.
-export function nativeGridFixture(directory, side = 32) {
+export function nativeGridFixture(directory, side = 32, { forwardOnly = false } = {}) {
   const nodeCount = side * side
   const nodeLats = new Float64Array(nodeCount)
   const nodeLons = new Float64Array(nodeCount)
@@ -19,7 +19,7 @@ export function nativeGridFixture(directory, side = 32) {
       [node - side, 130, row > 0], [node - 1, 110, col > 0],
       [node + 1, 100, col + 1 < side], [node + side, 120, row + 1 < side],
     ]) {
-      if (!valid) continue
+      if (!valid || (forwardOnly && target < node)) continue
       incoming[target].push([node, targets.length])
       targets.push(target)
       distances.push(distance)
@@ -42,10 +42,10 @@ export function nativeGridFixture(directory, side = 32) {
     edgeOffsets: new Uint32Array(offsets),
     edgeTargets: new Uint32Array(targets),
     edgeDistances: new Float64Array(distances),
-    reciprocalEdgeFlags: new Uint8Array(targets.length).fill(1),
+    reciprocalEdgeFlags: new Uint8Array(targets.length).fill(forwardOnly ? 0 : 1),
     spatialOffsets: new Uint32Array([0, nodeCount]),
     componentByNode: new Int32Array(nodeCount),
-    componentLengthKm: new Float64Array([distances.reduce((a, b) => a + b, 0) / 2000]),
+    componentLengthKm: new Float64Array([distances.reduce((a, b) => a + b, 0) / (forwardOnly ? 1000 : 2000)]),
     reverseOffsets: new Uint32Array(reverseOffsets),
     reverseSources: new Uint32Array(reverseSources),
     reverseEdgeIndices: new Uint32Array(reverseEdgeIndices),
@@ -85,6 +85,7 @@ export function nativeGridFixture(directory, side = 32) {
     distance: (source, target) => {
       const rows = Math.floor(target / side) - Math.floor(source / side)
       const cols = target % side - source % side
+      if (forwardOnly && (rows < 0 || cols < 0)) return Infinity
       return Math.abs(rows) * (rows > 0 ? 120 : 130) + Math.abs(cols) * (cols > 0 ? 100 : 110)
     },
   }

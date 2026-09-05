@@ -352,6 +352,7 @@ export function prepareNativeTimetableKernel(kernel) {
     transferTo: kernel.transferTo,
     transferDuration: kernel.transferDuration,
     forbiddenSameStop: kernel.forbiddenSameStop,
+    sameStopTransferMinimum: kernel.sameStopTransferMinimum,
   })
   const record = {
     kernel: nativeKernel,

@@ -159,7 +159,7 @@ try {
   assert.equal(rebuiltRoles.stopCount, 2)
   const initialSidecar = await buildNationalStaticTopologySidecar({ storePath, outputPath: sidecarPath })
   assert.equal(initialSidecar.ready, true)
-  assert.equal(initialSidecar.version, 'vigo.routing.static-topology.v3')
+  assert.equal(initialSidecar.version, 'vigo.routing.static-topology.v4')
   const initialAdmission = await ensureNationalGtfsDerivedArtifactsCurrent(
     storePath,
   )
@@ -240,7 +240,7 @@ try {
   const refreshed = await ensureNationalGtfsDerivedArtifactsCurrent(storePath)
   assert.equal(refreshed.refreshed, true)
   assert.equal(refreshed.attestation.ready, true)
-  assert.equal(refreshed.attestation.version, 'vigo.routing.static-topology.v3')
+  assert.equal(refreshed.attestation.version, 'vigo.routing.static-topology.v4')
   assert(
     refreshed.activeServiceKernels.removedCount >= 1,
     'Refreshing a stale sidecar must remove every superseded active-service snapshot.',
@@ -256,7 +256,7 @@ try {
   assert.equal(rebuiltContext.activeServiceKernel.ready, true)
   assert.equal(
     rebuiltContext.activeServiceKernel.schemaVersion,
-    'vigo.routing.active-service-kernel.v12-rust-native',
+    'vigo.routing.active-service-kernel.v13-rust-native',
   )
   assert.equal(rebuiltContext.activeServiceKernel.persistenceState, 'written')
   const exact = routeNationalGtfsStore(storePath, request())

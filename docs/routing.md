@@ -20,7 +20,7 @@ Stop IDs are exact GTFS identifiers. Coordinate points are [longitude, latitude]
 
 A Route Result contains status, chronological legs, departure and arrival, duration, transfers, warnings, timing, and a run record. A blocked Result remains a valid answer and explains why no journey was returned.
 
-The current transit model applies a three-minute boarding buffer when changing vehicles at the same stop without traversing an explicit transfer edge. Explicit transfer edges use their compiled duration; remaining on the same trip does not pay the buffer. This is a VIGO routing policy, separate from published GTFS times; an accuracy comparison must declare the same policy. Native timetable diagnostics report `transferBoardSlackSeconds`.
+The engine adds no implicit boarding buffer. Same-stop vehicle changes honor published GTFS minimum transfer times and forbidden transfers; staying aboard does not incur a transfer minimum. Explicit transfer edges retain their durations without an added boarding margin or a 60-second floor. Native diagnostics report `transferBoardSlackSeconds: 0`. A published platform-to-platform transfer rule takes precedence over the station walking fallback.
 
 VIGO 0.3.0 exposes `earliest_arrival`. Equal-arrival journeys prefer fewer boardings, then less walking, then a stable final order. VIGO does not expose an undefined “balanced” preference.
 

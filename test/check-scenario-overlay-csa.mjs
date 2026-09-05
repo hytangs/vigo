@@ -13,7 +13,7 @@ const { TimetableKernel } = require(path.join(
   'vigo-routing-kernel.node',
 ))
 
-const transferBoardSlackSeconds = 180
+const transferBoardSlackSeconds = 0
 const residentConnections = [
   { from: 0, to: 1, departure: 100, arrival: 200 },
   { from: 2, to: 3, departure: 660, arrival: 760 },
@@ -146,9 +146,9 @@ const baseline = kernel.routeManyCsa({
 assert.equal(baseline.bestArrivals[0], Number.POSITIVE_INFINITY)
 
 const cases = [
-  { serviceStartSeconds: 380, expected: 760, boundary: 'equal-ready-time' },
-  { serviceStartSeconds: 379, expected: Number.POSITIVE_INFINITY, boundary: 'one-second-before-ready' },
-  { serviceStartSeconds: 500, expected: Number.POSITIVE_INFINITY, boundary: 'misses-baseline-tail' },
+  { serviceStartSeconds: 200, expected: 760, boundary: 'equal-ready-time' },
+  { serviceStartSeconds: 199, expected: Number.POSITIVE_INFINITY, boundary: 'one-second-before-ready' },
+  { serviceStartSeconds: 561, expected: Number.POSITIVE_INFINITY, boundary: 'misses-baseline-tail' },
 ]
 const results = []
 for (const testCase of cases) {
@@ -177,7 +177,7 @@ console.log(JSON.stringify({
   owner: 'rust_resident_timetable_kernel',
   algorithm: 'rust_resident_query_overlay_connection_scan_one_to_many',
   requiredCounterexample: 'baseline -> zero-duration identity transfer -> overlay -> zero-duration identity transfer -> baseline',
-  zeroDurationRule: 'identity transfers are allowed; a subsequent boarding across a zero-second identity edge retains the generic 180-second slack, and equality is boardable',
+  zeroDurationRule: 'identity transfers are allowed; a subsequent boarding across a zero-second identity edge adds no implicit boarding margin, and equality is boardable',
   differentialReference: 'test-only exhaustive temporal fixed point over one-segment services',
   cases: results,
 }, null, 2))

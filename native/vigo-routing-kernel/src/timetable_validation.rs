@@ -25,6 +25,10 @@ pub(crate) fn kernel_input_is_valid(
         && input.can_alight.len() == segment_count
         && input.forbidden_same_stop.len() == stop_count
         && input
+            .same_stop_transfer_minimum
+            .as_ref()
+            .is_none_or(|values| values.len() == stop_count)
+        && input
             .from_stop
             .iter()
             .chain(input.to_stop.iter())

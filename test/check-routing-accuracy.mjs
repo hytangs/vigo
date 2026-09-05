@@ -55,11 +55,11 @@ function floydWarshall(nodeCount, offsets, targets, weights) {
 // Independent itinerary enumeration: board a raw trip at any legal stop and
 // alight at any later legal stop. This enumerates whole rides, rather than
 // reproducing the engine's connection scan or compiled transfer graph.
-function enumerateArrival(trips, origin, destination, departure, count) {
-  return enumerateArrivals(trips, origin, departure, count)[destination]
+function enumerateArrival(trips, origin, destination, departure, count, minimums) {
+  return enumerateArrivals(trips, origin, departure, count, minimums)[destination]
 }
 
-function enumerateArrivals(trips, origin, departure, count) {
+function enumerateArrivals(trips, origin, departure, count, minimums) {
   const best = new Array(count).fill(Infinity)
   const queue = [{ stop: origin, time: departure, initial: true }]
   while (queue.length) {
@@ -68,7 +68,7 @@ function enumerateArrivals(trips, origin, departure, count) {
     if (!current.initial && current.time !== best[current.stop]) continue
     for (const trip of trips) {
       for (let board = 0; board < trip.length - 1; board += 1) {
-        const ready = current.time + (current.initial ? 0 : 3)
+        const ready = current.time + (current.initial ? 0 : (minimums[current.stop] ?? 0))
         if (trip[board].stop !== current.stop || !trip[board].pickup || trip[board].departure < ready) continue
         for (let alight = board + 1; alight < trip.length; alight += 1) {
           const stop = trip[alight]
@@ -83,11 +83,11 @@ function enumerateArrivals(trips, origin, departure, count) {
   return best
 }
 
-function enumerateDeparture(trips, origin, destination, deadline, count) {
+function enumerateDeparture(trips, origin, destination, deadline, count, minimums) {
   const candidates = [...new Set(trips.flatMap((trip) => trip.slice(0, -1)
     .filter((stop) => stop.stop === origin && stop.pickup && stop.departure <= deadline)
     .map((stop) => stop.departure)))].sort((a, b) => b - a)
-  return candidates.find((departure) => enumerateArrival(trips, origin, destination, departure, count) <= deadline)
+  return candidates.find((departure) => enumerateArrival(trips, origin, destination, departure, count, minimums) <= deadline)
     ?? -Infinity
 }
 
@@ -95,13 +95,13 @@ async function checkAccuracy(directory) {
   const seeds = Number(process.env.VIGO_ACCURACY_SEEDS ?? 8)
   assert(Number.isInteger(seeds) && seeds >= 1 && seeds <= 100)
   const binding = createRequire(import.meta.url)('../native/vigo-routing-kernel/vigo-routing-kernel.node')
-  const counts = { streetDistances: 0, driveDurations: 0, driveWitnesses: 0, transitDepart: 0, transitArrive: 0, transitMatrix: 0, exhaustiveMatrixCells: 0, transitWitnesses: 0, calendarChecks: 0, blockedTransit: 0 }
+  const counts = { streetDistances: 0, driveDurations: 0, unreachableDriveCells: 0, driveWitnesses: 0, blockedDriveQueries: 0, transitDepart: 0, transitArrive: 0, transitMatrix: 0, exhaustiveMatrixCells: 0, transitWitnesses: 0, calendarChecks: 0, blockedTransit: 0 }
   for (let iteration = 0; iteration < seeds; iteration += 1) {
     const seed = 20260904 + iteration
     const random = randomGenerator(seed)
     const fixtureDirectory = path.join(directory, String(seed))
     fs.mkdirSync(fixtureDirectory)
-    const grid = nativeGridFixture(fixtureDirectory, 8)
+    const grid = nativeGridFixture(fixtureDirectory, 8, { forwardOnly: iteration % 2 === 1 })
     const { edgeOffsets, edgeTargets, edgeDistances } = grid.values
     for (let edge = 0; edge < edgeDistances.length; edge += 1) edgeDistances[edge] = 100 + random(900)
     // Update the synthetic input snapshot, before any native kernel opens it.
@@ -114,7 +114,7 @@ async function checkAccuracy(directory) {
     const targets = Array.from({ length: grid.nodeCount }, (_, i) => i)
     for (let source = 0; source < grid.nodeCount; source += 1) {
       const actual = street.probeStreetCch({ sourceNodes: [source], sourceDistancesM: [0], targetNodes: targets })
-      assert.deepEqual(actual.distancesM, expectedDistances[source], `Walk oracle seed=${seed} source=${source}`)
+      assert.deepEqual(actual.distancesM, expectedDistances[source].map((distance) => Number.isFinite(distance) ? distance : -1), `Walk oracle seed=${seed} source=${source}`)
       counts.streetDistances += targets.length
     }
     const travelTimes = Float64Array.from(edgeDistances, () => 1 + random(120))
@@ -127,12 +127,18 @@ async function checkAccuracy(directory) {
     })
     assert.deepEqual(matrix.durationsS, expectedTimes.flat(), `Drive matrix oracle seed=${seed}`)
     counts.driveDurations += targets.length ** 2
+    counts.unreachableDriveCells += expectedTimes.flat().filter((time) => !Number.isFinite(time)).length
     for (let sample = 0; sample < 32; sample += 1) {
       const source = random(grid.nodeCount), target = random(grid.nodeCount)
       const routed = drive.routeExact({
         originNodes: [source], originSnapMeters: [0], targetNodes: [target],
         targetSnapMeters: [0], maximumDistanceMeters: 1_000_000,
       })
+      if (!Number.isFinite(expectedTimes[source][target])) {
+        assert.equal(routed.status, 'blocked', `Drive reachability seed=${seed} ${source}->${target}`)
+        counts.blockedDriveQueries += 1
+        continue
+      }
       assert.equal(routed.status, 'ready')
       assert.equal(routed.durationSeconds, expectedTimes[source][target], `Drive oracle seed=${seed} ${source}->${target}`)
       let seconds = 0, meters = 0
@@ -168,8 +174,8 @@ async function checkAccuracy(directory) {
       return trip
     })
     // Explicit cases guarantee coverage of staying aboard a stop at which
-    // neither boarding nor alighting is permitted, and a transfer that misses
-    // the engine's declared three-minute boarding buffer.
+    // neither boarding nor alighting is permitted, and
+    // a vehicle change with exactly zero waiting time.
     trips.push([
       { stop: 0, arrival: baseMinutes, departure: baseMinutes, pickup: true, dropoff: true },
       { stop: 1, arrival: baseMinutes + 1, departure: baseMinutes + 1, pickup: false, dropoff: false },
@@ -177,15 +183,32 @@ async function checkAccuracy(directory) {
     ], [
       { stop: 2, arrival: baseMinutes + 2, departure: baseMinutes + 2, pickup: true, dropoff: true },
       { stop: 3, arrival: baseMinutes + 3, departure: baseMinutes + 3, pickup: true, dropoff: true },
+    ], [
+      { stop: 4, arrival: baseMinutes + 4, departure: baseMinutes + 4, pickup: true, dropoff: true },
+      { stop: 6, arrival: baseMinutes + 4, departure: baseMinutes + 4, pickup: true, dropoff: true },
+    ], [
+      { stop: 3, arrival: baseMinutes + 4, departure: baseMinutes + 4, pickup: true, dropoff: true },
+      { stop: 4, arrival: baseMinutes + 4, departure: baseMinutes + 4, pickup: true, dropoff: true },
     ])
+    const sameStopMinimum = []
+    if (iteration % 4 !== 0) {
+      sameStopMinimum[2] = [0, 0.5, 1.5, Infinity][iteration % 4]
+      sameStopMinimum[5] = 4
+      sameStopMinimum[7] = Infinity
+      // A 30-second rule is exactly boardable; a 90-second rule misses.
+      trips[29][0].arrival += 0.5
+      trips[29][0].departure += 0.5
+    }
     const zip = new JSZip()
     const table = (name, header, rows) => zip.file(name, `${header}\n${rows.join('\n')}\n`, { date: new Date('2026-01-01T00:00:00Z') })
-    const clock = (minute) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}:00`
+    const clock = (minute) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(Math.floor(minute % 60)).padStart(2, '0')}:${String(Math.round(minute * 60) % 60).padStart(2, '0')}`
     table('agency.txt', 'agency_name,agency_url,agency_timezone', ['Oracle Fixture,https://example.test,America/New_York'])
     // Stops are far apart so the compiler cannot add implicit nearby transfers.
     table('stops.txt', 'stop_id,stop_name,stop_lat,stop_lon', Array.from({ length: stopCount }, (_, i) => `S${i},Stop ${i},38,${-77 + i * 0.05}`))
     table('routes.txt', 'route_id,route_short_name,route_type', trips.map((_, i) => `R${i},R${i},3`))
     table('trips.txt', 'route_id,service_id,trip_id', trips.map((_, i) => `R${i},ACTIVE,T${i}`))
+    if (sameStopMinimum.length) table('transfers.txt', 'from_stop_id,to_stop_id,transfer_type,min_transfer_time',
+      Object.entries(sameStopMinimum).map(([stop, minimum]) => `S${stop},S${stop},${Number.isFinite(minimum) ? 2 : 3},${Number.isFinite(minimum) ? minimum * 60 : 0}`))
     table('calendar_dates.txt', 'service_id,date,exception_type', ['ACTIVE,20260715,1'])
     table('stop_times.txt', 'trip_id,stop_id,stop_sequence,arrival_time,departure_time,pickup_type,drop_off_type',
       trips.flatMap((trip, i) => trip.map((stop, j) => `T${i},S${stop.stop},${j + 1},${clock(stop.arrival)},${clock(stop.departure)},${stop.pickup ? 0 : 1},${stop.dropoff ? 0 : 1}`)))
@@ -197,16 +220,16 @@ async function checkAccuracy(directory) {
     const request = { serviceDate: '2026-07-15', serviceDay: 'weekday', maxWalkKm: 0.2,
       routingPreference: 'fastest', returnedStationCyclePolicy: 'represented', horizonMinutes: 480 }
     for (let sample = 0; sample < 24; sample += 1) {
-      const from = sample === 0 ? 0 : random(stopCount), to = sample === 0 ? 3 : random(stopCount)
+      const from = sample < 2 ? 0 : random(stopCount), to = sample === 0 ? 3 : sample === 1 ? 6 : random(stopCount)
       if (from === to) continue
-      const departure = baseMinutes + (sample === 0 ? 0 : random(160))
-      const expected = enumerateArrival(trips, from, to, departure, stopCount)
+      const departure = baseMinutes + (sample < 2 ? 0 : random(160))
+      const expected = enumerateArrival(trips, from, to, departure, stopCount, sameStopMinimum)
       const query = { ...request, origin: point(from), destination: point(to), departMinutes: departure }
       const routed = routeNationalGtfsStore(storePath, query)
       assert.equal(routed.status, Number.isFinite(expected) ? 'ready' : 'blocked', `Transit status seed=${seed} sample=${sample}`)
       if (Number.isFinite(expected)) {
         assert.equal(routed.arriveMinutes, expected, `Transit arrival seed=${seed} sample=${sample}`)
-        assert.equal(routed.diagnostics.searchStats.nativeTimetableKernel.scalar.diagnostics.transferBoardSlackSeconds, 180,
+        assert.equal(routed.diagnostics.searchStats.nativeTimetableKernel.scalar.diagnostics.transferBoardSlackSeconds, 0,
           'Independent oracle and engine must declare the same boarding buffer')
         let previousRide = null
         for (const ride of routed.legs.filter((leg) => leg.type === 'ride')) {
@@ -217,7 +240,7 @@ async function checkAccuracy(directory) {
           assert(rawTrip[board].pickup && rawTrip[alight].dropoff, 'Ride must respect raw pickup/drop-off permissions')
           assert.equal(ride.startMinutes, rawTrip[board].departure)
           assert.equal(ride.endMinutes, rawTrip[alight].arrival)
-          if (previousRide) assert(ride.startMinutes >= previousRide.endMinutes + 3)
+          if (previousRide) assert(ride.startMinutes >= previousRide.endMinutes + (sameStopMinimum[rawTrip[board].stop] ?? 0))
           previousRide = ride
           counts.transitWitnesses += 1
         }
@@ -232,8 +255,8 @@ async function checkAccuracy(directory) {
           `Matrix arrival seed=${seed} sample=${sample}`)
         counts.transitMatrix += 1
       }
-      const deadline = baseMinutes + random(165)
-      const expectedDeparture = enumerateDeparture(trips, from, to, deadline, stopCount)
+      const deadline = baseMinutes + (sample === 1 ? 4 : random(165))
+      const expectedDeparture = enumerateDeparture(trips, from, to, deadline, stopCount, sameStopMinimum)
       const arriveBy = routeNationalGtfsStore(storePath, { ...query, timePreference: 'arrive', arriveMinutes: deadline })
       assert.equal(arriveBy.status, Number.isFinite(expectedDeparture) ? 'ready' : 'blocked', `Arrive-by status seed=${seed} sample=${sample}`)
       if (Number.isFinite(expectedDeparture)) {
@@ -248,7 +271,7 @@ async function checkAccuracy(directory) {
       const batch = routeNationalGtfsMatrix(storePath, { ...request, departMinutes: baseMinutes + 35,
         origins: origins.map(point), destinations: destinations.map(point) })
       for (const row of batch.rows) {
-        const expected = enumerateArrival(trips, origins[row.originIndex], destinations[row.destinationIndex], baseMinutes + 35, stopCount)
+        const expected = enumerateArrival(trips, origins[row.originIndex], destinations[row.destinationIndex], baseMinutes + 35, stopCount, sameStopMinimum)
         assert.equal(row.arriveMinutes, Number.isFinite(expected) ? expected : null, `Permuted Matrix seed=${seed}`)
         counts.transitMatrix += 1
       }
@@ -258,10 +281,10 @@ async function checkAccuracy(directory) {
     // earliest-arrival outcomes between scheduled boarding events.
     const criticalDepartures = [...new Set([baseMinutes, ...trips.flatMap((trip) => trip
       .filter((stop) => stop.pickup)
-      .flatMap((stop) => [stop.departure, stop.departure + 1]))])].sort((a, b) => a - b)
+      .flatMap((stop) => [Math.floor(stop.departure), Math.floor(stop.departure) + 1]))])].sort((a, b) => a - b)
     const allPoints = Array.from({ length: stopCount }, (_, i) => point(i))
     for (const departure of criticalDepartures) {
-      const expected = allPoints.map((_, origin) => enumerateArrivals(trips, origin, departure, stopCount))
+      const expected = allPoints.map((_, origin) => enumerateArrivals(trips, origin, departure, stopCount, sameStopMinimum))
       const batch = routeNationalGtfsMatrix(storePath, { ...request, departMinutes: departure,
         origins: allPoints, destinations: allPoints })
       for (const row of batch.rows) {
@@ -280,10 +303,55 @@ async function checkAccuracy(directory) {
       counts.calendarChecks += 1
     }
   }
+  counts.publishedPlatformRules = await checkPublishedPlatformTransfers(directory)
   const report = { status: 'passed', seedStart: 20260904, seeds, counts,
-    oracles: ['independent Floyd-Warshall on directed distances and travel times', 'whole-trip boarding/alighting enumeration from generated raw GTFS with declared boarding buffer'],
-    transitPolicy: { transferBoardSlackSeconds: 180, explicitStopEndpoints: true, requiresTransitRide: true },
-    limitations: ['synthetic networks', 'no coordinate snapping oracle', 'no explicit transfer-rule oracle', 'no live provider or delivered-service validation'] }
+    oracles: ['independent Floyd-Warshall on directed distances and travel times', 'whole-trip boarding/alighting enumeration from generated raw GTFS with published same-stop transfer rules'],
+    transitPolicy: { transferBoardSlackSeconds: 0, explicitStopEndpoints: true, requiresTransitRide: true },
+    limitations: ['synthetic networks', 'no coordinate snapping oracle', 'no route/trip-specific transfer-rule oracle', 'no live provider or delivered-service validation'] }
   if (process.env.VIGO_ACCURACY_REPORT) fs.writeFileSync(process.env.VIGO_ACCURACY_REPORT, JSON.stringify(report, null, 2) + '\n', { flag: 'wx' })
   console.log(JSON.stringify(report, null, 2))
+}
+
+async function checkPublishedPlatformTransfers(directory) {
+  let checks = 0
+  for (const [index, minimum] of [0, 30, 90, 300, Infinity].entries()) {
+    const zip = new JSZip()
+    zip.file('stops.txt', [
+      'stop_id,stop_name,stop_lat,stop_lon,location_type,parent_station',
+      'O,Origin,38,-77,0,', 'P,Station,38,-76.9,1,',
+      'A,Arriving platform,38,-76.9,0,P', 'B,Departing platform,38,-76.9,0,P',
+      'D,Destination,38,-76.8,0,',
+    ].join('\n'))
+    zip.file('routes.txt', 'route_id,route_short_name,route_type\nR,R,3')
+    zip.file('trips.txt', 'route_id,service_id,trip_id\nR,S,F\nR,S,E\nR,S,M\nR,S,L')
+    zip.file('stop_times.txt', [
+      'trip_id,stop_id,stop_sequence,arrival_time,departure_time',
+      'F,O,1,08:00:00,08:00:00', 'F,A,2,08:10:00,08:10:00',
+      'E,B,1,08:10:30,08:10:30', 'E,D,2,08:20:00,08:20:00',
+      'M,B,1,08:12:00,08:12:00', 'M,D,2,08:22:00,08:22:00',
+      'L,B,1,08:16:00,08:16:00', 'L,D,2,08:26:00,08:26:00',
+    ].join('\n'))
+    // Exercise direct platform rules and parent-station expansion.
+    const from = index === 3 ? 'P' : 'A', to = index === 3 ? 'P' : 'B'
+    zip.file('transfers.txt', `from_stop_id,to_stop_id,transfer_type,min_transfer_time\n${from},${to},${Number.isFinite(minimum) ? 2 : 3},${Number.isFinite(minimum) ? minimum : 0}`)
+    zip.file('calendar_dates.txt', 'service_id,date,exception_type\nS,20260715,1')
+    const zipPath = path.join(directory, `platform-${index}.zip`)
+    const storePath = path.join(directory, `platform-${index}.sqlite`)
+    fs.writeFileSync(zipPath, await zip.generateAsync({ type: 'nodebuffer' }))
+    await buildNationalGtfsStore({ zipPath, outputPath: storePath })
+    const origin = { stopId: 'O', source: 'stop', coordinate: [-77, 38] }
+    const destination = { stopId: 'D', source: 'stop', coordinate: [-76.8, 38] }
+    const request = { origin, destination, departMinutes: 480, serviceDate: '2026-07-15',
+      maxWalkKm: 0.2, horizonMinutes: 120, routingPreference: 'fastest' }
+    const expected = [[30, 500], [120, 502], [360, 506]].find(([gap]) => gap >= minimum)?.[1] ?? null
+    const routed = routeNationalGtfsStore(storePath, request)
+    assert.equal(routed.arriveMinutes ?? null, expected, `Published platform rule minimum=${minimum}`)
+    const matrix = routeNationalGtfsMatrix(storePath, { ...request, origins: [origin], destinations: [destination] })
+    assert.equal(matrix.rows[0].arriveMinutes, expected, `Matrix platform rule minimum=${minimum}`)
+    const arriveBy = routeNationalGtfsStore(storePath, { ...request, timePreference: 'arrive', arriveMinutes: expected ?? 506 })
+    assert.equal(arriveBy.status, expected === null ? 'blocked' : 'ready', `Arrive-by platform rule minimum=${minimum}`)
+    if (expected !== null) assert.equal(arriveBy.departMinutes, 480)
+    checks += 3
+  }
+  return checks
 }
