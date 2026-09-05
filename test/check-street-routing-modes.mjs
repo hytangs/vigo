@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import { Worker } from 'node:worker_threads'
 
@@ -21,7 +22,16 @@ import {
 } from '../src/server/national-osm-store.mjs'
 import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-street-routing-'))
+const worker = process.argv[2] === '--fixture-worker'
+const root = worker ? process.argv[3] : fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-street-routing-'))
+// Native street maps must be released before Windows can remove the fixture.
+if (!worker) {
+  try {
+    execFileSync(process.execPath, [import.meta.filename, '--fixture-worker', root], { stdio: 'inherit' })
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+}
 
 function writeMetadata(database, values) {
   const insert = database.prepare('INSERT INTO metadata VALUES(?,?)')
@@ -85,7 +95,7 @@ function createCurrentStore() {
   return storePath
 }
 
-try {
+if (worker) {
   assert.deepEqual(
     nationalOsmDriveDirections({ highway: 'residential', oneway: '-1' }),
     { forward: false, backward: true },
@@ -702,6 +712,4 @@ try {
       batchWorkerOperationMs: batchResult.metrics.operationMs,
     },
   }, null, 2))
-} finally {
-  fs.rmSync(root, { recursive: true, force: true })
 }
