@@ -256,7 +256,7 @@ try {
   assert.equal(rebuiltContext.activeServiceKernel.ready, true)
   assert.equal(
     rebuiltContext.activeServiceKernel.schemaVersion,
-    'vigo.routing.active-service-kernel.v13-rust-native',
+    'vigo.routing.active-service-kernel.v14-rust-native',
   )
   assert.equal(rebuiltContext.activeServiceKernel.persistenceState, 'written')
   const exact = routeNationalGtfsStore(storePath, request())

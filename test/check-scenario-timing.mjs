@@ -10,7 +10,7 @@ function compile(relative, replacements = []) {
   for (const [from, to] of replacements) output = output.replace(`from '${from}'`, `from '${to}'`)
   return `data:text/javascript;base64,${Buffer.from(output).toString('base64')}`
 }
-const { scenarioSegmentRuntimeMinutes } = await import(compile('../src/reach.ts', [
+const { scenarioSegmentRuntimeMinutes, scenarioEdgeGeometryForBranch } = await import(compile('../src/reach.ts', [
   ['./app/geometry', compile('../src/app/geometry.ts')],
   ['./networkTruth', compile('../src/networkTruth.ts')],
 ]))
@@ -42,3 +42,24 @@ assert.throws(() => compileReachScenario({ services: 'invalid' }), /must be an a
 assert.throws(() => compileReachScenario('invalid'), /must be an object/)
 assert.throws(() => offsets({ ...service, segmentRuntimeMinutes: undefined, segmentDistancesKm: undefined }), /requires road distances/)
 console.log('Scenario timing preserves published runtimes and uses road distance for new lines.')
+
+const branch = { id: 'sibling', stopIds: ['X', 'A', 'B', 'Y'], geometrySource: 'shape',
+  coordinates: [[-0.02, 0], [-0.015, 0.005], [0, 0], [0.01, 0], [0.015, -0.005], [0.02, 0]] }
+const branchPreview = { stops: [{ id: 'X', lon: -0.02, lat: 0 }, { id: 'A', lon: 0, lat: 0 },
+  { id: 'B', lon: 0.01, lat: 0 }, { id: 'Y', lon: 0.02, lat: 0 }],
+  stopPairs: [{ patternId: 'sibling', fromStopId: 'A', toStopId: 'B', medianRuntimeMinutes: 12, sequence: 2 }] }
+const editedStops = stops.map((stop) => stop.id === 'inserted'
+  ? { ...stop, anchorBeforeStopId: 'A', anchorAfterStopId: 'B' } : stop)
+const change = { stops: editedStops, inferredSegmentGeometry: [[[0, 0], [0.005, 0.01]], [[0.005, 0.01], [0.01, 0]]],
+  inferredSegmentDistanceKm: [1, 3] }
+const sibling = scenarioEdgeGeometryForBranch(change, branch, branchPreview)
+assert.deepEqual(sibling.geometry, [[-0.02, 0], [-0.015, 0.005], [0, 0], [0.005, 0.01],
+  [0.01, 0], [0.015, -0.005], [0.02, 0]], 'The sibling must keep its own untouched shape and receive the edited gap.')
+assert.deepEqual(sibling.segmentDistancesKm.slice(1, 3), [1, 3])
+const siblingStops = [{ id: 'X', stopId: 'X', coordinate: [-0.02, 0], editStatus: 'baseline' }, ...editedStops,
+  { id: 'Y', stopId: 'Y', coordinate: [0.02, 0], editStatus: 'baseline' }]
+const siblingRuntimes = scenarioSegmentRuntimeMinutes(branch, siblingStops, branchPreview, { segmentDistancesKm: sibling.segmentDistancesKm })
+assert.deepEqual(siblingRuntimes.slice(1, 3), [3, 9], 'Each branch must preserve its own A → B runtime.')
+assert.equal(scenarioEdgeGeometryForBranch({ ...change, inferredSegmentGeometry: undefined }, branch, branchPreview), undefined,
+  'Incomplete inferred geometry must require a rebuild instead of substituting the original shape.')
+console.log('Exact-edge edits preserve sibling shapes and runtimes.')

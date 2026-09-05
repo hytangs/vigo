@@ -36,7 +36,9 @@ Run a Reach Query and display its travel-time surface as contours or reached str
 
 Studio's feed comparison runs a Reach Query for each selected GTFS feed and displays the resulting surfaces. To compare completed Results without rerunning their Queries, use `vigo compare` or Python's `vigo.compare`.
 
-Scenario drafts remain in the current Studio session. Changing projects or closing Studio discards them.
+Scenario drafts and the selected case are saved in Studio's local profile when edited, and restored when reopening the same project and source revision. They do not travel with a City directory. Reimporting GTFS or rebuilding the project or street store starts a separate draft set. If local storage is unavailable, Studio shows a save error; keep the window open until saving succeeds.
+
+For a stop inserted on an A → B edge shared by several branches, the road path is applied to each affected branch. Each branch retains its untouched published shape and its own A → B runtime, with dwell added at the inserted stop. Load complete branch shapes before building the path.
 
 Matrix is available through the CLI and VIGO Python in 0.3.0. Studio does not add a separate Matrix screen.
 

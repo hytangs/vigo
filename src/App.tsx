@@ -35,6 +35,8 @@ import {
 } from './app/desktopBridge'
 import { readNavigationMemory, rememberProject, rememberRoute, rememberSearchResult } from './app/navigationMemory'
 import { useProjectDetailHydration } from './app/projectHydration'
+import { scenarioStorageKey } from './app/scenarioDraftStorage'
+import { useScenarioDrafts } from './app/useScenarioDrafts'
 import { useNationalRouting } from './app/useNationalRouting'
 import { mergeGtfsRouteAnalysis, routeHasCompleteGtfsAnalysis, type GtfsRouteAnalysis } from './app/gtfsAnalysis'
 import { routeListLabels } from './app/routePresentation'
@@ -143,6 +145,7 @@ import {
 import {
   routeHasPublishedShape,
   scenarioInsertedStopsForEdge,
+  scenarioEdgeGeometryForBranch,
   scenarioInsertionAnchors,
   scenarioPublishedShapeSegmentIndexes,
   scenarioSegmentRuntimeMinutes,
@@ -200,8 +203,6 @@ type RealtimeInspectRequest =
     }
 
 const realtimeRefreshMs = 10_000
-let scenarioDraftSequence = 0
-
 function realtimeInspectRequest(sourceText: string): RealtimeInspectRequest {
   const urls = (sourceText.match(/https?:\/\/[^\s<>"']+/gi) ?? [])
     .map((value) => value.replace(/[),;\]]+$/, ''))
@@ -235,10 +236,9 @@ function realtimeInspectRequest(sourceText: string): RealtimeInspectRequest {
 function newScenarioChange(
   kind: ScenarioChangeKind,
 ): ScenarioChangeDraft {
-  scenarioDraftSequence += 1
   const changesGeometry = kind === 'add-line' || kind === 'change-line'
   return {
-    id: `intervention-${scenarioDraftSequence}`,
+    id: `intervention-${crypto.randomUUID()}`,
     kind,
     name: kind.replaceAll('-', ' '),
     stops: [],
@@ -255,9 +255,8 @@ function newScenarioChange(
 }
 
 function newScenarioDraft(index: number): ScenarioDraft {
-  scenarioDraftSequence += 1
   return {
-    id: `case-${scenarioDraftSequence}`,
+    id: `case-${crypto.randomUUID()}`,
     name: `Case ${String.fromCharCode(65 + index)}`,
     interventions: [],
   }
@@ -2370,15 +2369,12 @@ export default function App() {
   const [scenarioWalkSpeedKph, setScenarioWalkSpeedKph] = useState(4.8)
   const [scenarioView, setScenarioView] = useState<ScenarioView>('comparison')
   const [scenarioRenderMode, setScenarioRenderMode] = useState<ScenarioRenderMode>('area')
-  const [scenarioDrafts, setScenarioDrafts] = useState<ScenarioDraft[]>([{
-    id: 'case-a',
-    name: 'Case A',
-    interventions: [],
-  }])
+  const { scenarioDrafts, setScenarioDrafts, activeScenarioId, setActiveScenarioId,
+    activeScenarioChangeId, setActiveScenarioChangeId, draftStorageError } = useScenarioDrafts(
+    scenarioStorageKey(projects.find((project) => project.id === selectedProjectId)),
+  )
   const [comparisonFeedIds, setComparisonFeedIds] = useState<string[]>([])
   const comparisonFeedInitializationRef = useRef(false)
-  const [activeScenarioId, setActiveScenarioId] = useState('case-a')
-  const [activeScenarioChangeId, setActiveScenarioChangeId] = useState('')
   const [scenarioStopPlacement, setScenarioStopPlacement] = useState<ScenarioStopPlacement | null>(null)
   const analysisAbortRef = useRef<AbortController | null>(null)
   const scenarioRoadGeometryAbortRef = useRef<AbortController | null>(null)
@@ -2855,9 +2851,6 @@ export default function App() {
     comparisonFeedInitializationRef.current = false
     setComparisonFeedIds([])
     setAnalysisOrigin(null)
-    setScenarioDrafts([{ id: 'case-a', name: 'Case A', interventions: [] }])
-    setActiveScenarioId('case-a')
-    setActiveScenarioChangeId('')
     setScenarioStopPlacement(null)
   }
 
@@ -3505,27 +3498,19 @@ export default function App() {
     const intervention = activeScenarioChange
     const stop = intervention?.stops[index]
     if (!intervention || !stop) return
-    invalidateAnalyzeResult()
-    setScenarioDrafts((current) => current.map((entry) => ({
-      ...entry,
-      interventions: entry.interventions.map((candidate) => {
-        if (candidate.id !== intervention.id) return candidate
+    updateScenarioChange(intervention.id, {
+      stops: intervention.stops.map((candidateStop, candidateIndex) => {
+        if (candidateIndex !== index) return candidateStop
         return {
-          ...candidate,
-          stops: candidate.stops.map((candidateStop, candidateIndex) => {
-            if (candidateIndex !== index) return candidateStop
-            return {
-              ...candidateStop,
-              stopId: undefined,
-              baselineStopId: candidateStop.baselineStopId ?? candidateStop.stopId,
-              coordinate,
-              source: 'map',
-              editStatus: 'replaced',
-            }
-          }),
+          ...candidateStop,
+          stopId: undefined,
+          baselineStopId: candidateStop.baselineStopId ?? candidateStop.stopId,
+          coordinate,
+          source: 'map',
+          editStatus: 'replaced',
         }
       }),
-    })))
+    })
   }
 
   function selectScenario(caseId: string) {
@@ -3594,6 +3579,7 @@ export default function App() {
                 inferredFallbackSegmentCount: undefined,
                 inferredPublishedShapeSegmentCount: undefined,
                 inferredOsmSegmentCount: undefined,
+                inferredSegmentGeometry: undefined,
                 inferredSegmentDistanceKm: undefined,
                 inferredSegmentRuntimeMinutes: undefined,
                 geometryStatus: 'idle' as const,
@@ -3748,6 +3734,7 @@ export default function App() {
                   : stop)
                 : candidate.stops,
               inferredGeometry,
+              inferredSegmentGeometry: segments.map((segment) => segment.coordinates ?? []),
               inferredGeometrySource: hasOsmSegments && hasShapeSegments
                 ? 'hybrid'
                 : hasShapeSegments
@@ -3840,7 +3827,6 @@ export default function App() {
       stops: ScenarioStopDraft[],
       serviceId: string,
       serviceName: string,
-      useInferredGeometry: boolean,
     ): ScenarioServiceDraft => {
       const geometryMode: ScenarioGeometryMode = intervention.geometryMode
         ?? (intervention.timeModel === 'infer-road'
@@ -3853,8 +3839,7 @@ export default function App() {
         : geometryMode === 'straight-line'
           ? 'estimate-distance'
           : 'preserve-scheduled'
-      const inferredReady = useInferredGeometry
-        && intervention.geometryStatus === 'ready'
+      const inferredReady = intervention.geometryStatus === 'ready'
         && Array.isArray(intervention.inferredGeometry)
         && intervention.inferredGeometry.length >= 2
       const geometry = geometryMode === 'auto-road'
@@ -3983,13 +3968,19 @@ export default function App() {
               ...branchStops.slice(branchIndex + 1),
             ]
           }
+          const branchGeometry = branch.id !== edgeRoute.id && intervention.geometryMode === 'auto-road'
+            ? scenarioEdgeGeometryForBranch(intervention, branch, preview)
+            : undefined
+          if (branch.id !== edgeRoute.id && intervention.geometryMode === 'auto-road' && !branchGeometry) {
+            return { error: `The edited road gap cannot be applied to ${branch.shortName} · ${branch.patternRank ?? branch.id}. Load its complete published shape and rebuild the road path.` }
+          }
           services.push(serviceFor(
-            intervention,
+            branchGeometry ? { ...intervention, inferredGeometry: branchGeometry.geometry,
+              inferredSegmentDistanceKm: branchGeometry.segmentDistancesKm, inferredGeometrySource: 'hybrid' } : intervention,
             branch,
             branchStops,
             `${intervention.id}:${branch.id}`,
             `${intervention.name} · ${branch.directionId || 'branch'} · ${branch.patternRank ?? branch.id}`,
-            branch.id === edgeRoute.id,
           ))
         }
         continue
@@ -4000,7 +3991,6 @@ export default function App() {
         stops,
         intervention.id,
         intervention.name,
-        true,
       ))
     }
     return {
@@ -5109,7 +5099,7 @@ export default function App() {
             view={scenarioView}
             loading={scenarioLoading}
             progress={scenarioProgress}
-            error={scenarioError}
+            error={scenarioError || draftStorageError}
             analysis={reachResult}
             comparison={reachComparison}
             serviceDecomposition={serviceDecomposition}

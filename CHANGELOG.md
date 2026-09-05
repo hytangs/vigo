@@ -20,6 +20,8 @@ GTFS + OSM -> City -> Scenario -> Route | Matrix | Reach -> Result
 
 VIGO 0.3 intentionally removes the provisional commands, Python package, maintenance controls, and duplicate analysis surfaces that preceded this model. There is no compatibility layer.
 
+The final 0.3.0 fixes preserve Studio Scenario drafts between sessions and apply edited road gaps to every affected branch while retaining each branch's published geometry and runtime. Derived routing snapshots use the current content identity; older snapshots rebuild automatically. Transit Matrix uses the same native one-to-many computation for every matrix size, without an implicit transfer-time buffer. See the [GTFS support matrix](docs/gtfs-support-matrix.md) and [Studio guide](docs/studio.md) for the supported source rules and interface limits.
+
 ## Private development history
 
 Versions before 0.3.0 were private development milestones. These entries retain the dates and terminology recorded in the archived version notes.

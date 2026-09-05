@@ -1,6 +1,6 @@
 import type { FeatureCollection, Geometry, GeoJsonProperties } from 'geojson'
 import type { GeometrySource, LngLat, MapPreview, RouteMetric } from './domain'
-import { coordinateDistanceKm, polylineDistanceKm } from './app/geometry'
+import { coordinateDistanceKm, polylineDistanceKm, splicePolylineInterval } from './app/geometry'
 import { entityFeedScope } from './networkTruth'
 import type { RoutingPoint } from './routingModel'
 
@@ -86,6 +86,33 @@ export function routeHasPublishedShape(
     && route.coordinates.length >= 2
     && (route.geometrySource === 'shape' || route.geometrySource === undefined),
   )
+}
+
+/** Apply an edited A → B gap to another branch of the same GTFS service. */
+export function scenarioEdgeGeometryForBranch(
+  intervention: ScenarioChangeDraft, branch: RouteMetric, preview: MapPreview,
+) {
+  const edit = scenarioInsertedStopsForEdge(intervention.stops)
+  if (!edit || !routeHasPublishedShape(branch)) return undefined
+  const baselineId = (stop: ScenarioStopDraft) => stop.baselineStopId ?? stop.stopId
+  const from = intervention.stops.findIndex((stop) => baselineId(stop) === edit.beforeStopId)
+  const to = intervention.stops.findIndex((stop, index) => index > from && baselineId(stop) === edit.afterStopId)
+  const segments = intervention.inferredSegmentGeometry?.slice(from, to)
+  const distances = intervention.inferredSegmentDistanceKm?.slice(from, to)
+  if (from < 0 || to <= from || !segments || segments.length !== to - from
+    || segments.some((segment) => segment.length < 2) || !distances || distances.length !== segments.length) return undefined
+  const replacement = segments.flatMap((segment, index) => index ? segment.slice(1) : segment)
+  const stops = scenarioStopsForRoute(branch, preview)
+  if (stops.length !== branch.stopIds.length) return undefined
+  const index = branch.stopIds.findIndex((id, i) => id === edit.beforeStopId && branch.stopIds[i + 1] === edit.afterStopId)
+  if (index < 0) return undefined
+  const geometry = splicePolylineInterval(branch.coordinates, stops.map((stop) => stop.coordinate), index, index + 1, replacement)
+  if (!geometry) return undefined
+  const baselineDistances = stops.slice(0, -1).map((stop, i) => polylineDistanceKm(branch.coordinates, stop.coordinate, stops[i + 1].coordinate))
+  return {
+    geometry,
+    segmentDistancesKm: [...baselineDistances.slice(0, index), ...distances, ...baselineDistances.slice(index + 1)],
+  }
 }
 
 export function scenarioPublishedShapeSegmentIndexes(
@@ -326,6 +353,7 @@ export type ScenarioChangeDraft = {
   inferredFallbackSegmentCount?: number
   inferredPublishedShapeSegmentCount?: number
   inferredOsmSegmentCount?: number
+  inferredSegmentGeometry?: LngLat[][]
   inferredSegmentDistanceKm?: number[]
   inferredSegmentRuntimeMinutes?: number[]
   geometryStatus?: 'idle' | 'loading' | 'ready' | 'error'

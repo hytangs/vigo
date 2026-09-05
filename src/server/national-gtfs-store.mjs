@@ -133,7 +133,6 @@ const routingStoreIndexTables = Object.freeze({
 })
 const staticTopologySchemaVersion = 'vigo.routing.static-topology.v4'
 const staticTopologySourceIdentityVersion = 'vigo.routing.static-topology-source.v3'
-const legacyStaticTopologySourceFingerprintVersion = 'vigo.routing.static-topology-source.v2'
 const monotonicNow = nodePerformance.now.bind(nodePerformance)
 const realtimeRoutingMaxTripUpdates = 256
 const realtimeRoutingMaxStops = 4_096
@@ -346,7 +345,7 @@ const activeServiceKernelSnapshotCacheBudgetBytes = Math.max(
     Math.floor(Number(process.env.VIGO_ACTIVE_KERNEL_SNAPSHOT_CACHE_BUDGET_BYTES ?? 512 * 1024 * 1024) || 0),
   ),
 )
-const activeServiceKernelSchemaVersion = 'vigo.routing.active-service-kernel.v13-rust-native'
+const activeServiceKernelSchemaVersion = 'vigo.routing.active-service-kernel.v14-rust-native'
 const activeServiceTransferProjectionVersion = 'single_edge_service_ingress.v5-gtfs-minimum'
 const activeServiceKernelContextCacheMaxEntries = Math.max(
   1,
@@ -1005,48 +1004,13 @@ function staticTopologySourceIdentity(metadata) {
   })
 }
 
-// VIGO 0.3.0 city packages used this compact value before semantic identities
-// became directly readable. Keep it only as a zero-rebuild migration path for
-// already published packages; newly built artifacts use the identity above.
-function legacyStaticTopologySourceFingerprint(metadata) {
-  return crypto.createHash('sha256').update(JSON.stringify({
-    fingerprintVersion: legacyStaticTopologySourceFingerprintVersion,
-    storeId: metadata.storeId ?? null,
-    schemaVersion: metadata.schemaVersion ?? null,
-    connectionCount: Number(metadata.connectionCount ?? -1),
-    transferCount: Number(metadata.transferCount ?? -1),
-    transferSemanticsVersion: metadata.transferSemanticsVersion ?? null,
-    stopCount: Number(metadata.stopCount ?? -1),
-    bridgedUntimedGapCount: Number(metadata.bridgedUntimedGapCount ?? -1),
-  })).digest('hex')
-}
-
 function staticTopologySourceMatches(
   artifactMetadata,
   sourceMetadata,
-  sourceStorageIdentity = '',
   sourceGeneration = '',
 ) {
-  if (artifactMetadata.staticTopologySourceIdentity !== undefined) {
-    return artifactMetadata.staticTopologySourceIdentity === staticTopologySourceIdentity(sourceMetadata)
-      && (
-        artifactMetadata.staticTopologySourceGeneration === undefined
-        || artifactMetadata.staticTopologySourceGeneration === sourceGeneration
-      )
-  }
-  if (
-    artifactMetadata.staticTopologySourceFingerprintVersion
-      === legacyStaticTopologySourceFingerprintVersion
-  ) {
-    return artifactMetadata.staticTopologySourceFingerprint
-      === legacyStaticTopologySourceFingerprint(sourceMetadata)
-  }
-  return artifactMetadata.staticTopologySourceFingerprint
-      === staticTopologySourceFingerprint(sourceMetadata)
-    && (
-      artifactMetadata.staticTopologySourceStorageIdentity === undefined
-      || artifactMetadata.staticTopologySourceStorageIdentity === sourceStorageIdentity
-    )
+  return artifactMetadata.staticTopologySourceIdentity === staticTopologySourceIdentity(sourceMetadata)
+    && artifactMetadata.staticTopologySourceGeneration === sourceGeneration
 }
 
 function staticTopologySourceStorageIdentity(storePath) {
@@ -1174,7 +1138,6 @@ function inspectStaticTopologyDatabase(db) {
   if (!staticTopologySourceMatches(
     metadata,
     metadata,
-    metadata.staticTopologySourceStorageIdentity ?? '',
     metadata.staticTopologySourceGeneration ?? '',
   )) {
     return { ready: false, reason: 'source_mismatch', version: staticTopologySchemaVersion }
@@ -1198,34 +1161,7 @@ export function nationalStaticTopologySidecarPath(storePath) {
 }
 
 function routingArtifactSourceIdentity(storePath, sourceMetadata) {
-  const sourceGeneration = sqliteStoreGeneration(storePath)
-  const sidecarPath = nationalStaticTopologySidecarPath(storePath)
-  if (fs.existsSync(sidecarPath)) {
-    const sidecar = new DatabaseSync(sidecarPath, { readOnly: true })
-    try {
-      const metadata = metadataRecord(sidecar)
-      if (staticTopologySourceMatches(
-        metadata,
-        sourceMetadata,
-        staticTopologySourceStorageIdentity(storePath),
-        sourceGeneration,
-      )) {
-        if (metadata.staticTopologySourceIdentity !== undefined) {
-          return `${metadata.staticTopologySourceIdentity}\n${sourceGeneration}`
-        }
-        return String(
-          metadata.staticTopologySourceStorageIdentity
-            ?? metadata.staticTopologySourceFingerprint,
-        )
-      }
-    } catch {
-      // Normal sidecar admission reports malformed artifacts. Opening the
-      // authoritative routing store should still proceed without one.
-    } finally {
-      sidecar.close()
-    }
-  }
-  return `${staticTopologySourceIdentity(sourceMetadata)}\n${sourceGeneration}`
+  return `${staticTopologySourceIdentity(sourceMetadata)}\n${sqliteStoreGeneration(storePath)}`
 }
 
 async function pruneNationalActiveServiceKernelSnapshots(storePath) {
@@ -2785,7 +2721,6 @@ export function inspectNationalStaticTopologySidecar(storePath, sidecarPath = na
     if (!staticTopologySourceMatches(
       metadata,
       sourceMetadata,
-      sourceStorageIdentity,
       sourceGeneration,
     )) {
       return { ready: false, reason: 'source_mismatch', version: staticTopologySchemaVersion, sidecarPath: resolvedSidecarPath }
@@ -5977,45 +5912,6 @@ function nativeAccessProfileSnapshotPath(storePath, profileKey) {
   return `${path.resolve(storePath)}.native-access-profile.${profileKey.slice(0, 24)}.bin`
 }
 
-function embeddedNativeAccessProfileKey(snapshotPath) {
-  const handle = fs.openSync(snapshotPath, 'r')
-  const header = Buffer.alloc(1_112)
-  try {
-    const bytesRead = fs.readSync(handle, header, 0, header.length, 0)
-    if (bytesRead < 88 || header.subarray(0, 8).toString('ascii') !== 'VIGOAP03') return ''
-    const keyLength = Number(header.readBigUInt64LE(80))
-    if (!Number.isSafeInteger(keyLength) || keyLength < 1 || keyLength > 1_024) return ''
-    if (88 + keyLength > bytesRead) return ''
-    return header.subarray(88, 88 + keyLength).toString('utf8')
-  } finally {
-    fs.closeSync(handle)
-  }
-}
-
-function retainedNativeAccessProfileSnapshot(store, profileKey) {
-  const currentPath = nativeAccessProfileSnapshotPath(store.storePath, profileKey)
-  if (fs.existsSync(currentPath)) return { path: currentPath, profileKey }
-  const directory = path.dirname(store.storePath)
-  const prefix = `${path.basename(store.storePath)}.native-access-profile.`
-  const candidates = fs.readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.startsWith(prefix) && entry.name.endsWith('.bin'))
-    .map((entry) => {
-      const snapshotPath = path.join(directory, entry.name)
-      const embeddedKey = embeddedNativeAccessProfileKey(snapshotPath)
-      return { path: snapshotPath, profileKey: embeddedKey }
-    })
-    .filter((candidate) => (
-      candidate.profileKey
-      && path.basename(candidate.path) === `${prefix}${candidate.profileKey.slice(0, 24)}.bin`
-    ))
-  const exact = candidates.find((candidate) => candidate.profileKey === profileKey)
-  if (exact) return exact
-  const legacyPublishedPackage = Boolean(
-    store.metadata.osmStopTransferGraph?.streetStorageIdentity
-    && store.sourceArtifactIdentity !== staticTopologySourceIdentity(store.metadata),
-  )
-  return legacyPublishedPackage && candidates.length === 1 ? candidates[0] : null
-}
 
 function pruneRoutingSnapshotCache({
   storePath,
@@ -6289,10 +6185,7 @@ function nativeCoordinateAccessProfile(store, streetStorePath, streetStorageIden
       },
     }
   }
-  const retainedSnapshot = retainedNativeAccessProfileSnapshot(store, profile.profileKey)
-  if (retainedSnapshot) profile.profileKey = retainedSnapshot.profileKey
-  const snapshotPath = retainedSnapshot?.path
-    ?? nativeAccessProfileSnapshotPath(store.storePath, profile.profileKey)
+  const snapshotPath = nativeAccessProfileSnapshotPath(store.storePath, profile.profileKey)
   const diagnostics = configureNativeRoutingAccessProfile(
     streetStorePath,
     profile,
@@ -6413,36 +6306,7 @@ function osmStopTransferGraphIdentity(metadata, streetMetadata, options) {
   ].join('|')
 }
 
-function legacyStreetStorageIdentity(metadata) {
-  const evidenceKeys = [
-    'schemaVersion',
-    'sourceModel',
-    'sourceFingerprint',
-    'sourceBytes',
-    'builtAt',
-    'nodeCount',
-    'edgeCount',
-    'wayCount',
-  ]
-  const evidence = Object.fromEntries(evidenceKeys
-    .filter((key) => metadata[key] !== undefined)
-    .map((key) => [key, metadata[key]]))
-  return crypto.createHash('sha256').update(stableJson({
-    version: 'vigo.street.storage-identity.v2',
-    metadata: evidence,
-  })).digest('hex')
-}
 
-function legacyOsmStopTransferGraphIdentity(metadata, streetMetadata, options) {
-  return crypto.createHash('sha256').update(JSON.stringify({
-    schemaVersion: osmTransferGraphSchemaVersion,
-    sourceFingerprint: metadata.sourceFingerprint ?? null,
-    stopCount: Number(metadata.stopCount ?? 0),
-    streetStorageIdentity: legacyStreetStorageIdentity(streetMetadata),
-    maximumWalkM: options.maximumWalkM,
-    maximumNeighbors: options.maximumNeighbors,
-  })).digest('hex')
-}
 
 export async function ensureNationalGtfsOsmStopTransfers(
   storePath,
@@ -6476,18 +6340,13 @@ export async function ensureNationalGtfsOsmStopTransfers(
       { maximumWalkM, maximumNeighbors },
     )
     retainedFingerprint = metadata.osmStopTransferGraph?.fingerprint
-    const legacyFingerprint = legacyOsmStopTransferGraphIdentity(
-      metadata,
-      streetMetadata,
-      { maximumWalkM, maximumNeighbors },
-    )
     retainedEdges = Number(inspection.prepare(`
       SELECT COUNT(*) AS count
       FROM transfer_provenance
       WHERE provenance='osm_certified_radial'
     `).get()?.count ?? 0)
     if (
-      (retainedFingerprint === expectedFingerprint || retainedFingerprint === legacyFingerprint)
+      retainedFingerprint === expectedFingerprint
       && Number(metadata.osmStopTransferGraph?.edgeCount ?? -1) === retainedEdges
     ) {
       const derivedArtifacts = stopAccessRoles.built
@@ -7430,25 +7289,11 @@ function preloadNativeTimetableKernel(kernel) {
 function activeServiceKernelSnapshotPath(store, serviceKey) {
   const key = stableKeySuffix(JSON.stringify({
     schemaVersion: activeServiceKernelSchemaVersion,
-    sourceStorageIdentity: store.sourceArtifactIdentity,
+    sourceArtifactIdentity: store.sourceArtifactIdentity,
     serviceKey,
     accessPolicyIdentity: nationalRoutingAccessPolicyIdentity,
   }))
   return `${store.storePath}.active-service-kernel.${key}.bin`
-}
-
-function activeServiceKernelSnapshotCandidates(store, serviceKey) {
-  const currentPath = activeServiceKernelSnapshotPath(store, serviceKey)
-  if (fs.existsSync(currentPath)) return [{ path: currentPath, relocated: false }]
-  if (store.sourceArtifactIdentity === staticTopologySourceIdentity(store.metadata)) {
-    return [{ path: currentPath, relocated: false }]
-  }
-  const directory = path.dirname(store.storePath)
-  const prefix = `${path.basename(store.storePath)}.active-service-kernel.`
-  const relocated = fs.readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.startsWith(prefix) && entry.name.endsWith('.bin'))
-    .map((entry) => ({ path: path.join(directory, entry.name), relocated: true }))
-  return [...relocated, { path: currentPath, relocated: false }]
 }
 
 function pruneActiveServiceKernelSnapshotCache(storePath, currentSnapshotPath) {
@@ -7470,7 +7315,7 @@ function persistActiveServiceKernel(kernel, snapshotPath, storePath) {
     const persistedKernel = {
       schemaVersion: activeServiceKernelSchemaVersion,
       serviceKey: kernel.serviceKey,
-      sourceStorageIdentity: kernel.sourceArtifactIdentity,
+      sourceArtifactIdentity: kernel.sourceArtifactIdentity,
       accessPolicyIdentity: nationalRoutingAccessPolicyIdentity,
       runCount: kernel.runCount,
       activeSegmentCount: kernel.activeSegmentCount,
@@ -7539,7 +7384,6 @@ function loadPersistedActiveServiceKernel(
   store,
   serviceKey,
   snapshotPath,
-  { relocated = false } = {},
 ) {
   if (!activeServiceKernelPersistenceEnabled) return { kernel: null, persistenceReason: 'disabled' }
   if (!fs.existsSync(snapshotPath)) return { kernel: null, persistenceReason: 'not_found', snapshotPath }
@@ -7558,39 +7402,15 @@ function loadPersistedActiveServiceKernel(
     const bytes = fs.readFileSync(snapshotPath)
     const envelope = deserialize(bytes)
     const persisted = envelope?.kernel
-    const persistedSourceIdentity = persisted?.sourceArtifactIdentity
-      ?? persisted?.sourceStorageIdentity
-    const legacyServiceKey = `services:${store.activeServices.size}:${crypto.createHash('sha256')
-      .update(JSON.stringify([...store.activeServices].sort()))
-      .digest('hex')}`
-    const relocatedServicesMatch = persisted?.serviceKey === legacyServiceKey
-    const legacyAccessPolicyIdentity = crypto.createHash('sha256')
-      .update(JSON.stringify(nationalRoutingAccessPolicy))
-      .digest('hex')
     if (
       envelope?.schemaVersion !== activeServiceKernelSchemaVersion
       || persisted?.schemaVersion !== activeServiceKernelSchemaVersion
-      || (!relocated && persisted?.serviceKey !== serviceKey)
-      || (relocated && !relocatedServicesMatch)
-      || (!relocated && persistedSourceIdentity !== store.sourceArtifactIdentity)
-      || (relocated && !String(persistedSourceIdentity ?? '').trim())
-      || (
-        persisted?.accessPolicyIdentity !== nationalRoutingAccessPolicyIdentity
-        && (!relocated || persisted?.accessPolicyIdentity !== legacyAccessPolicyIdentity)
-      )
+      || persisted?.serviceKey !== serviceKey
+      || persisted?.sourceArtifactIdentity !== store.sourceArtifactIdentity
+      || persisted?.accessPolicyIdentity !== nationalRoutingAccessPolicyIdentity
       || persisted?.transferProjectionVersion !== activeServiceTransferProjectionVersion
       || persisted?.transferProjectionVerified !== true
     ) throw new Error('Compact-kernel snapshot identity does not match the active routing context.')
-    if (relocated) {
-      const activeConnectionCount = Number(store.db.prepare(`
-        SELECT COUNT(*) AS count
-        FROM connections AS connection
-        JOIN active_services AS service ON service.service_id=connection.service_id
-      `).get()?.count ?? -1)
-      if (persisted.activeSegmentCount !== activeConnectionCount) {
-        throw new Error('Relocated compact-kernel snapshot does not match the active service connections.')
-      }
-    }
     for (const key of activeServiceKernelTypedArrayKeys) {
       if (!ArrayBuffer.isView(persisted[key])) throw new Error(`Compact-kernel snapshot is missing ${key}.`)
       // v8.deserialize may return several views into the full serialized
@@ -7625,8 +7445,6 @@ function loadPersistedActiveServiceKernel(
     const kernel = {
       ...persisted,
       serviceKey,
-      sourceArtifactIdentity: persisted.sourceArtifactIdentity
-        ?? persisted.sourceStorageIdentity,
       sourceStorageIdentity: store.sourceStorageIdentity,
       stopIndex: new Map(persisted.stopIds.map((stopId, index) => [stopId, index])),
     }
@@ -7690,31 +7508,8 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
 
   const startedAt = performance.now()
   const memoryBefore = process.memoryUsage()
-  const snapshotCandidates = activeServiceKernelSnapshotCandidates(store, serviceKey)
-  let snapshotPath = snapshotCandidates[snapshotCandidates.length - 1].path
-  let persistedKernel = { kernel: null, persistenceReason: 'not_found', snapshotPath }
-  let relocatedSnapshotError = null
-  for (const candidate of snapshotCandidates) {
-    const loaded = loadPersistedActiveServiceKernel(
-      store,
-      serviceKey,
-      candidate.path,
-      { relocated: candidate.relocated },
-    )
-    if (loaded.kernel) {
-      snapshotPath = candidate.path
-      persistedKernel = loaded
-      break
-    }
-    if (candidate.relocated && loaded.persistenceState === 'read_error') {
-      relocatedSnapshotError ??= loaded
-    }
-    if (!candidate.relocated) persistedKernel = loaded
-  }
-  if (!persistedKernel.kernel && relocatedSnapshotError) {
-    persistedKernel = relocatedSnapshotError
-    snapshotPath = activeServiceKernelSnapshotPath(store, serviceKey)
-  }
+  const snapshotPath = activeServiceKernelSnapshotPath(store, serviceKey)
+  const persistedKernel = loadPersistedActiveServiceKernel(store, serviceKey, snapshotPath)
   if (persistedKernel.kernel) {
     const kernel = persistedKernel.kernel
     Object.assign(kernel, {
@@ -8933,7 +8728,6 @@ export function routeNativeParetoWithRestrictionFallback(routePareto, kernel, na
   }
 }
 
-
 function searchActiveServiceKernelNativePareto(
   kernel,
   originStops,
@@ -9070,7 +8864,6 @@ function searchActiveServiceKernelNativePareto(
     },
   }
 }
-
 
 function activeKernelTripConnections(kernel, step) {
   const trip = step.kernelTripIndex
@@ -9451,7 +9244,6 @@ function suppressNationalPointRideLoop(
     },
   }
 }
-
 
 function materializeActiveServiceKernelPlan(store, kernel, search, context) {
   if (!search?.supported || search.status !== 'ready') return null

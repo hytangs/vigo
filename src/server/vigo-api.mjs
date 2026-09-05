@@ -4733,8 +4733,6 @@ async function runNationalMatrix(projectId, body, signal) {
     ...serviceContext,
     streetStorePath,
     requireCompleteServiceCoverage: true,
-    // Matrix responses contain travel times, not the full point-route plans
-    // used internally by pairwise mode. Do not retain those hidden plans.
   }
   return nationalRouteWorkerPool.dispatchRoutingAccessPrepared(storePath, 'matrix', matrixRequest, {
     signal,

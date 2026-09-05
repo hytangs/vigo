@@ -68,3 +68,35 @@ export function polylineDistanceKm(coordinates: LngLat[] | undefined, left: LngL
   if (!coordinates || coordinates.length < 2) return coordinateDistanceKm(left, right)
   return Math.abs(polylineMeasureAt(coordinates, left) - polylineMeasureAt(coordinates, right))
 }
+
+/** Splice one ordered stop interval while retaining the branch's other shape vertices. */
+export function splicePolylineInterval(
+  coordinates: LngLat[], points: LngLat[], fromIndex: number, toIndex: number, replacement: LngLat[],
+) {
+  if (coordinates.length < 2 || replacement.length < 2) return undefined
+  const anchors: Array<{ progress: number; point: LngLat }> = []
+  let minimum = 0
+  for (const point of points) {
+    let best: { progress: number; point: LngLat; distance: number } | undefined
+    for (let segment = Math.floor(minimum); segment < coordinates.length - 1; segment += 1) {
+      const start = coordinates[segment], end = coordinates[segment + 1]
+      const projection = projectedSegmentPoint(start, end, point)
+      const progress = segment + projection.progress
+      if (progress < minimum) continue
+      if (!best || projection.distanceSquared < best.distance) {
+        best = { progress, distance: projection.distanceSquared,
+          point: [start[0] + (end[0] - start[0]) * projection.progress, start[1] + (end[1] - start[1]) * projection.progress] }
+      }
+    }
+    if (!best) return undefined
+    anchors.push(best)
+    minimum = best.progress
+  }
+  const from = anchors[fromIndex], to = anchors[toIndex]
+  if (!from || !to || to.progress <= from.progress) return undefined
+  const joined = [
+    ...coordinates.slice(0, Math.floor(from.progress) + 1), from.point,
+    ...replacement, to.point, ...coordinates.slice(Math.floor(to.progress) + 1),
+  ]
+  return joined.filter((point, index) => index === 0 || point[0] !== joined[index - 1][0] || point[1] !== joined[index - 1][1])
+}
