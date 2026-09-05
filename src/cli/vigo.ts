@@ -992,7 +992,6 @@ async function runMatrix(args: CliArguments) {
     throw new Error('matrix mode must be transit, walk, or drive')
   }
   if (request.traffic && mode !== 'drive') throw new Error('Supplied traffic requires Drive Matrix.')
-  const matrixStrategy = 'auto'
   const horizonMinutes = boundedAnalyticalNumber(
     args,
     request,
@@ -1045,7 +1044,6 @@ async function runMatrix(args: CliArguments) {
         allowServiceDateFallback: false,
         maxWalkKm: options.maxWalkKm,
         horizonMinutes,
-        matrixStrategy,
         streetStorePath,
       })
     : routeNationalStreetMatrix(streetStorePath!, {
@@ -1079,7 +1077,6 @@ async function runMatrix(args: CliArguments) {
       serviceDay: options.serviceDay,
       maxWalkKm: options.maxWalkKm,
       horizonMinutes,
-      matrixStrategy,
     },
     rows,
     timing: {

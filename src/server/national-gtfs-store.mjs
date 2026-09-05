@@ -252,10 +252,6 @@ const balancedWalkReluctance = Math.max(
 const nearbyTransferMaxDistanceKm = 0.25
 const nearbyTransferCellDegrees = 0.01
 const alternativeStreetAccessAnchorLimit = 160
-// The Rust one-to-many scan is preferable from four destinations after endpoint
-// access becomes role-specific. Keep 1-3 destination requests on full-itinerary
-// pairwise materialization.
-const sharedMatrixDestinationThreshold = 4
 const nationalPreviewRouteLimit = 500
 const nationalRouteCatalogLimit = 10_000
 const nationalPreviewStopLimit = 12_000
@@ -10888,77 +10884,8 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
     }
     return destinationLookup.get(key)
   })
-  const requestedStrategy = ['shared', 'pairwise'].includes(request.matrixStrategy) ? request.matrixStrategy : 'auto'
-  const matrixStrategy = requestedStrategy === 'auto'
-    ? (
-        uniqueDestinations.length >= sharedMatrixDestinationThreshold
-          ? 'shared'
-          : 'pairwise'
-      )
-    : requestedStrategy
-  if (matrixStrategy === 'pairwise') {
-    const plans = uniqueOrigins.map((origin) => uniqueDestinations.map((destination) => routeNationalGtfsStore(storePath, {
-      ...request,
-      origin,
-      destination,
-      // Matrix cells have an earliest-arrival scalar contract. A caller's
-      // point-only balanced preference must not make the pairwise reference
-      // return a later generalized-cost selection than the shared scan.
-      routingPreference: 'fastest',
-      streetStorePath: request.streetStorePath,
-      __disableDirectWalkDominance: true,
-      returnedStationCyclePolicy: 'represented',
-      __respectShortHorizon: true,
-      __serviceDateFallbackRetry: serviceDateResolution.serviceDateFallbackApplied,
-      __suppressServiceDateFallback: true,
-    })))
-    let scannedDepartures = 0
-    let relaxedStops = 0
-    for (const originPlans of plans) {
-      for (const plan of originPlans) {
-        scannedDepartures += Number(plan.diagnostics?.scannedDepartures ?? 0)
-        relaxedStops += Number(plan.diagnostics?.relaxedStops ?? 0)
-      }
-    }
-    const rows = new Array(origins.length * destinations.length)
-    let rowIndex = 0
-    for (let originIndex = 0; originIndex < origins.length; originIndex += 1) {
-      for (let destinationIndex = 0; destinationIndex < destinations.length; destinationIndex += 1) {
-        const plan = plans[originIndexes[originIndex]][destinationIndexes[destinationIndex]]
-        rows[rowIndex] = {
-          originIndex,
-          destinationIndex,
-          status: plan.status,
-          departMinutes: departureMinutes,
-          arriveMinutes: plan.status === 'ready' ? plan.arriveMinutes : null,
-          durationMinutes: plan.status === 'ready' ? plan.durationMinutes : null,
-        }
-        rowIndex += 1
-      }
-    }
-    return {
-      schemaVersion: 'vigo.routing.matrix.v1',
-      rows,
-      diagnostics: {
-        matrixStrategy,
-        routingCoverage,
-        optimality: routingCoverage.complete ? 'earliest_arrival_within_supported_feed' : 'travel_times_within_supported_scheduled_core',
-        origins: origins.length,
-        destinations: destinations.length,
-        pairs: rows.length,
-        uniqueOrigins: uniqueOrigins.length,
-        uniqueDestinations: uniqueDestinations.length,
-        forwardSearches: uniqueOrigins.length * uniqueDestinations.length,
-        destinationAccessComputations: uniqueDestinations.length,
-        activeServices: services.size,
-        serviceDateFallbackPolicy: representativeSnapshot ? 'representative-snapshot' : 'exact',
-        ...serviceDateDiagnostics(serviceDateResolution),
-        scannedDepartures,
-        relaxedStops,
-        queryMs: Number((performance.now() - started).toFixed(3)),
-      },
-    }
-  }
+  // Uniform scalar search for every City and every OD set.
+  const matrixStrategy = 'shared'
   const streetStorageIdentity = currentStreetStoreStorageIdentity(request.streetStorePath)
   const destinationStops = uniqueDestinations.map((point) => (
     preparePointAccessStops(store, point, maxWalkKm, request.streetStorePath, streetStorageIdentity, 'destination')

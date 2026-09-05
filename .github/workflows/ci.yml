@@ -44,6 +44,7 @@ jobs:
       - run: npm run check:rust-routing-kernel
       - run: npm run check:gtfs
       - run: npm run check:reach-scenarios
+      - run: npm run check:accuracy
       - run: node test/check-street-routing-modes.mjs
       - run: npm run check:cli
       - run: npm run build

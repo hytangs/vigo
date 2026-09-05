@@ -1,3 +1,4 @@
+import { matrixItineraryReference } from './helpers/matrix-itinerary-reference.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -295,7 +296,7 @@ try {
     serviceDay: 'thursday',
     maxWalkKm: 0.2,
   }
-  const pairwise = routeNationalGtfsMatrix(matrixStorePath, { ...matrixRequest, matrixStrategy: 'pairwise' })
+  const pairwise = matrixItineraryReference(matrixStorePath, matrixRequest)
   const shared = routeNationalGtfsMatrix(matrixStorePath, { ...matrixRequest, matrixStrategy: 'shared' })
   assert.equal(
     pairwise.rows[0]?.status,

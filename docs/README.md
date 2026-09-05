@@ -21,6 +21,7 @@ City -> Scenario -> Route | Matrix | Reach -> Result
 
 - [Command line and VIGO Python](programmatic.md)
 - [Route](routing.md)
+- [Routing accuracy checks](routing-accuracy.md)
 - [Matrix](matrix.md)
 - [Reach](reach.md)
 

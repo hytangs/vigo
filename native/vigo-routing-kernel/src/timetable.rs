@@ -364,6 +364,7 @@ pub struct TimetableKernelDiagnostics {
     pub trip_count: u32,
     pub run_count: u32,
     pub transfer_count: u32,
+    pub transfer_board_slack_seconds: f64,
     pub workspace_bytes: f64,
     pub source_array_bytes: f64,
     pub native_index_bytes: f64,
@@ -5118,6 +5119,7 @@ impl TimetableKernel {
             trip_count: self.trip_start.len().saturating_sub(1) as u32,
             run_count: self.run_count as u32,
             transfer_count: self.transfer_edges.len() as u32,
+            transfer_board_slack_seconds: TRANSFER_BOARD_SLACK_SECONDS,
             workspace_bytes: (self.workspace.byte_length()
                 + self.many_workspace.byte_length()
                 + self.forward_workspace.byte_length()

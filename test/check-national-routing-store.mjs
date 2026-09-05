@@ -1,3 +1,4 @@
+import { matrixItineraryReference } from './helpers/matrix-itinerary-reference.mjs'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
@@ -1954,7 +1955,7 @@ try {
   assert.equal(directAlternative.diagnostics.alternativeStrategy, 'long_walk_direct')
   assert.equal(justOverThresholdWalkWindow.profile.alternativeWalkSearches, 1)
 
-  const shortWalkPairwiseMatrix = routeNationalGtfsMatrix(storePath, {
+  const shortWalkPairwiseMatrix = matrixItineraryReference(storePath, {
     origins: [shortWalkRequest.origin],
     destinations: [shortWalkRequest.destination],
     departMinutes: shortWalkRequest.departMinutes,
@@ -2523,7 +2524,7 @@ try {
     ...shortHorizonRequest,
     matrixStrategy: 'shared',
   })
-  const shortHorizonPairwise = routeNationalGtfsMatrix(storePath, {
+  const shortHorizonPairwise = matrixItineraryReference(storePath, {
     ...shortHorizonRequest,
     matrixStrategy: 'pairwise',
   })
@@ -2588,7 +2589,7 @@ try {
     ...terminalEgressMatrixRequest,
     matrixStrategy: 'shared',
   })
-  const terminalEgressPairwise = routeNationalGtfsMatrix(matrixHorizonStorePath, {
+  const terminalEgressPairwise = matrixItineraryReference(matrixHorizonStorePath, {
     ...terminalEgressMatrixRequest,
     matrixStrategy: 'pairwise',
   })
@@ -2613,7 +2614,7 @@ try {
     ...unreachableRequest,
     matrixStrategy: 'shared',
   })
-  const unreachablePairwise = routeNationalGtfsMatrix(storePath, {
+  const unreachablePairwise = matrixItineraryReference(storePath, {
     ...unreachableRequest,
     matrixStrategy: 'pairwise',
   })
@@ -2685,7 +2686,7 @@ try {
     { stopId: 'matrix-id\u001fD1', coordinate: [8.01, 47], label: 'Destination one', source: 'stop' },
     { stopId: 'matrix-id\u001fD2', coordinate: [8.01, 47], label: 'Destination two', source: 'stop' },
   ]
-  const matrixIdentity = routeNationalGtfsMatrix(matrixIdentityStorePath, {
+  const matrixIdentity = matrixItineraryReference(matrixIdentityStorePath, {
     origins: [
       { stopId: 'matrix-id\u001fO1', coordinate: [8, 47], label: 'Origin one', source: 'stop' },
       { stopId: 'matrix-id\u001fO2', coordinate: [8, 47], label: 'Origin two', source: 'stop' },
@@ -2798,7 +2799,7 @@ try {
     ...matrixCycleRequest,
     matrixStrategy: 'shared',
   })
-  const matrixCyclePairwise = routeNationalGtfsMatrix(matrixCycleStorePath, {
+  const matrixCyclePairwise = matrixItineraryReference(matrixCycleStorePath, {
     ...matrixCycleRequest,
     matrixStrategy: 'pairwise',
   })
@@ -2879,7 +2880,7 @@ try {
     ...internalCycleMatrixRequest,
     matrixStrategy: 'shared',
   })
-  const internalCyclePairwise = routeNationalGtfsMatrix(matrixCycleStorePath, {
+  const internalCyclePairwise = matrixItineraryReference(matrixCycleStorePath, {
     ...internalCycleMatrixRequest,
     matrixStrategy: 'pairwise',
   })
@@ -2931,7 +2932,7 @@ try {
     serviceDay: 'sunday', serviceDate: '2026-07-12', maxWalkKm: 0.25,
   }
   const upperBoundShared = routeNationalGtfsMatrix(matrixUpperBoundStorePath, { ...upperBoundRequest, matrixStrategy: 'shared' })
-  const upperBoundPairwise = routeNationalGtfsMatrix(matrixUpperBoundStorePath, {
+  const upperBoundPairwise = matrixItineraryReference(matrixUpperBoundStorePath, {
     ...upperBoundRequest,
     matrixStrategy: 'pairwise',
   })
@@ -2949,7 +2950,7 @@ try {
     origins: [alpha, bravo], destinations: [charlie], departMinutes: 8 * 60,
     serviceDay: 'sunday', serviceDate: '2026-07-12', maxWalkKm: 0.25,
   })
-  assert.equal(manyToOne.diagnostics.matrixStrategy, 'pairwise')
+  assert.equal(manyToOne.diagnostics.matrixStrategy, 'shared')
   assert.equal(manyToOne.diagnostics.forwardSearches, 2)
   assert.equal(manyToOne.diagnostics.destinationAccessComputations, 1)
   assert.equal(manyToOne.rows.length, 2)
