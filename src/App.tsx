@@ -3679,9 +3679,7 @@ export default function App() {
     scenarioRoadGeometryRequestIdRef.current = requestId
     const fallbackGeometry = routeHasPublishedShape(route) ? route.coordinates : undefined
     const fallbackSegmentRuntimeMinutes = route
-      ? scenarioSegmentRuntimeMinutes(route, stops, preview, {
-          addedStopDwellMinutes: 0.35,
-        })
+      ? scenarioSegmentRuntimeMinutes(route, stops, preview)
       : undefined
     const publishedShapeSegmentIndexes = scenarioPublishedShapeSegmentIndexes(route, stops)
     setScenarioDrafts((current) => current.map((entry) => ({
@@ -3891,12 +3889,13 @@ export default function App() {
         endMinutes: intervention.endMinutes,
         averageSpeedKph: intervention.averageSpeedKph,
         dwellMinutes: 0.35,
+        ...(segmentDistancesKm ? { segmentDistancesKm } : {}),
         ...(route && (timeModel === 'preserve-scheduled' || timeModel === 'infer-road')
           ? {
               segmentRuntimeMinutes: scenarioSegmentRuntimeMinutes(route, stops, preview, {
                 segmentDistancesKm,
-                addedStopDwellMinutes: timeModel === 'infer-road' ? 0.35 : 0,
               }),
+              addedStopDwellMinutes: timeModel === 'infer-road' ? 0.35 : 0,
             }
           : {}),
         ...(geometry && geometry.length >= 2
@@ -3938,6 +3937,9 @@ export default function App() {
         }
       }
       if (intervention.kind === 'remove-line') continue
+      if (intervention.geometryMode === 'auto-road' && intervention.geometryStatus !== 'ready') {
+        return { error: `Build the road-following path for ${intervention.name} before running Reach, or choose Straight-line estimate.` }
+      }
       const stops = ['add-line', 'change-line'].includes(intervention.kind)
         ? intervention.stops
         : scenarioStopsForRoute(route, preview)

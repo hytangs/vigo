@@ -109,6 +109,16 @@ try {
   assert.equal(waypointRoute.status, 'ready')
   assert.equal(waypointRoute.result.waypoints.length, 1)
   assert.equal(waypointRoute.result.diagnostics.orderedPointCount, 3)
+  for (const mode of ['walk', 'drive']) {
+    for (const time of ['08:30', '00:00']) {
+      const arrival = JSON.parse(run([
+        'route', `--city=${cityPath}`, `--request=${waypointRequest}`,
+        `--mode=${mode}`, `--time=${time}`, '--time-preference=arrive', '--service-date=2026-07-15',
+      ]))
+      assert.equal(arrival.status, 'ready')
+      assert.equal(arrival.result.arriveMinutes, time === '08:30' ? 510 : 0)
+    }
+  }
 
   const matrixRequest = path.join(temporaryRoot, 'matrix.json')
   fs.writeFileSync(matrixRequest, JSON.stringify({
@@ -127,6 +137,14 @@ try {
   assert(matrix.rows.every((row) => row.status === 'ready'))
   assert(Number.isFinite(matrix.timing.openMs) && Number.isFinite(matrix.timing.computeMs))
   assert.deepEqual(JSON.parse(fs.readFileSync(matrixPath, 'utf8')), matrix)
+  assert(Math.abs(matrix.rows[1].durationMinutes - route.result.durationMinutes) < 0.001,
+    'Public transit Route and Matrix must both include a faster direct walk.')
+
+  // A separate process releases native memory maps before Windows fixture cleanup.
+  execFileSync(process.execPath, [
+    path.join(root, 'test', 'helpers', 'assert-cli-matrix-parity.mjs'),
+    cityPath, String(route.result.durationMinutes),
+  ], { stdio: 'inherit' })
 
   const reachRequest = path.join(temporaryRoot, 'reach.json')
   fs.writeFileSync(reachRequest, JSON.stringify({ origin: 'A', cutoffsMinutes: [5, 15, 40], extentRadiusKm: 2, rasterSize: 48 }))
@@ -141,6 +159,10 @@ try {
   assert.equal(reach.contours.type, 'FeatureCollection')
   assert(Number.isFinite(reach.timing.openMs) && Number.isFinite(reach.timing.computeMs))
   assert(fs.existsSync(reachPath))
+  assert.equal(invoke([
+    'reach', `--city=${cityPath}`, `--request=${reachRequest}`,
+    '--time=07:55', '--service-date=2026-07-15', '--mode=drive',
+  ]).status, 2, 'Unsupported Reach modes must not silently run transit.')
   const removedReachOption = invoke([
     'reach', `--city=${cityPath}`, `--request=${reachRequest}`,
     '--time=07:55', '--service-date=2026-07-15', '--radius=2',
@@ -174,6 +196,33 @@ try {
   assert.equal(scenarioReach.query.scenario.services.length, 1)
   assert.equal(scenarioReach.scenarioStops.length, 2)
   assert.equal(scenarioReach.surface.values.length, 48 * 48)
+
+  const replacementRequest = JSON.parse(fs.readFileSync(scenarioReachRequest, 'utf8'))
+  replacementRequest.scenario.services[0].operation = 'replace'
+  replacementRequest.scenario.services[0].sourceRouteId = 'R1'
+  fs.writeFileSync(scenarioReachRequest, JSON.stringify(replacementRequest))
+  const replaced = JSON.parse(run([
+    'reach', `--city=${cityPath}`, `--request=${scenarioReachRequest}`,
+    '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2',
+  ]))
+  assert.equal(replaced.query.scenario.excludedRouteIds.length, 1,
+    'Replacing service must remove its scheduled baseline in CLI and Python Reach.')
+  assert.match(replaced.query.scenario.excludedRouteIds[0], /R1$/)
+  replacementRequest.scenario.services.push({ ...replacementRequest.scenario.services[0] })
+  fs.writeFileSync(scenarioReachRequest, JSON.stringify(replacementRequest))
+  const conflicting = invoke([
+    'reach', `--city=${cityPath}`, `--request=${scenarioReachRequest}`,
+    '--time=07:55', '--service-date=2026-07-15',
+  ])
+  assert.equal(conflicting.status, 2)
+  assert.match(conflicting.stderr, /Conflicting replacement services/)
+  replacementRequest.scenario.services.pop()
+  replacementRequest.scenario.services[0].sourceRouteId = 'missing-route'
+  fs.writeFileSync(scenarioReachRequest, JSON.stringify(replacementRequest))
+  assert.equal(invoke([
+    'reach', `--city=${cityPath}`, `--request=${scenarioReachRequest}`,
+    '--time=07:55', '--service-date=2026-07-15',
+  ]).status, 2, 'A missing source route cannot silently turn replacement into added service.')
 
   const odPath = path.join(temporaryRoot, 'od.csv')
   const routesPath = path.join(temporaryRoot, 'routes.csv')

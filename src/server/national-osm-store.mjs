@@ -2994,7 +2994,7 @@ function blockedStreetRoute(request, failureCode, detail, diagnostics = {}) {
     id: `street-${mode}-blocked`,
     status: 'blocked',
     travelMode: mode,
-    timePreference: 'depart',
+    timePreference: request.timePreference,
     maxWalkKm: mode === 'walk' ? Number(request.maxStreetKm ?? request.maxWalkKm ?? 50) : 0,
     origin: request.origin,
     destination: request.destination,
@@ -3032,11 +3032,15 @@ function blockedStreetRoute(request, failureCode, detail, diagnostics = {}) {
 export function routeNationalStreetStore(storePath, request) {
   const startedAt = performance.now()
   const mode = request?.mode === 'drive' ? 'drive' : 'walk'
-  const departMinutes = Number(
-    request?.departMinutes === undefined ? 8 * 60 : request.departMinutes,
-  )
-  if (!Number.isFinite(departMinutes) || departMinutes < 0 || departMinutes > 2_880) {
-    throw new Error('departMinutes must be a finite minute in [0, 2880].')
+  const timePreference = request?.timePreference === 'arrive' ? 'arrive' : 'depart'
+  const requestedMinutes = Number(timePreference === 'arrive'
+    ? request.arriveMinutes ?? request.departMinutes ?? 8 * 60
+    : request?.departMinutes ?? 8 * 60)
+  // Ordered arrive-by legs can start on the preceding day. Street weights
+  // are static for this query, so signed service-day minutes preserve that
+  // chronology without reversing the directed path or wrapping its clock.
+  if (!Number.isFinite(requestedMinutes) || Math.abs(requestedMinutes) > 2_880) {
+    throw new Error('Street routing time must be a finite minute in [-2880, 2880].')
   }
   let state = openRuntimeStreetStore(storePath)
   const nativeWalk = mode === 'walk' && nativeStreetCchPrepared(storePath)
@@ -3045,7 +3049,8 @@ export function routeNationalStreetStore(storePath, request) {
   const normalizedRequest = {
     ...request,
     mode,
-    departMinutes,
+    timePreference,
+    departMinutes: requestedMinutes,
   }
   if (
     originCoordinate?.length !== 2
@@ -3176,7 +3181,8 @@ export function routeNationalStreetStore(storePath, request) {
     ? pathResult.durationSeconds / 60
     : pathResult.distanceKm / walkingSpeedKph * 60
   const distanceKm = pathResult.distanceKm
-  const arriveMinutes = normalizedRequest.departMinutes + durationMinutes
+  const arriveMinutes = timePreference === 'arrive' ? requestedMinutes : requestedMinutes + durationMinutes
+  const departMinutes = timePreference === 'arrive' ? requestedMinutes - durationMinutes : requestedMinutes
   const fromName = String(request.origin?.label ?? 'Origin')
   const toName = String(request.destination?.label ?? 'Destination')
   const trafficApplied = mode === 'drive' && traffic?.status === 'applied' && search?.trafficApplied === true
@@ -3184,7 +3190,7 @@ export function routeNationalStreetStore(storePath, request) {
     id: `street-${mode}`,
     status: 'ready',
     travelMode: mode,
-    timePreference: 'depart',
+    timePreference,
     maxWalkKm: mode === 'walk' ? maxStreetKm : 0,
     choiceLabel: mode === 'drive' ? (trafficApplied ? 'Fastest drive · live traffic' : 'Fastest drive') : 'Direct walk',
     recommended: true,
@@ -3192,7 +3198,7 @@ export function routeNationalStreetStore(storePath, request) {
     destination: request.destination,
     title: mode === 'drive' ? `Drive to ${toName}` : `Walk to ${toName}`,
     detail: `${distanceKm.toFixed(distanceKm < 10 ? 2 : 1)} km · ${Math.max(1, Math.round(durationMinutes))} min`,
-    departMinutes: normalizedRequest.departMinutes,
+    departMinutes,
     arriveMinutes,
     durationMinutes,
     waitMinutes: 0,
@@ -3204,7 +3210,7 @@ export function routeNationalStreetStore(storePath, request) {
       travelMode: mode,
       fromName,
       toName,
-      startMinutes: normalizedRequest.departMinutes,
+      startMinutes: departMinutes,
       endMinutes: arriveMinutes,
       durationMinutes,
       distanceKm,

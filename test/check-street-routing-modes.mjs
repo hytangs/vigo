@@ -184,6 +184,22 @@ try {
   assert.equal(drive.diagnostics.searchStats.cchAccelerated, true)
   assert.equal(drive.diagnostics.searchStats.cchSource, 'in_memory')
 
+  for (const [request, departurePlan] of [[walkRequest, walk], [driveRequest, drive]]) {
+    for (const deadline of [510, 0, -5]) {
+      const arrivalPlan = routeNationalStreetStore(currentStore, {
+        ...request, timePreference: 'arrive', arriveMinutes: deadline,
+      })
+      assert.equal(arrivalPlan.status, 'ready')
+      assert.equal(arrivalPlan.timePreference, 'arrive')
+      assert.equal(arrivalPlan.arriveMinutes, deadline)
+      assert.equal(arrivalPlan.departMinutes, deadline - departurePlan.durationMinutes)
+      assert.equal(arrivalPlan.legs[0].startMinutes, arrivalPlan.departMinutes)
+      assert.equal(arrivalPlan.legs[0].endMinutes, deadline)
+      assert.deepEqual(arrivalPlan.legs[0].coordinates, departurePlan.legs[0].coordinates,
+        'Arrive-by must retain the same directed path, including one-way roads.')
+    }
+  }
+
   // The shared snapshot also contains walk-only vertices. A map click on one
   // must snap to a nearby road instead of becoming an isolated driving node.
   const driveFromWalkNode = routeNationalStreetStore(currentStore, {

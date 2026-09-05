@@ -1964,7 +1964,9 @@ try {
     streetStorePath: directWalkStreetPath,
     matrixStrategy: 'pairwise',
   })
-  assert.equal(shortWalkPairwiseMatrix.rows[0].status, 'blocked', 'Transit matrices must not inject direct-walk point-route results.')
+  assert.equal(shortWalkPairwiseMatrix.rows[0].status, 'ready',
+    'Coordinate transit Matrix must retain the same direct-walk alternative as Route.')
+  assert.equal(shortWalkPairwiseMatrix.rows[0].durationMinutes, shortWalkPlan.durationMinutes)
 
   await fs.copyFile(storePath, cacheTruthStorePath)
   const cacheTruthStore = new DatabaseSync(cacheTruthStorePath)

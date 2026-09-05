@@ -18,6 +18,9 @@ function badRequest(message, code = 'invalid_reach_request') {
 }
 
 function finiteNumber(value, label) {
+  if (value == null || typeof value === 'boolean' || (typeof value === 'string' && !value.trim())) {
+    throw badRequest(`${label} must be a finite number.`)
+  }
   let number
   try {
     number = Number(value)
@@ -114,6 +117,14 @@ function normalizedService(value, index) {
     ))
     : []
   if (stops.length < 2) throw badRequest(`scenario.services[${index}] requires at least two stops.`)
+  for (const field of ['segmentRuntimeMinutes', 'segmentDistancesKm']) {
+    if (value[field] !== undefined && (!Array.isArray(value[field]) || value[field].length !== stops.length - 1)) {
+      throw badRequest(`scenario.services[${index}].${field} must contain one value per stop pair.`)
+    }
+  }
+  if (timeModel === 'infer-road' && !value.segmentRuntimeMinutes && !value.segmentDistancesKm) {
+    throw badRequest(`scenario.services[${index}] requires road distances or segment runtimes for infer-road timing.`)
+  }
   return {
     id: compactText(value.id, `service-${index + 1}`, 80),
     name: compactText(value.name, `Service ${index + 1}`),
@@ -153,6 +164,17 @@ function normalizedService(value, index) {
       0,
       10,
     ),
+    addedStopDwellMinutes: boundedNumber(
+      value.addedStopDwellMinutes ?? 0,
+      `scenario.services[${index}].addedStopDwellMinutes`,
+      0,
+      10,
+    ),
+    ...(Array.isArray(value.segmentDistancesKm)
+      ? { segmentDistancesKm: value.segmentDistancesKm.map((distance, distanceIndex) => boundedNumber(
+          distance, `scenario.services[${index}].segmentDistancesKm[${distanceIndex}]`, 0, 1_500,
+        )) }
+      : {}),
     ...(Array.isArray(value.segmentRuntimeMinutes)
       ? {
           segmentRuntimeMinutes: value.segmentRuntimeMinutes.map((runtime, runtimeIndex) => boundedNumber(
@@ -223,6 +245,9 @@ function serviceDirections(service, indexes) {
       segmentRuntimeMinutes: service.segmentRuntimeMinutes
         ? [...service.segmentRuntimeMinutes].reverse()
         : undefined,
+      segmentDistancesKm: service.segmentDistancesKm
+        ? [...service.segmentDistancesKm].reverse()
+        : undefined,
     })
   }
   return directions
@@ -234,16 +259,23 @@ function directionOffsets(direction, service) {
   )
   const offsets = [0]
   for (let index = 1; index < direction.stops.length; index += 1) {
-    const distanceKm = projectedDistanceKm(
+    const inferredDistance = direction.segmentDistancesKm?.[index - 1]
+      ?? service.segmentDistancesKm?.[index - 1]
+    const distanceKm = service.timeModel === 'infer-road' && Number.isFinite(inferredDistance)
+      ? inferredDistance
+      : projectedDistanceKm(
       direction.stops[index - 1].coordinate,
       direction.stops[index].coordinate,
       projection,
     )
     const scheduledRuntime = direction.segmentRuntimeMinutes?.[index - 1]
       ?? service.segmentRuntimeMinutes?.[index - 1]
+    const addedDwell = ['inserted', 'added'].includes(direction.stops[index].editStatus)
+      ? service.addedStopDwellMinutes
+      : 0
     const segmentMinutes = ['preserve-scheduled', 'infer-road'].includes(service.timeModel)
       && Number.isFinite(scheduledRuntime)
-      ? scheduledRuntime
+      ? scheduledRuntime + addedDwell
       : service.dwellMinutes + distanceKm / service.averageSpeedKph * 60
     offsets.push(
       offsets[index - 1]
@@ -963,9 +995,17 @@ export function validateReachRequest(value) {
 }
 
 export function compileReachScenario(value) {
+  if (value != null && (typeof value !== 'object' || Array.isArray(value))) {
+    throw badRequest('scenario must be an object.')
+  }
   const scenarioValue = value && typeof value === 'object' && !Array.isArray(value)
     ? value
     : {}
+  for (const field of ['services', 'excludedRouteIds', 'excludedTripIds', 'excludedPatternIds']) {
+    if (scenarioValue[field] !== undefined && !Array.isArray(scenarioValue[field])) {
+      throw badRequest(`scenario.${field} must be an array.`)
+    }
+  }
   const services = Array.isArray(scenarioValue.services)
     ? scenarioValue.services.map(normalizedService)
     : []

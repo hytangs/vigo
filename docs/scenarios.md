@@ -34,3 +34,7 @@ proposal = city.scenario(
 ```
 
 `operation` is `add`, `augment`, or `replace`. `without_routes` removes selected scheduled route variants for the Scenario. These changes remain tied to the City revision used to create the Scenario.
+
+`replace` requires `sourceRouteId` and removes that scheduled route before applying the new service. Supply `sourcePatternId` and `routeScope: "pattern"` to replace just one branch. Studio, Python, and the CLI resolve these references through the same code.
+
+For an edited GTFS line, road geometry distributes the original A → B runtime among the edited gaps. `addedStopDwellMinutes` adds dwell at inserted stops in each direction. New lines use `segmentDistancesKm` and `averageSpeedKph` for road timing, plus `dwellMinutes`. Segment distance and runtime arrays must contain one value per stop pair. Studio requires a completed road path before running a road-following Scenario.

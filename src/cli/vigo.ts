@@ -53,6 +53,7 @@ import {
   validateOrderedRoutingPoints,
 } from '../server/ordered-route-composition.mjs'
 import { compileReachScenario, rasterBounds, rasterContours } from '../server/reach.mjs'
+import { hydrateScenarioRouteServices } from '../server/scenario-services.mjs'
 import { resolveServiceDay } from '../server/service-day.mjs'
 import type { ServiceDay } from '../domain'
 import type { RoutingExecutionStatus, RoutingPlan, RoutingPoint, RoutingTimePreference } from '../routingModel'
@@ -476,11 +477,13 @@ function writeJsonResult(payload: Record<string, unknown>, outputValue = '') {
 async function runRouteRequest(args: CliArguments) {
   const { storePath, streetStorePath, city } = resolveRuntimePaths(args)
   const request = readStructuredRequest(args, 'route')
+  if (request.scenario) throw new Error('Planned transit Scenarios are supported by Reach, not Route.')
   const options = runtimeOptions(args, request)
   const mode = String(value(args, 'mode', String(request.mode ?? 'transit')))
   if (!['transit', 'walk', 'drive'].includes(mode)) {
     throw new Error('route mode must be transit, walk, or drive')
   }
+  if (request.traffic && mode !== 'drive') throw new Error('Supplied traffic requires Drive Route.')
   const stopLookup = openStopLookup(storePath)
   const origin = analyticalPoint(request.origin, 'Origin', stopLookup)
   const destination = analyticalPoint(request.destination, 'Destination', stopLookup)
@@ -825,6 +828,9 @@ async function runRouteStream(args: CliArguments) {
           routingStatus: routed.plan?.diagnostics?.routingStatus ?? (routed.plan?.status === 'ready' ? 'ready' : 'blocked'),
           engine,
           timing: {
+            openMs: sequence === 1 ? preparation.elapsedMs : 0,
+            computeMs: Number(routed.elapsedMs.toFixed(3)),
+            endToEndMs: Number((performance.now() - (sequence === 1 ? cliStartedAt : requestStarted)).toFixed(3)),
             requestMs: Number((performance.now() - requestStarted).toFixed(3)),
             routeMs: Number(routed.elapsedMs.toFixed(3)),
             engineQueryMs: timingMilliseconds(
@@ -979,11 +985,13 @@ function matrixOrigins(
 async function runMatrix(args: CliArguments) {
   const { storePath, streetStorePath, city } = resolveRuntimePaths(args)
   const request = readStructuredRequest(args, 'matrix')
+  if (request.scenario) throw new Error('Planned transit Scenarios are supported by Reach, not Matrix.')
   const options = analyticalRuntimeOptions(args, 'matrix', request)
   const mode = String(value(args, 'mode', String(request.mode ?? 'transit')))
   if (!['transit', 'walk', 'drive'].includes(mode)) {
     throw new Error('matrix mode must be transit, walk, or drive')
   }
+  if (request.traffic && mode !== 'drive') throw new Error('Supplied traffic requires Drive Matrix.')
   const matrixStrategy = 'auto'
   const horizonMinutes = boundedAnalyticalNumber(
     args,
@@ -1103,6 +1111,12 @@ async function runReach(args: CliArguments) {
   const { storePath, streetStorePath, city } = resolveRuntimePaths(args)
   if (!streetStorePath) throw new Error('reach requires a City with streets')
   const request = readStructuredRequest(args, 'reach')
+  const scenarioState = request.scenario as Record<string, unknown> | undefined
+  if (request.traffic || request.live || scenarioState?.traffic || scenarioState?.live) {
+    throw new Error('Reach does not support supplied traffic or live transit state.')
+  }
+  const mode = value(args, 'mode', String(request.mode ?? 'transit'))
+  if (mode !== 'transit') throw new Error('Reach supports transit with walking access and egress; walk-only and drive Reach are unavailable.')
   if (args.has('radius') || Object.hasOwn(request, 'radiusKm')) {
     throw new Error('Unknown Reach extent; use --extent-radius or extentRadiusKm')
   }
@@ -1130,7 +1144,8 @@ async function runReach(args: CliArguments) {
     1,
     8,
   )
-  const { scenario, overlay } = compileReachScenario(request.scenario)
+  const hydrated = hydrateScenarioRouteServices(storePath, { storageGeneration: city.revisionId }, request)
+  const { scenario, overlay } = compileReachScenario(hydrated.scenario)
   const preparation = await prepareRuntime(
     storePath,
     streetStorePath,
@@ -1726,32 +1741,38 @@ function resultKind(result: Record<string, any>) {
 function routeComparison(before: Record<string, any>, after: Record<string, any>) {
   const left = before.result ?? before.plan ?? before.results?.[0]?.plan ?? null
   const right = after.result ?? after.plan ?? after.results?.[0]?.plan ?? null
-  const leftDuration = Number(left?.durationMinutes)
-  const rightDuration = Number(right?.durationMinutes)
+  const leftDuration = left?.status === 'blocked' ? null : left?.durationMinutes
+  const rightDuration = right?.status === 'blocked' ? null : right?.durationMinutes
   return {
     beforeStatus: left?.status ?? before.status ?? 'unknown',
     afterStatus: right?.status ?? after.status ?? 'unknown',
     durationChangeMinutes: Number.isFinite(leftDuration) && Number.isFinite(rightDuration)
       ? Number((rightDuration - leftDuration).toFixed(3))
       : null,
-    transferChange: Number.isFinite(Number(left?.transfers)) && Number.isFinite(Number(right?.transfers))
+    transferChange: left?.status !== 'blocked' && right?.status !== 'blocked'
+      && Number.isFinite(left?.transfers) && Number.isFinite(right?.transfers)
       ? Number(right.transfers) - Number(left.transfers)
       : null,
   }
 }
 
 function matrixComparison(before: Record<string, any>, after: Record<string, any>) {
-  const key = (row: Record<string, any>) => `${row.originId ?? row.originIndex}:${row.destinationId ?? row.destinationIndex}`
+  const key = (row: Record<string, any>) => JSON.stringify([row.originId ?? row.originIndex, row.destinationId ?? row.destinationIndex])
   const left = new Map((before.rows ?? []).map((row: Record<string, any>) => [key(row), row]))
   let faster = 0
   let slower = 0
   let unchanged = 0
   let comparable = 0
   let totalChange = 0
+  let newlyReachable = 0
+  let noLongerReachable = 0
   for (const row of after.rows ?? []) {
     const previous = left.get(key(row)) as Record<string, any> | undefined
-    const beforeMinutes = Number(previous?.durationMinutes)
-    const afterMinutes = Number(row.durationMinutes)
+    if (!previous) continue
+    const beforeMinutes = previous.status === 'blocked' ? null : previous.durationMinutes
+    const afterMinutes = row.status === 'blocked' ? null : row.durationMinutes
+    if (!Number.isFinite(beforeMinutes) && Number.isFinite(afterMinutes)) newlyReachable += 1
+    if (Number.isFinite(beforeMinutes) && !Number.isFinite(afterMinutes)) noLongerReachable += 1
     if (!Number.isFinite(beforeMinutes) || !Number.isFinite(afterMinutes)) continue
     const change = afterMinutes - beforeMinutes
     comparable += 1
@@ -1765,6 +1786,8 @@ function matrixComparison(before: Record<string, any>, after: Record<string, any
     fasterPairs: faster,
     slowerPairs: slower,
     unchangedPairs: unchanged,
+    newlyReachablePairs: newlyReachable,
+    noLongerReachablePairs: noLongerReachable,
     meanChangeMinutes: comparable ? Number((totalChange / comparable).toFixed(3)) : null,
   }
 }
@@ -1772,7 +1795,16 @@ function matrixComparison(before: Record<string, any>, after: Record<string, any
 function reachComparison(before: Record<string, any>, after: Record<string, any>) {
   const left = before.surface?.values
   const right = after.surface?.values
-  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+  const grid = before.surface
+  const otherGrid = after.surface
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length
+    || !Number.isInteger(grid?.width) || grid.width <= 0
+    || !Number.isInteger(grid?.height) || grid.height <= 0
+    || left.length !== grid.width * grid.height
+    || grid.width !== otherGrid?.width || grid.height !== otherGrid?.height
+    || !Array.isArray(grid.bounds) || grid.bounds.length !== 4
+    || !grid.bounds.every(Number.isFinite)
+    || JSON.stringify(grid.bounds) !== JSON.stringify(otherGrid?.bounds)) {
     throw new Error('Reach results must use the same grid before they can be compared')
   }
   let faster = 0
@@ -1780,9 +1812,13 @@ function reachComparison(before: Record<string, any>, after: Record<string, any>
   let unchanged = 0
   let comparable = 0
   let totalChange = 0
+  let newlyReachable = 0
+  let noLongerReachable = 0
   for (let index = 0; index < left.length; index += 1) {
-    const beforeMinutes = Number(left[index])
-    const afterMinutes = Number(right[index])
+    const beforeMinutes = left[index]
+    const afterMinutes = right[index]
+    if (!Number.isFinite(beforeMinutes) && Number.isFinite(afterMinutes)) newlyReachable += 1
+    if (Number.isFinite(beforeMinutes) && !Number.isFinite(afterMinutes)) noLongerReachable += 1
     if (!Number.isFinite(beforeMinutes) || !Number.isFinite(afterMinutes)) continue
     const change = afterMinutes - beforeMinutes
     comparable += 1
@@ -1796,6 +1832,8 @@ function reachComparison(before: Record<string, any>, after: Record<string, any>
     fasterCells: faster,
     slowerCells: slower,
     unchangedCells: unchanged,
+    newlyReachableCells: newlyReachable,
+    noLongerReachableCells: noLongerReachable,
     meanChangeMinutes: comparable ? Number((totalChange / comparable).toFixed(3)) : null,
   }
 }

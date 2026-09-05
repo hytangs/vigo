@@ -20,7 +20,7 @@ import { readGtfsNetworkOverview, readGtfsRouteAnalysis } from './gtfs-analysis-
 import { decodeGtfsRealtimeFeed, gtfsRealtimeEnums as gtfsRealtime } from './gtfs-realtime-decoder.mjs'
 import { fetchSafeRealtimeBody } from './realtime-url-security.mjs'
 import { computeReachResult } from './reach.mjs'
-import { scenarioEntityCandidates, scenarioEntityMatches } from './scenario-entity-ids.mjs'
+import { hydrateScenarioRouteServices } from './scenario-services.mjs'
 import { buildServiceEdgeDecomposition } from './service-decomposition.mjs'
 import { resolveServiceDay, serviceDayForDate } from './service-day.mjs'
 import { integralNumber } from './number-utils.mjs'
@@ -108,8 +108,6 @@ const nationalRouteRssBudgetBytes = Math.max(
   256 * 1024 * 1024,
   Number(process.env.VIGO_ROUTE_WORKER_RSS_BUDGET_BYTES) || defaultNationalRouteRssBudgetBytes,
 )
-const scenarioRouteStopCache = new Map()
-const scenarioRouteStopCacheMaxEntries = 256
 
 function defaultStorageRoot() {
   return path.join(os.homedir(), 'Documents', 'Vigo Projects')
@@ -4775,193 +4773,6 @@ async function runNationalStreetMatrix(projectId, body, signal) {
     },
     signal,
   )
-}
-
-function scenarioStopsForStoredRoute(storePath, storeIdentity, routeId) {
-  const requestedRouteId = String(routeId ?? '').trim()
-  if (!requestedRouteId) return []
-  const identity = storeIdentity.storageGeneration
-  const key = `${identity}:${requestedRouteId}`
-  const retained = scenarioRouteStopCache.get(key)
-  if (retained) {
-    scenarioRouteStopCache.delete(key)
-    scenarioRouteStopCache.set(key, retained)
-    return retained.map((stop) => ({ ...stop, coordinate: [...stop.coordinate] }))
-  }
-
-  for (const normalizedRouteId of scenarioEntityCandidates(requestedRouteId)) {
-    const preview = readNationalGtfsPreview(storePath, {
-      routeLimit: 1,
-      representativeRouteIds: [normalizedRouteId],
-    })
-    const route = preview.routes.find((entry) => (
-      entry.routeId === normalizedRouteId || entry.id === normalizedRouteId
-    ))
-    const stopById = new Map(preview.stops.map((stop) => [stop.id, stop]))
-    const ordered = Array.isArray(route?.stopIds)
-      ? route.stopIds.flatMap((stopId, index) => {
-        const stop = stopById.get(stopId)
-        if (!stop || !Number.isFinite(Number(stop.lon)) || !Number.isFinite(Number(stop.lat))) return []
-        return [{
-          id: `${normalizedRouteId}:stop:${index + 1}`,
-          label: stop.name || `Stop ${index + 1}`,
-          coordinate: [Number(stop.lon), Number(stop.lat)],
-          source: 'route',
-          stopId: stop.id,
-        }]
-      })
-      : []
-    const stops = ordered.length >= 2 ? ordered : []
-    if (stops.length < 2) continue
-    scenarioRouteStopCache.set(key, stops)
-    while (scenarioRouteStopCache.size > scenarioRouteStopCacheMaxEntries) {
-      scenarioRouteStopCache.delete(scenarioRouteStopCache.keys().next().value)
-    }
-    return stops.map((stop) => ({ ...stop, coordinate: [...stop.coordinate] }))
-  }
-  return []
-}
-
-function scenarioGeometryForStoredRoute(storePath, routeId, patternId) {
-  const requestedRouteId = String(routeId ?? '').trim()
-  const requestedPatternId = String(patternId ?? '').trim()
-  if (!requestedRouteId) return null
-  for (const normalizedRouteId of scenarioEntityCandidates(requestedRouteId)) {
-    const analysis = readGtfsRouteAnalysis(storePath, normalizedRouteId, { includeTripIds: true })
-    const candidates = Array.isArray(analysis?.routes) ? analysis.routes : []
-    const route = candidates.find((candidate) => (
-      (!requestedPatternId
-        || scenarioEntityMatches(candidate.id, requestedPatternId)
-        || scenarioEntityMatches(candidate.patternId, requestedPatternId))
-      && Array.isArray(candidate.coordinates)
-      && candidate.coordinates.length >= 2
-    ))
-    if (!route) continue
-    return {
-      geometry: route.coordinates.map((point) => [Number(point[0]), Number(point[1])]),
-      geometrySource: route.geometrySource === 'shape' ? 'shape' : 'stop_sequence',
-    }
-  }
-  return null
-}
-
-function scenarioTripIdsForStoredPattern(storePath, routeId, patternId) {
-  const requestedRouteId = String(routeId ?? '').trim()
-  const requestedPatternId = String(patternId ?? '').trim()
-  if (!requestedRouteId || !requestedPatternId) return []
-  for (const normalizedRouteId of scenarioEntityCandidates(requestedRouteId)) {
-    const analysis = readGtfsRouteAnalysis(storePath, normalizedRouteId, { includeTripIds: true })
-    const pattern = analysis?.routes?.find((route) => (
-      scenarioEntityMatches(route.id, requestedPatternId)
-        || scenarioEntityMatches(route.patternId, requestedPatternId)
-    ))
-    if (Array.isArray(pattern?.tripIds)) {
-      return pattern.tripIds.map((tripId) => String(tripId)).filter(Boolean)
-    }
-  }
-  return []
-}
-
-function scenarioStoredRouteId(storePath, routeId) {
-  const candidates = scenarioEntityCandidates(routeId)
-  if (!candidates.length) return ''
-  const db = new DatabaseSync(storePath, { readOnly: true })
-  try {
-    const findRoute = db.prepare('SELECT route_id FROM routes WHERE route_id=? LIMIT 1')
-    for (const candidate of candidates) {
-      if (findRoute.get(candidate)?.route_id) return candidate
-    }
-  } finally {
-    db.close()
-  }
-  return candidates.at(-1) ?? ''
-}
-
-function expandedScenarioRouteIds(storePath, routeIds) {
-  return [...new Set(
-    (Array.isArray(routeIds) ? routeIds : [])
-      .map((routeId) => scenarioStoredRouteId(storePath, routeId))
-      .filter(Boolean),
-  )]
-}
-
-function hydrateScenarioRouteServices(storePath, storeIdentity, body) {
-  const scenario = body?.scenario
-  if (!scenario || !Array.isArray(scenario.services)) return body
-  const excludedTripIds = Array.isArray(scenario.excludedTripIds)
-    ? scenario.excludedTripIds.map((tripId) => String(tripId ?? '').trim()).filter(Boolean)
-    : []
-  const excludedPatternIds = Array.isArray(scenario.excludedPatternIds)
-    ? scenario.excludedPatternIds
-    : []
-  const services = scenario.services.map((service) => {
-    if (
-      !service
-      || service.operation === 'add'
-      || (Array.isArray(service.stops) && service.stops.length >= 2)
-    ) {
-      if (Array.isArray(service?.geometry) && service.geometry.length >= 2) return service
-      const geometry = service?.sourceRouteId
-        ? scenarioGeometryForStoredRoute(storePath, service.sourceRouteId, service.sourcePatternId)
-        : null
-      return geometry ? { ...service, ...geometry } : service
-    }
-    const routeId = String(service.sourceRouteId ?? '').trim()
-    const stops = scenarioStopsForStoredRoute(storePath, storeIdentity, routeId)
-    const geometry = scenarioGeometryForStoredRoute(storePath, routeId, service.sourcePatternId)
-    if (stops.length >= 2) return {
-      ...service,
-      stops,
-      ...(geometry && !Array.isArray(service.geometry) ? geometry : {}),
-    }
-    const error = new Error(`Unable to derive an ordered stop pattern for route ${routeId || '(missing route)'}.`)
-    error.statusCode = 400
-    throw error
-  })
-  for (const reference of excludedPatternIds) {
-    const tripIds = scenarioTripIdsForStoredPattern(
-      storePath,
-      reference?.routeId,
-      reference?.patternId,
-    )
-    if (!tripIds.length) {
-      const error = new Error(
-        `Unable to resolve the selected GTFS branch ${String(reference?.patternId ?? '(missing pattern)')}.`,
-      )
-      error.statusCode = 400
-      throw error
-    }
-    excludedTripIds.push(...tripIds)
-  }
-  for (const service of services) {
-    if (
-      !service
-      || !['replace'].includes(service.operation)
-      || service.routeScope !== 'pattern'
-    ) continue
-    const tripIds = scenarioTripIdsForStoredPattern(
-      storePath,
-      service.sourceRouteId,
-      service.sourcePatternId,
-    )
-    if (!tripIds.length) {
-      const error = new Error(
-        `Unable to resolve the selected GTFS branch ${String(service.sourcePatternId ?? '(missing pattern)')}.`,
-      )
-      error.statusCode = 400
-      throw error
-    }
-    excludedTripIds.push(...tripIds)
-  }
-  return {
-    ...body,
-    scenario: {
-      ...scenario,
-      services,
-      excludedTripIds: [...new Set(excludedTripIds)],
-      excludedRouteIds: expandedScenarioRouteIds(storePath, scenario.excludedRouteIds),
-    },
-  }
 }
 
 async function runReach(projectId, body, signal, onProgress, onPreliminary) {

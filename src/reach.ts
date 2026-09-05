@@ -109,7 +109,6 @@ export function scenarioPublishedShapeSegmentIndexes(
 
 type ScenarioSegmentRuntimeOptions = {
   segmentDistancesKm?: number[]
-  addedStopDwellMinutes?: number
 }
 
 export function scenarioSegmentRuntimeMinutes(
@@ -188,7 +187,6 @@ export function scenarioSegmentRuntimeMinutes(
       if (rightIndex !== undefined) {
         const block = stops.slice(index, rightPosition + 1)
         const originalRuntime = preservedRuntime ?? fallbackRuntime(left, block.at(-1)!)
-        const originalDistance = routeDistance(left, block.at(-1)!)
         const requestedDistances = options.segmentDistancesKm?.slice(index, rightPosition)
         const shapeDistances = block.slice(1).map((stop, blockIndex) => (
           routeDistance(block[blockIndex], stop)
@@ -198,30 +196,11 @@ export function scenarioSegmentRuntimeMinutes(
           ? requestedDistances
           : shapeDistances
         const totalDistance = distances.reduce((sum, distance) => sum + distance, 0)
-        const referenceSpeedKph = originalDistance > 0 && originalRuntime > 0
-          ? originalDistance / originalRuntime * 60
-          : Number(route.scheduledSpeedKph) > 0
-            ? Number(route.scheduledSpeedKph)
-            : 25
-        const adjustedTravelRuntime = Math.max(
-          0.05,
-          originalRuntime + (totalDistance - originalDistance) / referenceSpeedKph * 60,
-        )
-        const addedStopDwellMinutes = Math.max(0, Number(options.addedStopDwellMinutes ?? 0))
-        runtimes.push(...distances.map((distance, segmentIndex) => {
-          const distributedTravel = totalDistance > 0
-            ? adjustedTravelRuntime * distance / totalDistance
-            : adjustedTravelRuntime / Math.max(1, distances.length)
-          // Associate dwell with the station reached by this segment. The
-          // server reverses the segment array for the opposite direction, so
-          // this keeps the dwell at the same physical stop both ways.
-          const destinationStop = block[segmentIndex + 1]
-          const addedDwell = addedStopDwellMinutes > 0
-            && (destinationStop.editStatus === 'inserted' || destinationStop.editStatus === 'added')
-            ? addedStopDwellMinutes
-            : 0
-          return Math.max(0.05, distributedTravel + addedDwell)
-        }))
+        // Geometry distributes the published A → B runtime; it does not
+        // change its total. The server adds inserted-stop dwell per direction.
+        runtimes.push(...distances.map((distance) => totalDistance > 0
+          ? originalRuntime * distance / totalDistance
+          : originalRuntime / distances.length))
         index = rightPosition
         continue
       }
@@ -320,6 +299,8 @@ export type ScenarioServiceDraft = {
   routeScope?: ScenarioRouteScope
   timeModel?: ScenarioTimeModel
   segmentRuntimeMinutes?: number[]
+  segmentDistancesKm?: number[]
+  addedStopDwellMinutes?: number
   /** Published GTFS shape geometry when the service is based on an existing pattern. */
   geometry?: LngLat[]
   geometrySource?: GeometrySource

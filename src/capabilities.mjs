@@ -66,10 +66,11 @@ const queryFamilies = Object.freeze([
     purpose: 'Map where the network can reach within one or more time limits.',
     interfaces: Object.freeze({ studio: supported, python: supported, cli: supported }),
     options: Object.freeze([
-      'transit, walk, or drive',
+      'scheduled transit with walking access and egress',
       'area contours or reached streets',
       'scenario comparison',
     ]),
+    modes: Object.freeze({ available: Object.freeze(['transit']), unavailable: Object.freeze(['walk', 'drive']) }),
     note: 'Reach measures modeled network reach. It does not measure people, jobs, demand, or welfare.',
   }),
 ])

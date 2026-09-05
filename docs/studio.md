@@ -1,10 +1,10 @@
 # VIGO Studio Guide
 
-VIGO Studio is the visual interface to the same City, Scenario, Query, and Result model used by the CLI and VIGO Python.
+VIGO Studio provides network exploration, Route planning, and Reach analysis over the VIGO routing engine.
 
 ## Open a City
 
-Open an existing City directory or build one from GTFS and OSM. Studio keeps the selected City revision visible with each Result. Rebuild when the source feed or street extract changes.
+Select a project from the Studio library and import GTFS and OSM. Rebuild when the source feed or street extract changes. Studio currently stores its projects in a library format; it cannot directly open the movable City directories built by the CLI or Python.
 
 ## Explore
 
@@ -34,7 +34,9 @@ Run a Reach Query and display its travel-time surface as contours or reached str
 
 ### Compare
 
-Compare compatible Results from a baseline City, a supported Scenario, or another City revision. Compare operates on existing Results and does not rerun their Queries.
+Studio's feed comparison runs a Reach Query for each selected GTFS feed and displays the resulting surfaces. To compare completed Results without rerunning their Queries, use `vigo compare` or Python's `vigo.compare`.
+
+Scenario drafts remain in the current Studio session. Changing projects or closing Studio discards them.
 
 Matrix is available through the CLI and VIGO Python in 0.3.0. Studio does not add a separate Matrix screen.
 
@@ -47,6 +49,8 @@ Review GTFS and OSM sources, coverage, counts, and warnings. City files are gene
 ### Settings
 
 Choose appearance, storage location, and map preferences. Runtime detail appears only when it helps diagnose a problem.
+
+The optional CARTO basemaps currently require a provider key that Studio does not configure. Use the OpenStreetMap street style or the local map if those styles display an API-key watermark.
 
 ## Troubleshooting
 

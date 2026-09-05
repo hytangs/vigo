@@ -19,6 +19,7 @@ import { integralNumber, numeric, timingMilliseconds } from './number-utils.mjs'
 import { routeDisplayLongName, routePreviewColor } from './route-presentation.mjs'
 import {
   readNationalOsmStoreMetadata,
+  routeNationalStreetMatrix,
   streetPathBetween,
 } from './national-osm-store.mjs'
 import {
@@ -10697,6 +10698,53 @@ export function routeNationalGtfsReach(storePath, request, options = {}) {
 
 
 export function routeNationalGtfsMatrix(storePath, request) {
+  const started = performance.now()
+  const result = routeNationalGtfsTransitMatrix(storePath, request)
+  if (!request.streetStorePath || request.__disableDirectWalkDominance === true
+    || result.diagnostics.failure?.code === 'unsupported_gtfs_feature') return result
+
+  const horizonMinutes = Number.isFinite(Number(request.horizonMinutes)) && Number(request.horizonMinutes) > 0
+    ? Math.max(1, Math.min(2_880, Number(request.horizonMinutes))) : 480
+  const walks = routeNationalStreetMatrix(request.streetStorePath, {
+    origins: request.origins,
+    destinations: request.destinations,
+    mode: 'walk',
+    walkingSpeedKph,
+    maxDistanceKm: Math.min(directWalkEndToEndLimitKm(request), horizonMinutes / 60 * walkingSpeedKph),
+  })
+  let selectedWalkPairs = 0
+  for (let index = 0; index < result.rows.length; index += 1) {
+    const row = result.rows[index]
+    const walk = walks.rows[index]
+    // A selected stop is a distinct transit endpoint contract: preserve a
+    // blocked exact-stop result, just as the scalar Route fallback does.
+    if (row.status !== 'ready' && (
+      explicitRoutingStopId(request.origins[row.originIndex])
+      || explicitRoutingStopId(request.destinations[row.destinationIndex])
+    )) continue
+    if (walk.status !== 'ready' || walk.durationMinutes > horizonMinutes + 1e-9
+      || (row.status === 'ready' && row.durationMinutes <= walk.durationMinutes)) continue
+    row.status = 'ready'
+    row.arriveMinutes = minuteCoordinate((row.departMinutes + walk.durationMinutes) * 60)
+    row.durationMinutes = secondsToMinutes(walk.durationMinutes * 60)
+    delete row.failureCode
+    selectedWalkPairs += 1
+  }
+  if (selectedWalkPairs && result.diagnostics.failure) {
+    result.diagnostics.transitFailure = result.diagnostics.failure
+    delete result.diagnostics.failure
+  }
+  result.diagnostics.directWalk = {
+    matrixEngine: walks.diagnostics.matrixEngine,
+    selectedPairs: selectedWalkPairs,
+    maximumDistanceKm: walks.diagnostics.maximumDistanceKm,
+    queryMs: walks.diagnostics.queryMs,
+  }
+  result.diagnostics.queryMs = Number((performance.now() - started).toFixed(3))
+  return result
+}
+
+function routeNationalGtfsTransitMatrix(storePath, request) {
   request = withResolvedServiceDay(request)
   const started = performance.now()
   const origins = Array.isArray(request?.origins) ? request.origins : []
@@ -10780,14 +10828,15 @@ export function routeNationalGtfsMatrix(storePath, request) {
   const services = activateServices(store, serviceDateResolution.resolvedServiceDate, request.serviceDay)
   const activeKernel = ensureActiveServiceKernel(store, services).kernel
   if (!activeKernel) {
-    if (store.activeServiceKernelStatus?.reason === 'no_active_segments') {
+    if (['no_active_segments', 'no_active_services'].includes(store.activeServiceKernelStatus?.reason)) {
+      const failureCode = store.activeServiceKernelStatus.reason
       return {
         schemaVersion: 'vigo.routing.matrix.v1',
         rows: origins.flatMap((_, originIndex) => destinations.map((__, destinationIndex) => ({
           originIndex,
           destinationIndex,
           status: 'blocked',
-          failureCode: 'no_active_segments',
+          failureCode,
           departMinutes: departureMinutes,
           arriveMinutes: null,
           durationMinutes: null,
@@ -10799,7 +10848,7 @@ export function routeNationalGtfsMatrix(storePath, request) {
           routingCoverage,
           activeServices: services.size,
           failure: {
-            code: 'no_active_segments',
+            code: failureCode,
             category: 'no_active_service',
             retryable: false,
             message: 'The selected service set contains no boarding-to-alighting connection supported by the routing contract.',
