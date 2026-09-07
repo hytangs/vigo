@@ -1,4 +1,4 @@
-use super::{Snap, snaps_for_anchor, snaps_for_coordinate};
+use super::{Snap, snaps_for_coordinate};
 use crate::street_snapshot::Snapshot;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -78,7 +78,6 @@ pub struct TimedConnectorInput {
     pub seed_durations_minutes: Vec<f64>,
     pub seed_maximum_walk_m: Vec<f64>,
     pub seed_indices: Vec<u32>,
-    pub seed_fixed_snap: Vec<u32>,
     pub target_coordinates: Vec<f64>,
     pub default_maximum_walk_m: f64,
     pub walk_speed_kph: f64,
@@ -579,7 +578,8 @@ pub(super) fn street_surface(
         for seed in 0..input.seed_durations_minutes.len() {
             let longitude = input.seed_coordinates[seed * 2];
             let latitude = input.seed_coordinates[seed * 2 + 1];
-            for snap in snaps_for_anchor(snapshot, reciprocal_edge_flags, longitude, latitude)? {
+            for snap in snaps_for_coordinate(snapshot, reciprocal_edge_flags, longitude, latitude)?
+            {
                 let retained = push_surface_label(
                     &mut frontier_heads,
                     &mut labels,
@@ -624,7 +624,8 @@ pub(super) fn street_surface(
                 } else {
                     input.maximum_duration_minutes
                 };
-                for snap in snaps_for_anchor(snapshot, reciprocal_edge_flags, longitude, latitude)?
+                for snap in
+                    snaps_for_coordinate(snapshot, reciprocal_edge_flags, longitude, latitude)?
                 {
                     let retained = push_surface_label(
                         &mut frontier_heads,
@@ -1279,7 +1280,6 @@ pub(super) fn validate_timed_connector_input(
     validate_coordinate_pairs(&input.target_coordinates, target_count, "connector target")?;
     if input.seed_maximum_walk_m.len() != seed_count
         || input.seed_indices.len() != seed_count
-        || input.seed_fixed_snap.len() != seed_count
         || input.seed_durations_minutes.iter().any(|duration| {
             !duration.is_finite() || *duration < 0.0 || *duration > input.maximum_duration_minutes
         })
@@ -1320,11 +1320,7 @@ pub(super) fn timed_connectors(
     for seed in 0..seed_count {
         let longitude = input.seed_coordinates[seed * 2];
         let latitude = input.seed_coordinates[seed * 2 + 1];
-        let snaps = if input.seed_fixed_snap[seed] != 0 {
-            snaps_for_coordinate(snapshot, reciprocal_edge_flags, longitude, latitude)?
-        } else {
-            snaps_for_anchor(snapshot, reciprocal_edge_flags, longitude, latitude)?
-        };
+        let snaps = snaps_for_coordinate(snapshot, reciprocal_edge_flags, longitude, latitude)?;
         seeds.push(ConnectorSeed {
             longitude,
             latitude,

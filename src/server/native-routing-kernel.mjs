@@ -246,12 +246,18 @@ function kernelRecord(storePath) {
   const resolvedStorePath = path.resolve(storePath)
   const snapshotPath = snapshotPathForStore(resolvedStorePath)
   const snapshotStat = fs.statSync(snapshotPath, { bigint: true })
-  const identity = `${snapshotStat.dev}:${snapshotStat.ino}:${snapshotStat.size}:${snapshotStat.mtimeNs}`
+  const terminalAccessPath = `${resolvedStorePath}.terminal-access-v1.json`
+  const terminalStat = fs.existsSync(terminalAccessPath) ? fs.statSync(terminalAccessPath, { bigint: true }) : null
+  const identity = `${snapshotStat.dev}:${snapshotStat.ino}:${snapshotStat.size}:${snapshotStat.mtimeNs}|${terminalStat ? `${terminalStat.size}:${terminalStat.mtimeNs}` : 'public'}`
   const cached = nativeKernelCache.get(resolvedStorePath)
   if (cached?.identity === identity) return cached
   const { CoordinateKernel } = loadNativeBinding()
   const startedAt = performance.now()
   const kernel = new CoordinateKernel(snapshotPath)
+  if (terminalStat) {
+    if (typeof kernel.configureTerminalAccess !== 'function') throw new Error('This City requires a native kernel with authorized endpoint access support; rebuild the runtime.')
+    kernel.configureTerminalAccess(terminalAccessPath)
+  }
   const diagnostics = kernel.diagnostics()
   const cchPaths = streetCchPaths(snapshotPath, snapshotStat)
   const structureExists = fs.existsSync(cchPaths.structurePath)
@@ -284,6 +290,7 @@ function kernelRecord(storePath) {
     kernel,
     identity,
     snapshotPath,
+    terminalAccess: terminalStat ? 'authorized_endpoints' : 'public',
     loadMs: performance.now() - startedAt,
     profileKey: '',
     profileMembers: null,
@@ -386,7 +393,9 @@ function timetableEndpointQuery(request) {
     destinationStops: request.destinationSeeds.map((seed) => seed.stop),
     destinationWalkSeconds: request.destinationSeeds.map((seed) => seed.walkSeconds),
     destinationCandidateIndices: request.destinationSeeds.map((seed) => seed.candidateIndex),
+    maximumBoardings: request.maxTransfers === undefined ? undefined : request.maxTransfers + 1,
     allowPreRideTransfers: request.allowPreRideTransfers === true,
+    allowPostRideTransfers: request.allowPostRideTransfers !== false,
   }
 }
 
@@ -432,6 +441,7 @@ export function routeNativeCoordinateTimetableScalar(storePath, kernel, request)
     ...(Number.isFinite(request.arriveByDeadline) ? {
       arriveByDeadline: request.arriveByDeadline,
     } : {}),
+    maximumBoardings: request.maxTransfers === undefined ? undefined : request.maxTransfers + 1,
     allowPreRideTransfers: request.allowPreRideTransfers === true,
     retainFullFrontier: request.retainFullFrontier === true,
     enableDirectWalkDominance: request.enableDirectWalkDominance !== false,
@@ -553,6 +563,7 @@ export function routeNativeCoordinateTimetableMany(storePath, kernel, request) {
     excludedTrips,
     departure: request.departure,
     horizon: request.horizon,
+    maximumBoardings: request.maxTransfers === undefined ? undefined : request.maxTransfers + 1,
     allowPreRideTransfers: request.allowPreRideTransfers === true,
     disableCache: request.disableCache === true,
   })
@@ -703,6 +714,65 @@ export function routeNativeTimetableArriveBy(kernel, request) {
   }
 }
 
+function flattenTimetableSeedSets(seedSets) {
+  const offsets = [0]
+  const stops = []
+  const walkSeconds = []
+  for (const seeds of seedSets) {
+    for (const seed of seeds) {
+      stops.push(seed.stop)
+      walkSeconds.push(seed.walkSeconds)
+    }
+    offsets.push(stops.length)
+  }
+  return { offsets, stops, walkSeconds }
+}
+
+export function routeNativeCoordinateTimetableMatrix(storePath, kernel, request) {
+  const record = preparedKernelRecord(storePath)
+  if (!record.profileMembers || !record.profileKey) throw new Error('Rust coordinate access profile is required.')
+  const timetable = prepareNativeTimetableKernel(kernel)
+  const result = record.kernel.routeEndpointsTimetableMatrix(timetable.kernel, {
+    originCoordinates: request.origins.flatMap((point) => point.coordinate),
+    destinationCoordinates: request.destinations.flatMap((point) => point.coordinate),
+    memberTimetableStops: coordinateTimetableProjection(record, kernel),
+    maximumWalkM: request.maximumWalkM,
+    ...queryAccessTiming(request),
+    departure: request.departure, horizon: request.horizon, arriveBy: request.arriveBy,
+    maximumBoardings: request.maxTransfers === undefined ? undefined : request.maxTransfers + 1,
+    disableCache: request.disableCache === true,
+  })
+  return { ...result.timetable, queryMs: normalizeNativeMilliseconds(result.timetable.queryNs),
+    accessMs: normalizeNativeMilliseconds(result.accessNs),
+    coordinateMatrixMs: normalizeNativeMilliseconds(result.queryNs) }
+}
+
+export function routeNativeTimetableMatrix(kernel, request) {
+  const record = prepareNativeTimetableKernel(kernel)
+  const origins = flattenTimetableSeedSets(request.originSeedSets)
+  const destinations = flattenTimetableSeedSets(request.destinationSeedSets)
+  const result = record.kernel.routeMatrixCsa({
+    originOffsets: origins.offsets,
+    originStops: origins.stops,
+    originWalkSeconds: origins.walkSeconds,
+    destinationOffsets: destinations.offsets,
+    destinationStops: destinations.stops,
+    destinationWalkSeconds: destinations.walkSeconds,
+    maximumBoardings: request.maxTransfers === undefined ? undefined : request.maxTransfers + 1,
+    allowPreRideTransfers: request.allowPreRideTransfers,
+    allowPostRideTransfers: request.allowPostRideTransfers,
+    departure: request.departure,
+    horizon: request.horizon,
+    arriveBy: request.arriveBy,
+  })
+  return {
+    ...result,
+    queryMs: normalizeNativeMilliseconds(result.queryNs),
+    configureMs: record.configureMs,
+    kernelDiagnostics: record.diagnostics,
+  }
+}
+
 export function routeNativeTimetableMany(kernel, request) {
   const record = prepareNativeTimetableKernel(kernel)
   const destinationSeedSets = request.destinationSeedSets
@@ -738,7 +808,9 @@ export function routeNativeTimetableMany(kernel, request) {
     excludedTrips: request.excludedTrips ?? [],
     departure: request.departure,
     horizon: request.horizon,
+    maximumBoardings: request.maxTransfers === undefined ? undefined : request.maxTransfers + 1,
     allowPreRideTransfers: request.allowPreRideTransfers === true,
+    allowPostRideTransfers: request.allowPostRideTransfers,
   })
   return {
     ...result,
@@ -774,7 +846,9 @@ export function routeNativeTimetableOverlayMany(kernel, request) {
     excludedTrips: request.excludedTrips ?? [],
     departure: request.departure,
     horizon: request.horizon,
+    maximumBoardings: request.maxTransfers === undefined ? undefined : request.maxTransfers + 1,
     allowPreRideTransfers: request.allowPreRideTransfers === true,
+    allowPostRideTransfers: request.allowPostRideTransfers,
     overlayStopCount: overlay.stopCount ?? 0,
     directionOffsets: overlay.directionOffsets ?? [0],
     directionStops: overlay.directionStops ?? [],
@@ -910,6 +984,8 @@ export function routeNativeTimetablePareto(kernel, request) {
     arrivalSlackSeconds: request.arrivalSlackSeconds,
     transferPenaltySeconds: request.transferPenaltySeconds,
     walkReluctance: request.walkReluctance,
+    ...(request.collectAlternatives ? { collectAlternatives: true } : {}),
+    deadlineObjective: request.deadlineObjective === true,
     ...(request.restrictionMode ? { restrictionMode: request.restrictionMode } : {}),
   })
   return {
@@ -936,6 +1012,14 @@ export function nativeRoutingAccessProfilePrepared(storePath, profileKey) {
   )
 }
 
+export function nativePublicAccessComponents(storePath) {
+  return preparedKernelRecord(storePath).kernel.publicAccessComponents()
+}
+
+export function nativeStreetAccessPermission(storePath) {
+  return nativeKernelCache.get(path.resolve(storePath))?.terminalAccess ?? 'public'
+}
+
 export function prepareNativeRoutingKernel(storePath) {
   const record = kernelRecord(storePath)
   return {
@@ -943,6 +1027,7 @@ export function prepareNativeRoutingKernel(storePath) {
     accelerated: true,
     source: 'rust_mmap_node_api',
     snapshotPath: record.snapshotPath,
+    terminalAccess: record.terminalAccess,
     loadMs: Number(record.loadMs.toFixed(3)),
     nodeCount: record.diagnostics.nodeCount,
     edgeCount: record.diagnostics.edgeCount,
@@ -1124,6 +1209,7 @@ export function configureNativeRoutingAccessProfile(storePath, profile, options 
   record.profileMemberStreetAccessStopIds = profile.memberStreetAccessStopIds
   record.profileStopIds = profile.stopIds
   record.profileStops = profile.stops
+  record.profileTransferPaths = profile.transferPaths
   record.profileCandidateBases = profile.members.map((stop, index) => {
     const streetAccessLon = profile.memberLons[index]
     const streetAccessLat = profile.memberLats[index]
@@ -1208,7 +1294,7 @@ function candidateFromNativeValues(
     accessSeconds,
     exactStopAccess: exact,
     walkSource: exact ? 'coordinate-colocation' : 'osm-rust',
-    streetPathVerified: true,
+    streetPathVerified: !linked || linkStreetVerified !== 0,
     streetAccessStopId: linked ? source.stop_id : source.streetAccessStopId,
     streetAccessCoordinate: linked
       ? [source.lon, source.lat]
@@ -1237,7 +1323,15 @@ function candidateFromNativeValues(
       throw new Error('Rust linked-access frontier returned unknown transfer stop keys.')
     }
     const transferCoordinate = [transferredStop.lon, transferredStop.lat]
+    const reverse = role === 'destination'
+    const path = record.profileTransferPaths?.get(reverse
+      ? `${linkToStopKey}:${linkFromStopKey}:${linkDuration}`
+      : `${linkFromStopKey}:${linkToStopKey}:${linkDuration}`)
     Object.assign(candidate, {
+      ...(path ? {
+        accessTransferCoordinates: reverse ? [...path.coordinates].reverse() : path.coordinates,
+        accessTransferSources: path.sources,
+      } : {}),
       accessTransferFromStopId: fromStopId,
       accessTransferToStopId: toStopId,
       accessTransferSeconds: linkDuration,
@@ -1525,13 +1619,6 @@ export function materializeNativeStreetPath(storePath, nativeStreetPath, maximum
   return orientNativeStreetPathCoordinates(coordinates, nativeStreetPath.role)
 }
 
-function connectorDistanceSquared(left, right) {
-  const latitude = (left[1] + right[1]) * Math.PI / 360
-  const longitudeDelta = (left[0] - right[0]) * Math.cos(latitude)
-  const latitudeDelta = left[1] - right[1]
-  return longitudeDelta * longitudeDelta + latitudeDelta * latitudeDelta
-}
-
 function coordinatesExactlyEqual(left, right) {
   return (
     Array.isArray(left)
@@ -1551,19 +1638,8 @@ function normalizeNativeStreetPathResult(result, fromCoordinate, toCoordinate) {
   for (let index = 0; index + 1 < result.coordinates.length; index += 2) {
     graphCoordinates.push([result.coordinates[index], result.coordinates[index + 1]])
   }
-  let geometryReversed = false
-  if (graphCoordinates.length >= 2) {
-    const first = graphCoordinates[0]
-    const last = graphCoordinates[graphCoordinates.length - 1]
-    const forwardConnectors = connectorDistanceSquared(fromCoordinate, first)
-      + connectorDistanceSquared(last, toCoordinate)
-    const reverseConnectors = connectorDistanceSquared(fromCoordinate, last)
-      + connectorDistanceSquared(first, toCoordinate)
-    if (reverseConnectors < forwardConnectors) {
-      graphCoordinates.reverse()
-      geometryReversed = true
-    }
-  }
+  // Native path reconstruction is directed and ordered. Reversing its nodes
+  // by endpoint proximity can invent edges that are absent from the graph.
   const coordinates = []
   for (const coordinate of [fromCoordinate, ...graphCoordinates, toCoordinate]) {
     if (!coordinatesExactlyEqual(coordinates.at(-1), coordinate)) {
@@ -1581,7 +1657,7 @@ function normalizeNativeStreetPathResult(result, fromCoordinate, toCoordinate) {
     nativeChainSkippedNodes: result.chainSkippedNodes,
     nativeContractedArcRelaxations: result.contractedArcRelaxations,
     nativeCchAccelerated: result.cchAccelerated === true,
-    geometryReversed,
+    geometryReversed: false,
   }
 }
 
@@ -1816,7 +1892,6 @@ export function routeNativeTimedConnectors(storePath, value) {
         durationMinutes,
         maximumWalkM: Math.max(0, Math.min(20, requestedMaximumWalkKm)) * 1_000,
         seedIndex: index,
-        fixedSnap: seed?.snapMode === 'fixed',
       }]
       : []
   })
@@ -1830,7 +1905,6 @@ export function routeNativeTimedConnectors(storePath, value) {
     seedDurationsMinutes: seeds.map((seed) => seed.durationMinutes),
     seedMaximumWalkM: seeds.map((seed) => seed.maximumWalkM),
     seedIndices: seeds.map((seed) => seed.seedIndex),
-    seedFixedSnap: seeds.map((seed) => Number(seed.fixedSnap)),
     targetCoordinates: targets.flatMap((target) => target.coordinate),
     defaultMaximumWalkM: defaultMaximumWalkKm * 1_000,
     walkSpeedKph,
@@ -2028,6 +2102,7 @@ export function routeNativeAccessMemberPath(
   toCoordinate,
   maximumDistanceKm,
   maximumPoints = 160,
+  stopTransfer = false,
 ) {
   const record = preparedKernelRecord(storePath)
   if (!record.profileMembers || !record.profileKey) {
@@ -2048,6 +2123,7 @@ export function routeNativeAccessMemberPath(
         destinationMemberIndex,
         maximumDistanceM: maximumDistanceKm * 1000,
         maximumPoints,
+        stopTransfer,
       })
       if (result.found && (!best || result.distanceM < best.distanceM)) best = result
     }

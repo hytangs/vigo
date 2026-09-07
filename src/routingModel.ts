@@ -44,6 +44,8 @@ export type RoutingLeg = {
   travelMode?: RoutingTravelMode
   scheduleMode?: Exclude<RoutingScheduleMode, 'none'>
   walkSource?: RoutingWalkSource
+  transferSource?: 'gtfs_transfer' | 'gtfs_pathway' | 'schedule_transfer' | 'schedule_pathway' | 'osm_certified_radial' | 'parent_station_fallback'
+  streetPathVerified?: boolean
   fromStopId?: string
   toStopId?: string
   fromStationGroupId?: string
@@ -58,13 +60,14 @@ export type RoutingLeg = {
   directionId?: string
   transferAction?: 'interchange' | 'same-route-change' | 'platform-change'
   connectingRouteShortName?: string
-  geometrySource?: 'shape' | 'stop_sequence'
+  geometrySource?: 'shape' | 'stop_sequence' | 'osm-rust-selected-transfer' | 'stop-coordinate-fallback' | 'station-transfer-schematic'
   shapeId?: string
   startMinutes: number
   endMinutes: number
   durationMinutes: number
   distanceKm: number
   stopCount: number
+  stopIds?: string[]
   coordinates: LngLat[]
   bridgedUntimedGapCount?: number
   sourceEqualTime?: boolean
@@ -153,6 +156,7 @@ export type RoutingPlan = {
     pruning?: Record<string, unknown>
     calendarWarning?: string
     walkingPolicyId?: string
+    walkingAccessPermission?: 'public' | 'authorized_endpoints'
     originStopCandidates?: number
     destinationStopCandidates?: number
     accessAvailability?: {
@@ -210,5 +214,6 @@ export type RoutingCommand = {
   departMinutes?: number
   timePreference?: RoutingTimePreference
   maxWalkKm?: number
+  maxTransfers?: number
   mode?: RoutingTravelMode
 }

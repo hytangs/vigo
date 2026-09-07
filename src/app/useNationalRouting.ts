@@ -42,6 +42,7 @@ type UseNationalRoutingOptions = {
   serviceDay: ServiceDay
   serviceDate: string
   maxWalkKm: number
+  maxTransfers?: number
   allowLongWalk: boolean
   departureWindowMinutes: RoutingDepartureWindowMinutes
   realtimeSnapshot: RealtimeSnapshot | null
@@ -78,6 +79,7 @@ export function useNationalRouting({
   serviceDay,
   serviceDate,
   maxWalkKm,
+  maxTransfers,
   allowLongWalk,
   departureWindowMinutes,
   realtimeSnapshot,
@@ -188,6 +190,7 @@ export function useNationalRouting({
           serviceDate,
           allowServiceDateFallback: false,
           maxWalkKm,
+          maxTransfers,
           allowLongWalk,
           includeEarliestTransit: mode === 'transit',
           objective: 'earliest_arrival',
@@ -226,7 +229,7 @@ export function useNationalRouting({
     return () => {
       routeRequestGate.current.cancel(requestToken)
     }
-  }, [active, allowLongWalk, departMinutes, departureWindowMinutes, destination, feedId, maxWalkKm, mode, onError, origin, projectId, ready, realtimeSnapshot, routeAllowed, serviceDate, serviceDateAvailability, serviceDay, streetMode, timePreference, waypoints])
+  }, [active, allowLongWalk, departMinutes, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, onError, origin, projectId, ready, realtimeSnapshot, routeAllowed, serviceDate, serviceDateAvailability, serviceDay, streetMode, timePreference, waypoints])
 
   return {
     alternativesLoading,

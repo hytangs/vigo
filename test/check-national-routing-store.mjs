@@ -30,6 +30,7 @@ async function rebuildFixtureRoutingDerivedArtifacts(storePath) {
   const database = new DatabaseSync(storePath)
   try {
     database.exec(`
+      DELETE FROM metadata WHERE key IN ('stopAccessRoleIndexVersion', 'stopAccessRoleCount');
       DROP TABLE IF EXISTS stop_modes;
       CREATE TABLE stop_modes AS
         SELECT COALESCE(NULLIF(s.parent_station, ''), c.from_stop_id) AS stop_id,
@@ -47,6 +48,7 @@ async function rebuildFixtureRoutingDerivedArtifacts(storePath) {
   } finally {
     database.close()
   }
+  await ensureNationalGtfsStopAccessRoles(storePath)
   await buildNationalStaticTopologySidecar({
     storePath,
     outputPath: `${storePath}.static-topology.sqlite`,
@@ -76,6 +78,10 @@ assert.equal(
   false,
   'An unqualified private way must not enter the public pedestrian graph.',
 )
+for (const access of [undefined, 'yes', 'permissive']) {
+  assert.equal(nationalOsmWayWalkable({ highway: 'footway', access, foot: 'private' }), false,
+    'Private pedestrian access must not become a public shortcut through a general mode permission.')
+}
 assert.equal(
   nationalOsmWayWalkable({ highway: 'footway', access: 'private', foot: 'permissive' }),
   true,
@@ -447,7 +453,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v3"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v4"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES
       (1, 0, 0), (2, 0, 0.0009),
@@ -669,7 +675,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v3"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v4"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES
       (1, 0, 0), (2, 0, -0.0009), (3, 0, 0.00135), (4, 0, 0.004), (16, 0.01, 0),
@@ -743,7 +749,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v3"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v4"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES (1, 0, 0.01), (2, 0, 0.011), (3, 0, 0.012);
     INSERT INTO edges VALUES
@@ -1135,6 +1141,12 @@ try {
   )
   assert.equal(competitiveArriveByWalk.timePreference, 'arrive')
   assert.equal(competitiveArriveByWalk.arriveMinutes, 500)
+  const competitiveArriveMatrix = routeNationalGtfsMatrix(denseAccessStorePath, {
+    ...denseAccessRequest, timePreference: 'arrive', arriveMinutes: 500,
+    origins: [denseAccessRequest.origin], destinations: [denseAccessRequest.destination],
+  })
+  assert.equal(competitiveArriveMatrix.rows[0].departMinutes, competitiveArriveByWalk.departMinutes)
+  assert.equal(competitiveArriveMatrix.rows[0].arriveMinutes, 500)
   assert.equal(
     competitiveArriveByWalk.diagnostics.algorithm,
     'osm_direct_walk_latest_departure',
@@ -1520,6 +1532,66 @@ try {
     false,
     'A narrow-envelope street miss must not suppress the wider legal whole-leg walk search.',
   )
+  // A walk can win now while a later departure catches faster transit. Reuse
+  // only the proven interval, including when the moving horizon admits a trip.
+  for (const shortHorizon of [false, true]) {
+    const schedulePath = path.join(folder, `walk-window-${shortHorizon}.json`)
+    const windowStorePath = path.join(folder, `walk-window-${shortHorizon}.sqlite`)
+    const stops = shortTransitSchedule.stops.filter((stop) => stop.id.startsWith('LONG_'))
+      .map((stop) => shortHorizon && stop.id === 'LONG_B' ? { ...stop, lon: 0.001125 } : stop)
+    const trips = [{ id: 'LATER', departure: 485, arrival: shortHorizon ? 485.5 : 487, to: 'LONG_B' }]
+    if (shortHorizon) {
+      stops.push({ id: 'LONG_C', name: 'Direct destination', lat: 0.03, lon: 0.00225, locationType: 0 })
+      trips.push({ id: 'OUTSIDE', departure: 486 + 1 / 60, arrival: 486 + 2 / 60, to: 'LONG_C' })
+    }
+    await fs.writeFile(schedulePath, JSON.stringify({
+      stops,
+      routes: trips.map((trip) => ({
+        id: trip.id, shortName: trip.id, routeType: 3,
+        scheduledTrips: [{
+          tripId: trip.id, serviceId: 'sunday', serviceDays: ['sunday'],
+          stopTimes: [
+            { stopId: 'LONG_A', arrivalMinutes: trip.departure, departureMinutes: trip.departure, sequence: 1 },
+            { stopId: trip.to, arrivalMinutes: trip.arrival, departureMinutes: trip.arrival, sequence: 2 },
+          ],
+        }],
+      })),
+      transferRules: [],
+    }))
+    await buildRoutingStoreFromSchedules({ schedules: [{ feedId: 'walk-window', schedulePath }], outputPath: windowStorePath })
+    try {
+      const query = {
+        ...transitReadyWholeLegWalkRequest,
+        departMinutes: shortHorizon ? 482 : 480,
+        departureWindowMinutes: shortHorizon ? 2 : 5,
+        departureWindowDirection: 'forward',
+        ...(shortHorizon ? { horizonMinutes: 4, __respectShortHorizon: true } : {}),
+      }
+      const window = routeNationalGtfsDepartureWindow(windowStorePath, query)
+      const routeSummary = (plan) => [plan.status, plan.travelMode, plan.arriveMinutes, plan.transfers,
+        plan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.tripId)]
+      for (const plan of window.profile.plans) {
+        assert.deepEqual(routeSummary(plan), routeSummary(routeNationalGtfsStore(windowStorePath, {
+          ...query, departureWindowMinutes: 0, departMinutes: plan.departMinutes,
+        })), 'Reusing a walking result must match a fresh timetable query at every departure.')
+      }
+      assert.equal(window.profile.plans[0].travelMode, 'walk')
+      assert.equal(window.profile.plans[0].diagnostics.searchStats.boundedSearchSkipped,
+        'direct_walk_beats_exact_earliest_transit_arrival')
+      assert(!window.profile.plans[0].diagnostics.searchStats.nativeTimetableKernel?.pareto,
+        'A proven winning walk must skip the bounded native pass.')
+      assert.equal(window.profile.plans.at(-1).travelMode, 'transit')
+      if (shortHorizon) {
+        assert(window.profile.plans[1].legs.some((leg) => leg.routeShortName === 'OUTSIDE'),
+          'The reuse interval must stop before the moving horizon admits a faster trip.')
+      } else {
+        assert(window.profile.directWalkSampleReuses > 0)
+        assert(window.profile.routeSearches < window.profile.sampleCount)
+      }
+    } finally {
+      disposeNationalGtfsStore(windowStorePath)
+    }
+  }
   const transitReadyWholeLegWalkArriveBy = routeNationalGtfsStore(
     shortTransitStorePath,
     {
@@ -2201,7 +2273,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v3"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v4"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES(1, 46.9992, 8), (2, 47, 8), (3, 47.02, 8.02);
     INSERT INTO edges VALUES(1, 2, 100, 1), (2, 1, 100, 1);
@@ -2215,11 +2287,22 @@ try {
     departMinutes: 8 * 60,
     serviceDay: 'sunday',
     serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
+    maxWalkKm: 0.3,
     streetStorePath: parentModeAccessStreetPath,
   })
+  assert(parentModeAccessPlan.legs[0].distanceKm > 0.25,
+    'Station access must include the street-to-platform distance, not a free parent alias.')
+  assert.equal(routeNationalGtfsStore(parentModeAccessStorePath, {
+    origin: parentModeAccessPlan.origin, destination: parentModeAccessPlan.destination,
+    departMinutes: 480, serviceDay: 'sunday', serviceDate: '2026-07-12',
+    maxWalkKm: 0.25, streetStorePath: parentModeAccessStreetPath,
+  }).status, 'blocked', 'The complete platform access exceeds a 250 m walking budget.')
   assert.equal(parentModeAccessPlan.status, 'ready', 'Heavy-rail platform service must promote its public entrance even when a busier tram stop is nearby.')
-  assert(parentModeAccessPlan.diagnostics.originStopCandidates > 1, 'A map point must seed multiple reachable stops instead of locking to the nearest station.')
+  const parentCandidates = inspectNationalGtfsAccessCandidates(parentModeAccessStorePath, parentModeAccessPlan.origin, {
+    streetStorePath: parentModeAccessStreetPath, maxWalkKm: 0.3, accessRole: 'origin',
+  }).candidates
+  assert(['A', 'T_PLATFORM'].every(id => parentCandidates.some(candidate => candidate.stopId === id)),
+    'The complete access frontier must retain both reachable services.')
   assert.equal(parentModeAccessPlan.legs.find((leg) => leg.type === 'ride')?.fromStopId, 'A')
   assert.equal(parentModeAccessPlan.legs.find((leg) => leg.type === 'ride')?.startMinutes, 8 * 60 + 4)
   assert.equal(parentModeAccessPlan.diagnostics.originStreetPathVerified, true)
@@ -2236,7 +2319,7 @@ try {
     departMinutes: 8 * 60,
     serviceDay: 'sunday',
     serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
+    maxWalkKm: 0.3,
     streetStorePath: parentModeAccessStreetPath,
   }
   assert.equal(routeNationalGtfsStore(parentModeAccessStorePath, tokenOwnershipRequest).status, 'ready')
@@ -2264,12 +2347,12 @@ try {
   const terminalDestinationAccess = inspectNationalGtfsAccessCandidates(
     parentModeAccessStorePath,
     { coordinate: [8.02, 47.02], label: 'Charlie terminal', source: 'map' },
-    { streetStorePath: parentModeAccessStreetPath, maxWalkKm: 0.25, accessRole: 'destination' },
+    { streetStorePath: parentModeAccessStreetPath, maxWalkKm: 0.3, accessRole: 'destination' },
   )
   const terminalOriginAccess = inspectNationalGtfsAccessCandidates(
     parentModeAccessStorePath,
     { coordinate: [8.02, 47.02], label: 'Charlie terminal', source: 'map' },
-    { streetStorePath: parentModeAccessStreetPath, maxWalkKm: 0.25, accessRole: 'origin' },
+    { streetStorePath: parentModeAccessStreetPath, maxWalkKm: 0.3, accessRole: 'origin' },
   )
   assert(
     terminalDestinationAccess.candidates.some((candidate) => candidate.stopId === 'C'),
@@ -2286,7 +2369,7 @@ try {
     departMinutes: 8 * 60,
     serviceDay: 'sunday',
     serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
+    maxWalkKm: 0.3,
     streetStorePath: parentModeAccessStreetPath,
   })
   assert.equal(staleMapStopIdPlan.status, 'ready', 'A legacy map payload must not be forced onto its stale stopId.')
@@ -2510,6 +2593,47 @@ try {
   assert.equal(oneToMany.diagnostics.forwardSearches, 1)
   assert.equal(oneToMany.rows.length, 2)
   assert.equal(oneToMany.diagnostics.matrixEngine, 'rust_exact_connection_scan_one_to_many')
+
+  const largeOneToMany = routeNationalGtfsMatrix(storePath, {
+    origins: [alpha], destinations: Array.from({ length: 100_000 }, (_, i) => i % 2 ? charlie : bravo),
+    departMinutes: 480, serviceDay: 'sunday', serviceDate: '2026-07-12', maxWalkKm: 0.25,
+  })
+  assert.equal(largeOneToMany.rows.length, 100_000)
+  assert.equal(largeOneToMany.diagnostics.forwardSearches, 1,
+    'Large destination sets must share one timetable scan, without 256-target splitting.')
+  for (const [index, row] of largeOneToMany.rows.entries()) {
+    assert.deepEqual(row, { ...oneToMany.rows[index % 2], destinationIndex: index })
+  }
+  assert.throws(() => routeNationalGtfsMatrix(storePath, {
+    origins: [alpha, bravo], destinations: Array(50_001).fill(charlie),
+  }), /100,000 OD pairs/)
+
+  const arriveMatrixRequest = { origins: [alpha, bravo], destinations: [bravo, charlie],
+    timePreference: 'arrive', arriveMinutes: 525, serviceDay: 'sunday', serviceDate: '2026-07-12',
+    maxWalkKm: 0.25, horizonMinutes: 180 }
+  const arriveMatrix = routeNationalGtfsMatrix(storePath, arriveMatrixRequest)
+  assert.equal(arriveMatrix.diagnostics.reverseSearches, 2)
+  assert.equal(arriveMatrix.diagnostics.forwardSearches, 0)
+  for (const row of arriveMatrix.rows) {
+    const point = routeNationalGtfsStore(storePath, { ...arriveMatrixRequest,
+      origin: arriveMatrixRequest.origins[row.originIndex], destination: arriveMatrixRequest.destinations[row.destinationIndex],
+      routingPreference: 'fastest' })
+    assert.equal(row.status, point.status)
+    assert.equal(row.departMinutes, point.status === 'ready' ? point.departMinutes : null)
+    assert.equal(row.arriveMinutes, 525)
+    assert.equal(row.durationMinutes, point.status === 'ready' ? 525 - point.departMinutes : null)
+  }
+  const largeArriveManyToOne = routeNationalGtfsMatrix(storePath, { ...arriveMatrixRequest,
+    origins: Array.from({ length: 100_000 }, (_, i) => i % 2 ? bravo : alpha), destinations: [charlie] })
+  assert.equal(largeArriveManyToOne.rows.length, 100_000)
+  assert.equal(largeArriveManyToOne.diagnostics.reverseSearches, 1)
+  for (const [i, row] of largeArriveManyToOne.rows.entries()) {
+    assert.deepEqual(row, { ...arriveMatrix.rows[(i % 2) * 2 + 1], originIndex: i, destinationIndex: 0 })
+  }
+  const shortArriveMatrix = routeNationalGtfsMatrix(storePath, { ...arriveMatrixRequest,
+    origins: [alpha], destinations: [charlie], horizonMinutes: 1 })
+  assert.equal(shortArriveMatrix.rows[0].status, 'blocked', 'Arrive-by Matrix must honor the requested short horizon.')
+  assert.throws(() => routeNationalGtfsMatrix(storePath, { ...arriveMatrixRequest, arriveMinutes: 525.5 }), /integral minute/)
 
   const shortHorizonRequest = {
     origins: [alpha],
@@ -2822,47 +2946,20 @@ try {
     maxWalkKm: matrixCycleRequest.maxWalkKm,
     __disableDirectWalkDominance: true,
   }
-  const suppressedCyclePoint = routeNationalGtfsStore(matrixCycleStorePath, cyclePointRequest)
-  const representedCyclePoint = routeNationalGtfsStore(matrixCycleStorePath, {
-    ...cyclePointRequest,
-    returnedStationCyclePolicy: 'represented',
+  // A parent-station return is an advisory, not proof that the GTFS path is
+  // infeasible: this fixture forbids the direct platform change.
+  const cyclePoint = routeNationalGtfsStore(matrixCycleStorePath, cyclePointRequest)
+  assert.equal(cyclePoint.status, 'ready')
+  assert.equal(cyclePoint.arriveMinutes, 505)
+  assert.equal(cyclePoint.diagnostics.returnedStationCycle.stationGroupId, 'matrix-cycle\u001fS')
+  const cycleArriveBy = routeNationalGtfsStore(matrixCycleStorePath, {
+    ...cyclePointRequest, timePreference: 'arrive', arriveMinutes: 505,
   })
-  const suppressedCyclePointAgain = routeNationalGtfsStore(matrixCycleStorePath, cyclePointRequest)
-  assert.equal(suppressedCyclePoint.status, 'blocked')
-  assert.equal(suppressedCyclePoint.diagnostics.loopSuppression.reason, 'returned_to_prior_transit_station')
-  assert.equal(representedCyclePoint.status, 'ready')
-  assert.equal(representedCyclePoint.arriveMinutes, 505)
-  assert.equal(representedCyclePoint.diagnostics.returnedStationCycle.policy, 'represented')
-  assert.equal(representedCyclePoint.diagnostics.returnedStationCycle.stationGroupId, 'matrix-cycle\u001fS')
-  assert.equal(suppressedCyclePointAgain.status, 'blocked', 'Cycle-policy cache keys must not alias suppress and represented results.')
-  const suppressedCycleArriveBy = routeNationalGtfsStore(matrixCycleStorePath, {
-    ...cyclePointRequest,
-    timePreference: 'arrive',
-    arriveMinutes: representedCyclePoint.arriveMinutes,
-  })
-  assert.equal(
-    suppressedCycleArriveBy.status,
-    'blocked',
-    'Arrive-by must exhaust the public candidate frontier instead of throwing when its scalar boundary is cycle-suppressed.',
-  )
-  assert.equal(
-    suppressedCycleArriveBy.diagnostics.searchStats
-      .arriveByForwardParityRecovery?.outcome,
-    'no_public_path_after_complete_candidate_exhaustion',
-  )
-  assert.equal(
-    suppressedCycleArriveBy.diagnostics.searchStats.arriveByCandidateSource,
-    'resident_departure_index_after_materialization_rejection',
-    'The complete departure frontier must be allocated only after presentation rejects the exact boundary.',
-  )
+  assert.equal(cycleArriveBy.status, 'ready')
+  assert.equal(cycleArriveBy.departMinutes, 480)
+  assert.equal(cycleArriveBy.arriveMinutes, 505)
   disposeNationalGtfsStore(matrixCycleStorePath)
-  const representedCyclePointFirst = routeNationalGtfsStore(matrixCycleStorePath, {
-    ...cyclePointRequest,
-    returnedStationCyclePolicy: 'represented',
-  })
-  const suppressedCyclePointSecond = routeNationalGtfsStore(matrixCycleStorePath, cyclePointRequest)
-  assert.equal(representedCyclePointFirst.status, 'ready')
-  assert.equal(suppressedCyclePointSecond.status, 'blocked', 'Cycle-policy cache isolation must hold in either request order.')
+  assert.equal(routeNationalGtfsStore(matrixCycleStorePath, cyclePointRequest).arriveMinutes, 505)
 
   const internalCycleMatrixRequest = {
     origins: [{
@@ -2900,16 +2997,11 @@ try {
     maxWalkKm: internalCycleMatrixRequest.maxWalkKm,
     __disableDirectWalkDominance: true,
   }
-  const internalCycleSuppressed = routeNationalGtfsStore(matrixCycleStorePath, internalCyclePointRequest)
-  const internalCycleRepresented = routeNationalGtfsStore(matrixCycleStorePath, {
-    ...internalCyclePointRequest,
-    returnedStationCyclePolicy: 'represented',
-  })
-  assert.equal(internalCycleSuppressed.status, 'blocked')
-  assert.equal(internalCycleRepresented.status, 'ready')
-  assert.equal(internalCycleRepresented.arriveMinutes, 520)
-  assert.equal(internalCycleRepresented.legs.filter((leg) => leg.type === 'ride').length, 4)
-  assert.equal(internalCycleRepresented.diagnostics.returnedStationCycle.stationGroupId, 'matrix-cycle\u001fS')
+  const internalCycle = routeNationalGtfsStore(matrixCycleStorePath, internalCyclePointRequest)
+  assert.equal(internalCycle.status, 'ready')
+  assert.equal(internalCycle.arriveMinutes, 520)
+  assert.equal(internalCycle.legs.filter((leg) => leg.type === 'ride').length, 4)
+  assert.equal(internalCycle.diagnostics.returnedStationCycle.stationGroupId, 'matrix-cycle\u001fS')
 
   await fs.copyFile(storePath, matrixUpperBoundStorePath)
   const matrixUpperBoundStore = new DatabaseSync(matrixUpperBoundStorePath)
@@ -3206,7 +3298,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v3"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v4"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES
       (1, 46.9900, 7.9900),

@@ -126,6 +126,8 @@ function mergeThroughRide(left, right) {
     durationMinutes: Math.max(0, finiteNumber(right.endMinutes) - finiteNumber(left.startMinutes)),
     distanceKm: Math.max(0, finiteNumber(left.distanceKm)) + Math.max(0, finiteNumber(right.distanceKm)),
     stopCount: Math.max(0, finiteNumber(left.stopCount)) + Math.max(0, finiteNumber(right.stopCount)),
+    stopIds: Array.isArray(left.stopIds) && Array.isArray(right.stopIds)
+      ? [...left.stopIds, ...right.stopIds.slice(1)] : undefined,
     coordinates: appendDistinctCoordinates(left.coordinates, right.coordinates),
     bridgedUntimedGapCount:
       finiteNumber(left.bridgedUntimedGapCount)
@@ -218,6 +220,9 @@ export function composeOrderedRoutingFailure(failedPlan, failedIndex, points, co
 export async function routeOrderedRoutingSegments(points, request, routeSegment) {
   if (!Array.isArray(points) || points.length < 2 || typeof routeSegment !== 'function') {
     throw new Error('Ordered segment routing requires points and a route callback.')
+  }
+  if (points.length > 2 && request?.mode !== 'walk' && request?.mode !== 'drive' && request?.maxTransfers !== undefined) {
+    throw new Error('maxTransfers with ordered transit waypoints is not supported; omit the waypoints or the cap.')
   }
   const componentPlans = new Array(points.length - 1)
   if (request?.timePreference === 'arrive') {

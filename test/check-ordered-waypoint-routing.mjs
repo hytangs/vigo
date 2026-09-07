@@ -164,6 +164,10 @@ assert.equal(departed.failedIndex, -1)
 assert.deepEqual(departRequests.map((request) => request.departMinutes), [480, 490])
 assert.deepEqual(departRequests.map((request) => request.departureWindowMinutes), [20, 0])
 
+await assert.rejects(() => routeOrderedRoutingSegments([a, b, c],
+  { mode: 'transit', maxTransfers: 1 }, () => assert.fail('Do not apply an overall cap independently per segment')),
+/ordered transit waypoints/)
+
 const arriveRequests = []
 const arrived = await routeOrderedRoutingSegments(
   [a, b, c],

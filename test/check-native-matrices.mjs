@@ -61,7 +61,115 @@ try {
   })
   assert.deepEqual(sameOutside.distancesM, [0, Infinity])
 
+  // Transfer construction uses physical stops. A public entrance may have a
+  // different attachment, so path reconstruction must select the same profile.
+  const physicalProfile = {
+    profileKey: 'physical-stops', anchorLons: [0, 0.005], anchorLats: [38, 38],
+    anchorMemberOffsets: [0, 1, 2], anchorMemberIndices: [0, 1],
+    memberLons: [0, 0.005], memberLats: [38, 38],
+    memberOriginEligible: [1, 1], memberDestinationEligible: [1, 1],
+    memberStopKeys: [0, 1], stopLons: [0, 0.005], stopLats: [38, 38],
+  }
+  street.setAccessProfile(physicalProfile)
+  const transfers = street.buildStopTransferGraph({ maximumWalkM: 1000, maximumNeighbors: 0 })
+  const edge = transfers.fromMemberIndices.findIndex((from, i) => from === 0 && transfers.toMemberIndices[i] === 1)
+  assert(edge >= 0)
+  street.setAccessProfile({ ...physicalProfile, profileKey: 'shifted-public-entrance',
+    anchorLons: [0, 0.006], memberLons: [0, 0.006],
+  })
+  const pathQuery = { originMemberIndex: 0, destinationMemberIndex: 1, maximumDistanceM: 1000, maximumPoints: 256 }
+  const entrancePath = street.routeAccessMemberPath(pathQuery)
+  const transferPath = street.routeAccessMemberPath({ ...pathQuery, stopTransfer: true })
+  assert.equal(transferPath.found, true)
+  assert.equal(transferPath.distanceM, transfers.distancesM[edge])
+  assert(entrancePath.distanceM > transferPath.distanceM + 50)
+
+  street.setAccessProfile(physicalProfile)
+  const timetable = new binding.TimetableKernel({
+    stopCount: 2, runCount: 2,
+    departureSeconds: new Uint32Array([300, 700]), arrivalSeconds: new Uint32Array([600, 800]),
+    fromStop: new Uint32Array([1, 0]), toStop: new Uint32Array([0, 1]),
+    sequence: new Uint32Array([1, 1]), segmentTrip: new Uint32Array([0, 1]), segmentRun: new Uint32Array([0, 1]),
+    continuityBreak: new Uint8Array([1, 1]), canBoard: new Uint8Array([1, 1]), canAlight: new Uint8Array([1, 1]),
+    tripStart: new Uint32Array([0, 1, 2]), departureOffset: new Uint32Array([0, 1, 2]), departureOrder: new Uint32Array([1, 0]),
+    transferOffset: new Uint32Array(3), transferTo: new Uint32Array(), transferDuration: new Uint32Array(), forbiddenSameStop: new Uint8Array(2),
+  })
+  const projection = new Uint32Array([1, 0])
+  const seedSets = (nodes, role) => {
+    const offsets = [0], stops = [], walkSeconds = []
+    for (const node of nodes) {
+      const [longitude, latitude] = fixture.coordinates([node])
+      const access = street.routeEndpoint({ longitude, latitude, maximumWalkM: 400, role })
+      access.memberIndices.forEach((member, i) => { stops.push(projection[member]); walkSeconds.push(access.accessSeconds[i]) })
+      offsets.push(stops.length)
+    }
+    return { offsets, stops, walkSeconds }
+  }
+  for (const [sources, targets] of [[[0], [5, 6, 70]], [[0, 1, 70], [5]], [[0, 1], [5, 6, 0]]]) {
+    const o = seedSets(sources, 'origin'), d = seedSets(targets, 'destination')
+    for (const arriveBy of [false, true]) for (const maximumBoardings of [undefined, 1, 2]) {
+      const bounds = { departure: 0, horizon: 1000, arriveBy, maximumBoardings }
+      const reference = timetable.routeMatrixCsa({ ...bounds,
+        originOffsets: o.offsets, originStops: o.stops, originWalkSeconds: o.walkSeconds,
+        destinationOffsets: d.offsets, destinationStops: d.stops, destinationWalkSeconds: d.walkSeconds,
+        allowPreRideTransfers: sources.map(() => false), allowPostRideTransfers: targets.map(() => false),
+      })
+      const fused = street.routeEndpointsTimetableMatrix(timetable, { ...bounds,
+        originCoordinates: fixture.coordinates(sources), destinationCoordinates: fixture.coordinates(targets),
+        maximumWalkM: 400, memberTimetableStops: projection,
+      })
+      assert.deepEqual(fused.timetable.times, reference.times)
+      assert.equal(fused.timetable.scannedDepartures, reference.scannedDepartures)
+    }
+  }
+  for (const arriveBy of [false, true]) {
+    const fused = street.routeEndpointsTimetableMatrix(timetable, {
+      originCoordinates: fixture.coordinates(arriveBy ? Array(100_000).fill(0) : [0]),
+      destinationCoordinates: fixture.coordinates(arriveBy ? [5] : Array(100_000).fill(5)),
+      maximumWalkM: 400, memberTimetableStops: projection, departure: 0, horizon: 650, arriveBy, maximumBoardings: 1,
+    })
+    assert.equal(fused.timetable.times.length, 100_000)
+    assert(fused.timetable.times.every((time) => time === (arriveBy ? 300 : 600)))
+    assert.equal(fused.timetable.forwardSearches + fused.timetable.reverseSearches, 1)
+  }
+  assert.throws(() => street.routeEndpointsTimetableMatrix(timetable, {
+    originCoordinates: [NaN, 38], destinationCoordinates: [0, 38],
+    maximumWalkM: 400, memberTimetableStops: projection, departure: 0, horizon: 650, arriveBy: false,
+  }), /valid coordinates/)
+
   const drive = new binding.DriveKernel(fixture.driveInput)
+  const largeTargets = Array.from({ length: 100_000 }, (_, i) => i % fixture.nodeCount)
+  const largeWalk = street.routeStreetMatrix({
+    originCoordinates: fixture.coordinates([0]), destinationCoordinates: fixture.coordinates(largeTargets),
+    maximumDistanceM: 5000,
+  })
+  const largeDrive = drive.routeMatrix({
+    originOffsets: [0, 1], originNodes: [0], originSnapMeters: [0],
+    targetOffsets: largeTargets.map((_, i) => i).concat(largeTargets.length),
+    targetNodes: largeTargets, targetSnapMeters: largeTargets.map(() => 0), maximumDistanceMeters: 5000,
+  })
+  assert.equal(largeWalk.distancesM.length, largeTargets.length)
+  assert.equal(largeDrive.distancesM.length, largeTargets.length)
+  for (const [index, target] of largeTargets.entries()) {
+    assert.equal(largeWalk.distancesM[index], fixture.distance(0, target))
+    assert.equal(largeDrive.distancesM[index], fixture.distance(0, target))
+  }
+  assert.throws(() => street.routeStreetMatrix({
+    originCoordinates: fixture.coordinates([0, 1]), destinationCoordinates: fixture.coordinates(largeTargets),
+    maximumDistanceM: 5000,
+  }), /100,000 pairs/)
+  const reverseWalk = street.routeStreetMatrix({
+    originCoordinates: fixture.coordinates(largeTargets), destinationCoordinates: fixture.coordinates([0]), maximumDistanceM: 5000,
+  })
+  const reverseDrive = drive.routeMatrix({
+    originOffsets: largeTargets.map((_, i) => i).concat(largeTargets.length),
+    originNodes: largeTargets, originSnapMeters: largeTargets.map(() => 0),
+    targetOffsets: [0, 1], targetNodes: [0], targetSnapMeters: [0], maximumDistanceMeters: 5000,
+  })
+  for (const [i, origin] of largeTargets.entries()) {
+    assert.equal(reverseWalk.distancesM[i], fixture.distance(origin, 0))
+    assert.equal(reverseDrive.distancesM[i], fixture.distance(origin, 0))
+  }
   const matrix = drive.routeMatrix({
     originOffsets: origins.map((_, i) => i).concat(origins.length), originNodes: origins,
     originSnapMeters: origins.map(() => 0),

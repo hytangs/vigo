@@ -510,6 +510,7 @@ function VigoSidebar({
   routingStoreConnectionCount,
   routingTimePreference,
   routingMode,
+  routingMaxTransfers,
   routingDepartureWindowMinutes,
   routingMaxWalkKm,
   routingAllowLongWalk,
@@ -545,6 +546,7 @@ function VigoSidebar({
   onReorderRoutingPoints,
   onRoutingTimePreferenceChange,
   onRoutingModeChange,
+  onRoutingMaxTransfersChange,
   onRoutingDepartureWindowChange,
   onRoutingMaxWalkKmChange,
   onRoutingAllowLongWalkChange,
@@ -605,6 +607,7 @@ function VigoSidebar({
   | 'routingStoreReadyFeedCount'
   | 'routingTimePreference'
   | 'routingMode'
+  | 'routingMaxTransfers'
   | 'routingDepartureWindowMinutes'
   | 'routingMaxWalkKm'
   | 'routingAllowLongWalk'
@@ -625,6 +628,7 @@ function VigoSidebar({
   | 'onScheduleTimeChange'
   | 'onRoutingTimePreferenceChange'
   | 'onRoutingModeChange'
+  | 'onRoutingMaxTransfersChange'
   | 'onRoutingDepartureWindowChange'
   | 'onRoutingMaxWalkKmChange'
   | 'onRoutingAllowLongWalkChange'
@@ -949,6 +953,7 @@ function VigoSidebar({
                 routingTimePreference={routingTimePreference}
                 routingMode={routingMode}
                 routingDepartureWindowMinutes={routingDepartureWindowMinutes}
+                routingMaxTransfers={routingMaxTransfers}
                 routingMaxWalkKm={routingMaxWalkKm}
                 routingAllowLongWalk={routingAllowLongWalk}
                 routingActivity={routingActivity}
@@ -969,6 +974,7 @@ function VigoSidebar({
                 onRoutingTimePreferenceChange={onRoutingTimePreferenceChange}
                 onRoutingModeChange={onRoutingModeChange}
                 onRoutingDepartureWindowChange={onRoutingDepartureWindowChange}
+                onRoutingMaxTransfersChange={onRoutingMaxTransfersChange}
                 onRoutingMaxWalkKmChange={onRoutingMaxWalkKmChange}
                 onRoutingAllowLongWalkChange={onRoutingAllowLongWalkChange}
                 onRoutingServiceDateChange={onRoutingServiceDateChange}
@@ -2351,6 +2357,7 @@ export default function App() {
   const [routingMaxWalkKm, setRoutingMaxWalkKm] = useState(1.2)
   const [routingAllowLongWalk, setRoutingAllowLongWalk] = useState(true)
   const [selectedRoutingPlanId, setSelectedRoutingPlanId] = useState('')
+  const [routingMaxTransfers, setRoutingMaxTransfers] = useState<number | undefined>()
   const [routingEnabled, setRoutingEnabled] = useState(false)
   const [routingOrigin, setRoutingOrigin] = useState<RoutingPoint | null>(null)
   const [routingWaypoints, setRoutingWaypoints] = useState<RoutingPoint[]>([])
@@ -2570,6 +2577,7 @@ export default function App() {
     maxWalkKm: routingMaxWalkKm,
     allowLongWalk: routingAllowLongWalk,
     departureWindowMinutes: routingDepartureWindowMinutes,
+    maxTransfers: routingMaxTransfers,
     realtimeSnapshot,
     routeAllowed: routingStreetState === 'ready',
     onError: setApiError,
@@ -2981,7 +2989,7 @@ export default function App() {
   useEffect(() => {
     const street = selectedProject.osmStreetIndex
     if (street?.status === 'ready') {
-      setOsmStreetMessage(street.schemaVersion === 'vigo.street.store.v3'
+      setOsmStreetMessage(street.schemaVersion === 'vigo.street.store.v4'
         ? `${street.fileName} indexed / ${formatNumber(street.edgeCount)} walk + ${formatNumber(street.driveEdgeCount ?? 0)} drive edges`
         : `${street.fileName} indexed / ${formatNumber(street.edgeCount)} walk edges / rebuild for Drive`)
     } else if (street?.status === 'building') {
@@ -5227,6 +5235,7 @@ export default function App() {
         routingMaxWalkKm={routingMaxWalkKm}
         routingAllowLongWalk={routingAllowLongWalk}
         routingActivity={routingActivity}
+        routingMaxTransfers={routingMaxTransfers}
         routingAlternativesLoading={nationalRouting.alternativesLoading}
         routingServiceDate={routingServiceDate}
         routingServiceCoverage={nationalRouting.serviceCoverage}
@@ -5271,6 +5280,7 @@ export default function App() {
         onRoutingMaxWalkKmChange={changeRoutingMaxWalkKm}
         onRoutingAllowLongWalkChange={setRoutingAllowLongWalk}
         onRoutingServiceDateChange={changeRoutingServiceDate}
+        onRoutingMaxTransfersChange={setRoutingMaxTransfers}
         onSelectRoutingPlan={(id) => {
           setSelectedRoutingPlanId(id)
         }}

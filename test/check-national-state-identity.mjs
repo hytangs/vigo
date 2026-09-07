@@ -344,7 +344,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v3"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v4"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES(1,44.0000,-73.0000),(2,44.0000,-72.9988);
     INSERT INTO edges VALUES(1,2,100,1),(2,1,100,1);
@@ -425,7 +425,7 @@ try {
       CREATE INDEX edges_to ON edges(to_node);
     `)
     const insertMetadata = db.prepare('INSERT INTO metadata VALUES(?,?)')
-    insertMetadata.run('schemaVersion', JSON.stringify('vigo.street.store.v3'))
+    insertMetadata.run('schemaVersion', JSON.stringify('vigo.street.store.v4'))
     insertMetadata.run('sourceModel', JSON.stringify('pbf'))
     insertMetadata.run('sourceFingerprint', JSON.stringify('a'.repeat(64)))
     insertMetadata.run('nodeCount', JSON.stringify(4))

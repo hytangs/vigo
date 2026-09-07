@@ -61,6 +61,22 @@ try {
   assert.deepEqual(merged.sources.gtfs.map((source) => source.scope), ['east', 'west'])
   assert.equal(merged.routingStore.connectionCount, city.routingStore.connectionCount * 2)
 
+  const privateInputs = path.join(temporaryRoot, 'private-inputs')
+  fs.mkdirSync(privateInputs)
+  const terminalFixture = await writeCliFixtureInputs(privateInputs, { terminalAccess: true })
+  const terminalCityPath = path.join(temporaryRoot, 'terminal-city')
+  const terminalCity = JSON.parse(run(['build', `--gtfs=${terminalFixture.gtfsPath}`,
+    `--osm=${terminalFixture.osmPath}`, `--output=${terminalCityPath}`, '--private-access=endpoints']))
+  assert.equal(terminalCity.streetStore.terminalAccess.model, 'authorized_endpoints')
+  assert.equal(terminalCity.streetStore.terminalAccess.privateWays, 2)
+  const terminalRequest = path.join(temporaryRoot, 'terminal-route.json')
+  fs.writeFileSync(terminalRequest, JSON.stringify({ origin: { coordinate: [-77.054, 38.9] }, destination: 'B', allowLongWalk: false }))
+  const terminalRoute = JSON.parse(run(['route', `--city=${terminalCityPath}`, `--request=${terminalRequest}`,
+    '--time=08:30', '--time-preference=arrive', '--service-date=2026-07-15', '--max-walk=0.6', '--max-transfers=1']))
+  assert.equal(terminalRoute.status, 'ready')
+  assert.equal(terminalRoute.result.diagnostics.walkingAccessPermission, 'authorized_endpoints')
+  assert.equal(terminalRoute.result.transfers, 1)
+
   const help = run(['--help'])
   for (const command of ['build', 'capabilities', 'inspect', 'route', 'matrix', 'reach', 'compare']) {
     assert(help.includes(`vigo ${command}`), `Help is missing ${command}.`)
@@ -139,6 +155,91 @@ try {
   assert.deepEqual(JSON.parse(fs.readFileSync(matrixPath, 'utf8')), matrix)
   assert(Math.abs(matrix.rows[1].durationMinutes - route.result.durationMinutes) < 0.001,
     'Public transit Route and Matrix must both include a faster direct walk.')
+
+  for (const timePreference of ['depart', 'arrive']) {
+    for (const maxTransfers of [0, 1]) {
+      const options = [`--time-preference=${timePreference}`, '--time=08:00',
+        '--service-date=2026-07-15', '--max-walk=0.2', `--max-transfers=${maxTransfers}`]
+      const capped = JSON.parse(run(['route', `--city=${cityPath}`, `--request=${routeRequest}`, ...options]))
+      assert.equal(capped.query.maxTransfers, maxTransfers)
+      if (capped.result.status === 'ready') assert(capped.result.transfers <= maxTransfers)
+      const cappedMatrix = JSON.parse(run(['matrix', `--city=${cityPath}`, `--request=${matrixRequest}`, ...options]))
+      assert.equal(cappedMatrix.query.maxTransfers, maxTransfers)
+      assert.equal(cappedMatrix.rows[1].status, capped.result.status)
+      if (capped.result.status === 'ready') {
+        const field = timePreference === 'arrive' ? 'departMinutes' : 'arriveMinutes'
+        assert(Math.abs(cappedMatrix.rows[1][field] - capped.result[field]) <= 0.002)
+      }
+    }
+  }
+  for (const maximum of ['-1', '0.5', '32', 'no']) {
+    assert.equal(invoke(['route', `--city=${cityPath}`, `--request=${routeRequest}`,
+      '--service-date=2026-07-15', `--max-transfers=${maximum}`]).status, 2)
+  }
+
+  const largeMatrixRequest = path.join(temporaryRoot, 'large-matrix.json')
+  fs.writeFileSync(largeMatrixRequest, JSON.stringify({
+    origins: [{ id: 'a', point: 'A' }],
+    destinations: Array.from({ length: 1024 }, (_, i) => ({ id: `student_${i}`, point: i % 2 ? 'B' : 'X' })),
+  }))
+  const largeMatrix = JSON.parse(run([
+    'matrix', `--city=${cityPath}`, `--request=${largeMatrixRequest}`,
+    '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2', '--horizon=90',
+  ]))
+  assert.equal(largeMatrix.rows.length, 1024)
+  for (const [index, row] of largeMatrix.rows.entries()) {
+    assert.equal(row.destinationId, `student_${index}`)
+    assert.equal(row.status, matrix.rows[index % 2].status)
+    assert.equal(row.durationMinutes, matrix.rows[index % 2].durationMinutes)
+  }
+
+  for (const timePreference of ['depart', 'arrive']) {
+    for (const manyOrigins of [false, true]) {
+      fs.writeFileSync(largeMatrixRequest, JSON.stringify({
+        origins: Array.from({ length: manyOrigins ? 1024 : 1 }, (_, i) => ({ id: `origin_${i}`, point: 'A' })),
+        destinations: Array.from({ length: manyOrigins ? 1 : 1024 }, (_, i) => ({ id: `destination_${i}`, point: 'B' })),
+        timePreference,
+      }))
+      const result = JSON.parse(run(['matrix', `--city=${cityPath}`, `--request=${largeMatrixRequest}`,
+        '--time=08:30', '--service-date=2026-07-15', '--max-walk=0.2', '--horizon=90']))
+      assert.equal(result.query.timePreference, timePreference)
+      assert.equal(result.rows.length, 1024)
+      for (const row of result.rows) {
+        assert.equal(row.status, result.rows[0].status)
+        assert.equal(row.departMinutes, result.rows[0].departMinutes)
+        assert.equal(row.arriveMinutes, result.rows[0].arriveMinutes)
+        assert.equal(row.originId, `origin_${row.originIndex}`)
+        assert.equal(row.destinationId, `destination_${row.destinationIndex}`)
+      }
+      if (timePreference === 'arrive') {
+        assert.equal(result.rows[0].status, 'ready')
+        assert.equal(result.rows[0].arriveMinutes, 510)
+        assert(result.rows[0].departMinutes <= 510)
+      }
+    }
+  }
+
+  const streamedMatrices = execFileSync(executable, [...prefix, '_route-stream', `--city=${cityPath}`,
+    '--service-date=2026-07-15'], {
+    encoding: 'utf8', maxBuffer: 4 * 1024 * 1024,
+    input: [
+      { id: 'morning', kind: 'matrix', origins: Array.from({ length: 1024 }, (_, i) => ({ id: `student_${i}`, point: 'A' })),
+        destinations: [{ id: 'school', point: 'B' }], timePreference: 'arrive', time: '08:30', maxWalkKm: 0.2 },
+      { id: 'invalid', kind: 'matrix', origins: [], destinations: [{ id: 'school', point: 'B' }] },
+      { id: 'afternoon', kind: 'matrix', origins: [{ id: 'school', point: 'A' }],
+        destinations: Array.from({ length: 1024 }, (_, i) => ({ id: `student_${i}`, point: 'B' })),
+        timePreference: 'depart', time: '07:55', maxWalkKm: 0.2 },
+    ].map(value => JSON.stringify(value)).join('\n') + '\n',
+  }).trim().split('\n').map(line => JSON.parse(line))
+  assert.deepEqual(streamedMatrices.map(result => result.status), ['ready', 'error', 'ready'])
+  assert.equal(streamedMatrices[0].rows.length, 1024)
+  assert.equal(streamedMatrices[0].query.timePreference, 'arrive')
+  assert.equal(streamedMatrices[0].query.timeMinutes, 510)
+  assert.equal(streamedMatrices[0].diagnostics.reverseSearches, 1)
+  assert.equal(streamedMatrices[2].rows.length, 1024)
+  assert.equal(streamedMatrices[2].query.timeMinutes, 475)
+  assert.equal(streamedMatrices[2].timing.openMs, 0, 'Later Matrix requests must reuse the loaded City.')
+  assert.equal(streamedMatrices[2].diagnostics.forwardSearches, 1)
 
   // A separate process releases native memory maps before Windows fixture cleanup.
   execFileSync(process.execPath, [

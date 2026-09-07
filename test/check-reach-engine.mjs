@@ -85,7 +85,7 @@ async function createRoutingFixture() {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v3"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v4"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES
       (1,47.0000,7.9995),

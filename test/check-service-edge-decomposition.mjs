@@ -91,7 +91,7 @@ async function checkServiceEdges(folder) {
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX drive_nodes_lat_lon ON drive_nodes(lat,lon);
     CREATE INDEX drive_edges_from ON drive_edges(from_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v3"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v4"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO metadata VALUES('sourceFingerprint', '"fixture"');
     INSERT INTO metadata VALUES('storageLayout', '"walk-drive-role-tables-v2"');

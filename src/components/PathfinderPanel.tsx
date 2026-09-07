@@ -413,6 +413,16 @@ function PathfinderRouteList({
             const journeyMinutes = routingPlanJourneyMinutes(plan)
             const totalWaitMinutes = routingPlanTotalWaitMinutes(plan)
             const totalElapsedMinutes = routingPlanTotalElapsedMinutes(plan)
+            const fastest = readyPlans[0]
+            const fewerTransfers = fastest.transfers - plan.transfers
+            const lessWalking = fastest.walkMinutes - plan.walkMinutes
+            const laterMinutes = (plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)
+              - (fastest.arriveMinutes ?? fastest.departMinutes + fastest.durationMinutes)
+            const tradeoff = plan === fastest ? '' : [
+              fewerTransfers > 0 ? `${fewerTransfers} fewer transfer${fewerTransfers === 1 ? '' : 's'}` : '',
+              lessWalking >= 1 ? `${formatRoutingMinutes(lessWalking)} less walking` : '',
+              laterMinutes >= 0.5 ? `${formatRoutingMinutes(laterMinutes)} later` : '',
+            ].filter(Boolean).join(' · ')
             const routeSequence = plan.waypoints?.length
               ? [plan.origin, ...plan.waypoints, plan.destination].map((point) => point.label).join(' → ')
               : routingPlanRouteSequence(plan) || plan.detail
@@ -434,6 +444,7 @@ function PathfinderRouteList({
                 <span className="pathfinder-route-rationale">
                   <em>{plan.recommended ? 'Top result' : 'Alternative route'}</em>
                   <strong>{plan.choiceLabel || 'Distinct journey'}</strong>
+                  {tradeoff ? <span>{tradeoff}</span> : null}
                   {startWaitMinutes > 0 ? (
                     <span title={`Requested ${formatScheduleClock(plan.departMinutes - startWaitMinutes)} · leaves ${formatRoutingMinutes(startWaitMinutes)} later`}>
                       Wait {formatRoutingMinutes(totalWaitMinutes)} · leave at {formatScheduleClock(plan.departMinutes)}
@@ -458,7 +469,7 @@ function PathfinderRouteList({
       {alternativesLoading ? (
         <div className="pathfinder-alternatives" role="status" aria-live="polite">
           <LoaderCircle size={14} aria-hidden="true" />
-          <span>Checking later departures…</span>
+          <span>Finding journey alternatives…</span>
         </div>
       ) : null}
     </section>
@@ -480,6 +491,7 @@ export type SidebarPathfinderBoxProps = {
   routingMode: RoutingTravelMode
   routingDepartureWindowMinutes: RoutingDepartureWindowMinutes
   routingMaxWalkKm: number
+  routingMaxTransfers?: number
   routingAllowLongWalk: boolean
   routingActivity: RoutingActivity
   routingAlternativesLoading: boolean
@@ -500,6 +512,7 @@ export type SidebarPathfinderBoxProps = {
   onRoutingModeChange: (mode: RoutingTravelMode) => void
   onRoutingDepartureWindowChange: (minutes: RoutingDepartureWindowMinutes) => void
   onRoutingMaxWalkKmChange: (km: number) => void
+  onRoutingMaxTransfersChange: (count: number | undefined) => void
   onRoutingAllowLongWalkChange: (allow: boolean) => void
   onRoutingServiceDateChange: (serviceDate: string) => void
   onSelectRoutingPlan: (id: string) => void
@@ -525,6 +538,7 @@ export function SidebarPathfinderBox({
   routingMode,
   routingDepartureWindowMinutes,
   routingMaxWalkKm,
+  routingMaxTransfers,
   routingAllowLongWalk,
   routingActivity,
   routingAlternativesLoading,
@@ -545,6 +559,7 @@ export function SidebarPathfinderBox({
   onRoutingModeChange,
   onRoutingDepartureWindowChange,
   onRoutingMaxWalkKmChange,
+  onRoutingMaxTransfersChange,
   onRoutingAllowLongWalkChange,
   onRoutingServiceDateChange,
   onSelectRoutingPlan,
@@ -1147,7 +1162,7 @@ export function SidebarPathfinderBox({
       {routingMode === 'transit' ? <details className="pathfinder-options">
         <summary>
           <span><SlidersHorizontal size={15} /> Route options</span>
-          <b>{routingDepartureWindowMinutes ? 'Later departures' : 'Exact time'} · {routingMaxWalkKm.toFixed(1)} km access</b>
+          <b>{routingMaxTransfers === undefined ? '' : `≤${routingMaxTransfers} transfers · `}{routingDepartureWindowMinutes ? 'Later departures' : 'Exact time'} · {routingMaxWalkKm.toFixed(1)} km access</b>
         </summary>
         <div className="pathfinder-options-body">
           {routingTimePreference === 'depart' ? (
@@ -1159,6 +1174,20 @@ export function SidebarPathfinderBox({
               </div>
             </div>
           ) : null}
+
+          <div className="pathfinder-option-group">
+            <label htmlFor="pathfinder-max-transfers">Maximum transfers</label>
+            <select
+              id="pathfinder-max-transfers"
+              value={routingMaxTransfers ?? ''}
+              onChange={(event) => onRoutingMaxTransfersChange(event.currentTarget.value === '' ? undefined : Number(event.currentTarget.value))}
+            >
+              <option value="">Unlimited</option>
+              {Array.from({ length: 32 }, (_, count) => (
+                <option key={count} value={count}>{count === 0 ? '0 — Direct services only' : count}</option>
+              ))}
+            </select>
+          </div>
 
           <div className="pathfinder-option-group pathfinder-walk-limit">
             <label htmlFor="pathfinder-walk-range">Access/egress limit <strong>{routingMaxWalkKm.toFixed(1)} km</strong></label>

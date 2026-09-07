@@ -32,12 +32,14 @@ const queryFamilies = Object.freeze([
   Object.freeze({
     id: 'route',
     label: 'Route',
+    maxTransfers: Object.freeze({ min: 0, max: 31, default: null }),
     purpose: 'Find and explain journeys between ordered points.',
     interfaces: Object.freeze({ studio: supported, python: supported, cli: supported }),
     options: Object.freeze([
       'transit, walk, or drive',
       'depart at or arrive by',
       'departure window',
+      'maximum transfers (0–31 or unlimited)',
       'live transit or supplied traffic when supported',
       'ordered waypoints',
       'batch requests',
@@ -51,14 +53,17 @@ const queryFamilies = Object.freeze([
   Object.freeze({
     id: 'matrix',
     label: 'Matrix',
+    maxTransfers: Object.freeze({ min: 0, max: 31, default: null }),
+    resident: true,
     purpose: 'Compute travel times between sets of origins and destinations.',
     interfaces: Object.freeze({ studio: unavailable, python: supported, cli: supported }),
     options: Object.freeze([
-      'one to many or many to many',
+      'one to many, many to one, or many to many',
       'transit, walk, or drive',
       'scalar time and distance output',
+      'maximum transfers (0–31 or unlimited)',
     ]),
-    time: Object.freeze({ available: Object.freeze(['depart_at']), unavailable: Object.freeze(['arrive_by']) }),
+    time: Object.freeze({ available: Object.freeze(['depart_at', 'arrive_by']), unavailable: Object.freeze([]) }),
   }),
   Object.freeze({
     id: 'reach',
@@ -77,6 +82,7 @@ const queryFamilies = Object.freeze([
 
 export const capabilityCatalog = Object.freeze({
   schemaVersion: capabilitySchemaVersion,
+  city: Object.freeze({ privateAccess: Object.freeze(['public', 'endpoints']) }),
   product: Object.freeze({
     name: 'VIGO',
     definition: 'VIGO turns GTFS and OSM into a city model for routing, network-wide travel-time analysis, and service-change testing.',

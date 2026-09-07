@@ -10,7 +10,7 @@ A Route Query selects:
 - transit, walk, or drive;
 - exact service date and local time;
 - depart-at or arrive-by;
-- walking limit and objective;
+- walking limit, optional maximum transfers, and objective;
 - optional departure window;
 - optional Scenario state supported by the selected mode.
 
@@ -22,6 +22,52 @@ A Route Result contains status, chronological legs, departure and arrival, durat
 
 The engine adds no implicit boarding buffer. Same-stop vehicle changes honor published GTFS minimum transfer times and forbidden transfers; staying aboard does not incur a transfer minimum. Explicit transfer edges retain their durations without an added boarding margin or a 60-second floor. Native diagnostics report `transferBoardSlackSeconds: 0`. A published platform-to-platform transfer rule takes precedence over the station walking fallback.
 
-VIGO 0.3.0 exposes `earliest_arrival`. Equal-arrival journeys prefer fewer boardings, then less walking, then a stable final order. VIGO does not expose an undefined “balanced” preference.
+VIGO 0.3.0 exposes `earliest_arrival`. Equal-arrival journeys prefer fewer boardings, then less walking, then a stable final order. VIGO does not expose an undefined “balanced” preference. Arrive-by first maximizes departure time; among journeys leaving at that boundary and arriving by the deadline, it minimizes boardings, then walking, then actual arrival. A slightly later on-time arrival can therefore avoid unnecessary transfers.
+
+Departure-window queries also return up to five distinct journey choices in
+`choices`, including slower services that reduce transfers or walking. For each
+searched departure, the scheduled search retains arrival/boarding/walking
+trade-offs arriving within 15 minutes of the earliest journey, with no more
+boardings than that journey. Duplicate and dominated choices are removed;
+the list is never padded to five. The earliest-arrival result stays first.
+Realtime queries retain their departure-window choices without applying the
+scheduled alternative search to an adjusted timetable.
+The window shares endpoint-access preparation and reuses a walking result only
+through departures where the timetable proves it still wins. The proof respects
+the original search horizon, so newly admitted services can trigger a fresh search.
+The native search reuses reverse bounds across transfer rounds with a shared
+forward envelope. When reusing an earliest-arrival scan, it resumes at the
+actual scan boundary, including departures skipped because of final egress.
+It prunes prefixes whose best possible completion is strictly
+dominated by an existing journey. A verified walk that already beats the exact
+earliest transit arrival bypasses the bounded transit pass.
 
 Depart-at transit, arrive-by transit, walking, driving, realtime-adjusted transit, waypoints, and batch requests remain Route variants. VIGO does not expose them as separate products.
+
+## Maximum transfers
+
+Use `maxTransfers` in a JSON request, `--max-transfers=N` in the CLI, or
+`max_transfers=N` in Python. Studio exposes Maximum transfers under Route options.
+`0` permits at most one boarding; `1` permits at most two. Values must be
+integers from 0 through 31. Omit the option for no additional limit. Staying
+aboard the same trip is not a transfer. Walk-only results remain eligible.
+The cap constrains the native search, including alternatives and arrive-by;
+a slower feasible route is searched when the unrestricted winner exceeds it.
+A finite cap with ordered transit waypoints is currently unsupported.
+
+Anonymous coordinate endpoints use the same nearest street attachment in Route
+and Matrix. Physical GTFS stops use that same attachment rule; a parent station
+does not provide free movement to every platform. Declared station paths retain
+their direction and time. Their complete time/distance frontier is prepared once,
+then filtered against the endpoint's remaining walking budget in Rust. Interior
+pathway nodes do not create additional street entrances. Station links with
+schematic geometry report `streetPathVerified: false` and `stationPathSources`.
+The walking
+limit covers each complete continuous access or egress walk; a transfer walk
+cannot extend the final egress beyond that budget. Generated transfer legs
+are reconstructed from the same physical-stop profiles used to price them.
+
+A repeated station is reported from the complete ride stop sequence. It does
+not automatically invalidate a path: a scheduled loop or a forbidden direct
+platform change can require it. Alternatives are filtered by objective
+dominance, not by a geometric cycle rule.

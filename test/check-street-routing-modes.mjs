@@ -58,7 +58,7 @@ function createCurrentStore() {
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX drive_edges_from ON drive_edges(from_node);
     INSERT INTO metadata VALUES
-      ('schemaVersion', '"vigo.street.store.v3"'),
+      ('schemaVersion', '"vigo.street.store.v4"'),
       ('sourceModel', '"pbf"'),
       ('storageLayout', '"walk-drive-role-tables-v2"'),
       ('driveNodeStorage', '"walk-shared-plus-drive-only-v1"'),
@@ -389,6 +389,22 @@ if (worker) {
   assert.equal(walkForward.status, 'ready')
   assert.equal(Number(walkForward.distanceKm.toFixed(3)), 0.2)
   assert.equal(Number(walkMiddleToEnd.distanceKm.toFixed(3)), 0.1)
+
+  const manyWalkDestinations = Array.from({ length: 1024 }, (_, i) => ({
+    coordinate: [-71 + 0.0024 * (i + 1) / 1024, 42], label: `Destination ${i}`,
+  }))
+  const manyWalkRequest = { mode: 'walk', origins: [walkRequest.origin],
+    destinations: manyWalkDestinations, maxStreetKm: 2 }
+  const manyWalk = routeNationalStreetMatrix(currentStore, manyWalkRequest)
+  assert.equal(manyWalk.diagnostics.uniqueDestinations, 1024)
+  for (let offset = 0; offset < manyWalkDestinations.length; offset += 256) {
+    const chunk = routeNationalStreetMatrix(currentStore, {
+      ...manyWalkRequest, destinations: manyWalkDestinations.slice(offset, offset + 256),
+    })
+    assert.deepEqual(manyWalk.rows.slice(offset, offset + 256), chunk.rows.map((row) => ({
+      ...row, destinationIndex: row.destinationIndex + offset,
+    })))
+  }
 
   const driveMatrix = routeNationalStreetMatrix(currentStore, {
     mode: 'drive',

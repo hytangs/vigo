@@ -121,39 +121,30 @@ function rideEndpointGroup(leg, side, stationGroupForStopId) {
   return resolvedGroup || stopId
 }
 
-export function nationalRoutingReturnedRideCycle(
-  plan,
-  { stationGroupForStopId } = {},
-) {
-  const rides = (plan?.legs ?? [])
-    .map((leg, legIndex) => ({ leg, legIndex }))
-    .filter(({ leg }) => leg?.type === 'ride')
-  // Prefer the shortest completed cycle. A repeated endpoint is materially
-  // stronger evidence than shape re-entry: it proves that the rider returned
-  // to a transit state already occupied earlier in the same itinerary.
-  for (let endRideIndex = 1; endRideIndex < rides.length; endRideIndex += 1) {
-    const end = rides[endRideIndex]
-    const returnedStopId = String(end.leg.toStopId ?? '').trim()
-    const returnedGroup = rideEndpointGroup(end.leg, 'to', stationGroupForStopId)
-    if (!returnedGroup) continue
-    for (let startRideIndex = endRideIndex - 1; startRideIndex >= 0; startRideIndex -= 1) {
-      const start = rides[startRideIndex]
-      const departureStopId = String(start.leg.fromStopId ?? '').trim()
-      const departureGroup = rideEndpointGroup(start.leg, 'from', stationGroupForStopId)
-      if (!departureGroup || returnedGroup !== departureGroup) continue
-      const firstAlightingGroup = rideEndpointGroup(start.leg, 'to', stationGroupForStopId)
-      if (firstAlightingGroup === departureGroup) continue
-      return {
-        firstLegIndex: start.legIndex,
-        lastLegIndex: end.legIndex,
-        firstRideIndex: startRideIndex,
-        lastRideIndex: endRideIndex,
-        departureStopId,
-        returnedStopId,
-        stationGroupId: departureGroup,
-        exactStopReturn: Boolean(departureStopId && departureStopId === returnedStopId),
-        cycleBoardings: endRideIndex - startRideIndex + 1,
+export function nationalRoutingReturnedRideCycle(plan, { stationGroupForStopId } = {}) {
+  const seen = new Map()
+  let previousGroup = null, rideIndex = -1
+  for (const [legIndex, leg] of (plan?.legs ?? []).entries()) {
+    if (leg?.type !== 'ride') continue
+    rideIndex += 1
+    const stops = leg.stopIds?.length ? leg.stopIds : [leg.fromStopId, leg.toStopId]
+    for (const [index, rawStopId] of stops.entries()) {
+      const stopId = String(rawStopId ?? '').trim()
+      const group = (stopId && stationGroupForStopId?.(stopId))
+        || (index === 0 ? rideEndpointGroup(leg, 'from', stationGroupForStopId)
+          : index === stops.length - 1 ? rideEndpointGroup(leg, 'to', stationGroupForStopId) : stopId)
+      if (!group || group === previousGroup) continue
+      const first = seen.get(group)
+      if (first) return {
+        firstLegIndex: first.legIndex, lastLegIndex: legIndex,
+        firstRideIndex: first.rideIndex, lastRideIndex: rideIndex,
+        departureStopId: first.stopId, returnedStopId: stopId,
+        stationGroupId: group, exactStopReturn: Boolean(stopId && first.stopId === stopId),
+        cycleBoardings: rideIndex - first.rideIndex + 1,
+        ...(first.rideIndex === rideIndex ? { withinSingleRide: true } : {}),
       }
+      seen.set(group, { stopId, legIndex, rideIndex })
+      previousGroup = group
     }
   }
   return null
@@ -218,7 +209,7 @@ function satisfiesLinearChoiceConstraints(point, constraints) {
     || point.transferPenaltyMinutes < 0
     || point.walkingReluctance < 0
   ) return false
-  return constraints.every(({ journeyCoefficient, transferCoefficient, walkCoefficient, upperBound }) => {
+  for (const { journeyCoefficient, transferCoefficient, walkCoefficient, upperBound } of constraints) {
     const value = journeyCoefficient * point.journeyWeight
       + transferCoefficient * point.transferPenaltyMinutes
       + walkCoefficient * point.walkingReluctance
@@ -227,35 +218,27 @@ function satisfiesLinearChoiceConstraints(point, constraints) {
       Math.abs(value),
       Math.abs(upperBound),
     )
-    return value <= upperBound + numericalTolerance
-  })
-}
-
-function determinant3x3(matrix) {
-  const [a, b, c] = matrix
-  return a[0] * (b[1] * c[2] - b[2] * c[1])
-    - a[1] * (b[0] * c[2] - b[2] * c[0])
-    + a[2] * (b[0] * c[1] - b[1] * c[0])
+    if (!(value <= upperBound + numericalTolerance)) return false
+  }
+  return true
 }
 
 function intersectionOfChoiceConstraints(left, middle, right) {
-  const constraints = [left, middle, right]
-  const matrix = constraints.map((constraint) => [
-    constraint.journeyCoefficient,
-    constraint.transferCoefficient,
-    constraint.walkCoefficient,
-  ])
-  const determinant = determinant3x3(matrix)
+  const { journeyCoefficient: a, transferCoefficient: b, walkCoefficient: c, upperBound: x } = left
+  const { journeyCoefficient: d, transferCoefficient: e, walkCoefficient: f, upperBound: y } = middle
+  const { journeyCoefficient: g, transferCoefficient: h, walkCoefficient: i, upperBound: z } = right
+  // Cramer's rule, with the same operation order and tolerance as the matrix
+  // form. Avoid allocating four matrices for every candidate intersection.
+  const determinant = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
   if (Math.abs(determinant) <= Number.EPSILON * 128) return null
-  const replaceColumn = (column) => matrix.map((row, rowIndex) => row.map((value, columnIndex) => (
-    columnIndex === column ? constraints[rowIndex].upperBound : value
-  )))
   const point = {
-    journeyWeight: determinant3x3(replaceColumn(0)) / determinant,
-    transferPenaltyMinutes: determinant3x3(replaceColumn(1)) / determinant,
-    walkingReluctance: determinant3x3(replaceColumn(2)) / determinant,
+    journeyWeight: (x * (e * i - f * h) - b * (y * i - f * z) + c * (y * h - e * z)) / determinant,
+    transferPenaltyMinutes: (a * (y * i - f * z) - x * (d * i - f * g) + c * (d * z - y * g)) / determinant,
+    walkingReluctance: (a * (e * z - y * h) - b * (d * z - y * g) + x * (d * h - e * g)) / determinant,
   }
-  return Object.values(point).every(Number.isFinite) ? point : null
+  return Number.isFinite(point.journeyWeight)
+    && Number.isFinite(point.transferPenaltyMinutes)
+    && Number.isFinite(point.walkingReluctance) ? point : null
 }
 
 /**
@@ -291,7 +274,8 @@ export function nationalChoiceSupportedBurdenWeights(candidate, choices, centerM
     })
   }
 
-  const candidatePoints = [{ journeyWeight: 0, transferPenaltyMinutes: 0, walkingReluctance: 0 }]
+  const origin = { journeyWeight: 0, transferPenaltyMinutes: 0, walkingReluctance: 0 }
+  if (satisfiesLinearChoiceConstraints(origin, constraints)) return origin
   for (let leftIndex = 0; leftIndex < constraints.length; leftIndex += 1) {
     const left = constraints[leftIndex]
     for (let middleIndex = leftIndex + 1; middleIndex < constraints.length; middleIndex += 1) {
@@ -299,12 +283,14 @@ export function nationalChoiceSupportedBurdenWeights(candidate, choices, centerM
       for (let rightIndex = middleIndex + 1; rightIndex < constraints.length; rightIndex += 1) {
         const right = constraints[rightIndex]
         const point = intersectionOfChoiceConstraints(left, middle, right)
-        if (point) candidatePoints.push(point)
+        // Keep the same deterministic witness order, but stop as soon as a
+        // supporting weight is found instead of allocating every intersection.
+        if (satisfiesLinearChoiceConstraints(point, constraints)) return point
       }
     }
   }
 
-  return candidatePoints.find((point) => satisfiesLinearChoiceConstraints(point, constraints)) ?? null
+  return null
 }
 
 export function selectNationalDepartureWindowChoices(plans, { centerMinutes, limit = 5 } = {}) {
@@ -329,12 +315,11 @@ export function selectNationalDepartureWindowChoices(plans, { centerMinutes, lim
 
   const allRepresentatives = [...representativeBySequence.values()]
     .sort((left, right) => compareFastestChoice(left, right, selectedMinutes))
-  const loopSafeRepresentatives = allRepresentatives.filter(
-    (plan) => !nationalRoutingReturnedRideCycle(plan),
-  )
-  if (!loopSafeRepresentatives.length && allRepresentatives.length) return []
-  const paretoRepresentatives = loopSafeRepresentatives.filter((candidate) => (
-    !loopSafeRepresentatives.some((other) => (
+  // Re-entering a station can be required by directed platforms, transfer
+  // prohibitions or a scheduled circulator. Only dominance removes a journey;
+  // a geometric or station-name cycle is not a feasibility rule.
+  const paretoRepresentatives = allRepresentatives.filter((candidate) => (
+    !allRepresentatives.some((other) => (
       other !== candidate
       && nationalChoiceStrictlyDominates(other, candidate, selectedMinutes)
     ))

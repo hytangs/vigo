@@ -425,7 +425,7 @@ export type VigoProject = {
   artifacts: ArtifactRecord[]
   routingStore?: RoutingStoreMetadata | null
   osmStreetIndex?: {
-    schemaVersion: 'vigo.street.store.v3'
+    schemaVersion: 'vigo.street.store.v4'
     status: 'building' | 'ready' | 'failed'
     fileName: string
     sourceBytes: number

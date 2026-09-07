@@ -86,6 +86,10 @@ try {
   assert.equal(rides[1].fromStopId, scoped('BP'))
   assert.equal(plan.transfers, 1)
   assert.equal(plan.arriveMinutes, 620)
+  const transfer = plan.legs.find((leg) => leg.walkSource === 'transfer')
+  assert.equal(transfer.transferSource, 'schedule_transfer')
+  assert.equal(transfer.durationMinutes, 5)
+  assert.equal(transfer.streetPathVerified, false)
 
   const prepared = prepareNationalGtfsRoutingContext(storePath, {
     serviceDate: '2026-07-15',

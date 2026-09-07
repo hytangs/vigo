@@ -1159,6 +1159,17 @@
   color: var(--text-strong);
 }
 
+.pathfinder-option-group > select {
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-strong);
+  background: var(--control-surface);
+  font: inherit;
+}
+
 .pathfinder-segmented {
   grid-auto-flow: column;
   grid-auto-columns: 1fr;

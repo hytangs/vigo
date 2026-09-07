@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import JSZip from 'jszip'
 import { DatabaseSync } from 'node:sqlite'
 import {
@@ -9,6 +10,7 @@ import {
   disposeNationalGtfsStore,
   prepareNationalGtfsRoutingContext,
   routeNativeParetoWithRestrictionFallback,
+  routeNationalGtfsDepartureWindow,
   routeNationalGtfsStore,
 } from '../src/server/national-gtfs-store.mjs'
 import {
@@ -111,7 +113,7 @@ function buildStreetFixture() {
     CREATE INDEX drive_edges_from ON drive_edges(from_node);
     CREATE INDEX drive_edges_to ON drive_edges(to_node);
     INSERT INTO metadata VALUES
-      ('schemaVersion', '"vigo.street.store.v3"'),
+      ('schemaVersion', '"vigo.street.store.v4"'),
       ('sourceModel', '"pbf"'),
       ('nodeCount', '5'),
       ('edgeCount', '6'),
@@ -228,6 +230,33 @@ try {
     'rust_fixed_round_run_layers',
   )
 
+  // Fused coordinate frontiers must keep the endpoint walking rule when the
+  // scalar witness crosses the JS boundary into exact Pareto certification.
+  const { TimetableKernel } = createRequire(import.meta.url)('../native/vigo-routing-kernel/vigo-routing-kernel.node')
+  const nativePareto = TimetableKernel.prototype.routeParetoRoundCsa
+  const terminalRules = []
+  TimetableKernel.prototype.routeParetoRoundCsa = function (input) {
+    terminalRules.push(input.allowPostRideTransfers)
+    return nativePareto.call(this, input)
+  }
+  try {
+    const { __destinationAccessStopIds: ignored, ...coordinateRequest } = threeRideRequest
+    void ignored
+    for (const timePreference of ['depart', 'arrive']) {
+      const coordinatePlan = routeNationalGtfsStore(routingStorePath, { ...coordinateRequest,
+        origin: { ...coordinateRequest.origin, source: 'map' },
+        timePreference, arriveMinutes: 530,
+      })
+      assert.equal(coordinatePlan.status, 'ready')
+      const lastRide = coordinatePlan.legs.findLastIndex((leg) => leg.type === 'ride')
+      assert(coordinatePlan.legs.slice(lastRide + 1).reduce((sum, leg) => sum + leg.distanceKm, 0) <= coordinateRequest.maxWalkKm)
+    }
+  } finally {
+    TimetableKernel.prototype.routeParetoRoundCsa = nativePareto
+  }
+  assert(terminalRules.length >= 2)
+  assert(terminalRules.every((allow) => allow === false))
+
   const twoRidePlan = routeNationalGtfsStore(routingStorePath, {
     origin: { coordinate: [0, 0], label: 'Origin', source: 'stop', stopId: 'O' },
     destination: { coordinate: [0.01, 0], label: 'Second interchange', source: 'stop', stopId: 'X' },
@@ -283,7 +312,7 @@ try {
   )
   assert.equal(
     oneRidePlan.diagnostics.algorithm,
-    'rust_exact_connection_scan_scalar_no_heuristic',
+    'rust_exact_connection_scan_bounded_pareto_no_heuristic',
   )
 
   const oneBoardingTradeoffRequest = {
@@ -313,10 +342,10 @@ try {
   )
   assert.equal(
     fastestOneBoardingPlan.diagnostics.algorithm,
-    'rust_exact_connection_scan_scalar_no_heuristic',
-    'Strict fastest routing must retain the one-boarding scalar shortcut.',
+    'rust_exact_connection_scan_bounded_pareto_no_heuristic',
+    'A one-boarding arrival witness still needs exact walking-tie certification.',
   )
-  assert.equal(fastestOneBoardingPlan.diagnostics.paretoCertification, undefined)
+  assert.equal(fastestOneBoardingPlan.diagnostics.paretoCertification.status, 'passed')
 
   const balancedOneBoardingPlan = routeNationalGtfsStore(routingStorePath, {
     ...oneBoardingTradeoffRequest,
@@ -362,6 +391,61 @@ try {
       < oneBoardingSelection.earliestArrivalWitness.generalizedSeconds,
     'The lower-walking one-seat route must improve balanced generalized cost.',
   )
+
+  const walkingChoices = routeNationalGtfsDepartureWindow(routingStorePath, {
+    ...oneBoardingTradeoffRequest,
+    routingPreference: 'fastest',
+    departureWindowMinutes: 1,
+    departureWindowDirection: 'forward',
+  }).choices
+  assert.deepEqual(walkingChoices.map((plan) => plan.legs
+    .filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName)), [['FAST'], ['LOWWALK']],
+  'Departure-window choices must include a later one-seat service with less walking.')
+  assert(walkingChoices[1].walkMinutes < walkingChoices[0].walkMinutes)
+  assert(walkingChoices[1].arriveMinutes > walkingChoices[0].arriveMinutes)
+
+  // A station's internal connection is not a journey out onto public streets.
+  // Preserve the modeled transfer time without claiming an OSM path witness.
+  const stationZip = await JSZip.loadAsync(await fs.readFile(gtfsPath))
+  stationZip.file('stops.txt', csv([
+    'stop_id,stop_name,stop_lat,stop_lon,location_type,parent_station',
+    'O,Origin,0,0,0,', 'A,Destination,0,0.004,0,',
+    'P,Interchange,0,0.0105,1,',
+    'X,Arriving platform,0,0.010,0,P',
+    'Y,Departing platform,0,0.011,0,P',
+  ]))
+  stationZip.file('trips.txt', csv([
+    'route_id,service_id,trip_id,direction_id',
+    'R1,SERVICE,IN,0', 'R2,SERVICE,OUT,0',
+  ]))
+  stationZip.file('stop_times.txt', csv([
+    'trip_id,arrival_time,departure_time,stop_id,stop_sequence',
+    'IN,10:00:00,10:00:00,O,1', 'IN,10:04:00,10:04:00,X,2',
+    'OUT,10:06:00,10:06:00,Y,1', 'OUT,10:10:00,10:10:00,A,2',
+  ]))
+  const stationZipPath = path.join(folder, 'station.zip')
+  const stationStorePath = path.join(folder, 'station.sqlite')
+  await fs.writeFile(stationZipPath, await stationZip.generateAsync({ type: 'nodebuffer' }))
+  await buildNationalGtfsStore({ zipPath: stationZipPath, outputPath: stationStorePath })
+  try {
+    const stationPlan = routeNationalGtfsStore(stationStorePath, {
+      ...threeRideRequest, departMinutes: 600,
+      __disableDirectWalkDominance: true,
+      destination: { coordinate: [0.004, 0], source: 'stop', stopId: 'A', label: 'Destination' },
+      __destinationAccessStopIds: undefined,
+    })
+    assert.equal(stationPlan.status, 'ready')
+    assert.equal(stationPlan.arriveMinutes, 610)
+    const connection = stationPlan.legs.find((leg) => leg.walkSource === 'transfer')
+    assert.equal(connection.durationMinutes, 2)
+    assert.equal(connection.streetPathVerified, false,
+      'A modeled station transfer must not claim a public-street path witness.')
+    assert.equal(connection.transferSource, 'parent_station_fallback')
+    assert.equal(connection.geometrySource, 'station-transfer-schematic')
+    assert.deepEqual(connection.coordinates, [[0.010, 0], [0.011, 0]])
+  } finally {
+    disposeNationalGtfsStore(stationStorePath)
+  }
 
   const productionSource = await fs.readFile(
     path.join(import.meta.dirname, '..', 'src', 'server', 'national-gtfs-store.mjs'),

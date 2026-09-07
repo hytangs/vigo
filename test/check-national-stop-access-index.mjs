@@ -134,7 +134,7 @@ try {
     CREATE INDEX drive_edges_from ON drive_edges(from_node);
     CREATE INDEX drive_edges_to ON drive_edges(to_node);
     INSERT INTO metadata VALUES
-      ('schemaVersion', '"vigo.street.store.v3"'),
+      ('schemaVersion', '"vigo.street.store.v4"'),
       ('sourceModel', '"pbf"'),
       ('nodeCount', '43'),
       ('edgeCount', '2'),
@@ -203,7 +203,8 @@ try {
     assert.equal(transferLinkedRail.accessTransferFromStopId, scoped('R'))
     assert(transferLinkedRail.accessTransferSeconds > 0 && transferLinkedRail.accessTransferSeconds <= 180)
   }
-  assert.equal(transferLinkedRail.streetPathVerified, true)
+  assert.equal(transferLinkedRail.streetPathVerified, false,
+    'A published station link is modeled separately from a verified OSM path.')
   assert.equal(reachable.accessCandidateClass, 'complete-native-directed-frontier')
   assert.equal(reachable.accessSearchComplete, true)
   assert.equal(recovered.diagnostics.completeStreetAccessFrontier, true)
@@ -284,8 +285,8 @@ try {
   assert(!routingSource.includes('const destinationByStop = new Map'),
     'The removed SQL route fallback must not reappear after the resident failure boundary.')
   assert(!streetSource.includes('directThresholdKm'), 'A close straight chord must not be labeled as graph-backed OSM access.')
-  assert(nativeSource.includes('streetPathVerified: true'),
-    'Every accepted OSM access result must carry explicit graph-path evidence.')
+  assert(nativeSource.includes('streetPathVerified: !linked || linkStreetVerified !== 0'),
+    'GTFS station links must not be reported as verified street geometry.')
 
   const preparedRouting = prepareNationalGtfsRoutingContext(storePath, {
     serviceDate: '2025-12-08',
@@ -333,14 +334,14 @@ try {
     streetStorePath: usefulPrimaryStreetPath,
   })
   assert.equal(recoveredPlan.status, 'ready', 'The exact router must see the useful stop in its first complete access search.')
-  assert.equal(recoveredPlan.diagnostics.methodUsed, 'rust_timetable_kernel')
+  assert([recoveredPlan.diagnostics.methodUsed].flat().includes('rust_timetable_kernel'))
   assert.match(
     recoveredPlan.diagnostics.algorithm,
     /^rust_exact_connection_scan_(?:scalar|bounded_pareto)_no_heuristic$/u,
   )
   assert.equal(recoveredPlan.diagnostics.expandedStreetAccessRetry, undefined)
   assert.equal(recoveredPlan.diagnostics.coordinateAccessFrontier, 'complete_osm_reachable')
-  assert.equal(recoveredPlan.diagnostics.originStreetPathVerified, true)
+  assert.equal(recoveredPlan.diagnostics.originStreetPathVerified, false)
   assert(recoveredPlan.legs.some((leg) => leg.type === 'ride' && leg.routeShortName === 'S21' && leg.fromStopId === scoped('RSP')),
     'The direct rail boarding must dominate riding away from a nearby transfer-linked station.')
   const accessProfileSnapshots = (await fs.readdir(folder))

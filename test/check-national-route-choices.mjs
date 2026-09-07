@@ -369,9 +369,9 @@ assert.equal(
   'A repeated persisted parent-station identity proves a returned transit state.',
 )
 assert.deepEqual(
-  selectNationalDepartureWindowChoices([sameStationGroupOutAndBack], { centerMinutes, limit: 5 }),
-  [],
-  'A proven station-group cycle must not be resurrected merely because it is the only timetable result.',
+  selectNationalDepartureWindowChoices([sameStationGroupOutAndBack], { centerMinutes, limit: 5 }).map((plan) => plan.id),
+  [sameStationGroupOutAndBack.id],
+  'Station identity alone cannot invalidate a feasible timetable path.',
 )
 
 const distinctEndpointReturnJourney = {
@@ -540,6 +540,8 @@ const secondHalf = {
     { type: 'walk', fromStopId: 'destination-stop', fromName: 'Destination stop', toName: 'B', startMinutes: 517, endMinutes: 520, durationMinutes: 3, distanceKm: 0.2, coordinates: [[1.8, 1.8], [2, 2]] },
   ],
 }
+firstHalf.legs[1].stopIds = ['origin-stop', 'intermediate-stop', 'waypoint-stop']
+secondHalf.legs[1].stopIds = ['waypoint-stop', 'transfer-stop']
 const stitched = stitchNationalAlternativePlans(firstHalf, secondHalf, {
   origin: firstHalf.origin,
   destination: secondHalf.destination,
@@ -548,6 +550,7 @@ const stitched = stitchNationalAlternativePlans(firstHalf, secondHalf, {
 })
 assert.equal(stitched.status, 'ready')
 assert.deepEqual(stitched.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName), ['Rail', 'Bus'])
+assert.deepEqual(stitched.legs.find((leg) => leg.type === 'ride').stopIds, ['origin-stop', 'intermediate-stop', 'waypoint-stop', 'transfer-stop'])
 assert.equal(stitched.transfers, 1, 'A through trip split at a waypoint must remain one ride before the real transfer.')
 assert.equal(stitched.durationMinutes, 40)
 assert.equal(stitched.walkMinutes, 5)

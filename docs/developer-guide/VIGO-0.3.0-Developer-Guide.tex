@@ -146,6 +146,8 @@ vigo build \
 
 VIGO publishes the output only after required timetable and street files are complete. An existing output directory is left alone unless \field{--replace} is supplied.
 
+Public pedestrian access is the default. For travelers authorized to use internal roads at their own endpoints, \field{--private-access=endpoints} includes mapped private access within the same walking budget. Private streets remain unavailable for through travel and transit transfers. This City-wide assumption does not infer ownership or gate hours. Rebuild older Cities for the current street-store v4 permission rules.
+
 \subsection{Inspect and identify}
 
 \begin{lstlisting}[language=bash]
@@ -337,7 +339,7 @@ Matrix returns scalar rows, not predecessor chains, legs, or complete route geom
 
 \subsection{Limits and important behavior}
 
-One request accepts at most 256 origins, 256 destinations, and 50,000 pairs. Transit Matrix supports depart-at in 0.3.0. Walk and Drive Matrix use the street graph. A supplied traffic Scenario applies only to Drive Matrix.
+One request accepts at most 100,000 pairs, including a single origin with 100,000 destinations or 100,000 origins with one destination. Transit Matrix supports depart-at and arrive-by. Rust shares a forward scan per unique origin for depart-at, or a reverse scan per unique destination for arrive-by. Arrive-by duration is the deadline minus the latest departure, including destination waiting. Walk and Drive Matrix use the street graph. A supplied traffic Scenario applies only to Drive Matrix.
 
 \section{Reach}
 
@@ -433,7 +435,7 @@ query = vigo.Matrix(
 )
 support = city.supports(query)
 print(support.supported, support.reason, support.available)
-# False arrive_by_matrix ('depart_at',)
+# True None ()
 \end{lstlisting}
 
 Executing an unsupported combination raises \code{UnsupportedQuery}. VIGO does not ignore Scenario changes.
@@ -483,6 +485,8 @@ city = vigo.build(
     osm="./massachusetts.osm.pbf",
 )
 \end{lstlisting}
+
+Pass \code{private\_access="endpoints"} to Build to select the authorized endpoint model; the default is \code{"public"}.
 
 \subsection{One execution method}
 

@@ -264,6 +264,12 @@ async function checkAccuracy(directory) {
         assert(arriveBy.arriveMinutes <= deadline)
       }
       counts.transitArrive += 1
+      const arriveMatrix = routeNationalGtfsMatrix(storePath, { ...query,
+        origins: [point(from)], destinations: [point(to)], timePreference: 'arrive', arriveMinutes: deadline })
+      assert.equal(arriveMatrix.rows[0].departMinutes, Number.isFinite(expectedDeparture) ? expectedDeparture : null,
+        `Arrive-by Matrix oracle seed=${seed} sample=${sample}`)
+      assert.equal(arriveMatrix.rows[0].status, arriveBy.status)
+      counts.transitMatrix += 1
     }
     for (const [origins, destinations] of [
       [[0, 1, 2], [3, 4, 5]], [[2, 0, 1, 0], [5, 3, 4, 3]],
@@ -273,6 +279,18 @@ async function checkAccuracy(directory) {
       for (const row of batch.rows) {
         const expected = enumerateArrival(trips, origins[row.originIndex], destinations[row.destinationIndex], baseMinutes + 35, stopCount, sameStopMinimum)
         assert.equal(row.arriveMinutes, Number.isFinite(expected) ? expected : null, `Permuted Matrix seed=${seed}`)
+        counts.transitMatrix += 1
+      }
+      const deadline = baseMinutes + 130
+      const reverseBatch = routeNationalGtfsMatrix(storePath, { ...request,
+        timePreference: 'arrive', arriveMinutes: deadline,
+        origins: origins.map(point), destinations: destinations.map(point) })
+      assert.equal(reverseBatch.diagnostics.reverseSearches, new Set(destinations).size)
+      assert.equal(reverseBatch.diagnostics.forwardSearches, 0)
+      for (const row of reverseBatch.rows) {
+        const expected = enumerateDeparture(trips, origins[row.originIndex], destinations[row.destinationIndex], deadline, stopCount, sameStopMinimum)
+        assert.equal(row.departMinutes, Number.isFinite(expected) ? expected : null, `Permuted arrive-by Matrix seed=${seed}`)
+        assert.equal(row.durationMinutes, Number.isFinite(expected) ? deadline - expected : null)
         counts.transitMatrix += 1
       }
     }
@@ -351,7 +369,11 @@ async function checkPublishedPlatformTransfers(directory) {
     const arriveBy = routeNationalGtfsStore(storePath, { ...request, timePreference: 'arrive', arriveMinutes: expected ?? 506 })
     assert.equal(arriveBy.status, expected === null ? 'blocked' : 'ready', `Arrive-by platform rule minimum=${minimum}`)
     if (expected !== null) assert.equal(arriveBy.departMinutes, 480)
-    checks += 3
+    const arriveMatrix = routeNationalGtfsMatrix(storePath, { ...request,
+      origins: [origin], destinations: [destination], timePreference: 'arrive', arriveMinutes: expected ?? 506 })
+    assert.equal(arriveMatrix.rows[0].status, arriveBy.status)
+    assert.equal(arriveMatrix.rows[0].departMinutes, expected === null ? null : 480)
+    checks += 4
   }
   return checks
 }

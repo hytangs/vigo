@@ -31,9 +31,9 @@ whole store.
 | Shapes present | Yes | Ordered trip stops are matched to a monotone shape slice. | Supported for rendering; feasibility never depends on shape. |
 | Shapes missing or unusable | Yes | Timetable route remains valid. Ordinary network lenses show no inferred route alignment; selected-itinerary and Shape/Risk QA views may show a dashed, explicitly inferred stop sequence. | Timetable supported; published ride geometry unavailable. |
 | Duplicate stop names | Yes | Identity is `stop_id`, not name. | Supported. |
-| Parent stations and platforms | Yes | Explicit parent transfer rules expand to child service platforms; selected stations expand to service members. | Supported for `location_type` 0/1. |
+| Parent stations and platforms | Yes | Explicit parent transfer rules expand to child service platforms; selected stations expand to service members. Without an explicit rule, service members share a modeled 120-second connection, reported as `parent_station_fallback` with schematic geometry. | Supported for `location_type` 0/1; fallback time is not a measured station pathway. |
 | Deeper `location_type` hierarchy | Parsed as stops | No complete entrance/boarding-area hierarchy model. | Partial. |
-| `pathways.txt` direction and traversal time | Yes | Creates directed transfer edges; bidirectional rows create the reverse edge. Runtime transfer normalization applies a 60-second floor and does not preserve the full pathway mode/hierarchy. | Partial. |
+| `pathways.txt` direction and traversal time | Yes | Creates directed transfer edges with their declared traversal times; bidirectional rows create the reverse edge. The full pathway mode/hierarchy is not preserved. | Partial. |
 | Pathway wheelchair/stair/slope/width attributes | Inventoried | Not applied as query constraints. | Unsupported and visible limitation. |
 | Transfer type 0 | Yes | Directed recommended transfer using declared/default duration. | Supported within transfer model. |
 | Transfer type 1 timed transfer | Inventoried | The guarantee is not represented; the row is omitted from the generic stop-pair transfer graph. Other supported scheduled service remains routable. | Excluded from the supported scheduled core; visible limitation. |

@@ -42,7 +42,7 @@ function writeWay(way, pbf) {
 
 function writePrimitiveGroup(group, pbf) {
   for (const node of group.nodes) pbf.writeMessage(1, writeNode, node)
-  pbf.writeMessage(3, writeWay, group.way)
+  for (const way of group.ways ?? [group.way]) pbf.writeMessage(3, writeWay, way)
 }
 
 function writePrimitiveBlock(block, pbf) {
@@ -50,16 +50,28 @@ function writePrimitiveBlock(block, pbf) {
   pbf.writeMessage(2, writePrimitiveGroup, block.group)
 }
 
-function writeOsmFixture(filePath) {
+function writeOsmFixture(filePath, terminalAccess) {
   const raw = pbfMessage(writePrimitiveBlock, {
-    strings: ['', 'highway', 'residential'],
+    strings: ['', 'highway', 'residential', 'footway', 'service', 'access', 'private', 'foot'],
     group: {
       nodes: [
         { id: 1, lat: 389_000_000, lon: -770_500_000 },
         { id: 2, lat: 389_050_000, lon: -770_400_000 },
         { id: 3, lat: 389_100_000, lon: -770_300_000 },
+        ...(terminalAccess ? [
+          { id: 4, lat: 389_000_000, lon: -770_540_000 },
+          { id: 5, lat: 389_000_000, lon: -770_535_000 },
+          { id: 6, lat: 389_000_000, lon: -770_520_000 },
+        ] : []),
       ],
-      way: { id: 10, keys: [1], values: [2], refs: [1, 1, 1] },
+      ways: [
+        { id: 10, keys: [1], values: [2], refs: [1, 1, 1] },
+        ...(terminalAccess ? [
+          { id: 11, keys: [1], values: [3], refs: [4, 1] },
+          { id: 12, keys: [1, 5], values: [4, 6], refs: [5, 1] },
+          { id: 13, keys: [1, 7], values: [3, 6], refs: [6, -5] },
+        ] : []),
+      ],
     },
   })
   const framedBlock = (type, payload) => {
@@ -75,7 +87,7 @@ function writeOsmFixture(filePath) {
   ]))
 }
 
-export async function writeCliFixtureInputs(directory) {
+export async function writeCliFixtureInputs(directory, { terminalAccess = false } = {}) {
   const gtfsPath = path.join(directory, 'fixture.zip')
   const osmPath = path.join(directory, 'fixture.osm.pbf')
   const zip = new JSZip()
@@ -88,6 +100,6 @@ export async function writeCliFixtureInputs(directory) {
   addTable('stop_times.txt', 'trip_id,arrival_time,departure_time,stop_id,stop_sequence\nT1,08:00:00,08:00:00,A,1\nT1,08:10:00,08:10:00,X,2\nT2,08:15:00,08:15:00,X,1\nT2,08:30:00,08:30:00,B,2\n')
   addTable('calendar.txt', 'service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nWKD,1,1,1,1,1,0,0,20260101,20261231\n')
   fs.writeFileSync(gtfsPath, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
-  writeOsmFixture(osmPath)
+  writeOsmFixture(osmPath, terminalAccess)
   return { gtfsPath, osmPath }
 }

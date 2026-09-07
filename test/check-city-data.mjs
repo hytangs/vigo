@@ -64,7 +64,7 @@ try {
     artifacts: [{ id: 'artifact-fixture', sourceFeedIds: ['fixture-feed'] }],
     routingStore,
     osmStreetIndex: {
-      schemaVersion: 'vigo.street.store.v3',
+      schemaVersion: 'vigo.street.store.v4',
       status: 'ready',
       fileName: 'fixture.osm.pbf',
       sourceBytes: 2_048,

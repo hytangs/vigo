@@ -7,6 +7,7 @@ import { once } from 'node:events'
 import { createInterface } from 'node:readline'
 import Papa from 'papaparse'
 import packageJson from '../../package.json'
+import { assertMatrixSize } from '../server/matrix-size.mjs'
 import {
   apiVersion,
   cityFormatVersion,
@@ -46,6 +47,7 @@ import {
   routeNationalStreetStore,
 } from '../server/national-osm-store.mjs'
 import { buildNativeStreetCchIndex } from '../server/native-routing-kernel.mjs'
+import { buildTerminalAccessStore } from '../server/terminal-access-store.mjs'
 import { timingMilliseconds } from '../server/number-utils.mjs'
 import {
   composeOrderedRoutingPlans,
@@ -59,7 +61,7 @@ import type { ServiceDay } from '../domain'
 import type { RoutingExecutionStatus, RoutingPlan, RoutingPoint, RoutingTimePreference } from '../routingModel'
 
 type CliArguments = Map<string, string[]>
-type RouteResult = { plan: RoutingPlan | undefined; profileSampleCount: number; elapsedMs: number }
+type RouteResult = { plan: RoutingPlan | undefined; choices?: RoutingPlan[]; profileSampleCount: number; elapsedMs: number }
 
 const cliStartedAt = performance.now()
 const rawOsmWorkingSetMultiplier = 80
@@ -107,6 +109,7 @@ function usage() {
     '  --gtfs PATH                 GTFS ZIP for build; repeat for multiple sources',
     '  --gtfs-scope VALUE          Optional unique scope for each repeated --gtfs',
     '  --osm PATH                  OSM .pbf input for build',
+    '  --private-access VALUE      Build: public (default) or endpoints (authorized access)',
     '  --output PATH               City output, route CSV output, or comparison output',
     '  --replace                   Replace an existing City',
     '  --input PATH                Route CSV input',
@@ -119,6 +122,7 @@ function usage() {
     '  --service-day VALUE         weekday, saturday, or sunday (derived from date)',
     '  --service-date YYYY-MM-DD   Required exact service date',
     '  --max-walk KM               Physical walking budget (default: 1.2)',
+    '  --max-transfers N           Maximum transit changes, 0–31 (default: unrestricted)',
     '  --horizon MIN               Matrix time horizon (default: 480)',
     '  --cutoffs MINUTES           Reach limits, comma-separated (default: 15,30,45,60)',
     '  --extent-radius KM          Reach computation radius (default: 8)',
@@ -345,6 +349,7 @@ function routeOne(storePath: string, request: Record<string, unknown>, departure
     })
     return {
       plan: decorateCliRoutingPlan(profile.plan),
+      choices: profile.choices.map(decorateCliRoutingPlan),
       profileSampleCount: profile.profile.sampleCount,
       elapsedMs: performance.now() - startedAt,
     }
@@ -407,7 +412,7 @@ function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {
   if (args.has('routing-preference') || Object.hasOwn(request, 'routingPreference')) {
     throw new Error('Unknown routing option; use --objective=earliest_arrival')
   }
-  const timePreference = value(args, 'time-preference', 'depart') as RoutingTimePreference
+  const timePreference = value(args, 'time-preference', String(request.timePreference ?? 'depart')) as RoutingTimePreference
   if (!['depart', 'arrive'].includes(timePreference)) throw new Error(`Invalid --time-preference value: ${timePreference}`)
   const objective = String(args.has('objective') ? value(args, 'objective') : request.objective ?? 'earliest_arrival')
   if (objective !== 'earliest_arrival') {
@@ -419,6 +424,9 @@ function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {
   if (!serviceDate) throw new Error('--service-date is required for exact timetable routing')
   const serviceDay = resolveServiceDay(serviceDate, value(args, 'service-day')) as ServiceDay
   const maxWalkKm = parseNumber(value(args, 'max-walk', '1.2'), 'max-walk', 0.01)
+  const maxTransfers = args.has('max-transfers') || request.maxTransfers !== undefined
+    ? parseIntegerNumber(value(args, 'max-transfers', String(request.maxTransfers)), 'max-transfers', 0, 31)
+    : undefined
   const departureWindowMinutes = parseIntegerNumber(value(args, 'departure-window', '0'), 'departure-window', 0, 30)
   if (timePreference === 'arrive' && departureWindowMinutes > 0) {
     throw new Error('--departure-window is a centered departure profile; omit it for arrive-by search')
@@ -431,6 +439,7 @@ function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {
     timeMinutes,
     serviceDate,
     maxWalkKm,
+    maxTransfers,
     departureWindowMinutes,
   }
 }
@@ -515,7 +524,9 @@ async function runRouteRequest(args: CliArguments) {
       serviceDate: options.serviceDate,
       allowServiceDateFallback: false,
       maxWalkKm: options.maxWalkKm,
+      maxTransfers: options.maxTransfers,
       streetStorePath,
+      allowLongWalk: request.allowLongWalk !== false,
       departureWindowMinutes: options.departureWindowMinutes,
       walkingSpeedKph: request.walkSpeedKph,
       ...(mode === 'drive' && request.traffic ? { trafficSnapshot: request.traffic } : {}),
@@ -564,9 +575,11 @@ async function runRouteRequest(args: CliArguments) {
         objective: options.objective,
         serviceDate: options.serviceDate,
         maxWalkKm: options.maxWalkKm,
+        maxTransfers: options.maxTransfers,
         departureWindowMinutes: options.departureWindowMinutes,
       },
       result: routed.plan ?? null,
+      ...(routed.choices ? { choices: routed.choices } : {}),
       warnings: [],
       timing: {
         buildMs: null,
@@ -601,6 +614,7 @@ async function runRoute(args: CliArguments) {
     timeMinutes,
     serviceDate,
     maxWalkKm,
+    maxTransfers,
     departureWindowMinutes,
   } = runtimeOptions(args)
 
@@ -637,6 +651,7 @@ async function runRoute(args: CliArguments) {
         serviceDate,
         allowServiceDateFallback: false,
         maxWalkKm,
+        maxTransfers,
         streetStorePath,
       }
       const result = routeOne(storePath, request, departureWindowMinutes)
@@ -645,6 +660,7 @@ async function runRoute(args: CliArguments) {
       fullResults.push({
         id,
         plan: plan ?? null,
+        ...(result.choices ? { choices: result.choices } : {}),
         ...(plan?.status === 'blocked' ? { blockedReason: `${plan.title}: ${plan.detail}` } : {}),
       })
       rows.push({
@@ -680,6 +696,7 @@ async function runRoute(args: CliArguments) {
     serviceDay,
     serviceDate: serviceDate ?? null,
     maxWalkKm,
+    maxTransfers,
   }
   fs.mkdirSync(path.dirname(outPath), { recursive: true })
   fs.writeFileSync(outPath, `${Papa.unparse(rows, { newline: '\n' })}\n`)
@@ -765,7 +782,8 @@ async function writeNdjson(value: unknown) {
 }
 
 async function runRouteStream(args: CliArguments) {
-  const { storePath, streetStorePath } = resolveRuntimePaths(args)
+  const paths = resolveRuntimePaths(args)
+  const { storePath, streetStorePath } = paths
   const defaults = runtimeOptions(args)
   const preparation = await prepareRuntime(storePath, streetStorePath, defaults.serviceDate, defaults.serviceDay)
   const stopLookup = openStopLookup(storePath)
@@ -781,9 +799,6 @@ async function runRouteStream(args: CliArguments) {
         const input = JSON.parse(line) as Record<string, unknown>
         if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Each line must be a JSON object')
         if (typeof input.id === 'string' && input.id.trim()) id = input.id.trim()
-        const origin = ndjsonPoint(input.origin, 'Origin', stopLookup)
-        const destination = ndjsonPoint(input.destination, 'Destination', stopLookup)
-        requireStreetStoreForCoordinateEndpoints(streetStorePath, origin, destination, `Request ${id}`)
         const timePreference = (input.timePreference ?? defaults.timePreference) as RoutingTimePreference
         if (!['depart', 'arrive'].includes(timePreference)) throw new Error('timePreference must be depart or arrive')
         const objective = String(input.objective ?? defaults.objective)
@@ -799,12 +814,30 @@ async function runRouteStream(args: CliArguments) {
         const maxWalkKm = input.maxWalkKm === undefined
           ? defaults.maxWalkKm
           : parseNumber(String(input.maxWalkKm), 'maxWalkKm', 0.01)
+        const maxTransfers = input.maxTransfers === undefined
+          ? defaults.maxTransfers
+          : parseIntegerNumber(String(input.maxTransfers), 'maxTransfers', 0, 31)
         const departureWindowMinutes = input.departureWindowMinutes === undefined
           ? defaults.departureWindowMinutes
           : parseIntegerNumber(String(input.departureWindowMinutes), 'departureWindowMinutes', 0, 30)
         if (timePreference === 'arrive' && departureWindowMinutes > 0) {
           throw new Error('departureWindowMinutes is only valid for depart searches')
         }
+        if (input.kind === 'matrix') {
+          if (departureWindowMinutes !== 0) throw new Error('Matrix does not support departure windows')
+          const matrix = computePreparedMatrix(new Map(), input, paths, {
+            ...defaults, timePreference, objective, routingPreference, timeMinutes, maxWalkKm, maxTransfers,
+          }, stopLookup)
+          await writeNdjson({ ...matrix, sequence, id, timing: {
+            ...matrix.timing,
+            openMs: sequence === 1 ? preparation.elapsedMs : 0,
+            endToEndMs: Number((performance.now() - (sequence === 1 ? cliStartedAt : requestStarted)).toFixed(3)),
+          } })
+          continue
+        }
+        const origin = ndjsonPoint(input.origin, 'Origin', stopLookup)
+        const destination = ndjsonPoint(input.destination, 'Destination', stopLookup)
+        requireStreetStoreForCoordinateEndpoints(streetStorePath, origin, destination, `Request ${id}`)
         const routed = routeOne(storePath, {
           origin,
           destination,
@@ -816,6 +849,7 @@ async function runRouteStream(args: CliArguments) {
           serviceDate: defaults.serviceDate,
           allowServiceDateFallback: false,
           maxWalkKm,
+          maxTransfers,
           streetStorePath,
         }, departureWindowMinutes)
         const engine = engineDescriptor([routed])
@@ -844,6 +878,7 @@ async function runRouteStream(args: CliArguments) {
             connectionCount: stopLookup.routingStore.connectionCount,
           },
           plan: routed.plan ?? null,
+          ...(routed.choices ? { choices: routed.choices } : {}),
           profileSampleCount: routed.profileSampleCount,
         })
       } catch (error) {
@@ -903,9 +938,6 @@ function matrixDestinations(
   if (!Array.isArray(input) || !input.length) {
     throw new Error('matrix requires a non-empty destinations array')
   }
-  if (input.length > 256) {
-    throw new Error('matrix is limited to 256 destinations')
-  }
   const destinations = input.map((candidate, index) => {
     const descriptor = candidate && typeof candidate === 'object' && !Array.isArray(candidate)
       ? candidate as Record<string, unknown>
@@ -948,7 +980,7 @@ function boundedAnalyticalNumber(
 
 function analyticalRuntimeOptions(args: CliArguments, command: string, request: Record<string, unknown>) {
   const options = runtimeOptions(args, request)
-  if (options.timePreference !== 'depart') {
+  if (options.timePreference !== 'depart' && command !== 'matrix') {
     throw new Error(`${command} supports fixed-departure routing only`)
   }
   if (options.departureWindowMinutes !== 0) {
@@ -965,7 +997,6 @@ function matrixOrigins(
   if (!Array.isArray(source) || !source.length) {
     throw new Error('matrix requires a non-empty origins array')
   }
-  if (source.length > 256) throw new Error('matrix is limited to 256 origins')
   return source.map((candidate, index) => {
     const descriptor = candidate && typeof candidate === 'object' && !Array.isArray(candidate)
       ? candidate as Record<string, unknown>
@@ -982,11 +1013,17 @@ function matrixOrigins(
   })
 }
 
-async function runMatrix(args: CliArguments) {
-  const { storePath, streetStorePath, city } = resolveRuntimePaths(args)
-  const request = readStructuredRequest(args, 'matrix')
+function computePreparedMatrix(
+  args: CliArguments,
+  request: Record<string, unknown>,
+  paths: ReturnType<typeof resolveRuntimePaths>,
+  options: ReturnType<typeof runtimeOptions>,
+  stopLookup: ReturnType<typeof openStopLookup>,
+) {
+  const { storePath, streetStorePath, city } = paths
+  assertMatrixSize(Array.isArray(request.origins) ? request.origins.length : 0,
+    Array.isArray(request.destinations) ? request.destinations.length : 0)
   if (request.scenario) throw new Error('Planned transit Scenarios are supported by Reach, not Matrix.')
-  const options = analyticalRuntimeOptions(args, 'matrix', request)
   const mode = String(value(args, 'mode', String(request.mode ?? 'transit')))
   if (!['transit', 'walk', 'drive'].includes(mode)) {
     throw new Error('matrix mode must be transit, walk, or drive')
@@ -1001,13 +1038,6 @@ async function runMatrix(args: CliArguments) {
     1,
     2_880,
   )
-  const preparation = await prepareRuntime(
-    storePath,
-    streetStorePath,
-    options.serviceDate,
-    options.serviceDay,
-  )
-  const stopLookup = openStopLookup(storePath)
   const origins = matrixOrigins(request, stopLookup)
   const destinations = matrixDestinations(request.destinations, stopLookup)
   if (
@@ -1020,9 +1050,6 @@ async function runMatrix(args: CliArguments) {
     throw new Error(
       'matrix coordinate endpoints require a City with streets; only exact-stop requests may omit them',
     )
-  }
-  if (origins.length * destinations.length > 50_000) {
-    throw new Error('matrix is limited to 50,000 origin-destination pairs')
   }
 
   const queryStarted = performance.now()
@@ -1037,12 +1064,14 @@ async function runMatrix(args: CliArguments) {
         origins: origins.map((origin) => origin.point),
         destinations: destinations.map((destination) => destination.point),
         departMinutes: options.timeMinutes,
-        timePreference: 'depart',
+        arriveMinutes: options.timeMinutes,
+        timePreference: options.timePreference,
         routingPreference: options.routingPreference,
         serviceDay: options.serviceDay,
         serviceDate: options.serviceDate,
         allowServiceDateFallback: false,
         maxWalkKm: options.maxWalkKm,
+        maxTransfers: options.maxTransfers,
         horizonMinutes,
         streetStorePath,
       })
@@ -1071,21 +1100,36 @@ async function runMatrix(args: CliArguments) {
       origins,
       destinations,
       mode,
+      timePreference: options.timePreference,
       objective: options.objective,
       timeMinutes: options.timeMinutes,
       serviceDate: options.serviceDate,
       serviceDay: options.serviceDay,
       maxWalkKm: options.maxWalkKm,
+      maxTransfers: options.maxTransfers,
       horizonMinutes,
     },
     rows,
+    diagnostics: matrix.diagnostics,
     timing: {
-      openMs: preparation.elapsedMs,
       computeMs: Number(queryWallMs.toFixed(3)),
-      endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)),
     },
   }
-  writeJsonResult(payload, value(args, 'output'))
+  return payload
+}
+
+
+async function runMatrix(args: CliArguments) {
+  const paths = resolveRuntimePaths(args)
+  const request = readStructuredRequest(args, 'matrix')
+  assertMatrixSize((request.origins as unknown[])?.length, (request.destinations as unknown[])?.length)
+  const options = analyticalRuntimeOptions(args, 'matrix', request)
+  const preparation = await prepareRuntime(paths.storePath, paths.streetStorePath, options.serviceDate, options.serviceDay)
+  const payload = computePreparedMatrix(args, request, paths, options, openStopLookup(paths.storePath))
+  writeJsonResult({ ...payload, timing: { ...payload.timing,
+    openMs: preparation.elapsedMs,
+    endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)),
+  } }, value(args, 'output'))
 }
 
 function reachCutoffs(args: CliArguments, request: Record<string, unknown>) {
@@ -1159,6 +1203,7 @@ async function runReach(args: CliArguments) {
     serviceDate: options.serviceDate,
     serviceDay: options.serviceDay,
     maxWalkKm: options.maxWalkKm,
+    maxTransfers: options.maxTransfers,
     walkSpeedKph,
     radiusKm,
     cutoffMinutes: cutoffsMinutes.at(-1),
@@ -1203,6 +1248,7 @@ async function runReach(args: CliArguments) {
       serviceDate: options.serviceDate,
       serviceDay: options.serviceDay,
       maxWalkKm: options.maxWalkKm,
+      maxTransfers: options.maxTransfers,
       walkSpeedKph,
       extentRadiusKm: radiusKm,
       rasterSize,
@@ -1384,6 +1430,7 @@ async function runBuildCity(args: CliArguments) {
       ...values(args, 'gtfs').map((input) => `--gtfs=${input}`),
       ...values(args, 'gtfs-scope').map((scope) => `--gtfs-scope=${scope}`),
       `--osm=${value(args, 'osm')}`,
+      `--private-access=${value(args, 'private-access', 'public')}`,
       `--output=${stagingDirectory}`,
       `--city-name=${path.basename(outputDirectory)}`,
     ], 'City compiler')
@@ -1397,6 +1444,8 @@ async function runBuildCity(args: CliArguments) {
 }
 
 async function runCityCompiler(args: CliArguments) {
+  const privateAccess = value(args, 'private-access', 'public')
+  if (!['public', 'endpoints'].includes(privateAccess)) throw new Error('private-access must be public or endpoints')
   const gtfsValues = values(args, 'gtfs')
   const scopeValues = values(args, 'gtfs-scope')
   if (!gtfsValues.length) throw new Error('build requires at least one --gtfs GTFS ZIP')
@@ -1535,6 +1584,9 @@ async function runCityCompiler(args: CliArguments) {
     )
     coordinateAccessBuildMs = performance.now() - coordinateAccessStarted
     if (!coordinateAccess.ready) throw new Error('Native coordinate access preparation failed.')
+    const terminalAccess = privateAccess === 'endpoints'
+      ? await buildTerminalAccessStore({ pbfPath: osmPbf, streetStorePath: stagedStreetStore, routingStorePath: stagedRoutingStore })
+      : { model: 'public' }
 
     const gtfsRuntimeCompactionStarted = performance.now()
     const gtfsRuntimeCompaction = compactNationalGtfsRuntimeStore(stagedRoutingStore)
@@ -1595,6 +1647,7 @@ async function runCityCompiler(args: CliArguments) {
         },
       },
       streetStore: {
+        terminalAccess,
         nodeCount: streetResult.nodeCount ?? null,
         walkNodeCount: streetResult.walkNodeCount ?? null,
         edgeCount: streetResult.edgeCount ?? null,

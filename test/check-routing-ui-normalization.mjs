@@ -102,6 +102,17 @@ assert.equal(routingLegPrimaryLabel(surfaceLegs[0]), 'Walk')
 assert.match(routingLegDetail(surfaceLegs[0]), /street route/)
 assert(!normalizedGhostChain.legs.some((leg, index, legs) => leg.type === 'walk' && legs[index + 1]?.type === 'walk'))
 
+const modeledStation = { ...transferGhostChain.legs[1], transferSource: 'parent_station_fallback',
+  geometrySource: 'station-transfer-schematic', streetPathVerified: false }
+assert.match(routingLegDetail(modeledStation), /assumed transfer time/)
+assert.match(routingLegPrimaryLabel(modeledStation), /Change at Transfer entrance/)
+const mixedStationStreet = normalizeReceivedRoutingPlan(plan('station-and-street', [
+  transferGhostChain.legs[0], modeledStation, transferGhostChain.legs[3],
+])).legs[1]
+assert.equal(mixedStationStreet.transferSource, undefined)
+assert.equal(mixedStationStreet.streetPathVerified, false)
+assert.doesNotMatch(routingLegDetail(mixedStationStreet), /assumed transfer time/)
+
 const threeMinuteLater = plan('three-minute-later', [
   ride('Later', 'Origin terminal', 'Destination terminal', 483, 584),
 ], {

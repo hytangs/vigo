@@ -18,18 +18,21 @@ import {
   normalizeNativeMilliseconds,
 } from './native-routing-kernel.mjs'
 import { haversineKm } from './geometry-utils.mjs'
+import { assertMatrixSize } from './matrix-size.mjs'
 import {
   coordinate,
   forEachPbfBlock,
   forEachPrimitiveEntity,
   wayTags,
 } from './osm-pbf-reader.mjs'
-import { integralNumber, timingMilliseconds } from './number-utils.mjs'
+import { timingMilliseconds } from './number-utils.mjs'
 import { stableKeySuffix } from './routing-plan-identity.mjs'
 
-// v3 makes public pedestrian access semantics part of the persisted-store
+// v4 also excludes foot=private from the public pedestrian graph, even when
+// the general access tag is absent or permits other travel modes.
+// Public pedestrian access semantics are part of the persisted-store
 // schema. Rebuild from the source PBF when this schema changes.
-const streetStoreSchemaVersion = 'vigo.street.store.v3'
+const streetStoreSchemaVersion = 'vigo.street.store.v4'
 // A store is admitted by version, source model, and the objects the runtime
 // actually queries. Column-by-column and index-SQL checks duplicated SQLite's
 // schema and made harmless builder changes look like corrupt stores.
@@ -146,7 +149,7 @@ export function nationalOsmWayWalkable(tags) {
   const highway = normalizedTag(tags.highway)
   const access = normalizedTag(tags.access)
   const foot = normalizedTag(tags.foot)
-  if (!highway || foot === 'no') return false
+  if (!highway || restrictedPedestrianAccessValues.has(foot)) return false
   // OSM mode-specific access overrides the general access tag. In particular,
   // access=no/private + foot=permissive is a pedestrian path, while an
   // unqualified private way must not enter the public walking graph.
@@ -3262,9 +3265,6 @@ function normalizeStreetMatrixPoints(value, label) {
   if (!Array.isArray(value) || !value.length) {
     throw new Error(`Street matrix requires a non-empty ${label} array.`)
   }
-  if (value.length > 256) {
-    throw new Error('Street matrices are limited to 256 origins and 256 destinations.')
-  }
   return value.map((point, index) => {
     const coordinate = Array.isArray(point)
       ? point.map(Number)
@@ -3311,11 +3311,9 @@ export function routeNationalStreetMatrix(storePath, request = {}, options = {})
   const startedAt = performance.now()
   if (options.isCancelled?.()) throw streetAnalysisAbort('matrix')
   const mode = request.mode === 'drive' ? 'drive' : 'walk'
+  assertMatrixSize(request.origins?.length, request.destinations?.length)
   const origins = normalizeStreetMatrixPoints(request.origins, 'origin')
   const destinations = normalizeStreetMatrixPoints(request.destinations, 'destination')
-  if (origins.length * destinations.length > 50_000) {
-    throw new Error('Street matrices are limited to 50,000 origin-destination pairs.')
-  }
   const originSet = uniqueStreetMatrixPoints(origins)
   const destinationSet = uniqueStreetMatrixPoints(destinations)
   const defaultMaximumDistanceKm = mode === 'drive' ? 750 : 50

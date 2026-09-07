@@ -55,7 +55,7 @@ function buildFixture() {
     CREATE INDEX drive_edges_from ON drive_edges(from_node);
     CREATE INDEX drive_edges_to ON drive_edges(to_node);
     INSERT INTO metadata VALUES
-      ('schemaVersion', '"vigo.street.store.v3"'),
+      ('schemaVersion', '"vigo.street.store.v4"'),
       ('sourceModel', '"pbf"'),
       ('storageLayout', '"walk-drive-role-tables-v2"'),
       ('nodeCount', '6'),
@@ -300,7 +300,6 @@ try {
       coordinate: [-70.999, 42.001],
       durationMinutes: 2,
       maxWalkKm: 0.2,
-      snapMode: 'fixed',
     }],
     targets: [
       { id: 'upstream', coordinate: [-70.999, 42.001] },
@@ -334,7 +333,6 @@ try {
       coordinate: [-70.999, 42.001],
       durationMinutes: 2,
       maxWalkKm: 0.2,
-      snapMode: 'fixed',
     }],
     targets: [
       { id: 'upstream', coordinate: [-70.999, 42.001] },
@@ -370,7 +368,6 @@ try {
       coordinate: duplicateCoordinate,
       durationMinutes: 4,
       maxWalkKm: 0.2,
-      snapMode: 'fixed',
     }],
     targets: [
       { id: 'duplicate-a', coordinate: duplicateCoordinate },
@@ -390,8 +387,8 @@ try {
 
   const multiSeedConnectors = streetNetworkTimedConnectors(storePath, {
     seeds: [
-      { coordinate: [-71, 42], durationMinutes: 0, maxWalkKm: 0.09, snapMode: 'fixed' },
-      { coordinate: [-70.999, 42], durationMinutes: 2, maxWalkKm: 0.2, snapMode: 'fixed' },
+      { coordinate: [-71, 42], durationMinutes: 0, maxWalkKm: 0.09 },
+      { coordinate: [-70.999, 42], durationMinutes: 2, maxWalkKm: 0.2 },
     ],
     targets: [{ id: 'multi-seed-target', coordinate: [-70.999, 42.001] }],
     includeTargetMatrix: false,
@@ -415,7 +412,6 @@ try {
       coordinate: [-71, 42],
       durationMinutes: 0,
       maxWalkKm: 0.2,
-      snapMode: 'fixed',
     }],
     targets: extendedRouteTargets,
     includeTargetMatrix: true,
@@ -451,7 +447,6 @@ try {
       coordinate: [-70.999, 42.002],
       durationMinutes: 0,
       maxWalkKm: 0.2,
-      snapMode: 'fixed',
     }],
     targets: [{ id: 'near-but-unreachable', coordinate: [-70.999, 42.001] }],
     maxWalkKm: 0.2,
@@ -467,13 +462,11 @@ try {
         coordinate: [-71, 42],
         durationMinutes: 0,
         maxWalkKm: 0.15,
-        snapMode: 'fixed',
       },
       {
         coordinate: [-70.999, 42.001],
         durationMinutes: 2,
         maxWalkKm: 0.15,
-        snapMode: 'fixed',
       },
     ],
     targets: [{ id: 'downstream', coordinate: [-70.999, 42.002] }],

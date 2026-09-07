@@ -12,7 +12,7 @@ export function finalizeCurrentStreetFixture(database) {
     CREATE INDEX drive_nodes_lat_lon ON drive_nodes(lat,lon);
     CREATE INDEX drive_edges_from ON drive_edges(from_node);
     CREATE INDEX drive_edges_to ON drive_edges(to_node);
-    UPDATE metadata SET value='"vigo.street.store.v3"' WHERE key='schemaVersion';
+    UPDATE metadata SET value='"vigo.street.store.v4"' WHERE key='schemaVersion';
     INSERT OR REPLACE INTO metadata VALUES(
       'nodeCount',
       CAST((SELECT COUNT(*) FROM walk_nodes) AS TEXT)

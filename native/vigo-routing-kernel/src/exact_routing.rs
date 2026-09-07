@@ -1482,9 +1482,7 @@ impl DriveKernel {
         };
         if origin_count == 0
             || target_count == 0
-            || origin_count > 256
-            || target_count > 256
-            || origin_count.saturating_mul(target_count) > 50_000
+            || origin_count.saturating_mul(target_count) > crate::MAXIMUM_MATRIX_PAIRS
             || !valid_offsets(&input.origin_offsets, input.origin_nodes.len())
             || !valid_offsets(&input.target_offsets, input.target_nodes.len())
             || input.origin_nodes.len() != input.origin_snap_meters.len()

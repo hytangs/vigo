@@ -64,7 +64,7 @@ function writeFixtureStore(storePath, projectId, kind) {
     const insert = database.prepare('INSERT INTO metadata(key,value) VALUES(?,?)')
     insert.run(
       'schemaVersion',
-      JSON.stringify(kind === 'street' ? 'vigo.street.store.v3' : 'vigo.routing.store.v1'),
+      JSON.stringify(kind === 'street' ? 'vigo.street.store.v4' : 'vigo.routing.store.v1'),
     )
     insert.run(
       'sourceFingerprint',

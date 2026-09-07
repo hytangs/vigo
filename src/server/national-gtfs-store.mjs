@@ -16,6 +16,8 @@ import {
   haversineKm,
 } from './geometry-utils.mjs'
 import { integralNumber, numeric, timingMilliseconds } from './number-utils.mjs'
+import { assertMatrixSize } from './matrix-size.mjs'
+import { stationAccessPaths } from './station-access.mjs'
 import { routeDisplayLongName, routePreviewColor } from './route-presentation.mjs'
 import {
   readNationalOsmStoreMetadata,
@@ -36,16 +38,19 @@ import {
   materializeNativeCoordinateEndpointCandidates,
   materializeNativeStreetPath,
   nativeRoutingAccessProfilePrepared,
+  nativeStreetAccessPermission,
   prepareNativeTimetableKernel,
   rasterNativeStreetSurface,
   routeNativeAccessMemberPath,
   routeNativeCoordinateFrontier,
   routeNativeCoordinateFrontiers,
   routeNativeCoordinateTimetableMany,
+  routeNativeCoordinateTimetableMatrix,
   routeNativeCoordinateTimetableScalar,
   routeNativeTimedConnectors,
   routeNativeTimetableArriveBy,
   routeNativeTimetableMany,
+  routeNativeTimetableMatrix,
   routeNativeTimetableOverlayMany,
   routeNativeTimetablePareto,
   routeNativeTimetableScalar,
@@ -148,6 +153,8 @@ const realtimeTimezoneFormatterCache = new Map()
 const preparedNativeCoordinateAccessPair = Symbol(
   'vigo.internal.prepared-native-coordinate-access-pair',
 )
+const departureWindowAlternativePlans = Symbol('vigo.internal.departure-window-alternative-plans')
+const alternativeArrivalSlackSeconds = 15 * 60
 const staticTopologyMinimumFreeBytes = 2 * 1024 * 1024 * 1024
 const staticTopologyReserveFloorBytes = 128 * 1024 * 1024
 const staticTopologyTransientWorkspaceBytes = 64 * 1024 * 1024
@@ -217,8 +224,7 @@ const accessOverheadSeconds = nationalRoutingAccessPolicy.accessOverheadSeconds
 const directWalkTransitEndpointLowerBoundMinutes = (
   2 * Math.ceil(accessOverheadSeconds) / 60
 )
-const osmTransferGraphSchemaVersion = 'vigo.routing.osm-stop-transfers.v2'
-const nativeAccessNoKey = 0xffff_ffff
+const osmTransferGraphSchemaVersion = 'vigo.routing.osm-stop-transfers.v3'
 const osmTransferMaximumWalkM = Math.max(
   50,
   Math.min(1_200, numeric(process.env.VIGO_ROUTING_TRANSFER_RADIUS_M, 500)),
@@ -537,6 +543,7 @@ function cachedNativeAccessMemberPath(
     toCoordinate,
     maximumDistanceKm,
     maximumPoints = 160,
+    stopTransfer = false,
   },
   diagnostics = null,
 ) {
@@ -551,13 +558,14 @@ function cachedNativeAccessMemberPath(
       toCoordinate,
       maximumDistanceKm,
       maximumPoints,
+      stopTransfer,
     )
     if (!pathResult) return null
     if (diagnostics) diagnostics.queryMs += timingMilliseconds(pathResult.nativeQueryMs)
     return { ...pathResult, nativeCacheHit: false }
   }
   const key = nativeStreetPathCacheKey({
-    kind: 'access-member-path',
+    kind: stopTransfer ? 'stop-transfer-path' : 'access-member-path',
     streetStorePath,
     streetStorageIdentity,
     fromStopId,
@@ -586,6 +594,7 @@ function cachedNativeAccessMemberPath(
     toCoordinate,
     maximumDistanceKm,
     maximumPoints,
+    stopTransfer,
   )
   if (!pathResult) return null
   store.nativeStreetPathCache.set(
@@ -4452,6 +4461,7 @@ function materializeDirectWalkCandidate(request, maxWalkKm, path, diagnostics = 
       availableServiceScopeCount: 0,
       scheduleMode: 'none',
       walkingNetwork: 'osm',
+      walkingAccessPermission: nativeStreetAccessPermission(request.streetStorePath),
       walkingSpeedKph,
       originStreetPathVerified: true,
       destinationStreetPathVerified: true,
@@ -5588,6 +5598,11 @@ function coalesceContinuousWalkLegs(legs) {
       type: 'walk',
       travelMode: 'walk',
       walkSource: 'transfer',
+      transferSource: group.every((candidate) => candidate.transferSource === leg.transferSource)
+        ? leg.transferSource : undefined,
+      geometrySource: group.every((candidate) => candidate.geometrySource === leg.geometrySource)
+        ? leg.geometrySource : undefined,
+      streetPathVerified: group.every((candidate) => candidate.streetPathVerified === true),
       fromStopId: leg.fromStopId,
       toStopId: last.toStopId,
       fromName: leg.fromName,
@@ -5759,6 +5774,10 @@ function pointToAccessCoordinates(
   const exactStationAccess = candidate.exactStopAccess === true
   const appendTransferCompletion = (coordinates) => {
     const transferCoordinate = candidate.accessTransferCoordinate
+    if (candidate.accessTransferCoordinates) {
+      for (const coordinate of candidate.accessTransferCoordinates) appendDistinctCoordinate(coordinates, coordinate)
+      return coordinates
+    }
     if (candidate.accessTransferStreetPathVerified === true && Array.isArray(transferCoordinate)) {
       const destinationRole = candidate.accessRole === 'destination'
         || candidate.nativeStreetPath?.role === 'destination'
@@ -5870,7 +5889,7 @@ function pointKey(point) {
   const explicitStopId = explicitRoutingStopId(point)
   return explicitStopId
     ? `stop:${explicitStopId}`
-    : `coordinate:${coordinate.map((value) => Number(value).toFixed(6)).join(',')}`
+    : `coordinate:${coordinate.map((value) => Number(value).toString()).join(',')}`
 }
 
 function exactStationAccessCandidate(stop, accessPriority) {
@@ -5992,13 +6011,6 @@ function pruneNativeAccessProfileSnapshots(storePath, currentSnapshotPath) {
   })
 }
 
-function accessStationId(stop) {
-  if (!stop) return ''
-  return numeric(stop.location_type, 0) === 1
-    ? String(stop.stop_id ?? '').trim()
-    : String(stop.parent_station ?? '').trim()
-}
-
 function coordinateAccessArtifactStreetIdentity(store, streetStorePath) {
   const retained = store.metadata.osmStopTransferGraph
   return String(
@@ -6019,152 +6031,7 @@ function nativeCoordinateAccessProfile(store, streetStorePath, streetStorageIden
       error.code = 'resident_stop_access_index_required'
       throw error
     }
-    const stopIds = [...store.stopRecords.keys()]
-      .sort((left, right) => String(left).localeCompare(String(right)))
-    const stops = stopIds.map((stopId) => store.stopRecords.get(stopId))
-    if (stops.some((stop) => !Number.isFinite(stop?.lon) || !Number.isFinite(stop?.lat))) {
-      throw new Error('Rust access reduction requires finite coordinates for every admitted GTFS stop.')
-    }
-    const stopKeyById = new Map(stopIds.map((stopId, index) => [stopId, index]))
-    const stopLons = stops.map((stop) => stop.lon)
-    const stopLats = stops.map((stop) => stop.lat)
-    const members = []
-    const memberLons = []
-    const memberLats = []
-    const memberOriginEligible = []
-    const memberDestinationEligible = []
-    const memberOriginExpansionEligible = []
-    const memberDestinationExpansionEligible = []
-    const memberStreetAccessStopIds = []
-    const memberStopKeys = []
-    const memberStationKeys = []
-    const anchorLons = []
-    const anchorLats = []
-    const anchorMemberOffsets = [0]
-    const anchorMemberIndices = []
-    for (const anchor of store.stopAccessIndex.anchors) {
-      const stopIds = numeric(anchor.location_type, 0) === 1
-        ? [anchor.stop_id, ...(store.stationMembers.get(anchor.stop_id) ?? [])]
-        : [anchor.stop_id]
-      const uniqueStopIds = [...new Set(stopIds)]
-      const stops = uniqueStopIds
-        .map((stopId) => store.stopRecords.get(stopId))
-        .filter(Boolean)
-      if (!stops.length) continue
-      anchorLons.push(anchor.lon)
-      anchorLats.push(anchor.lat)
-      for (const stop of stops) {
-        const memberIndex = members.length
-        // Stop records already live in the immutable resident store. Retain a
-        // reference plus compact parallel access metadata instead of cloning
-        // every record and two coordinate arrays into a second object graph.
-        members.push(stop)
-        memberLons.push(anchor.lon)
-        memberLats.push(anchor.lat)
-        const originEligible = stopSupportsStationAccessRole(store, stop.stop_id, 'origin')
-        const destinationEligible = stopSupportsStationAccessRole(store, stop.stop_id, 'destination')
-        const stationId = accessStationId(stop)
-        const expansionLocationEligible = (
-          stop.stop_id === stationId
-          || numeric(stop.location_type, 0) === 0
-        )
-        memberOriginEligible.push(Number(originEligible))
-        memberDestinationEligible.push(Number(destinationEligible))
-        memberOriginExpansionEligible.push(Number(
-          expansionLocationEligible
-          && (
-            originEligible
-            || stopSupportsStationAccessRole(store, stationId, 'origin')
-          )
-        ))
-        memberDestinationExpansionEligible.push(Number(
-          expansionLocationEligible
-          && (
-            destinationEligible
-            || stopSupportsStationAccessRole(store, stationId, 'destination')
-          )
-        ))
-        memberStreetAccessStopIds.push(anchor.stop_id)
-        memberStopKeys.push(stopKeyById.get(stop.stop_id))
-        memberStationKeys.push(
-          stopKeyById.get(stationId) ?? nativeAccessNoKey,
-        )
-        anchorMemberIndices.push(memberIndex)
-      }
-      anchorMemberOffsets.push(anchorMemberIndices.length)
-    }
-    const transferFromStopKeys = []
-    const transferToStopKeys = []
-    const transferToStationKeys = []
-    const transferMinDurations = []
-    const transferOsmCertified = []
-    const transferPathDistancesM = []
-    for (const [fromStopId, transfers] of store.transfers) {
-      const fromStopKey = stopKeyById.get(fromStopId)
-      if (fromStopKey === undefined) continue
-      for (const transfer of transfers) {
-        const transferredStop = store.stopRecords.get(transfer.to_stop_id)
-        const toStopKey = stopKeyById.get(transfer.to_stop_id)
-        if (!transferredStop || toStopKey === undefined) continue
-        transferFromStopKeys.push(fromStopKey)
-        transferToStopKeys.push(toStopKey)
-        transferToStationKeys.push(
-          stopKeyById.get(accessStationId(transferredStop)) ?? nativeAccessNoKey,
-        )
-        transferMinDurations.push(Math.max(
-          0,
-          Math.min(0xffff_ffff, Math.floor(numeric(transfer.min_transfer_time, 0))),
-        ))
-        const osmCertified = transfer.provenance === 'osm_certified_radial'
-        transferOsmCertified.push(Number(osmCertified))
-        const pathDistanceM = numeric(transfer.path_distance_m, -1)
-        transferPathDistancesM.push(
-          osmCertified && Number.isFinite(pathDistanceM) && pathDistanceM >= 0
-            ? pathDistanceM
-            : -1,
-        )
-      }
-    }
-    const profileKey = [
-      'coordinate-access-v8',
-      encodeURIComponent(store.sourceArtifactIdentity),
-      encodeURIComponent(coordinateAccessArtifactStreetIdentity(store, streetStorePath)),
-      anchorLons.length,
-      members.length,
-      stopIds.length,
-      transferFromStopKeys.length,
-      encodeURIComponent(nationalRoutingAccessPolicyIdentity),
-    ].join(':')
-    profile = {
-      profileKey,
-      stopIds,
-      stops,
-      stopLons,
-      stopLats,
-      members,
-      anchorLons,
-      anchorLats,
-      anchorMemberOffsets,
-      anchorMemberIndices,
-      memberLons,
-      memberLats,
-      memberOriginEligible,
-      memberDestinationEligible,
-      memberOriginExpansionEligible,
-      memberDestinationExpansionEligible,
-      memberStreetAccessStopIds,
-      memberStopKeys,
-      memberStationKeys,
-      transferFromStopKeys,
-      transferToStopKeys,
-      transferToStationKeys,
-      transferMinDurations,
-      transferOsmCertified,
-      transferPathDistancesM,
-      walkingSpeedKph: nationalRoutingAccessPolicy.walkingSpeedKph,
-      accessPaddingFactor: nationalRoutingAccessPolicy.accessPaddingFactor,
-      accessOverheadSeconds: nationalRoutingAccessPolicy.accessOverheadSeconds,
-    }
+    profile = physicalStopAccessProfile(store, streetStorePath, 'coordinate-access-v11')
     store.nativeCoordinateAccessProfiles.set(cacheKey, profile)
     while (store.nativeCoordinateAccessProfiles.size > 4) {
       store.nativeCoordinateAccessProfiles.delete(
@@ -6205,7 +6072,10 @@ function nativeCoordinateAccessProfile(store, streetStorePath, streetStorageIden
   }
 }
 
-function nativeStopTransferProfile(store, streetStorePath) {
+function physicalStopAccessProfile(store, streetStorePath, version) {
+  // Access, egress and generated transfers attach to the same physical stop.
+  // A parent centroid cannot provide free movement to every platform, and a
+  // stop cannot connect street components that ordinary walking cannot join.
   const members = []
   const memberLons = []
   const memberLats = []
@@ -6218,7 +6088,7 @@ function nativeStopTransferProfile(store, streetStorePath) {
   const anchorMemberIndices = []
   for (const stop of store.stopRecords.values()) {
     if (
-      numeric(stop.location_type, 0) !== 0
+      numeric(stop.location_type, 0) === 1
       || !Number.isFinite(stop.lon)
       || !Number.isFinite(stop.lat)
     ) {
@@ -6230,7 +6100,8 @@ function nativeStopTransferProfile(store, streetStorePath) {
       stop.stop_id,
       'destination',
     )
-    if (!originEligible && !destinationEligible) continue
+    if (!originEligible && !destinationEligible
+      && (numeric(stop.location_type, 0) === 0 || version.startsWith('stop-transfer'))) continue
     const memberIndex = members.length
     members.push(stop)
     memberLons.push(stop.lon)
@@ -6238,21 +6109,28 @@ function nativeStopTransferProfile(store, streetStorePath) {
     memberOriginEligible.push(Number(originEligible))
     memberDestinationEligible.push(Number(destinationEligible))
     memberStreetAccessStopIds.push(stop.stop_id)
-    anchorLons.push(stop.lon)
-    anchorLats.push(stop.lat)
-    anchorMemberIndices.push(memberIndex)
-    anchorMemberOffsets.push(anchorMemberIndices.length)
+    // Interior pathway nodes carry their declared connections, not additional
+    // entrances through the nearest external street.
+    if ([0, 2].includes(numeric(stop.location_type, 0))) {
+      anchorLons.push(stop.lon)
+      anchorLats.push(stop.lat)
+      anchorMemberIndices.push(memberIndex)
+      anchorMemberOffsets.push(anchorMemberIndices.length)
+    }
   }
   const profileKey = [
-    'stop-transfer-v1',
+    version,
     encodeURIComponent(store.sourceArtifactIdentity),
     encodeURIComponent(coordinateAccessArtifactStreetIdentity(store, streetStorePath)),
     members.length,
     anchorLons.length,
+    encodeURIComponent(nationalRoutingAccessPolicyIdentity),
   ].join(':')
   const profile = {
     profileKey,
     members,
+    stops: members,
+    stopIds: members.map(stop => stop.stop_id),
     anchorLons,
     anchorLats,
     anchorMemberOffsets,
@@ -6262,7 +6140,35 @@ function nativeStopTransferProfile(store, streetStorePath) {
     memberOriginEligible,
     memberDestinationEligible,
     memberStreetAccessStopIds,
+    walkingSpeedKph: nationalRoutingAccessPolicy.walkingSpeedKph,
+    accessPaddingFactor: nationalRoutingAccessPolicy.accessPaddingFactor,
+    accessOverheadSeconds: nationalRoutingAccessPolicy.accessOverheadSeconds,
   }
+  if (version.startsWith('coordinate-access')) {
+    const links = stationAccessPaths(store, members)
+    profile.memberStopKeys = members.map((_, index) => index)
+    // Each physical stop has its own key; no centroid-to-platform broadcast.
+    profile.memberStationKeys = profile.memberStopKeys
+    profile.memberOriginExpansionEligible = memberOriginEligible
+    profile.memberDestinationExpansionEligible = memberDestinationEligible
+    profile.memberOriginEligible = members.map(() => 1)
+    profile.memberDestinationEligible = members.map(() => 1)
+    profile.transferFromStopKeys = links.map(link => link.from)
+    profile.transferToStopKeys = links.map(link => link.to)
+    profile.transferToStationKeys = profile.transferToStopKeys
+    profile.transferMinDurations = links.map(link => link.seconds)
+    profile.transferPathDistancesM = links.map(link => link.distanceM)
+    profile.transferOsmCertified = links.map(() => 0)
+    profile.transferPaths = new Map(links.map(link => [
+      `${link.from}:${link.to}:${link.seconds}`,
+      { coordinates: link.stops.map(index => [members[index].lon, members[index].lat]), sources: link.sources },
+    ]))
+  }
+  return profile
+}
+
+function nativeStopTransferProfile(store, streetStorePath) {
+  const profile = physicalStopAccessProfile(store, streetStorePath, 'stop-transfer-v2')
   const diagnostics = configureNativeRoutingAccessProfile(streetStorePath, profile)
   return { profile, diagnostics }
 }
@@ -7948,6 +7854,18 @@ function ensureActiveServiceKernel(store, services) {
   }
 }
 
+function validateMaximumTransfers(value) {
+  if (value !== undefined && (!Number.isInteger(value) || value < 0 || value > 31)) {
+    throw new Error('maxTransfers must be an integer between 0 and 31; omit it for no additional limit.')
+  }
+}
+
+function allowsTerminalTransfers(accessStops) {
+  // Fused candidates retain their native path handle and use 'osm-rust';
+  // normalized candidates use 'osm'. Both already include the complete walk.
+  return accessStops.every((stop) => !stop?.nativeStreetPath && stop?.walkSource !== 'osm')
+}
+
 function activeServiceKernelAccessSeeds(kernel, accessStops) {
   const seeds = []
   for (let candidateIndex = 0; candidateIndex < accessStops.length; candidateIndex += 1) {
@@ -8417,7 +8335,7 @@ function activeServiceKernelArriveByRecoveryCandidates(
   allowPreRideTransfers,
 ) {
   // Allocate the complete initial-departure frontier only when the exact
-  // reverse boundary is rejected by the presentation cycle policy. Ordinary
+  // reverse boundary cannot be reproduced by forward materialization. Ordinary
   // arrive-by queries never build or sort this list.
   const maximumOffset = deadline - earliest
   const offsets = new Float64Array(kernel.stopIds.length)
@@ -8579,6 +8497,7 @@ function searchActiveServiceKernelNativeRealtime(
   horizon,
   allowPreRideTransfers,
   overlay,
+  maxTransfers,
 ) {
   const raw = routeNativeTimetableOverlayMany(kernel, {
     originSeeds: realtimeOverlaySeeds(kernel, originStops, overlay),
@@ -8587,6 +8506,8 @@ function searchActiveServiceKernelNativeRealtime(
     departure,
     horizon,
     allowPreRideTransfers,
+    maxTransfers,
+    allowPostRideTransfers: [allowsTerminalTransfers(destinationStops)],
     overlay: {
       stopCount: overlay.overlayStopIds?.length ?? 0,
       directionOffsets: overlay.directionOffsets,
@@ -8652,6 +8573,7 @@ function searchActiveServiceKernelNativeScalar(
   departure,
   horizon,
   allowPreRideTransfers,
+  maxTransfers,
 ) {
   const raw = routeNativeTimetableScalar(kernel, {
     originSeeds: activeServiceKernelAccessSeeds(kernel, originStops),
@@ -8659,6 +8581,8 @@ function searchActiveServiceKernelNativeScalar(
     departure,
     horizon,
     allowPreRideTransfers,
+    maxTransfers,
+    allowPostRideTransfers: allowsTerminalTransfers(destinationStops),
   })
   return activeServiceKernelSearchFromNativeScalar(kernel, raw)
 }
@@ -8739,7 +8663,9 @@ function searchActiveServiceKernelNativePareto(
   options = {},
 ) {
   const optimizeGeneralizedCost = options.optimizeGeneralizedCost === true
-  const arrivalSlackSeconds = optimizeGeneralizedCost
+  const collectAlternatives = options.collectAlternatives === true
+  const deadlineObjective = options.deadlineObjective === true
+  const arrivalSlackSeconds = optimizeGeneralizedCost || collectAlternatives || deadlineObjective
     ? Math.max(0, Number(options.arrivalSlackSeconds) || 0)
     : 0
   const transferPenaltySeconds = optimizeGeneralizedCost
@@ -8763,6 +8689,7 @@ function searchActiveServiceKernelNativePareto(
     departure,
     horizon,
     allowPreRideTransfers,
+    allowPostRideTransfers: allowsTerminalTransfers(destinationStops),
     earliestArrival: candidateSearch.bestArrival,
     boardingUpperBound: candidateSearch.bestBoardings,
     candidateDestinationIndex: candidateSearch.bestDestinationIndex,
@@ -8770,6 +8697,8 @@ function searchActiveServiceKernelNativePareto(
     arrivalSlackSeconds,
     transferPenaltySeconds,
     walkReluctance,
+    collectAlternatives,
+    deadlineObjective,
   }
   // The forward+reverse corridor is an accelerator, not part of the public
   // objective. A scalar witness is already known to be feasible here. If the
@@ -8809,6 +8738,12 @@ function searchActiveServiceKernelNativePareto(
     bestBoardings: raw.bestBoardings,
     bestDestinationIndex: raw.bestDestinationIndex,
     chain: raw.improvedCandidate ? nativeTimetableChain(kernel, raw) : candidateSearch.chain,
+    alternatives: raw.alternatives?.map((candidate) => ({
+      bestArrival: candidate.bestArrival,
+      bestBoardings: candidate.bestBoardings,
+      bestDestinationIndex: candidate.bestDestinationIndex,
+      chain: nativeTimetableChain(kernel, candidate),
+    })),
     queryMs: combinedQueryMs,
     corridorMs: timingMilliseconds(raw.corridorMs),
     forwardMs: timingMilliseconds(raw.forwardMs),
@@ -8836,7 +8771,8 @@ function searchActiveServiceKernelNativePareto(
     boardingObjectiveCutoffStates: raw.dominatedExistingLabels,
     tripRunDedupStorage: 'rust_fixed_round_run_layers',
     tripRunDedupBytes: raw.kernelDiagnostics.workspaceBytes,
-    certifier: 'rust_exact_bounded_nondominated_frontier',
+    certifier: deadlineObjective ? 'rust_exact_deadline_boardings_walking' : 'rust_exact_bounded_nondominated_frontier',
+    deadlineObjective,
     paretoLabels: raw.paretoLabels,
     runProfiles: raw.runProfiles,
     earliestArrival: candidateSearch.bestArrival,
@@ -9038,7 +8974,7 @@ function activeServiceKernelUnmaterializedSearchStats(store, search, context) {
   } = context
   const paretoCertifier = search.paretoFrontier === true
   const lexicographicCertifier = paretoCertifier
-    || search.scalarSingleBoardingExhausted === true
+    || (request.maxTransfers !== undefined && search.realtimeOverlay !== true)
   const transferWork = paretoCertifier
     ? activeServiceKernelTransferWorkPhases(null, search)
     : activeServiceKernelTransferWorkPhases(search)
@@ -9081,7 +9017,6 @@ function activeServiceKernelSearchDiagnostics(store, search, transferWork, lexic
       transferWork,
       paretoFrontier: search.paretoFrontier === true,
       lexicographicCertified,
-      scalarSingleBoardingExhausted: search.scalarSingleBoardingExhausted === true,
       certifier: search.certifier,
       paretoLabels: search.paretoLabels,
       dominatedCandidateLabels: search.dominatedCandidateLabels,
@@ -9126,7 +9061,11 @@ function decorateActiveServiceKernelParetoPlan(
       : plan.choiceLabel,
     diagnostics: {
       ...plan.diagnostics,
-      optimality: plan.diagnostics?.balancedGeneralizedSelection
+      optimality: plan.scheduleMode === 'interpolated-stop-time-gap'
+        ? 'lexicographic_routing_within_interpolated_stop_time_gap_model'
+        : paretoSearch.deadlineObjective
+        ? `fewest_boardings_then_walking_then_arrival_within_deadline_certified_by_${certifierName}`
+        : plan.diagnostics?.balancedGeneralizedSelection
         ? 'balanced_generalized_selection_over_exact_certified_nondominated_frontier'
         : paretoSearch.transferPreferenceApplied === true
           ? `fewer_boardings_within_bounded_arrival_equivalence_certified_by_${certifierName}`
@@ -9177,72 +9116,14 @@ function nationalRoutingStationGroupForStop(store, stopId) {
   return String(stop?.parent_station ?? '').trim() || normalizedStopId
 }
 
-function suppressNationalPointRideLoop(
-  store,
-  request,
-  maxWalkKm,
-  plan,
-  serviceDateResolution,
-  options = {},
-) {
-  const returnedRideCycle = nationalRoutingReturnedRideCycle(plan, {
+function withReturnedStationAdvisory(store, plan) {
+  const cycle = nationalRoutingReturnedRideCycle(plan, {
     stationGroupForStopId: (stopId) => nationalRoutingStationGroupForStop(store, stopId),
   })
-  if (!returnedRideCycle) return plan
-  const reason = 'returned_to_prior_transit_station'
-  const failureCode = options.failureCode ?? 'route_cycle_suppressed'
-  const exhaustedCycle = failureCode === 'no_path'
-  const blocked = blockedPlan(
-    request,
-    numeric(plan.departMinutes, numeric(request.departMinutes, 8 * 60)),
-    maxWalkKm,
-    'No scheduled path',
-    exhaustedCycle
-      ? 'No non-cyclic exact transit path was found after excluding the returned station group.'
-      : 'The earliest transit result returns to a transit station already left in the same itinerary; it is not exposed as an A-to-B itinerary.',
-    {
-      originStops: numeric(plan.diagnostics?.originStopCandidates, 0),
-      destinationStops: numeric(plan.diagnostics?.destinationStopCandidates, 0),
-      scanned: numeric(plan.diagnostics?.scannedDepartures, 0),
-      relaxed: numeric(plan.diagnostics?.relaxedStops, 0),
-      failure: {
-        code: failureCode,
-        category: 'routing',
-        retryable: false,
-      },
-    },
-    serviceDateResolution,
-  )
-  return {
-    ...blocked,
-    diagnostics: {
-      ...blocked.diagnostics,
-      searchStrategy: plan.diagnostics?.searchStrategy ?? 'exact',
-      algorithm: plan.diagnostics?.algorithm ?? 'resident_timetable_kernel',
-      optimality: exhaustedCycle
-        ? 'no_non_cyclic_path_within_active_service_and_access_model'
-        : 'no_visible_returned_transit_station_cycle',
-      methodState: 'complete',
-      methodRequested: plan.diagnostics?.methodRequested ?? 'memory_kernel',
-      methodUsed: plan.diagnostics?.methodUsed ?? 'memory_kernel',
-      directWalkComparison: plan.diagnostics?.directWalkComparison,
-      loopSuppression: {
-        reason,
-        sourcePlanId: plan.id,
-        sourceArrivalMinutes: plan.arriveMinutes,
-        sourceBoardings: nationalRideBoardingSummary(plan).boardingCount,
-        ...(returnedRideCycle ? {
-          stationGroupId: returnedRideCycle.stationGroupId,
-          departureStopId: returnedRideCycle.departureStopId,
-          returnedStopId: returnedRideCycle.returnedStopId,
-          exactStopReturn: returnedRideCycle.exactStopReturn,
-          cycleBoardings: returnedRideCycle.cycleBoardings,
-        } : {}),
-      },
-      ...(options.cycleRecovery ? { cycleRecovery: options.cycleRecovery } : {}),
-      searchStats: plan.diagnostics?.searchStats,
-    },
-  }
+  if (!cycle) return plan
+  return { ...plan, diagnostics: { ...plan.diagnostics,
+    returnedStationCycle: { policy: 'represented', advisory: true, ...cycle },
+  } }
 }
 
 function materializeActiveServiceKernelPlan(store, kernel, search, context) {
@@ -9259,7 +9140,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
   const chain = search.chain
   const paretoCertifier = search.paretoFrontier === true
   const lexicographicCertifier = paretoCertifier
-    || search.scalarSingleBoardingExhausted === true
+    || (request.maxTransfers !== undefined && search.realtimeOverlay !== true)
   const transferWork = paretoCertifier
     ? activeServiceKernelTransferWorkPhases(null, search)
     : activeServiceKernelTransferWorkPhases(search)
@@ -9298,6 +9179,8 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
   legs.push({
     type: 'walk', travelMode: 'walk', walkSource: firstAccessStop.walkSource || (request.streetStorePath ? 'osm' : 'direct'),
     fromName: origin.label, toName: firstAccessStop.name, toStopId: firstAccessStop.stop_id,
+    streetPathVerified: firstAccessStop.streetPathVerified === true,
+    stationPathSources: firstAccessStop.accessTransferSources,
     startMinutes: departureMinutes, endMinutes: minuteCoordinate(firstAccess.arrival),
     durationMinutes: secondsToMinutes(firstAccess.arrival - departure), distanceKm: firstAccessStop.distanceKm,
     stopCount: 0, coordinates: accessCoordinates,
@@ -9307,15 +9190,20 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
     if (step.kind === 'transfer') {
       const from = stopLookup.get(step.fromStopId)
       const to = stopLookup.get(step.toStopId)
+      const transfer = store.transfers.get(step.fromStopId)
+        ?.find((rule) => rule.to_stop_id === step.toStopId)
+      const transferSource = transfer?.provenance ?? 'parent_station_fallback'
       let transferPath = null
       if (
-        request.streetStorePath
+        transferSource === 'osm_certified_radial'
+        && request.streetStorePath
         && Number.isFinite(from?.lon)
         && Number.isFinite(from?.lat)
         && Number.isFinite(to?.lon)
         && Number.isFinite(to?.lat)
       ) {
         const transferPathInput = {
+          stopTransfer: true,
           streetStorePath: request.streetStorePath,
           streetStorageIdentity,
           fromStopId: step.fromStopId,
@@ -9324,10 +9212,8 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
           toCoordinate: [to.lon, to.lat],
           maximumDistanceKm: Math.max(maxWalkKm, osmTransferMaximumWalkM / 1000),
         }
-        // Both endpoints are members of the source-bound GTFS access profile.
-        // Reuse their precomputed street snap frontiers so materialization does
-        // not repeat two coordinate-to-street spatial searches. The actual
-        // shortest path is still computed afresh for every request.
+        // Generated transfer weights use physical stop coordinates. Public
+        // endpoint entrance anchors can describe a different, longer path.
         transferPath = cachedNativeAccessMemberPath(
           store,
           transferPathInput,
@@ -9340,6 +9226,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
       }
       legs.push({
         type: 'walk', travelMode: 'walk', walkSource: 'transfer', fromStopId: step.fromStopId, toStopId: step.toStopId,
+        transferSource,
         fromName: from?.name ?? step.fromStopId, toName: to?.name ?? step.toStopId,
         startMinutes: minuteCoordinate(step.arrival - step.duration), endMinutes: minuteCoordinate(step.arrival),
         durationMinutes: secondsToMinutes(step.duration),
@@ -9348,7 +9235,10 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
         stopCount: 0,
         coordinates: transferPath?.coordinates
           ?? (from && to ? [[from.lon, from.lat], [to.lon, to.lat]] : []),
-        geometrySource: transferPath ? 'osm-rust-selected-transfer' : 'stop-coordinate-fallback',
+        // Source transfer/pathway times and the station fallback describe their
+        // own connections, not a detour through the external street network.
+        geometrySource: transferPath ? 'osm-rust-selected-transfer'
+          : transferSource === 'parent_station_fallback' ? 'station-transfer-schematic' : 'stop-coordinate-fallback',
         streetPathVerified: Boolean(transferPath),
         nativeStreetQueryMs: timingMilliseconds(transferPath?.nativeQueryMs),
       })
@@ -9396,6 +9286,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
       tripId: first.trip_id, directionId: first.direction_id || undefined,
       startMinutes: minuteCoordinate(first.departure), endMinutes: minuteCoordinate(last.arrival),
       durationMinutes: secondsToMinutes(last.arrival - first.departure), distanceKm: geometry.distanceKm,
+      stopIds: [first.from_stop_id, ...connections.map((connection) => connection.to_stop_id)],
       stopCount: connections.length, coordinates: geometry.coordinates, geometrySource: geometry.geometrySource, shapeId: geometry.shapeId,
       bridgedUntimedGapCount: bridgedUntimedGapCount || undefined,
       sourceEqualTime: sourceEqualTime || undefined,
@@ -9425,6 +9316,8 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
   legs.push({
     type: 'walk', travelMode: 'walk', walkSource: bestStop.walkSource || (request.streetStorePath ? 'osm' : 'direct'),
     fromStopId: bestStop.stop_id, fromName: lastStop?.name ?? bestStop.stop_id, toName: destination.label,
+    streetPathVerified: bestStop.streetPathVerified === true,
+    stationPathSources: bestStop.accessTransferSources,
     startMinutes: minuteCoordinate(egressStart), endMinutes: minuteCoordinate(bestArrival),
     durationMinutes: secondsToMinutes(bestArrival - egressStart), distanceKm: bestStop.distanceKm,
     stopCount: 0, coordinates: [...destinationToStopCoordinates].reverse(),
@@ -9497,6 +9390,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
       sourceEqualTimeConnectionCount,
       routingHorizonMinutes: (horizon - departure) / 60,
       walkingNetwork: request.streetStorePath ? 'osm' : 'direct', walkingSpeedKph,
+      walkingAccessPermission: request.streetStorePath ? nativeStreetAccessPermission(request.streetStorePath) : 'public',
       accessDurationModel: nationalRoutingAccessPolicy.durationModel,
       accessPaddingFactor,
       accessOverheadSeconds,
@@ -9510,6 +9404,8 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
         ? 'earliest_arrival_within_interpolated_stop_time_gap_model'
         : search.balancedGeneralizedSelection
           ? 'balanced_generalized_selection_over_exact_nondominated_frontier'
+        : search.deadlineObjective
+          ? 'fewest_boardings_then_walking_then_arrival_within_deadline'
         : lexicographicCertifier
           ? 'lexicographic_earliest_arrival_then_boardings_then_walking_within_active_service_and_access_model'
           : 'earliest_arrival_within_active_service_and_access_model',
@@ -10188,7 +10084,6 @@ export function routeNationalGtfsReach(storePath, request, options = {}) {
         coordinate: origin,
         durationMinutes: 0,
         maxWalkKm,
-        snapMode: explicitStopId ? 'fixed' : 'origin',
       }],
       targets: scenarioOverlay.stops,
       includeTargetMatrix: true,
@@ -10491,6 +10386,7 @@ export function routeNationalGtfsReach(storePath, request, options = {}) {
 
 
 export function routeNationalGtfsMatrix(storePath, request) {
+  validateMaximumTransfers(request.maxTransfers)
   const started = performance.now()
   const result = routeNationalGtfsTransitMatrix(storePath, request)
   if (!request.streetStorePath || request.__disableDirectWalkDominance === true
@@ -10516,9 +10412,14 @@ export function routeNationalGtfsMatrix(storePath, request) {
       || explicitRoutingStopId(request.destinations[row.destinationIndex])
     )) continue
     if (walk.status !== 'ready' || walk.durationMinutes > horizonMinutes + 1e-9
+      || (request.timePreference === 'arrive' && walk.durationMinutes > row.arriveMinutes)
       || (row.status === 'ready' && row.durationMinutes <= walk.durationMinutes)) continue
     row.status = 'ready'
-    row.arriveMinutes = minuteCoordinate((row.departMinutes + walk.durationMinutes) * 60)
+    if (request.timePreference === 'arrive') {
+      row.departMinutes = minuteCoordinate((row.arriveMinutes - walk.durationMinutes) * 60)
+    } else {
+      row.arriveMinutes = minuteCoordinate((row.departMinutes + walk.durationMinutes) * 60)
+    }
     row.durationMinutes = secondsToMinutes(walk.durationMinutes * 60)
     delete row.failureCode
     selectedWalkPairs += 1
@@ -10538,32 +10439,31 @@ export function routeNationalGtfsMatrix(storePath, request) {
 }
 
 function routeNationalGtfsTransitMatrix(storePath, request) {
-  request = withResolvedServiceDay(request)
   const started = performance.now()
   const origins = Array.isArray(request?.origins) ? request.origins : []
   const destinations = Array.isArray(request?.destinations) ? request.destinations : []
-  if (!origins.length || !destinations.length) throw new Error('Matrix routing requires at least one origin and one destination.')
-  if (origins.length > 256 || destinations.length > 256 || origins.length * destinations.length > 50_000) {
-    const error = new Error('Matrix routing is limited to 256 origins, 256 destinations, and 50,000 OD pairs per request.')
-    error.statusCode = 413
-    throw error
+  assertMatrixSize(origins.length, destinations.length)
+  request = withResolvedServiceDay(request)
+  if (request.timePreference != null && !['depart', 'arrive'].includes(request.timePreference)) {
+    throw new Error('Matrix timePreference must be depart or arrive.')
   }
-  if (request.timePreference === 'arrive') {
-    const error = new Error('Arrive-by matrices are not supported by vigo.routing.matrix.v1; use independent arrive-by itinerary queries.')
-    error.statusCode = 400
-    error.code = 'unsupported_matrix_query_mode'
-    throw error
-  }
+  const arriveBy = request.timePreference === 'arrive'
+  const queryMode = arriveBy ? 'arrive_by_transit_time_only' : 'depart_at_transit_time_only'
   const store = openNationalStore(storePath)
   const routingCoverage = supportedScheduledCoreCoverage(store)
-  const departureMinutes = integralRoutingMinute(request.departMinutes, 'departMinutes')
-  const departure = Math.round(departureMinutes * 60)
+  const anchorMinutes = integralRoutingMinute(
+    arriveBy ? request.arriveMinutes ?? request.timeMinutes ?? request.departMinutes : request.departMinutes,
+    arriveBy ? 'arriveMinutes' : 'departMinutes',
+  )
+  const anchor = Math.round(anchorMinutes * 60)
   const maxWalkKm = Math.max(0.2, Math.min(5, numeric(request.maxWalkKm, 1.6)))
   const explicitHorizonMinutes = Number(request.horizonMinutes)
   const matrixHorizonMinutes = Number.isFinite(explicitHorizonMinutes) && explicitHorizonMinutes > 0
     ? Math.max(1, Math.min(2_880, explicitHorizonMinutes))
     : 480
-  const horizon = departure + matrixHorizonMinutes * 60
+  const departure = arriveBy ? Math.max(0, anchor - matrixHorizonMinutes * 60) : anchor
+  const horizon = arriveBy ? anchor : anchor + matrixHorizonMinutes * 60
+  const blockedTimes = { departMinutes: arriveBy ? null : anchorMinutes, arriveMinutes: arriveBy ? anchorMinutes : null, durationMinutes: null }
   const representativeSnapshot = request.allowServiceDateFallback === true && request.serviceDateFallbackPolicy === 'representative-snapshot'
   const serviceDateResolution = resolveServiceDate(store, request.serviceDate, request.serviceDay, representativeSnapshot)
   if (store.blockingRoutingFeatures.length) {
@@ -10574,13 +10474,11 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
         destinationIndex,
         status: 'blocked',
         failureCode: 'unsupported_gtfs_feature',
-        departMinutes: departureMinutes,
-        arriveMinutes: null,
-        durationMinutes: null,
+        ...blockedTimes,
       }))),
       diagnostics: {
         matrixStrategy: 'not_run',
-        queryMode: 'depart_at_transit_time_only',
+        queryMode,
         routingCoverage,
         failure: {
           code: 'unsupported_gtfs_feature',
@@ -10599,13 +10497,11 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
         destinationIndex,
         status: 'blocked',
         failureCode: 'coverage_incomplete',
-        departMinutes: departureMinutes,
-        arriveMinutes: null,
-        durationMinutes: null,
+        ...blockedTimes,
       }))),
       diagnostics: {
         matrixStrategy: 'not_run',
-        queryMode: 'depart_at_transit_time_only',
+        queryMode,
         routingCoverage,
         failure: {
           code: 'coverage_incomplete',
@@ -10630,14 +10526,12 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
           destinationIndex,
           status: 'blocked',
           failureCode,
-          departMinutes: departureMinutes,
-          arriveMinutes: null,
-          durationMinutes: null,
+          ...blockedTimes,
         }))),
         diagnostics: {
           matrixStrategy: 'not_run',
           matrixEngine: 'resident_timetable_kernel',
-          queryMode: 'depart_at_transit_time_only',
+          queryMode,
           routingCoverage,
           activeServices: services.size,
           failure: {
@@ -10684,113 +10578,80 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
   // Uniform scalar search for every City and every OD set.
   const matrixStrategy = 'shared'
   const streetStorageIdentity = currentStreetStoreStorageIdentity(request.streetStorePath)
-  const destinationStops = uniqueDestinations.map((point) => (
-    preparePointAccessStops(store, point, maxWalkKm, request.streetStorePath, streetStorageIdentity, 'destination')
-  ))
-  const destinationSeedSets = destinationStops.map((stops) => (
-    activeServiceKernelAccessSeeds(activeKernel, stops)
-  ))
-  const searchResults = uniqueOrigins.map((point) => {
-    const originStops = preparePointAccessStops(store, point, maxWalkKm, request.streetStorePath, streetStorageIdentity, 'origin')
-    if (originStops.length) {
-      const allowPreRideTransfers = !request.streetStorePath || Boolean(explicitRoutingStopId(point))
-      const result = routeNativeTimetableMany(activeKernel, {
-        originSeeds: activeServiceKernelAccessSeeds(activeKernel, originStops),
-        destinationSeedSets,
-        departure,
-        horizon,
-        allowPreRideTransfers,
-      })
-      return {
-        bestArrivals: result.bestArrivals,
-        scanned: result.scannedDepartures,
-        relaxed: result.relaxedStops,
-        seedScanned: 0,
-        seededDestinationUpperBounds: 0,
-        upperBounded: false,
-        poppedStates: 0,
-        expandedTripRuns: result.expandedTripRuns,
-        dominatedTripBoardings: result.dominatedTripBoardings,
-        engine: 'rust_exact_connection_scan_one_to_many',
-        queryMs: timingMilliseconds(result.queryMs),
-      }
-    }
-    return {
-      bestArrivals: uniqueDestinations.map(() => Number.POSITIVE_INFINITY),
-      scanned: 0,
-      relaxed: 0,
-      seedScanned: 0,
-      seededDestinationUpperBounds: 0,
-      upperBounded: false,
-      engine: 'active_service_kernel',
-      queryMs: 0,
-    }
-  })
+  let search
+  const coordinateOnly = request.streetStorePath
+    && uniqueOrigins.every((point) => !explicitRoutingStopId(point))
+    && uniqueDestinations.every((point) => !explicitRoutingStopId(point))
+  if (coordinateOnly) {
+    nativeCoordinateAccessProfile(store, request.streetStorePath, streetStorageIdentity)
+    search = routeNativeCoordinateTimetableMatrix(request.streetStorePath, activeKernel, {
+      origins: uniqueOrigins, destinations: uniqueDestinations, maximumWalkM: maxWalkKm * 1000,
+      departure, horizon, arriveBy, maxTransfers: request.maxTransfers,
+    })
+  } else {
+    const destinationSeedSets = uniqueDestinations.map((point) => activeServiceKernelAccessSeeds(activeKernel,
+      preparePointAccessStops(store, point, maxWalkKm, request.streetStorePath, streetStorageIdentity, 'destination')))
+    const originSeedSets = uniqueOrigins.map((point) => activeServiceKernelAccessSeeds(activeKernel,
+      preparePointAccessStops(store, point, maxWalkKm, request.streetStorePath, streetStorageIdentity, 'origin')))
+    search = routeNativeTimetableMatrix(activeKernel, {
+      originSeedSets, destinationSeedSets, maxTransfers: request.maxTransfers,
+      allowPreRideTransfers: uniqueOrigins.map((point) => !request.streetStorePath || Boolean(explicitRoutingStopId(point))),
+      allowPostRideTransfers: uniqueDestinations.map((point) => !request.streetStorePath || Boolean(explicitRoutingStopId(point))),
+      departure, horizon, arriveBy,
+    })
+  }
   const rows = new Array(origins.length * destinations.length)
   let rowIndex = 0
   for (let originIndex = 0; originIndex < origins.length; originIndex += 1) {
-    const search = searchResults[originIndexes[originIndex]]
     for (let destinationIndex = 0; destinationIndex < destinations.length; destinationIndex += 1) {
-      const arrival = search.bestArrivals[destinationIndexes[destinationIndex]]
-      const ready = Number.isFinite(arrival)
+      const time = search.times[originIndexes[originIndex] * uniqueDestinations.length + destinationIndexes[destinationIndex]]
+      const ready = Number.isFinite(time)
       rows[rowIndex] = {
         originIndex,
         destinationIndex,
         status: ready ? 'ready' : 'blocked',
-        departMinutes: departureMinutes,
-        arriveMinutes: ready ? minuteCoordinate(arrival) : null,
-        durationMinutes: ready ? secondsToMinutes(arrival - departure) : null,
+        departMinutes: arriveBy ? (ready ? minuteCoordinate(time) : null) : anchorMinutes,
+        arriveMinutes: arriveBy ? anchorMinutes : (ready ? minuteCoordinate(time) : null),
+        durationMinutes: ready ? secondsToMinutes(arriveBy ? anchor - time : time - anchor) : null,
       }
       rowIndex += 1
     }
-  }
-  let scannedDepartures = 0
-  let upperBoundSeedScans = 0
-  let seededDestinationUpperBounds = 0
-  let upperBoundedForwardSearches = 0
-  let relaxedStops = 0
-  let poppedStates = 0
-  let expandedTripRuns = 0
-  let dominatedTripBoardings = 0
-  let engineQueryMs = 0
-  for (const result of searchResults) {
-    scannedDepartures += result.scanned
-    upperBoundSeedScans += result.seedScanned
-    seededDestinationUpperBounds += result.seededDestinationUpperBounds
-    upperBoundedForwardSearches += result.upperBounded ? 1 : 0
-    relaxedStops += result.relaxed
-    poppedStates += Number(result.poppedStates ?? 0)
-    expandedTripRuns += Number(result.expandedTripRuns ?? 0)
-    dominatedTripBoardings += Number(result.dominatedTripBoardings ?? 0)
-    engineQueryMs += timingMilliseconds(result.queryMs)
   }
   return {
     schemaVersion: 'vigo.routing.matrix.v1',
     rows,
     diagnostics: {
       matrixStrategy,
-      matrixEngine: 'rust_exact_connection_scan_one_to_many',
+      matrixEngine: arriveBy ? 'rust_exact_reverse_connection_scan_many_to_one' : 'rust_exact_connection_scan_one_to_many',
+      queryMode,
+      timePreference: arriveBy ? 'arrive' : 'depart',
+      ...(arriveBy ? { arrivalSemantics: 'deadline_including_destination_wait' } : {}),
       routingCoverage,
-      optimality: routingCoverage.complete ? 'earliest_arrival_within_supported_feed' : 'travel_times_within_supported_scheduled_core',
+      optimality: routingCoverage.complete ? (arriveBy ? 'latest_departure_within_supported_feed' : 'earliest_arrival_within_supported_feed') : 'travel_times_within_supported_scheduled_core',
       origins: origins.length,
       destinations: destinations.length,
       pairs: rows.length,
       uniqueOrigins: uniqueOrigins.length,
       uniqueDestinations: uniqueDestinations.length,
-      forwardSearches: uniqueOrigins.length,
+      forwardSearches: search.forwardSearches,
+      reverseSearches: search.reverseSearches,
+      coordinateAccessExecution: coordinateOnly ? 'rust_fused_matrix' : 'endpoint_adapter',
+      ...(coordinateOnly ? { coordinateAccessMs: search.accessMs, coordinateMatrixMs: search.coordinateMatrixMs } : {}),
+      originAccessComputations: uniqueOrigins.length,
       destinationAccessComputations: uniqueDestinations.length,
       activeServices: services.size,
       serviceDateFallbackPolicy: representativeSnapshot ? 'representative-snapshot' : 'exact',
       ...serviceDateDiagnostics(serviceDateResolution),
-      scannedDepartures,
-      upperBoundSeedScans,
-      seededDestinationUpperBounds,
-      upperBoundedForwardSearches,
-      relaxedStops,
-      poppedStates,
-      expandedTripRuns,
-      dominatedTripBoardings,
-      engineQueryMs: timingMilliseconds(engineQueryMs),
+      scannedDepartures: search.scannedDepartures,
+      upperBoundSeedScans: 0,
+      seededDestinationUpperBounds: 0,
+      upperBoundedForwardSearches: 0,
+      poppedStates: 0,
+      relaxedStops: search.relaxedStops,
+      expandedTripRuns: search.expandedTripRuns,
+      dominatedTripBoardings: search.dominatedTripBoardings,
+      explicitTransferChecks: search.explicitTransferChecks,
+      engineQueryMs: timingMilliseconds(search.queryMs),
       returnedStationCyclePolicy: 'represented',
       memoryBudgetFallbacks: 0,
       queryMs: Number((performance.now() - started).toFixed(3)),
@@ -10896,7 +10757,8 @@ function routeNationalGtfsArriveByStore(
         arriveByEarliest: earliest,
         arriveByDeadline: deadline,
         allowPreRideTransfers: false,
-        retainFullFrontier: false,
+        maxTransfers: request.maxTransfers,
+        retainFullFrontier: true,
         enableDirectWalkDominance: false,
         disableCache: request.__disableNativeStreetPathCache === true,
       },
@@ -10921,31 +10783,7 @@ function routeNationalGtfsArriveByStore(
     fusedForwardSearch = routed.timetable
       ? activeServiceKernelSearchFromNativeScalar(kernel, routed.timetable, routed)
       : null
-    const candidateBoardings = fusedForwardSearch?.chain.reduce(
-      (count, step) => count + (step.kind === 'ride' ? 1 : 0),
-      0,
-    ) ?? 0
-    if (fusedForwardSearch?.status === 'ready' && candidateBoardings <= 2) {
-      const selectedOriginIndices = fusedForwardSearch.chain
-        .filter((step) => step.kind === 'access')
-        .map((step) => step.candidateIndex)
-      originStops = materializeNativeCoordinateEndpointCandidates(
-        request.streetStorePath,
-        routed.endpoints,
-        'origin',
-        selectedOriginIndices,
-      )
-      destinationStops = materializeNativeCoordinateEndpointCandidates(
-        request.streetStorePath,
-        routed.endpoints,
-        'destination',
-        [fusedForwardSearch.bestDestinationIndex],
-      )
-      if (routed.compactFrontier) {
-        originStops.length = routed.originCandidateCount
-        destinationStops.length = routed.destinationCandidateCount
-      }
-    } else if (routed.arriveBy?.status === 'ready') {
+    if (routed.arriveBy?.status === 'ready') {
       originStops = materializeNativeCoordinateEndpointCandidates(
         request.streetStorePath,
         routed.endpoints,
@@ -11085,9 +10923,7 @@ function routeNationalGtfsArriveByStore(
         numeric(fusedCoordinateTimetable.arriveBy.latestDeparture, Number.NaN)
           - candidateSeconds,
       ) <= 1e-9
-    const candidateHorizon = fusedBoundaryMatches
-      ? deadline
-      : candidateSeconds + Math.max(180, numeric(request.horizonMinutes, 480)) * 60
+    const candidateHorizon = deadline
     if (!fusedBoundaryMatches && fusedCoordinateTimetable?.compactFrontier) {
       return materializeFastestThroughPublicRoute(candidateSeconds)
     }
@@ -11100,6 +10936,7 @@ function routeNationalGtfsArriveByStore(
           candidateSeconds,
           candidateHorizon,
           allowPreRideTransfers,
+          request.maxTransfers,
         )
     if (search.supported !== true || search.status !== 'ready') return null
 
@@ -11107,14 +10944,6 @@ function routeNationalGtfsArriveByStore(
       (count, step) => count + (step.kind === 'ride' ? 1 : 0),
       0,
     )
-    if (candidateBoardings === 2) {
-      Object.assign(search, {
-        lexicographicCertified: true,
-        scalarSingleBoardingExhausted: true,
-        strictBoardingBound: true,
-        certifier: 'rust_scalar_exhaustive_single_boarding_dominance',
-      })
-    }
     let selectedSearch = search
     let paretoSearch = null
     const nativeTimetableKernel = {
@@ -11122,7 +10951,7 @@ function routeNationalGtfsArriveByStore(
       engineQueryMs: timingMilliseconds(search.queryMs),
       scalar: search.nativeTimetableKernel,
     }
-    if (candidateBoardings > 2) {
+    if (candidateBoardings >= 1) {
       paretoSearch = searchActiveServiceKernelNativePareto(
         kernel,
         originStops,
@@ -11133,9 +10962,9 @@ function routeNationalGtfsArriveByStore(
         search,
         {
           allowPreRideTransfers,
-          preferFewerBoardingsWithinSlack: false,
+          deadlineObjective: true,
           optimizeGeneralizedCost: false,
-          arrivalSlackSeconds: 0,
+          arrivalSlackSeconds: Math.max(0, deadline - search.bestArrival),
           transferPenaltySeconds: balancedTransferPenaltySeconds,
           walkReluctance: balancedWalkReluctance,
         },
@@ -11143,9 +10972,9 @@ function routeNationalGtfsArriveByStore(
       if (
         paretoSearch.supported !== true
         || paretoSearch.status !== 'ready'
-        || numeric(paretoSearch.bestArrival) > numeric(search.bestArrival) + 0.1
+        || numeric(paretoSearch.bestArrival) > deadline
       ) {
-        return materializeFastestThroughPublicRoute(candidateSeconds)
+        throw new Error(`Required Rust deadline search failed: ${paretoSearch.reason ?? paretoSearch.status}`)
       }
       selectedSearch = paretoSearch
       Object.assign(nativeTimetableKernel, {
@@ -11185,12 +11014,7 @@ function routeNationalGtfsArriveByStore(
       paretoSearch,
       candidateBoardings,
     )
-    const returnedCycle = nationalRoutingReturnedRideCycle(candidatePlan, {
-      stationGroupForStopId: (stopId) => nationalRoutingStationGroupForStop(store, stopId),
-    })
-    if (returnedCycle && request.returnedStationCyclePolicy !== 'represented') {
-      return materializeFastestThroughPublicRoute(candidateSeconds)
-    }
+    candidatePlan = withReturnedStationAdvisory(store, candidatePlan)
     return planMeetsArriveByDeadline(candidatePlan) ? candidatePlan : null
   }
   let requestedPreferenceVerificationPerformed = false
@@ -11258,6 +11082,7 @@ function routeNationalGtfsArriveByStore(
         arriveByRequestedPreferenceMetDeadline:
           requestedPreferenceMetDeadline,
         arriveByDeadlineSeconds: deadline,
+        arriveBySecondaryObjective: 'fewest_boardings_then_walking_then_arrival_within_deadline',
         coordinateAccessFrontierPreparations:
           nativeCoordinateAccess ? 1 : 0,
         coordinateAccessFrontierReuses:
@@ -11330,6 +11155,8 @@ function routeNationalGtfsArriveByStore(
     ?? routeNativeTimetableArriveBy(kernel, {
       originSeeds: arriveByOriginSeeds,
       destinationSeeds: arriveByDestinationSeeds,
+      maxTransfers: request.maxTransfers,
+      allowPostRideTransfers: allowsTerminalTransfers(destinationStops),
       earliest,
       deadline,
       allowPreRideTransfers,
@@ -11421,7 +11248,7 @@ function routeNationalGtfsArriveByStore(
       status: 'passed',
       trigger: 'native_reverse_boundary_failed_public_forward_materialization',
       exactness:
-        'initial_departure_frontier_filtered_by_the_public_cycle_policy',
+        'initial_departure_frontier_verified_by_forward_materialization',
       nativeLatestDepartureSeconds: latestFeasibleCandidateSeconds,
       nativeCandidateCount: nativeBoundary.candidateCount,
       reproducedCandidateCount: candidates.length,
@@ -11574,6 +11401,7 @@ function routeNationalGtfsArriveByStore(
 
 
 export function routeNationalGtfsStore(storePath, request) {
+  validateMaximumTransfers(request.maxTransfers)
   request = withResolvedServiceDay(request)
   if (request.__allowSubMinuteTimes !== true) {
     integralRoutingMinute(
@@ -11708,9 +11536,6 @@ export function routeNationalGtfsStore(storePath, request) {
     const destinationAccessStopIds = requestedAccessStopIds(request, '__destinationAccessStopIds')
     const departureMinutes = numeric(request.departMinutes, 8 * 60)
     const departure = Math.round(departureMinutes * 60)
-    const returnedStationCyclePolicy = request.returnedStationCyclePolicy === 'represented'
-      ? 'represented'
-      : 'suppress'
     const normalizedHorizonMinutes = request.__respectShortHorizon === true
       ? Math.max(1, Math.min(2_880, numeric(request.horizonMinutes, 480)))
       : Math.max(180, numeric(request.horizonMinutes, 480))
@@ -11778,7 +11603,8 @@ export function routeNationalGtfsStore(storePath, request) {
           departure,
           horizon,
           allowPreRideTransfers: false,
-          retainFullFrontier: request.routingPreference === 'balanced',
+          maxTransfers: request.maxTransfers,
+          retainFullFrontier: true,
           enableDirectWalkDominance: request.__disableDirectWalkDominance !== true,
           disableCache: request.__disableNativeStreetPathCache === true,
         },
@@ -11975,6 +11801,7 @@ export function routeNationalGtfsStore(storePath, request) {
               horizon,
               allowPreRideTransfers,
               realtimeOverlay,
+              request.maxTransfers,
             )
           } catch (error) {
             const fallbackError = error instanceof Error ? error.message : String(error)
@@ -12011,6 +11838,7 @@ export function routeNationalGtfsStore(storePath, request) {
                 departure,
                 horizon,
                 allowPreRideTransfers,
+                request.maxTransfers,
               )
         )
         if (
@@ -12027,14 +11855,17 @@ export function routeNationalGtfsStore(storePath, request) {
           0,
         ) ?? 0
         const realtimeSearchApplied = kernelSearch.realtimeOverlay === true
+        const collectAlternatives = Array.isArray(request[departureWindowAlternativePlans])
+          && !realtimeSearchApplied
         const balancedTransferPreference = request.routingPreference === 'balanced' && !realtimeSearchApplied
         const paretoOptions = {
           allowPreRideTransfers,
+          collectAlternatives,
           preferFewerBoardingsWithinSlack: balancedTransferPreference,
           optimizeGeneralizedCost: balancedTransferPreference,
           arrivalSlackSeconds: balancedTransferPreference
             ? balancedTransferArrivalSlackSeconds
-            : 0,
+            : collectAlternatives ? alternativeArrivalSlackSeconds : 0,
           transferPenaltySeconds: balancedTransferPenaltySeconds,
           walkReluctance: balancedWalkReluctance,
         }
@@ -12046,36 +11877,42 @@ export function routeNationalGtfsStore(storePath, request) {
           scalar: kernelSearch.nativeTimetableKernel,
         }
 
-        // With coordinate access, pre-ride GTFS transfer edges are disabled.
-        // For an exactly two-boarding scalar witness, the same CSA pass has
-        // already exhausted every feasible one-boarding run: each such run is
-        // retained independently until all of its alight/bridge exits and one
-        // post-ride transfer edge have been evaluated. Therefore an equal-
-        // arrival one-boarding witness would already have won BestState's
-        // (arrival, boardings, walking) comparison. The full bounded Pareto pass remains
-        // mandatory for balanced routing and for three-or-more boardings.
-        const scalarSingleBoardingExhausted = kernelSearch.status === 'ready'
-          && !balancedTransferPreference
-          && !allowPreRideTransfers
-          && kernelCandidateBoardings === 2
-        if (scalarSingleBoardingExhausted) {
-          Object.assign(kernelSearch, {
-            lexicographicCertified: true,
-            scalarSingleBoardingExhausted: true,
-            strictBoardingBound: true,
-            certifier: 'rust_scalar_exhaustive_single_boarding_dominance',
-          })
-          nativeTimetableKernel.scalarLexicographicCertification = {
-            status: 'passed',
-            certifier: kernelSearch.certifier,
-            candidateBoardings: 2,
-            certifiedBoardings: 2,
+        // Scalar arrival dominance can discard a later stop label with less
+        // walking that still catches the same vehicle. Exact Pareto rounds
+        // certify secondary objectives even for one- and two-boarding paths.
+        const requiresParetoCertification = !realtimeSearchApplied
+          && kernelSearch.status === 'ready' && kernelCandidateBoardings > 0
+          && (request.maxTransfers === undefined || collectAlternatives || balancedTransferPreference)
+        // The scalar scan already proves the earliest transit arrival. A
+        // graph-verified walk that wins that comparison needs no bounded
+        // transit frontier, nor materialization of all endpoint candidates.
+        const scalarDirectComparison = collectAlternatives && !balancedTransferPreference
+          && kernelSearch.status === 'ready'
+          ? transitDominatingDirectWalkPlan(
+              request,
+              maxWalkKm,
+              {
+                status: 'ready', travelMode: 'transit', departMinutes: departureMinutes,
+                durationMinutes: secondsToMinutes(kernelSearch.bestArrival - departure),
+              },
+              accessFrontierDirectWalk.path,
+              accessFrontierDirectWalk.streetSearchMs,
+            )
+          : null
+        if (scalarDirectComparison?.travelMode === 'walk') {
+          scalarDirectComparison.diagnostics.searchStats = {
+            ...activeServiceKernelUnmaterializedSearchStats(store, kernelSearch, {
+              request, services, startedAt: started, accessPreparationMs, serviceActivationMs,
+              serviceKernelPreparationMs, nativeTimetableKernel, nativeCoordinateAccess,
+            }),
+            ...scalarDirectComparison.diagnostics.searchStats,
+            boundedSearchSkipped: 'direct_walk_beats_exact_earliest_transit_arrival',
           }
+          scalarDirectComparison.diagnostics.directWalkComparison.dominatesThroughDepartureMinutes =
+            Math.min(kernelSearch.bestArrival, horizon) / 60
+            - scalarDirectComparison.diagnostics.directWalkDistanceKm / walkingSpeedKph * 60
+          return decorateResult(scalarDirectComparison)
         }
-        const requiresParetoCertification = !realtimeSearchApplied && kernelSearch.status === 'ready' && (
-          balancedTransferPreference
-          || (kernelCandidateBoardings > 1 && !scalarSingleBoardingExhausted)
-        )
         if (requiresParetoCertification) {
           if (fusedCoordinateTimetable) {
             const candidateAssemblyStartedAt = performance.now()
@@ -12208,7 +12045,7 @@ export function routeNationalGtfsStore(storePath, request) {
               searchStats: unmaterializedSearchStats,
             },
           }
-          earlyDirectComparison = transitDominatingDirectWalkPlan(
+          earlyDirectComparison = scalarDirectComparison ?? transitDominatingDirectWalkPlan(
             request,
             maxWalkKm,
             earlyTransitSummary,
@@ -12216,6 +12053,14 @@ export function routeNationalGtfsStore(storePath, request) {
             accessFrontierDirectWalk.streetSearchMs,
           )
           if (earlyDirectComparison?.travelMode === 'walk') {
+            if (collectAlternatives && !balancedTransferPreference) {
+              // Later departures cannot arrive before this exact earliest
+              // transit arrival. Stop the proof at the original scan horizon:
+              // moving that horizon may admit another, earlier-arriving trip.
+              earlyDirectComparison.diagnostics.directWalkComparison.dominatesThroughDepartureMinutes =
+                Math.min(selectedKernelSearch.bestArrival, horizon) / 60
+                - earlyDirectComparison.diagnostics.directWalkDistanceKm / walkingSpeedKph * 60
+            }
             return decorateResult(earlyDirectComparison)
           }
         }
@@ -12318,6 +12163,26 @@ export function routeNationalGtfsStore(storePath, request) {
           paretoSearch,
           kernelCandidateBoardings,
         )
+        if (collectAlternatives) {
+          for (const alternative of paretoSearch?.alternatives ?? []) {
+            const candidatePlan = materializeActiveServiceKernelPlan(
+              store,
+              activeKernel,
+              { ...paretoSearch, ...alternative },
+              kernelMaterializationContext,
+            )
+            if (!candidatePlan) continue
+            const decorated = decorateResult(candidatePlan)
+            decorated.recommended = false
+            decorated.diagnostics.searchProfile = 'pareto'
+            decorated.diagnostics.optimality = 'nondominated_within_alternative_arrival_and_boarding_bounds'
+            decorated.diagnostics.alternativeSearch = {
+              arrivalSlackSeconds: alternativeArrivalSlackSeconds,
+              boardingUpperBound: kernelCandidateBoardings,
+            }
+            request[departureWindowAlternativePlans].push(decorated)
+          }
+        }
         if (earlyDirectComparison?.diagnostics?.directWalkComparison) {
           kernelPlan = {
             ...kernelPlan,
@@ -12334,118 +12199,7 @@ export function routeNationalGtfsStore(storePath, request) {
             },
           }
         }
-        const preferredPlan = kernelPlan
-        const cycleWitness = nationalRoutingReturnedRideCycle(preferredPlan, {
-          stationGroupForStopId: (stopId) => nationalRoutingStationGroupForStop(store, stopId),
-        })
-        let visiblePlan
-        if (returnedStationCyclePolicy === 'represented') {
-          visiblePlan = cycleWitness
-            ? {
-                ...preferredPlan,
-                diagnostics: {
-                  ...preferredPlan.diagnostics,
-                  returnedStationCycle: {
-                    policy: 'represented',
-                    advisory: true,
-                    stationGroupId: cycleWitness.stationGroupId,
-                    departureStopId: cycleWitness.departureStopId,
-                    returnedStopId: cycleWitness.returnedStopId,
-                    exactStopReturn: cycleWitness.exactStopReturn,
-                    cycleBoardings: cycleWitness.cycleBoardings,
-                  },
-                },
-              }
-            : preferredPlan
-        } else {
-          let loopSafeTransitPlan = null
-          let cycleRecovery = null
-          if (cycleWitness && request.__cycleRecoveryAttempted !== true) {
-            if (fusedCoordinateTimetable && !requiresParetoCertification) {
-              if (fusedCoordinateTimetable.compactFrontier) {
-                const recoveryFrontiers = routeNativeCoordinateFrontiers(
-                  request.streetStorePath,
-                  {
-                    origin: origin.coordinate,
-                    destination: destination.coordinate,
-                    maximumWalkM: maxWalkKm * 1000,
-                  },
-                )
-                destinationStops = recoveryFrontiers.destination
-                nativeCoordinateAccess.diagnostics.cycleRecoveryFrontierMs =
-                  recoveryFrontiers.diagnostics.adapterWallMs
-              } else {
-                destinationStops = materializeNativeCoordinateEndpointCandidates(
-                  request.streetStorePath,
-                  fusedCoordinateTimetable.endpoints,
-                  'destination',
-                )
-              }
-              nativeCoordinateAccess.destination = destinationStops
-            }
-            const cycleFreeDestinationStopIds = destinationStops
-              .filter((stop) => nationalRoutingStationGroupForStop(store, stop.stop_id) !== cycleWitness.stationGroupId)
-              .map((stop) => stop.stop_id)
-            cycleRecovery = {
-              attempted: true,
-              status: cycleFreeDestinationStopIds.length ? 'exhausted' : 'no_alternative_destination_stops',
-              excludedStationGroupId: cycleWitness.stationGroupId,
-              excludedDestinationStopCount: destinationStops.length - cycleFreeDestinationStopIds.length,
-              returnedStopId: cycleWitness.returnedStopId,
-            }
-            if (cycleFreeDestinationStopIds.length) {
-              const cycleRetry = routeNationalGtfsStore(
-                storePath,
-                attachPreparedNativeCoordinateAccessPair({
-                ...request,
-                __destinationAccessStopIds: cycleFreeDestinationStopIds,
-                __cycleRecoveryAttempted: true,
-                }, request?.[preparedNativeCoordinateAccessPair]),
-              )
-              if (
-                cycleRetry.status === 'ready'
-                && !nationalRoutingReturnedRideCycle(cycleRetry, {
-                  stationGroupForStopId: (stopId) => nationalRoutingStationGroupForStop(store, stopId),
-                })
-              ) {
-                loopSafeTransitPlan = {
-                  ...cycleRetry,
-                  diagnostics: {
-                    ...cycleRetry.diagnostics,
-                    cycleRecovery: { ...cycleRecovery, status: 'recovered' },
-                  },
-                }
-              }
-            }
-          }
-          loopSafeTransitPlan ??= suppressNationalPointRideLoop(
-            store,
-            request,
-            maxWalkKm,
-            preferredPlan,
-            serviceDateResolution,
-            cycleRecovery?.status === 'exhausted' || cycleRecovery?.status === 'no_alternative_destination_stops'
-              ? { failureCode: 'no_path', cycleRecovery }
-              : undefined,
-          )
-          const directWalkAfterLoopSuppression = directWalkAfterBlockedTransitPlan(
-            request,
-            maxWalkKm,
-            loopSafeTransitPlan,
-            accessFrontierDirectWalk.path,
-            accessFrontierDirectWalk.streetSearchMs,
-          )
-          visiblePlan = directWalkAfterLoopSuppression
-            && loopSafeTransitPlan !== preferredPlan
-            ? {
-                ...directWalkAfterLoopSuppression,
-                diagnostics: {
-                  ...directWalkAfterLoopSuppression.diagnostics,
-                  loopSuppression: loopSafeTransitPlan.diagnostics?.loopSuppression,
-                },
-              }
-            : directWalkAfterLoopSuppression ?? loopSafeTransitPlan
-        }
+        const visiblePlan = withReturnedStationAdvisory(store, kernelPlan)
         return decorateResult(visiblePlan)
       } catch (error) {
         store.activeServiceKernelStatus = {
@@ -12549,6 +12303,8 @@ function mergeNationalThroughRide(left, right) {
     durationMinutes,
     distanceKm: Math.max(0, numeric(left.distanceKm, 0)) + Math.max(0, numeric(right.distanceKm, 0)),
     stopCount: Math.max(0, numeric(left.stopCount, 0)) + Math.max(0, numeric(right.stopCount, 0)),
+    stopIds: Array.isArray(left.stopIds) && Array.isArray(right.stopIds)
+      ? [...left.stopIds, ...right.stopIds.slice(1)] : undefined,
     coordinates: appendDistinctCoordinates(left.coordinates, right.coordinates),
     bridgedUntimedGapCount: numeric(left.bridgedUntimedGapCount, 0) + numeric(right.bridgedUntimedGapCount, 0) || undefined,
     sourceEqualTime: sourceEqualTime || undefined,
@@ -13029,6 +12785,7 @@ function routeNationalGtfsParetoAlternatives(storePath, request, centerMinutes, 
 }
 
 export function routeNationalGtfsDepartureWindow(storePath, request) {
+  validateMaximumTransfers(request.maxTransfers)
   request = withResolvedServiceDay(request)
   const windowStartedAt = performance.now()
   const centerMinutes = integralRoutingMinute(request.departMinutes, 'departMinutes')
@@ -13149,7 +12906,9 @@ export function routeNationalGtfsDepartureWindow(storePath, request) {
   const preparedDepartureWindowCoordinateAccess =
     departureWindowCoordinateAccess.prepared
   const plans = []
+  const tradeoffPlans = []
   let routeSearches = 0
+  let directWalkSampleReuses = 0
   let index = 0
   while (index < sampleMinutes.length) {
     const sampleMinute = sampleMinutes[index]
@@ -13160,8 +12919,21 @@ export function routeNationalGtfsDepartureWindow(storePath, request) {
       __allowSubMinuteTimes: true,
       departureWindowMinutes: 0,
     }, preparedDepartureWindowCoordinateAccess)
+    const sampleAlternatives = []
+    sampleRequest[departureWindowAlternativePlans] = sampleAlternatives
     const plan = routeNationalGtfsStore(storePath, sampleRequest)
     routeSearches += 1
+    for (const alternative of sampleAlternatives) {
+      const firstRideIndex = alternative.legs.findIndex((leg) => leg.type === 'ride')
+      const preRideMinutes = alternative.legs.slice(0, firstRideIndex)
+        .reduce((sum, leg) => sum + leg.durationMinutes, 0)
+      const latestCatchMinutes = alternative.legs[firstRideIndex].startMinutes - preRideMinutes
+      // Keep the selected-time witness when boardable; otherwise show the
+      // latest departure in this window that can catch this journey.
+      const choiceMinutes = centerMinutes >= sampleMinute && centerMinutes <= latestCatchMinutes
+        ? centerMinutes : Math.min(endMinutes, latestCatchMinutes)
+      tradeoffPlans.push(materializeWindowPlan(alternative, choiceMinutes, centerMinutes, latestCatchMinutes))
+    }
     if (plan.status !== 'ready') {
       plans.push(plan)
       index += 1
@@ -13171,14 +12943,16 @@ export function routeNationalGtfsDepartureWindow(storePath, request) {
     if (firstRideIndex < 0) {
       plans.push(plan)
       index += 1
-      if (
+      const staticWalkDominance = (
         plan.diagnostics?.optimality
         === 'direct_walk_strictly_dominates_complete_endpoint_access_lower_bound'
-      ) {
-        while (index < sampleMinutes.length) {
-          plans.push(materializeDirectWalkPlan(plan, sampleMinutes[index]))
-          index += 1
-        }
+      )
+      const walkDominanceUntil = staticWalkDominance ? endMinutes
+        : numeric(plan.diagnostics?.directWalkComparison?.dominatesThroughDepartureMinutes, sampleMinute)
+      while (index < sampleMinutes.length && sampleMinutes[index] <= walkDominanceUntil) {
+        plans.push(materializeDirectWalkPlan(plan, sampleMinutes[index]))
+        index += 1
+        directWalkSampleReuses += 1
       }
       continue
     }
@@ -13214,8 +12988,8 @@ export function routeNationalGtfsDepartureWindow(storePath, request) {
     alternativeWalkKm,
   )
   const initialCandidates = directWalkAlternative.plan
-    ? [...plans, directWalkAlternative.plan]
-    : plans
+    ? [...plans, ...tradeoffPlans, directWalkAlternative.plan]
+    : [...plans, ...tradeoffPlans]
   let alternativeFilteringMs = 0
   const initialFilteringStartedAt = performance.now()
   const initialChoices = selectNationalDepartureWindowChoices(initialCandidates, { centerMinutes, limit: 5 })
@@ -13225,7 +12999,7 @@ export function routeNationalGtfsDepartureWindow(storePath, request) {
   // routing returns naturally distinct timetable journeys only. A caller opts
   // into the bounded search either with the explicit flag or by supplying an
   // alternative walking envelope that is wider than the preferred envelope.
-  // The desktop sends neither, so its ordinary latency is unchanged.
+  // The desktop sends neither, so it avoids these extra waypoint searches.
   const expandedWalkAlternativesRequested = Object.hasOwn(request, 'alternativeMaxWalkKm')
     && alternativeWalkKm > maxWalkKm + 0.01
   const syntheticAlternativesEnabled = request.includeSyntheticAlternatives === true
@@ -13246,6 +13020,7 @@ export function routeNationalGtfsDepartureWindow(storePath, request) {
     sampleCount: sampleMinutes.length,
     routeSearches,
     timetableRouteSearches: routeSearches - alternatives.routeSearches,
+    directWalkSampleReuses,
     alternativeRouteSearches: alternatives.routeSearches,
     alternativeWalkSearches: directWalkAlternative.walkSearches + alternatives.walkSearches,
     alternativeWaypointGroups: alternatives.waypointGroups,
@@ -13267,10 +13042,12 @@ export function routeNationalGtfsDepartureWindow(storePath, request) {
         : 'not-applicable',
   }
   const finalFilteringStartedAt = performance.now()
-  const selectedChoices = selectNationalDepartureWindowChoices(
-    [...initialCandidates, ...alternatives.plans],
-    { centerMinutes, limit: 5 },
-  )
+  const selectedChoices = alternatives.plans.length
+    ? selectNationalDepartureWindowChoices(
+        [...initialCandidates, ...alternatives.plans],
+        { centerMinutes, limit: 5 },
+      )
+    : initialChoices
   alternativeFilteringMs += performance.now() - finalFilteringStartedAt
   const completedDepartureWindow = {
     ...departureWindow,
@@ -13366,6 +13143,7 @@ function blockedPlan(request, departureMinutes, maxWalkKm, title, detail, stats 
     diagnostics: {
       scannedDepartures: stats.scanned ?? 0, relaxedStops: stats.relaxed ?? 0, serviceDay: request.serviceDay ?? 'weekday', ...serviceDateDiagnostics(resolution),
       scheduleMode: 'none', walkingNetwork: request.streetStorePath ? 'osm' : 'direct', walkingSpeedKph, searchProfile: 'fastest', searchStrategy: 'not_run',
+      walkingAccessPermission: request.streetStorePath ? nativeStreetAccessPermission(request.streetStorePath) : 'public',
       algorithm: 'resident_timetable_kernel', optimality: 'not_applicable',
       walkingPolicyId: nationalRoutingAccessPolicy.id,
       accessDurationModel: nationalRoutingAccessPolicy.durationModel,

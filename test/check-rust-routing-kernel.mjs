@@ -299,9 +299,8 @@ function buildProjectedEdgeFrontierFixtureSnapshot(snapshotPath) {
 function buildDisconnectedBarrierFixtureSnapshot(snapshotPath) {
   // Two reciprocal pedestrian edges are geometrically adjacent but belong to
   // different weak components. Component 0 is deliberately shorter than the
-  // retired 250 m fragment threshold. The shared anchor may retain both
-  // projections, while a query rooted on component 0 must never materialize
-  // or route through component 1.
+  // retired 250 m fragment threshold. An anchor attaches to its nearest
+  // physical edge and cannot bridge the two components.
   const values = {
     nodeIds: new Float64Array([40, 41, 42, 43]),
     nodeLats: new Float64Array([38, 38, 38.0001, 38.0001]),
@@ -597,7 +596,7 @@ try {
     allowPreRideTransfers: false,
   })
   assert.equal(baselineOnlyMixedQuery.bestArrivals[0], Number.POSITIVE_INFINITY)
-  const mixedOverlayQuery = mixedOverlayKernel.routeOverlayManyCsa({
+  const mixedOverlayRequest = {
     originStops: [0],
     originWalkSeconds: [0],
     destinationOffsets: [0, 1],
@@ -617,7 +616,8 @@ try {
     supplementalTransferOffsets: [0, 0, 1, 1, 1, 1, 2],
     supplementalTransferTo: [4, 2],
     supplementalTransferDuration: [50, 50],
-  })
+  }
+  const mixedOverlayQuery = mixedOverlayKernel.routeOverlayManyCsa(mixedOverlayRequest)
   assert.equal(mixedOverlayQuery.timetable.status, 'complete')
   assert.equal(mixedOverlayQuery.timetable.bestArrivals[0], 900)
   assert.equal(
@@ -631,6 +631,10 @@ try {
   assert(Number.isFinite(mixedOverlayQuery.scanNs) && mixedOverlayQuery.scanNs >= 0)
   assert(mixedOverlayQuery.transientBytes > 0)
   assert(mixedOverlayQuery.workspaceBytes > 0)
+  for (const maximumBoardings of [1, 2, 3, undefined, 3, 1]) {
+    const capped = mixedOverlayKernel.routeOverlayManyCsa({ ...mixedOverlayRequest, maximumBoardings })
+    assert.equal(capped.timetable.bestArrivals[0], maximumBoardings < 3 ? Infinity : 900)
+  }
   const driveCchStructurePath = path.join(temporaryDirectory, 'drive.cch.structure')
   const driveCchTimeMetricPath = path.join(temporaryDirectory, 'drive.cch.time.metric')
   const driveCchDistanceMetricPath = path.join(temporaryDirectory, 'drive.cch.distance.metric')
@@ -837,7 +841,7 @@ try {
   const cachedProfile = kernel.profileDiagnostics()
   assert.equal(cachedProfile.endpointCacheEntries, 2)
   assert(cachedProfile.endpointCacheEstimatedBytes > 0)
-  assert.equal(cachedProfile.endpointCacheMaximumEntriesPerRole, 256)
+  assert.equal(cachedProfile.endpointCacheMaximumEntriesPerRole, 100_000)
   assert.equal(cachedProfile.endpointCacheMaximumBytesPerRole, 64 * 1024 * 1024)
   assert(
     cachedProfile.endpointCacheEstimatedBytes
@@ -1149,7 +1153,7 @@ try {
     memberOriginEligible: [1],
     memberDestinationEligible: [1],
   })
-  assert(frontierProfile.snapCount > 2)
+  assert(frontierProfile.snapCount <= 2)
   const frontierEndpoints = frontierKernel.routeEndpoints({
     originLon: 0.002,
     originLat: 37.99998,
@@ -1158,18 +1162,16 @@ try {
     maximumWalkM: 2000,
   })
   assert.deepEqual(frontierEndpoints.originMemberIndices, [0])
-  assert(frontierEndpoints.originDistancesM[0] < 250)
+  assert(Math.abs(frontierEndpoints.originDistancesM[0] - conservativePointPath.distanceM) < 0.0001,
+    'A GTFS anchor must use the same physical attachment as an ordinary coordinate.')
   const frontierPath = frontierKernel.materializePath({
     queryToken: frontierEndpoints.queryToken,
     role: 'origin',
     memberIndex: 0,
     maximumPoints: 32,
   })
-  assert.deepEqual(
-    frontierPath.coordinates,
-    [0.002, 37.99998, 0.001, 37.99998],
-    'The shared anchor frontier must beat the geometrically nearer detour edge without broadening arbitrary point snaps.',
-  )
+  assert.deepEqual(frontierPath.coordinates, conservativePointPath.coordinates,
+    'Stop access cannot create a shortcut between nearby disconnected streets.')
 
   const barrierSnapshotPath = path.join(
     temporaryDirectory,
@@ -1181,15 +1183,15 @@ try {
   const barrierProfile = barrierKernel.setAccessProfile({
     profileKey: 'disconnected-barrier-anchor-frontier-v1',
     anchorLons: [0.001],
-    anchorLats: [38.00005],
+    anchorLats: [38.00004],
     anchorMemberOffsets: [0, 1],
     anchorMemberIndices: [0],
     memberLons: [0.001],
-    memberLats: [38.00005],
+    memberLats: [38.00004],
     memberOriginEligible: [1],
     memberDestinationEligible: [1],
   })
-  assert(barrierProfile.snapCount > 1)
+  assert(barrierProfile.snapCount <= 2)
   const barrierEndpoints = barrierKernel.routeEndpoints({
     originLon: 0,
     originLat: 38,
@@ -1204,12 +1206,18 @@ try {
     memberIndex: 0,
     maximumPoints: 32,
   })
-  assert.deepEqual(barrierPath.coordinates, [0, 38, 0.001, 38])
+  assert.deepEqual(barrierPath.coordinates.slice(0, 2), [0, 38])
   assert.equal(
     barrierPath.coordinates.includes(38.0001),
     false,
     'A shared anchor frontier must not cross a disconnected pedestrian component.',
   )
+  const farSideAccess = barrierKernel.routeEndpoints({
+    originLon: 0, originLat: 38.0001,
+    destinationLon: 0, destinationLat: 38.0001, maximumWalkM: 400,
+  })
+  assert.deepEqual(farSideAccess.originMemberIndices, [],
+    'A stop between disconnected streets cannot join both components.')
   const disconnectedPointPath = barrierKernel.routePath({
     originLon: 0,
     originLat: 38,
@@ -1223,6 +1231,48 @@ try {
     false,
     'A virtual query point on a short component must not seed an adjacent disconnected component.',
   )
+  const linkedMembers = Array.from({ length: 21 }, (_, index) => index)
+  barrierKernel.setAccessProfile({
+    profileKey: 'directed-station-footpaths-v1',
+    anchorLons: linkedMembers.map(() => 0),
+    anchorLats: linkedMembers.map(index => index ? 38.0001 : 38),
+    anchorMemberOffsets: Array.from({ length: 22 }, (_, index) => index),
+    anchorMemberIndices: linkedMembers,
+    memberLons: linkedMembers.map(() => 0),
+    memberLats: linkedMembers.map(index => index ? 38.0001 : 38),
+    memberOriginEligible: linkedMembers.map(() => 1),
+    memberDestinationEligible: linkedMembers.map(() => 1),
+    memberStopKeys: linkedMembers, memberStationKeys: linkedMembers,
+    transferFromStopKeys: linkedMembers.slice(1).map(() => 0),
+    transferToStopKeys: linkedMembers.slice(1),
+    transferToStationKeys: linkedMembers.slice(1),
+    transferMinDurations: linkedMembers.slice(1).map(index => 1200 + index),
+    transferPathDistancesM: linkedMembers.slice(1).map(() => 10),
+    transferOsmCertified: linkedMembers.slice(1).map(() => 0),
+  })
+  const fromBottom = barrierKernel.routeEndpoints({
+    originLon: 0, originLat: 38, destinationLon: 0, destinationLat: 38,
+    maximumWalkM: 50,
+  })
+  assert.equal(fromBottom.originMemberIndices.length, 21,
+    'All declared footpaths survive; no station-count or 15-minute heuristic cap.')
+  assert.deepEqual(fromBottom.destinationMemberIndices, [0],
+    'One-way footpaths must not be reversed for egress.')
+  const fromTop = barrierKernel.routeEndpoints({
+    originLon: 0, originLat: 38.0001, destinationLon: 0, destinationLat: 38.0001,
+    maximumWalkM: 50,
+  })
+  assert(!fromTop.originMemberIndices.includes(0))
+  const bottom = fromTop.destinationMemberIndices.indexOf(0)
+  assert(bottom >= 0)
+  assert.equal(fromTop.destinationAccessSeconds[bottom], 1201)
+  const overBudget = barrierKernel.routeEndpoints({
+    originLon: 0, originLat: 38, destinationLon: 0, destinationLat: 38,
+    maximumWalkM: 5,
+  })
+  assert.deepEqual(overBudget.originMemberIndices, [0],
+    'Station walking consumes the same complete endpoint distance budget.')
+
 
   console.log(JSON.stringify({
     status: 'ready',

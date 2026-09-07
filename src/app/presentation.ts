@@ -35,6 +35,7 @@ export function formatBytes(bytes: number) {
 
 export function isSameStationTransfer(leg: RoutingPlan['legs'][number]) {
   if (leg.type !== 'walk' || leg.walkSource !== 'transfer') return false
+  if (leg.transferSource === 'parent_station_fallback') return true
   if (leg.fromStopId && leg.toStopId && leg.fromStopId === leg.toStopId) return true
   const fromName = leg.fromName.trim().toLocaleLowerCase()
   const toName = leg.toName.trim().toLocaleLowerCase()
@@ -55,6 +56,9 @@ export function routingLegPrimaryLabel(leg: RoutingPlan['legs'][number]) {
 }
 
 export function routingLegDetail(leg: RoutingPlan['legs'][number]) {
+  if (leg.transferSource === 'parent_station_fallback') {
+    return `${formatRoutingMinutes(leg.durationMinutes)} station connection · assumed transfer time`
+  }
   if (leg.type === 'ride') {
     const scheduleDetail = leg.stopCount > 0
       ? `${leg.stopCount} scheduled stop${leg.stopCount === 1 ? '' : 's'}`
