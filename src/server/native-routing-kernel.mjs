@@ -739,6 +739,7 @@ export function routeNativeCoordinateTimetableMatrix(storePath, kernel, request)
     maximumWalkM: request.maximumWalkM,
     ...queryAccessTiming(request),
     departure: request.departure, horizon: request.horizon, arriveBy: request.arriveBy,
+    includeJourneys: request.includeJourneys === true,
     maximumBoardings: request.maxTransfers === undefined ? undefined : request.maxTransfers + 1,
     disableCache: request.disableCache === true,
   })
@@ -764,6 +765,7 @@ export function routeNativeTimetableMatrix(kernel, request) {
     departure: request.departure,
     horizon: request.horizon,
     arriveBy: request.arriveBy,
+    includeJourneys: request.includeJourneys === true,
   })
   return {
     ...result,

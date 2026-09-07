@@ -69,7 +69,7 @@ try {
     await fs.writeFile(zipPath, await zip.generateAsync({ type: 'nodebuffer' }))
     await buildNationalGtfsStore({ zipPath, outputPath: storePath })
     try {
-      const query = { ...request, ...(horizonMinutes ? { horizonMinutes, __respectShortHorizon: true } : {}) }
+      const query = { ...request, ...(horizonMinutes ? { horizonMinutes } : {}) }
       const fastest = routeNationalGtfsStore(storePath, query)
       assert.deepEqual([fastest.arriveMinutes, fastest.transfers], [510, 2])
       for (const departureWindowDirection of ['forward', 'centered']) {

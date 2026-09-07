@@ -175,11 +175,13 @@ impl DriveCch {
         }
     }
 
-    fn time_distances(&self, sources: &[u32], targets: &[u32]) -> Vec<u32> {
+    fn distances(&self, minimize_distance: bool, sources: &[u32], targets: &[u32]) -> Vec<u32> {
         match self {
             Self::InMemory(index) => cch::distance_matrix(
                 &index.path_query.structure().view(),
-                &if index.traffic_active {
+                &if minimize_distance {
+                    index.distance_metric.view()
+                } else if index.traffic_active {
                     index
                         .traffic_metric
                         .as_ref()
@@ -193,7 +195,9 @@ impl DriveCch {
             ),
             Self::Persisted(index) => cch::distance_matrix(
                 &index.structure.view(),
-                &if index.traffic_active {
+                &if minimize_distance {
+                    index.distance_metric.view()
+                } else if index.traffic_active {
                     index
                         .traffic_metric
                         .as_ref()
@@ -848,15 +852,53 @@ impl DriveKernel {
                 ))
             })
             .collect::<napi::Result<Vec<_>>>()?;
+        // Candidate costs share the CCH elimination-tree work. Unpack only
+        // primary-optimal ties, preserving the secondary objective and the
+        // distance-constrained fallback in route_exact. A single pair needs
+        // no preliminary matrix query.
+        let costs = (origins.len().saturating_mul(targets.len()) > 1).then(|| {
+            self.cch
+                .distances(minimize_distance, &input.origin_nodes, &input.target_nodes)
+        });
+        let mut minimum_cost = f64::INFINITY;
+        if let Some(costs) = &costs {
+            for (i, &(_, origin_distance, origin_time)) in origins.iter().enumerate() {
+                for (j, &(_, target_distance, target_time)) in targets.iter().enumerate() {
+                    let cost = costs[i * targets.len() + j];
+                    if cost == cch::INF_WEIGHT
+                        || origin_distance + target_distance > maximum_distance_units
+                    {
+                        continue;
+                    }
+                    let snap = if minimize_distance {
+                        origin_distance + target_distance
+                    } else {
+                        origin_time + target_time
+                    };
+                    minimum_cost = minimum_cost.min(f64::from(cost) + snap);
+                }
+            }
+        }
         let mut best: Option<CchDrivePath> = None;
         let mut candidate_queries = 0_u32;
-        for &(origin, origin_distance, origin_time) in &origins {
+        for (i, &(origin, origin_distance, origin_time)) in origins.iter().enumerate() {
             if origin_distance > maximum_distance_units {
                 continue;
             }
-            for &(target, target_distance, target_time) in &targets {
+            for (j, &(target, target_distance, target_time)) in targets.iter().enumerate() {
                 if origin_distance + target_distance > maximum_distance_units {
                     continue;
+                }
+                if let Some(costs) = &costs {
+                    let cost = costs[i * targets.len() + j];
+                    let snap = if minimize_distance {
+                        origin_distance + target_distance
+                    } else {
+                        origin_time + target_time
+                    };
+                    if cost == cch::INF_WEIGHT || f64::from(cost) + snap > minimum_cost + EPSILON {
+                        continue;
+                    }
                 }
                 candidate_queries = candidate_queries.saturating_add(1);
                 let Some(nodes) = self.cch.path(minimize_distance, origin, target) else {
@@ -1577,7 +1619,7 @@ impl DriveKernel {
             &mut target_lookup,
         )?;
 
-        let time_matrix = self.cch.time_distances(&source_nodes, &target_nodes);
+        let time_matrix = self.cch.distances(false, &source_nodes, &target_nodes);
         let mut distances_m = vec![f64::INFINITY; origin_count * target_count];
         let mut durations_s = vec![f64::INFINITY; origin_count * target_count];
         let mut ready_pairs = 0_u32;

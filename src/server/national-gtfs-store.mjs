@@ -4505,7 +4505,8 @@ function directWalkAlternativePlan(request, preferredWalkKm, alternativeWalkKm) 
     destination.coordinate,
     alternativeWalkKm,
   )
-  if (!path || path.distanceKm > alternativeWalkKm + 1e-9) return { plan: null, walkSearches: 1 }
+  if (!path || path.distanceKm > directWalkEndToEndLimitKm({ ...request,
+    allowLongWalk: true, maxStreetKm: alternativeWalkKm }) + 1e-9) return { plan: null, walkSearches: 1 }
   const plan = materializeDirectWalkCandidate(request, alternativeWalkKm, path, {
     choiceLabel: 'Walk only',
     title: 'Walk only',
@@ -4551,6 +4552,7 @@ function dominantDirectWalkPlan(request, maxWalkKm) {
   if (!shouldProbeNationalDirectWalkDominance(request)) return null
   const strictProofDistanceKm = Math.min(
     maxWalkKm,
+    directWalkEndToEndLimitKm(request),
     directWalkTransitEndpointLowerBoundMinutes / 60 * walkingSpeedKph,
   )
   const path = streetPathBetween(
@@ -4853,7 +4855,7 @@ function lightweightIncompleteCoveragePlan(
     staticTopologySourceStorageSnapshot(resolvedStorePath)
     !== sourceStorageIdentity
   ) return null
-  if (directPath) {
+  if (directPath && directPath.distanceKm <= directWalkEndToEndLimitKm(request) + 1e-9) {
     const plan = materializeDirectWalkCandidate(
       request,
       maxWalkKm,
@@ -5057,7 +5059,7 @@ function lightweightServiceAnchorDirectWalkProbe(storePath, request, maxWalkKm) 
   const streetSearchMs = Number(
     (performance.now() - streetSearchStartedAt).toFixed(3),
   )
-  if (!directPath) return null
+  if (!directPath || directPath.distanceKm > directWalkEndToEndLimitKm(request) + 1e-9) return null
   const directWalkSeconds = directPath.distanceKm / walkingSpeedKph * 3600
   if (!(directWalkSeconds < transitEndpointLowerBoundSeconds)) return null
   if (
@@ -5219,7 +5221,7 @@ function accessFrontierDirectWalkProbeFromMetrics(
   let streetSearchMs = verifiedPath === undefined
     ? Number((performance.now() - streetSearchStartedAt).toFixed(3))
     : numeric(verifiedPathSearchMs, 0)
-  if (!path) return { plan: null, path: null, streetSearchMs }
+  if (!path || path.distanceKm > directWalkEndToEndLimitKm(request) + 1e-9) return { plan: null, path, streetSearchMs }
   const durationSeconds = path.distanceKm / walkingSpeedKph * 3600
   if (!(durationSeconds < transitEndpointLowerBoundSeconds)) {
     return { plan: null, path, streetSearchMs }
@@ -5264,13 +5266,13 @@ function accessFrontierDirectWalkProbeFromMetrics(
 }
 
 function directWalkEndToEndLimitKm(request) {
-  if (request?.allowLongWalk === false) {
-    return Math.max(0.2, Math.min(5, numeric(request.maxWalkKm, 1.6)))
-  }
-  return Math.max(
-    0.05,
-    Math.min(100, Number(request.maxStreetKm) || 50),
-  )
+  const distance = request?.allowLongWalk === false
+    ? Math.max(0.2, Math.min(5, numeric(request.maxWalkKm, 1.6)))
+    : Math.max(0.05, Math.min(100, Number(request.maxStreetKm) || 50))
+  const minutes = request.timePreference === 'arrive'
+    ? Math.min(routingHorizonMinutes(request), Math.max(0, numeric(request.arriveMinutes ?? request.timeMinutes ?? request.departMinutes, 480)))
+    : routingHorizonMinutes(request)
+  return Math.min(distance, minutes / 60 * walkingSpeedKph)
 }
 
 function directWalkEnvelopeDiagnostics(request, maxWalkKm, path) {
@@ -10385,15 +10387,29 @@ export function routeNationalGtfsReach(storePath, request, options = {}) {
 }
 
 
+function routingHorizonMinutes(request) {
+  const minutes = Number(request.horizonMinutes)
+  return Number.isFinite(minutes) && minutes > 0 ? Math.max(1, Math.min(2_880, minutes)) : 480
+}
+
 export function routeNationalGtfsMatrix(storePath, request) {
   validateMaximumTransfers(request.maxTransfers)
+  if (request.includeJourneys != null && typeof request.includeJourneys !== 'boolean') {
+    throw new Error('Matrix includeJourneys must be a boolean.')
+  }
+  if (request.includeGeometry != null && (typeof request.includeGeometry !== 'boolean'
+    || (request.includeGeometry && request.includeJourneys !== true))) {
+    throw new Error('Matrix includeGeometry requires includeJourneys: true.')
+  }
+  if (request.includeJourneys === true && request.routingPreference === 'balanced') {
+    throw new Error('Matrix journeys currently use the exact fastest/deadline objective. Balanced alternatives require Route.')
+  }
   const started = performance.now()
   const result = routeNationalGtfsTransitMatrix(storePath, request)
   if (!request.streetStorePath || request.__disableDirectWalkDominance === true
     || result.diagnostics.failure?.code === 'unsupported_gtfs_feature') return result
 
-  const horizonMinutes = Number.isFinite(Number(request.horizonMinutes)) && Number(request.horizonMinutes) > 0
-    ? Math.max(1, Math.min(2_880, Number(request.horizonMinutes))) : 480
+  const horizonMinutes = routingHorizonMinutes(request)
   const walks = routeNationalStreetMatrix(request.streetStorePath, {
     origins: request.origins,
     destinations: request.destinations,
@@ -10421,6 +10437,19 @@ export function routeNationalGtfsMatrix(storePath, request) {
       row.arriveMinutes = minuteCoordinate((row.departMinutes + walk.durationMinutes) * 60)
     }
     row.durationMinutes = secondsToMinutes(walk.durationMinutes * 60)
+    if (request.includeJourneys === true) {
+      row.journey = { departMinutes: row.departMinutes, arriveMinutes: row.arriveMinutes,
+        durationMinutes: row.durationMinutes, transfers: 0, walkMinutes: row.durationMinutes,
+        rideMinutes: 0, waitMinutes: 0, legs: [{ type: 'walk', startMinutes: row.departMinutes,
+          endMinutes: row.arriveMinutes, durationMinutes: row.durationMinutes, distanceKm: walk.distanceKm }] }
+      if (request.includeGeometry === true) {
+        const origin = request.origins[row.originIndex], destination = request.destinations[row.destinationIndex]
+        const path = streetPathBetween(request.streetStorePath, origin.coordinate, destination.coordinate,
+          directWalkEndToEndLimitKm(request))
+        if (!path) throw new Error('Matrix selected walk could not be materialized.')
+        row.journey = materializeDirectWalkCandidate({ ...request, origin, destination }, request.maxWalkKm, path)
+      }
+    }
     delete row.failureCode
     selectedWalkPairs += 1
   }
@@ -10436,6 +10465,59 @@ export function routeNationalGtfsMatrix(storePath, request) {
   }
   result.diagnostics.queryMs = Number((performance.now() - started).toFixed(3))
   return result
+}
+
+function matrixJourney(kernel, journey) {
+  return {
+    departMinutes: minuteCoordinate(journey.departure), arriveMinutes: minuteCoordinate(journey.arrival),
+    durationMinutes: secondsToMinutes(journey.arrival - journey.departure),
+    transfers: Math.max(0, journey.boardings - 1), walkMinutes: secondsToMinutes(journey.walkingSeconds),
+    rideMinutes: secondsToMinutes(journey.rideSeconds), waitMinutes: secondsToMinutes(journey.waitingSeconds),
+    legs: journey.legs.map((leg) => ({
+      type: leg.kind, fromStopId: kernel.stopIds[leg.fromStop] ?? null, toStopId: kernel.stopIds[leg.toStop] ?? null,
+      startMinutes: minuteCoordinate(leg.departure), endMinutes: minuteCoordinate(leg.arrival),
+      durationMinutes: secondsToMinutes(leg.arrival - leg.departure),
+      ...(leg.kind === 'ride' ? { tripId: kernel.tripIds[leg.trip],
+        boardSequence: leg.boardSequence, alightSequence: leg.alightSequence } : {}),
+    })),
+  }
+}
+
+function materializeMatrixJourney(store, kernel, journey, context) {
+  const { request, maxWalkKm, streetStorageIdentity } = context
+  // Both endpoint tokens must belong to the same native coordinate query.
+  const pair = prepareNativeCoordinateAccessPair(store, request.origin, request.destination,
+    maxWalkKm, request.streetStorePath, streetStorageIdentity)
+  const originStops = pair?.origin ?? preparePointAccessStops(store, request.origin, maxWalkKm,
+    request.streetStorePath, streetStorageIdentity, 'origin')
+  const destinationStops = pair?.destination ?? preparePointAccessStops(store, request.destination, maxWalkKm,
+    request.streetStorePath, streetStorageIdentity, 'destination')
+  const first = journey.legs[0], last = journey.legs.at(-1)
+  const candidate = (stops, stop, seconds) => stops.findIndex((entry) => entry.stop_id === kernel.stopIds[stop]
+    && Math.abs(accessWalkSeconds(entry) - seconds) < 1e-7)
+  const originCandidate = candidate(originStops, first.toStop, first.arrival - first.departure)
+  const destinationCandidate = candidate(destinationStops, last.fromStop, last.arrival - last.departure)
+  if (originCandidate < 0 || destinationCandidate < 0) throw new Error('Matrix journey endpoint witness changed during materialization.')
+  const chain = journey.legs.slice(0, -1).map((leg, i) => i === 0
+    ? { kind: 'access', candidateIndex: originCandidate, toStopId: kernel.stopIds[leg.toStop], arrival: leg.arrival }
+    : leg.kind === 'walk' ? { kind: 'transfer', fromStopId: kernel.stopIds[leg.fromStop],
+      toStopId: kernel.stopIds[leg.toStop], arrival: leg.arrival, duration: leg.arrival - leg.departure }
+      : { kind: 'ride', kernelTripIndex: leg.trip, tripId: kernel.tripIds[leg.trip],
+        fromStopId: kernel.stopIds[leg.fromStop], toStopId: kernel.stopIds[leg.toStop],
+        boardingStopSequence: leg.boardSequence, alightingStopSequence: leg.alightSequence })
+  const plan = materializeActiveServiceKernelPlan(store, kernel, {
+    supported: true, status: 'ready', chain, bestArrival: journey.arrival, bestBoardings: journey.boardings,
+    bestDestinationIndex: destinationCandidate, paretoFrontier: true, certifier: 'rust_shared_journey_rounds',
+    deadlineObjective: request.timePreference === 'arrive',
+    queryMs: 0, scannedDepartures: 0, relaxedStops: 0, expandedTripRuns: 0, explicitTransferChecks: 0,
+  }, { ...context, request: { ...request, returnedStationCyclePolicy: 'represented' },
+    origin: request.origin, destination: request.destination, originStops, destinationStops,
+    departure: journey.departure, departureMinutes: journey.departure / 60,
+    accessPreparationMs: 0, serviceActivationMs: 0 })
+  if (!plan) throw new Error('Matrix journey could not be materialized.')
+  Object.assign(plan.diagnostics, { algorithm: 'rust_shared_journey_rounds', dataSemantics: store.routingDataSemantics })
+  plan.diagnostics.searchStats.timingScope = 'matrix_journey_materialization'
+  return { ...plan, timePreference: request.timePreference ?? 'depart' }
 }
 
 function routeNationalGtfsTransitMatrix(storePath, request) {
@@ -10457,10 +10539,7 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
   )
   const anchor = Math.round(anchorMinutes * 60)
   const maxWalkKm = Math.max(0.2, Math.min(5, numeric(request.maxWalkKm, 1.6)))
-  const explicitHorizonMinutes = Number(request.horizonMinutes)
-  const matrixHorizonMinutes = Number.isFinite(explicitHorizonMinutes) && explicitHorizonMinutes > 0
-    ? Math.max(1, Math.min(2_880, explicitHorizonMinutes))
-    : 480
+  const matrixHorizonMinutes = routingHorizonMinutes(request)
   const departure = arriveBy ? Math.max(0, anchor - matrixHorizonMinutes * 60) : anchor
   const horizon = arriveBy ? anchor : anchor + matrixHorizonMinutes * 60
   const blockedTimes = { departMinutes: arriveBy ? null : anchorMinutes, arriveMinutes: arriveBy ? anchorMinutes : null, durationMinutes: null }
@@ -10586,7 +10665,7 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
     nativeCoordinateAccessProfile(store, request.streetStorePath, streetStorageIdentity)
     search = routeNativeCoordinateTimetableMatrix(request.streetStorePath, activeKernel, {
       origins: uniqueOrigins, destinations: uniqueDestinations, maximumWalkM: maxWalkKm * 1000,
-      departure, horizon, arriveBy, maxTransfers: request.maxTransfers,
+      departure, horizon, arriveBy, maxTransfers: request.maxTransfers, includeJourneys: request.includeJourneys,
     })
   } else {
     const destinationSeedSets = uniqueDestinations.map((point) => activeServiceKernelAccessSeeds(activeKernel,
@@ -10597,14 +10676,15 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
       originSeedSets, destinationSeedSets, maxTransfers: request.maxTransfers,
       allowPreRideTransfers: uniqueOrigins.map((point) => !request.streetStorePath || Boolean(explicitRoutingStopId(point))),
       allowPostRideTransfers: uniqueDestinations.map((point) => !request.streetStorePath || Boolean(explicitRoutingStopId(point))),
-      departure, horizon, arriveBy,
+      departure, horizon, arriveBy, includeJourneys: request.includeJourneys,
     })
   }
   const rows = new Array(origins.length * destinations.length)
   let rowIndex = 0
   for (let originIndex = 0; originIndex < origins.length; originIndex += 1) {
     for (let destinationIndex = 0; destinationIndex < destinations.length; destinationIndex += 1) {
-      const time = search.times[originIndexes[originIndex] * uniqueDestinations.length + destinationIndexes[destinationIndex]]
+      const cell = originIndexes[originIndex] * uniqueDestinations.length + destinationIndexes[destinationIndex]
+      const time = search.times[cell]
       const ready = Number.isFinite(time)
       rows[rowIndex] = {
         originIndex,
@@ -10613,6 +10693,12 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
         departMinutes: arriveBy ? (ready ? minuteCoordinate(time) : null) : anchorMinutes,
         arriveMinutes: arriveBy ? anchorMinutes : (ready ? minuteCoordinate(time) : null),
         durationMinutes: ready ? secondsToMinutes(arriveBy ? anchor - time : time - anchor) : null,
+        ...(request.includeJourneys === true ? { journey: search.journeys?.[cell]
+          ? request.includeGeometry === true
+            ? materializeMatrixJourney(store, activeKernel, search.journeys[cell], {
+              request: { ...request, origin: origins[originIndex], destination: destinations[destinationIndex] },
+              maxWalkKm, streetStorageIdentity, horizon, services, serviceDateResolution, startedAt: performance.now(),
+            }) : matrixJourney(activeKernel, search.journeys[cell]) : null } : {}),
       }
       rowIndex += 1
     }
@@ -10622,8 +10708,9 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
     rows,
     diagnostics: {
       matrixStrategy,
-      matrixEngine: arriveBy ? 'rust_exact_reverse_connection_scan_many_to_one' : 'rust_exact_connection_scan_one_to_many',
-      queryMode,
+      matrixEngine: request.includeJourneys === true ? 'rust_shared_journey_rounds'
+        : arriveBy ? 'rust_exact_reverse_connection_scan_many_to_one' : 'rust_exact_connection_scan_one_to_many',
+      queryMode: request.includeJourneys === true ? (arriveBy ? 'arrive_by_transit_journeys' : 'depart_at_transit_journeys') : queryMode,
       timePreference: arriveBy ? 'arrive' : 'depart',
       ...(arriveBy ? { arrivalSemantics: 'deadline_including_destination_wait' } : {}),
       routingCoverage,
@@ -10668,7 +10755,7 @@ function routeNationalGtfsArriveByStore(
   const started = performance.now()
   const targetMinutes = numeric(request.arriveMinutes ?? request.timeMinutes ?? request.departMinutes, 8 * 60)
   const deadline = Math.round(targetMinutes * 60)
-  const horizonSeconds = Math.max(3 * 3600, numeric(request.horizonMinutes, 480) * 60)
+  const horizonSeconds = routingHorizonMinutes(request) * 60
   const earliest = Math.max(0, deadline - horizonSeconds)
   const maxWalkKm = Math.max(0.2, Math.min(5, numeric(request.maxWalkKm, 1.6)))
   const serviceDateResolution = resolveServiceDate(
@@ -11048,6 +11135,10 @@ function routeNationalGtfsArriveByStore(
           : 'latest_departure_guaranteed_by_exact_reverse_timetable_scan',
       searchStats: {
         ...plan.diagnostics.searchStats,
+        forwardEngineQueryMs: timingMilliseconds(plan.diagnostics.searchStats?.engineQueryMs),
+        engineQueryMs: timingMilliseconds(
+          timingMilliseconds(plan.diagnostics.searchStats?.engineQueryMs) + timingMilliseconds(boundary.queryMs),
+        ),
         arriveByCandidateSource: forwardParityRecovery
           ? 'resident_departure_index_after_materialization_rejection'
           : 'rust_exact_reverse_scan',
@@ -11333,6 +11424,7 @@ function routeNationalGtfsArriveByStore(
   const retry = fallbackRetryWithPreparedCoordinateAccess()
   if (retry) return routeNationalGtfsStore(storePath, retry)
   const arriveBySearchStats = {
+    engineQueryMs: timingMilliseconds(nativeBoundary.queryMs),
     arriveByCandidates: forwardParityRecovery?.reproducedCandidateCount
       ?? nativeBoundary.candidateCount,
     arriveByCandidateSource: forwardParityRecovery
@@ -11536,9 +11628,7 @@ export function routeNationalGtfsStore(storePath, request) {
     const destinationAccessStopIds = requestedAccessStopIds(request, '__destinationAccessStopIds')
     const departureMinutes = numeric(request.departMinutes, 8 * 60)
     const departure = Math.round(departureMinutes * 60)
-    const normalizedHorizonMinutes = request.__respectShortHorizon === true
-      ? Math.max(1, Math.min(2_880, numeric(request.horizonMinutes, 480)))
-      : Math.max(180, numeric(request.horizonMinutes, 480))
+    const normalizedHorizonMinutes = routingHorizonMinutes(request)
     const serviceDateResolution = resolveServiceDate(
       store,
       request.serviceDate,

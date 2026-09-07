@@ -180,7 +180,7 @@ try {
   const largeMatrixRequest = path.join(temporaryRoot, 'large-matrix.json')
   fs.writeFileSync(largeMatrixRequest, JSON.stringify({
     origins: [{ id: 'a', point: 'A' }],
-    destinations: Array.from({ length: 1024 }, (_, i) => ({ id: `student_${i}`, point: i % 2 ? 'B' : 'X' })),
+    destinations: Array.from({ length: 1024 }, (_, i) => ({ id: `point_${i}`, point: i % 2 ? 'B' : 'X' })),
   }))
   const largeMatrix = JSON.parse(run([
     'matrix', `--city=${cityPath}`, `--request=${largeMatrixRequest}`,
@@ -188,7 +188,7 @@ try {
   ]))
   assert.equal(largeMatrix.rows.length, 1024)
   for (const [index, row] of largeMatrix.rows.entries()) {
-    assert.equal(row.destinationId, `student_${index}`)
+    assert.equal(row.destinationId, `point_${index}`)
     assert.equal(row.status, matrix.rows[index % 2].status)
     assert.equal(row.durationMinutes, matrix.rows[index % 2].durationMinutes)
   }
@@ -223,11 +223,11 @@ try {
     '--service-date=2026-07-15'], {
     encoding: 'utf8', maxBuffer: 4 * 1024 * 1024,
     input: [
-      { id: 'morning', kind: 'matrix', origins: Array.from({ length: 1024 }, (_, i) => ({ id: `student_${i}`, point: 'A' })),
+      { id: 'morning', kind: 'matrix', origins: Array.from({ length: 1024 }, (_, i) => ({ id: `point_${i}`, point: 'A' })),
         destinations: [{ id: 'school', point: 'B' }], timePreference: 'arrive', time: '08:30', maxWalkKm: 0.2 },
       { id: 'invalid', kind: 'matrix', origins: [], destinations: [{ id: 'school', point: 'B' }] },
       { id: 'afternoon', kind: 'matrix', origins: [{ id: 'school', point: 'A' }],
-        destinations: Array.from({ length: 1024 }, (_, i) => ({ id: `student_${i}`, point: 'B' })),
+        destinations: Array.from({ length: 1024 }, (_, i) => ({ id: `point_${i}`, point: 'B' })),
         timePreference: 'depart', time: '07:55', maxWalkKm: 0.2 },
     ].map(value => JSON.stringify(value)).join('\n') + '\n',
   }).trim().split('\n').map(line => JSON.parse(line))

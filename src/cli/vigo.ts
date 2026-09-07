@@ -630,7 +630,7 @@ async function runRoute(args: CliArguments) {
   try {
     for (let index = 0; index < parsed.data.length; index += 1) {
       const input = parsed.data[index]
-      const id = input.id || input.student_id || input.od_id || `row_${index + 1}`
+      const id = input.id || input.od_id || `row_${index + 1}`
       const origin = buildPoint(input, 'origin', stopLookup)
       const destination = buildPoint(input, 'destination', stopLookup)
       if (!origin || !destination) {
@@ -1029,6 +1029,11 @@ function computePreparedMatrix(
     throw new Error('matrix mode must be transit, walk, or drive')
   }
   if (request.traffic && mode !== 'drive') throw new Error('Supplied traffic requires Drive Matrix.')
+  for (const option of ['includeJourneys', 'includeGeometry']) {
+    if (request[option] != null && typeof request[option] !== 'boolean') throw new Error(`Matrix ${option} must be a boolean.`)
+  }
+  if (request.includeGeometry && !request.includeJourneys) throw new Error('Matrix includeGeometry requires includeJourneys: true.')
+  if (request.includeJourneys && mode !== 'transit') throw new Error('Matrix journeys require transit mode.')
   const horizonMinutes = boundedAnalyticalNumber(
     args,
     request,
@@ -1073,6 +1078,8 @@ function computePreparedMatrix(
         maxWalkKm: options.maxWalkKm,
         maxTransfers: options.maxTransfers,
         horizonMinutes,
+        includeJourneys: request.includeJourneys,
+        includeGeometry: request.includeGeometry,
         streetStorePath,
       })
     : routeNationalStreetMatrix(streetStorePath!, {
@@ -1108,6 +1115,8 @@ function computePreparedMatrix(
       maxWalkKm: options.maxWalkKm,
       maxTransfers: options.maxTransfers,
       horizonMinutes,
+      includeJourneys: request.includeJourneys === true,
+      includeGeometry: request.includeGeometry === true,
     },
     rows,
     diagnostics: matrix.diagnostics,

@@ -2,6 +2,9 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::time::Instant;
 
+mod journeys;
+pub use journeys::TimetableMatrixJourney;
+
 const STATE_STRIDE: usize = 8;
 const TRANSFER_BOARD_SLACK_SECONDS: f64 = 0.0;
 const NO_STATE: i32 = -1;
@@ -257,11 +260,13 @@ pub struct TimetableMatrixQueryInput {
     pub arrive_by: bool,
     pub allow_post_ride_transfers: Option<Vec<bool>>,
     pub maximum_boardings: Option<u32>,
+    pub include_journeys: Option<bool>,
 }
 
 #[napi(object)]
 pub struct TimetableMatrixQueryResult {
     pub times: Vec<f64>,
+    pub journeys: Option<Vec<Option<TimetableMatrixJourney>>>,
     pub forward_searches: u32,
     pub reverse_searches: u32,
     pub query_ns: f64,
@@ -1190,7 +1195,7 @@ fn retain_reverse_origin_offset(
     stop: usize,
     offset: f64,
 ) {
-    let label = &mut workspace.labels[stop * STATE_STRIDE + (STATE_STRIDE - 1)];
+    let label = &mut workspace.labels[stop * STATE_STRIDE + (STATE_STRIDE - 2)];
     if label.generation != epoch || offset < label.arrival {
         label.generation = epoch;
         label.arrival = offset;
@@ -4033,7 +4038,7 @@ impl TimetableKernel {
         for index in 0..input.origin_stops.len() {
             let stop = input.origin_stops[index] as usize;
             let offset = input.origin_walk_seconds[index];
-            let state = stop * STATE_STRIDE + (STATE_STRIDE - 1);
+            let state = stop * STATE_STRIDE + (STATE_STRIDE - 2);
             if offset > maximum_offset
                 || (workspace.labels[state].generation == epoch
                     && offset >= workspace.labels[state].arrival)
@@ -4055,7 +4060,7 @@ impl TimetableKernel {
                 for edge in &transfer_edges[start..end] {
                     let target = edge.stop();
                     let offset = source_offset + f64::from(edge.duration());
-                    let state = target * STATE_STRIDE + (STATE_STRIDE - 1);
+                    let state = target * STATE_STRIDE + (STATE_STRIDE - 2);
                     if offset > maximum_offset
                         || (workspace.labels[state].generation == epoch
                             && offset >= workspace.labels[state].arrival)
@@ -4137,7 +4142,7 @@ impl TimetableKernel {
                     let boardable_path = run_was_feasible || direct_exit_feasible;
 
                     if flags & SCAN_CAN_BOARD != 0 && boardable_path {
-                        let origin_state = stop * STATE_STRIDE + (STATE_STRIDE - 1);
+                        let origin_state = stop * STATE_STRIDE + (STATE_STRIDE - 2);
                         if workspace.labels[origin_state].generation == epoch {
                             let origin_offset = workspace.labels[origin_state].arrival;
                             let candidate = departure - origin_offset;
@@ -4273,6 +4278,7 @@ impl TimetableKernel {
             ));
         }
         let mut output = TimetableMatrixQueryResult {
+            journeys: None,
             times: vec![
                 if input.arrive_by {
                     f64::NEG_INFINITY
@@ -4347,6 +4353,9 @@ impl TimetableKernel {
                 output.explicit_transfer_checks += f64::from(result.explicit_transfer_checks);
             }
         }
+        if input.include_journeys.unwrap_or(false) {
+            output = self.matrix_journeys(&input, output)?;
+        }
         output.query_ns = started.elapsed().as_nanos() as f64;
         Ok(output)
     }
@@ -4409,6 +4418,26 @@ impl TimetableKernel {
         for trip in &input.excluded_trips {
             self.many_workspace.excluded_trip_generation[*trip as usize] = excluded_epoch;
         }
+        // A scalar request can stop at a proven latest departure. Reuse an
+        // otherwise unused label slot for its directed access offsets; bulk
+        // requests still share the full scan without per-origin bookkeeping.
+        let mut minimum_origin_offset = f64::INFINITY;
+        if origin_count == 1 {
+            for (&stop, &walk) in input.origin_stops.iter().zip(&input.origin_walk_seconds) {
+                retain_reverse_origin_offset(workspace, epoch, stop as usize, walk);
+                minimum_origin_offset = minimum_origin_offset.min(walk);
+                if input.allow_pre_ride_transfers[0] {
+                    let edges = &self.transfer_edges[self.transfer_offset[stop as usize] as usize
+                        ..self.transfer_offset[stop as usize + 1] as usize];
+                    for edge in edges {
+                        let offset = walk + f64::from(edge.duration());
+                        retain_reverse_origin_offset(workspace, epoch, edge.stop(), offset);
+                        minimum_origin_offset = minimum_origin_offset.min(offset);
+                    }
+                }
+            }
+        }
+        let mut latest_origin_departure = f64::NEG_INFINITY;
         let mut stats = SearchStats::default();
         let mut excluded_departures = 0_u32;
         let mut latest_destination_deadline = f64::NEG_INFINITY;
@@ -4447,6 +4476,9 @@ impl TimetableKernel {
         let time_end = scan_time_upper_bound(&self.scan_times, latest_destination_deadline);
         for time_index in (first_time..time_end).rev() {
             let departure = f64::from(self.scan_times[time_index]);
+            if origin_count == 1 && departure - minimum_origin_offset <= latest_origin_departure {
+                break;
+            }
             let start = self.scan_time_offsets[time_index] as usize;
             let end = self.scan_time_offsets[time_index + 1] as usize;
             loop {
@@ -4482,6 +4514,14 @@ impl TimetableKernel {
                                 <= workspace.destination_egress[input_offset + arrival.to as usize];
                         if flags & SCAN_CAN_BOARD != 0 && (run_was_feasible || direct_exit_feasible)
                         {
+                            if origin_count == 1 {
+                                let access =
+                                    workspace.labels[base_stop * STATE_STRIDE + (STATE_STRIDE - 2)];
+                                if access.generation == epoch {
+                                    latest_origin_departure =
+                                        latest_origin_departure.max(departure - access.arrival);
+                                }
+                            }
                             let boarding =
                                 &mut workspace.labels[stop * STATE_STRIDE + (STATE_STRIDE - 1)];
                             if boarding.generation != epoch || departure > boarding.arrival {

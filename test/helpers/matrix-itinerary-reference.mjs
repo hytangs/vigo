@@ -7,7 +7,7 @@ export function matrixItineraryReference(storePath, request) {
   const rows = request.origins.flatMap((origin, originIndex) => request.destinations.map((destination, destinationIndex) => {
     const plan = routeNationalGtfsStore(storePath, {
       ...request, origin, destination, routingPreference: 'fastest',
-      returnedStationCyclePolicy: 'represented', __respectShortHorizon: true,
+      returnedStationCyclePolicy: 'represented',
       __suppressServiceDateFallback: true,
     })
     return { originIndex, destinationIndex, status: plan.status, departMinutes: departure,

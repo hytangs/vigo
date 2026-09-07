@@ -38,13 +38,19 @@ const source = path.join(
   platformBuild.libraryName,
 )
 const destination = path.join(crateRoot, 'vigo-routing-kernel.node')
-await fs.copyFile(source, destination)
-if (platformBuild.sign) {
-  // A linker signature can validate on disk yet fail macOS page validation
-  // after the dylib is copied to its `.node` load path. Re-sign the final
-  // bytes, which are the artifact Node actually maps, instead of relying on
-  // the intermediate Cargo output's embedded signature.
-  await execFileAsync('/usr/bin/codesign', ['--force', '--sign', '-', destination])
+const staging = `${destination}.${process.pid}.tmp`
+try {
+  await fs.copyFile(source, staging)
+  if (platformBuild.sign) {
+    // Sign the copied bytes that Node will map, rather than relying on the
+    // intermediate linker's signature after the library changes paths.
+    await execFileAsync('/usr/bin/codesign', ['--force', '--sign', '-', staging])
+  }
+  // Running processes may have the previous binding mapped. Publish a new
+  // inode instead of modifying or signing their executable pages.
+  await fs.rename(staging, destination)
+} finally {
+  await fs.rm(staging, { force: true })
 }
 const stats = await fs.stat(destination)
 if (!stats.isFile() || stats.size < 16_384) {

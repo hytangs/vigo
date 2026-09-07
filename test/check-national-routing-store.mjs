@@ -1565,7 +1565,7 @@ try {
         departMinutes: shortHorizon ? 482 : 480,
         departureWindowMinutes: shortHorizon ? 2 : 5,
         departureWindowDirection: 'forward',
-        ...(shortHorizon ? { horizonMinutes: 4, __respectShortHorizon: true } : {}),
+        ...(shortHorizon ? { horizonMinutes: 4 } : {}),
       }
       const window = routeNationalGtfsDepartureWindow(windowStorePath, query)
       const routeSummary = (plan) => [plan.status, plan.travelMode, plan.arriveMinutes, plan.transfers,
@@ -2292,6 +2292,18 @@ try {
   })
   assert(parentModeAccessPlan.legs[0].distanceKm > 0.25,
     'Station access must include the street-to-platform distance, not a free parent alias.')
+  for (const timePreference of ['depart', 'arrive']) {
+    const detailed = routeNationalGtfsMatrix(parentModeAccessStorePath, {
+      origins: [parentModeAccessPlan.origin], destinations: [parentModeAccessPlan.destination],
+      timePreference, departMinutes: 480, arriveMinutes: 525,
+      serviceDay: 'sunday', serviceDate: '2026-07-12',
+      maxWalkKm: 0.3, streetStorePath: parentModeAccessStreetPath,
+      includeJourneys: true, includeGeometry: true,
+    })
+    assert.equal(detailed.rows[0].journey.status, 'ready')
+    assert(detailed.rows[0].journey.legs.every((leg) => Array.isArray(leg.coordinates)),
+      'Matrix geometry must retain both directed endpoint witnesses across coordinate queries.')
+  }
   assert.equal(routeNationalGtfsStore(parentModeAccessStorePath, {
     origin: parentModeAccessPlan.origin, destination: parentModeAccessPlan.destination,
     departMinutes: 480, serviceDay: 'sunday', serviceDate: '2026-07-12',
@@ -2614,6 +2626,19 @@ try {
   const arriveMatrix = routeNationalGtfsMatrix(storePath, arriveMatrixRequest)
   assert.equal(arriveMatrix.diagnostics.reverseSearches, 2)
   assert.equal(arriveMatrix.diagnostics.forwardSearches, 0)
+  for (const timePreference of ['depart', 'arrive']) for (const includeGeometry of [false, true]) {
+    const detailed = routeNationalGtfsMatrix(storePath, { ...arriveMatrixRequest, timePreference,
+      departMinutes: 480, maxTransfers: 3, includeJourneys: true, includeGeometry })
+    for (const row of detailed.rows) {
+      assert.equal(Boolean(row.journey), row.status === 'ready')
+      if (!row.journey) continue
+      assert(row.journey.transfers <= 3)
+      assert(Math.abs(row.journey.durationMinutes - row.journey.walkMinutes
+        - row.journey.rideMinutes - row.journey.waitMinutes) < 0.005)
+      if (includeGeometry) assert(row.journey.legs.every((leg) => Array.isArray(leg.coordinates)))
+      if (timePreference === 'arrive') assert(row.journey.arriveMinutes <= arriveMatrixRequest.arriveMinutes)
+    }
+  }
   for (const row of arriveMatrix.rows) {
     const point = routeNationalGtfsStore(storePath, { ...arriveMatrixRequest,
       origin: arriveMatrixRequest.origins[row.originIndex], destination: arriveMatrixRequest.destinations[row.destinationIndex],
@@ -2633,6 +2658,9 @@ try {
   const shortArriveMatrix = routeNationalGtfsMatrix(storePath, { ...arriveMatrixRequest,
     origins: [alpha], destinations: [charlie], horizonMinutes: 1 })
   assert.equal(shortArriveMatrix.rows[0].status, 'blocked', 'Arrive-by Matrix must honor the requested short horizon.')
+  const shortArriveRoute = routeNationalGtfsStore(storePath, { ...arriveMatrixRequest,
+    origin: alpha, destination: charlie, horizonMinutes: 1, maxTransfers: 3 })
+  assert.equal(shortArriveRoute.status, 'blocked', 'Route must use the same short arrive-by horizon as Matrix.')
   assert.throws(() => routeNationalGtfsMatrix(storePath, { ...arriveMatrixRequest, arriveMinutes: 525.5 }), /integral minute/)
 
   const shortHorizonRequest = {

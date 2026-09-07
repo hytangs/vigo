@@ -53,6 +53,7 @@ const queryFamilies = Object.freeze([
   Object.freeze({
     id: 'matrix',
     label: 'Matrix',
+    journeys: true,
     maxTransfers: Object.freeze({ min: 0, max: 31, default: null }),
     resident: true,
     purpose: 'Compute travel times between sets of origins and destinations.',
@@ -61,6 +62,7 @@ const queryFamilies = Object.freeze([
       'one to many, many to one, or many to many',
       'transit, walk, or drive',
       'scalar time and distance output',
+      'optional compact transit journeys with walking, waiting, and transfers',
       'maximum transfers (0–31 or unlimited)',
     ]),
     time: Object.freeze({ available: Object.freeze(['depart_at', 'arrive_by']), unavailable: Object.freeze([]) }),

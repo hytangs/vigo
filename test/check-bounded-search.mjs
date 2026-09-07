@@ -99,7 +99,7 @@ for (let seed = 0; seed < 100; seed += 1) {
 }
 console.log(`Bounded search matched unrestricted expansion in ${comparisons} seeded comparisons; reverse-work bounds passed.`)
 
-// Each destination has its own egress cost even when students share stops.
+// Each destination has its own egress cost even when endpoints share stops.
 // A large result must preserve those costs and must not rescan per target.
 const manyKernel = new TimetableKernel(fixture())
 const manyRequest = { originStops: [0], originWalkSeconds: [0], departure: 0, horizon: 1800,
@@ -223,6 +223,26 @@ for (const deadline of [600, 680, 730, 780, 900]) {
           originOffsets: [0, origins.length], destinationOffsets: [0, destinations.length],
           allowPreRideTransfers: [false], allowPostRideTransfers: [allowPost], arriveBy,
         })
+        const journeys = qualityKernel.routeMatrixCsa({ ...query, includeJourneys: true,
+          originOffsets: [0, origins.length], destinationOffsets: [0, destinations.length],
+          allowPreRideTransfers: [false], allowPostRideTransfers: [allowPost], arriveBy,
+        })
+        assert.deepEqual(journeys.times, matrix.times)
+        const candidates = arriveBy ? feasible : enumerateQuality(origins, destinations, 0,
+          Infinity, allowPost, maximumBoardings, deadline)
+        const expectedJourney = candidates.slice().sort((a, b) =>
+          (arriveBy ? b.latest - a.latest : a.arrival - b.arrival)
+          || a.boards - b.boards || a.walking - b.walking || a.arrival - b.arrival)[0]
+        const journey = journeys.journeys[0]
+        if (!expectedJourney) assert.equal(journey, null)
+        else {
+          assert.deepEqual([journey.arrival, journey.boardings, journey.walkingSeconds],
+            [expectedJourney.arrival, expectedJourney.boards, expectedJourney.walking])
+          assert.equal(journey.departure, arriveBy ? expectedJourney.latest : 0)
+          assert.equal(journey.arrival - journey.departure,
+            journey.walkingSeconds + journey.rideSeconds + journey.waitingSeconds)
+          assert.equal(journey.legs.filter((leg) => leg.kind === 'ride').length, journey.boardings)
+        }
         // Forward horizons bound the timetable, so use an unlimited terminal
         // deadline in the independent reference for this part of the check.
         if (arriveBy) assert.equal(matrix.times[0], latest)
@@ -322,6 +342,48 @@ for (const maximumBoardings of [undefined, 1, 2]) {
   assert.deepEqual([pareto.bestArrival, pareto.bestBoardings, pareto.bestWalkingSeconds], [450, 1, 1])
 }
 console.log('Single-boarding walking ties retain the later boarding with identical arrival.')
+
+// A trip may expose a bridged exit at the next departure even when that
+// segment's arrival is outside the horizon. Both directions must retain it.
+const bridgeKernel = new TimetableKernel({
+  stopCount: 4, runCount: 1, departureSeconds: new Uint32Array([300, 500]),
+  arrivalSeconds: new Uint32Array([450, 600]), fromStop: new Uint32Array([0, 2]), toStop: new Uint32Array([1, 3]),
+  sequence: new Uint32Array([1, 2]), segmentTrip: new Uint32Array([0, 0]), segmentRun: new Uint32Array([0, 0]),
+  continuityBreak: new Uint8Array([1, 0]), canBoard: new Uint8Array([1, 1]), canAlight: new Uint8Array([1, 1]),
+  tripStart: new Uint32Array([0, 2]), departureOffset: new Uint32Array([0, 1, 1, 2, 2]), departureOrder: new Uint32Array([0, 1]),
+  transferOffset: new Uint32Array(5), transferTo: new Uint32Array(), transferDuration: new Uint32Array(), forbiddenSameStop: new Uint8Array(4),
+})
+for (const arriveBy of [false, true]) {
+  const result = bridgeKernel.routeMatrixCsa({ originOffsets: [0, 1], originStops: [0], originWalkSeconds: [0],
+    destinationOffsets: [0, 1], destinationStops: [2], destinationWalkSeconds: [0],
+    allowPreRideTransfers: [false], allowPostRideTransfers: [false], departure: 0, horizon: 510,
+    maximumBoardings: 1, arriveBy, includeJourneys: true })
+  assert.equal(result.times[0], arriveBy ? 300 : 500)
+  assert.equal(result.journeys[0].legs.find(l => l.kind === 'ride').alightSequence, 1.5)
+}
+
+// A final admitted transfer and egress may finish beyond the ride horizon.
+const terminalKernel = new TimetableKernel({
+  stopCount: 3, runCount: 1, departureSeconds: new Uint32Array([300]), arrivalSeconds: new Uint32Array([450]),
+  fromStop: new Uint32Array([0]), toStop: new Uint32Array([1]), sequence: new Uint32Array([1]),
+  segmentTrip: new Uint32Array([0]), segmentRun: new Uint32Array([0]), continuityBreak: new Uint8Array([1]),
+  canBoard: new Uint8Array([1]), canAlight: new Uint8Array([1]), tripStart: new Uint32Array([0, 1]),
+  departureOffset: new Uint32Array([0, 1, 1, 1]), departureOrder: new Uint32Array([0]),
+  transferOffset: new Uint32Array([0, 0, 1, 1]), transferTo: new Uint32Array([2]),
+  transferDuration: new Uint32Array([90]), forbiddenSameStop: new Uint8Array(3),
+})
+const terminalResults = terminalKernel.routeMatrixCsa({
+  originOffsets: [0, 1], originStops: [0], originWalkSeconds: [0],
+  destinationOffsets: Array.from({ length: 1001 }, (_, i) => i), destinationStops: Array(1000).fill(2),
+  destinationWalkSeconds: Array.from({ length: 1000 }, (_, i) => 60 + i),
+  allowPreRideTransfers: [false], allowPostRideTransfers: Array(1000).fill(true),
+  departure: 0, horizon: 450, maximumBoardings: 1, arriveBy: false, includeJourneys: true,
+})
+assert.equal(terminalResults.forwardSearches, 2)
+terminalResults.journeys.forEach((journey, i) => {
+  assert.equal(journey.arrival, 600 + i)
+  assert.equal(journey.walkingSeconds, 150 + i)
+})
 
 // The scalar scan stops before earliest arrival when every destination still
 // needs egress walking. A bounded search must resume at that actual boundary.

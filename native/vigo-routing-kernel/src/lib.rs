@@ -2275,6 +2275,7 @@ pub struct CoordinateTimetableMatrixInput {
     pub horizon: f64,
     pub arrive_by: bool,
     pub maximum_boardings: Option<u32>,
+    pub include_journeys: Option<bool>,
     pub disable_cache: Option<bool>,
 }
 
@@ -4218,6 +4219,7 @@ impl CoordinateKernel {
             horizon: input.horizon,
             arrive_by: input.arrive_by,
             maximum_boardings: input.maximum_boardings,
+            include_journeys: input.include_journeys,
         })?;
         Ok(CoordinateTimetableMatrixResult {
             timetable: result,

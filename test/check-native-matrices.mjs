@@ -188,6 +188,21 @@ try {
       assert.equal(result.durationSeconds, fixture.distance(source, target) / 10)
     }
   }
+  const snaps = Array.from({ length: 48 }, (_, i) => i * 2)
+  const sources = Array.from({ length: 48 }, (_, i) => i)
+  const targets = Array.from({ length: 48 }, (_, i) => 143 - i)
+  const candidateQuery = { originNodes: sources, targetNodes: targets,
+    originSnapMeters: snaps, targetSnapMeters: snaps, maximumDistanceMeters: 5000 }
+  const selected = drive.routeExact(candidateQuery)
+  const exhaustive = sources.flatMap((source, i) => targets.map((target, j) => drive.routeExact({
+    originNodes: [source], targetNodes: [target], originSnapMeters: [snaps[i]], targetSnapMeters: [snaps[j]],
+    maximumDistanceMeters: 5000,
+  }))).filter((p) => p.status === 'ready')
+    .sort((a, b) => a.durationSeconds - b.durationSeconds || a.distanceMeters - b.distanceMeters)[0]
+  assert.equal(selected.durationSeconds, exhaustive.durationSeconds)
+  assert.equal(selected.distanceMeters, exhaustive.distanceMeters)
+  assert(selected.cchCandidateQueries < sources.length * targets.length,
+    'Full paths should only be unpacked for primary-optimal candidate ties.')
   console.log('Native matrix checks passed: directed distances, target replacement, repeated rows, unsnapped origins, and drive paths.')
 } finally {
   fs.rmSync(directory, { recursive: true, force: true })
