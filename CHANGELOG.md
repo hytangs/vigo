@@ -1,5 +1,11 @@
 # Version history
 
+## Unreleased
+
+- Reuse the unrestricted search prefix when an exact transfer-capped journey needs a later arrival deadline.
+- Keep distinct persisted access profiles for complete source identities instead of a shared version prefix.
+- Place complete plans first in streaming responses so clients can preserve native JSON during export.
+
 ## 0.3.0
 
 VIGO 0.3 establishes one product model:

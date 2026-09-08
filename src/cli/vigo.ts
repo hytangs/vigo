@@ -867,6 +867,9 @@ async function runRouteStream(args: CliArguments) {
         }, departureWindowMinutes)
         const engine = engineDescriptor([routed])
         await writeNdjson({
+          // Keep the complete plan first so streaming clients can retain its
+          // JSON while decoding the small response envelope separately.
+          plan: routed.plan ?? null,
           schemaVersion: 'vigo.result.route.v1',
           ...publicResultMetadata,
           sequence,
@@ -890,7 +893,6 @@ async function runRouteStream(args: CliArguments) {
             storeId: stopLookup.routingStore.storeId,
             connectionCount: stopLookup.routingStore.connectionCount,
           },
-          plan: routed.plan ?? null,
           ...(routed.choices ? { choices: routed.choices } : {}),
           profileSampleCount: routed.profileSampleCount,
         })

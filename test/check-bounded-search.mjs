@@ -71,6 +71,25 @@ for (let seed = 0; seed < 100; seed += 1) {
     destinationStops: [11, 10], destinationWalkSeconds: [0, 30 + random(120)], destinationCandidateIndices: [0, 1],
     departure: random(241), horizon: 1800, allowPreRideTransfers: seed % 2 === 0,
   }
+  // A capped journey may arrive after the unrestricted winner and use fewer
+  // boardings. The completed scalar prefix remains a valid universal envelope;
+  // every run in its unscanned suffix must be admitted through the new deadline.
+  for (const maximumBoardings of [1, 2, 3]) {
+    const scalar = kernel.routeScalarCsa(query)
+    const arrival = kernel.routeManyCsa({ ...query, maximumBoardings,
+      destinationOffsets: [0, query.destinationStops.length], excludedTrips: [],
+    }).bestArrivals[0]
+    if (!Number.isFinite(arrival)) continue
+    const cappedQuery = { ...query, earliestArrival: arrival, boardingUpperBound: maximumBoardings,
+      candidateDestinationIndex: 0, candidateWalkingSeconds: Number.MAX_VALUE,
+      arrivalSlackSeconds: 0, transferPenaltySeconds: 0, walkReluctance: 0 }
+    const reused = kernel.routeParetoRoundCsa(cappedQuery)
+    assert.equal(reused.scalarEnvelopeReused, scalar.bestArrival <= arrival)
+    const reference = kernel.routeParetoRoundCsa({ ...cappedQuery, restrictionMode: 'anchor-only' })
+    assert.deepEqual(metrics(reused), metrics(reference), `Capped envelope, seed ${seed}, boardings ${maximumBoardings}`)
+    assert.equal(reused.bestArrival, arrival)
+    comparisons += 1
+  }
   for (const [collectAlternatives, arrivalSlackSeconds, transferPenaltySeconds, walkReluctance] of [
     [true, 900, 0, 0], [false, 0, 0, 0], [false, 900, 300, 1],
   ]) {

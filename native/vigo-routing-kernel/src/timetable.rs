@@ -2339,7 +2339,6 @@ struct ScalarEnvelopeIdentity {
     horizon: u64,
     best_arrival: u64,
     next_scan_time_index: usize,
-    best_boardings: u16,
     allow_pre_ride_transfers: bool,
     allow_post_ride_transfers: bool,
 }
@@ -2355,7 +2354,6 @@ impl ScalarEnvelopeIdentity {
             horizon: input.horizon.to_bits(),
             best_arrival: best.arrival.to_bits(),
             next_scan_time_index,
-            best_boardings: best.boardings,
             allow_pre_ride_transfers: input.allow_pre_ride_transfers,
             allow_post_ride_transfers: input.allow_post_ride_transfers.unwrap_or(true),
         }
@@ -2368,8 +2366,11 @@ impl ScalarEnvelopeIdentity {
             && self.destination_walk_seconds == input.destination_walk_seconds
             && self.departure == input.departure.to_bits()
             && self.horizon == input.horizon.to_bits()
-            && self.best_arrival == input.earliest_arrival.to_bits()
-            && u32::from(self.best_boardings) == input.boarding_upper_bound
+            // This is an unrestricted reachability envelope, independent of
+            // the certifier's boarding bound. A later capped arrival can reuse
+            // its scanned prefix too: the certifier admits every run in the
+            // unscanned suffix up to its new deadline below.
+            && f64::from_bits(self.best_arrival) <= input.earliest_arrival
             && self.allow_pre_ride_transfers == input.allow_pre_ride_transfers
             && self.allow_post_ride_transfers == input.allow_post_ride_transfers.unwrap_or(true)
     }

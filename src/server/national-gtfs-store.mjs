@@ -5947,7 +5947,7 @@ function stopSupportsStationAccessRole(store, stopId, accessRole) {
 }
 
 function nativeAccessProfileSnapshotPath(storePath, profileKey) {
-  return `${path.resolve(storePath)}.native-access-profile.${profileKey.slice(0, 24)}.bin`
+  return `${path.resolve(storePath)}.native-access-profile.${stableKeySuffix(profileKey)}.bin`
 }
 
 

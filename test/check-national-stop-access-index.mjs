@@ -356,6 +356,14 @@ try {
     usefulPrimaryStreetPath,
   )
   assert.equal(reloadedAccess.persistenceState, 'loaded')
+  const alternateAccess = prepareNationalGtfsNativeCoordinateAccess(storePath, streetPath)
+  assert.notEqual(alternateAccess.profileKey, reloadedAccess.profileKey)
+  assert.notEqual(alternateAccess.snapshotPath, reloadedAccess.snapshotPath,
+    'Profiles sharing the coordinate-access version prefix must retain separate snapshots.')
+  disposeNativeRoutingKernel(usefulPrimaryStreetPath)
+  const retainedAccess = prepareNationalGtfsNativeCoordinateAccess(storePath, usefulPrimaryStreetPath)
+  assert.equal(retainedAccess.persistenceState, 'loaded',
+    'Preparing another street profile must not overwrite an existing compatible snapshot.')
 
   console.log(JSON.stringify({
     schemaVersion: 'vigo.national.stop-access-index.check.v1',
