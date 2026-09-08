@@ -2326,6 +2326,7 @@ struct ForwardWorkspace {
     stop_layer_mask: Vec<u32>,
     run_layer_mask: Vec<u32>,
     scalar_runs: Vec<u64>,
+    scalar_first_boarding: Vec<u32>,
     scalar_identity: Option<ScalarEnvelopeIdentity>,
 }
 
@@ -2393,6 +2394,7 @@ impl ForwardWorkspace {
             stop_layer_mask: vec![0; stop_count],
             run_layer_mask: vec![0; run_count],
             scalar_runs: vec![0; run_count.div_ceil(u64::BITS as usize)],
+            scalar_first_boarding: vec![u32::MAX; run_count],
             scalar_identity: None,
         }
     }
@@ -2408,6 +2410,7 @@ impl ForwardWorkspace {
             + self.stop_layer_mask.len() * std::mem::size_of::<u32>()
             + self.run_layer_mask.len() * std::mem::size_of::<u32>()
             + self.scalar_runs.len() * std::mem::size_of::<u64>()
+            + self.scalar_first_boarding.len() * std::mem::size_of::<u32>()
             + self
                 .scalar_identity
                 .as_ref()
@@ -2828,9 +2831,11 @@ fn build_exact_deadline_corridor(
     apply_forward_filter: bool,
     forward_run_layers: Option<&[Vec<u8>]>,
     forward_universal_runs: &[u64],
+    forward_first_boarding: Option<&[u32]>,
     destination_stops: &[u32],
     destination_walk_seconds: &[f64],
     departure_seconds: &[u32],
+    sequence: &[u32],
     from_stop: &[u32],
     can_board: &[u8],
     run_start: &[u32],
@@ -2950,8 +2955,17 @@ fn build_exact_deadline_corridor(
         let mut transfer_seed_stops = Vec::new();
         transfer_seed_deadlines.fill(0);
         for run in touched_runs {
-            let start = run_start[run].max(processed_through[run]) as usize;
+            let mut start = run_start[run].max(processed_through[run]) as usize;
             let end = run_through[run] as usize;
+            if let Some(first_boarding) = forward_first_boarding {
+                // The scalar scan proved that no earlier position on this run
+                // is boardable from these origins. A later alighting event
+                // cannot make that unreachable prefix useful in reverse.
+                if first_boarding[run] != u32::MAX {
+                    start += sequence[start..end]
+                        .partition_point(|position| *position < first_boarding[run]);
+                }
+            }
             run_segments_scanned = run_segments_scanned.saturating_add((end - start) as u64);
             let mut boardable = run_mask[run] != 0;
             for segment in (start..end).rev() {
@@ -3511,6 +3525,7 @@ impl TimetableKernel {
             profile_workspace: _,
         } = self;
         forward_workspace.scalar_identity = None;
+        forward_workspace.scalar_first_boarding.fill(u32::MAX);
         let epoch = workspace.begin_query();
         workspace.allow_post_ride_transfers = input.allow_post_ride_transfers.unwrap_or(true);
         let destination_seed_started = Instant::now();
@@ -3687,6 +3702,8 @@ impl TimetableKernel {
                     };
                     let mut run_updated = false;
                     if boarding_state >= 0 {
+                        forward_workspace.scalar_first_boarding[run] =
+                            forward_workspace.scalar_first_boarding[run].min(journey.sequence);
                         let candidate_boardings = workspace.labels[boarding_state as usize]
                             .boardings
                             .saturating_add(1);
@@ -4712,15 +4729,70 @@ impl TimetableKernel {
             scan_journeys,
             run_start: _,
             run_end: _,
-            reverse_transfer_offset: _,
-            reverse_transfer_edges: _,
+            reverse_transfer_offset,
+            reverse_transfer_edges,
             exit_event_offset: _,
             exit_events: _,
-            workspace: _,
+            workspace: destination_workspace,
             many_workspace,
             forward_workspace: _,
             profile_workspace: _,
         } = self;
+        // A single Matrix target also supplies the capped point-query anchor.
+        // Retain a feasible terminal bound so that scan stops once remaining
+        // departures cannot improve it; larger matrices keep the shared scan.
+        let single_destination = destination_count == 1;
+        let destination_epoch = if single_destination {
+            destination_workspace.begin_query()
+        } else {
+            0
+        };
+        let mut minimum_egress = f64::INFINITY;
+        if single_destination {
+            for (index, &target) in input.destination_stops.iter().enumerate() {
+                let target = target as usize;
+                let walk = input.destination_walk_seconds[index];
+                minimum_egress = minimum_egress.min(walk);
+                if destination_workspace.destination_generation[target] != destination_epoch {
+                    destination_workspace.destination_generation[target] = destination_epoch;
+                    destination_workspace.destination_egress[target] = walk;
+                } else {
+                    destination_workspace.destination_egress[target] =
+                        destination_workspace.destination_egress[target].min(walk);
+                }
+                if input
+                    .allow_post_ride_transfers
+                    .as_ref()
+                    .is_none_or(|allowed| allowed[0])
+                {
+                    for edge in &reverse_transfer_edges[reverse_transfer_offset[target] as usize
+                        ..reverse_transfer_offset[target + 1] as usize]
+                    {
+                        let source = edge.stop();
+                        let egress = walk + f64::from(edge.duration());
+                        if destination_workspace.destination_generation[source] != destination_epoch
+                        {
+                            destination_workspace.destination_generation[source] =
+                                destination_epoch;
+                            destination_workspace.destination_egress[source] = egress;
+                        } else {
+                            destination_workspace.destination_egress[source] =
+                                destination_workspace.destination_egress[source].min(egress);
+                        }
+                    }
+                }
+            }
+        }
+        let terminal_egress = |stop: usize| {
+            if single_destination
+                && destination_workspace.destination_generation[stop] == destination_epoch
+            {
+                destination_workspace.destination_egress[stop]
+            } else {
+                f64::INFINITY
+            }
+        };
+        let mut terminal_bound = f64::INFINITY;
         let epoch = many_workspace.begin_query();
         let has_excluded_trips = !input.excluded_trips.is_empty();
         for trip in &input.excluded_trips {
@@ -4804,7 +4876,9 @@ impl TimetableKernel {
         let mut time_index = scan_time_lower_bound(scan_times, scan_start);
         while time_index < scan_times.len() {
             let connection_departure = scan_times[time_index] as f64;
-            if connection_departure > input.horizon {
+            if connection_departure > input.horizon
+                || (single_destination && connection_departure + minimum_egress > terminal_bound)
+            {
                 break;
             }
             let start = scan_time_offsets[time_index] as usize;
@@ -4882,6 +4956,8 @@ impl TimetableKernel {
                             continue;
                         }
                         if connection > boarding && flags & SCAN_BRIDGE_EXIT != 0 {
+                            terminal_bound = terminal_bound
+                                .min(connection_departure + terminal_egress(event.source_stop()));
                             let bridge_stop = output_offset + event.source_stop();
                             if relax_many(
                                 many_workspace,
@@ -4911,6 +4987,8 @@ impl TimetableKernel {
                         if flags & SCAN_CAN_ALIGHT == 0 || arrival.arrival as f64 > input.horizon {
                             continue;
                         }
+                        terminal_bound = terminal_bound
+                            .min(f64::from(arrival.arrival) + terminal_egress(arrival.to as usize));
                         let alight_stop = output_offset + arrival.to as usize;
                         if relax_many(
                             many_workspace,
@@ -5871,9 +5949,11 @@ impl TimetableKernel {
                 restriction_mode.uses_forward(),
                 forward_run_layers,
                 &forward_workspace.scalar_runs,
+                scalar_envelope_reused.then_some(&forward_workspace.scalar_first_boarding),
                 &input.destination_stops,
                 &input.destination_walk_seconds,
                 departure_seconds,
+                sequence,
                 from_stop,
                 can_board,
                 run_start,

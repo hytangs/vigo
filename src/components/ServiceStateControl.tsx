@@ -1,7 +1,6 @@
 import { Clock3, Pause, Play, Radio } from 'lucide-react'
-import { serviceDayOptions } from '../app/uiOptions'
-import { classNames, formatNumber, type ServiceDay } from '../domain'
-import { formatScheduleClock, type ScheduledVehicleDiagnostics } from '../scheduledVehicles'
+import { classNames, formatNumber } from '../domain'
+import { formatServiceTime, type ScheduledVehicleDiagnostics } from '../scheduledVehicles'
 import type { ServiceVehicleFrame, ServiceVehicleMode } from '../serviceVehicles'
 
 export function ServiceStateControl({
@@ -10,28 +9,30 @@ export function ServiceStateControl({
   vehicleCount,
   diagnostics,
   scheduleTimeMinutes,
-  scheduleServiceDay,
+  scheduleServiceDate,
+  scheduleEndMinutes,
   playbackRunning,
   playbackStep,
   onModeChange,
   onTogglePlayback,
   onPlaybackStepChange,
   onScheduleTimeChange,
-  onScheduleServiceDayChange,
+  onScheduleServiceDateChange,
 }: {
   mode: ServiceVehicleMode
   frame: ServiceVehicleFrame
   vehicleCount: number
   diagnostics: ScheduledVehicleDiagnostics
   scheduleTimeMinutes: number
-  scheduleServiceDay: ServiceDay
+  scheduleServiceDate: string
+  scheduleEndMinutes: number
   playbackRunning: boolean
   playbackStep: number
   onModeChange: (mode: ServiceVehicleMode) => void
   onTogglePlayback: () => void
   onPlaybackStepChange: (step: number) => void
   onScheduleTimeChange: (minutes: number) => void
-  onScheduleServiceDayChange: (serviceDay: ServiceDay) => void
+  onScheduleServiceDateChange: (serviceDate: string) => void
 }) {
   const liveUpdatedLabel = frame.freshness?.status === 'stale'
     ? `Stale · ${Math.round(frame.freshness.ageSeconds ?? 0)}s`
@@ -57,7 +58,7 @@ export function ServiceStateControl({
       <div className={classNames('service-state-readout', `tone-${diagnostics.tone}`)} title={diagnostics.detail} aria-live="polite">
         {mode === 'live' ? <Radio size={15} /> : <Clock3 size={15} />}
         <span>
-          <strong>{mode === 'live' ? `Live · ${formatNumber(vehicleCount)} vehicles` : `Schedule · ${formatScheduleClock(scheduleTimeMinutes)}`}</strong>
+          <strong>{mode === 'live' ? `Live · ${formatNumber(vehicleCount)} vehicles` : `Schedule · ${formatServiceTime(scheduleTimeMinutes)}`}</strong>
           <small>{diagnostics.title}</small>
         </span>
       </div>
@@ -75,27 +76,21 @@ export function ServiceStateControl({
             className="service-playback-slider"
             type="range"
             min={0}
-            max={1439}
+            max={scheduleEndMinutes}
             step={1}
             value={scheduleTimeMinutes}
-            aria-valuetext={formatScheduleClock(scheduleTimeMinutes)}
+            aria-valuetext={formatServiceTime(scheduleTimeMinutes)}
             onChange={(event) => onScheduleTimeChange(Number(event.currentTarget.value))}
             aria-label="Service time of day"
           />
-          <div className="service-playback-days" role="group" aria-label="Service day">
-            {serviceDayOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={classNames(scheduleServiceDay === option.value && 'is-active')}
-                aria-label={`${option.value === 'weekday' ? 'Weekday' : option.value === 'saturday' ? 'Saturday' : 'Sunday'} service`}
-                aria-pressed={scheduleServiceDay === option.value}
-                onClick={() => onScheduleServiceDayChange(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          <input
+            className="service-playback-date"
+            type="date"
+            value={scheduleServiceDate}
+            aria-label="Schedule service date"
+            title="GTFS service date; times after 24:00 continue this service day"
+            onChange={(event) => onScheduleServiceDateChange(event.currentTarget.value)}
+          />
         </>
       ) : (
         <div className="service-live-meta">

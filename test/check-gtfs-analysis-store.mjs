@@ -3,7 +3,18 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import ts from 'typescript'
 import { readGtfsNetworkOverview, readGtfsRouteAnalysis } from '../src/server/gtfs-analysis-store.mjs'
+
+const compile = async (relativePath) => ts.transpileModule(
+  await fs.readFile(new URL(relativePath, import.meta.url), 'utf8'),
+  { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } },
+).outputText
+const moduleUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
+const geometryUrl = moduleUrl(await compile('../src/app/geometry.ts'))
+const { scheduledVehiclesAtTime, scheduledVehicleDiagnostics } = await import(moduleUrl(
+  (await compile('../src/scheduledVehicles.ts')).replace("from './app/geometry'", `from '${geometryUrl}'`),
+))
 
 const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-gtfs-analysis-'))
 const storePath = path.join(temporaryDirectory, 'analysis.sqlite')
@@ -148,6 +159,33 @@ try {
   assert.equal(nestedScopeAnalysis.coverage.tripsIndexed, 1)
   assert.equal(nestedScopeAnalysis.representativeRouteId, 'inner_rail\u001fBLUE')
   assert.equal(nestedScopeAnalysis.coverage.sourceScope, 'inner_rail')
+
+  // Exercise the SQLite calendar -> dated route analysis -> map playback
+  // boundary. Exceptions must override weekday service, including holidays.
+  const calendarDb = new DatabaseSync(storePath)
+  calendarDb.exec(`
+    INSERT INTO trips VALUES('SUNDAY-TRAM', 'R1A', 'SUN-EXCEPTION', '0');
+    INSERT INTO trip_shapes VALUES('SUNDAY-TRAM', 'S1');
+    INSERT INTO connections VALUES(52200, 52800, 'SUNDAY-TRAM', 'R1A', 'SUN-EXCEPTION', '0', 'A', 'B', 1);
+    INSERT INTO connections VALUES(52800, 53400, 'SUNDAY-TRAM', 'R1A', 'SUN-EXCEPTION', '0', 'B', 'C', 2);
+    INSERT INTO calendar_dates VALUES('SUN-EXCEPTION', 20260906, 1);
+    INSERT INTO calendar_dates VALUES('WKD', 20260907, 2);
+    INSERT INTO calendar_dates VALUES('SAT', 20260907, 1);
+  `)
+  calendarDb.close()
+  const sunday = readGtfsRouteAnalysis(storePath, 'R1A', { serviceDate: '2026-09-06' })
+  assert.deepEqual(sunday.routes.flatMap((route) => route.scheduledTrips.map((trip) => trip.tripId)), ['SUNDAY-TRAM'])
+  assert.deepEqual(scheduledVehiclesAtTime(sunday, 877, '2026-09-06').map((vehicle) => vehicle.tripId), ['SUNDAY-TRAM'],
+    'The Sunday 14:37 frame must show the trip selected by the GTFS date exception.')
+  assert.equal(scheduledVehiclesAtTime(sunday, 877, '2026-09-07').length, 0)
+  assert.equal(scheduledVehicleDiagnostics(sunday, [], 877, '2026-09-07').title, 'Schedule details not loaded')
+  const holiday = readGtfsRouteAnalysis(storePath, 'R1A', { serviceDate: '2026-09-07' })
+  assert.deepEqual(holiday.routes.flatMap((route) => route.scheduledTrips.map((trip) => trip.tripId)), ['T2-SA-1', 'T2-SA-2'])
+  assert.deepEqual(scheduledVehiclesAtTime(holiday, 380, '2026-09-07').map((vehicle) => vehicle.tripId), ['T2-SA-1'],
+    'A Monday with Saturday service must honor calendar_dates, not the calendar weekday.')
+  const noService = readGtfsRouteAnalysis(storePath, 'R1A', { serviceDate: '2026-09-13' })
+  assert.equal(scheduledVehiclesAtTime(noService, 877, '2026-09-13').length, 0)
+  assert.equal(scheduledVehicleDiagnostics(noService, [], 877, '2026-09-13').title, 'No service on this date')
 
   console.log(`GTFS analysis store check passed (${overview.routes.length} complete services, ${analysis.routes.length + branchAnalysis.routes.length} focused patterns).`)
 } finally {

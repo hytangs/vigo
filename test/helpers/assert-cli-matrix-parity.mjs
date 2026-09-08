@@ -14,13 +14,17 @@ const scalarMatrixRequest = {
 const query = (options = {}) => routeNationalGtfsMatrix(path.join(cityPath, 'routing', 'project.sqlite'), {
   ...scalarMatrixRequest, ...options,
 })
-const walked = query()
-assert(Math.abs(walked.rows[0].durationMinutes - expectedMinutes) < 0.001)
+const transit = query()
+assert(Math.abs(transit.rows[0].durationMinutes - expectedMinutes) < 0.001)
+assert.equal(transit.diagnostics.directWalk, undefined)
+const walked = query({ requireTransitRide: false })
 assert.equal(walked.diagnostics.directWalk.selectedPairs, 1)
 assert.equal(query({ allowLongWalk: false }).rows[0].durationMinutes, 35,
   'The explicit direct-walk limit must preserve the transit choice.')
 assert.equal(query({ horizonMinutes: 10 }).rows[0].status, 'blocked',
-  'Direct walking must respect the Matrix horizon.')
+  'Transit must respect the Matrix horizon.')
 const noService = query({ serviceDate: '2027-07-15' })
-assert.equal(noService.rows[0].status, 'ready', 'An inactive timetable must not block a valid direct walk.')
-assert(Math.abs(noService.rows[0].durationMinutes - walked.rows[0].durationMinutes) < 0.001)
+assert.equal(noService.rows[0].status, 'blocked', 'Transit must not hide an inactive timetable behind a walk.')
+const walkOptIn = query({ serviceDate: '2027-07-15', requireTransitRide: false })
+assert.equal(walkOptIn.rows[0].status, 'ready')
+assert(Math.abs(walkOptIn.rows[0].durationMinutes - walked.rows[0].durationMinutes) < 0.001)

@@ -31,6 +31,9 @@ const unavailable = 'unavailable'
 const queryFamilies = Object.freeze([
   Object.freeze({
     id: 'route',
+    transitStreetCacheControl: true,
+    requireTransitRide: Object.freeze({ default: true }),
+    horizonMinutes: Object.freeze({ min: 1, max: 2_880, default: 480 }),
     label: 'Route',
     maxTransfers: Object.freeze({ min: 0, max: 31, default: null }),
     purpose: 'Find and explain journeys between ordered points.',
@@ -52,6 +55,8 @@ const queryFamilies = Object.freeze([
   }),
   Object.freeze({
     id: 'matrix',
+    transitStreetCacheControl: true,
+    requireTransitRide: Object.freeze({ default: true }),
     label: 'Matrix',
     journeys: true,
     maxTransfers: Object.freeze({ min: 0, max: 31, default: null }),

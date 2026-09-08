@@ -221,6 +221,7 @@ const vehiclePreview = {
     id: 'feed::route-p66::pattern-0',
     routeId: 'P66',
     shortName: 'P66',
+    analysisServiceDate: '2026-09-04',
     geometrySource: 'shape',
     coordinates: [[-77.1, 38.9], [-77.05, 38.92], [-77, 38.94]],
     stopIds: ['feed::stop-a', 'feed::stop-b', 'feed::stop-c'],
@@ -268,12 +269,56 @@ assert.equal(
   true,
   'An exact-date focused analysis with an explicit empty trip list is complete and must not refetch forever.',
 )
-const projectedVehicle = scheduledVehicles.scheduledVehiclesAtTime(vehiclePreview, 485, 'weekday')[0]
+const projectedVehicle = scheduledVehicles.scheduledVehiclesAtTime(vehiclePreview, 485, '2026-09-04')[0]
 assert.equal(projectedVehicle.nextStopId, 'feed::stop-b')
 assert.equal(projectedVehicle.nextStopArrivalMinutes, 490)
 assert.equal(projectedVehicle.destinationStopId, 'feed::stop-c')
+const sundayPreview = {
+  ...vehiclePreview,
+  routes: [{
+    ...vehiclePreview.routes[0],
+    analysisServiceDate: '2026-09-06',
+    scheduledTrips: vehiclePreview.routes[0].scheduledTrips.map((trip) => ({ ...trip, serviceDays: ['sunday'] })),
+  }],
+}
+assert.equal(scheduledVehicles.scheduledVehiclesAtTime(sundayPreview, 485, '2026-09-06').length, 1,
+  'A loaded Sunday trip must appear without an independent weekday selector hiding it.')
+assert.equal(scheduledVehicles.scheduledVehiclesAtTime(sundayPreview, 485, '2026-09-07').length, 0,
+  'Changing the service date must suppress the old timetable until the new date loads.')
+assert.equal(scheduledVehicles.scheduledVehicleDiagnostics(sundayPreview, [], 485, '2026-09-07').title,
+  'Schedule details not loaded', 'A stale date is missing data, not evidence of no service.')
+assert.equal(scheduledVehicles.scheduledVehicleDiagnostics({
+  ...sundayPreview, routes: sundayPreview.routes.map((route) => ({ ...route, scheduledTrips: [] })),
+}, [], 485, '2026-09-06').title, 'No service on this date')
+assert.equal(scheduledVehicles.scheduledVehicleDiagnostics(sundayPreview, [], 501, '2026-09-06').title,
+  'No scheduled trips at this time')
+const overnightPreview = {
+  ...vehiclePreview,
+  routes: [{
+    ...vehiclePreview.routes[0],
+    // Aggregate spans deliberately cover multiple calendars; only dated
+    // trip times may determine whether a vehicle is actually active.
+    lastArrivalMinutes: 1600,
+    scheduledTrips: [0, 1440].map((offset) => ({
+      ...vehiclePreview.routes[0].scheduledTrips[0],
+      tripId: `overnight-${offset}`,
+      firstDepartureMinutes: 60 + offset,
+      lastArrivalMinutes: 80 + offset,
+      stopTimes: [60, 70, 80].map((minute, index) => ({
+        stopId: `stop-${index}`, sequence: index + 1,
+        arrivalMinutes: minute + offset, departureMinutes: minute + offset, progress: index / 2,
+      })),
+    })),
+  }],
+}
+assert.equal(scheduledVehicles.scheduledVehiclesAtTime(overnightPreview, 65, '2026-09-04')[0].tripId, 'overnight-0',
+  '01:05 must not be moved to 25:05 because an unrelated trip ends after midnight.')
+assert.equal(scheduledVehicles.scheduledVehiclesAtTime(overnightPreview, 1505, '2026-09-04')[0].tripId, 'overnight-1440')
+assert.equal(scheduledVehicles.scheduledServiceEndMinutes(overnightPreview, '2026-09-04'), 1520)
+assert.equal(scheduledVehicles.formatServiceTime(1505), '25:05')
+assert.equal(scheduledVehicles.formatScheduleClock(1505), '01:05', 'Other wall-clock displays retain their existing format.')
 const minuteByMinuteVehicles = [480, 481, 482, 483].map(
-  (minute) => scheduledVehicles.scheduledVehiclesAtTime(vehiclePreview, minute, 'weekday')[0],
+  (minute) => scheduledVehicles.scheduledVehiclesAtTime(vehiclePreview, minute, '2026-09-04')[0],
 )
 assert.deepEqual(
   minuteByMinuteVehicles.map((vehicle) => Number(vehicle.progress.toFixed(3))),
@@ -299,25 +344,25 @@ const fullFleetPreview = {
     })),
   }],
 }
-const fullFleetFrame = scheduledVehicles.scheduledVehiclesAtTime(fullFleetPreview, 485, 'weekday')
+const fullFleetFrame = scheduledVehicles.scheduledVehiclesAtTime(fullFleetPreview, 485, '2026-09-04')
 assert.equal(
   fullFleetFrame.length,
   fullFleetTripCount,
   'Full-network playback must retain every active scheduled trip beyond the former vehicle cap.',
 )
 assert.strictEqual(
-  scheduledVehicles.scheduledVehiclesAtTime(fullFleetPreview, 485, 'weekday'),
+  scheduledVehicles.scheduledVehiclesAtTime(fullFleetPreview, 485, '2026-09-04'),
   fullFleetFrame,
   'Repeated reads of the current playback frame should reuse the projection.',
 )
-scheduledVehicles.scheduledVehiclesAtTime(fullFleetPreview, 486, 'weekday')
+scheduledVehicles.scheduledVehiclesAtTime(fullFleetPreview, 486, '2026-09-04')
 assert.notStrictEqual(
-  scheduledVehicles.scheduledVehiclesAtTime(fullFleetPreview, 485, 'weekday'),
+  scheduledVehicles.scheduledVehiclesAtTime(fullFleetPreview, 485, '2026-09-04'),
   fullFleetFrame,
   'Playback must retain only the current full-fleet frame instead of accumulating fleet-sized history.',
 )
 assert.equal(
-  scheduledVehicles.scheduledVehiclesAtTime(fullFleetPreview, 485, 'sunday').length,
+  scheduledVehicles.scheduledVehiclesAtTime(fullFleetPreview, 485, '2026-09-06').length,
   0,
   'An inactive service day must not invent static vehicles.',
 )

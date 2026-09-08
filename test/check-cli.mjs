@@ -154,7 +154,8 @@ try {
   assert(Number.isFinite(matrix.timing.openMs) && Number.isFinite(matrix.timing.computeMs))
   assert.deepEqual(JSON.parse(fs.readFileSync(matrixPath, 'utf8')), matrix)
   assert(Math.abs(matrix.rows[1].durationMinutes - route.result.durationMinutes) < 0.001,
-    'Public transit Route and Matrix must both include a faster direct walk.')
+    'Public transit Route and Matrix must select the same transit journey.')
+  assert(route.result.legs.some(leg => leg.type === 'ride'))
 
   for (const timePreference of ['depart', 'arrive']) {
     for (const maxTransfers of [0, 1]) {
@@ -229,9 +230,12 @@ try {
       { id: 'afternoon', kind: 'matrix', origins: [{ id: 'school', point: 'A' }],
         destinations: Array.from({ length: 1024 }, (_, i) => ({ id: `point_${i}`, point: 'B' })),
         timePreference: 'depart', time: '07:55', maxWalkKm: 0.2 },
+      { id: 'uncached-route', origin: 'A', destination: 'B', time: '07:55', disableCache: true },
     ].map(value => JSON.stringify(value)).join('\n') + '\n',
   }).trim().split('\n').map(line => JSON.parse(line))
-  assert.deepEqual(streamedMatrices.map(result => result.status), ['ready', 'error', 'ready'])
+  assert.deepEqual(streamedMatrices.map(result => result.status), ['ready', 'error', 'ready', 'ok'])
+  assert.equal(streamedMatrices[3].plan.status, 'ready')
+  assert.equal(streamedMatrices[3].plan.diagnostics.searchStats.nativeStreetPathCacheDisabled, true)
   assert.equal(streamedMatrices[0].rows.length, 1024)
   assert.equal(streamedMatrices[0].query.timePreference, 'arrive')
   assert.equal(streamedMatrices[0].query.timeMinutes, 510)

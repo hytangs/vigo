@@ -262,21 +262,24 @@
 .app-shell.appearance-light .service-state-panel select,
 .app-shell.appearance-light .service-mode-switch,
 .app-shell.appearance-light .service-mode-switch button,
-.app-shell.appearance-light .service-playback-days button {
+.app-shell.appearance-light .service-playback-date {
   border-color: var(--border);
   color: var(--text-muted);
   background: var(--panel);
 }
 
 .app-shell.appearance-light .service-playback-toggle:hover,
-.app-shell.appearance-light .service-playback-days button:hover {
+.app-shell.appearance-light .service-playback-date:hover {
   border-color: var(--border-strong);
   color: var(--text-strong);
   background: var(--panel-soft);
 }
 
-.app-shell.appearance-light .service-state-panel.is-playing .service-playback-toggle,
-.app-shell.appearance-light .service-playback-days button.is-active {
+.app-shell.appearance-light .service-playback-date {
+  color-scheme: light;
+}
+
+.app-shell.appearance-light .service-state-panel.is-playing .service-playback-toggle {
   border-color: var(--accent-2);
   color: #ffffff;
   background: var(--accent-2);

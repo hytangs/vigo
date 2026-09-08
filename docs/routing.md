@@ -16,6 +16,20 @@ A Route Query selects:
 
 Stop IDs are exact GTFS identifiers. Coordinate points are [longitude, latitude] and require streets in the City.
 
+Transit Route requires at least one vehicle boarding by default. Missing transit
+remains a blocked transit result; it is not replaced by a long walk. Use Walk
+mode for a walking journey. A JSON request can opt into walking comparisons with
+`requireTransitRide: false` (`require_transit_ride=False` in Python). Transit
+Matrix uses the same default. `maxWalkKm` limits each access and egress walk;
+it is not a limit on an explicitly requested complete walking journey.
+`--horizon` / `horizonMinutes` / Python `horizon_minutes` sets the timetable
+search horizon in minutes (default 480, range 1–2880).
+
+Transit JSON requests accept `disableCache: true` to disable street-access
+frontier and walking-path caches while keeping the prepared City resident.
+Python exposes this as `disable_cache=True` on Route and Matrix. Route answers
+are recomputed regardless of this option.
+
 ## Result
 
 A Route Result contains status, chronological legs, departure and arrival, duration, transfers, warnings, timing, and a run record. A blocked Result remains a valid answer and explains why no journey was returned.
@@ -50,7 +64,7 @@ Use `maxTransfers` in a JSON request, `--max-transfers=N` in the CLI, or
 `max_transfers=N` in Python. Studio exposes Maximum transfers under Route options.
 `0` permits at most one boarding; `1` permits at most two. Values must be
 integers from 0 through 31. Omit the option for no additional limit. Staying
-aboard the same trip is not a transfer. Walk-only results remain eligible.
+aboard the same trip is not a transfer. Walk-only results require an explicit opt-in.
 The cap constrains the native search, including alternatives and arrive-by;
 a slower feasible route is searched when the unrestricted winner exceeds it.
 A finite cap with ordered transit waypoints is currently unsupported.
@@ -62,6 +76,12 @@ their direction and time. Their complete time/distance frontier is prepared once
 then filtered against the endpoint's remaining walking budget in Rust. Interior
 pathway nodes do not create additional street entrances. Station links with
 schematic geometry report `streetPathVerified: false` and `stationPathSources`.
+When GTFS omits `traversal_time`, the configured walking policy prices the
+declared pathway length, or the stop-coordinate distance if length is also
+absent. A missing time is not a zero-time link. For endpoint access, declared
+pathway graphs suppress generic platform shortcuts. Fallback station links
+include their walking time in both endpoint and timetable preparation.
+Cities built with transfer semantics v2 must be rebuilt to retain pathway lengths.
 The walking
 limit covers each complete continuous access or egress walk; a transfer walk
 cannot extend the final egress beyond that budget. Generated transfer legs
@@ -71,3 +91,9 @@ A repeated station is reported from the complete ride stop sequence. It does
 not automatically invalidate a path: a scheduled loop or a forbidden direct
 platform change can require it. Alternatives are filtered by objective
 dominance, not by a geometric cycle rule.
+
+A coordinate that snaps to the street graph can have an `endpointConnector` on
+the first or last walking leg. Its coordinates and distance describe the snap
+already included in that leg's cost. It has `source: "coordinate-snap"` and
+`streetPathVerified: false`; the leg's `coordinates` retain the routed street
+path. A connector is not evidence of a mapped or legally traversable street.

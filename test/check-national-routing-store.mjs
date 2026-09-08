@@ -371,6 +371,7 @@ async function runConfiguredEndpointOverheadFixture(routingStorePath, streetStor
     const osm = await import(pathToFileURL(process.argv[2]).href)
     osm.prepareNationalOsmNativeStore(process.argv[4])
     const plan = routing.routeNationalGtfsStore(process.argv[3], {
+      requireTransitRide: false,
       origin: { coordinate: [0, 0], label: 'Overhead origin', source: 'map' },
       destination: { coordinate: [0.0009, 0], label: 'Overhead destination', source: 'map' },
       departMinutes: 480,
@@ -1118,6 +1119,23 @@ try {
   assert.equal(denseAccessTransit.diagnostics.coordinateAccessFrontier, 'complete_osm_reachable')
   assert(denseAccessTransit.durationMinutes < 20, 'The useful primary access stop must beat the reachable slow decoy route.')
 
+  assert.equal(routeNationalGtfsStore(denseAccessStorePath, denseAccessRequest).travelMode, 'transit')
+  denseAccessRequest.requireTransitRide = false
+  for (const timePreference of ['depart', 'arrive']) {
+    const endpointRequest = {
+      ...denseAccessRequest, requireTransitRide: true, timePreference, arriveMinutes: 540,
+      origin: { coordinate: [0.00002, 0.00003], label: 'Off-node origin', source: 'map' },
+      destination: { coordinate: [0.00402, 0.00003], label: 'Off-node destination', source: 'map' },
+    }
+    const connected = routeNationalGtfsStore(denseAccessStorePath, endpointRequest)
+    assert.equal(connected.status, 'ready')
+    assert.deepEqual(connected.legs[0].endpointConnector.coordinates[0], endpointRequest.origin.coordinate,
+      'Transit output must retain the coordinate connector already charged by the native access search.')
+    assert.equal(connected.legs[0].endpointConnector.streetPathVerified, false)
+    assert.deepEqual(connected.legs.at(-1).endpointConnector.coordinates.at(-1), endpointRequest.destination.coordinate,
+      'Egress must expose its connection to the requested coordinate separately from the OSM path.')
+  }
+
   const competitiveWalk = routeNationalGtfsStore(denseAccessStorePath, denseAccessRequest)
   assert.equal(competitiveWalk.status, 'ready')
   assert.equal(competitiveWalk.travelMode, 'walk', 'A verified OSM walk longer than two minutes must replace a slower materialized transit itinerary.')
@@ -1420,6 +1438,7 @@ try {
   assert.match(completeEgressPlan.diagnostics.algorithm, /^rust_exact_connection_scan_/)
 
   const shortWalkRequest = {
+    requireTransitRide: false,
     origin: { coordinate: [0, 0], label: 'Short walk origin', source: 'map' },
     destination: { coordinate: [0.0009, 0], label: 'Short walk destination', source: 'map' },
     departMinutes: 8 * 60,
@@ -2028,6 +2047,7 @@ try {
   assert.equal(justOverThresholdWalkWindow.profile.alternativeWalkSearches, 1)
 
   const shortWalkPairwiseMatrix = matrixItineraryReference(storePath, {
+    requireTransitRide: false,
     origins: [shortWalkRequest.origin],
     destinations: [shortWalkRequest.destination],
     departMinutes: shortWalkRequest.departMinutes,

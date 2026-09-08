@@ -1,4 +1,4 @@
-import type { Basemap, NetworkLens, ServiceDay } from '../domain'
+import type { Basemap, NetworkLens } from '../domain'
 import type { RoutingTimePreference } from '../routingModel'
 
 export type RoutingDepartureWindowMinutes = 0 | 20
@@ -8,12 +8,6 @@ export const schedulePresets = [
   { label: 'Mid', minutes: 12 * 60 },
   { label: 'PM', minutes: 17 * 60 },
   { label: 'Eve', minutes: 20 * 60 },
-]
-
-export const serviceDayOptions: Array<{ label: string; value: ServiceDay }> = [
-  { label: 'WD', value: 'weekday' },
-  { label: 'Sat', value: 'saturday' },
-  { label: 'Sun', value: 'sunday' },
 ]
 
 export const networkLensOptions: NetworkLens[] = ['network', 'shape', 'service', 'transfer', 'risk']

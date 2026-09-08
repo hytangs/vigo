@@ -32,7 +32,7 @@ Route's stable traversal order and therefore have different ride/wait splits.
 Balanced alternatives remain a Route operation; Matrix rejects a balanced
 journey request instead of silently changing its objective.
 
-Coordinate Transit Matrix compares scheduled transit with a direct OSM walk, using the same independent end-to-end walking limit as Route. For depart-at, the horizon bounds the timetable search and the direct walk; a final transit egress walk can extend beyond the timetable horizon. For arrive-by, egress must finish by the deadline. Walking distances are computed in one native batch.
+Coordinate Transit Matrix requires a vehicle boarding by default. With `requireTransitRide: false`, it compares scheduled transit with a direct OSM walk, using the same independent end-to-end walking limit as Route. For depart-at, the horizon bounds the timetable search and the direct walk; a final transit egress walk can extend beyond the timetable horizon. For arrive-by, egress must finish by the deadline. Walking distances are computed in one native batch.
 
 A request accepts up to 100,000 pairs, with no separate origin or destination
 limit. Both 1 × 100,000 and 100,000 × 1 fit in one call. Results remain in

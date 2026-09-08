@@ -17,7 +17,7 @@ import {
 } from './geometry-utils.mjs'
 import { integralNumber, numeric, timingMilliseconds } from './number-utils.mjs'
 import { assertMatrixSize } from './matrix-size.mjs'
-import { stationAccessPaths } from './station-access.mjs'
+import { stationAccessPaths, stationFallbackSeconds } from './station-access.mjs'
 import { routeDisplayLongName, routePreviewColor } from './route-presentation.mjs'
 import {
   readNationalOsmStoreMetadata,
@@ -110,7 +110,7 @@ export {
 export { WeightedLruCache } from './weighted-lru-cache.mjs'
 
 const storeSchemaVersion = 'vigo.routing.store.v1'
-const transferSemanticsVersion = 'vigo.routing.transfers.v2'
+const transferSemanticsVersion = 'vigo.routing.transfers.v3'
 const stopAccessRoleIndexVersion = 'vigo.routing.stop-access-roles.v1'
 // Admission checks only the objects needed to identify a current store and
 // execute the routing queries. SQLite remains the source of truth for column
@@ -352,7 +352,7 @@ const activeServiceKernelSnapshotCacheBudgetBytes = Math.max(
   ),
 )
 const activeServiceKernelSchemaVersion = 'vigo.routing.active-service-kernel.v14-rust-native'
-const activeServiceTransferProjectionVersion = 'single_edge_service_ingress.v5-gtfs-minimum'
+const activeServiceTransferProjectionVersion = 'single_edge_service_ingress.v6-station-time'
 const activeServiceKernelContextCacheMaxEntries = Math.max(
   1,
   Math.min(8, Math.floor(Number(process.env.VIGO_ACTIVE_KERNEL_CONTEXT_CACHE_MAX_ENTRIES ?? 2) || 0)),
@@ -1438,6 +1438,7 @@ function createRoutingStoreSchema(db) {
       path_distance_m REAL,
       CHECK(
         (provenance='osm_certified_radial' AND evidence_fingerprint IS NOT NULL AND path_distance_m>=0)
+        OR (provenance='gtfs_pathway' AND evidence_fingerprint IS NULL AND path_distance_m>=0)
         OR (provenance!='osm_certified_radial' AND evidence_fingerprint IS NULL AND path_distance_m IS NULL)
       ),
       PRIMARY KEY(from_stop_id, to_stop_id)
@@ -2238,17 +2239,24 @@ export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress }
     if (pathwaysEntry) {
       report(onProgress, 'Reading pathways.txt', 0.31)
       const insertPathway = db.prepare('INSERT OR IGNORE INTO transfers VALUES(?,?,0,?)')
-      const insertPathwayProvenance = db.prepare('INSERT OR IGNORE INTO transfer_provenance VALUES(?,?,?,NULL,NULL)')
+      const insertPathwayProvenance = db.prepare('INSERT OR IGNORE INTO transfer_provenance VALUES(?,?,?,NULL,?)')
+      const pathwayStop = db.prepare('SELECT lon, lat FROM stops WHERE stop_id=?')
       let pathwayBatch = 0
       db.exec('BEGIN IMMEDIATE')
       try {
         const pathwayProfile = await streamGtfsZipCsv(archive, pathwaysEntry, (row) => {
-          const seconds = Math.max(0, numeric(row.traversal_time, 0))
+          const seconds = String(row.traversal_time ?? '').trim()
+            ? Math.max(0, numeric(row.traversal_time, 0)) : null
+          const from = pathwayStop.get(row.from_stop_id)
+          const to = pathwayStop.get(row.to_stop_id)
+          const distanceM = String(row.length ?? '').trim()
+            ? Math.max(0, numeric(row.length, 0))
+            : from && to ? haversineKm([from.lon, from.lat], [to.lon, to.lat]) * 1000 : 0
           const forward = insertPathway.run(row.from_stop_id, row.to_stop_id, seconds)
-          if (Number(forward.changes ?? 0)) insertPathwayProvenance.run(row.from_stop_id, row.to_stop_id, 'gtfs_pathway')
+          if (Number(forward.changes ?? 0)) insertPathwayProvenance.run(row.from_stop_id, row.to_stop_id, 'gtfs_pathway', distanceM)
           if (numeric(row.is_bidirectional, 0) === 1) {
             const reverse = insertPathway.run(row.to_stop_id, row.from_stop_id, seconds)
-            if (Number(reverse.changes ?? 0)) insertPathwayProvenance.run(row.to_stop_id, row.from_stop_id, 'gtfs_pathway')
+            if (Number(reverse.changes ?? 0)) insertPathwayProvenance.run(row.to_stop_id, row.from_stop_id, 'gtfs_pathway', distanceM)
           }
           featureInventory.pathwayCount += 1
           if ([row.wheelchair_traversal_time, row.stair_count, row.max_slope, row.min_width].some((value) => String(value ?? '').trim())) {
@@ -2826,7 +2834,7 @@ function populateStaticTopology(sourceDb, targetDb, { expectedConnections = 1, o
   let transferCount = 0
   for (const transfer of sourceDb.prepare(`
     SELECT transfer.from_stop_id, transfer.to_stop_id,
-      transfer.min_transfer_time, provenance.provenance
+      transfer.min_transfer_time, provenance.provenance, provenance.path_distance_m
     FROM transfers AS transfer
     JOIN transfer_provenance AS provenance
       ON provenance.from_stop_id=transfer.from_stop_id
@@ -2842,7 +2850,8 @@ function populateStaticTopology(sourceDb, targetDb, { expectedConnections = 1, o
     transferCount += 1
   }
 
-  const stopRows = sourceDb.prepare('SELECT stop_id, parent_station FROM stops').all()
+  const stopRows = sourceDb.prepare('SELECT stop_id, parent_station, lat, lon FROM stops').all()
+  const stopRecords = new Map(stopRows.map(stop => [stop.stop_id, stop]))
   const stopIds = new Set(stopRows.map((stop) => stop.stop_id))
   const stationGroups = new Map()
   for (const stop of stopRows) {
@@ -2858,7 +2867,7 @@ function populateStaticTopology(sourceDb, targetDb, { expectedConnections = 1, o
     for (const fromStopId of members) {
       for (const toStopId of members) {
         if (fromStopId === toStopId) continue
-        insertEdge.run(fromStopId, toStopId, 120)
+        insertEdge.run(fromStopId, toStopId, stationFallbackSeconds(stopRecords.get(fromStopId), stopRecords.get(toStopId), walkingSpeedKph))
         stationSiblingCount += 1
       }
     }
@@ -3697,7 +3706,8 @@ function openNationalStore(storePath, options = {}) {
       maxEstimatedBytes: activeServiceKernelMaxEstimatedBytes || null,
     },
     stopLookup: null,
-    routeLookup: db.prepare('SELECT short_name, long_name, color FROM routes WHERE route_id=?'),
+    routeLookup: new Map(db.prepare('SELECT route_id, short_name, long_name, color FROM routes').all()
+      .map(route => [route.route_id, route])),
     realtimeTripStopTimesLookup: stopTimesTablePresent ? db.prepare(`
       SELECT stop_sequence, stop_id, arrival, departure, can_board, can_alight
       FROM stop_times WHERE trip_id=? ORDER BY stop_sequence
@@ -4487,7 +4497,7 @@ function materializeDirectWalkCandidate(request, maxWalkKm, path, diagnostics = 
 
 function directWalkAlternativePlan(request, preferredWalkKm, alternativeWalkKm) {
   if (
-    request.__disableDirectWalkDominance === true
+    transitRideRequired(request)
     || request.allowLongWalk === false
     || !request.streetStorePath
   ) {
@@ -4533,7 +4543,7 @@ function directWalkAlternativePlan(request, preferredWalkKm, alternativeWalkKm) 
 }
 
 function shouldProbeNationalDirectWalkDominance(request) {
-  if (request?.__disableDirectWalkDominance === true || !request?.streetStorePath) return false
+  if (transitRideRequired(request) || !request?.streetStorePath) return false
   if (!(directWalkTransitEndpointLowerBoundMinutes > 0)) return false
   const origin = request.origin
   const destination = request.destination
@@ -4830,7 +4840,7 @@ function lightweightIncompleteCoveragePlan(
   startedAt,
 ) {
   const directWalkEligible = (
-    request.__disableDirectWalkDominance !== true
+    !transitRideRequired(request)
     && request.streetStorePath
     && Array.isArray(request.origin?.coordinate)
     && Array.isArray(request.destination?.coordinate)
@@ -4930,7 +4940,7 @@ function lightweightIncompleteCoveragePlan(
 
 function lightweightServiceAnchorDirectWalkProbe(storePath, request, maxWalkKm) {
   if (
-    request.__disableDirectWalkDominance === true
+    transitRideRequired(request)
     || !request.streetStorePath
     || directWalkTransitEndpointLowerBoundMinutes > 0
     || explicitRoutingStopId(request.origin)
@@ -5191,7 +5201,7 @@ function accessFrontierDirectWalkProbeFromMetrics(
   verifiedPathSearchMs = undefined,
 ) {
   if (
-    request.__disableDirectWalkDominance === true
+    transitRideRequired(request)
     || !request.streetStorePath
     || explicitRoutingStopId(request.origin)
     || explicitRoutingStopId(request.destination)
@@ -5295,7 +5305,7 @@ function directWalkAfterBlockedTransitPlan(
   verifiedPathSearchMs = undefined,
 ) {
   if (
-    request.__disableDirectWalkDominance === true
+    transitRideRequired(request)
     || !request.streetStorePath
     || transitPlan?.status === 'ready'
   ) return null
@@ -5425,7 +5435,7 @@ function transitDominatingDirectWalkPlan(
   verifiedPathSearchMs = undefined,
 ) {
   if (
-    request.__disableDirectWalkDominance === true
+    transitRideRequired(request)
     || !request.streetStorePath
     || transitPlan?.status !== 'ready'
     || transitPlan?.travelMode !== 'transit'
@@ -5674,6 +5684,9 @@ function walkSeconds(distanceKm) {
 }
 
 function transferDurationSeconds(transfer) {
+  if (transfer?.provenance === 'gtfs_pathway' && transfer.min_transfer_time == null) {
+    return walkSeconds(numeric(transfer.path_distance_m, 0) / 1000)
+  }
   return Math.max(0, numeric(transfer?.min_transfer_time, 0))
 }
 
@@ -5868,13 +5881,17 @@ function pointToAccessCoordinates(
     throw error
   }
   const coordinates = accessStreetPath.coordinates
-  if (
-    accessStreetPath.originSnapDistanceKm > 0
-    && coordinates.length > 2
-    && coordinates[0]?.[0] === pointCoordinate[0]
-    && coordinates[0]?.[1] === pointCoordinate[1]
-  ) coordinates.shift()
+  if (accessStreetPath.originSnapDistanceKm > 0 && coordinates.length > 1) coordinates.shift()
   return appendTransferCompletion(coordinates)
+}
+
+function endpointConnector(coordinate, streetCoordinate, reverse = false) {
+  if (!streetCoordinate || (coordinate[0] === streetCoordinate[0] && coordinate[1] === streetCoordinate[1])) return undefined
+  return {
+    source: 'coordinate-snap', streetPathVerified: false,
+    coordinates: reverse ? [streetCoordinate, coordinate] : [coordinate, streetCoordinate],
+    distanceKm: haversineKm(coordinate, streetCoordinate),
+  }
 }
 
 function secondsToMinutes(seconds) {
@@ -6147,7 +6164,7 @@ function physicalStopAccessProfile(store, streetStorePath, version) {
     accessOverheadSeconds: nationalRoutingAccessPolicy.accessOverheadSeconds,
   }
   if (version.startsWith('coordinate-access')) {
-    const links = stationAccessPaths(store, members)
+    const links = stationAccessPaths(store, members, walkingSpeedKph)
     profile.memberStopKeys = members.map((_, index) => index)
     // Each physical stop has its own key; no centroid-to-platform broadcast.
     profile.memberStationKeys = profile.memberStopKeys
@@ -7688,7 +7705,7 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
           // A published rule takes precedence over the station walking fallback.
           if (!isForbiddenTransfer(store, fromId, toId)
             && !transferMaps.get(stopIndex.get(fromId))?.has(stopIndex.get(toId))) {
-            addTransferTo(fromId, toId, 120)
+            addTransferTo(fromId, toId, stationFallbackSeconds(store.stopRecords.get(fromId), store.stopRecords.get(toId), walkingSpeedKph))
           }
         }
       }
@@ -9186,6 +9203,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
     startMinutes: departureMinutes, endMinutes: minuteCoordinate(firstAccess.arrival),
     durationMinutes: secondsToMinutes(firstAccess.arrival - departure), distanceKm: firstAccessStop.distanceKm,
     stopCount: 0, coordinates: accessCoordinates,
+    endpointConnector: endpointConnector(origin.coordinate, accessCoordinates[0]),
   })
   for (const step of chain) {
     if (step.kind === 'access') continue
@@ -9232,7 +9250,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
         fromName: from?.name ?? step.fromStopId, toName: to?.name ?? step.toStopId,
         startMinutes: minuteCoordinate(step.arrival - step.duration), endMinutes: minuteCoordinate(step.arrival),
         durationMinutes: secondsToMinutes(step.duration),
-        distanceKm: transferPath?.distanceKm
+        distanceKm: transferPath?.distanceKm ?? (transfer?.path_distance_m != null ? transfer.path_distance_m / 1000 : undefined)
           ?? (from && to ? haversineKm([from.lon, from.lat], [to.lon, to.lat]) : 0),
         stopCount: 0,
         coordinates: transferPath?.coordinates
@@ -9323,6 +9341,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
     startMinutes: minuteCoordinate(egressStart), endMinutes: minuteCoordinate(bestArrival),
     durationMinutes: secondsToMinutes(bestArrival - egressStart), distanceKm: bestStop.distanceKm,
     stopCount: 0, coordinates: [...destinationToStopCoordinates].reverse(),
+    endpointConnector: endpointConnector(destination.coordinate, destinationToStopCoordinates[0], true),
   })
   const legNormalizationStartedAt = performance.now()
   legs = normalizeNationalLegs(legs)
@@ -10392,7 +10411,18 @@ function routingHorizonMinutes(request) {
   return Number.isFinite(minutes) && minutes > 0 ? Math.max(1, Math.min(2_880, minutes)) : 480
 }
 
+function transitRideRequired(request) {
+  return request?.requireTransitRide !== false || request?.__disableDirectWalkDominance === true
+}
+
+function validateTransitRideRequirement(request) {
+  if (request.requireTransitRide != null && typeof request.requireTransitRide !== 'boolean') {
+    throw new Error('requireTransitRide must be a boolean.')
+  }
+}
+
 export function routeNationalGtfsMatrix(storePath, request) {
+  validateTransitRideRequirement(request)
   validateMaximumTransfers(request.maxTransfers)
   if (request.includeJourneys != null && typeof request.includeJourneys !== 'boolean') {
     throw new Error('Matrix includeJourneys must be a boolean.')
@@ -10406,7 +10436,7 @@ export function routeNationalGtfsMatrix(storePath, request) {
   }
   const started = performance.now()
   const result = routeNationalGtfsTransitMatrix(storePath, request)
-  if (!request.streetStorePath || request.__disableDirectWalkDominance === true
+  if (!request.streetStorePath || transitRideRequired(request)
     || result.diagnostics.failure?.code === 'unsupported_gtfs_feature') return result
 
   const horizonMinutes = routingHorizonMinutes(request)
@@ -11292,7 +11322,7 @@ function routeNationalGtfsArriveByStore(
 
     let directWalkWitness = null
     if (
-      request.__disableDirectWalkDominance !== true
+      !transitRideRequired(request)
       && request.streetStorePath
       && request.origin?.coordinate
       && request.destination?.coordinate
@@ -11493,6 +11523,7 @@ function routeNationalGtfsArriveByStore(
 
 
 export function routeNationalGtfsStore(storePath, request) {
+  validateTransitRideRequirement(request)
   validateMaximumTransfers(request.maxTransfers)
   request = withResolvedServiceDay(request)
   if (request.__allowSubMinuteTimes !== true) {
@@ -11695,7 +11726,7 @@ export function routeNationalGtfsStore(storePath, request) {
           allowPreRideTransfers: false,
           maxTransfers: request.maxTransfers,
           retainFullFrontier: true,
-          enableDirectWalkDominance: request.__disableDirectWalkDominance !== true,
+          enableDirectWalkDominance: !transitRideRequired(request),
           disableCache: request.__disableNativeStreetPathCache === true,
         },
       )
@@ -12078,7 +12109,7 @@ export function routeNationalGtfsStore(storePath, request) {
         let earlyDirectComparison = null
         if (
           selectedKernelSearch.status === 'ready'
-          && request.__disableDirectWalkDominance !== true
+          && !transitRideRequired(request)
           && request.streetStorePath
           && earlyDirectCrowFlightKm <= directWalkEndToEndLimitKm(request) + 1e-9
           && earlyDirectPhysicalMinutes <= selectedTransitDurationMinutes + 1e-9
@@ -12875,6 +12906,7 @@ function routeNationalGtfsParetoAlternatives(storePath, request, centerMinutes, 
 }
 
 export function routeNationalGtfsDepartureWindow(storePath, request) {
+  validateTransitRideRequirement(request)
   validateMaximumTransfers(request.maxTransfers)
   request = withResolvedServiceDay(request)
   const windowStartedAt = performance.now()

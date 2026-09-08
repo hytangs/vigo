@@ -123,7 +123,7 @@ function usage() {
     '  --service-date YYYY-MM-DD   Required exact service date',
     '  --max-walk KM               Physical walking budget (default: 1.2)',
     '  --max-transfers N           Maximum transit changes, 0–31 (default: unrestricted)',
-    '  --horizon MIN               Matrix time horizon (default: 480)',
+    '  --horizon MIN               Transit search horizon (default: 480)',
     '  --cutoffs MINUTES           Reach limits, comma-separated (default: 15,30,45,60)',
     '  --extent-radius KM          Reach computation radius (default: 8)',
     `  --raster-size N             Reach grid: ${supportedReachRasterSizes.join(', ')} (default: 96)`,
@@ -185,9 +185,9 @@ function parseClock(input: string) {
   return hours * 60 + minutes
 }
 
-function parseNumber(input: string, label: string, minimum = 0) {
+function parseNumber(input: string, label: string, minimum = 0, maximum = Number.POSITIVE_INFINITY) {
   const parsed = Number(input)
-  if (!Number.isFinite(parsed) || parsed < minimum) throw new Error(`Invalid --${label} value: ${input}`)
+  if (!Number.isFinite(parsed) || parsed < minimum || parsed > maximum) throw new Error(`Invalid --${label} value: ${input}`)
   return parsed
 }
 
@@ -424,6 +424,7 @@ function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {
   if (!serviceDate) throw new Error('--service-date is required for exact timetable routing')
   const serviceDay = resolveServiceDay(serviceDate, value(args, 'service-day')) as ServiceDay
   const maxWalkKm = parseNumber(value(args, 'max-walk', '1.2'), 'max-walk', 0.01)
+  const horizonMinutes = boundedAnalyticalNumber(args, request, 'horizon', 'horizonMinutes', 480, 1, 2_880)
   const maxTransfers = args.has('max-transfers') || request.maxTransfers !== undefined
     ? parseIntegerNumber(value(args, 'max-transfers', String(request.maxTransfers)), 'max-transfers', 0, 31)
     : undefined
@@ -440,6 +441,7 @@ function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {
     serviceDate,
     maxWalkKm,
     maxTransfers,
+    horizonMinutes,
     departureWindowMinutes,
   }
 }
@@ -526,6 +528,9 @@ async function runRouteRequest(args: CliArguments) {
       maxWalkKm: options.maxWalkKm,
       maxTransfers: options.maxTransfers,
       streetStorePath,
+      requireTransitRide: request.requireTransitRide,
+      __disableNativeStreetPathCache: request.disableCache === true,
+      horizonMinutes: options.horizonMinutes,
       allowLongWalk: request.allowLongWalk !== false,
       departureWindowMinutes: options.departureWindowMinutes,
       walkingSpeedKph: request.walkSpeedKph,
@@ -616,6 +621,7 @@ async function runRoute(args: CliArguments) {
     maxWalkKm,
     maxTransfers,
     departureWindowMinutes,
+    horizonMinutes,
   } = runtimeOptions(args)
 
   const preparation = await prepareRuntime(storePath, streetStorePath, serviceDate, serviceDay)
@@ -652,6 +658,7 @@ async function runRoute(args: CliArguments) {
         allowServiceDateFallback: false,
         maxWalkKm,
         maxTransfers,
+        horizonMinutes,
         streetStorePath,
       }
       const result = routeOne(storePath, request, departureWindowMinutes)
@@ -817,6 +824,9 @@ async function runRouteStream(args: CliArguments) {
         const maxTransfers = input.maxTransfers === undefined
           ? defaults.maxTransfers
           : parseIntegerNumber(String(input.maxTransfers), 'maxTransfers', 0, 31)
+        const horizonMinutes = input.horizonMinutes === undefined
+          ? defaults.horizonMinutes
+          : parseNumber(String(input.horizonMinutes), 'horizonMinutes', 1, 2_880)
         const departureWindowMinutes = input.departureWindowMinutes === undefined
           ? defaults.departureWindowMinutes
           : parseIntegerNumber(String(input.departureWindowMinutes), 'departureWindowMinutes', 0, 30)
@@ -850,6 +860,9 @@ async function runRouteStream(args: CliArguments) {
           allowServiceDateFallback: false,
           maxWalkKm,
           maxTransfers,
+          requireTransitRide: input.requireTransitRide,
+          __disableNativeStreetPathCache: input.disableCache === true,
+          horizonMinutes,
           streetStorePath,
         }, departureWindowMinutes)
         const engine = engineDescriptor([routed])
@@ -1078,6 +1091,8 @@ function computePreparedMatrix(
         maxWalkKm: options.maxWalkKm,
         maxTransfers: options.maxTransfers,
         horizonMinutes,
+        requireTransitRide: request.requireTransitRide,
+        __disableNativeStreetPathCache: request.disableCache === true,
         includeJourneys: request.includeJourneys,
         includeGeometry: request.includeGeometry,
         streetStorePath,

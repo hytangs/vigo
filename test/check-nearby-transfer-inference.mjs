@@ -75,7 +75,7 @@ try {
   })
   assert.equal(plan.status, 'blocked')
   assert.equal(result.transferCount, 1, 'Only the literal forbidden transfer belongs in the routable table.')
-  assert.equal(result.transferSemanticsVersion, 'vigo.routing.transfers.v2')
+  assert.equal(result.transferSemanticsVersion, 'vigo.routing.transfers.v3')
   assert(result.transferGeneration.radialCandidateCount >= 2)
   assert.equal(result.transferGeneration.inferredTransferCount, 0)
 

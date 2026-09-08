@@ -1,4 +1,4 @@
-import type { LngLat, MapPreview, RouteMetric, ScheduledTrip, ServiceDay } from './domain'
+import type { LngLat, MapPreview, RouteMetric, ScheduledTrip } from './domain'
 import { coordinateDistanceKm, toDegrees, toRadians } from './app/geometry'
 
 export type ScheduledVehicle = {
@@ -79,12 +79,6 @@ function indexedPath(coordinates: LngLat[]) {
   const next = { coordinates, segmentBearings, segmentLengths, cumulativeDistances, totalDistance }
   indexedPathCache.set(coordinates, next)
   return next
-}
-
-function normalizeServiceTime(lastArrivalMinutes: number | undefined, clockMinutes: number) {
-  const lastArrival = lastArrivalMinutes ?? 24 * 60
-  if (lastArrival > 24 * 60 && clockMinutes < 4 * 60) return clockMinutes + 24 * 60
-  return clockMinutes
 }
 
 function coordinateAtProgress(coordinates: LngLat[], progress: number) {
@@ -212,25 +206,36 @@ function exactScheduledVehicleForTrip(
 
 export function formatScheduleClock(minutes: number) {
   const normalized = ((Math.round(minutes) % (24 * 60)) + 24 * 60) % (24 * 60)
-  const hours = Math.floor(normalized / 60)
-  const minute = normalized % 60
+  return formatServiceTime(normalized)
+}
+
+// GTFS time is elapsed from the selected service date. 25:30 and 01:30
+// belong to different instants, even though their wall-clock labels match.
+export function formatServiceTime(minutes: number) {
+  const rounded = Math.max(0, Math.round(minutes))
+  const hours = Math.floor(rounded / 60)
+  const minute = rounded % 60
   return `${String(hours).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
 }
 
-function isTripActiveOnServiceDay(trip: NonNullable<RouteMetric['scheduledTrips']>[number], serviceDay: ServiceDay) {
-  return !trip.serviceDays?.length || trip.serviceDays.includes(serviceDay)
+function hasScheduleForDate(route: RouteMetric, serviceDate: string) {
+  return Boolean(serviceDate) && route.analysisServiceDate === serviceDate && Array.isArray(route.scheduledTrips)
 }
 
-function projectionCacheKey(clockMinutes: number, serviceDay: ServiceDay) {
+function projectionCacheKey(clockMinutes: number, serviceDate: string) {
   return [
     Math.round(clockMinutes * 60),
-    serviceDay,
+    serviceDate,
   ].join(':')
 }
 
-function routeActiveAtServiceTime(route: RouteMetric, serviceTime: number) {
-  if (route.firstDepartureMinutes === undefined || route.lastArrivalMinutes === undefined) return true
-  return serviceTime >= route.firstDepartureMinutes && serviceTime <= route.lastArrivalMinutes
+export function scheduledServiceEndMinutes(preview: MapPreview, serviceDate: string) {
+  let end = 1439
+  for (const route of preview.routes) {
+    if (!hasScheduleForDate(route, serviceDate)) continue
+    for (const trip of route.scheduledTrips ?? []) end = Math.max(end, Math.ceil(trip.lastArrivalMinutes))
+  }
+  return end
 }
 
 function scheduledTripIndex(route: RouteMetric) {
@@ -275,34 +280,34 @@ function firstTripAfter(trips: ScheduledTrip[], departureMinutes: number) {
   return low
 }
 
+function* activeTripsAtTime(route: RouteMetric, serviceTime: number) {
+  const { trips, maximumRuntimeMinutes } = scheduledTripIndex(route)
+  const start = firstTripAtOrAfter(trips, serviceTime - maximumRuntimeMinutes)
+  const end = firstTripAfter(trips, serviceTime)
+  for (let index = start; index < end; index += 1) {
+    if (trips[index].lastArrivalMinutes >= serviceTime) yield trips[index]
+  }
+}
+
 export function scheduledVehiclesAtTime(
   preview: MapPreview,
   clockMinutes: number,
-  serviceDay: ServiceDay = 'weekday',
+  serviceDate: string,
 ): ScheduledVehicle[] {
-  const key = projectionCacheKey(clockMinutes, serviceDay)
+  const key = projectionCacheKey(clockMinutes, serviceDate)
   const cached = scheduledProjectionCache.get(preview)
   if (cached?.key === key) return cached.vehicles
 
   const vehicles: ScheduledVehicle[] = []
 
   for (const route of preview.routes) {
-    const coordinates = route.coordinates
-    if (!coordinates || coordinates.length < 2 || !hasTrustworthyVehiclePath(route)) continue
-
-    const serviceTime = normalizeServiceTime(route.lastArrivalMinutes, clockMinutes)
-    if (!routeActiveAtServiceTime(route, serviceTime)) continue
-    if (route.scheduledTrips?.length) {
-      const { trips, maximumRuntimeMinutes } = scheduledTripIndex(route)
-      const start = firstTripAtOrAfter(trips, serviceTime - maximumRuntimeMinutes)
-      const end = firstTripAfter(trips, serviceTime)
-      for (let index = start; index < end; index += 1) {
-        const trip = trips[index]
-        if (trip.lastArrivalMinutes < serviceTime || !isTripActiveOnServiceDay(trip, serviceDay)) continue
-        const vehicle = exactScheduledVehicleForTrip(route, trip, serviceTime)
-        if (vehicle) vehicles.push(vehicle)
-      }
-      continue
+    // The server has already applied calendar.txt and calendar_dates.txt for
+    // this exact date. A second weekday filter can only contradict it. A
+    // stale or compact route must wait for its dated analysis to load.
+    if (!hasScheduleForDate(route, serviceDate) || !hasTrustworthyVehiclePath(route)) continue
+    for (const trip of activeTripsAtTime(route, clockMinutes)) {
+      const vehicle = exactScheduledVehicleForTrip(route, trip, clockMinutes)
+      if (vehicle) vehicles.push(vehicle)
     }
   }
 
@@ -314,15 +319,11 @@ export function scheduledVehicleDiagnostics(
   preview: MapPreview,
   vehicles: ScheduledVehicle[],
   clockMinutes: number,
-  serviceDay: ServiceDay = 'weekday',
+  serviceDate: string,
 ): ScheduledVehicleDiagnostics {
-  const trustedRoutes = preview.routes.filter(hasTrustworthyVehiclePath)
-  const activeRoutes = trustedRoutes.filter((route) => {
-    const serviceTime = normalizeServiceTime(route.lastArrivalMinutes, clockMinutes)
-    return routeActiveAtServiceTime(route, serviceTime)
-  })
-  const clock = formatScheduleClock(clockMinutes)
-  const scheduledRoutes = activeRoutes.filter((route) => route.scheduledTrips?.length)
+  const datedRoutes = preview.routes.filter((route) => hasScheduleForDate(route, serviceDate))
+  const missingRoutes = preview.routes.length - datedRoutes.length
+  const clock = `${serviceDate} ${formatServiceTime(clockMinutes)}`
 
   if (!preview.routes.length) {
     return {
@@ -332,41 +333,49 @@ export function scheduledVehicleDiagnostics(
     }
   }
 
-  if (!trustedRoutes.length) {
-    return {
-      tone: 'empty',
-      title: 'No vehicle path',
-      detail: 'Vehicle projection requires published shapes.txt geometry. Stop-order chords are never used as simulated vehicle paths.',
-    }
-  }
-
-  if (!activeRoutes.length) {
-    return {
-      tone: 'empty',
-      title: 'No active service',
-      detail: `No trusted routes are active at ${clock} on ${serviceDay}. Scrub time or change service day.`,
-    }
-  }
-
-  if (!scheduledRoutes.length) {
+  if (!datedRoutes.length) {
     return {
       tone: 'watch',
       title: 'Schedule details not loaded',
-      detail: `Route geometry is active at ${clock}, but this view has no trip-level schedule to play. Open one route to load its service for the selected date.`,
+      detail: `Trip schedules for ${serviceDate} are not loaded in this view. Select a route to load its service for this date.`,
     }
   }
 
-  if (!vehicles.length) {
+  if (vehicles.length) {
+    return {
+      tone: missingRoutes ? 'watch' : 'good',
+      title: `${vehicles.length.toLocaleString()} scheduled vehicle${vehicles.length === 1 ? '' : 's'}`,
+      detail: `${vehicles.length.toLocaleString()} GTFS trip${vehicles.length === 1 ? '' : 's'} projected on published shapes at ${clock}.${missingRoutes ? ` ${missingRoutes} patterns still have no schedule loaded for this date.` : ''}`,
+    }
+  }
+
+  if (missingRoutes) {
     return {
       tone: 'watch',
+      title: 'Schedule details not loaded',
+      detail: `${missingRoutes} patterns have no schedule loaded for ${serviceDate}; the loaded patterns have no vehicle to display at ${formatServiceTime(clockMinutes)}.`,
+    }
+  }
+
+  if (!datedRoutes.some((route) => route.scheduledTrips?.length)) {
+    return {
+      tone: 'empty',
+      title: 'No service on this date',
+      detail: `The GTFS calendar and date exceptions contain no trips for these routes on ${serviceDate}.`,
+    }
+  }
+
+  if (!datedRoutes.some((route) => !activeTripsAtTime(route, clockMinutes).next().done)) {
+    return {
+      tone: 'empty',
       title: 'No scheduled trips at this time',
-      detail: `${activeRoutes.length} trusted route${activeRoutes.length === 1 ? '' : 's'} are active at ${clock}, but the static GTFS has no trip between stops at this instant.`,
+      detail: `No trip in the loaded ${serviceDate} timetable spans ${formatServiceTime(clockMinutes)}.`,
     }
   }
 
   return {
-    tone: 'good',
-    title: `${vehicles.length.toLocaleString()} scheduled vehicle${vehicles.length === 1 ? '' : 's'}`,
-    detail: `${vehicles.length.toLocaleString()} exact GTFS trip${vehicles.length === 1 ? '' : 's'} projected on published shapes at ${clock}; no inferred headway vehicles are added.`,
+    tone: 'watch',
+    title: 'Scheduled trips have no vehicle path',
+    detail: `Trips are active at ${clock}, but their published shape or timed stop positions cannot be projected.`,
   }
 }

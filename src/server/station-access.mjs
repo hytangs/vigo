@@ -1,12 +1,17 @@
 import { haversineKm } from './geometry-utils.mjs'
 
+export function stationFallbackSeconds(from, to, walkingSpeedKph = 4.8) {
+  const distanceKm = haversineKm([from.lon, from.lat], [to.lon, to.lat])
+  return Math.max(120, Math.ceil(distanceKm / walkingSpeedKph * 3600))
+}
+
 // Compile the directed station walking graph once. Retain every nondominated
 // time/distance path: a faster path can exceed an endpoint's remaining budget.
 // OSM transfers already belong to the complete native street frontier.
-export function stationAccessPaths(store, stops) {
+export function stationAccessPaths(store, stops, walkingSpeedKph = 4.8) {
   const indices = new Map(stops.map((stop, index) => [stop.stop_id, index]))
   const outgoing = stops.map(() => new Map())
-  const add = (fromId, toId, seconds, source) => {
+  const add = (fromId, toId, seconds, source, distanceM) => {
     const from = indices.get(fromId), to = indices.get(toId)
     if (from === undefined || to === undefined || from === to
       || store.forbiddenTransferPairs.has(`${fromId}\u0000${toId}`)) return
@@ -14,21 +19,27 @@ export function stationAccessPaths(store, stops) {
     if (current && current.seconds <= seconds) return
     outgoing[from].set(to, {
       to, seconds,
-      distanceM: haversineKm([stops[from].lon, stops[from].lat], [stops[to].lon, stops[to].lat]) * 1000,
+      distanceM: distanceM ?? haversineKm([stops[from].lon, stops[from].lat], [stops[to].lon, stops[to].lat]) * 1000,
       source,
     })
   }
   for (const [fromId, transfers] of store.transfers) {
     for (const transfer of transfers) {
       if (transfer.provenance === 'osm_certified_radial') continue
-      add(fromId, transfer.to_stop_id, Math.max(0, Number(transfer.min_transfer_time) || 0), transfer.provenance)
+      add(fromId, transfer.to_stop_id, Math.max(0, Number(transfer.min_transfer_time) || 0),
+        transfer.provenance, transfer.path_distance_m)
     }
   }
   for (const ids of store.stationMembers.values()) {
+    // A declared station graph owns its connectivity and direction. A generic
+    // platform shortcut must not bypass a long or one-way declared pathway.
+    if (ids.some(id => store.transfers.get(id)?.some(link => link.provenance === 'gtfs_pathway'))) continue
     const members = ids.filter(id => indices.has(id) && Number(stops[indices.get(id)].location_type || 0) === 0)
     for (const from of members) for (const to of members) {
       if (!store.transfers.get(from)?.some(link => link.to_stop_id === to)) {
-        add(from, to, 120, 'parent_station_fallback')
+        const a = stops[indices.get(from)], b = stops[indices.get(to)]
+        const distanceM = haversineKm([a.lon, a.lat], [b.lon, b.lat]) * 1000
+        add(from, to, stationFallbackSeconds(a, b, walkingSpeedKph), 'parent_station_fallback', distanceM)
       }
     }
   }

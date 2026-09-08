@@ -77,7 +77,6 @@ import {
   basemapOptions,
   networkLensOptions,
   schedulePresets,
-  serviceDayOptions,
   type RoutingDepartureWindowMinutes,
 } from './app/uiOptions'
 import { LazyVigoMap } from './components/LazyVigoMap'
@@ -111,7 +110,6 @@ import {
   type NetworkLens,
   type RealtimeSnapshot,
   type RouteMetric,
-  type ServiceDay,
   type VigoProject,
   classNames,
   basemapLabels,
@@ -123,7 +121,7 @@ import {
 import { entityFeedScope } from './networkTruth'
 import { buildNetworkPerformanceProfile } from './networkPerformance'
 import { scopedRouteServiceKey, type RouteRenderMode } from './routeServices'
-import { formatScheduleClock, scheduledVehicleDiagnostics, scheduledVehiclesAtTime } from './scheduledVehicles'
+import { formatServiceTime, scheduledServiceEndMinutes, scheduledVehicleDiagnostics, scheduledVehiclesAtTime } from './scheduledVehicles'
 import { buildServiceVehicleFrame, serviceVehicleCount, type ServiceVehicleMode } from './serviceVehicles'
 import {
   type RoutingPlan,
@@ -493,7 +491,7 @@ function VigoSidebar({
   networkLens,
   basemap,
   scheduleTimeMinutes,
-  scheduleServiceDay,
+  scheduleServiceDate,
   routingEnabled,
   routingOrigin,
   routingWaypoints,
@@ -510,9 +508,9 @@ function VigoSidebar({
   routingStoreConnectionCount,
   routingTimePreference,
   routingMode,
-  routingMaxTransfers,
   routingDepartureWindowMinutes,
   routingMaxWalkKm,
+  routingMaxTransfers,
   routingAllowLongWalk,
   routingActivity,
   routingAlternativesLoading,
@@ -541,14 +539,14 @@ function VigoSidebar({
   onNetworkLensChange,
   onBasemapChange,
   onScheduleTimeChange,
-  onScheduleServiceDayChange,
+  onScheduleServiceDateChange,
   onRunRoutingSearch,
   onReorderRoutingPoints,
   onRoutingTimePreferenceChange,
   onRoutingModeChange,
-  onRoutingMaxTransfersChange,
   onRoutingDepartureWindowChange,
   onRoutingMaxWalkKmChange,
+  onRoutingMaxTransfersChange,
   onRoutingAllowLongWalkChange,
   onRoutingServiceDateChange,
   onSelectRoutingPlan,
@@ -572,7 +570,7 @@ function VigoSidebar({
   mapScope: MapScope
   networkLens: NetworkLens
   basemap: Basemap
-  scheduleServiceDay: ServiceDay
+  scheduleServiceDate: string
   routingStoreStored: boolean
   routingStoreStoredFeedCount: number
   routingStoreTripCount: number
@@ -593,7 +591,7 @@ function VigoSidebar({
   onMapScopeChange: (scope: MapScope) => void
   onNetworkLensChange: (lens: NetworkLens) => void
   onBasemapChange: (basemap: Basemap) => void
-  onScheduleServiceDayChange: (serviceDay: ServiceDay) => void
+  onScheduleServiceDateChange: (serviceDate: string) => void
 } & Pick<SidebarPathfinderBoxProps,
   | 'routingEnabled'
   | 'routingOrigin'
@@ -607,9 +605,9 @@ function VigoSidebar({
   | 'routingStoreReadyFeedCount'
   | 'routingTimePreference'
   | 'routingMode'
-  | 'routingMaxTransfers'
   | 'routingDepartureWindowMinutes'
   | 'routingMaxWalkKm'
+  | 'routingMaxTransfers'
   | 'routingAllowLongWalk'
   | 'routingActivity'
   | 'routingAlternativesLoading'
@@ -628,9 +626,9 @@ function VigoSidebar({
   | 'onScheduleTimeChange'
   | 'onRoutingTimePreferenceChange'
   | 'onRoutingModeChange'
-  | 'onRoutingMaxTransfersChange'
   | 'onRoutingDepartureWindowChange'
   | 'onRoutingMaxWalkKmChange'
+  | 'onRoutingMaxTransfersChange'
   | 'onRoutingAllowLongWalkChange'
   | 'onRoutingServiceDateChange'
   | 'onSelectRoutingPlan'
@@ -685,17 +683,17 @@ function VigoSidebar({
   const scheduleProjectionEnabled = hasActiveData && isDataPanel && vehicleMode === 'schedule'
   const scheduledVehicles = useMemo(
     () => scheduleProjectionEnabled
-      ? scheduledVehiclesAtTime(scopedMapPreview, scheduleTimeMinutes, scheduleServiceDay)
+      ? scheduledVehiclesAtTime(scopedMapPreview, scheduleTimeMinutes, scheduleServiceDate)
       : [],
-    [scheduleProjectionEnabled, scopedMapPreview, scheduleServiceDay, scheduleTimeMinutes],
+    [scheduleProjectionEnabled, scopedMapPreview, scheduleServiceDate, scheduleTimeMinutes],
   )
   const scheduleDiagnostics = useMemo(
     () => renderingLive
       ? liveVehicleDiagnostics(liveVehicleCount, realtimeSnapshot !== null)
       : scheduleProjectionEnabled
-        ? scheduledVehicleDiagnostics(scopedMapPreview, scheduledVehicles, scheduleTimeMinutes, scheduleServiceDay)
+        ? scheduledVehicleDiagnostics(scopedMapPreview, scheduledVehicles, scheduleTimeMinutes, scheduleServiceDate)
         : liveVehicleDiagnostics(0),
-    [liveVehicleCount, realtimeSnapshot, renderingLive, scheduleProjectionEnabled, scopedMapPreview, scheduleServiceDay, scheduleTimeMinutes, scheduledVehicles],
+    [liveVehicleCount, realtimeSnapshot, renderingLive, scheduleProjectionEnabled, scopedMapPreview, scheduleServiceDate, scheduleTimeMinutes, scheduledVehicles],
   )
   const lensInsight = buildNetworkLensInsight(activeFeed, visiblePreview, networkLens)
   const [routeScrollTop, setRouteScrollTop] = useState(0)
@@ -873,8 +871,9 @@ function VigoSidebar({
                 networkLens={networkLens}
                 basemap={basemap}
                 scheduleTimeMinutes={scheduleTimeMinutes}
-                scheduleServiceDay={scheduleServiceDay}
+                scheduleServiceDate={scheduleServiceDate}
                 scheduleDiagnostics={scheduleDiagnostics}
+                scheduleEndMinutes={scheduledServiceEndMinutes(scopedMapPreview, scheduleServiceDate)}
                 lensInsight={lensInsight}
                 performanceProfile={scopedPerformanceProfile}
                 livePositionCount={realtimePositionCount(realtimeSnapshot)}
@@ -883,7 +882,7 @@ function VigoSidebar({
                 onNetworkLensChange={onNetworkLensChange}
                 onBasemapChange={onBasemapChange}
                 onScheduleTimeChange={onScheduleTimeChange}
-                onScheduleServiceDayChange={onScheduleServiceDayChange}
+                onScheduleServiceDateChange={onScheduleServiceDateChange}
                 onOpenLive={onOpenLive}
               />
             ) : null}
@@ -953,8 +952,8 @@ function VigoSidebar({
                 routingTimePreference={routingTimePreference}
                 routingMode={routingMode}
                 routingDepartureWindowMinutes={routingDepartureWindowMinutes}
-                routingMaxTransfers={routingMaxTransfers}
                 routingMaxWalkKm={routingMaxWalkKm}
+                routingMaxTransfers={routingMaxTransfers}
                 routingAllowLongWalk={routingAllowLongWalk}
                 routingActivity={routingActivity}
                 routingAlternativesLoading={routingAlternativesLoading}
@@ -974,8 +973,8 @@ function VigoSidebar({
                 onRoutingTimePreferenceChange={onRoutingTimePreferenceChange}
                 onRoutingModeChange={onRoutingModeChange}
                 onRoutingDepartureWindowChange={onRoutingDepartureWindowChange}
-                onRoutingMaxTransfersChange={onRoutingMaxTransfersChange}
                 onRoutingMaxWalkKmChange={onRoutingMaxWalkKmChange}
+                onRoutingMaxTransfersChange={onRoutingMaxTransfersChange}
                 onRoutingAllowLongWalkChange={onRoutingAllowLongWalkChange}
                 onRoutingServiceDateChange={onRoutingServiceDateChange}
                 onSelectRoutingPlan={onSelectRoutingPlan}
@@ -1110,8 +1109,9 @@ function SidebarNetworkBox({
   networkLens,
   basemap,
   scheduleTimeMinutes,
-  scheduleServiceDay,
+  scheduleServiceDate,
   scheduleDiagnostics,
+  scheduleEndMinutes,
   lensInsight,
   performanceProfile,
   livePositionCount,
@@ -1120,15 +1120,16 @@ function SidebarNetworkBox({
   onNetworkLensChange,
   onBasemapChange,
   onScheduleTimeChange,
-  onScheduleServiceDayChange,
+  onScheduleServiceDateChange,
   onOpenLive,
 }: {
   mapScope: MapScope
   networkLens: NetworkLens
   basemap: Basemap
   scheduleTimeMinutes: number
-  scheduleServiceDay: ServiceDay
+  scheduleServiceDate: string
   scheduleDiagnostics: ReturnType<typeof scheduledVehicleDiagnostics>
+  scheduleEndMinutes: number
   lensInsight: ReturnType<typeof buildNetworkLensInsight>
   performanceProfile: ReturnType<typeof buildNetworkPerformanceProfile>
   livePositionCount: number
@@ -1137,10 +1138,10 @@ function SidebarNetworkBox({
   onNetworkLensChange: (lens: NetworkLens) => void
   onBasemapChange: (basemap: Basemap) => void
   onScheduleTimeChange: (minutes: number) => void
-  onScheduleServiceDayChange: (serviceDay: ServiceDay) => void
+  onScheduleServiceDateChange: (serviceDate: string) => void
   onOpenLive: () => void
 }) {
-  const clock = formatScheduleClock(scheduleTimeMinutes)
+  const clock = formatServiceTime(scheduleTimeMinutes)
 
   return (
     <section className="sidebar-section sidebox sidebox-network" aria-label="Network controls">
@@ -1188,7 +1189,7 @@ function SidebarNetworkBox({
         <input
           type="range"
           min={0}
-          max={1439}
+          max={scheduleEndMinutes}
           step={1}
           value={scheduleTimeMinutes}
           onChange={(event) => onScheduleTimeChange(Number(event.currentTarget.value))}
@@ -1209,18 +1210,15 @@ function SidebarNetworkBox({
         ))}
       </div>
 
-      <div className="sidebox-row sidebox-days" role="group" aria-label="Service day">
-        {serviceDayOptions.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            className={classNames(scheduleServiceDay === option.value && 'is-active')}
-            onClick={() => onScheduleServiceDayChange(option.value)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
+      <label className="sidebox-row sidebox-days">
+        Service date
+        <input
+          type="date"
+          value={scheduleServiceDate}
+          onChange={(event) => onScheduleServiceDateChange(event.currentTarget.value)}
+          aria-label="Network service date"
+        />
+      </label>
 
       <div className="sidebox-row sidebox-basemap" role="group" aria-label="Basemap">
         {basemapOptions.map((option) => (
@@ -2044,7 +2042,7 @@ function RouteSurface({
   realtimeSnapshot,
   vehicleMode,
   scheduleTimeMinutes,
-  scheduleServiceDay,
+  scheduleServiceDate,
   routingEnabled,
   routingOrigin,
   routingWaypoints,
@@ -2067,7 +2065,7 @@ function RouteSurface({
   onMapScopeChange,
   onVehicleModeChange,
   onScheduleTimeChange,
-  onScheduleServiceDayChange,
+  onScheduleServiceDateChange,
   onRoutingPoint,
   onSelectRoute,
   onSelectStop,
@@ -2088,7 +2086,7 @@ function RouteSurface({
   vehicleMode: ServiceVehicleMode
   mapScope: MapScope
   scheduleTimeMinutes: number
-  scheduleServiceDay: ServiceDay
+  scheduleServiceDate: string
   routingEnabled: boolean
   routingOrigin: RoutingPoint | null
   routingWaypoints: RoutingPoint[]
@@ -2111,7 +2109,7 @@ function RouteSurface({
   onMapScopeChange: (scope: MapScope) => void
   onVehicleModeChange: (mode: ServiceVehicleMode) => void
   onScheduleTimeChange: (minutes: number) => void
-  onScheduleServiceDayChange: (serviceDay: ServiceDay) => void
+  onScheduleServiceDateChange: (serviceDate: string) => void
   onRoutingPoint?: (point: RoutingPoint) => void
   onSelectRoute: (id: string) => void
   onSelectStop: (id: string) => void
@@ -2145,8 +2143,8 @@ function RouteSurface({
   const scheduledVehicles = useMemo(
     () => vehicleMode === 'live' || routingFocus || analysisFocus
       ? []
-      : scheduledVehiclesAtTime(mapPreview, scheduleTimeMinutes, scheduleServiceDay),
-    [analysisFocus, mapPreview, routingFocus, scheduleServiceDay, scheduleTimeMinutes, vehicleMode],
+      : scheduledVehiclesAtTime(mapPreview, scheduleTimeMinutes, scheduleServiceDate),
+    [analysisFocus, mapPreview, routingFocus, scheduleServiceDate, scheduleTimeMinutes, vehicleMode],
   )
   const vehicleFrame = useMemo(
     () => buildServiceVehicleFrame({
@@ -2161,12 +2159,16 @@ function RouteSurface({
   const serviceDiagnostics = useMemo(
     () => vehicleMode === 'live'
       ? liveVehicleDiagnostics(visibleVehicleCount, realtimeSnapshot !== null)
-      : scheduledVehicleDiagnostics(mapPreview, scheduledVehicles, scheduleTimeMinutes, scheduleServiceDay),
-    [mapPreview, realtimeSnapshot, scheduleServiceDay, scheduleTimeMinutes, scheduledVehicles, vehicleMode, visibleVehicleCount],
+      : scheduledVehicleDiagnostics(mapPreview, scheduledVehicles, scheduleTimeMinutes, scheduleServiceDate),
+    [mapPreview, realtimeSnapshot, scheduleServiceDate, scheduleTimeMinutes, scheduledVehicles, vehicleMode, visibleVehicleCount],
   )
   const routeStyle = {
     '--route-color': selectedRoute?.color ?? '#6da8ff',
   } as CSSProperties
+  const scheduleEndMinutes = useMemo(
+    () => scheduledServiceEndMinutes(mapPreview, scheduleServiceDate),
+    [mapPreview, scheduleServiceDate],
+  )
   const [servicePlaybackRunning, setServicePlaybackRunning] = useState(false)
   const [servicePlaybackStep, setServicePlaybackStep] = useState(1)
   const playbackTimeRef = useRef(scheduleTimeMinutes)
@@ -2182,12 +2184,12 @@ function RouteSurface({
   useEffect(() => {
     if (!servicePlaybackRunning || routingFocus || analysisFocus || vehicleMode === 'live') return undefined
     const timer = window.setInterval(() => {
-      const nextTime = (playbackTimeRef.current + servicePlaybackStep + 1440) % 1440
+      const nextTime = (playbackTimeRef.current + servicePlaybackStep) % (scheduleEndMinutes + 1)
       playbackTimeRef.current = nextTime
       onScheduleTimeChange(nextTime)
     }, 650)
     return () => window.clearInterval(timer)
-  }, [analysisFocus, onScheduleTimeChange, routingFocus, servicePlaybackRunning, servicePlaybackStep, vehicleMode])
+  }, [analysisFocus, onScheduleTimeChange, routingFocus, scheduleEndMinutes, servicePlaybackRunning, servicePlaybackStep, vehicleMode])
 
   return (
     <section className="route-surface" aria-label="GTFS map and service state" style={routeStyle}>
@@ -2251,14 +2253,15 @@ function RouteSurface({
             vehicleCount={visibleVehicleCount}
             diagnostics={serviceDiagnostics}
             scheduleTimeMinutes={scheduleTimeMinutes}
-            scheduleServiceDay={scheduleServiceDay}
+            scheduleServiceDate={scheduleServiceDate}
+            scheduleEndMinutes={scheduleEndMinutes}
             playbackRunning={servicePlaybackRunning}
             playbackStep={servicePlaybackStep}
             onModeChange={onVehicleModeChange}
             onTogglePlayback={() => setServicePlaybackRunning((current) => !current)}
             onPlaybackStepChange={setServicePlaybackStep}
             onScheduleTimeChange={onScheduleTimeChange}
-            onScheduleServiceDayChange={onScheduleServiceDayChange}
+            onScheduleServiceDateChange={onScheduleServiceDateChange}
           />
         ) : null}
         {!routingFocus && !analysisFocus && !mapPreview.routes.length ? (
@@ -2348,16 +2351,15 @@ export default function App() {
   const [routeRenderMode, setRouteRenderMode] = useState<RouteRenderMode>('service')
   const [networkLens, setNetworkLens] = useState<NetworkLens>('network')
   const [scheduleTimeMinutes, setScheduleTimeMinutes] = useState(8 * 60)
-  const [scheduleServiceDay, setScheduleServiceDay] = useState<ServiceDay>('weekday')
   const [routingServiceDate, setRoutingServiceDate] = useState(() => localCalendarDate())
   const [routingResidencyCoverage, setRoutingResidencyCoverage] = useState<RoutingServiceCoverage | null>(null)
   const [routingTimePreference, setRoutingTimePreference] = useState<RoutingTimePreference>('depart')
   const [routingMode, setRoutingMode] = useState<RoutingTravelMode>('transit')
   const [routingDepartureWindowMinutes, setRoutingDepartureWindowMinutes] = useState<RoutingDepartureWindowMinutes>(20)
   const [routingMaxWalkKm, setRoutingMaxWalkKm] = useState(1.2)
+  const [routingMaxTransfers, setRoutingMaxTransfers] = useState<number | undefined>()
   const [routingAllowLongWalk, setRoutingAllowLongWalk] = useState(true)
   const [selectedRoutingPlanId, setSelectedRoutingPlanId] = useState('')
-  const [routingMaxTransfers, setRoutingMaxTransfers] = useState<number | undefined>()
   const [routingEnabled, setRoutingEnabled] = useState(false)
   const [routingOrigin, setRoutingOrigin] = useState<RoutingPoint | null>(null)
   const [routingWaypoints, setRoutingWaypoints] = useState<RoutingPoint[]>([])
@@ -2575,9 +2577,9 @@ export default function App() {
     serviceDay: routingServiceDay,
     serviceDate: routingServiceDate,
     maxWalkKm: routingMaxWalkKm,
+    maxTransfers: routingMaxTransfers,
     allowLongWalk: routingAllowLongWalk,
     departureWindowMinutes: routingDepartureWindowMinutes,
-    maxTransfers: routingMaxTransfers,
     realtimeSnapshot,
     routeAllowed: routingStreetState === 'ready',
     onError: setApiError,
@@ -5214,7 +5216,7 @@ export default function App() {
         networkLens={networkLens}
         basemap={basemap}
         scheduleTimeMinutes={scheduleTimeMinutes}
-        scheduleServiceDay={scheduleServiceDay}
+        scheduleServiceDate={routingServiceDate}
         routingEnabled={routingEnabled}
         routingOrigin={routingOrigin}
         routingWaypoints={routingWaypoints}
@@ -5233,9 +5235,9 @@ export default function App() {
         routingMode={routingMode}
         routingDepartureWindowMinutes={routingDepartureWindowMinutes}
         routingMaxWalkKm={routingMaxWalkKm}
+        routingMaxTransfers={routingMaxTransfers}
         routingAllowLongWalk={routingAllowLongWalk}
         routingActivity={routingActivity}
-        routingMaxTransfers={routingMaxTransfers}
         routingAlternativesLoading={nationalRouting.alternativesLoading}
         routingServiceDate={routingServiceDate}
         routingServiceCoverage={nationalRouting.serviceCoverage}
@@ -5271,16 +5273,16 @@ export default function App() {
         onNetworkLensChange={selectNetworkLens}
         onBasemapChange={changeBasemap}
         onScheduleTimeChange={setScheduleTimeMinutes}
-        onScheduleServiceDayChange={setScheduleServiceDay}
+        onScheduleServiceDateChange={changeRoutingServiceDate}
         onRunRoutingSearch={runRoutingSearch}
         onReorderRoutingPoints={reorderRoutingPoints}
         onRoutingTimePreferenceChange={changeRoutingTimePreference}
         onRoutingModeChange={changeRoutingMode}
         onRoutingDepartureWindowChange={changeRoutingDepartureWindow}
         onRoutingMaxWalkKmChange={changeRoutingMaxWalkKm}
+        onRoutingMaxTransfersChange={setRoutingMaxTransfers}
         onRoutingAllowLongWalkChange={setRoutingAllowLongWalk}
         onRoutingServiceDateChange={changeRoutingServiceDate}
-        onRoutingMaxTransfersChange={setRoutingMaxTransfers}
         onSelectRoutingPlan={(id) => {
           setSelectedRoutingPlanId(id)
         }}
@@ -5376,7 +5378,7 @@ export default function App() {
           realtimeSnapshot={realtimeSnapshot}
           vehicleMode={vehicleMode}
           scheduleTimeMinutes={scheduleTimeMinutes}
-          scheduleServiceDay={scheduleServiceDay}
+          scheduleServiceDate={routingServiceDate}
           routingEnabled={routingEnabled}
           routingOrigin={activeRouteTool === 'analyze' ? analysisOrigin : routingOrigin}
           routingWaypoints={activeRouteTool === 'analyze' ? [] : routingWaypoints}
@@ -5399,7 +5401,7 @@ export default function App() {
           onMapScopeChange={setMapScope}
           onVehicleModeChange={changeVehicleMode}
           onScheduleTimeChange={setScheduleTimeMinutes}
-          onScheduleServiceDayChange={setScheduleServiceDay}
+          onScheduleServiceDateChange={changeRoutingServiceDate}
           onRoutingPoint={activeRouteTool === 'analyze' ? analysisPointFromMap : routingPointFromMap}
           onSelectRoute={selectRoute}
           onSelectStop={selectStop}
