@@ -783,7 +783,11 @@ function routingStoreAdmissionError(storePath, reason, detail) {
   return error
 }
 
-function admitCurrentTransferSemantics(db, storePath, metadata = metadataRecord(db)) {
+function admitRoutingStoreVersion(storePath, metadata) {
+  if (metadata.schemaVersion !== storeSchemaVersion) {
+    throw routingStoreAdmissionError(storePath, 'schema_version_mismatch',
+      `metadata.schemaVersion is ${JSON.stringify(metadata.schemaVersion)}.`)
+  }
   if (metadata.transferSemanticsVersion !== transferSemanticsVersion) {
     throw routingStoreAdmissionError(
       storePath,
@@ -791,6 +795,10 @@ function admitCurrentTransferSemantics(db, storePath, metadata = metadataRecord(
       `Transfer semantics are ${String(metadata.transferSemanticsVersion ?? 'unspecified')}; ${transferSemanticsVersion} is required.`,
     )
   }
+}
+
+function admitCurrentTransferSemantics(db, storePath, metadata = metadataRecord(db)) {
+  admitRoutingStoreVersion(storePath, metadata)
   const hasTransferProvenance = db.prepare(`
     SELECT 1 AS ready
     FROM sqlite_master
@@ -897,13 +905,7 @@ function admitNationalRoutingStore(db, storePath) {
   if (schemaVersion === undefined) {
     throw routingStoreAdmissionError(storePath, 'schema_version_missing', 'metadata.schemaVersion is missing.')
   }
-  if (schemaVersion !== storeSchemaVersion) {
-    throw routingStoreAdmissionError(
-      storePath,
-      'schema_version_mismatch',
-      `metadata.schemaVersion is ${JSON.stringify(schemaVersion)}.`,
-    )
-  }
+  admitRoutingStoreVersion(storePath, metadata)
   return {
     metadata,
     admission: Object.freeze({
@@ -927,7 +929,8 @@ export function compactNationalGtfsRuntimeStore(storePath) {
   const inspection = new DatabaseSync(resolvedPath, { readOnly: true })
   let alreadyDeferred = false
   try {
-    const metadata = metadataRecord(inspection)
+    const { metadata } = admitNationalRoutingStore(inspection, resolvedPath)
+    admitCurrentTransferSemantics(inspection, resolvedPath, metadata)
     alreadyDeferred = metadata.departureIndexState === 'deferred'
   } finally {
     inspection.close()
@@ -958,6 +961,18 @@ export function compactNationalGtfsRuntimeStore(storePath) {
     throw error
   } finally {
     database.close()
+  }
+  // Compaction changes the authoritative generation. Its old sidecars and
+  // snapshots must be retired before any subsequent preparation.
+  const prefix = `${path.basename(resolvedPath)}.`
+  for (const entry of fs.readdirSync(path.dirname(resolvedPath), { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.startsWith(prefix)) continue
+    const suffix = entry.name.slice(prefix.length)
+    if (suffix === 'static-topology.sqlite'
+      || /^active-service-kernel\..+\.bin$/.test(suffix)
+      || /^native-access-profile\..+\.bin$/.test(suffix)) {
+      fs.rmSync(path.join(path.dirname(resolvedPath), entry.name))
+    }
   }
   const afterBytes = fs.statSync(resolvedPath).size
   return {
@@ -1228,6 +1243,7 @@ async function refreshNationalGtfsDerivedArtifacts(storePath, options = {}) {
 
 export async function ensureNationalGtfsDerivedArtifactsCurrent(storePath, options = {}) {
   const resolvedStorePath = path.resolve(storePath)
+  readNationalGtfsStoreMetadata(resolvedStorePath)
   const sidecarPath = path.resolve(
     options.sidecarPath ?? nationalStaticTopologySidecarPath(resolvedStorePath),
   )
@@ -1269,60 +1285,6 @@ export async function ensureNationalGtfsDerivedArtifactsCurrent(storePath, optio
     refreshed: true,
     source: 'sidecar',
     embedded,
-  }
-}
-
-export async function upgradeNationalGtfsPerformanceSchema(storePath, options = {}) {
-  const resolvedStorePath = path.resolve(storePath)
-  disposeNationalGtfsStore(resolvedStorePath)
-  const db = new DatabaseSync(resolvedStorePath)
-  let catalog
-  try {
-    db.exec('PRAGMA busy_timeout=5000; BEGIN IMMEDIATE;')
-    try {
-      db.exec(`
-        CREATE INDEX IF NOT EXISTS routes_service_identity ON routes(
-          route_type,
-          LOWER(COALESCE(NULLIF(TRIM(short_name), ''), NULLIF(TRIM(long_name), ''), route_id)),
-          route_id
-        );
-        CREATE INDEX IF NOT EXISTS trips_route ON trips(route_id, trip_id);
-      `)
-      refreshRouteServiceCatalog(db)
-      const setMetadata = db.prepare(`
-        INSERT INTO metadata(key, value) VALUES(?, ?)
-        ON CONFLICT(key) DO UPDATE SET value=excluded.value
-      `)
-      setMetadata.run('routeServiceCatalogVersion', JSON.stringify(routeServiceCatalogSchemaVersion))
-      setMetadata.run('routeServiceCatalogBuiltAt', JSON.stringify(new Date().toISOString()))
-      catalog = db.prepare(`
-        SELECT COUNT(*) AS service_count,
-          SUM(variant_count) AS variant_count,
-          SUM(trip_count) AS trip_count
-        FROM route_services
-      `).get()
-      db.exec('COMMIT;')
-    } catch (error) {
-      db.exec('ROLLBACK;')
-      throw error
-    }
-    db.exec('PRAGMA wal_checkpoint(TRUNCATE); PRAGMA optimize;')
-  } finally {
-    db.close()
-    disposeNationalGtfsStore(resolvedStorePath)
-  }
-
-  const derivedArtifacts = options.refreshDerivedArtifacts === false
-    ? undefined
-    : await refreshNationalGtfsDerivedArtifacts(resolvedStorePath, options)
-  return {
-    schemaVersion: 'vigo.routing.performance-schema-upgrade.v1',
-    storePath: resolvedStorePath,
-    routeServiceCatalogVersion: routeServiceCatalogSchemaVersion,
-    serviceCount: Number(catalog?.service_count ?? 0),
-    variantCount: Number(catalog?.variant_count ?? 0),
-    tripCount: Number(catalog?.trip_count ?? 0),
-    derivedArtifacts,
   }
 }
 
@@ -1656,6 +1618,8 @@ function createRoutingStoreIndexes(db) {
 export async function ensureNationalGtfsStopAccessRoles(storePath) {
   const resolvedStorePath = path.resolve(storePath)
   const startedAt = performance.now()
+  // Reject old source semantics before opening any writable connection.
+  readNationalGtfsStoreMetadata(resolvedStorePath)
   let database = new DatabaseSync(resolvedStorePath)
   try {
     const metadata = metadataRecord(database)
@@ -2510,7 +2474,14 @@ export async function mergeNationalGtfsStores({ stores, outputPath, onProgress, 
   for (const descriptor of descriptors) {
     const stats = await fsp.stat(descriptor.storePath).catch(() => null)
     if (!stats?.isFile()) throw new Error(`Routing store is missing: ${descriptor.storePath}`)
-    const metadata = readNationalGtfsStoreMetadata(descriptor.storePath)
+    const source = new DatabaseSync(descriptor.storePath, { readOnly: true })
+    let metadata
+    try {
+      metadata = admitNationalRoutingStore(source, descriptor.storePath).metadata
+      admitCurrentTransferSemantics(source, descriptor.storePath, metadata)
+    } finally {
+      source.close()
+    }
     if (metadata.serviceModel !== 'exact-date') {
       throw new Error(`Routing store is not an exact-date raw GTFS store: ${descriptor.storePath}`)
     }
@@ -2700,7 +2671,9 @@ export async function mergeNationalGtfsStores({ stores, outputPath, onProgress, 
 export function readNationalGtfsStoreMetadata(storePath) {
   const db = new DatabaseSync(storePath, { readOnly: true })
   try {
-    return metadataRecord(db)
+    const metadata = metadataRecord(db)
+    admitRoutingStoreVersion(storePath, metadata)
+    return metadata
   } finally {
     db.close()
   }
@@ -2878,6 +2851,7 @@ function populateStaticTopology(sourceDb, targetDb, { expectedConnections = 1, o
 export async function buildNationalStaticTopologySidecar({ storePath, outputPath, onProgress, minimumFreeBytes, force = false }) {
   const resolvedStorePath = path.resolve(storePath)
   const resolvedOutputPath = path.resolve(outputPath)
+  readNationalGtfsStoreMetadata(resolvedStorePath)
   const before = inspectNationalStaticTopologySidecar(resolvedStorePath, resolvedOutputPath)
   if (before.ready && force !== true) {
     return {
@@ -6240,6 +6214,9 @@ export async function ensureNationalGtfsOsmStopTransfers(
 ) {
   const resolvedStorePath = path.resolve(storePath)
   const resolvedStreetStorePath = path.resolve(streetStorePath)
+  // Both authoritative inputs must be current before changing either store.
+  readNationalGtfsStoreMetadata(resolvedStorePath)
+  const streetMetadata = readNationalOsmStoreMetadata(resolvedStreetStorePath)
   const stopAccessRoles = await ensureNationalGtfsStopAccessRoles(resolvedStorePath)
   const maximumWalkM = Math.max(
     50,
@@ -6250,7 +6227,6 @@ export async function ensureNationalGtfsOsmStopTransfers(
     Math.min(4_096, Math.floor(numeric(options.maximumNeighbors, osmTransferMaximumNeighbors))),
   )
   const streetStorageIdentity = currentStreetStoreStorageIdentity(resolvedStreetStorePath)
-  const streetMetadata = readNationalOsmStoreMetadata(resolvedStreetStorePath)
   const inspection = new DatabaseSync(resolvedStorePath, { readOnly: true })
   let metadata
   let expectedFingerprint
@@ -6454,16 +6430,14 @@ export async function ensureNationalGtfsOsmStopTransfers(
     progress: 0.75,
     detail: `${insertedEdges.toLocaleString()} directed stop transfers`,
   })
-  const derivedArtifacts = options.refreshDerivedArtifacts === false
-    ? undefined
-    : await refreshNationalGtfsDerivedArtifacts(resolvedStorePath, {
-        onProgress: options.onProgress
-          ? (progress) => options.onProgress({
-              ...progress,
-              progress: 0.75 + Math.max(0, Math.min(1, progress.progress)) * 0.25,
-            })
-          : undefined,
-      })
+  const derivedArtifacts = await refreshNationalGtfsDerivedArtifacts(resolvedStorePath, {
+    onProgress: options.onProgress
+      ? (progress) => options.onProgress({
+          ...progress,
+          progress: 0.75 + Math.max(0, Math.min(1, progress.progress)) * 0.25,
+        })
+      : undefined,
+  })
   return {
     ready: true,
     built: true,

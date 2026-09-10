@@ -598,29 +598,6 @@
   background: color-mix(in srgb, var(--accent) 10%, var(--panel));
 }
 
-.empty-intake .realtime-strip {
-  display: none;
-}
-
-.empty-intake .advanced-import {
-  margin: 0 9px 9px;
-}
-
-.empty-intake .advanced-import summary {
-  min-height: 30px;
-  justify-content: center;
-  padding: 0;
-  font-size: 0.62rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.empty-intake .advanced-import summary::marker,
-.empty-intake .advanced-import summary::-webkit-details-marker {
-  display: none;
-  content: "";
-}
-
 .project-page {
   min-height: 0;
   display: grid;
@@ -1471,112 +1448,203 @@
   background: color-mix(in srgb, var(--accent) 8%, var(--panel-strong));
 }
 
-.url-import {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px;
-  padding: 0 9px 9px;
-}
-
-.advanced-import {
-  margin: 0 8px 8px;
+/* Live feed setup and connection status. */
+.realtime-panel {
+  min-width: 0;
+  margin: 4px 8px 8px;
+  padding: 14px;
   border: 1px solid var(--border);
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--panel-strong) 36%, transparent);
+  border-radius: 8px;
+  background: var(--panel-strong);
 }
 
-.advanced-import summary {
-  min-height: 32px;
+.realtime-heading,
+.realtime-heading > div,
+.realtime-status,
+.realtime-preset,
+.realtime-actions {
   display: flex;
   align-items: center;
-  padding: 0 9px;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 0.66rem;
-  font-weight: 860;
-  list-style-position: inside;
+  gap: 8px;
 }
 
-.advanced-import .url-import {
-  padding: 0 8px 8px;
+.realtime-heading,
+.realtime-preset {
+  justify-content: space-between;
+  flex-wrap: wrap;
 }
 
-.url-import :is(input, textarea) {
-  min-width: 0;
-  padding: 0 9px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  background: color-mix(in srgb, var(--panel-strong) 70%, transparent);
-  outline: none;
-}
-
-.url-import :is(input, textarea):focus {
-  border-color: var(--accent);
-}
-
-.url-import input {
-  height: 32px;
-}
-
-.realtime-import textarea {
-  min-height: 64px;
-  padding-block: 7px;
-  line-height: 1.35;
-  resize: vertical;
-}
-
-.url-import button {
-  min-width: max-content;
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+.realtime-heading strong {
   color: var(--text-strong);
-  background: color-mix(in srgb, var(--accent) 14%, var(--panel-strong));
-  cursor: pointer;
-  white-space: nowrap;
+  font-size: 0.86rem;
 }
 
-.url-import button:disabled {
-  cursor: not-allowed;
-  opacity: 0.58;
+.realtime-heading svg {
+  color: var(--text-muted);
 }
 
-.realtime-import {
-  padding-top: 0;
+.realtime-status {
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 0.66rem;
 }
 
-.realtime-strip {
-  min-width: 0;
-  min-height: 32px;
+.realtime-status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.realtime-status.is-connected {
+  color: var(--success);
+}
+
+.realtime-status.needs-attention,
+.realtime-warning {
+  color: var(--warn);
+}
+
+.realtime-description {
+  margin: 7px 0 14px;
+  color: var(--text-muted);
+  font-size: 0.71rem;
+  line-height: 1.5;
+}
+
+.realtime-connection {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.realtime-connection > strong {
+  color: var(--text-strong);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.realtime-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.realtime-counts > div {
   display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: 0 8px 8px;
+  flex-direction: column-reverse;
+  gap: 3px;
+}
+
+.realtime-counts dt {
+  color: var(--text-muted);
+  font-size: 0.66rem;
+}
+
+.realtime-counts dd {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1.16rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.realtime-connection p {
+  margin: 6px 0 0;
+  font-size: 0.65rem;
+  line-height: 1.5;
+}
+
+.realtime-preset {
+  margin-bottom: 12px;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
+
+.realtime-preset button {
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.realtime-preset button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+}
+
+.realtime-fields {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.realtime-fields label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  color: var(--text);
+  font-size: 0.71rem;
+}
+
+.realtime-fields small {
+  margin-left: 4px;
+  color: var(--text-muted);
+  font-size: 0.64rem;
+}
+
+.realtime-fields input {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
   padding: 0 9px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.68rem;
+}
+
+.realtime-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--danger) 25%, var(--border));
+  border-radius: 5px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 5%, var(--panel));
+  font-size: 0.7rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.realtime-error svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.realtime-error p {
+  margin: 5px 0 0;
   color: var(--text-muted);
-  background: color-mix(in srgb, var(--panel-strong) 46%, transparent);
-  font-size: 0.66rem;
-  font-weight: 790;
 }
 
-.realtime-strip.has-live {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
-  background: color-mix(in srgb, var(--accent) 8%, var(--panel-strong));
+.realtime-actions {
+  margin-top: 14px;
+  flex-wrap: wrap;
 }
 
-.realtime-strip span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.realtime-actions .button {
+  min-height: 32px;
+  font-size: 0.7rem;
 }

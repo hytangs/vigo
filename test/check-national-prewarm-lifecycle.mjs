@@ -37,7 +37,7 @@ function fixtureProject(projectId) {
       fileName: 'project.sqlite',
     },
     osmStreetIndex: {
-      schemaVersion: 'vigo.street.store.v1',
+      schemaVersion: 'vigo.street.store.v4',
       status: 'ready',
       fileName: 'street-index.sqlite',
       cch: { ready: true, format: 'fixture' },
@@ -70,7 +70,12 @@ function writeFixtureStore(storePath, projectId, kind) {
       'sourceFingerprint',
       JSON.stringify(`${projectId}:${kind}`),
     )
-    if (kind === 'routing') insert.run('storeId', JSON.stringify(projectId))
+    if (kind === 'routing') {
+      insert.run('storeId', JSON.stringify(projectId))
+      insert.run('transferSemanticsVersion', JSON.stringify('vigo.routing.transfers.v3'))
+    } else {
+      insert.run('sourceModel', JSON.stringify('pbf'))
+    }
   } finally {
     database.close()
   }
@@ -217,6 +222,27 @@ try {
   await Promise.all(projectIds.map(writeFixtureProject))
   const apiUrl = await startApi()
   assert.equal((await health(apiUrl)).routingRuntime.workerCount, 0)
+
+  await writeFixtureProject('outdated')
+  for (const [storePath, key, version] of [
+    [fixtureStorePath('outdated'), 'transferSemanticsVersion', 'vigo.routing.transfers.v2'],
+    [fixtureStreetStorePath('outdated'), 'schemaVersion', 'vigo.street.store.v3'],
+  ]) {
+    const database = new DatabaseSync(storePath)
+    database.prepare('UPDATE metadata SET value=? WHERE key=?').run(JSON.stringify(version), key)
+    database.close()
+  }
+  const outdated = (await openProject(apiUrl, 'outdated')).body.project
+  assert.equal(outdated.routingStore.status, 'error', 'An old timetable must not be advertised as ready.')
+  assert.equal(outdated.osmStreetIndex.status, 'error', 'An old street index must not be advertised as ready.')
+  assert.equal((await readyResponse(apiUrl, 'outdated')).status, 409)
+  assert.equal((await health(apiUrl)).routingRuntime.workerCount, 0,
+    'Old indexes must be rejected before spawning routing preparation.')
+  await fs.rm(fixtureStorePath('outdated'))
+  await fs.rm(fixtureStreetStorePath('outdated'))
+  const missing = (await openProject(apiUrl, 'outdated')).body.project
+  assert.equal(missing.routingStore.status, 'error', 'Deleted indexes cannot retain a ready status.')
+  assert.equal(missing.osmStreetIndex.status, 'error')
 
   const openedA = await openProject(apiUrl, projectIds[0])
   assert(openedA.elapsedMs < 150 * timingBudgetMultiplier, `Project detail waited ${openedA.elapsedMs.toFixed(1)} ms for background prewarm.`)

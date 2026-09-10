@@ -1,5 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { readNationalGtfsStoreMetadata, inspectNationalStaticTopologySidecar } from './server/national-gtfs-store.mjs'
+import { readNationalOsmStoreMetadata } from './server/national-osm-store.mjs'
 
 function uniqueSibling(directory, role) {
   const parent = path.dirname(directory)
@@ -30,6 +32,14 @@ export function validateCityDirectory(directory) {
   const manifest = JSON.parse(fs.readFileSync(path.join(resolved, 'network.json'), 'utf8'))
   if (manifest?.schemaVersion !== 'vigo.city.v1') {
     throw new Error('This City was built by an unsupported VIGO version.')
+  }
+  const routingPath = path.join(resolved, 'routing', 'project.sqlite')
+  readNationalGtfsStoreMetadata(routingPath)
+  const topology = inspectNationalStaticTopologySidecar(routingPath)
+  if (!topology.ready) throw new Error(`The City routing topology must be rebuilt: ${topology.reason}.`)
+  const street = readNationalOsmStoreMetadata(path.join(resolved, 'osm', 'street-index.sqlite'))
+  if (street.storageLayout !== 'runtime-snapshots-v1') {
+    throw new Error('The City street index must be rebuilt into sealed runtime snapshots.')
   }
   return manifest
 }

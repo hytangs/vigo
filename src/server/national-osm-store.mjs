@@ -36,7 +36,7 @@ const streetStoreSchemaVersion = 'vigo.street.store.v4'
 // A store is admitted by version, source model, and the objects the runtime
 // actually queries. Column-by-column and index-SQL checks duplicated SQLite's
 // schema and made harmless builder changes look like corrupt stores.
-const streetStoreTableNames = Object.freeze(['metadata', 'nodes', 'walk_nodes', 'edges'])
+const streetStoreTableNames = Object.freeze(['metadata', 'walk_nodes', 'edges'])
 const streetStoreIndexTables = Object.freeze({
   walk_nodes_lat_lon: 'walk_nodes',
   edges_from: 'edges',
@@ -1964,13 +1964,14 @@ export function sampleNationalOsmWalkNodes(storePath, options = {}) {
  * Coordinate transit workers use this path so the same street snapshot is not
  * retained once by V8 and again by native code.
  */
-export function prepareNationalOsmNativeStore(storePath, options = {}) {
+export function prepareNationalOsmNativeStore(storePath) {
   const startedAt = performance.now()
   const resolvedPath = path.resolve(storePath)
   let db
   try {
     db = new DatabaseSync(resolvedPath, { readOnly: true })
-    const metadata = readStreetStoreMetadata(db)
+    const metadata = readStreetStoreMetadata(db, resolvedPath)
+    admitStreetStoreVersion(resolvedPath, metadata)
     if (metadata.storageLayout !== runtimeStreetStoreStorageLayout) {
       throw streetStoreAdmissionError(
         resolvedPath,
@@ -1988,6 +1989,7 @@ export function prepareNationalOsmNativeStore(storePath, options = {}) {
       storeBytes: fsSync.statSync(resolvedPath).size,
     }
   } catch (error) {
+    if (error?.code === 'VIGO_STREET_STORE_ADMISSION_FAILED') throw error
     return {
       ready: false,
       accelerated: false,
@@ -2101,7 +2103,7 @@ export function compactNationalOsmRuntimeStore(storePath, options = {}) {
   let drivePreparation = null
   const metadataBefore = (() => {
     const database = new DatabaseSync(resolvedPath, { readOnly: true })
-    try { return readStreetStoreMetadata(database, resolvedPath) } finally { database.close() }
+    try { return admitDiagnosticStreetStore(database, resolvedPath).metadata } finally { database.close() }
   })()
   if (metadataBefore.storageLayout === runtimeStreetStoreStorageLayout) {
     return {
@@ -2237,14 +2239,15 @@ export function readNationalOsmStoreMetadata(storePath) {
   const resolvedPath = path.resolve(storePath)
   const database = new DatabaseSync(resolvedPath, { readOnly: true })
   try {
-    return readStreetStoreMetadata(database, resolvedPath)
+    const metadata = readStreetStoreMetadata(database, resolvedPath)
+    admitStreetStoreVersion(resolvedPath, metadata)
+    return metadata
   } finally {
     database.close()
   }
 }
 
-function admitRuntimeSnapshotStore(db, storePath, metadata, startedAt) {
-  validateStoreObjects(db, storePath, ['metadata'], {}, 'runtime')
+function admitStreetStoreVersion(storePath, metadata) {
   if (metadata.schemaVersion !== streetStoreSchemaVersion) {
     throw streetStoreAdmissionError(
       storePath,
@@ -2259,6 +2262,11 @@ function admitRuntimeSnapshotStore(db, storePath, metadata, startedAt) {
       `metadata.sourceModel is ${JSON.stringify(metadata.sourceModel)}.`,
     )
   }
+}
+
+function admitRuntimeSnapshotStore(db, storePath, metadata, startedAt) {
+  validateStoreObjects(db, storePath, ['metadata'], {}, 'runtime')
+  admitStreetStoreVersion(storePath, metadata)
   const walkSnapshotPath = streetAcceleratorSnapshotPath(storePath)
   if (!fsSync.existsSync(walkSnapshotPath)) {
     throw streetStoreAdmissionError(
@@ -2294,28 +2302,16 @@ function admitRuntimeSnapshotStore(db, storePath, metadata, startedAt) {
 }
 
 function admitSourceStreetStore(db, storePath, metadata, startedAt) {
-  let compactStorageLayout = false
-  let driveIndexState = 'ready'
-  try {
-    const metadataRows = db.prepare(
-      "SELECT key,value FROM metadata WHERE key IN ('storageLayout','driveIndexState')",
-    ).all()
-    const metadataValues = new Map(metadataRows.map((row) => [String(row.key), row.value]))
-    const storageLayout = metadataValues.get('storageLayout')
-    compactStorageLayout = JSON.parse(String(storageLayout ?? 'null')) === 'walk-drive-role-tables-v2'
-    driveIndexState = JSON.parse(String(metadataValues.get('driveIndexState') ?? '"ready"'))
-  } catch {}
-  if (!compactStorageLayout) {
+  admitStreetStoreVersion(storePath, metadata)
+  if (metadata.storageLayout !== 'walk-drive-role-tables-v2') {
     throw streetStoreAdmissionError(
       storePath,
       'storage_layout_mismatch',
       `metadata.storageLayout must be "walk-drive-role-tables-v2" before runtime compaction.`,
     )
   }
-  const deferredDriveIndexes = compactStorageLayout && driveIndexState === 'deferred'
-  const tableNames = streetStoreTableNames.filter((tableName) => (
-    tableName !== 'nodes' || !compactStorageLayout
-  ))
+  const deferredDriveIndexes = metadata.driveIndexState === 'deferred'
+  const tableNames = streetStoreTableNames
   const indexTables = deferredDriveIndexes
     ? streetStoreIndexTables
     : { ...streetStoreIndexTables, ...drivingStoreIndexTables }
@@ -2324,20 +2320,6 @@ function admitSourceStreetStore(db, storePath, metadata, startedAt) {
     ...drivingStoreTableNames,
   ], indexTables)
 
-  if (metadata.schemaVersion !== streetStoreSchemaVersion) {
-    throw streetStoreAdmissionError(
-      storePath,
-      'schema_version_mismatch',
-      `metadata.schemaVersion is ${JSON.stringify(metadata.schemaVersion)}.`,
-    )
-  }
-  if (metadata.sourceModel !== 'pbf') {
-    throw streetStoreAdmissionError(
-      storePath,
-      'source_model_mismatch',
-      `metadata.sourceModel is ${JSON.stringify(metadata.sourceModel)}.`,
-    )
-  }
   return {
     metadata,
     admission: Object.freeze({
@@ -3325,7 +3307,7 @@ export function routeNationalStreetMatrix(storePath, request = {}, options = {})
   let traffic = null
   let snapRecoveryCount = 0
   if (mode === 'walk') {
-    const prepared = prepareNationalOsmNativeStore(storePath, { requireCurrentSchema: true })
+    const prepared = prepareNationalOsmNativeStore(storePath)
     if (!prepared.ready || !prepared.accelerated) {
       const error = new Error(
         `The Rust pedestrian matrix kernel is unavailable: ${prepared.error ?? prepared.reason ?? 'unknown reason'}`,

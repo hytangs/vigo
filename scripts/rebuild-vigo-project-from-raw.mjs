@@ -562,6 +562,12 @@ try {
     metricFile: path.basename(streetCchResult.metricPath),
   }
   if (!streetCch.ready) throw new Error('Native street CCH did not load after it was built.')
+  // Compaction changes SQLite's generation. Finish it before transfer-aware
+  // topology and coordinate-access snapshots are sealed against this store.
+  const gtfsRuntimeCompaction = await timedPhase(
+    'gtfs_runtime_compaction',
+    () => compactNationalGtfsRuntimeStore(routingPath),
+  )
   const osmStopTransfers = await timedPhase(
     'osm_stop_transfers',
     () => ensureNationalGtfsOsmStopTransfers(routingPath, streetPath, {
@@ -575,10 +581,6 @@ try {
   if (!nativeCoordinateAccess.ready) {
     throw new Error('Native coordinate access profile did not prepare after sealed compilation.')
   }
-  const gtfsRuntimeCompaction = await timedPhase(
-    'gtfs_runtime_compaction',
-    () => compactNationalGtfsRuntimeStore(routingPath),
-  )
   routingResult = {
     ...routingResult,
     ...readNationalGtfsStoreMetadata(routingPath),
@@ -647,6 +649,10 @@ try {
       walkNodeCount: streetResult.walkNodeCount,
       edgeCount: streetResult.edgeCount,
       wayCount: streetResult.wayCount,
+      driveNodeCount: streetResult.driveNodeCount,
+      driveEdgeCount: streetResult.driveEdgeCount,
+      driveWayCount: streetResult.driveWayCount,
+      drivingWeightModel: streetResult.drivingWeightModel,
       directionRestrictedWayCount: streetResult.directionRestrictedWayCount,
       directionExcludedWayCount: streetResult.directionExcludedWayCount,
       uncertainConveyingWayCount: streetResult.uncertainConveyingWayCount,

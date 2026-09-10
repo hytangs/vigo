@@ -89,6 +89,7 @@ const pbfStats = await fsp.stat(pbfPath).catch(() => null)
 if (!pbfStats?.isFile()) throw new Error(`OSM PBF source is missing: ${pbfPath}`)
 
 const identity = readProjectRoutingIdentity(projectId)
+readNationalGtfsStoreMetadata(identity.storePath)
 const project = identity.project
 const osmDirectory = path.dirname(identity.streetStorePath)
 const rebuildId = new Date().toISOString().replace(/[:.]/gu, '-')

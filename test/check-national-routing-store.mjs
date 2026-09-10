@@ -7,7 +7,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import JSZip from 'jszip'
 import { DatabaseSync } from 'node:sqlite'
-import { buildNationalGtfsStore, buildNationalStaticTopologySidecar, buildRoutingStoreFromSchedules, disposeNationalGtfsStore, ensureNationalGtfsStopAccessRoles, inspectNationalGtfsAccessCandidates, mergeNationalGtfsStores, nationalFeedSummary, prepareNationalGtfsRoutingContext, readNationalGtfsPreview, readNationalGtfsStoreMetadata, routeNationalGtfsDepartureWindow, routeNationalGtfsMatrix, routeNationalGtfsStore, upgradeNationalGtfsPerformanceSchema } from '../src/server/national-gtfs-store.mjs'
+import { buildNationalGtfsStore, buildNationalStaticTopologySidecar, buildRoutingStoreFromSchedules, disposeNationalGtfsStore, ensureNationalGtfsStopAccessRoles, inspectNationalGtfsAccessCandidates, mergeNationalGtfsStores, nationalFeedSummary, prepareNationalGtfsRoutingContext, readNationalGtfsPreview, readNationalGtfsStoreMetadata, routeNationalGtfsDepartureWindow, routeNationalGtfsMatrix, routeNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
 import {
   buildNationalOsmWalkStore,
   compactNationalOsmRuntimeStore,
@@ -230,64 +230,36 @@ function prepareRustFixtureStreetStore(storePath) {
   return native
 }
 
-function buildDenseRouteCatalogFixture(storePath) {
-  const db = new DatabaseSync(storePath)
-  db.exec(`
-    CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-    CREATE TABLE stops(
-      stop_id TEXT PRIMARY KEY, name TEXT NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL,
-      parent_station TEXT, location_type INTEGER NOT NULL DEFAULT 0, platform_code TEXT
-    );
-    CREATE TABLE routes(
-      route_id TEXT PRIMARY KEY, short_name TEXT, long_name TEXT, route_type INTEGER, color TEXT
-    );
-    CREATE TABLE trips(route_id TEXT NOT NULL, trip_id TEXT PRIMARY KEY);
-    CREATE INDEX trips_route ON trips(route_id);
-    CREATE TABLE connections(
-      route_id TEXT NOT NULL, trip_id TEXT NOT NULL, from_stop_id TEXT NOT NULL,
-      to_stop_id TEXT NOT NULL, departure INTEGER NOT NULL, arrival INTEGER NOT NULL,
-      direction_id TEXT, stop_sequence INTEGER NOT NULL
-    );
-  `)
-  const insertMetadata = db.prepare('INSERT INTO metadata VALUES(?, ?)')
-  insertMetadata.run('routeCount', JSON.stringify(8))
-  insertMetadata.run('stopCount', JSON.stringify(2))
-  insertMetadata.run('tripCount', JSON.stringify(2_009))
-  db.exec(`
-    INSERT INTO stops VALUES
-      ('A', 'Alpha', 42.38, -71.10, NULL, 0, NULL),
-      ('B', 'Bravo', 42.39, -71.09, NULL, 0, NULL);
-    INSERT INTO routes VALUES
-      ('R1', '1', 'Dense route', 3, 'cc0000'),
-      ('R1B', '1', 'Dense route variant', 3, 'cc0000'),
-      ('R2', '2', 'Second route', 3, '0066cc'),
-      ('R3', '3', 'Third route', 3, '00aa66'),
-      ('R4', '4', 'Fourth route', 3, 'aa6600'),
-      ('R_FIVE', '5', 'Fifth route', 3, '6600aa'),
-      ('R6', '6', 'Sixth route', 3, '008888'),
-      ('R7', '7', 'Inactive route', 3, '777777');
-  `)
-  const insertTrip = db.prepare('INSERT INTO trips VALUES(?, ?)')
-  const insertConnection = db.prepare('INSERT INTO connections VALUES(?, ?, ?, ?, ?, ?, ?, ?)')
-  db.exec('BEGIN')
-  for (let index = 0; index < 2_001; index += 1) {
-    const tripId = `a-dense-${String(index).padStart(4, '0')}`
-    insertTrip.run('R1', tripId)
-    insertConnection.run('R1', tripId, 'A', 'B', index, index + 60, '0', 1)
+async function buildDenseRouteCatalogFixture(storePath) {
+  const zip = new JSZip()
+  zip.file('stops.txt', 'stop_id,stop_name,stop_lat,stop_lon\nA,Alpha,42.38,-71.10\nB,Bravo,42.39,-71.09\n')
+  zip.file('routes.txt', [
+    'route_id,route_short_name,route_long_name,route_type,route_color',
+    'R1,1,Dense route,3,cc0000', 'R1B,1,Dense route variant,3,cc0000',
+    'R2,2,Second route,3,0066cc', 'R3,3,Third route,3,00aa66',
+    'R4,4,Fourth route,3,aa6600', 'R_FIVE,5,Fifth route,3,6600aa',
+    'R6,6,Sixth route,3,008888', 'R7,7,Inactive route,3,777777', '',
+  ].join('\n'))
+  const trips = ['route_id,service_id,trip_id,direction_id']
+  const times = ['trip_id,arrival_time,departure_time,stop_id,stop_sequence']
+  const time = (seconds) => `${Math.floor(seconds / 3600)}:${String(Math.floor(seconds / 60) % 60).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
+  const add = (routeId, tripId, departure) => {
+    trips.push(`${routeId},S,${tripId},0`)
+    times.push(`${tripId},${time(departure)},${time(departure)},A,1`,
+      `${tripId},${time(departure + 60)},${time(departure + 60)},B,2`)
   }
-  for (let index = 0; index < 3; index += 1) {
-    const tripId = `variant-${index}`
-    insertTrip.run('R1B', tripId)
-    insertConnection.run('R1B', tripId, 'A', 'B', 5_000 + index, 5_060 + index, '0', 1)
-  }
+  for (let index = 0; index < 2_001; index += 1) add('R1', `a-dense-${String(index).padStart(4, '0')}`, index)
+  for (let index = 0; index < 3; index += 1) add('R1B', `variant-${index}`, 5_000 + index)
   for (let routeNumber = 2; routeNumber <= 6; routeNumber += 1) {
     const routeId = routeNumber === 5 ? 'R_FIVE' : `R${routeNumber}`
-    const tripId = `z-${routeId}`
-    insertTrip.run(routeId, tripId)
-    insertConnection.run(routeId, tripId, 'A', 'B', 10_000 + routeNumber, 10_060 + routeNumber, '0', 1)
+    add(routeId, `z-${routeId}`, 10_000 + routeNumber)
   }
-  db.exec('COMMIT')
-  db.close()
+  zip.file('trips.txt', `${trips.join('\n')}\n`)
+  zip.file('stop_times.txt', `${times.join('\n')}\n`)
+  zip.file('calendar_dates.txt', 'service_id,date,exception_type\nS,20260716,1\n')
+  const zipPath = `${storePath}.zip`
+  await fs.writeFile(zipPath, await zip.generateAsync({ type: 'nodebuffer' }))
+  await buildNationalGtfsStore({ zipPath, outputPath: storePath })
 }
 
 async function startFixtureApi(projectsPath, configPath) {
@@ -401,13 +373,7 @@ async function runConfiguredEndpointOverheadFixture(routingStorePath, streetStor
 }
 
 try {
-  buildDenseRouteCatalogFixture(denseRouteCatalogStorePath)
-  const denseRouteCatalogUpgrade = await upgradeNationalGtfsPerformanceSchema(denseRouteCatalogStorePath, {
-    refreshDerivedArtifacts: false,
-  })
-  assert.equal(denseRouteCatalogUpgrade.serviceCount, 8)
-  assert.equal(denseRouteCatalogUpgrade.variantCount, 8)
-  assert.equal(denseRouteCatalogUpgrade.tripCount, 2_009)
+  await buildDenseRouteCatalogFixture(denseRouteCatalogStorePath)
   const denseRouteCatalogPreview = readNationalGtfsPreview(denseRouteCatalogStorePath, {
     routeCount: 8,
     stopCount: 2,
@@ -3495,11 +3461,9 @@ try {
   )
   assert.match(coveredOptInPlan.detail, /exact local timetable/)
 
+  await fs.copyFile(rawStoreAPath, invalidRawStorePath)
   const invalidStore = new DatabaseSync(invalidRawStorePath)
-  invalidStore.exec('CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL)')
-  invalidStore.prepare('INSERT INTO metadata VALUES(?,?)').run('serviceModel', JSON.stringify('exact-date'))
-  invalidStore.prepare('INSERT INTO metadata VALUES(?,?)').run('storeId', JSON.stringify('deliberately-invalid'))
-  invalidStore.prepare('INSERT INTO metadata VALUES(?,?)').run('sourceFile', JSON.stringify('invalid-fixture.zip'))
+  invalidStore.exec("DELETE FROM metadata WHERE key='sourceFingerprint'")
   invalidStore.close()
   await assert.rejects(() => mergeNationalGtfsStores({
     stores: [{ scope: 'valid', storePath: rawStoreAPath }, { scope: 'invalid', storePath: invalidRawStorePath }],

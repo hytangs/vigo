@@ -5,7 +5,10 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import {
   disposeNationalOsmStore,
+  compactNationalOsmRuntimeStore,
   nationalOsmStoreDiagnostics,
+  prepareNationalOsmNativeStore,
+  readNationalOsmStoreMetadata,
 } from '../src/server/national-osm-store.mjs'
 
 const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-osm-admission-'))
@@ -90,10 +93,18 @@ try {
     await mutatedCopy('wrong-version', "UPDATE metadata SET value='\"vigo.street.store.v0\"' WHERE key='schemaVersion';"),
     'schema_version_mismatch',
   )
-  assertAdmissionRejected(
-    await mutatedCopy('stale-private-access-semantics', "UPDATE metadata SET value='\"vigo.street.store.v3\"' WHERE key='schemaVersion';"),
-    'schema_version_mismatch',
-  )
+  for (const version of ['vigo.street.store.v1', 'vigo.street.store.v2', 'vigo.street.store.v3']) {
+    const oldPath = await mutatedCopy(version, `UPDATE metadata SET value='"${version}"' WHERE key='schemaVersion';`)
+    const original = await fs.readFile(oldPath)
+    assertAdmissionRejected(oldPath, 'schema_version_mismatch')
+    for (const operation of [readNationalOsmStoreMetadata, prepareNationalOsmNativeStore, compactNationalOsmRuntimeStore]) {
+      assert.throws(() => operation(oldPath), (error) => error?.code === 'VIGO_STREET_STORE_ADMISSION_FAILED'
+        && error?.reason === 'schema_version_mismatch')
+    }
+    assert.deepEqual(await fs.readFile(oldPath), original)
+    assert(!(await fs.readdir(folder)).some((name) => name.startsWith(`${path.basename(oldPath)}.`)),
+      'Rejected old street stores must not generate any new accelerators.')
+  }
   assertAdmissionRejected(
     await mutatedCopy('json-source', "UPDATE metadata SET value='\"json\"' WHERE key='sourceModel';"),
     'source_model_mismatch',

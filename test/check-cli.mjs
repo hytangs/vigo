@@ -5,6 +5,7 @@ import path from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
 import Papa from 'papaparse'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
+import { inspectNationalStaticTopologySidecar } from '../src/server/national-gtfs-store.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const cliPath = process.env.VIGO_CLI_PATH ? path.resolve(process.env.VIGO_CLI_PATH) : path.join(root, 'public', 'vigo.mjs')
@@ -35,6 +36,8 @@ try {
   assert(fs.existsSync(path.join(cityPath, 'network.json')))
   assert(fs.existsSync(path.join(cityPath, 'routing', 'project.sqlite')))
   assert(fs.existsSync(path.join(cityPath, 'osm', 'street-index.sqlite')))
+  assert.equal(inspectNationalStaticTopologySidecar(path.join(cityPath, 'routing', 'project.sqlite')).ready, true,
+    'The CLI must publish current topology without needing a repair on the first query.')
 
   const originalManifest = fs.readFileSync(path.join(cityPath, 'network.json'), 'utf8')
   const buildArguments = ['build', `--gtfs=${gtfsPath}`, `--osm=${osmPath}`, `--output=${cityPath}`]

@@ -26,6 +26,7 @@ import {
   compactNationalGtfsRuntimeStore,
   disposeNationalGtfsStore,
   ensureNationalGtfsOsmStopTransfers,
+  inspectNationalStaticTopologySidecar,
   mergeNationalGtfsStores,
   nationalGtfsRuntimeView,
   prepareNationalGtfsRoutingContext,
@@ -454,7 +455,7 @@ async function prepareRuntime(
 ) {
   const preparationStarted = performance.now()
   const street = streetStorePath
-    ? prepareNationalOsmNativeStore(streetStorePath, { requireCurrentSchema: true })
+    ? prepareNationalOsmNativeStore(streetStorePath)
     : null
   const transfers = streetStorePath
     ? await ensureNationalGtfsOsmStopTransfers(storePath, streetStorePath)
@@ -1589,13 +1590,18 @@ async function runCityCompiler(args: CliArguments) {
     const osmRuntimeCompaction = compactNationalOsmRuntimeStore(stagedStreetStore, { requireDrive: true })
     osmRuntimeCompactionMs = performance.now() - osmRuntimeCompactionStarted
 
-    const nativeStreet = prepareNationalOsmNativeStore(stagedStreetStore, { requireCurrentSchema: true })
+    const nativeStreet = prepareNationalOsmNativeStore(stagedStreetStore)
     if (!nativeStreet.ready) {
       throw new Error(`Native street snapshot preparation failed: ${nativeStreet.error ?? nativeStreet.reason}`)
     }
     const streetCchStarted = performance.now()
     const streetCch = buildNativeStreetCchIndex(stagedStreetStore)
     streetCchBuildMs = performance.now() - streetCchStarted
+    // Finalize SQLite before binding transfer topology and access snapshots
+    // to its generation. No compaction may follow derived-index preparation.
+    const gtfsRuntimeCompactionStarted = performance.now()
+    const gtfsRuntimeCompaction = compactNationalGtfsRuntimeStore(stagedRoutingStore)
+    gtfsRuntimeCompactionMs = performance.now() - gtfsRuntimeCompactionStarted
     const stopTransferStarted = performance.now()
     const stopTransfers = await ensureNationalGtfsOsmStopTransfers(
       stagedRoutingStore,
@@ -1614,9 +1620,8 @@ async function runCityCompiler(args: CliArguments) {
       ? await buildTerminalAccessStore({ pbfPath: osmPbf, streetStorePath: stagedStreetStore, routingStorePath: stagedRoutingStore })
       : { model: 'public' }
 
-    const gtfsRuntimeCompactionStarted = performance.now()
-    const gtfsRuntimeCompaction = compactNationalGtfsRuntimeStore(stagedRoutingStore)
-    gtfsRuntimeCompactionMs = performance.now() - gtfsRuntimeCompactionStarted
+    const topology = inspectNationalStaticTopologySidecar(stagedRoutingStore)
+    if (!topology.ready) throw new Error(`City topology is not current: ${topology.reason}.`)
 
     // Release cached readers now; native mappings are released on process exit
     // before the parent publishes the complete City.

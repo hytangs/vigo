@@ -15,7 +15,7 @@ try {
   await buildNationalOsmStore({ pbfPath: osmPath, outputPath: streetStorePath })
   compactNationalOsmRuntimeStore(streetStorePath, { requireDrive: false })
   await buildNationalGtfsStore({ zipPath: gtfsPath, outputPath: routingStorePath })
-  prepareNationalOsmNativeStore(streetStorePath, { requireCurrentSchema: true })
+  prepareNationalOsmNativeStore(streetStorePath)
   buildNativeStreetCchIndex(streetStorePath)
   const home = { source: 'map', coordinate: [-77.054, 38.9], label: 'Authorized residence' }
   const school = { source: 'stop', stopId: 'B', coordinate: [-77.03, 38.91], label: 'School stop' }

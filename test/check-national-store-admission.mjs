@@ -6,9 +6,16 @@ import JSZip from 'jszip'
 import { DatabaseSync } from 'node:sqlite'
 import {
   buildNationalGtfsStore,
+  buildNationalStaticTopologySidecar,
+  compactNationalGtfsRuntimeStore,
   disposeNationalGtfsStore,
+  ensureNationalGtfsDerivedArtifactsCurrent,
+  ensureNationalGtfsStopAccessRoles,
+  mergeNationalGtfsStores,
   prepareNationalGtfsRoutingContext,
+  prepareNationalGtfsRoutingReadiness,
   prepareNationalGtfsStore,
+  readNationalGtfsStoreMetadata,
 } from '../src/server/national-gtfs-store.mjs'
 
 const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-store-admission-'))
@@ -124,6 +131,36 @@ try {
 
   const staleV1Path = await mutatedCopy('stale-v1', 'DROP TABLE stop_modes;')
   assertAdmissionRejected(staleV1Path, 'required_table_missing')
+
+  for (const version of ['vigo.routing.transfers.v1', 'vigo.routing.transfers.v2']) {
+    const oldPath = await mutatedCopy(version, `UPDATE metadata SET value='"${version}"' WHERE key='transferSemanticsVersion';`)
+    const original = await fs.readFile(oldPath)
+    const rejectsOldVersion = (error) => error?.code === 'VIGO_ROUTING_STORE_ADMISSION_FAILED'
+      && error?.reason === 'transfer_semantics_mismatch'
+    for (const operation of [readNationalGtfsStoreMetadata, prepareNationalGtfsRoutingReadiness, compactNationalGtfsRuntimeStore]) {
+      assert.throws(() => operation(oldPath), rejectsOldVersion)
+    }
+    await assert.rejects(ensureNationalGtfsStopAccessRoles(oldPath), rejectsOldVersion)
+    await assert.rejects(ensureNationalGtfsDerivedArtifactsCurrent(oldPath), rejectsOldVersion)
+    const outputPath = `${oldPath}.generated.sqlite`
+    await assert.rejects(buildNationalStaticTopologySidecar({ storePath: oldPath, outputPath }), rejectsOldVersion)
+    await assert.rejects(mergeNationalGtfsStores({
+      stores: [{ scope: 'old', storePath: oldPath }, { scope: 'current', storePath }], outputPath,
+    }), rejectsOldVersion)
+    await assert.rejects(fs.stat(outputPath), { code: 'ENOENT' })
+    await assert.rejects(fs.stat(`${outputPath}.building`), { code: 'ENOENT' })
+    assert.deepEqual(await fs.readFile(oldPath), original, 'Rejected old stores must remain byte-identical.')
+  }
+
+  const compactedPath = await mutatedCopy('compacted', 'SELECT 1;')
+  await fs.copyFile(`${storePath}.static-topology.sqlite`, `${compactedPath}.static-topology.sqlite`)
+  const expiredSnapshots = ['active-service-kernel.old.bin', 'native-access-profile.old.bin']
+  for (const suffix of expiredSnapshots) await fs.writeFile(`${compactedPath}.${suffix}`, 'expired')
+  compactNationalGtfsRuntimeStore(compactedPath)
+  for (const suffix of ['static-topology.sqlite', ...expiredSnapshots]) {
+    await assert.rejects(fs.stat(`${compactedPath}.${suffix}`), { code: 'ENOENT' })
+  }
+  assert.equal((await ensureNationalGtfsDerivedArtifactsCurrent(compactedPath)).ready, true)
 
   const missingIndexPath = await mutatedCopy('missing-index', 'DROP INDEX trips_service;')
   assertAdmissionRejected(missingIndexPath, 'required_index_missing')

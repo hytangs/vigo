@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
+import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
+import { buildNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
+import { buildNationalOsmStore, compactNationalOsmRuntimeStore, disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
 import {
   createCityStagingDirectory,
   publishCity,
@@ -10,12 +14,10 @@ import {
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-city-'))
 const output = path.join(root, 'city-x')
+const template = path.join(root, 'template')
 
 function writePackage(directory, marker) {
-  fs.mkdirSync(path.join(directory, 'routing'), { recursive: true })
-  fs.mkdirSync(path.join(directory, 'osm'), { recursive: true })
-  fs.writeFileSync(path.join(directory, 'routing', 'project.sqlite'), `routing-${marker}`)
-  fs.writeFileSync(path.join(directory, 'osm', 'street-index.sqlite'), `street-${marker}`)
+  fs.cpSync(template, directory, { recursive: true })
   fs.writeFileSync(path.join(directory, 'network.json'), JSON.stringify({
     schemaVersion: 'vigo.city.v1',
     marker,
@@ -23,6 +25,12 @@ function writePackage(directory, marker) {
 }
 
 try {
+  const inputs = await writeCliFixtureInputs(root)
+  await buildNationalGtfsStore({ zipPath: inputs.gtfsPath, outputPath: path.join(template, 'routing/project.sqlite') })
+  const streetPath = path.join(template, 'osm/street-index.sqlite')
+  await buildNationalOsmStore({ pbfPath: inputs.osmPath, outputPath: streetPath })
+  compactNationalOsmRuntimeStore(streetPath, { requireDrive: true })
+  disposeNationalOsmStore(streetPath)
   writePackage(output, 'old')
   const incomplete = createCityStagingDirectory(output)
   fs.mkdirSync(path.join(incomplete, 'routing'))
@@ -34,12 +42,21 @@ try {
   assert.equal(validateCityDirectory(output).marker, 'old')
   fs.rmSync(incomplete, { recursive: true, force: true })
 
+  const outdated = createCityStagingDirectory(output)
+  writePackage(outdated, 'outdated')
+  const oldRouting = new DatabaseSync(path.join(outdated, 'routing/project.sqlite'))
+  oldRouting.prepare('UPDATE metadata SET value=? WHERE key=?').run('"vigo.routing.transfers.v2"', 'transferSemanticsVersion')
+  oldRouting.close()
+  assert.throws(() => publishCity(outdated, output, { replace: true }), /Transfer semantics/)
+  assert.equal(validateCityDirectory(output).marker, 'old')
+  fs.rmSync(outdated, { recursive: true, force: true })
+
   const staged = createCityStagingDirectory(output)
   writePackage(staged, 'new')
   publishCity(staged, output, { replace: true })
   assert.equal(validateCityDirectory(output).marker, 'new')
-  assert.equal(fs.readFileSync(path.join(output, 'routing', 'project.sqlite'), 'utf8'), 'routing-new')
-  assert.equal(fs.readFileSync(path.join(output, 'osm', 'street-index.sqlite'), 'utf8'), 'street-new')
+  assert.deepEqual(fs.readFileSync(path.join(output, 'routing', 'project.sqlite')), fs.readFileSync(path.join(template, 'routing', 'project.sqlite')))
+  assert.deepEqual(fs.readFileSync(path.join(output, 'osm', 'street-index.sqlite')), fs.readFileSync(streetPath))
   assert(!fs.existsSync(staged), 'Published staging directory should become the City.')
   assert.equal(
     fs.readdirSync(root).filter((name) => name.includes('.vigo-previous-')).length,

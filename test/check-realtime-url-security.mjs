@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import http from 'node:http'
+import net from 'node:net'
+import { mock } from 'node:test'
 import {
   assertSafeRealtimeUrl,
   fetchSafeRealtimeBody,
@@ -32,6 +34,15 @@ await assert.rejects(
   /private or special/,
 )
 await assert.rejects(
+  () => assertSafeRealtimeUrl('https://example.test/feed.pb', {
+    lookup: async () => [
+      { address: '8.8.8.8', family: 4 },
+      { address: '127.0.0.1', family: 4 },
+    ],
+  }),
+  /private or special/,
+)
+await assert.rejects(
   () => assertSafeRealtimeUrl('file:///tmp/feed.pb', { lookup: publicLookup }),
   /http or https/,
 )
@@ -51,7 +62,51 @@ const server = http.createServer((request, response) => {
 })
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
 const { port } = server.address()
+const originalRequest = http.request
+const originalAutoSelectFamily = net.getDefaultAutoSelectFamily()
 try {
+  // Exercise Node's real connection path in both lookup modes. Only the test
+  // transport maps the validated public address to the local fixture server.
+  const lookupModes = []
+  const requestMock = mock.method(http, 'request', (url, options, callback) => {
+    assert.equal(typeof options.lookup, 'function')
+    return originalRequest(url, {
+      ...options,
+      lookup(hostname, lookupOptions, done) {
+        lookupModes.push(Boolean(lookupOptions.all))
+        options.lookup(hostname, lookupOptions, (error, address, family) => {
+          assert.ifError(error)
+          if (lookupOptions.all) {
+            assert.deepEqual(address, [{ address: '8.8.8.8', family: 4 }])
+            done(null, [{ address: '127.0.0.1', family: 4 }])
+          } else {
+            assert.equal(address, '8.8.8.8')
+            assert.equal(family, 4)
+            done(null, '127.0.0.1', 4)
+          }
+        })
+      },
+    }, callback)
+  })
+  let resolutions = 0
+  for (const autoSelectFamily of [true, false]) {
+    net.setDefaultAutoSelectFamily(autoSelectFamily)
+    const fetched = await fetchSafeRealtimeBody(`http://example.test:${port}/feed.pb`, {
+      maximumBytes: 16,
+      allowPrivate: false,
+      headers: { connection: 'close' },
+      lookup: async () => {
+        resolutions += 1
+        return [{ address: '8.8.8.8' }]
+      },
+    })
+    assert.equal(new TextDecoder().decode(fetched.body), 'fixture')
+  }
+  assert.deepEqual(lookupModes, [true, false])
+  assert.equal(resolutions, 2, 'Each request resolves once before pinning its socket address')
+  requestMock.mock.restore()
+  net.setDefaultAutoSelectFamily(originalAutoSelectFamily)
+
   const fetched = await fetchSafeRealtimeBody(`http://127.0.0.1:${port}/feed.pb`, {
     maximumBytes: 16,
     allowPrivate: true,
@@ -72,6 +127,8 @@ try {
     (error) => error.code === 'response_status',
   )
 } finally {
+  mock.restoreAll()
+  net.setDefaultAutoSelectFamily(originalAutoSelectFamily)
   await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
 }
 

@@ -97,6 +97,8 @@ import { FirstRunSetupDialog, ProjectEditorDialog } from './components/ProjectDi
 import { CityPanel, type DataSection } from './components/CityPanel'
 import { ExploreObjectPanel } from './components/ExploreObjectPanel'
 import { ServiceStateControl } from './components/ServiceStateControl'
+import { RealtimePanel } from './components/RealtimePanel'
+import { realtimeRefreshMs, type RealtimeInspectRequest } from './app/realtime'
 import { SearchPalette } from './features/search/SearchPalette'
 import { buildSearchResults, type SearchResult } from './features/search/searchModel'
 import { IconButton, StatusBadge, VigoBrandMark } from './components/UiPrimitives'
@@ -190,46 +192,6 @@ type PendingRoutingLocationResolution = {
   maxWalkKm?: number
 }
 
-type RealtimeInspectRequest =
-  | { url: string }
-  | {
-      urls: {
-        vehicles: string
-        tripUpdates?: string
-        alerts?: string
-      }
-    }
-
-const realtimeRefreshMs = 10_000
-function realtimeInspectRequest(sourceText: string): RealtimeInspectRequest {
-  const urls = (sourceText.match(/https?:\/\/[^\s<>"']+/gi) ?? [])
-    .map((value) => value.replace(/[),;\]]+$/, ''))
-  if (!urls.length) throw new Error('Enter a valid GTFS-RT URL.')
-
-  const parsed = urls.map((value) => {
-    const url = new URL(value)
-    if (!['http:', 'https:'].includes(url.protocol)) throw new Error('GTFS-RT URLs must use HTTP or HTTPS.')
-    return { value, pathname: url.pathname.toLowerCase() }
-  })
-  if (parsed.length === 1) return { url: parsed[0].value }
-
-  const feedSet: { vehicles?: string; tripUpdates?: string; alerts?: string } = {}
-  for (const source of parsed) {
-    const kind = source.pathname.endsWith('/vehiclepositions.pb')
-      ? 'vehicles'
-      : source.pathname.endsWith('/tripupdates.pb')
-        ? 'tripUpdates'
-        : source.pathname.endsWith('/alerts.pb')
-          ? 'alerts'
-          : undefined
-    if (!kind) throw new Error('For multiple feeds, use VehiclePositions.pb, TripUpdates.pb, and Alerts.pb URLs.')
-    if (feedSet[kind]) throw new Error(`Duplicate ${kind} GTFS-RT URL.`)
-    feedSet[kind] = source.value
-  }
-  if (!feedSet.vehicles) throw new Error('A VehiclePositions.pb URL is required for live map locations.')
-
-  return { urls: { vehicles: feedSet.vehicles, tripUpdates: feedSet.tripUpdates, alerts: feedSet.alerts } }
-}
 
 function newScenarioChange(
   kind: ScenarioChangeKind,
@@ -1516,12 +1478,14 @@ function ImportPanel({
   osmStreetMessage,
   realtimeSnapshot,
   realtimeMessage,
+  realtimeRequest,
   isRealtimeLoading,
   onFiles,
   onNationalGtfsPath,
   onNationalOsmPath,
   onOsmFiles,
-  onRunRealtimeUrl,
+  onConnectRealtime,
+  onDisconnectRealtime,
   onExportReproducibility,
   onCancelGtfs,
   onRetryGtfs,
@@ -1537,12 +1501,14 @@ function ImportPanel({
   osmStreetMessage: string
   realtimeSnapshot: RealtimeSnapshot | null
   realtimeMessage: string
+  realtimeRequest: RealtimeInspectRequest | null
   isRealtimeLoading: boolean
   onFiles: (files: FileList | File[]) => void
   onNationalGtfsPath: (path: string) => void
   onNationalOsmPath: (path: string) => void
   onOsmFiles: (files: FileList | File[]) => void
-  onRunRealtimeUrl: (sourceText: string) => void
+  onConnectRealtime: (request: RealtimeInspectRequest) => void
+  onDisconnectRealtime: () => void
   onExportReproducibility: () => void
   onCancelGtfs: () => void
   onRetryGtfs: () => void
@@ -1551,11 +1517,6 @@ function ImportPanel({
 }) {
   const fileRef = useRef<HTMLInputElement | null>(null)
   const osmFileRef = useRef<HTMLInputElement | null>(null)
-  const [realtimeUrl, setRealtimeUrl] = useState('')
-  const [realtimeDetailsOpen, setRealtimeDetailsOpen] = useState(!realtimeSnapshot)
-  useEffect(() => {
-    if (!realtimeSnapshot) setRealtimeDetailsOpen(true)
-  }, [realtimeSnapshot])
   const chooseGtfs = () => {
     if (!requestDesktopGtfsFile(onNationalGtfsPath)) fileRef.current?.click()
   }
@@ -1656,37 +1617,14 @@ function ImportPanel({
         />
       </div>
 
-      <details
-        className="advanced-import"
-        open={realtimeDetailsOpen}
-        onToggle={(event) => setRealtimeDetailsOpen(event.currentTarget.open)}
-      >
-        <summary>Live data · GTFS-RT feeds</summary>
-        <form
-          className="url-import realtime-import"
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (!realtimeUrl.trim()) return
-            onRunRealtimeUrl(realtimeUrl.trim())
-          }}
-        >
-          <textarea
-            aria-label="GTFS realtime feed URLs or viewer link"
-            value={realtimeUrl}
-            onChange={(event) => setRealtimeUrl(event.target.value)}
-            placeholder={'Vehicle Positions URL\nTrip Updates URL (optional)\nService Alerts URL (optional)'}
-            rows={3}
-          />
-          <button type="submit" disabled={isRealtimeLoading}>
-            <Radio size={14} />
-            Connect live
-          </button>
-        </form>
-      </details>
-      <div className={classNames('realtime-strip', realtimeSnapshot && 'has-live')}>
-        <Radio size={14} />
-        <span>{realtimeMessage || (realtimeSnapshot ? `${formatNumber(realtimeSnapshot.counts.vehicles)} veh / ${formatNumber(realtimeSnapshot.counts.tripUpdates)} updates / ${formatNumber(realtimeSnapshot.counts.alerts)} alerts` : 'RT off')}</span>
-      </div>
+      <RealtimePanel
+        snapshot={realtimeSnapshot}
+        request={realtimeRequest}
+        message={realtimeMessage}
+        loading={isRealtimeLoading}
+        onConnect={onConnectRealtime}
+        onDisconnect={onDisconnectRealtime}
+      />
     </section>
   )
 }
@@ -1887,12 +1825,14 @@ function EmptyOperationsStart({
   osmStreetMessage,
   realtimeSnapshot,
   realtimeMessage,
+  realtimeRequest,
   isRealtimeLoading,
   onFiles,
   onNationalGtfsPath,
   onNationalOsmPath,
   onOsmFiles,
-  onRunRealtimeUrl,
+  onConnectRealtime,
+  onDisconnectRealtime,
   onExportReproducibility,
   onCancelGtfs,
   onRetryGtfs,
@@ -1909,12 +1849,14 @@ function EmptyOperationsStart({
   osmStreetMessage: string
   realtimeSnapshot: RealtimeSnapshot | null
   realtimeMessage: string
+  realtimeRequest: RealtimeInspectRequest | null
   isRealtimeLoading: boolean
   onFiles: (files: FileList | File[]) => void
   onNationalGtfsPath: (path: string) => void
   onNationalOsmPath: (path: string) => void
   onOsmFiles: (files: FileList | File[]) => void
-  onRunRealtimeUrl: (url: string) => void
+  onConnectRealtime: (request: RealtimeInspectRequest) => void
+  onDisconnectRealtime: () => void
   onExportReproducibility: () => void
   onCancelGtfs: () => void
   onRetryGtfs: () => void
@@ -1974,12 +1916,14 @@ function EmptyOperationsStart({
           osmStreetMessage={osmStreetMessage}
           realtimeSnapshot={realtimeSnapshot}
           realtimeMessage={realtimeMessage}
+          realtimeRequest={realtimeRequest}
           isRealtimeLoading={isRealtimeLoading}
           onFiles={onFiles}
           onNationalGtfsPath={onNationalGtfsPath}
           onNationalOsmPath={onNationalOsmPath}
           onOsmFiles={onOsmFiles}
-          onRunRealtimeUrl={onRunRealtimeUrl}
+          onConnectRealtime={onConnectRealtime}
+          onDisconnectRealtime={onDisconnectRealtime}
           onExportReproducibility={onExportReproducibility}
           onCancelGtfs={onCancelGtfs}
           onRetryGtfs={onRetryGtfs}
@@ -2424,7 +2368,7 @@ export default function App() {
   const [realtimeSnapshot, setRealtimeSnapshot] = useState<RealtimeSnapshot | null>(null)
   const [realtimeMessage, setRealtimeMessage] = useState('')
   const [isRealtimeLoading, setIsRealtimeLoading] = useState(false)
-  const [realtimeUrl, setRealtimeUrl] = useState('')
+  const [realtimeRequest, setRealtimeRequest] = useState<RealtimeInspectRequest | null>(null)
   const realtimeInFlightRef = useRef(false)
   const realtimeRequestIdRef = useRef(0)
   const [query, setQuery] = useState('')
@@ -3126,7 +3070,7 @@ export default function App() {
   function clearRealtimeConnection() {
     realtimeRequestIdRef.current += 1
     realtimeInFlightRef.current = false
-    setRealtimeUrl('')
+    setRealtimeRequest(null)
     setRealtimeSnapshot(null)
     setRealtimeMessage('')
     setIsRealtimeLoading(false)
@@ -4766,12 +4710,11 @@ export default function App() {
     }
   }
 
-  const refreshRealtimeUrl = useCallback(async (
-    url: string,
+  const refreshRealtimeRequest = useCallback(async (
+    request: RealtimeInspectRequest,
     options: { background?: boolean; openPanel?: boolean } = {},
   ) => {
     if (realtimeInFlightRef.current) {
-      if (!options.background) setRealtimeMessage('Live refresh already running.')
       return
     }
 
@@ -4780,24 +4723,18 @@ export default function App() {
     realtimeInFlightRef.current = true
     if (!options.background) {
       setIsRealtimeLoading(true)
-      setRealtimeMessage('Connecting live...')
+      setRealtimeMessage('')
     }
 
     try {
       const result = await apiJson<{ snapshot: RealtimeSnapshot }>('/api/realtime/inspect', {
         method: 'POST',
-        body: JSON.stringify(realtimeInspectRequest(url)),
+        body: JSON.stringify(request),
       })
       if (requestId !== realtimeRequestIdRef.current) return
-      const positions = realtimePositionCount(result.snapshot)
-      const refreshTime = new Date(result.snapshot.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
       setRealtimeSnapshot(result.snapshot)
-      setRealtimeUrl(url)
-      const freshness = result.snapshot.freshness
-      const freshnessLabel = freshness?.status === 'stale'
-        ? ` · stale feed (${Math.round(freshness.ageSeconds ?? 0)}s)`
-        : ''
-      setRealtimeMessage(`${formatNumber(positions)} live positions / ${formatNumber(result.snapshot.counts.tripUpdates)} trip updates / ${formatNumber(result.snapshot.counts.alerts)} alerts · ${refreshTime}${freshnessLabel}`)
+      setRealtimeRequest(request)
+      setRealtimeMessage('')
       if (!options.background) setVehicleMode('live')
       if (options.openPanel) {
         setSelectedRouteId('')
@@ -4808,7 +4745,7 @@ export default function App() {
     } catch (error) {
       if (requestId !== realtimeRequestIdRef.current) return
       const message = error instanceof Error ? error.message : 'GTFS-RT decode failed.'
-      setRealtimeMessage(options.background ? `Live refresh missed; the last live frame remains visible. ${message}` : message)
+      setRealtimeMessage(message)
     } finally {
       if (requestId === realtimeRequestIdRef.current) {
         realtimeInFlightRef.current = false
@@ -4818,28 +4755,25 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!realtimeUrl) return
+    if (!realtimeRequest) return
     const interval = window.setInterval(() => {
-      void refreshRealtimeUrl(realtimeUrl, { background: true })
+      void refreshRealtimeRequest(realtimeRequest, { background: true })
     }, realtimeRefreshMs)
 
     return () => window.clearInterval(interval)
-  }, [realtimeUrl, refreshRealtimeUrl])
+  }, [realtimeRequest, refreshRealtimeRequest])
 
-  function runRealtimeUrl(url: string) {
-    try {
-      realtimeInspectRequest(url)
-    } catch (error) {
-      setRealtimeMessage(error instanceof Error ? error.message : 'Enter a valid GTFS-RT URL.')
-      return
-    }
+  function connectRealtime(request: RealtimeInspectRequest) {
+    void refreshRealtimeRequest(request, { openPanel: true })
+  }
 
-    void refreshRealtimeUrl(url, { openPanel: true })
+  function disconnectRealtime() {
+    clearRealtimeConnection()
+    setVehicleMode('schedule')
   }
 
   function changeVehicleMode(mode: ServiceVehicleMode) {
     if (mode === 'live' && !realtimeSnapshot) {
-      setRealtimeMessage('Connect Vehicle Positions, Trip Updates, and Service Alerts to open the live service frame.')
       openDataView()
       return
     }
@@ -5008,12 +4942,14 @@ export default function App() {
     osmStreetMessage,
     realtimeSnapshot,
     realtimeMessage,
+    realtimeRequest,
     isRealtimeLoading,
     onFiles: handleFiles,
     onNationalGtfsPath: handleNationalGtfsPath,
     onNationalOsmPath: handleNationalOsmPath,
     onOsmFiles: handleOsmFiles,
-    onRunRealtimeUrl: runRealtimeUrl,
+    onConnectRealtime: connectRealtime,
+    onDisconnectRealtime: disconnectRealtime,
     onExportReproducibility: () => { void exportReproducibilityManifest() },
     onCancelGtfs: () => { void cancelImportJob('gtfs') },
     onRetryGtfs: () => { void retryImportJob('gtfs') },
@@ -5261,7 +5197,6 @@ export default function App() {
         onOpenSettings={openSettingsView}
         onOpenLive={() => {
           if (!realtimeSnapshot) {
-            setRealtimeMessage('Paste Vehicle Positions, Trip Updates, and Alerts URLs — one per line.')
             openDataView()
             return
           }

@@ -129,7 +129,6 @@ if (worker) {
   const preparedWalk = buildNationalOsmWalkStore(currentStore, {
     force: true,
     persist: true,
-    requireCurrentSchema: true,
   })
   assert.equal(preparedWalk.ready, true)
   assert.equal(preparedWalk.accelerated, true)
@@ -160,7 +159,7 @@ if (worker) {
   assert.equal(compacted.storageLayout, 'runtime-snapshots-v1')
   assert(compacted.afterBytes < compacted.beforeBytes)
   disposeNationalOsmStore(currentStore)
-  const reloadedWalk = prepareNationalOsmNativeStore(currentStore, { requireCurrentSchema: true })
+  const reloadedWalk = prepareNationalOsmNativeStore(currentStore)
   const reloadedDrive = prepareNationalOsmDriveStore(currentStore)
   assert.equal(reloadedWalk.source, 'rust_mmap_node_api')
   assert.equal(reloadedDrive.source, 'snapshot')
@@ -443,7 +442,7 @@ if (worker) {
   assert.equal(trafficDriveMatrix.diagnostics.weightModel, 'snapshot_customized_traffic_seconds')
   assert.equal(trafficDriveMatrix.diagnostics.traffic.status, 'applied')
 
-  const nativeWalk = prepareNationalOsmNativeStore(currentStore, { requireCurrentSchema: true })
+  const nativeWalk = prepareNationalOsmNativeStore(currentStore)
   assert.equal(nativeWalk.ready, true)
   const nativeGeometryWalk = routeNationalStreetStore(currentStore, {
     ...walkRequest,
@@ -697,7 +696,7 @@ if (worker) {
       lat: runtimeStoreSample.endpoints[0].lat,
     },
   )
-  const runtimeWalk = prepareNationalOsmNativeStore(currentStore, { requireCurrentSchema: true })
+  const runtimeWalk = prepareNationalOsmNativeStore(currentStore)
   assert.equal(runtimeWalk.ready, true)
   const runtimeDrive = prepareNationalOsmDriveStore(currentStore)
   assert.equal(runtimeDrive.ready, true)

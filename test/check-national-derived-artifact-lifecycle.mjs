@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { DatabaseSync } from 'node:sqlite'
+import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import {
   buildNationalStaticTopologySidecar,
   disposeAllNationalGtfsStores,
@@ -316,6 +317,35 @@ try {
       && rebuildSource.includes('await fsp.rename(backupRoot, projectRoot)'),
     'Raw project rebuild must rollback the previous project, including its store and sidecar.',
   )
+
+  // Run the real rebuild pipeline: compaction changes SQLite's generation,
+  // so validating a topology created before compaction must not publish it.
+  const rawInputsDirectory = path.join(folder, 'raw-inputs')
+  const rawProjectsRoot = path.join(folder, 'raw-projects')
+  await fs.mkdir(rawInputsDirectory)
+  const rawInputs = await writeCliFixtureInputs(rawInputsDirectory)
+  await execFileAsync(process.execPath, [
+    path.resolve(import.meta.dirname, '../scripts/rebuild-vigo-project-from-raw.mjs'),
+    '--project=fixture',
+    `--gtfs=fixture:${rawInputs.gtfsPath}`,
+    `--osm=${rawInputs.osmPath}`,
+    '--keep-backup',
+    '--sequential-raw-build',
+  ], {
+    env: { ...process.env, VIGO_PROJECTS_ROOT: rawProjectsRoot },
+    maxBuffer: 4 * 1024 * 1024,
+    timeout: 60_000,
+  })
+  const rawRoutingPath = path.join(rawProjectsRoot, 'fixture/.vigo/routing/project.sqlite')
+  assert.equal(inspectNationalStaticTopologySidecar(rawRoutingPath).ready, true)
+  const rawProject = JSON.parse(await fs.readFile(path.join(rawProjectsRoot, 'fixture/.vigo/project.json'), 'utf8'))
+  assert(rawProject.osmStreetIndex.driveEdgeCount > 0, 'The City must retain its rebuilt driving-network counts.')
+  const rawPlan = routeNationalGtfsStore(rawRoutingPath, {
+    ...request(),
+    origin: { label: 'Alpha', coordinate: [-77.05, 38.9], stopId: 'A' },
+    destination: { label: 'Bravo', coordinate: [-77.03, 38.91], stopId: 'B' },
+  })
+  assert.equal(rawPlan.status, 'ready')
 
   console.log(JSON.stringify({
     status: 'passed',

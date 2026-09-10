@@ -4,8 +4,8 @@ import {
   buildNativeStreetCchIndex,
   disposeNativeRoutingKernel,
   normalizeNativeMilliseconds,
-  prepareNativeRoutingKernel,
 } from '../src/server/native-routing-kernel.mjs'
+import { prepareNationalOsmNativeStore } from '../src/server/national-osm-store.mjs'
 import { atomicWriteJson } from './lib/atomic-json.mjs'
 import { argValue } from './lib/cli-args.mjs'
 import { readProjectRoutingIdentity } from './lib/project-routing-store.mjs'
@@ -15,7 +15,7 @@ if (!projectId) throw new Error('--project=<project-id> is required.')
 const force = argValue('force', 'false') === 'true'
 const identity = readProjectRoutingIdentity(projectId)
 const startedAt = performance.now()
-const prepared = prepareNativeRoutingKernel(identity.streetStorePath)
+const prepared = prepareNationalOsmNativeStore(identity.streetStorePath)
 if (!prepared.ready) throw new Error(`Native street kernel is unavailable for ${projectId}.`)
 const result = buildNativeStreetCchIndex(identity.streetStorePath, { force })
 const loaded = result.loaded ?? result

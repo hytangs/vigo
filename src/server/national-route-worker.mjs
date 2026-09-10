@@ -275,9 +275,7 @@ async function prepareStreetStore(request) {
     prepareNationalOsmDriveStore,
     prepareNationalOsmNativeStore,
   } = await loadOsmModule()
-  const prepared = prepareNationalOsmNativeStore(streetStorePath, {
-    requireCurrentSchema: true,
-  })
+  const prepared = prepareNationalOsmNativeStore(streetStorePath)
   if (!prepared.ready || !prepared.accelerated) {
     const error = new Error(
       `Pedestrian accelerator unavailable (${prepared.reason ?? 'unknown reason'}). Rebuild the OpenStreetMap street index.`,
@@ -503,9 +501,7 @@ parentPort.on('message', async (message) => {
       if (request.mode === 'drive') {
         prepareNationalOsmDriveStore(streetStorePath)
       } else {
-        const prepared = prepareNationalOsmNativeStore(streetStorePath, {
-          requireCurrentSchema: true,
-        })
+        const prepared = prepareNationalOsmNativeStore(streetStorePath)
         if (!prepared.ready || !prepared.accelerated) {
           throw new Error(
             `Pedestrian accelerator unavailable (${prepared.reason ?? 'unknown reason'}). Rebuild the OpenStreetMap street index.`,

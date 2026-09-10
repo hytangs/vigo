@@ -74,7 +74,7 @@ try {
     throw new Error(`The OSM street store could not be sealed: ${runtimeCompaction.reason ?? 'unknown reason'}`)
   }
 
-  const native = prepareNationalOsmNativeStore(workerData.outputPath, { requireCurrentSchema: true })
+  const native = prepareNationalOsmNativeStore(workerData.outputPath)
   if (!native.ready || !native.accelerated) {
     throw new Error(`The sealed OSM street snapshot is unavailable: ${native.error ?? native.reason ?? 'unknown reason'}`)
   }

@@ -33,9 +33,13 @@ VIGO presents one product model while keeping computation, application state, an
 
 Build validates GTFS and OSM, creates the timetable and street data, readies native query files, writes City metadata, and publishes one complete directory. An incomplete Build never replaces the previous City.
 
+Only current routing and street formats are accepted. Old stores must be rebuilt from their source GTFS and OSM PBF; merging, compaction, and derived-index preparation cannot upgrade them in place. SQLite compaction precedes transfer topology and native access preparation. Compaction retires indexes bound to the previous SQLite generation, and publication rejects a stale topology.
+
 ## Open
 
 Open checks the City revision and loads only the data required for a Query. Repeated work may keep native data open. This lifecycle is automatic and is not part of the public product model.
+
+Studio checks the stored format before reporting an index as ready. An obsolete street store retains its admission error instead of appearing as a missing native kernel. Store-admission, City-publication, CLI-build, and preparation-lifecycle tests cover these boundaries.
 
 ## Compute
 

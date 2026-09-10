@@ -15,7 +15,7 @@ import {
   readNationalGtfsRouteCatalog,
   readNationalGtfsStoreMetadata,
 } from './national-gtfs-store.mjs'
-import { readNationalOsmStreetGeometry } from './national-osm-store.mjs'
+import { readNationalOsmStreetGeometry, readNationalOsmStoreMetadata } from './national-osm-store.mjs'
 import { readGtfsNetworkOverview, readGtfsRouteAnalysis } from './gtfs-analysis-store.mjs'
 import { decodeGtfsRealtimeFeed, gtfsRealtimeEnums as gtfsRealtime } from './gtfs-realtime-decoder.mjs'
 import { fetchSafeRealtimeBody } from './realtime-url-security.mjs'
@@ -2218,6 +2218,18 @@ async function normalizeFeedRoutingMetadata(projectId, feed, options = {}) {
   const routingStore = options.routingStore ?? feed?.routingStore
   const storePath = options.storePath ?? routingStoreFile(projectId, feed.id)
   if (routingStore?.status === 'ready' && await exists(storePath)) {
+    try {
+      readNationalGtfsStoreMetadata(storePath)
+    } catch (error) {
+      return {
+        ...feed,
+        routingStore: { ...routingStore, status: 'error', error: error.message },
+        warnings: [
+          ...(feed.warnings ?? []).filter((warning) => warning.id !== 'routing-store-missing'),
+          { ...missingRoutingStoreWarning(feed), message: 'This timetable index is outdated or unreadable. Re-import the source GTFS ZIP.' },
+        ],
+      }
+    }
     const storeStats = await fs.stat(storePath)
     return {
       ...feed,
@@ -2236,6 +2248,7 @@ async function normalizeFeedRoutingMetadata(projectId, feed, options = {}) {
 }
 
 async function refreshNationalFeedPreview(projectId, feed, options = {}) {
+  if (feed?.routingStore?.status !== 'ready') return feed
   const routingStore = options.routingStore ?? feed?.routingStore
   if (routingStore?.status !== 'ready') return feed
   const storePath = options.storePath ?? routingStoreFile(projectId, feed.id)
@@ -2431,15 +2444,28 @@ async function readProjectMetadata(projectId) {
       storePath: feedRoutingStoreFile(projectId, feed),
     })
   }))
+  return normalizeProjectStoreMetadata(projectId, project)
+}
+
+async function normalizeProjectStoreMetadata(projectId, project) {
   const projectStorePath = projectRoutingStoreFile(projectId, project)
-  const projectRoutingReady = project.routingStore?.status === 'ready' && await exists(projectStorePath)
-  if (projectRoutingReady) {
-    const storeStats = await fs.stat(projectStorePath)
-    project.routingStore = { ...project.routingStore, bytes: storeStats.size }
+  if (project.routingStore?.status === 'ready') {
+    try {
+      readNationalGtfsStoreMetadata(projectStorePath)
+      const storeStats = await fs.stat(projectStorePath)
+      project.routingStore = { ...project.routingStore, bytes: storeStats.size }
+    } catch (error) {
+      project.routingStore = { ...project.routingStore, status: 'error', error: error.message }
+    }
   }
-  if (project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))) {
-    const streetStats = await fs.stat(streetStoreFile(projectId))
-    project.osmStreetIndex = { ...project.osmStreetIndex, bytes: streetStats.size }
+  if (project.osmStreetIndex?.status === 'ready') {
+    try {
+      const metadata = readNationalOsmStoreMetadata(streetStoreFile(projectId))
+      const streetStats = await fs.stat(streetStoreFile(projectId))
+      project.osmStreetIndex = { ...project.osmStreetIndex, schemaVersion: metadata.schemaVersion, bytes: streetStats.size }
+    } catch (error) {
+      project.osmStreetIndex = { ...project.osmStreetIndex, status: 'error', error: error.message }
+    }
   }
   return project
 }
@@ -2475,7 +2501,7 @@ async function readProject(projectId) {
     throw error
   }
 
-  return hydrateProjectSidecars(projectId, await readJson(projectFile))
+  return hydrateProjectSidecars(projectId, await normalizeProjectStoreMetadata(projectId, await readJson(projectFile)))
 }
 
 async function writeProject(project) {

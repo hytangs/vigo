@@ -102,7 +102,13 @@ export async function fetchSafeRealtimeBody(
   const { parsedUrl, addresses } = target
   const selected = addresses?.[0]
   const pinnedLookup = selected
-    ? (_hostname, _options, callback) => callback(null, selected.address, selected.family || net.isIP(selected.address))
+    ? (_hostname, options, callback) => {
+        const family = selected.family || net.isIP(selected.address)
+        // Node's automatic IPv4/IPv6 selection requests the array form of lookup.
+        // Both forms must use only the address already checked above.
+        if (options.all) callback(null, [{ address: selected.address, family }])
+        else callback(null, selected.address, family)
+      }
     : undefined
   const transport = parsedUrl.protocol === 'https:' ? https : http
 
