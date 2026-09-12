@@ -338,18 +338,26 @@ try {
   const rawProjectsRoot = path.join(folder, 'raw-projects')
   await fs.mkdir(rawInputsDirectory)
   const rawInputs = await writeCliFixtureInputs(rawInputsDirectory)
-  await execFileAsync(process.execPath, [
+  const rebuildArguments = [
     path.resolve(import.meta.dirname, '../scripts/rebuild-vigo-project-from-raw.mjs'),
     '--project=fixture',
     `--gtfs=fixture:${rawInputs.gtfsPath}`,
     `--osm=${rawInputs.osmPath}`,
     '--keep-backup',
     '--sequential-raw-build',
-  ], {
+  ]
+  const rebuildOptions = {
     env: { ...process.env, VIGO_PROJECTS_ROOT: rawProjectsRoot },
     maxBuffer: 4 * 1024 * 1024,
     timeout: 60_000,
-  })
+  }
+  await execFileAsync(process.execPath, rebuildArguments, rebuildOptions)
+  // Repeat publication to exercise both staging-directory replacement and
+  // retention of the previous project after all compiler handles are closed.
+  await execFileAsync(process.execPath, rebuildArguments, rebuildOptions)
+  const backups = (await fs.readdir(rawProjectsRoot)).filter((name) => name.startsWith('.fixture.pre-'))
+  assert.equal(backups.length, 1)
+  assert.equal(inspectNationalStaticTopologySidecar(path.join(rawProjectsRoot, backups[0], '.vigo/routing/project.sqlite')).ready, true)
   const rawRoutingPath = path.join(rawProjectsRoot, 'fixture/.vigo/routing/project.sqlite')
   assert.equal(inspectNationalStaticTopologySidecar(rawRoutingPath).ready, true)
   const rawProject = JSON.parse(await fs.readFile(path.join(rawProjectsRoot, 'fixture/.vigo/project.json'), 'utf8'))

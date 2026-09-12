@@ -8,6 +8,7 @@ import path from 'node:path'
 const root = path.resolve(import.meta.dirname, '..')
 await fs.mkdir(path.join(root, 'temp'), { recursive: true })
 const temporary = await fs.mkdtemp(path.join(root, 'temp', 'map-runtime-'))
+let softwareLoader = null
 try {
   await fs.writeFile(path.join(temporary, 'index.html'), '<div id="map" style="width:512px;height:512px"></div><script type="module" src="/fixture.mjs"></script>')
   await fs.writeFile(path.join(temporary, 'fixture.mjs'), `
@@ -59,7 +60,21 @@ app.whenReady().then(async()=>{
   // Apple Silicon runners expose Metal. Intel macOS, Windows and Linux CI
   // runners use the bundled CPU renderer for this trusted, offline fixture.
   const nativeGraphics = process.platform === 'darwin' && process.arch === 'arm64'
+    && process.env.VIGO_TEST_SOFTWARE_RENDERING !== '1'
   const graphicsFlags = nativeGraphics ? [] : ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']
+  if (process.platform === 'darwin' && !nativeGraphics) {
+    // Electron ships the CPU driver, but macOS ANGLE looks for the Vulkan
+    // loader filename. Use that same bundled driver under the expected name
+    // only during this offline test; the shipped application is unchanged.
+    const libraries = path.resolve(path.dirname(electronPath), '../Frameworks/Electron Framework.framework/Versions/A/Libraries')
+    const alias = path.join(libraries, 'libvulkan.dylib')
+    try {
+      await fs.link(path.join(libraries, 'libvk_swiftshader.dylib'), alias)
+      softwareLoader = alias
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error
+    }
+  }
   const child = spawn(electronPath, [...ciFlags, ...graphicsFlags, path.join(temporary, 'main.cjs')], {
     stdio: 'inherit', env: { ...process.env, ELECTRON_RUN_AS_NODE: '' },
   })
@@ -69,5 +84,6 @@ app.whenReady().then(async()=>{
     assert.equal(code, 0, 'Built map must render through the Studio protocol and sanitize attribution')
   } finally { clearTimeout(timeout) }
 } finally {
+  if (softwareLoader) await fs.unlink(softwareLoader)
   await fs.rm(temporary, { recursive: true, force: true })
 }

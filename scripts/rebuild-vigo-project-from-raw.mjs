@@ -9,6 +9,7 @@ import { Worker } from 'node:worker_threads'
 import {
   buildNationalGtfsStore,
   compactNationalGtfsRuntimeStore,
+  disposeAllNationalGtfsStores,
   ensureNationalGtfsOsmStopTransfers,
   inspectNationalStaticTopologySidecar,
   mergeNationalGtfsStores,
@@ -345,6 +346,7 @@ const existingProject = await fsp.readFile(existingProjectPath, 'utf8')
   .catch(() => null)
 const rebuildId = new Date().toISOString().replace(/[:.]/g, '-')
 const stagingRoot = path.join(projectsRoot, `.${projectId}.rebuild-${rebuildId}`)
+const streetPath = path.join(stagingRoot, '.vigo', 'osm', 'street-index.sqlite')
 const backupRoot = path.join(projectsRoot, `.${projectId}.pre-${rebuildId}`)
 const lockPath = path.join(projectsRoot, `.${projectId}.rebuild.lock`)
 const lock = await acquireLock(lockPath)
@@ -392,7 +394,6 @@ try {
     fsp.mkdir(osmDirectory, { recursive: true }),
     fsp.mkdir(componentDirectory, { recursive: true }),
   ])
-  const streetPath = path.join(osmDirectory, 'street-index.sqlite')
   // Compressed input bytes substantially understate the importer working set:
   // the OSM pass retains decoded node/topology arrays while SQLite and the
   // accelerator are emitted. This intentionally conservative estimate keeps
@@ -709,6 +710,10 @@ try {
   if (!fs.existsSync(nationalStaticTopologySidecarPath(routingPath))) {
     throw new Error(`Rebuilt routing store is missing ${nationalStaticTopologySidecarPath(routingPath)}`)
   }
+  // Windows cannot publish a directory while the compiler still holds SQLite
+  // connections inside it. All preparation and validation are complete here.
+  disposeAllNationalGtfsStores()
+  disposeNationalOsmStore(streetPath)
   if (fs.existsSync(projectRoot)) {
     await fsp.rename(projectRoot, backupRoot)
     oldProjectMoved = true
@@ -733,6 +738,8 @@ try {
     await rawOsmBuild.worker.terminate().catch(() => {})
     rawOsmBuild = null
   }
+  disposeAllNationalGtfsStores()
+  disposeNationalOsmStore(streetPath)
   if (published) {
     await fsp.rm(projectRoot, { recursive: true, force: true }).catch(() => {})
     published = false
