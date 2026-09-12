@@ -115,7 +115,7 @@ export function publishCchManifest({ kind, format, sourcePath, manifestPath, str
     schemaVersion: nativeCchManifestSchema,
     kind,
     format,
-    builderVersion: '0.3.1',
+    builderVersion: '0.3.2',
     source: fileIdentity(sourcePath),
     sourceSnapshot: snapshotIdentity(sourcePath),
     structure: fileIdentity(structurePath),

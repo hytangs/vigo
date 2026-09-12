@@ -7,7 +7,7 @@ node_modules/
 # Project storage is intentionally outside the source tree by default.
 Vigo Projects/
 
-# Packaged release binaries (built via npm run release:macos)
+# Packaged release binaries (built via npm run release:studio)
 release/
 
 # Build and tool caches

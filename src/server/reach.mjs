@@ -133,7 +133,9 @@ function normalizedService(value, index) {
     sourcePatternId: value.sourcePatternId ? compactText(value.sourcePatternId, '', 240) : undefined,
     ...(routeScope ? { routeScope } : {}),
     timeModel,
-    bidirectional: value.bidirectional !== false,
+    bidirectional: value.bidirectional === undefined && operation !== 'add' && value.sourcePatternId
+      ? false
+      : value.bidirectional !== false,
     headwayMinutes: boundedNumber(
       value.headwayMinutes ?? 12,
       `scenario.services[${index}].headwayMinutes`,

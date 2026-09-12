@@ -1,6 +1,6 @@
 [package]
 name = "vigo-routing-kernel"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 publish = false
 description = "Native timetable, street-routing, and accessibility kernel for VIGO."

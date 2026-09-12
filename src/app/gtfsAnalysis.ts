@@ -1,6 +1,6 @@
 import type { FeedSummary, MapPreview, RouteMetric, StopMetric, VigoProject } from '../domain'
 import type { StopPairMetric } from '../domain'
-import { routeServiceId } from '../routeServices'
+import { routeServiceId, scopedRouteServiceKey } from '../routeServices'
 
 export type GtfsRouteAnalysis = {
   schemaVersion: 'vigo.gtfs.route-analysis.v1'
@@ -59,7 +59,11 @@ function mergeFeedAnalysis(feed: FeedSummary, analysis: GtfsRouteAnalysis): Feed
   }
   const routes = replaceAnalyzedRouteGroup(mapPreview.routes, focusedAnalysis)
   const stops = mergeAnalyzedStops(mapPreview.stops, analysis.stops)
-  const analyzedPatternIds = new Set(focusedAnalysis.routes.map((route) => route.id))
+  const analysisKeys = new Set(focusedAnalysis.routes.map(localRouteServiceKey))
+  const analyzedPatternIds = new Set([
+    ...focusedAnalysis.routes.map((route) => route.id),
+    ...mapPreview.routes.filter((route) => analysisKeys.has(localRouteServiceKey(route))).map((route) => route.id),
+  ])
   const stopPairs = [
     ...(mapPreview.stopPairs ?? []).filter((pair) => !analyzedPatternIds.has(pair.patternId)),
     ...focusedAnalysis.stopPairs,
@@ -95,6 +99,10 @@ export function routeHasCompleteGtfsAnalysis(route: RouteMetric, preview: MapPre
     && Array.isArray(route.scheduledTrips)
     && route.stopIds.length >= 2
     && (route.coordinates?.length ?? 0) >= 2
-    && route.spanHours > 0
-    && route.serviceVariantCount === preview.routes.filter((candidate) => localRouteServiceKey(candidate) === localRouteServiceKey(route)).length
+    && (route.spanHours > 0 || (
+      Number.isFinite(route.firstDepartureMinutes)
+      && Number.isFinite(route.lastArrivalMinutes)
+      && route.lastArrivalMinutes! >= route.firstDepartureMinutes!
+    ))
+    && route.serviceVariantCount === preview.routes.filter((candidate) => scopedRouteServiceKey(candidate) === scopedRouteServiceKey(route)).length
 }

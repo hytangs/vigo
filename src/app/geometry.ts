@@ -24,6 +24,7 @@ function projectedSegmentPoint(
   start: LngLat,
   end: LngLat,
   point: LngLat,
+  minimumProgress = 0,
 ) {
   const latitude = ((start[1] + end[1] + point[1]) / 3) * Math.PI / 180
   const scaleX = 111.32 * Math.cos(latitude)
@@ -34,8 +35,8 @@ function projectedSegmentPoint(
   const pointY = (point[1] - start[1]) * scaleY
   const denominator = endX * endX + endY * endY
   const progress = denominator > 0
-    ? Math.max(0, Math.min(1, (pointX * endX + pointY * endY) / denominator))
-    : 0
+    ? Math.max(minimumProgress, Math.min(1, (pointX * endX + pointY * endY) / denominator))
+    : minimumProgress
   const deltaX = pointX - endX * progress
   const deltaY = pointY - endY * progress
   return { progress, distanceSquared: deltaX * deltaX + deltaY * deltaY }
@@ -69,34 +70,107 @@ export function polylineDistanceKm(coordinates: LngLat[] | undefined, left: LngL
   return Math.abs(polylineMeasureAt(coordinates, left) - polylineMeasureAt(coordinates, right))
 }
 
+export type PolylineAnchor = { progress: number; point: LngLat; measureKm: number }
+
+/** Align the whole ordered stop sequence; a locally nearer later loop must not steal an earlier visit. */
+export function orderedPolylineAnchors(coordinates: LngLat[], points: LngLat[]) {
+  if (coordinates.length < 2) return undefined
+  if (!points.length) return []
+  const segmentCount = coordinates.length - 1
+  const cumulativeKm = [0]
+  for (let index = 1; index < coordinates.length; index += 1) {
+    cumulativeKm.push(cumulativeKm[index - 1] + coordinateDistanceKm(coordinates[index - 1], coordinates[index]))
+  }
+  let previousCosts = new Float64Array(segmentCount)
+  let previousProgress = new Float64Array(segmentCount)
+  const paths: Int32Array[] = []
+  const better = (cost: number, progress: number, otherCost: number, otherProgress: number) => (
+    cost < otherCost - 1e-12 || (Math.abs(cost - otherCost) <= 1e-12 && progress < otherProgress)
+  )
+  for (let stopIndex = 0; stopIndex < points.length; stopIndex += 1) {
+    const costs = new Float64Array(segmentCount), progress = new Float64Array(segmentCount)
+    const parents = new Int32Array(segmentCount).fill(-1)
+    let prefix = -1
+    for (let segment = 0; segment < segmentCount; segment += 1) {
+      const start = coordinates[segment], end = coordinates[segment + 1]
+      const projection = projectedSegmentPoint(start, end, points[stopIndex])
+      let bestCost = stopIndex === 0 ? projection.distanceSquared : Number.POSITIVE_INFINITY
+      let bestProgress = segment + projection.progress
+      let parent = -1
+      if (stopIndex > 0) {
+        if (segment > 0 && (prefix < 0 || better(previousCosts[segment - 1], previousProgress[segment - 1],
+          previousCosts[prefix], previousProgress[prefix]))) prefix = segment - 1
+        if (prefix >= 0) {
+          bestCost = previousCosts[prefix] + projection.distanceSquared
+          parent = prefix
+        }
+        // Adjacent platforms may project backwards within one shape segment.
+        // Retain a clamped candidate so their ordered visits can share a measure.
+        const clamped = projectedSegmentPoint(start, end, points[stopIndex], previousProgress[segment] - segment)
+        const clampedProgress = segment + clamped.progress
+        const clampedCost = previousCosts[segment] + clamped.distanceSquared
+        if (better(clampedCost, clampedProgress, bestCost, bestProgress)) {
+          bestCost = clampedCost
+          bestProgress = clampedProgress
+          parent = segment
+        }
+      }
+      costs[segment] = bestCost
+      progress[segment] = bestProgress
+      parents[segment] = parent
+    }
+    paths.push(parents)
+    previousCosts = costs
+    previousProgress = progress
+  }
+  let segment = 0
+  for (let index = 1; index < segmentCount; index += 1) {
+    if (better(previousCosts[index], previousProgress[index], previousCosts[segment], previousProgress[segment])) segment = index
+  }
+  const selectedSegments = new Int32Array(points.length)
+  for (let stopIndex = points.length - 1; stopIndex >= 0; stopIndex -= 1) {
+    selectedSegments[stopIndex] = segment
+    segment = paths[stopIndex][segment]
+  }
+  const anchors: PolylineAnchor[] = []
+  for (let stopIndex = 0; stopIndex < points.length; stopIndex += 1) {
+    const segment = selectedSegments[stopIndex]
+    const start = coordinates[segment], end = coordinates[segment + 1]
+    const minimum = stopIndex > 0 && selectedSegments[stopIndex - 1] === segment ? anchors[stopIndex - 1].progress - segment : 0
+    const ratio = projectedSegmentPoint(start, end, points[stopIndex], minimum).progress
+    anchors.push({
+      progress: segment + ratio,
+      point: [start[0] + (end[0] - start[0]) * ratio, start[1] + (end[1] - start[1]) * ratio],
+      measureKm: cumulativeKm[segment] + (cumulativeKm[segment + 1] - cumulativeKm[segment]) * ratio,
+    })
+  }
+  return anchors
+}
+
+/** Apply multiple gaps against one immutable alignment of the published shape. */
+export function splicePolylineIntervals(
+  coordinates: LngLat[], anchors: PolylineAnchor[],
+  intervals: Array<{ fromIndex: number; toIndex: number; coordinates: LngLat[] }>,
+) {
+  const joined: LngLat[] = []
+  let previous = -1
+  for (const interval of [...intervals].sort((left, right) => left.fromIndex - right.fromIndex)) {
+    const from = anchors[interval.fromIndex], to = anchors[interval.toIndex]
+    if (!from || !to || from.progress < previous || to.progress <= from.progress || interval.coordinates.length < 2) return undefined
+    joined.push(...coordinates.slice(Math.floor(previous) + 1, Math.floor(from.progress) + 1), from.point,
+      ...interval.coordinates, to.point)
+    previous = to.progress
+  }
+  joined.push(...coordinates.slice(Math.floor(previous) + 1))
+  return joined.filter((point, index) => index === 0 || point[0] !== joined[index - 1][0] || point[1] !== joined[index - 1][1])
+}
+
 /** Splice one ordered stop interval while retaining the branch's other shape vertices. */
 export function splicePolylineInterval(
   coordinates: LngLat[], points: LngLat[], fromIndex: number, toIndex: number, replacement: LngLat[],
 ) {
-  if (coordinates.length < 2 || replacement.length < 2) return undefined
-  const anchors: Array<{ progress: number; point: LngLat }> = []
-  let minimum = 0
-  for (const point of points) {
-    let best: { progress: number; point: LngLat; distance: number } | undefined
-    for (let segment = Math.floor(minimum); segment < coordinates.length - 1; segment += 1) {
-      const start = coordinates[segment], end = coordinates[segment + 1]
-      const projection = projectedSegmentPoint(start, end, point)
-      const progress = segment + projection.progress
-      if (progress < minimum) continue
-      if (!best || projection.distanceSquared < best.distance) {
-        best = { progress, distance: projection.distanceSquared,
-          point: [start[0] + (end[0] - start[0]) * projection.progress, start[1] + (end[1] - start[1]) * projection.progress] }
-      }
-    }
-    if (!best) return undefined
-    anchors.push(best)
-    minimum = best.progress
-  }
-  const from = anchors[fromIndex], to = anchors[toIndex]
-  if (!from || !to || to.progress <= from.progress) return undefined
-  const joined = [
-    ...coordinates.slice(0, Math.floor(from.progress) + 1), from.point,
-    ...replacement, to.point, ...coordinates.slice(Math.floor(to.progress) + 1),
-  ]
-  return joined.filter((point, index) => index === 0 || point[0] !== joined[index - 1][0] || point[1] !== joined[index - 1][1])
+  if (replacement.length < 2) return undefined
+  const anchors = orderedPolylineAnchors(coordinates, points)
+  if (!anchors) return undefined
+  return splicePolylineIntervals(coordinates, anchors, [{ fromIndex, toIndex, coordinates: replacement }])
 }

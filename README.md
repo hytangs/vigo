@@ -26,7 +26,7 @@ City → Scenario → Query → Result
                    └─ Reach
 ```
 
-0.3.1 is a stabilization release. API 1.0, City format 1, and Result schema 1 remain unchanged.
+0.3.2 is a stabilization release. API 1.0, City format 1, and Result schema 1 remain unchanged.
 
 > VIGO 0.3 is pre-release software. Do not use it for safety-critical, operational, or passenger-information systems without independent validation.
 
@@ -93,7 +93,7 @@ VIGO opens the selected City and manages query readiness automatically.
 
 The source build requires Node.js 24.18 or newer, npm 11.6 or newer, and the Rust toolchain selected by `rust-toolchain.toml`.
 
-Build and packaged runtime targets are macOS 13.5+ (Apple Silicon and Intel), Linux (ARM64 and x64, glibc; release builds use Ubuntu 24.04), and Windows (x64). Download the matching [0.3.1 Studio archive](https://github.com/hytangs/vigo/releases/tag/v0.3.1), or build on the target machine. Linux builds do not target musl/Alpine; 32-bit and native Windows ARM64 builds are not provided.
+Build and packaged runtime targets are macOS 13.5+ (Apple Silicon and Intel), Linux (ARM64 and x64, glibc; release builds use Ubuntu 24.04), and Windows (x64). Download the matching [0.3.2 Studio archive](https://github.com/hytangs/vigo/releases/tag/v0.3.2), or build on the target machine. Linux builds do not target musl/Alpine; 32-bit and native Windows ARM64 builds are not provided.
 
 The runtime binary must match the OS and CPU. A complete City directory can move between these targets without importing its raw inputs again. Retained street, station-access, and timetable preparation is reusable after copying or extraction. New service patterns, changed policies, or incompatible/evicted timetable snapshots can require preparation. Reopening still takes disk reads and memory allocation; see [loading and timing](docs/performance.md).
 
@@ -131,8 +131,9 @@ Repeated Route calls may reuse one open process. VIGO does not present reuse as 
 
 ## Documentation
 
-- [VIGO 0.3.1 Quickstart](docs/quickstart.md)
-- [VIGO 0.3.1 Developer Guide source](docs/developer-guide/VIGO-0.3.1-Developer-Guide.tex) — build the PDF with `npm run docs:developer-guide`
+- [VIGO 0.3.2 Quickstart](docs/quickstart.md)
+- [VIGO 0.3.2 Developer Guide source](docs/developer-guide/VIGO-0.3.2-Developer-Guide.tex) — build the PDF with `npm run docs:developer-guide`
+- [Interactive guide and Result viewer](docs/guide.html)
 - [Core concepts](docs/concepts.md)
 - [VIGO Studio Guide](docs/studio.md)
 - [Command line](docs/programmatic.md)

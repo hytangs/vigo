@@ -236,6 +236,7 @@ export async function routeOrderedRoutingSegments(points, request, routeSegment)
         arriveMinutes: nextArriveMinutes,
         departMinutes: nextArriveMinutes,
         departureWindowMinutes: 0,
+        __allowSubMinuteTimes: index < points.length - 2,
       }
       const plan = enforceOrderedSegmentMode(
         await routeSegment(segmentRequest, index),
@@ -258,6 +259,9 @@ export async function routeOrderedRoutingSegments(points, request, routeSegment)
         departMinutes: nextDepartMinutes,
         arriveMinutes: nextDepartMinutes,
         departureWindowMinutes: index === 0 ? request?.departureWindowMinutes : 0,
+        // Intermediate legs inherit the preceding leg's exact clock, including
+        // seconds from street access. Only the caller's initial clock is integral.
+        __allowSubMinuteTimes: index > 0,
       }
       const plan = enforceOrderedSegmentMode(
         await routeSegment(segmentRequest, index),

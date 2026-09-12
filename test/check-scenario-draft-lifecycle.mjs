@@ -10,6 +10,7 @@ const harness = `import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { useScenarioDrafts } from '/src/app/useScenarioDrafts.ts';
+import { createScenarioRoadGeometryRequest } from '/src/app/scenarioRoadGeometryRequest.ts';
 let state, root = createRoot(document.getElementById('root'));
 const A = 'draft-lifecycle-A', B = 'draft-lifecycle-B';
 function Component({city}) { state = useScenarioDrafts(city); return React.createElement('div', null, state.scenarioDrafts[0].name); }
@@ -42,8 +43,39 @@ window.runTests = () => {
   localStorage.setItem('damaged', '{'); mount('damaged');
   check(state.draftStorageError.includes('stored copy has been kept'), 'Malformed storage failure');
   check(localStorage.getItem('damaged') === '{', 'Malformed copy erased');
+  const change = (id, geometryStatus) => ({
+    id, name:id, kind:'add-line', stops:[], headwayMinutes:10, averageSpeedKph:25,
+    startMinutes:300, endMinutes:1500, bidirectional:true, geometryMode:'auto-road',
+    geometryStatus, geometryError:geometryStatus === 'error' ? 'Existing error' : '',
+  });
+  const changes = () => state.scenarioDrafts[0].interventions;
+  mount('road-lifecycle-A');
+  flushSync(() => state.setScenarioDrafts([{id:'case-road',name:'Road A',interventions:[
+    change('pending', 'loading'), change('ready', 'ready'), change('error', 'error'),
+  ]}]));
+  const cancelled = createScenarioRoadGeometryRequest('pending', state.setScenarioDrafts);
+  flushSync(() => cancelled.abort());
+  check(changes()[0].geometryStatus === 'idle', 'Cancellation left road geometry loading');
+  check(changes()[1].geometryStatus === 'ready', 'Cancellation cleared finished road geometry');
+  check(changes()[2].geometryError === 'Existing error', 'Cancellation cleared another road error');
+  check(JSON.parse(localStorage.getItem('road-lifecycle-A')).cases[0].interventions[0].geometryStatus === 'idle', 'Cancelled loading state remained saved');
+  flushSync(() => state.setScenarioDrafts(current => current.map(entry => ({...entry,
+    interventions:entry.interventions.map(item => item.id === 'pending' ? {...item, geometryStatus:'loading'} : item),
+  }))));
+  const oldCityRequest = createScenarioRoadGeometryRequest('pending', state.setScenarioDrafts);
+  flushSync(() => cancelled.abort());
+  check(changes()[0].geometryStatus === 'loading', 'An old cancellation cleared a retry');
+  mount('road-lifecycle-B');
+  flushSync(() => state.setScenarioDrafts([{id:'case-road',name:'Road B',interventions:[change('pending', 'loading')]}]));
+  const newCityRequest = createScenarioRoadGeometryRequest('pending', state.setScenarioDrafts);
+  flushSync(() => oldCityRequest.abort());
+  check(changes()[0].geometryStatus === 'loading', 'Old City cancellation changed the new City');
+  flushSync(() => newCityRequest.abort());
+  check(changes()[0].geometryStatus === 'idle', 'New City cancellation failed after switching Cities');
+  mount('road-lifecycle-A');
+  check(changes()[0].geometryStatus === 'idle', 'Returning to a City restored an abandoned loading state');
   mount(A);
-  return { switch: true, staleCallback: true, remount: true, quotaRecovery: true, damagedCopyRetained: true };
+  return { switch: true, staleCallback: true, remount: true, quotaRecovery: true, damagedCopyRetained: true, roadCancellation:true, roadRetry:true, roadCityIsolation:true };
 };
 window.checkReload = () => { check(state.scenarioDrafts[0].name === 'Recovered A', 'Reload lost draft'); return true; };
 `

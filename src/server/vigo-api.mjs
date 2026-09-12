@@ -44,7 +44,7 @@ import { vigoCapabilities } from '../capabilities.mjs'
 
 const defaultHost = '127.0.0.1'
 const defaultPort = 5179
-const appVersion = '0.3.1'
+const appVersion = '0.3.2'
 const host = (process.env.VIGO_HOST || defaultHost).trim() || defaultHost
 const port = normalizePort(process.env.VIGO_PORT ?? process.env.VIGO_API_PORT, defaultPort)
 const apiTransport = String(process.env.VIGO_API_TRANSPORT ?? 'tcp').trim().toLowerCase()
@@ -4185,7 +4185,9 @@ async function runSingleNationalRoute(projectId, body, signal, options = {}) {
     error.code = 'invalid_departure_window'
     throw error
   }
-  const centerMinutes = integralRoutingMinute(body?.departMinutes, 'departMinutes')
+  const centerMinutes = options.allowSubMinuteTimes
+    ? Number(body.departMinutes)
+    : integralRoutingMinute(body?.departMinutes, 'departMinutes')
   if (Object.hasOwn(body ?? {}, 'routingPreference')) {
     const error = new Error('routingPreference is not a public option; use objective')
     error.statusCode = 400
@@ -4216,6 +4218,7 @@ async function runSingleNationalRoute(projectId, body, signal, options = {}) {
       streetStorePath: transitStreetPath,
       requireCompleteServiceCoverage: true,
       ...(requireTransitRide ? { __disableDirectWalkDominance: true } : {}),
+      ...(options.allowSubMinuteTimes ? { __allowSubMinuteTimes: true } : {}),
       }
     : {
         ...publicRoutingBody,
@@ -4226,6 +4229,7 @@ async function runSingleNationalRoute(projectId, body, signal, options = {}) {
         streetStorePath: transitStreetPath,
         requireCompleteServiceCoverage: true,
         ...(requireTransitRide ? { __disableDirectWalkDominance: true } : {}),
+        ...(options.allowSubMinuteTimes ? { __allowSubMinuteTimes: true } : {}),
       }
   if (mode !== 'transit') {
     const plan = await nationalRouteWorkerPool.dispatch(
@@ -4310,12 +4314,17 @@ async function runNationalRoute(projectId, body, signal) {
   const routed = await routeOrderedRoutingSegments(
     points,
     orderedRequest,
-    async (segmentRequest) => {
+    async (segmentRequest, segmentIndex) => {
       const response = await runSingleNationalRoute(
         projectId,
         segmentRequest,
         signal,
-        { requireTransitRide: orderedMode === 'transit' },
+        {
+          requireTransitRide: orderedMode === 'transit',
+          allowSubMinuteTimes: orderedRequest.timePreference === 'arrive'
+            ? segmentIndex < points.length - 2
+            : segmentIndex > 0,
+        },
       )
       if (signal?.aborted) throw makeAbortError()
       return response.plan
@@ -4972,35 +4981,6 @@ async function setRoutingResidency(projectId, body) {
   }
 }
 
-async function runNationalStopSearch(projectId, body, signal) {
-  const project = await readProjectMetadata(projectId)
-  const feedId = String(body?.feedId ?? '')
-  const { storePath } = await requireRoutingStore(projectId, project, feedId)
-  const hasOrderedQueries = Object.prototype.hasOwnProperty.call(body ?? {}, 'queries')
-  if (hasOrderedQueries && (
-    !Array.isArray(body.queries)
-    || body.queries.length < 2
-    || body.queries.length > 8
-    || body.queries.some((query) => typeof query !== 'string')
-  )) {
-    const error = new Error('National stop search queries must contain 2-8 strings.')
-    error.statusCode = 400
-    throw error
-  }
-  const searchOperation = hasOrderedQueries
-    ? body.queries.length === 2 ? 'search-pair' : 'search-many'
-    : 'search'
-  const stops = await nationalRouteWorkerPool.dispatch(
-    storePath,
-    searchOperation,
-    hasOrderedQueries
-      ? { queries: body.queries, limit: body?.limit }
-      : { query: body?.query, limit: body?.limit },
-    signal,
-  )
-  return hasOrderedQueries ? { results: stops } : { stops }
-}
-
 function sendJson(response, statusCode, value) {
   if (response.destroyed || response.writableEnded) return false
   const serialized = JSON.stringify(value)
@@ -5324,12 +5304,6 @@ function contentTypeFor(assetPath) {
   return mimeTypes[extension] ?? 'application/octet-stream'
 }
 
-function cacheControlFor(assetPath) {
-  return path.basename(assetPath) === 'index.html'
-    ? 'no-cache'
-    : 'public, max-age=31536000, immutable'
-}
-
 async function serveStaticAsset(request, response) {
   if (!staticRoot) {
     sendJson(response, 404, { error: 'Not found' })
@@ -5351,7 +5325,9 @@ async function serveStaticAsset(request, response) {
 
   const assetStats = await fs.stat(assetPath)
   response.writeHead(200, {
-    'Cache-Control': cacheControlFor(assetPath),
+    // Local builds keep stable names such as assets/app.js and assets/index.css.
+    // Revalidate them on reload so a rebuilt UI cannot retain an older bundle.
+    'Cache-Control': 'no-cache',
     'Content-Length': String(assetStats.size),
     'Content-Type': contentTypeFor(assetPath),
   })
@@ -5665,17 +5641,6 @@ async function route(request, response) {
       })
       return true
     }
-
-    if (request.method === 'POST' && action === 'national-search') {
-      await withRequestAbort(request, response, async (signal) => {
-        const body = await readBody(request)
-        const result = await runNationalStopSearch(projectId, body, signal)
-        if (signal.aborted) throw makeAbortError()
-        sendJson(response, 200, result)
-      })
-      return true
-    }
-
   }
 
   sendJson(response, 404, { error: 'Not found' })

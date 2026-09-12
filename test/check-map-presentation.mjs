@@ -146,6 +146,12 @@ assert.equal(
   routeServices.scopedRouteServiceKey(sameNameBranches[0]),
   'Patterns from one GTFS route_id must remain grouped in the inspector.',
 )
+const secondServicePreview = { routes: sameNameBranches, stops: [], stopPairs: [] }
+assert.equal(presentation.previewForSelectedRoute(secondServicePreview, sameNameBranches[1], 'pattern').routes[0].id,
+  sameNameBranches[1].id, 'Missing pattern IDs must not select the first unrelated route.')
+assert.deepEqual(presentation.previewForSelectedRoute(secondServicePreview, sameNameBranches[1]).routes.map(route => route.id),
+  [sameNameBranches[1].id], 'Selected service must remain scoped to its route identity.')
+
 const tiedLabels = routePresentation.routeListLabels([
   { ...sameNameBranches[0], longName: 'Central loop' },
   { ...sameNameBranches[1], longName: 'Central loop' },
@@ -164,6 +170,13 @@ assert.deepEqual(
   [-77, 38.015],
 )
 assert.equal(presentation.routingLabelAnchor([[-77, 38], [-77, 38.0001]]), null)
+
+assert.deepEqual(presentation.routeStopPairCoordinates([[0, 0], [0.04, 0]], [[0.01, 0], [0.02, 0], [0.03, 0]])
+  .map(interval => interval.map(point => point.map(value => Math.round(value * 1e9) / 1e9))),
+  [[[0.01, 0], [0.02, 0]], [[0.02, 0], [0.03, 0]]],
+  'Adjacent stops inside one sparse shape segment must clip to their projected locations.')
+assert.equal(presentation.routeStopPairCoordinates([[0, 0], [0.04, 0]], [[0.01, 1], [0.03, 1]])[0], undefined,
+  'Stop-pair overlays must not attach distant stops to an unrelated shape.')
 
 const denseRoutes = Array.from({ length: 160 }, (_value, routeIndex) => (
   Array.from({ length: 3 }, (_patternValue, patternIndex) => ({
@@ -286,12 +299,12 @@ assert.equal(scheduledVehicles.scheduledVehiclesAtTime(sundayPreview, 485, '2026
 assert.equal(scheduledVehicles.scheduledVehiclesAtTime(sundayPreview, 485, '2026-09-07').length, 0,
   'Changing the service date must suppress the old timetable until the new date loads.')
 assert.equal(scheduledVehicles.scheduledVehicleDiagnostics(sundayPreview, [], 485, '2026-09-07').title,
-  'Schedule details not loaded', 'A stale date is missing data, not evidence of no service.')
+  'Timetable not loaded', 'A stale date is missing data, not evidence of no service.')
 assert.equal(scheduledVehicles.scheduledVehicleDiagnostics({
   ...sundayPreview, routes: sundayPreview.routes.map((route) => ({ ...route, scheduledTrips: [] })),
 }, [], 485, '2026-09-06').title, 'No service on this date')
 assert.equal(scheduledVehicles.scheduledVehicleDiagnostics(sundayPreview, [], 501, '2026-09-06').title,
-  'No scheduled trips at this time')
+  'No trips now')
 const overnightPreview = {
   ...vehiclePreview,
   routes: [{

@@ -295,7 +295,7 @@
   .app-shell.page-project .topbar,
   .page-projects .topbar,
   .project-empty .topbar {
-    grid-template-columns: 36px minmax(0, 1fr) 36px;
+    grid-template-columns: minmax(92px, 0.58fr) minmax(0, 1fr) 36px;
     gap: 6px;
     padding: 6px 7px;
   }
@@ -303,7 +303,8 @@
   .app-shell .topbar-brand {
     grid-column: 1;
     grid-row: 1;
-    width: 36px;
+    width: auto;
+    gap: 6px;
     padding: 0;
     border-right: 0;
   }

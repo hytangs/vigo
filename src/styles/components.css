@@ -355,7 +355,7 @@
 .route-tree-item .route-row > span {
   grid-area: meta;
   color: var(--text-muted);
-  text-align: right;
+  text-align: left;
 }
 
 /* Quiet map framing. The map stage and its renderer remain untouched. */
@@ -812,11 +812,7 @@
 }
 
 .pathfinder-location-field {
-  cursor: text;
-}
-
-.pathfinder-location-copy input::placeholder {
-  opacity: 1;
+  cursor: default;
 }
 
 .pathfinder-swap {
@@ -847,10 +843,6 @@
   cursor: pointer;
 }
 
-.pathfinder-ready-chip svg {
-  flex: 0 0 auto;
-}
-
 .pathfinder-directions-button {
   display: inline-flex;
   align-items: center;
@@ -871,14 +863,6 @@
   display: flex;
   align-items: center;
   padding-left: 4px;
-}
-
-.pathfinder-street-note {
-  margin: 0;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.65rem;
-  line-height: 1.5;
 }
 
 .pathfinder-time-preference,
@@ -1228,10 +1212,6 @@
   .pathfinder-composer-heading .pathfinder-new-route {
     padding: 0 7px;
   }
-
-  .pathfinder-current-query-actions {
-    justify-content: flex-start;
-  }
 }
 
 @media (max-width: 1180px) {
@@ -1297,7 +1277,6 @@
     padding: 6px 7px;
   }
 
-  .topbar-brand b,
   .topbar-project-action:not(.surface-exit-action) {
     display: none;
   }
@@ -1351,39 +1330,6 @@
     padding: 8px;
     overflow: auto;
     border-right: 0;
-  }
-
-  .sidebar-rail {
-    grid-column: 1;
-    grid-row: 2;
-    min-width: 0;
-    min-height: 48px;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 2px;
-    padding: 4px;
-    border-top: 1px solid var(--border);
-    border-right: 0;
-    background: var(--panel);
-  }
-
-  .sidebar-rail-main,
-  .sidebar-rail-bottom {
-    min-width: 0;
-    flex-direction: row;
-    justify-content: space-evenly;
-    gap: 2px;
-    padding: 0;
-    border: 0;
-  }
-
-  .sidebar-rail-button {
-    width: 38px;
-    height: 38px;
-  }
-
-  .sidebar-rail-button.is-active {
-    box-shadow: inset 0 -2px 0 var(--accent);
   }
 
   .sidebar-panel.is-explore {
@@ -1527,7 +1473,7 @@
   }
 }
 
-/* Shared 0.3.0 preparation primitives: one status vocabulary and one result metric shape. */
+/* Shared preparation primitives: one status vocabulary and one result metric shape. */
 .status-badge {
   min-width: max-content;
   display: inline-flex;

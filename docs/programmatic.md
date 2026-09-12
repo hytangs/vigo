@@ -2,7 +2,7 @@
 
 The VIGO command builds Cities and runs Route, Matrix, Reach, and Compare from scripts and terminals. See the [Quickstart](quickstart.md) for installation and complete examples.
 
-This is the public VIGO Engine interface. Studio uses the same core through an internal application channel; its local HTTP endpoints are not a supported external API. Python wraps the command's contracts in the [separate Python package](https://github.com/hytangs/vigo-py). API 1.0, City format 1, and Result schema 1 remain unchanged in 0.3.1; query support is declared by `capabilities` and the [Scenario support table](scenarios.md).
+This is the public VIGO Engine interface. Studio uses the same core through an internal application channel; its local HTTP endpoints are not a supported external API. Python wraps the command's contracts in the [separate Python package](https://github.com/hytangs/vigo-py). API 1.0, City format 1, and Result schema 1 remain unchanged in 0.3.2; query support is declared by `capabilities` and the [Scenario support table](scenarios.md).
 
 | Command | Input | Output |
 | --- | --- | --- |

@@ -1,8 +1,21 @@
 import type { FeatureCollection, Geometry, GeoJsonProperties } from 'geojson'
 import type { GeometrySource, LngLat, MapPreview, RouteMetric } from './domain'
-import { coordinateDistanceKm, polylineDistanceKm, splicePolylineInterval } from './app/geometry'
+import { coordinateDistanceKm, orderedPolylineAnchors, polylineDistanceKm, splicePolylineIntervals } from './app/geometry'
 import { entityFeedScope } from './networkTruth'
 import type { RoutingPoint } from './routingModel'
+
+export function joinScenarioSegmentGeometry(segments: LngLat[][]): LngLat[] {
+  const geometry: LngLat[] = []
+  for (const segment of segments) {
+    const previous = geometry.at(-1)
+    const first = segment[0]
+    const start = previous && first && previous[0] === first[0] && previous[1] === first[1] ? 1 : 0
+    for (let index = start; index < segment.length; index += 1) {
+      geometry.push(segment[index])
+    }
+  }
+  return geometry
+}
 
 export function scenarioStopsForRoute(route: RouteMetric | undefined, preview: MapPreview) {
   if (!route) return []
@@ -17,10 +30,11 @@ export function scenarioStopsForRoute(route: RouteMetric | undefined, preview: M
       source: 'route',
       stopId: stop.id,
       baselineStopId: stop.id,
+      baselineStopIndex: index,
       editStatus: 'baseline',
     }]
   })
-  return exactStops.length >= 2 ? exactStops : []
+  return exactStops.length >= 2 && exactStops.length === route.stopIds.length ? exactStops : []
 }
 
 export function scenarioSourceRouteId(route: RouteMetric) {
@@ -48,6 +62,9 @@ export function scenarioStopFromRoutingPoint(
 
 function scenarioStopBoundaryId(stop: ScenarioStopDraft | undefined, side: 'before' | 'after') {
   if (!stop) return undefined
+  if (stop.editStatus === 'inserted') {
+    return side === 'before' ? stop.anchorBeforeStopId : stop.anchorAfterStopId
+  }
   return side === 'before'
     ? stop.baselineStopId ?? stop.stopId ?? stop.anchorBeforeStopId ?? stop.anchorAfterStopId
     : stop.baselineStopId ?? stop.stopId ?? stop.anchorAfterStopId ?? stop.anchorBeforeStopId
@@ -57,25 +74,78 @@ export function scenarioInsertionAnchors(before: ScenarioStopDraft, after: Scena
   return {
     beforeStopId: scenarioStopBoundaryId(before, 'before'),
     afterStopId: scenarioStopBoundaryId(after, 'after'),
+    beforeStopIndex: before.baselineStopIndex ?? before.anchorBeforeStopIndex,
+    afterStopIndex: after.baselineStopIndex ?? after.anchorAfterStopIndex,
   }
 }
 
 export function scenarioInsertedStopsForEdge(stops: ScenarioStopDraft[]) {
-  const grouped = new Map<string, ScenarioStopDraft[]>()
-  for (const stop of stops) {
-    if (stop.editStatus !== 'inserted' || !stop.anchorBeforeStopId || !stop.anchorAfterStopId) continue
-    const key = `${stop.anchorBeforeStopId}\u0000${stop.anchorAfterStopId}`
-    const entries = grouped.get(key)
-    if (entries) entries.push(stop)
-    else grouped.set(key, [stop])
+  const fromIndex = stops.findIndex((stop) => stop.editStatus === 'inserted') - 1
+  if (fromIndex < 0) return undefined
+  let toIndex = fromIndex + 1
+  while (stops[toIndex]?.editStatus === 'inserted') toIndex += 1
+  if (toIndex >= stops.length || stops.slice(toIndex).some((stop) => stop.editStatus === 'inserted')) return undefined
+  if (stops.some((stop) => stop.editStatus === 'added' || stop.editStatus === 'replaced')) return undefined
+  const beforeStopId = stops[fromIndex].baselineStopId ?? stops[fromIndex].stopId
+  const afterStopId = stops[toIndex].baselineStopId ?? stops[toIndex].stopId
+  const inserted = stops.slice(fromIndex + 1, toIndex)
+  if (!beforeStopId || !afterStopId || inserted.some((stop) => (
+    stop.anchorBeforeStopId !== beforeStopId || stop.anchorAfterStopId !== afterStopId
+  ))) return undefined
+  return { beforeStopId, afterStopId, fromIndex, toIndex, stops: inserted }
+}
+
+/** Resolve occurrences, rather than collapsing every visit to a stop ID. */
+export function scenarioBaselineStopIndexes(route: RouteMetric, stops: ScenarioStopDraft[]) {
+  let minimum = 0
+  return stops.map((stop) => {
+    if (stop.editStatus === 'inserted' || stop.editStatus === 'added') return undefined
+    const id = stop.baselineStopId ?? stop.stopId
+    if (!id) return undefined
+    const originalIndex = stop.id.startsWith(`${route.id}:stop:`)
+      ? Number(stop.id.slice(`${route.id}:stop:`.length)) - 1
+      : undefined
+    const explicit = stop.baselineStopIndex ?? originalIndex
+    const index = explicit !== undefined && Number.isInteger(explicit) && route.stopIds[explicit] === id
+      ? explicit
+      : route.stopIds.findIndex((candidate, index) => index >= minimum && candidate === id)
+    if (index < 0) return undefined
+    minimum = index + 1
+    return index
+  })
+}
+
+export function scenarioEdgeIndexes(route: RouteMetric, beforeStopId: string, afterStopId: string) {
+  return route.stopIds.flatMap((id, index) => id === beforeStopId && route.stopIds[index + 1] === afterStopId ? [index] : [])
+}
+
+export function scenarioEdgeEditError(route: RouteMetric, stops: ScenarioStopDraft[]) {
+  const edit = scenarioInsertedStopsForEdge(stops)
+  if (!edit) return 'Exact-edge scope requires inserted stops in one A → B gap, with no other stop edits. Use Selected branch only for multiple gaps, moved stops, or extensions.'
+  const baseline = stops.filter((stop) => stop.editStatus !== 'inserted')
+  const indexes = scenarioBaselineStopIndexes(route, baseline)
+  if (baseline.length !== route.stopIds.length || indexes.some((index, position) => index !== position)) {
+    return 'Exact-edge scope requires the complete original branch around the inserted gap. Reset its GTFS stops or use Selected branch only.'
   }
-  return [...grouped.entries()]
-    .sort((left, right) => left[0].localeCompare(right[0]))
-    .map(([key, entries]) => {
-      const [beforeStopId, afterStopId] = key.split('\u0000')
-      return { beforeStopId, afterStopId, stops: entries }
-    })
-    .at(0)
+  return undefined
+}
+
+/** Apply the inserted gap at every matching directed occurrence in a branch. */
+export function scenarioStopsForEdgeBranch(intervention: ScenarioChangeDraft, branch: RouteMetric, preview: MapPreview) {
+  const edit = scenarioInsertedStopsForEdge(intervention.stops)
+  const baseline = scenarioStopsForRoute(branch, preview)
+  if (!edit || baseline.length !== branch.stopIds.length) return []
+  const indexes = new Set(scenarioEdgeIndexes(branch, edit.beforeStopId, edit.afterStopId))
+  return baseline.flatMap((stop, index) => indexes.has(index)
+    ? [stop, ...edit.stops.map((inserted, insertionIndex) => ({
+        ...inserted,
+        id: `${intervention.id}:${branch.id}:edge:${index}:inserted:${insertionIndex}`,
+        baselineStopId: undefined,
+        baselineStopIndex: undefined,
+        anchorBeforeStopIndex: index,
+        anchorAfterStopIndex: index + 1,
+      }))]
+    : [stop])
 }
 
 export function routeHasPublishedShape(
@@ -94,24 +164,27 @@ export function scenarioEdgeGeometryForBranch(
 ) {
   const edit = scenarioInsertedStopsForEdge(intervention.stops)
   if (!edit || !routeHasPublishedShape(branch)) return undefined
-  const baselineId = (stop: ScenarioStopDraft) => stop.baselineStopId ?? stop.stopId
-  const from = intervention.stops.findIndex((stop) => baselineId(stop) === edit.beforeStopId)
-  const to = intervention.stops.findIndex((stop, index) => index > from && baselineId(stop) === edit.afterStopId)
+  const from = edit.fromIndex, to = edit.toIndex
   const segments = intervention.inferredSegmentGeometry?.slice(from, to)
   const distances = intervention.inferredSegmentDistanceKm?.slice(from, to)
   if (from < 0 || to <= from || !segments || segments.length !== to - from
-    || segments.some((segment) => segment.length < 2) || !distances || distances.length !== segments.length) return undefined
-  const replacement = segments.flatMap((segment, index) => index ? segment.slice(1) : segment)
+    || segments.some((segment) => segment.length < 2) || !distances || distances.length !== segments.length
+    || distances.some((distance) => !Number.isFinite(distance) || distance < 0)) return undefined
+  const replacement = joinScenarioSegmentGeometry(segments)
   const stops = scenarioStopsForRoute(branch, preview)
   if (stops.length !== branch.stopIds.length) return undefined
-  const index = branch.stopIds.findIndex((id, i) => id === edit.beforeStopId && branch.stopIds[i + 1] === edit.afterStopId)
-  if (index < 0) return undefined
-  const geometry = splicePolylineInterval(branch.coordinates, stops.map((stop) => stop.coordinate), index, index + 1, replacement)
+  const indexes = scenarioEdgeIndexes(branch, edit.beforeStopId, edit.afterStopId)
+  if (!indexes.length) return undefined
+  const points = stops.map((stop) => stop.coordinate)
+  const anchors = orderedPolylineAnchors(branch.coordinates, points)
+  if (!anchors) return undefined
+  const geometry = splicePolylineIntervals(branch.coordinates, anchors,
+    indexes.map((index) => ({ fromIndex: index, toIndex: index + 1, coordinates: replacement })))
   if (!geometry) return undefined
-  const baselineDistances = stops.slice(0, -1).map((stop, i) => polylineDistanceKm(branch.coordinates, stop.coordinate, stops[i + 1].coordinate))
+  const baselineDistances = anchors.slice(1).map((anchor, i) => anchor.measureKm - anchors[i].measureKm)
   return {
     geometry,
-    segmentDistancesKm: [...baselineDistances.slice(0, index), ...distances, ...baselineDistances.slice(index + 1)],
+    segmentDistancesKm: baselineDistances.flatMap((distance, index) => indexes.includes(index) ? distances : [distance]),
   }
 }
 
@@ -120,16 +193,15 @@ export function scenarioPublishedShapeSegmentIndexes(
   stops: ScenarioStopDraft[],
 ) {
   if (!routeHasPublishedShape(route) || stops.length < 2) return []
-  const baselineIndexes = new Map(route.stopIds.map((stopId, index) => [stopId, index]))
-  const baselineId = (stop: ScenarioStopDraft) => stop.baselineStopId ?? stop.stopId
+  const baselineIndexes = scenarioBaselineStopIndexes(route, stops)
   return stops.slice(0, -1).flatMap((left, index) => {
     const right = stops[index + 1]
     // Preserve only an untouched published edge. A replacement keeps the
     // baseline ID for scope matching, but its coordinate is intentionally
     // edited and must be traced by OSM instead.
     if (left.editStatus !== 'baseline' || right.editStatus !== 'baseline') return []
-    const leftIndex = baselineIndexes.get(String(baselineId(left) ?? ''))
-    const rightIndex = baselineIndexes.get(String(baselineId(right) ?? ''))
+    const leftIndex = baselineIndexes[index]
+    const rightIndex = baselineIndexes[index + 1]
     return leftIndex !== undefined && rightIndex === leftIndex + 1 ? [index] : []
   })
 }
@@ -145,48 +217,49 @@ export function scenarioSegmentRuntimeMinutes(
   options: ScenarioSegmentRuntimeOptions = {},
 ) {
   const routePatternIds = new Set([route.id, route.patternId ?? route.id])
-  const pairRuntimes = new Map<string, number>()
+  const pairRuntimes = new Map<number, number>()
   for (const pair of (preview.stopPairs ?? [])
     .filter((candidate) => routePatternIds.has(candidate.patternId))
     .sort((left, right) => left.sequence - right.sequence)) {
-    if (!Number.isFinite(pair.medianRuntimeMinutes) || pair.medianRuntimeMinutes <= 0) continue
-    const key = `${pair.fromStopId}\u0000${pair.toStopId}`
-    if (!pairRuntimes.has(key)) pairRuntimes.set(key, pair.medianRuntimeMinutes)
+    if (!Number.isFinite(pair.medianRuntimeMinutes) || pair.medianRuntimeMinutes < 0) continue
+    const index = pair.sequence - 1
+    if (route.stopIds[index] !== pair.fromStopId || route.stopIds[index + 1] !== pair.toStopId) continue
+    if (!pairRuntimes.has(index)) pairRuntimes.set(index, pair.medianRuntimeMinutes)
   }
 
-  const baselineIndexes = new Map(route.stopIds.map((stopId, index) => [stopId, index]))
+  const baselineIndexes = scenarioBaselineStopIndexes(route, stops)
   const spanRuntime = (leftIndex: number, rightIndex: number) => {
-    const direction = Math.sign(rightIndex - leftIndex)
-    if (!direction) return 0
-    const start = Math.min(leftIndex, rightIndex)
-    const end = Math.max(leftIndex, rightIndex)
+    if (rightIndex < leftIndex) return null
     let total = 0
-    for (let index = start; index < end; index += 1) {
-      const fromStopId = route.stopIds[index]
-      const toStopId = route.stopIds[index + 1]
-      const runtime = pairRuntimes.get(
-        direction > 0
-          ? `${fromStopId}\u0000${toStopId}`
-          : `${toStopId}\u0000${fromStopId}`,
-      )
+    for (let index = leftIndex; index < rightIndex; index += 1) {
+      const runtime = pairRuntimes.get(index)
       if (runtime === undefined || !Number.isFinite(runtime)) return null
       total += runtime
     }
     return total
   }
   const baselineCoordinates = new Map(preview.stops.map((stop) => [stop.id, [Number(stop.lon), Number(stop.lat)] as [number, number]]))
+  const sourceStops = scenarioStopsForRoute(route, preview)
+  const shapeAnchors = routeHasPublishedShape(route) && sourceStops.length === route.stopIds.length
+    ? orderedPolylineAnchors(route.coordinates, sourceStops.map((stop) => stop.coordinate))
+    : undefined
   const publishedCoordinate = (stop: ScenarioStopDraft) => {
     const id = stop.baselineStopId ?? stop.stopId
     const coordinate = id ? baselineCoordinates.get(id) : undefined
     return coordinate ?? stop.coordinate
   }
-  const routeDistance = (left: ScenarioStopDraft, right: ScenarioStopDraft) => (
-    routeHasPublishedShape(route)
+  const indexByStop = new Map(stops.map((stop, index) => [stop, baselineIndexes[index]]))
+  const routeDistance = (left: ScenarioStopDraft, right: ScenarioStopDraft) => {
+    const leftIndex = indexByStop.get(left), rightIndex = indexByStop.get(right)
+    if (shapeAnchors && leftIndex !== undefined && rightIndex !== undefined) {
+      return Math.abs(shapeAnchors[rightIndex].measureKm - shapeAnchors[leftIndex].measureKm)
+    }
+    return routeHasPublishedShape(route)
       && Array.isArray(route.coordinates)
       && route.coordinates.length >= 2
       ? polylineDistanceKm(route.coordinates, publishedCoordinate(left), publishedCoordinate(right))
       : coordinateDistanceKm(publishedCoordinate(left), publishedCoordinate(right))
-  )
+  }
   const fallbackRuntime = (left: ScenarioStopDraft, right: ScenarioStopDraft) => {
     const speedKph = Number(route.scheduledSpeedKph)
     const distanceKm = routeDistance(left, right)
@@ -194,22 +267,17 @@ export function scenarioSegmentRuntimeMinutes(
       ? Math.max(0.05, distanceKm / speedKph * 60)
       : Math.max(0.05, coordinateDistanceKm(left.coordinate, right.coordinate) / 25 * 60)
   }
-  const stopBaselineIndex = (stop: ScenarioStopDraft) => {
-    const id = stop.baselineStopId ?? stop.stopId
-    return id ? baselineIndexes.get(id) : undefined
-  }
-
   const runtimes: number[] = []
   let index = 0
   while (index < stops.length - 1) {
     const left = stops[index]
-    const leftIndex = stopBaselineIndex(left)
+    const leftIndex = baselineIndexes[index]
     if (leftIndex !== undefined) {
       let rightPosition = index + 1
-      while (rightPosition < stops.length && stopBaselineIndex(stops[rightPosition]) === undefined) {
+      while (rightPosition < stops.length && baselineIndexes[rightPosition] === undefined) {
         rightPosition += 1
       }
-      const rightIndex = rightPosition < stops.length ? stopBaselineIndex(stops[rightPosition]) : undefined
+      const rightIndex = baselineIndexes[rightPosition]
       const preservedRuntime = rightIndex === undefined ? null : spanRuntime(leftIndex, rightIndex)
       if (rightIndex !== undefined) {
         const block = stops.slice(index, rightPosition + 1)
@@ -300,8 +368,12 @@ export type ScenarioStopDraft = {
   stopId?: string
   /** The published stop this draft edits, even when the draft is moved off it. */
   baselineStopId?: string
+  /** Zero-based occurrence in the published stop sequence, including loops. */
+  baselineStopIndex?: number
   anchorBeforeStopId?: string
   anchorAfterStopId?: string
+  anchorBeforeStopIndex?: number
+  anchorAfterStopIndex?: number
   editStatus?: 'baseline' | 'added' | 'inserted' | 'replaced'
 }
 

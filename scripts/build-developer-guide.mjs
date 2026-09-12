@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const sourceDirectory = path.join(root, 'docs', 'developer-guide')
-const sourceName = 'VIGO-0.3.1-Developer-Guide.tex'
+const sourceName = 'VIGO-0.3.2-Developer-Guide.tex'
 const buildDirectory = path.join(root, 'temp', 'developer-guide-build')
 const outputDirectory = path.join(root, 'output', 'pdf')
 

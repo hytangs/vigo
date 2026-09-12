@@ -125,7 +125,7 @@ for (const file of files) {
 }
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
-assert.equal(packageJson.version, '0.3.1', 'Public package version must be 0.3.1.')
+assert.equal(packageJson.version, '0.3.2', 'Public package version must be 0.3.2.')
 assert.equal(packageJson.license, 'Apache-2.0', 'Public package must use Apache-2.0.')
 
 const workflowFiles = files.filter((file) => file.startsWith('.github/workflows/'))

@@ -17,7 +17,8 @@ import {
   X,
 } from 'lucide-react'
 import type { ApiProgress } from '../app/api'
-import { classNames, formatNumber, type RouteMetric } from '../domain'
+import { classNames, formatNumber, type RouteMetric, type StopMetric } from '../domain'
+import { gtfsDirectionLabel, gtfsPatternStops, gtfsPatternTimetable } from '../app/gtfsPresentation'
 import { scopedRouteServiceKey } from '../routeServices'
 import type { RoutingPoint } from '../routingModel'
 import { ResultMetric } from './UiPrimitives'
@@ -30,6 +31,9 @@ import {
   scenarioImprovedPixels,
   scenarioReachablePixels,
   scenarioTransitStopsAtCutoff,
+  scenarioInsertedStopsForEdge,
+  scenarioEdgeEditError,
+  scenarioEdgeIndexes,
   type ReachTransitStatus,
   type ScenarioDraft,
   type ScenarioChangeDraft,
@@ -72,6 +76,7 @@ type AnalyzePanelProps = {
   activeInterventionId: string
   stopPlacement: ScenarioStopPlacement | null
   routes: RouteMetric[]
+  stops: StopMetric[]
   routeAnalysisLoading: boolean
   routeAnalysisError: string
   view: ScenarioView
@@ -147,14 +152,15 @@ function routeOptionLabel(route: RouteMetric) {
   return `${route.shortName} · ${route.longName || `${route.stopCount} stops`}`
 }
 
-function branchOptionLabel(route: RouteMetric) {
-  const direction = route.directionId === undefined || route.directionId === ''
-    ? 'Primary'
-    : `Direction ${route.directionId}`
+function branchOptionLabel(route: RouteMetric, stops: StopMetric[]) {
+  const direction = gtfsDirectionLabel(route.directionId)
+  const orderedStops = gtfsPatternStops(route, stops)
+  const terminals = `${orderedStops[0]?.name ?? '?'} → ${orderedStops.at(-1)?.name ?? '?'}`
+  const timetable = gtfsPatternTimetable(route)
   const pattern = route.serviceVariantCount && route.serviceVariantCount > 1
     ? `Pattern ${route.patternRank ?? '?'}`
     : 'Published pattern'
-  return `${pattern} · ${direction} · ${route.stopCount} stops · ${formatNumber(route.tripCount)} trips`
+  return `${pattern} · ${terminals} · ${direction} · ${route.stopCount} stops · ${formatNumber(timetable.tripCount)} trips${timetable.dated ? ' on date' : ''}`
 }
 
 function routePatternRank(route: RouteMetric) {
@@ -180,7 +186,7 @@ function timeModelLabel(model: ScenarioTimeModel | undefined) {
 function geometryModeLabel(mode: ScenarioGeometryMode | undefined, kind: ScenarioChangeKind) {
   if (mode === 'auto-road') return kind === 'add-line' ? 'OSM road path' : 'GTFS shape + OSM road path'
   if (mode === 'straight-line') return 'Straight-line path + speed'
-  return 'Published shape + timetable'
+  return 'Published shape + segment times'
 }
 
 function serviceTimeLabel(minutes: number) {
@@ -539,7 +545,7 @@ function interventionDetails(
     `${intervention.headwayMinutes} min headway`,
     `${intervention.averageSpeedKph} km/h average speed`,
     `${serviceTimeLabel(intervention.startMinutes)}–${serviceTimeLabel(intervention.endMinutes)}`,
-    intervention.bidirectional ? 'both directions' : 'one direction',
+    intervention.bidirectional && intervention.routeScope !== 'edge' ? 'both directions' : 'one direction',
   ].join(' · ')
 }
 
@@ -559,6 +565,7 @@ export function AnalyzePanel({
   activeInterventionId,
   stopPlacement,
   routes,
+  stops,
   routeAnalysisLoading,
   routeAnalysisError,
   view,
@@ -679,6 +686,19 @@ export function AnalyzePanel({
       ))
   }, [routes, selectedRoute])
   const selectedPublicRouteKey = selectedRoute ? scopedRouteServiceKey(selectedRoute) : ''
+  const edgeScopeNote = useMemo(() => {
+    if (!selectedRoute || activeIntervention?.routeScope !== 'edge') return ''
+    const error = scenarioEdgeEditError(selectedRoute, activeIntervention.stops)
+    if (error) return error
+    if (branchOptions.length !== selectedRoute.serviceVariantCount || branchOptions.some((branch) => (
+      branch.analysisSource !== 'focused' || branch.analysisServiceDate !== serviceDate
+    ))) return 'Load the complete GTFS branch list for the selected service date to confirm every affected branch.'
+    const edit = scenarioInsertedStopsForEdge(activeIntervention.stops)!
+    const occurrences = branchOptions.map((branch) => scenarioEdgeIndexes(branch, edit.beforeStopId, edit.afterStopId).length)
+    const matchingCount = occurrences.filter(Boolean).length
+    const edgeCount = occurrences.reduce((sum, count) => sum + count, 0)
+    return `${matchingCount} of ${branchOptions.length} branches · ${edgeCount} ordered A → B occurrences. Insertions apply at every matching occurrence, following each branch’s GTFS direction.`
+  }, [activeIntervention, branchOptions, selectedRoute, serviceDate])
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -1006,7 +1026,7 @@ export function AnalyzePanel({
                             >
                               <option value="">Choose a branch</option>
                               {branchOptions.map((route) => (
-                                <option key={route.id} value={route.id}>{branchOptionLabel(route)}</option>
+                                <option key={route.id} value={route.id}>{branchOptionLabel(route, stops)}</option>
                               ))}
                             </select>
                           </label>
@@ -1062,7 +1082,7 @@ export function AnalyzePanel({
                                   event.currentTarget.value as ScenarioGeometryMode,
                                 )}
                               >
-                                <option value="published-shape">Published shape + timetable</option>
+                                <option value="published-shape">Published shape + segment times</option>
                                 <option value="auto-road">Hybrid: GTFS shape + OSM roads</option>
                                 <option value="straight-line">Straight-line estimate</option>
                               </select>
@@ -1072,7 +1092,7 @@ export function AnalyzePanel({
                         <small className="reach-scope-note">
                           {intervention.kind === 'change-line'
                             ? intervention.routeScope === 'edge'
-                              ? 'Inserted stops apply only to branches sharing this ordered A → B GTFS edge. Other branch segments stay unchanged.'
+                              ? edgeScopeNote
                               : 'This edit applies to the selected GTFS branch only. Other branches keep their published timetable.'
                             : intervention.kind === 'remove-line' && intervention.routeScope === 'route'
                               ? 'Removes every branch of this public route.'
@@ -1218,12 +1238,17 @@ export function AnalyzePanel({
                         <label className="reach-check">
                           <input
                             type="checkbox"
-                            checked={intervention.bidirectional}
+                            checked={intervention.routeScope === 'edge' ? false : intervention.bidirectional}
+                            disabled={intervention.routeScope === 'edge'}
                             onChange={(event) => onUpdateIntervention(intervention.id, {
                               bidirectional: event.currentTarget.checked,
                             })}
                           />
-                          <span><strong>Bidirectional</strong><small>Operate the intervention in both directions.</small></span>
+                          <span><strong>{intervention.kind === 'add-line' ? 'Bidirectional' : 'Add reverse service'}</strong><small>{intervention.routeScope === 'edge'
+                            ? 'Each matching branch follows its published stop order.'
+                            : intervention.kind === 'add-line'
+                              ? 'Operate the modeled line in both directions.'
+                              : 'Also model a reversed copy of this branch. Its reverse is not inferred from GTFS.'}</small></span>
                         </label>
                       </>
                     ) : null}
@@ -1442,7 +1467,7 @@ export function AnalyzePanel({
             ) : null}
             {activeCase?.interventions.some((intervention) => hasLineSettings(intervention.kind)) ? (
               <p className="reach-method-caveat">
-                Scenario travel times use the selected average speed plus a fixed 0.35-minute dwell at each stop. They are modeled service, not a published timetable or observed operations.
+                Scenario departures use the chosen headway and service window. Published paths use median GTFS segment times; road edits distribute those times and add 0.35 minutes at inserted stops. Distance estimates use the chosen speed and stop dwell. These are modeled services, not the original trip timetable or observed operations.
               </p>
             ) : null}
             <ul>

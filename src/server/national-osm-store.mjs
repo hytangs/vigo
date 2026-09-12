@@ -2920,33 +2920,49 @@ function drivePathCoordinates(state, nodeIndices, fromCoordinate, toCoordinate) 
   return [fromCoordinate, ...sampled, toCoordinate]
 }
 
-function nativeDrivePathBetween(state, fromCoordinate, toCoordinate, maxDistanceKm, origins, targets, traffic) {
+function nativeDrivePathBetween(state, fromCoordinate, toCoordinate, maxDistanceKm, origins, targets, traffic, roadGeometryOnly = false) {
   const accelerator = state.driveAccelerator
   if (!accelerator) return null
   const startedAt = performance.now()
-  const result = routeNativeDriveExact(accelerator, {
+  const snappedResult = routeNativeDriveExact(accelerator, {
     origins,
     targets,
     maximumDistanceKm: maxDistanceKm,
     traffic: traffic?.nativeInput,
   })
+  // Scenario traces move their stops onto the selected road nodes. Query
+  // those exact nodes again so both the geometry and its distance/runtime
+  // exclude the point-to-road connectors used to choose the initial snaps.
+  const result = roadGeometryOnly && snappedResult.status === 'ready' && snappedResult.nodeIndices.length
+    ? routeNativeDriveExact(accelerator, {
+        origins: [{ nodeIndex: snappedResult.nodeIndices[0], distanceKm: 0 }],
+        targets: [{ nodeIndex: snappedResult.nodeIndices.at(-1), distanceKm: 0 }],
+        maximumDistanceKm: maxDistanceKm,
+        traffic: traffic?.nativeInput,
+      })
+    : snappedResult
   const searchMs = timingMilliseconds(result.queryMs)
-  accelerator.queryCount += 1
+    + (result === snappedResult ? 0 : timingMilliseconds(snappedResult.queryMs))
+  const settledNodes = result.settledLabels + (result === snappedResult ? 0 : snappedResult.settledLabels)
+  const relaxedEdges = result.relaxedEdges + (result === snappedResult ? 0 : snappedResult.relaxedEdges)
+  accelerator.queryCount += result === snappedResult ? 1 : 2
   accelerator.queryMs = timingMilliseconds(accelerator.queryMs) + searchMs
-  accelerator.settledNodes += result.settledLabels
-  accelerator.relaxedEdges += result.relaxedEdges
+  accelerator.settledNodes += settledNodes
+  accelerator.relaxedEdges += relaxedEdges
   return {
     path: result.status !== 'ready'
       ? null
       : {
           distanceKm: result.distanceMeters / 1_000,
           durationSeconds: result.durationSeconds,
-          coordinates: drivePathCoordinates(state, result.nodeIndices, fromCoordinate, toCoordinate),
-          originSnapDistanceKm: result.originSnapMeters / 1_000,
-          destinationSnapDistanceKm: result.targetSnapMeters / 1_000,
+          coordinates: roadGeometryOnly
+            ? drivePathCoordinates(state, result.nodeIndices, fromCoordinate, toCoordinate).slice(1, -1)
+            : drivePathCoordinates(state, result.nodeIndices, fromCoordinate, toCoordinate),
+          originSnapDistanceKm: snappedResult.originSnapMeters / 1_000,
+          destinationSnapDistanceKm: snappedResult.targetSnapMeters / 1_000,
         },
-    settledNodes: result.settledLabels,
-    relaxedEdges: result.relaxedEdges,
+    settledNodes,
+    relaxedEdges,
     searchMs,
     failureCode: result.reason ?? null,
     accelerated: true,
@@ -2954,7 +2970,8 @@ function nativeDrivePathBetween(state, fromCoordinate, toCoordinate, maxDistance
     algorithm: result.algorithm,
     cchAccelerated: result.cchAccelerated === true,
     cchSource: result.cchSource,
-    cchCandidateQueries: result.cchCandidateQueries,
+    cchCandidateQueries: Number(result.cchCandidateQueries ?? 0)
+      + (result === snappedResult ? 0 : Number(snappedResult.cchCandidateQueries ?? 0)),
     trafficApplied: result.trafficApplied === true,
     trafficSnapshotKey: result.trafficSnapshotKey,
     trafficUpdatedEdges: result.trafficUpdatedEdges,
@@ -2970,11 +2987,15 @@ function nativeDrivePathBetween(state, fromCoordinate, toCoordinate, maxDistance
   }
 }
 
-function drivePathBetween(state, fromCoordinate, toCoordinate, maxDistanceKm, traffic) {
+function drivePathBetween(state, fromCoordinate, toCoordinate, maxDistanceKm, traffic, options = {}) {
   const startedAt = performance.now()
   const originCandidates = driveCandidatesForCoordinate(state, fromCoordinate)
   const destinationCandidates = driveCandidatesForCoordinate(state, toCoordinate)
-  const origins = originCandidates.candidates
+  // A preceding scenario segment has already selected this stop's graph
+  // node. Allowing another origin snap here can disconnect the two paths.
+  const origins = options.originAtRoadNode
+    ? originCandidates.candidates.filter((candidate) => candidate.distanceKm === 0)
+    : originCandidates.candidates
   const targets = destinationCandidates.candidates
   const snapRecovery = originCandidates.snapRecovery || destinationCandidates.snapRecovery
   const result = origins.length && targets.length
@@ -2986,6 +3007,7 @@ function drivePathBetween(state, fromCoordinate, toCoordinate, maxDistanceKm, tr
       origins,
       targets,
       traffic,
+      options.roadGeometryOnly === true,
     )
     : {
         path: null,
@@ -3146,7 +3168,10 @@ export function routeNationalStreetStore(storePath, request) {
   let pathResult
   let search
   if (mode === 'drive') {
-    search = drivePathBetween(state, originCoordinate, destinationCoordinate, maxStreetKm, traffic)
+    search = drivePathBetween(state, originCoordinate, destinationCoordinate, maxStreetKm, traffic, {
+      roadGeometryOnly: request.roadGeometryOnly === true,
+      originAtRoadNode: request.originAtRoadNode === true,
+    })
     pathResult = search.path
   } else if (nativeWalk) {
     pathResult = routeNativeStreetPath(

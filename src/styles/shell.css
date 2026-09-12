@@ -72,7 +72,7 @@
 }
 
 .sidebar-rail-bottom {
-  border-top: 1px solid rgba(216, 230, 244, 0.08);
+  border-top: 1px solid var(--border);
 }
 
 .sidebar-rail-button {

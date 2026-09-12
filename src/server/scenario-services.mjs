@@ -26,6 +26,7 @@ function scenarioStopsForStoredRoute(storePath, storeIdentity, routeId, patternI
       routeLimit: 1,
       representativeRouteIds: [normalizedRouteId],
     })
+    if (!preview) continue
     const route = preview.routes.find((entry) => (
       (entry.routeId === normalizedRouteId || entry.id === normalizedRouteId)
       && (!requestedPatternId || scenarioEntityMatches(entry.id, requestedPatternId)
@@ -42,10 +43,13 @@ function scenarioStopsForStoredRoute(storePath, storeIdentity, routeId, patternI
           coordinate: [Number(stop.lon), Number(stop.lat)],
           source: 'route',
           stopId: stop.id,
+          baselineStopId: stop.id,
+          baselineStopIndex: index,
+          editStatus: 'baseline',
         }]
       })
       : []
-    const stops = ordered.length >= 2 ? ordered : []
+    const stops = ordered.length >= 2 && ordered.length === route?.stopIds?.length ? ordered : []
     if (stops.length < 2) continue
     scenarioRouteStopCache.set(key, stops)
     while (scenarioRouteStopCache.size > scenarioRouteStopCacheMaxEntries) {
@@ -129,14 +133,14 @@ export function hydrateScenarioRouteServices(storePath, storeIdentity, body) {
   const excludedRouteIds = Array.isArray(scenario.excludedRouteIds) ? [...scenario.excludedRouteIds] : []
   const replacedScopes = new Map()
   const reserveReplacement = (routeId, trips) => {
-    const key = trips ? JSON.stringify([...trips].sort()) : null
     const previous = replacedScopes.get(routeId) ?? new Set()
-    if (previous.has(key) || previous.has(null) || (key === null && previous.size)) {
+    if (previous.has(null) || (!trips && previous.size) || trips?.some((tripId) => previous.has(tripId))) {
       const error = new Error(`Conflicting replacement services for GTFS route ${routeId}.`)
       error.statusCode = 400
       throw error
     }
-    previous.add(key)
+    if (trips) for (const tripId of trips) previous.add(tripId)
+    else previous.add(null)
     replacedScopes.set(routeId, previous)
   }
   const excludedTripIds = Array.isArray(scenario.excludedTripIds)

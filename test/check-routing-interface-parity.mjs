@@ -291,6 +291,65 @@ try {
     'Studio presentation normalization changed route semantics.',
   )
 
+  // Real HTTP waypoint routing must keep fractional leg clocks, in both
+  // directions, instead of reapplying the public whole-minute input check.
+  const orderedPoints = [
+    { coordinate: [-77.050, 38.900], label: 'Origin', source: 'map' },
+    { coordinate: [-77.03999, 38.90501], label: 'Via', source: 'map' },
+    { coordinate: [-77.030, 38.910], label: 'Destination', source: 'map' },
+  ]
+  for (const mode of ['walk', 'drive', 'transit']) {
+    for (const timePreference of ['depart', 'arrive']) {
+      const request = {
+        origin: orderedPoints[0], waypoints: [orderedPoints[1]], destination: orderedPoints[2],
+        mode, timePreference, departMinutes: timePreference === 'arrive' ? 510 : 475,
+        arriveMinutes: 510, serviceDate, serviceDay: 'weekday', maxWalkKm: 0.2,
+      }
+      const response = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-route`, apiUrl), {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request),
+      })
+      const body = await response.json()
+      assert.equal(response.status, 200, `${mode} ${timePreference} waypoints: ${JSON.stringify(body)}`)
+      assert.equal(body.plan.status, 'ready', `${mode} ${timePreference}: ${body.plan.detail}`)
+      assert.equal(body.plan.waypoints.length, 1)
+      const firstSegmentEnd = body.plan.legs.filter(leg => leg.orderedSegmentIndex === 0).at(-1).endMinutes
+      const secondSegmentStart = body.plan.legs.find(leg => leg.orderedSegmentIndex === 1).startMinutes
+      assert(secondSegmentStart >= firstSegmentEnd - 0.002, 'A following leg cannot leave before reaching the waypoint.')
+      if (mode !== 'transit') {
+        assert(!Number.isInteger(firstSegmentEnd), 'Fixture must exercise a fractional intermediate clock.')
+        assert(Math.abs(secondSegmentStart - firstSegmentEnd) < 0.002, 'Street waypoints must not add rounding waits.')
+      }
+      const requestPath = path.join(temporaryRoot, 'ordered-route.json')
+      await fsp.writeFile(requestPath, JSON.stringify(request))
+      const cli = runCli(['route', `--city=${projectMetaPath}`, `--request=${requestPath}`,
+        `--service-date=${serviceDate}`, `--time=${timePreference === 'arrive' ? '08:30' : '07:55'}`,
+        '--max-walk=0.2'])
+      assert.equal(cli.status, 0, `${mode} ${timePreference} CLI waypoints: ${cli.stderr}`)
+      assert.deepEqual(canonicalPlan(JSON.parse(cli.stdout).result), canonicalPlan(body.plan),
+        `${mode} ${timePreference} ordered HTTP/CLI parity`)
+    }
+  }
+  for (const total of [8, 9]) {
+    const points = Array.from({ length: total }, (_, index) => orderedPoints[index % 3])
+    const response = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-route`, apiUrl), {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+        origin: points[0], waypoints: points.slice(1, -1), destination: points.at(-1),
+        mode: 'walk', departMinutes: 475, serviceDate,
+      }),
+    })
+    const body = await response.json()
+    assert.equal(response.status, total === 8 ? 200 : 400, JSON.stringify(body))
+    if (total === 8) assert.equal(body.plan.waypoints.length, 6)
+  }
+
+  const fractionalInput = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-route`, apiUrl), {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      origin: orderedPoints[0], waypoints: [orderedPoints[1]], destination: orderedPoints[2],
+      mode: 'walk', departMinutes: 475.5, __allowSubMinuteTimes: true, serviceDate,
+    }),
+  })
+  assert.equal(fractionalInput.status, 400, 'Private flags must not bypass initial public time validation.')
+
   const matrixResponse = await apiRuntime.fetch(
     new URL(`api/projects/${projectId}/national-matrix`, apiUrl), {
       method: 'POST', headers: { 'content-type': 'application/json' },

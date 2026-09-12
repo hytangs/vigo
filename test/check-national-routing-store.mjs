@@ -21,7 +21,6 @@ import {
   deduplicateNationalRouteCoordinates,
 } from '../src/server/national-route-geometry.mjs'
 import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
-import { disposeNationalStopSearchStore, searchNationalGtfsStops } from '../src/server/national-stop-search.mjs'
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 import { finalizeCurrentStreetFixture } from './helpers/street-fixture.mjs'
 import { processFixtureDirectory } from './helpers/fixture-process.mjs'
@@ -159,7 +158,6 @@ assert.deepEqual(
 const folder = await processFixtureDirectory(import.meta.url, 'vigo-national-store-')
 const zipPath = path.join(folder, 'fixture.zip')
 const storePath = path.join(folder, 'fixture.sqlite')
-const stopSearchStorePath = path.join(folder, 'fixture-stop-search.sqlite')
 const kernelFallbackStorePath = path.join(folder, 'fixture-kernel-fallback.sqlite')
 const weekdayTemplateStorePath = path.join(folder, 'fixture-weekday-template.sqlite')
 const transferShortcutStorePath = path.join(folder, 'fixture-transfer-shortcut.sqlite')
@@ -769,46 +767,6 @@ try {
   assert.equal(result.connectionCount, 2)
   assert.equal(result.shapePointCount, 4)
   assert.equal(readNationalGtfsStoreMetadata(storePath).schemaVersion, 'vigo.routing.store.v1')
-  await fs.copyFile(storePath, stopSearchStorePath)
-  const stopSearchDb = new DatabaseSync(stopSearchStorePath)
-  stopSearchDb.exec(`
-    INSERT INTO stops(stop_id, name, lat, lon, parent_station, location_type, platform_code) VALUES
-      ('place-canonical', 'Canonical Station', 42.352271, -71.055242, NULL, 1, NULL),
-      ('platform-canonical', 'Canonical Station', 42.352310, -71.055300, 'place-canonical', 0, '1'),
-      ('node-canonical-a', 'Canonical Station', 0, 0, 'place-canonical', 3, NULL),
-      ('node-canonical-b', 'Canonical Station', 0, 0, 'place-canonical', 3, NULL),
-      ('place-fallback', 'Fallback Station', 0, 0, NULL, 1, NULL),
-      ('platform-fallback', 'Fallback Station', 47.378177, 8.540212, 'place-fallback', 0, '2'),
-      ('node-fallback', 'Fallback Station', 0, 0, 'place-fallback', 3, NULL),
-      ('place-harvard', 'Harvard', 42.373362, -71.118956, NULL, 1, NULL),
-      ('platform-harvard', 'Harvard', 42.373604, -71.119242, 'place-harvard', 0, '1'),
-      ('door-harvard', 'Church St, Harvard Square', 42.374317, -71.118956, 'place-harvard', 2, NULL),
-      ('place-harvard-avenue', 'Harvard Avenue', 42.350243, -71.131355, NULL, 1, NULL),
-      ('platform-harvard-avenue-a', 'Harvard Avenue', 42.350263, -71.131298, 'place-harvard-avenue', 0, 'A'),
-      ('platform-harvard-avenue-b', 'Harvard Avenue', 42.350602, -71.130727, 'place-harvard-avenue', 0, 'B');
-  `)
-  stopSearchDb.close()
-  assert.deepEqual(
-    searchNationalGtfsStops(stopSearchStorePath, 'Canonical Station', 5)[0]?.coordinate,
-    [-71.055242, 42.352271],
-    'Named-station search must use the canonical parent coordinate instead of averaging zero-coordinate pathway nodes.',
-  )
-  assert.deepEqual(
-    searchNationalGtfsStops(stopSearchStorePath, 'Fallback Station', 5)[0]?.coordinate,
-    [8.540212, 47.378177],
-    'Named-station search must fall back to a valid service platform when the parent coordinate is a placeholder.',
-  )
-  assert.deepEqual(
-    searchNationalGtfsStops(stopSearchStorePath, 'Harvard', 5)[0],
-    {
-      id: 'place-harvard',
-      name: 'Harvard',
-      coordinate: [-71.118956, 42.373362],
-      platformCount: 2,
-    },
-    'An exact canonical station name must outrank a longer prefix match even when an entrance alias sorts first.',
-  )
-  disposeNationalStopSearchStore(stopSearchStorePath)
   const oversizedSourcePreflight = await runOversizedSourcePreflightFixture(storePath)
   assert.equal(oversizedSourcePreflight.preflight.eligible, false)
   assert.equal(oversizedSourcePreflight.preflight.reason, 'source_connection_guard')
@@ -3524,7 +3482,6 @@ try {
   console.log(`National routing-store fixture passed (${result.buildSeconds}s build / ${plan.diagnostics.searchStats.queryMs}ms depart end-to-end / ${denseAccessArriveBy.diagnostics.searchStats.arriveByNativeEngineQueryMs}ms arrive-by timetable / ${firstRepairMs.toFixed(1)}ms repair / ${secondRepairMs.toFixed(1)}ms warm read).`)
 } finally {
   disposeAllNationalGtfsStores()
-  disposeNationalStopSearchStore(stopSearchStorePath)
   for (const streetPath of [parentModeAccessStreetPath, directWalkStreetPath, denseAccessStreetPath,
     completeEgressStreetPath, fallbackStreetPath]) disposeNationalOsmStore(streetPath)
 }

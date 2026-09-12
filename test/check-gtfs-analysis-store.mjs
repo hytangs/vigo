@@ -178,7 +178,7 @@ try {
   assert.deepEqual(scheduledVehiclesAtTime(sunday, 877, '2026-09-06').map((vehicle) => vehicle.tripId), ['SUNDAY-TRAM'],
     'The Sunday 14:37 frame must show the trip selected by the GTFS date exception.')
   assert.equal(scheduledVehiclesAtTime(sunday, 877, '2026-09-07').length, 0)
-  assert.equal(scheduledVehicleDiagnostics(sunday, [], 877, '2026-09-07').title, 'Schedule details not loaded')
+  assert.equal(scheduledVehicleDiagnostics(sunday, [], 877, '2026-09-07').title, 'Timetable not loaded')
   const holiday = readGtfsRouteAnalysis(storePath, 'R1A', { serviceDate: '2026-09-07' })
   assert.deepEqual(holiday.routes.flatMap((route) => route.scheduledTrips.map((trip) => trip.tripId)), ['T2-SA-1', 'T2-SA-2'])
   assert.deepEqual(scheduledVehiclesAtTime(holiday, 380, '2026-09-07').map((vehicle) => vehicle.tripId), ['T2-SA-1'],

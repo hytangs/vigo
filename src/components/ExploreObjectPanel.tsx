@@ -1,13 +1,14 @@
 import { type CSSProperties, useMemo } from 'react'
-import { AlertTriangle, Clock3, Database, SearchCheck } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Check, Clock3, Database, GitBranch, SearchCheck } from 'lucide-react'
 import type { FeedSummary, MapPreview, RouteMetric, StopMetric } from '../domain'
 import { formatNumber, classNames } from '../domain'
 import { routeHeadwayLabel, routeListLabel, routeModeLabel, routeSpanLabel } from '../app/routePresentation'
 import { scopedRouteServiceKey, type RouteRenderMode } from '../routeServices'
+import { gtfsDirectionLabel, gtfsPatternStops, gtfsPatternTimetable, gtfsServiceClock, orderedGtfsPatterns } from '../app/gtfsPresentation'
 
 function patternGroup(preview: MapPreview, route: RouteMetric) {
   const key = scopedRouteServiceKey(route)
-  return preview.routes.filter((candidate) => scopedRouteServiceKey(candidate) === key)
+  return orderedGtfsPatterns(preview.routes.filter((candidate) => scopedRouteServiceKey(candidate) === key))
 }
 
 function uniqueStops(routes: RouteMetric[]) {
@@ -15,53 +16,38 @@ function uniqueStops(routes: RouteMetric[]) {
 }
 
 function temporalPatternRows(routes: RouteMetric[]) {
-  const totalTrips = routes.reduce((sum, route) => sum + route.tripCount, 0)
-  return [...routes]
-    .sort((left, right) => (
-      (left.firstDepartureMinutes ?? Number.MAX_SAFE_INTEGER) - (right.firstDepartureMinutes ?? Number.MAX_SAFE_INTEGER)
-      || right.tripCount - left.tripCount
-    ))
-    .map((route) => ({
-      id: route.id,
-      direction: route.directionId === undefined || route.directionId === '' ? 'Primary' : `Direction ${route.directionId}`,
-      startMinutes: Math.max(0, route.firstDepartureMinutes ?? 0),
-      endMinutes: Math.max(
-        route.firstDepartureMinutes ?? 0,
-        route.lastArrivalMinutes ?? (route.firstDepartureMinutes ?? 0),
-      ),
-      headwayMinutes: route.headwayMinutes,
-      tripCount: route.tripCount,
-      share: totalTrips ? route.tripCount / totalTrips : 0,
-      color: route.color,
-    }))
+  return routes.map((route, index) => ({
+    id: route.id,
+    direction: gtfsDirectionLabel(route.directionId),
+    patternLabel: `P${index + 1}`,
+    ...gtfsPatternTimetable(route),
+    color: route.color,
+  }))
 }
 
 function temporalDirectionRows(routes: RouteMetric[]) {
   const grouped = new Map<string, RouteMetric[]>()
   for (const route of routes) {
-    const direction = route.directionId === undefined || route.directionId === '' ? 'Primary' : `Direction ${route.directionId}`
+    const direction = gtfsDirectionLabel(route.directionId)
     grouped.set(direction, [...(grouped.get(direction) ?? []), route])
   }
 
   return [...grouped.entries()]
     .map(([direction, patterns]) => {
-      const tripCount = patterns.reduce((sum, pattern) => sum + pattern.tripCount, 0)
-      const headwayTripCount = patterns.reduce((sum, pattern) => (
-        sum + (pattern.headwayMinutes ? pattern.tripCount : 0)
-      ), 0)
-      const weightedHeadway = patterns.reduce((sum, pattern) => (
-        sum + (pattern.headwayMinutes ?? 0) * pattern.tripCount
-      ), 0)
+      const timetables = patterns.map(gtfsPatternTimetable)
+      const starts = timetables.flatMap((row) => row.startMinutes === undefined ? [] : [row.startMinutes])
+      const ends = timetables.flatMap((row) => row.endMinutes === undefined ? [] : [row.endMinutes])
+      const startMinutes = starts.length ? Math.min(...starts) : undefined
+      const endMinutes = ends.length ? Math.max(...ends) : undefined
       return {
-        id: direction,
+        id: patterns[0].id,
         direction,
-        startMinutes: Math.min(...patterns.map((pattern) => Math.max(0, pattern.firstDepartureMinutes ?? 0))),
-        endMinutes: Math.max(...patterns.map((pattern) => Math.max(
-          pattern.firstDepartureMinutes ?? 0,
-          pattern.lastArrivalMinutes ?? (pattern.firstDepartureMinutes ?? 0),
-        ))),
-        headwayMinutes: headwayTripCount ? Math.round(weightedHeadway / headwayTripCount) : 0,
-        tripCount,
+        startMinutes,
+        endMinutes,
+        spanLabel: startMinutes !== undefined && endMinutes !== undefined
+          ? `${gtfsServiceClock(startMinutes)}–${gtfsServiceClock(endMinutes)}`
+          : timetables.every((row) => row.dated && row.tripCount === 0) ? 'No trips on this date' : 'Times unavailable',
+        tripCount: timetables.reduce((sum, row) => sum + row.tripCount, 0),
         patternCount: patterns.length,
         color: patterns[0]?.color ?? '#6da8ff',
       }
@@ -85,14 +71,17 @@ function TemporalServiceCanvas({
   const patternRows = useMemo(() => temporalPatternRows(routes), [routes])
   const directionRows = useMemo(() => temporalDirectionRows(routes), [routes])
   const rows = renderMode === 'service' ? directionRows : patternRows
-  const maximumMinutes = Math.max(1_800, ...rows.map((row) => row.endMinutes))
-  const ticks = [0, 360, 720, 1_080, 1_440, 1_800].filter((tick) => tick <= maximumMinutes)
+  const maximumMinutes = Math.ceil(Math.max(1_440, ...rows.map((row) => row.endMinutes ?? 0)) / 360) * 360
+  const tickStep = Math.ceil(maximumMinutes / 5 / 360) * 360
+  const ticks = Array.from({ length: Math.floor(maximumMinutes / tickStep) + 1 }, (_, index) => index * tickStep)
+  const serviceDate = routes.every((route) => route.analysisServiceDate === routes[0]?.analysisServiceDate && Array.isArray(route.scheduledTrips))
+    ? routes[0]?.analysisServiceDate : undefined
 
   return (
-    <section className="temporal-canvas" aria-label="Temporal service canvas">
+    <section className="temporal-canvas" aria-label="Temporal service canvas" title="Bands span first departure to last arrival, including gaps. Times after 24:00 continue into the next calendar day.">
       <div className="object-section-heading">
-        <span><Clock3 size={13} />Service day</span>
-        <small>{directionRows.length} direction{directionRows.length === 1 ? '' : 's'} · {patternRows.length} patterns</small>
+        <span><Clock3 size={13} />{serviceDate ? 'Scheduled service' : 'Feed timetable'}</span>
+        <small>{serviceDate || 'All calendars'}</small>
       </div>
       <div className="temporal-view-switch" role="group" aria-label="Route rendering detail">
         <button
@@ -109,68 +98,122 @@ function TemporalServiceCanvas({
           aria-pressed={renderMode === 'pattern'}
           onClick={() => onRenderModeChange('pattern')}
         >
-          Patterns
+          Selected pattern
         </button>
       </div>
       <div className="temporal-axis" aria-hidden="true">
         {ticks.map((tick) => (
           <span key={tick} style={{ left: `${tick / maximumMinutes * 100}%` }}>
-            {String(Math.floor(tick / 60) % 24).padStart(2, '0')}:00
+            {gtfsServiceClock(tick)}
           </span>
         ))}
       </div>
       <div className="temporal-rows">
-        {rows.map((row, index) => {
-          const start = Math.max(0, Math.min(100, row.startMinutes / maximumMinutes * 100))
-          const width = Math.max(1.5, Math.min(100 - start, (row.endMinutes - row.startMinutes) / maximumMinutes * 100))
+        {rows.map((row) => {
+          const hasTimes = row.startMinutes !== undefined && row.endMinutes !== undefined
+          const start = Math.max(0, Math.min(100, (row.startMinutes ?? 0) / maximumMinutes * 100))
+          const width = Math.max(1.5, Math.min(100 - start, ((row.endMinutes ?? 0) - (row.startMinutes ?? 0)) / maximumMinutes * 100))
           const rowContent = (
             <>
               <span className="temporal-row-label">
-                <strong>{row.direction}{renderMode === 'pattern' ? ` · P${index + 1}` : ''}</strong>
+                <strong>{'patternLabel' in row ? `${row.patternLabel} · ` : ''}{row.direction}</strong>
                 <small>
                   {formatNumber(row.tripCount)} trip{row.tripCount === 1 ? '' : 's'}
                   {'patternCount' in row ? ` · ${row.patternCount} pattern${row.patternCount === 1 ? '' : 's'}` : ''}
-                  {' · '}{row.headwayMinutes ? `~${row.headwayMinutes} min` : 'trip-based'}
                 </small>
+                {hasTimes || row.tripCount > 0 ? <small>{row.spanLabel}</small> : null}
               </span>
               <span className="temporal-track">
-                <i
+                {hasTimes ? <i
                   style={{
                     '--pattern-left': `${start}%`,
                     '--pattern-width': `${width}%`,
                     '--pattern-color': row.color,
                   } as CSSProperties}
-                />
+                /> : null}
               </span>
             </>
           )
 
-          return renderMode === 'pattern' ? (
+          return (
             <button
               key={row.id}
               type="button"
-              className={classNames('temporal-row', row.id === selectedRouteId && 'is-active')}
+              className={classNames('temporal-row', renderMode === 'pattern' && row.id === selectedRouteId && 'is-active')}
               onClick={() => onSelectPattern(row.id)}
-              aria-label={`${row.direction}, ${row.tripCount} ${row.tripCount === 1 ? 'trip' : 'trips'}, pattern ${index + 1}`}
+              aria-pressed={renderMode === 'pattern' && row.id === selectedRouteId}
+              aria-label={`${row.direction}, ${'patternLabel' in row ? row.patternLabel : 'select main pattern'}, ${row.tripCount} scheduled trips, ${row.spanLabel}`}
+              title={`${row.direction} · ${row.spanLabel}`}
             >
               {rowContent}
             </button>
-          ) : (
-            <div
-              key={row.id}
-              className="temporal-row is-summary"
-              aria-label={`${row.direction}, ${row.tripCount} scheduled trips across ${'patternCount' in row ? row.patternCount : 1} patterns`}
-            >
-              {rowContent}
-            </div>
           )
         })}
       </div>
-      <p className="object-method-note">
-        {renderMode === 'service'
-          ? 'Direction bands summarize the complete public service. The map draws every pattern separately and never joins pattern endpoints.'
-          : 'Pattern mode isolates distinct GTFS stop sequences for inspection. Bars are timetable facts, not live operations.'}
-      </p>
+    </section>
+  )
+}
+
+function DirectionPatternBrowser({ routes, stops, selectedRouteId, renderMode, onSelectPattern }: {
+  routes: RouteMetric[]
+  stops: StopMetric[]
+  selectedRouteId: string
+  renderMode: RouteRenderMode
+  onSelectPattern: (routeId: string) => void
+}) {
+  const stopLookup = useMemo(() => new Map(stops.map((stop) => [stop.id, stop])), [stops])
+  const directions = [...new Set(routes.map((route) => gtfsDirectionLabel(route.directionId)))]
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+  const selectedRoute = routes.find((route) => route.id === selectedRouteId)
+  const selectedStops = selectedRoute ? gtfsPatternStops(selectedRoute, stopLookup) : []
+  return (
+    <section className="gtfs-pattern-browser" aria-label="Route directions and branches">
+      <div className="object-section-heading">
+        <span><GitBranch size={13} />Directions</span>
+        <small>{routes.length} patterns</small>
+      </div>
+      <div className="gtfs-pattern-list">
+        {directions.map((direction) => (
+          <div className="gtfs-direction-group" key={direction} role="group" aria-label={direction}>
+            <h3>{direction}</h3>
+            {routes.map((route, index) => {
+              if (gtfsDirectionLabel(route.directionId) !== direction) return null
+              const orderedStops = gtfsPatternStops(route, stopLookup)
+              const firstStop = orderedStops[0]
+              const lastStop = orderedStops.at(-1)
+              const selected = route.id === selectedRouteId
+              return (
+                <button
+                  key={route.id}
+                  type="button"
+                  className={classNames('gtfs-pattern-choice', selected && 'is-active')}
+                  aria-pressed={selected && renderMode === 'pattern'}
+                  aria-label={`Show P${index + 1}, ${direction}, from ${firstStop?.name ?? 'unknown'} to ${lastStop?.name ?? 'unknown'}, ${orderedStops.length} stops`}
+                  title={route.geometrySource === 'shape' ? `shape_id=${route.shapeId ?? 'unavailable'}` : route.geometrySource === 'stop_sequence' ? 'Stop connections · exact path unavailable' : 'Geometry source unverified'}
+                  onClick={() => onSelectPattern(route.id)}
+                >
+                  <span className="gtfs-pattern-choice-heading"><b>P{index + 1}</b><small>{formatNumber(route.tripCount)} feed trips{selected && renderMode === 'pattern' ? <Check size={13} aria-hidden="true" /> : null}</small></span>
+                  <span className="gtfs-pattern-endpoints"><span>{firstStop?.name ?? 'Start unavailable'}</span><ArrowRight size={13} aria-hidden="true" /><strong>{lastStop?.name ?? 'End unavailable'}</strong></span>
+                  <span className="gtfs-pattern-facts">{orderedStops.length} stops{firstStop && firstStop.id === lastStop?.id ? ' · Loop' : ''}</span>
+                </button>
+              )
+            })}
+          </div>
+        ))}
+      </div>
+      {selectedRoute ? (
+        <details className="object-disclosure gtfs-stop-disclosure">
+          <summary>P{routes.indexOf(selectedRoute) + 1} · Stops <small>{selectedStops.length}</small></summary>
+          <ol className="gtfs-ordered-stops">
+            {selectedStops.map((stop, index) => (
+              <li key={`${stop.id}:${stop.order}`}>
+                <span className="gtfs-stop-number">{stop.order}</span>
+                <span><strong>{stop.name}</strong><small>{index === 0 ? 'Start · ' : index === selectedStops.length - 1 ? 'End · ' : ''}{stop.id}{stop.platform ? ` · Platform ${stop.platform}` : ''}</small></span>
+              </li>
+            ))}
+          </ol>
+        </details>
+      ) : null}
     </section>
   )
 }
@@ -205,7 +248,7 @@ export function ExploreObjectPanel({
       <section className="sidebar-section object-first-empty">
         <SearchCheck size={18} />
         <strong>Explore the GTFS map</strong>
-        <p>Choose a service from the list or click a route or stop on the map. Open source tables when you need the raw feed.</p>
+        <p>Select a route or stop.</p>
         <button type="button" className="text-action" onClick={onOpenSources}>View source tables</button>
       </section>
     )
@@ -272,18 +315,18 @@ export function ExploreObjectPanel({
         <span>{routeModeLabel(route.routeType)}</span>
         <button type="button" onClick={onClearSelection}>Clear</button>
         <h2>{route.shortName}</h2>
-        <p>{routeListLabel(route)} · {feed.name} · {patterns.length} reconstructed pattern{patterns.length === 1 ? '' : 's'}</p>
+        <p>{routeListLabel(route)} · {feed.name}</p>
       </div>
       <dl className="object-metric-grid">
-        <div><dt>Service span</dt><dd>{routeSpanLabel(serviceRoute, analysisLoading)}</dd></div>
-        <div><dt>Headway</dt><dd>{routeHeadwayLabel(serviceRoute, analysisLoading)}</dd></div>
-        <div><dt>Trips</dt><dd>{formatNumber(serviceTrips || route.tripCount)}</dd></div>
-        <div><dt>Stops</dt><dd>{formatNumber(serviceStops || route.stopIds.length)}</dd></div>
+        <div title="Across all feed calendars"><dt>Feed span</dt><dd>{routeSpanLabel(serviceRoute, analysisLoading)}</dd></div>
+        <div title="Mean pattern headway weighted by trip count, across all feed calendars"><dt>Mean headway</dt><dd>{routeHeadwayLabel(serviceRoute, analysisLoading)}</dd></div>
+        <div><dt>Feed trips</dt><dd>{formatNumber(serviceTrips || route.tripCount)}</dd></div>
+        <div><dt>Unique stops</dt><dd>{formatNumber(serviceStops || route.stopIds.length)}</dd></div>
       </dl>
       {analysisLoading ? (
         <div className="object-analysis-state" role="status">
           <Database size={14} />
-          <span><strong>Reconstructing complete service</strong><small>Reading trip patterns, stops, span, and headway from local SQLite.</small></span>
+          <span><strong>Loading timetable…</strong></span>
         </div>
       ) : analysisError ? (
         <div className="object-analysis-state is-error" role="alert">
@@ -291,6 +334,13 @@ export function ExploreObjectPanel({
           <span><strong>Analysis needs review</strong><small>{analysisError}</small></span>
         </div>
       ) : null}
+      <DirectionPatternBrowser
+        routes={patterns}
+        stops={preview.stops}
+        selectedRouteId={route.id}
+        renderMode={routeRenderMode}
+        onSelectPattern={onSelectPattern}
+      />
       <TemporalServiceCanvas
         routes={patterns}
         selectedRouteId={route.id}
@@ -298,20 +348,20 @@ export function ExploreObjectPanel({
         onRenderModeChange={onRouteRenderModeChange}
         onSelectPattern={onSelectPattern}
       />
-      <details className="object-disclosure" open aria-label="Calculation lineage">
-        <summary>Calculation lineage</summary>
+      <details className="object-disclosure" aria-label="GTFS source data">
+        <summary>Source data</summary>
         <div className="lineage-stack">
           <button type="button" onClick={onOpenSources}>
             <i className="tone-fact" />
-            <span><strong>GTFS fact</strong><small>routes.txt · route_id={route.routeId ?? route.id}</small></span>
+            <span><strong>routes.txt</strong><small>route_id={route.routeId ?? route.id}</small></span>
           </button>
           <button type="button" onClick={onOpenSources}>
             <i className="tone-inference" />
-            <span><strong>Derived service structure</strong><small>trips.txt + stop_times.txt · {patterns.length} distinct stop sequences</small></span>
+            <span><strong>trips.txt · stop_times.txt</strong><small>{patterns.length} patterns</small></span>
           </button>
           <button type="button" onClick={onOpenSources}>
             <i className="tone-visual" />
-            <span><strong>Map geometry</strong><small>{route.geometrySource === 'shape' ? `shapes.txt · shape_id=${route.shapeId ?? 'selected trip shape'}` : 'ordered stop coordinates'}</small></span>
+            <span><strong>{route.geometrySource === 'shape' ? 'shapes.txt' : 'Geometry'}</strong><small>{route.geometrySource === 'shape' ? `shape_id=${route.shapeId ?? 'unavailable'}` : route.geometrySource === 'stop_sequence' ? 'Stop connections · exact path unavailable' : 'Source unverified'}</small></span>
           </button>
         </div>
       </details>

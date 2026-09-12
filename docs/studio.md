@@ -22,7 +22,9 @@ Live Vehicle Positions and Alerts are displayed for inspection. Only supported, 
 
 ### Plan
 
-Choose an origin, destination, optional ordered waypoints, mode, date, time, and depart-at or arrive-by. Coordinate access and egress follow the OSM street graph. Inspect every returned leg before using its geometry.
+Pick an origin and destination on the map. **Add point** inserts a via point before the destination; a route supports up to eight points total. Each row shows latitude and longitude. Click the row to repick its location, use the arrows to reorder it, or remove it. **Reverse** reverses the complete sequence. The route form does not search place or station names.
+
+Choose mode, date, time, and depart-at or arrive-by. Point and option changes update the route; **Rerun route** submits the same coordinates again, and **New route** clears them. Coordinate access and egress follow the OSM street graph. Inspect every returned leg before using its geometry.
 
 ### Recent
 
@@ -42,7 +44,7 @@ Scenario drafts and the selected case are saved in Studio's local profile when e
 
 For a stop inserted on an A → B edge shared by several branches, the road path is applied to each affected branch. Each branch retains its untouched published shape and its own A → B runtime, with dwell added at the inserted stop. Load complete branch shapes before building the path.
 
-Matrix is available through the CLI in 0.3.1. Studio does not add a separate Matrix screen.
+Matrix is available through the CLI in 0.3.2. Studio does not add a separate Matrix screen.
 
 ## City
 

@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VIGO 0.3.2 — from source to routing</title>
+<style>
+  :root { color-scheme: light; --ink: #18352e; --muted: #536c63; --line: #d4dfd9; --paper: #f7f9f6; --accent: #006b51; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.65 system-ui, sans-serif; }
+  header, main, footer { max-width: 980px; margin: auto; padding: 2rem 1.5rem; }
+  header { padding-top: 3.5rem; padding-bottom: 1rem; }
+  h1 { font-size: clamp(2rem, 5vw, 3.5rem); line-height: 1.1; letter-spacing: -.04em; margin: .5rem 0 1rem; }
+  h2 { margin-top: 0; font-size: 1.55rem; letter-spacing: -.02em; }
+  h3 { margin-top: 1.5rem; font-size: 1.05rem; }
+  p { max-width: 80ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  nav { display: flex; gap: .5rem 1.25rem; flex-wrap: wrap; margin: 1.5rem 0; }
+  section { margin-bottom: 2.5rem; padding-top: 1.75rem; border-top: 1px solid var(--line); scroll-margin-top: 1rem; }
+  code { font-size: .88em; }
+  pre { overflow-x: auto; padding: 1rem 1.2rem; border: 1px solid var(--line); border-radius: 6px; background: white; line-height: 1.5; }
+  pre code { font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .94rem; }
+  th, td { padding: .65rem .75rem; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 650; }
+  .table { overflow-x: auto; }
+  .note, footer { color: var(--muted); font-size: .92rem; }
+  details { margin: 1rem 0; padding: .6rem 0; }
+  summary { cursor: pointer; font-weight: 650; }
+  input { max-width: 100%; margin: .5rem 0; }
+  #answer { padding: 1rem 0; }
+  #answer p { margin: .4rem 0; }
+  #raw { max-height: 32rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  @media print { body { background: white; } header, main, footer { max-width: none; padding: 1rem; } nav, #viewer { display: none; } pre { white-space: pre-wrap; overflow-wrap: anywhere; } }
+</style>
+<header>
+  <p class="note">VIGO · Engine / Studio / Python</p>
+  <h1>From source to routing.</h1>
+  <p>Install VIGO, build a reusable city, run the supported queries, and use the results in an application. This guide is one file: no server, installation, or network connection is needed to read it or inspect an exported Result.</p>
+  <nav aria-label="Contents">
+    <a href="#install">Install</a><a href="#city">Build a city</a><a href="#route">Route</a>
+    <a href="#matrix">Matrix</a><a href="#reach">Reach &amp; change</a><a href="#app">Build an app</a>
+    <a href="#results">Understand JSON</a><a href="#viewer">Open a Result</a>
+  </nav>
+</header>
+<main>
+<section id="install">
+  <h2>1. Download and build</h2>
+  <div class="table"><table>
+    <tr><th>Component</th><th>Use it for</th></tr>
+    <tr><td>Engine</td><td>Build a City; run Route, Matrix, Reach, and Compare through the public command.</td></tr>
+    <tr><td>Studio</td><td>Explore data, plan journeys, and compare Reach scenarios in the desktop app.</td></tr>
+    <tr><td>Python</td><td>Automate Engine using the <a href="https://github.com/hytangs/vigo-py">separate package and Python reference</a>.</td></tr>
+  </table></div>
+  <p>For a ready-made desktop app, download the archive matching your platform from the <a href="https://github.com/hytangs/vigo/releases/tag/v0.3.2">0.3.2 release</a>. Extract it and keep its whole application directory together. Packaged users do not need Node or Rust installed.</p>
+  <p>For source builds, install <a href="https://git-scm.com/downloads">Git</a>, <a href="https://nodejs.org/en/download">Node.js</a> 24.18+ and npm 11.6+, and <a href="https://rust-lang.org/install.html">Rust through rustup</a>. The repository selects Rust 1.97.1. Rust also needs a native linker: Xcode command-line tools on macOS, a C/C++ toolchain such as Ubuntu's <code>build-essential</code>, or Visual Studio C++ Build Tools with the Windows SDK on Windows.</p>
+<pre><code>git clone --branch v0.3.2 https://github.com/hytangs/vigo.git
+cd vigo
+npm ci
+npm run build
+node public/vigo.mjs capabilities
+npm test</code></pre>
+  <p>These separate commands work in a terminal or PowerShell. Use <code>npm.cmd</code> if PowerShell blocks <code>npm.ps1</code>. Run the examples below from the cloned <code>vigo</code> directory. <code>node public/vigo.mjs</code> avoids a global installation; optional <code>npm link</code> exposes the shorter <code>vigo</code> command.</p>
+  <p class="note">VIGO 0.3.2 uses API 1.0, City format 1, and Result schema 1.</p>
+  <p>Supported native targets: macOS 13.5+ on ARM64/x64, Linux glibc on ARM64/x64, and Windows x64. Linux release builds use Ubuntu 24.04. Alpine/musl, 32-bit, and native Windows ARM64 are not provided. Studio needs a graphical session and WebGL 2; Engine does not need a GPU.</p>
+</section>
+<section id="city">
+  <h2>2. Build once, then reuse the city</h2>
+  <p>Download a static GTFS ZIP and an OSM <code>.osm.pbf</code> covering the same area. For Boston, use the <a href="https://github.com/mbta/gtfs-documentation/blob/master/reference/gtfs.md">MBTA static feed</a> and a suitable <a href="https://download.geofabrik.de/north-america/us/massachusetts.html">Geofabrik extract</a>. Save them as <code>feed.zip</code> and <code>region.osm.pbf</code>. GTFS Realtime and OSM XML cannot replace those inputs.</p>
+<pre><code>node public/vigo.mjs build --gtfs=./feed.zip --osm=./region.osm.pbf --output=./city
+node public/vigo.mjs inspect --city=./city</code></pre>
+  <p>The output is a complete City directory. An existing output is preserved unless you explicitly add <code>--replace</code>. For several operators, repeat <code>--gtfs</code>; if supplying scopes, give each feed a unique <code>--gtfs-scope</code> in the same order:</p>
+<pre><code>node public/vigo.mjs build --gtfs=./bus.zip --gtfs-scope=bus --gtfs=./rail.zip --gtfs-scope=rail --osm=./region.osm.pbf --output=./city</code></pre>
+  <p>Subsequent queries need the compiled City, not the raw files. Move or archive the <strong>entire directory</strong>, including its indexes and prepared files. Install a matching runtime on the destination OS/CPU. New active-service patterns or evicted timetable snapshots can still require preparation; changing the source network requires a new City build. Keep the query copy writable for derived caches.</p>
+  <p>Public pedestrian access is the default. <code>--private-access=endpoints</code> is an explicit assumption that travelers may use mapped private roads at their own endpoints; it does not allow private through routes or establish real permission.</p>
+  <details><summary>What “loading time” means</summary>
+    <p><strong>Raw Build:</strong> command invocation until the City is published and the command returns. <strong>Time to first answer:</strong> continue through the first complete Query Result. <strong>Reopen:</strong> start a new runtime on a saved City. <strong>Repeated query:</strong> run with an already open runtime. Record downloads and installation separately. The compiler's internal <code>totalMs</code> and the native timetable's <code>engineQueryMs</code> are narrower measurements, not full caller elapsed time.</p>
+  </details>
+</section>
+<section id="route">
+  <h2>3. Route: transit, walking, and driving</h2>
+  <p>Save this Boston example as <code>route.json</code>. Coordinates are <strong>[longitude, latitude]</strong>. Alternatively use an exact GTFS stop ID string or <code>{"stopId":"actual-id"}</code>. A street point in CLI JSON uses a <code>coordinate</code> object; do not pass a bare array as the point.</p>
+<pre><code>{
+  "origin": {"coordinate": [-71.11902, 42.37334]},
+  "destination": {"coordinate": [-71.08337, 42.32978]}
+}</code></pre>
+  <p>Replace <code>YYYY-MM-DD</code> with a date covered by your feed's <code>calendar.txt</code> and <code>calendar_dates.txt</code>. Choose coordinates within your OSM coverage. Dates and clocks use the feed's local service day; VIGO does not geocode addresses or silently convert timezones.</p>
+<pre><code>node public/vigo.mjs route --city=./city --request=./route.json --service-date=YYYY-MM-DD --time=08:00 --output=./route-result.json</code></pre>
+  <div class="table"><table>
+    <tr><th>Variant</th><th>Change to the request above</th></tr>
+    <tr><td>Walking / driving</td><td>Add <code>--mode=walk</code> or <code>--mode=drive</code>; use coordinate endpoints.</td></tr>
+    <tr><td>Arrive by 09:00</td><td>Replace the clock with <code>--time=09:00 --time-preference=arrive</code>.</td></tr>
+    <tr><td>Departure window</td><td>Add <code>--departure-window=5</code> to a transit depart-at request: sample integral minutes within ±5; inspect returned <code>choices</code>.</td></tr>
+    <tr><td>Ordered waypoints</td><td>Add <code>"waypoints":[{"coordinate":[-71.1035,42.3654]}]</code> to JSON. Points stay in that order.</td></tr>
+    <tr><td>At most one transfer</td><td>Add <code>--max-transfers=1</code>. Zero means at most one boarding. A finite cap with transit waypoints is unsupported.</td></tr>
+    <tr><td>Transit or walking</td><td>Add <code>"requireTransitRide":false</code> to JSON. Transit otherwise requires at least one vehicle boarding.</td></tr>
+    <tr><td>Access/egress limit</td><td><code>--max-walk=1.2</code> limits each continuous transit access and egress walk; it does not limit a complete Walk-mode journey.</td></tr>
+    <tr><td>Search horizon</td><td><code>--horizon=480</code>, range 1–2880 minutes. The only objective is <code>earliest_arrival</code>.</td></tr>
+  </table></div>
+  <p class="note">For the public JSON command, date, clock, walking budget, and departure window belong in CLI flags. They are not read from identically named JSON fields. Mode, time direction, transfer cap, and horizon also have JSON forms: <code>mode</code>, <code>timePreference</code>, <code>maxTransfers</code>, and <code>horizonMinutes</code>. CLI flags take precedence.</p>
+  <details><summary>Batch transit queries with CSV</summary>
+    <p>Save <code>routes.csv</code> using columns <code>id,origin_lon,origin_lat,destination_lon,destination_lat</code>. Exact-stop alternatives are <code>origin_stop_id,destination_stop_id</code>; use IDs from your feed. All rows share the selected date/time/options.</p>
+<pre><code>node public/vigo.mjs route --city=./city --input=./routes.csv --output=./routes-result.csv --service-date=YYYY-MM-DD --time=08:00</code></pre>
+    <p>CSV rows go to the output file. The JSON summary and per-row plans go to stdout; there is no automatically written adjacent summary. This CSV path is transit-only. Use JSON Route calls or Matrix for Walk/Drive batches. Missing or unknown CSV endpoints currently appear as blocked rows; validate IDs separately from service availability.</p>
+  </details>
+</section>
+<section id="matrix">
+  <h2>4. Matrix: travel times between sets of points</h2>
+  <p>Save <code>matrix.json</code>. Add origins for N × 1, destinations for 1 × N, or both for N × M. Keep IDs useful to your application.</p>
+<pre><code>{
+  "origins": [{"id":"home","point":{"coordinate":[-71.11902,42.37334]}}],
+  "destinations": [{"id":"work","point":{"coordinate":[-71.08337,42.32978]}}],
+  "mode": "transit"
+}</code></pre>
+<pre><code>node public/vigo.mjs matrix --city=./city --request=./matrix.json --service-date=YYYY-MM-DD --time=08:00 --output=./matrix-result.json</code></pre>
+  <p>Transit supports depart-at and arrive-by; for the latter use <code>--time=09:00 --time-preference=arrive</code>. Walk and Drive use the respective mode and coordinate endpoints, with a static street metric. An arrival flag does not introduce time-varying traffic into street Matrix.</p>
+  <p>Up to 100,000 pairs are accepted in one request. Rows remain in origin-major order. Inspect <strong>each row's status</strong>; top-level <code>ready</code> does not mean every pair is reachable. Matrix has no waypoints or departure windows.</p>
+  <details><summary>Journeys, geometry, and limits</summary>
+    <p>For transit, add <code>"includeJourneys":true</code> for timed legs, walking, waiting, and transfers. Add <code>"includeGeometry":true</code> for selected path geometry; it requires journeys. Scalar arrive-by rows use the requested deadline as <code>arriveMinutes</code>, so their duration includes waiting after early arrival. The nested journey reports actual arrival.</p>
+    <p>Transit supports <code>maxTransfers</code>, <code>requireTransitRide</code>, and <code>horizonMinutes</code> as in Route. Street Matrix accepts <code>maxDistanceKm</code> and walking <code>walkSpeedKph</code> (default 4.8). <code>disableCache:true</code> on transit Route/Matrix disables access/path caches, while retaining the prepared network.</p>
+  </details>
+</section>
+<section id="reach">
+  <h2>5. Reach, Scenario, and Compare</h2>
+  <p>Reach computes scheduled transit plus walking from one origin, departing at a fixed time. Save <code>reach.json</code>:</p>
+<pre><code>{
+  "origin": {"coordinate": [-71.11902,42.37334]},
+  "cutoffsMinutes": [15,30,45],
+  "extentRadiusKm": 6,
+  "rasterSize": 48
+}</code></pre>
+<pre><code>node public/vigo.mjs reach --city=./city --request=./reach.json --service-date=YYYY-MM-DD --time=08:00 --output=./reach-result.json</code></pre>
+  <p>Cutoffs range from 5 to 240 minutes, extent from 1 to 40 km, and walking speed from 1 to 8 kph. Supported grid sizes are 48, 64, 96, 128, 192, 256, 384, 512, and 1024. Extent limits computation, not just display. Reach has no Walk-only, Drive, arrive-by, or realtime mode. It does not count jobs, people, or other opportunities.</p>
+  <details><summary>Planned transit service and comparison</summary>
+    <p>A Reach request can add a <code>scenario</code> with a name and a service change, for example:</p>
+<pre><code>"scenario": {
+  "id": "direct-bus", "name": "Direct bus",
+  "services": [{
+    "operation": "add", "name": "Direct bus",
+    "stops": [
+      {"coordinate":[-71.11902,42.37334]},
+      {"coordinate":[-71.08337,42.32978]}
+    ],
+    "headwayMinutes": 10, "startMinutes": 420,
+    "endMinutes": 1200, "averageSpeedKph": 22
+  }]
+}</code></pre>
+    <p>This is a member to insert into the Reach object, not a complete standalone JSON document. Planned service applies to Reach only. See the <a href="https://github.com/hytangs/vigo/blob/v0.3.2/docs/scenarios.md">Scenario reference</a> for augment, replace, branch selection, route removal, and travel-time assumptions.</p>
+    <p>Save baseline and alternative Results, then compare them without rerunning either query:</p>
+<pre><code>node public/vigo.mjs compare --before=./reach-result.json --after=./reach-alternative.json --output=./comparison.json</code></pre>
+    <p>Compare accepts compatible Route, Matrix, or Reach Results of the same family. Match endpoints/rows and, for Reach, grid bounds and resolution. Keep date/time and walking assumptions aligned when attributing a difference to the Scenario.</p>
+  </details>
+  <details><summary>Traffic and live transit: actual support</summary>
+    <p>Drive Route/Matrix accepts a top-level <code>traffic</code> snapshot. VIGO does not fetch a traffic provider. Use <code>source</code>, a current ISO <code>observedAt</code>, positive <code>ttlSeconds</code> up to 1800, and directed <code>observations</code>:</p>
+<pre><code>{
+  "fromCoordinate": [-71.11902,42.37334],
+  "toCoordinate": [-71.118,42.374],
+  "delayFactor": 2
+}</code></pre>
+    <p>Each observation chooses exactly one of <code>delayFactor</code> (1–100), <code>speedKph</code> (1–200), positive <code>travelTimeSeconds</code> (at most 86400), or <code>closed:true</code>. Coordinates must match the intended directed edge. Supplied times cannot beat base free flow. Check matching counts and <code>diagnostics.traffic.status</code>; expired data falls back to free flow. Freshness uses the current clock, not the service date.</p>
+    <p>Live transit routing is limited to Studio Route. In Studio's <strong>Live data</strong> panel, select the MBTA preset or enter the Vehicle Positions/viewer URL and optional Trip Updates and Alerts URLs, then <strong>Connect live</strong>. Check feed age and Route schedule mode. Vehicle Positions and Alerts are display data; only supported matched Trip Updates change routing. The overlay is bounded and falls back to the schedule when stale. Public CLI/Python live Route, realtime Matrix, and realtime Reach are unsupported.</p>
+  </details>
+</section>
+<section id="app">
+  <h2>6. Build Studio or your own application</h2>
+  <p>After the source build, <code>npm run studio</code> launches the desktop preview. <code>npm run dev</code> starts browser development; open its printed local URL. To create a standalone Studio package on the current target machine:</p>
+<pre><code>npm run build:studio
+npm run check:packaged
+npm run archive:studio</code></pre>
+  <div class="table"><table>
+    <tr><th>Platform</th><th>Open this packaged application</th></tr>
+    <tr><td>macOS</td><td><code>release/VIGO Studio-darwin-arm64/VIGO Studio.app</code> or the <code>darwin-x64</code> directory.</td></tr>
+    <tr><td>Linux</td><td><code>release/VIGO Studio-linux-x64/VIGO Studio</code> or the <code>linux-arm64</code> directory.</td></tr>
+    <tr><td>Windows</td><td><code>release/VIGO Studio-win32-x64/VIGO Studio.exe</code>.</td></tr>
+  </table></div>
+  <p><code>npm run release:studio</code> combines icon checks, build, packaging, packaged checks, and archiving. Run <code>npm run check:release</code> for the full source/native suite. These commands produce local files; they do not publish Git tags or releases. macOS receives an ad-hoc signature, not Developer ID notarization. Build separately for each OS/CPU and retain the whole distribution, including resources.</p>
+  <p>Studio imports GTFS and OSM into its own project library. It does not open CLI City directories and has no Matrix screen. Its packaged interface communicates with Engine internally and opens no local server port.</p>
+  <p><strong>For your own app:</strong> use the public CLI's JSON contract or the <a href="https://github.com/hytangs/vigo-py/tree/v0.3.2/docs">Python API</a>. Studio's internal HTTP endpoints are not a supported external API. An HTML page can display an exported Result, as below; a static page cannot execute the native routing engine by itself. Live queries need a local native host or your application's backend.</p>
+  <p>Build the City before accepting queries, reuse it, and select the matching runtime explicitly in deployment. Starting a CLI process for each query includes reopening costs. Python provides resident execution for supported query types; its lifecycle and API details remain in the Python repository.</p>
+</section>
+<section id="results">
+  <h2>7. Read the answer first</h2>
+  <p>The exported JSON preserves both the answer and substantial engine diagnostics. Most application code only needs the fields below. This is a reading guide to the existing schema, not a new response format.</p>
+  <div class="table"><table>
+    <tr><th>Question</th><th>Existing fields</th></tr>
+    <tr><td>Did it work?</td><td><code>kind</code>, <code>status</code>. A blocked Result is valid; CLI errors exit nonzero with stderr.</td></tr>
+    <tr><td>What is the journey?</td><td><code>result.durationMinutes</code>, <code>departMinutes</code>, <code>arriveMinutes</code>, <code>transfers</code>, <code>legs</code>.</td></tr>
+    <tr><td>What are the pairwise times?</td><td><code>rows</code>: IDs, per-pair status, duration, and optional journey.</td></tr>
+    <tr><td>What goes on the map?</td><td>Route leg <code>coordinates</code>; Reach <code>contours</code> (GeoJSON). Reach <code>surface</code> is the raster for numerical analysis.</td></tr>
+    <tr><td>How should I interpret it?</td><td><code>warnings</code>, query/date, City identity, schedule mode, and station/street-access verification fields.</td></tr>
+    <tr><td>How did the engine execute it?</td><td><code>diagnostics</code>, <code>searchStats</code>, cache counters, candidate lists, and detailed timing. These usually belong in an expanded technical view.</td></tr>
+  </table></div>
+  <p>Keep meaningful uncertainty visible. Station-access status and schedule fallback can currently live inside diagnostics; do not discard that entire object blindly. A path to a platform coordinate does not establish an entrance connection. Read the <a href="https://github.com/hytangs/vigo/blob/v0.3.2/docs/known-routing-limitations.md">routing limits</a> for unsupported GTFS features, station assumptions, street coverage, driving turns, and realtime boundaries.</p>
+  <p class="note">Smaller JSON and simpler JSON are different. Removing indentation reduces bytes; separating the user answer from search and cache internals reduces the application's burden. The current API is unchanged.</p>
+</section>
+<section id="viewer">
+  <h2>Open an exported Result</h2>
+  <p>This small example reads a JSON file locally and shows its main fields. It does not upload files, call VIGO, or make network requests.</p>
+  <label for="file">VIGO Result JSON</label><br><input id="file" type="file" accept=".json,application/json">
+  <div id="answer" role="status">Choose a Route, Matrix, Reach, or Comparison Result.</div>
+  <details><summary>Complete original JSON</summary><pre id="raw">No file selected.</pre></details>
+</section>
+</main>
+<footer>Single-file guide for the public VIGO contracts. Python implementation details: <a href="https://github.com/hytangs/vigo-py">VIGO-py</a>. Full references: <a href="https://github.com/hytangs/vigo/tree/v0.3.2/docs">Engine documentation</a>.</footer>
+<script>
+  const input = document.querySelector('#file'), answer = document.querySelector('#answer'), raw = document.querySelector('#raw');
+  function line(text) { const p = document.createElement('p'); p.textContent = text; answer.append(p); }
+  const minutes = (value) => typeof value === 'number' ? `${Number(value.toFixed(2))} min` : 'unavailable';
+  input.addEventListener('change', async () => {
+    answer.replaceChildren(); raw.textContent = 'No file selected.';
+    const file = input.files[0]; if (!file) return;
+    if (file.size > 25 * 1024 * 1024) { line('This small viewer accepts files up to 25 MiB. Use your analysis tools for larger Results.'); return; }
+    try {
+      const result = JSON.parse(await file.text());
+      if (!result || !['route', 'matrix', 'reach', 'comparison'].includes(result.kind)) throw new Error('Choose a VIGO Result with a supported kind.');
+      raw.textContent = JSON.stringify(result, null, 2);
+      line(`${result.kind} · ${result.status ?? 'status unavailable'}`);
+      if (result.kind === 'route') {
+        const route = result.result ?? {};
+        line(`${minutes(route.durationMinutes)} · transfers: ${route.transfers ?? 'unavailable'}`);
+        if (route.detail) line(route.detail);
+        for (const leg of route.legs ?? []) line(`${leg.type}: ${leg.fromName ?? '?'} → ${leg.toName ?? '?'} · ${minutes(leg.durationMinutes)}`);
+        const diagnostics = route.diagnostics ?? {};
+        const unverified = diagnostics.stationAccessStatus === 'unverified' || (route.legs ?? []).some(leg => leg.stationAccessStatus === 'unverified' || leg.streetPathVerified === false);
+        if (unverified) line('Some station access or path geometry is unverified. Inspect the leg details.');
+        if (route.scheduleMode || diagnostics.scheduleMode) line(`Schedule: ${route.scheduleMode ?? diagnostics.scheduleMode}`);
+        if (diagnostics.serviceDateFallbackApplied) line('The requested service date used a fallback; inspect the original diagnostics.');
+        if (diagnostics.traffic?.status) line(`Traffic: ${diagnostics.traffic.status}`);
+      } else if (result.kind === 'matrix') {
+        if (!Array.isArray(result.rows)) throw new Error('Choose a Matrix Result with rows.');
+        const rows = result.rows;
+        line(`${rows.length} pairs · ${rows.filter(row => row.status === 'ready').length} ready · ${rows.filter(row => row.status === 'blocked').length} blocked`);
+        for (const row of rows.slice(0, 50)) line(`${row.originId ?? '?'} → ${row.destinationId ?? '?'}: ${row.status} · ${minutes(row.durationMinutes)}`);
+        if (rows.length > 50) line('Showing the first 50 pairs. All rows remain in the original JSON.');
+        if (result.query?.timePreference === 'arrive') line('Scalar duration runs to the arrival deadline and may include destination waiting.');
+      } else if (result.kind === 'reach') {
+        line(`Grid: ${result.surface?.width ?? '?'} × ${result.surface?.height ?? '?'} · contour features: ${result.contours?.features?.length ?? 0}`);
+        line('This surface measures modeled travel time, not jobs or people.');
+      } else line(JSON.stringify(result.change ?? {}));
+      for (const warning of result.warnings ?? []) line(`Warning: ${typeof warning === 'string' ? warning : JSON.stringify(warning)}`);
+      if (result.city?.revisionId) line(`City revision: ${result.city.revisionId}`);
+    } catch (error) { answer.replaceChildren(); line(error.message); }
+  });
+</script>
+</html>

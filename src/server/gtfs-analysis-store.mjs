@@ -217,13 +217,15 @@ function stopRecord(row, prefix) {
 
 function tripPath(connectionRows) {
   const stops = []
-  const appendStop = (stop) => {
-    if (!stop || stops.at(-1)?.id === stop.id) return
-    stops.push(stop)
-  }
-  for (const row of connectionRows) {
-    appendStop(stopRecord(row, 'from'))
-    appendStop(stopRecord(row, 'to'))
+  for (const [index, row] of connectionRows.entries()) {
+    // Connections repeat the shared stop between edges, but two consecutive
+    // calls at the same stop are separate timetable occurrences.
+    if (index === 0 || connectionRows[index - 1].to_stop_id !== row.from_stop_id) {
+      const from = stopRecord(row, 'from')
+      if (from) stops.push(from)
+    }
+    const to = stopRecord(row, 'to')
+    if (to) stops.push(to)
   }
   return stops
 }
@@ -290,22 +292,81 @@ function stopProgressAlongShape(coordinates, stops) {
   }
   const distances = cumulativeShapeDistances(coordinates)
   const totalDistance = distances.at(-1)
-  let shapeIndex = 0
-  return stops.map((stop, stopIndex) => {
-    if (stopIndex === stops.length - 1) shapeIndex = coordinates.length - 1
-    else {
-      let bestIndex = shapeIndex
-      let bestDistance = Number.POSITIVE_INFINITY
-      for (let index = shapeIndex; index < coordinates.length; index += 1) {
-        const distance = haversineKm(coordinates[index], [stop.lon, stop.lat])
-        if (distance < bestDistance) {
-          bestDistance = distance
-          bestIndex = index
-        }
+  if (!(totalDistance > 0)) return stops.map((_stop, index) => index / (stops.length - 1))
+  const segmentCount = coordinates.length - 1
+  const project = (stop, segment, minimumDistance = distances[segment]) => {
+    const from = coordinates[segment]
+    const to = coordinates[segment + 1]
+    const scale = Math.cos(stop.lat * Math.PI / 180)
+    const dx = (to[0] - from[0]) * scale
+    const dy = to[1] - from[1]
+    const lengthSquared = dx * dx + dy * dy
+    const length = distances[segment + 1] - distances[segment]
+    const minimumRatio = length > 0 ? Math.max(0, (minimumDistance - distances[segment]) / length) : 0
+    const ratio = Math.max(minimumRatio, Math.min(1, lengthSquared > 0
+      ? ((stop.lon - from[0]) * scale * dx + (stop.lat - from[1]) * dy) / lengthSquared
+      : 0))
+    const coordinate = [from[0] + (to[0] - from[0]) * ratio, from[1] + (to[1] - from[1]) * ratio]
+    const offset = haversineKm(coordinate, [stop.lon, stop.lat])
+    return { distance: distances[segment] + length * ratio, cost: offset * offset }
+  }
+
+  // Align the whole ordered stop sequence. A greedy nearest point can put an
+  // early stop onto a later loop occurrence because of a tiny coordinate
+  // offset, leaving every following stop stuck beyond its real position.
+  // Prefix minima keep this pass O(stops * segments). A same-segment clamp
+  // retains slight backwards stop offsets without moving the vehicle backwards.
+  let previousCosts
+  let previousDistances
+  const predecessors = []
+  for (const stop of stops) {
+    const costs = new Float64Array(segmentCount).fill(Number.POSITIVE_INFINITY)
+    const along = new Float64Array(segmentCount)
+    const parents = new Int32Array(segmentCount).fill(-1)
+    let prefixIndex = -1
+    for (let segment = 0; segment < segmentCount; segment += 1) {
+      const candidate = project(stop, segment)
+      along[segment] = candidate.distance
+      if (!previousCosts) {
+        costs[segment] = candidate.cost
+        continue
       }
-      shapeIndex = bestIndex
+      if (segment > 0 && (prefixIndex < 0 || previousCosts[segment - 1] < previousCosts[prefixIndex])) {
+        prefixIndex = segment - 1
+      }
+      if (prefixIndex >= 0) {
+        costs[segment] = previousCosts[prefixIndex] + candidate.cost
+        parents[segment] = prefixIndex
+      }
+      const continued = candidate.distance >= previousDistances[segment]
+        ? candidate
+        : project(stop, segment, previousDistances[segment])
+      const continuedCost = previousCosts[segment] + continued.cost
+      if (continuedCost < costs[segment]) {
+        costs[segment] = continuedCost
+        along[segment] = continued.distance
+        parents[segment] = segment
+      }
     }
-    return totalDistance > 0 ? distances[shapeIndex] / totalDistance : stopIndex / (stops.length - 1)
+    predecessors.push(parents)
+    previousCosts = costs
+    previousDistances = along
+  }
+  let segment = 0
+  for (let index = 1; index < segmentCount; index += 1) {
+    if (previousCosts[index] < previousCosts[segment]) segment = index
+  }
+  const selectedSegments = new Int32Array(stops.length)
+  for (let index = stops.length - 1; index >= 0; index -= 1) {
+    selectedSegments[index] = segment
+    segment = predecessors[index][segment]
+  }
+  let previousDistance = 0
+  return stops.map((stop, index) => {
+    previousDistance = Math.max(previousDistance, project(stop, selectedSegments[index]).distance)
+    // Shapes can extend beyond passenger terminals; neither terminal is
+    // forced to a shape endpoint, including with sparse published vertices.
+    return previousDistance / totalDistance
   })
 }
 
@@ -315,6 +376,7 @@ function scheduledTripRecord(trip, rows, stops, progresses, patternId, serviceDa
   if (!first) return null
   stopTimes.push({
     stopId: String(first.from_stop_id),
+    sequence: numeric(first.stop_sequence),
     arrivalMinutes: numeric(first.departure) / 60,
     departureMinutes: numeric(first.departure) / 60,
     progress: progresses[0] ?? 0,
@@ -324,6 +386,7 @@ function scheduledTripRecord(trip, rows, stops, progresses, patternId, serviceDa
     const next = rows[index + 1]
     stopTimes.push({
       stopId: String(row.to_stop_id),
+      sequence: numeric(next?.stop_sequence, numeric(row.stop_sequence) + 1),
       arrivalMinutes: numeric(row.arrival) / 60,
       departureMinutes: numeric(next?.departure, row.arrival) / 60,
       progress: progresses[index + 1] ?? Math.min(1, (index + 1) / rows.length),
@@ -341,7 +404,12 @@ function scheduledTripRecord(trip, rows, stops, progresses, patternId, serviceDa
     directionId: trip.direction_id ?? undefined,
     firstDepartureMinutes,
     lastArrivalMinutes,
-    stopTimes,
+    // Keep the active trip visible to diagnostics even if its indexed edges
+    // are disconnected; never interpolate a manufactured timetable across it.
+    stopTimes: stops.length === rows.length + 1
+      && rows.every((row, index) => index === 0 || rows[index - 1].to_stop_id === row.from_stop_id)
+      ? stopTimes
+      : [],
   }
 }
 
@@ -591,9 +659,17 @@ export function readGtfsRouteAnalysis(storePath, routeId, options = {}) {
         const stops = tripPath(rows)
         if (stops.length < 2) continue
         const stopIds = stops.map((stop) => stop.id)
-        const signature = `${trip.direction_id ?? ''}\u001e${stopIds.join('\u001f')}`
+        // Equal stops and direction do not imply equal geometry: detours and
+        // express variants can publish different shapes between those stops.
+        const signature = `${trip.direction_id ?? ''}\u001e${trip.shape_id ?? ''}\u001e${stopIds.join('\u001f')}`
+        const scopePrefix = resolvedSourceScope ? `${resolvedSourceScope}\u001f` : ''
+        const localId = (id = '') => scopePrefix && id.startsWith(scopePrefix) ? id.slice(scopePrefix.length) : id
+        // The same pattern is analyzed in both a feed store and a merged
+        // project store. Namespacing changes its IDs, not its branch identity.
+        const tokenSignature = `${trip.direction_id ?? ''}\u001e${localId(trip.shape_id ?? '')}\u001e${stopIds.map(localId).join('\u001f')}`
         const group = groups.get(signature) ?? {
           signature,
+          tokenSignature,
           directionId: trip.direction_id ?? undefined,
           tripCount: 0,
           departuresByServiceId: new Map(),
@@ -651,7 +727,7 @@ export function readGtfsRouteAnalysis(storePath, routeId, options = {}) {
     const routes = orderedGroups.map((group, index) => {
       const patternId = index === 0
         ? service.representative_route_id
-        : `${service.representative_route_id}--pattern-${index + 1}-${patternToken(group.signature)}`
+        : `${service.representative_route_id}--pattern-${index + 1}-${patternToken(group.tokenSignature)}`
       const stopCoordinates = group.representativeStops.map((stop) => [stop.lon, stop.lat])
       let coordinates = stopCoordinates
       let geometrySource = 'stop_sequence'

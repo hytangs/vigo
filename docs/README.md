@@ -1,4 +1,4 @@
-# VIGO documentation
+# VIGO 0.3.2 documentation
 
 VIGO has one model across Studio and the command line:
 
@@ -8,9 +8,10 @@ City -> Scenario -> Route | Matrix | Reach -> Result
 
 ## Getting started
 
-- [VIGO 0.3.1 Quickstart](quickstart.md)
+- [VIGO 0.3.2 Quickstart](quickstart.md)
+- [Interactive guide and Result viewer](guide.html)
 - [Core concepts](concepts.md)
-- [VIGO 0.3.1 Developer Guide source](developer-guide/VIGO-0.3.1-Developer-Guide.tex) — build the PDF with `npm run docs:developer-guide`
+- [VIGO 0.3.2 Developer Guide source](developer-guide/VIGO-0.3.2-Developer-Guide.tex) — build the PDF with `npm run docs:developer-guide`
 
 ## VIGO Studio
 

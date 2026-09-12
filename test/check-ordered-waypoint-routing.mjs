@@ -12,6 +12,7 @@ import {
   insertRoutingPointBeforeDestination,
   maxRoutingPointCount,
   normalizeOrderedRoutingPoints,
+  parseRoutingCoordinate,
 } from '../src/routingPointSequence.ts'
 
 const point = (label, longitude) => ({
@@ -60,6 +61,17 @@ const cappedPicked = Array.from({ length: maxRoutingPointCount + 1 }, (_, index)
   [],
 )
 assert.equal(cappedPicked.length, maxRoutingPointCount)
+
+assert.deepEqual(parseRoutingCoordinate(' 42.35, -71.06 ')?.coordinate, [-71.06, 42.35])
+assert.deepEqual(parseRoutingCoordinate('-90, +180')?.coordinate, [180, -90])
+for (const invalid of ['Harvard', '91, 0', '0, -181', 'Infinity, 0', '42.3 -71.1', '42.3, -71.1 extra']) {
+  assert.equal(parseRoutingCoordinate(invalid), null, `Reject invalid coordinate input: ${invalid}`)
+}
+assert.deepEqual(
+  insertRoutingPointBeforeDestination(cappedPicked, a).map(entry => entry.coordinate),
+  cappedPicked.map(entry => entry.coordinate),
+  'Adding at the eight-point limit must preserve every existing point.',
+)
 
 const command = parseRoutingCommand('drive from Map point A -> Map point B -> Map point C')
 assert.deepEqual(command?.locationTexts, ['Map point A', 'Map point B', 'Map point C'])

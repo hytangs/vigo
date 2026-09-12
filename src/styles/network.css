@@ -414,7 +414,9 @@
 }
 
 .service-mode-switch button {
+  flex: 1 0 auto;
   min-width: 54px;
+  white-space: nowrap;
   height: 28px;
   padding: 0 9px;
   border: 0;
@@ -442,6 +444,7 @@
 
 .service-state-readout {
   min-width: 0;
+  overflow: hidden;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -465,14 +468,15 @@
   color: #9aa9ba;
 }
 
-.service-state-readout span {
+.service-state-readout > span {
   min-width: 0;
   display: grid;
   gap: 1px;
 }
 
 .service-state-readout strong,
-.service-state-readout small {
+.service-state-readout small,
+.service-estimate-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -480,9 +484,17 @@
 }
 
 .service-state-readout strong {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
   color: var(--text-strong);
   font-size: 0.82rem;
   font-weight: 720;
+}
+
+.service-state-readout time {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .service-state-readout small {
@@ -1007,6 +1019,48 @@
   font-weight: 760;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.pathfinder-point-sequence {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 80px), 1fr));
+  gap: 6px;
+  padding: 2px 0 1px;
+}
+
+.pathfinder-point-sequence > span {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  padding: 6px 7px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.pathfinder-point-sequence b,
+.pathfinder-point-sequence small {
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pathfinder-point-sequence b {
+  font-size: 0.5rem;
+  font-weight: 820;
+  letter-spacing: 0.045em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.pathfinder-point-sequence small {
+  color: var(--text-strong);
+  font-size: 0.65rem;
+  font-weight: 720;
+  line-height: 1.25;
 }
 
 .sidebox-itinerary ol {

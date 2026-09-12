@@ -21,7 +21,7 @@ first Query can additionally prepare the timetable for its active services and
 align the ride geometry it selects. That work belongs in raw-files-to-first-answer
 time even though the City has already been published.
 
-The durations in `network.json.timing` describe compiler stages. In 0.3.1,
+The durations in `network.json.timing` describe compiler stages. In 0.3.2,
 `totalMs` starts inside the compiler after input and staging checks and ends
 before writing `network.json`. It excludes caller/runtime startup, compiler
 shutdown, City publication, and the first Query. Use an external elapsed timer

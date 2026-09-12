@@ -38,8 +38,8 @@ VIGO models the City revision and Query it is given. It does not certify real-wo
 
 - Studio maps require WebGL 2. Engine and Python queries do not require a graphics device.
 - Copy the entire City directory; street indexes and prepared files are part of it. The native runtime executable is specific to OS/CPU, while City data is portable across the supported 64-bit targets.
-- An older timetable cache may require one preparation in 0.3.1. New active-service patterns, changed walking policy, or evicted snapshots also require preparation. Missing/corrupt required street indexes are errors, not permission to query a different graph; restore the complete City or rebuild it from source.
-- Studio project-library settings, drafts, and live connections are local application state and do not travel inside a CLI City. Studio cannot directly open CLI City directories in 0.3.1.
+- An older timetable cache may require one preparation in 0.3.2. New active-service patterns, changed walking policy, or evicted snapshots also require preparation. Missing/corrupt required street indexes are errors, not permission to query a different graph; restore the complete City or rebuild it from source.
+- Studio project-library settings, drafts, and live connections are local application state and do not travel inside a CLI City. Studio cannot directly open CLI City directories in 0.3.2.
 
 ## Scenario
 

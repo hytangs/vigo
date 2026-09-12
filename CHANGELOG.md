@@ -1,9 +1,18 @@
 # Version history
 
-## Unreleased
+## 0.3.2 — 2026-09-12
 
+API 1.0, City format 1, and Result schema 1 are unchanged. See the [release notes](docs/releases/0.3.2.md).
+
+- Replace Studio Route place-search fields with coordinate map points, up to eight points, direct repicking and reordering, and a persistent rerun control.
+- Align desktop and mobile navigation, contain playback controls and text, and simplify the GTFS inspector.
+- Preserve route colors in vehicle markers and show direction inside each circle.
+- Correct scheduled vehicle shape alignment, loop stop occurrences, dwell, service dates, and live branch membership.
+- Preserve repeated stop visits and directed shared-edge edits across complete GTFS branches.
+- Revalidate local web assets so updated styles and scripts are loaded after upgrades.
 - Report street routing, driving, station access, and City publication stages during Build.
 - Define complete raw-file Build and first-answer timing, including the limits of compiler-stage diagnostics.
+- Ordered waypoint routes preserve fractional intermediate clocks across HTTP and CLI, for depart-at and arrive-by routing.
 
 ## 0.3.1 — 2026-09-11
 

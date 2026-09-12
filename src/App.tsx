@@ -36,6 +36,7 @@ import {
 import { readNavigationMemory, rememberProject, rememberRoute, rememberSearchResult } from './app/navigationMemory'
 import { useProjectDetailHydration } from './app/projectHydration'
 import { scenarioStorageKey } from './app/scenarioDraftStorage'
+import { createScenarioRoadGeometryRequest } from './app/scenarioRoadGeometryRequest'
 import { useScenarioDrafts } from './app/useScenarioDrafts'
 import { useNationalRouting } from './app/useNationalRouting'
 import { mergeGtfsRouteAnalysis, routeHasCompleteGtfsAnalysis, type GtfsRouteAnalysis } from './app/gtfsAnalysis'
@@ -83,8 +84,6 @@ import { LazyVigoMap } from './components/LazyVigoMap'
 import {
   RoutingDetailPanel,
   SidebarPathfinderBox,
-  type RoutingLocationCandidate,
-  type RoutingLocationChoice,
   type RoutingScopeStatus,
   type SidebarPathfinderBoxProps,
 } from './components/PathfinderPanel'
@@ -124,7 +123,7 @@ import { entityFeedScope } from './networkTruth'
 import { buildNetworkPerformanceProfile } from './networkPerformance'
 import { scopedRouteServiceKey, type RouteRenderMode } from './routeServices'
 import { formatServiceTime, scheduledServiceEndMinutes, scheduledVehicleDiagnostics, scheduledVehiclesAtTime } from './scheduledVehicles'
-import { buildServiceVehicleFrame, serviceVehicleCount, type ServiceVehicleMode } from './serviceVehicles'
+import { buildServiceVehicleFrame, serviceKeyForRoute, serviceVehicleCount, type ServiceVehicleMode } from './serviceVehicles'
 import {
   type RoutingPlan,
   type RoutingPoint,
@@ -140,15 +139,20 @@ import {
   appendRoutingPointSequence,
   insertRoutingPointBeforeDestination,
   maxRoutingPointCount,
+  parseRoutingCoordinate,
   normalizeOrderedRoutingPoints,
 } from './routingPointSequence'
 import {
   routeHasPublishedShape,
   scenarioInsertedStopsForEdge,
+  scenarioEdgeEditError,
+  scenarioEdgeIndexes,
+  scenarioStopsForEdgeBranch,
   scenarioEdgeGeometryForBranch,
   scenarioInsertionAnchors,
   scenarioPublishedShapeSegmentIndexes,
   scenarioSegmentRuntimeMinutes,
+  joinScenarioSegmentGeometry,
   scenarioSourceRouteId,
   scenarioStopFromRoutingPoint,
   scenarioStopsForRoute,
@@ -182,17 +186,6 @@ const readinessStateClasses: Record<ActivityStatus, string> = {
   cancelled: 'state-cancelled',
 }
 
-type PendingRoutingLocationResolution = {
-  queries: string[]
-  candidates: RoutingLocationCandidate[][]
-  selections: Array<RoutingLocationCandidate | null>
-  departMinutes: number
-  timePreference: RoutingTimePreference
-  mode: RoutingTravelMode
-  maxWalkKm?: number
-}
-
-
 function newScenarioChange(
   kind: ScenarioChangeKind,
 ): ScenarioChangeDraft {
@@ -206,7 +199,7 @@ function newScenarioChange(
     averageSpeedKph: 25,
     startMinutes: 5 * 60,
     endMinutes: 25 * 60,
-    bidirectional: true,
+    bidirectional: kind === 'add-line',
     routeScope: kind === 'add-line' ? undefined : 'pattern',
     timeModel: changesGeometry ? 'infer-road' : 'preserve-scheduled',
     geometryMode: changesGeometry ? 'auto-road' : 'published-shape',
@@ -406,6 +399,7 @@ function PrimaryNav({
         />
         <PrimaryNavButton
           title="Route"
+          label="Route"
           shortcut="2"
           icon={<Navigation2 size={19} aria-hidden="true" />}
           active={page === 'project' && activeRouteTool === 'pathfinder'}
@@ -427,7 +421,7 @@ function PrimaryNav({
           title="City"
           label="City"
           shortcut="4"
-          icon={<Settings size={18} aria-hidden="true" />}
+          icon={<Settings size={19} aria-hidden="true" />}
           active={page === 'project' && activeRouteTool === 'data'}
           disabled={false}
           onClick={onOpenSettings}
@@ -463,7 +457,6 @@ function VigoSidebar({
   routingScopeStatus,
   routingStoreReady,
   routingStoreFeedCount,
-  routingStoreReadyFeedCount,
   routingStoreStored,
   routingStoreStoredFeedCount,
   routingStoreTripCount,
@@ -480,9 +473,7 @@ function VigoSidebar({
   routingServiceCoverage,
   routingServiceDateAvailability,
   routingServiceDateOptions,
-  routingResolvingLocations,
-  routingLocationError,
-  routingLocationChoices,
+  routingPointError,
   storeBackedRouting,
   osmStreetMessage,
   realtimeSnapshot,
@@ -502,7 +493,9 @@ function VigoSidebar({
   onBasemapChange,
   onScheduleTimeChange,
   onScheduleServiceDateChange,
-  onRunRoutingSearch,
+  onRunRouting,
+  onPickRoutingPoint,
+  routingPickIndex,
   onReorderRoutingPoints,
   onRoutingTimePreferenceChange,
   onRoutingModeChange,
@@ -512,9 +505,6 @@ function VigoSidebar({
   onRoutingAllowLongWalkChange,
   onRoutingServiceDateChange,
   onSelectRoutingPlan,
-  onChooseRoutingLocation,
-  onDismissRoutingLocationChoices,
-  onInvalidateRoutingResults,
   onToggleRouting,
   onClearRouting,
 }: {
@@ -535,6 +525,7 @@ function VigoSidebar({
   scheduleServiceDate: string
   routingStoreStored: boolean
   routingStoreStoredFeedCount: number
+  routingStoreFeedCount: number
   routingStoreTripCount: number
   routingStoreConnectionCount: number
   osmStreetMessage: string
@@ -563,8 +554,6 @@ function VigoSidebar({
   | 'routingChoices'
   | 'routingScopeStatus'
   | 'routingStoreReady'
-  | 'routingStoreFeedCount'
-  | 'routingStoreReadyFeedCount'
   | 'routingTimePreference'
   | 'routingMode'
   | 'routingDepartureWindowMinutes'
@@ -577,12 +566,12 @@ function VigoSidebar({
   | 'routingServiceCoverage'
   | 'routingServiceDateAvailability'
   | 'routingServiceDateOptions'
-  | 'routingResolvingLocations'
-  | 'routingLocationError'
-  | 'routingLocationChoices'
+  | 'routingPointError'
   | 'storeBackedRouting'
   | 'scheduleTimeMinutes'
-  | 'onRunRoutingSearch'
+  | 'onRunRouting'
+  | 'onPickRoutingPoint'
+  | 'routingPickIndex'
   | 'onReorderRoutingPoints'
   | 'onOpenFeed'
   | 'onScheduleTimeChange'
@@ -594,9 +583,6 @@ function VigoSidebar({
   | 'onRoutingAllowLongWalkChange'
   | 'onRoutingServiceDateChange'
   | 'onSelectRoutingPlan'
-  | 'onChooseRoutingLocation'
-  | 'onDismissRoutingLocationChoices'
-  | 'onInvalidateRoutingResults'
   | 'onToggleRouting'
   | 'onClearRouting'
 >) {
@@ -616,17 +602,11 @@ function VigoSidebar({
   const panelSubtitle = page === 'projects'
     ? `${projects.length} Cities`
     : isPathfinderPanel
-      ? routingOrigin || routingDestination
-        ? [
-          routingOrigin?.label ?? 'Origin',
-          ...routingWaypoints.map((point) => point.label),
-          routingDestination?.label ?? 'Destination',
-        ].join(' → ')
-        : 'Origin to destination'
+      ? ''
     : isAnalyzePanel
       ? 'Reach and compare'
     : isExplorePanel
-      ? 'Map, services, playback, and live state'
+      ? ''
     : hasActiveData
       ? activeFeedId === bundleFeedId
         ? quietMapLabel(selectedProject.name)
@@ -743,7 +723,7 @@ function VigoSidebar({
           <div className="sidebar-panel-title">
             <strong>{panelTitle}</strong>
           </div>
-          <p>{panelSubtitle}</p>
+          {panelSubtitle ? <p>{panelSubtitle}</p> : null}
           {panelContextLine ? <span className="sidebar-context-line">{panelContextLine}</span> : null}
         </div>
 
@@ -855,8 +835,7 @@ function VigoSidebar({
                   <>
                     <div className="sidebar-section-title route-browser-heading">
                       <div>
-                        <strong>GTFS services</strong>
-                        <small>Select a route to inspect its map, stops, and timetable.</small>
+                        <strong>Routes</strong>
                       </div>
                       <span>{formatNumber(publicRouteCount)} service{publicRouteCount === 1 ? '' : 's'}</span>
                     </div>
@@ -909,8 +888,6 @@ function VigoSidebar({
                 routingChoices={routingChoices}
                 routingScopeStatus={routingScopeStatus}
                 routingStoreReady={routingStoreReady}
-                routingStoreFeedCount={routingStoreFeedCount}
-                routingStoreReadyFeedCount={routingStoreReadyFeedCount}
                 routingTimePreference={routingTimePreference}
                 routingMode={routingMode}
                 routingDepartureWindowMinutes={routingDepartureWindowMinutes}
@@ -923,12 +900,12 @@ function VigoSidebar({
                 routingServiceCoverage={routingServiceCoverage}
                 routingServiceDateAvailability={routingServiceDateAvailability}
                 routingServiceDateOptions={routingServiceDateOptions}
-                routingResolvingLocations={routingResolvingLocations}
-                routingLocationError={routingLocationError}
-                routingLocationChoices={routingLocationChoices}
+                routingPointError={routingPointError}
                 storeBackedRouting={storeBackedRouting}
                 scheduleTimeMinutes={scheduleTimeMinutes}
-                onRunRoutingSearch={onRunRoutingSearch}
+                onRunRouting={onRunRouting}
+                onPickRoutingPoint={onPickRoutingPoint}
+                routingPickIndex={routingPickIndex}
                 onReorderRoutingPoints={onReorderRoutingPoints}
                 onOpenFeed={onOpenFeed}
                 onScheduleTimeChange={onScheduleTimeChange}
@@ -940,9 +917,6 @@ function VigoSidebar({
                 onRoutingAllowLongWalkChange={onRoutingAllowLongWalkChange}
                 onRoutingServiceDateChange={onRoutingServiceDateChange}
                 onSelectRoutingPlan={onSelectRoutingPlan}
-                onChooseRoutingLocation={onChooseRoutingLocation}
-                onDismissRoutingLocationChoices={onDismissRoutingLocationChoices}
-                onInvalidateRoutingResults={onInvalidateRoutingResults}
                 onToggleRouting={onToggleRouting}
                 onClearRouting={onClearRouting}
               />
@@ -2099,12 +2073,22 @@ function RouteSurface({
     }),
     [mapPreview, realtimeSnapshot, scheduledVehicles, vehicleMode, visiblePreview],
   )
-  const visibleVehicleCount = serviceVehicleCount(vehicleFrame, isNetworkMap ? undefined : selectedRoute)
+  const visibleVehicleCount = serviceVehicleCount(vehicleFrame, isNetworkMap ? undefined : selectedRoute, mapPreview)
+  const selectedPatternOnly = !isNetworkMap && mapPreview.routes.length === 1 && (selectedRoute?.serviceVariantCount ?? 1) > 1
+  const unknownBranchVehicles = vehicleMode === 'live' && selectedPatternOnly && selectedRoute
+    ? vehicleFrame.vehicles.filter((vehicle) => vehicle.serviceKey === serviceKeyForRoute(selectedRoute) && !vehicle.routeFeatureId).length
+    : 0
   const serviceDiagnostics = useMemo(
     () => vehicleMode === 'live'
-      ? liveVehicleDiagnostics(visibleVehicleCount, realtimeSnapshot !== null)
+      ? selectedPatternOnly
+        ? {
+            tone: unknownBranchVehicles || !visibleVehicleCount ? 'watch' as const : 'good' as const,
+            title: visibleVehicleCount ? `${formatNumber(visibleVehicleCount)} matched live vehicles` : 'No vehicles matched to this pattern',
+            detail: `${formatNumber(visibleVehicleCount)} live vehicles matched to this GTFS pattern.${unknownBranchVehicles ? ` ${formatNumber(unknownBranchVehicles)} vehicles have an unknown branch; view Full service to see them.` : ''}`,
+          }
+        : liveVehicleDiagnostics(visibleVehicleCount, realtimeSnapshot !== null)
       : scheduledVehicleDiagnostics(mapPreview, scheduledVehicles, scheduleTimeMinutes, scheduleServiceDate),
-    [mapPreview, realtimeSnapshot, scheduleServiceDate, scheduleTimeMinutes, scheduledVehicles, vehicleMode, visibleVehicleCount],
+    [mapPreview, realtimeSnapshot, scheduleServiceDate, scheduleTimeMinutes, scheduledVehicles, selectedPatternOnly, unknownBranchVehicles, vehicleMode, visibleVehicleCount],
   )
   const routeStyle = {
     '--route-color': selectedRoute?.color ?? '#6da8ff',
@@ -2208,7 +2192,7 @@ function RouteSurface({
             onScheduleServiceDateChange={onScheduleServiceDateChange}
           />
         ) : null}
-        {!routingFocus && !analysisFocus && !mapPreview.routes.length ? (
+        {!routingFocus && !analysisFocus && !cityPreviewLoading && !mapPreview.routes.length ? (
           <div className="route-geometry-empty">
             <strong>No spatial alignment in this scope</strong>
             <span>The service remains indexed. Inspect stop coordinates, stop sequences, and shapes.txt to establish defensible map geometry.</span>
@@ -2305,6 +2289,7 @@ export default function App() {
   const [routingAllowLongWalk, setRoutingAllowLongWalk] = useState(true)
   const [selectedRoutingPlanId, setSelectedRoutingPlanId] = useState('')
   const [routingEnabled, setRoutingEnabled] = useState(false)
+  const [routingPickIndex, setRoutingPickIndex] = useState<number | null>(null)
   const [routingOrigin, setRoutingOrigin] = useState<RoutingPoint | null>(null)
   const [routingWaypoints, setRoutingWaypoints] = useState<RoutingPoint[]>([])
   const [routingDestination, setRoutingDestination] = useState<RoutingPoint | null>(null)
@@ -2350,11 +2335,7 @@ export default function App() {
     setScenarioLoading(false)
     setScenarioProgress(null)
   }, [])
-  const [routingLocationResolving, setRoutingLocationResolving] = useState(false)
-  const [routingLocationError, setRoutingLocationError] = useState('')
-  const [pendingRoutingLocationResolution, setPendingRoutingLocationResolution] = useState<PendingRoutingLocationResolution | null>(null)
-  const routingLocationAbortRef = useRef<AbortController | null>(null)
-  const routingLocationRequestIdRef = useRef(0)
+  const [routingPointError, setRoutingPointError] = useState('')
   const routingDateAutoAlignedStoreRef = useRef('')
   const [osmStreetMessage, setOsmStreetMessage] = useState('')
   const [isImporting, setIsImporting] = useState(false)
@@ -2512,9 +2493,9 @@ export default function App() {
     projectId: selectedProject.id,
     feedId: nationalRoutingFeed?.id ?? '',
     storeKey: nationalRoutingStoreKey,
-    origin: activeRouteTool === 'pathfinder' && !pendingRoutingLocationResolution ? routingOrigin : null,
+    origin: activeRouteTool === 'pathfinder' ? routingOrigin : null,
     waypoints: routingWaypoints,
-    destination: activeRouteTool === 'pathfinder' && !pendingRoutingLocationResolution ? routingDestination : null,
+    destination: activeRouteTool === 'pathfinder' ? routingDestination : null,
     mode: routingMode,
     departMinutes: scheduleTimeMinutes,
     timePreference: routingTimePreference,
@@ -2677,9 +2658,6 @@ export default function App() {
   const routingStoreStoredFeedCount = nationalRoutingFeed
     ? Math.max(1, routingStoreFeedCount)
     : metadataReadyFeedCount
-  const routingStoreReadyFeedCount = nationalRoutingFeed
-    ? nationalRouting.ready ? routingStoreStoredFeedCount : 0
-    : metadataReadyFeedCount
   const routingStoreStored = routingStoreFeedCount > 0 && routingStoreStoredFeedCount === routingStoreFeedCount
   const routingStoreReady = nationalRouting.ready
   const routingInputReady = routingStoreReady && Boolean(nationalRoutingFeed && selectedProject.osmStreetIndex?.status === 'ready')
@@ -2761,20 +2739,6 @@ export default function App() {
     ?? routingChoices.find((plan) => plan.recommended)
     ?? routingChoices[0]
     ?? null
-  const routingLocationChoices = useMemo<RoutingLocationChoice[]>(() => {
-    if (!pendingRoutingLocationResolution) return []
-    return pendingRoutingLocationResolution.queries.flatMap((query, index, queries) => (
-      pendingRoutingLocationResolution.selections[index]
-        ? []
-        : [{
-            queryIndex: index,
-            query,
-            role: index === 0 ? 'Origin' : index === queries.length - 1 ? 'Destination' : `Stop ${index}`,
-            routeQueries: pendingRoutingLocationResolution.queries,
-            options: pendingRoutingLocationResolution.candidates[index] ?? [],
-          }]
-    ))
-  }, [pendingRoutingLocationResolution])
   const routingActivity = buildRoutingActivity({
     routingError: nationalRouting.error,
     routingErrorStatus: nationalRouting.errorStatus,
@@ -3274,11 +3238,8 @@ export default function App() {
   }
 
   function clearRouting() {
-    routingLocationAbortRef.current?.abort()
-    routingLocationRequestIdRef.current += 1
-    setRoutingLocationResolving(false)
-    setRoutingLocationError('')
-    setPendingRoutingLocationResolution(null)
+    setRoutingPickIndex(null)
+    setRoutingPointError('')
     setRoutingOrigin(null)
     setRoutingWaypoints([])
     setRoutingDestination(null)
@@ -3288,20 +3249,10 @@ export default function App() {
   }
 
   function toggleRouting() {
+    setRoutingPickIndex(null)
     setActiveRouteTool('pathfinder')
     setMapScope('route')
     setRoutingEnabled((current) => !current)
-  }
-
-  function dismissRoutingLocationChoices() {
-    setPendingRoutingLocationResolution(null)
-  }
-
-  function invalidateRoutingResults() {
-    setSelectedRoutingPlanId('')
-    setRoutingLocationError('')
-    nationalRouting.reset()
-    setRoutingEnabled(false)
   }
 
   function changeRoutingTimePreference(preference: RoutingTimePreference) {
@@ -3326,64 +3277,60 @@ export default function App() {
     setSelectedRoutingPlanId('')
   }
 
-  function routingPointFromMap(point: RoutingPoint) {
+  function routingPoints() {
+    return [...(routingOrigin ? [routingOrigin] : []), ...routingWaypoints, ...(routingDestination ? [routingDestination] : [])]
+  }
+
+  function pickRoutingPoint(index: number | null) {
+    if (index === null && routingPoints().length >= maxRoutingPointCount) return
+    setRoutingPickIndex(index)
+    setRoutingPointError('')
     setActiveRouteTool('pathfinder')
     setMapScope('route')
-    const currentPoints = [
-      ...(routingOrigin ? [routingOrigin] : []),
-      ...routingWaypoints,
-      ...(routingDestination ? [routingDestination] : []),
-    ]
-    if (currentPoints.length >= maxRoutingPointCount) {
+    setRoutingEnabled(true)
+  }
+
+  function routingPointFromMap(point: RoutingPoint) {
+    const current = routingPoints()
+    const replacing = routingPickIndex !== null && routingPickIndex < current.length
+    if (!replacing && current.length >= maxRoutingPointCount) {
       setRoutingEnabled(false)
       return
     }
-
-    const nextPoints = currentPoints.length >= 2
-      ? insertRoutingPointBeforeDestination(currentPoints, point)
-      : appendRoutingPointSequence(currentPoints, point)
-    if (nextPoints.length === 1) {
-      nationalRouting.reset()
-      setRoutingLocationError('')
-      setRoutingOrigin(nextPoints[0])
-      setRoutingWaypoints([])
-      setRoutingDestination(null)
-      setSelectedRoutingPlanId('')
-      setRoutingEnabled(true)
-      return
-    }
-
-    if (!reorderRoutingPoints(nextPoints)) return
-    setRoutingEnabled(false)
+    const next = replacing
+      ? current.map((entry, index) => index === routingPickIndex ? point : entry)
+      : current.length >= 2 ? insertRoutingPointBeforeDestination(current, point) : appendRoutingPointSequence(current, point)
+    if (!reorderRoutingPoints(next)) return
+    if (next.length === 1) setRoutingEnabled(true)
   }
 
   function reorderRoutingPoints(points: RoutingPoint[]) {
-    if (points.length < 2 || points.length > maxRoutingPointCount) return false
-    const orderedPoints = normalizeOrderedRoutingPoints(points)
-    const duplicateIndex = orderedPoints.findIndex((point, index) => (
-      index > 0
-      && point.coordinate[0] === orderedPoints[index - 1].coordinate[0]
-      && point.coordinate[1] === orderedPoints[index - 1].coordinate[1]
-    ))
+    if (points.length > maxRoutingPointCount) return false
+    const ordered = normalizeOrderedRoutingPoints(points)
+    const duplicateIndex = ordered.findIndex((point, index) => index > 0
+      && point.coordinate[0] === ordered[index - 1].coordinate[0]
+      && point.coordinate[1] === ordered[index - 1].coordinate[1])
     if (duplicateIndex >= 0) {
-      setRoutingLocationError(`Stops ${duplicateIndex} and ${duplicateIndex + 1} are the same place. Remove the duplicate before routing.`)
+      setRoutingPointError(`Points ${duplicateIndex} and ${duplicateIndex + 1} have the same coordinates.`)
       return false
     }
-    routingLocationAbortRef.current?.abort()
-    routingLocationAbortRef.current = null
-    routingLocationRequestIdRef.current += 1
-    setRoutingLocationResolving(false)
-    setRoutingLocationError('')
-    setPendingRoutingLocationResolution(null)
-    setRoutingOrigin(orderedPoints[0])
-    setRoutingWaypoints(orderedPoints.slice(1, -1))
-    setRoutingDestination(orderedPoints.at(-1) ?? null)
+    setRoutingPointError('')
+    setRoutingOrigin(ordered[0] ?? null)
+    setRoutingWaypoints(ordered.slice(1, -1))
+    setRoutingDestination(ordered.length >= 2 ? ordered.at(-1)! : null)
     setSelectedRoutingPlanId('')
     nationalRouting.reset()
+    setRoutingPickIndex(null)
     setRoutingEnabled(false)
     setActiveRouteTool('pathfinder')
     setMapScope('route')
     return true
+  }
+
+  function rerunRouting() {
+    const points = routingPoints()
+    if (points.length < 2) return
+    reorderRoutingPoints(points.map((point) => ({ ...point, coordinate: [...point.coordinate] })))
   }
 
   function analysisPointFromMap(point: RoutingPoint) {
@@ -3420,14 +3367,22 @@ export default function App() {
       nextStops[placement.index] = {
         ...replacement,
         id: nextStops[placement.index].id,
-        baselineStopId: nextStops[placement.index].baselineStopId
-          ?? nextStops[placement.index].stopId,
+        baselineStopId: ['inserted', 'added'].includes(nextStops[placement.index].editStatus ?? '')
+          ? undefined
+          : nextStops[placement.index].baselineStopId ?? nextStops[placement.index].stopId,
+        baselineStopIndex: nextStops[placement.index].baselineStopIndex,
+        anchorBeforeStopId: nextStops[placement.index].anchorBeforeStopId,
+        anchorAfterStopId: nextStops[placement.index].anchorAfterStopId,
+        anchorBeforeStopIndex: nextStops[placement.index].anchorBeforeStopIndex,
+        anchorAfterStopIndex: nextStops[placement.index].anchorAfterStopIndex,
+        editStatus: ['inserted', 'added'].includes(nextStops[placement.index].editStatus ?? '')
+          ? nextStops[placement.index].editStatus : 'replaced',
       }
     } else if (placement?.mode === 'insert') {
       if (placement.index < 1 || placement.index >= nextStops.length) return
       const before = nextStops[placement.index - 1]
       const after = nextStops[placement.index]
-      const { beforeStopId, afterStopId } = scenarioInsertionAnchors(before, after)
+      const { beforeStopId, afterStopId, beforeStopIndex, afterStopIndex } = scenarioInsertionAnchors(before, after)
       nextStops.splice(
         placement.index,
         0,
@@ -3435,6 +3390,8 @@ export default function App() {
           ...scenarioStopFromRoutingPoint(activeScenarioChange.id, mapPoint, 'inserted'),
           anchorBeforeStopId: beforeStopId,
           anchorAfterStopId: afterStopId,
+          anchorBeforeStopIndex: beforeStopIndex,
+          anchorAfterStopIndex: afterStopIndex,
         },
       )
     } else {
@@ -3458,10 +3415,13 @@ export default function App() {
         return {
           ...candidateStop,
           stopId: undefined,
-          baselineStopId: candidateStop.baselineStopId ?? candidateStop.stopId,
+          baselineStopId: candidateStop.editStatus === 'inserted' || candidateStop.editStatus === 'added'
+            ? undefined
+            : candidateStop.baselineStopId ?? candidateStop.stopId,
           coordinate,
           source: 'map',
-          editStatus: 'replaced',
+          editStatus: candidateStop.editStatus === 'inserted' || candidateStop.editStatus === 'added'
+            ? candidateStop.editStatus : 'replaced',
         }
       }),
     })
@@ -3490,7 +3450,7 @@ export default function App() {
     invalidateAnalyzeResult()
     const next = scenarioDrafts.filter((entry) => entry.id !== caseId)
     setScenarioStopPlacement(null)
-    setScenarioDrafts(next)
+    setScenarioDrafts((current) => current.filter((entry) => entry.id !== caseId))
     setActiveScenarioId(next[0].id)
     setActiveScenarioChangeId(next[0].interventions[0]?.id ?? '')
   }
@@ -3549,6 +3509,8 @@ export default function App() {
             : undefined
           return {
             ...nextIntervention,
+            routeScope: patch.kind === 'add-line' ? undefined : 'pattern' as const,
+            bidirectional: patch.kind === 'add-line',
             ...(['add-line', 'change-line'].includes(patch.kind)
               ? { geometryMode: 'auto-road' as const, timeModel: 'infer-road' as const }
               : {}),
@@ -3611,9 +3573,7 @@ export default function App() {
       return
     }
     invalidateAnalyzeResult()
-    const previous = scenarioRoadGeometryAbortRef.current
-    previous?.abort()
-    const controller = new AbortController()
+    const controller = createScenarioRoadGeometryRequest(interventionId, setScenarioDrafts)
     scenarioRoadGeometryAbortRef.current = controller
     const requestId = scenarioRoadGeometryRequestIdRef.current + 1
     scenarioRoadGeometryRequestIdRef.current = requestId
@@ -3666,10 +3626,7 @@ export default function App() {
       if (geometry?.status !== 'ready' || segments.length !== stops.length - 1) {
         throw new Error(geometry?.detail ?? 'The OSM street network could not connect every ordered stop.')
       }
-      const inferredGeometry = segments.flatMap((segment, index) => {
-        const coordinates = Array.isArray(segment.coordinates) ? segment.coordinates : []
-        return index === 0 ? coordinates : coordinates.slice(1)
-      })
+      const inferredGeometry = joinScenarioSegmentGeometry(segments.map((segment) => segment.coordinates ?? []))
       const hasOsmSegments = segments.some((segment) => segment.source === 'osm_drive')
       const hasShapeSegments = segments.some((segment) => (
         segment.source === 'published_shape' || segment.source === 'published_shape_fallback'
@@ -3765,7 +3722,7 @@ export default function App() {
     ) ?? []
     setScenarioDrafts((current) => current.map((entry) => (
       entry.id === activeScenario?.id
-        ? { ...entry, interventions: remaining }
+        ? { ...entry, interventions: entry.interventions.filter((change) => change.id !== interventionId) }
         : entry
     )))
     setActiveScenarioChangeId(remaining[0]?.id ?? '')
@@ -3822,7 +3779,7 @@ export default function App() {
         // own GTFS pattern. The UI-level edge scope is expanded below.
         routeScope: intervention.routeScope === 'edge' ? 'pattern' : intervention.routeScope,
         timeModel,
-        bidirectional: intervention.bidirectional,
+        bidirectional: intervention.routeScope === 'edge' ? false : intervention.bidirectional,
         headwayMinutes: intervention.headwayMinutes,
         startMinutes: intervention.startMinutes,
         endMinutes: intervention.endMinutes,
@@ -3882,50 +3839,40 @@ export default function App() {
       const stops = ['add-line', 'change-line'].includes(intervention.kind)
         ? intervention.stops
         : scenarioStopsForRoute(route, preview)
-      if (['add-line', 'change-line'].includes(intervention.kind) && stops.length < 2) {
+      if (stops.length < 2) {
         return { error: `${intervention.name} needs at least two ordered GTFS or placed stops.` }
       }
       if (routeScope === 'edge' && intervention.kind === 'change-line') {
         if (!route) return { error: `${intervention.name} needs a selected GTFS branch before applying an exact edge edit.` }
         const edgeRoute = route
+        const edgeError = scenarioEdgeEditError(edgeRoute, stops)
+        if (edgeError) return { error: `${intervention.name}: ${edgeError}` }
         const edgeEdit = scenarioInsertedStopsForEdge(stops)
         if (!edgeEdit) {
           return { error: `${intervention.name} needs one or more inserted stops anchored between an exact ordered A → B GTFS edge.` }
         }
-        const matchingBranches = preview.routes
+        const serviceBranches = preview.routes
           .filter((candidate) => scopedRouteServiceKey(candidate) === scopedRouteServiceKey(edgeRoute))
-          .filter((candidate) => candidate.stopIds.some((stopId, index) => (
-            stopId === edgeEdit.beforeStopId && candidate.stopIds[index + 1] === edgeEdit.afterStopId
-          )))
+        if (serviceBranches.length !== edgeRoute.serviceVariantCount
+          || serviceBranches.some((candidate) => candidate.analysisSource !== 'focused'
+            || candidate.analysisServiceDate !== routingServiceDate)) {
+          return { error: `Load every GTFS branch of ${edgeRoute.shortName} for ${routingServiceDate} before applying an exact-edge edit.` }
+        }
+        const matchingBranches = serviceBranches.filter((candidate) => (
+          scenarioEdgeIndexes(candidate, edgeEdit.beforeStopId, edgeEdit.afterStopId).length > 0
+        ))
         if (!matchingBranches.length) {
           return { error: `No GTFS branch in ${edgeRoute.shortName} serves the exact ordered ${edgeEdit.beforeStopId} → ${edgeEdit.afterStopId} edge.` }
         }
         for (const branch of matchingBranches) {
-          let branchStops = branch.id === edgeRoute.id ? stops : scenarioStopsForRoute(branch, preview)
-          const branchIndex = branch.stopIds.findIndex((stopId, index) => (
-            stopId === edgeEdit.beforeStopId && branch.stopIds[index + 1] === edgeEdit.afterStopId
-          ))
-          if (branchIndex < 0 || branchStops.length < 2) continue
-          if (branch.id !== edgeRoute.id) {
-            const clonedStops = edgeEdit.stops.map((stop, index) => ({
-              ...stop,
-              id: `${intervention.id}:${branch.id}:inserted:${index + 1}`,
-              stopId: undefined,
-              baselineStopId: undefined,
-              anchorBeforeStopId: edgeEdit.beforeStopId,
-              anchorAfterStopId: edgeEdit.afterStopId,
-              editStatus: 'inserted' as const,
-            }))
-            branchStops = [
-              ...branchStops.slice(0, branchIndex + 1),
-              ...clonedStops,
-              ...branchStops.slice(branchIndex + 1),
-            ]
+          const branchStops = scenarioStopsForEdgeBranch(intervention, branch, preview)
+          if (branchStops.length < 2) {
+            return { error: `Load the complete ordered stops for ${branch.shortName} · Pattern ${branch.patternRank ?? branch.id} before applying this edge edit.` }
           }
-          const branchGeometry = branch.id !== edgeRoute.id && intervention.geometryMode === 'auto-road'
+          const branchGeometry = intervention.geometryMode === 'auto-road'
             ? scenarioEdgeGeometryForBranch(intervention, branch, preview)
             : undefined
-          if (branch.id !== edgeRoute.id && intervention.geometryMode === 'auto-road' && !branchGeometry) {
+          if (intervention.geometryMode === 'auto-road' && !branchGeometry) {
             return { error: `The edited road gap cannot be applied to ${branch.shortName} · ${branch.patternRank ?? branch.id}. Load its complete published shape and rebuild the road path.` }
           }
           services.push(serviceFor(
@@ -4143,134 +4090,22 @@ export default function App() {
     setScenarioProgress(null)
   }
 
-  function commitRoutingLocationResolution(resolution: PendingRoutingLocationResolution) {
-    if (resolution.selections.some((candidate) => !candidate)) return false
-    const resolvedPoints = resolution.selections.map((candidate) => ({
-      coordinate: candidate!.coordinate,
-      label: candidate!.name,
-      stopId: candidate!.id,
-      source: 'search' as const,
-    }))
-    setScheduleTimeMinutes(resolution.departMinutes)
-    setRoutingTimePreference(resolution.mode === 'transit' ? resolution.timePreference : 'depart')
-    setRoutingMode(resolution.mode)
-    if (resolution.maxWalkKm) setRoutingMaxWalkKm(resolution.maxWalkKm)
-    setPendingRoutingLocationResolution(null)
-    if (!reorderRoutingPoints(resolvedPoints)) return false
-    setQuery('')
-    return true
-  }
-
-  function chooseRoutingLocation(queryIndex: number, candidate: RoutingLocationCandidate) {
-    if (!pendingRoutingLocationResolution) return
-    const selections = [...pendingRoutingLocationResolution.selections]
-    selections[queryIndex] = candidate
-    const nextResolution = { ...pendingRoutingLocationResolution, selections }
-    if (selections.every(Boolean)) {
-      commitRoutingLocationResolution(nextResolution)
-      return
-    }
-    setPendingRoutingLocationResolution(nextResolution)
-  }
-
-  async function runRoutingSearch(commandText: string) {
-    const normalizedCommand = commandText.trim()
-    if (!normalizedCommand) return false
-
-    const routingCommand = parseRoutingCommand(normalizedCommand)
-    if (!routingCommand) {
-      setQuery(normalizedCommand)
+  function runRoutingSearch(commandText: string) {
+    const command = parseRoutingCommand(commandText.trim())
+    if (!command) return false
+    setActiveRouteTool('pathfinder')
+    const points = command.locationTexts.map(parseRoutingCoordinate)
+    if (points.some((point) => !point)) {
+      setRoutingPointError('Use latitude, longitude coordinates or pick points on the map.')
       return false
     }
-
-    const nextDepartMinutes = routingCommand.departMinutes ?? scheduleTimeMinutes
-    const nextTimePreference = routingCommand.timePreference ?? routingTimePreference
-    const nextMode = routingCommand.mode ?? routingMode
-    setPendingRoutingLocationResolution(null)
-    setSelectedRoutingPlanId('')
-    nationalRouting.reset()
-    setRoutingEnabled(false)
-    setRoutingLocationError('')
-    if (routingScopeStatus !== 'ready' || !nationalRoutingFeed) {
-      setActiveRouteTool('pathfinder')
-      return true
-    }
-    if (nationalRoutingFeed) {
-      routingLocationAbortRef.current?.abort()
-      const controller = new AbortController()
-      routingLocationAbortRef.current = controller
-      const requestId = routingLocationRequestIdRef.current + 1
-      routingLocationRequestIdRef.current = requestId
-      setRoutingLocationResolving(true)
-      setRoutingLocationError('')
-      try {
-        const locationSearch = await apiJson<{ results: RoutingLocationCandidate[][] }>(
-          `/api/projects/${encodeURIComponent(selectedProject.id)}/national-search`,
-          {
-            method: 'POST',
-            signal: controller.signal,
-            body: JSON.stringify({
-              feedId: nationalRoutingFeed.id,
-              queries: routingCommand.locationTexts,
-              limit: 5,
-            }),
-          },
-        )
-        if (requestId !== routingLocationRequestIdRef.current) return true
-        const candidates = routingCommand.locationTexts.map((_, index) => locationSearch.results?.[index] ?? [])
-        const missingIndex = candidates.findIndex((options) => !options.length)
-        if (missingIndex >= 0) {
-          setActiveRouteTool('pathfinder')
-          setRoutingEnabled(false)
-          const role = missingIndex === 0
-            ? 'starting point'
-            : missingIndex === routingCommand.locationTexts.length - 1
-              ? 'destination'
-              : `stop ${missingIndex}`
-          setRoutingLocationError(`The ${role} “${routingCommand.locationTexts[missingIndex]}” did not match a stop in this City.`)
-          return true
-        }
-        const selections = candidates.map((options, index) => {
-          const normalizedQuery = routingCommand.locationTexts[index].trim().toLocaleLowerCase()
-          const exactMatches = options.filter((candidate) => (
-            candidate.name.trim().toLocaleLowerCase() === normalizedQuery
-            || candidate.id.trim().toLocaleLowerCase() === normalizedQuery
-          ))
-          if (exactMatches.length === 1) return exactMatches[0]
-          return options.length === 1 ? options[0] : null
-        })
-        const resolution: PendingRoutingLocationResolution = {
-          queries: routingCommand.locationTexts,
-          candidates,
-          selections,
-          departMinutes: nextDepartMinutes,
-          timePreference: nextTimePreference,
-          mode: nextMode,
-          maxWalkKm: routingCommand.maxWalkKm,
-        }
-        if (selections.some((candidate) => !candidate)) {
-          setActiveRouteTool('pathfinder')
-          setPendingRoutingLocationResolution(resolution)
-          return true
-        }
-        commitRoutingLocationResolution(resolution)
-        return true
-      } catch (error) {
-        if (controller.signal.aborted || requestId !== routingLocationRequestIdRef.current) return true
-        const message = error instanceof Error ? error.message : 'National station search failed'
-        setRoutingLocationError(`Stops could not be searched. ${message}`)
-        return false
-      } finally {
-        if (requestId === routingLocationRequestIdRef.current) {
-          routingLocationAbortRef.current = null
-          setRoutingLocationResolving(false)
-        }
-      }
-    }
-    setActiveRouteTool('pathfinder')
-    setRoutingEnabled(false)
-    setRoutingLocationError('')
-    return true
+    if (command.departMinutes !== undefined) setScheduleTimeMinutes(command.departMinutes)
+    const mode = command.mode ?? routingMode
+    setRoutingMode(mode)
+    setRoutingTimePreference(mode === 'transit' ? command.timePreference ?? routingTimePreference : 'depart')
+    const applied = reorderRoutingPoints(points as RoutingPoint[])
+    if (applied) setQuery('')
+    return applied
   }
 
   async function runCommandCenter() {
@@ -5040,6 +4875,7 @@ export default function App() {
             activeInterventionId={activeScenarioChange?.id ?? ''}
             stopPlacement={activeScenarioStopPlacement}
             routes={preview.routes}
+            stops={preview.stops}
             routeAnalysisLoading={Boolean(routeAnalysisRouteId)}
             routeAnalysisError={routeAnalysisError}
             view={scenarioView}
@@ -5162,7 +4998,6 @@ export default function App() {
         routingScopeStatus={routingScopeStatus}
         routingStoreReady={routingStoreReady}
         routingStoreFeedCount={routingStoreFeedCount}
-        routingStoreReadyFeedCount={routingStoreReadyFeedCount}
         routingStoreStored={routingStoreStored}
         routingStoreStoredFeedCount={routingStoreStoredFeedCount}
         routingStoreTripCount={routingStoreTripCount}
@@ -5179,9 +5014,7 @@ export default function App() {
         routingServiceCoverage={nationalRouting.serviceCoverage}
         routingServiceDateAvailability={nationalRouting.serviceDateAvailability}
         routingServiceDateOptions={nationalRouting.serviceDateOptions}
-        routingResolvingLocations={routingLocationResolving}
-        routingLocationError={routingLocationError}
-        routingLocationChoices={routingLocationChoices}
+        routingPointError={routingPointError}
         storeBackedRouting={storeBackedRouting}
         osmStreetMessage={osmStreetMessage}
         realtimeSnapshot={realtimeSnapshot}
@@ -5209,7 +5042,9 @@ export default function App() {
         onBasemapChange={changeBasemap}
         onScheduleTimeChange={setScheduleTimeMinutes}
         onScheduleServiceDateChange={changeRoutingServiceDate}
-        onRunRoutingSearch={runRoutingSearch}
+        onRunRouting={rerunRouting}
+        onPickRoutingPoint={pickRoutingPoint}
+        routingPickIndex={routingPickIndex}
         onReorderRoutingPoints={reorderRoutingPoints}
         onRoutingTimePreferenceChange={changeRoutingTimePreference}
         onRoutingModeChange={changeRoutingMode}
@@ -5221,9 +5056,6 @@ export default function App() {
         onSelectRoutingPlan={(id) => {
           setSelectedRoutingPlanId(id)
         }}
-        onChooseRoutingLocation={chooseRoutingLocation}
-        onDismissRoutingLocationChoices={dismissRoutingLocationChoices}
-        onInvalidateRoutingResults={invalidateRoutingResults}
         onToggleRouting={toggleRouting}
         onClearRouting={clearRouting}
       />

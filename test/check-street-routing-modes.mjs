@@ -636,6 +636,13 @@ if (worker) {
       assert.equal(newLine.fallbackSegmentCount ?? 0, 0)
       assert.deepEqual(newLine.snappedCoordinates, [driveRequest.origin.coordinate, driveRequest.destination.coordinate])
       assert(newLine.snapDistancesM.every((distance) => distance > 100))
+      assert.deepEqual(newLine.segments[0].coordinates, [
+        driveRequest.origin.coordinate,
+        [-70.9988, 42.0010],
+        driveRequest.destination.coordinate,
+      ], 'Scenario geometry must contain the road path without off-road endpoint spurs.')
+      assert.equal(newLine.totalDistanceKm, 0.2, 'Scenario distance must exclude the removed snap connectors.')
+      assert.equal(newLine.totalDurationMinutes, 0.2, 'Scenario runtime must exclude the removed snap connectors.')
     } else {
       assert.equal(newLine.failedIndex, 0)
       assert.equal(newLine.segments.length, 0)
@@ -643,6 +650,42 @@ if (worker) {
       assert.match(newLine.detail, /connected roads/)
     }
   }
+
+  const continuousWorker = new Worker(new URL('../src/server/national-route-worker.mjs', import.meta.url))
+  const continuous = await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Continuous road inference timed out.')), 5_000)
+    continuousWorker.once('error', reject)
+    continuousWorker.on('message', (message) => {
+      if (message?.id !== 'continuous-road-path') return
+      clearTimeout(timeout)
+      if (message.type === 'failed') reject(new Error(message.error))
+      else if (message.type === 'complete') resolve(message.result)
+    })
+    continuousWorker.postMessage({
+      id: 'continuous-road-path',
+      operation: 'street-route-batch',
+      storePath: currentStore,
+      request: {
+        streetStorePath: currentStore,
+        maxStreetKm: 100,
+        points: [
+          { coordinate: [-70.9988, 42.0018], label: 'North road' },
+          { coordinate: [-70.9988, 42.0014], label: 'Between two roads' },
+          driveRequest.destination,
+        ],
+      },
+    })
+  }).finally(() => continuousWorker.terminate())
+  assert.equal(continuous.status, 'ready')
+  assert.equal(continuous.segments.length, 2)
+  assert.deepEqual(continuous.segments[0].coordinates.at(-1), continuous.segments[1].coordinates[0],
+    'Adjacent road segments must use the same graph node for their shared stop.')
+  assert.deepEqual(continuous.snappedCoordinates[1], [-70.9988, 42.0018])
+  assert.deepEqual(continuous.segments[1].coordinates, [[-70.9988, 42.0018], driveRequest.destination.coordinate],
+    'The next segment must start at the previous arrival node, even when another origin snap is faster.')
+  assert.equal(continuous.segments[0].distanceKm, 0)
+  assert.equal(continuous.segments[1].distanceKm, 0.125)
+  assert.equal(continuous.segments[1].durationMinutes, 8 / 60)
 
   const fallbackWorker = new Worker(new URL('../src/server/national-route-worker.mjs', import.meta.url))
   const fallbackResult = await new Promise((resolve, reject) => {

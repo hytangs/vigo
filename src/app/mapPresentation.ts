@@ -1,6 +1,23 @@
 import type { GtfsRouteStatusFilter, LngLat, MapPreview, RouteMetric, StopMetric } from '../domain'
 import { scopedRouteServiceKey, type RouteRenderMode } from '../routeServices'
-import { coordinateDistanceKm } from './geometry'
+import { coordinateDistanceKm, orderedPolylineAnchors } from './geometry'
+
+/** Clip each ordered stop interval without snapping it to a shape vertex. */
+export function routeStopPairCoordinates(coordinates: LngLat[], stops: LngLat[]) {
+  const anchors = orderedPolylineAnchors(coordinates, stops)
+  if (!anchors) return []
+  return anchors.slice(0, -1).map((from, index) => {
+    const to = anchors[index + 1]
+    if (to.progress < from.progress
+      || coordinateDistanceKm(from.point, stops[index]) > 0.65
+      || coordinateDistanceKm(to.point, stops[index + 1]) > 0.65) return undefined
+    return [
+      from.point,
+      ...coordinates.slice(Math.floor(from.progress) + 1, Math.ceil(to.progress)),
+      to.point,
+    ]
+  })
+}
 
 export function inferredRouteJumpThresholdKm(distancesKm: number[]) {
   const distances = distancesKm
@@ -160,7 +177,8 @@ export function previewForSelectedRoute(
   if (!selectedRoute) return preview
 
   const selectedPattern = preview.routes.find((route) => (
-    route.id === selectedRoute.id || route.patternId === selectedRoute.patternId
+    route.id === selectedRoute.id || (Boolean(selectedRoute.patternId) && route.patternId === selectedRoute.patternId
+      && scopedRouteServiceKey(route) === scopedRouteServiceKey(selectedRoute))
   )) ?? selectedRoute
   const routes = renderMode === 'pattern'
     ? [selectedPattern]

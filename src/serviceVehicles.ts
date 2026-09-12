@@ -1,6 +1,6 @@
 import type { LngLat, MapPreview, RealtimeSnapshot, RouteMetric, ScheduledTrip, StopMetric } from './domain'
 import { scopedRouteServiceKey } from './routeServices'
-import { formatScheduleClock, type ScheduledVehicle } from './scheduledVehicles'
+import { formatScheduleClock, formatServiceTime, type ScheduledVehicle } from './scheduledVehicles'
 
 export type ServiceVehicleMode = 'live' | 'schedule'
 
@@ -17,7 +17,7 @@ type ServiceVehicleCard = {
   metrics: Array<{ value: string; label: string }>
 }
 
-type ServiceVehicle = {
+export type ServiceVehicle = {
   id: string
   source: ServiceVehicleMode
   coordinate: LngLat
@@ -43,8 +43,9 @@ export type ServiceVehicleFrame = {
 
 type PreviewVehicleIndex = {
   routes: Map<string, RouteMetric>
+  routeCandidates: Map<string, Map<string, RouteMetric>>
   stops: Map<string, StopMetric>
-  trips: Map<string, ScheduledTrip>
+  trips: Map<string, Map<string, { trip: ScheduledTrip; route: RouteMetric }>>
 }
 
 const previewIndexCache = new WeakMap<MapPreview, PreviewVehicleIndex>()
@@ -62,6 +63,17 @@ function indexValue<T>(index: Map<string, T>, keys: Array<string | undefined>, v
   }
 }
 
+function indexCandidate<T>(index: Map<string, Map<string, T>>, key: string, identity: string, value: T) {
+  if (!key) return
+  const candidates = index.get(key) ?? new Map<string, T>()
+  candidates.set(identity, value)
+  index.set(key, candidates)
+}
+
+function uniqueCandidate<T>(candidates: Map<string, T> | undefined) {
+  return candidates?.size === 1 ? candidates.values().next().value as T : undefined
+}
+
 export function serviceKeyForRoute(route: RouteMetric) {
   return scopedRouteServiceKey(route)
 }
@@ -71,20 +83,31 @@ function previewVehicleIndex(preview: MapPreview) {
   if (cached) return cached
 
   const routes = new Map<string, RouteMetric>()
+  const routeCandidates: PreviewVehicleIndex['routeCandidates'] = new Map()
   const stops = new Map<string, StopMetric>()
-  const trips = new Map<string, ScheduledTrip>()
+  const trips: PreviewVehicleIndex['trips'] = new Map()
 
   for (const route of preview.routes) {
     const serviceKey = serviceKeyForRoute(route)
     indexValue(routes, [route.id, route.patternId, route.routeId, route.shortName], route)
+    for (const alias of [route.id, route.patternId, route.routeId, route.shortName]) {
+      if (!alias) continue
+      indexCandidate(routeCandidates, alias, serviceKey, route)
+      indexCandidate(routeCandidates, unscopedId(alias), serviceKey, route)
+    }
     for (const trip of route.scheduledTrips ?? []) {
       const tripKey = unscopedId(trip.tripId)
-      indexValue(trips, [trip.tripId, `${serviceKey}:${tripKey}`], trip)
+      const assignment = { trip, route }
+      const identity = `${route.id}:${trip.tripId}`
+      const scope = route.id.includes('::') ? route.id.slice(0, route.id.indexOf('::')) : ''
+      for (const alias of [trip.tripId, tripKey, `${serviceKey}:${tripKey}`, scope ? `${scope}::${tripKey}` : '']) {
+        indexCandidate(trips, alias, identity, assignment)
+      }
     }
   }
   for (const stop of preview.stops) indexValue(stops, [stop.id], stop)
 
-  const index = { routes, stops, trips }
+  const index = { routes, routeCandidates, stops, trips }
   previewIndexCache.set(preview, index)
   return index
 }
@@ -98,12 +121,25 @@ function stopName(index: PreviewVehicleIndex, stopId: string | undefined) {
   return stopFor(index, stopId)?.name || unscopedId(stopId)
 }
 
-function tripFor(index: PreviewVehicleIndex, route: RouteMetric | undefined, tripId: string) {
+function tripFor(index: PreviewVehicleIndex, route: RouteMetric | undefined, tripId: string, routeId: string) {
   if (!tripId) return undefined
   const tripKey = unscopedId(tripId)
-  return index.trips.get(`${route ? serviceKeyForRoute(route) : ''}:${tripKey}`)
-    ?? index.trips.get(tripId)
-    ?? index.trips.get(tripKey)
+  const exact = uniqueCandidate(index.trips.get(tripId))
+  if (route) {
+    const serviceKey = serviceKeyForRoute(route)
+    if (tripId.includes('::')) {
+      if (exact && serviceKeyForRoute(exact.route) !== serviceKey) return undefined
+      const routeScope = route.id.includes('::') ? route.id.slice(0, route.id.indexOf('::')) : ''
+      if (routeScope && tripId.slice(0, tripId.indexOf('::')) !== routeScope) return undefined
+    }
+    return uniqueCandidate(index.trips.get(`${serviceKey}:${tripKey}`))
+  }
+  const candidate = exact ?? uniqueCandidate(index.trips.get(tripKey))
+  if (!candidate) return undefined
+  // A unique trip can disambiguate duplicate route IDs across feeds, but it
+  // cannot override an explicitly contradictory route identity.
+  if (routeId && !index.routeCandidates.get(routeId)?.has(serviceKeyForRoute(candidate.route))) return undefined
+  return candidate
 }
 
 function realtimeClock(timestamp: number | undefined) {
@@ -135,13 +171,22 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
 
     const routeId = vehicle.routeId ?? ''
     const tripId = vehicle.tripId ?? ''
-    const route = index.routes.get(routeId) ?? index.routes.get(unscopedId(routeId))
+    const serviceRoute = uniqueCandidate(index.routeCandidates.get(routeId))
     const tripUpdate = tripUpdates.get(tripId) ?? tripUpdates.get(unscopedId(tripId))
-    const scheduledTrip = tripFor(index, route, tripId)
+    const assignment = tripFor(index, serviceRoute, tripId, routeId)
+    const scheduledTrip = assignment?.trip
+    const patternRoute = scheduledTrip?.patternId
+      ? index.routes.get(scheduledTrip.patternId)
+      : assignment?.route
+    const exactPattern = patternRoute && assignment
+      && serviceKeyForRoute(patternRoute) === serviceKeyForRoute(assignment.route)
+      ? patternRoute
+      : undefined
+    const route = exactPattern ?? assignment?.route ?? serviceRoute
     const nextStopId = tripUpdate?.nextStopId || vehicle.stopId || scheduledTrip?.stopTimes[0]?.stopId
     const nextStopUpdate = tripUpdate?.stopTimeUpdates?.find((update) => (
-      unscopedId(update.stopId ?? '') === unscopedId(nextStopId ?? '')
-      || update.stopSequence === tripUpdate.nextStopSequence
+      Boolean(update.stopId && nextStopId && unscopedId(update.stopId) === unscopedId(nextStopId))
+      || (tripUpdate.nextStopSequence !== undefined && update.stopSequence === tripUpdate.nextStopSequence)
     )) ?? tripUpdate?.stopTimeUpdates?.[0]
     const scheduledStopTime = scheduledTrip?.stopTimes.find((stopTime) => (
       unscopedId(stopTime.stopId) === unscopedId(nextStopId ?? '')
@@ -167,7 +212,9 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
       coordinate: [vehicle.lon, vehicle.lat] as LngLat,
       bearing: typeof vehicle.bearing === 'number' && Number.isFinite(vehicle.bearing) ? vehicle.bearing : undefined,
       serviceKey: route ? serviceKeyForRoute(route) : routeId,
-      routeFeatureId: route?.id,
+      // A route_id identifies the whole service. Without trip membership,
+      // selecting the first indexed pattern would invent a branch match.
+      routeFeatureId: exactPattern?.id,
       routeId,
       routeShortName,
       routeColor: route?.color ?? '#6af3ee',
@@ -199,6 +246,11 @@ function scheduledServiceVehicles(vehicles: ScheduledVehicle[], preview: MapPrev
     const route = index.routes.get(vehicle.routeFeatureId)
       ?? index.routes.get(vehicle.routeId)
       ?? index.routes.get(vehicle.routeShortName)
+    const stateLabel = vehicle.state === 'arrived'
+      ? `Arrived at ${stopName(index, vehicle.currentStopId)}`
+      : vehicle.state === 'dwelling'
+        ? `At ${stopName(index, vehicle.currentStopId)}${vehicle.currentStopDepartureMinutes === undefined ? '' : ` · Departs ${formatServiceTime(vehicle.currentStopDepartureMinutes)}`}`
+        : 'Between stops · Estimated position'
     return {
       id: vehicle.id,
       source: 'schedule' as const,
@@ -212,15 +264,15 @@ function scheduledServiceVehicles(vehicles: ScheduledVehicle[], preview: MapPrev
       tripId: vehicle.tripId,
       nextStopFeatureId: stopFor(index, vehicle.nextStopId)?.id,
       card: {
-        eyebrow: 'Scheduled vehicle',
+        eyebrow: 'Schedule simulation',
         title: vehicle.routeShortName,
-        subtitle: `Trip ${unscopedId(vehicle.tripId)} · ${formatScheduleClock(vehicle.scheduleTimeMinutes)} schedule`,
+        subtitle: `Trip ${unscopedId(vehicle.tripId)} · ${vehicle.serviceDate} ${formatServiceTime(vehicle.scheduleTimeMinutes)} · ${stateLabel}`,
         journey: {
           destination: stopName(index, vehicle.destinationStopId),
           nextStop: stopName(index, vehicle.nextStopId),
           arrival: vehicle.nextStopArrivalMinutes === undefined
             ? 'Not encoded'
-            : formatScheduleClock(vehicle.nextStopArrivalMinutes),
+            : formatServiceTime(vehicle.nextStopArrivalMinutes),
           arrivalLabel: 'Scheduled arrival',
         },
         metrics: [
@@ -256,8 +308,20 @@ export function buildServiceVehicleFrame({
   }
 }
 
-export function serviceVehicleCount(frame: ServiceVehicleFrame, route?: RouteMetric) {
+export function serviceVehicleIsVisible(vehicle: ServiceVehicle, preview: MapPreview, selectedRouteId = '') {
+  if (!selectedRouteId) return true
+  const selectedRoute = preview.routes.find((route) => route.id === selectedRouteId || route.patternId === selectedRouteId)
+  if (!selectedRoute) return false
+  const serviceKey = serviceKeyForRoute(selectedRoute)
+  if (vehicle.serviceKey !== serviceKey) return false
+  const selectedPatterns = preview.routes.filter((route) => serviceKeyForRoute(route) === serviceKey)
+  const patternOnly = selectedPatterns.length === 1 && (selectedRoute.serviceVariantCount ?? 1) > 1
+  return !patternOnly || vehicle.routeFeatureId === selectedRoute.id
+}
+
+export function serviceVehicleCount(frame: ServiceVehicleFrame, route?: RouteMetric, preview?: MapPreview) {
   if (!route) return frame.vehicles.length
+  if (preview) return frame.vehicles.filter((vehicle) => serviceVehicleIsVisible(vehicle, preview, route.id)).length
   const serviceKey = serviceKeyForRoute(route)
   return frame.vehicles.filter((vehicle) => vehicle.serviceKey === serviceKey).length
 }

@@ -1,0 +1,149 @@
+.gtfs-pattern-browser {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+}
+
+.gtfs-pattern-list {
+  display: grid;
+  gap: 12px;
+  max-height: 320px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 2px;
+}
+
+.gtfs-direction-group {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.gtfs-direction-group h3 {
+  margin: 0 0 1px;
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 650;
+}
+
+.gtfs-pattern-choice {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  background: var(--panel);
+  text-align: left;
+  cursor: pointer;
+}
+
+.gtfs-pattern-choice:hover,
+.gtfs-pattern-choice.is-active {
+  border-color: var(--accent-2);
+  background: color-mix(in srgb, var(--accent-2) 7%, var(--panel));
+}
+
+.gtfs-pattern-choice-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gtfs-pattern-choice-heading b {
+  color: var(--text-strong);
+  font-size: 0.66rem;
+}
+
+.gtfs-pattern-choice-heading small,
+.gtfs-pattern-facts {
+  color: var(--text-muted);
+  font-size: 0.58rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.gtfs-pattern-choice-heading small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.gtfs-pattern-endpoints {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+  font-size: 0.66rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.gtfs-pattern-endpoints strong {
+  color: var(--text-strong);
+  font-weight: 650;
+}
+
+.gtfs-pattern-endpoints svg {
+  color: var(--accent-2);
+}
+
+.gtfs-stop-disclosure summary small {
+  color: var(--text-muted);
+  font-size: 0.58rem;
+  font-weight: 500;
+}
+
+.gtfs-ordered-stops {
+  display: grid;
+  max-height: 260px;
+  margin: 8px 0 0;
+  padding: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  list-style: none;
+}
+
+.gtfs-ordered-stops li {
+  display: grid;
+  grid-template-columns: 23px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  min-height: 38px;
+}
+
+.gtfs-stop-number {
+  display: grid;
+  place-items: center;
+  height: 23px;
+  border: 1px solid var(--accent-2);
+  border-radius: 50%;
+  color: var(--text-strong);
+  background: var(--panel);
+  font-size: 0.56rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.gtfs-ordered-stops li > span:last-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 2px 0 9px;
+}
+
+.gtfs-ordered-stops strong {
+  color: var(--text-strong);
+  font-size: 0.64rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.gtfs-ordered-stops small {
+  color: var(--text-muted);
+  font-size: 0.54rem;
+  overflow-wrap: anywhere;
+}

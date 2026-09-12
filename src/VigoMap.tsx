@@ -21,13 +21,14 @@ import {
   type MapFirstRenderPhase,
   type MapFirstRenderTracker,
 } from './app/mapFirstRenderTelemetry'
-import { inferredRouteJumpThresholdKm, routingLabelAnchor } from './app/mapPresentation'
+import { inferredRouteJumpThresholdKm, routeStopPairCoordinates, routingLabelAnchor } from './app/mapPresentation'
+import { ensureVehicleDirectionSprite, vehicleHeadingLayer, vehicleMarkerLayer } from './app/mapDirections'
 import { coordinateDistanceKm } from './app/geometry'
 import { reportDesktopMapFailed, reportDesktopMapPhase, reportDesktopMapReady } from './app/desktopBridge'
 import { routeGeometryLabel } from './app/routePresentation'
 import { cityPublicRouteKey } from './app/cityPreview'
 import { buildNetworkPerformanceProfile, type NetworkPerformanceProfile } from './networkPerformance'
-import { serviceKeyForRoute, type ServiceVehicleFrame } from './serviceVehicles'
+import { serviceKeyForRoute, serviceVehicleIsVisible, type ServiceVehicleFrame } from './serviceVehicles'
 import type { RoutingPlan, RoutingPoint } from './routingModel'
 import { routingPinLabel } from './routingPointSequence'
 import {
@@ -114,7 +115,7 @@ const transferLayerIds = ['vigo-transfer-stops']
 const coverageLayerIds = ['vigo-coverage']
 const scenarioLayerIds = ['vigo-scenario-routes']
 const accessLayerIds = ['vigo-access-outer', 'vigo-access-middle', 'vigo-access-inner']
-const vehicleLayerIds = ['vigo-vehicle-halo', 'vigo-vehicles', 'vigo-vehicle-core', 'vigo-vehicle-headings', 'vigo-vehicle-labels']
+const vehicleLayerIds = ['vigo-vehicle-halo', 'vigo-vehicles', 'vigo-vehicle-headings', 'vigo-vehicle-labels']
 const routingLayerIds = ['vigo-routing-walk-casing', 'vigo-routing-walk', 'vigo-routing-drive-casing', 'vigo-routing-drive', 'vigo-routing-ride-casing', 'vigo-routing-ride', 'vigo-routing-labels', 'vigo-routing-pin-halo', 'vigo-routing-pins']
 const reachResultLayerIds = [
   'vigo-scenario-area',
@@ -193,7 +194,7 @@ function routeCoordinates(route: RouteMetric, stopsById: Map<string, StopMetric>
 }
 
 function directionLabel(directionId?: string) {
-  return directionId !== undefined && directionId !== '' ? `Direction ${directionId}` : 'Primary pattern'
+  return directionId !== undefined && directionId !== '' ? `Direction ${directionId}` : 'Direction unspecified'
 }
 
 function routeDisplayName(shortName: string, longName?: string) {
@@ -270,21 +271,6 @@ function downsampleCoordinates(coordinates: LngLat[], maxPoints: number) {
   return sampled.filter((coordinate, index) => index === 0 || coordinate !== sampled[index - 1])
 }
 
-function nearestCoordinateIndex(coordinates: LngLat[], target: LngLat, startIndex: number) {
-  let nearestIndex = Math.max(0, Math.min(startIndex, coordinates.length - 1))
-  let nearestDistance = Number.POSITIVE_INFINITY
-
-  for (let index = nearestIndex; index < coordinates.length; index += 1) {
-    const distance = coordinateDistanceKm(coordinates[index], target)
-    if (distance < nearestDistance) {
-      nearestDistance = distance
-      nearestIndex = index
-    }
-  }
-
-  return { index: nearestIndex, distanceKm: nearestDistance }
-}
-
 function segmentKey(patternId: string, sequence: number, fromStopId: string, toStopId: string) {
   return `${patternId}::${sequence}::${fromStopId}::${toStopId}`
 }
@@ -321,35 +307,14 @@ function routeStopPairPaths(preview: MapPreview, stopsById: Map<string, StopMetr
     const coordinates = routeCoordinates(route, stopsById)
     if (coordinates.length < 2 || route.stopIds.length < 2) continue
 
-    const snappedStops: Array<{ stopId: string; target: LngLat; index: number; distanceKm: number } | null> = []
-    let searchStartIndex = 0
-
-    for (const stopId of route.stopIds) {
-      const stop = stopsById.get(stopId)
-      if (!stop) {
-        snappedStops.push(null)
-        continue
-      }
-      const target = stopLngLat(stop)
-      const nearest = nearestCoordinateIndex(coordinates, target, searchStartIndex)
-      searchStartIndex = Math.max(searchStartIndex, nearest.index)
-      snappedStops.push({ stopId, target, ...nearest })
-    }
-
-    for (let index = 0; index < snappedStops.length - 1; index += 1) {
-      const from = snappedStops[index]
-      const to = snappedStops[index + 1]
-      if (!from || !to) continue
-
-      const key = segmentKey(routeId, index + 1, from.stopId, to.stopId)
-      if (to.index <= from.index || from.distanceKm > 0.65 || to.distanceKm > 0.65) {
-        paths.set(key, [from.target, to.target])
-        continue
-      }
-
-      const routeSlice = coordinates.slice(from.index, to.index + 1)
-      paths.set(key, downsampleCoordinates([from.target, ...routeSlice, to.target], 90))
-    }
+    const stops = route.stopIds.map((stopId) => stopsById.get(stopId))
+    if (stops.some((stop) => !stop)) continue
+    const intervals = routeStopPairCoordinates(coordinates, stops.map((stop) => stopLngLat(stop!)))
+    intervals.forEach((interval, index) => {
+      if (!interval) return
+      const key = segmentKey(routeId, index + 1, route.stopIds[index], route.stopIds[index + 1])
+      paths.set(key, downsampleCoordinates(interval, 90))
+    })
   }
 
   return paths
@@ -429,7 +394,7 @@ function segmentFeatures(preview: MapPreview, performanceProfile: NetworkPerform
         const toStop = stopsById.get(pair.toStopId)
         const segmentPath = pathsBySegment.get(segmentKey(pair.patternId, pair.sequence, pair.fromStopId, pair.toStopId))
         const rawCoordinates = fromStop && toStop
-          ? fallbackSegmentCoordinates([fromStop, toStop], segmentPath ?? pair.coordinates)
+          ? segmentPath ?? fallbackSegmentCoordinates([fromStop, toStop], pair.coordinates)
           : []
         const coordinates = downsampleCoordinates(rawCoordinates, performanceProfile.segmentPointBudget)
 
@@ -557,7 +522,7 @@ function serviceVehicleFeatures(frame: ServiceVehicleFrame, preview: MapPreview,
     features: frame.vehicles.flatMap((vehicle, vehicleIndex) => {
       if (!isFiniteLngLat(vehicle.coordinate)) return []
       const selectedRouteMatch = Boolean(selectedServiceKey && vehicle.serviceKey === selectedServiceKey)
-      if (selectedRouteId && !selectedRouteMatch) return []
+      if (!serviceVehicleIsVisible(vehicle, preview, selectedRouteId)) return []
       const hasBearing = vehicle.bearing !== undefined && Number.isFinite(vehicle.bearing)
       return [{
         type: 'Feature' as const,
@@ -1255,6 +1220,7 @@ function desktopMapTelemetryPayload(
 }
 
 function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
+  ensureVehicleDirectionSprite(map)
   if (!map.getSource('vigo-routes')) {
     map.addSource('vigo-routes', { type: 'geojson', data: emptyCollection })
   }
@@ -1618,6 +1584,7 @@ function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
     })
   }
 
+
   if (!map.getLayer('vigo-segments-casing')) {
     map.addLayer({
       id: 'vigo-segments-casing',
@@ -1932,68 +1899,8 @@ function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
     })
   }
 
-  if (!map.getLayer('vigo-vehicles')) {
-    map.addLayer({
-      id: 'vigo-vehicles',
-      type: 'circle',
-      source: 'vigo-service-vehicles',
-      paint: {
-        'circle-color': ['coalesce', ['get', 'routeColor'], '#35d0a1'] as ExpressionSpecification,
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 1.4, 9, 2.4, 13, 5.6],
-        'circle-opacity': [
-          'interpolate', ['linear'], ['zoom'],
-          5, ['case', ['==', ['get', 'source'], 'live'], 0.72, 0.48],
-          10, ['case', ['==', ['get', 'source'], 'live'], 0.88, 0.7],
-          13, ['case', ['==', ['get', 'source'], 'live'], 0.96, 0.86],
-        ] as ExpressionSpecification,
-        'circle-stroke-color': ['case', ['==', ['get', 'source'], 'live'], '#f8fbff', '#071017'] as ExpressionSpecification,
-        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 5, 0.25, 10, 0.65, 13, 1.45],
-        'circle-stroke-opacity': 0.92,
-      },
-    })
-  }
-
-  if (!map.getLayer('vigo-vehicle-core')) {
-    map.addLayer({
-      id: 'vigo-vehicle-core',
-      type: 'circle',
-      source: 'vigo-service-vehicles',
-      minzoom: 9.5,
-      filter: ['==', ['get', 'selectedRoute'], true],
-      paint: {
-        'circle-color': '#f8fbff',
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 1.15, 13, 2.75],
-        'circle-opacity': [
-          'interpolate', ['linear'], ['zoom'],
-          8, ['case', ['==', ['get', 'source'], 'live'], 0.82, 0.48],
-          13, ['case', ['==', ['get', 'source'], 'live'], 0.96, 0.74],
-        ] as ExpressionSpecification,
-      },
-    })
-  }
-
-  if (!map.getLayer('vigo-vehicle-headings')) {
-    map.addLayer({
-      id: 'vigo-vehicle-headings',
-      type: 'symbol',
-      source: 'vigo-service-vehicles',
-      minzoom: 11.5,
-      filter: ['all', ['==', ['get', 'selectedRoute'], true], ['==', ['get', 'hasBearing'], true]],
-      layout: {
-        'text-field': '▲',
-        'text-size': ['interpolate', ['linear'], ['zoom'], 8, 4.8, 13, 8.8],
-        'text-rotate': ['get', 'bearing'] as ExpressionSpecification,
-        'text-allow-overlap': true,
-        'text-ignore-placement': true,
-      },
-      paint: {
-        'text-color': ['coalesce', ['get', 'routeColor'], '#35d0a1'] as ExpressionSpecification,
-        'text-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.84, 13, 0.98],
-        'text-halo-color': '#f8fbff',
-        'text-halo-width': 0.35,
-      },
-    })
-  }
+  if (!map.getLayer(vehicleMarkerLayer.id)) map.addLayer(vehicleMarkerLayer)
+  if (!map.getLayer(vehicleHeadingLayer.id)) map.addLayer(vehicleHeadingLayer)
 
   if (!map.getLayer('vigo-vehicle-labels')) {
     map.addLayer({
@@ -3249,15 +3156,15 @@ export function VigoMap({
       }
 
       const selectServiceVehicle = (vehicle: ServiceVehicleFrame['vehicles'][number]) => {
-        const matchedRoute = preview.routes.find((route) => serviceKeyForRoute(route) === vehicle.serviceKey)
-          ?? preview.routes.find((route) => route.id === vehicle.routeFeatureId)
+        const matchedRoute = preview.routes.find((route) => route.id === vehicle.routeFeatureId)
+          ?? preview.routes.find((route) => serviceKeyForRoute(route) === vehicle.serviceKey)
         if (matchedRoute) onSelectRoute(matchedRoute.id)
         if (vehicle.nextStopFeatureId) onSelectStop(vehicle.nextStopFeatureId)
         setLiveSelection({ tone: 'vehicle', ...vehicle.card })
       }
       let clickedVehicle: ServiceVehicleFrame['vehicles'][number] | undefined
       if (effectiveLayers.routes && map.getLayer('vigo-vehicles')) {
-        const vehicleHit = map.queryRenderedFeatures(event.point, { layers: ['vigo-vehicles'] })[0]
+        const vehicleHit = map.queryRenderedFeatures(event.point, { layers: ['vigo-vehicle-headings', 'vigo-vehicles'] })[0]
         if (vehicleHit?.properties) {
           const vehicleIndex = Math.round(numberProperty(vehicleHit.properties, 'vehicleIndex'))
           const vehicleId = textProperty(vehicleHit.properties, 'vehicleId')
@@ -3270,6 +3177,8 @@ export function VigoMap({
           vehicle: ServiceVehicleFrame['vehicles'][number]
           distance: number
         } | null>((nearest, vehicle) => {
+          if (!isFiniteLngLat(vehicle.coordinate)) return nearest
+          if (!serviceVehicleIsVisible(vehicle, preview, selectedRouteId)) return nearest
           const point = map.project(vehicle.coordinate)
           const distance = Math.hypot(point.x - event.point.x, point.y - event.point.y)
           if (distance > 18 || (nearest && nearest.distance <= distance)) return nearest
@@ -3358,7 +3267,7 @@ export function VigoMap({
         map.getCanvas().style.cursor = 'grab'
         return
       }
-      const layersToQuery = ['vigo-vehicles', 'vigo-selected-route', 'vigo-routes', 'vigo-selected-segments', 'vigo-segments', 'vigo-overview-stops', 'vigo-network-stops', 'vigo-transfer-stops', 'vigo-stops'].filter((layerId) => map.getLayer(layerId))
+      const layersToQuery = ['vigo-vehicle-headings', 'vigo-vehicles', 'vigo-selected-route', 'vigo-routes', 'vigo-selected-segments', 'vigo-segments', 'vigo-overview-stops', 'vigo-network-stops', 'vigo-transfer-stops', 'vigo-stops'].filter((layerId) => map.getLayer(layerId))
       const features = layersToQuery.length ? map.queryRenderedFeatures(event.point, { layers: layersToQuery }) : []
       map.getCanvas().style.cursor = features.length ? 'pointer' : ''
     }
@@ -3371,7 +3280,7 @@ export function VigoMap({
       map.off('mousemove', handleMove)
       map.getCanvas().style.cursor = ''
     }
-  }, [effectiveLayers.routes, effectiveLayers.segments, onRoutingPoint, onSelectRoute, onSelectStop, preview, routingEnabled, scenarioFocus, scenarioPointPicking, vehicleFrame])
+  }, [effectiveLayers.routes, effectiveLayers.segments, onRoutingPoint, onSelectRoute, onSelectStop, preview, routingEnabled, scenarioFocus, scenarioPointPicking, selectedRouteId, vehicleFrame])
 
   return (
     <div className={classNames('map-stage', `basemap-${basemap}`)} data-map-state={mapVisualState}>

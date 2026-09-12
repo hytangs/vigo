@@ -14,9 +14,10 @@ try {
   await fs.writeFile(path.join(temporary, 'fixture.mjs'), `
 import { Map, AttributionControl } from '../../src/app/mapRuntime.ts';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { ensureVehicleDirectionSprite, vehicleHeadingLayer, vehicleMarkerLayer } from '../../src/app/mapDirections.ts';
 window.checkMap = async () => {
   window.attributionExecuted = false;
-  const data = {type:'FeatureCollection',features:[{type:'Feature',properties:{},geometry:{type:'LineString',coordinates:[[-0.001,0],[0.001,0]]}}]};
+  const data = {type:'FeatureCollection',features:[{type:'Feature',properties:{selectedPattern:true},geometry:{type:'LineString',coordinates:[[-0.001,0],[0.001,0]]}}]};
   const map = new Map({container:'map',center:[0,0],zoom:16,attributionControl:false,
     style:{version:8,sources:{fixture:{type:'geojson',data,
       attribution:'<details open onload="void 0" ontoggle="window.attributionExecuted = true">Fixture</details>'}},
@@ -28,6 +29,19 @@ window.checkMap = async () => {
   });
   await waitForRender();
   if (!map.queryRenderedFeatures({layers:['fixture']}).length) throw Error('GeoJSON worker did not render the fixture');
+  ensureVehicleDirectionSprite(map);
+  map.addSource('vigo-service-vehicles',{type:'geojson',data:{type:'FeatureCollection',features:[
+    {type:'Feature',properties:{hasBearing:true,bearing:90,selectedRoute:false,routeColor:'#ffc72c'},geometry:{type:'Point',coordinates:[0,0]}},
+    {type:'Feature',properties:{hasBearing:false,bearing:0,selectedRoute:false,routeColor:'#da291c'},geometry:{type:'Point',coordinates:[0,0.0005]}}
+  ]}});
+  map.addLayer(vehicleMarkerLayer);
+  map.addLayer(vehicleHeadingLayer);
+  await waitForRender();
+  if (map.queryRenderedFeatures({layers:['vigo-vehicle-headings']}).length !== 1) throw Error('Network vehicles need a heading only when the bearing is known');
+  if (map.queryRenderedFeatures({layers:['vigo-vehicles']}).length !== 2) throw Error('Colored discs must remain visible with and without a heading');
+  map.setBearing(90);
+  await waitForRender();
+  if (map.getLayoutProperty('vigo-vehicle-headings','icon-rotation-alignment') !== 'map') throw Error('Vehicle compass bearings must rotate with the map');
   const next = waitForRender();
   map.getSource('fixture').setData({...data,features:[{...data.features[0],geometry:{type:'LineString',coordinates:[[0,-0.001],[0,0.001]]}}]});
   await next;
@@ -35,7 +49,7 @@ window.checkMap = async () => {
   const details = document.querySelector('.maplibregl-ctrl-attrib details');
   if (!details || details.hasAttribute('onload') || details.hasAttribute('ontoggle') || window.attributionExecuted) throw Error('Unsafe attribution survived sanitization');
   map.remove();
-  return {rendered:true,sourceUpdate:true,sanitizedAttribution:true};
+  return {rendered:true,sourceUpdate:true,sanitizedAttribution:true,offlineDirections:true,networkHeadings:true,mapRotation:true};
 };
 `)
   await build({ configFile: false, root: temporary, publicDir: false, logLevel: 'warn', build: { chunkSizeWarningLimit: 1500 } })

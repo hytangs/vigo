@@ -10,6 +10,10 @@ export type ScheduledVehicle = {
   routeColor: string
   tripId: string
   directionId?: string
+  serviceDate: string
+  state: 'moving' | 'dwelling' | 'arrived'
+  currentStopId?: string
+  currentStopDepartureMinutes?: number
   nextStopId?: string
   nextStopArrivalMinutes?: number
   destinationStopId?: string
@@ -37,6 +41,7 @@ type IndexedPath = {
 
 const indexedPathCache = new WeakMap<LngLat[], IndexedPath>()
 const trustedPathCache = new WeakMap<LngLat[], boolean>()
+const validTripCache = new WeakMap<ScheduledTrip, boolean>()
 const scheduledTripIndexCache = new WeakMap<RouteMetric, { trips: ScheduledTrip[]; maximumRuntimeMinutes: number }>()
 const scheduledProjectionCache = new WeakMap<MapPreview, { key: string; vehicles: ScheduledVehicle[] }>()
 const maxTrustedShapeVehicleJumpKm = 55
@@ -98,7 +103,9 @@ function coordinateAtProgress(coordinates: LngLat[], progress: number) {
   let high = segmentLengths.length - 1
   while (low < high) {
     const middle = Math.floor((low + high) / 2)
-    if (cumulativeDistances[middle + 1] >= targetDistance) high = middle
+    // At a stop on a vertex, face the next nonzero segment. Using the
+    // incoming segment makes a dwelling vehicle point away from its next stop.
+    if (cumulativeDistances[middle + 1] > targetDistance) high = middle
     else low = middle + 1
   }
 
@@ -134,19 +141,49 @@ function stopDepartureMinutes(stop: NonNullable<RouteMetric['scheduledTrips']>[n
   return stop.departureMinutes ?? stop.arrivalMinutes ?? null
 }
 
+function hasProjectableStopTimes(trip: ScheduledTrip) {
+  const cached = validTripCache.get(trip)
+  if (cached !== undefined) return cached
+  const valid = Number.isFinite(trip.firstDepartureMinutes)
+    && Number.isFinite(trip.lastArrivalMinutes)
+    && trip.lastArrivalMinutes >= trip.firstDepartureMinutes
+    && trip.stopTimes.length >= 2
+    && trip.stopTimes.every((stop, index) => {
+      const arrival = stopArrivalMinutes(stop)
+      const departure = stopDepartureMinutes(stop)
+      const previous = trip.stopTimes[index - 1]
+      return arrival !== null && departure !== null
+        && Number.isFinite(arrival) && Number.isFinite(departure)
+        && departure >= arrival
+        && Number.isFinite(stop.progress) && stop.progress >= 0 && stop.progress <= 1
+        && (!previous || (stop.progress >= previous.progress
+          && arrival >= (stopDepartureMinutes(previous) ?? Number.POSITIVE_INFINITY)))
+    })
+  validTripCache.set(trip, valid)
+  return valid
+}
+
 function exactScheduledVehicleForTrip(
   route: RouteMetric,
   trip: NonNullable<RouteMetric['scheduledTrips']>[number],
   serviceTime: number,
+  serviceDate: string,
 ): ScheduledVehicle | null {
   const coordinates = route.coordinates
   if (!coordinates || coordinates.length < 2 || !hasTrustworthyVehiclePath(route)) return null
   if (serviceTime < trip.firstDepartureMinutes || serviceTime > trip.lastArrivalMinutes) return null
+  if (!hasProjectableStopTimes(trip)) return null
+  if (trip.patternId && trip.patternId !== (route.patternId ?? route.id)) return null
+  if (route.routeId && trip.routeId !== route.routeId) return null
+  if (trip.directionId !== undefined && route.directionId !== undefined && trip.directionId !== route.directionId) return null
 
   const stopTimes = trip.stopTimes
   let progress: number | null = null
   let nextStopId: string | undefined
   let nextStopArrivalMinutes: number | undefined
+  let currentStopId: string | undefined
+  let currentStopDepartureMinutes: number | undefined
+  let state: ScheduledVehicle['state'] = 'moving'
   const destinationStop = stopTimes.at(-1)
   const destinationStopId = destinationStop?.stopId
 
@@ -156,6 +193,9 @@ function exactScheduledVehicleForTrip(
     const departure = stopDepartureMinutes(stopTime)
     if (arrival !== null && departure !== null && serviceTime >= arrival && serviceTime <= departure) {
       progress = stopTime.progress
+      currentStopId = stopTime.stopId
+      currentStopDepartureMinutes = departure
+      state = index === stopTimes.length - 1 ? 'arrived' : 'dwelling'
       const upcomingStop = stopTimes[Math.min(index + 1, stopTimes.length - 1)]
       nextStopId = upcomingStop?.stopId
       nextStopArrivalMinutes = upcomingStop ? stopArrivalMinutes(upcomingStop) ?? undefined : undefined
@@ -185,21 +225,27 @@ function exactScheduledVehicleForTrip(
 
   return {
     id: `${route.id}:${trip.tripId}`,
-    label: `${route.shortName}-${formatScheduleClock(trip.firstDepartureMinutes)}`,
+    label: `${route.shortName}-${formatServiceTime(trip.firstDepartureMinutes)}`,
     routeFeatureId: route.id,
     routeId: route.routeId ?? route.id,
     routeShortName: route.shortName,
     routeColor: route.color,
     tripId: trip.tripId,
     directionId: trip.directionId ?? route.directionId,
+    serviceDate,
+    state,
+    currentStopId,
+    currentStopDepartureMinutes,
     nextStopId,
     nextStopArrivalMinutes,
     destinationStopId,
     coordinate: position.coordinate,
     bearing: position.bearing,
     elapsedMinutes: Math.max(0, serviceTime - trip.firstDepartureMinutes),
-    runtimeMinutes: Math.max(1, trip.lastArrivalMinutes - trip.firstDepartureMinutes),
-    progress: Math.max(0, Math.min(1, progress)),
+    runtimeMinutes: Math.max(0, trip.lastArrivalMinutes - trip.firstDepartureMinutes),
+    progress: destinationStop && destinationStop.progress > stopTimes[0].progress
+      ? Math.max(0, Math.min(1, (progress - stopTimes[0].progress) / (destinationStop.progress - stopTimes[0].progress)))
+      : 0,
     scheduleTimeMinutes: serviceTime,
   }
 }
@@ -224,7 +270,7 @@ function hasScheduleForDate(route: RouteMetric, serviceDate: string) {
 
 function projectionCacheKey(clockMinutes: number, serviceDate: string) {
   return [
-    Math.round(clockMinutes * 60),
+    clockMinutes,
     serviceDate,
   ].join(':')
 }
@@ -233,7 +279,9 @@ export function scheduledServiceEndMinutes(preview: MapPreview, serviceDate: str
   let end = 1439
   for (const route of preview.routes) {
     if (!hasScheduleForDate(route, serviceDate)) continue
-    for (const trip of route.scheduledTrips ?? []) end = Math.max(end, Math.ceil(trip.lastArrivalMinutes))
+    for (const trip of route.scheduledTrips ?? []) {
+      if (Number.isFinite(trip.lastArrivalMinutes)) end = Math.max(end, Math.ceil(trip.lastArrivalMinutes))
+    }
   }
   return end
 }
@@ -241,7 +289,12 @@ export function scheduledServiceEndMinutes(preview: MapPreview, serviceDate: str
 function scheduledTripIndex(route: RouteMetric) {
   const cached = scheduledTripIndexCache.get(route)
   if (cached) return cached
-  const sourceTrips = route.scheduledTrips ?? []
+  const sourceTrips = (route.scheduledTrips ?? []).filter((trip) => (
+    Number.isFinite(trip.firstDepartureMinutes)
+    && Number.isFinite(trip.lastArrivalMinutes)
+    && trip.firstDepartureMinutes >= 0
+    && trip.lastArrivalMinutes >= trip.firstDepartureMinutes
+  ))
   const alreadyOrdered = sourceTrips.every((trip, index) => (
     index === 0 || sourceTrips[index - 1].firstDepartureMinutes <= trip.firstDepartureMinutes
   ))
@@ -294,6 +347,7 @@ export function scheduledVehiclesAtTime(
   clockMinutes: number,
   serviceDate: string,
 ): ScheduledVehicle[] {
+  if (!Number.isFinite(clockMinutes) || clockMinutes < 0) return []
   const key = projectionCacheKey(clockMinutes, serviceDate)
   const cached = scheduledProjectionCache.get(preview)
   if (cached?.key === key) return cached.vehicles
@@ -306,7 +360,7 @@ export function scheduledVehiclesAtTime(
     // stale or compact route must wait for its dated analysis to load.
     if (!hasScheduleForDate(route, serviceDate) || !hasTrustworthyVehiclePath(route)) continue
     for (const trip of activeTripsAtTime(route, clockMinutes)) {
-      const vehicle = exactScheduledVehicleForTrip(route, trip, clockMinutes)
+      const vehicle = exactScheduledVehicleForTrip(route, trip, clockMinutes, serviceDate)
       if (vehicle) vehicles.push(vehicle)
     }
   }
@@ -324,6 +378,10 @@ export function scheduledVehicleDiagnostics(
   const datedRoutes = preview.routes.filter((route) => hasScheduleForDate(route, serviceDate))
   const missingRoutes = preview.routes.length - datedRoutes.length
   const clock = `${serviceDate} ${formatServiceTime(clockMinutes)}`
+  const activeTripCount = datedRoutes.reduce((count, route) => (
+    count + [...activeTripsAtTime(route, clockMinutes)].length
+  ), 0)
+  const unprojectedTrips = Math.max(0, activeTripCount - vehicles.length)
 
   if (!preview.routes.length) {
     return {
@@ -336,23 +394,23 @@ export function scheduledVehicleDiagnostics(
   if (!datedRoutes.length) {
     return {
       tone: 'watch',
-      title: 'Schedule details not loaded',
+      title: 'Timetable not loaded',
       detail: `Trip schedules for ${serviceDate} are not loaded in this view. Select a route to load its service for this date.`,
     }
   }
 
   if (vehicles.length) {
     return {
-      tone: missingRoutes ? 'watch' : 'good',
-      title: `${vehicles.length.toLocaleString()} scheduled vehicle${vehicles.length === 1 ? '' : 's'}`,
-      detail: `${vehicles.length.toLocaleString()} GTFS trip${vehicles.length === 1 ? '' : 's'} projected on published shapes at ${clock}.${missingRoutes ? ` ${missingRoutes} patterns still have no schedule loaded for this date.` : ''}`,
+      tone: missingRoutes || unprojectedTrips ? 'watch' : 'good',
+      title: `${vehicles.length.toLocaleString()} vehicle${vehicles.length === 1 ? '' : 's'}`,
+      detail: `${vehicles.length.toLocaleString()} estimated positions interpolated between GTFS stop times on published shapes at ${clock} (feed service time).${missingRoutes ? ` ${missingRoutes} patterns still have no schedule loaded for this date.` : ''}${unprojectedTrips ? ` ${unprojectedTrips} active trips have no usable shape or timed stop sequence.` : ''}`,
     }
   }
 
   if (missingRoutes) {
     return {
       tone: 'watch',
-      title: 'Schedule details not loaded',
+      title: 'Timetable not loaded',
       detail: `${missingRoutes} patterns have no schedule loaded for ${serviceDate}; the loaded patterns have no vehicle to display at ${formatServiceTime(clockMinutes)}.`,
     }
   }
@@ -368,14 +426,14 @@ export function scheduledVehicleDiagnostics(
   if (!datedRoutes.some((route) => !activeTripsAtTime(route, clockMinutes).next().done)) {
     return {
       tone: 'empty',
-      title: 'No scheduled trips at this time',
+      title: 'No trips now',
       detail: `No trip in the loaded ${serviceDate} timetable spans ${formatServiceTime(clockMinutes)}.`,
     }
   }
 
   return {
     tone: 'watch',
-    title: 'Scheduled trips have no vehicle path',
+    title: 'Vehicle path unavailable',
     detail: `Trips are active at ${clock}, but their published shape or timed stop positions cannot be projected.`,
   }
 }

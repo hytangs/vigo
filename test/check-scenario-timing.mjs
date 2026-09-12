@@ -10,10 +10,18 @@ function compile(relative, replacements = []) {
   for (const [from, to] of replacements) output = output.replace(`from '${from}'`, `from '${to}'`)
   return `data:text/javascript;base64,${Buffer.from(output).toString('base64')}`
 }
-const { scenarioSegmentRuntimeMinutes, scenarioEdgeGeometryForBranch } = await import(compile('../src/reach.ts', [
+const { scenarioSegmentRuntimeMinutes, scenarioEdgeGeometryForBranch, joinScenarioSegmentGeometry } = await import(compile('../src/reach.ts', [
   ['./app/geometry', compile('../src/app/geometry.ts')],
   ['./networkTruth', compile('../src/networkTruth.ts')],
 ]))
+assert.deepEqual(joinScenarioSegmentGeometry([
+  [[0, 0], [0.001, 0]],
+  [[0.001, 0], [0.002, 0]],
+  [[0.002, 0.0001], [0.003, 0.0001]],
+]), [[0, 0], [0.001, 0], [0.002, 0], [0.002, 0.0001], [0.003, 0.0001]],
+'Joining shape and road segments must retain distinct boundary coordinates and deduplicate shared stops.')
+assert.deepEqual(joinScenarioSegmentGeometry([[[0, 0], [0, 0]]]), [[0, 0], [0, 0]],
+  'Stops snapped to the same road node still need a valid two-coordinate segment.')
 const stops = [
   { id: 'A', stopId: 'A', baselineStopId: 'A', coordinate: [0, 0], editStatus: 'baseline' },
   { id: 'inserted', coordinate: [0.005, 0.01], editStatus: 'inserted' },

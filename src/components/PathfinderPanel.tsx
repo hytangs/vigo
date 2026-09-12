@@ -1,4 +1,4 @@
-import { type CSSProperties, type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react'
+import { type CSSProperties, type KeyboardEvent, useEffect, useRef } from 'react'
 import {
   AlertTriangle,
   ArrowDown,
@@ -10,7 +10,6 @@ import {
   Clock3,
   LoaderCircle,
   MapPin,
-  MapPinned,
   Navigation2,
   Plus,
   SlidersHorizontal,
@@ -50,23 +49,8 @@ import {
   routingTimeOptions,
   type RoutingDepartureWindowMinutes,
 } from '../app/uiOptions'
-import { maxRoutingPointCount, routingPinLabel, routingPointRoleLabel } from '../routingPointSequence'
+import { maxRoutingPointCount, routingPointRoleLabel } from '../routingPointSequence'
 import { ResultMetric, StatusBadge } from './UiPrimitives'
-
-export type RoutingLocationCandidate = {
-  id: string
-  name: string
-  coordinate: [number, number]
-  platformCount?: number
-}
-
-export type RoutingLocationChoice = {
-  queryIndex: number
-  query: string
-  role: string
-  routeQueries?: string[]
-  options: RoutingLocationCandidate[]
-}
 
 export type RoutingScopeStatus = 'ready' | 'building' | 'failed' | 'missing'
 
@@ -75,7 +59,6 @@ const travelModeChoices = [
   ['walk', 'Walk'],
   ['drive', 'Drive'],
 ] as const satisfies ReadonlyArray<readonly [RoutingTravelMode, string]>
-const routingModeLabels = Object.fromEntries(travelModeChoices)
 
 function routingChoiceExplanation(plan: RoutingPlan) {
   if (plan.choiceLabel === 'Fastest') {
@@ -393,10 +376,7 @@ function PathfinderRouteList({
       <div className="pathfinder-results-head">
         <span>
           <strong>Displayed journeys</strong>
-          <small>
-            Select one to inspect its path and details.
-            {earliestTransit ? ` ${earliestTransit}` : ''}
-          </small>
+          {earliestTransit ? <small>{earliestTransit}</small> : null}
         </span>
         <b>{readyPlans.length
           ? readyPlans.length > displayedPlans.length
@@ -485,8 +465,6 @@ export type SidebarPathfinderBoxProps = {
   routingChoices: RoutingPlan[]
   routingScopeStatus: RoutingScopeStatus
   routingStoreReady: boolean
-  routingStoreFeedCount: number
-  routingStoreReadyFeedCount: number
   routingTimePreference: RoutingTimePreference
   routingMode: RoutingTravelMode
   routingDepartureWindowMinutes: RoutingDepartureWindowMinutes
@@ -499,12 +477,12 @@ export type SidebarPathfinderBoxProps = {
   routingServiceCoverage: RoutingServiceCoverage | null
   routingServiceDateAvailability: RoutingServiceDateAvailability
   routingServiceDateOptions: RoutingServiceDateOption[]
-  routingResolvingLocations?: boolean
-  routingLocationError?: string
-  routingLocationChoices?: RoutingLocationChoice[]
+  routingPointError?: string
   storeBackedRouting: boolean
   scheduleTimeMinutes: number
-  onRunRoutingSearch: (query: string) => void
+  onRunRouting: () => void
+  onPickRoutingPoint: (index: number | null) => void
+  routingPickIndex: number | null
   onReorderRoutingPoints: (points: RoutingPoint[]) => void
   onOpenFeed: () => void
   onScheduleTimeChange: (minutes: number) => void
@@ -516,9 +494,6 @@ export type SidebarPathfinderBoxProps = {
   onRoutingAllowLongWalkChange: (allow: boolean) => void
   onRoutingServiceDateChange: (serviceDate: string) => void
   onSelectRoutingPlan: (id: string) => void
-  onChooseRoutingLocation: (queryIndex: number, candidate: RoutingLocationCandidate) => void
-  onDismissRoutingLocationChoices: () => void
-  onInvalidateRoutingResults: () => void
   onToggleRouting: () => void
   onClearRouting: () => void
 }
@@ -532,8 +507,6 @@ export function SidebarPathfinderBox({
   routingChoices,
   routingScopeStatus,
   routingStoreReady,
-  routingStoreFeedCount,
-  routingStoreReadyFeedCount,
   routingTimePreference,
   routingMode,
   routingDepartureWindowMinutes,
@@ -546,12 +519,12 @@ export function SidebarPathfinderBox({
   routingServiceCoverage,
   routingServiceDateAvailability,
   routingServiceDateOptions,
-  routingResolvingLocations = false,
-  routingLocationError = '',
-  routingLocationChoices = [],
+  routingPointError = '',
   storeBackedRouting,
   scheduleTimeMinutes,
-  onRunRoutingSearch,
+  onRunRouting,
+  onPickRoutingPoint,
+  routingPickIndex,
   onReorderRoutingPoints,
   onOpenFeed,
   onScheduleTimeChange,
@@ -563,26 +536,25 @@ export function SidebarPathfinderBox({
   onRoutingAllowLongWalkChange,
   onRoutingServiceDateChange,
   onSelectRoutingPlan,
-  onChooseRoutingLocation,
-  onDismissRoutingLocationChoices,
-  onInvalidateRoutingResults,
   onToggleRouting,
   onClearRouting,
 }: SidebarPathfinderBoxProps) {
-  const [originDraft, setOriginDraft] = useState('')
-  const [waypointDrafts, setWaypointDrafts] = useState<string[]>([])
-  const [destinationDraft, setDestinationDraft] = useState('')
-  const [queryExpanded, setQueryExpanded] = useState(true)
+  const points = [...(routingOrigin ? [routingOrigin] : []), ...routingWaypoints, ...(routingDestination ? [routingDestination] : [])]
+  const pointRows = points.length < 2 ? [routingOrigin, null] : points
+  const mapPointLimitReached = points.length >= maxRoutingPointCount
+  const busy = routingActivity.kind === 'loading' || routingActivity.kind === 'preparing'
+  const canRun = Boolean(routingOrigin && routingDestination) && !busy
+  const pickLabel = routingPickIndex === null || routingPickIndex >= points.length
+    ? points.length === 0 ? 'Pick origin' : points.length === 1 ? 'Pick destination' : 'Pick via point'
+    : `Repick ${routingPointRoleLabel(routingPickIndex, pointRows.length).toLowerCase()}`
 
-  useEffect(() => {
-    setOriginDraft(routingOrigin?.label ?? '')
-  }, [routingOrigin?.label])
-  useEffect(() => {
-    setWaypointDrafts(routingWaypoints.map((point) => point.label))
-  }, [routingWaypoints])
-  useEffect(() => {
-    setDestinationDraft(routingDestination?.label ?? '')
-  }, [routingDestination?.label])
+  function movePoint(index: number, offset: number) {
+    const next = [...points]
+    const target = index + offset
+    if (target < 0 || target >= next.length) return
+    ;[next[index], next[target]] = [next[target], next[index]]
+    onReorderRoutingPoints(next)
+  }
 
   const clockValue = formatScheduleClock(scheduleTimeMinutes)
   const noServiceDatePlan = routingPlan?.status === 'blocked'
@@ -600,18 +572,14 @@ export function SidebarPathfinderBox({
   const serviceCoverageLabel = routingServiceCoverage?.completeStartDate && routingServiceCoverage.completeEndDate
     ? `${routingServiceCoverage.completeStartDate} – ${routingServiceCoverage.completeEndDate}`
     : 'No complete local dates are indexed.'
-  const showRoutingActivity = !routingResolvingLocations
-    && !routingLocationError
-    && !routingLocationChoices.length
+  const showRoutingActivity = !routingPointError
     && !buildingCombinedSchedule
     && !failedCombinedSchedule
     && !missingExactSchedule
     && !showServiceDateCorrection
     && Boolean(routingOrigin && routingDestination)
     && (routingActivity.kind === 'loading' || routingActivity.kind === 'preparing')
-  const showRoutingBlock = !routingResolvingLocations
-    && !routingLocationError
-    && !routingLocationChoices.length
+  const showRoutingBlock = !routingPointError
     && !buildingCombinedSchedule
     && !failedCombinedSchedule
     && !missingExactSchedule
@@ -622,158 +590,6 @@ export function SidebarPathfinderBox({
     : routingPlan?.status === 'ready'
       ? [routingPlan]
       : []
-  const hasReadyResults = resultPlans.some((plan) => plan.status === 'ready')
-  const showCompactQuery = !queryExpanded && Boolean(
-    routingLocationChoices.length || (routingOrigin && routingDestination),
-  )
-  const timetableLabel = routingMode !== 'transit'
-    ? 'OSM streets ready'
-    : !storeBackedRouting && routingStoreFeedCount > 1
-      ? `${routingStoreReadyFeedCount}/${routingStoreFeedCount} feeds ready`
-      : 'Timetable ready'
-  const routingPointCount = (routingOrigin ? 1 : 0) + routingWaypoints.length + (routingDestination ? 1 : 0)
-  const draftPointCount = [originDraft, ...waypointDrafts, destinationDraft]
-    .filter((draft) => draft.trim())
-    .length
-  const hasRouteSession = Boolean(
-    routingLocationChoices.length
-      || routingOrigin
-      || routingWaypoints.length
-      || routingDestination
-      || routingPlan,
-  )
-  const mapPointLimitReached = routingPointCount >= maxRoutingPointCount
-  const nextMapPointLabel = routingPinLabel(routingPointCount, Math.max(2, routingPointCount + 1))
-  const nextMapPointAction = routingPointCount === 0
-    ? 'Pick origin'
-    : routingPointCount === 1
-      ? 'Add destination'
-      : 'Add via stop'
-
-  useEffect(() => {
-    if (hasReadyResults && !routingResolvingLocations && !routingLocationChoices.length) {
-      setQueryExpanded(false)
-    }
-  }, [hasReadyResults, routingLocationChoices.length, routingResolvingLocations])
-
-  useEffect(() => {
-    if (routingLocationChoices.length) setQueryExpanded(false)
-  }, [routingLocationChoices.length])
-
-  function beginDraftEdit() {
-    setQueryExpanded(true)
-    onDismissRoutingLocationChoices()
-    onInvalidateRoutingResults()
-  }
-
-  function startNewRoute() {
-    setOriginDraft('')
-    setWaypointDrafts([])
-    setDestinationDraft('')
-    setQueryExpanded(true)
-    onDismissRoutingLocationChoices()
-    onClearRouting()
-  }
-
-  function submitPathfinder(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    onDismissRoutingLocationChoices()
-    onInvalidateRoutingResults()
-    const drafts = [originDraft, ...waypointDrafts, destinationDraft]
-    const resolved = routingOrigin && routingDestination
-      ? [routingOrigin, ...routingWaypoints, routingDestination]
-      : []
-    if (
-      resolved.length === drafts.length
-      && resolved.every((point, index) => point.label === drafts[index].trim())
-    ) {
-      onReorderRoutingPoints(resolved)
-      return
-    }
-    runDraftSequence(drafts)
-  }
-
-  function swapEndpoints() {
-    beginDraftEdit()
-    const drafts = [originDraft, ...waypointDrafts, destinationDraft]
-    const nextDrafts = [...drafts].reverse()
-    const resolved = routingOrigin && routingDestination
-      ? [routingOrigin, ...routingWaypoints, routingDestination]
-      : []
-    setDraftSequence(nextDrafts)
-    if (
-      resolved.length === drafts.length
-      && resolved.every((point, index) => point.label === drafts[index].trim())
-    ) {
-      onReorderRoutingPoints([...resolved].reverse())
-      return
-    }
-    runDraftSequence(nextDrafts)
-  }
-
-  function runDraftSequence(drafts: string[]) {
-    const labels = drafts.map((draft) => draft.trim())
-    if (labels.length < 2 || labels.some((label) => !label)) return
-    onRunRoutingSearch(`${routingMode} from ${labels.join(' -> ')}`)
-  }
-
-  function setDraftSequence(drafts: string[]) {
-    setOriginDraft(drafts[0] ?? '')
-    setWaypointDrafts(drafts.slice(1, -1))
-    setDestinationDraft(drafts.at(-1) ?? '')
-  }
-
-  function moveDestination(index: number, offset: -1 | 1) {
-    const drafts = [originDraft, ...waypointDrafts, destinationDraft]
-    const resolved = routingOrigin && routingDestination
-      ? [routingOrigin, ...routingWaypoints, routingDestination]
-      : []
-    const nextIndex = index + offset
-    const destinations = drafts.slice(1)
-    if (nextIndex < 0 || nextIndex >= destinations.length) return
-    beginDraftEdit()
-    ;[destinations[index], destinations[nextIndex]] = [destinations[nextIndex], destinations[index]]
-    const nextDrafts = [drafts[0], ...destinations]
-    setDraftSequence(nextDrafts)
-    if (
-      resolved.length === drafts.length
-      && resolved.every((point, pointIndex) => point.label === drafts[pointIndex].trim())
-    ) {
-      const nextPoints = [resolved[0], ...resolved.slice(1)]
-      ;[nextPoints[index + 1], nextPoints[nextIndex + 1]] = [nextPoints[nextIndex + 1], nextPoints[index + 1]]
-      onReorderRoutingPoints(nextPoints)
-      return
-    }
-    runDraftSequence(nextDrafts)
-  }
-
-  function removeDestination(index: number) {
-    const drafts = [originDraft, ...waypointDrafts, destinationDraft]
-    const destinations = drafts.slice(1)
-    if (destinations.length <= 1) return
-    beginDraftEdit()
-    const resolved = routingOrigin && routingDestination
-      ? [routingOrigin, ...routingWaypoints, routingDestination]
-      : []
-    destinations.splice(index, 1)
-    const nextDrafts = [drafts[0], ...destinations]
-    setDraftSequence(nextDrafts)
-    if (
-      resolved.length === drafts.length
-      && resolved.every((point, pointIndex) => point.label === drafts[pointIndex].trim())
-    ) {
-      onReorderRoutingPoints(resolved.filter((_, pointIndex) => pointIndex !== index + 1))
-      return
-    }
-    runDraftSequence(nextDrafts)
-  }
-
-  function addWaypoint() {
-    if (waypointDrafts.length >= 6) return
-    beginDraftEdit()
-    setWaypointDrafts((current) => [...current, ''])
-  }
-
   function changeTime(value: string) {
     const match = /^(\d{1,2}):(\d{2})$/.exec(value)
     if (!match) return
@@ -785,182 +601,53 @@ export function SidebarPathfinderBox({
 
   return (
     <section className="sidebar-section sidebox sidebox-pathfinder pathfinder-query" aria-label="Routing controls">
-      {showCompactQuery ? (
-        <section className="pathfinder-current-query" aria-label="Current route query">
-          <span>
-            <small>{routingLocationChoices.length ? 'Route query' : 'Current route'}</small>
-            <strong>{routingLocationChoices.length ? routingLocationChoices[0]?.routeQueries?.[0] ?? originDraft : routingOrigin?.label ?? originDraft} <b aria-hidden="true">→</b> {routingLocationChoices.length ? routingLocationChoices[0]?.routeQueries?.at(-1) ?? destinationDraft : routingDestination?.label ?? destinationDraft}</strong>
-            <em>{formatScheduleClock(scheduleTimeMinutes)} · {routingModeLabels[routingMode]} · {routingMaxWalkKm.toFixed(1)} km access</em>
-          </span>
-          <span className="pathfinder-current-query-actions">
-            <button type="button" className="pathfinder-edit-route" onClick={() => {
-              if (routingLocationChoices.length) onDismissRoutingLocationChoices()
-              setQueryExpanded(true)
-            }}>Edit route</button>
-            <button type="button" className="pathfinder-new-route" onClick={startNewRoute}>
-              <Plus size={14} aria-hidden="true" />
-              <span>New route</span>
-            </button>
-          </span>
-        </section>
-      ) : (
-      <form className="pathfinder-composer" onSubmit={submitPathfinder} aria-busy={routingResolvingLocations}>
+      <form className="pathfinder-composer" onSubmit={(event) => { event.preventDefault(); if (canRun) onRunRouting() }}>
         <div className="pathfinder-composer-heading">
-          <span>
-            <strong>{draftPointCount ? 'Route points' : 'Start a new route'}</strong>
-            <small>{draftPointCount ? 'Add a stop before the destination when needed.' : 'Choose a starting point and destination.'}</small>
-          </span>
-          {hasRouteSession ? (
-            <button type="button" className="pathfinder-new-route" onClick={startNewRoute}>
-              <Plus size={14} aria-hidden="true" />
-              <span>New route</span>
-            </button>
-          ) : null}
+          <span><strong>Route points</strong><small>{points.length}/{maxRoutingPointCount}</small></span>
+          <button type="button" className="pathfinder-new-route" onClick={onClearRouting} disabled={!points.length}>
+            <Plus size={14} aria-hidden="true" /><span>New route</span>
+          </button>
         </div>
-
         <div className="pathfinder-stage pathfinder-stage-mode">
           <div className="pathfinder-mode-selector" role="group" aria-label="Travel mode">
             {travelModeChoices.map(([mode, label]) => (
-              <button
-                key={mode}
-                type="button"
-                className={classNames(routingMode === mode && 'is-active')}
-                onClick={() => onRoutingModeChange(mode)}
-                aria-pressed={routingMode === mode}
-              >
-                {label}
-              </button>
+              <button key={mode} type="button" className={classNames(routingMode === mode && 'is-active')} onClick={() => onRoutingModeChange(mode)} aria-pressed={routingMode === mode}>{label}</button>
             ))}
           </div>
         </div>
-
         <div className="pathfinder-stage pathfinder-stage-points">
-          {originDraft.trim() || destinationDraft.trim() ? <div className="pathfinder-stage-actions">
-            <button
-              type="button"
-              className="pathfinder-swap"
-              onClick={swapEndpoints}
-              aria-label="Reverse route sequence"
-            >
-              <ArrowUpDown size={14} aria-hidden="true" />
-              <span>Reverse route</span>
+          <div className="pathfinder-stage-actions">
+            <button type="button" className="pathfinder-swap" onClick={() => onReorderRoutingPoints([...points].reverse())} disabled={points.length < 2} aria-label="Reverse route sequence">
+              <ArrowUpDown size={14} aria-hidden="true" /><span>Reverse</span>
             </button>
-          </div> : null}
-
+          </div>
           <div className="pathfinder-location-stack">
-            <label className="pathfinder-location-field">
-              <span className="pathfinder-location-mark is-origin" aria-hidden="true" />
-              <span className="pathfinder-location-copy">
-                <small>From</small>
-                <input
-                  value={originDraft}
-                  onChange={(event) => {
-                    beginDraftEdit()
-                    setOriginDraft(event.currentTarget.value)
-                  }}
-                  placeholder="Starting point"
-                  aria-label="Route origin"
-                  autoComplete="off"
-                />
-              </span>
-            </label>
-            {[...waypointDrafts, destinationDraft].map((draft, index, destinations) => {
-              const finalDestination = index === destinations.length - 1
+            {pointRows.map((point, index) => {
+              const role = index === 0 ? 'From' : index === pointRows.length - 1 ? 'To' : `Via ${index}`
+              const selected = routingEnabled && (routingPickIndex === index || routingPickIndex === null && index === points.length && points.length < 2)
               return (
-                <div className="pathfinder-location-field" key={`destination-${index}`}>
-                  <span className={classNames('pathfinder-location-mark', finalDestination ? 'is-destination' : 'is-waypoint')} aria-hidden="true" />
-                  <span className="pathfinder-location-copy">
-                    <small>{finalDestination ? 'To' : `Stop ${index + 1}`}</small>
-                    <input
-                      value={draft}
-                      onChange={(event) => {
-                        beginDraftEdit()
-                        const nextValue = event.currentTarget.value
-                        if (finalDestination) {
-                          setDestinationDraft(nextValue)
-                        } else {
-                          setWaypointDrafts((current) => current.map((value, draftIndex) => (
-                            draftIndex === index ? nextValue : value
-                          )))
-                        }
-                      }}
-                      placeholder={finalDestination ? 'Destination' : 'Intermediate stop'}
-                      aria-label={finalDestination ? 'Route destination' : `Route stop ${index + 1}`}
-                      autoComplete="off"
-                    />
-                  </span>
-                  <span className="pathfinder-location-actions">
-                    <button
-                      type="button"
-                      onClick={() => moveDestination(index, -1)}
-                      disabled={index === 0}
-                      aria-label={`Move ${finalDestination ? 'destination' : `stop ${index + 1}`} earlier`}
-                    >
-                      <ArrowUp size={12} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => moveDestination(index, 1)}
-                      disabled={index === destinations.length - 1}
-                      aria-label={`Move ${finalDestination ? 'destination' : `stop ${index + 1}`} later`}
-                    >
-                      <ArrowDown size={12} />
-                    </button>
-                    {destinations.length > 1 ? (
-                      <button
-                        type="button"
-                        onClick={() => removeDestination(index)}
-                        aria-label={`Remove ${finalDestination ? 'destination' : `stop ${index + 1}`}`}
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    ) : null}
-                  </span>
+                <div className={classNames('pathfinder-location-field', selected && 'is-picking')} key={index}>
+                  <span className={classNames('pathfinder-location-mark', index === 0 ? 'is-origin' : index === pointRows.length - 1 ? 'is-destination' : 'is-waypoint')} aria-hidden="true" />
+                  <button type="button" className="pathfinder-coordinate-point" aria-label={`${point ? 'Repick' : 'Pick'} ${role.toLowerCase()} on map`} aria-pressed={selected} onClick={() => onPickRoutingPoint(index)} disabled={index > points.length}>
+                    <small>{role}</small>
+                    <strong>{point ? `${point.coordinate[1].toFixed(5)}, ${point.coordinate[0].toFixed(5)}` : 'Pick on map'}</strong>
+                  </button>
+                  {point ? <span className="pathfinder-location-actions">
+                    <button type="button" onClick={() => movePoint(index, -1)} disabled={index === 0} aria-label={`Move ${role.toLowerCase()} earlier`}><ArrowUp size={13} /></button>
+                    <button type="button" onClick={() => movePoint(index, 1)} disabled={index === points.length - 1} aria-label={`Move ${role.toLowerCase()} later`}><ArrowDown size={13} /></button>
+                    <button type="button" onClick={() => onReorderRoutingPoints(points.filter((_, current) => current !== index))} aria-label={`Remove ${role.toLowerCase()}`}><Trash2 size={13} /></button>
+                  </span> : <MapPin size={14} aria-hidden="true" />}
                 </div>
               )
             })}
           </div>
-
-          <div className="pathfinder-location-footer">
-            <div className="pathfinder-stop-controls" role="group" aria-label="Add route points">
-              <button type="button" className="pathfinder-add-stop" onClick={addWaypoint} disabled={waypointDrafts.length >= 6}>
-                <Plus size={15} aria-hidden="true" />
-                <span>Add stop</span>
-              </button>
-
-              <button
-                type="button"
-                className={classNames('pathfinder-map-pick', routingEnabled && 'is-active')}
-                onClick={onToggleRouting}
-                aria-pressed={routingEnabled}
-                aria-label={routingEnabled ? 'Finish picking route points on map' : 'Pick route points on map'}
-                title={mapPointLimitReached
-                  ? `Routes support up to ${maxRoutingPointCount} ordered points.`
-                  : routingEnabled
-                    ? `Click the map to ${nextMapPointAction.toLowerCase()} (${nextMapPointLabel}). Select Done picking when finished.`
-                    : 'Select ordered route points directly on the map.'}
-                disabled={mapPointLimitReached && !routingEnabled}
-              >
-                <MapPinned size={15} aria-hidden="true" />
-                <span>{routingEnabled ? 'Done picking' : 'Pick on map'}</span>
-              </button>
-            </div>
-            <div className="pathfinder-composer-tools" aria-label="Route readiness">
-              {routingStoreReady ? (
-                <span className="pathfinder-ready-chip" title={routingMode === 'transit' ? 'This route uses the stored timetable for the selected date.' : 'This route uses the sealed directed OSM street snapshot.'}>
-                  <CheckCircle2 size={13} aria-hidden="true" />
-                  {timetableLabel}
-                </span>
-              ) : null}
-            </div>
+          <div className="pathfinder-stop-controls" role="group" aria-label="Add route points">
+            <button type="button" className="pathfinder-add-stop" onClick={() => onPickRoutingPoint(null)} disabled={mapPointLimitReached || routingEnabled}>
+              <Plus size={15} aria-hidden="true" /><span>Add point</span>
+            </button>
+            {routingEnabled ? <button type="button" className="pathfinder-map-pick is-active" onClick={onToggleRouting}><CheckCircle2 size={15} aria-hidden="true" /><span>Done picking</span></button> : null}
           </div>
-          <p className="pathfinder-points-hint" role={routingEnabled ? 'status' : undefined} aria-live={routingEnabled ? 'polite' : undefined}>
-            {routingEnabled
-              ? mapPointLimitReached
-                ? `You have selected the maximum of ${maxRoutingPointCount} route points.`
-                : <>Next map point: <strong>{nextMapPointAction.toLowerCase()}</strong> <span aria-hidden="true">({nextMapPointLabel})</span>.</>
-              : <>Add a stop between the start and destination, or pick the ordered points directly on the map.</>}
-          </p>
+          {routingEnabled ? <p className="pathfinder-points-hint" role="status">{pickLabel}</p> : null}
         </div>
 
         <div className="pathfinder-stage pathfinder-stage-time">
@@ -1002,64 +689,16 @@ export function SidebarPathfinderBox({
         </div>
 
         <div className="pathfinder-stage pathfinder-stage-route">
-          <button
-            type="submit"
-            className="pathfinder-directions-button"
-            disabled={[originDraft, ...waypointDrafts, destinationDraft].some((draft) => !draft.trim()) || routingResolvingLocations}
-          >
-            {routingResolvingLocations ? <LoaderCircle className="is-spinning" size={16} aria-hidden="true" /> : <Navigation2 size={16} aria-hidden="true" />}
-            <span>{routingResolvingLocations ? 'Finding places…' : 'Directions'}</span>
+          <button type="submit" className="pathfinder-directions-button" disabled={!canRun}>
+            {busy ? <LoaderCircle className="is-spinning" size={16} aria-hidden="true" /> : <Navigation2 size={16} aria-hidden="true" />}
+            <span>{busy ? 'Routing…' : routingPlan ? 'Rerun route' : 'Run route'}</span>
           </button>
         </div>
       </form>
-      )}
-
-      {routingLocationChoices.length ? (
-        <section className="pathfinder-location-resolution" aria-label="Confirm route places">
-          <header>
-            <span>
-              <strong>Confirm places</strong>
-              <small>Choose the intended stop before VIGO computes the route.</small>
-            </span>
-            <button type="button" onClick={() => {
-              onDismissRoutingLocationChoices()
-              setQueryExpanded(true)
-            }} aria-label="Cancel place confirmation">
-              <X size={14} aria-hidden="true" />
-            </button>
-          </header>
-          {routingLocationChoices.map((choice) => (
-            <fieldset key={`${choice.queryIndex}-${choice.query}`}>
-              <legend><b>{choice.role}</b><span>“{choice.query}”</span></legend>
-              <div className="pathfinder-choice-group" role="radiogroup" aria-label={`Matches for ${choice.role} ${choice.query}`}>
-                {choice.options.map((candidate) => (
-                  <button
-                    key={candidate.id}
-                    type="button"
-                    role="radio"
-                    aria-checked="false"
-                    onClick={() => onChooseRoutingLocation(choice.queryIndex, candidate)}
-                  >
-                    <MapPin size={14} aria-hidden="true" />
-                    <span><strong>{candidate.name}</strong><small>{candidate.platformCount ? `${candidate.platformCount} platforms` : candidate.id}</small></span>
-                    <ChevronRight size={14} aria-hidden="true" />
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-          ))}
-        </section>
-      ) : null}
-
-      {routingResolvingLocations ? (
-        <div className="pathfinder-notice is-loading" role="status" aria-live="polite">
-          <LoaderCircle className="is-spinning" size={16} />
-          <span><strong>Finding route points</strong><small>Matching the ordered sequence against this City.</small></span>
-        </div>
-      ) : routingLocationError ? (
+      {routingPointError ? (
         <div className="pathfinder-notice is-error" role="alert">
           <AlertTriangle size={16} />
-          <span><strong>Place not found</strong><small>{routingLocationError}</small></span>
+          <span><strong>Check route points</strong><small>{routingPointError}</small></span>
         </div>
       ) : failedCombinedSchedule ? (
         <div className="pathfinder-notice is-error" role="alert">
@@ -1150,14 +789,12 @@ export function SidebarPathfinderBox({
         </div>
       ) : null}
 
-      {!routingResolvingLocations ? (
-        <PathfinderRouteList
+      <PathfinderRouteList
           plans={resultPlans}
           selectedPlanId={routingPlan?.id}
           alternativesLoading={routingAlternativesLoading}
           onSelect={onSelectRoutingPlan}
-        />
-      ) : null}
+      />
 
       {routingMode === 'transit' ? <details className="pathfinder-options">
         <summary>
@@ -1231,13 +868,7 @@ export function SidebarPathfinderBox({
             </small>
           </div>
         </div>
-      </details> : (
-        <p className="pathfinder-street-note">
-          {routingMode === 'drive'
-            ? 'Fastest path on directed OSM roads. One-way and access rules apply; the route uses free flow unless a fresh traffic snapshot is supplied through the routing API.'
-            : 'Shortest exact path on the OSM pedestrian graph.'}
-        </p>
-      )}
+      </details> : null}
     </section>
   )
 }

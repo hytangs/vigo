@@ -38,10 +38,10 @@ export function ServiceStateControl({
     ? `Stale · ${Math.round(frame.freshness.ageSeconds ?? 0)}s`
     : frame.fetchedAt
       ? `Updated ${new Date(frame.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
-      : 'Waiting for Vehicle Positions'
+      : 'Waiting for positions'
 
   return (
-    <div className={classNames('service-state-panel', mode === 'live' ? 'is-live' : 'is-schedule', playbackRunning && 'is-playing')}>
+    <div aria-label={mode === 'schedule' ? 'Schedule playback: estimated positions from GTFS stop times' : 'Live vehicle positions'} className={classNames('service-state-panel', mode === 'live' ? 'is-live' : 'is-schedule', playbackRunning && 'is-playing')}>
       <div className="service-mode-switch" role="group" aria-label="Vehicle source">
         {(['live', 'schedule'] as const).map((option) => (
           <button
@@ -58,8 +58,8 @@ export function ServiceStateControl({
       <div className={classNames('service-state-readout', `tone-${diagnostics.tone}`)} title={diagnostics.detail} aria-live="polite">
         {mode === 'live' ? <Radio size={15} /> : <Clock3 size={15} />}
         <span>
-          <strong>{mode === 'live' ? `Live · ${formatNumber(vehicleCount)} vehicles` : `Schedule · ${formatServiceTime(scheduleTimeMinutes)}`}</strong>
-          <small>{diagnostics.title}</small>
+          <strong>{mode === 'live' ? `Live · ${formatNumber(vehicleCount)} vehicles` : <><span className="service-estimate-label">Estimated</span><time>{formatServiceTime(scheduleTimeMinutes)}</time></>}</strong>
+          {mode === 'schedule' || diagnostics.tone !== 'good' ? <small>{diagnostics.title}</small> : null}
         </span>
       </div>
       {mode === 'schedule' ? (

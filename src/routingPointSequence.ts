@@ -2,6 +2,15 @@ import type { RoutingPoint } from './routingModel'
 
 export const maxRoutingPointCount = 8
 
+export function parseRoutingCoordinate(text: string): RoutingPoint | null {
+  const match = /^\s*([+-]?\d+(?:\.\d+)?)\s*,\s*([+-]?\d+(?:\.\d+)?)\s*$/.exec(text)
+  if (!match) return null
+  const latitude = Number(match[1])
+  const longitude = Number(match[2])
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null
+  return { coordinate: [longitude, latitude], label: `${latitude}, ${longitude}`, source: 'map' }
+}
+
 export function routingPointRoleLabel(index: number, total: number) {
   if (index <= 0) return 'Starting point'
   if (index >= total - 1) return 'Destination'

@@ -6,17 +6,11 @@ const workerInstance = crypto.randomUUID()
 const workerStartedAt = Date.now()
 const operationCounts = {}
 let gtfsModulePromise
-let stopSearchModulePromise
 let osmModulePromise
 
 function loadGtfsModule() {
   gtfsModulePromise ??= import('./national-gtfs-store.mjs')
   return gtfsModulePromise
-}
-
-function loadStopSearchModule() {
-  stopSearchModulePromise ??= import('./national-stop-search.mjs')
-  return stopSearchModulePromise
 }
 
 function loadOsmModule() {
@@ -424,22 +418,6 @@ parentPort.on('message', async (message) => {
         derivedArtifacts,
         nativeCoordinateAccess: routing.nativeCoordinateAccess ?? null,
       }
-    } else if (operation === 'search') {
-      const { searchNationalGtfsStops } = await loadStopSearchModule()
-      result = searchNationalGtfsStops(storePath, request.query, request.limit)
-    } else if (operation === 'search-pair' || operation === 'search-many') {
-      const minimumQueryCount = operation === 'search-pair' ? 2 : 3
-      const maximumQueryCount = operation === 'search-pair' ? 2 : 8
-      if (
-        !Array.isArray(request.queries)
-        || request.queries.length < minimumQueryCount
-        || request.queries.length > maximumQueryCount
-        || request.queries.some((query) => typeof query !== 'string')
-      ) {
-        throw new Error(`National stop search ${operation} requires ${minimumQueryCount}-${maximumQueryCount} strings.`)
-      }
-      const { searchNationalGtfsStops } = await loadStopSearchModule()
-      result = request.queries.map((query) => searchNationalGtfsStops(storePath, query, request.limit))
     } else if (operation === 'window') {
       const { routeNationalGtfsDepartureWindow } = await loadGtfsModule()
       const routed = routeNationalGtfsDepartureWindow(storePath, request)
@@ -604,11 +582,18 @@ parentPort.on('message', async (message) => {
         // throwing away reliable shape evidence merely because the local
         // drivable graph is incomplete around an existing stop.
         if (publishedShapeSegmentIndexes.has(index) && appendShapeSegment(index, 'published_shape')) continue
+        const previousRoadSegment = segments.at(-1)?.source === 'osm_drive'
+          ? segments.at(-1)
+          : null
         const plan = routeNationalStreetStore(streetStorePath, {
           mode: 'drive',
-          origin: points[index],
+          origin: previousRoadSegment
+            ? { ...points[index], coordinate: previousRoadSegment.coordinates.at(-1) }
+            : points[index],
           destination: points[index + 1],
           maxStreetKm: request.maxStreetKm,
+          roadGeometryOnly: true,
+          originAtRoadNode: Boolean(previousRoadSegment),
         })
         if (plan?.status !== 'ready') {
           if (appendShapeSegment(index)) continue
@@ -625,10 +610,15 @@ parentPort.on('message', async (message) => {
           break
         }
         const leg = plan.legs?.find((candidate) => candidate.travelMode === 'drive') ?? plan.legs?.[0]
-        const coordinates = Array.isArray(leg?.coordinates) ? leg.coordinates : []
+        const roadCoordinates = Array.isArray(leg?.coordinates) ? leg.coordinates : []
+        const coordinates = roadCoordinates.length === 1
+          ? [roadCoordinates[0], roadCoordinates[0]]
+          : roadCoordinates
         const distanceKm = Number(leg?.distanceKm ?? plan.distanceKm)
         const durationMinutes = Number(leg?.durationMinutes ?? plan.durationMinutes)
-        const originSnapDistanceM = Number(plan.diagnostics?.originSnapDistanceM ?? 0)
+        const originSnapDistanceM = previousRoadSegment
+          ? snapDistancesM[index]
+          : Number(plan.diagnostics?.originSnapDistanceM ?? 0)
         const destinationSnapDistanceM = Number(plan.diagnostics?.destinationSnapDistanceM ?? 0)
         if (coordinates.length < 2 || !Number.isFinite(distanceKm) || !Number.isFinite(durationMinutes)) {
           if (appendShapeSegment(index)) continue
@@ -644,11 +634,8 @@ parentPort.on('message', async (message) => {
           }
           break
         }
-        const internalCoordinates = coordinates.length > 2 ? coordinates.slice(1, -1) : []
-        if (internalCoordinates.length) {
-          snappedCoordinates[index] = internalCoordinates[0]
-          snappedCoordinates[index + 1] = internalCoordinates.at(-1)
-        }
+        snappedCoordinates[index] = coordinates[0]
+        snappedCoordinates[index + 1] = coordinates.at(-1)
         snapDistancesM[index] = originSnapDistanceM
         snapDistancesM[index + 1] = destinationSnapDistanceM
         segments.push({

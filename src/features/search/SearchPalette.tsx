@@ -158,7 +158,10 @@ export function SearchPalette({
               event.preventDefault()
               const activeResult = open ? results[activeIndex] : undefined
               if (activeResult) activate(activeResult)
-              else onSubmit()
+              else {
+                onSubmit()
+                setOpen(false)
+              }
             } else if (event.key === 'Escape') {
               event.preventDefault()
               setOpen(false)
