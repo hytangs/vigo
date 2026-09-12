@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   buildRoutingStoreFromSchedules,
+  disposeNationalGtfsStore,
   prepareNationalGtfsRoutingContext,
   routeNationalGtfsStore,
 } from '../src/server/national-gtfs-store.mjs'
@@ -120,5 +121,6 @@ try {
     activeKernelRoute: activeKernelRides.map((leg) => leg.routeShortName),
   }, null, 2))
 } finally {
+  disposeNationalGtfsStore(storePath)
   await fs.rm(folder, { recursive: true, force: true })
 }

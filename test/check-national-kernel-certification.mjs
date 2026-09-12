@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import JSZip from 'jszip'
@@ -20,8 +19,9 @@ import {
   prepareNationalOsmNativeStore,
 } from '../src/server/national-osm-store.mjs'
 import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
+import { processFixtureDirectory } from './helpers/fixture-process.mjs'
 
-const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-kernel-certification-'))
+const folder = await processFixtureDirectory(import.meta.url, 'vigo-kernel-certification-')
 const gtfsPath = path.join(folder, 'three-ride-suffix.zip')
 const routingStorePath = path.join(folder, 'three-ride-suffix.sqlite')
 const streetStorePath = path.join(folder, 'three-ride-suffix-street.sqlite')
@@ -486,5 +486,4 @@ try {
 } finally {
   disposeNationalGtfsStore(routingStorePath)
   disposeNationalOsmStore(streetStorePath)
-  await fs.rm(folder, { recursive: true, force: true })
 }

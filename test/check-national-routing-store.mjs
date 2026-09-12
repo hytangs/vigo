@@ -2,7 +2,6 @@ import { matrixItineraryReference } from './helpers/matrix-itinerary-reference.m
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import JSZip from 'jszip'
@@ -25,6 +24,8 @@ import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.m
 import { disposeNationalStopSearchStore, searchNationalGtfsStops } from '../src/server/national-stop-search.mjs'
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 import { finalizeCurrentStreetFixture } from './helpers/street-fixture.mjs'
+import { processFixtureDirectory } from './helpers/fixture-process.mjs'
+import { disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
 
 async function rebuildFixtureRoutingDerivedArtifacts(storePath) {
   const database = new DatabaseSync(storePath)
@@ -155,7 +156,7 @@ assert.deepEqual(
   'A zero-length route line must retain the two GeoJSON positions.',
 )
 
-const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-national-store-'))
+const folder = await processFixtureDirectory(import.meta.url, 'vigo-national-store-')
 const zipPath = path.join(folder, 'fixture.zip')
 const storePath = path.join(folder, 'fixture.sqlite')
 const stopSearchStorePath = path.join(folder, 'fixture-stop-search.sqlite')
@@ -3488,7 +3489,15 @@ try {
   const lockedStoreA = path.join(lockedSourceA, 'source.sqlite')
   const lockedStoreB = path.join(lockedSourceB, 'source.sqlite')
   await Promise.all([fs.copyFile(rawStoreAPath, lockedStoreA), fs.copyFile(rawStoreBPath, lockedStoreB)])
-  await Promise.all([fs.chmod(lockedSourceA, 0o555), fs.chmod(lockedSourceB, 0o555)])
+  // Simulate a deletion denial without relying on POSIX permissions, which do
+  // not make a directory read-only on Windows or when tests run as root.
+  const remove = fs.rm
+  fs.rm = async (target, options) => {
+    if (target === lockedStoreA || target === lockedStoreB) {
+      throw Object.assign(new Error('Fixture source deletion denied'), { code: 'EACCES' })
+    }
+    return remove(target, options)
+  }
   let warningMerge
   try {
     warningMerge = await mergeNationalGtfsStores({
@@ -3497,7 +3506,7 @@ try {
       removeSourcesAfterMerge: true,
     })
   } finally {
-    await Promise.all([fs.chmod(lockedSourceA, 0o755), fs.chmod(lockedSourceB, 0o755)])
+    fs.rm = remove
   }
   assert.equal(warningMerge.cleanupWarnings.length, 2)
   await fs.access(warningMergePath)
@@ -3514,5 +3523,8 @@ try {
 
   console.log(`National routing-store fixture passed (${result.buildSeconds}s build / ${plan.diagnostics.searchStats.queryMs}ms depart end-to-end / ${denseAccessArriveBy.diagnostics.searchStats.arriveByNativeEngineQueryMs}ms arrive-by timetable / ${firstRepairMs.toFixed(1)}ms repair / ${secondRepairMs.toFixed(1)}ms warm read).`)
 } finally {
-  await fs.rm(folder, { recursive: true, force: true })
+  disposeAllNationalGtfsStores()
+  disposeNationalStopSearchStore(stopSearchStorePath)
+  for (const streetPath of [parentModeAccessStreetPath, directWalkStreetPath, denseAccessStreetPath,
+    completeEgressStreetPath, fallbackStreetPath]) disposeNationalOsmStore(streetPath)
 }

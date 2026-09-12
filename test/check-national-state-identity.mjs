@@ -1,12 +1,12 @@
 import { matrixItineraryReference } from './helpers/matrix-itinerary-reference.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import JSZip from 'jszip'
 import { DatabaseSync } from 'node:sqlite'
 import {
   buildNationalGtfsStore,
+  disposeAllNationalGtfsStores,
   prepareNationalGtfsRoutingContext,
   routeNationalGtfsMatrix,
   routeNationalGtfsStore,
@@ -19,8 +19,9 @@ import {
 } from '../src/server/national-osm-store.mjs'
 import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
 import { finalizeCurrentStreetFixture } from './helpers/street-fixture.mjs'
+import { processFixtureDirectory } from './helpers/fixture-process.mjs'
 
-const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-state-identity-'))
+const folder = await processFixtureDirectory(import.meta.url, 'vigo-state-identity-')
 const zipPath = path.join(folder, 'state-identity.zip')
 const storePath = path.join(folder, 'state-identity.sqlite')
 const matrixZipPath = path.join(folder, 'matrix-egress.zip')
@@ -490,5 +491,7 @@ try {
 
   console.log('National routing state-identity check passed.')
 } finally {
-  await fs.rm(folder, { recursive: true, force: true })
+  disposeAllNationalGtfsStores()
+  disposeNationalOsmStore(directWalkStreetPath)
+  disposeNationalOsmStore(streetIdentityPath)
 }

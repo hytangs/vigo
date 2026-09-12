@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { DatabaseSync } from 'node:sqlite'
@@ -21,8 +20,9 @@ import {
   streetPathBetween,
 } from '../src/server/national-osm-store.mjs'
 import { buildNativeStreetCchIndex, disposeNativeRoutingKernel } from '../src/server/native-routing-kernel.mjs'
+import { processFixtureDirectory } from './helpers/fixture-process.mjs'
 
-const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-stop-access-index-'))
+const folder = await processFixtureDirectory(import.meta.url, 'vigo-stop-access-index-')
 const schedulePath = path.join(folder, 'schedule.json')
 const storePath = path.join(folder, 'routing.sqlite')
 const streetPath = path.join(folder, 'street.sqlite')
@@ -384,5 +384,7 @@ try {
     streetStrategy: streetPreparation.strategy,
   }, null, 2))
 } finally {
-  await fs.rm(folder, { recursive: true, force: true })
+  disposeNationalGtfsStore(storePath)
+  disposeNationalOsmStore(streetPath)
+  disposeNationalOsmStore(usefulPrimaryStreetPath)
 }

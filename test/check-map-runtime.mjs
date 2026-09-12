@@ -56,7 +56,10 @@ app.whenReady().then(async()=>{
  } catch(error) {console.error(error);app.exit(1);}
 });`)
   const ciFlags = process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : []
-  const graphicsFlags = process.platform === 'darwin' ? [] : ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']
+  // Apple Silicon runners expose Metal. Intel macOS, Windows and Linux CI
+  // runners use the bundled CPU renderer for this trusted, offline fixture.
+  const nativeGraphics = process.platform === 'darwin' && process.arch === 'arm64'
+  const graphicsFlags = nativeGraphics ? [] : ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']
   const child = spawn(electronPath, [...ciFlags, ...graphicsFlags, path.join(temporary, 'main.cjs')], {
     stdio: 'inherit', env: { ...process.env, ELECTRON_RUN_AS_NODE: '' },
   })
