@@ -22,12 +22,11 @@ import {
   validateCityDirectory,
 } from '../city.mjs'
 import {
-  buildNationalGtfsStore,
+  buildNationalGtfsCityStore,
   compactNationalGtfsRuntimeStore,
   disposeNationalGtfsStore,
   ensureNationalGtfsOsmStopTransfers,
   inspectNationalStaticTopologySidecar,
-  mergeNationalGtfsStores,
   nationalGtfsRuntimeView,
   prepareNationalGtfsRoutingContext,
   prepareNationalGtfsNativeCoordinateAccess,
@@ -404,7 +403,7 @@ function resolveRuntimePaths(args: CliArguments) {
     cityPath,
     city: {
       name: manifest.name ?? path.basename(cityPath),
-      revisionId: manifest.revisionId ?? manifest.createdAt ?? null,
+      revisionId: manifest.revisionId ?? null,
     },
   }
 }
@@ -1505,13 +1504,11 @@ async function runCityCompiler(args: CliArguments) {
   }
   const stagingRouting = path.join(stagingDirectory, 'routing')
   const stagingOsm = path.join(stagingDirectory, 'osm')
-  const componentDirectory = path.join(stagingDirectory, 'components')
   fs.mkdirSync(stagingRouting, { recursive: true })
   fs.mkdirSync(stagingOsm, { recursive: true })
 
   const started = performance.now()
   let gtfsBuildMs = 0
-  let gtfsMergeMs = 0
   let osmBuildMs = 0
   let streetCchBuildMs = 0
   let stopTransferBuildMs = 0
@@ -1521,39 +1518,17 @@ async function runCityCompiler(args: CliArguments) {
   let osmCompiler: ReturnType<typeof startOsmCompiler> | null = null
   let osmDriveCompiler: ReturnType<typeof startOsmDriveCompiler> | null = null
   let osmDrivePreparation: Record<string, unknown> | null = null
-  const componentResults: Array<{ scope: string; path: string; result: Record<string, unknown> }> = []
   try {
     const stagedStreetStore = path.join(stagingOsm, 'street-index.sqlite')
     if (parallelRawBuild) osmCompiler = startOsmCompiler(osmPbf, stagedStreetStore)
-    for (let index = 0; index < gtfs.length; index += 1) {
-      const feed = gtfs[index]
-      const storePath = gtfs.length === 1
-        ? path.join(stagingRouting, 'project.sqlite')
-        : path.join(componentDirectory, `${String(index + 1).padStart(2, '0')}-${feed.scope}.sqlite`)
-      const phaseStarted = performance.now()
-      const result = await buildNationalGtfsStore({
-        zipPath: feed.path,
-        outputPath: storePath,
-        onProgress: buildProgress(`gtfs:${feed.scope}`),
-      }) as Record<string, unknown>
-      gtfsBuildMs += performance.now() - phaseStarted
-      componentResults.push({ scope: feed.scope, path: storePath, result })
-    }
-
     const stagedRoutingStore = path.join(stagingRouting, 'project.sqlite')
-    if (componentResults.length > 1) {
-      const mergeStarted = performance.now()
-      await mergeNationalGtfsStores({
-        stores: componentResults.map((component) => ({
-          scope: component.scope,
-          storePath: component.path,
-        })),
-        outputPath: stagedRoutingStore,
-        onProgress: buildProgress('gtfs:merge'),
-        removeSourcesAfterMerge: true,
-      })
-      gtfsMergeMs = performance.now() - mergeStarted
-    }
+    const gtfsStarted = performance.now()
+    await buildNationalGtfsCityStore({
+      feeds: gtfs,
+      outputPath: stagedRoutingStore,
+      onProgress: buildProgress('gtfs'),
+    })
+    gtfsBuildMs = performance.now() - gtfsStarted
 
     let streetResult: Record<string, unknown>
     if (osmCompiler) {
@@ -1719,7 +1694,7 @@ async function runCityCompiler(args: CliArguments) {
       timing: {
         totalMs: Number((performance.now() - started).toFixed(3)),
         gtfsBuildMs: Number(gtfsBuildMs.toFixed(3)),
-        gtfsMergeMs: Number(gtfsMergeMs.toFixed(3)),
+        gtfsMergeMs: 0,
         osmBuildMs: Number(osmBuildMs.toFixed(3)),
         streetCchBuildMs: Number(streetCchBuildMs.toFixed(3)),
         stopTransferBuildMs: Number(stopTransferBuildMs.toFixed(3)),
@@ -1740,7 +1715,6 @@ async function runCityCompiler(args: CliArguments) {
         },
       },
     }
-    fs.rmSync(componentDirectory, { recursive: true, force: true })
     fs.writeFileSync(path.join(stagingDirectory, 'network.json'), `${JSON.stringify(summary, null, 2)}\n`)
     process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`)
   } finally {
@@ -1772,17 +1746,17 @@ function runInspect(args: CliArguments) {
     kind: 'city',
     name: city.name ?? path.basename(cityPath),
     path: cityPath,
-    revisionId: city.revisionId ?? city.createdAt ?? null,
-    builtAt: city.builtAt ?? city.createdAt ?? null,
+    revisionId: city.revisionId ?? null,
+    builtAt: city.builtAt ?? null,
     sources: {
-      gtfs: Array.isArray(city.sources?.gtfs ?? city.inputs?.gtfs)
-        ? (city.sources?.gtfs ?? city.inputs.gtfs).map((source: Record<string, unknown>) => ({
+      gtfs: Array.isArray(city.sources?.gtfs)
+        ? city.sources.gtfs.map((source: Record<string, unknown>) => ({
             name: String(source.name ?? 'GTFS'),
             scope: source.scope ?? null,
           }))
         : [],
-      osm: (city.sources?.osm?.name ?? city.inputs?.osmPbf?.name)
-        ? { name: String(city.sources?.osm?.name ?? city.inputs.osmPbf.name) }
+      osm: city.sources?.osm?.name
+        ? { name: String(city.sources.osm.name) }
         : null,
     },
     counts: {

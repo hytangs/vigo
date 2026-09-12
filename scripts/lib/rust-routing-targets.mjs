@@ -2,8 +2,20 @@ const targets = {
   'darwin:arm64': {
     targetTriple: 'aarch64-apple-darwin',
     libraryName: 'libvigo_routing_kernel.dylib',
-    rustFlags: ['-C', 'target-cpu=apple-m1', '-C', 'link-arg=-mmacosx-version-min=13.5'],
+    rustFlags: ['-C', 'link-arg=-mmacosx-version-min=13.5'],
     sign: true,
+  },
+  'darwin:x64': {
+    targetTriple: 'x86_64-apple-darwin',
+    libraryName: 'libvigo_routing_kernel.dylib',
+    rustFlags: ['-C', 'link-arg=-mmacosx-version-min=13.5'],
+    sign: true,
+  },
+  'linux:arm64': {
+    targetTriple: 'aarch64-unknown-linux-gnu',
+    libraryName: 'libvigo_routing_kernel.so',
+    rustFlags: [],
+    sign: false,
   },
   'linux:x64': {
     targetTriple: 'x86_64-unknown-linux-gnu',

@@ -46,6 +46,9 @@ export type RoutingLeg = {
   walkSource?: RoutingWalkSource
   transferSource?: 'gtfs_transfer' | 'gtfs_pathway' | 'schedule_transfer' | 'schedule_pathway' | 'osm_certified_radial' | 'parent_station_fallback'
   streetPathVerified?: boolean
+  streetSegmentVerified?: boolean
+  stationAccessStatus?: 'source_path' | 'unverified'
+  stationAccessStopIds?: string[]
   fromStopId?: string
   toStopId?: string
   fromStationGroupId?: string
@@ -54,6 +57,7 @@ export type RoutingLeg = {
   toName: string
   routeFeatureId?: string
   routeId?: string
+  routeType?: number
   routeShortName?: string
   routeColor?: string
   tripId?: string

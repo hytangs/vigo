@@ -65,6 +65,17 @@ const normalizedExactStopPlan = normalizeReceivedRoutingPlan(exactStopPlan)
 assert.equal(normalizedExactStopPlan.legs.length, 5, 'Exact-stop zero-length access and egress cards must be removed.')
 assert.equal(normalizedExactStopPlan.legs[0].type, 'ride')
 assert.equal(normalizedExactStopPlan.legs.at(-1).type, 'ride')
+
+const stationWarningPlan = normalizeReceivedRoutingPlan(plan('station-warning', [
+  { ...walk({ fromName: 'Origin', toName: 'Entrance', startMinutes: 480, endMinutes: 481, distanceKm: 0.08, walkSource: 'osm' }), streetPathVerified: true },
+  { ...walk({ fromName: 'Entrance', toName: 'Platform', toStopId: 'P', startMinutes: 481, endMinutes: 482, distanceKm: 0.08, walkSource: 'transfer' }),
+    stationAccessStatus: 'unverified', stationAccessStopIds: ['P'], streetPathVerified: false, streetSegmentVerified: true },
+  ride('Line', 'Platform', 'Destination', 483, 500),
+]))
+assert.equal(stationWarningPlan.legs[0].stationAccessStatus, 'unverified', 'Merging a street walk with a station walk must retain the warning.')
+assert.deepEqual(stationWarningPlan.legs[0].stationAccessStopIds, ['P'])
+assert.equal(stationWarningPlan.legs[0].streetPathVerified, false)
+assert.match(routingLegDetail(stationWarningPlan.legs[0]), /entrance\/platform path unverified/)
 assert.equal(routingPlanRouteSequence(normalizedExactStopPlan), 'Line A -> Line B -> Line C')
 assert.deepEqual(
   normalizedExactStopPlan.legs.filter((leg) => leg.type === 'walk').map(routingLegPrimaryLabel),

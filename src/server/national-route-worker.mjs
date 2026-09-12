@@ -416,8 +416,6 @@ parentPort.on('message', async (message) => {
       const routing = prepareNationalGtfsRoutingContext(storePath, {
         ...request,
         prepareAccess: true,
-        prewarmRouteGeometry: true,
-        prewarmRoutingPipeline: true,
       })
       result = {
         ...routing,

@@ -69,7 +69,8 @@ app.whenReady().then(async () => {
   } catch(error) { console.error(error); app.exit(1); }
 });`)
 try {
-  const child = spawn(electronPath, [path.join(temporary,'main.cjs')], {stdio:'inherit',env:{...process.env,ELECTRON_RUN_AS_NODE:''}})
+  const ciFlags = process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : []
+  const child = spawn(electronPath, [...ciFlags, path.join(temporary,'main.cjs')], {stdio:'inherit',env:{...process.env,ELECTRON_RUN_AS_NODE:''}})
   const timeout = setTimeout(() => child.kill(), 60_000)
   try {
     process.exitCode = await new Promise((resolve, reject) => {

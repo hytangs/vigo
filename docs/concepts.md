@@ -14,6 +14,20 @@ A named City may have several immutable revisions. Rebuilding source data create
 
 Revision identity and build time are separate: `revisionId` identifies the immutable build, while `builtAt` records when it was created. `sources` records the GTFS and OSM inputs.
 
+A built City can be reopened without its raw GTFS or OSM files. Keep or copy the
+whole directory, including its prepared files. Building prepares the street
+indexes and station-access state. The first query for a new set of active
+services prepares a timetable snapshot; subsequent processes can reload it.
+Dates with the same active services share that snapshot. A new process still
+loads the files into memory, while an open process keeps them ready.
+
+Prepared files are tied to the source revision, routing policy, and format.
+Missing, stale, or incompatible timetable/access caches are rebuilt from the compiled
+City, without importing raw sources again. Required street files must remain complete;
+restore or rebuild a City with missing/corrupt street indexes. Timetable snapshots use a bounded
+disk cache, so an evicted service pattern must be prepared again. Updating the
+underlying GTFS or OSM data requires a new City build.
+
 ## Scenario
 
 A Scenario is an immutable set of changes applied to one City revision.
@@ -28,7 +42,7 @@ VIGO rejects unsupported combinations before computation. It does not silently d
 
 Find and explain travel between ordered points. Mode, depart-at, arrive-by, departure windows, waypoints, and batching are Route options.
 
-VIGO 0.3.0 exposes one objective: earliest arrival. Ties prefer fewer boardings, then less walking, then a stable final order.
+Depart-at minimizes arrival time, then boardings, then walking. Arrive-by maximizes departure time; among journeys leaving at that boundary and arriving by the deadline, it minimizes boardings, walking, and actual arrival.
 
 ### Matrix
 
@@ -42,19 +56,18 @@ Reach is not Accessibility. Accessibility requires an additional opportunity mea
 
 ## Result
 
-A Result is the immutable answer to one Query. It contains status, values, warnings, timing, the City revision, the Scenario if any, and export methods.
+A Result is the immutable answer to one Query. It contains status, values, warnings, timing, the City revision, the Scenario if any, and query output.
 
 Compare is an action on compatible Results. It is not a fourth Query.
 
 ## Outcomes
 
 - A Result is `ready` or `blocked`.
-- A malformed Query raises `InvalidQuery`.
-- A valid Query that the selected context cannot execute raises `UnsupportedQuery`.
+- Malformed or unsupported CLI requests exit nonzero with an explanation on standard error.
 - Background work reports `queued`, `running`, `ready`, `cancelled`, or `error`.
 - Execution failure raises an error; it is not an analysis Result.
 
-Use `vigo capabilities`, `city.supports(query)`, or `scenario.supports(query)` to inspect support before execution.
+Use `vigo capabilities` to inspect support before execution.
 
 ## Time
 

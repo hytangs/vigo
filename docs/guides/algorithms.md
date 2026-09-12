@@ -2,7 +2,7 @@
 
 This page explains implementation. Users do not need these details to operate VIGO.
 
-VIGO compiles scheduled transit and directed street data once, then opens compact native data for queries. Rust owns timetable propagation, street search, matrix work, and Reach surfaces. JavaScript validates requests, manages local application state, and shapes Results. Studio, Python, and the command line do not implement separate routers.
+VIGO compiles scheduled transit and directed street data once, then opens compact native data for queries. Rust owns timetable propagation, street search, matrix work, and Reach surfaces. JavaScript validates requests, manages local application state, and shapes Results. Studio and the command line do not implement separate routers.
 
 ## Route
 
@@ -12,7 +12,7 @@ Walk and Drive Route search their respective directed street graphs. Drive can a
 
 ## Matrix
 
-Transit Matrix shares forward work across destinations when valid. Street Matrix computes directed scalar distance and duration in native batches. Full leg reconstruction remains a Route responsibility.
+Transit Matrix shares forward work across destinations when valid. Street Matrix computes directed scalar distance and duration in native batches. Transit Matrix can also render its selected journeys, including geometry, without repeating timetable searches.
 
 ## Reach
 
@@ -20,4 +20,4 @@ Reach combines a timetable range scan with directed street propagation and write
 
 ## Ownership
 
-SQLite is durable Build output. Query execution uses native in-memory or mapped data opened from the City. JavaScript and Python do not keep a second graph search as a fallback.
+SQLite is durable Build output. Query execution uses native in-memory or mapped data opened from the City. JavaScript delegates graph search to the native kernels.

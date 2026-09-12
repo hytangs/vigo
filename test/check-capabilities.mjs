@@ -24,7 +24,7 @@ assert.deepEqual(publicCliCommands, ['build', 'capabilities', 'inspect', 'route'
 assert.deepEqual(supportedReachRasterSizes, [48, 64, 96, 128, 192, 256, 384, 512, 1024])
 assert.deepEqual(
   capabilityCatalog.productLine.map((product) => product.label),
-  ['VIGO command', 'VIGO Studio', 'VIGO Python'],
+  ['VIGO Engine', 'VIGO Studio', 'VIGO Python'],
 )
 for (const query of capabilityCatalog.queries) {
   assert.deepEqual(Object.keys(query.interfaces).sort(), ['cli', 'python', 'studio'])

@@ -4,7 +4,13 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { performance as nodePerformance } from 'node:perf_hooks'
-import { deserialize, serialize } from 'node:v8'
+import { decodeRoutingSnapshot, encodeRoutingSnapshot } from './routing-snapshot.mjs'
+import {
+  loadPreparedAccessContext,
+  persistPreparedAccessContext,
+  packStationPaths,
+  stationPathLookup,
+} from './prepared-access-context.mjs'
 import {
   createGtfsZipImportBudget,
   gtfsTableEntry,
@@ -17,7 +23,7 @@ import {
 } from './geometry-utils.mjs'
 import { integralNumber, numeric, timingMilliseconds } from './number-utils.mjs'
 import { assertMatrixSize } from './matrix-size.mjs'
-import { stationAccessPaths, stationFallbackSeconds } from './station-access.mjs'
+import { annotateStationAccess, stationAccessPaths, stationFallbackSeconds } from './station-access.mjs'
 import { routeDisplayLongName, routePreviewColor } from './route-presentation.mjs'
 import {
   readNationalOsmStoreMetadata,
@@ -33,7 +39,6 @@ import {
 import { WeightedLruCache } from './weighted-lru-cache.mjs'
 import {
   buildNativeStopTransferGraph,
-  clearNativeCoordinateEndpointCaches,
   configureNativeRoutingAccessProfile,
   materializeNativeCoordinateEndpointCandidates,
   materializeNativeStreetPath,
@@ -58,7 +63,6 @@ import {
 } from './native-routing-kernel.mjs'
 import {
   nationalRideGeometry,
-  prewarmNationalRouteGeometry,
 } from './national-route-geometry.mjs'
 import {
   nationalChoiceIdentity,
@@ -351,7 +355,7 @@ const activeServiceKernelSnapshotCacheBudgetBytes = Math.max(
     Math.floor(Number(process.env.VIGO_ACTIVE_KERNEL_SNAPSHOT_CACHE_BUDGET_BYTES ?? 512 * 1024 * 1024) || 0),
   ),
 )
-const activeServiceKernelSchemaVersion = 'vigo.routing.active-service-kernel.v14-rust-native'
+const activeServiceKernelSchemaVersion = 'vigo.routing.active-service-kernel.v15-portable'
 const activeServiceTransferProjectionVersion = 'single_edge_service_ingress.v6-station-time'
 const activeServiceKernelContextCacheMaxEntries = Math.max(
   1,
@@ -968,7 +972,7 @@ export function compactNationalGtfsRuntimeStore(storePath) {
   for (const entry of fs.readdirSync(path.dirname(resolvedPath), { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.startsWith(prefix)) continue
     const suffix = entry.name.slice(prefix.length)
-    if (suffix === 'static-topology.sqlite'
+    if (suffix === 'static-topology.sqlite' || suffix === 'access-context.bin'
       || /^active-service-kernel\..+\.bin$/.test(suffix)
       || /^native-access-profile\..+\.bin$/.test(suffix)) {
       fs.rmSync(path.join(path.dirname(resolvedPath), entry.name))
@@ -1349,9 +1353,15 @@ async function publishRoutingStoreWithSidecar(tempStorePath, outputStorePath, to
   return { ...topology, stagedPath: undefined, outputPath: finalSidecarPath }
 }
 
-async function finalizeRoutingStoreBuild(db, tempPath, outputPath, onProgress) {
+async function finalizeRoutingStoreBuild(db, tempPath, outputPath, onProgress, { forCity = false } = {}) {
   db.exec('PRAGMA optimize;')
   db.close()
+  if (forCity) {
+    // The City compiler adds OSM transfers before publishing its final topology.
+    // These files remain inside the City's unpublished staging directory.
+    await fsp.rename(tempPath, outputPath)
+    return { staticTopology: { ready: false, reason: 'city_transfers_pending' }, outputStats: await fsp.stat(outputPath) }
+  }
   const topology = await buildDefaultStaticTopologySidecar(tempPath, outputPath, onProgress)
   const staticTopology = await publishRoutingStoreWithSidecar(tempPath, outputPath, topology)
   return { staticTopology, outputStats: await fsp.stat(outputPath) }
@@ -1582,7 +1592,7 @@ function ensureNationalGtfsRawSqlDepartureIndex(db) {
   `)
 }
 
-function createRoutingStoreIndexes(db) {
+function createRoutingStoreIndexes(db, { forCity = false } = {}) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS stop_modes AS
       SELECT COALESCE(NULLIF(s.parent_station, ''), c.from_stop_id) AS stop_id,
@@ -1609,7 +1619,7 @@ function createRoutingStoreIndexes(db) {
     CREATE INDEX calendar_dates_date ON calendar_dates(date, exception_type);
     CREATE INDEX transfers_from ON transfers(from_stop_id);
   `)
-  ensureNationalGtfsRawSqlDepartureIndex(db)
+  if (!forCity) ensureNationalGtfsRawSqlDepartureIndex(db)
   rebuildStopAccessRoles(db)
   refreshRouteServiceCatalog(db)
   db.exec('ANALYZE;')
@@ -1896,10 +1906,26 @@ export async function buildRoutingStoreFromSchedules({ schedules, outputPath, on
   }
 }
 
-export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress }) {
+export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress, forCity = false }) {
+  return importGtfsFeed({ zipPath, outputPath, onProgress, forCity })
+}
+
+// City feeds share the final database. Namespace references at the CSV boundary
+// so the same validation and connection compiler serve both build paths.
+async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false, sharedDatabase = null, scope = '' }) {
   const startedAt = performance.now()
   const archive = await inspectGtfsZip(zipPath)
   const sourceFingerprint = await sha256File(zipPath)
+  const prefix = scope ? `${scope}\u001f` : ''
+  const streamTable = (entry, onRow, options) => streamGtfsZipCsv(archive, entry, prefix
+    ? (row) => {
+        for (const field of ['stop_id', 'route_id', 'trip_id', 'service_id', 'shape_id', 'from_stop_id', 'to_stop_id']) {
+          if (row[field] !== undefined) row[field] = prefix + row[field]
+        }
+        if (row.parent_station) row.parent_station = prefix + row.parent_station
+        return onRow(row)
+      }
+    : onRow, options)
   for (const required of ['stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt']) {
     if (!gtfsTableEntry(archive, required)) throw new Error(`GTFS is missing ${required}.`)
   }
@@ -1910,12 +1936,13 @@ export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress }
   await fsp.mkdir(path.dirname(outputPath), { recursive: true })
   const tempPath = `${outputPath}.building`
   const stagePath = `${outputPath}.stop-times-building`
-  await Promise.all([fsp.rm(tempPath, { force: true }), fsp.rm(stagePath, { force: true })])
-  const db = new DatabaseSync(tempPath)
+  await fsp.rm(stagePath, { force: true })
+  if (!sharedDatabase) await fsp.rm(tempPath, { force: true })
+  const db = sharedDatabase ?? new DatabaseSync(tempPath)
   const stage = new DatabaseSync(stagePath)
-  configureBuildDatabase(db)
+  if (!sharedDatabase) configureBuildDatabase(db)
   configureBuildDatabase(stage)
-  createRoutingStoreSchema(db)
+  if (!sharedDatabase) createRoutingStoreSchema(db)
   stage.exec(`
     CREATE TABLE stop_times(
       trip_id TEXT NOT NULL,
@@ -1975,7 +2002,7 @@ export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress }
     let batch = 0
     target.exec('BEGIN IMMEDIATE')
     try {
-      const result = await streamGtfsZipCsv(archive, entry, (row) => {
+      const result = await streamTable(entry, (row) => {
         const prepared = values(row)
         if (prepared !== null) {
           try {
@@ -2009,7 +2036,7 @@ export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress }
   try {
     const agencyEntry = gtfsTableEntry(archive, 'agency.txt')
     if (agencyEntry) {
-      const agencyProfile = await streamGtfsZipCsv(archive, agencyEntry, (row) => {
+      const agencyProfile = await streamTable(agencyEntry, (row) => {
         const timezone = String(row.agency_timezone ?? '').trim()
         if (timezone) agencyTimezones.add(timezone)
       }, { budget: zipImportBudget })
@@ -2065,10 +2092,10 @@ export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress }
       let mappedTrips = 0
       db.exec('BEGIN IMMEDIATE')
       try {
-        await streamGtfsZipCsv(archive, tripEntry, (row) => {
-          const shapeId = String(row.shape_id ?? '').trim()
+        await streamTable(tripEntry, (row) => {
+          const shapeId = String(row.shape_id ?? '').slice(prefix.length).trim()
           if (!shapeId) return
-          insertTripShape.run(row.trip_id, shapeId)
+          insertTripShape.run(row.trip_id, prefix + shapeId)
           mappedTrips += 1
           if (mappedTrips % 100_000 === 0) db.exec('COMMIT; BEGIN IMMEDIATE')
         }, { budget: zipImportBudget })
@@ -2130,10 +2157,11 @@ export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress }
         }
         return [row.from_stop_id, row.to_stop_id, transferType, minimumTransferTime]
       })
-    db.exec(`
+    db.prepare(`
       INSERT OR REPLACE INTO transfer_provenance(from_stop_id, to_stop_id, provenance, evidence_fingerprint, path_distance_m)
-      SELECT from_stop_id, to_stop_id, 'gtfs_transfer', NULL, NULL FROM transfers;
-    `)
+      SELECT from_stop_id, to_stop_id, 'gtfs_transfer', NULL, NULL FROM transfers
+      WHERE ? = '' OR substr(from_stop_id, 1, length(?)) = ?
+    `).run(prefix, prefix, prefix)
     await importTable('frequencies.txt', 0.29,
       'INSERT INTO frequencies VALUES(?,?,?,?,?)',
       (row) => {
@@ -2208,7 +2236,7 @@ export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress }
       let pathwayBatch = 0
       db.exec('BEGIN IMMEDIATE')
       try {
-        const pathwayProfile = await streamGtfsZipCsv(archive, pathwaysEntry, (row) => {
+        const pathwayProfile = await streamTable(pathwaysEntry, (row) => {
           const seconds = String(row.traversal_time ?? '').trim()
             ? Math.max(0, numeric(row.traversal_time, 0)) : null
           const from = pathwayStop.get(row.from_stop_id)
@@ -2248,7 +2276,7 @@ export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress }
     const insertFrequencyTrip = db.prepare('INSERT OR IGNORE INTO trips VALUES(?,?,?,?)')
     const tripShapeLookup = db.prepare('SELECT shape_id FROM trip_shapes WHERE trip_id=?')
     const insertFrequencyTripShape = db.prepare('INSERT OR IGNORE INTO trip_shapes VALUES(?,?)')
-    const stopLookup = db.prepare('SELECT 1 AS present FROM stops WHERE stop_id=?')
+    const knownStopIds = new Set(db.prepare('SELECT stop_id FROM stops').all().map((row) => row.stop_id))
     const insertConnection = db.prepare('INSERT INTO connections VALUES(?,?,?,?,?,?,?,?,?)')
     const insertConnectionPermission = db.prepare('INSERT INTO connection_permissions VALUES(?,?,?,?)')
     const rows = stage.prepare(`
@@ -2285,7 +2313,7 @@ export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress }
     }
     db.exec('BEGIN IMMEDIATE')
     for (const row of rows) {
-      if (!stopLookup.get(row.stop_id)) {
+      if (!knownStopIds.has(row.stop_id)) {
         throw new Error(`Broken GTFS reference stop_times.stop_id -> stops.stop_id: trip ${row.trip_id || '(missing)'} references ${row.stop_id || '(missing)'}.`)
       }
       if (!previous || previous.trip_id !== row.trip_id) {
@@ -2350,12 +2378,12 @@ export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress }
     db.exec('COMMIT')
     counts.connections = connectionCount
 
-    report(onProgress, 'Linking nearby interchanges', 0.895)
-    const nearbyTransfers = linkNearbyTransferStops(db)
+    if (!sharedDatabase) report(onProgress, 'Linking nearby interchanges', 0.895)
+    const nearbyTransfers = sharedDatabase ? { candidateCount: 0, inferredTransferCount: 0 } : linkNearbyTransferStops(db)
     counts.inferredTransfers = nearbyTransfers.inferredTransferCount
 
-    report(onProgress, 'Building routing indexes', 0.9)
-    createRoutingStoreIndexes(db)
+    if (!sharedDatabase) report(onProgress, 'Building routing indexes', 0.9)
+    if (!sharedDatabase) createRoutingStoreIndexes(db, { forCity })
     const blockingRoutingFeatures = []
     const routingLimitations = []
     const blockFeature = (code, count, detail) => {
@@ -2392,6 +2420,9 @@ export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress }
       'Station entrances are inventoried, but the routing graph does not yet use the complete GTFS entrance hierarchy for access and egress.')
     limitFeature('station_level_hierarchy', featureInventory.stationLevelRuleCount,
       'Stop level_id values are inventoried, but station levels are not complete routing constraints.')
+    const countFeedRows = (table, id) => Number(prefix
+      ? db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE substr(${id}, 1, length(?)) = ?`).get(prefix, prefix).count
+      : db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count)
     const storeId = sourceFingerprint.slice(0, 20)
     const metadata = {
       schemaVersion: storeSchemaVersion,
@@ -2402,16 +2433,16 @@ export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress }
       builtAt: new Date().toISOString(),
       routeCount: counts['routes.txt'] ?? 0,
       stopCount: counts['stops.txt'] ?? 0,
-      tripCount: Number(db.prepare('SELECT COUNT(*) AS count FROM trips').get().count),
+      tripCount: countFeedRows('trips', 'trip_id'),
       stopTimeCount: counts['stop_times.txt'] ?? 0,
       connectionCount,
-      connectionPermissionCount: Number(db.prepare('SELECT COUNT(*) AS count FROM connection_permissions').get().count),
+      connectionPermissionCount: countFeedRows('connection_permissions', 'trip_id'),
       boardingAlightingModel: 'sparse-connection-permissions-v1',
-      departureIndexState: 'ready',
+      departureIndexState: forCity ? 'deferred' : 'ready',
       stopAccessRoleIndexVersion,
-      stopAccessRoleCount: Number(db.prepare('SELECT COUNT(*) AS count FROM stop_access_roles').get()?.count ?? 0),
+      stopAccessRoleCount: countFeedRows('stop_access_roles', 'stop_id'),
       calendarDateCount: counts['calendar_dates.txt'] ?? 0,
-      transferCount: Number(db.prepare('SELECT COUNT(*) AS count FROM transfers').get().count),
+      transferCount: countFeedRows('transfers', 'from_stop_id'),
       frequencyCount: counts['frequencies.txt'] ?? 0,
       frequencyRoutingModel: exactFrequencyExpandedTripCount > 0 ? 'exact_times_1_expanded_fixed_departures' : 'none',
       shapePointCount: counts['shapes.txt'] ?? 0,
@@ -2432,13 +2463,14 @@ export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress }
         inferredTransferCount: 0,
       },
     }
+    stage.close()
+    await fsp.rm(stagePath, { force: true })
+    if (sharedDatabase) return { ...metadata, tableProfiles: profiles }
     runTransaction(db, () => {
       const insert = db.prepare('INSERT OR REPLACE INTO metadata VALUES(?,?)')
       for (const [key, value] of Object.entries(metadata)) insert.run(key, JSON.stringify(value))
     })
-    stage.close()
-    await fsp.rm(stagePath, { force: true })
-    const { staticTopology, outputStats } = await finalizeRoutingStoreBuild(db, tempPath, outputPath, onProgress)
+    const { staticTopology, outputStats } = await finalizeRoutingStoreBuild(db, tempPath, outputPath, onProgress, { forCity })
     report(onProgress, 'Routing store ready', 1, `${Math.round(outputStats.size / 1024 / 1024).toLocaleString()} MB`)
     return {
       ...metadata,
@@ -2449,7 +2481,53 @@ export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress }
       staticTopology,
     }
   } catch (error) {
-    await cleanupFailedRoutingStoreBuild([db, stage], tempPath, outputPath, [stagePath])
+    if (sharedDatabase) {
+      try { stage.close() } catch {}
+      await fsp.rm(stagePath, { force: true })
+    } else {
+      await cleanupFailedRoutingStoreBuild([db, stage], tempPath, outputPath, [stagePath])
+    }
+    throw error
+  }
+}
+
+export async function buildNationalGtfsCityStore({ feeds, outputPath, onProgress }) {
+  if (!Array.isArray(feeds) || !feeds.length) throw new Error('At least one GTFS feed is required.')
+  const descriptors = feeds.map((feed) => ({ scope: String(feed.scope ?? '').trim(), zipPath: path.resolve(feed.path) }))
+    .sort((left, right) => left.scope.localeCompare(right.scope))
+  if (descriptors.some((feed) => !feed.scope) || new Set(descriptors.map((feed) => feed.scope)).size !== descriptors.length) {
+    throw new Error('GTFS scopes must be non-empty and unique.')
+  }
+  if (descriptors.length === 1) {
+    return buildNationalGtfsStore({ zipPath: descriptors[0].zipPath, outputPath, onProgress, forCity: true })
+  }
+  const started = performance.now()
+  await fsp.mkdir(path.dirname(outputPath), { recursive: true })
+  const tempPath = `${outputPath}.building`
+  await fsp.rm(tempPath, { force: true })
+  const db = new DatabaseSync(tempPath)
+  configureBuildDatabase(db)
+  createRoutingStoreSchema(db)
+  try {
+    const metadataByStore = []
+    for (const feed of descriptors) {
+      metadataByStore.push(await importGtfsFeed({
+        zipPath: feed.zipPath, outputPath, sharedDatabase: db, scope: feed.scope, forCity: true,
+        onProgress: onProgress ? (event) => onProgress({ ...event, phase: `${feed.scope}: ${event.phase}` }) : undefined,
+      }))
+    }
+    report(onProgress, 'Building combined routing indexes', 0.9)
+    createRoutingStoreIndexes(db, { forCity: true })
+    const nearbyTransfers = linkNearbyTransferStops(db)
+    const metadata = mergedGtfsMetadata(db, descriptors, metadataByStore, nearbyTransfers, true)
+    runTransaction(db, () => {
+      const insert = db.prepare('INSERT INTO metadata VALUES(?,?)')
+      for (const [key, value] of Object.entries(metadata)) insert.run(key, JSON.stringify(value))
+    })
+    const { staticTopology, outputStats } = await finalizeRoutingStoreBuild(db, tempPath, outputPath, onProgress, { forCity: true })
+    return { ...metadata, staticTopology, path: outputPath, bytes: outputStats.size, buildSeconds: (performance.now() - started) / 1000 }
+  } catch (error) {
+    await cleanupFailedRoutingStoreBuild([db], tempPath, outputPath)
     throw error
   }
 }
@@ -2458,7 +2536,92 @@ function sqlLiteral(value) {
   return `'${String(value).replace(/'/g, "''")}'`
 }
 
-export async function mergeNationalGtfsStores({ stores, outputPath, onProgress, removeSourcesAfterMerge = false }) {
+function mergedGtfsMetadata(db, descriptors, metadataByStore, nearbyTransfers, forCity) {
+  const featureInventory = {}
+  for (const source of metadataByStore) {
+    for (const [key, value] of Object.entries(source.featureInventory)) {
+      const count = Number(value)
+      if (!Number.isFinite(count) || count < 0) {
+        throw new Error(`Routing store contains invalid feature inventory count ${key}: ${value}`)
+      }
+      featureInventory[key] = Number(featureInventory[key] ?? 0) + count
+    }
+  }
+  const count = (table) => Number(db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count)
+  const sourceFingerprint = descriptors
+    .map((descriptor, index) => ({
+      scope: descriptor.scope,
+      sourceFingerprint: metadataByStore[index].sourceFingerprint,
+    }))
+    .sort((left, right) => left.scope.localeCompare(right.scope))
+    .map((source) => `${source.scope}:${source.sourceFingerprint}`)
+    .join('|')
+  const agencyTimezones = [...new Set(metadataByStore.flatMap((metadata) => metadata.agencyTimezones ?? []))].sort()
+  const blockingByCode = new Map()
+  const limitationsByCode = new Map()
+  const mergeFeatures = (target, features) => {
+    for (const feature of features ?? []) {
+      const current = target.get(feature.code)
+      target.set(feature.code, current
+        ? { ...current, count: Number(current.count ?? 0) + Number(feature.count ?? 0) }
+        : { ...feature })
+    }
+  }
+  for (const source of metadataByStore) {
+    mergeFeatures(blockingByCode, source.blockingRoutingFeatures)
+    mergeFeatures(limitationsByCode, source.routingLimitations?.filter((feature) => feature.code !== 'generated_radial_transfers'))
+  }
+  if (agencyTimezones.length > 1) blockingByCode.set('multiple_agency_timezones', {
+    code: 'multiple_agency_timezones',
+    count: agencyTimezones.length,
+    detail: 'The merged store contains agencies in multiple timezones; cross-timezone service-day routing is unsupported.',
+  })
+  return {
+    schemaVersion: storeSchemaVersion,
+    storeId: `merged-${descriptors.map((descriptor) => descriptor.scope).sort().join('+')}`,
+    sourceFingerprint,
+    sourceFile: descriptors.map((descriptor, index) => `${descriptor.scope}:${metadataByStore[index].sourceFile}`).join(', '),
+    sourceBytes: metadataByStore.reduce((sum, metadata) => sum + Number(metadata.sourceBytes ?? 0), 0),
+    builtAt: new Date().toISOString(),
+    routeCount: count('routes'),
+    stopCount: count('stops'),
+    tripCount: count('trips'),
+    stopTimeCount: metadataByStore.reduce((sum, metadata) => sum + Number(metadata.stopTimeCount ?? 0), 0),
+    connectionCount: count('connections'),
+    connectionPermissionCount: count('connection_permissions'),
+    boardingAlightingModel: 'sparse-connection-permissions-v1',
+    departureIndexState: forCity ? 'deferred' : 'ready',
+    stopAccessRoleIndexVersion,
+    stopAccessRoleCount: count('stop_access_roles'),
+    calendarDateCount: count('calendar_dates'),
+    transferCount: count('transfers'),
+    frequencyCount: count('frequencies'),
+    shapePointCount: count('shape_points'),
+    routeServiceCatalogVersion: routeServiceCatalogSchemaVersion,
+    routeServiceCatalogBuiltAt: new Date().toISOString(),
+    serviceModel: 'exact-date-multi-feed',
+    agencyTimezones,
+    featureInventory,
+    blockingRoutingFeatures: [...blockingByCode.values()].sort((left, right) => left.code.localeCompare(right.code)),
+    routingLimitations: [...limitationsByCode.values()].sort((left, right) => left.code.localeCompare(right.code)),
+    transferSemanticsVersion,
+    transferGeneration: {
+      strategy: 'source_literal_only',
+      exact: true,
+      maxDistanceKm: nearbyTransferMaxDistanceKm,
+      radialCandidateCount: nearbyTransfers.candidateCount,
+      inferredTransferCount: 0,
+    },
+    sourceStores: descriptors.map((descriptor, index) => ({
+      scope: descriptor.scope,
+      storeId: metadataByStore[index].storeId,
+      sourceFingerprint: metadataByStore[index].sourceFingerprint,
+      sourceFile: metadataByStore[index].sourceFile,
+    })),
+  }
+}
+
+export async function mergeNationalGtfsStores({ stores, outputPath, onProgress, removeSourcesAfterMerge = false, forCity = false }) {
   const startedAt = performance.now()
   if (!Array.isArray(stores) || stores.length < 2) throw new Error('At least two exact-date routing stores are required.')
   const descriptors = stores.map((descriptor, index) => ({
@@ -2493,16 +2656,7 @@ export async function mergeNationalGtfsStores({ stores, outputPath, onProgress, 
     }
     metadataByStore.push(metadata)
   }
-  const featureInventory = {}
-  for (const source of metadataByStore) {
-    for (const [key, value] of Object.entries(source.featureInventory)) {
-      const count = Number(value)
-      if (!Number.isFinite(count) || count < 0) {
-        throw new Error(`Routing store contains invalid feature inventory count ${key}: ${value}`)
-      }
-      featureInventory[key] = Number(featureInventory[key] ?? 0) + count
-    }
-  }
+
 
   await fsp.mkdir(path.dirname(outputPath), { recursive: true })
   const tempPath = `${outputPath}.building`
@@ -2570,84 +2724,13 @@ export async function mergeNationalGtfsStores({ stores, outputPath, onProgress, 
     const nearbyTransfers = linkNearbyTransferStops(db)
 
     report(onProgress, 'Building routing indexes', 0.88)
-    createRoutingStoreIndexes(db)
-    const count = (table) => Number(db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count)
-    const sourceFingerprint = descriptors
-      .map((descriptor, index) => ({
-        scope: descriptor.scope,
-        sourceFingerprint: metadataByStore[index].sourceFingerprint,
-      }))
-      .sort((left, right) => left.scope.localeCompare(right.scope))
-      .map((source) => `${source.scope}:${source.sourceFingerprint}`)
-      .join('|')
-    const agencyTimezones = [...new Set(metadataByStore.flatMap((metadata) => metadata.agencyTimezones ?? []))].sort()
-    const blockingByCode = new Map()
-    const limitationsByCode = new Map()
-    const mergeFeatures = (target, features) => {
-      for (const feature of features ?? []) {
-        const current = target.get(feature.code)
-        target.set(feature.code, current
-          ? { ...current, count: Number(current.count ?? 0) + Number(feature.count ?? 0) }
-          : { ...feature })
-      }
-    }
-    for (const source of metadataByStore) {
-      mergeFeatures(blockingByCode, source.blockingRoutingFeatures)
-      mergeFeatures(limitationsByCode, source.routingLimitations?.filter((feature) => feature.code !== 'generated_radial_transfers'))
-    }
-    if (agencyTimezones.length > 1) blockingByCode.set('multiple_agency_timezones', {
-      code: 'multiple_agency_timezones',
-      count: agencyTimezones.length,
-      detail: 'The merged store contains agencies in multiple timezones; cross-timezone service-day routing is unsupported.',
-    })
-    const metadata = {
-      schemaVersion: storeSchemaVersion,
-      storeId: `merged-${descriptors.map((descriptor) => descriptor.scope).sort().join('+')}`,
-      sourceFingerprint,
-      sourceFile: descriptors.map((descriptor, index) => `${descriptor.scope}:${metadataByStore[index].sourceFile}`).join(', '),
-      sourceBytes: metadataByStore.reduce((sum, metadata) => sum + Number(metadata.sourceBytes ?? 0), 0),
-      builtAt: new Date().toISOString(),
-      routeCount: count('routes'),
-      stopCount: count('stops'),
-      tripCount: count('trips'),
-      stopTimeCount: metadataByStore.reduce((sum, metadata) => sum + Number(metadata.stopTimeCount ?? 0), 0),
-      connectionCount: count('connections'),
-      connectionPermissionCount: count('connection_permissions'),
-      boardingAlightingModel: 'sparse-connection-permissions-v1',
-      departureIndexState: 'ready',
-      stopAccessRoleIndexVersion,
-      stopAccessRoleCount: count('stop_access_roles'),
-      calendarDateCount: count('calendar_dates'),
-      transferCount: count('transfers'),
-      frequencyCount: count('frequencies'),
-      shapePointCount: count('shape_points'),
-      routeServiceCatalogVersion: routeServiceCatalogSchemaVersion,
-      routeServiceCatalogBuiltAt: new Date().toISOString(),
-      serviceModel: 'exact-date-multi-feed',
-      agencyTimezones,
-      featureInventory,
-      blockingRoutingFeatures: [...blockingByCode.values()].sort((left, right) => left.code.localeCompare(right.code)),
-      routingLimitations: [...limitationsByCode.values()].sort((left, right) => left.code.localeCompare(right.code)),
-      transferSemanticsVersion,
-      transferGeneration: {
-        strategy: 'source_literal_only',
-        exact: true,
-        maxDistanceKm: nearbyTransferMaxDistanceKm,
-        radialCandidateCount: nearbyTransfers.candidateCount,
-        inferredTransferCount: 0,
-      },
-      sourceStores: descriptors.map((descriptor, index) => ({
-        scope: descriptor.scope,
-        storeId: metadataByStore[index].storeId,
-        sourceFingerprint: metadataByStore[index].sourceFingerprint,
-        sourceFile: metadataByStore[index].sourceFile,
-      })),
-    }
+    createRoutingStoreIndexes(db, { forCity })
+    const metadata = mergedGtfsMetadata(db, descriptors, metadataByStore, nearbyTransfers, forCity)
     runTransaction(db, () => {
       const insert = db.prepare('INSERT OR REPLACE INTO metadata VALUES(?,?)')
       for (const [key, value] of Object.entries(metadata)) insert.run(key, JSON.stringify(value))
     })
-    const { staticTopology, outputStats } = await finalizeRoutingStoreBuild(db, tempPath, outputPath, onProgress)
+    const { staticTopology, outputStats } = await finalizeRoutingStoreBuild(db, tempPath, outputPath, onProgress, { forCity })
     const cleanupWarnings = []
     if (removeSourcesAfterMerge) {
       const cleanup = await Promise.allSettled(descriptors.map((descriptor) => fsp.rm(descriptor.storePath, { force: true })))
@@ -2744,63 +2827,52 @@ function populateStaticTopology(sourceDb, targetDb, { expectedConnections = 1, o
   `)
   let scheduledRows = 0
   let scheduledEdges = 0
-  let currentFromStopId = null
-  let minimumDurations = new Map()
-  const flushScheduledEdges = () => {
-    if (currentFromStopId === null) return
-    for (const [toStopId, duration] of minimumDurations) {
-      insertEdge.run(currentFromStopId, toStopId, duration)
-      scheduledEdges += 1
-    }
-    minimumDurations = new Map()
-  }
-  // Fresh builds already have an index ordered by from_stop_id. A sealed city
-  // package may intentionally omit that import-only index; SQLite can then use
-  // a file-backed sort while the one-origin JS working set stays bounded.
+  // Reduce inside SQLite before crossing into JavaScript. The file-backed
+  // grouping retains every connection while bounding the JS working set.
+  let nextProgress = 1_000_000
   for (const row of sourceDb.prepare(`
-    SELECT from_stop_id, to_stop_id, departure, arrival
+    SELECT from_stop_id, to_stop_id, MIN(arrival - departure) AS min_duration,
+      COUNT(*) AS connection_count
     FROM connections
     WHERE from_stop_id != to_stop_id AND arrival >= departure
-    ORDER BY from_stop_id
+    GROUP BY from_stop_id, to_stop_id
   `).iterate()) {
-    if (currentFromStopId !== row.from_stop_id) {
-      flushScheduledEdges()
-      currentFromStopId = row.from_stop_id
-    }
-    const duration = Math.max(0, Number(row.arrival) - Number(row.departure))
-    if (duration < (minimumDurations.get(row.to_stop_id) ?? Number.POSITIVE_INFINITY)) minimumDurations.set(row.to_stop_id, duration)
-    scheduledRows += 1
-    if (scheduledRows % 1_000_000 === 0) {
+    insertEdge.run(row.from_stop_id, row.to_stop_id, row.min_duration)
+    scheduledEdges += 1
+    scheduledRows += Number(row.connection_count)
+    if (scheduledRows >= nextProgress) {
       onProgress?.({
         phase: 'Building static routing topology',
         progress: 0.02 + Math.min(0.6, scheduledRows / Math.max(1, expectedConnections) * 0.6),
         detail: `${scheduledRows.toLocaleString()} scheduled connections`,
       })
+      nextProgress = scheduledRows + 1_000_000
     }
   }
-  flushScheduledEdges()
 
   onProgress?.({ phase: 'Building static routing topology', progress: 0.64, detail: 'Validating interpolated stop-time gaps' })
-  let previousConnection = null
   let bridgeCount = 0
-  // connections is keyed by (trip_id, stop_sequence), making this pass streaming.
+  // LAG examines the immediately preceding compiled connection in each trip,
+  // including connections that do not themselves qualify for a bridge.
   for (const row of sourceDb.prepare(`
-    SELECT trip_id, route_id, service_id, from_stop_id, to_stop_id, departure, arrival, stop_sequence
-    FROM connections ORDER BY trip_id, stop_sequence
+    SELECT previous_to_stop_id, from_stop_id, departure - previous_arrival AS duration
+    FROM (
+      SELECT from_stop_id, departure, stop_sequence, route_id, service_id,
+        LAG(to_stop_id) OVER trip_order AS previous_to_stop_id,
+        LAG(arrival) OVER trip_order AS previous_arrival,
+        LAG(stop_sequence) OVER trip_order AS previous_sequence,
+        LAG(route_id) OVER trip_order AS previous_route_id,
+        LAG(service_id) OVER trip_order AS previous_service_id
+      FROM connections
+      WINDOW trip_order AS (PARTITION BY trip_id ORDER BY stop_sequence)
+    )
+    WHERE previous_to_stop_id != from_stop_id
+      AND stop_sequence - previous_sequence > 1
+      AND route_id = previous_route_id AND service_id = previous_service_id
+      AND departure >= previous_arrival
   `).iterate()) {
-    if (
-      previousConnection
-      && row.trip_id === previousConnection.trip_id
-      && previousConnection.to_stop_id !== row.from_stop_id
-      && Number(row.stop_sequence) - Number(previousConnection.stop_sequence) > 1
-      && row.route_id === previousConnection.route_id
-      && row.service_id === previousConnection.service_id
-      && Number(row.departure) >= Number(previousConnection.arrival)
-    ) {
-      insertEdge.run(previousConnection.to_stop_id, row.from_stop_id, Number(row.departure) - Number(previousConnection.arrival))
-      bridgeCount += 1
-    }
-    previousConnection = row
+    insertEdge.run(row.previous_to_stop_id, row.from_stop_id, row.duration)
+    bridgeCount += 1
   }
 
   onProgress?.({ phase: 'Building static routing topology', progress: 0.78, detail: 'Transfers and station members' })
@@ -3541,8 +3613,11 @@ function buildNationalStoreAccessMaterialization(store) {
 function ensureNationalStoreAccessMaterialization(store) {
   if (store.accessMaterialization?.ready) return store.accessMaterialization
   const startedAt = performance.now()
-  const materialized = buildNationalStoreAccessMaterialization(store)
+  ensureNationalStoreTransferSemantics(store)
+  const prepared = loadPreparedAccessContext(store, nationalRoutingAccessPolicyIdentity)
+  const materialized = prepared.materialized ?? buildNationalStoreAccessMaterialization(store)
   Object.assign(store, materialized)
+  store.preparedStationPaths = prepared.stationPaths ?? null
   store.stopLookup = { get: (stopId) => store.stopRecords.get(stopId) }
   store.accessMaterialization = {
     ready: true,
@@ -3552,8 +3627,17 @@ function ensureNationalStoreAccessMaterialization(store) {
     transferOrigins: store.transfers.size,
     resolvedTransferEdges: store.resolvedTransferCount,
     materializeMs: Number((performance.now() - startedAt).toFixed(3)),
+    persistenceState: prepared.persistenceState,
+    snapshotPath: prepared.snapshotPath,
+    ...(prepared.persistenceError ? { persistenceError: prepared.persistenceError } : {}),
   }
   return store.accessMaterialization
+}
+
+function persistNationalStoreAccessMaterialization(store) {
+  if (!store.accessMaterialization?.ready
+    || ['loaded', 'written'].includes(store.accessMaterialization.persistenceState)) return
+  Object.assign(store.accessMaterialization, persistPreparedAccessContext(store, nationalRoutingAccessPolicyIdentity))
 }
 
 function openNationalStore(storePath, options = {}) {
@@ -3668,8 +3752,6 @@ function openNationalStore(storePath, options = {}) {
     shapeGeometryCacheMaxBytes,
     tripShapeIdCache: new Map(),
     tripShapeIdCacheMaxEntries,
-    routeGeometryPrewarmMaxTrips: 500_000,
-    routeGeometryPrewarm: null,
     nativeStreetPathCache: new WeightedLruCache(nativeStreetPathCacheLimits),
     activeServiceKernel: null,
     activeServiceKernelContexts: new Map(),
@@ -3680,7 +3762,7 @@ function openNationalStore(storePath, options = {}) {
       maxEstimatedBytes: activeServiceKernelMaxEstimatedBytes || null,
     },
     stopLookup: null,
-    routeLookup: new Map(db.prepare('SELECT route_id, short_name, long_name, color FROM routes').all()
+    routeLookup: new Map(db.prepare('SELECT route_id, route_type, short_name, long_name, color FROM routes').all()
       .map(route => [route.route_id, route])),
     realtimeTripStopTimesLookup: stopTimesTablePresent ? db.prepare(`
       SELECT stop_sequence, stop_id, arrival, departure, can_board, can_alight
@@ -3713,6 +3795,7 @@ function openNationalStore(storePath, options = {}) {
 
 export function prepareNationalGtfsStore(storePath) {
   const store = openNationalStore(storePath)
+  persistNationalStoreAccessMaterialization(store)
   return {
     ready: true,
     accessMaterialization: store.accessMaterialization,
@@ -3765,108 +3848,6 @@ export function prepareNationalGtfsRoutingReadiness(storePath) {
   }
 }
 
-function prewarmNationalRoutingPipeline(
-  store,
-  storePath,
-  streetStorePath,
-  serviceDateResolution,
-  serviceDay,
-) {
-  const startedAt = performance.now()
-  const rankedAnchors = store.stopAccessIndex.anchors
-    .filter((anchor) => (
-      Number.isFinite(anchor.lon)
-      && Number.isFinite(anchor.lat)
-      && stopSupportsStationAccessRole(store, anchor.stop_id, 'origin')
-      && stopSupportsStationAccessRole(store, anchor.stop_id, 'destination')
-    ))
-    .map((anchor) => ({
-      ...anchor,
-      calibrationWeight: 1 + (store.stationMembers.get(anchor.stop_id)?.length ?? 0),
-    }))
-    .sort((left, right) => (
-      right.calibrationWeight - left.calibrationWeight
-      || String(left.stop_id).localeCompare(String(right.stop_id))
-    ))
-  const calibrationAnchors = []
-  for (const anchor of rankedAnchors) {
-    if (calibrationAnchors.some((retained) => (
-      haversineKm([retained.lon, retained.lat], [anchor.lon, anchor.lat]) < 10
-    ))) continue
-    calibrationAnchors.push(anchor)
-    if (calibrationAnchors.length >= 3) break
-  }
-  if (calibrationAnchors.length < 2) {
-    return {
-      ready: false,
-      reason: 'representative_role_eligible_calibration_anchors_unavailable',
-      prewarmMs: Number((performance.now() - startedAt).toFixed(3)),
-    }
-  }
-  try {
-    const plans = []
-    for (let index = 0; index + 1 < calibrationAnchors.length; index += 1) {
-      const originAnchor = calibrationAnchors[index]
-      const destinationAnchor = calibrationAnchors[index + 1]
-      const plan = routeNationalGtfsStore(storePath, {
-        origin: {
-          coordinate: [originAnchor.lon, originAnchor.lat],
-          label: 'Readiness calibration origin',
-          source: 'map',
-        },
-        destination: {
-          coordinate: [destinationAnchor.lon, destinationAnchor.lat],
-          label: 'Readiness calibration destination',
-          source: 'map',
-        },
-        departMinutes: 8 * 60,
-        serviceDate: serviceDateResolution.resolvedServiceDate,
-        serviceDay,
-        maxWalkKm: 0.5,
-        horizonMinutes: 480,
-        routingPreference: 'balanced',
-        streetStorePath,
-        allowServiceDateFallback: false,
-        __disableDirectWalkDominance: true,
-        __suppressServiceDateFallback: true,
-      })
-      plans.push({
-        originStopId: originAnchor.stop_id,
-        destinationStopId: destinationAnchor.stop_id,
-        status: plan.status,
-        algorithm: plan.diagnostics?.algorithm ?? null,
-        engineQueryMs: timingMilliseconds(
-          plan.diagnostics?.searchStats?.engineQueryMs,
-          null,
-        ),
-        accessPreparationMs: timingMilliseconds(
-          plan.diagnostics?.searchStats?.accessPreparationMs,
-          null,
-        ),
-        materializationMs: timingMilliseconds(
-          plan.diagnostics?.searchStats?.materializationMs,
-          null,
-        ),
-      })
-    }
-    return {
-      ready: true,
-      searches: plans.length,
-      readyPlans: plans.filter((plan) => plan.status === 'ready').length,
-      plans,
-      prewarmMs: Number((performance.now() - startedAt).toFixed(3)),
-    }
-  } catch (error) {
-    return {
-      ready: false,
-      reason: error instanceof Error ? error.message : String(error),
-      prewarmMs: Number((performance.now() - startedAt).toFixed(3)),
-    }
-  } finally {
-    clearNativeCoordinateEndpointCaches(streetStorePath)
-  }
-}
-
 export function prepareNationalGtfsRoutingContext(storePath, options = {}) {
   const startedAt = performance.now()
   const store = openNationalStore(storePath, {
@@ -3877,7 +3858,6 @@ export function prepareNationalGtfsRoutingContext(storePath, options = {}) {
   let activeServices = 0
   let activeServiceKernel = activeServiceKernelSnapshot(store)
   let nativeTimetableKernel = null
-  let routeGeometry = null
   const serviceDay = options.serviceDate
     ? resolveServiceDay(options.serviceDate, options.serviceDay)
     : null
@@ -3900,13 +3880,6 @@ export function prepareNationalGtfsRoutingContext(storePath, options = {}) {
       : ensureActiveServiceKernel(store, services).status
     if (activeServiceKernel.ready) {
       nativeTimetableKernel = store.activeServiceKernel?.nativeTimetableKernel ?? null
-      routeGeometry = options.prewarmRouteGeometry === false
-        ? null
-        : prewarmNationalRouteGeometry(
-            store,
-            store.activeServiceKernel,
-            store.sourceStorageIdentity,
-          )
     }
   }
   const nativeCoordinateAccess = options.streetStorePath
@@ -3930,20 +3903,7 @@ export function prepareNationalGtfsRoutingContext(storePath, options = {}) {
         }
       })()
     : null
-  const routingPipelinePrewarm = (
-    options.prewarmRoutingPipeline !== false
-    && options.streetStorePath
-    && activeServiceKernel.ready
-    && serviceDateResolution
-  )
-    ? prewarmNationalRoutingPipeline(
-        store,
-        storePath,
-        options.streetStorePath,
-        serviceDateResolution,
-        serviceDay,
-      )
-    : null
+  persistNationalStoreAccessMaterialization(store)
   return {
     ready: true,
     queryMs: Number((performance.now() - startedAt).toFixed(3)),
@@ -3964,9 +3924,9 @@ export function prepareNationalGtfsRoutingContext(storePath, options = {}) {
     },
     activeServiceKernel,
     nativeTimetableKernel,
-    routeGeometry,
+    routeGeometry: null,
     nativeCoordinateAccess,
-    routingPipelinePrewarm,
+    routingPipelinePrewarm: null,
   }
 }
 
@@ -4358,8 +4318,9 @@ function routeTimingDetail(
   bridgedUntimedGapCount = 0,
   sourceEqualTimeRideCount = numeric(resolution?.sourceEqualTimeRideCount, 0),
 ) {
+  const stationDetail = resolution?.unverifiedStationAccessLegs > 0 ? ' / station access unverified' : ''
   if (!bridgedUntimedGapCount) {
-    const detail = timetableDetail(durationMinutes, resolution)
+    const detail = timetableDetail(durationMinutes, resolution) + stationDetail
     if (!sourceEqualTimeRideCount) return detail
     const rideLabel = sourceEqualTimeRideCount === 1 ? 'ride' : 'rides'
     return `${detail} / ${sourceEqualTimeRideCount} ${rideLabel} published within one timestamp`
@@ -4367,7 +4328,7 @@ function routeTimingDetail(
   const serviceDate = resolution?.serviceDateFallbackApplied
     ? ` for ${resolution.resolvedServiceDate} (fallback from ${resolution.requestedServiceDate})`
     : ''
-  return `${Math.round(durationMinutes)} min / interpolated stop-time gap${serviceDate} / degraded timing precision`
+  return `${Math.round(durationMinutes)} min / interpolated stop-time gap${serviceDate} / degraded timing precision${stationDetail}`
 }
 
 function materializeDirectWalkCandidate(request, maxWalkKm, path, diagnostics = {}) {
@@ -5589,6 +5550,10 @@ function coalesceContinuousWalkLegs(legs) {
       geometrySource: group.every((candidate) => candidate.geometrySource === leg.geometrySource)
         ? leg.geometrySource : undefined,
       streetPathVerified: group.every((candidate) => candidate.streetPathVerified === true),
+      streetSegmentVerified: group.every((candidate) => (candidate.streetSegmentVerified ?? candidate.streetPathVerified) === true),
+      stationAccessStatus: group.some((candidate) => candidate.stationAccessStatus === 'unverified')
+        ? 'unverified' : group.find((candidate) => candidate.stationAccessStatus)?.stationAccessStatus,
+      stationAccessStopIds: [...new Set(group.flatMap((candidate) => candidate.stationAccessStopIds ?? []))],
       fromStopId: leg.fromStopId,
       toStopId: last.toStopId,
       fromName: leg.fromName,
@@ -6138,7 +6103,13 @@ function physicalStopAccessProfile(store, streetStorePath, version) {
     accessOverheadSeconds: nationalRoutingAccessPolicy.accessOverheadSeconds,
   }
   if (version.startsWith('coordinate-access')) {
-    const links = stationAccessPaths(store, members, walkingSpeedKph)
+    let paths = store.preparedStationPaths
+    if (!paths || paths.stopIds.length !== members.length
+      || paths.stopIds.some((id, index) => id !== members[index].stop_id)) {
+      paths = packStationPaths(members, stationAccessPaths(store, members, walkingSpeedKph))
+      store.preparedStationPaths = paths
+      Object.assign(store.accessMaterialization, persistPreparedAccessContext(store, nationalRoutingAccessPolicyIdentity))
+    }
     profile.memberStopKeys = members.map((_, index) => index)
     // Each physical stop has its own key; no centroid-to-platform broadcast.
     profile.memberStationKeys = profile.memberStopKeys
@@ -6146,16 +6117,13 @@ function physicalStopAccessProfile(store, streetStorePath, version) {
     profile.memberDestinationExpansionEligible = memberDestinationEligible
     profile.memberOriginEligible = members.map(() => 1)
     profile.memberDestinationEligible = members.map(() => 1)
-    profile.transferFromStopKeys = links.map(link => link.from)
-    profile.transferToStopKeys = links.map(link => link.to)
+    profile.transferFromStopKeys = paths.from
+    profile.transferToStopKeys = paths.to
     profile.transferToStationKeys = profile.transferToStopKeys
-    profile.transferMinDurations = links.map(link => link.seconds)
-    profile.transferPathDistancesM = links.map(link => link.distanceM)
-    profile.transferOsmCertified = links.map(() => 0)
-    profile.transferPaths = new Map(links.map(link => [
-      `${link.from}:${link.to}:${link.seconds}`,
-      { coordinates: link.stops.map(index => [members[index].lon, members[index].lat]), sources: link.sources },
-    ]))
+    profile.transferMinDurations = paths.seconds
+    profile.transferPathDistancesM = paths.distanceM
+    profile.transferOsmCertified = new Uint8Array(paths.from.length)
+    profile.transferPaths = stationPathLookup(paths, members)
   }
   return profile
 }
@@ -7225,12 +7193,11 @@ function persistActiveServiceKernel(kernel, snapshotPath, storePath) {
       excludedNonServiceTransferEdges: kernel.excludedNonServiceTransferEdges,
       excludedNonServiceStationMembers: kernel.excludedNonServiceStationMembers,
     }
-    for (const key of activeServiceKernelTypedArrayKeys) persistedKernel[key] = kernel[key]
     for (const key of activeServiceKernelDictionaryKeys) persistedKernel[key] = kernel[key]
-    const bytes = serialize({
+    const bytes = encodeRoutingSnapshot({
       schemaVersion: activeServiceKernelSchemaVersion,
       kernel: persistedKernel,
-    })
+    }, Object.fromEntries(activeServiceKernelTypedArrayKeys.map(key => [key, kernel[key]])))
     fs.writeFileSync(temporaryPath, bytes, { mode: 0o600 })
     fs.renameSync(temporaryPath, snapshotPath)
     const snapshotRetention = pruneActiveServiceKernelSnapshotCache(
@@ -7299,7 +7266,7 @@ function loadPersistedActiveServiceKernel(
       )
     }
     const bytes = fs.readFileSync(snapshotPath)
-    const envelope = deserialize(bytes)
+    const { metadata: envelope, arrays } = decodeRoutingSnapshot(bytes)
     const persisted = envelope?.kernel
     if (
       envelope?.schemaVersion !== activeServiceKernelSchemaVersion
@@ -7311,14 +7278,8 @@ function loadPersistedActiveServiceKernel(
       || persisted?.transferProjectionVerified !== true
     ) throw new Error('Compact-kernel snapshot identity does not match the active routing context.')
     for (const key of activeServiceKernelTypedArrayKeys) {
-      if (!ArrayBuffer.isView(persisted[key])) throw new Error(`Compact-kernel snapshot is missing ${key}.`)
-      // v8.deserialize may return several views into the full serialized
-      // message buffer. Copy each view onto its own zero-offset typed buffer;
-      // this both releases the large envelope and restores optimized indexed
-      // access in V8's routing hot loop.
-      const restored = new persisted[key].constructor(persisted[key].length)
-      restored.set(persisted[key])
-      persisted[key] = restored
+      if (!ArrayBuffer.isView(arrays[key])) throw new Error(`Compact-kernel snapshot is missing ${key}.`)
+      persisted[key] = arrays[key]
     }
     for (const key of activeServiceKernelDictionaryKeys) {
       if (!Array.isArray(persisted[key])) throw new Error(`Compact-kernel snapshot is missing ${key}.`)
@@ -9276,6 +9237,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
       toStationGroupId: to?.parent_station || last.to_stop_id,
       fromName: from?.name ?? first.from_stop_id, toName: to?.name ?? last.to_stop_id,
       routeFeatureId: first.route_id, routeId: first.route_id,
+      routeType: route.route_type,
       routeShortName: route.short_name || route.long_name || first.route_id, routeColor: route.color || undefined,
       tripId: first.trip_id, directionId: first.direction_id || undefined,
       startMinutes: minuteCoordinate(first.departure), endMinutes: minuteCoordinate(last.arrival),
@@ -9318,6 +9280,11 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
     endpointConnector: endpointConnector(destination.coordinate, destinationToStopCoordinates[0], true),
   })
   const legNormalizationStartedAt = performance.now()
+  const stationAccess = annotateStationAccess(legs, {
+    exactStationAccess, exactStationEgress,
+  })
+  const originStreetPathVerified = exactStationAccess || legs[0].streetPathVerified === true
+  const destinationStreetPathVerified = exactStationEgress || legs.at(-1).streetPathVerified === true
   legs = normalizeNationalLegs(legs)
   legNormalizationMs = performance.now() - legNormalizationStartedAt
   const rideLegs = legs.filter((leg) => leg.type === 'ride')
@@ -9365,7 +9332,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
     recommended: true, title: routeTitle || 'Transit',
     detail: routeTimingDetail(
       durationMinutes,
-      serviceDateResolution,
+      { ...serviceDateResolution, ...stationAccess },
       bridgedUntimedGapCount,
       sourceEqualTimeRideCount,
     ),
@@ -9373,6 +9340,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
     transfers: boardingSummary.transfers, origin, destination,
     snappedOrigin: stopRecord(firstAccessStop), snappedDestination: stopRecord(bestStop), legs,
     diagnostics: {
+      ...stationAccess,
       originWalkKm: firstAccessStop.distanceKm, destinationWalkKm: bestStop.distanceKm,
       scannedDepartures: search.scannedDepartures, relaxedStops: search.relaxedStops,
       serviceDay: request.serviceDay ?? 'weekday', ...serviceDateDiagnostics(serviceDateResolution), scheduleMode,
@@ -9389,8 +9357,8 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
       accessDurationModel: nationalRoutingAccessPolicy.durationModel,
       accessPaddingFactor,
       accessOverheadSeconds,
-      originStreetPathVerified: exactStationAccess || firstAccessStop.streetPathVerified === true,
-      destinationStreetPathVerified: exactStationEgress || bestStop.streetPathVerified === true,
+      originStreetPathVerified,
+      destinationStreetPathVerified,
       searchProfile: balancedRequest ? 'balanced' : 'fastest', searchStrategy: 'exact',
       algorithm: activeServiceKernelAlgorithm(search),
       optimality: realtimeAdjustedRideCount
@@ -12433,7 +12401,11 @@ function compactNationalAlternativeLegs(firstLegs, secondLegs) {
 
 export function stitchNationalAlternativePlans(firstPlan, secondPlan, options = {}) {
   if (firstPlan?.status !== 'ready' || secondPlan?.status !== 'ready') return null
-  const legs = compactNationalAlternativeLegs(firstPlan.legs, secondPlan.legs)
+  const legs = compactNationalAlternativeLegs(firstPlan.legs, secondPlan.legs).map(leg => ({ ...leg }))
+  const stationAccess = annotateStationAccess(legs, {
+    exactStationAccess: firstPlan.origin?.source === 'stop' && firstPlan.origin.stopId === legs[0]?.toStopId,
+    exactStationEgress: secondPlan.destination?.source === 'stop' && secondPlan.destination.stopId === legs.at(-1)?.fromStopId,
+  })
   const rideLegs = legs.filter((leg) => leg.type === 'ride')
   if (!rideLegs.length) return null
   const departMinutes = numeric(firstPlan.departMinutes)
@@ -12464,7 +12436,7 @@ export function stitchNationalAlternativePlans(firstPlan, secondPlan, options = 
     title: boardingSummary.title || firstPlan.title || secondPlan.title || 'Transit',
     detail: routeTimingDetail(
       durationMinutes,
-      firstPlan.diagnostics,
+      { ...firstPlan.diagnostics, ...stationAccess },
       bridgedUntimedGapCount,
       sourceEqualTimeRideCount,
     ),
@@ -12482,6 +12454,7 @@ export function stitchNationalAlternativePlans(firstPlan, secondPlan, options = 
     legs,
     diagnostics: {
       ...secondPlan.diagnostics,
+      ...stationAccess,
       originWalkKm: firstPlan.diagnostics?.originWalkKm,
       destinationWalkKm: secondPlan.diagnostics?.destinationWalkKm,
       searchProfile: 'pareto',
@@ -12577,7 +12550,7 @@ function materializeNationalLongWalkAlternative(prefix, path, request, preferred
   const startMinutes = numeric(prefix.arriveMinutes)
   const durationMinutes = secondsToMinutes(walkSeconds(path.distanceKm))
   const endMinutes = Number((startMinutes + durationMinutes).toFixed(3))
-  const legs = [...(prefix.legs ?? []), {
+  const legs = [...(prefix.legs ?? []).map(leg => ({ ...leg })), {
     type: 'walk',
     travelMode: 'walk',
     walkSource: 'osm',
@@ -12597,6 +12570,9 @@ function materializeNationalLongWalkAlternative(prefix, path, request, preferred
   const rideMinutes = rideLegs.reduce((sum, leg) => sum + Math.max(0, numeric(leg.durationMinutes, 0)), 0)
   const departMinutes = numeric(prefix.departMinutes)
   const totalMinutes = Number((endMinutes - departMinutes).toFixed(3))
+  const stationAccess = annotateStationAccess(legs, {
+    exactStationAccess: prefix.origin?.source === 'stop' && prefix.origin.stopId === legs[0]?.toStopId,
+  })
   return markNationalLongWalkAlternative({
     ...prefix,
     id: stablePlanId('national-long-walk', { sourcePlanId: prefix.id, destination: request.destination, endMinutes, legs }),
@@ -12606,14 +12582,16 @@ function materializeNationalLongWalkAlternative(prefix, path, request, preferred
     title: boardingSummary.title,
     arriveMinutes: endMinutes,
     durationMinutes: totalMinutes,
+    detail: routeTimingDetail(totalMinutes, { ...prefix.diagnostics, ...stationAccess }, prefix.diagnostics?.bridgedUntimedGapCount),
     walkMinutes: Number(walkMinutes.toFixed(3)),
     rideMinutes: Number(rideMinutes.toFixed(3)),
     waitMinutes: Number(Math.max(0, totalMinutes - walkMinutes - rideMinutes).toFixed(3)),
     transfers: boardingSummary.transfers,
     diagnostics: {
       ...prefix.diagnostics,
+      ...stationAccess,
       destinationWalkKm: path.distanceKm,
-      destinationStreetPathVerified: true,
+      destinationStreetPathVerified: legs.at(-1)?.stationAccessStatus !== 'unverified',
     },
   }, preferredWalkKm, alternativeWalkKm, waypoint)
 }
@@ -12622,7 +12600,7 @@ function materializeNationalLongWalkAccessAlternative(plan, path, request, cente
   if (plan?.status !== 'ready' || plan.travelMode !== 'transit' || !path?.coordinates?.length || !Number.isFinite(path.distanceKm)) return null
   const walkDurationMinutes = secondsToMinutes(walkSeconds(path.distanceKm))
   const accessEndMinutes = Number((centerMinutes + walkDurationMinutes).toFixed(3))
-  const transitLegs = [...(plan.legs ?? [])]
+  const transitLegs = (plan.legs ?? []).map(leg => ({ ...leg }))
   while (transitLegs[0]?.type === 'walk' && numeric(transitLegs[0]?.durationMinutes, 0) <= 0.01) transitLegs.shift()
   const legs = [{
     type: 'walk',
@@ -12646,6 +12624,9 @@ function materializeNationalLongWalkAccessAlternative(plan, path, request, cente
   const walkMinutes = legs.filter((leg) => leg.type === 'walk').reduce((sum, leg) => sum + Math.max(0, numeric(leg.durationMinutes, 0)), 0)
   const rideMinutes = rideLegs.reduce((sum, leg) => sum + Math.max(0, numeric(leg.durationMinutes, 0)), 0)
   const boardingSummary = nationalRideBoardingSummary(rideLegs)
+  const stationAccess = annotateStationAccess(legs, {
+    exactStationEgress: plan.destination?.source === 'stop' && plan.destination.stopId === legs.at(-1)?.fromStopId,
+  })
   return {
     ...plan,
     id: stablePlanId('national-long-walk-access', { sourcePlanId: plan.id, origin: request.origin, centerMinutes, legs }),
@@ -12653,7 +12634,7 @@ function materializeNationalLongWalkAccessAlternative(plan, path, request, cente
     choiceLabel: 'Longer walk',
     recommended: false,
     title: boardingSummary.title || plan.title,
-    detail: routeTimingDetail(durationMinutes, plan.diagnostics, plan.diagnostics?.bridgedUntimedGapCount),
+    detail: routeTimingDetail(durationMinutes, { ...plan.diagnostics, ...stationAccess }, plan.diagnostics?.bridgedUntimedGapCount),
     departMinutes: centerMinutes,
     durationMinutes,
     waitMinutes: Number(Math.max(0, durationMinutes - walkMinutes - rideMinutes).toFixed(3)),
@@ -12664,8 +12645,9 @@ function materializeNationalLongWalkAccessAlternative(plan, path, request, cente
     legs: normalizeNationalLegs(legs),
     diagnostics: {
       ...plan.diagnostics,
+      ...stationAccess,
       originWalkKm: path.distanceKm,
-      originStreetPathVerified: true,
+      originStreetPathVerified: legs[0]?.stationAccessStatus !== 'unverified',
       searchProfile: 'pareto',
       searchStrategy: 'exact_constrained_access',
       optimality: 'distinct_station_access_alternative',

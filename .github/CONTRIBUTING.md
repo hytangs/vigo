@@ -33,8 +33,8 @@ files under `release/`.
 ## Verify the change
 
 Run `npm test` while working. Before proposing a release-affecting change, run
-`npm run check:release`. On a supported Apple-silicon Mac,
-`npm run release:studio` builds, packages, signs, and archives VIGO Studio.
+`npm run check:release`. On each supported target,
+`npm run release:studio` builds, packages, checks the bundled runtime, and archives VIGO Studio; macOS bundles receive an ad-hoc signature.
 Report which checks ran and which platform-specific checks did not.
 
 ## Claims and limitations

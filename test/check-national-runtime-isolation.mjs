@@ -45,6 +45,7 @@ async function writeFixtureProject(projectId) {
       JSON.stringify(`${projectId}:routing`),
     )
     insert.run('storeId', JSON.stringify(projectId))
+    insert.run('transferSemanticsVersion', JSON.stringify('vigo.routing.transfers.v3'))
   } finally {
     database.close()
   }

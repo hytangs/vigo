@@ -1,7 +1,7 @@
 {
   "name": "vigo",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Build and query city mobility models from GTFS and OSM.",
   "license": "Apache-2.0",
   "repository": {
@@ -51,16 +51,16 @@
     "check:store-admission": "node test/check-national-store-admission.mjs && node test/check-national-osm-store-admission.mjs",
     "check:security": "node test/check-local-http-security.mjs && node test/check-realtime-url-security.mjs && node test/check-cch-manifest.mjs",
     "check:national": "node test/check-national-routing-store.mjs",
-    "check:accuracy": "node test/check-routing-accuracy.mjs",
+    "check:accuracy": "node test/check-national-route-geometry.mjs && node test/check-routing-accuracy.mjs",
     "check:national-choices": "node test/check-national-route-choices.mjs && node test/check-route-alternatives.mjs && node test/check-bounded-search.mjs",
     "check:reach-scenarios": "node test/check-reach-scenarios.mjs && node test/check-scenario-timing.mjs && node test/check-scenario-drafts.mjs && node test/check-street-network-surface.mjs && node test/check-service-edge-decomposition.mjs",
     "check:reach-engine": "node test/check-reach-engine.mjs",
     "check:national-focused": "node test/check-station-access.mjs && node test/check-national-stop-access-index.mjs && node test/check-national-parent-transfer-routing.mjs",
-    "check:national-runtime": "node test/check-national-derived-artifact-lifecycle.mjs && node test/check-national-cache.mjs && node test/check-national-prewarm-lifecycle.mjs && node test/check-national-runtime-isolation.mjs && node test/check-national-memory-pressure.mjs && npm run check:national-focused --silent",
+    "check:national-runtime": "node test/check-routing-snapshot.mjs && node test/check-national-derived-artifact-lifecycle.mjs && node test/check-national-cache.mjs && node test/check-national-prewarm-lifecycle.mjs && node test/check-national-runtime-isolation.mjs && node test/check-national-memory-pressure.mjs && npm run check:national-focused --silent",
     "check:atlas": "node test/check-transport-atlas.mjs && node test/check-project-atlas-api.mjs",
     "build:cli": "node scripts/build-cli.mjs",
     "cli": "node public/vigo.mjs",
-    "check:cli": "npm run build:cli --silent && node test/check-capabilities.mjs && node test/check-city.mjs && node test/check-service-day.mjs && node test/check-cli.mjs && node test/check-result-comparison.mjs && node test/check-routing-interface-parity.mjs",
+    "check:cli": "npm run build:cli --silent && node test/check-capabilities.mjs && node test/check-city.mjs && node test/check-city-build-equivalence.mjs && node test/check-service-day.mjs && node test/check-cli.mjs && node test/check-result-comparison.mjs && node test/check-routing-interface-parity.mjs && npm run check:portability --silent",
     "check:public": "node test/check-node-runtime.mjs && node test/check-public-release.mjs && npm run check:docs --silent",
     "docs:developer-guide": "node scripts/build-developer-guide.mjs",
     "check:engine": "npm run check:rust-routing-targets --silent && npm run check:rust-routing-kernel --silent && npm run typecheck --silent && npm run check:studio --silent && npm run check:security --silent && npm run check:ui --silent && npm run check:map --silent && npm run check:gtfs --silent && npm run check:routing --silent && npm run check:cli --silent",
@@ -70,8 +70,10 @@
     "package:studio": "node scripts/package-desktop.mjs",
     "build:studio": "npm run build && npm run package:studio",
     "archive:studio": "node scripts/archive-desktop.mjs",
-    "release:studio": "npm run check:icons --silent && npm run build:studio && npm run archive:studio",
-    "preview": "vite preview --host 127.0.0.1"
+    "release:studio": "npm run check:icons --silent && npm run build:studio && npm run check:packaged && npm run archive:studio",
+    "preview": "vite preview --host 127.0.0.1",
+    "check:portability": "node test/check-city-portability.mjs",
+    "check:packaged": "node test/check-packaged-studio.mjs"
   },
   "dependencies": {
     "jszip": "^3.10.1",

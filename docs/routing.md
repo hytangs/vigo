@@ -19,16 +19,15 @@ Stop IDs are exact GTFS identifiers. Coordinate points are [longitude, latitude]
 Transit Route requires at least one vehicle boarding by default. Missing transit
 remains a blocked transit result; it is not replaced by a long walk. Use Walk
 mode for a walking journey. A JSON request can opt into walking comparisons with
-`requireTransitRide: false` (`require_transit_ride=False` in Python). Transit
+`requireTransitRide: false`. Transit
 Matrix uses the same default. `maxWalkKm` limits each access and egress walk;
 it is not a limit on an explicitly requested complete walking journey.
-`--horizon` / `horizonMinutes` / Python `horizon_minutes` sets the timetable
+`--horizon` / `horizonMinutes` sets the timetable
 search horizon in minutes (default 480, range 1–2880).
 
 Transit JSON requests accept `disableCache: true` to disable street-access
 frontier and walking-path caches while keeping the prepared City resident.
-Python exposes this as `disable_cache=True` on Route and Matrix. Route answers
-are recomputed regardless of this option.
+Route answers are recomputed regardless of this option.
 
 ## Result
 
@@ -36,7 +35,7 @@ A Route Result contains status, chronological legs, departure and arrival, durat
 
 The engine adds no implicit boarding buffer. Same-stop vehicle changes honor published GTFS minimum transfer times and forbidden transfers; staying aboard does not incur a transfer minimum. Explicit transfer edges retain their durations without an added boarding margin or a 60-second floor. Native diagnostics report `transferBoardSlackSeconds: 0`. A published platform-to-platform transfer rule takes precedence over the station walking fallback.
 
-VIGO 0.3.0 exposes `earliest_arrival`. Equal-arrival journeys prefer fewer boardings, then less walking, then a stable final order. VIGO does not expose an undefined “balanced” preference. Arrive-by first maximizes departure time; among journeys leaving at that boundary and arriving by the deadline, it minimizes boardings, then walking, then actual arrival. A slightly later on-time arrival can therefore avoid unnecessary transfers.
+VIGO 0.3.1 exposes `earliest_arrival`. Equal-arrival journeys prefer fewer boardings, then less walking, then a stable final order. VIGO does not expose an undefined “balanced” preference. Arrive-by first maximizes departure time; among journeys leaving at that boundary and arriving by the deadline, it minimizes boardings, then walking, then actual arrival. A slightly later on-time arrival can therefore avoid unnecessary transfers.
 
 Departure-window queries also return up to five distinct journey choices in
 `choices`, including slower services that reduce transfers or walking. For each
@@ -60,8 +59,7 @@ Depart-at transit, arrive-by transit, walking, driving, realtime-adjusted transi
 
 ## Maximum transfers
 
-Use `maxTransfers` in a JSON request, `--max-transfers=N` in the CLI, or
-`max_transfers=N` in Python. Studio exposes Maximum transfers under Route options.
+Use `maxTransfers` in a JSON request or `--max-transfers=N` in the CLI. Studio exposes Maximum transfers under Route options.
 `0` permits at most one boarding; `1` permits at most two. Values must be
 integers from 0 through 31. Omit the option for no additional limit. Staying
 aboard the same trip is not a transfer. Walk-only results require an explicit opt-in.

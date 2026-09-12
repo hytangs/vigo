@@ -315,24 +315,72 @@ export async function buildNationalOsmStore({
   let uncertainConveyingWayCount = 0
   let transactionRows = 0
   const sourceHasher = crypto.createHash('sha256')
+  const validateNodeId = (id) => {
+    // Unreferenced nodes no longer reach SQLite, so preserve the integer-range
+    // validation previously enforced by its INTEGER PRIMARY KEY column.
+    if (!Number.isInteger(id) || id < -(2 ** 63) || id >= 2 ** 63) {
+      throw new Error('OSM node ID is outside the supported 64-bit integer range.')
+    }
+  }
   db.exec('BEGIN IMMEDIATE')
   try {
+    // Resolve every supported way, but avoid writing unrelated building/land-use
+    // nodes to the temporary SQLite lookup. The second pass still validates all
+    // node records and preserves the original source-node count.
+    // Bound each Set by its integer-ID range, including on large extracts.
+    const nodeIdBucketSize = 1_048_576
+    const requiredNodes = new Map()
+    let requiredNodeCount = 0
+    const requireNode = (id) => {
+      const bucketId = Math.floor(id / nodeIdBucketSize)
+      let bucket = requiredNodes.get(bucketId)
+      if (!bucket) requiredNodes.set(bucketId, bucket = new Set())
+      const previousSize = bucket.size
+      bucket.add(id - bucketId * nodeIdBucketSize)
+      requiredNodeCount += bucket.size - previousSize
+    }
+    const isRequiredNode = (id) => {
+      const bucketId = Math.floor(id / nodeIdBucketSize)
+      return requiredNodes.get(bucketId)?.has(id - bucketId * nodeIdBucketSize) === true
+    }
+    const selectionHasher = crypto.createHash('sha256')
+    await forEachPbfBlock(pbfPath, async (block) => {
+      for (const groupBytes of block.groups) {
+        forEachPrimitiveEntity(block, groupBytes, {
+          way: (way) => {
+            const tags = wayTags(way, block.strings)
+            if (!nationalOsmWayWalkable(tags) && !drivable(tags)) return
+            for (const nodeId of way.refs) requireNode(nodeId)
+          },
+        })
+      }
+    }, ({ progress, bytesRead, totalBytes }) => onProgress?.({
+      phase: 'Selecting street node references', progress: progress * 0.12,
+      detail: `${requiredNodeCount.toLocaleString()} referenced nodes`,
+      bytesRead, totalBytes, memory: process.memoryUsage().rss,
+    }), (bytes) => selectionHasher.update(bytes))
+    const selectedSourceFingerprint = selectionHasher.digest('hex')
     await forEachPbfBlock(pbfPath, async (block) => {
       for (const groupBytes of block.groups) {
         forEachPrimitiveEntity(block, groupBytes, {
           node: (node) => {
             if (node.id) {
-              const [lon, lat] = coordinate(block, node.lat, node.lon)
-              insertNode.run(node.id, lat, lon)
+              validateNodeId(node.id)
               nodeCount += 1
-              transactionRows += 1
+              if (isRequiredNode(node.id)) {
+                const [lon, lat] = coordinate(block, node.lat, node.lon)
+                insertNode.run(node.id, lat, lon)
+                transactionRows += 1
+              }
             }
           },
           denseNodes: (dense) => {
             for (let index = 0; index < dense.ids.length; index += 1) {
+              validateNodeId(dense.ids[index])
+              nodeCount += 1
+              if (!isRequiredNode(dense.ids[index])) continue
               const [lon, lat] = coordinate(block, dense.lats[index], dense.lons[index])
               insertNode.run(dense.ids[index], lat, lon)
-              nodeCount += 1
               transactionRows += 1
             }
           },
@@ -362,13 +410,14 @@ export async function buildNationalOsmStore({
             let previous = null
             for (const nodeId of way.refs) {
               const point = getNode.get(nodeId)
+              let indexed = false
               if (previous && point) {
                 const distanceM = haversineKm([previous.lon, previous.lat], [point.lon, point.lat]) * 1000
                 if (distanceM > 0 && distanceM < 10_000) {
                   if (walkDirections.forward || walkDirections.backward) {
                     if (walkDirections.forward) insertEdge.run(previous.id, nodeId, distanceM, way.id)
                     if (walkDirections.backward) insertEdge.run(nodeId, previous.id, distanceM, way.id)
-                    walkNodeCount += Number(insertWalkNode.run(previous.id, previous.lat, previous.lon).changes > 0)
+                    if (!previous.indexed) walkNodeCount += Number(insertWalkNode.run(previous.id, previous.lat, previous.lon).changes > 0)
                     walkNodeCount += Number(insertWalkNode.run(nodeId, point.lat, point.lon).changes > 0)
                     edgeCount += Number(walkDirections.forward) + Number(walkDirections.backward)
                     transactionRows += Number(walkDirections.forward) + Number(walkDirections.backward)
@@ -394,15 +443,18 @@ export async function buildNationalOsmStore({
                         roadClass,
                       )
                     }
-                    const previousInsert = insertDriveNode.run(previous.id, previous.lat, previous.lon)
+                    if (!previous.indexed) driveNodeCount += Number(insertDriveNode.run(previous.id, previous.lat, previous.lon).changes > 0)
                     const pointInsert = insertDriveNode.run(nodeId, point.lat, point.lon)
-                    driveNodeCount += Number(previousInsert.changes > 0) + Number(pointInsert.changes > 0)
+                    driveNodeCount += Number(pointInsert.changes > 0)
                     driveEdgeCount += Number(driveDirections.forward) + Number(driveDirections.backward)
                     transactionRows += Number(driveDirections.forward) + Number(driveDirections.backward)
                   }
+                  indexed = true
                 }
               }
-              previous = point ? { id: nodeId, ...point } : null
+              // A valid preceding segment has already inserted this endpoint
+              // for the same way permissions; avoid the duplicate SQL writes.
+              previous = point ? { id: nodeId, ...point, indexed } : null
             }
           },
         })
@@ -413,12 +465,17 @@ export async function buildNationalOsmStore({
       }
     }, ({ progress, bytesRead, totalBytes }) => onProgress?.({
       phase: wayCount || driveWayCount ? 'Indexing pedestrian and driving streets' : 'Reading OSM nodes',
-      progress: progress * 0.88,
+      progress: 0.12 + progress * 0.76,
       detail: `${nodeCount.toLocaleString()} nodes / ${edgeCount.toLocaleString()} walk + ${driveEdgeCount.toLocaleString()} drive edges`,
       bytesRead,
       totalBytes,
       memory: process.memoryUsage().rss,
     }), (bytes) => sourceHasher.update(bytes))
+    const sourceFingerprint = sourceHasher.digest('hex')
+    if (sourceFingerprint !== selectedSourceFingerprint) {
+      throw new Error('OSM PBF changed during street compilation; retry against a stable input.')
+    }
+    requiredNodes.clear()
     db.exec('COMMIT')
     onProgress?.({ phase: 'Building street indexes', progress: 0.9, detail: `${edgeCount.toLocaleString()} walk + ${driveEdgeCount.toLocaleString()} drive edges`, memory: process.memoryUsage().rss })
     // `nodes` is an import-time lookup table used to resolve OSM way
@@ -468,7 +525,7 @@ export async function buildNationalOsmStore({
     const metadata = {
       schemaVersion: streetStoreSchemaVersion,
       sourceModel: 'pbf',
-      sourceFingerprint: sourceHasher.digest('hex'),
+      sourceFingerprint,
       sourceFile: path.basename(pbfPath),
       sourceBytes: source.size,
       builtAt: new Date().toISOString(),

@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import {
@@ -140,7 +141,7 @@ async function prepareKernelInWalkingPolicy(overrides = {}) {
   const { stdout } = await execFileAsync(
     process.execPath,
     ['--input-type=module', '--eval', source],
-    { cwd: path.resolve(new URL('..', import.meta.url).pathname), env: environment, maxBuffer: 4 * 1024 * 1024 },
+    { cwd: fileURLToPath(new URL('..', import.meta.url)), env: environment, maxBuffer: 4 * 1024 * 1024 },
   )
   return JSON.parse(stdout)
 }
@@ -184,12 +185,14 @@ try {
   const initialContext = prepareNationalGtfsRoutingContext(storePath, { serviceDate, serviceDay: 'weekday' })
   assert.equal(initialContext.activeServiceKernel.ready, true)
   assert.equal(initialContext.activeServiceKernel.persistenceState, 'written')
+  assert.equal(initialContext.accessMaterialization.persistenceState, 'written')
   assert.equal((await kernelFiles()).length, 1)
   const [portableKernelFile] = await kernelFiles()
   await fs.copyFile(
     path.join(folder, portableKernelFile),
     path.join(relocatedDirectory, portableKernelFile),
   )
+  await fs.copyFile(`${storePath}.access-context.bin`, `${relocatedStorePath}.access-context.bin`)
   disposeAllNationalGtfsStores()
 
   const relocatedContext = prepareNationalGtfsRoutingContext(
@@ -197,6 +200,8 @@ try {
     { serviceDate, serviceDay: 'weekday' },
   )
   assert.equal(relocatedContext.activeServiceKernel.persistenceState, 'loaded')
+  assert.equal(relocatedContext.accessMaterialization.persistenceState, 'loaded',
+    'Moving a complete City must retain its prepared station-access state.')
   assert.deepEqual(
     (await fs.readdir(relocatedDirectory)).filter((name) => name.includes('active-service-kernel.')),
     [portableKernelFile],
@@ -206,6 +211,7 @@ try {
   const [initialKernelFile] = await kernelFiles()
   await fs.truncate(path.join(folder, initialKernelFile), (513 * 1024 * 1024) + 1)
   const guardedContext = prepareNationalGtfsRoutingContext(storePath, { serviceDate, serviceDay: 'weekday' })
+  assert.equal(guardedContext.accessMaterialization.persistenceState, 'loaded')
   assert.equal(guardedContext.activeServiceKernel.persistenceState, 'written')
   assert.equal(guardedContext.activeServiceKernel.snapshotReadState, 'read_error')
   assert.match(guardedContext.activeServiceKernel.snapshotReadError, /serialized-size guard/)
@@ -257,7 +263,7 @@ try {
   assert.equal(rebuiltContext.activeServiceKernel.ready, true)
   assert.equal(
     rebuiltContext.activeServiceKernel.schemaVersion,
-    'vigo.routing.active-service-kernel.v14-rust-native',
+    'vigo.routing.active-service-kernel.v15-portable',
   )
   assert.equal(rebuiltContext.activeServiceKernel.persistenceState, 'written')
   const exact = routeNationalGtfsStore(storePath, request())
@@ -270,6 +276,14 @@ try {
   disposeAllNationalGtfsStores()
   const reloadedContext = prepareNationalGtfsRoutingContext(storePath, { serviceDate, serviceDay: 'weekday' })
   assert.equal(reloadedContext.activeServiceKernel.persistenceState, 'loaded')
+  assert.equal(reloadedContext.accessMaterialization.persistenceState, 'loaded')
+  disposeAllNationalGtfsStores()
+
+  await fs.writeFile(`${storePath}.access-context.bin`, 'truncated')
+  const repairedAccess = prepareNationalGtfsRoutingContext(storePath, { serviceDate, serviceDay: 'weekday' })
+  assert.equal(repairedAccess.accessMaterialization.persistenceState, 'written')
+  assert.match(repairedAccess.accessMaterialization.persistenceError, /truncated/)
+  assert.equal(routeNationalGtfsStore(storePath, request()).arriveMinutes, exact.arriveMinutes)
   disposeAllNationalGtfsStores()
 
   const regularPolicyKernel = await prepareKernelInWalkingPolicy()

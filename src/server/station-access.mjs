@@ -1,5 +1,48 @@
 import { haversineKm } from './geometry-utils.mjs'
 
+const isPathway = source => source === 'gtfs_pathway' || source === 'schedule_pathway'
+
+// A street path to a platform coordinate does not establish the station's
+// interior connection. Keep that evidence boundary on the selected legs;
+// missing station data does not supply a defensible additional travel time.
+export function annotateStationAccess(legs, {
+  exactStationAccess = false, exactStationEgress = false,
+} = {}) {
+  const stationStops = new Set()
+  for (const leg of legs) {
+    if (leg.type !== 'ride') continue
+    const subway = [1, 401, 402].includes(Number(leg.routeType))
+    for (const [id, stationId] of [[leg.fromStopId, leg.fromStationGroupId], [leg.toStopId, leg.toStationGroupId]]) {
+      if (id && (subway || (stationId && stationId !== id))) stationStops.add(id)
+    }
+  }
+  for (const [index, leg] of legs.entries()) {
+    if (leg.type !== 'walk' || leg.stationAccessStatus
+      || (index === 0 && exactStationAccess)
+      || (index === legs.length - 1 && exactStationEgress)
+      || (leg.fromStopId && leg.fromStopId === leg.toStopId)) continue
+    const stopIds = [...new Set([leg.fromStopId, leg.toStopId].filter(id => stationStops.has(id)))]
+    if (!stopIds.length) continue
+    const sources = leg.stationPathSources ?? [leg.transferSource]
+    const sourcePath = sources.length > 0 && sources.every(isPathway)
+    leg.stationAccessStatus = sourcePath ? 'source_path' : 'unverified'
+    leg.stationAccessStopIds = stopIds
+    if (!sourcePath) {
+      // Preserve the narrower street-segment result, while withdrawing the
+      // whole-leg claim when the entrance/platform connection is unknown.
+      leg.streetSegmentVerified = leg.streetPathVerified === true
+      leg.streetPathVerified = false
+    }
+  }
+  const stationAccessLegs = legs.filter(leg => leg.stationAccessStatus).length
+  const unverifiedStationAccessLegs = legs.filter(leg => leg.stationAccessStatus === 'unverified').length
+  return {
+    stationAccessStatus: unverifiedStationAccessLegs ? 'unverified' : stationAccessLegs ? 'source_path' : 'not_required',
+    stationAccessLegs,
+    unverifiedStationAccessLegs,
+  }
+}
+
 export function stationFallbackSeconds(from, to, walkingSpeedKph = 4.8) {
   const distanceKm = haversineKm([from.lon, from.lat], [to.lon, to.lat])
   return Math.max(120, Math.ceil(distanceKm / walkingSpeedKph * 3600))

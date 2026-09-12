@@ -25,7 +25,7 @@ function walk(directory) {
 
 const packageJson = JSON.parse(read('package.json'))
 const packageLock = JSON.parse(read('package-lock.json'))
-assert.equal(packageJson.version, '0.3.0')
+assert.equal(packageJson.version, '0.3.1')
 assert.equal(packageLock.version, packageJson.version)
 assert.equal(packageLock.packages?.['']?.version, packageJson.version)
 assert.equal(packageJson.license, 'Apache-2.0')
@@ -39,7 +39,7 @@ const requiredFiles = [
   'docs/gtfs-support-matrix.md', 'docs/known-routing-limitations.md',
   'docs/guides/use-cases.md', 'docs/guides/algorithms.md',
   'docs/development/architecture.md',
-  'docs/developer-guide/VIGO-0.3.0-Developer-Guide.tex',
+  'docs/developer-guide/VIGO-0.3.1-Developer-Guide.tex',
   'docs/developer-guide/vigo-developer-guide.sty',
   'scripts/build-developer-guide.mjs',
 ]
@@ -65,15 +65,14 @@ for (const statement of ['Turn city transport data into answers.', 'City → Sce
 assert.equal(packageJson.scripts?.['docs:developer-guide'], 'node scripts/build-developer-guide.mjs')
 assert.equal(packageJson.scripts?.['docs:api-guide'], undefined)
 
-const developerGuide = read('docs/developer-guide/VIGO-0.3.0-Developer-Guide.tex')
+const developerGuide = read('docs/developer-guide/VIGO-0.3.1-Developer-Guide.tex')
 const programmaticGuide = read('docs/programmatic.md')
 const developerGuideSource = `${developerGuide}\n${read('docs/developer-guide/vigo-developer-guide.sty')}`
 for (const statement of [
-  'VIGO 0.3.0 Developer Guide',
+  'VIGO 0.3.1 Developer Guide',
   'City $\\longrightarrow$ Scenario?',
   'Every computation returns a Result, not a naked travel time.',
   'Compare is not a fourth Query.',
-  '\\section{VIGO Python}',
   '\\section{Command-line reference}',
 ]) {
   assert(developerGuideSource.includes(statement), `Developer Guide is missing: ${statement}`)
@@ -83,10 +82,11 @@ for (const removedSurface of ['\\vigotitlepage', '\\tableofcontents', '\\section
 }
 assert(!programmaticGuide.includes('Context.run(query)'), 'Programmatic guide retained the obsolete Context API.')
 assert(!developerGuide.includes('Context.run(query)'), 'Developer Guide retained the obsolete Context API.')
+assert(!/python|VigoError|InvalidQuery|UnsupportedQuery/iu.test(developerGuideSource), 'Python reference belongs in vigo-py.')
 
 const markdownFiles = [repositoryPath('README.md'), repositoryPath('.github/CONTRIBUTING.md'), ...walk(docsRoot).filter((file) => file.endsWith('.md'))]
 const forbidden = [
-  /\bVIGO-PY\b/iu, /\bone-to-many\b/iu, /\bisochrone\b/iu,
+  /```python/iu, /\b(?:city|scenario)\.supports\(/u, /\bone-to-many\b/iu, /\bisochrone\b/iu,
   /\baccessibility analysis\b/iu, /\bbuild-network\b/iu,
   /\broute-ndjson\b/iu, /\bprepare command\b/iu, /\/(?:Users|Volumes)\//u,
 ]

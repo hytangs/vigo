@@ -1,10 +1,11 @@
-# VIGO 0.3.0 Quickstart
+# VIGO 0.3.1 Quickstart
 
-Build one City and run the first Route in about five minutes.
+Build one City, then reuse it for Route, Matrix, and Reach. Build and first-query time depend on the size of the supplied network.
 
 ## 1. Install
 
-VIGO 0.3.0 requires Node.js 24.18 or newer and npm 11.6 or newer.
+VIGO 0.3.1 requires Node.js 24.18 or newer and npm 11.6 or newer.
+Source builds also require the pinned Rust toolchain. Supported targets are macOS Apple Silicon/Intel, Linux ARM64/x64 with glibc, and Windows x64. Use a native build for the target OS and CPU; City data moves between them. See the [platform and City limits](known-routing-limitations.md).
 
 ```bash
 git clone https://github.com/hytangs/vigo.git
@@ -69,7 +70,7 @@ Every computation returns a Result with the answer and its meaning:
 }
 ```
 
-These numbers were observed from the Boston City used for the guide. Another City revision can return a different journey.
+This abbreviated example illustrates the Result fields. Values depend on the supplied City and request.
 
 ## 5. Run Matrix
 
@@ -114,6 +115,6 @@ vigo reach \
 
 ## Where next
 
-- [Developer Guide](developer-guide/VIGO-0.3.0-Developer-Guide.tex): CLI, Python, Results, Scenario, compatibility, and full Query reference.
+- [Developer Guide](developer-guide/VIGO-0.3.1-Developer-Guide.tex): CLI, Results, Scenario, compatibility, and full Query reference.
 - [VIGO Studio Guide](studio.md): visual exploration, routing, playback, and analysis.
 - [Core concepts](concepts.md): City, Scenario, Query, and Result.

@@ -556,4 +556,15 @@ assert.equal(stitched.durationMinutes, 40)
 assert.equal(stitched.walkMinutes, 5)
 assert.equal(stitched.diagnostics.alternativeStrategy, 'station_pareto_waypoint')
 
+const stationSecondHalf = structuredClone(secondHalf)
+stationSecondHalf.legs[2].toStationGroupId = 'terminal-station'
+stationSecondHalf.legs.at(-1).streetPathVerified = true
+const stationStitched = stitchNationalAlternativePlans(firstHalf, stationSecondHalf)
+assert.equal(stationStitched.diagnostics.unverifiedStationAccessLegs, 1,
+  'An alternative must include station uncertainty from its second component.')
+assert.match(stationStitched.detail, /station access unverified/)
+assert.equal(stationStitched.legs.at(-1).streetPathVerified, false)
+assert.equal(stationSecondHalf.legs.at(-1).stationAccessStatus, undefined,
+  'Annotating an assembled alternative must not mutate its component plans.')
+
 console.log('National departure-window choice behavior passed.')

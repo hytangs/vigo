@@ -5,6 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { studioPaths } from './lib/studio-paths.mjs'
 
 const execFileAsync = promisify(execFile)
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -16,6 +17,7 @@ const releaseRoot = process.env.VIGO_RELEASE_ROOT
   ? path.resolve(process.env.VIGO_RELEASE_ROOT)
   : path.join(repositoryRoot, 'release')
 const serverRoot = path.join(applicationRoot, 'server')
+const packaged = studioPaths(releaseRoot, packageJson.version)
 
 if (!electronVersion) throw new Error('package.json must pin an Electron development dependency.')
 await assertFile(path.join(repositoryRoot, 'public', 'index.html'), 'Missing built Studio. Run npm run build first.')
@@ -56,14 +58,14 @@ await mkdir(releaseRoot, { recursive: true })
 const applicationPaths = await packager({
   dir: applicationRoot,
   name: 'VIGO Studio',
-  platform: 'darwin',
-  arch: process.arch === 'arm64' ? 'arm64' : 'x64',
+  platform: process.platform,
+  arch: process.arch,
   out: releaseRoot,
   overwrite: true,
   prune: false,
   asar: false,
   electronVersion,
-  icon: path.join(repositoryRoot, 'desktop', 'assets', 'VIGO.icns'),
+  icon: path.join(repositoryRoot, 'desktop', 'assets', process.platform === 'darwin' ? 'VIGO.icns' : process.platform === 'win32' ? 'VIGO.ico' : 'VIGOIcon.png'),
   appBundleId: 'app.vigo.studio',
   appCategoryType: 'public.app-category.productivity',
   appVersion: packageJson.version,
@@ -78,13 +80,13 @@ const applicationPaths = await packager({
 if (applicationPaths.length !== 1) {
   throw new Error(`Electron packaging returned ${applicationPaths.length} application paths.`)
 }
-const packagedRoot = applicationPaths[0]
-const appBundle = path.join(packagedRoot, 'VIGO Studio.app')
-await assertFile(path.join(appBundle, 'Contents', 'MacOS', 'VIGO Studio'), 'Packaged Studio executable is missing.')
-await execFileAsync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', appBundle])
-await execFileAsync('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', appBundle])
+await assertFile(packaged.executable, 'Packaged Studio executable is missing.')
+if (process.platform === 'darwin') {
+  await execFileAsync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', packaged.application])
+  await execFileAsync('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', packaged.application])
+}
 
-const bytes = await directoryBytes(appBundle)
+const bytes = await directoryBytes(packaged.application)
 console.log(JSON.stringify({
   status: 'packaged',
   product: 'VIGO Studio',
@@ -94,7 +96,8 @@ console.log(JSON.stringify({
   transport: 'memory',
   localPort: false,
   bytes,
-  appBundle,
+  platform: process.platform,
+  application: packaged.application,
 }, null, 2))
 
 async function bundleEngine() {

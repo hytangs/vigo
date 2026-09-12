@@ -371,8 +371,10 @@ function createWindow() {
     show: false,
     title: 'VIGO Studio',
     icon: studioIconPath,
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 19 },
+    ...(process.platform === 'darwin' ? {
+      titleBarStyle: 'hiddenInset',
+      trafficLightPosition: { x: 16, y: 19 },
+    } : {}),
     backgroundColor: '#f3f4f3',
     webPreferences: {
       preload: preloadPath,

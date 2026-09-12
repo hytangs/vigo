@@ -1,7 +1,18 @@
 # Version history
 
-## Unreleased
+## 0.3.1 — 2026-09-11
 
+Stabilization release; API 1.0, City format 1, and Result schema 1 are unchanged. See the [release notes](docs/releases/0.3.1.md).
+
+- Remove filesystem-timestamp dependencies from prepared street/drive index discovery.
+- Package and verify macOS Apple Silicon/Intel, Linux ARM64/x64, and Windows x64; exchange prepared City fixtures between targets.
+- Align Engine / Studio / Python documentation and state the bounded Studio-only realtime routing support.
+
+- Persist prepared station-access state with each City and materialize only selected station paths when reopening.
+- Use portable timetable snapshots across Node and the packaged runtime, avoiding V8-version-dependent recompilation.
+- Load and align ride geometry only for selected trips; remove blanket geometry preparation and calibration routes from opening.
+- Keep the main documentation focused on Studio and the command line; maintain Python examples in the separate wrapper repository.
+- Remove provisional City metadata aliases from CLI results and inspection.
 - Reuse the unrestricted search prefix when an exact transfer-capped journey needs a later arrival deadline.
 - Keep distinct persisted access profiles for complete source identities instead of a shared version prefix.
 - Place complete plans first in streaming responses so clients can preserve native JSON during export.
@@ -18,13 +29,12 @@ GTFS + OSM -> City -> Scenario -> Route | Matrix | Reach -> Result
 - Route, Matrix, and Reach are the only public computation families.
 - Scenario holds transport changes; walking limits and times remain Query inputs.
 - Compare acts on completed Results.
-- Studio, Python, and the command line use the same names and meanings.
-- The Python package is `vigo` and contains no second routing implementation.
+- Studio and the command line use the same names and meanings.
 - Query answers are computed on every call. Repeated work benefits from an open City and prepared indexes, not saved answers.
 - Runtime preparation, temporary-file cleanup, and worker lifetime are managed automatically.
 - Build, open, compute, and end-to-end timings remain separate.
 
-VIGO 0.3 intentionally removes the provisional commands, Python package, maintenance controls, and duplicate analysis surfaces that preceded this model. There is no compatibility layer.
+VIGO 0.3 intentionally removes the provisional commands, maintenance controls, and duplicate analysis surfaces that preceded this model. There is no compatibility layer.
 
 The final 0.3.0 fixes preserve Studio Scenario drafts between sessions and apply edited road gaps to every affected branch while retaining each branch's published geometry and runtime. Derived routing snapshots use the current content identity; older snapshots rebuild automatically. Transit Matrix uses the same native one-to-many computation for every matrix size, without an implicit transfer-time buffer. See the [GTFS support matrix](docs/gtfs-support-matrix.md) and [Studio guide](docs/studio.md) for the supported source rules and interface limits.
 

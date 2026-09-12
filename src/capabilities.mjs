@@ -100,8 +100,8 @@ export const capabilityCatalog = Object.freeze({
   productLine: Object.freeze([
     Object.freeze({
       id: 'command',
-      label: 'VIGO command',
-      purpose: 'Build Cities and run repeatable Route, Matrix, Reach, and Compare work.',
+      label: 'VIGO Engine',
+      purpose: 'Build Cities and compute Route, Matrix, Reach, and Compare through the VIGO command and shared native runtime.',
     }),
     Object.freeze({
       id: 'studio',

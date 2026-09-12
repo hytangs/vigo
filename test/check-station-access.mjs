@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
-import { stationAccessPaths } from '../src/server/station-access.mjs'
+import { annotateStationAccess, stationAccessPaths } from '../src/server/station-access.mjs'
 import { haversineKm } from '../src/server/geometry-utils.mjs'
+import { packStationPaths, stationPathLookup } from '../src/server/prepared-access-context.mjs'
+import { decodeRoutingSnapshot, encodeRoutingSnapshot } from '../src/server/routing-snapshot.mjs'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -23,6 +25,15 @@ for (let fixture = 0; fixture < 40; fixture += 1) {
     })
   }
   const actual = stationAccessPaths({ transfers, stationMembers: new Map(), forbiddenTransferPairs: new Set() }, stops)
+  const { stopIds, sources, ...arrays } = packStationPaths(stops, actual)
+  const restored = decodeRoutingSnapshot(encodeRoutingSnapshot({ stopIds, sources }, arrays))
+  const lookup = stationPathLookup({ ...restored.metadata, ...restored.arrays }, stops)
+  for (const link of actual) {
+    assert.deepEqual(lookup.get(`${link.from}:${link.to}:${link.seconds}`), {
+      coordinates: link.stops.map(index => [stops[index].lon, stops[index].lat]), sources: link.sources,
+    }, 'Persisted station paths must retain the complete directed path and source evidence.')
+  }
+  assert.equal(lookup.get('999:0:0'), undefined)
   for (let from = 0; from < stops.length; from += 1) {
     const expected = []
     function visit(at, seconds, distanceM, seen) {
@@ -56,6 +67,34 @@ const fallback = stationAccessPaths({ ...station, transfers: new Map() }, statio
 assert(fallback.every(p => p.seconds >= Math.ceil(p.distanceM / (4.8 / 3.6))),
   'A parent-station fallback must include the time needed to cross its distance.')
 
+const evidenceLegs = [
+  { type: 'walk', toStopId: 'A', durationMinutes: 0, distanceKm: 0, streetPathVerified: true },
+  { type: 'ride', routeType: 1, fromStopId: 'A', toStopId: 'B' },
+  { type: 'walk', fromStopId: 'B', toStopId: 'C', transferSource: 'osm_certified_radial', streetPathVerified: true },
+  { type: 'ride', routeType: 3, fromStopId: 'C', toStopId: 'D' },
+  { type: 'walk', fromStopId: 'D', streetPathVerified: true },
+]
+const evidence = annotateStationAccess(evidenceLegs)
+assert.equal(evidence.unverifiedStationAccessLegs, 2,
+  'Coincident coordinates and an OSM street witness do not establish a subway entrance path.')
+assert.equal(evidenceLegs[0].streetPathVerified, false)
+assert.equal(evidenceLegs[2].streetSegmentVerified, true)
+assert.equal(evidenceLegs[4].stationAccessStatus, undefined, 'Ordinary bus access is unaffected.')
+assert.deepEqual(annotateStationAccess(evidenceLegs), evidence, 'Annotation preserves the narrower evidence on repeated composition.')
+const declaredAccess = [
+  { type: 'walk', toStopId: 'A', stationPathSources: ['gtfs_pathway'] },
+  { type: 'ride', routeType: 1, fromStopId: 'A', toStopId: 'B' },
+  { type: 'walk', fromStopId: 'B' },
+]
+assert.equal(annotateStationAccess(declaredAccess, { exactStationEgress: true }).stationAccessStatus, 'source_path')
+assert.equal(declaredAccess[2].stationAccessStatus, undefined)
+const transferMinimum = [
+  { type: 'walk', toStopId: 'A', transferSource: 'gtfs_transfer' },
+  { type: 'ride', routeType: 1, fromStopId: 'A', toStopId: 'B' },
+]
+assert.equal(annotateStationAccess(transferMinimum).stationAccessStatus, 'unverified',
+  'A published transfer minimum is timing evidence, not an interior-path witness.')
+
 const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-pathway-time-'))
 try {
   for (const usePathway of [true, false]) {
@@ -88,6 +127,9 @@ try {
     })
     assert.equal(plan.status, 'ready')
     assert.equal(plan.arriveMinutes, 490, 'Station walking time must not catch the infeasible 08:02 bus.')
+    assert.equal(plan.diagnostics.stationAccessStatus, usePathway ? 'source_path' : 'unverified')
+    assert.equal(plan.diagnostics.unverifiedStationAccessLegs, usePathway ? 0 : 1)
+    if (!usePathway) assert.match(plan.detail, /station access unverified/)
     const walk = plan.legs.find(leg => leg.transferSource === (usePathway ? 'gtfs_pathway' : 'parent_station_fallback'))
     if (usePathway) {
       assert.equal(walk.durationMinutes, 3)

@@ -125,7 +125,7 @@ for (const file of files) {
 }
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
-assert.equal(packageJson.version, '0.3.0', 'Public package version must be 0.3.0.')
+assert.equal(packageJson.version, '0.3.1', 'Public package version must be 0.3.1.')
 assert.equal(packageJson.license, 'Apache-2.0', 'Public package must use Apache-2.0.')
 
 const workflowFiles = files.filter((file) => file.startsWith('.github/workflows/'))
@@ -144,10 +144,10 @@ const releaseWorkflow = fs.readFileSync(
   path.join(root, '.github', 'workflows', 'release-check.yml'),
   'utf8',
 )
-const [releaseBuildSection, releaseAttestationSection = ''] = releaseWorkflow.split(/\n  attest-macos-arm64:\n/u)
+const [releaseBuildSection, releaseAttestationSection = ''] = releaseWorkflow.split(/\n  attest:\n/u)
 assert(!releaseBuildSection.includes('id-token: write'), 'The release build job must not receive an OIDC token.')
 assert(!releaseBuildSection.includes('attestations: write'), 'The release build job must not receive attestation write access.')
-assert(releaseAttestationSection.includes('needs: build-macos-arm64'), 'Attestation must consume the completed read-only build artifact.')
+assert(releaseAttestationSection.includes('needs: [build, docs]'), 'Attestation must consume the completed read-only build artifact.')
 assert(releaseAttestationSection.includes('id-token: write'), 'The isolated attestation job requires OIDC access.')
 assert(releaseAttestationSection.includes('attestations: write'), 'The isolated attestation job requires attestation write access.')
 

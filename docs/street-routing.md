@@ -17,7 +17,7 @@ permission, or `foot=private`, stays outside the public walking graph.
 Rebuild older Cities to apply the current street-store v4 permission rules.
 
 For a population authorized to use internal roads at its own homes and destinations,
-build with `--private-access=endpoints` (Python: `private_access="endpoints"`).
+build with `--private-access=endpoints`.
 This City-wide modeling assumption permits mapped private streets only within
 the origin or destination's attached internal street region. An exact directed
 search follows those streets and interior public islands up to the first public

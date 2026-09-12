@@ -8,11 +8,13 @@ assert.equal(rustRoutingTarget('darwin', 'arm64')?.targetTriple, 'aarch64-apple-
 assert.equal(rustRoutingTarget('linux', 'x64')?.targetTriple, 'x86_64-unknown-linux-gnu')
 assert.equal(rustRoutingTarget('linux', 'x64')?.libraryName, 'libvigo_routing_kernel.so')
 assert.equal(rustRoutingTarget('win32', 'x64')?.targetTriple, 'x86_64-pc-windows-msvc')
-assert.equal(rustRoutingTarget('darwin', 'x64'), null)
-assert.equal(rustRoutingTarget('linux', 'arm64'), null)
+assert.equal(rustRoutingTarget('darwin', 'x64')?.targetTriple, 'x86_64-apple-darwin')
+assert.equal(rustRoutingTarget('linux', 'arm64')?.targetTriple, 'aarch64-unknown-linux-gnu')
+assert.equal(rustRoutingTarget('linux', 'ia32'), null)
+assert.equal(rustRoutingTarget('win32', 'arm64'), null)
 assert.deepEqual(
   supportedRustRoutingTargets.map((target) => target.host).sort(),
-  ['darwin:arm64', 'linux:x64', 'win32:x64'],
+  ['darwin:arm64', 'darwin:x64', 'linux:arm64', 'linux:x64', 'win32:x64'],
 )
 
 console.log('Rust routing target configuration checks passed.')

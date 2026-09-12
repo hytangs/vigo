@@ -1,70 +1,30 @@
-# Command line and VIGO Python
+# Command line
 
-The CLI is VIGO's shell and automation interface. VIGO Python is the programming interface for Python analysis, notebooks, and applications. Both use the same City, Scenario, Query, and Result model.
+The VIGO command builds Cities and runs Route, Matrix, Reach, and Compare from scripts and terminals. See the [Quickstart](quickstart.md) for installation and complete examples.
 
-## Python
+This is the public VIGO Engine interface. Studio uses the same core through an internal application channel; its local HTTP endpoints are not a supported external API. Python wraps the command's contracts in the [separate Python package](https://github.com/hytangs/vigo-py). API 1.0, City format 1, and Result schema 1 remain unchanged in 0.3.1; query support is declared by `capabilities` and the [Scenario support table](scenarios.md).
 
-```python
-import vigo
+| Command | Input | Output |
+| --- | --- | --- |
+| `build` | GTFS, OSM, output directory | A complete City |
+| `capabilities` | None | Versions and supported combinations |
+| `inspect` | City directory | Identity, sources, and counts |
+| `route` | City, JSON request or CSV, date | Journey or batch rows |
+| `matrix` | City, JSON request, date | One row per pair |
+| `reach` | City, JSON request, date | Surface and contours |
+| `compare` | Two saved Results | Changes without recomputation |
 
-city = vigo.open("./city")
-proposal = city.scenario("More service", services=changes)
-
-route = city.run(vigo.Route(...))
-matrix = city.run(vigo.Matrix(...))
-reach = proposal.run(vigo.Reach(...))
-comparison = vigo.compare(city.reach(...), reach)
+```bash
+vigo route --city ./city --request ./route.json \
+  --time 08:00 --service-date 2026-09-04 --output ./result.json
 ```
 
-`City.run(query)` and `Scenario.run(query)` are canonical. The `route`, `matrix`, and `reach` methods are convenience constructors only.
+Use `vigo --help` for options. Query commands print JSON; `--output` also saves the Result. CSV Route batches write rows and an adjacent summary. Coordinates use `[longitude, latitude]`; stop IDs are exact GTFS identifiers.
 
-Query objects can be stored and reused:
+## Results and errors
 
-```python
-query = vigo.Reach(
-    origin,
-    depart_at="08:00",
-    service_date="2026-09-04",
-)
-results = city.run([query, query])
-job = city.submit(query)
-```
+Route uses `result`, Matrix uses `rows`, Reach uses `surface` and `contours`, and Compare uses `change`. Query Results also carry `kind`, `status`, `query`, `warnings`, `timing`, and City identity.
 
-## Command line
+A `blocked` Result is a valid computation without a usable journey or surface and exits zero. Invalid input, unsupported combinations, incomplete Cities, and execution failures exit nonzero with an explanation on standard error. Keep these failures separate from blocked Results in batch analysis.
 
-```text
-vigo build
-vigo capabilities
-vigo inspect
-vigo route
-vigo matrix
-vigo reach
-vigo compare
-```
-
-- `build` creates one City.
-- `capabilities` reports API compatibility and supported combinations.
-- `inspect` describes a selected City.
-- `route`, `matrix`, and `reach` run the three Queries.
-- `compare` compares two saved Results.
-
-The command line does not expose internal setup or one command per routing variant.
-
-## Result shape
-
-Every Result carries:
-
-```json
-{
-  "kind": "route | matrix | reach",
-  "status": "ready | blocked",
-  "query": {},
-  "warnings": [],
-  "timing": {},
-  "result": {}
-}
-```
-
-Matrix uses `rows` and Reach uses `surface` plus `contours`. The common fields keep Studio, Python, and command-line interpretation aligned.
-
-Malformed Queries raise `InvalidQuery`; valid unsupported combinations raise `UnsupportedQuery`; execution failures raise `VigoError`. Jobs separately report `queued`, `running`, `ready`, `cancelled`, or `error`.
+See [Route](routing.md), [Matrix](matrix.md), [Reach](reach.md), and [Scenario semantics](scenarios.md) for request fields and interpretation.

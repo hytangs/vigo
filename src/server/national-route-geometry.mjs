@@ -190,116 +190,51 @@ function alignPreparedShapeStopIndices(preparedShape, stopCoordinates, stopKeys)
   return indices
 }
 
-export function prewarmNationalRouteGeometry(store, kernel, identity = '') {
-  const startedAt = performance.now()
-  const key = `${identity}\u0000${kernel?.serviceKey ?? ''}\u0000${kernel?.tripIds?.length ?? 0}`
-  if (store.routeGeometryPrewarm?.key === key) {
-    return { ...store.routeGeometryPrewarm, alreadyWarm: true, prewarmMs: 0 }
+// A kernel owns the segment indices. Keeping this cache with that kernel also
+// prevents an alignment from a different service date being reused accidentally.
+const tripAlignmentsByKernel = new WeakMap()
+
+function selectedTripShapeAlignment(store, connection) {
+  const kernel = store.activeServiceKernel
+  const segment = Number(connection.kernel_segment_index)
+  if (!kernel || !Number.isInteger(segment) || segment < 0) return null
+  const trip = kernel.segmentTrip[segment]
+  if (trip === undefined || kernel.tripIds[trip] !== connection.trip_id) return null
+  let alignments = tripAlignmentsByKernel.get(kernel)
+  if (!alignments) {
+    alignments = new Map()
+    tripAlignmentsByKernel.set(kernel, alignments)
   }
-  if (!store.tripShapeLookup || !store.shapePointsLookup || !kernel?.tripIds?.length) {
-    const unavailable = {
-      key,
-      ready: false,
-      reason: 'shape_tables_unavailable',
-      trips: 0,
-      shapes: 0,
-      stopCandidatePairs: 0,
-      prewarmMs: Number((performance.now() - startedAt).toFixed(3)),
-    }
-    store.routeGeometryPrewarm = unavailable
-    return unavailable
+  if (alignments.has(trip)) {
+    const alignment = alignments.get(trip)
+    alignments.delete(trip)
+    alignments.set(trip, alignment)
+    return alignment
   }
-  const stopsByShape = new Map()
-  let shapedTrips = 0
-  const maximumTrips = Math.max(1, Number(store.routeGeometryPrewarmMaxTrips ?? 500_000))
-  const maximumShapes = Math.max(1, Number(store.shapeGeometryCacheMaxEntries ?? 4096))
-  const examinedTrips = Math.min(kernel.tripIds.length, maximumTrips)
-  for (let trip = 0; trip < examinedTrips; trip += 1) {
-    const shapeId = shapeIdForTrip(store, kernel.tripIds[trip])
-    if (!shapeId) continue
-    shapedTrips += 1
-    let stops = stopsByShape.get(shapeId)
-    if (!stops) {
-      if (stopsByShape.size >= maximumShapes) continue
-      stops = new Map()
-      stopsByShape.set(shapeId, stops)
-    }
-    for (let segment = kernel.tripStart[trip]; segment < kernel.tripStart[trip + 1]; segment += 1) {
-      for (const stopIndex of [kernel.fromStop[segment], kernel.toStop[segment]]) {
-        const stopId = kernel.stopIds[stopIndex]
-        if (stops.has(stopId)) continue
-        const stop = store.stopLookup.get(stopId)
-        if (Number.isFinite(stop?.lon) && Number.isFinite(stop?.lat)) {
-          stops.set(stopId, [stop.lon, stop.lat])
-        }
-      }
-    }
-  }
-  let preparedShapes = 0
-  let stopCandidatePairs = 0
-  for (const [shapeId, stops] of stopsByShape) {
-    const shape = cachedNationalShapeCoordinatesById(store, shapeId)
-    if (!shape) continue
-    preparedShapes += 1
-    for (const [stopId, coordinate] of stops) {
-      cachedShapeCandidates(shape, coordinate, stopId)
-      stopCandidatePairs += 1
-    }
-  }
-  const patternAlignments = new Map()
-  const tripAlignments = new Map()
-  for (let trip = 0; trip < examinedTrips; trip += 1) {
-    const shapeId = shapeIdForTrip(store, kernel.tripIds[trip])
-    if (!shapeId) continue
-    const start = kernel.tripStart[trip]
-    const end = kernel.tripStart[trip + 1]
-    if (start >= end) continue
+  const shapeId = shapeIdForTrip(store, connection.trip_id)
+  const shape = cachedNationalShapeCoordinatesById(store, shapeId)
+  const start = kernel.tripStart[trip]
+  const end = kernel.tripStart[trip + 1]
+  let alignment = null
+  if (shape && start < end) {
     const stopIds = [kernel.stopIds[kernel.fromStop[start]]]
-    for (let segment = start; segment < end; segment += 1) {
-      stopIds.push(kernel.stopIds[kernel.toStop[segment]])
+    for (let index = start; index < end; index += 1) {
+      stopIds.push(kernel.stopIds[kernel.toStop[index]])
     }
-    const patternKey = `${shapeId}\u0000${stopIds.join('\u0000')}`
-    let alignment = patternAlignments.get(patternKey)
-    if (alignment === undefined) {
-      const shape = cachedNationalShapeCoordinatesById(store, shapeId)
-      const stopCoordinates = stopIds.map((stopId) => {
-        const stop = store.stopLookup.get(stopId)
-        return [numeric(stop?.lon, NaN), numeric(stop?.lat, NaN)]
-      })
-      const shapeIndices = stopCoordinates.every((coordinate) => coordinate.every(Number.isFinite))
-        ? alignPreparedShapeStopIndices(shape, stopCoordinates, stopIds)
-        : null
-      alignment = shapeIndices ? { shapeId, shape, shapeIndices } : null
-      patternAlignments.set(patternKey, alignment)
-    }
-    if (alignment) {
-      tripAlignments.set(kernel.tripIds[trip], {
-        ...alignment,
-        startSegment: start,
-        endSegment: end,
-      })
-    }
+    const coordinates = stopIds.map((stopId) => {
+      const stop = store.stopLookup.get(stopId)
+      return [numeric(stop?.lon, NaN), numeric(stop?.lat, NaN)]
+    })
+    const shapeIndices = coordinates.every((coordinate) => coordinate.every(Number.isFinite))
+      ? alignPreparedShapeStopIndices(shape, coordinates, stopIds)
+      : null
+    if (shapeIndices) alignment = { shapeId, shapeIndices, startSegment: start, endSegment: end }
   }
-  store.tripShapeAlignment = tripAlignments
-  const result = {
-    key,
-    ready: true,
-    reason: 'ready',
-    trips: kernel.tripIds.length,
-    examinedTrips,
-    complete: examinedTrips === kernel.tripIds.length && preparedShapes === stopsByShape.size,
-    shapedTrips,
-    shapes: stopsByShape.size,
-    preparedShapes,
-    stopCandidatePairs,
-    alignedPatterns: [...patternAlignments.values()].filter(Boolean).length,
-    alignedTrips: tripAlignments.size,
-    retainedShapes: store.shapeGeometryCache.size,
-    retainedBytes: Number(store.shapeGeometryCacheBytes ?? 0),
-    prewarmMs: Number((performance.now() - startedAt).toFixed(3)),
-  }
-  store.routeGeometryPrewarm = result
-  return result
+  const limit = Math.max(1, Number(store.shapeGeometryCacheMaxEntries ?? 4096))
+  while (alignments.size >= limit) alignments.delete(alignments.keys().next().value)
+  // Retain indices only: shape coordinates remain subject to the store byte budget.
+  alignments.set(trip, alignment)
+  return alignment ? { ...alignment, shape } : null
 }
 
 function clipPreparedShapeCoordinatesThroughStops(preparedShape, stopCoordinates, stopKeys = []) {
@@ -369,11 +304,14 @@ export function nationalRideGeometry(store, connections, stopLookup) {
   if (!first || !last) return { coordinates: [], distanceKm: 0, geometrySource: 'stop_sequence' }
   const from = stopLookup.get(first.from_stop_id)
   const to = stopLookup.get(last.to_stop_id)
-  const alignment = store.tripShapeAlignment?.get(first.trip_id)
+  const alignment = selectedTripShapeAlignment(store, first)
+  const alignedShape = alignment?.shape
+    ?? (alignment ? cachedNationalShapeCoordinatesById(store, alignment.shapeId) : null)
   const firstSegment = Number(first.kernel_segment_index)
   const lastSegment = Number(last.kernel_segment_index)
   if (
     alignment
+    && alignedShape
     && Number.isInteger(firstSegment)
     && Number.isInteger(lastSegment)
     && firstSegment >= alignment.startSegment
@@ -386,7 +324,7 @@ export function nationalRideGeometry(store, connections, stopLookup) {
         appendDistinctCoordinates(
           from ? [[from.lon, from.lat]] : [],
           [
-            ...alignment.shape.coordinates.slice(firstShapeIndex, lastShapeIndex + 1),
+            ...alignedShape.coordinates.slice(firstShapeIndex, lastShapeIndex + 1),
             ...(to ? [[to.lon, to.lat]] : []),
           ],
         ),

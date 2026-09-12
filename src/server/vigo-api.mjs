@@ -44,7 +44,7 @@ import { vigoCapabilities } from '../capabilities.mjs'
 
 const defaultHost = '127.0.0.1'
 const defaultPort = 5179
-const appVersion = '0.3.0'
+const appVersion = '0.3.1'
 const host = (process.env.VIGO_HOST || defaultHost).trim() || defaultHost
 const port = normalizePort(process.env.VIGO_PORT ?? process.env.VIGO_API_PORT, defaultPort)
 const apiTransport = String(process.env.VIGO_API_TRANSPORT ?? 'tcp').trim().toLowerCase()

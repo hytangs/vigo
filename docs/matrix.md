@@ -53,8 +53,7 @@ destinations. All rows in a request share the service date and time constraint.
 
 Group requests by shared endpoint, service date, time, and routing options.
 A common destination and deadline share a reverse scan; a common origin and
-departure share a forward scan. The Python City reuses a resident process
-across Matrix and transit Route queries on the same service date.
+departure share a forward scan.
 
 ```sh
 vigo matrix --city=/path/to/city --request=matrix.json \

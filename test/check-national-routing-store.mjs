@@ -2303,7 +2303,11 @@ try {
     'The complete access frontier must retain both reachable services.')
   assert.equal(parentModeAccessPlan.legs.find((leg) => leg.type === 'ride')?.fromStopId, 'A')
   assert.equal(parentModeAccessPlan.legs.find((leg) => leg.type === 'ride')?.startMinutes, 8 * 60 + 4)
-  assert.equal(parentModeAccessPlan.diagnostics.originStreetPathVerified, true)
+  assert.equal(parentModeAccessPlan.diagnostics.originStreetPathVerified, false,
+    'An entrance record without a declared interior path cannot certify the street-to-platform walk.')
+  assert.equal(parentModeAccessPlan.legs[0].stationAccessStatus, 'unverified')
+  assert.equal(parentModeAccessPlan.legs[0].streetSegmentVerified, true,
+    'The narrower native street witness remains available.')
   assert.equal(parentModeAccessPlan.snappedOrigin?.lon, 8.002, 'The exact search must board the platform reached through its parent entrance, not bind A to the street-side entrance record.')
   assert.equal(
     parentModeAccessPlan.legs.filter((leg) => leg.type === 'ride').at(-1)?.toStopId,

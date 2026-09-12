@@ -1,6 +1,6 @@
 # VIGO documentation
 
-VIGO has one model across Studio, Python, and the command line:
+VIGO has one model across Studio and the command line:
 
 ```text
 City -> Scenario -> Route | Matrix | Reach -> Result
@@ -8,9 +8,9 @@ City -> Scenario -> Route | Matrix | Reach -> Result
 
 ## Getting started
 
-- [VIGO 0.3.0 Quickstart](quickstart.md)
+- [VIGO 0.3.1 Quickstart](quickstart.md)
 - [Core concepts](concepts.md)
-- [VIGO 0.3.0 Developer Guide source](developer-guide/VIGO-0.3.0-Developer-Guide.tex) — build the PDF with `npm run docs:developer-guide`
+- [VIGO 0.3.1 Developer Guide source](developer-guide/VIGO-0.3.1-Developer-Guide.tex) — build the PDF with `npm run docs:developer-guide`
 
 ## VIGO Studio
 
@@ -19,7 +19,7 @@ City -> Scenario -> Route | Matrix | Reach -> Result
 
 ## Programmatic use
 
-- [Command line and VIGO Python](programmatic.md)
+- [Command line](programmatic.md)
 - [Route](routing.md)
 - [Routing accuracy checks](routing-accuracy.md)
 - [Matrix](matrix.md)

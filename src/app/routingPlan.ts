@@ -269,6 +269,11 @@ function mergeWalkLegs(left: RoutingLeg, right: RoutingLeg): RoutingLeg {
     transferSource: left.transferSource === right.transferSource ? left.transferSource : undefined,
     geometrySource: left.geometrySource === right.geometrySource ? left.geometrySource : undefined,
     streetPathVerified: left.streetPathVerified === true && right.streetPathVerified === true,
+    stationAccessStatus: left.stationAccessStatus === 'unverified' || right.stationAccessStatus === 'unverified'
+      ? 'unverified' : left.stationAccessStatus ?? right.stationAccessStatus,
+    stationAccessStopIds: [...new Set([...(left.stationAccessStopIds ?? []), ...(right.stationAccessStopIds ?? [])])],
+    streetSegmentVerified: (left.streetSegmentVerified ?? left.streetPathVerified) === true
+      && (right.streetSegmentVerified ?? right.streetPathVerified) === true,
     toStopId: right.toStopId,
     toName: right.toName,
     endMinutes: right.endMinutes,

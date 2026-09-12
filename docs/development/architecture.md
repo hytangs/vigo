@@ -12,8 +12,8 @@ VIGO presents one product model while keeping computation, application state, an
 | dedicated utility process                    |
 +----------------------+-----------------------+
                        |
-+-------------- Programmatic interfaces -------+
-| VIGO command         | VIGO Python           |
++-------------- Command-line interface --------+
+| VIGO command                                 |
 +----------------------+-----------------------+
                        |
              City -> Scenario -> Query
@@ -43,7 +43,7 @@ Studio checks the stored format before reporting an index as ready. An obsolete 
 
 ## Compute
 
-Rust owns timetable propagation, street search, Matrix work, and Reach surfaces. JavaScript owns validation, local application coordination, and Result shaping. Python communicates with the same command-line entry point and does not implement another router.
+Rust owns timetable propagation, street search, Matrix work, and Reach surfaces. JavaScript owns validation, local application coordination, and Result shaping.
 
 ## Studio
 

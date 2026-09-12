@@ -115,7 +115,7 @@ export function publishCchManifest({ kind, format, sourcePath, manifestPath, str
     schemaVersion: nativeCchManifestSchema,
     kind,
     format,
-    builderVersion: '0.3.0',
+    builderVersion: '0.3.1',
     source: fileIdentity(sourcePath),
     sourceSnapshot: snapshotIdentity(sourcePath),
     structure: fileIdentity(structurePath),
@@ -217,9 +217,36 @@ function snapshotPathForStore(storePath) {
   throw error
 }
 
-function streetCchPaths(snapshotPath, snapshotStat) {
-  const sourceIdentity = `${snapshotStat.size}-${snapshotStat.mtimeNs}`
-  const prefix = `${snapshotPath}.${nativeStreetCchFormat}.${sourceIdentity}`
+function cchPrefix(snapshotPath, format) {
+  const source = snapshotIdentity(snapshotPath)
+  const fingerprint = source?.identity?.sourceFingerprint
+  const generation = /^[a-f0-9]{64}$/u.test(fingerprint ?? '') ? fingerprint.slice(0, 16) : 'prepared'
+  const canonical = `${snapshotPath}.${format}.${generation}`
+  if (fs.existsSync(`${canonical}.manifest.json`)) return canonical
+
+  // Resolve a packaged generation by its embedded source identity. Copying or
+  // extracting a City may change every filesystem timestamp, but not its graph.
+  const directory = path.dirname(snapshotPath)
+  const basename = `${path.basename(snapshotPath)}.${format}.`
+  const identity = fileIdentity(snapshotPath)
+  for (const name of fs.readdirSync(directory).sort()) {
+    if (!name.startsWith(basename) || !name.endsWith('.manifest.json')) continue
+    const manifestPath = path.join(directory, name)
+    const size = fs.statSync(manifestPath).size
+    if (size <= 0 || size > 64 * 1024) continue
+    let manifest
+    try { manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) } catch { continue }
+    if (source && manifest.source?.file === identity.file
+      && manifest.source?.bytes === identity.bytes
+      && JSON.stringify(manifest.sourceSnapshot) === JSON.stringify(source)) {
+      return manifestPath.slice(0, -'.manifest.json'.length)
+    }
+  }
+  return canonical
+}
+
+function streetCchPaths(snapshotPath) {
+  const prefix = cchPrefix(snapshotPath, nativeStreetCchFormat)
   return {
     structurePath: `${prefix}.structure`,
     metricPath: `${prefix}.metric`,
@@ -231,9 +258,7 @@ function driveCchPaths(accelerator, persist = true) {
   if (!persist) return {}
   const snapshotPath = String(accelerator?.snapshotPath ?? '').trim()
   if (!snapshotPath || !fs.existsSync(snapshotPath)) return {}
-  const snapshotStat = fs.statSync(snapshotPath, { bigint: true })
-  const sourceIdentity = `${snapshotStat.size}-${snapshotStat.mtimeNs}`
-  const prefix = `${snapshotPath}.${nativeDriveCchFormat}.${sourceIdentity}`
+  const prefix = cchPrefix(snapshotPath, nativeDriveCchFormat)
   return {
     cchStructurePath: `${prefix}.structure`,
     cchTimeMetricPath: `${prefix}.time.metric`,
@@ -259,7 +284,7 @@ function kernelRecord(storePath) {
     kernel.configureTerminalAccess(terminalAccessPath)
   }
   const diagnostics = kernel.diagnostics()
-  const cchPaths = streetCchPaths(snapshotPath, snapshotStat)
+  const cchPaths = streetCchPaths(snapshotPath)
   const structureExists = fs.existsSync(cchPaths.structurePath)
   const metricExists = fs.existsSync(cchPaths.metricPath)
   const manifestExists = fs.existsSync(cchPaths.manifestPath)
@@ -1179,12 +1204,12 @@ export function configureNativeRoutingAccessProfile(storePath, profile, options 
       memberStationKeys: profile.memberStationKeys,
       stopLons: profile.stopLons,
       stopLats: profile.stopLats,
-      transferFromStopKeys: profile.transferFromStopKeys,
-      transferToStopKeys: profile.transferToStopKeys,
-      transferToStationKeys: profile.transferToStationKeys,
-      transferMinDurations: profile.transferMinDurations,
-      transferOsmCertified: profile.transferOsmCertified,
-      transferPathDistancesM: profile.transferPathDistancesM,
+      transferFromStopKeys: profile.transferFromStopKeys && Array.from(profile.transferFromStopKeys),
+      transferToStopKeys: profile.transferToStopKeys && Array.from(profile.transferToStopKeys),
+      transferToStationKeys: profile.transferToStationKeys && Array.from(profile.transferToStationKeys),
+      transferMinDurations: profile.transferMinDurations && Array.from(profile.transferMinDurations),
+      transferOsmCertified: profile.transferOsmCertified && Array.from(profile.transferOsmCertified),
+      transferPathDistancesM: profile.transferPathDistancesM && Array.from(profile.transferPathDistancesM),
       walkingSpeedKph: profile.walkingSpeedKph,
       accessPaddingFactor: profile.accessPaddingFactor,
       accessOverheadSeconds: profile.accessOverheadSeconds,

@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict'
 import process from 'node:process'
+import { supportedRustRoutingTargets } from '../scripts/lib/rust-routing-targets.mjs'
 
 const minimumNode = Object.freeze([24, 18, 0])
-const supportedTargets = new Set([
-  'darwin:arm64',
-  'linux:x64',
-  'win32:x64',
-])
+const supportedTargets = new Set(supportedRustRoutingTargets.map(({ host }) => host))
 
 function versionParts(value) {
   const parts = String(value).split('.').map((part) => Number(part))

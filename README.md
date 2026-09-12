@@ -11,7 +11,13 @@
 
 VIGO turns GTFS and OSM into a city model for routing, network-wide travel-time analysis, and service-change testing.
 
-Explore the City in VIGO Studio, automate it with the VIGO command, or install VIGO Python separately.
+VIGO has three components, sharing one routing engine and one Query model:
+
+| Component | Role | Interface |
+| --- | --- | --- |
+| **VIGO Engine** | Build reusable Cities and compute Route, Matrix, Reach, and Compare. | The `vigo` command and native runtime in this repository. |
+| **VIGO Studio** | Explore data, plan journeys, and compare Reach scenarios. | Desktop application; its project library is separate from CLI City directories. |
+| **VIGO Python** | Automate the same Engine from Python. | [Separate package and API documentation](https://github.com/hytangs/vigo-py). |
 
 ```text
 City → Scenario → Query → Result
@@ -20,7 +26,7 @@ City → Scenario → Query → Result
                    └─ Reach
 ```
 
-That is the complete product model.
+0.3.1 is a stabilization release. API 1.0, City format 1, and Result schema 1 remain unchanged.
 
 > VIGO 0.3 is pre-release software. Do not use it for safety-critical, operational, or passenger-information systems without independent validation.
 
@@ -36,7 +42,7 @@ VIGO compiles one or more static GTFS sources and an OSM extract into one portab
 - **Matrix** computes travel times between sets of origins and destinations.
 - **Reach** maps where the network can travel within stated time limits.
 
-Depart-at, arrive-by, departure windows, transport modes, waypoints, batch work, realtime state, and supplied traffic are options or Scenario state. They are not separate products.
+Depart-at, arrive-by, departure windows, transport modes, waypoints, and batch work are Query options. Scenario support is limited by interface: planned service changes apply to Reach, supplied traffic to Drive Route/Matrix, and live transit to Studio Route. See the [support boundaries](docs/known-routing-limitations.md).
 
 ### Compare change
 
@@ -53,36 +59,7 @@ VIGO Studio is the visual application:
 - **Analyze** — run Reach and compare service sources or planned changes.
 - **City** — manage data and settings.
 
-Matrix is available through the command line and VIGO Python in VIGO 0.3. Technical details appear with the Result that needs them, not as separate work areas.
-
-## VIGO Python
-
-VIGO Python is the separately installed Python interface. It uses the same nouns as Studio and the command line.
-
-```python
-import vigo
-
-with vigo.open("./washington-dc") as city:
-    route = city.route(
-        "A",
-        "B",
-        depart_at="08:00",
-        service_date="2026-09-04",
-    )
-    matrix = city.matrix(
-        {"home": "A"},
-        {"school": "B", "hospital": "C"},
-        depart_at="08:00",
-        service_date="2026-09-04",
-    )
-    reach = city.reach(
-        [-77.0365, 38.8977],
-        depart_at="08:00",
-        service_date="2026-09-04",
-    )
-```
-
-VIGO Python installs and imports as `vigo`.
+Matrix is available through Engine and Python. Studio uses the same computation core but does not directly open CLI City directories or provide a Matrix screen.
 
 ## Command line
 
@@ -115,6 +92,10 @@ VIGO opens the selected City and manages query readiness automatically.
 ## Build from source
 
 The source build requires Node.js 24.18 or newer, npm 11.6 or newer, and the Rust toolchain selected by `rust-toolchain.toml`.
+
+Build and packaged runtime targets are macOS 13.5+ (Apple Silicon and Intel), Linux (ARM64 and x64, glibc; release builds use Ubuntu 24.04), and Windows (x64). Download the matching [0.3.1 Studio archive](https://github.com/hytangs/vigo/releases/tag/v0.3.1), or build on the target machine. Linux builds do not target musl/Alpine; 32-bit and native Windows ARM64 builds are not provided.
+
+The runtime binary must match the OS and CPU. A complete City directory can move between these targets without importing its raw inputs again. Retained street, station-access, and timetable preparation is reusable after copying or extraction. New service patterns, changed policies, or incompatible/evicted timetable snapshots can require preparation. Reopening still takes disk reads and memory allocation; see [loading and timing](docs/performance.md).
 
 ```bash
 git clone https://github.com/hytangs/vigo.git
@@ -150,17 +131,18 @@ Repeated Route calls may reuse one open process. VIGO does not present reuse as 
 
 ## Documentation
 
-- [VIGO 0.3.0 Quickstart](docs/quickstart.md)
-- [VIGO 0.3.0 Developer Guide source](docs/developer-guide/VIGO-0.3.0-Developer-Guide.tex) — build the PDF with `npm run docs:developer-guide`
+- [VIGO 0.3.1 Quickstart](docs/quickstart.md)
+- [VIGO 0.3.1 Developer Guide source](docs/developer-guide/VIGO-0.3.1-Developer-Guide.tex) — build the PDF with `npm run docs:developer-guide`
 - [Core concepts](docs/concepts.md)
 - [VIGO Studio Guide](docs/studio.md)
-- [Command line and VIGO Python](docs/programmatic.md)
+- [Command line](docs/programmatic.md)
 - [Data support](docs/gtfs-support-matrix.md)
 - [Known limits](docs/known-routing-limitations.md)
 - [Internal architecture](docs/development/architecture.md)
+- [Python API documentation](https://github.com/hytangs/vigo-py/tree/main/docs)
 
 ## Repository
 
-This repository contains VIGO Studio, the native computation core, the command line, build tools, tests, and documentation. It does not contain private data, unpublished comparisons, or the Python binding.
+This repository contains VIGO Studio, the native computation core, the command line, build tools, tests, and documentation.
 
 VIGO is licensed under the [Apache License 2.0](LICENSE).

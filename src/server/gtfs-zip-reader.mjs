@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
-import { createInflateRaw } from 'node:zlib'
+import { createInflateRaw, crc32 as updateCrc32 } from 'node:zlib'
 
 const eocdSignature = 0x06054b50
 const zip64EocdSignature = 0x06064b50
@@ -58,24 +58,6 @@ function numberFromBigInt(value, field) {
     throw new Error(`GTFS ZIP ${field} exceeds the supported integer range.`)
   }
   return Number(value)
-}
-
-const crc32Table = Uint32Array.from({ length: 256 }, (_value, index) => {
-  let remainder = index
-  for (let bit = 0; bit < 8; bit += 1) {
-    remainder = remainder & 1
-      ? 0xedb88320 ^ (remainder >>> 1)
-      : remainder >>> 1
-  }
-  return remainder >>> 0
-})
-
-function crc32Update(previous, bytes) {
-  let remainder = (previous ^ 0xffffffff) >>> 0
-  for (const byte of bytes) {
-    remainder = crc32Table[(remainder ^ byte) & 0xff] ^ (remainder >>> 8)
-  }
-  return (remainder ^ 0xffffffff) >>> 0
 }
 
 async function readExactly(handle, length, position) {
@@ -532,8 +514,10 @@ export async function streamGtfsZipCsv(archive, entry, onRow, options = {}) {
         `GTFS ${tableName} exceeds the logical-record limit (${formatBytes(limits.maxLogicalRecordBytes)}).`,
       )
     }
-    if (!completeCsvRecord(pendingRecord)) return
-    const values = csvFields(headers ? pendingRecord : pendingRecord.replace(/^\uFEFF/u, ''))
+    const quoted = pendingRecord.includes('"')
+    if (quoted && !completeCsvRecord(pendingRecord)) return
+    const record = headers ? pendingRecord : pendingRecord.replace(/^\uFEFF/u, '')
+    const values = quoted ? csvFields(record) : record.split(',')
     pendingRecord = ''
     if (!headers) {
       headers = validateHeaders(tableName, values, limits)
@@ -550,7 +534,14 @@ export async function streamGtfsZipCsv(archive, entry, onRow, options = {}) {
     if (budget.totalRows + 1 > limits.maxTotalRows) {
       throw new Error(`GTFS ZIP exceeds the total-row limit (${limits.maxTotalRows} rows).`)
     }
-    const row = Object.fromEntries(headers.map((header, index) => [header, values[index] ?? '']))
+    const row = {}
+    for (let index = 0; index < headers.length; index += 1) {
+      const header = headers[index]
+      const value = values[index] ?? ''
+      if (header === '__proto__') {
+        Object.defineProperty(row, header, { value, enumerable: true, writable: true, configurable: true })
+      } else row[header] = value
+    }
     onRow(row)
     rows += 1
     budget.totalRows += 1
@@ -594,7 +585,7 @@ export async function streamGtfsZipCsv(archive, entry, onRow, options = {}) {
           `GTFS ${tableName} exceeds its declared or permitted expanded size.`,
         )
       }
-      crc32 = crc32Update(crc32, chunk)
+      crc32 = updateCrc32(chunk, crc32)
       let decoded
       try {
         decoded = decoder.decode(chunk, { stream: true })

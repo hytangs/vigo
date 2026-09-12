@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -26,27 +27,53 @@ jobs:
       - run: cargo test --manifest-path native/vigo-routing-kernel/Cargo.toml
       - run: cargo clippy --release --all-targets --all-features --manifest-path native/vigo-routing-kernel/Cargo.toml -- -D warnings
 
-  focused-engine:
-    name: Focused engine (${{ matrix.os }})
+  engine:
+    name: Complete engine (${{ matrix.os }})
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14, windows-latest]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, macos-15-intel, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run check:release
+      - run: xvfb-run -a npm run check:scenario-draft-lifecycle
+        if: runner.os == 'Linux'
+      - run: npm run check:scenario-draft-lifecycle
+        if: runner.os != 'Linux'
+      - run: npm run build
+      - run: node test/check-city-portability.mjs --write temp/portable-city.zip
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: city-${{ matrix.os }}
+          path: temp/portable-city.zip
+          if-no-files-found: error
+
+  city-portability:
+    needs: engine
+    name: Foreign City reuse (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, macos-15-intel, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npm run build:rust-routing-kernel
-      - run: npm run check:rust-routing-kernel
-      - run: npm run check:gtfs
-      - run: npm run check:reach-scenarios
-      - run: npm run check:scenario-draft-lifecycle
-        if: runner.os == 'macOS'
-      - run: npm run check:accuracy
-      - run: node test/check-street-routing-modes.mjs
-      - run: npm run check:cli
-      - run: npm run build
+      - run: npm run build:cli
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          pattern: city-*
+          path: temp/foreign-cities
+      - run: node test/check-city-portability.mjs --read temp/foreign-cities

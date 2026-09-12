@@ -51,6 +51,41 @@ async function checkCase(name, callback) {
 }
 
 try {
+  await checkCase('quoted and unquoted records preserve fields across UTF-8 chunks', async () => {
+    const longName = '站'.repeat(30_000)
+    const zipPath = await writeZip('csv-records.zip', {
+      'stops.txt': '\uFEFFstop_id,stop_name,__proto__,constructor,extra\r\n'
+        + `"A","${longName}, ""quoted""\nline",proto,ctor,\r\n`
+        + 'B,Plain,,,\r\nC,Missing',
+    })
+    const archive = await inspectGtfsZip(zipPath)
+    const rows = []
+    await streamGtfsZipCsv(archive, gtfsTableEntry(archive, 'stops.txt'), (row) => rows.push(row))
+    assert.equal(rows.length, 3)
+    assert.equal(rows[0].stop_name, `${longName}, "quoted"\nline`)
+    assert.equal(rows[0].__proto__, 'proto')
+    assert.equal(rows[0].constructor, 'ctor')
+    assert.equal(Object.getPrototypeOf(rows[0]), Object.prototype)
+    assert.equal(rows[1].stop_id, 'B')
+    assert.equal(rows[1].extra, '')
+    assert.equal(rows[2].stop_name, 'Missing')
+    assert.equal(rows[2].constructor, '')
+    assert.equal(rows[0].stop_id, 'A', 'Streaming callbacks retain independent row objects.')
+  })
+
+  await checkCase('valid-looking CSV with corrupt ZIP contents is rejected', async () => {
+    const zip = new JSZip()
+    zip.file('stops.txt', 'stop_id,stop_name\nA,Alpha\n')
+    const bytes = await zip.generateAsync({ type: 'nodebuffer', compression: 'STORE' })
+    const offset = bytes.indexOf(Buffer.from('Alpha'))
+    assert(offset >= 0)
+    bytes[offset] = 'B'.charCodeAt(0)
+    const zipPath = path.join(temporaryRoot, 'corrupt-crc.zip')
+    await fs.writeFile(zipPath, bytes)
+    const archive = await inspectGtfsZip(zipPath)
+    await assert.rejects(streamGtfsZipCsv(archive, gtfsTableEntry(archive, 'stops.txt'), () => {}), /CRC32 does not match/)
+  })
+
   await checkCase('safe nested GTFS table paths remain supported', async () => {
     const zipPath = await writeZip('nested.zip', {
       'feed/stops.txt': 'stop_id,stop_name,stop_lat,stop_lon\nA,Alpha,38.9,-77.0\n',

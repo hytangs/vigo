@@ -311,8 +311,6 @@ try {
     serviceDay: 'weekday',
     allowServiceDateFallback: true,
     prepareAccess: false,
-    prewarmRouteGeometry: false,
-    prewarmRoutingPipeline: false,
   })
   assert.equal(timetableOnlyRouting.activeServiceKernel.ready, true)
   assert.equal(timetableOnlyRouting.activeServiceKernel.persistenceState, 'loaded')
