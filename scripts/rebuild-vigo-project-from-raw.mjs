@@ -5,7 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { DatabaseSync } from 'node:sqlite'
 import { performance } from 'node:perf_hooks'
-import { Worker } from 'node:worker_threads'
+import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads'
 import {
   buildNationalGtfsStore,
   compactNationalGtfsRuntimeStore,
@@ -344,15 +344,15 @@ const existingProjectPath = path.join(projectRoot, '.vigo', 'project.json')
 const existingProject = await fsp.readFile(existingProjectPath, 'utf8')
   .then((value) => JSON.parse(value))
   .catch(() => null)
-const rebuildId = new Date().toISOString().replace(/[:.]/g, '-')
+const rebuildId = workerData?.rebuildId ?? new Date().toISOString().replace(/[:.]/g, '-')
 const stagingRoot = path.join(projectsRoot, `.${projectId}.rebuild-${rebuildId}`)
 const streetPath = path.join(stagingRoot, '.vigo', 'osm', 'street-index.sqlite')
 const backupRoot = path.join(projectsRoot, `.${projectId}.pre-${rebuildId}`)
 const lockPath = path.join(projectsRoot, `.${projectId}.rebuild.lock`)
-const lock = await acquireLock(lockPath)
+const lock = isMainThread ? await acquireLock(lockPath) : null
 const phaseWallMs = {}
-const preprocessingStarted = performance.now()
-const coldHostAtStart = {
+const preprocessingStarted = workerData?.preprocessingStarted ?? performance.now()
+const coldHostAtStart = workerData?.coldHostAtStart ?? {
   capturedAt: new Date().toISOString(),
   loadAverage: os.loadavg(),
   freeMemoryBytes: os.freemem(),
@@ -383,7 +383,26 @@ async function timedPhase(id, action) {
 let published = false
 let oldProjectMoved = false
 let rawOsmBuild = null
-try {
+
+async function compileInWorker() {
+  const worker = new Worker(new URL(import.meta.url), {
+    argv: process.argv.slice(2),
+    workerData: { rebuildId, preprocessingStarted, coldHostAtStart },
+  })
+  try {
+    return await new Promise((resolve, reject) => {
+      worker.once('message', resolve)
+      worker.once('error', reject)
+      worker.once('exit', (code) => reject(new Error(`Project compiler exited before returning its manifest (${code}).`)))
+    })
+  } finally {
+    // Releasing JS caches alone does not synchronously release native memory
+    // maps. End the compiler before the parent renames any prepared directory.
+    await worker.terminate()
+  }
+}
+
+async function compileProject() {
   await fsp.rm(stagingRoot, { recursive: true, force: true })
   const metadataRoot = path.join(stagingRoot, '.vigo')
   const routingDirectory = path.join(metadataRoot, 'routing')
@@ -691,7 +710,7 @@ try {
       memorySampling: {
         intervalMs: memorySampleIntervalMs,
         peakResidentBytesSampled,
-        scope: 'VIGO rebuild Node process including its OSM Worker thread; filesystem cache state is not inferred.',
+        scope: 'VIGO rebuild Node process including compiler and OSM Worker threads; filesystem cache state is not inferred.',
       },
       hostAtStart: coldHostAtStart,
       hostAtEnd: {
@@ -710,27 +729,34 @@ try {
   if (!fs.existsSync(nationalStaticTopologySidecarPath(routingPath))) {
     throw new Error(`Rebuilt routing store is missing ${nationalStaticTopologySidecarPath(routingPath)}`)
   }
-  // Windows cannot publish a directory while the compiler still holds SQLite
-  // connections inside it. All preparation and validation are complete here.
   disposeAllNationalGtfsStores()
   disposeNationalOsmStore(streetPath)
-  if (fs.existsSync(projectRoot)) {
-    await fsp.rename(projectRoot, backupRoot)
-    oldProjectMoved = true
-  }
-  await fsp.rename(stagingRoot, projectRoot)
-  published = true
-  process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`)
+  return manifest
+}
 
-  if (!keepBackup && oldProjectMoved) {
-    try {
-      await fsp.rm(backupRoot, { recursive: true, force: true })
-      oldProjectMoved = false
-    } catch (error) {
-      process.stderr.write(
-        `Published the new project, but could not remove the old backup at ${backupRoot}: `
-        + `${error instanceof Error ? error.message : String(error)}\n`,
-      )
+try {
+  if (!isMainThread) {
+    parentPort.postMessage(await compileProject())
+  } else {
+    const manifest = await compileInWorker()
+    if (fs.existsSync(projectRoot)) {
+      await fsp.rename(projectRoot, backupRoot)
+      oldProjectMoved = true
+    }
+    await fsp.rename(stagingRoot, projectRoot)
+    published = true
+    process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`)
+
+    if (!keepBackup && oldProjectMoved) {
+      try {
+        await fsp.rm(backupRoot, { recursive: true, force: true })
+        oldProjectMoved = false
+      } catch (error) {
+        process.stderr.write(
+          `Published the new project, but could not remove the old backup at ${backupRoot}: `
+          + `${error instanceof Error ? error.message : String(error)}\n`,
+        )
+      }
     }
   }
 } catch (error) {
@@ -740,19 +766,21 @@ try {
   }
   disposeAllNationalGtfsStores()
   disposeNationalOsmStore(streetPath)
-  if (published) {
+  if (isMainThread && published) {
     await fsp.rm(projectRoot, { recursive: true, force: true }).catch(() => {})
     published = false
   }
-  if (oldProjectMoved && fs.existsSync(backupRoot)) {
+  if (isMainThread && oldProjectMoved && fs.existsSync(backupRoot)) {
     await fsp.rename(backupRoot, projectRoot).catch(() => {})
     oldProjectMoved = false
   }
-  await fsp.rm(stagingRoot, { recursive: true, force: true }).catch(() => {})
+  if (isMainThread) await fsp.rm(stagingRoot, { recursive: true, force: true }).catch(() => {})
   throw error
 } finally {
   if (rawOsmBuild) await rawOsmBuild.worker.terminate().catch(() => {})
   clearInterval(memorySampler)
-  await lock.close().catch(() => {})
-  await fsp.rm(lockPath, { force: true }).catch(() => {})
+  if (lock) {
+    await lock.close().catch(() => {})
+    await fsp.rm(lockPath, { force: true }).catch(() => {})
+  }
 }
