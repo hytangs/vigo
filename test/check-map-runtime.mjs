@@ -75,8 +75,11 @@ app.whenReady().then(async()=>{
       if (error.code !== 'EEXIST') throw error
     }
   }
+  // An empty value still enables Node mode on Windows; remove the variable.
+  const env = { ...process.env }
+  delete env.ELECTRON_RUN_AS_NODE
   const child = spawn(electronPath, [...ciFlags, ...graphicsFlags, path.join(temporary, 'main.cjs')], {
-    stdio: 'inherit', env: { ...process.env, ELECTRON_RUN_AS_NODE: '' },
+    stdio: 'inherit', env,
   })
   const timeout = setTimeout(() => child.kill(), 60_000)
   try {
