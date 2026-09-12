@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import JSZip from 'jszip'
@@ -8,8 +7,9 @@ import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { prepareNativeRoutingKernel } from '../src/server/native-routing-kernel.mjs'
 import { prepareNationalOsmDriveStore, disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
 import { prepareNationalGtfsRoutingContext, disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
+import { processFixtureDirectory } from './helpers/fixture-process.mjs'
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-portable-'))
+const root = await processFixtureDirectory(import.meta.url, 'vigo-portable-')
 const cli = process.env.VIGO_TEST_CLI ?? path.resolve(import.meta.dirname, '../public/vigo.mjs')
 const executable = process.env.VIGO_TEST_EXECUTABLE ?? process.execPath
 const run = (args) => JSON.parse(execFileSync(executable, [cli, ...args], { encoding: 'utf8', timeout: 120_000 }))
@@ -112,5 +112,4 @@ try {
   }
 } finally {
   disposeAllNationalGtfsStores()
-  fs.rmSync(root, { recursive: true, force: true })
 }

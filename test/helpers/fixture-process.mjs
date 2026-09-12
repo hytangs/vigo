@@ -8,10 +8,14 @@ import { fileURLToPath } from 'node:url'
 // parent owns the fixture directory and removes it after the worker exits, so
 // cleanup never races a live map on Windows.
 export async function processFixtureDirectory(moduleUrl, prefix) {
-  if (process.argv[2] === '--fixture-worker') return process.argv[3]
+  if (process.argv[2] === '--fixture-worker') {
+    const folder = process.argv[3]
+    process.argv.splice(2, 2)
+    return folder
+  }
   const folder = await fs.mkdtemp(path.join(os.tmpdir(), prefix))
   try {
-    execFileSync(process.execPath, [fileURLToPath(moduleUrl), '--fixture-worker', folder], {
+    execFileSync(process.execPath, [fileURLToPath(moduleUrl), '--fixture-worker', folder, ...process.argv.slice(2)], {
       stdio: 'inherit',
       env: process.env,
     })
