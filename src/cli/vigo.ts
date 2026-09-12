@@ -1462,6 +1462,7 @@ async function runBuildCity(args: CliArguments) {
     ], 'City compiler')
     const outcome = await compiler.outcome
     if (outcome.error) throw outcome.error
+    buildProgress('city')({ phase: 'Saving City' })
     publishCity(stagingDirectory, outputDirectory, { replace: replaceExisting })
     process.stdout.write(`${JSON.stringify(outcome.result, null, 2)}\n`)
   } finally {
@@ -1518,6 +1519,7 @@ async function runCityCompiler(args: CliArguments) {
   let osmCompiler: ReturnType<typeof startOsmCompiler> | null = null
   let osmDriveCompiler: ReturnType<typeof startOsmDriveCompiler> | null = null
   let osmDrivePreparation: Record<string, unknown> | null = null
+  const cityProgress = buildProgress('city')
   try {
     const stagedStreetStore = path.join(stagingOsm, 'street-index.sqlite')
     if (parallelRawBuild) osmCompiler = startOsmCompiler(osmPbf, stagedStreetStore)
@@ -1547,9 +1549,8 @@ async function runCityCompiler(args: CliArguments) {
     }
 
     if (Number(streetResult.driveEdgeCount ?? 0) > 0) {
-      // Build the driving snapshot in a separate resident process while the
-      // GTFS compilation is still in progress. The source graph is sealed only
-      // after this compiler finishes so no builder can race the compactor.
+      cityProgress({ phase: 'Preparing driving routes' })
+      // Seal the source graph only after the driving snapshot is complete.
       osmDriveCompiler = startOsmDriveCompiler(stagedStreetStore)
     }
 
@@ -1562,6 +1563,7 @@ async function runCityCompiler(args: CliArguments) {
     // Publish one runtime representation for every network size before any
     // native routing preparation. The raw SQLite graph is compiler-only.
     const osmRuntimeCompactionStarted = performance.now()
+    cityProgress({ phase: 'Saving street data' })
     const osmRuntimeCompaction = compactNationalOsmRuntimeStore(stagedStreetStore, { requireDrive: true })
     osmRuntimeCompactionMs = performance.now() - osmRuntimeCompactionStarted
 
@@ -1570,11 +1572,13 @@ async function runCityCompiler(args: CliArguments) {
       throw new Error(`Native street snapshot preparation failed: ${nativeStreet.error ?? nativeStreet.reason}`)
     }
     const streetCchStarted = performance.now()
+    cityProgress({ phase: 'Preparing street routing' })
     const streetCch = buildNativeStreetCchIndex(stagedStreetStore)
     streetCchBuildMs = performance.now() - streetCchStarted
     // Finalize SQLite before binding transfer topology and access snapshots
     // to its generation. No compaction may follow derived-index preparation.
     const gtfsRuntimeCompactionStarted = performance.now()
+    cityProgress({ phase: 'Preparing transit topology' })
     const gtfsRuntimeCompaction = compactNationalGtfsRuntimeStore(stagedRoutingStore)
     gtfsRuntimeCompactionMs = performance.now() - gtfsRuntimeCompactionStarted
     const stopTransferStarted = performance.now()
@@ -1585,6 +1589,7 @@ async function runCityCompiler(args: CliArguments) {
     )
     stopTransferBuildMs = performance.now() - stopTransferStarted
     const coordinateAccessStarted = performance.now()
+    cityProgress({ phase: 'Preparing station access' })
     const coordinateAccess = prepareNationalGtfsNativeCoordinateAccess(
       stagedRoutingStore,
       stagedStreetStore,

@@ -533,8 +533,9 @@ Run \code{vigo capabilities} to inspect support.
 \toprule
 \textbf{Term} & \textbf{Starts} & \textbf{Ends} \\
 \midrule
-Build & Reading source GTFS and OSM & A complete City is published. \\
-Open & Selecting a City revision & Required runtime data is ready. \\
+Build & Invoke Build with local GTFS and OSM, with no existing output City & The command returns after publishing a complete City. \\
+Raw to first answer & The same Build invocation & The first Query returns its complete Result. \\
+Reopen & Start a new process for an existing City & Its first Query returns its complete Result. \\
 Compute & Query execution begins & The Route, Matrix, or Reach answer exists. \\
 End to end & Caller submits work & The complete Result returns. \\
 \bottomrule
@@ -542,6 +543,8 @@ End to end & Caller submits work & The complete Result returns. \\
 \end{center}
 
 A first Query may include Open work. Repeated work may use an already open City. A Result read from disk is not a new computation. Compare performance only with the same inputs, machine state, output detail, status accounting, and timing boundary.
+
+Build prepares the street indexes, transfers, and station-access state. The first Query can additionally prepare its active-service timetable and selected ride geometry. Downloads and installation are separate. In 0.3.1, \field{network.json} timing \field{totalMs} measures work inside the compiler; it excludes startup, final publication, and the first Query. Use a caller timer for complete Build and raw-to-first-answer measurements. Compiler stages can overlap and their times must not be summed.
 
 For arrive-by Route, the reverse timetable scan is one part of Compute. Coordinate access, forward journey reconstruction, selected geometry, and Result creation also belong to full Route computation. Report the scan alone only when diagnosing that stage.
 

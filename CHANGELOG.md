@@ -1,5 +1,10 @@
 # Version history
 
+## Unreleased
+
+- Report street routing, driving, station access, and City publication stages during Build.
+- Define complete raw-file Build and first-answer timing, including the limits of compiler-stage diagnostics.
+
 ## 0.3.1 — 2026-09-11
 
 Stabilization release; API 1.0, City format 1, and Result schema 1 are unchanged. See the [release notes](docs/releases/0.3.1.md).

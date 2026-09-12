@@ -1,13 +1,34 @@
 # Performance
 
-VIGO reports performance with four separate durations.
+Measure the operation the caller actually waits for. "City loading" alone does
+not identify a timing boundary.
 
-- Build: GTFS and OSM become a City.
-- Open: a City revision becomes ready for queries.
-- Compute: Route, Matrix, or Reach runs.
-- End to end: caller submission through complete Result.
+| Operation | Start | End |
+| --- | --- | --- |
+| Build from raw files | Invoke `vigo build` with local GTFS ZIPs, an OSM PBF, and no existing output City | The command returns successfully after publishing the complete City directory |
+| Raw files to first answer | The same Build invocation | The first Query returns a complete Result for a specified service date and request |
+| Reopen a prepared City | Start a new runtime process for an existing complete City | Its first Query returns a complete Result |
+| Resident Query | Submit a request to an already open City | The complete Result returns to the caller |
 
-A first Query may include Open work. Repeated Queries may reuse an already open process. Report both states when they matter. Do not mix Build with Query time, and do not describe a reused saved Result as computation.
+Downloading inputs and installing the runtime are separate operations. State
+whether runtime discovery, caller-process startup, Result export, and operating
+system file-cache effects are included. A fresh process does not imply an empty
+operating-system file cache. Reading a saved Result is not a new computation.
+
+Build includes GTFS import, OSM graph construction, required street indexes,
+stop transfers, station-access preparation, and saving the complete City. The
+first Query can additionally prepare the timetable for its active services and
+align the ride geometry it selects. That work belongs in raw-files-to-first-answer
+time even though the City has already been published.
+
+The durations in `network.json.timing` describe compiler stages. In 0.3.1,
+`totalMs` starts inside the compiler after input and staging checks and ends
+before writing `network.json`. It excludes caller/runtime startup, compiler
+shutdown, City publication, and the first Query. Use an external elapsed timer
+for the complete Build operation. GTFS and OSM stages can overlap; do not add
+their durations to estimate wall time. In the parallel path, `osmBuildMs` runs
+from OSM worker launch until the parent collects its result after GTFS import,
+so it can include waiting and is not an isolated OSM processing duration.
 
 Performance comparisons must keep source data, City revision, Query semantics, status counts, and measurement boundary fixed.
 For Build comparisons, keep raw inputs and compiler options fixed and compare
@@ -54,11 +75,21 @@ native graph validation. Older derived formats are prepared once from the
 compiled City. Open diagnostics distinguish `loaded` from `written`; a loaded
 timetable reports `compileMs: 0`.
 
-For Route, `searchStats.queryMs` covers the complete call. On arrive-by
+For transit Route, `searchStats.queryMs` covers the engine's route function,
+including its access and selected-journey work. It excludes caller transport
+and final Result serialization. `engineQueryMs` measures the native timetable
+search; a sub-millisecond value here does not establish a sub-millisecond
+complete Route call. Use an external caller timer for the latter. On arrive-by
 queries, `engineQueryMs` includes reverse feasibility and forward selection;
 `arriveByNativeQueryMs` and `forwardEngineQueryMs` expose those components.
 Street access and geometry are outside the timetable total. Cache reads and
 result serialization still contribute to caller wall time.
+
+Keep service date, origin/destination coordinates, walking budget, vehicle-ride
+requirement, output detail, and access/path-cache settings fixed when comparing
+versions. Allowing a walk-only answer changes the workload. Report ready,
+blocked, and error counts separately; do not interpret a faster blocked answer
+or a different journey as an equivalent successful query.
 
 Transfer-capped single-origin reverse queries stop when the remaining event
 times cannot improve their best departure. Driving queries compare CCH

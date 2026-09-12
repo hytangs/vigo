@@ -28,6 +28,10 @@ vigo build \
 ```
 
 VIGO writes one complete `./boston` directory. An existing output is left alone unless you supply `--replace`.
+Time this command from invocation through successful return to measure Build
+from GTFS and OSM. Include the first Route as well when measuring time to the
+first answer. Reopening `./boston` measures a different operation; see
+[Performance](performance.md) for the exact boundaries.
 
 ## 3. Run a Route
 
