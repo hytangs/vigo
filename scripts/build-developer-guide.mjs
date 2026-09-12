@@ -15,7 +15,7 @@ fs.mkdirSync(outputDirectory, { recursive: true })
 
 const environment = {
   ...process.env,
-  TEXINPUTS: `${sourceDirectory}:${process.env.TEXINPUTS ?? ''}`,
+  TEXINPUTS: `${sourceDirectory}${path.delimiter}${process.env.TEXINPUTS ?? ''}`,
 }
 
 function runLatexPass(pass) {

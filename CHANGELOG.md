@@ -4,6 +4,7 @@
 
 Stabilization release; API 1.0, City format 1, and Result schema 1 are unchanged. See the [release notes](docs/releases/0.3.1.md).
 
+- Update MapLibre to 6.4.1 to fix attribution sanitization; verify the built map through the Studio protocol.
 - Remove filesystem-timestamp dependencies from prepared street/drive index discovery.
 - Package and verify macOS Apple Silicon/Intel, Linux ARM64/x64, and Windows x64; exchange prepared City fixtures between targets.
 - Align Engine / Studio / Python documentation and state the bounded Studio-only realtime routing support.

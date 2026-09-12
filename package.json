@@ -73,12 +73,13 @@
     "release:studio": "npm run check:icons --silent && npm run build:studio && npm run check:packaged && npm run archive:studio",
     "preview": "vite preview --host 127.0.0.1",
     "check:portability": "node test/check-city-portability.mjs",
-    "check:packaged": "node test/check-packaged-studio.mjs"
+    "check:packaged": "node test/check-packaged-studio.mjs",
+    "check:studio-runtime": "node test/check-scenario-draft-lifecycle.mjs && node test/check-map-runtime.mjs"
   },
   "dependencies": {
     "jszip": "^3.10.1",
     "lucide-react": "^0.468.0",
-    "maplibre-gl": "^5.24.0",
+    "maplibre-gl": "6.4.1",
     "papaparse": "^5.4.1",
     "pbf": "5.1.2",
     "react": "^18.3.1",

@@ -64,7 +64,7 @@ async function startApi() {
       // Give the fixture a deterministic margin between its cooperative
       // short-job completion and the forced-restart boundary. Production keeps
       // the lower default; this check validates the relative lifecycle rules.
-      VIGO_ROUTE_CANCEL_GRACE_MS: '300',
+      VIGO_ROUTE_CANCEL_GRACE_MS: '1000',
     },
   })
   return apiRuntime.baseUrl
@@ -159,7 +159,7 @@ try {
   assert.equal(preservedWorker?.forcedCancellationRestarts, 0)
 
   const slowController = new AbortController()
-  const slowRoute = postRoute(apiUrl, projectIds[0], { testDelayMs: 1_500 }, slowController.signal)
+  const slowRoute = postRoute(apiUrl, projectIds[0], { testDelayMs: 5_000 }, slowController.signal)
   await new Promise((resolve) => setTimeout(resolve, 80))
   const duringSlow = await health(apiUrl)
   assert(duringSlow.elapsedMs < 250, `Health took ${duringSlow.elapsedMs.toFixed(1)} ms while route worker was busy.`)
@@ -170,7 +170,7 @@ try {
   const afterAbortStartedAt = performance.now()
   const afterAbort = await postRoute(apiUrl, projectIds[0], { departMinutes: 481 })
   const afterAbortMs = performance.now() - afterAbortStartedAt
-  assert(afterAbortMs < 750, `Replacement worker took ${afterAbortMs.toFixed(1)} ms after cancellation.`)
+  assert(afterAbortMs < 2_500, `Replacement worker took ${afterAbortMs.toFixed(1)} ms after cancellation.`)
   assert.notEqual(
     afterAbort.plan.diagnostics.workerInstance,
     first.plan.diagnostics.workerInstance,

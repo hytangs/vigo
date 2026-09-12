@@ -144,7 +144,7 @@ const releaseWorkflow = fs.readFileSync(
   path.join(root, '.github', 'workflows', 'release-check.yml'),
   'utf8',
 )
-const [releaseBuildSection, releaseAttestationSection = ''] = releaseWorkflow.split(/\n  attest:\n/u)
+const [releaseBuildSection, releaseAttestationSection = ''] = releaseWorkflow.split(/\r?\n  attest:\r?\n/u)
 assert(!releaseBuildSection.includes('id-token: write'), 'The release build job must not receive an OIDC token.')
 assert(!releaseBuildSection.includes('attestations: write'), 'The release build job must not receive attestation write access.')
 assert(releaseAttestationSection.includes('needs: [build, docs]'), 'Attestation must consume the completed read-only build artifact.')

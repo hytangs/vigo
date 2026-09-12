@@ -47,6 +47,7 @@ await Promise.all([
 await writeFile(path.join(applicationRoot, 'package.json'), `${JSON.stringify({
   name: 'vigo-studio',
   productName: 'VIGO Studio',
+  author: 'VIGO contributors',
   version: packageJson.version,
   private: true,
   type: 'module',

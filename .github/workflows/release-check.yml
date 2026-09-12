@@ -26,9 +26,9 @@ jobs:
       - run: cargo test --manifest-path native/vigo-routing-kernel/Cargo.toml
       - run: cargo clippy --release --all-targets --all-features --manifest-path native/vigo-routing-kernel/Cargo.toml -- -D warnings
       - run: npm run check:release
-      - run: xvfb-run -a npm run check:scenario-draft-lifecycle
+      - run: xvfb-run -a npm run check:studio-runtime
         if: runner.os == 'Linux'
-      - run: npm run check:scenario-draft-lifecycle
+      - run: npm run check:studio-runtime
         if: runner.os != 'Linux'
       - run: npm run release:studio
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -46,7 +46,7 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version-file: .nvmrc
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends texlive-xetex texlive-latex-extra tex-gyre
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends texlive-xetex texlive-latex-extra fonts-texgyre
       - run: npm run docs:developer-guide
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

@@ -43,7 +43,7 @@ searched departure, the scheduled search retains arrival/boarding/walking
 trade-offs arriving within 15 minutes of the earliest journey, with no more
 boardings than that journey. Duplicate and dominated choices are removed;
 the list is never padded to five. The earliest-arrival result stays first.
-Realtime queries retain their departure-window choices without applying the
+Studio's supported realtime Route queries retain their departure-window choices without applying the
 scheduled alternative search to an adjusted timetable.
 The window shares endpoint-access preparation and reuses a walking result only
 through departures where the timetable proves it still wins. The proof respects
@@ -55,7 +55,7 @@ It prunes prefixes whose best possible completion is strictly
 dominated by an existing journey. A verified walk that already beats the exact
 earliest transit arrival bypasses the bounded transit pass.
 
-Depart-at transit, arrive-by transit, walking, driving, realtime-adjusted transit, waypoints, and batch requests remain Route variants. VIGO does not expose them as separate products.
+Depart-at transit, arrive-by transit, walking, driving, waypoints, and batch requests remain Route variants. Studio also offers bounded realtime-adjusted transit Route; this is unavailable through the public CLI. See the [realtime limits](known-routing-limitations.md#realtime).
 
 ## Maximum transfers
 

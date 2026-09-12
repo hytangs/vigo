@@ -12,4 +12,4 @@ Select a route to inspect its patterns, ordered stops, trip count, service span,
 
 Schedule playback interpolates the supplied schedule for visual inspection. It is not a routing Result and does not claim observed operations.
 
-Live service is another Explore lens. When supported, a live transit state may also be attached to a Scenario for Route computation.
+Live service is another Explore lens. Studio Route can apply a bounded overlay of matched, supported Trip Updates. Vehicle Positions and Alerts are display data. See the [realtime limits](known-routing-limitations.md#realtime); this is unavailable through the public CLI.

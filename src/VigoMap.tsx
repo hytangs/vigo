@@ -2,7 +2,8 @@ import { setMapSourceData } from './app/mapSourceUpdates'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection as GeoJsonFeatureCollection, GeoJsonProperties, Geometry } from 'geojson'
 import { X } from 'lucide-react'
-import maplibregl, { type ExpressionSpecification, type FilterSpecification, type GeoJSONFeatureDiff, type GeoJSONFeatureId, type GeoJSONSource, type LngLatBoundsLike, type Map as MapLibreMap } from 'maplibre-gl'
+import * as maplibregl from './app/mapRuntime'
+import { type ExpressionSpecification, type FilterSpecification, type GeoJSONFeatureDiff, type GeoJSONFeatureId, type GeoJSONSource, type LngLatBoundsLike, type Map as MapLibreMap } from 'maplibre-gl'
 import type { Appearance, Basemap, LayerState, LngLat, MapPreview, NetworkLens, Point, RouteMetric, StopMetric } from './domain'
 import { classNames, formatNumber } from './domain'
 import {
@@ -3196,14 +3197,14 @@ export function VigoMap({
     map.on('mousedown', handleScenarioMouseDown)
     map.on('mousemove', handleScenarioMouseMove)
     map.on('mouseup', finishScenarioDrag)
-    map.on('mouseleave', finishScenarioDrag)
+    map.getCanvas().addEventListener('mouseleave', finishScenarioDrag)
     return () => {
       if (mapRemovedRef.current) return
       finishScenarioDrag()
       map.off('mousedown', handleScenarioMouseDown)
       map.off('mousemove', handleScenarioMouseMove)
       map.off('mouseup', finishScenarioDrag)
-      map.off('mouseleave', finishScenarioDrag)
+      map.getCanvas().removeEventListener('mouseleave', finishScenarioDrag)
     }
   }, [scenarioFocus, scenarioPointPicking])
 
