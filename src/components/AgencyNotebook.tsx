@@ -2,13 +2,11 @@ import { useEffect, useState } from 'react'
 import { ArrowLeft, ArrowUpRight, Download, Search } from 'lucide-react'
 import { apiJson, type ApiProgress } from '../app/api'
 import type { QueryAnswer } from '../agency/types'
+import { downloadText } from '../agency/exports'
 
 export type NotebookEntry = { id: number; parentId: number | null; kind: string; title: string; createdAt: string; answer: QueryAnswer; activities: ApiProgress[]; notes: string }
 type EntrySummary = Pick<NotebookEntry, 'id' | 'parentId' | 'kind' | 'title' | 'createdAt'> & { notePreview?: string }
-export function downloadText(name: string, text: string, type = 'text/markdown') {
-  const url = URL.createObjectURL(new Blob([text], { type })); const link = document.createElement('a'); link.href = url; link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
-export function exportEntry(entry: NotebookEntry) {
+function exportEntry(entry: NotebookEntry) {
   const answer = entry.answer
   const report = answer.report
   downloadText(`agency-note-${entry.id}.md`, `# ${entry.title}\n\nSaved ${entry.createdAt}. Evidence as of ${answer.generatedAt}.\n\n${answer.aiGenerated ? `AI synthesis (${answer.model || 'configured provider'}).\n\n` : ''}${answer.answer}\n\n${report ? `${report.method}\n\nInputs: ${JSON.stringify(report.inputs)}\n\n` : ''}## Researcher notes\n\n${entry.notes || 'No notes added.'}\n\n## Sources\n\n${answer.evidenceRefs.map((ref) => `- ${ref}`).join('\n')}\n\n## Limits\n\n${answer.warnings.map((warning) => `- ${warning}`).join('\n')}\n\n## Reproduction\n\n${answer.trace.map((call, i) => `### ${i + 1}. ${call.tool}\n\n\`\`\`json\n${JSON.stringify(call.arguments, null, 2)}\n\`\`\`\n`).join('\n')}`)

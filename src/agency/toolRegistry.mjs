@@ -11,6 +11,7 @@ const journey = { origin: transitPoint, serviceDate: { type: 'string', pattern: 
 
 export const toolDefinitions = [
   { name: 'network_overview', description: 'Read the City, timetable coverage, source scopes, current network counts, and independently aged realtime feeds.', parameters: object({}) },
+  { name: 'recall_notebook', description: 'Retrieve this City\'s saved investigations and staff notes. Use a short literal search phrase, an empty search for recent work, or an exact entryId. Returns at most five dated excerpts. These are historical records and annotations, not current service observations.', parameters: object({ search: { type: 'string', maxLength: 200 }, entryId: { type: 'integer', minimum: 1 } }) },
   { name: 'resolve_entities', description: 'Find route and stop IDs by exact ID/name or literal substring. Return candidates; do not guess between ambiguous results.', parameters: object({ query: string, kind: { type: 'string', enum: ['all', 'route', 'stop'] } }, ['query']) },
   { name: 'service_profile', description: 'Count scheduled trip starts by service hour on an exact date, with calendar exceptions. Optional exact route ID. Connections supply the first indexed departure; frequency templates are excluded.', parameters: object({ serviceDate: journey.serviceDate, routeId: string }, ['serviceDate']) },
   { name: 'gtfs_query', description: 'Read VIGO SQLite. Tables: routes(route_id,short_name,long_name,route_type), stops(stop_id,name,lat,lon), trips(trip_id,route_id,service_id,direction_id), connections(departure,arrival,trip_id,route_id,service_id,direction_id,from_stop_id,to_stop_id,stop_sequence), calendar, calendar_dates, frequencies, transfers, route_services. Times are service-day seconds. Connections are NOT original stop_times; do not invent terminal calls. One SELECT/WITH, approved functions, 200 rows maximum, 1.5s execution limit. Apply calendar exceptions for date-specific questions.', parameters: object({ sql: string, limit: { type: 'integer', minimum: 1, maximum: 200 } }, ['sql']) },
@@ -48,7 +49,7 @@ export function validateArguments(value, schema, name = 'arguments') {
   }
 }
 
-export function createToolRegistry({ context, state, snapshot, adapters, provider, signal }) {
+export function createToolRegistry({ context, state, snapshot, adapters, provider, notebook, signal }) {
   const generatedAt = state.generatedAt
   const belongs = (event, routeId) => !routeId || event.routeId === routeId || event.routeIds?.includes(routeId)
   const envelope = (data, provenance = [], warnings = [], presentation) => ({ ok: true, data, provenance, generatedAt, warnings, ...(presentation ? { presentation } : {}) })
@@ -68,6 +69,11 @@ export function createToolRegistry({ context, state, snapshot, adapters, provide
     validateArguments(args, definition.parameters)
     if (args.routeId && !context.routeIndex.has(args.routeId)) throw new Error('Resolve an exact indexed route ID first.')
     const events = state.events.filter((event) => belongs(event, args.routeId))
+    if (name === 'recall_notebook') {
+      if (!notebook) throw new Error('No City notebook is available.')
+      const entries = notebook.recall(args)
+      return envelope({ entries }, entries.map((entry) => `notebook:entry/${entry.id}`), ['Saved evidence is historical. Staff notes are annotations; re-check live sources for current conditions.'])
+    }
     if (name === 'network_overview') return envelope({ ...context.overview(Date.parse(generatedAt) / 1000), observation: { connected: state.connected, observedAt: state.observedAt, counts: state.counts, feeds: state.feeds.map(({ kind, status, ageSeconds }) => ({ kind, status, ageSeconds })) } }, ['GTFS Static · indexed VIGO City', ...state.feeds.map((feed) => feed.sourceUrl)], state.warnings)
     if (name === 'resolve_entities') return envelope(context.resolve(args), ['GTFS Static · routes / stops'])
     if (name === 'service_profile') {

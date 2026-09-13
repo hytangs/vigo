@@ -7,7 +7,8 @@ import { createObservationHistory, deriveOperationalState, defaultPolicy } from 
 import { createSkillRegistry } from '../agency/skillRegistry.mjs'
 import { createToolRegistry } from '../agency/toolRegistry.mjs'
 import { createProvider } from '../agency/provider.mjs'
-import { queryAgency, summarizeEvidence } from '../agency/queryAgent.mjs'
+import { queryAgency } from '../agency/queryAgent.mjs'
+import { summarizeEvidence } from '../agency/evidenceSummary.mjs'
 
 export function createAgencyService(adapters, { provider = createProvider(), clock = () => Date.now(), policy = defaultPolicy, refreshMs = 10_000 } = {}) {
   const sessions = new Map()
@@ -113,26 +114,27 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
       }
       const state = current(session)
       const activities = []
+      const inference = provider.forRequest?.() ?? provider
       const progress = (item) => { const previous = activities.findIndex((entry) => entry.phase === item.phase); if (previous < 0) activities.push(item); else activities[previous] = item; onProgress?.(item) }
       const retain = (title, answer, kind = 'ask') => { const entry = session.notebook.save({ title, answer, activities, kind, parentId: body.parentId ?? null }); return { ...answer, entryId: entry.id } }
-      const callTool = createToolRegistry({ context: session.context, state, snapshot: session.snapshot, provider, signal,
+      const callTool = createToolRegistry({ context: session.context, state, snapshot: session.snapshot, notebook: session.notebook, provider: inference, signal,
         adapters: { matrix: (request, abort) => adapters.matrix(projectId, request, abort), route: (request, abort) => adapters.route(projectId, request, abort), reach: (request, abort) => adapters.reach(projectId, request, abort) } })
       switch (body.action) {
         case 'connect': return { snapshot: await connect(projectId, body.request) }
         case 'disconnect': return this.disconnect(projectId)
         case 'tool': return callTool(body.name, body.arguments ?? {})
-        case 'briefing': { if (!session.briefingJob) session.briefingJob = networkBriefing({ state, callTool, provider, signal, onProgress: progress }).then((answer) => retain('Network briefing', answer, 'briefing')).finally(() => { session.briefingJob = null }); return session.briefingJob }
+        case 'briefing': { if (!session.briefingJob) session.briefingJob = networkBriefing({ state, callTool, provider: inference, signal, onProgress: progress }).then((answer) => retain('Network briefing', answer, 'briefing')).finally(() => { session.briefingJob = null }); return session.briefingJob }
         case 'ask': {
           const history = []
           let parentId = body.parentId
-          while (parentId && history.length < 6) { const previous = session.notebook.read(parentId); history.unshift({ question: previous.title, answer: previous.answer.answer, observedAt: previous.answer.generatedAt }); parentId = previous.parentId }
-          return retain(body.question, await queryAgency({ question: body.question, context: session.context, state, callTool, provider, signal, onProgress: progress, history }))
+          while (parentId && history.length < 6) { const previous = session.notebook.read(parentId); history.unshift({ question: previous.title, answer: previous.answer.answer, notes: previous.notes, observedAt: previous.answer.generatedAt }); parentId = previous.parentId }
+          return retain(body.question, await queryAgency({ question: body.question, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history }))
         }
         case 'run-skill': {
           const result = await session.skills.run(body.id, body.inputs ?? {}, callTool, progress)
           const trace = result.results
           let summary = { text: summarizeEvidence(trace), aiGenerated: false }, warning
-          try { summary = await synthesizeEvidence({ trace, provider, signal, instructions: result.skill.instructions, onProgress: progress }) }
+          try { summary = await synthesizeEvidence({ trace, provider: inference, signal, instructions: result.skill.instructions, onProgress: progress }) }
           catch (error) { if (signal?.aborted) throw error; warning = error.message }
           const rows = trace.flatMap(({ tool, result }) => result.data.rows ?? (tool === 'anomaly_scan' ? (result.data.events ?? []).filter((event) => event.evidence.observedHeadwaySeconds != null).map((event) => ({ route: event.routeName || event.routeId, reference_stop: event.stopName || event.stopId, observed_at: event.observedAt, predicted_minutes: event.evidence.observedHeadwaySeconds / 60, scheduled_minutes: event.evidence.scheduledHeadwaySeconds / 60, difference_minutes: (event.evidence.observedHeadwaySeconds - event.evidence.scheduledHeadwaySeconds) / 60 })) : []))
           const answer = { answer: summary.text, aiGenerated: summary.aiGenerated, model: summary.model, citations: summary.citations, trace, report: { title: result.skill.name, method: result.skill.instructions, inputs: body.inputs ?? {}, rows }, generatedAt: state.generatedAt, evidenceRefs: [...new Set(trace.flatMap((call) => call.result.provenance))], warnings: [...new Set(trace.flatMap((call) => call.result.warnings)), ...(warning ? [warning] : [])], providerAvailable: provider.available }

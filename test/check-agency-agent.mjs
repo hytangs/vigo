@@ -23,6 +23,28 @@ assert.equal(partial.trace.length, 1)
 assert.equal(partial.warnings.includes('Provider unavailable'), true)
 const unavailable = await queryAgency({ question: 'What is happening?', context, state, callTool, provider: { available: false } })
 assert.equal(unavailable.providerAvailable, false)
+let recoveryRound = 0
+const recovery = await queryAgency({ question: 'Find River', context, state, callTool: async () => { throw new Error('Stop lookup temporarily unavailable') }, provider: { available: true, complete: async (messages) => {
+  if (++recoveryRound === 1) return { tool_calls: [{ id: 'lookup', function: { name: 'resolve_entities', arguments: '{"query":"River"}' } }] }
+  assert.match(messages.at(-1).content, /Stop lookup temporarily unavailable/)
+  return { content: 'Done' }
+} } })
+assert.equal(recovery.trace[0].result.ok, false, 'A failed lookup remains evidence instead of crashing context projection')
+let recallRound = 0
+const recalled = await queryAgency({ question: 'Find my earlier service profile', context, state,
+  callTool: async () => ({ ok: true, data: { entries: [{ id: 4, title: 'Service profile', excerpt: 'Three scheduled starts.', notes: 'Not demand.', observedAt: state.generatedAt, sources: ['https://private.example/feed?token=fixture-secret'] }] }, provenance: ['notebook:entry/4'], generatedAt: state.generatedAt, warnings: [] }),
+  history: [{ question: 'Earlier study', answer: 'Saved result.', observedAt: state.generatedAt, notes: 'A staff annotation.' }],
+  provider: { available: true, complete: async (messages) => {
+    assert.match(messages[2].content, /Staff annotation.*A staff annotation/s)
+    if (++recallRound === 1) return { tool_calls: [{ id: 'recall', function: { name: 'recall_notebook', arguments: '{"search":"service profile"}' } }] }
+    assert.match(messages.at(-1).content, /Three scheduled starts/)
+    assert.doesNotMatch(messages.at(-1).content, /fixture-secret|private.example/)
+    return { content: 'Invented current service assessment' }
+  } },
+})
+assert.match(recalled.answer, /saved investigation/)
+assert.doesNotMatch(recalled.answer, /Invented/)
+assert.match(recalled.trace[0].result.data.entries[0].sources[0], /fixture-secret/, 'Original source references remain local in the retained evidence')
 const template = await draftRiderMessage({ event, context, channel: 'app' }, { available: false })
 assert.match(template.body, /5 min/)
 assert.equal(template.reviewRequired, true)

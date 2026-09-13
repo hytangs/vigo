@@ -46,6 +46,9 @@ try {
   const skill = await agency.handle('city', { action: 'run-skill', id: 'network-health-summary' })
   assert.equal(skill.trace[1].result.generatedAt, live.generatedAt)
   assert.match(skill.answer, /City X has/)
+  const recalled = await agency.handle('city', { action: 'tool', name: 'recall_notebook', arguments: { entryId: skill.entryId } })
+  assert.equal(recalled.data.entries[0].observedAt, live.generatedAt)
+  assert.equal(calls, 1, 'Notebook retrieval uses City evidence without fetching feeds or calling a model')
   sourceSnapshot.alerts = Array.from({ length: 600 }, (_, index) => ({ id: `network-${index}`, severity: 'SEVERE', header: 'Network notice', sourceUrl: sourceSnapshot.feeds[0].sourceUrl }))
   sourceSnapshot.tripUpdates[0].stopTimeUpdates[0].departure.delay = 300
   const capped = await agency.state('city')

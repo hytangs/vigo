@@ -106,9 +106,6 @@
 .agency-answer { margin-top: 26px; }
 .agency-question-echo { padding: 10px 14px; border-radius: 8px; background: var(--surface-bg); border: 1px solid var(--border); font-size: 12px; margin: 0 0 23px; overflow-wrap: anywhere; }
 .agency-answer-text { white-space: pre-wrap; font-size: 13px; line-height: 1.8; }
-.agency-raw-data { padding: 10px 12px; border-top: 1px solid var(--border); font-size: 10px; color: var(--text-muted); }
-.agency-raw-data summary { cursor: pointer; }
-.agency-raw-data pre { max-height: 300px; overflow: auto; font-size: 10px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
 .agency-query-table { overflow: auto; max-height: 360px; }
 .agency-query-table table { width: 100%; border-collapse: collapse; }
 .agency-query-table td, .agency-query-table th { padding: 8px 12px; font-size: 10px; text-align: left; border-top: 1px solid var(--border); white-space: nowrap; }
@@ -258,9 +255,6 @@
 .agency-activity li { position: relative; padding: 5px 0 13px; line-height: 1.7; }
 .agency-activity-mark { position: absolute; left: -21px; top: 11px; width: 7px; height: 7px; border-radius: 50%; background: var(--panel); border: 1px solid var(--text-muted); }
 .agency-activity-mark.is-done { background: var(--vigo-lime-strong); border-color: var(--vigo-lime-strong); }
-.agency-activity-detail { padding: 12px; border: 1px solid var(--border); border-radius: 8px; margin-top: 8px; }
-.agency-activity-detail > strong { color: var(--text); font-size: 11px; }
-.agency-activity-detail > span { float: right; font-size: 10px; }
 .agency-answer-events { display: grid; gap: 8px; margin: 18px 0; }
 .agency-answer-events > button { display: flex; justify-content: space-between; align-items: center; gap: 12px; text-align: left; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-bg); color: var(--text); padding: 14px; cursor: pointer; }
 .agency-answer-events > button:hover { border-color: var(--text-muted); }
@@ -326,3 +320,10 @@
 
 .agency-saved-note { border-left: 2px solid var(--vigo-lime-strong); padding: 8px 12px; color: var(--text-muted); font-size: 12px; line-height: 1.7; white-space: pre-wrap; }
 .agency-saved-note strong { display: block; color: var(--text); font-size: 10px; margin-bottom: 3px; }
+
+.agency-record-download { margin-top: 12px; }
+.agency-recalled-work > article { padding: 16px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.agency-recalled-work strong, .agency-recalled-work small { display: block; }
+.agency-recalled-work strong { color: var(--text-strong); font-size: 13px; }
+.agency-recalled-work small { color: var(--text-muted); font-size: 10px; margin-top: 6px; }
+.agency-recalled-work p { font-size: 12px; line-height: 1.8; white-space: pre-wrap; }

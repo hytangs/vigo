@@ -28,7 +28,7 @@ async function readResponse(response) {
 
 export function createProvider(environment = process.env, fetcher = globalThis.fetch) {
   let config = { baseUrl: String(environment.VIGO_AGENCY_LLM_BASE_URL ?? '').replace(/\/$/, ''), model: String(environment.VIGO_AGENCY_LLM_MODEL ?? ''), key: String(environment.VIGO_AGENCY_LLM_API_KEY ?? ''), reasoningEffort: String(environment.VIGO_AGENCY_LLM_REASONING_EFFORT ?? '') }
-  let source = 'environment', testedAt = null
+  let source = 'environment', testedAt = null, revision = 0
   function candidate(input) {
     if (!input || typeof input !== 'object') throw new Error('Enter the provider connection details.')
     const baseUrl = normalizeBaseUrl(input.baseUrl)
@@ -77,10 +77,17 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
       let args
       try { args = JSON.parse(call?.function?.arguments || '{}') } catch {}
       if (args?.ready !== true) throw new Error('The model responded, but did not call the test tool. Choose a model that supports function calling.')
-      config = next; source = 'session'; testedAt = new Date().toISOString()
+      config = next; revision++; source = 'session'; testedAt = new Date().toISOString()
       return this.status()
     },
-    disconnect() { config = { baseUrl: '', model: '', key: '' }; source = 'session'; testedAt = null; return this.status() },
+    disconnect() { config = { baseUrl: '', model: '', key: '' }; revision++; source = 'session'; testedAt = null; return this.status() },
+    forRequest() {
+      const connection = { ...config }, startedAtRevision = revision
+      return { available: this.available, model: this.model, complete(messages, tools, signal, options) {
+        if (revision !== startedAtRevision) throw new Error('The model connection changed. Ask again to use the new connection.')
+        return completeWith(connection, messages, tools, signal, options)
+      } }
+    },
     complete(messages, tools, signal, options) { return completeWith({ ...config }, messages, tools, signal, options) },
   }
 }

@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { ArrowRight, BookOpen, Plus } from 'lucide-react'
 import { apiJson } from '../app/api'
 import type { AgencySkill, AgencyState } from '../agency/types'
-import { downloadText } from './AgencyNotebook'
+import { downloadText } from '../agency/exports'
 
 export function AgencySkills({ skills, state, endpoint, busy, onInstall, onRun }: { skills: AgencySkill[]; state: AgencyState; endpoint: string; busy: boolean; onInstall: (skills: AgencySkill[]) => void; onRun: (skill: AgencySkill, input: Record<string, unknown>) => void }) {
   const [selected, setSelected] = useState('')
