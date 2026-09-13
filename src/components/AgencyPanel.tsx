@@ -107,6 +107,11 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   const filteredRoutes = useMemo(() => (state?.routes ?? []).filter((route) => `${route.name} ${route.longName}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())).sort((a, b) => b.events - a.events || b.reportingTrips - a.reportingTrips || a.name.localeCompare(b.name, undefined, { numeric: true })), [state, search])
   const events = useMemo(() => (state?.events ?? []).filter((event) => (!routeFilter || event.routeId === routeFilter || event.routeIds?.includes(routeFilter)) && (eventFilter === 'all' || event.type === eventFilter)), [state, routeFilter, eventFilter])
 
+  function stopInvestigation() {
+    abortRef.current?.abort()
+    setActivities((items) => [...items, { phase: 'stopped', progress: 1, detail: 'Stopped. Open Saved work to return to completed checks.' }])
+  }
+
   async function ask(nextQuestion = question) {
     if (busy || !nextQuestion.trim()) return
     if (!state?.provider.available) { document.querySelector<HTMLButtonElement>('.agency-ai-connection button[aria-expanded="false"]')?.click(); return }
@@ -120,7 +125,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
       if (!result.trace.some((call) => call.result.ok)) setQuestion(nextQuestion)
       const last = result.trace.filter((call) => call.result.ok).at(-1)?.result
       if (last) onResult(last)
-    } catch (reason) { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Question failed.') }
+    } catch (reason) { if (controller.signal.aborted) setQuestion(nextQuestion); else setError(reason instanceof Error ? reason.message : 'Question failed.') }
     finally { setBusy(false); abortRef.current = null }
   }
 
@@ -186,7 +191,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
           {busy || answer ? <div className="agency-question-echo agency-pending-question">{asked}</div> : null}
           <AgencyActivity activities={activities} busy={busy} trace={answer?.trace ?? []} />
           {answer ? <AgencyAnswer answer={answer} onResult={onResult} onSelectEvent={selectEvent} onOpenEntry={(id) => void openEntry(id)} /> : null}
-          <form className="agency-question-form" onSubmit={(event) => { event.preventDefault(); void ask() }}><label htmlFor="agency-question">{parentId ? 'Continue the conversation' : 'Your question'}</label><textarea id="agency-question" placeholder="Which routes have the widest departure intervals right now?" value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={2000} rows={2} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void ask() } }} /><footer><span>Timetable · Realtime · Routing</span>{busy ? <button type="button" className="agency-button" onClick={() => abortRef.current?.abort()}><Square size={13} /> Stop</button> : <button className="agency-button is-primary" disabled={!question.trim()} type="submit"><Send size={14} /> Ask</button>}</footer></form>
+          <form className="agency-question-form" onSubmit={(event) => { event.preventDefault(); void ask() }}><label htmlFor="agency-question">{parentId ? 'Continue the conversation' : 'Your question'}</label><textarea id="agency-question" placeholder="Which routes have the widest departure intervals right now?" value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={2000} rows={2} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void ask() } }} /><footer><span>Timetable · Realtime · Routing</span>{busy ? <button type="button" className="agency-button" onClick={stopInvestigation}><Square size={13} /> Stop</button> : <button className="agency-button is-primary" disabled={!question.trim()} type="submit"><Send size={14} /> Ask</button>}</footer></form>
           </>}
         </div> : <div id="agency-skills" role="tabpanel" aria-labelledby="agency-tab-skills"><AgencySkills skills={skills} state={state} endpoint={endpoint} busy={busy} onInstall={setSkills} onRun={(skill, input) => void runSkill(skill, input)} /></div>}
       </> : null}

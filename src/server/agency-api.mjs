@@ -8,7 +8,6 @@ import { createSkillRegistry } from '../agency/skillRegistry.mjs'
 import { createToolRegistry } from '../agency/toolRegistry.mjs'
 import { createProvider } from '../agency/provider.mjs'
 import { queryAgency } from '../agency/queryAgent.mjs'
-import { summarizeEvidence } from '../agency/evidenceSummary.mjs'
 
 export function createAgencyService(adapters, { provider = createProvider(), clock = () => Date.now(), policy = defaultPolicy, refreshMs = 10_000 } = {}) {
   const sessions = new Map()
@@ -131,11 +130,17 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
           return retain(body.question, await queryAgency({ question: body.question, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history }))
         }
         case 'run-skill': {
-          const result = await session.skills.run(body.id, body.inputs ?? {}, callTool, progress)
+          const result = await session.skills.run(body.id, body.inputs ?? {}, callTool, progress, { signal, generatedAt: state.generatedAt })
           const trace = result.results
-          let summary = { text: summarizeEvidence(trace), aiGenerated: false }, warning
-          try { summary = await synthesizeEvidence({ trace, provider: inference, signal, instructions: result.skill.instructions, onProgress: progress }) }
-          catch (error) { if (signal?.aborted) throw error; warning = error.message }
+          const fallback = await synthesizeEvidence({ trace, provider: { available: false } })
+          let summary = fallback, warning
+          try { if (result.status === 'complete') summary = await synthesizeEvidence({ trace, provider: inference, signal, instructions: result.skill.instructions, onProgress: progress }) }
+          catch (error) { warning = error.message }
+          if (result.status !== 'complete' || signal?.aborted) {
+            const completed = trace.filter((call) => call.result.ok).length
+            warning = `${signal?.aborted ? 'Study stopped' : 'Study incomplete'}. ${completed} of ${result.skill.steps.length} checks completed. Completed evidence is saved.`
+            summary = { text: `${warning}${completed ? `\n\n${fallback.text}` : ''}`, aiGenerated: false }
+          }
           const rows = trace.flatMap(({ tool, result }) => result.data.rows ?? (tool === 'anomaly_scan' ? (result.data.events ?? []).filter((event) => event.evidence.observedHeadwaySeconds != null).map((event) => ({ route: event.routeName || event.routeId, reference_stop: event.stopName || event.stopId, observed_at: event.observedAt, predicted_minutes: event.evidence.observedHeadwaySeconds / 60, scheduled_minutes: event.evidence.scheduledHeadwaySeconds / 60, difference_minutes: (event.evidence.observedHeadwaySeconds - event.evidence.scheduledHeadwaySeconds) / 60 })) : []))
           const answer = { answer: summary.text, aiGenerated: summary.aiGenerated, model: summary.model, citations: summary.citations, trace, report: { title: result.skill.name, method: result.skill.instructions, inputs: body.inputs ?? {}, rows }, generatedAt: state.generatedAt, evidenceRefs: [...new Set(trace.flatMap((call) => call.result.provenance))], warnings: [...new Set(trace.flatMap((call) => call.result.warnings)), ...(warning ? [warning] : [])], providerAvailable: provider.available }
           return retain(result.skill.name, answer, 'research')

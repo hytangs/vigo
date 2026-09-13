@@ -10,6 +10,28 @@ try {
   const call = async (name, args) => { calls.push([name, args]); return { ok: true, data: {}, provenance: [], warnings: [] } }
   await registry.run('network-health-summary', {}, call)
   assert.deepEqual(calls.map(([name]) => name), ['network_overview', 'anomaly_scan', 'service_alerts'])
+  const stamp = '2026-09-13T12:00:00Z'
+  const first = { ok: true, data: {}, provenance: ['fixture:first'], generatedAt: stamp, warnings: [] }
+  const activities = []
+  let attempts = 0
+  const failed = await registry.run('network-health-summary', {}, async () => {
+    if (++attempts === 2) throw new Error('Observation unavailable')
+    return first
+  }, (item) => activities.push(item), { generatedAt: stamp })
+  assert.equal(failed.status, 'failed')
+  assert.equal(attempts, 2, 'Do not run later steps after a failed prerequisite')
+  assert.deepEqual(failed.results[0].result, first, 'Completed evidence keeps its original source and timestamp')
+  assert.equal(failed.results[1].result.generatedAt, stamp)
+  assert.match(activities.at(-1).detail, /Observation unavailable/)
+  const rejected = await registry.run('network-health-summary', {}, async () => failed.results[1].result)
+  assert.equal(rejected.results.length, 1, 'Returned tool failures stop a skill just like thrown failures')
+  assert.equal(rejected.status, 'failed')
+  const stop = new AbortController()
+  const stopped = await registry.run('network-health-summary', {}, async () => { stop.abort(); return first }, undefined, { signal: stop.signal })
+  assert.equal(stopped.status, 'stopped')
+  assert.equal(stopped.results.length, 1, 'Stop retains the finished step without invoking the next one')
+  const unstarted = await registry.run('network-health-summary', {}, async () => assert.fail('A stopped study must not start'), undefined, { signal: stop.signal })
+  assert.equal(unstarted.results.length, 0)
   registry.setEnabled('network-health-summary', false)
   await assert.rejects(registry.run('network-health-summary', {}, call), /disabled/)
   await assert.rejects(registry.run('departure-interval-audit', {}, call), /routeId/)
@@ -25,5 +47,5 @@ try {
   assert.deepEqual(calls.at(-1), ['service_alerts', { routeId: 'exact-route' }])
   assert.equal(reopened.list().find((item) => item.id === custom.id).instructions, custom.instructions)
   assert.equal(createSkillRegistry().list().find((item) => item.id === 'network-health-summary').enabled, true)
-  console.log('Agency skills: installed method packages, typed input binding, persistence, path boundaries, and isolated preferences passed.')
+  console.log('Agency skills: installed methods, typed inputs, persistence, partial failures, cancellation, and isolated preferences passed.')
 } finally { fs.rmSync(directory, { recursive: true, force: true }) }

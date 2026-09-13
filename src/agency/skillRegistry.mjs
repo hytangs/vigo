@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { toolDefinitions, validateArguments } from './toolRegistry.mjs'
+import { failedToolResult, toolDefinitions, validateArguments } from './toolRegistry.mjs'
 
 const allowed = new Map(toolDefinitions.map((tool) => [tool.name, tool]))
 function validate(skill) {
@@ -43,7 +43,7 @@ export function createSkillRegistry({ directory = path.resolve('public/agency-sk
       skill.enabled = enabled
       return { ...skill }
     },
-    async run(id, input, callTool, onProgress = () => {}) {
+    async run(id, input, callTool, onProgress = () => {}, { signal, generatedAt = new Date().toISOString() } = {}) {
       const skill = skills.get(id)
       if (!skill || !skill.enabled) throw new Error('This skill is unavailable or disabled.')
       for (const key of skill.requiredInputs) if (input[key] === undefined || input[key] === '') throw new Error(`${key} is required.`)
@@ -54,15 +54,21 @@ export function createSkillRegistry({ directory = path.resolve('public/agency-sk
         return value
       }
       const results = []
+      let status = 'complete'
       for (const [index, step] of skill.steps.entries()) {
+        if (signal?.aborted) { status = 'stopped'; break }
         const args = bind(step.arguments ?? {})
-        validateArguments(args, allowed.get(step.tool).parameters)
         onProgress({ phase: `skill-${index}`, progress: 0, detail: step.label || `Running ${step.tool.replaceAll('_', ' ')}…` })
-        const result = await callTool(step.tool, args)
+        let result
+        try {
+          validateArguments(args, allowed.get(step.tool).parameters)
+          result = await callTool(step.tool, args)
+        } catch (error) { result = failedToolResult(error, generatedAt) }
         results.push({ tool: step.tool, arguments: args, result })
-        onProgress({ phase: `skill-${index}`, progress: 1, detail: `${step.label || step.tool.replaceAll('_', ' ')} — complete` })
+        onProgress({ phase: `skill-${index}`, progress: 1, detail: result.ok ? `${step.label || step.tool.replaceAll('_', ' ')} — complete` : result.warnings[0] || 'This check could not be completed.' })
+        if (!result.ok) { status = 'failed'; break }
       }
-      return { skill: { ...skill }, results }
+      return { skill: { ...skill }, results, status: signal?.aborted ? 'stopped' : status }
     },
   }
 }

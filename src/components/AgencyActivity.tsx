@@ -19,7 +19,7 @@ export function AgencyActivity({ activities, busy, trace }: {
   return <details className="agency-activity" open={busy}>
     <summary>
       {busy ? <LoaderCircle size={14} className="agency-spinner" /> : <Check size={14} />}
-      <span>{busy ? 'Working through your question' : count}</span>
+      <span>{busy ? 'Working through your question' : activities.some((item) => item.phase === 'stopped') ? 'Investigation stopped · see Saved work' : count}</span>
       <ChevronRight size={14} />
     </summary>
     <ol aria-live="polite">{visible.map((item) => <li key={item.phase}>

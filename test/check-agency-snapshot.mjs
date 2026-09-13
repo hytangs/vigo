@@ -34,7 +34,8 @@ createAgencyFixture(file)
 const sourceSnapshot = realtimeFixture()
 let calls = 0
 let now = observationTime * 1000
-const agency = createAgencyService({ context: async () => ({ storePath: file, cityName: 'City X' }), inspectRealtime: async () => { calls++; return sourceSnapshot } }, { clock: () => now, provider: { available: false, model: null }, refreshMs: 60_000 })
+const provider = { available: false, model: null }
+const agency = createAgencyService({ context: async () => ({ storePath: file, cityName: 'City X' }), inspectRealtime: async () => { calls++; return sourceSnapshot } }, { clock: () => now, provider, refreshMs: 60_000 })
 try {
   const request = { urls: { tripUpdates: 'https://example.org/feed' } }
   await agency.connect('city', request)
@@ -49,6 +50,30 @@ try {
   const recalled = await agency.handle('city', { action: 'tool', name: 'recall_notebook', arguments: { entryId: skill.entryId } })
   assert.equal(recalled.data.entries[0].observedAt, live.generatedAt)
   assert.equal(calls, 1, 'Notebook retrieval uses City evidence without fetching feeds or calling a model')
+  await agency.handle('city', { action: 'skill-install', skill: {
+    id: 'partial-study', name: 'Partial study', description: 'Exercise a failed tool after a completed check.', instructions: 'Read the network, then the selected route.', inputs: [],
+    steps: [{ tool: 'network_overview' }, { tool: 'service_alerts', arguments: { routeId: 'missing-route' } }, { tool: 'realtime_status' }],
+  } })
+  const partial = await agency.handle('city', { action: 'run-skill', id: 'partial-study' })
+  assert.match(partial.answer, /Study incomplete\. 1 of 3 checks completed/)
+  assert.equal(partial.trace.length, 2)
+  assert.equal(partial.trace[1].result.ok, false)
+  const saved = await agency.handle('city', { action: 'notebook-entry', id: partial.entryId })
+  assert.deepEqual(saved.entries[0].answer.trace, partial.trace, 'A failed later step must not discard the saved investigation')
+  const stop = new AbortController()
+  const stopped = await agency.handle('city', { action: 'run-skill', id: 'network-health-summary' }, stop.signal, (activity) => { if (activity.phase === 'skill-0' && activity.progress === 1) stop.abort() })
+  assert.match(stopped.answer, /Study stopped\. 1 of 3 checks completed/)
+  assert.equal(stopped.trace.length, 1)
+  assert.ok((await agency.handle('city', { action: 'notebook-entry', id: stopped.entryId })).entries.length)
+  const summaryStop = new AbortController()
+  provider.available = true
+  provider.complete = async () => { summaryStop.abort(); throw new Error('Summary interrupted') }
+  const stoppedSummary = await agency.handle('city', { action: 'run-skill', id: 'network-health-summary' }, summaryStop.signal)
+  assert.match(stoppedSummary.answer, /Study stopped\. 3 of 3 checks completed/)
+  assert.match(stoppedSummary.answer, /City X has/, 'A cancelled summary keeps the same network fallback as an unconfigured model')
+  assert.equal(stoppedSummary.aiGenerated, false)
+  assert.ok(stoppedSummary.entryId, 'Cancellation during AI summarization must also retain all completed checks')
+  provider.available = false
   sourceSnapshot.alerts = Array.from({ length: 600 }, (_, index) => ({ id: `network-${index}`, severity: 'SEVERE', header: 'Network notice', sourceUrl: sourceSnapshot.feeds[0].sourceUrl }))
   sourceSnapshot.tripUpdates[0].stopTimeUpdates[0].departure.delay = 300
   const capped = await agency.state('city')

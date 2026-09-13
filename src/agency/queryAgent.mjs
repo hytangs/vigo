@@ -1,4 +1,4 @@
-import { toolDefinitions } from './toolRegistry.mjs'
+import { failedToolResult, toolDefinitions } from './toolRegistry.mjs'
 import { summarizeEvidence } from './evidenceSummary.mjs'
 
 // Source URLs can contain feed credentials. Keep them in the local evidence
@@ -37,31 +37,35 @@ export async function queryAgency({ question, context, state, callTool, provider
   const trace = []
   const warnings = []
   for (let round = 0; round < 6 && trace.length < 8; round++) {
-    if (signal?.aborted) { warnings.push('Stopped. Completed checks are retained in this note.'); break }
+    if (signal?.aborted) break
     let message
     try { message = await provider.complete(messages, toolDefinitions, signal) }
-    catch (error) { if (signal?.aborted) { warnings.push('Stopped. Completed checks are retained in this note.'); break } warnings.push(error.message); onProgress({ phase: 'provider-error', progress: 1, detail: error.message }); break }
-    const calls = message.tool_calls
-    if (!calls?.length) break
-    if (!Array.isArray(calls) || calls.length > 8 - trace.length) { warnings.push('The planner exceeded the tool-call limit.'); break }
+    catch (error) { if (signal?.aborted) break; warnings.push(error.message); onProgress({ phase: 'provider-error', progress: 1, detail: error.message }); break }
+    const calls = message?.tool_calls
+    if (calls == null || (Array.isArray(calls) && !calls.length)) break
+    if (!Array.isArray(calls) || calls.some((call) => !call || typeof call.id !== 'string' || !call.id || typeof call.function?.name !== 'string' || typeof call.function?.arguments !== 'string') || new Set(calls.map((call) => call.id)).size !== calls.length) {
+      warnings.push('The model returned an unreadable set of checks. Completed evidence is retained; please retry.'); break
+    }
+    if (calls.length > 8 - trace.length) { warnings.push('The planner exceeded the tool-call limit.'); break }
     messages.push({ role: 'assistant', content: null, tool_calls: calls })
     for (const call of calls) {
+      if (signal?.aborted) break
       let args = {}
       let result
       try {
-        if (typeof call.id !== 'string' || !call.function || typeof call.function.arguments !== 'string') throw new Error('Invalid tool call.')
         args = JSON.parse(call.function.arguments)
         onProgress({ phase: `tool-${trace.length}`, progress: 0, detail: describeTool(call.function.name, args, context) })
         result = await callTool(call.function.name, args)
       } catch (error) {
-        result = { ok: false, data: { error: error.message }, provenance: [], generatedAt: state.generatedAt, warnings: [error.message] }
+        result = failedToolResult(error, state.generatedAt)
       }
       trace.push({ tool: call.function?.name ?? 'unknown', arguments: args, result })
       onProgress({ phase: `tool-${trace.length - 1}`, progress: 1, detail: result.ok ? describeToolResult(call.function?.name, result) : result.warnings[0] || 'This check could not be completed.' })
       messages.push({ role: 'tool', tool_call_id: call.id, content: compactResult(result, call.function?.name) })
     }
   }
-  if (trace.length >= 8) warnings.push('Investigation stopped at eight tool calls.')
+  if (signal?.aborted) warnings.push('Stopped. Completed checks are retained in this note.')
+  else if (trace.length >= 8) warnings.push('Investigation stopped at eight tool calls.')
   return { answer: summarizeEvidence(trace), trace, evidenceRefs: [...new Set(trace.flatMap((call) => call.result.provenance))], generatedAt: state.generatedAt, warnings: [...warnings, ...new Set(trace.flatMap((call) => call.result.warnings))], providerAvailable: true }
 }
 

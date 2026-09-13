@@ -1,6 +1,11 @@
 import { gtfsQuery } from './gtfsQuery.mjs'
 import { draftRiderMessage } from './communications.mjs'
 
+export function failedToolResult(error, generatedAt) {
+  const message = error instanceof Error ? error.message : 'This check could not be completed.'
+  return { ok: false, data: { error: message }, provenance: [], generatedAt, warnings: [message] }
+}
+
 const object = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false })
 const string = { type: 'string' }
 const routeScope = object({ routeId: string })

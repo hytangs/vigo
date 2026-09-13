@@ -21,6 +21,27 @@ let interruptedRound = 0
 const partial = await queryAgency({ question: 'Check service', context, state, callTool, provider: { available: true, complete: async () => { if (++interruptedRound === 1) return { tool_calls: [{ id: 'one', function: { name: 'anomaly_scan', arguments: '{}' } }] }; throw new Error('Provider unavailable') } } })
 assert.equal(partial.trace.length, 1)
 assert.equal(partial.warnings.includes('Provider unavailable'), true)
+for (const malformed of [[null], [{ id: 'missing-function' }], [{ id: 'same', function: { name: 'anomaly_scan', arguments: '{}' } }, { id: 'same', function: { name: 'anomaly_scan', arguments: '{}' } }], {}]) {
+  const result = await queryAgency({ question: 'Check service', context, state, callTool: async () => assert.fail('Malformed calls must not execute'), provider: { available: true, complete: async () => ({ tool_calls: malformed }) } })
+  assert.equal(result.trace.length, 0)
+  assert.match(result.warnings[0], /unreadable/)
+}
+const stop = new AbortController()
+let stoppedCalls = 0
+const stopped = await queryAgency({ question: 'Check service', context, state, signal: stop.signal,
+  callTool: async () => { stoppedCalls++; stop.abort(); return callTool() },
+  provider: { available: true, complete: async () => ({ tool_calls: ['first', 'second'].map((id) => ({ id, function: { name: 'anomaly_scan', arguments: '{}' } })) }) },
+})
+assert.equal(stoppedCalls, 1, 'Stopping a model batch must not execute its remaining calls')
+assert.deepEqual(stopped.evidenceRefs, event.sourceRefs)
+assert.ok(stopped.warnings.some((warning) => warning.startsWith('Stopped')))
+const lastStop = new AbortController()
+let finalCalls = 0
+const stoppedAtLimit = await queryAgency({ question: 'Check service', context, state, signal: lastStop.signal,
+  callTool: async () => { if (++finalCalls === 8) lastStop.abort(); return callTool() },
+  provider: { available: true, complete: async () => ({ tool_calls: Array.from({ length: 8 }, (_, index) => ({ id: `check-${index}`, function: { name: 'anomaly_scan', arguments: '{}' } })) }) },
+})
+assert.match(stoppedAtLimit.warnings[0], /^Stopped\./, 'Cancellation on the last allowed call must still be recorded as a user stop')
 const unavailable = await queryAgency({ question: 'What is happening?', context, state, callTool, provider: { available: false } })
 assert.equal(unavailable.providerAvailable, false)
 let recoveryRound = 0
