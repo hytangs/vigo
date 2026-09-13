@@ -52,7 +52,7 @@ assert.equal(result.data.walking.durationMinutes, 6)
 assert.equal(result.data.walking.distanceMiles, 480 / 1609.344, 'Imperial distance uses the exact international mile conversion')
 assert.equal(input.origin.lon, 0, 'Tool input remains intact in the evidence record')
 await assert.rejects(callTool('walk_route', { ...input, origin: { placeId: 'osm:node/999' } }), /Search for this place again/)
-await assert.rejects(callTool('walk_route', { ...input, origin: { placeId: 'osm:node/1', stopId: 'A' } }), /either a stop ID or a place ID/)
+await assert.rejects(callTool('walk_route', { ...input, origin: { placeId: 'osm:node/1', stopId: 'A' } }), /Choose one stop ID/)
 blocked = true
 assert.equal((await callTool('walk_route', input)).data.walking, null, 'No fabricated distance when the native engine finds no path')
 blocked = false
@@ -64,7 +64,7 @@ assert.deepEqual(requested.origin.coordinate, [10.1, 20.2], 'Reach shares place 
 let round = 0
 const answer = await queryAgency({ question: 'How far is the walk?', context, state, callTool, provider: { available: true, complete: async (messages) => {
   if (++round === 1) return { tool_calls: [{ id: 'walk', function: { name: 'walk_route', arguments: JSON.stringify(input) } }] }
-  assert.match(messages.at(-1).content, /"distanceMeters":480/)
+  assert.match(messages.at(-1).content, /480 metres \(0.30 miles\)/)
   assert.doesNotMatch(messages.at(-1).content, /coordinates/, 'The model sees distance and endpoints, not thousands of map coordinates')
   return { content: 'From Coffee House at 17 Market Street to Station, the walk is 480 m, about 6 minutes. [1]' }
 } } })

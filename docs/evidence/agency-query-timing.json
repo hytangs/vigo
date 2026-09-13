@@ -1,0 +1,350 @@
+{
+  "date": "2026-09-13",
+  "platform": "macOS 26.5.1, Apple M2, 16 GiB",
+  "temperature": 0,
+  "reasoning": "off",
+  "notes": "Three sequential invocations per configuration; not controlled cold starts. Times include model and HTTP tool calls. Baseline selected a wrong endpoint. This is one diagnostic, not a general benchmark.",
+  "samples": [
+    {
+      "configuration": "baseline",
+      "protocol": "openai",
+      "contextTokens": 4096,
+      "question": "How far is the walk from Back Bay station to Copley station?",
+      "observationClock": "2026-09-13T18:30:00Z",
+      "model": "qwen3.5:4b",
+      "runs": [
+        {
+          "iteration": 0,
+          "totalMs": 41893.209375000006,
+          "modelCalls": 4,
+          "modelMs": 34349.785042,
+          "inputCharacters": [
+            11854,
+            12621,
+            14818,
+            16024
+          ],
+          "answer": "The walk from Back Bay Station to Copley Station (North Station) is approximately **2.76 km (1.7 miles)** and takes about **34 minutes**.\n\nNote: The search found \"North Station - Green Line and",
+          "trace": [
+            {
+              "tool": "resolve_entities",
+              "args": {
+                "query": "Back Bay station",
+                "kind": "stop"
+              },
+              "ok": true
+            },
+            {
+              "tool": "resolve_entities",
+              "args": {
+                "query": "Copley station",
+                "kind": "stop"
+              },
+              "ok": true
+            },
+            {
+              "tool": "place_search",
+              "args": {
+                "query": "Back Bay station Boston",
+                "withinCity": true
+              },
+              "ok": true
+            },
+            {
+              "tool": "place_search",
+              "args": {
+                "query": "Copley station Boston",
+                "withinCity": true
+              },
+              "ok": true
+            },
+            {
+              "tool": "walk_route",
+              "args": {
+                "origin": {
+                  "placeId": "osm:relation/20313627"
+                },
+                "destination": {
+                  "placeId": "osm:way/236579324"
+                }
+              },
+              "ok": true,
+              "walking": {
+                "distanceMeters": 2759.98689975509,
+                "distanceMiles": 1.7149763504602433,
+                "durationMinutes": 34.49983624693862,
+                "walkingSpeedKph": 4.8,
+                "endpointConnectionsMeters": {
+                  "origin": 18.544,
+                  "destination": 107.341
+                }
+              }
+            }
+          ]
+        },
+        {
+          "iteration": 1,
+          "totalMs": 25443.326999999997,
+          "modelCalls": 4,
+          "modelMs": 21266.55879200001,
+          "inputCharacters": [
+            11854,
+            12621,
+            14818,
+            16024
+          ],
+          "answer": "The walk from Back Bay Station to Copley Station (North Station) is approximately **2.76 km (1.7 miles)** and takes about **34 minutes**.\n\nNote: The search found \"North Station - Green Line and",
+          "trace": [
+            {
+              "tool": "resolve_entities",
+              "args": {
+                "query": "Back Bay station",
+                "kind": "stop"
+              },
+              "ok": true
+            },
+            {
+              "tool": "resolve_entities",
+              "args": {
+                "query": "Copley station",
+                "kind": "stop"
+              },
+              "ok": true
+            },
+            {
+              "tool": "place_search",
+              "args": {
+                "query": "Back Bay station Boston",
+                "withinCity": true
+              },
+              "ok": true
+            },
+            {
+              "tool": "place_search",
+              "args": {
+                "query": "Copley station Boston",
+                "withinCity": true
+              },
+              "ok": true
+            },
+            {
+              "tool": "walk_route",
+              "args": {
+                "origin": {
+                  "placeId": "osm:relation/20313627"
+                },
+                "destination": {
+                  "placeId": "osm:way/236579324"
+                }
+              },
+              "ok": true,
+              "walking": {
+                "distanceMeters": 2759.98689975509,
+                "distanceMiles": 1.7149763504602433,
+                "durationMinutes": 34.49983624693862,
+                "walkingSpeedKph": 4.8,
+                "endpointConnectionsMeters": {
+                  "origin": 18.544,
+                  "destination": 107.341
+                }
+              }
+            }
+          ]
+        },
+        {
+          "iteration": 2,
+          "totalMs": 25499.894791999992,
+          "modelCalls": 4,
+          "modelMs": 21239.279832999993,
+          "inputCharacters": [
+            11854,
+            12621,
+            14818,
+            16024
+          ],
+          "answer": "The walk from Back Bay Station to Copley Station (North Station) is approximately **2.76 km (1.7 miles)** and takes about **34 minutes**.\n\nNote: The search found \"North Station - Green Line and",
+          "trace": [
+            {
+              "tool": "resolve_entities",
+              "args": {
+                "query": "Back Bay station",
+                "kind": "stop"
+              },
+              "ok": true
+            },
+            {
+              "tool": "resolve_entities",
+              "args": {
+                "query": "Copley station",
+                "kind": "stop"
+              },
+              "ok": true
+            },
+            {
+              "tool": "place_search",
+              "args": {
+                "query": "Back Bay station Boston",
+                "withinCity": true
+              },
+              "ok": true
+            },
+            {
+              "tool": "place_search",
+              "args": {
+                "query": "Copley station Boston",
+                "withinCity": true
+              },
+              "ok": true
+            },
+            {
+              "tool": "walk_route",
+              "args": {
+                "origin": {
+                  "placeId": "osm:relation/20313627"
+                },
+                "destination": {
+                  "placeId": "osm:way/236579324"
+                }
+              },
+              "ok": true,
+              "walking": {
+                "distanceMeters": 2759.98689975509,
+                "distanceMiles": 1.7149763504602433,
+                "durationMinutes": 34.49983624693862,
+                "walkingSpeedKph": 4.8,
+                "endpointConnectionsMeters": {
+                  "origin": 18.544,
+                  "destination": 107.341
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "configuration": "revised",
+      "protocol": "ollama",
+      "contextTokens": 8192,
+      "question": "How far is the walk from Back Bay station to Copley station?",
+      "observationClock": "2026-09-13T18:30:00Z",
+      "model": "qwen3.5:4b",
+      "runs": [
+        {
+          "iteration": 0,
+          "totalMs": 6054.005958,
+          "modelCalls": 2,
+          "modelMs": 5239.29475,
+          "inputCharacters": [
+            12883,
+            13884
+          ],
+          "answer": "The walk from Back Bay to Copley is about 360 metres (0.22 miles) and takes roughly 4½ minutes.",
+          "trace": [
+            {
+              "tool": "walk_route",
+              "args": {
+                "origin": {
+                  "stopName": "Back Bay"
+                },
+                "destination": {
+                  "stopName": "Copley"
+                }
+              },
+              "ok": true,
+              "walking": {
+                "distanceMeters": 357.4343059237073,
+                "distanceKilometers": 0.35743430592370734,
+                "distanceMiles": 0.22209938081833797,
+                "distanceYards": 390.89491024027484,
+                "distanceFeet": 1172.6847307208245,
+                "durationMinutes": 4.467928824046342,
+                "walkingSpeedKph": 4.8,
+                "endpointConnectionsMeters": {
+                  "origin": 3.613,
+                  "destination": 2.493
+                }
+              }
+            }
+          ]
+        },
+        {
+          "iteration": 1,
+          "totalMs": 7180.915542000001,
+          "modelCalls": 2,
+          "modelMs": 6024.913916999999,
+          "inputCharacters": [
+            12883,
+            13884
+          ],
+          "answer": "The walk from Back Bay to Copley is about 360 metres (0.22 miles) and takes roughly 4½ minutes.",
+          "trace": [
+            {
+              "tool": "walk_route",
+              "args": {
+                "origin": {
+                  "stopName": "Back Bay"
+                },
+                "destination": {
+                  "stopName": "Copley"
+                }
+              },
+              "ok": true,
+              "walking": {
+                "distanceMeters": 357.4343059237073,
+                "distanceKilometers": 0.35743430592370734,
+                "distanceMiles": 0.22209938081833797,
+                "distanceYards": 390.89491024027484,
+                "distanceFeet": 1172.6847307208245,
+                "durationMinutes": 4.467928824046342,
+                "walkingSpeedKph": 4.8,
+                "endpointConnectionsMeters": {
+                  "origin": 3.613,
+                  "destination": 2.493
+                }
+              }
+            }
+          ]
+        },
+        {
+          "iteration": 2,
+          "totalMs": 7993.562,
+          "modelCalls": 2,
+          "modelMs": 6945.831875,
+          "inputCharacters": [
+            12883,
+            13884
+          ],
+          "answer": "The walk from Back Bay to Copley is about 360 metres (0.22 miles) and takes roughly 4½ minutes.",
+          "trace": [
+            {
+              "tool": "walk_route",
+              "args": {
+                "origin": {
+                  "stopName": "Back Bay"
+                },
+                "destination": {
+                  "stopName": "Copley"
+                }
+              },
+              "ok": true,
+              "walking": {
+                "distanceMeters": 357.4343059237073,
+                "distanceKilometers": 0.35743430592370734,
+                "distanceMiles": 0.22209938081833797,
+                "distanceYards": 390.89491024027484,
+                "distanceFeet": 1172.6847307208245,
+                "durationMinutes": 4.467928824046342,
+                "walkingSpeedKph": 4.8,
+                "endpointConnectionsMeters": {
+                  "origin": 3.613,
+                  "destination": 2.493
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

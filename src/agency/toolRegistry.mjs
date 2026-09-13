@@ -1,31 +1,32 @@
 import { gtfsQuery } from './gtfsQuery.mjs'
 import { draftRiderMessage } from './communications.mjs'
+import { resolveJourneyPoints } from './journeyInputs.mjs'
 
 export function failedToolResult(error, generatedAt) {
   const message = error instanceof Error ? error.message : 'This check could not be completed.'
-  return { ok: false, data: { error: message }, provenance: [], generatedAt, warnings: [message] }
+  return { ok: false, data: { error: message, ...(error?.details ? { clarification: error.details } : {}) }, provenance: [], generatedAt, warnings: [message] }
 }
 
 const object = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false })
 const string = { type: 'string' }
-const routeScope = object({ routeId: string })
+const routeScope = object({ routeId: string, routeNames: { type: 'array', description: 'Bare route numbers or proper names ONLY, without a generic Route prefix.', items: string, minItems: 1, maxItems: 8 } })
 const coordinate = object({ lat: { type: 'number', minimum: -90, maximum: 90 }, lon: { type: 'number', minimum: -180, maximum: 180 }, stopId: string }, ['lat', 'lon'])
-const transitPoint = object({ stopId: { type: 'string', description: 'Exact stop ID from resolve_entities.' }, placeId: { type: 'string', description: 'Exact place ID from place_search. The server supplies its coordinates.' }, lat: { type: 'number', minimum: -90, maximum: 90 }, lon: { type: 'number', minimum: -180, maximum: 180 } })
+const transitPoint = object({ stopName: { type: 'string', description: 'Proper station name ONLY; omit generic station/stop words.' }, placeQuery: string, stopId: string, placeId: string, lat: { type: 'number', minimum: -90, maximum: 90 }, lon: { type: 'number', minimum: -180, maximum: 180 } })
 const serviceMinutes = { type: 'integer', minimum: 0, maximum: 2880 }
-const journey = { origin: transitPoint, serviceDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, departTime: { type: 'string', pattern: '^(?:[0-3][0-9]|4[0-7]):[0-5][0-9]$|^48:00$', description: 'Exact local service-day clock, HH:MM. For eight in the morning use 08:00, not 00:08. Hours above 23 continue the same service day.' } }
+const journey = { origin: transitPoint, serviceDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, departTime: { type: 'string', pattern: '^(?:[0-3][0-9]|4[0-7]):[0-5][0-9]$|^48:00$', description: 'Local HH:MM; hours 24–48 continue the service day.' } }
 
 export const toolDefinitions = [
-  { name: 'network_overview', description: 'Read the City, timetable coverage, source scopes, current network counts, and independently aged realtime feeds.', parameters: object({}) },
-  { name: 'recall_notebook', description: 'Retrieve this City\'s saved investigations and staff notes. Use a short literal search phrase, an empty search for recent work, or an exact entryId. Returns at most five dated excerpts. These are historical records and annotations, not current service observations.', parameters: object({ search: { type: 'string', maxLength: 200 }, entryId: { type: 'integer', minimum: 1 } }) },
-  { name: 'resolve_entities', description: 'Find transit routes and stops in GTFS by literal name or number. Use kind=route or kind=stop. For businesses, landmarks and addresses use place_search instead. A failed stop lookup does not mean a place cannot be found.', parameters: object({ query: string, kind: { type: 'string', enum: ['all', 'route', 'stop'] } }, ['query']) },
-  { name: 'place_search', description: 'Search online for businesses, landmarks and addresses using Photon/OpenStreetMap. Include the requested neighborhood or city in query. Optionally prefer locations near an exact nearStopId. withinCity defaults true (GTFS stop bounds); false searches beyond this area. Returns up to five addresses and place IDs. Clarify multiple plausible locations.', parameters: object({ query: { type: 'string', maxLength: 200 }, nearStopId: string, withinCity: { type: 'boolean' } }, ['query']) },
-  { name: 'walk_route', description: 'Calculate walking distance, estimated minutes and map geometry on VIGO’s saved pedestrian network. Copy origin/destination stopId or placeId from lookup results. No date or departure time needed. Never substitute straight-line distance.', parameters: object({ origin: transitPoint, destination: transitPoint }, ['origin', 'destination']) },
+  { name: 'network_overview', description: 'Read City, timetable coverage, network counts and feed ages.', parameters: object({}) },
+  { name: 'recall_notebook', description: 'Search saved work by short phrase, empty search for recent work, or entryId. Returns five dated excerpts; recheck historical findings for current conditions.', parameters: object({ search: { type: 'string', maxLength: 200 }, entryId: { type: 'integer', minimum: 1 } }) },
+  { name: 'resolve_entities', description: 'Find GTFS routes/stops by literal proper name or number. Routing tools accept names directly. Businesses need place_search.', parameters: object({ query: string, kind: { type: 'string', enum: ['all', 'route', 'stop'] } }, ['query']) },
+  { name: 'place_search', description: 'Search Photon/OpenStreetMap for businesses/addresses. Include city/neighborhood; optional nearStopId. withinCity defaults true (GTFS bounds), false searches beyond. Returns five candidates; clarify ambiguity.', parameters: object({ query: { type: 'string', maxLength: 200 }, nearStopId: string, withinCity: { type: 'boolean' } }, ['query']) },
+  { name: 'walk_route', description: 'Calculate walking distance, estimated minutes and map geometry on VIGO’s saved pedestrian network. Pass stopName or placeQuery directly, or a known stopId/placeId. Optional waypoints are visited in order, with no activity time. No date or departure time needed. Never substitute straight-line distance.', parameters: object({ origin: transitPoint, destination: transitPoint, waypoints: { type: 'array', items: transitPoint, minItems: 0, maxItems: 6 } }, ['origin', 'destination']) },
   { name: 'service_profile', description: 'Count scheduled trip starts by service hour on an exact date, with calendar exceptions. Optional exact route ID. Connections supply the first indexed departure; frequency templates are excluded.', parameters: object({ serviceDate: journey.serviceDate, routeId: string }, ['serviceDate']) },
   { name: 'gtfs_query', description: 'Read VIGO SQLite. Tables: routes(route_id,short_name,long_name,route_type), stops(stop_id,name,lat,lon), trips(trip_id,route_id,service_id,direction_id), connections(departure,arrival,trip_id,route_id,service_id,direction_id,from_stop_id,to_stop_id,stop_sequence), calendar, calendar_dates, frequencies, transfers, route_services. Times are service-day seconds. Connections are NOT original stop_times; do not invent terminal calls. One SELECT/WITH, approved functions, 200 rows maximum, 1.5s execution limit. Apply calendar exceptions for date-specific questions.', parameters: object({ sql: string, limit: { type: 'integer', minimum: 1, maximum: 200 } }, ['sql']) },
-  { name: 'route_plan', description: 'Use VIGO Studio Route. Resolve exact stops before requesting stop-to-stop journeys. The server supplies current eligible TripUpdates and reports engine application or scheduled fallback.', parameters: object({ ...journey, destination: transitPoint }, ['origin', 'destination', 'serviceDate', 'departTime']) },
+  { name: 'route_plan', description: 'Compute transit journeys with VIGO. Pass stopName/placeQuery directly; no separate lookup needed. Supply serviceDate and either departTime or arriveBy. Optional waypoints preserve visit order, with no activity time. maxTransfers applies only without waypoints. Never drop unsupported constraints.', parameters: object({ ...journey, destination: transitPoint, arriveBy: journey.departTime, maxTransfers: { type: 'integer', minimum: 0, maximum: 31 }, waypoints: { type: 'array', items: transitPoint, minItems: 0, maxItems: 6 } }, ['origin', 'destination', 'serviceDate']) },
   { name: 'reach', description: 'Use VIGO scheduled Reach. Requires an indexed pedestrian street network. Realtime alerts are not applied to Reach.', parameters: object({ ...journey, cutoffMinutes: { type: 'integer', minimum: 5, maximum: 60 } }, ['origin', 'serviceDate', 'departTime', 'cutoffMinutes']) },
-  { name: 'realtime_status', description: 'Read the shared observation, route states, coverage, independent feed ages, and unresolved trip counts.', parameters: object({ routeId: string, tripId: string, stopId: string, vehicleId: string }) },
-  { name: 'anomaly_scan', description: 'Read deterministic operational events and their complete timetable evidence. Intervals compare stop-level departure predictions with timetable departures for the same trips, not measured past vehicle passage. Severity is source-provided for alerts; interval changes carry no learned anomaly score.', parameters: object({ routeId: string, eventType: { type: 'string', enum: ['delay', 'bunching', 'service-gap', 'cancellation', 'skipped-stop', 'stale-data', 'service-alert'] }, sortBy: { type: 'string', enum: ['severity', 'headway', 'headwayChange', 'delay'] }, groupBy: { type: 'string', enum: ['event', 'route'] } }) },
+  { name: 'realtime_status', description: 'Check current service. Optional routeNames compares up to eight literal route names/numbers without separate lookups. Returns coverage, delays, intervals and feed ages.', parameters: object({ ...routeScope.properties, tripId: string, stopId: string, vehicleId: string }) },
+  { name: 'anomaly_scan', description: 'Compare predicted departures with the timetable. routeNames accepts literal names/numbers. Rank intervals, delays or agency alerts; groupBy=route compares routes. Predictions are not measured past passage.', parameters: object({ ...routeScope.properties, eventType: { type: 'string', enum: ['delay', 'bunching', 'service-gap', 'cancellation', 'skipped-stop', 'stale-data', 'service-alert'] }, sortBy: { type: 'string', enum: ['severity', 'headway', 'headwayChange', 'delay'] }, groupBy: { type: 'string', enum: ['event', 'route'] } }) },
   { name: 'service_alerts', description: 'Read currently active, fresh agency alerts and associated entities.', parameters: routeScope },
   { name: 'draft_rider_message', description: 'Create a human-review draft from an existing event. No publishing, invented cause, recovery time, or unverified alternative route.', parameters: object({ eventId: string, channel: { type: 'string', enum: ['app', 'signage', 'service-alert', 'social'] }, language: string, accessibilityMode: { type: 'boolean' } }, ['eventId', 'channel']) },
 ]
@@ -60,16 +61,6 @@ export function createToolRegistry({ context, state, snapshot, adapters, provide
   const generatedAt = state.generatedAt
   const belongs = (event, routeId) => !routeId || event.routeId === routeId || event.routeIds?.includes(routeId)
   const envelope = (data, provenance = [], warnings = [], presentation) => ({ ok: true, data, provenance, generatedAt, warnings, ...(presentation ? { presentation } : {}) })
-  const point = (value) => {
-    if (value.stopId && value.placeId) throw new Error('Choose either a stop ID or a place ID for each endpoint.')
-    const stop = value.stopId ? context.stopIndex.get(value.stopId) : null
-    if (value.stopId && !stop) throw new Error('Unknown stop ID. Resolve the indexed stop first.')
-    const place = value.placeId ? places?.resolve(value.placeId) : null
-    if (value.placeId && !place) throw new Error('Search for the place before routing.')
-    const location = stop || place || value
-    if (!Number.isFinite(location.lat) || !Number.isFinite(location.lon)) throw new Error('Supply a resolved stop ID, place ID, or both latitude and longitude.')
-    return { coordinate: [location.lon, location.lat], label: stop?.name || place?.label || 'Map point', source: stop ? 'stop' : place ? 'search' : 'map', ...(stop ? { stopId: value.stopId } : {}) }
-  }
   return async function callTool(name, input = {}) {
     const definition = [...toolDefinitions, ...internalToolDefinitions].find((tool) => tool.name === name)
     if (!definition) throw new Error(`Unknown tool: ${name}`)
@@ -85,7 +76,16 @@ export function createToolRegistry({ context, state, snapshot, adapters, provide
     }
     validateArguments(args, definition.parameters)
     if (args.routeId && !context.routeIndex.has(args.routeId)) throw new Error('Resolve an exact indexed route ID first.')
-    const events = state.events.filter((event) => belongs(event, args.routeId))
+    const routeIds = new Set(args.routeId ? [args.routeId] : [])
+    for (const name of args.routeNames ?? []) {
+      const match = context.resolve({ query: name, kind: 'route' })
+      if (match.matches.length !== 1) throw Object.assign(new Error(`Resolve the route named “${name}” before comparing it.`), { details: { matches: match.matches.slice(0, 8) } })
+      routeIds.add(match.matches[0].id)
+    }
+    const included = (id) => !routeIds.size || routeIds.has(id)
+    const scope = { ...args, routeIds: [...routeIds], routeName: [...routeIds].map((id) => context.routeIndex.get(id)?.short_name || context.routeIndex.get(id)?.long_name || id).join(', ') || undefined }
+    const events = state.events.filter((event) => !routeIds.size || [...routeIds].some((id) => belongs(event, id))).map(event => event.type === 'service-alert'
+      ? { ...event, stopNames: [...new Set((event.stopIds ?? []).map(id => context.stopIndex.get(id)?.name).filter(Boolean))] } : event)
     if (name === 'recall_notebook') {
       if (!notebook) throw new Error('No City notebook is available.')
       const entries = notebook.recall(args)
@@ -101,14 +101,15 @@ export function createToolRegistry({ context, state, snapshot, adapters, provide
       return { ...envelope(data, ['Photon · © OpenStreetMap contributors', ...data.matches.map((match) => match.sourceUrl)]), generatedAt: data.searchedAt }
     }
     if (name === 'walk_route') {
-      const result = await adapters.route({ origin: point(args.origin), destination: point(args.destination), mode: 'walk', departMinutes: 0 }, signal)
+      const { origin, destination, waypoints, resolved, sources } = await resolveJourneyPoints(context, places, args, signal)
+      const result = await adapters.route({ origin, destination, ...(waypoints.length ? { waypoints } : {}), mode: 'walk', departMinutes: 0 }, signal)
       const plan = result.plan
       const ready = plan?.status === 'ready' && plan.travelMode === 'walk' && Number.isFinite(plan.durationMinutes) && plan.durationMinutes >= 0 && plan.legs?.length && plan.legs.every((leg) => leg.type === 'walk' && Number.isFinite(leg.distanceKm) && leg.distanceKm >= 0)
       const distanceMeters = ready ? plan.legs.reduce((sum, leg) => sum + leg.distanceKm * 1000, 0) : null
       const walking = ready ? { distanceMeters, distanceMiles: distanceMeters / 1609.344, durationMinutes: plan.durationMinutes, walkingSpeedKph: plan.diagnostics?.walkingSpeedKph,
         endpointConnectionsMeters: { origin: plan.diagnostics?.originSnapDistanceM, destination: plan.diagnostics?.destinationSnapDistanceM } } : null
       const warnings = ready ? ['Walking time is estimated from the saved pedestrian network and walking speed. Place map points may differ from public or accessible entrances.'] : [plan?.detail || 'No walking route was established. Check the City’s OpenStreetMap street index and endpoint coverage.']
-      return envelope({ ...result, walking }, ['VIGO Route · saved OpenStreetMap pedestrian network'], warnings)
+      return envelope({ ...result, walking, resolved }, ['VIGO Route · saved OpenStreetMap pedestrian network', ...sources], warnings)
     }
     if (name === 'service_profile') {
       if (new Date(`${args.serviceDate}T12:00:00Z`).toISOString().slice(0, 10) !== args.serviceDate) throw new Error('Invalid service date.')
@@ -124,11 +125,11 @@ export function createToolRegistry({ context, state, snapshot, adapters, provide
       return envelope(result, ['GTFS Static · VIGO SQLite'], result.truncated ? ['Result truncated at its row or byte limit.'] : [])
     }
     if (name === 'realtime_status') return envelope({ ...state, history: undefined, tripHistory: undefined,
-      scope: { ...args, routeName: args.routeId ? context.routeIndex.get(args.routeId)?.short_name || context.routeIndex.get(args.routeId)?.long_name : undefined },
-      routes: args.routeId ? state.routes.filter((route) => route.id === args.routeId) : state.routes,
+      scope,
+      routes: state.routes.filter((route) => included(route.id)),
       events: events.filter((event) => (!args.tripId || event.tripId === args.tripId) && (!args.stopId || event.stopId === args.stopId || event.stopIds?.includes(args.stopId)) && (!args.vehicleId || event.vehicleId === args.vehicleId)),
-      trips: state.trips.filter((trip) => (!args.routeId || trip.routeId === args.routeId) && (!args.tripId || trip.tripId === args.tripId) && (!args.vehicleId || trip.vehicleId === args.vehicleId)).slice(0, 100),
-    }, state.feeds.map((feed) => feed.sourceUrl), state.warnings, { routeIds: args.routeId ? [args.routeId] : [] })
+      trips: state.trips.filter((trip) => included(trip.routeId) && (!args.tripId || trip.tripId === args.tripId) && (!args.vehicleId || trip.vehicleId === args.vehicleId)).slice(0, 100),
+    }, state.feeds.map((feed) => feed.sourceUrl), state.warnings, { routeIds: [...routeIds] })
     if (name === 'anomaly_scan' || name === 'service_alerts') {
       let selected = name === 'service_alerts' ? events.filter((event) => event.type === 'service-alert') : events.filter((event) => !args.eventType || event.type === args.eventType)
       if (args.sortBy === 'headway') selected.sort((a, b) => (b.evidence.observedHeadwaySeconds ?? -1) - (a.evidence.observedHeadwaySeconds ?? -1))
@@ -136,7 +137,7 @@ export function createToolRegistry({ context, state, snapshot, adapters, provide
       if (args.sortBy === 'delay') selected.sort((a, b) => (b.evidence.delaySeconds ?? -Infinity) - (a.evidence.delaySeconds ?? -Infinity))
       if (args.groupBy === 'route') { const byRoute = new Map(); for (const event of selected) if (event.routeId && !byRoute.has(event.routeId)) byRoute.set(event.routeId, event); selected = [...byRoute.values()] }
       return envelope({ events: selected.slice(0, 100), total: selected.length, groupBy: args.groupBy || 'event', observedAt: state.observedAt,
-        scope: { ...args, routeName: args.routeId ? context.routeIndex.get(args.routeId)?.short_name || context.routeIndex.get(args.routeId)?.long_name : undefined },
+        scope,
         coverage: name === 'service_alerts' ? 'Active agency alerts only. No alerts does not establish normal operation. Check realtime_status for departure conditions.' : 'Findings from reporting trips only. Missing reports do not establish normal operation.',
       }, [...new Set(selected.flatMap((event) => event.sourceRefs))].slice(0, 100), [...state.warnings, ...(selected.length > 100 ? ['Showing the first 100 events.'] : [])], { routeIds: [...new Set(selected.flatMap((event) => event.routeIds ?? (event.routeId ? [event.routeId] : [])))].slice(0, 20) })
     }
@@ -149,11 +150,13 @@ export function createToolRegistry({ context, state, snapshot, adapters, provide
       return envelope(await adapters.matrix({ origins: points(args.origins), destinations: points(args.destinations), serviceDate: args.serviceDate, departMinutes: args.departMinutes, allowServiceDateFallback: false }, signal), ['VIGO Matrix', 'GTFS Static'], ['Matrix uses scheduled service. Realtime observations and alerts are not applied.'])
     }
     if (name === 'route_plan' || name === 'reach') {
-      const [hours, minutes] = args.departTime.split(':').map(Number)
+      if (!args.departTime && !args.arriveBy) throw new Error('Supply a departure time or an arrival deadline.')
+      if (args.departTime && args.arriveBy) throw new Error('Use either a departure time or an arrival deadline for this routing check, not both.')
+      if (args.waypoints?.length && args.maxTransfers !== undefined) throw new Error('The routing engine cannot combine intermediate stops with a whole-journey transfer limit. Keep both requirements in the conversation; ask which to check first.')
+      const [hours, minutes] = (args.arriveBy || args.departTime).split(':').map(Number)
       const departMinutes = hours * 60 + minutes
-      const origin = point(args.origin)
-      if (name === 'reach') return envelope(await adapters.reach({ origin: { ...origin, id: args.origin.stopId || args.origin.placeId || 'origin' }, serviceDate: args.serviceDate, departMinutes, cutoffsMinutes: [args.cutoffMinutes] }, signal), ['VIGO Reach', 'GTFS Static', 'OpenStreetMap'], ['Reach uses scheduled service. Realtime observations and alerts are not applied.'])
-      const destination = point(args.destination)
+      const { origin, destination, waypoints, resolved, sources } = await resolveJourneyPoints(context, places, args, signal)
+      if (name === 'reach') return envelope(await adapters.reach({ origin: { ...origin, id: args.origin.stopId || args.origin.placeId || 'origin' }, serviceDate: args.serviceDate, departMinutes, cutoffsMinutes: [args.cutoffMinutes] }, signal), ['VIGO Reach', 'GTFS Static', 'OpenStreetMap', ...sources], ['Reach uses scheduled service. Realtime observations and alerts are not applied.'])
       const freshSources = new Set(state.feeds.filter((feed) => feed.status === 'fresh').map((feed) => feed.sourceUrl))
       const candidates = (snapshot?.tripUpdates ?? []).flatMap((update) => {
         if (!freshSources.has(update.sourceUrl)) return []
@@ -167,12 +170,12 @@ export function createToolRegistry({ context, state, snapshot, adapters, provide
       const eligible = candidates.filter((trip) => identities.get(trip.tripId) === 1)
       const timestamps = state.feeds.filter((feed) => freshSources.has(feed.sourceUrl) && eligible.some((trip) => trip.sourceUrl === feed.sourceUrl)).map((feed) => feed.feedTimestamp)
       const realtimeSnapshot = eligible.length ? { ...snapshot, tripUpdates: eligible, feedTimestamp: Math.min(...timestamps) } : undefined
-      const { departTime, ...routeArgs } = args
-      const result = await adapters.route({ ...routeArgs, departMinutes, origin, destination, mode: 'transit', realtimeSnapshot, allowServiceDateFallback: false }, signal)
+      const { departTime, arriveBy, waypoints: _waypoints, ...routeArgs } = args
+      const result = await adapters.route({ ...routeArgs, departMinutes, origin, destination, ...(waypoints.length ? { waypoints } : {}), ...(arriveBy ? { timePreference: 'arrive', arriveMinutes: departMinutes } : {}), mode: 'transit', realtimeSnapshot, allowServiceDateFallback: false }, signal)
       const plans = result.plans ?? (result.plan ? [result.plan] : [result])
       const diagnostics = plans.map((plan) => plan?.diagnostics?.realtimeRouting).filter(Boolean)
       const applied = diagnostics.some((item) => item.status === 'applied' || item.status === 'cancellations_only')
-      return envelope({ ...result, realtime: { suppliedTripUpdates: eligible.length, applied, diagnostics } }, ['VIGO Route', 'GTFS Static', ...(eligible.length ? ['GTFS-Realtime TripUpdates'] : [])], [applied ? 'The engine applied a bounded TripUpdate overlay; inspect its diagnostics for excluded or pruned observations.' : 'Scheduled fallback: the engine did not report an applied realtime overlay.', 'Service alerts are shown as context; alert text does not automatically close routes or stops.'], { stopIds: [args.origin.stopId, args.destination.stopId].filter(Boolean) })
+      return envelope({ ...result, resolved, request: { serviceDate: args.serviceDate, departTime, arriveBy, maxTransfers: args.maxTransfers, via: waypoints.map((point) => point.label) }, realtime: { suppliedTripUpdates: eligible.length, applied, diagnostics } }, ['VIGO Route', 'GTFS Static', ...sources, ...(eligible.length ? ['GTFS-Realtime TripUpdates'] : [])], [applied ? 'The engine applied a bounded TripUpdate overlay; inspect its diagnostics for excluded or pruned observations.' : 'Scheduled fallback: the engine did not report an applied realtime overlay.', 'Service alerts are shown as context; alert text does not automatically close routes or stops.'], { stopIds: [args.origin.stopId, args.destination.stopId].filter(Boolean) })
     }
     if (name === 'draft_rider_message') {
       const event = state.events.find((event) => event.id === args.eventId)

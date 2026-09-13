@@ -26,7 +26,7 @@ function AgencyJourney({ plan }: { plan: RoutingPlan }) {
     const meters = plan.legs.reduce((sum, leg) => sum + (leg.distanceKm ?? 0) * 1000, 0)
     return <div className="agency-journey"><strong>{meters < 1000 ? `${Math.round(meters)} m` : `${Number((meters / 1000).toFixed(2))} km`} · about {Math.max(1, Math.round(plan.durationMinutes))} min walking</strong><p>{plan.origin.label}<ArrowRight size={12} />{plan.destination.label}</p><small>Along the saved OpenStreetMap pedestrian network</small></div>
   }
-  return <div className="agency-journey"><strong>{Number(plan.durationMinutes.toFixed(1))} min · {rides} transit {rides === 1 ? 'leg' : 'legs'}</strong>{plan.legs.flatMap((leg, index) => {
+  return <div className="agency-journey"><strong>{Number(plan.durationMinutes.toFixed(1))} min · {rides} transit {rides === 1 ? 'leg' : 'legs'}</strong><p className="agency-caption">Leave {clockMinutes(plan.departMinutes)} · arrive {clockMinutes(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</p>{plan.legs.flatMap((leg, index) => {
     const previousEnd = index ? plan.legs[index - 1].endMinutes : leg.startMinutes
     const wait = leg.startMinutes - previousEnd
     const items = wait > 0 ? [<div key={`wait-${index}`}><time>{clockMinutes(previousEnd)}</time><span>Wait at {leg.fromName}</span><small>{wait < 1 ? '<1' : Number(wait.toFixed(1))} min</small></div>] : []

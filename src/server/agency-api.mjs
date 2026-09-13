@@ -128,7 +128,16 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
         case 'ask': {
           const history = []
           let parentId = body.parentId
-          while (parentId && history.length < 6) { const previous = session.notebook.read(parentId); history.unshift({ question: previous.title, answer: previous.answer.answer, notes: previous.notes, observedAt: previous.answer.generatedAt }); parentId = previous.parentId }
+          while (parentId && history.length < 6) {
+            const previous = session.notebook.read(parentId)
+            // Retain the most recent journey inputs, even across intervening
+            // explanations. Older plans must not overwrite a later revision.
+            const requests = !history.some(item => item.requests?.length)
+              ? previous.answer.trace?.filter(call => call.result.ok && ['route_plan', 'walk_route', 'reach'].includes(call.tool)).slice(-2).map(call => ({ tool: call.tool, arguments: call.arguments }))
+              : undefined
+            history.unshift({ question: previous.title, answer: previous.answer.answer, notes: previous.notes, observedAt: previous.answer.generatedAt, requests })
+            parentId = previous.parentId
+          }
           return retain(body.question, await queryAgency({ question: body.question, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled }))
         }
         case 'run-skill': {

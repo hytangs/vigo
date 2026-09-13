@@ -33,17 +33,28 @@ function temperature(value) {
   return number
 }
 
+function contextSize(value) {
+  const size = Number(value ?? 8192)
+  if (!Number.isInteger(size) || size < 2048 || size > 131072) throw new Error('Local context must be between 2048 and 131072 tokens.')
+  return size
+}
+
 export function createProvider(environment = process.env, fetcher = globalThis.fetch) {
   let config = { baseUrl: String(environment.VIGO_AGENCY_LLM_BASE_URL ?? '').replace(/\/$/, ''), model: String(environment.VIGO_AGENCY_LLM_MODEL ?? ''), key: String(environment.VIGO_AGENCY_LLM_API_KEY ?? ''), reasoningEffort: String(environment.VIGO_AGENCY_LLM_REASONING_EFFORT ?? ''), temperature: temperature(environment.VIGO_AGENCY_LLM_TEMPERATURE) }
-  let source = 'environment', testedAt = null, revision = 0
+  config.protocol = environment.VIGO_AGENCY_LLM_PROTOCOL || 'openai'
+  if (!['openai', 'ollama'].includes(config.protocol)) throw new Error('Choose openai or ollama as the model protocol.')
+  config.contextTokens = contextSize(environment.VIGO_AGENCY_LLM_CONTEXT_TOKENS)
+  let source = 'environment', testedAt = null, revision = 0, callSequence = 0
   function candidate(input) {
     if (!input || typeof input !== 'object') throw new Error('Enter the provider connection details.')
     const baseUrl = normalizeBaseUrl(input.baseUrl)
     const model = String(input.model ?? '').trim()
+    const protocol = input.protocol ?? (baseUrl === config.baseUrl ? config.protocol : 'openai')
+    if (!['openai', 'ollama'].includes(protocol)) throw new Error('Choose an OpenAI-compatible or Ollama connection.')
     if (model.length > 200 || String(input.apiKey ?? '').length > 2000) throw new Error('The model name or key is too long.')
     // A blank key retains the active key only for the same endpoint. It never crosses providers.
     if (!['', 'none', 'low', 'medium', 'high'].includes(input.reasoningEffort ?? '')) throw new Error('Unsupported reasoning effort.')
-    return { baseUrl, model, reasoningEffort: input.reasoningEffort || '', temperature: temperature(input.temperature ?? (baseUrl === config.baseUrl ? config.temperature : undefined)), key: String(input.apiKey ?? '').trim() || (baseUrl === config.baseUrl ? config.key : '') }
+    return { baseUrl, model, protocol, contextTokens: contextSize(input.contextTokens ?? config.contextTokens), reasoningEffort: input.reasoningEffort || '', temperature: temperature(input.temperature ?? (baseUrl === config.baseUrl ? config.temperature : undefined)), key: String(input.apiKey ?? '').trim() || (baseUrl === config.baseUrl ? config.key : '') }
   }
   async function request(connection, suffix, body, signal) {
     const timeout = AbortSignal.timeout(45_000)
@@ -63,17 +74,38 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
   }
   async function completeWith(connection, messages, tools, signal, options = {}) {
     if (!connection.baseUrl || !connection.model) throw new Error('Connect an AI provider in Ask to use natural-language queries.')
+    if (connection.protocol === 'ollama') {
+      const names = new Map(messages.flatMap(message => (message.tool_calls ?? []).map(call => [call.id, call.function.name])))
+      const nativeMessages = messages.map(message => ({ role: message.role, content: message.content ?? '',
+        ...(message.role === 'tool' ? { tool_name: names.get(message.tool_call_id) } : {}),
+        ...(message.tool_calls?.length ? { tool_calls: message.tool_calls.map(call => ({ function: { name: call.function.name, arguments: JSON.parse(call.function.arguments) } })) } : {}),
+      }))
+      const result = await request({ ...connection, baseUrl: normalizeBaseUrl(connection.baseUrl).replace(/\/(?:v1|api)$/, '') }, '/api/chat', {
+        model: connection.model, messages: nativeMessages, stream: false,
+        ...(tools?.length ? { tools: tools.map(tool => ({ type: 'function', function: tool })) } : {}),
+        ...(connection.reasoningEffort ? { think: connection.reasoningEffort !== 'none' } : {}),
+        options: { num_ctx: connection.contextTokens, num_predict: options.maxTokens || 1800, ...(connection.temperature !== undefined ? { temperature: connection.temperature } : {}) },
+      }, signal)
+      if (!result.message) throw new Error('The local model returned no response message.')
+      return { content: result.message.content, tool_calls: result.message.tool_calls?.map(call => ({ id: `ollama-${++callSequence}`, type: 'function', function: { name: call.function.name, arguments: JSON.stringify(call.function.arguments) } })),
+        finishReason: result.done_reason, usage: { prompt_tokens: result.prompt_eval_count, completion_tokens: result.eval_count } }
+    }
     const result = await request(connection, '/chat/completions', { model: connection.model, messages, ...(tools?.length ? { tools: tools.map((tool) => ({ type: 'function', function: tool })), tool_choice: options.toolChoice || 'auto' } : {}), max_completion_tokens: options.maxTokens || 1800, ...(connection.reasoningEffort ? { reasoning_effort: connection.reasoningEffort } : {}), ...(connection.temperature !== undefined ? { temperature: connection.temperature } : {}) }, signal)
     const message = result.choices?.[0]?.message
     if (!message || typeof message !== 'object') throw new Error('AI provider returned no response message.')
-    return { ...message, finishReason: result.choices[0].finish_reason }
+    return { ...message, finishReason: result.choices[0].finish_reason, usage: result.usage }
   }
   return {
     get available() { return Boolean(config.baseUrl && config.model) },
     get model() { return this.available ? config.model : null },
-    status() { return { available: this.available, model: this.model, baseUrl: config.baseUrl, hasKey: Boolean(config.key), reasoningEffort: config.reasoningEffort || '', temperature: config.temperature, source, testedAt } },
+    status() { return { available: this.available, model: this.model, baseUrl: config.baseUrl, protocol: config.protocol, contextTokens: config.protocol === 'ollama' ? config.contextTokens : undefined, hasKey: Boolean(config.key), reasoningEffort: config.reasoningEffort || '', temperature: config.temperature, source, testedAt } },
     async models(input, signal) {
-      const result = await request(candidate(input), '/models', null, signal)
+      const connection = candidate(input)
+      if (connection.protocol === 'ollama') {
+        const result = await request({ ...connection, baseUrl: connection.baseUrl.replace(/\/(?:v1|api)$/, '') }, '/api/tags', null, signal)
+        return { models: [...new Set((result.models ?? []).map(item => item.name).filter(name => typeof name === 'string'))].sort().slice(0, 500) }
+      }
+      const result = await request(connection, '/models', null, signal)
       return { models: [...new Set((Array.isArray(result.data) ? result.data : []).map((item) => item.id).filter((id) => typeof id === 'string' && id.length <= 200))].sort().slice(0, 500) }
     },
     async connect(input, signal) {

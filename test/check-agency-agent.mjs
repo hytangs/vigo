@@ -82,12 +82,26 @@ const scoped = await queryAgency({ question: 'Check route R', context, state,
     assert.equal(payload.data.events.length, 3)
     assert.equal(payload.data.events[0].id, 'event-0', 'Projected findings retain IDs for follow-up tools')
     assert.equal(payload.data.eventCount, 50)
-    assert.equal(payload.data.routes[0].maxDelaySeconds, 300)
+    assert.equal(payload.data.routes[0].maxDelayMinutes, 5)
     assert.ok(messages.at(-1).content.length < 2500, 'Operational context omits bulky per-trip comparison records')
     assert.match(payload.warnings.at(-1), /Selected records only/)
     return { content: 'Route R has a reported five-minute delay. [1]' }
   } } })
 assert.equal(scoped.trace[0].result.data.events.length, 50, 'The full evidence is retained independently of the model projection')
+let associationRound = 0
+await queryAgency({ question: 'Compare R and S', context, state,
+  callTool: async () => ({ ok: true, data: { scope: { routeIds: ['R', 'S'] }, counts: {}, feeds: [], routes: [{ id: 'S', widestInterval: { stopName: 'Depot', scheduledSeconds: 540, predictedSeconds: 1122 } }], events: [{ ...event, type: 'service-alert', routeId: undefined, routeIds: ['S', 'outside-scope'], stopId: undefined, stopIds: ['A'], stopNames: ['River'], evidence: { reason: 'Escalator unavailable' } }] }, provenance: [], warnings: [] }),
+  provider: { available: true, complete: async (messages) => {
+    if (++associationRound === 1) return { tool_calls: [{ id: 'comparison', function: { name: 'realtime_status', arguments: '{"routeNames":["R","S"]}' } }] }
+    const payload = JSON.parse(messages.at(-1).content.split('\n').slice(1).join('\n')).data
+    assert.deepEqual(payload.events[0].routeIds, ['S'], 'Alert associations survive projection and remain within the requested scope')
+    assert.deepEqual(payload.events[0].stopNames, ['River'], 'The alert location is distinct from the interval reference stop')
+    assert.equal(payload.routes[0].widestInterval.stopName, 'Depot')
+    assert.equal(payload.routes[0].widestInterval.increaseMinutes, 9.7, 'Minute differences are computed before model interpretation')
+    return { content: 'Check the wider interval at Depot. The escalator alert is at River. [1]' }
+  } },
+})
+assert.equal(answer.timing.inputTokens, null, 'Missing provider usage is unknown, not zero')
 let interruptedRound = 0
 const partial = await queryAgency({ question: 'Check service', context, state, callTool, provider: { available: true, complete: async () => { if (++interruptedRound === 1) return { tool_calls: [{ id: 'one', function: { name: 'anomaly_scan', arguments: '{}' } }] }; throw new Error('Provider unavailable') } } })
 assert.equal(partial.trace.length, 1)

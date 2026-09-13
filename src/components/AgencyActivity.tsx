@@ -21,7 +21,7 @@ export function AgencyActivity({ activities, busy, trace }: {
   return <details className="agency-activity" open={busy}>
     <summary>
       {busy ? <LoaderCircle size={14} className="agency-spinner" /> : interrupted ? <CircleAlert size={14} /> : <Check size={14} />}
-      <span>{busy ? 'Thinking…' : stopped ? 'Stopped · saved for later' : interrupted ? 'Response interrupted' : count}</span>
+      <span>{busy ? activities.filter(item => item.progress < 1).at(-1)?.detail || 'Checking your request…' : stopped ? 'Stopped · saved for later' : interrupted ? 'Response interrupted' : count}</span>
       <ChevronRight size={14} />
     </summary>
     <ol aria-live="polite">{visible.map((item) => <li key={item.phase}>

@@ -103,6 +103,7 @@ export type ToolResult = {
 }
 
 export type QueryAnswer = {
+  timing?: { totalMs: number; modelCalls: number; modelMs: number; toolMs: number; inputTokens: number | null; outputTokens: number | null }
   entryId?: number
   aiGenerated?: boolean
   model?: string
@@ -150,6 +151,8 @@ export interface ProviderState {
   available: boolean
   model: string | null
   baseUrl?: string
+  protocol?: 'openai' | 'ollama'
+  contextTokens?: number
   reasoningEffort?: string
   hasKey?: boolean
   source?: string
