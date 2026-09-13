@@ -1801,7 +1801,6 @@
     grid-column: 1;
     grid-row: 2;
     min-height: 54px;
-    grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
     gap: 0;
     padding: 4px 7px;
@@ -1818,10 +1817,6 @@
     margin: 0;
     padding: 0;
     border: 0;
-  }
-
-  .sidebar-rail-main {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .sidebar-rail-button {

@@ -24,6 +24,8 @@ import {
   XCircle,
 } from 'lucide-react'
 import './App.css'
+import type { ToolResult } from './agency/types'
+import { AgencyPanel } from './components/AgencyPanel'
 import { apiJson, apiProgressJson, type ApiProgress } from './app/api'
 import { statusFromJobStatus, statusFromStoreStatus, type ActivityStatus } from './app/status'
 import {
@@ -172,7 +174,7 @@ import {
   type ServiceEdgeDecomposition,
 } from './reach'
 
-type RouteToolKey = 'explore' | 'data' | 'pathfinder' | 'analyze'
+type RouteToolKey = 'explore' | 'data' | 'pathfinder' | 'analyze' | 'agency'
 type MapScope = 'network' | 'route'
 const desktopReachRasterSize = 128
 
@@ -375,6 +377,7 @@ function PrimaryNav({
   onOpenExplore,
   onOpenRouting,
   onOpenAnalyze,
+  onOpenAgency,
   onOpenSettings,
 }: {
   page: 'projects' | 'project'
@@ -383,6 +386,7 @@ function PrimaryNav({
   onOpenExplore: () => void
   onOpenRouting: () => void
   onOpenAnalyze: () => void
+  onOpenAgency: () => void
   onOpenSettings: () => void
 }) {
   return (
@@ -415,12 +419,13 @@ function PrimaryNav({
           disabled={page !== 'project' || !hasActiveData}
           onClick={onOpenAnalyze}
         />
+        <PrimaryNavButton title="Agency" label="Agency" shortcut="4" icon={<Activity size={19} aria-hidden="true" />} active={page === 'project' && activeRouteTool === 'agency'} disabled={page !== 'project' || !hasActiveData} onClick={onOpenAgency} />
       </div>
       <div className="sidebar-rail-bottom">
         <PrimaryNavButton
           title="City"
           label="City"
-          shortcut="4"
+          shortcut="5"
           icon={<Settings size={19} aria-hidden="true" />}
           active={page === 'project' && activeRouteTool === 'data'}
           disabled={false}
@@ -486,6 +491,7 @@ function VigoSidebar({
   onOpenExplore,
   onOpenRouting,
   onOpenAnalyze,
+  onOpenAgency,
   onOpenSettings,
   onOpenLive,
   onMapScopeChange,
@@ -539,6 +545,7 @@ function VigoSidebar({
   onOpenExplore: () => void
   onOpenRouting: () => void
   onOpenAnalyze: () => void
+  onOpenAgency: () => void
   onOpenSettings: () => void
   onOpenLive: () => void
   onMapScopeChange: (scope: MapScope) => void
@@ -716,6 +723,7 @@ function VigoSidebar({
         onOpenExplore={onOpenExplore}
         onOpenRouting={onOpenRouting}
         onOpenAnalyze={onOpenAnalyze}
+        onOpenAgency={onOpenAgency}
         onOpenSettings={onOpenSettings}
       />
       <section className={classNames('sidebar-panel', page === 'project' && `is-${activeRouteTool}`)} aria-label="City panel">
@@ -2295,6 +2303,8 @@ export default function App() {
   const [routingDestination, setRoutingDestination] = useState<RoutingPoint | null>(null)
   const [analysisOrigin, setAnalysisOrigin] = useState<RoutingPoint | null>(null)
   const [analyzeMode, setAnalyzeMode] = useState<AnalyzeMode>('single')
+  const [agencyPlan, setAgencyPlan] = useState<RoutingPlan | null>(null)
+  const [agencyReach, setAgencyReach] = useState<ReachResult | null>(null)
   const [reachResult, setReachResult] = useState<ReachResult | null>(null)
   const [reachComparison, setReachComparison] = useState<ReachComparisonResult[] | null>(null)
   const [serviceDecomposition, setServiceDecomposition] = useState<ServiceEdgeDecomposition | null>(null)
@@ -2362,6 +2372,7 @@ export default function App() {
   const [activeRouteTool, setActiveRouteTool] = useState<RouteToolKey>('explore')
   const [dataSection, setDataSection] = useState<DataSection>('feeds')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [agencyMapOpen, setAgencyMapOpen] = useState(false)
   const [projectDialog, setProjectDialog] = useState<ProjectDialogState | null>(null)
   const [projectDialogBusy, setProjectDialogBusy] = useState(false)
   const [projectDialogError, setProjectDialogError] = useState('')
@@ -4564,7 +4575,7 @@ export default function App() {
     try {
       const result = await apiJson<{ snapshot: RealtimeSnapshot }>('/api/realtime/inspect', {
         method: 'POST',
-        body: JSON.stringify(request),
+        body: JSON.stringify({ ...request, projectId: selectedProjectId }),
       })
       if (requestId !== realtimeRequestIdRef.current) return
       setRealtimeSnapshot(result.snapshot)
@@ -4587,7 +4598,7 @@ export default function App() {
         if (!options.background) setIsRealtimeLoading(false)
       }
     }
-  }, [])
+  }, [selectedProjectId])
 
   useEffect(() => {
     if (!realtimeRequest) return
@@ -4603,6 +4614,7 @@ export default function App() {
   }
 
   function disconnectRealtime() {
+    void apiJson(`/api/projects/${encodeURIComponent(selectedProjectId)}/agency`, { method: 'POST', body: JSON.stringify({ action: 'disconnect' }) }).catch(() => {})
     clearRealtimeConnection()
     setVehicleMode('schedule')
   }
@@ -4696,6 +4708,29 @@ export default function App() {
     setRoutingEnabled(false)
   }
 
+  function openAgencyView() {
+    setActiveRouteTool('agency')
+    setMapScope('network')
+    setRoutingEnabled(false)
+    setSidebarCollapsed(false)
+  }
+
+  function locateAgencyEntities(routeIds: string[], stopIds: string[]) {
+    setAgencyPlan(null); setAgencyReach(null)
+    const route = preview.routes.find((item) => routeIds.includes(item.id) || Boolean(item.routeId && routeIds.includes(item.routeId)))
+    if (route || routeIds[0]) { setSelectedRouteId(route?.id ?? routeIds[0]); setMapScope('route'); setRouteRenderMode('service') }
+    if (stopIds[0]) setSelectedStopId(stopIds[0])
+    if (window.innerWidth <= 760) setAgencyMapOpen(true)
+  }
+
+  function presentAgencyResult(result: ToolResult) {
+    const data = result.data as { plan?: RoutingPlan; surface?: unknown }
+    if (data?.plan) { setAgencyPlan(data.plan); setAgencyReach(null); setMapScope('route') }
+    else if (data?.surface) { setAgencyReach(result.data as ReachResult); setAgencyPlan(null); setMapScope('network') }
+    else if (result.presentation?.routeIds?.length || result.presentation?.stopIds?.length) locateAgencyEntities(result.presentation.routeIds ?? [], result.presentation.stopIds ?? [])
+    if (window.innerWidth <= 760 && (data?.plan || data?.surface)) setAgencyMapOpen(true)
+  }
+
   function openAnalyzeView() {
     setActiveRouteTool('analyze')
     setMapScope('network')
@@ -4727,7 +4762,7 @@ export default function App() {
   useEffect(() => {
     function handleCityShortcut(event: KeyboardEvent) {
       if (event.repeat || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
-      if (page !== 'project' && event.code !== 'Digit4') return
+      if (page !== 'project' && event.code !== 'Digit5') return
       const target = event.target
       if (
         target instanceof HTMLInputElement
@@ -4748,6 +4783,9 @@ export default function App() {
           action = hasActiveOperationsData ? openAnalyzeView : null
           break
         case 'Digit4':
+          action = hasActiveOperationsData ? openAgencyView : null
+          break
+        case 'Digit5':
           action = openSettingsView
           break
         default:
@@ -4793,7 +4831,7 @@ export default function App() {
   }
 
   return (
-    <main className={classNames('app-shell', `appearance-${appearance}`, `accent-${accent}`, `page-${page}`, isProjectEmpty && 'project-empty', page === 'project' && activeRouteTool === 'data' && 'view-data', routingDetailOpen && 'routing-detail-open', sidebarCollapsed && 'desktop-sidebar-collapsed')}>
+    <main className={classNames('app-shell', `appearance-${appearance}`, `accent-${accent}`, `page-${page}`, isProjectEmpty && 'project-empty', page === 'project' && activeRouteTool === 'data' && 'view-data', activeRouteTool === 'agency' && 'view-agency', agencyMapOpen && 'agency-map-open', routingDetailOpen && 'routing-detail-open', sidebarCollapsed && 'desktop-sidebar-collapsed')}>
       <header className="topbar">
         <div className="topbar-brand" aria-label="City header">
           <button type="button" className="topbar-mark-button" onClick={showProjects} title="Open Cities" aria-label="Open Cities">
@@ -4838,7 +4876,7 @@ export default function App() {
       ) : null}
 
       <div className="shell-body">
-      {page === 'projects' ? null : activeRouteTool === 'data' ? (
+      {page === 'projects' ? null : activeRouteTool === 'data' || activeRouteTool === 'agency' ? (
         <aside className="app-sidebar" aria-label="City navigation">
           <PrimaryNav
             page={page}
@@ -4847,6 +4885,7 @@ export default function App() {
             onOpenExplore={openRoutesView}
             onOpenRouting={openPathfinderView}
             onOpenAnalyze={openAnalyzeView}
+        onOpenAgency={openAgencyView}
             onOpenSettings={openSettingsView}
           />
         </aside>
@@ -5027,6 +5066,7 @@ export default function App() {
         onOpenExplore={openRoutesView}
         onOpenRouting={openPathfinderView}
         onOpenAnalyze={openAnalyzeView}
+        onOpenAgency={openAgencyView}
         onOpenSettings={openSettingsView}
         onOpenLive={() => {
           if (!realtimeSnapshot) {
@@ -5129,6 +5169,7 @@ export default function App() {
       ) : (
       <div className="workbench project-workbench route-investigation-shell">
         <RouteSurface
+          key={activeRouteTool === 'agency' ? `agency-map-${agencyMapOpen}` : 'studio-map'}
           projectId={selectedProject.id}
           feed={activeFeed}
           focusedPreview={focusedMapPreview}
@@ -5146,14 +5187,14 @@ export default function App() {
           vehicleMode={vehicleMode}
           scheduleTimeMinutes={scheduleTimeMinutes}
           scheduleServiceDate={routingServiceDate}
-          routingEnabled={routingEnabled}
-          routingOrigin={activeRouteTool === 'analyze' ? analysisOrigin : routingOrigin}
-          routingWaypoints={activeRouteTool === 'analyze' ? [] : routingWaypoints}
-          routingDestination={activeRouteTool === 'analyze' ? null : routingDestination}
-          routingPlan={activeRouteTool === 'analyze' ? null : routingPlan}
-          routingFocus={activeRouteTool === 'pathfinder'}
-          analysisFocus={activeRouteTool === 'analyze'}
-          reachResult={activeRouteTool === 'analyze' ? reachResult : null}
+          routingEnabled={activeRouteTool === 'agency' ? Boolean(agencyPlan) : routingEnabled}
+          routingOrigin={activeRouteTool === 'agency' ? agencyPlan?.origin ?? null : activeRouteTool === 'analyze' ? analysisOrigin : routingOrigin}
+          routingWaypoints={activeRouteTool === 'agency' ? agencyPlan?.waypoints ?? [] : activeRouteTool === 'analyze' ? [] : routingWaypoints}
+          routingDestination={activeRouteTool === 'agency' ? agencyPlan?.destination ?? null : activeRouteTool === 'analyze' ? null : routingDestination}
+          routingPlan={activeRouteTool === 'agency' ? agencyPlan : activeRouteTool === 'analyze' ? null : routingPlan}
+          routingFocus={activeRouteTool === 'pathfinder' || activeRouteTool === 'agency' && Boolean(agencyPlan)}
+          analysisFocus={activeRouteTool === 'analyze' || activeRouteTool === 'agency' && Boolean(agencyReach)}
+          reachResult={activeRouteTool === 'agency' ? agencyReach : activeRouteTool === 'analyze' ? reachResult : null}
           reachComparison={activeRouteTool === 'analyze' ? reachComparison : null}
           serviceDecomposition={activeRouteTool === 'analyze' ? serviceDecomposition : null}
           scenarioView={scenarioView}
@@ -5170,9 +5211,10 @@ export default function App() {
           onScheduleTimeChange={setScheduleTimeMinutes}
           onScheduleServiceDateChange={changeRoutingServiceDate}
           onRoutingPoint={activeRouteTool === 'analyze' ? analysisPointFromMap : routingPointFromMap}
-          onSelectRoute={selectRoute}
-          onSelectStop={selectStop}
+          onSelectRoute={activeRouteTool === 'agency' ? (id) => locateAgencyEntities([id], []) : selectRoute}
+          onSelectStop={activeRouteTool === 'agency' ? (id) => locateAgencyEntities([], [id]) : selectStop}
         />
+        {activeRouteTool === 'agency' ? <AgencyPanel key={selectedProjectId} projectId={selectedProjectId} snapshot={realtimeSnapshot} realtimeRequest={realtimeRequest} realtimeMessage={realtimeMessage} realtimeLoading={isRealtimeLoading} onConnect={(request) => void refreshRealtimeRequest(request)} onDisconnect={disconnectRealtime} onLocate={locateAgencyEntities} onResult={presentAgencyResult} onOpenData={openDataView} mapOpen={agencyMapOpen} onToggleMap={() => setAgencyMapOpen((open) => !open)} /> : null}
       </div>
       )
       )}

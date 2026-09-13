@@ -7,3 +7,5 @@
 @import "./styles/theme.css";
 @import "./features/search/search.css";
 @import "./styles/gtfs-inspector.css";
+
+@import "./styles/agency.css";
