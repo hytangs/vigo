@@ -36,6 +36,7 @@ export class AgencyContext {
       this.routes = this.db.prepare('SELECT * FROM routes ORDER BY short_name, route_id').all()
       this.stops = this.db.prepare('SELECT * FROM stops ORDER BY name, stop_id').all()
       this.trips = this.db.prepare('SELECT * FROM trips').all()
+      this.tripById = new Map(this.trips.map(trip => [trip.trip_id, trip]))
       this.tripIndex = new Map()
       for (const trip of this.trips) {
         const key = rawId(trip.trip_id)
@@ -67,7 +68,10 @@ export class AgencyContext {
       this.frequencyTrips = new Set(this.db.prepare('SELECT DISTINCT trip_id FROM frequencies').all().map((row) => row.trip_id))
       this.scopes = [...new Set(this.trips.map((trip) => scopeOf(trip.trip_id)))]
       this.departures = this.db.prepare('SELECT departure, arrival, from_stop_id, to_stop_id, stop_sequence FROM connections WHERE trip_id=? ORDER BY stop_sequence')
-      this.referenceDepartures = this.db.prepare('SELECT trip_id, service_id, departure, stop_sequence FROM connections WHERE route_id=? AND from_stop_id=? AND direction_id IS ? AND departure BETWEEN ? AND ? ORDER BY departure, trip_id')
+      // The existing stop/departure covering index supplies these columns. Route
+      // and direction belong to the already-loaded trips; reading them from
+      // each connection forces thousands of extra disk lookups during refresh.
+      this.referenceDepartures = this.db.prepare('SELECT trip_id, service_id, departure, stop_sequence FROM connections WHERE from_stop_id=? AND departure BETWEEN ? AND ? ORDER BY departure, trip_id')
       this.activeCache = new Map()
       this.tripCache = new Map()
     } catch (error) { this.db.close(); throw error }
@@ -125,7 +129,10 @@ export class AgencyContext {
 
   expectedDepartures(trip, stopId, serviceDate, from, to) {
     const active = this.activeServices(serviceDate)
-    return this.referenceDepartures.all(trip.route_id, stopId, trip.direction_id, from, to).filter((row) => active.has(row.service_id))
+    return this.referenceDepartures.all(stopId, from, to).filter((row) => {
+      const scheduled = this.tripById.get(row.trip_id)
+      return active.has(row.service_id) && scheduled?.route_id === trip.route_id && scheduled.direction_id === trip.direction_id
+    })
   }
 
   overview(epochSeconds) {

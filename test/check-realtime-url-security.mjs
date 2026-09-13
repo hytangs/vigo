@@ -77,7 +77,7 @@ try {
         options.lookup(hostname, lookupOptions, (error, address, family) => {
           assert.ifError(error)
           if (lookupOptions.all) {
-            assert.deepEqual(address, [{ address: '8.8.8.8', family: 4 }])
+            assert.deepEqual(address, [{ address: '8.8.8.8', family: 4 }, { address: '2606:4700:4700::1111', family: 6 }], 'Connection fallback uses only the addresses already validated')
             done(null, [{ address: '127.0.0.1', family: 4 }])
           } else {
             assert.equal(address, '8.8.8.8')
@@ -97,7 +97,7 @@ try {
       headers: { connection: 'close' },
       lookup: async () => {
         resolutions += 1
-        return [{ address: '8.8.8.8' }]
+        return [{ address: '8.8.8.8' }, { address: '2606:4700:4700::1111' }]
       },
     })
     assert.equal(new TextDecoder().decode(fetched.body), 'fixture')

@@ -32,7 +32,8 @@ export function readablePage(html, baseUrl) {
     } catch { /* Non-web links are not research sources. */ }
     if (links.size === 25) break
   }
-  return { content: pageText(main), links: [...links.values()] }
+  const footer = main === html ? '' : [...html.matchAll(/<footer\b[^>]*>([^]*?)<\/footer\s*>/gi)].map(match => pageText(match[1])).join(' ')
+  return { content: pageText(main), footer, links: [...links.values()] }
 }
 
 export function createWebResearch({ env = process.env, fetchImpl = fetch, readPage, clock = Date.now } = {}) {

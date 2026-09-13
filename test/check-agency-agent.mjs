@@ -42,7 +42,7 @@ for (const [question, content] of [
 const followup = await queryAgency({ question: 'Make that shorter', context, state, callTool: async () => assert.fail('The conversation already supplies this text'),
   history: [{ question: 'Explain headways', answer: 'Headway is the time between successive vehicles at the same stop.', observedAt: state.generatedAt }],
   provider: { available: true, complete: async (messages) => {
-    assert.match(messages[2].content, /successive vehicles/)
+    assert.match(messages.find(message => message.role === 'assistant').content, /successive vehicles/)
     assert.equal(messages.filter(message => message.role !== 'system').at(-1).content, 'Make that shorter')
     return { content: [{ type: 'reasoning', text: 'private' }, { type: 'text', text: '<think>internal</think>Time between vehicles.' }] }
   } } })
@@ -70,13 +70,18 @@ assert.equal(atBudget.trace.length, 8)
 assert.equal(budgetRounds, 2)
 assert.match(atBudget.answer, /Here is the comparison/)
 
-let compactRound = 0
+let compactRound = 0, initialSystem = ''
 const largeEvents = Array.from({ length: 50 }, (_, index) => ({ ...event, id: `event-${index}`, evidence: { ...event.evidence, comparisonTrips: Array.from({ length: 100 }, () => ({ tripId: 'T1' })) } }))
 const scoped = await queryAgency({ question: 'Check route R', context, state,
   callTool: async () => ({ ok: true, data: { connected: true, observedAt: state.generatedAt, scope: { routeId: 'R' }, counts: { routes: 100 }, feeds: [], routes: [{ id: 'R', name: 'R', maxDelaySeconds: 300 }], events: largeEvents }, provenance: ['fixture:route/R'], warnings: [] }),
   provider: { available: true, complete: async (messages) => {
-    if (++compactRound === 1) return { tool_calls: [{ id: 'status', function: { name: 'realtime_status', arguments: '{"routeId":"R"}' } }] }
+    if (++compactRound === 1) { initialSystem = messages[0].content; return { tool_calls: [{ id: 'status', function: { name: 'realtime_status', arguments: '{"routeId":"R"}' } }] } }
     const payload = JSON.parse(messages.filter(message => message.role !== 'system').at(-1).content.split('\n').slice(1).join('\n'))
+    assert.equal(messages.filter(message => message.role === 'system').length, 1, 'Local chat templates receive one initial system message')
+    assert.equal(messages[0].role, 'system')
+    assert.equal(messages[0].content, initialSystem, 'Stable instructions do not change when a tool finishes')
+    assert.doesNotMatch(initialSystem, /priorFindings|previousRequests|Current observation/)
+    assert.equal(messages.at(-1).role, 'tool', 'Tool feedback remains the latest conversation message')
     assert.equal(payload.data.scope.routeId, 'R')
     assert.equal(payload.data.networkCounts.routes, 100, 'Network counts stay explicitly separate from route measurements')
     assert.equal(payload.data.events.length, 3)
@@ -109,6 +114,7 @@ const partial = await queryAgency({ question: 'Check service', context, state, c
 assert.equal(partial.trace.length, 1)
 assert.equal(partial.warnings.includes('Provider unavailable'), true)
 assert.match(partial.answer, /Departure later than scheduled/, 'Provider failure retains the deterministic evidence summary')
+assert.match(partial.answer, /model did not finish this answer/, 'A partial source result is not presented as a finished answer')
 for (const malformed of [[null], [{ id: 'missing-function' }], [{ id: 'same', function: { name: 'anomaly_scan', arguments: '{}' } }, { id: 'same', function: { name: 'anomaly_scan', arguments: '{}' } }], {}]) {
   const result = await queryAgency({ question: 'Check service', context, state, callTool: async () => assert.fail('Malformed calls must not execute'), provider: { available: true, complete: async () => ({ tool_calls: malformed }) } })
   assert.equal(result.trace.length, 0)
@@ -144,8 +150,8 @@ const recalled = await queryAgency({ question: 'Find my earlier service profile'
   callTool: async () => ({ ok: true, data: { entries: [{ id: 4, title: 'Service profile', excerpt: 'Three scheduled starts.', notes: 'Not demand.', observedAt: state.generatedAt, sources: ['https://private.example/feed?token=fixture-secret'] }] }, provenance: ['notebook:entry/4'], generatedAt: state.generatedAt, warnings: [] }),
   history: [{ question: 'Earlier study', answer: 'Saved result.', observedAt: state.generatedAt, notes: 'A staff annotation.' }],
   provider: { available: true, complete: async (messages) => {
-    assert.match(messages[0].content, /staffAnnotation.*A staff annotation/s)
-    assert.equal(messages[2].content, 'Saved result.', 'Assistant history contains the public answer without injected metadata')
+    assert.match(messages[1].content, /staffAnnotation.*A staff annotation/s)
+    assert.equal(messages.find(message => message.role === 'assistant').content, 'Saved result.', 'Assistant history contains the public answer without injected metadata')
     if (++recallRound === 1) return { tool_calls: [{ id: 'recall', function: { name: 'recall_notebook', arguments: '{"search":"service profile"}' } }] }
     assert.match(messages.filter(message => message.role !== 'system').at(-1).content, /Three scheduled starts/)
     assert.doesNotMatch(messages.filter(message => message.role !== 'system').at(-1).content, /fixture-secret|private.example/)

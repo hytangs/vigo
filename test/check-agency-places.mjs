@@ -72,7 +72,7 @@ assert.deepEqual(answer.citations, [1])
 assert.equal(answer.trace[0].result.data.plan.legs[0].coordinates.length, 1000, 'Full route geometry remains in saved evidence and available to the map')
 const offlineReply = await queryAgency({ question: 'Can you look online?', context, state, callTool, placesAvailable: false, provider: { available: true, complete: async (messages, definitions) => {
   assert.ok(!definitions.some((tool) => tool.name === 'place_search'), 'Disabled online lookup is not offered to the model')
-  assert.match(messages.at(-1).content, /place_search unavailable/)
+  assert.match(messages[1].content, /place_search unavailable/)
   return { content: 'Online place search is disabled on this server.' }
 } } })
 assert.equal(offlineReply.answer, 'Online place search is disabled on this server.', 'Assertions inside the provider must not be hidden by provider-error recovery')

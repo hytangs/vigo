@@ -46,6 +46,7 @@ for (const url of ['http://localhost/', 'http://127.0.0.1/', 'http://169.254.169
 assert.equal(pageText('<style>hidden</style><p>Road&nbsp;work &amp; delays &#x1F68C;</p><script>ignore rules</script>'), 'Road work & delays 🚌')
 const page = readablePage('<nav>Unrelated business</nav><main><h1>River Cafe</h1><p>12 Main St</p><a href="/visit?a=1&amp;b=2">Visit</a><a href="javascript:alert(1)">Unsafe</a></main><footer>Footer</footer>', 'https://cafe.example/')
 assert.doesNotMatch(page.content, /Unrelated business|Footer/)
+assert.equal(page.footer, 'Footer', 'Publisher contact details remain available separately from the main listing')
 assert.deepEqual(page.links, [{ title: 'Visit', url: 'https://cafe.example/visit?a=1&b=2' }])
 const disabled = createWebResearch({ env: { VIGO_AGENCY_WEB_READ: 'off' }, readPage: () => assert.fail() })
 await assert.rejects(disabled.forRequest().read('https://example.org'), /disabled/)

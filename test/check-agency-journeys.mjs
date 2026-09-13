@@ -74,7 +74,7 @@ assert.equal(answer.timing.inputTokens, 40)
 assert.deepEqual(answer.citations, [1, 2], 'Concurrent completion does not reorder source references')
 assert.deepEqual(answer.trace.map(t => t.tool), ['gtfs_query', 'gtfs_query'])
 const followup = await queryAgency({ question: 'Same route, arrive by 17:00 instead', context, state, callTool, history: [{ question: 'Earlier trip', answer: 'Earlier result', requests: [{ tool: 'route_plan', arguments: input }] }], provider: { available: true, complete: async messages => {
-  assert.match(messages[0].content, /previousRequests.*Library.*16:00.*maxTransfers/s)
+  assert.match(messages[1].content, /previousRequests.*Library.*16:00.*maxTransfers/s)
   return { content: 'I can retain your endpoints and no-transfer requirement when checking the new deadline.' }
 } } })
 assert.match(followup.answer, /retain your endpoints and no-transfer requirement/)

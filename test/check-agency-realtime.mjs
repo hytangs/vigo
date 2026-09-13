@@ -104,6 +104,12 @@ try {
   assert.equal(separated['T1/2026-09-14'][0].delaySeconds, 60, 'Repeated trip IDs on different service days must not share a history series')
   context.close()
   const db = new DatabaseSync(file)
+  db.exec(`INSERT INTO trips VALUES ('reverse','R','S','1'),('other-route','Q','S','0'),('inactive','R','OFF','0'),('no-direction','R','S',NULL);
+    INSERT INTO connections SELECT 44100,44300,trip_id,route_id,service_id,direction_id,'A','B',10 FROM trips WHERE trip_id IN ('reverse','other-route','inactive','no-direction')`)
+  context = new AgencyContext(file, 'City X')
+  assert.deepEqual(context.expectedDepartures(context.tripById.get('T1'), 'A', '2026-09-13', 43500, 44700).map(row => row.trip_id), ['T1', 'T2', 'T3'], 'Shared stops retain exact route, direction, active service and inclusive time bounds')
+  assert.deepEqual(context.expectedDepartures(context.tripById.get('no-direction'), 'A', '2026-09-13', 44100, 44100).map(row => row.trip_id), ['no-direction'], 'An unspecified direction stays distinct from direction zero')
+  context.close()
   db.exec("INSERT INTO calendar_dates VALUES('S',20260913,2)")
   db.close()
   context = new AgencyContext(file, 'City X')

@@ -108,8 +108,8 @@ export async function fetchSafeRealtimeBody(
     ? (_hostname, options, callback) => {
         const family = selected.family || net.isIP(selected.address)
         // Node's automatic IPv4/IPv6 selection requests the array form of lookup.
-        // Both forms must use only the address already checked above.
-        if (options.all) callback(null, [{ address: selected.address, family }])
+        // Keep every already-validated address available for connection fallback.
+        if (options.all) callback(null, addresses.map(item => ({ address: item.address, family: item.family || net.isIP(item.address) })))
         else callback(null, selected.address, family)
       }
     : undefined

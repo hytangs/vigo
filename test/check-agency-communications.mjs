@@ -47,8 +47,8 @@ try {
     if (question === 'Check R' && !messages.some(message => message.role === 'tool')) return { tool_calls: [{ id: 'status', function: { name: 'realtime_status', arguments: '{"routeNames":["R"]}' } }] }
     if (question === 'Check R') return { content: 'Some departures on R are predicted late. [1]' }
     modelCalls++
-    assert.match(messages[0].content, /previousRequests.*routeNames.*R/s)
-    assert.match(messages[0].content, /priorFindings.*maxDelayMinutes.*10/s, 'The notebook preserves checked measurements, not only the old answer')
+    assert.match(messages[1].content, /previousRequests.*routeNames.*R/s)
+    assert.match(messages[1].content, /priorFindings.*maxDelayMinutes.*10/s, 'The notebook preserves checked measurements, not only the old answer')
     assert.ok(tools.some(tool => tool.name === 'web_read'))
     assert.ok(!tools.some(tool => tool.name === 'web_search'), 'Unavailable search is not advertised to the model')
     return { content: 'We’re sorry: some Route R departures are delayed. Please check current departure information before travelling.' }
