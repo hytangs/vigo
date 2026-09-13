@@ -13,7 +13,7 @@
       "label": "Compare departure intervals by route",
       "arguments": {
         "eventType": "service-gap",
-        "sortBy": "headway",
+        "sortBy": "headwayChange",
         "groupBy": "route"
       }
     },

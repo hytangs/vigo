@@ -53,6 +53,7 @@ export function AgencyAnswer({ answer, onResult, onSelectEvent, onOpenEntry }: {
   return <section className="agency-answer" aria-label="Answer">
     {answer.aiGenerated ? <div className="agency-ai-label">AI summary · {answer.model}</div> : null}
     <p className="agency-answer-text">{answer.answer}</p>
+    {answer.scopeNote ? <p className="agency-caption">{answer.scopeNote}</p> : null}
     {answer.report?.rows.length ? <div className="agency-research-output"><div className="agency-section-heading"><div><h2>Evidence table</h2><span>{answer.report.rows.length} rows · retained with this note</span></div>{answer.report.rows.length ? <button className="agency-text-button" onClick={() => { const rows = answer.report!.rows; const columns = Object.keys(rows[0]); const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`; downloadText('agency-evidence.csv', [columns.map(cell).join(','), ...rows.map((row) => columns.map((key) => cell(row[key])).join(','))].join('\n'), 'text/csv') }}>Export CSV</button> : null}</div><AgencyToolOutput result={{ ok: true, data: { rows: answer.report.rows }, provenance: [], generatedAt: answer.generatedAt, warnings: [] }} /></div> : null}
     {result && !answer.report?.rows.length ? <AgencyToolOutput result={result} onSelectEvent={onSelectEvent} onOpenEntry={onOpenEntry} /> : null}
     {answer.report ? <details className="agency-source-details"><summary>Research question, method & limits</summary><div className="agency-method-text">{answer.report.method}</div></details> : null}

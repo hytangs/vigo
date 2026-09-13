@@ -24,7 +24,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
   const routes = new Map(context.routes.map((route) => [route.route_id, {
     id: route.route_id, name: route.short_name || route.long_name || rawId(route.route_id), longName: route.long_name || '',
     color: /^[0-9a-f]{6}$/i.test(route.color) ? `#${route.color}` : 'var(--text-muted)', mode: route.route_type,
-    trips: 0, reportingTrips: 0, maxDelaySeconds: null, events: 0, alerts: 0, headway: 'unknown',
+    trips: 0, reportingTrips: 0, maxDelaySeconds: null, events: 0, alerts: 0, headway: 'unknown', widestInterval: null,
   }]))
   if (coverage.serviceDate) for (const trip of context.trips) if (context.activeServices(coverage.serviceDate).has(trip.service_id)) routes.get(trip.route_id).trips++
   const add = (type, identity, fields) => events.push({ id: eventId(type, ...identity), type, severity: 'info', observedAt: generatedAt, ...fields })
@@ -90,7 +90,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       if (!groups.has(key)) groups.set(key, { trip, stopId: row.from_stop_id, serviceDate, epoch, predictions: [] })
       groups.get(key).predictions.push(prediction)
     }
-    const next = predictions.filter((prediction) => prediction.predictedTime >= nowSeconds).sort((a, b) => a.predictedTime - b.predictedTime)[0]
+    const next = predictions.filter((prediction) => prediction.predictedTime >= nowSeconds && prediction.predictedTime <= nowSeconds + policy.windowMinutes * 60).sort((a, b) => a.predictedTime - b.predictedTime)[0]
     if (next) {
       route.maxDelaySeconds = Math.max(route.maxDelaySeconds ?? -Infinity, next.delaySeconds)
       if (next.delaySeconds > 0) add('delay', [...identity, next.sequence], { ...base, stopId: next.stopId, title: 'Departure later than scheduled', evidence: { scheduledTime: next.scheduledTime, predictedTime: next.predictedTime, delaySeconds: next.delaySeconds } })
@@ -118,6 +118,10 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       measuredIntervals++
       const observedHeadwaySeconds = after.predictedTime - before.predictedTime
       const route = routes.get(trip.route_id)
+      if (!route.widestInterval || observedHeadwaySeconds > route.widestInterval.predictedSeconds) route.widestInterval = {
+        predictedSeconds: observedHeadwaySeconds, scheduledSeconds: scheduledHeadwaySeconds,
+        stopId, stopName: context.stopIndex.get(stopId)?.name || stopId,
+      }
       if (observedHeadwaySeconds === scheduledHeadwaySeconds) {
         if (completeWindow && route.headway === 'unknown') route.headway = 'matches-schedule'
         continue

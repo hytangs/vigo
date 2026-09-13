@@ -46,7 +46,7 @@ try {
   assert.equal(live.observedAt, result.data.observedAt)
   const skill = await agency.handle('city', { action: 'run-skill', id: 'network-health-summary' })
   assert.equal(skill.trace[1].result.generatedAt, live.generatedAt)
-  assert.match(skill.answer, /City X has/)
+  assert.match(skill.answer, /No specific service issue/)
   const recalled = await agency.handle('city', { action: 'tool', name: 'recall_notebook', arguments: { entryId: skill.entryId } })
   assert.equal(recalled.data.entries[0].observedAt, live.generatedAt)
   assert.equal(calls, 1, 'Notebook retrieval uses City evidence without fetching feeds or calling a model')
@@ -66,14 +66,16 @@ try {
   assert.equal(stopped.trace.length, 1)
   assert.ok((await agency.handle('city', { action: 'notebook-entry', id: stopped.entryId })).entries.length)
   const summaryStop = new AbortController()
+  sourceSnapshot.alerts.push({ id: 'summary-check', header: 'River service notice', sourceUrl: sourceSnapshot.feeds[0].sourceUrl })
   provider.available = true
   provider.complete = async () => { summaryStop.abort(); throw new Error('Summary interrupted') }
   const stoppedSummary = await agency.handle('city', { action: 'run-skill', id: 'network-health-summary' }, summaryStop.signal)
   assert.match(stoppedSummary.answer, /Study stopped\. 3 of 3 checks completed/)
-  assert.match(stoppedSummary.answer, /City X has/, 'A cancelled summary keeps the same network fallback as an unconfigured model')
+  assert.match(stoppedSummary.answer, /River service notice/, 'A cancelled summary retains the supplied service evidence')
   assert.equal(stoppedSummary.aiGenerated, false)
   assert.ok(stoppedSummary.entryId, 'Cancellation during AI summarization must also retain all completed checks')
   provider.available = false
+  sourceSnapshot.alerts = []
   sourceSnapshot.alerts = Array.from({ length: 600 }, (_, index) => ({ id: `network-${index}`, severity: 'SEVERE', header: 'Network notice', sourceUrl: sourceSnapshot.feeds[0].sourceUrl }))
   sourceSnapshot.tripUpdates[0].stopTimeUpdates[0].departure.delay = 300
   const capped = await agency.state('city')

@@ -57,6 +57,14 @@ try {
     reach: async (input) => { requested = input; return { origin: input.origin } },
   } })
   const journey = { origin: { stopId: 'A', lat: 0, lon: 0 }, destination: { stopId: 'B', lat: 0, lon: 0 }, serviceDate: '2026-09-13', departMinutes: 720 }
+  const originalEvents = state.events
+  state.events = [
+    { id: 'longest', type: 'service-gap', routeId: 'R', evidence: { observedHeadwaySeconds: 1800, scheduledHeadwaySeconds: 1740 }, sourceRefs: ['fixture:longest'] },
+    { id: 'largest-change', type: 'service-gap', routeId: 'R', evidence: { observedHeadwaySeconds: 1200, scheduledHeadwaySeconds: 600 }, sourceRefs: ['fixture:largest-change'] },
+  ]
+  assert.equal((await call('anomaly_scan', { sortBy: 'headway', groupBy: 'route' })).data.events[0].id, 'longest')
+  assert.equal((await call('anomaly_scan', { sortBy: 'headwayChange', groupBy: 'route' })).data.events[0].id, 'largest-change', 'Compare the increase over schedule before choosing one finding per route')
+  state.events = originalEvents
   const route = await call('route_plan', journey)
   assert.equal(requested.origin.coordinate[1], 42.36, 'Coordinates come from the exact indexed stop')
   assert.equal(requested.realtimeSnapshot.tripUpdates.length, 3)

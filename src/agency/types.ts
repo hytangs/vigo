@@ -69,6 +69,7 @@ export type AgencyRoute = {
   events: number
   alerts: number
   headway: 'unknown' | 'changed' | 'matches-schedule'
+  widestInterval?: { predictedSeconds: number; scheduledSeconds: number; stopId: string; stopName: string } | null
 }
 
 export type AgencyState = {
@@ -106,6 +107,7 @@ export type QueryAnswer = {
   aiGenerated?: boolean
   model?: string
   citations?: number[]
+  scopeNote?: string
   report?: { title: string; method: string; inputs: Record<string, unknown>; rows: Record<string, unknown>[] }
   answer: string
   trace: Array<{ tool: string; arguments: Record<string, unknown>; result: ToolResult }>
