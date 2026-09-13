@@ -9,6 +9,7 @@ import { createToolRegistry } from '../agency/toolRegistry.mjs'
 import { createProvider } from '../agency/provider.mjs'
 import { queryAgency } from '../agency/queryAgent.mjs'
 import { createPlaceSearch } from '../agency/placeSearch.mjs'
+import { routeOperations, vehicleDetails } from '../agency/routeOperations.mjs'
 
 export function createAgencyService(adapters, { provider = createProvider(), clock = () => Date.now(), policy = defaultPolicy, refreshMs = 10_000 } = {}) {
   const sessions = new Map()
@@ -127,6 +128,8 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
       if (body.action === 'provider-disconnect') return provider.disconnect()
       return withSession(projectId, async session => {
         switch (body.action) {
+          case 'route-line': return routeOperations(session.context, session.snapshot, body, clock() / 1000, policy)
+          case 'vehicle': return vehicleDetails(session.context, session.snapshot, body, clock() / 1000, policy)
           case 'connection': return { request: session.request }
           case 'notebook': return { entries: session.notebook.list(body.query ?? {}) }
           case 'notebook-entry': { const entries = []; let id = body.id; while (id && entries.length < 30) { const entry = session.notebook.read(id); entries.unshift(entry); id = entry.parentId } return { entries } }

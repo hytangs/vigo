@@ -126,6 +126,7 @@ import { buildNetworkPerformanceProfile } from './networkPerformance'
 import { scopedRouteServiceKey, type RouteRenderMode } from './routeServices'
 import { formatServiceTime, scheduledServiceEndMinutes, scheduledVehicleDiagnostics, scheduledVehiclesAtTime } from './scheduledVehicles'
 import { buildServiceVehicleFrame, serviceKeyForRoute, serviceVehicleCount, type ServiceVehicleMode } from './serviceVehicles'
+import { AgencyRouteLine } from './components/AgencyRouteLine'
 import {
   type RoutingPlan,
   type RoutingPoint,
@@ -2112,6 +2113,8 @@ function RouteSurface({
     [mapPreview, scheduleServiceDate],
   )
   const [servicePlaybackRunning, setServicePlaybackRunning] = useState(false)
+  const [agencyView, setAgencyView] = useState<'map' | 'line'>('map')
+  const showAgencyLine = agencyFocus && agencyView === 'line' && !routingFocus && !analysisFocus
   const [servicePlaybackStep, setServicePlaybackStep] = useState(1)
   const playbackTimeRef = useRef(scheduleTimeMinutes)
 
@@ -2136,7 +2139,7 @@ function RouteSurface({
   return (
     <section className="route-surface" aria-label="GTFS map and service state" style={routeStyle}>
       <div className="surface-panel route-map-shell">
-        <LazyVigoMap
+        {showAgencyLine ? <AgencyRouteLine key={`${projectId}/${selectedRouteId}`} projectId={projectId} routeId={isNetworkMap ? '' : selectedRoute?.routeId || selectedRouteId} /> : <LazyVigoMap
           focusLocation={agencyFocus ? agencyLocation : undefined}
           projectId={projectId}
           localStreetGraphAvailable={localStreetGraphAvailable}
@@ -2175,7 +2178,7 @@ function RouteSurface({
             onSelectStop(id)
           }}
           onRoutingPoint={onRoutingPoint}
-        />
+        />}
         {!agencyFocus && !routingFocus && !analysisFocus ? (
           <MapScopeControl
             mapScope={isNetworkMap ? 'network' : 'route'}
@@ -2196,7 +2199,10 @@ function RouteSurface({
                 )}
               </small>
             </div>
-            {!isNetworkMap || routingFocus || analysisFocus ? <button className="agency-button" onClick={() => onMapScopeChange('network')}>All routes</button> : null}
+            <div className="agency-map-actions">
+              {!routingFocus && !analysisFocus ? <div className="agency-view-switch" role="group" aria-label="Route display"><button aria-pressed={!showAgencyLine} onClick={() => setAgencyView('map')}>Map</button><button aria-pressed={showAgencyLine} onClick={() => setAgencyView('line')}>Line view</button></div> : null}
+              {!isNetworkMap || routingFocus || analysisFocus ? <button className="agency-button" onClick={() => onMapScopeChange('network')}>All routes</button> : null}
+            </div>
           </div>
         ) : null}
         {cityPreviewLoading ? (
@@ -2223,7 +2229,7 @@ function RouteSurface({
             onScheduleServiceDateChange={onScheduleServiceDateChange}
           />
         ) : null}
-        {!routingFocus && !analysisFocus && !cityPreviewLoading && !mapPreview.routes.length ? (
+        {!showAgencyLine && !routingFocus && !analysisFocus && !cityPreviewLoading && !mapPreview.routes.length ? (
           <div className="route-geometry-empty">
             <strong>No spatial alignment in this scope</strong>
             <span>The service remains indexed. Inspect stop coordinates, stop sequences, and shapes.txt to establish defensible map geometry.</span>

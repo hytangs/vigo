@@ -19,6 +19,7 @@ type ServiceVehicleCard = {
 
 export type ServiceVehicle = {
   id: string
+  sourceUrl?: string
   source: ServiceVehicleMode
   coordinate: LngLat
   bearing?: number
@@ -183,7 +184,7 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
       ? patternRoute
       : undefined
     const route = exactPattern ?? assignment?.route ?? serviceRoute
-    const nextStopId = tripUpdate?.nextStopId || vehicle.stopId || scheduledTrip?.stopTimes[0]?.stopId
+    const nextStopId = vehicle.stopId || tripUpdate?.nextStopId
     const nextStopUpdate = tripUpdate?.stopTimeUpdates?.find((update) => (
       Boolean(update.stopId && nextStopId && unscopedId(update.stopId) === unscopedId(nextStopId))
       || (tripUpdate.nextStopSequence !== undefined && update.stopSequence === tripUpdate.nextStopSequence)
@@ -208,6 +209,7 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
 
     return [{
       id: vehicle.id,
+      sourceUrl: vehicle.sourceUrl,
       source: 'live' as const,
       coordinate: [vehicle.lon, vehicle.lat] as LngLat,
       bearing: typeof vehicle.bearing === 'number' && Number.isFinite(vehicle.bearing) ? vehicle.bearing : undefined,

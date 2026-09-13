@@ -29,6 +29,7 @@ import { routeGeometryLabel } from './app/routePresentation'
 import { cityPublicRouteKey } from './app/cityPreview'
 import { buildNetworkPerformanceProfile, type NetworkPerformanceProfile } from './networkPerformance'
 import { serviceKeyForRoute, serviceVehicleIsVisible, type ServiceVehicleFrame } from './serviceVehicles'
+import { AgencyVehicleDetails } from './components/AgencyVehicleDetails'
 import type { RoutingPlan, RoutingPoint } from './routingModel'
 import { routingPinLabel } from './routingPointSequence'
 import {
@@ -48,6 +49,8 @@ import {
 type FeatureCollection = GeoJsonFeatureCollection<Geometry, GeoJsonProperties>
 
 type MapLiveSelection = {
+  vehicleId?: string
+  vehicleSourceUrl?: string
   tone: 'route' | 'segment' | 'stop' | 'vehicle'
   eyebrow: string
   title: string
@@ -2504,9 +2507,17 @@ export function VigoMap({
     })
   }, [feedName, mapTelemetryKey, routesGeoJson.features.length, stopsGeoJson.features.length])
 
+  const selectionScopeRef = useRef({ fitSignature, selectedRouteId })
   useEffect(() => {
-    setLiveSelection(null)
-  }, [fitSignature, selectedRouteId])
+    const previousScope = selectionScopeRef.current
+    if (previousScope.fitSignature === fitSignature && previousScope.selectedRouteId === selectedRouteId) return
+    selectionScopeRef.current = { fitSignature, selectedRouteId }
+    // Clicking a vehicle also selects its route. Keep that vehicle's card while
+    // the route preview reloads, provided it still belongs to the visible scope.
+    setLiveSelection(previous => previous?.vehicleId && vehicleFrame.vehicles.some(vehicle =>
+      vehicle.id === previous.vehicleId && vehicle.sourceUrl === previous.vehicleSourceUrl
+      && serviceVehicleIsVisible(vehicle, preview, selectedRouteId)) ? previous : null)
+  }, [fitSignature, selectedRouteId, vehicleFrame, preview])
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -3162,7 +3173,7 @@ export function VigoMap({
           ?? preview.routes.find((route) => serviceKeyForRoute(route) === vehicle.serviceKey)
         if (matchedRoute) onSelectRoute(matchedRoute.id)
         if (vehicle.nextStopFeatureId) onSelectStop(vehicle.nextStopFeatureId)
-        setLiveSelection({ tone: 'vehicle', ...vehicle.card })
+        setLiveSelection({ tone: 'vehicle', ...vehicle.card, ...(vehicle.source === 'live' ? { vehicleId: vehicle.id, vehicleSourceUrl: vehicle.sourceUrl } : {}) })
       }
       let clickedVehicle: ServiceVehicleFrame['vehicles'][number] | undefined
       if (effectiveLayers.routes && map.getLayer('vigo-vehicles')) {
@@ -3327,11 +3338,11 @@ export function VigoMap({
         </div>
       ) : null}
       {liveSelection ? (
-        <div className={classNames('map-live-card', `is-${liveSelection.tone}`)}>
+        <div className={classNames('map-live-card', `is-${liveSelection.tone}`, Boolean(liveSelection.vehicleId && projectId) && 'has-vehicle-timing')}>
           <button type="button" aria-label="Clear map selection" onClick={() => setLiveSelection(null)}>
             <X size={13} strokeWidth={2.6} aria-hidden="true" />
           </button>
-          <span>{liveSelection.eyebrow}</span>
+          {liveSelection.vehicleId && projectId ? <AgencyVehicleDetails key={`${projectId}/${liveSelection.vehicleSourceUrl}/${liveSelection.vehicleId}`} projectId={projectId} vehicleId={liveSelection.vehicleId} sourceUrl={liveSelection.vehicleSourceUrl} /> : <><span>{liveSelection.eyebrow}</span>
           <strong>{liveSelection.title}</strong>
           <small>{liveSelection.subtitle}</small>
           {liveSelection.journey ? (
@@ -3360,6 +3371,7 @@ export function VigoMap({
               </b>
             ))}
           </div>
+          </>}
         </div>
       ) : null}
       {mapFailure ? (

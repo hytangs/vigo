@@ -115,8 +115,12 @@ export class AgencyContext {
     if (candidates.length !== 1) return { reason: candidates.length ? 'Trip identity is ambiguous across source scopes.' : 'Trip is absent from active scheduled service.' }
     const trip = candidates[0]
     if (this.frequencyTrips.has(trip.trip_id)) return { reason: 'Frequency trip instances need a retained start-time model.' }
-    if (!this.tripCache.has(trip.trip_id)) this.tripCache.set(trip.trip_id, this.departures.all(trip.trip_id))
-    return { trip, serviceDate, departures: this.tripCache.get(trip.trip_id), epoch: serviceEpoch(serviceDate, this.timezone) }
+    return { trip, serviceDate, departures: this.tripDepartures(trip.trip_id), epoch: serviceEpoch(serviceDate, this.timezone) }
+  }
+
+  tripDepartures(tripId) {
+    if (!this.tripCache.has(tripId)) this.tripCache.set(tripId, this.departures.all(tripId))
+    return this.tripCache.get(tripId)
   }
 
   expectedDepartures(trip, stopId, serviceDate, from, to) {
