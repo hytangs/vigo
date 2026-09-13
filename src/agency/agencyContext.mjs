@@ -72,8 +72,8 @@ export class AgencyContext {
     const serviceDate = this.timezone ? localDate(epochSeconds, this.timezone) : null
     const token = dateToken(serviceDate)
     const dates = [...this.calendar.flatMap((row) => [row.start_date, row.end_date]), ...this.exceptions.filter((row) => row.exception_type === 1).map((row) => row.date)]
-    const first = dates.length ? Math.min(...dates) : null
-    const last = dates.length ? Math.max(...dates) : null
+    const first = dates.length ? dates.reduce((a, b) => Math.min(a, b), Infinity) : null
+    const last = dates.length ? dates.reduce((a, b) => Math.max(a, b), -Infinity) : null
     const active = serviceDate ? this.activeServices(serviceDate) : new Set()
     const missingScopes = this.scopes.filter((scope) => ![...active].some((id) => scopeOf(id) === scope))
     const valid = Boolean(this.timezone && first && last && token >= first && token <= last && active.size && !missingScopes.length)

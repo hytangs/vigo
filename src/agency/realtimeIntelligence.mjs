@@ -1,4 +1,4 @@
-import { rawId } from './agencyContext.mjs'
+import { rawId, scopeOf } from './agencyContext.mjs'
 
 export const defaultPolicy = Object.freeze({ freshnessSeconds: 180, windowMinutes: 30, historyMinutes: 30 })
 const finite = (value) => typeof value === 'number' && Number.isFinite(value)
@@ -38,8 +38,11 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
   if (snapshot && !feeds.length) warnings.push('Individual feed timestamps are absent. Reconnect the source before using observations.')
   if (!coverage.valid) warnings.push(coverage.message)
 
-  for (const update of snapshot?.tripUpdates ?? []) {
-    const match = coverage.valid ? context.matchTrip(update, coverage.serviceDate) : { reason: coverage.message }
+  const matchedUpdates = (snapshot?.tripUpdates ?? []).map((update) => ({ update, match: coverage.valid ? context.matchTrip(update, coverage.serviceDate) : { reason: coverage.message } }))
+  const instanceCounts = new Map()
+  for (const { match } of matchedUpdates) if (match.trip) { const key = eventId(match.trip.trip_id, match.serviceDate); instanceCounts.set(key, (instanceCounts.get(key) ?? 0) + 1) }
+  for (const { update, match } of matchedUpdates) {
+    if (match.trip && instanceCounts.get(eventId(match.trip.trip_id, match.serviceDate)) > 1) { match.reason = 'Multiple TripUpdates claim the same scheduled trip instance.'; delete match.trip }
     const ref = `${update.sourceUrl ?? 'unknown source'}#entity=${encodeURIComponent(update.id)}`
     if (!match.trip || !recordFresh(update)) {
       trips.push({ id: update.id, sourceUrl: update.sourceUrl, status: 'unresolved', reason: match.reason || 'The TripUpdate is stale or its source time is unknown.' })
@@ -48,7 +51,8 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
     const { trip, serviceDate, departures, epoch } = match
     const route = routes.get(trip.route_id)
     route.reportingTrips++
-    const base = { routeId: trip.route_id, directionId: trip.direction_id ?? undefined, tripId: trip.trip_id, vehicleId: update.vehicleId, serviceDate, sourceRefs: [ref, `gtfs:trips/${encodeURIComponent(trip.trip_id)}?date=${serviceDate}`] }
+    const sourceTime = update.timestamp ?? feedByUrl.get(update.sourceUrl)?.feedTimestamp
+    const base = { observedAt: new Date(sourceTime * 1000).toISOString(), routeId: trip.route_id, directionId: trip.direction_id ?? undefined, tripId: trip.trip_id, vehicleId: update.vehicleId, serviceDate, sourceRefs: [ref, `gtfs:trips/${encodeURIComponent(trip.trip_id)}?date=${serviceDate}`] }
     const identity = [trip.trip_id, serviceDate]
     if (['CANCELED', 'DELETED'].includes(update.scheduleRelationship)) {
       add('cancellation', identity, { ...base, title: 'Scheduled trip cancelled', severity: 'warning', evidence: { reason: `TripDescriptor: ${update.scheduleRelationship}` } })
@@ -69,6 +73,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       if (duplicateSequences.has(row.stop_sequence)) continue
       duplicateSequences.add(row.stop_sequence)
       if (stopUpdate.scheduleRelationship === 'SKIPPED') {
+        if (epoch + row.departure < nowSeconds - policy.freshnessSeconds || epoch + row.departure > nowSeconds + policy.windowMinutes * 60) continue
         add('skipped-stop', [...identity, row.stop_sequence], { ...base, stopId: row.from_stop_id, title: 'Scheduled stop skipped', severity: 'warning', evidence: { scheduledTime: epoch + row.departure, reason: 'StopTimeUpdate: SKIPPED' } })
         continue
       }
@@ -76,7 +81,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       const departure = stopUpdate.departure
       const predictedTime = finite(departure?.time) ? departure.time : finite(departure?.delay) ? epoch + row.departure + departure.delay : null
       if (predictedTime === null) continue // Arrival predictions never stand in for departures.
-      const prediction = { tripId: trip.trip_id, sequence: row.stop_sequence, stopId: row.from_stop_id, scheduledTime: epoch + row.departure, predictedTime, delaySeconds: predictedTime - epoch - row.departure, sourceRef: ref }
+      const prediction = { tripId: trip.trip_id, sequence: row.stop_sequence, stopId: row.from_stop_id, scheduledTime: epoch + row.departure, predictedTime, delaySeconds: predictedTime - epoch - row.departure, sourceRef: ref, observedAt: base.observedAt }
       predictions.push(prediction)
       if (prediction.scheduledTime < nowSeconds || prediction.scheduledTime > nowSeconds + policy.windowMinutes * 60) continue
       const key = eventId(trip.route_id, trip.direction_id, row.from_stop_id, serviceDate)
@@ -117,7 +122,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       const compressed = observedHeadwaySeconds < scheduledHeadwaySeconds
       add(compressed ? 'bunching' : 'service-gap', [key, before.tripId, after.tripId], {
         title: compressed ? 'Compressed departure interval' : 'Wider departure interval', routeId: trip.route_id, directionId: trip.direction_id ?? undefined,
-        tripId: after.tripId, stopId, serviceDate,
+        tripId: after.tripId, stopId, serviceDate, observedAt: before.observedAt < after.observedAt ? before.observedAt : after.observedAt,
         evidence: { scheduledHeadwaySeconds, observedHeadwaySeconds, headwayRatio: observedHeadwaySeconds / scheduledHeadwaySeconds,
           referenceStopId: stopId, comparisonWindow: [before.scheduledTime, after.scheduledTime], expectedDepartures: expected.length, reportingTrips: expected.filter((row) => reporting.has(`${row.trip_id}/${row.stop_sequence}`)).length,
           tripIds: [before.tripId, after.tripId], reason: 'Two consecutive scheduled departures, both reporting at this stop. This is a predicted interval, not an observed passage or route-wide regularity claim.' },
@@ -133,18 +138,24 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
     if (!sourceFresh(alert)) continue
     if (alert.activePeriods?.length && !alert.activePeriods.some((period) => (!period.start || period.start <= nowSeconds) && (!period.end || period.end > nowSeconds))) continue
     activeAlerts++
-    const routeIds = context.routes.filter((route) => (alert.routeIds ?? []).some((id) => rawId(id) === rawId(route.route_id))).map((route) => route.route_id)
-    const stopIds = context.stops.filter((stop) => (alert.stopIds ?? []).some((id) => rawId(id) === rawId(stop.stop_id))).map((stop) => stop.stop_id)
+    const resolveAlertIds = (ids, rows, field) => [...new Set(ids.flatMap((id) => {
+      const matches = rows.filter((row) => (String(id).includes('\u001f') ? row[field] === id : rawId(row[field]) === String(id)) && (!alert.sourceScope || scopeOf(row[field]) === alert.sourceScope))
+      if (matches.length > 1) { warnings.push(`Alert ${alert.id}: ${field} ${id} is ambiguous across source scopes and is not assigned.`); return [] }
+      return matches.map((row) => row[field])
+    }))]
+    const routeIds = resolveAlertIds(alert.routeIds ?? [], context.routes, 'route_id')
+    const stopIds = resolveAlertIds(alert.stopIds ?? [], context.stops, 'stop_id')
     for (const routeId of routeIds) routes.get(routeId).alerts++
-    add('service-alert', [alert.sourceUrl, alert.id], { title: alert.header || 'Service alert', routeId: routeIds.length === 1 ? routeIds[0] : undefined, routeIds, stopIds,
+    add('service-alert', [alert.sourceUrl, alert.id], { observedAt: new Date(feedByUrl.get(alert.sourceUrl).feedTimestamp * 1000).toISOString(), title: alert.header || 'Service alert', routeId: routeIds.length === 1 ? routeIds[0] : undefined, routeIds, stopIds,
       severity: alert.severity === 'SEVERE' ? 'critical' : alert.severity === 'WARNING' ? 'warning' : 'info',
-      evidence: { alertHeader: alert.header, alertDescription: alert.description, reason: [alert.effect, alert.cause].filter(Boolean).join(' · ') }, sourceRefs: [`${alert.sourceUrl}#entity=${encodeURIComponent(alert.id)}`] })
+      evidence: { alertHeader: alert.header, alertDescription: alert.description, informedEntities: alert.informedEntities ?? [], reason: [alert.effect, alert.cause].filter(Boolean).join(' · ') }, sourceRefs: [`${alert.sourceUrl}#entity=${encodeURIComponent(alert.id)}`] })
   }
   for (const vehicle of snapshot?.vehicles ?? []) if (sourceFresh(vehicle) && (!finite(vehicle.timestamp) || nowSeconds - vehicle.timestamp > policy.freshnessSeconds)) add('stale-data', [vehicle.sourceUrl, vehicle.id], {
     title: finite(vehicle.timestamp) ? 'Vehicle observation is stale' : 'Vehicle observation time is unknown', vehicleId: vehicle.id,
     evidence: { ...(finite(vehicle.timestamp) ? { feedAgeSeconds: nowSeconds - vehicle.timestamp } : {}), reason: 'VehiclePosition timestamp is evaluated independently of the feed header.' }, sourceRefs: [`${vehicle.sourceUrl}#vehicle=${encodeURIComponent(vehicle.id)}`],
   })
   for (const event of events) for (const routeId of event.routeIds ?? (event.routeId ? [event.routeId] : [])) if (routes.has(routeId)) routes.get(routeId).events++
+  for (const event of events) { event.routeName = routes.get(event.routeId)?.name; event.stopName = context.stopIndex.get(event.stopId)?.name }
   events.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || (b.evidence.delaySeconds ?? 0) - (a.evidence.delaySeconds ?? 0) || a.id.localeCompare(b.id))
   return { generatedAt, observedAt: snapshot?.fetchedAt ?? null, cityName: context.cityName, connected: Boolean(snapshot), coverage,
     counts: { routes: routes.size, stops: context.stops.length, vehicles: (snapshot?.vehicles ?? []).filter((vehicle) => recordFresh(vehicle) && finite(vehicle.timestamp)).length, trips: trips.length, matchedTrips: trips.filter((trip) => trip.status !== 'unresolved').length, unresolvedTrips: trips.filter((trip) => trip.status === 'unresolved').length, alerts: activeAlerts },

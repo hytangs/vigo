@@ -244,6 +244,11 @@ export type MapPreview = {
 }
 
 export type RealtimeVehicle = {
+  sourceUrl?: string
+  sourceFeedTimestamp?: number
+  directionId?: number
+  entityId?: string
+  currentStopSequence?: number
   id: string
   label?: string
   licensePlate?: string
@@ -264,6 +269,12 @@ export type RealtimeVehicle = {
 }
 
 export type RealtimeTripUpdate = {
+  sourceUrl?: string
+  sourceFeedTimestamp?: number
+  directionId?: number
+  vehicleId?: string
+  vehicleLabel?: string
+  tripDelaySeconds?: number
   id: string
   routeId?: string
   tripId?: string
@@ -295,6 +306,8 @@ export type RealtimeTripUpdate = {
 }
 
 export type RealtimeAlert = {
+  sourceUrl?: string
+  sourceFeedTimestamp?: number
   id: string
   cause?: string
   effect?: string
@@ -308,6 +321,7 @@ export type RealtimeAlert = {
 }
 
 export type RealtimeSnapshot = {
+  feeds?: Array<{ sourceUrl: string; kind: string; fetchedAt: string; feedTimestamp?: number; error?: string }>
   sourceUrl?: string
   sourceUrls?: string[]
   fetchedAt: string

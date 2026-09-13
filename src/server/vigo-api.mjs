@@ -1,3 +1,4 @@
+import { createAgencyService } from './agency-api.mjs'
 import crypto from 'node:crypto'
 import { createReadStream, existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
@@ -17,7 +18,8 @@ import {
 } from './national-gtfs-store.mjs'
 import { readNationalOsmStreetGeometry, readNationalOsmStoreMetadata } from './national-osm-store.mjs'
 import { readGtfsNetworkOverview, readGtfsRouteAnalysis } from './gtfs-analysis-store.mjs'
-import { decodeGtfsRealtimeFeed, gtfsRealtimeEnums as gtfsRealtime } from './gtfs-realtime-decoder.mjs'
+import { decodeGtfsRealtimeFeed } from './gtfs-realtime-decoder.mjs'
+import { realtimeSnapshotFromFeeds } from './realtime-snapshot.mjs'
 import { fetchSafeRealtimeBody } from './realtime-url-security.mjs'
 import { computeReachResult } from './reach.mjs'
 import { hydrateScenarioRouteServices } from './scenario-services.mjs'
@@ -110,13 +112,13 @@ const nationalRouteRssBudgetBytes = Math.max(
 )
 
 function defaultStorageRoot() {
-  return path.join(os.homedir(), 'Documents', 'Vigo Projects')
+  return path.join(os.homedir(), 'Documents', 'VIGO Agency Cities')
 }
 
 function defaultConfigDir() {
-  if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', 'VIGO')
-  if (process.platform === 'win32') return path.join(process.env.APPDATA || os.homedir(), 'VIGO')
-  return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'vigo')
+  if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', 'VIGO Agency')
+  if (process.platform === 'win32') return path.join(process.env.APPDATA || os.homedir(), 'VIGO Agency')
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'vigo-agency')
 }
 
 function normalizeUserPath(value, fallback = defaultStorageRoot()) {
@@ -1331,150 +1333,8 @@ function integralRoutingMinute(value, label, fallback = 8 * 60) {
   return parsed
 }
 
-function enumLabel(enumObject, value) {
-  if (value === null || value === undefined) return undefined
-  return Object.entries(enumObject).find(([, enumValue]) => enumValue === value)?.[0]
-}
-
-function translatedText(value) {
-  const translations = value?.translation ?? []
-  return translations.find((translation) => translation.language === 'en')?.text
-    ?? translations[0]?.text
-    ?? ''
-}
-
 function compactObject(value) {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined && entry !== null && entry !== ''))
-}
-
-function tripFields(trip) {
-  return compactObject({
-    routeId: trip?.routeId,
-    tripId: trip?.tripId,
-    startDate: trip?.startDate,
-    startTime: trip?.startTime,
-    scheduleRelationship: enumLabel(gtfsRealtime.TripDescriptor.ScheduleRelationship, trip?.scheduleRelationship),
-  })
-}
-
-function vehiclePositionToRecord(entity) {
-  const vehicle = entity.vehicle
-  const position = vehicle?.position
-  return compactObject({
-    id: vehicle?.vehicle?.id || entity.id,
-    label: vehicle?.vehicle?.label,
-    licensePlate: vehicle?.vehicle?.licensePlate,
-    ...tripFields(vehicle?.trip),
-    stopId: vehicle?.stopId,
-    currentStatus: enumLabel(gtfsRealtime.VehiclePosition.VehicleStopStatus, vehicle?.currentStatus),
-    congestionLevel: enumLabel(gtfsRealtime.VehiclePosition.CongestionLevel, vehicle?.congestionLevel),
-    occupancyStatus: enumLabel(gtfsRealtime.VehiclePosition.OccupancyStatus, vehicle?.occupancyStatus),
-    occupancyPercentage: vehicle?.occupancyPercentage,
-    timestamp: numeric(vehicle?.timestamp),
-    lat: position?.latitude,
-    lon: position?.longitude,
-    bearing: position?.bearing,
-    speed: position?.speed,
-  })
-}
-
-function stopEventDelay(update) {
-  return update.arrival?.delay ?? update.departure?.delay
-}
-
-function stopTimeEventToRecord(event) {
-  if (!event) return undefined
-  return compactObject({
-    delay: numeric(event.delay),
-    time: numeric(event.time),
-    uncertainty: numeric(event.uncertainty),
-    scheduledTime: numeric(event.scheduledTime),
-  })
-}
-
-function stopTimeUpdateToRecord(update) {
-  return compactObject({
-    stopSequence: numeric(update?.stopSequence),
-    stopId: update?.stopId,
-    scheduleRelationship: enumLabel(
-      gtfsRealtime.StopTimeUpdate.ScheduleRelationship,
-      update?.scheduleRelationship,
-    ),
-    arrival: stopTimeEventToRecord(update?.arrival),
-    departure: stopTimeEventToRecord(update?.departure),
-  })
-}
-
-function tripUpdateToRecord(entity) {
-  const tripUpdate = entity.tripUpdate
-  const firstUpcoming = tripUpdate?.stopTimeUpdate?.find((update) => update.stopId || update.stopSequence)
-  return compactObject({
-    id: entity.id,
-    ...tripFields(tripUpdate?.trip),
-    timestamp: numeric(tripUpdate?.timestamp),
-    delaySeconds: tripUpdate?.delay ?? stopEventDelay(firstUpcoming),
-    stopUpdateCount: tripUpdate?.stopTimeUpdate?.length ?? 0,
-    nextStopId: firstUpcoming?.stopId,
-    nextStopSequence: firstUpcoming?.stopSequence,
-    stopTimeUpdates: (tripUpdate?.stopTimeUpdate ?? []).map(stopTimeUpdateToRecord),
-  })
-}
-
-function alertToRecord(entity) {
-  const alert = entity.alert
-  const informedEntity = alert?.informedEntity ?? []
-  return compactObject({
-    id: entity.id,
-    cause: enumLabel(gtfsRealtime.Alert.Cause, alert?.cause),
-    effect: enumLabel(gtfsRealtime.Alert.Effect, alert?.effect),
-    severity: enumLabel(gtfsRealtime.Alert.SeverityLevel, alert?.severityLevel),
-    header: translatedText(alert?.headerText),
-    description: translatedText(alert?.descriptionText),
-    url: translatedText(alert?.url),
-    routeIds: Array.from(new Set(informedEntity.map((entitySelector) => entitySelector.routeId).filter(Boolean))),
-    stopIds: Array.from(new Set(informedEntity.map((entitySelector) => entitySelector.stopId).filter(Boolean))),
-    activePeriods: (alert?.activePeriod ?? []).map((period) => compactObject({
-      start: numeric(period.start),
-      end: numeric(period.end),
-    })),
-  })
-}
-
-function realtimeSnapshotFromFeed(feed, sourceUrl, fetchedAt, contentType) {
-  const entities = feed.entity ?? []
-  const vehicles = entities.filter((entity) => entity.vehicle).map(vehiclePositionToRecord)
-  const tripUpdates = entities.filter((entity) => entity.tripUpdate).map(tripUpdateToRecord)
-  const alerts = entities.filter((entity) => entity.alert).map(alertToRecord)
-  const classified = vehicles.length + tripUpdates.length + alerts.length
-  const feedTimestamp = numeric(feed.header?.timestamp)
-  const ageSeconds = Number.isFinite(feedTimestamp)
-    ? Math.max(0, Date.parse(fetchedAt) / 1000 - feedTimestamp)
-    : undefined
-
-  return {
-    sourceUrl,
-    fetchedAt,
-    feedTimestamp,
-    freshness: {
-      status: ageSeconds === undefined ? 'unknown' : ageSeconds > 180 ? 'stale' : 'fresh',
-      ...(ageSeconds === undefined ? {} : { ageSeconds: Number(ageSeconds.toFixed(1)) }),
-      thresholdSeconds: 180,
-    },
-    feedVersion: feed.header?.feedVersion || undefined,
-    gtfsRealtimeVersion: feed.header?.gtfsRealtimeVersion || undefined,
-    incrementality: enumLabel(gtfsRealtime.FeedHeader.Incrementality, feed.header?.incrementality),
-    contentType,
-    entityCount: entities.length,
-    counts: {
-      vehicles: vehicles.length,
-      tripUpdates: tripUpdates.length,
-      alerts: alerts.length,
-      other: Math.max(0, entities.length - classified),
-    },
-    vehicles,
-    tripUpdates,
-    alerts,
-  }
 }
 
 async function exists(target) {
@@ -5174,49 +5034,6 @@ async function fetchRealtimeFeed(sourceUrl) {
   }
 }
 
-function realtimeSnapshotFromFeeds(records) {
-  const snapshots = records.map((record) => realtimeSnapshotFromFeed(
-    record.feed,
-    record.sourceUrl,
-    record.fetchedAt,
-    record.contentType,
-  ))
-  const first = snapshots[0]
-  const sourceUrls = snapshots.map((snapshot) => snapshot.sourceUrl).filter(Boolean)
-  const vehicles = snapshots.flatMap((snapshot) => snapshot.vehicles)
-  const tripUpdates = snapshots.flatMap((snapshot) => snapshot.tripUpdates)
-  const alerts = snapshots.flatMap((snapshot) => snapshot.alerts)
-  const other = snapshots.reduce((total, snapshot) => total + snapshot.counts.other, 0)
-  return {
-    sourceUrl: sourceUrls.length === 1 ? sourceUrls[0] : undefined,
-    sourceUrls,
-    fetchedAt: records.reduce((latest, record) => record.fetchedAt > latest ? record.fetchedAt : latest, first.fetchedAt),
-    feedTimestamp: snapshots.reduce((latest, snapshot) => Math.max(latest, snapshot.feedTimestamp ?? 0), 0) || undefined,
-    freshness: {
-      status: snapshots.some((snapshot) => snapshot.freshness?.status === 'stale')
-        ? 'stale'
-        : snapshots.every((snapshot) => snapshot.freshness?.status === 'fresh') ? 'fresh' : 'unknown',
-      ...(snapshots.some((snapshot) => Number.isFinite(snapshot.freshness?.ageSeconds))
-        ? { ageSeconds: Math.max(...snapshots.map((snapshot) => Number(snapshot.freshness?.ageSeconds ?? 0))) }
-        : {}),
-      thresholdSeconds: 180,
-    },
-    feedVersion: first.feedVersion,
-    gtfsRealtimeVersion: first.gtfsRealtimeVersion,
-    incrementality: first.incrementality,
-    contentType: snapshots.length === 1 ? first.contentType : 'multiple',
-    entityCount: snapshots.reduce((total, snapshot) => total + snapshot.entityCount, 0),
-    counts: {
-      vehicles: vehicles.length,
-      tripUpdates: tripUpdates.length,
-      alerts: alerts.length,
-      other,
-    },
-    vehicles,
-    tripUpdates,
-    alerts,
-  }
-}
 
 async function inspectRealtimeFeed(body) {
   const urls = realtimeFeedUrls(body)
@@ -5228,7 +5045,10 @@ async function inspectRealtimeFeed(body) {
     error.statusCode = 400
     throw error
   }
-  const records = await Promise.all(entries.map(([, sourceUrl]) => fetchRealtimeFeed(sourceUrl)))
+  const records = await Promise.all(entries.map(async ([kind, sourceUrl]) => {
+    try { return { ...await fetchRealtimeFeed(sourceUrl), kind } }
+    catch (error) { return { sourceUrl, kind, fetchedAt: now(), error: error.message } }
+  }))
   return realtimeSnapshotFromFeeds(records)
 }
 
@@ -5406,7 +5226,9 @@ async function route(request, response) {
   }
 
   if (request.method === 'POST' && pathname === '/api/realtime/inspect') {
-    sendJson(response, 200, { snapshot: await inspectRealtimeFeed(await readBody(request)) })
+    const body = await readBody(request)
+    const { projectId, ...feedRequest } = body
+    sendJson(response, 200, { snapshot: projectId ? await agency.connect(projectId, feedRequest) : await inspectRealtimeFeed(feedRequest) })
     return true
   }
 
@@ -5436,6 +5258,25 @@ async function route(request, response) {
 
     if (request.method === 'DELETE' && !action) {
       sendJson(response, 200, { ok: true, projects: await deleteProject(projectId) })
+      return true
+    }
+
+    if (action === 'agency') {
+      if (request.method === 'GET') sendJson(response, 200, await agency.state(projectId))
+      else if (request.method === 'POST') await withRequestAbort(request, response, async (signal) => {
+        const body = await readBody(request)
+        if (body.action !== 'ask' || !String(request.headers.accept ?? '').includes('application/x-ndjson')) {
+          sendJson(response, 200, await agency.handle(projectId, body, signal)); return
+        }
+        response.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' })
+        const write = (value) => { if (!signal.aborted && !response.destroyed && !response.writableEnded) response.write(`${JSON.stringify(value)}\n`) }
+        try {
+          const result = await agency.handle(projectId, body, signal, (progress) => write({ type: 'progress', progress }))
+          write({ type: 'complete', ...result })
+        } catch (error) { if (!signal.aborted) write({ type: 'error', error: error.message }) }
+        finally { if (!response.writableEnded) response.end() }
+      })
+      else sendJson(response, 405, { error: 'Method not allowed.' })
       return true
     }
 
@@ -5646,6 +5487,18 @@ async function route(request, response) {
   sendJson(response, 404, { error: 'Not found' })
   return true
 }
+
+const agency = createAgencyService({
+  async context(projectId) {
+    const project = await readProjectMetadata(projectId)
+    const { storePath } = await requireRoutingStore(projectId, project)
+    return { storePath, cityName: project.name }
+  },
+  inspectRealtime: inspectRealtimeFeed,
+  route: runNationalRoute,
+  reach: runReach,
+  matrix: runNationalMatrix,
+})
 
 const server = http.createServer((request, response) => {
   route(request, response).then((handled) => {

@@ -8,10 +8,19 @@ const event = { id: 'delay/T1', type: 'delay', title: 'Departure later than sche
 let round = 0
 const provider = { available: true, complete: async () => ++round === 1 ? { tool_calls: [{ id: 'call-1', function: { name: 'anomaly_scan', arguments: '{}' } }] } : { content: 'Invented: everything is cancelled for 90 minutes.' } }
 const callTool = async () => ({ ok: true, data: { events: [event], total: 1 }, provenance: event.sourceRefs, generatedAt: state.generatedAt, warnings: [] })
-const answer = await queryAgency({ question: 'What is happening?', context, state, callTool, provider })
+const progress = []
+const answer = await queryAgency({ question: 'What is happening?', context, state, callTool, provider, onProgress: (item) => progress.push(item) })
+assert.equal(progress[0].phase, 'planning')
+assert.ok(progress.some((item) => item.phase === 'tool-0' && item.progress === 0))
+assert.ok(progress.some((item) => item.phase === 'tool-0' && item.progress === 1))
+assert.doesNotMatch(JSON.stringify(progress), /everything is cancelled/)
 assert.equal(answer.trace.length, 1)
 assert.deepEqual(answer.evidenceRefs, event.sourceRefs)
 assert.doesNotMatch(answer.answer, /90|everything is cancelled/, 'Free model prose is never accepted as operational truth')
+let interruptedRound = 0
+const partial = await queryAgency({ question: 'Check service', context, state, callTool, provider: { available: true, complete: async () => { if (++interruptedRound === 1) return { tool_calls: [{ id: 'one', function: { name: 'anomaly_scan', arguments: '{}' } }] }; throw new Error('Provider unavailable') } } })
+assert.equal(partial.trace.length, 1)
+assert.equal(partial.warnings.includes('Provider unavailable'), true)
 const unavailable = await queryAgency({ question: 'What is happening?', context, state, callTool, provider: { available: false } })
 assert.equal(unavailable.providerAvailable, false)
 const template = await draftRiderMessage({ event, context, channel: 'app' }, { available: false })

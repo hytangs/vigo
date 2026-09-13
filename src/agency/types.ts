@@ -72,8 +72,10 @@ export type AgencyState = {
   generatedAt: string
   observedAt: string | null
   cityName: string
+  eventCount?: number
+  stopNames?: Record<string, string>
   connected: boolean
-  provider: { available: boolean; model: string | null }
+  provider: ProviderState
   coverage: Coverage
   counts: { routes: number; stops: number; vehicles: number; trips: number; matchedTrips: number; unresolvedTrips: number; alerts: number }
   feeds: FeedState[]
@@ -127,4 +129,14 @@ export type AgencySkill = {
   outputType: string
   enabled: boolean
   tools: string[]
+}
+
+export interface ProviderState {
+  available: boolean
+  model: string | null
+  baseUrl?: string
+  reasoningEffort?: string
+  hasKey?: boolean
+  source?: string
+  testedAt?: string | null
 }

@@ -53,6 +53,7 @@ try {
   let requested
   const call = createToolRegistry({ context, state, snapshot, provider: { available: false }, adapters: {
     route: async (input) => { requested = input; return { plan: { status: 'ok', diagnostics: { realtimeRouting: { status: 'applied', appliedTrips: 3 } } } } },
+    matrix: async (input) => { requested = input; return { durations: [12] } },
     reach: async (input) => { requested = input; return { origin: input.origin } },
   } })
   const journey = { origin: { stopId: 'A', lat: 0, lon: 0 }, destination: { stopId: 'B', lat: 0, lon: 0 }, serviceDate: '2026-09-13', departMinutes: 720 }
@@ -66,6 +67,10 @@ try {
   await assert.rejects(call('anomaly_scan', { routeId: 'invented' }), /exact indexed/)
   await call('reach', { origin: { stopId: 'A', lat: 0, lon: 0 }, serviceDate: '2026-09-13', departMinutes: 720, cutoffMinutes: 30 })
   assert.deepEqual(requested.origin.coordinate, [-71.06, 42.36])
+  const matrix = await call('matrix', { origins: [journey.origin], destinations: [journey.destination], serviceDate: journey.serviceDate, departMinutes: journey.departMinutes })
+  assert.deepEqual(matrix.data.durations, [12])
+  assert.equal(requested.allowServiceDateFallback, false)
+  await assert.rejects(call('matrix', { origins: [], destinations: [journey.destination], serviceDate: journey.serviceDate, departMinutes: journey.departMinutes }), /size/)
   console.log('Agency tools: SQLite authorization, qualified bypasses, result size, expensive joins, process termination, cancellation, and native routing/reach handoff passed.')
 } finally {
   context?.close()
