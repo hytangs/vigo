@@ -14,6 +14,10 @@ export type Evidence = {
   reason?: string
   alertHeader?: string
   alertDescription?: string
+  alertCause?: string
+  alertEffect?: string
+  alertUrl?: string
+  activePeriods?: Array<{ start?: number; end?: number }>
 }
 
 export type OperationalEvent = {
@@ -148,6 +152,7 @@ export type AgencySkill = {
 }
 
 export interface ProviderState {
+  web?: { provider: 'off' | 'wikipedia' | 'brave' | 'searxng'; baseUrl: string; hasKey: boolean; searchAvailable: boolean; readAvailable: boolean }
   available: boolean
   model: string | null
   baseUrl?: string

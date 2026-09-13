@@ -10,8 +10,10 @@ import { createProvider } from '../agency/provider.mjs'
 import { queryAgency } from '../agency/queryAgent.mjs'
 import { createPlaceSearch } from '../agency/placeSearch.mjs'
 import { routeOperations, vehicleDetails } from '../agency/routeOperations.mjs'
+import { createWebResearch } from '../agency/webResearch.mjs'
+import { readPublicPage } from './agency-web.mjs'
 
-export function createAgencyService(adapters, { provider = createProvider(), clock = () => Date.now(), policy = defaultPolicy, refreshMs = 10_000 } = {}) {
+export function createAgencyService(adapters, { provider = createProvider(), web = createWebResearch({ readPage: readPublicPage }), clock = () => Date.now(), policy = defaultPolicy, refreshMs = 10_000 } = {}) {
   const sessions = new Map()
   let closed = false
   function retire(session) {
@@ -64,7 +66,7 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
 
   function current(session) {
     const state = deriveOperationalState(session.context, session.snapshot, clock() / 1000, policy)
-    return { ...state, ...session.history.update(state), warnings: [...state.warnings, ...session.skills.warnings()], provider: provider.status?.() ?? { available: provider.available, model: provider.model } }
+    return { ...state, ...session.history.update(state), warnings: [...state.warnings, ...session.skills.warnings()], provider: { ...(provider.status?.() ?? { available: provider.available, model: provider.model }), web: web.status() } }
   }
 
   async function refresh(session) {
@@ -122,6 +124,8 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
       })
     },
     async handle(projectId, body, signal, onProgress) {
+      if (body.action === 'web-status') return web.status()
+      if (body.action === 'web-connect') return web.connect(body.connection, signal)
       if (body.action === 'provider-status') return provider.status()
       if (body.action === 'provider-models') return provider.models(body.connection, signal)
       if (body.action === 'provider-connect') return provider.connect(body.connection, signal)
@@ -142,9 +146,10 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
         const state = current(session)
         const activities = []
         const inference = provider.forRequest?.() ?? provider
+        const research = web.forRequest()
         const progress = (item) => { const previous = activities.findIndex((entry) => entry.phase === item.phase); if (previous < 0) activities.push(item); else activities[previous] = item; onProgress?.(item) }
         const retain = (title, answer, kind = 'ask') => { const entry = session.notebook.save({ title, answer, activities, kind, parentId: body.parentId ?? null }); return { ...answer, entryId: entry.id } }
-        const callTool = createToolRegistry({ context: session.context, state, snapshot: session.snapshot, notebook: session.notebook, places: session.places, provider: inference, signal,
+        const callTool = createToolRegistry({ context: session.context, state, snapshot: session.snapshot, notebook: session.notebook, places: session.places, web: research, signal,
           adapters: { matrix: (request, abort) => adapters.matrix(projectId, request, abort), route: (request, abort) => adapters.route(projectId, request, abort), reach: (request, abort) => adapters.reach(projectId, request, abort) } })
         switch (body.action) {
           case 'connect': return { snapshot: await connect(projectId, body.request) }
@@ -158,13 +163,14 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
               const previous = session.notebook.read(parentId)
               // Retain the most recent journey inputs, even across intervening
               // explanations. Older plans must not overwrite a later revision.
-              const requests = !history.some(item => item.requests?.length)
-                ? previous.answer.trace?.filter(call => call.result.ok && ['route_plan', 'walk_route', 'reach'].includes(call.tool)).slice(-2).map(call => ({ tool: call.tool, arguments: call.arguments }))
-                : undefined
-              history.unshift({ question: previous.title, answer: previous.answer.answer, notes: previous.notes, observedAt: previous.answer.generatedAt, requests })
+              const categories = [['route_plan', 'walk_route', 'reach'], ['realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message']]
+              const retained = categories.flatMap(tools => history.some(item => item.requests?.some(call => tools.includes(call.tool))) ? [] : (previous.answer.trace ?? []).filter(call => call.result.ok && tools.includes(call.tool)).slice(-2))
+              const requests = retained.map(call => ({ tool: call.tool, arguments: call.arguments }))
+              const findings = retained.filter(call => ['realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message'].includes(call.tool)).slice(-1)
+              history.unshift({ question: previous.title, answer: previous.answer.answer, notes: previous.notes, observedAt: previous.answer.generatedAt, requests, findings })
               parentId = previous.parentId
             }
-            return retain(body.question, await queryAgency({ question: body.question, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled }))
+            return retain(body.question, await queryAgency({ question: body.question, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled, webStatus: research }))
           }
           case 'run-skill': {
             const result = await session.skills.run(body.id, body.inputs ?? {}, callTool, progress, { signal, generatedAt: state.generatedAt })

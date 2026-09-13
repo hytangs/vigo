@@ -11,6 +11,9 @@ export function summarizeEvidence(trace) {
   const last = good.at(-1)
   const data = last.result.data
   switch (last.tool) {
+    case 'reference_lookup':
+    case 'web_search': return `Found ${data.matches.length} public search results. These are leads; read the sources to verify their details.`
+    case 'web_read': return `Read ${data.title || data.url}. The source text is retained for inspection; check its subject and date before drawing conclusions.`
     case 'network_overview': return `${data.cityName} has ${data.counts.routes.toLocaleString('en-US')} routes and ${data.counts.stops.toLocaleString('en-US')} stops. ${data.coverage.message} ${data.observation?.connected ? describeObservation(data.observation) : 'Realtime is not connected, so current service health is unknown.'}`
     case 'resolve_entities': return `${data.total} matching ${data.total === 1 ? 'entity' : 'entities'}. ${data.ambiguous ? 'Choose the intended stop or route by its exact ID.' : 'The indexed identity is shown below.'}`
     case 'recall_notebook': return data.entries.length ? `Found ${data.entries.length} saved ${data.entries.length === 1 ? 'investigation' : 'investigations'}. The dated excerpts and staff notes are below. Open an original to continue it or inspect its sources.` : 'No saved work matched that phrase. Try a route name or words from the question or notes.'

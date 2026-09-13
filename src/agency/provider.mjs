@@ -44,6 +44,8 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
   config.protocol = environment.VIGO_AGENCY_LLM_PROTOCOL || 'openai'
   if (!['openai', 'ollama'].includes(config.protocol)) throw new Error('Choose openai or ollama as the model protocol.')
   config.contextTokens = contextSize(environment.VIGO_AGENCY_LLM_CONTEXT_TOKENS)
+  const timeoutMs = Number(environment.VIGO_AGENCY_LLM_TIMEOUT_MS ?? 45_000)
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 300_000) throw new Error('Provider timeout must be between 1,000 and 300,000 milliseconds.')
   let source = 'environment', testedAt = null, revision = 0, callSequence = 0
   function candidate(input) {
     if (!input || typeof input !== 'object') throw new Error('Enter the provider connection details.')
@@ -57,7 +59,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
     return { baseUrl, model, protocol, contextTokens: contextSize(input.contextTokens ?? config.contextTokens), reasoningEffort: input.reasoningEffort || '', temperature: temperature(input.temperature ?? (baseUrl === config.baseUrl ? config.temperature : undefined)), key: String(input.apiKey ?? '').trim() || (baseUrl === config.baseUrl ? config.key : '') }
   }
   async function request(connection, suffix, body, signal) {
-    const timeout = AbortSignal.timeout(45_000)
+    const timeout = AbortSignal.timeout(timeoutMs)
     try {
       const response = await fetcher(`${normalizeBaseUrl(connection.baseUrl)}${suffix}`, {
         method: body ? 'POST' : 'GET', redirect: 'error', signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
@@ -67,7 +69,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
       return await readResponse(response)
     } catch (error) {
       if (signal?.aborted) throw error
-      if (timeout.aborted) throw new Error('The provider did not respond within 45 seconds.')
+      if (timeout.aborted) throw new Error(`The provider did not respond within ${timeoutMs / 1000} seconds.`)
       if (error instanceof TypeError) throw new Error('Could not reach the provider. Check the URL and whether the local model server is running.')
       throw error
     }

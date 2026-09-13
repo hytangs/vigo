@@ -9,7 +9,9 @@ const validPoint = (lon, lat) => Number.isFinite(lon) && Math.abs(lon) <= 180 &&
 export function createPlaceSearch({ stops = [], env = process.env, fetchImpl = fetch, clock = Date.now } = {}) {
   const endpoint = env.VIGO_AGENCY_PLACE_SEARCH_URL ?? 'https://photon.komoot.io/api/'
   const enabled = endpoint !== 'off'
-  const bounds = stops.reduce((box, { lon, lat }) => validPoint(lon, lat)
+  // Internal pathway nodes need not have geographic coordinates in GTFS.
+  // Use the declared stops/stations, without guessing away zero coordinates.
+  const bounds = stops.filter(stop => [0, 1].includes(Number(stop.location_type ?? 0))).reduce((box, { lon, lat }) => validPoint(lon, lat)
     ? [Math.min(box[0], lon), Math.min(box[1], lat), Math.max(box[2], lon), Math.max(box[3], lat)] : box, [Infinity, Infinity, -Infinity, -Infinity])
   const hasBounds = bounds.every(Number.isFinite) && bounds[0] < bounds[2] && bounds[1] < bounds[3]
   const cache = new Map(), places = new Map()
@@ -81,7 +83,8 @@ export function createPlaceSearch({ stops = [], env = process.env, fetchImpl = f
       }
       if (payload.features.length && !matches.length) throw new Error('Place search returned no usable location coordinates.')
       const data = { query: query.trim(), searchedAt: new Date(clock()).toISOString(), searchArea: withinCity && hasBounds ? 'Current City stop coverage bounds' : 'Worldwide, with a location preference', matches,
-        attribution: '© OpenStreetMap contributors · Photon', coverage: 'Up to five search matches, not a complete business directory. Addresses and map points do not verify opening hours or accessible entrances.' }
+        attribution: '© OpenStreetMap contributors · Photon', coverage: 'Up to five OpenStreetMap matches, not a complete business directory. An empty result does not establish that a place does not exist. Addresses and map points do not verify opening hours or accessible entrances.',
+        ...(!matches.length ? { nextStep: 'Look up the business street address in an available public source, then geocode that verified address. Do not repeat the same search or substitute a different business.' } : {}) }
       cache.set(key, data)
       while (cache.size > 100) cache.delete(cache.keys().next().value)
       return remember(data)

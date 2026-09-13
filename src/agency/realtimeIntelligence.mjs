@@ -156,7 +156,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
     for (const routeId of routeIds) routes.get(routeId).alerts++
     add('service-alert', [alert.sourceUrl, alert.id], { observedAt: new Date(feedByUrl.get(alert.sourceUrl).feedTimestamp * 1000).toISOString(), title: alert.header || 'Service alert', routeId: routeIds.length === 1 ? routeIds[0] : undefined, routeIds, stopIds,
       severity: alert.severity === 'SEVERE' ? 'critical' : alert.severity === 'WARNING' ? 'warning' : 'info',
-      evidence: { alertHeader: alert.header, alertDescription: alert.description, informedEntities: alert.informedEntities ?? [], reason: [alert.effect, alert.cause].filter(Boolean).join(' · ') }, sourceRefs: [`${alert.sourceUrl}#entity=${encodeURIComponent(alert.id)}`] })
+      evidence: { alertHeader: alert.header, alertDescription: alert.description, alertCause: alert.cause, alertEffect: alert.effect, alertUrl: alert.url, activePeriods: alert.activePeriods ?? [], informedEntities: alert.informedEntities ?? [], reason: [alert.effect, alert.cause].filter(Boolean).join(' · ') }, sourceRefs: [`${alert.sourceUrl}#entity=${encodeURIComponent(alert.id)}`] })
   }
   for (const vehicle of snapshot?.vehicles ?? []) if (sourceFresh(vehicle) && (!finite(vehicle.timestamp) || nowSeconds - vehicle.timestamp > policy.freshnessSeconds)) add('stale-data', [vehicle.sourceUrl, vehicle.id], {
     title: finite(vehicle.timestamp) ? 'Vehicle observation is stale' : 'Vehicle observation time is unknown', vehicleId: vehicle.id,

@@ -64,3 +64,9 @@ assert.deepEqual(nativeRequests.at(-1).body.messages[0].tool_calls[0].function.a
 await assert.rejects(native.models({ baseUrl: 'http://localhost:11434', protocol: 'ollama', contextTokens: 10 }), /Local context/)
 assert.throws(() => createProvider({ VIGO_AGENCY_LLM_PROTOCOL: 'invented' }), /protocol/)
 console.log('Agency provider: model discovery, inference verification, private session keys, endpoint isolation, failure recovery, and disconnect passed.')
+
+for (const value of ['NaN', '0', '300001']) assert.throws(() => createProvider({ VIGO_AGENCY_LLM_TIMEOUT_MS: value }), /timeout/)
+const timed = createProvider({ VIGO_AGENCY_LLM_BASE_URL: 'http://localhost:11434', VIGO_AGENCY_LLM_MODEL: 'local-model', VIGO_AGENCY_LLM_TIMEOUT_MS: '1000' }, (_url, options) => new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true })))
+// Keep the isolated fixture alive while the provider's unref'd deadline expires.
+const keepAlive = setInterval(() => {}, 2000)
+try { await assert.rejects(timed.complete([], []), /within 1 seconds/) } finally { clearInterval(keepAlive) }

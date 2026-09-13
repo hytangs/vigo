@@ -43,7 +43,7 @@ const followup = await queryAgency({ question: 'Make that shorter', context, sta
   history: [{ question: 'Explain headways', answer: 'Headway is the time between successive vehicles at the same stop.', observedAt: state.generatedAt }],
   provider: { available: true, complete: async (messages) => {
     assert.match(messages[2].content, /successive vehicles/)
-    assert.equal(messages.at(-1).content, 'Make that shorter')
+    assert.equal(messages.filter(message => message.role !== 'system').at(-1).content, 'Make that shorter')
     return { content: [{ type: 'reasoning', text: 'private' }, { type: 'text', text: '<think>internal</think>Time between vehicles.' }] }
   } } })
 assert.equal(followup.answer, 'Time between vehicles.')
@@ -76,24 +76,25 @@ const scoped = await queryAgency({ question: 'Check route R', context, state,
   callTool: async () => ({ ok: true, data: { connected: true, observedAt: state.generatedAt, scope: { routeId: 'R' }, counts: { routes: 100 }, feeds: [], routes: [{ id: 'R', name: 'R', maxDelaySeconds: 300 }], events: largeEvents }, provenance: ['fixture:route/R'], warnings: [] }),
   provider: { available: true, complete: async (messages) => {
     if (++compactRound === 1) return { tool_calls: [{ id: 'status', function: { name: 'realtime_status', arguments: '{"routeId":"R"}' } }] }
-    const payload = JSON.parse(messages.at(-1).content.split('\n').slice(1).join('\n'))
+    const payload = JSON.parse(messages.filter(message => message.role !== 'system').at(-1).content.split('\n').slice(1).join('\n'))
     assert.equal(payload.data.scope.routeId, 'R')
     assert.equal(payload.data.networkCounts.routes, 100, 'Network counts stay explicitly separate from route measurements')
     assert.equal(payload.data.events.length, 3)
     assert.equal(payload.data.events[0].id, 'event-0', 'Projected findings retain IDs for follow-up tools')
     assert.equal(payload.data.eventCount, 50)
     assert.equal(payload.data.routes[0].maxDelayMinutes, 5)
-    assert.ok(messages.at(-1).content.length < 2500, 'Operational context omits bulky per-trip comparison records')
+    assert.ok(messages.filter(message => message.role !== 'system').at(-1).content.length < 2500, 'Operational context omits bulky per-trip comparison records')
     assert.match(payload.warnings.at(-1), /Selected records only/)
     return { content: 'Route R has a reported five-minute delay. [1]' }
   } } })
+assert.match(scoped.answer, /Route R has a reported five-minute delay/)
 assert.equal(scoped.trace[0].result.data.events.length, 50, 'The full evidence is retained independently of the model projection')
 let associationRound = 0
-await queryAgency({ question: 'Compare R and S', context, state,
+const associated = await queryAgency({ question: 'Compare R and S', context, state,
   callTool: async () => ({ ok: true, data: { scope: { routeIds: ['R', 'S'] }, counts: {}, feeds: [], routes: [{ id: 'S', widestInterval: { stopName: 'Depot', scheduledSeconds: 540, predictedSeconds: 1122 } }], events: [{ ...event, type: 'service-alert', routeId: undefined, routeIds: ['S', 'outside-scope'], stopId: undefined, stopIds: ['A'], stopNames: ['River'], evidence: { reason: 'Escalator unavailable' } }] }, provenance: [], warnings: [] }),
   provider: { available: true, complete: async (messages) => {
     if (++associationRound === 1) return { tool_calls: [{ id: 'comparison', function: { name: 'realtime_status', arguments: '{"routeNames":["R","S"]}' } }] }
-    const payload = JSON.parse(messages.at(-1).content.split('\n').slice(1).join('\n')).data
+    const payload = JSON.parse(messages.filter(message => message.role !== 'system').at(-1).content.split('\n').slice(1).join('\n')).data
     assert.deepEqual(payload.events[0].routeIds, ['S'], 'Alert associations survive projection and remain within the requested scope')
     assert.deepEqual(payload.events[0].stopNames, ['River'], 'The alert location is distinct from the interval reference stop')
     assert.equal(payload.routes[0].widestInterval.stopName, 'Depot')
@@ -101,6 +102,7 @@ await queryAgency({ question: 'Compare R and S', context, state,
     return { content: 'Check the wider interval at Depot. The escalator alert is at River. [1]' }
   } },
 })
+assert.match(associated.answer, /The escalator alert is at River/)
 assert.equal(answer.timing.inputTokens, null, 'Missing provider usage is unknown, not zero')
 let interruptedRound = 0
 const partial = await queryAgency({ question: 'Check service', context, state, callTool, provider: { available: true, complete: async () => { if (++interruptedRound === 1) return { tool_calls: [{ id: 'one', function: { name: 'anomaly_scan', arguments: '{}' } }] }; throw new Error('Provider unavailable') } } })
@@ -133,7 +135,7 @@ assert.equal(unavailable.providerAvailable, false)
 let recoveryRound = 0
 const recovery = await queryAgency({ question: 'Find River', context, state, callTool: async () => { throw new Error('Stop lookup temporarily unavailable') }, provider: { available: true, complete: async (messages) => {
   if (++recoveryRound === 1) return { tool_calls: [{ id: 'lookup', function: { name: 'resolve_entities', arguments: '{"query":"River"}' } }] }
-  assert.match(messages.at(-1).content, /Stop lookup temporarily unavailable/)
+  assert.match(messages.filter(message => message.role !== 'system').at(-1).content, /Stop lookup temporarily unavailable/)
   return { content: 'I could not resolve that place. Please try a more specific name.' }
 } } })
 assert.equal(recovery.trace[0].result.ok, false, 'A failed lookup remains evidence instead of crashing context projection')
@@ -145,8 +147,8 @@ const recalled = await queryAgency({ question: 'Find my earlier service profile'
     assert.match(messages[0].content, /staffAnnotation.*A staff annotation/s)
     assert.equal(messages[2].content, 'Saved result.', 'Assistant history contains the public answer without injected metadata')
     if (++recallRound === 1) return { tool_calls: [{ id: 'recall', function: { name: 'recall_notebook', arguments: '{"search":"service profile"}' } }] }
-    assert.match(messages.at(-1).content, /Three scheduled starts/)
-    assert.doesNotMatch(messages.at(-1).content, /fixture-secret|private.example/)
+    assert.match(messages.filter(message => message.role !== 'system').at(-1).content, /Three scheduled starts/)
+    assert.doesNotMatch(messages.filter(message => message.role !== 'system').at(-1).content, /fixture-secret|private.example/)
     return { content: 'Your saved investigation counted three scheduled starts. It describes supply, not demand or current service. [1]' }
   } },
 })
@@ -157,10 +159,9 @@ const template = await draftRiderMessage({ event, context, channel: 'app' }, { a
 assert.match(template.body, /5 min/)
 assert.equal(template.reviewRequired, true)
 assert.deepEqual(template.evidenceRefs, event.sourceRefs)
-const arranged = await draftRiderMessage({ event, context, channel: 'signage' }, { available: true, complete: async () => ({ content: '{"sentenceIds":["fact"]}' }) })
-assert.equal(arranged.generatedBy, 'model')
-await assert.rejects(draftRiderMessage({ event, context, channel: 'app' }, { available: true, complete: async () => ({ content: '{"sentenceIds":["fact"],"body":"Recovery in 10 minutes"}' }) }), /unsupported/)
-await assert.rejects(draftRiderMessage({ event, context, channel: 'app' }, { available: true, complete: async () => ({ content: '{"sentenceIds":["invented"]}' }) }), /unsupported/)
+const arranged = await draftRiderMessage({ event, context, channel: 'signage' }, { available: true, complete: async () => assert.fail('A starting draft must not add a nested inference call') })
+assert.equal(arranged.generatedBy, 'template')
+assert.match(arranged.body, /sorry/)
 await assert.rejects(draftRiderMessage({ event, context, channel: 'app', language: 'fr' }, { available: false }), /English/)
 assert.equal(createProvider({}).available, false)
 let request

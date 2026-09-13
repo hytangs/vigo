@@ -87,11 +87,14 @@ export async function fetchSafeRealtimeBody(
     headers = {},
     lookup,
     allowPrivate,
+    signal,
+    maximumRedirects = 0,
   } = {},
 ) {
   if (!Number.isSafeInteger(maximumBytes) || maximumBytes <= 0) {
     throw new TypeError('maximumBytes must be a positive safe integer')
   }
+  if (!Number.isInteger(maximumRedirects) || maximumRedirects < 0 || maximumRedirects > 5) throw new TypeError('maximumRedirects must be an integer from 0 to 5')
   let target
   try {
     target = await resolveSafeRealtimeTarget(sourceUrl, { lookup, allowPrivate })
@@ -113,8 +116,18 @@ export async function fetchSafeRealtimeBody(
   const transport = parsedUrl.protocol === 'https:' ? https : http
 
   return new Promise((resolve, reject) => {
-    const request = transport.request(parsedUrl, { headers, lookup: pinnedLookup }, (response) => {
+    const request = transport.request(parsedUrl, { headers, lookup: pinnedLookup, signal }, (response) => {
+      response.on('error', reject)
       const status = response.statusCode ?? 0
+      if ([301, 302, 303, 307, 308].includes(status) && response.headers.location && maximumRedirects > 0) {
+        response.destroy()
+        // Every hop is resolved and pinned again. Realtime callers continue to
+        // reject redirects unless they explicitly opt in.
+        let redirectUrl
+        try { redirectUrl = new URL(response.headers.location, parsedUrl).href } catch { reject(new Error('Invalid redirect URL.')); return }
+        fetchSafeRealtimeBody(redirectUrl, { maximumBytes, timeoutMs, headers, lookup, allowPrivate, signal, maximumRedirects: maximumRedirects - 1 }).then(resolve, reject)
+        return
+      }
       if (status < 200 || status >= 300) {
         response.resume()
         const error = new Error(`GTFS-RT request returned ${status} ${response.statusMessage ?? ''}.`.trim())
@@ -144,8 +157,8 @@ export async function fetchSafeRealtimeBody(
       response.on('end', () => resolve({
         body: new Uint8Array(Buffer.concat(chunks, totalBytes)),
         contentType: response.headers['content-type'],
+        url: parsedUrl.href,
       }))
-      response.on('error', reject)
     })
     const timeout = setTimeout(() => {
       const error = new Error(`GTFS-RT request timed out after ${Math.round(timeoutMs / 1_000)} seconds.`)

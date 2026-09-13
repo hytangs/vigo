@@ -25,6 +25,9 @@ const ordered = { origin: input.origin, destination: input.destination, serviceD
 await callTool('route_plan', ordered)
 assert.equal(request.departMinutes, 555)
 assert.deepEqual(request.waypoints.map(p => p.stopId), ['S1'])
+const named = await callTool('route_plan', { ...input, origin: { lat: 20, lon: 10, label: 'Library entrance' }, destination: { lat: 22, lon: 12, label: 'Restaurant' } })
+assert.equal(request.origin.label, 'Library entrance')
+assert.equal(named.data.resolved[1].label, 'Restaurant', 'Checked coordinate endpoints retain their names in the journey card')
 const before = routeCalls
 await assert.rejects(callTool('route_plan', { ...input, waypoints: ordered.waypoints }), /cannot combine/)
 await assert.rejects(callTool('route_plan', { ...input, departTime: '15:00' }), /either a departure/)
@@ -36,11 +39,11 @@ assert.equal(ambiguity.ok, false)
 assert.equal(ambiguity.data.clarification.matches.length, 3, 'The model receives candidates instead of a guessed endpoint')
 assert.equal(routeCalls, before)
 let clockRound = 0
-await queryAgency({ question: 'Arrive by 16:00', context, state,
+const clockAnswer = await queryAgency({ question: 'Arrive by 16:00', context, state,
   callTool: async () => ({ ...result, data: { ...result.data, plan: { status: 'ready', departMinutes: 938, arriveMinutes: 957, legs: [{ type: 'ride', startMinutes: 938, endMinutes: 957 }] } } }),
   provider: { available: true, complete: async messages => {
     if (++clockRound === 1) return { tool_calls: [{ id: 'journey', function: { name: 'route_plan', arguments: JSON.stringify(input) } }] }
-    const plan = JSON.parse(messages.at(-1).content.split('\n').slice(1).join('\n')).data.plan
+    const plan = JSON.parse(messages.filter(message => message.role !== 'system').at(-1).content.split('\n').slice(1).join('\n')).data.plan
     assert.equal(plan.departTime, '15:38')
     assert.equal(plan.arriveTime, '15:57')
     assert.equal(plan.legs[0].startTime, '15:38')
@@ -48,6 +51,7 @@ await queryAgency({ question: 'Arrive by 16:00', context, state,
     return { content: 'Leave at 15:38 and arrive at 15:57. [1]' }
   } },
 })
+assert.match(clockAnswer.answer, /Leave at 15:38 and arrive at 15:57/)
 const comparison = await callTool('realtime_status', { routeNames: ['1', '2'] })
 assert.deepEqual(comparison.data.scope.routeIds, ['R1', 'R2'])
 assert.equal(comparison.data.routes.length, 2)
@@ -69,8 +73,9 @@ assert.equal(answer.timing.modelCalls, 2)
 assert.equal(answer.timing.inputTokens, 40)
 assert.deepEqual(answer.citations, [1, 2], 'Concurrent completion does not reorder source references')
 assert.deepEqual(answer.trace.map(t => t.tool), ['gtfs_query', 'gtfs_query'])
-await queryAgency({ question: 'Same route, arrive by 17:00 instead', context, state, callTool, history: [{ question: 'Earlier trip', answer: 'Earlier result', requests: [{ tool: 'route_plan', arguments: input }] }], provider: { available: true, complete: async messages => {
+const followup = await queryAgency({ question: 'Same route, arrive by 17:00 instead', context, state, callTool, history: [{ question: 'Earlier trip', answer: 'Earlier result', requests: [{ tool: 'route_plan', arguments: input }] }], provider: { available: true, complete: async messages => {
   assert.match(messages[0].content, /previousRequests.*Library.*16:00.*maxTransfers/s)
   return { content: 'I can retain your endpoints and no-transfer requirement when checking the new deadline.' }
 } } })
+assert.match(followup.answer, /retain your endpoints and no-transfer requirement/)
 console.log('Agency journeys: named endpoints, ambiguity, ordered stops, deadlines, transfer limits, multi-route scope, concurrent reads, timing and follow-up request context passed.')

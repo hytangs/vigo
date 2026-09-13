@@ -21,7 +21,7 @@ export async function resolveJourneyPoints(context, places, args, signal) {
       const result = await places.search({ query: value.placeQuery }, signal)
       if (result.matches.length !== 1) throw Object.assign(new Error(result.matches.length
         ? `Which address do you mean by “${value.placeQuery}”?`
-        : `No address matched “${value.placeQuery}”. Try a more specific address or neighborhood.`), { details: { endpoint: index, matches: result.matches } })
+        : `OpenStreetMap could not resolve “${value.placeQuery}”. This does not mean the place does not exist. Verify its street address from an available public source, then route to that address.`), { details: { endpoint: index, matches: result.matches } })
       place = result.matches[0]
     }
     if (value.placeId && !place) throw new Error('Search for the place before routing.')
@@ -29,7 +29,7 @@ export async function resolveJourneyPoints(context, places, args, signal) {
     if (!Number.isFinite(location.lat) || !Number.isFinite(location.lon)) throw new Error('Supply a stop name, place search, resolved ID, or both latitude and longitude.')
     if (stop) sources.add('GTFS Static · indexed stop locations')
     if (place) { sources.add('Photon · © OpenStreetMap contributors'); sources.add(place.sourceUrl) }
-    const label = stop?.name || place?.label || 'Map point'
+    const label = stop?.name || place?.label || value.label?.trim() || 'Map point'
     resolved[index] = { label, ...(stop ? { stopId: stop.stop_id } : place ? { placeId: place.id, address: place.address } : {}) }
     return { coordinate: [location.lon, location.lat], label, source: stop ? 'stop' : place ? 'search' : 'map', ...(stop ? { stopId: stop.stop_id } : {}) }
   }))

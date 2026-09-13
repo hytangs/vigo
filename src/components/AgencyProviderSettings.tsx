@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, Check, ChevronDown, LoaderCircle, Settings2, Unplug, X } from 'lucide-react'
 import { apiJson } from '../app/api'
 import type { ProviderState } from '../agency/types'
+import { AgencyWebSettings } from './AgencyWebSettings'
 
 export function AgencyProviderSettings({ endpoint, provider, onChange }: { endpoint: string; provider: ProviderState; onChange: () => void }) {
   const [open, setOpen] = useState(false)
@@ -47,5 +48,6 @@ export function AgencyProviderSettings({ endpoint, provider, onChange }: { endpo
       {message ? <p className="agency-ai-result" role="status"><Check size={14} />{message}</p> : null}
       <footer>{provider.available ? <button type="button" className="agency-text-button" disabled={!!busy} onClick={() => void submit('disconnect')}><Unplug size={14} /> Disconnect</button> : <span className="agency-caption">OpenAI-compatible API</span>}<button type="submit" className="agency-button is-primary" disabled={!!busy || !baseUrl.trim() || !model.trim()}>{busy === 'connect' ? <><LoaderCircle className="agency-spinner" size={14} /> Testing connection…</> : <>Connect model<ArrowRight size={14} /></>}</button></footer>
     </form> : null}
+    {open && provider.web ? <AgencyWebSettings endpoint={endpoint} state={provider.web} onChange={onChange} /> : null}
   </section>
 }
