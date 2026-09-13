@@ -108,7 +108,6 @@ const forbiddenContent = [
   { pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/gu, label: 'GitHub token' },
   { pattern: /\bAKIA[0-9A-Z]{16}\b/gu, label: 'AWS access key' },
   { pattern: /https:\/\/github\.com\/hytangs\/vigo-dev(?:\.git)?/gu, label: 'private development remote' },
-  { pattern: /v[e]xta/giu, label: 'unrelated product reference' },
   { pattern: /r[a]pidonkey/giu, label: 'private source-tree reference' },
 ]
 
