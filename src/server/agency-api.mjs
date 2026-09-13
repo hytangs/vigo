@@ -8,6 +8,7 @@ import { createSkillRegistry } from '../agency/skillRegistry.mjs'
 import { createToolRegistry } from '../agency/toolRegistry.mjs'
 import { createProvider } from '../agency/provider.mjs'
 import { queryAgency } from '../agency/queryAgent.mjs'
+import { createPlaceSearch } from '../agency/placeSearch.mjs'
 
 export function createAgencyService(adapters, { provider = createProvider(), clock = () => Date.now(), policy = defaultPolicy, refreshMs = 10_000 } = {}) {
   const sessions = new Map()
@@ -32,6 +33,7 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
       const retained = notebook.get('observation') ?? {}
       session = { notebook, storePath, modified: stat.mtimeMs, context: new AgencyContext(storePath, cityName), snapshot: retained.snapshot ?? null, request: retained.request ?? null, generation: 0, inFlight: null, timer: null,
         history: createObservationHistory(policy, retained), skills: createSkillRegistry({ directory: adapters.skillDirectory, installedDirectory: path.join(notebook.directory, 'skills'), preferences: notebook.get('skills') ?? {} }), lastRead: clock() }
+      session.places = createPlaceSearch({ stops: session.context.stops })
       sessions.set(projectId, session)
     }
     session.lastRead = clock()
@@ -116,7 +118,7 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
       const inference = provider.forRequest?.() ?? provider
       const progress = (item) => { const previous = activities.findIndex((entry) => entry.phase === item.phase); if (previous < 0) activities.push(item); else activities[previous] = item; onProgress?.(item) }
       const retain = (title, answer, kind = 'ask') => { const entry = session.notebook.save({ title, answer, activities, kind, parentId: body.parentId ?? null }); return { ...answer, entryId: entry.id } }
-      const callTool = createToolRegistry({ context: session.context, state, snapshot: session.snapshot, notebook: session.notebook, provider: inference, signal,
+      const callTool = createToolRegistry({ context: session.context, state, snapshot: session.snapshot, notebook: session.notebook, places: session.places, provider: inference, signal,
         adapters: { matrix: (request, abort) => adapters.matrix(projectId, request, abort), route: (request, abort) => adapters.route(projectId, request, abort), reach: (request, abort) => adapters.reach(projectId, request, abort) } })
       switch (body.action) {
         case 'connect': return { snapshot: await connect(projectId, body.request) }
@@ -127,7 +129,7 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
           const history = []
           let parentId = body.parentId
           while (parentId && history.length < 6) { const previous = session.notebook.read(parentId); history.unshift({ question: previous.title, answer: previous.answer.answer, notes: previous.notes, observedAt: previous.answer.generatedAt }); parentId = previous.parentId }
-          return retain(body.question, await queryAgency({ question: body.question, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history }))
+          return retain(body.question, await queryAgency({ question: body.question, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled }))
         }
         case 'run-skill': {
           const result = await session.skills.run(body.id, body.inputs ?? {}, callTool, progress, { signal, generatedAt: state.generatedAt })

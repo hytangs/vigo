@@ -14,7 +14,8 @@ function compactResult(result, tool) {
   const data = result.data
   if (tool === 'recall_notebook') return envelope({ entries: data.entries.map((entry) => ({ id: entry.id, title: entry.title, observedAt: entry.observedAt, shortened: entry.shortened || entry.excerpt.length > 800 || entry.notes.length > 400, excerpt: entry.excerpt.slice(0, 800), notes: entry.notes.slice(0, 400) })) })
   if (tool === 'resolve_entities') return envelope({ total: data.total, ambiguous: data.ambiguous, matches: data.matches.slice(0, 12).map(({ kind, id, name, description, lat, lon }) => ({ kind, id, name, description, lat, lon })) }, data.matches.length > 12)
-  if (tool === 'route_plan') return envelope({ realtime: data.realtime, plan: data.plan ? { status: data.plan.status, durationMinutes: data.plan.durationMinutes, legs: data.plan.legs?.map(({ type, routeShortName, fromName, toName, startMinutes, endMinutes }) => ({ type, routeShortName, fromName, toName, startMinutes, endMinutes })) } : data.plan })
+  if (tool === 'place_search') return envelope({ query: data.query, searchArea: data.searchArea, coverage: data.coverage, matches: data.matches.map(({ id, name, address }) => ({ id, name, address })) })
+  if (tool === 'route_plan' || tool === 'walk_route') return envelope({ realtime: data.realtime, walking: data.walking, plan: data.plan ? { status: data.plan.status, detail: data.plan.detail, travelMode: data.plan.travelMode, durationMinutes: data.plan.durationMinutes, legs: data.plan.legs?.map(({ type, routeShortName, fromName, toName, distanceKm, startMinutes, endMinutes }) => ({ type, routeShortName, fromName, toName, distanceKm, startMinutes, endMinutes })) } : data.plan })
   if (tool === 'reach') return envelope({ request: data.request, summary: data.summary })
   const events = (data.events ?? []).slice(0, 3).map(({ id, title, type, routeId, routeName, stopId, stopName, tripId, tripIds, vehicleId, evidence: e }) => ({
     id, title, type, routeId, routeName, stopId, stopName, tripId, tripIds, vehicleId,
@@ -41,16 +42,16 @@ function replyText(content) {
   return text.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '').trim()
 }
 
-export async function queryAgency({ question, context, state, callTool, provider, signal, onProgress = () => {}, history = [] }) {
+export async function queryAgency({ question, context, state, callTool, provider, signal, onProgress = () => {}, history = [], placesAvailable = true }) {
   if (typeof question !== 'string' || !question.trim() || question.length > 2000) throw new Error('Ask a question using 1–2000 characters.')
   if (!provider.available) return { answer: 'Connect a model in Ask to start a conversation. Live observations and built-in skills are available now.', trace: [], evidenceRefs: [], generatedAt: state.generatedAt, warnings: [], providerAvailable: false }
   onProgress({ phase: 'planning', progress: 0, detail: 'Reading your question…' })
   const messages = [
     { role: 'system', content: `You are VIGO Agency's assistant, a helpful colleague for transit work and general questions, writing, and reasoning. Answer the actual question in the user's language. Keep simple exchanges short; give detail when useful. Prefer plain language and a few useful points over lists of technical capabilities.
 
-Answer directly from general knowledge, supplied context, or conversation when sufficient. Greetings, capability questions, conceptual explanations, and rewrites do not need a tool. Ask a concise question when essential information is missing. You can use only the supplied tools; do not promise external browsing, publishing, dispatch control, or unavailable models.
+Answer directly from general knowledge, supplied context, or conversation when sufficient. Greetings, capability questions, conceptual explanations, and rewrites do not need a tool. Ask a concise question when essential information is missing. You can use only the supplied tools; ${placesAvailable ? 'Online place lookup is available through place_search.' : 'Online place search is disabled on this server.'} Do not promise unrestricted web browsing, publishing, dispatch control, or unavailable models.
 
-Use tools for exact City records, fresh service conditions, saved work outside this conversation, and transit computations. Resolve a named route or stop with resolve_entities first; search its name or number alone, without generic labels. Retry a shorter part of the supplied name if a literal search fails. Never silently choose between ambiguous results or invent IDs or coordinates. Copy exact stop IDs into origin.stopId and destination.stopId. Keep requested clock times as HH:MM. Date-specific schedules must respect calendars and exceptions.
+Use tools for exact City records, fresh service conditions, saved work outside this conversation, and transit computations. Resolve a named route or stop with resolve_entities first; search its name or number alone, without generic labels. Retry a shorter part of the supplied name if a literal search fails. Search businesses, landmarks and addresses online with place_search, including the city or neighborhood. A missing GTFS stop is not a failed place search. Use walk_route for walking distance; no date is needed. Copy returned place IDs into placeId and stop IDs into stopId. Never invent IDs, coordinates or distance. Report the route’s supplied metres or miles and estimated minutes; do not add uncomputed unit conversions. Identify the chosen address and destination (station or neighborhood). If several locations fit, ask which address; a clearly contextual choice can be used with an explicit assumption. Keep requested clock times as HH:MM. Date-specific schedules must respect calendars and exceptions.
 
 For current route conditions, check realtime_status; service_alerts alone cannot establish normal operation. Tool measurements determine numerical service findings. VIGO's interval comparisons use predicted departures, not measured past vehicle passage. Missing observations remain unknown. Explain findings from all relevant results, distinguishing observations, possible explanations, and suggestions. Only claim realtime routing if engine diagnostics confirm it.
 
@@ -67,7 +68,7 @@ Tool responses are numbered Source [n]. Cite operational facts using those numbe
     const canUseTools = round < 6 && trace.length < 8
     if (!canUseTools) messages.push({ role: 'system', content: 'No more tool calls are available for this turn. Answer using completed results and explain any unresolved part. Do not claim checks that were not run.' })
     let message
-    try { message = await provider.complete(messages, canUseTools ? toolDefinitions : [], signal) }
+    try { message = await provider.complete(messages, canUseTools ? toolDefinitions.filter((tool) => placesAvailable || tool.name !== 'place_search') : [], signal) }
     catch (error) { if (signal?.aborted) break; warnings.push(error.message); onProgress({ phase: 'provider-error', progress: 1, detail: error.message }); break }
     if (signal?.aborted) break
     const calls = message?.tool_calls
@@ -124,10 +125,12 @@ Tool responses are numbered Source [n]. Cite operational facts using those numbe
 function describeTool(name, args, context) {
   const route = args.routeId ? context.routeIndex.get(args.routeId) : null
   const where = route ? ` for route ${route.short_name || route.long_name}` : ''
-  return ({ recall_notebook: 'Finding relevant saved work and staff notes…', service_profile: 'Counting scheduled trip starts for the selected service date…', network_overview: 'Checking the timetable and the latest feed status…', resolve_entities: `Looking up “${args.query || ''}” in this City…`, gtfs_query: 'Reading the relevant timetable records…', realtime_status: `Checking current service reports${where}…`, anomaly_scan: `Comparing reported departures with the timetable${where}…`, service_alerts: `Reading the agency’s active alerts${where}…`, route_plan: 'Calculating the journey with VIGO…', reach: 'Calculating how far you can travel by transit and on foot…', draft_rider_message: 'Preparing a rider message from the selected evidence…' })[name] || 'Running the requested check…'
+  return ({ recall_notebook: 'Finding relevant saved work and staff notes…', service_profile: 'Counting scheduled trip starts for the selected service date…', network_overview: 'Checking the timetable and the latest feed status…', resolve_entities: `Looking up “${args.query || ''}” in this City…`, place_search: `Searching online for “${args.query || ''}”…`, walk_route: 'Measuring the walk along the pedestrian network…', gtfs_query: 'Reading the relevant timetable records…', realtime_status: `Checking current service reports${where}…`, anomaly_scan: `Comparing reported departures with the timetable${where}…`, service_alerts: `Reading the agency’s active alerts${where}…`, route_plan: 'Calculating the journey with VIGO…', reach: 'Calculating how far you can travel by transit and on foot…', draft_rider_message: 'Preparing a rider message from the selected evidence…' })[name] || 'Running the requested check…'
 }
 
 function describeToolResult(name, { data }) {
+  if (name === 'place_search') return `Found ${data.matches.length} matching ${data.matches.length === 1 ? 'address' : 'addresses'} online.`
+  if (name === 'walk_route') return data.walking ? `Calculated ${Math.round(data.walking.distanceMeters)} m of walking on the street network.` : 'No walking route could be established for these locations.'
   if (name === 'recall_notebook') return `Retrieved ${data.entries.length} dated notebook ${data.entries.length === 1 ? 'entry' : 'entries'}.`
   if (name === 'service_profile') return `Counted scheduled trip starts across ${data.rows.length} service hours.`
   if (name === 'network_overview') return `Read ${data.counts.routes} routes and checked ${data.observation?.feeds?.length || 0} realtime feed timestamps.`

@@ -10,14 +10,16 @@ const object = (properties, required = []) => ({ type: 'object', properties, req
 const string = { type: 'string' }
 const routeScope = object({ routeId: string })
 const coordinate = object({ lat: { type: 'number', minimum: -90, maximum: 90 }, lon: { type: 'number', minimum: -180, maximum: 180 }, stopId: string }, ['lat', 'lon'])
-const transitPoint = object({ stopId: { type: 'string', description: 'Copy the exact stop ID from resolve_entities. Prefer this to coordinates for a named place.' }, lat: { type: 'number', minimum: -90, maximum: 90 }, lon: { type: 'number', minimum: -180, maximum: 180 } })
+const transitPoint = object({ stopId: { type: 'string', description: 'Exact stop ID from resolve_entities.' }, placeId: { type: 'string', description: 'Exact place ID from place_search. The server supplies its coordinates.' }, lat: { type: 'number', minimum: -90, maximum: 90 }, lon: { type: 'number', minimum: -180, maximum: 180 } })
 const serviceMinutes = { type: 'integer', minimum: 0, maximum: 2880 }
 const journey = { origin: transitPoint, serviceDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, departTime: { type: 'string', pattern: '^(?:[0-3][0-9]|4[0-7]):[0-5][0-9]$|^48:00$', description: 'Exact local service-day clock, HH:MM. For eight in the morning use 08:00, not 00:08. Hours above 23 continue the same service day.' } }
 
 export const toolDefinitions = [
   { name: 'network_overview', description: 'Read the City, timetable coverage, source scopes, current network counts, and independently aged realtime feeds.', parameters: object({}) },
   { name: 'recall_notebook', description: 'Retrieve this City\'s saved investigations and staff notes. Use a short literal search phrase, an empty search for recent work, or an exact entryId. Returns at most five dated excerpts. These are historical records and annotations, not current service observations.', parameters: object({ search: { type: 'string', maxLength: 200 }, entryId: { type: 'integer', minimum: 1 } }) },
-  { name: 'resolve_entities', description: 'Look up route numbers, IDs, and stop names by literal match. Search for the name or number itself, without generic labels or request words. Use kind=route for a route number and kind=stop for a place. If no match, try a shorter part of the supplied name. Return candidates; do not guess between ambiguous results.', parameters: object({ query: string, kind: { type: 'string', enum: ['all', 'route', 'stop'] } }, ['query']) },
+  { name: 'resolve_entities', description: 'Find transit routes and stops in GTFS by literal name or number. Use kind=route or kind=stop. For businesses, landmarks and addresses use place_search instead. A failed stop lookup does not mean a place cannot be found.', parameters: object({ query: string, kind: { type: 'string', enum: ['all', 'route', 'stop'] } }, ['query']) },
+  { name: 'place_search', description: 'Search online for businesses, landmarks and addresses using Photon/OpenStreetMap. Include the requested neighborhood or city in query. Optionally prefer locations near an exact nearStopId. withinCity defaults true (GTFS stop bounds); false searches beyond this area. Returns up to five addresses and place IDs. Clarify multiple plausible locations.', parameters: object({ query: { type: 'string', maxLength: 200 }, nearStopId: string, withinCity: { type: 'boolean' } }, ['query']) },
+  { name: 'walk_route', description: 'Calculate walking distance, estimated minutes and map geometry on VIGO’s saved pedestrian network. Copy origin/destination stopId or placeId from lookup results. No date or departure time needed. Never substitute straight-line distance.', parameters: object({ origin: transitPoint, destination: transitPoint }, ['origin', 'destination']) },
   { name: 'service_profile', description: 'Count scheduled trip starts by service hour on an exact date, with calendar exceptions. Optional exact route ID. Connections supply the first indexed departure; frequency templates are excluded.', parameters: object({ serviceDate: journey.serviceDate, routeId: string }, ['serviceDate']) },
   { name: 'gtfs_query', description: 'Read VIGO SQLite. Tables: routes(route_id,short_name,long_name,route_type), stops(stop_id,name,lat,lon), trips(trip_id,route_id,service_id,direction_id), connections(departure,arrival,trip_id,route_id,service_id,direction_id,from_stop_id,to_stop_id,stop_sequence), calendar, calendar_dates, frequencies, transfers, route_services. Times are service-day seconds. Connections are NOT original stop_times; do not invent terminal calls. One SELECT/WITH, approved functions, 200 rows maximum, 1.5s execution limit. Apply calendar exceptions for date-specific questions.', parameters: object({ sql: string, limit: { type: 'integer', minimum: 1, maximum: 200 } }, ['sql']) },
   { name: 'route_plan', description: 'Use VIGO Studio Route. Resolve exact stops before requesting stop-to-stop journeys. The server supplies current eligible TripUpdates and reports engine application or scheduled fallback.', parameters: object({ ...journey, destination: transitPoint }, ['origin', 'destination', 'serviceDate', 'departTime']) },
@@ -54,10 +56,20 @@ export function validateArguments(value, schema, name = 'arguments') {
   }
 }
 
-export function createToolRegistry({ context, state, snapshot, adapters, provider, notebook, signal }) {
+export function createToolRegistry({ context, state, snapshot, adapters, provider, notebook, places, signal }) {
   const generatedAt = state.generatedAt
   const belongs = (event, routeId) => !routeId || event.routeId === routeId || event.routeIds?.includes(routeId)
   const envelope = (data, provenance = [], warnings = [], presentation) => ({ ok: true, data, provenance, generatedAt, warnings, ...(presentation ? { presentation } : {}) })
+  const point = (value) => {
+    if (value.stopId && value.placeId) throw new Error('Choose either a stop ID or a place ID for each endpoint.')
+    const stop = value.stopId ? context.stopIndex.get(value.stopId) : null
+    if (value.stopId && !stop) throw new Error('Unknown stop ID. Resolve the indexed stop first.')
+    const place = value.placeId ? places?.resolve(value.placeId) : null
+    if (value.placeId && !place) throw new Error('Search for the place before routing.')
+    const location = stop || place || value
+    if (!Number.isFinite(location.lat) || !Number.isFinite(location.lon)) throw new Error('Supply a resolved stop ID, place ID, or both latitude and longitude.')
+    return { coordinate: [location.lon, location.lat], label: stop?.name || place?.label || 'Map point', source: stop ? 'stop' : place ? 'search' : 'map', ...(stop ? { stopId: value.stopId } : {}) }
+  }
   return async function callTool(name, input = {}) {
     const definition = [...toolDefinitions, ...internalToolDefinitions].find((tool) => tool.name === name)
     if (!definition) throw new Error(`Unknown tool: ${name}`)
@@ -81,6 +93,23 @@ export function createToolRegistry({ context, state, snapshot, adapters, provide
     }
     if (name === 'network_overview') return envelope({ ...context.overview(Date.parse(generatedAt) / 1000), observation: { connected: state.connected, observedAt: state.observedAt, counts: state.counts, feeds: state.feeds.map(({ kind, status, ageSeconds }) => ({ kind, status, ageSeconds })) } }, ['GTFS Static · indexed VIGO City', ...state.feeds.map((feed) => feed.sourceUrl)], state.warnings)
     if (name === 'resolve_entities') return envelope(context.resolve(args), ['GTFS Static · routes / stops'])
+    if (name === 'place_search') {
+      if (!places) throw new Error('Place search is not available on this server.')
+      const near = args.nearStopId ? context.stopIndex.get(args.nearStopId) : undefined
+      if (args.nearStopId && !near) throw new Error('Resolve an exact stop ID before using it as a search focus.')
+      const data = await places.search({ query: args.query, withinCity: args.withinCity, near }, signal)
+      return { ...envelope(data, ['Photon · © OpenStreetMap contributors', ...data.matches.map((match) => match.sourceUrl)]), generatedAt: data.searchedAt }
+    }
+    if (name === 'walk_route') {
+      const result = await adapters.route({ origin: point(args.origin), destination: point(args.destination), mode: 'walk', departMinutes: 0 }, signal)
+      const plan = result.plan
+      const ready = plan?.status === 'ready' && plan.travelMode === 'walk' && Number.isFinite(plan.durationMinutes) && plan.durationMinutes >= 0 && plan.legs?.length && plan.legs.every((leg) => leg.type === 'walk' && Number.isFinite(leg.distanceKm) && leg.distanceKm >= 0)
+      const distanceMeters = ready ? plan.legs.reduce((sum, leg) => sum + leg.distanceKm * 1000, 0) : null
+      const walking = ready ? { distanceMeters, distanceMiles: distanceMeters / 1609.344, durationMinutes: plan.durationMinutes, walkingSpeedKph: plan.diagnostics?.walkingSpeedKph,
+        endpointConnectionsMeters: { origin: plan.diagnostics?.originSnapDistanceM, destination: plan.diagnostics?.destinationSnapDistanceM } } : null
+      const warnings = ready ? ['Walking time is estimated from the saved pedestrian network and walking speed. Place map points may differ from public or accessible entrances.'] : [plan?.detail || 'No walking route was established. Check the City’s OpenStreetMap street index and endpoint coverage.']
+      return envelope({ ...result, walking }, ['VIGO Route · saved OpenStreetMap pedestrian network'], warnings)
+    }
     if (name === 'service_profile') {
       if (new Date(`${args.serviceDate}T12:00:00Z`).toISOString().slice(0, 10) !== args.serviceDate) throw new Error('Invalid service date.')
       const quote = (value) => `'${String(value).replaceAll("'", "''")}'`
@@ -122,13 +151,9 @@ export function createToolRegistry({ context, state, snapshot, adapters, provide
     if (name === 'route_plan' || name === 'reach') {
       const [hours, minutes] = args.departTime.split(':').map(Number)
       const departMinutes = hours * 60 + minutes
-      for (const point of [args.origin, args.destination].filter(Boolean)) if (point.stopId) {
-        const stop = context.stopIndex.get(point.stopId)
-        if (!stop) throw new Error('Unknown stop ID. Resolve the indexed stop first.')
-        point.lat = stop.lat; point.lon = stop.lon
-      }
-      for (const point of [args.origin, args.destination].filter(Boolean)) if (!Number.isFinite(point.lat) || !Number.isFinite(point.lon)) throw new Error('Supply an exact stop ID or both latitude and longitude.')
-      if (name === 'reach') return envelope(await adapters.reach({ origin: { id: args.origin.stopId || 'origin', label: args.origin.stopId ? context.stopIndex.get(args.origin.stopId)?.name || 'Origin' : 'Origin', coordinate: [args.origin.lon, args.origin.lat], ...(args.origin.stopId ? { stopId: args.origin.stopId } : {}) }, serviceDate: args.serviceDate, departMinutes, cutoffsMinutes: [args.cutoffMinutes] }, signal), ['VIGO Reach', 'GTFS Static', 'OpenStreetMap'], ['Reach uses scheduled service. Realtime observations and alerts are not applied.'])
+      const origin = point(args.origin)
+      if (name === 'reach') return envelope(await adapters.reach({ origin: { ...origin, id: args.origin.stopId || args.origin.placeId || 'origin' }, serviceDate: args.serviceDate, departMinutes, cutoffsMinutes: [args.cutoffMinutes] }, signal), ['VIGO Reach', 'GTFS Static', 'OpenStreetMap'], ['Reach uses scheduled service. Realtime observations and alerts are not applied.'])
+      const destination = point(args.destination)
       const freshSources = new Set(state.feeds.filter((feed) => feed.status === 'fresh').map((feed) => feed.sourceUrl))
       const candidates = (snapshot?.tripUpdates ?? []).flatMap((update) => {
         if (!freshSources.has(update.sourceUrl)) return []
@@ -142,9 +167,8 @@ export function createToolRegistry({ context, state, snapshot, adapters, provide
       const eligible = candidates.filter((trip) => identities.get(trip.tripId) === 1)
       const timestamps = state.feeds.filter((feed) => freshSources.has(feed.sourceUrl) && eligible.some((trip) => trip.sourceUrl === feed.sourceUrl)).map((feed) => feed.feedTimestamp)
       const realtimeSnapshot = eligible.length ? { ...snapshot, tripUpdates: eligible, feedTimestamp: Math.min(...timestamps) } : undefined
-      const point = (value) => ({ coordinate: [value.lon, value.lat], label: value.stopId ? context.stopIndex.get(value.stopId)?.name || value.stopId : 'Map point', source: value.stopId ? 'stop' : 'map', ...(value.stopId ? { stopId: value.stopId } : {}) })
       const { departTime, ...routeArgs } = args
-      const result = await adapters.route({ ...routeArgs, departMinutes, origin: point(args.origin), destination: point(args.destination), mode: 'transit', realtimeSnapshot, allowServiceDateFallback: false }, signal)
+      const result = await adapters.route({ ...routeArgs, departMinutes, origin, destination, mode: 'transit', realtimeSnapshot, allowServiceDateFallback: false }, signal)
       const plans = result.plans ?? (result.plan ? [result.plan] : [result])
       const diagnostics = plans.map((plan) => plan?.diagnostics?.realtimeRouting).filter(Boolean)
       const applied = diagnostics.some((item) => item.status === 'applied' || item.status === 'cancellations_only')

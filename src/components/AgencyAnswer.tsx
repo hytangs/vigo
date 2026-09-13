@@ -22,6 +22,10 @@ function ServiceProfileChart({ rows }: { rows: Record<string, unknown>[] }) {
 
 function AgencyJourney({ plan }: { plan: RoutingPlan }) {
   const rides = plan.legs.filter((leg) => leg.type === 'ride').length
+  if (plan.travelMode === 'walk') {
+    const meters = plan.legs.reduce((sum, leg) => sum + (leg.distanceKm ?? 0) * 1000, 0)
+    return <div className="agency-journey"><strong>{meters < 1000 ? `${Math.round(meters)} m` : `${Number((meters / 1000).toFixed(2))} km`} · about {Math.max(1, Math.round(plan.durationMinutes))} min walking</strong><p>{plan.origin.label}<ArrowRight size={12} />{plan.destination.label}</p><small>Along the saved OpenStreetMap pedestrian network</small></div>
+  }
   return <div className="agency-journey"><strong>{Number(plan.durationMinutes.toFixed(1))} min · {rides} transit {rides === 1 ? 'leg' : 'legs'}</strong>{plan.legs.flatMap((leg, index) => {
     const previousEnd = index ? plan.legs[index - 1].endMinutes : leg.startMinutes
     const wait = leg.startMinutes - previousEnd
@@ -32,7 +36,7 @@ function AgencyJourney({ plan }: { plan: RoutingPlan }) {
 }
 
 export function AgencyToolOutput({ result, onSelectEvent, onOpenEntry }: { result: ToolResult; onSelectEvent?: (event: OperationalEvent) => void; onOpenEntry?: (id: number) => void }) {
-  const data = result.data as { entries?: Array<{ id: number; title: string; observedAt: string; excerpt: string; notes: string; shortened: boolean }>; rows?: Record<string, unknown>[]; matches?: Array<{ kind: string; id: string; name: string }>; plan?: RoutingPlan; events?: Array<OperationalEvent & { routeName?: string; stopName?: string }>; counts?: Record<string, number>; summary?: { maximumCutoffMinutes: number; transitStatus?: { reachedStops: number } } }
+  const data = result.data as { entries?: Array<{ id: number; title: string; observedAt: string; excerpt: string; notes: string; shortened: boolean }>; rows?: Record<string, unknown>[]; matches?: Array<{ kind: string; id: string; name: string; address?: string }>; plan?: RoutingPlan; events?: Array<OperationalEvent & { routeName?: string; stopName?: string }>; counts?: Record<string, number>; summary?: { maximumCutoffMinutes: number; transitStatus?: { reachedStops: number } } }
   if (data?.entries) return <div className="agency-recalled-work">{data.entries.map((entry) => <article key={entry.id}>
     <strong>{entry.title}</strong>
     <small>Saved evidence · {new Date(entry.observedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</small>
@@ -46,7 +50,7 @@ export function AgencyToolOutput({ result, onSelectEvent, onOpenEntry }: { resul
     const columns = Object.keys(data.rows[0])
     return <><ServiceProfileChart rows={data.rows} /><div className="agency-query-table"><table><thead><tr>{columns.map((key) => <th key={key}>{humanField(key)}</th>)}</tr></thead><tbody>{data.rows.slice(0, 40).map((row, i) => <tr key={i}>{columns.map((key) => <td key={key}>{row[key] == null ? '—' : typeof row[key] === 'number' ? row[key].toLocaleString() : String(row[key])}</td>)}</tr>)}</tbody></table>{data.rows.length > 40 ? <p className="agency-caption">Showing 40 of {data.rows.length} rows. Download the record for the full result.</p> : null}</div></>
   }
-  if (data?.matches) return <div className="agency-entity-results">{data.matches.map((item) => <div key={`${item.kind}/${item.id}`}><strong>{item.name}</strong><span>{item.kind} · {item.id}</span></div>)}</div>
+  if (data?.matches) return <div className="agency-entity-results">{data.matches.map((item) => <div key={`${item.kind}/${item.id}`}><strong>{item.name}</strong><span>{item.address || `${item.kind} · ${item.id}`}</span></div>)}</div>
   if (data?.events) return <div className="agency-answer-events">{data.events.slice(0, 8).map((event) => <button key={event.id} onClick={() => onSelectEvent?.(event)}><div><strong>{event.routeName ? `${event.routeName} · ` : ''}{event.title}</strong><span>{event.stopName || (event.type === 'service-alert' ? 'Published by the agency' : 'Current service report')}</span>{event.evidence.observedHeadwaySeconds != null ? <p><b>{Number((event.evidence.observedHeadwaySeconds / 60).toFixed(1))} min apart</b><span>Scheduled: {Number(((event.evidence.scheduledHeadwaySeconds ?? 0) / 60).toFixed(1))} min</span></p> : event.evidence.delaySeconds != null ? <p>{Number((event.evidence.delaySeconds / 60).toFixed(1))} min later than scheduled</p> : null}</div><ArrowRight size={15} /></button>)}</div>
   if (data?.summary?.transitStatus) return <dl className="agency-facts"><div><dt>Travel time budget</dt><dd>{data.summary.maximumCutoffMinutes} min</dd></div><div><dt>Transit stops reached</dt><dd>{data.summary.transitStatus.reachedStops}</dd></div></dl>
   if (data?.counts) return <dl className="agency-facts">{Object.entries(data.counts).map(([key, value]) => <div key={key}><dt>{humanField(key)}</dt><dd>{value.toLocaleString()}</dd></div>)}</dl>
