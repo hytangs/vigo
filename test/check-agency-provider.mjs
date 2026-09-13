@@ -61,6 +61,11 @@ assert.equal(nativeReply.thinking, undefined, 'Private reasoning never enters th
 await native.complete([{ role: 'assistant', content: null, tool_calls: nativeReply.tool_calls }, { role: 'tool', tool_call_id: nativeReply.tool_calls[0].id, content: 'Done' }], [])
 assert.equal(nativeRequests.at(-1).body.messages[1].tool_name, 'connection_check')
 assert.deepEqual(nativeRequests.at(-1).body.messages[0].tool_calls[0].function.arguments, { ready: true })
+for (const [reasoningEffort, expected] of [['on', true], ['low', 'low'], ['medium', 'medium'], ['high', 'high'], ['', undefined]]) {
+  await native.connect({ baseUrl: 'http://localhost:11434', model: 'local-model', protocol: 'ollama', reasoningEffort })
+  assert.equal(nativeRequests.at(-1).body.think, expected, 'Preserve native reasoning levels without guessing from a model name')
+}
+await assert.rejects(provider.models({ baseUrl: 'https://models.example/v1', protocol: 'openai', reasoningEffort: 'on' }), /reasoning effort/)
 await assert.rejects(native.models({ baseUrl: 'http://localhost:11434', protocol: 'ollama', contextTokens: 10 }), /Local context/)
 assert.throws(() => createProvider({ VIGO_AGENCY_LLM_PROTOCOL: 'invented' }), /protocol/)
 console.log('Agency provider: model discovery, inference verification, private session keys, endpoint isolation, failure recovery, and disconnect passed.')

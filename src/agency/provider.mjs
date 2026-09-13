@@ -39,10 +39,17 @@ function contextSize(value) {
   return size
 }
 
+function reasoning(value, protocol) {
+  const effort = String(value ?? '')
+  if (!['', 'none', 'low', 'medium', 'high', ...(protocol === 'ollama' ? ['on'] : [])].includes(effort)) throw new Error('Unsupported reasoning effort.')
+  return effort
+}
+
 export function createProvider(environment = process.env, fetcher = globalThis.fetch) {
   let config = { baseUrl: String(environment.VIGO_AGENCY_LLM_BASE_URL ?? '').replace(/\/$/, ''), model: String(environment.VIGO_AGENCY_LLM_MODEL ?? ''), key: String(environment.VIGO_AGENCY_LLM_API_KEY ?? ''), reasoningEffort: String(environment.VIGO_AGENCY_LLM_REASONING_EFFORT ?? ''), temperature: temperature(environment.VIGO_AGENCY_LLM_TEMPERATURE) }
   config.protocol = environment.VIGO_AGENCY_LLM_PROTOCOL || 'openai'
   if (!['openai', 'ollama'].includes(config.protocol)) throw new Error('Choose openai or ollama as the model protocol.')
+  config.reasoningEffort = reasoning(config.reasoningEffort, config.protocol)
   config.contextTokens = contextSize(environment.VIGO_AGENCY_LLM_CONTEXT_TOKENS)
   const timeoutMs = Number(environment.VIGO_AGENCY_LLM_TIMEOUT_MS ?? 45_000)
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 300_000) throw new Error('Provider timeout must be between 1,000 and 300,000 milliseconds.')
@@ -55,8 +62,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
     if (!['openai', 'ollama'].includes(protocol)) throw new Error('Choose an OpenAI-compatible or Ollama connection.')
     if (model.length > 200 || String(input.apiKey ?? '').length > 2000) throw new Error('The model name or key is too long.')
     // A blank key retains the active key only for the same endpoint. It never crosses providers.
-    if (!['', 'none', 'low', 'medium', 'high'].includes(input.reasoningEffort ?? '')) throw new Error('Unsupported reasoning effort.')
-    return { baseUrl, model, protocol, contextTokens: contextSize(input.contextTokens ?? config.contextTokens), reasoningEffort: input.reasoningEffort || '', temperature: temperature(input.temperature ?? (baseUrl === config.baseUrl ? config.temperature : undefined)), key: String(input.apiKey ?? '').trim() || (baseUrl === config.baseUrl ? config.key : '') }
+    return { baseUrl, model, protocol, contextTokens: contextSize(input.contextTokens ?? config.contextTokens), reasoningEffort: reasoning(input.reasoningEffort, protocol), temperature: temperature(input.temperature ?? (baseUrl === config.baseUrl ? config.temperature : undefined)), key: String(input.apiKey ?? '').trim() || (baseUrl === config.baseUrl ? config.key : '') }
   }
   async function request(connection, suffix, body, signal) {
     const timeout = AbortSignal.timeout(timeoutMs)
@@ -85,7 +91,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
       const result = await request({ ...connection, baseUrl: normalizeBaseUrl(connection.baseUrl).replace(/\/(?:v1|api)$/, '') }, '/api/chat', {
         model: connection.model, messages: nativeMessages, stream: false,
         ...(tools?.length ? { tools: tools.map(tool => ({ type: 'function', function: tool })) } : {}),
-        ...(connection.reasoningEffort ? { think: connection.reasoningEffort !== 'none' } : {}),
+        ...(connection.reasoningEffort ? { think: connection.reasoningEffort === 'none' ? false : connection.reasoningEffort === 'on' ? true : connection.reasoningEffort } : {}),
         options: { num_ctx: connection.contextTokens, num_predict: options.maxTokens || 1800, ...(connection.temperature !== undefined ? { temperature: connection.temperature } : {}) },
       }, signal)
       if (!result.message) throw new Error('The local model returned no response message.')
