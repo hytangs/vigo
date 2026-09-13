@@ -180,11 +180,12 @@ export function createObservationHistory(policy = defaultPolicy, retained = {}) 
       if (state.observedAt && state.observedAt !== lastObservation) {
         for (const event of state.events) events.set(event.id, event)
         for (const trip of state.trips) if (finite(trip.delaySeconds)) {
-          const series = trips.get(trip.tripId) ?? []
+          const key = `${trip.tripId}/${trip.serviceDate}`
+          const series = trips.get(key) ?? []
           const point = { at: trip.observedAt || state.observedAt, delaySeconds: trip.delaySeconds, stopId: trip.nextStopId }
           if (series.at(-1)?.at === point.at) series[series.length - 1] = point
           else series.push(point)
-          trips.set(trip.tripId, series)
+          trips.set(key, series)
         }
         lastObservation = state.observedAt
       }

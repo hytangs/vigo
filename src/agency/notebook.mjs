@@ -6,11 +6,13 @@ import path from 'node:path'
 export function createNotebook(directory) {
   mkdirSync(directory, { recursive: true })
   const db = new DatabaseSync(path.join(directory, 'notebook.sqlite'))
-  db.exec(`CREATE TABLE IF NOT EXISTS entries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id INTEGER, kind TEXT NOT NULL,
-    title TEXT NOT NULL, created_at TEXT NOT NULL, answer TEXT NOT NULL, activities TEXT NOT NULL,
-    notes TEXT NOT NULL DEFAULT ''
-  ); CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`)
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id INTEGER, kind TEXT NOT NULL,
+      title TEXT NOT NULL, created_at TEXT NOT NULL, answer TEXT NOT NULL, activities TEXT NOT NULL,
+      notes TEXT NOT NULL DEFAULT ''
+    ); CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`)
+  } catch (error) { db.close(); throw error }
   const decode = (row) => row ? { id: row.id, parentId: row.parent_id, kind: row.kind, title: row.title, createdAt: row.created_at, answer: JSON.parse(row.answer), activities: JSON.parse(row.activities), notes: row.notes } : null
   const searchCondition = `(instr(lower(title),lower(?)) > 0 OR instr(lower(notes),lower(?)) > 0 OR instr(lower(json_extract(answer,'$.answer')),lower(?)) > 0)`
   return {

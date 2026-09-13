@@ -65,7 +65,7 @@ The interface directs a stopped investigation to Saved work and restores a stopp
 
 This change follows the tool-response pattern in Anthropic's [Writing effective tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents): communicate useful failures and preserve relevant context. The source does not establish reliability for this application; the reproductions and regression checks do. Re-reading [OpenTripPlanner's architecture](https://github.com/opentripplanner/OpenTripPlanner/blob/dev-2.x/ARCHITECTURE.md) also supports keeping workflow handling outside the routing engine. No dependencies, inference framework, or additional data store were introduced.
 
-Retention here covers handled failures and cancellation. It does not checkpoint an investigation after every step or promise recovery from a process crash. A deployment with concurrent timetable replacement or heavy multi-City use would also need explicit active-session lifecycle tests; this small single-user audit does not certify those cases.
+Retention here covers handled failures and cancellation. It does not checkpoint an investigation after every step or promise recovery from a process crash. The later [commit-range audit](CODE-AUDIT.md) adds active-session lifecycle protection and regression checks for timetable replacement, City eviction, and orderly service shutdown. Those checks do not establish crash recovery or multi-user load capacity.
 
 ## Service briefing and route comparisons
 

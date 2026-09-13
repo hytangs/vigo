@@ -28,29 +28,49 @@ export class AgencyContext {
     this.storePath = storePath
     this.cityName = cityName
     this.db = new DatabaseSync(storePath, { readOnly: true, allowExtension: false })
-    const metadata = Object.fromEntries(this.db.prepare('SELECT key,value FROM metadata').all().map(({ key, value }) => {
-      try { return [key, JSON.parse(value)] } catch { return [key, value] }
-    }))
-    this.timezone = metadata.agencyTimezones?.length === 1 ? metadata.agencyTimezones[0] : null
-    this.routes = this.db.prepare('SELECT * FROM routes ORDER BY short_name, route_id').all()
-    this.stops = this.db.prepare('SELECT * FROM stops ORDER BY name, stop_id').all()
-    this.trips = this.db.prepare('SELECT * FROM trips').all()
-    this.tripIndex = new Map()
-    for (const trip of this.trips) {
-      const key = rawId(trip.trip_id)
-      if (!this.tripIndex.has(key)) this.tripIndex.set(key, [])
-      this.tripIndex.get(key).push(trip)
-    }
-    this.routeIndex = new Map(this.routes.map((route) => [route.route_id, route]))
-    this.stopIndex = new Map(this.stops.map((stop) => [stop.stop_id, stop]))
-    this.calendar = this.db.prepare('SELECT * FROM calendar').all()
-    this.exceptions = this.db.prepare('SELECT * FROM calendar_dates').all()
-    this.frequencyTrips = new Set(this.db.prepare('SELECT DISTINCT trip_id FROM frequencies').all().map((row) => row.trip_id))
-    this.scopes = [...new Set(this.trips.map((trip) => scopeOf(trip.trip_id)))]
-    this.departures = this.db.prepare('SELECT departure, arrival, from_stop_id, to_stop_id, stop_sequence FROM connections WHERE trip_id=? ORDER BY stop_sequence')
-    this.referenceDepartures = this.db.prepare('SELECT trip_id, service_id, departure, stop_sequence FROM connections WHERE route_id=? AND from_stop_id=? AND direction_id IS ? AND departure BETWEEN ? AND ? ORDER BY departure, trip_id')
-    this.activeCache = new Map()
-    this.tripCache = new Map()
+    try {
+      const metadata = Object.fromEntries(this.db.prepare('SELECT key,value FROM metadata').all().map(({ key, value }) => {
+        try { return [key, JSON.parse(value)] } catch { return [key, value] }
+      }))
+      this.timezone = metadata.agencyTimezones?.length === 1 ? metadata.agencyTimezones[0] : null
+      this.routes = this.db.prepare('SELECT * FROM routes ORDER BY short_name, route_id').all()
+      this.stops = this.db.prepare('SELECT * FROM stops ORDER BY name, stop_id').all()
+      this.trips = this.db.prepare('SELECT * FROM trips').all()
+      this.tripIndex = new Map()
+      for (const trip of this.trips) {
+        const key = rawId(trip.trip_id)
+        if (!this.tripIndex.has(key)) this.tripIndex.set(key, [])
+        this.tripIndex.get(key).push(trip)
+      }
+      this.routeIndex = new Map(this.routes.map((route) => [route.route_id, route]))
+      this.stopIndex = new Map(this.stops.map((stop) => [stop.stop_id, stop]))
+      const stopEntity = (row) => ({ kind: 'stop', id: row.stop_id, name: row.name, lat: row.lat, lon: row.lon, locationType: row.location_type })
+      // GTFS parent_station explicitly groups platforms into a station. Name
+      // lookup uses that declared identity, without a nearest-place guess.
+      const places = new Map()
+      for (const row of this.stops) {
+        if (![0, 1].includes(Number(row.location_type ?? 0))) continue
+        const parent = this.stopIndex.get(row.parent_station)
+        const place = parent && Number(parent.location_type) === 1 ? parent : row
+        if (!places.has(place.stop_id)) places.set(place.stop_id, { ...stopEntity(place), aliases: [] })
+        places.get(place.stop_id).aliases.push(row.name.toLocaleLowerCase())
+      }
+      this.stopPlaces = [...places.values()]
+      this.routeEntities = this.routes.map((row) => ({ kind: 'route', id: row.route_id, name: row.short_name || row.long_name || rawId(row.route_id), description: row.long_name }))
+      this.stopsBySearchId = new Map()
+      for (const stop of this.stops) for (const key of new Set([stop.stop_id.toLocaleLowerCase(), rawId(stop.stop_id).toLocaleLowerCase()])) {
+        if (!this.stopsBySearchId.has(key)) this.stopsBySearchId.set(key, [])
+        this.stopsBySearchId.get(key).push(stopEntity(stop))
+      }
+      this.calendar = this.db.prepare('SELECT * FROM calendar').all()
+      this.exceptions = this.db.prepare('SELECT * FROM calendar_dates').all()
+      this.frequencyTrips = new Set(this.db.prepare('SELECT DISTINCT trip_id FROM frequencies').all().map((row) => row.trip_id))
+      this.scopes = [...new Set(this.trips.map((trip) => scopeOf(trip.trip_id)))]
+      this.departures = this.db.prepare('SELECT departure, arrival, from_stop_id, to_stop_id, stop_sequence FROM connections WHERE trip_id=? ORDER BY stop_sequence')
+      this.referenceDepartures = this.db.prepare('SELECT trip_id, service_id, departure, stop_sequence FROM connections WHERE route_id=? AND from_stop_id=? AND direction_id IS ? AND departure BETWEEN ? AND ? ORDER BY departure, trip_id')
+      this.activeCache = new Map()
+      this.tripCache = new Map()
+    } catch (error) { this.db.close(); throw error }
   }
 
   close() { this.db.close() }
@@ -111,21 +131,10 @@ export class AgencyContext {
   resolve({ query = '', kind = 'all', limit = 12 }) {
     const text = String(query).trim().toLocaleLowerCase()
     if (!text || text.length > 200) throw new Error('Supply an entity name or ID, up to 200 characters.')
-    const stopEntity = (row) => ({ kind: 'stop', id: row.stop_id, name: row.name, lat: row.lat, lon: row.lon, locationType: row.location_type })
-    const exactStops = this.stops.filter((row) => row.stop_id.toLocaleLowerCase() === text || rawId(row.stop_id).toLocaleLowerCase() === text).map(stopEntity)
-    // GTFS parent_station explicitly groups platforms into a station. Name
-    // lookup uses that declared identity, without a nearest-place guess.
-    const places = new Map()
-    for (const row of this.stops) {
-      if (![0, 1].includes(Number(row.location_type ?? 0))) continue
-      const parent = this.stopIndex.get(row.parent_station)
-      const place = parent && Number(parent.location_type) === 1 ? parent : row
-      if (!places.has(place.stop_id)) places.set(place.stop_id, { ...stopEntity(place), aliases: [] })
-      places.get(place.stop_id).aliases.push(row.name.toLocaleLowerCase())
-    }
+    const exactStops = this.stopsBySearchId.get(text) ?? []
     const entities = [
-      ...(kind === 'all' || kind === 'route' ? this.routes.map((row) => ({ kind: 'route', id: row.route_id, name: row.short_name || row.long_name || rawId(row.route_id), description: row.long_name })) : []),
-      ...(kind === 'all' || kind === 'stop' ? exactStops.length ? exactStops : [...places.values()] : []),
+      ...(kind === 'all' || kind === 'route' ? this.routeEntities : []),
+      ...(kind === 'all' || kind === 'stop' ? exactStops.length ? exactStops : this.stopPlaces : []),
     ]
     const exact = entities.filter((row) => row.id.toLocaleLowerCase() === text || rawId(row.id).toLocaleLowerCase() === text || row.name.toLocaleLowerCase() === text || row.aliases?.includes(text))
     const matches = exact.length ? exact : entities.filter((row) => `${row.name} ${row.description ?? ''}`.toLocaleLowerCase().includes(text))

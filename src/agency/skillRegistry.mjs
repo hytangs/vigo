@@ -5,25 +5,32 @@ import { failedToolResult, toolDefinitions, validateArguments } from './toolRegi
 const allowed = new Map(toolDefinitions.map((tool) => [tool.name, tool]))
 function validate(skill) {
   if (!skill || !/^[a-z][a-z0-9-]{2,60}$/.test(skill.id) || typeof skill.name !== 'string' || skill.name.length > 100 || typeof skill.description !== 'string' || skill.description.length > 1000 || typeof skill.instructions !== 'string' || skill.instructions.length > 20_000) throw new Error('A skill needs an ID, name, description, and method instructions.')
-  if (!Array.isArray(skill.inputs) || skill.inputs.length > 8 || skill.inputs.some((input) => !/^[a-zA-Z][a-zA-Z0-9]*$/.test(input.key) || !['route', 'date', 'stop', 'time', 'minutes'].includes(input.type))) throw new Error('Unsupported skill inputs.')
-  if (!Array.isArray(skill.steps) || !skill.steps.length || skill.steps.length > 8 || skill.steps.some((step) => !allowed.has(step.tool))) throw new Error('A skill can use up to eight installed transit tools.')
-  return { ...skill, version: skill.version || '1.0', source: 'vigo', status: 'ready', enabled: true, requiredInputs: skill.inputs.filter((item) => item.required).map((item) => item.key), tools: skill.steps.map((step) => step.tool), outputType: 'Research note · evidence · CSV' }
+  if (skill.version !== undefined && typeof skill.version !== 'string') throw new Error('Skill version must be text.')
+  if (!Array.isArray(skill.inputs) || skill.inputs.length > 8 || new Set(skill.inputs.map(input => input?.key)).size !== skill.inputs.length || skill.inputs.some((input) => !input || (input.required !== undefined && typeof input.required !== 'boolean') || (input.label !== undefined && typeof input.label !== 'string') || !/^[a-zA-Z][a-zA-Z0-9]*$/.test(input.key) || !['route', 'date', 'stop', 'time', 'minutes'].includes(input.type))) throw new Error('Unsupported skill inputs.')
+  if (!Array.isArray(skill.steps) || !skill.steps.length || skill.steps.length > 8 || skill.steps.some((step) => !step || !allowed.has(step.tool) || (step.label !== undefined && typeof step.label !== 'string') || (step.arguments !== undefined && (!step.arguments || typeof step.arguments !== 'object' || Array.isArray(step.arguments))))) throw new Error('A skill can use up to eight installed transit tools.')
+  return { ...skill, inputs: skill.inputs.map(input => ({ ...input, label: input.label || input.key })), version: skill.version || '1.0', source: 'vigo', status: 'ready', enabled: true, requiredInputs: skill.inputs.filter((item) => item.required).map((item) => item.key), tools: skill.steps.map((step) => step.tool), outputType: 'Research note · evidence · CSV' }
 }
 
 export function createSkillRegistry({ directory = path.resolve('public/agency-skills'), installedDirectory, preferences = {} } = {}) {
-  const skills = new Map()
+  const skills = new Map(), warnings = []
   for (const root of [directory, installedDirectory].filter(Boolean)) if (existsSync(root)) {
     for (const folder of readdirSync(root, { withFileTypes: true }).filter((item) => item.isDirectory())) {
       const file = path.join(root, folder.name, 'skill.json')
       if (!existsSync(file)) continue
-      const manifest = JSON.parse(readFileSync(file, 'utf8'))
-      const instructions = readFileSync(path.join(root, folder.name, 'SKILL.md'), 'utf8')
-      const skill = validate({ ...manifest, instructions })
-      skills.set(skill.id, { ...skill, source: root === installedDirectory ? 'external' : 'vigo', enabled: preferences[skill.id] !== false })
+      try {
+        const manifest = JSON.parse(readFileSync(file, 'utf8'))
+        const instructions = readFileSync(path.join(root, folder.name, 'SKILL.md'), 'utf8')
+        const skill = validate({ ...manifest, instructions })
+        if (skills.has(skill.id)) throw new Error('Duplicate skill ID; the earlier method is retained.')
+        skills.set(skill.id, { ...skill, source: root === installedDirectory ? 'external' : 'vigo', enabled: preferences[skill.id] !== false })
+      } catch (error) {
+        warnings.push(`Research skill “${folder.name}” could not be loaded. ${error instanceof SyntaxError ? 'Invalid JSON.' : error.code ? 'Required method files could not be read.' : error.message}`)
+      }
     }
   }
   return {
     list: () => structuredClone([...skills.values()]),
+    warnings: () => [...warnings],
     install(input) {
       if (!installedDirectory) throw new Error('This City has no skill directory.')
       const skill = validate(input)

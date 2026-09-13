@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { gtfsQuery } from '../src/agency/gtfsQuery.mjs'
 import { AgencyContext } from '../src/agency/agencyContext.mjs'
 import { deriveOperationalState } from '../src/agency/realtimeIntelligence.mjs'
-import { createToolRegistry } from '../src/agency/toolRegistry.mjs'
+import { createToolRegistry, toolDefinitions, validateArguments } from '../src/agency/toolRegistry.mjs'
 import { createAgencyFixture, realtimeFixture, observationTime } from './fixtures/agency.mjs'
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agency-tools-'))
@@ -14,6 +14,11 @@ const file = path.join(directory, 'schedule.sqlite')
 createAgencyFixture(file)
 let context
 try {
+  const placeParameters = toolDefinitions.find(tool => tool.name === 'place_search').parameters
+  assert.throws(() => validateArguments({ query: 'x'.repeat(201) }, placeParameters), /too long/)
+  for (const key of ['__proto__', 'constructor', 'toString']) {
+    assert.throws(() => validateArguments({ query: 'A', [key]: 'unexpected' }, placeParameters), /Unknown arguments/)
+  }
   const q = (sql, limit = 100, options) => gtfsQuery(file, { sql, limit }, options)
   assert.equal((await q('SELECT count(*) AS n FROM main.trips')).rows[0].n, 3)
   assert.equal((await q("WITH named AS (SELECT name FROM stops) SELECT * FROM named WHERE name LIKE 'Lib%'" )).rows[0].name, 'Library')

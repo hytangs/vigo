@@ -2821,6 +2821,7 @@ export default function App() {
     if (selectedProjectId !== projectId) {
       clearRouting()
       clearAnalysisState()
+      clearAgencyMap()
     }
     setSelectedProjectId(projectId)
     setSelectedRouteId(navigationMemoryRef.current.lastRouteByProject[projectId] ?? '')
@@ -3124,6 +3125,7 @@ export default function App() {
     cancelRouteAnalysis()
     clearAnalysisState()
     clearRouting()
+    clearAgencyMap()
     routingDateAutoAlignedStoreRef.current = ''
     routingMergeRequestRef.current = ''
     setSelectedRouteId('')
@@ -4741,6 +4743,12 @@ export default function App() {
     setSidebarCollapsed(false)
   }
 
+  function clearAgencyMap() {
+    setAgencyPlan(null)
+    setAgencyReach(null)
+    setAgencyLocation(undefined)
+  }
+
   function locateAgencyEntities(routeIds: string[], stopIds: string[], location?: { id: string; label: string; coordinate: [number, number] }) {
     setAgencyPlan(null); setAgencyReach(null); setAgencyLocation(location)
     if (!routeIds.length && !stopIds.length) { setSelectedRouteId(''); setMapScope('network') }
@@ -5238,7 +5246,7 @@ export default function App() {
           onMoveScenarioStop={activeRouteTool === 'analyze' ? moveScenarioStopFromMap : undefined}
           routingActivity={routingActivity}
           cityPreviewLoading={cityPreviewLoading}
-          onMapScopeChange={(scope) => { if (activeRouteTool === 'agency' && scope === 'network') { setAgencyPlan(null); setAgencyReach(null); setSelectedStopId('') } setMapScope(scope) }}
+          onMapScopeChange={(scope) => { if (activeRouteTool === 'agency' && scope === 'network') { clearAgencyMap(); setSelectedStopId('') } setMapScope(scope) }}
           onVehicleModeChange={changeVehicleMode}
           onScheduleTimeChange={setScheduleTimeMinutes}
           onScheduleServiceDateChange={changeRoutingServiceDate}

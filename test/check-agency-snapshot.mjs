@@ -28,6 +28,9 @@ const failed = realtimeSnapshotFromFeeds([{ sourceUrl: 'https://example.org/feed
 assert.equal(failed.freshness.status, 'unknown')
 assert.equal(failed.feeds[0].error, 'Fixture failure')
 
+const future = realtimeSnapshotFromFeeds([{ sourceUrl: 'https://example.org/future', kind: 'tripUpdates', fetchedAt: stamp, feed: { header: { timestamp: observationTime + 181 }, entity: [] } }])
+assert.equal(future.freshness.status, 'unknown', 'A future feed header must not become fresh through age clamping')
+
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agency-snapshot-'))
 const file = path.join(directory, 'schedule.sqlite')
 createAgencyFixture(file)

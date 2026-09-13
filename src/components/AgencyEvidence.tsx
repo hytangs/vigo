@@ -73,7 +73,7 @@ export function AgencyEvidence({ historical = false, event, state, projectId, on
       {event.evidence.feedAgeSeconds != null ? <div><dt>Source age</dt><dd>{Math.round(event.evidence.feedAgeSeconds)} seconds</dd></div> : null}
     </dl>
     {event.evidence.reason ? <p className="agency-caption">{event.evidence.reason}</p> : null}
-    {!historical && event.tripId ? <DelayHistory points={state.tripHistory[event.tripId] ?? []} /> : null}
+    {!historical && event.tripId ? <DelayHistory points={state.tripHistory[`${event.tripId}/${event.serviceDate}`] ?? []} /> : null}
     <div className="agency-evidence-actions"><button className="agency-button" onClick={onLocate}><MapPin size={14} /> Locate on map</button>{!historical ? <button className="agency-button is-primary" onClick={() => void generate()} disabled={busy || !stillCurrent}><FileText size={14} />{busy ? 'Preparing draft…' : 'Draft rider information'}<ChevronRight size={14} /></button> : null}</div>
     {!historical ? <fieldset className="agency-channel-picker"><legend>Communication channel</legend>{(['app', 'signage', 'service-alert', 'social'] as const).map((item) => <label key={item}><input type="radio" name="draft-channel" checked={channel === item} onChange={() => { setChannel(item); setDraft(null) }} />{item === 'service-alert' ? 'Service alert' : item === 'app' ? 'Agency app' : item === 'signage' ? 'Digital sign' : 'Social'}</label>)}</fieldset> : null}
     {error ? <p role="alert" className="agency-error">{error}</p> : null}

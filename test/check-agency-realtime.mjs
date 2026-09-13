@@ -10,6 +10,9 @@ import { createAgencyFixture, observationTime, realtimeFixture, tripUpdate, sour
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-agency-'))
 const file = path.join(directory, 'schedule.sqlite')
 createAgencyFixture(file)
+const fixtureDb = new DatabaseSync(file)
+fixtureDb.exec("INSERT INTO stops VALUES('STA','River Station',42.36,-71.06,'',1,''); UPDATE stops SET parent_station='STA' WHERE stop_id='A'")
+fixtureDb.close()
 let context = new AgencyContext(file, 'City X')
 const derive = (snapshot) => deriveOperationalState(context, snapshot, observationTime)
 try {
@@ -90,13 +93,15 @@ try {
   context.routes.pop()
   alert.alerts[0].activePeriods[0].end = observationTime
   assert.equal(derive(alert).counts.alerts, 0)
-  const station = { stop_id: 'STA', name: 'River Station', lat: 42.36, lon: -71.06, location_type: 1 }
-  context.stops.push(station); context.stopIndex.set('STA', station); context.stopIndex.get('A').parent_station = 'STA'
   assert.equal(context.resolve({ query: 'River', kind: 'stop' }).matches[0].id, 'STA', 'Use the declared parent station for place names')
   assert.equal(context.resolve({ query: 'A', kind: 'stop' }).matches[0].id, 'A', 'An explicit platform ID retains its identity')
   const history = createObservationHistory()
-  assert.equal(history.update(delayed).tripHistory.T1.length, 1)
-  assert.equal(history.update(delayed).tripHistory.T1.length, 1)
+  assert.equal(history.update(delayed).tripHistory['T1/2026-09-13'].length, 1)
+  assert.equal(history.update(delayed).tripHistory['T1/2026-09-13'].length, 1)
+  const differentDay = { ...delayed, observedAt: new Date((observationTime + 1) * 1000).toISOString(), trips: delayed.trips.map(trip => ({ ...trip, serviceDate: '2026-09-14', delaySeconds: 60 })) }
+  const separated = history.update(differentDay).tripHistory
+  assert.equal(separated['T1/2026-09-13'][0].delaySeconds, 1200)
+  assert.equal(separated['T1/2026-09-14'][0].delaySeconds, 60, 'Repeated trip IDs on different service days must not share a history series')
   context.close()
   const db = new DatabaseSync(file)
   db.exec("INSERT INTO calendar_dates VALUES('S',20260913,2)")

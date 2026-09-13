@@ -43,7 +43,7 @@ export function validateArguments(value, schema, name = 'arguments') {
   } else if (schema.type === 'object') {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${name} must be an object.`)
     for (const key of Object.keys(value)) {
-      if (!schema.properties[key]) throw new Error(`Unknown ${name}.${key}.`)
+      if (!Object.hasOwn(schema.properties, key)) throw new Error(`Unknown ${name}.${key}.`)
       validateArguments(value[key], schema.properties[key], `${name}.${key}`)
     }
     for (const key of schema.required ?? []) if (!Object.hasOwn(value, key)) throw new Error(`${name}.${key} is required.`)
@@ -53,7 +53,7 @@ export function validateArguments(value, schema, name = 'arguments') {
     if (schema.enum && !schema.enum.includes(value)) throw new Error(`Invalid ${name}.`)
     if (schema.minimum !== undefined && value < schema.minimum || schema.maximum !== undefined && value > schema.maximum) throw new Error(`Out-of-range ${name}.`)
     if (schema.pattern && !new RegExp(schema.pattern).test(value)) throw new Error(`Invalid ${name}.`)
-    if (typeof value === 'string' && value.length > 8000) throw new Error(`${name} is too long.`)
+    if (typeof value === 'string' && value.length > (schema.maxLength ?? 8000)) throw new Error(`${name} is too long.`)
   }
 }
 

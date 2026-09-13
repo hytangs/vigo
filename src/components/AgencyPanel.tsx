@@ -37,7 +37,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   onResult: (result: ToolResult) => void
   onOpenData: () => void
 }) {
-  const [mode, setMode] = useState<Mode>(() => (sessionStorage.getItem(`agency-mode-${projectId}`) as Mode) || 'live')
+  const [mode, setMode] = useState<Mode>(() => { const saved = sessionStorage.getItem(`agency-mode-${projectId}`); return modes.some(item => item.id === saved) ? saved as Mode : 'live' })
   const [state, setState] = useState<AgencyState | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -60,12 +60,13 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   const scrollRef = useRef<HTMLDivElement>(null)
   const [showAllRoutes, setShowAllRoutes] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const entryAbortRef = useRef<AbortController | null>(null)
   const endpoint = `/api/projects/${encodeURIComponent(projectId)}/agency`
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const generation = ++refreshGeneration.current
     try { const next = await apiJson<AgencyState>(`${endpoint}?${new URLSearchParams({ routeId: routeFilter, eventType: eventFilter })}`, { signal }); if (generation === refreshGeneration.current && !signal?.aborted) { setState(next); setError('') } }
-    catch (reason) { if (!signal?.aborted) setError(reason instanceof Error ? reason.message : 'Observation unavailable.') }
-    finally { if (!signal?.aborted) setLoading(false) }
+    catch (reason) { if (generation === refreshGeneration.current && !signal?.aborted) setError(reason instanceof Error ? reason.message : 'Observation unavailable.') }
+    finally { if (generation === refreshGeneration.current && !signal?.aborted) setLoading(false) }
   }, [endpoint, routeFilter, eventFilter])
   useEffect(() => {
     const controller = new AbortController()
@@ -74,7 +75,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
     void apiJson<{ skills: AgencySkill[] }>(endpoint, { method: 'POST', body: JSON.stringify({ action: 'skills' }), signal: controller.signal }).then((result) => setSkills(result.skills)).catch(() => {})
     return () => { controller.abort(); clearInterval(timer) }
   }, [endpoint, refresh])
-  useEffect(() => () => abortRef.current?.abort(), [endpoint])
+  useEffect(() => () => { abortRef.current?.abort(); entryAbortRef.current?.abort() }, [endpoint])
   useEffect(() => { if (snapshot) { setFeedsOpen(false); void refresh() } }, [snapshot, refresh])
   useEffect(() => {
     if (!state?.connected || snapshot) return
@@ -85,22 +86,27 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   useEffect(() => { sessionStorage.setItem(`agency-mode-${projectId}`, mode) }, [mode, projectId])
   useEffect(() => { sessionStorage.setItem(`agency-question-${projectId}`, question) }, [question, projectId])
   async function openEntry(id: number, navigate = true) {
-    if (busy) return
+    if (busy || abortRef.current) return
+    entryAbortRef.current?.abort()
+    const controller = new AbortController(); entryAbortRef.current = controller
     try {
-      const result = await apiJson<{ entries: NotebookEntry[] }>(endpoint, { method: 'POST', body: JSON.stringify({ action: 'notebook-entry', id }) })
+      const result = await apiJson<{ entries: NotebookEntry[] }>(endpoint, { method: 'POST', body: JSON.stringify({ action: 'notebook-entry', id }), signal: controller.signal })
+      if (controller.signal.aborted) return
       if (navigate || mode === 'ask') { onLocate([], []); const last = result.entries.at(-1)?.answer.trace.filter((call) => call.result.ok).at(-1)?.result; if (last) onResult(last) }
       setTurns(result.entries); setParentId(id); setAnswer(null); setAsked(''); setActivities([]); setNotebookOpen(false); if (navigate) setMode('ask')
       sessionStorage.setItem(`agency-entry-${projectId}`, String(id))
       if (navigate) requestAnimationFrame(() => document.querySelector('.agency-turn:last-of-type')?.scrollIntoView({ block: 'start' }))
-    } catch (error) { setError(error instanceof Error ? error.message : 'Could not open this conversation.') }
+    } catch (error) { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'Could not open this conversation.') }
+    finally { if (entryAbortRef.current === controller) entryAbortRef.current = null }
   }
   useEffect(() => { const id = Number(sessionStorage.getItem(`agency-entry-${projectId}`)); if (id) void openEntry(id, false) }, [endpoint])
-  async function retainAnswer(result: QueryAnswer) {
-    setAnswer(null)
+  async function retainAnswer(result: QueryAnswer, signal: AbortSignal) {
+    setAnswer(result) // Keep the completed answer visible if notebook readback fails.
     if (result.entryId) {
-      const saved = await apiJson<{ entries: NotebookEntry[] }>(endpoint, { method: 'POST', body: JSON.stringify({ action: 'notebook-entry', id: result.entryId }) })
-      setTurns(saved.entries); setParentId(result.entryId); sessionStorage.setItem(`agency-entry-${projectId}`, String(result.entryId))
-    } else setAnswer(result)
+      const saved = await apiJson<{ entries: NotebookEntry[] }>(endpoint, { method: 'POST', body: JSON.stringify({ action: 'notebook-entry', id: result.entryId }), signal })
+      if (signal.aborted) return
+      setAnswer(null); setTurns(saved.entries); setParentId(result.entryId); sessionStorage.setItem(`agency-entry-${projectId}`, String(result.entryId))
+    }
     setAsked(''); setActivities([])
     requestAnimationFrame(() => document.querySelector('.agency-turn:last-of-type')?.scrollIntoView({ block: 'start' }))
   }
@@ -113,14 +119,17 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   }
 
   async function ask(nextQuestion = question) {
-    if (busy || !nextQuestion.trim()) return
+    if (busy || abortRef.current || !nextQuestion.trim()) return
     if (!state?.provider.available) { document.querySelector<HTMLButtonElement>('.agency-ai-connection button[aria-expanded="false"]')?.click(); return }
+    entryAbortRef.current?.abort()
     onLocate([], []); setAsked(nextQuestion); setQuestion(''); setBusy(true); setAnswer(null); setActivities([]); setError('')
     requestAnimationFrame(() => document.querySelector('.agency-pending-question')?.scrollIntoView({ block: 'start' }))
     const controller = new AbortController(); abortRef.current = controller
     try {
       const result = await apiProgressJson<QueryAnswer>(endpoint, { method: 'POST', body: JSON.stringify({ action: 'ask', question: nextQuestion, parentId }), signal: controller.signal }, (progress) => setActivities((items) => items.some((item) => item.phase === progress.phase) ? items.map((item) => item.phase === progress.phase ? progress : item) : [...items, progress]))
-      await retainAnswer(result)
+      if (controller.signal.aborted) return
+      await retainAnswer(result, controller.signal)
+      if (controller.signal.aborted) return
       requestAnimationFrame(() => document.querySelector('.agency-pending-question')?.scrollIntoView({ block: 'start' }))
       if (!result.aiGenerated && !result.trace.some((call) => call.result.ok)) setQuestion(nextQuestion)
       const last = result.trace.filter((call) => call.result.ok).at(-1)?.result
@@ -130,12 +139,16 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   }
 
   async function runSkill(skill: AgencySkill, inputs: Record<string, unknown>) {
+    if (busy || abortRef.current) return
+    entryAbortRef.current?.abort()
     onLocate([], []); setTurns([]); setParentId(null); setBusy(true); setError(''); setActivities([]); setAsked(skill.name); setMode('ask'); setNotebookOpen(false); setAnswer(null)
     requestAnimationFrame(() => document.querySelector('.agency-pending-question')?.scrollIntoView({ block: 'start' }))
     const controller = new AbortController(); abortRef.current = controller
     try {
       const result = await apiProgressJson<QueryAnswer>(endpoint, { method: 'POST', body: JSON.stringify({ action: 'run-skill', id: skill.id, inputs }), signal: controller.signal }, (progress) => setActivities((items) => items.some((item) => item.phase === progress.phase) ? items.map((item) => item.phase === progress.phase ? progress : item) : [...items, progress]))
-      await retainAnswer(result)
+      if (controller.signal.aborted) return
+      await retainAnswer(result, controller.signal)
+      if (controller.signal.aborted) return
     } catch (reason) { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Research unavailable.') }
     finally { setBusy(false); abortRef.current = null }
   }
@@ -185,7 +198,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
           <AgencyProviderSettings endpoint={endpoint} provider={state.provider} onChange={() => void refresh()} />
 
           {notebookOpen ? <AgencyNotebook endpoint={endpoint} onOpen={(id) => void openEntry(id)} onBack={() => setNotebookOpen(false)} /> : <>
-          <div className="agency-conversation-toolbar"><button className="agency-text-button" onClick={() => setNotebookOpen(true)} disabled={busy}><History size={14} /> Saved work</button><button className="agency-text-button" disabled={busy} onClick={() => { onLocate([], []); setTurns([]); setParentId(null); setAnswer(null); setAsked(''); setActivities([]); sessionStorage.removeItem(`agency-entry-${projectId}`) }}><Plus size={14} /> New conversation</button></div>
+          <div className="agency-conversation-toolbar"><button className="agency-text-button" onClick={() => setNotebookOpen(true)} disabled={busy}><History size={14} /> Saved work</button><button className="agency-text-button" disabled={busy} onClick={() => { entryAbortRef.current?.abort(); onLocate([], []); setTurns([]); setParentId(null); setAnswer(null); setAsked(''); setActivities([]); sessionStorage.removeItem(`agency-entry-${projectId}`) }}><Plus size={14} /> New conversation</button></div>
           {!turns.length && !answer && !busy ? <div className="agency-suggestions">{['Which routes have the widest departure intervals?', 'Summarize network health and data freshness.', 'What service runs after 22:00 today?'].map((suggestion) => <button key={suggestion} onClick={() => { setQuestion(suggestion); document.getElementById('agency-question')?.focus() }}>{suggestion}<ArrowRight size={14} /></button>)}</div> : null}
           {turns.map((entry) => <article className="agency-turn" key={entry.id}><div className="agency-question-echo">{entry.title}</div><AgencyActivity activities={entry.activities} busy={false} trace={entry.answer.trace} /><AgencyAnswer answer={entry.answer} onResult={onResult} onSelectEvent={selectEvent} onOpenEntry={(id) => void openEntry(id)} /><>{entry.notes ? <p className="agency-saved-note"><strong>Note</strong>{entry.notes.length > 300 ? `${entry.notes.slice(0, 300)}…` : entry.notes}</p> : null}<AgencyNoteEditor endpoint={endpoint} entry={entry} onSave={(notes) => setTurns((items) => items.map((item) => item.id === entry.id ? { ...item, notes } : item))} /></></article>)}
           {busy || answer ? <div className="agency-question-echo agency-pending-question">{asked}</div> : null}

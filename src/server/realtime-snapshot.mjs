@@ -127,7 +127,7 @@ export function realtimeSnapshotFromFeed(feed, sourceUrl, fetchedAt, contentType
   const classified = vehicles.length + tripUpdates.length + alerts.length
   const feedTimestamp = numeric(feed.header?.timestamp)
   const ageSeconds = Number.isFinite(feedTimestamp)
-    ? Math.max(0, Date.parse(fetchedAt) / 1000 - feedTimestamp)
+    ? Date.parse(fetchedAt) / 1000 - feedTimestamp
     : undefined
 
   return {
@@ -135,7 +135,7 @@ export function realtimeSnapshotFromFeed(feed, sourceUrl, fetchedAt, contentType
     fetchedAt,
     feedTimestamp,
     freshness: {
-      status: ageSeconds === undefined ? 'unknown' : ageSeconds > 180 ? 'stale' : 'fresh',
+      status: ageSeconds === undefined || ageSeconds < -180 ? 'unknown' : ageSeconds > 180 ? 'stale' : 'fresh',
       ...(ageSeconds === undefined ? {} : { ageSeconds: Number(ageSeconds.toFixed(1)) }),
       thresholdSeconds: 180,
     },

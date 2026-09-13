@@ -1,0 +1,53 @@
+{
+  "measuredOn": "2026-09-13",
+  "measurement": "Resident AgencyContext.resolve only; construction, disk I/O, inference and routing excluded",
+  "dataset": "Existing Boston indexed timetable, unchanged between runs",
+  "runtime": "Node.js 26.7.0, macOS 26.5.1, Apple M2, 16 GiB RAM",
+  "baselineCommit": "4ea670b",
+  "querySequence": [
+    {
+      "kind": "route",
+      "query": "1"
+    },
+    {
+      "kind": "stop",
+      "query": "Back Bay"
+    }
+  ],
+  "method": "Three consecutive batches of 100 alternating queries per implementation, one resident context per implementation, performance.now around each batch. The first batch is included; no separate warmup. All queries run synchronously.",
+  "before": [
+    {
+      "milliseconds": 650.1220000000001,
+      "queries": 100,
+      "matches": 100
+    },
+    {
+      "milliseconds": 604.5233749999999,
+      "queries": 100,
+      "matches": 100
+    },
+    {
+      "milliseconds": 570.7460839999999,
+      "queries": 100,
+      "matches": 100
+    }
+  ],
+  "after": [
+    {
+      "milliseconds": 61.18212500000001,
+      "queries": 100,
+      "matches": 100
+    },
+    {
+      "milliseconds": 46.17308300000002,
+      "queries": 100,
+      "matches": 100
+    },
+    {
+      "milliseconds": 46.19395800000001,
+      "queries": 100,
+      "matches": 100
+    }
+  ],
+  "limits": "Small local microbenchmark; match totals agree, fixture tests separately cover identity semantics. This is not an end-to-end latency or LLM speed claim."
+}
