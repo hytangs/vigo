@@ -1,4 +1,4 @@
-import { Check, ChevronRight, Download, LoaderCircle } from 'lucide-react'
+import { Check, ChevronRight, CircleAlert, Download, LoaderCircle } from 'lucide-react'
 import type { ApiProgress } from '../app/api'
 import type { QueryAnswer } from '../agency/types'
 import { downloadText } from '../agency/exports'
@@ -7,7 +7,9 @@ import { humanField, toolNames } from '../agency/presentation'
 export function AgencyActivity({ activities, busy, trace }: {
   activities: ApiProgress[]; busy: boolean; trace: QueryAnswer['trace']
 }) {
-  if (!busy && !activities.length && !trace.length) return null
+  const stopped = activities.some((item) => item.phase === 'stopped')
+  const interrupted = activities.some((item) => item.phase === 'provider-error' || item.phase === 'response-error')
+  if (!busy && !trace.length && !stopped && !interrupted) return null
   const progress = activities.filter((item) => item.phase !== 'planning' || !trace.length && activities.length === 1)
   const visible = progress.length ? progress : trace.map((call, index) => ({
     phase: `tool-${index}`, progress: call.result.ok ? 1 : 0,
@@ -18,8 +20,8 @@ export function AgencyActivity({ activities, busy, trace }: {
 
   return <details className="agency-activity" open={busy}>
     <summary>
-      {busy ? <LoaderCircle size={14} className="agency-spinner" /> : <Check size={14} />}
-      <span>{busy ? 'Working through your question' : activities.some((item) => item.phase === 'stopped') ? 'Investigation stopped · see Saved work' : count}</span>
+      {busy ? <LoaderCircle size={14} className="agency-spinner" /> : interrupted ? <CircleAlert size={14} /> : <Check size={14} />}
+      <span>{busy ? 'Thinking…' : stopped ? 'Stopped · saved for later' : interrupted ? 'Response interrupted' : count}</span>
       <ChevronRight size={14} />
     </summary>
     <ol aria-live="polite">{visible.map((item) => <li key={item.phase}>

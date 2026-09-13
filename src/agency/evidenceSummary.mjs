@@ -3,8 +3,8 @@ function describeObservation(data) {
   return `The feeds report ${data.counts.vehicles} vehicles with recent locations and ${data.counts.alerts} active service alerts. We matched ${data.counts.matchedTrips} trip reports to the timetable; ${data.counts.unresolvedTrips} could not be matched. ${feeds}. These reports do not cover every departure.`
 }
 
-// Every factual sentence below comes from tool output. The model plans queries;
-// it cannot substitute its own operational numbers or causal explanation.
+// A deterministic fallback for interrupted answers and non-model workflows.
+// Completed evidence remains readable when the provider cannot finish.
 export function summarizeEvidence(trace) {
   const good = trace.filter((call) => call.result.ok)
   if (!good.length) return 'I could not complete this check. The activity below explains what happened; your question is ready to retry.'

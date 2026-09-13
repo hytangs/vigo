@@ -26,8 +26,15 @@ async function readResponse(response) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { throw new Error('The provider did not return valid JSON. Check the API base URL.') }
 }
 
+function temperature(value) {
+  if (value == null || value === '') return undefined
+  const number = Number(value)
+  if (!Number.isFinite(number) || number < 0 || number > 2) throw new Error('Temperature must be between 0 and 2.')
+  return number
+}
+
 export function createProvider(environment = process.env, fetcher = globalThis.fetch) {
-  let config = { baseUrl: String(environment.VIGO_AGENCY_LLM_BASE_URL ?? '').replace(/\/$/, ''), model: String(environment.VIGO_AGENCY_LLM_MODEL ?? ''), key: String(environment.VIGO_AGENCY_LLM_API_KEY ?? ''), reasoningEffort: String(environment.VIGO_AGENCY_LLM_REASONING_EFFORT ?? '') }
+  let config = { baseUrl: String(environment.VIGO_AGENCY_LLM_BASE_URL ?? '').replace(/\/$/, ''), model: String(environment.VIGO_AGENCY_LLM_MODEL ?? ''), key: String(environment.VIGO_AGENCY_LLM_API_KEY ?? ''), reasoningEffort: String(environment.VIGO_AGENCY_LLM_REASONING_EFFORT ?? ''), temperature: temperature(environment.VIGO_AGENCY_LLM_TEMPERATURE) }
   let source = 'environment', testedAt = null, revision = 0
   function candidate(input) {
     if (!input || typeof input !== 'object') throw new Error('Enter the provider connection details.')
@@ -36,7 +43,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
     if (model.length > 200 || String(input.apiKey ?? '').length > 2000) throw new Error('The model name or key is too long.')
     // A blank key retains the active key only for the same endpoint. It never crosses providers.
     if (!['', 'none', 'low', 'medium', 'high'].includes(input.reasoningEffort ?? '')) throw new Error('Unsupported reasoning effort.')
-    return { baseUrl, model, reasoningEffort: input.reasoningEffort || '', key: String(input.apiKey ?? '').trim() || (baseUrl === config.baseUrl ? config.key : '') }
+    return { baseUrl, model, reasoningEffort: input.reasoningEffort || '', temperature: temperature(input.temperature ?? (baseUrl === config.baseUrl ? config.temperature : undefined)), key: String(input.apiKey ?? '').trim() || (baseUrl === config.baseUrl ? config.key : '') }
   }
   async function request(connection, suffix, body, signal) {
     const timeout = AbortSignal.timeout(45_000)
@@ -56,15 +63,15 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
   }
   async function completeWith(connection, messages, tools, signal, options = {}) {
     if (!connection.baseUrl || !connection.model) throw new Error('Connect an AI provider in Ask to use natural-language queries.')
-    const result = await request(connection, '/chat/completions', { model: connection.model, messages, ...(tools?.length ? { tools: tools.map((tool) => ({ type: 'function', function: tool })), tool_choice: options.toolChoice || 'auto' } : {}), max_completion_tokens: options.maxTokens || 1800, ...(connection.reasoningEffort ? { reasoning_effort: connection.reasoningEffort } : {}) }, signal)
+    const result = await request(connection, '/chat/completions', { model: connection.model, messages, ...(tools?.length ? { tools: tools.map((tool) => ({ type: 'function', function: tool })), tool_choice: options.toolChoice || 'auto' } : {}), max_completion_tokens: options.maxTokens || 1800, ...(connection.reasoningEffort ? { reasoning_effort: connection.reasoningEffort } : {}), ...(connection.temperature !== undefined ? { temperature: connection.temperature } : {}) }, signal)
     const message = result.choices?.[0]?.message
     if (!message || typeof message !== 'object') throw new Error('AI provider returned no response message.')
-    return message
+    return { ...message, finishReason: result.choices[0].finish_reason }
   }
   return {
     get available() { return Boolean(config.baseUrl && config.model) },
     get model() { return this.available ? config.model : null },
-    status() { return { available: this.available, model: this.model, baseUrl: config.baseUrl, hasKey: Boolean(config.key), reasoningEffort: config.reasoningEffort || '', source, testedAt } },
+    status() { return { available: this.available, model: this.model, baseUrl: config.baseUrl, hasKey: Boolean(config.key), reasoningEffort: config.reasoningEffort || '', temperature: config.temperature, source, testedAt } },
     async models(input, signal) {
       const result = await request(candidate(input), '/models', null, signal)
       return { models: [...new Set((Array.isArray(result.data) ? result.data : []).map((item) => item.id).filter((id) => typeof id === 'string' && id.length <= 200))].sort().slice(0, 500) }

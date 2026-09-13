@@ -6,6 +6,12 @@ import { humanField, toolNames } from '../agency/presentation'
 import { SourceLinks } from './AgencyEvidence'
 
 const clockMinutes = (value: number) => `${String(Math.floor(value / 60) % 24).padStart(2, '0')}:${String(Math.floor(value % 60)).padStart(2, '0')}`
+function answerText(text: string) {
+  return text.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/g).map((part, index) => (
+    part.startsWith('**') && part.endsWith('**') ? <strong key={index}>{part.slice(2, -2)}</strong>
+      : part.startsWith('`') && part.endsWith('`') ? <code key={index}>{part.slice(1, -1)}</code> : part
+  ))
+}
 function ServiceProfileChart({ rows }: { rows: Record<string, unknown>[] }) {
   if (!rows.every((row) => typeof row.service_hour === 'number' && typeof row.scheduled_trip_starts === 'number')) return null
   const values = rows as Array<{ service_hour: number; scheduled_trip_starts: number }>
@@ -51,8 +57,8 @@ export function AgencyAnswer({ answer, onResult, onSelectEvent, onOpenEntry }: {
   const citedComparison = answer.aiGenerated ? answer.trace.find((call, index) => answer.citations?.includes(index + 1) && (call.result.data as { events?: OperationalEvent[] }).events?.some((event) => event.evidence.observedHeadwaySeconds != null)) : null
   const result = citedComparison?.result ?? answer.trace.filter((call) => call.result.ok).at(-1)?.result
   return <section className="agency-answer" aria-label="Answer">
-    {answer.aiGenerated ? <div className="agency-ai-label">AI summary · {answer.model}</div> : null}
-    <p className="agency-answer-text">{answer.answer}</p>
+    {answer.aiGenerated && answer.trace.length ? <div className="agency-ai-label">AI response · {answer.model}</div> : null}
+    <p className="agency-answer-text">{answerText(answer.answer)}</p>
     {answer.scopeNote ? <p className="agency-caption">{answer.scopeNote}</p> : null}
     {answer.report?.rows.length ? <div className="agency-research-output"><div className="agency-section-heading"><div><h2>Evidence table</h2><span>{answer.report.rows.length} rows · retained with this note</span></div>{answer.report.rows.length ? <button className="agency-text-button" onClick={() => { const rows = answer.report!.rows; const columns = Object.keys(rows[0]); const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`; downloadText('agency-evidence.csv', [columns.map(cell).join(','), ...rows.map((row) => columns.map((key) => cell(row[key])).join(','))].join('\n'), 'text/csv') }}>Export CSV</button> : null}</div><AgencyToolOutput result={{ ok: true, data: { rows: answer.report.rows }, provenance: [], generatedAt: answer.generatedAt, warnings: [] }} /></div> : null}
     {result && !answer.report?.rows.length ? <AgencyToolOutput result={result} onSelectEvent={onSelectEvent} onOpenEntry={onOpenEntry} /> : null}
@@ -60,8 +66,8 @@ export function AgencyAnswer({ answer, onResult, onSelectEvent, onOpenEntry }: {
     {Boolean(result?.presentation?.routeIds?.length === 1 || result?.presentation?.stopIds?.length === 1 || (result?.data as { plan?: unknown; surface?: unknown })?.plan || (result?.data as { surface?: unknown })?.surface) ? <button className="agency-text-button" onClick={() => result && onResult(result)}>Show on map <ArrowRight size={13} /></button> : null}
     {!result && answer.warnings.length ? <p className="agency-error" role="alert">{answer.warnings[0]}</p> : null}
     {answer.warnings.length ? <details className="agency-source-details"><summary>What this answer covers</summary>{answer.warnings.map((warning) => <p className="agency-caption" key={warning}>{warning}</p>)}</details> : null}
-    {answer.aiGenerated ? <details className="agency-source-details"><summary>Sources cited in the summary</summary>{answer.trace.map((call, index) => answer.citations?.includes(index + 1) ? <div key={index}><strong>[{index + 1}] {toolNames[call.tool] || humanField(call.tool)}</strong><SourceLinks refs={call.result.provenance} /></div> : null)}</details> : null}
-    {!answer.aiGenerated && answer.evidenceRefs.length ? <details className="agency-source-details"><summary>Sources · {answer.evidenceRefs.length}</summary><SourceLinks refs={answer.evidenceRefs} /></details> : null}
-    <footer className="agency-answer-footer">As of {new Date(answer.generatedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</footer>
+    {answer.citations?.length ? <details className="agency-source-details"><summary>Sources cited in this answer</summary>{answer.trace.map((call, index) => answer.citations?.includes(index + 1) ? <div key={index}><strong>[{index + 1}] {toolNames[call.tool] || humanField(call.tool)}</strong><SourceLinks refs={call.result.provenance} /></div> : null)}</details> : null}
+    {!answer.citations?.length && answer.evidenceRefs.length ? <details className="agency-source-details"><summary>Sources · {answer.evidenceRefs.length}</summary><SourceLinks refs={answer.evidenceRefs} /></details> : null}
+    <footer className="agency-answer-footer">{answer.trace.length ? 'As of ' : ''}{new Date(answer.generatedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</footer>
   </section>
 }

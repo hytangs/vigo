@@ -122,7 +122,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
       const result = await apiProgressJson<QueryAnswer>(endpoint, { method: 'POST', body: JSON.stringify({ action: 'ask', question: nextQuestion, parentId }), signal: controller.signal }, (progress) => setActivities((items) => items.some((item) => item.phase === progress.phase) ? items.map((item) => item.phase === progress.phase ? progress : item) : [...items, progress]))
       await retainAnswer(result)
       requestAnimationFrame(() => document.querySelector('.agency-pending-question')?.scrollIntoView({ block: 'start' }))
-      if (!result.trace.some((call) => call.result.ok)) setQuestion(nextQuestion)
+      if (!result.aiGenerated && !result.trace.some((call) => call.result.ok)) setQuestion(nextQuestion)
       const last = result.trace.filter((call) => call.result.ok).at(-1)?.result
       if (last) onResult(last)
     } catch (reason) { if (controller.signal.aborted) setQuestion(nextQuestion); else setError(reason instanceof Error ? reason.message : 'Question failed.') }
