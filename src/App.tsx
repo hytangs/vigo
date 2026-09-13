@@ -2181,7 +2181,7 @@ function RouteSurface({
             onMapScopeChange={onMapScopeChange}
           />
         ) : null}
-        {agencyFocus ? <div className="agency-map-context"><div><span>{routingFocus ? 'Journey' : analysisFocus ? 'Reachable area' : isNetworkMap ? 'Live network' : `Route ${selectedRoute?.shortName || selectedRoute?.longName || ''}`}</span><small>{routingFocus || analysisFocus ? 'From your investigation' : realtimeSnapshot ? `${visibleVehicleCount} reported vehicle locations` : 'Connect feeds to see vehicle reports'}</small></div>{!isNetworkMap || routingFocus || analysisFocus ? <button className="agency-button" onClick={() => onMapScopeChange('network')}>All routes</button> : null}</div> : null}
+        {agencyFocus ? <div className="agency-map-context"><div><span>{routingFocus ? 'Journey' : analysisFocus ? 'Reachable area' : isNetworkMap ? 'Live network' : `Route ${selectedRoute?.shortName || selectedRoute?.longName || ''}`}</span><small>{routingFocus || analysisFocus ? 'From your investigation' : realtimeSnapshot ? `${visibleVehicleCount} reported vehicle ${visibleVehicleCount === 1 ? 'location' : 'locations'}` : 'Connect feeds to see vehicle reports'}</small></div>{!isNetworkMap || routingFocus || analysisFocus ? <button className="agency-button" onClick={() => onMapScopeChange('network')}>All routes</button> : null}</div> : null}
         {cityPreviewLoading ? (
           <div className="surface-loading-overlay" role="status" aria-live="polite">
             <span className="surface-preview-loading" />

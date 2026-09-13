@@ -1,0 +1,133 @@
+{
+  "serviceDate": "2026-09-13",
+  "generatedAt": "2026-09-13T10:17:17.899Z",
+  "rows": [
+    {
+      "service_hour": 3,
+      "scheduled_trip_starts": 5,
+      "routes": 3
+    },
+    {
+      "service_hour": 4,
+      "scheduled_trip_starts": 14,
+      "routes": 9
+    },
+    {
+      "service_hour": 5,
+      "scheduled_trip_starts": 167,
+      "routes": 53
+    },
+    {
+      "service_hour": 6,
+      "scheduled_trip_starts": 474,
+      "routes": 95
+    },
+    {
+      "service_hour": 7,
+      "scheduled_trip_starts": 547,
+      "routes": 108
+    },
+    {
+      "service_hour": 8,
+      "scheduled_trip_starts": 565,
+      "routes": 119
+    },
+    {
+      "service_hour": 9,
+      "scheduled_trip_starts": 590,
+      "routes": 121
+    },
+    {
+      "service_hour": 10,
+      "scheduled_trip_starts": 608,
+      "routes": 128
+    },
+    {
+      "service_hour": 11,
+      "scheduled_trip_starts": 600,
+      "routes": 128
+    },
+    {
+      "service_hour": 12,
+      "scheduled_trip_starts": 599,
+      "routes": 129
+    },
+    {
+      "service_hour": 13,
+      "scheduled_trip_starts": 599,
+      "routes": 128
+    },
+    {
+      "service_hour": 14,
+      "scheduled_trip_starts": 589,
+      "routes": 124
+    },
+    {
+      "service_hour": 15,
+      "scheduled_trip_starts": 604,
+      "routes": 129
+    },
+    {
+      "service_hour": 16,
+      "scheduled_trip_starts": 605,
+      "routes": 128
+    },
+    {
+      "service_hour": 17,
+      "scheduled_trip_starts": 599,
+      "routes": 128
+    },
+    {
+      "service_hour": 18,
+      "scheduled_trip_starts": 595,
+      "routes": 127
+    },
+    {
+      "service_hour": 19,
+      "scheduled_trip_starts": 571,
+      "routes": 119
+    },
+    {
+      "service_hour": 20,
+      "scheduled_trip_starts": 554,
+      "routes": 110
+    },
+    {
+      "service_hour": 21,
+      "scheduled_trip_starts": 538,
+      "routes": 105
+    },
+    {
+      "service_hour": 22,
+      "scheduled_trip_starts": 524,
+      "routes": 100
+    },
+    {
+      "service_hour": 23,
+      "scheduled_trip_starts": 483,
+      "routes": 93
+    },
+    {
+      "service_hour": 24,
+      "scheduled_trip_starts": 401,
+      "routes": 80
+    },
+    {
+      "service_hour": 25,
+      "scheduled_trip_starts": 98,
+      "routes": 51
+    },
+    {
+      "service_hour": 26,
+      "scheduled_trip_starts": 6,
+      "routes": 5
+    }
+  ],
+  "query": "WITH starts AS (SELECT trip_id,route_id,MIN(departure) AS first_departure FROM connections WHERE service_id IN ('BUS20264-hbc46047-Sunday-02','BUS20264-hbl46027-Sunday-02','BUS20264-hbs46sw7-Sunday-02','Boat-F1-Sunday-Summer-26','Boat-F2H-Sunday-Fall-26','DIV20264-hmo46bf7-Sunday-01','FallSunday','Orange-25-Sunday-d40f1','PRIV20264-hpa46sp7-Sunday-01','RTL20264-hms46017-Sunday-01','SPRING2026-NORTHSS-Weekend-1','SPRING2026-NORTHSS-Weekend-1-S6561ad1d','SPRING2026-NORTHSS-Weekend-1-S7d8482ee','SPRING2026-NORTHSS-Weekend-1-S9d378dcf','SPRING2026-SOUTHSS-Weekend-1','SPRING2026-SOUTHSS-Weekend-1-S0b87ffae','SPRING2026-SOUTHSS-Weekend-1-S85407dc6','SPRING2026-SOUTHSS-Weekend-1-Sb0e4ed14','SPRING2026-SOUTHSS-Weekend-1-Sb7371956','SPRING2026-SOUTHSS-Weekend-1-Sc9a3b080','SPRING2026-SOUTHSS-Weekend-1-Scb37d3c2','SPRING2026-SOUTHSS-Weekend-1-Sd88ed885','Spring/SummerSunday','fare_regular')  AND trip_id NOT IN (SELECT trip_id FROM frequencies) GROUP BY trip_id,route_id) SELECT CAST(first_departure/3600 AS INTEGER) AS service_hour, COUNT(*) AS scheduled_trip_starts, COUNT(DISTINCT route_id) AS routes FROM starts GROUP BY service_hour ORDER BY service_hour",
+  "warnings": [
+    "Counts use the first indexed connection of each active trip. Frequency templates and trips without connections are excluded. Service hours can exceed 24. These are scheduled supply counts, not observed service."
+  ],
+  "provenance": [
+    "GTFS Static · calendar, calendar_dates, connections, frequencies"
+  ]
+}
