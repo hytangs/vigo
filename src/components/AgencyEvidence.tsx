@@ -58,7 +58,7 @@ export function AgencyEvidence({ historical = false, event, state, projectId, on
     <h2>{event.title}</h2>
     <div className="agency-evidence-context">{route ? <span className="agency-route-label" style={{ '--line-color': route.color } as React.CSSProperties}>{route.name}</span> : null}<span>{event.stopId ? event.stopName || state.stopNames?.[event.stopId] || shortId(event.stopId) : 'Network observation'}</span>{event.directionId != null ? <span>Direction {event.directionId}</span> : null}</div>
     {historical ? <p className="agency-caption">Saved evidence · values remain as they were when this answer was created.</p> : null}
-    {!stillCurrent ? <div className="agency-notice">This event is no longer among the current observations. Its retained evidence is shown below.</div> : null}
+    {!historical && !stillCurrent ? <div className="agency-notice">This event is no longer among the current observations. Its retained evidence is shown below.</div> : null}
     <EvidenceComparison event={event} />
     {event.evidence.alertDescription ? <p className="agency-alert-description">{event.evidence.alertDescription}</p> : null}
     <dl className="agency-facts">

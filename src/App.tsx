@@ -4724,6 +4724,7 @@ export default function App() {
 
   function locateAgencyEntities(routeIds: string[], stopIds: string[], location?: { id: string; label: string; coordinate: [number, number] }) {
     setAgencyPlan(null); setAgencyReach(null); setAgencyLocation(location)
+    if (!routeIds.length && !stopIds.length) { setSelectedRouteId(''); setMapScope('network') }
     const route = preview.routes.find((item) => routeIds.includes(item.id) || Boolean(item.routeId && routeIds.includes(item.routeId)))
     if (route || routeIds[0]) { setSelectedRouteId(route?.id ?? routeIds[0]); setMapScope('route'); setRouteRenderMode('service') }
     setSelectedStopId(stopIds[0] || '')
@@ -4732,9 +4733,9 @@ export default function App() {
 
   function presentAgencyResult(result: ToolResult) {
     const data = result.data as { plan?: RoutingPlan; surface?: unknown }
-    if (data?.plan) { setAgencyPlan(data.plan); setAgencyReach(null); setMapScope('route') }
-    else if (data?.surface) { setAgencyReach(result.data as ReachResult); setAgencyPlan(null); setMapScope('network') }
-    else if (result.presentation?.routeIds?.length || result.presentation?.stopIds?.length) locateAgencyEntities(result.presentation.routeIds ?? [], result.presentation.stopIds ?? [])
+    if (data?.plan) { setAgencyLocation(undefined); setAgencyPlan(data.plan); setAgencyReach(null); setMapScope('route') }
+    else if (data?.surface) { setAgencyLocation(undefined); setAgencyReach(result.data as ReachResult); setAgencyPlan(null); setMapScope('network') }
+    else if (result.presentation?.routeIds?.length === 1 || result.presentation?.stopIds?.length === 1) locateAgencyEntities(result.presentation.routeIds ?? [], result.presentation.stopIds ?? [])
     if (window.innerWidth <= 760 && (data?.plan || data?.surface)) setAgencyMapOpen(true)
   }
 

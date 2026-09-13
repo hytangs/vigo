@@ -4,7 +4,7 @@ import type { ApiProgress } from '../app/api'
 import type { OperationalEvent, QueryAnswer, ToolResult } from '../agency/types'
 import type { RoutingPlan } from '../routingModel'
 import { downloadText } from './AgencyNotebook'
-import { SourceLinks, timeLabel } from './AgencyEvidence'
+import { SourceLinks } from './AgencyEvidence'
 
 const clockMinutes = (value: number) => `${String(Math.floor(value / 60) % 24).padStart(2, '0')}:${String(Math.floor(value % 60)).padStart(2, '0')}`
 const toolNames: Record<string, string> = { network_overview: 'Network and feed status', resolve_entities: 'Stop and route lookup', gtfs_query: 'Timetable query', realtime_status: 'Current service reports', anomaly_scan: 'Departure comparisons', service_alerts: 'Agency alerts', route_plan: 'Journey calculation', reach: 'Reachable area', draft_rider_message: 'Rider message', service_profile: 'Scheduled service profile' }
@@ -33,9 +33,20 @@ function ServiceProfileChart({ rows }: { rows: Record<string, unknown>[] }) {
   return <figure className="agency-profile-chart"><figcaption>Scheduled trip starts by service hour</figcaption><svg viewBox="0 0 540 180" role="img" aria-label={`Scheduled trip starts from service hour ${first} to ${last}. Largest hourly count: ${peak}.`}><text x="4" y="20">{peak}</text><text x="21" y="147">0</text><line x1="42" x2="530" y1="143" y2="143" />{values.map((row) => <g key={row.service_hour}><rect x={44 + (row.service_hour - first) * width} y={143 - row.scheduled_trip_starts / peak * 125} width={Math.max(1, width - 4)} height={row.scheduled_trip_starts / peak * 125}><title>{row.service_hour}:00 · {row.scheduled_trip_starts} scheduled trip starts</title></rect><text x={44 + (row.service_hour - first) * width + (width - 4) / 2} y="163" textAnchor="middle">{row.service_hour}</text></g>)}</svg><p className="agency-caption">Service hours above 23 continue the same GTFS service day.</p></figure>
 }
 
+function AgencyJourney({ plan }: { plan: RoutingPlan }) {
+  const rides = plan.legs.filter((leg) => leg.type === 'ride').length
+  return <div className="agency-journey"><strong>{Number(plan.durationMinutes.toFixed(1))} min · {rides} transit {rides === 1 ? 'leg' : 'legs'}</strong>{plan.legs.flatMap((leg, index) => {
+    const previousEnd = index ? plan.legs[index - 1].endMinutes : leg.startMinutes
+    const wait = leg.startMinutes - previousEnd
+    const items = wait > 0 ? [<div key={`wait-${index}`}><time>{clockMinutes(previousEnd)}</time><span>Wait at {leg.fromName}</span><small>{wait < 1 ? '<1' : Number(wait.toFixed(1))} min</small></div>] : []
+    if (leg.type !== 'walk' || leg.durationMinutes !== 0 || leg.fromName !== leg.toName) items.push(<div key={`leg-${index}`}><time>{clockMinutes(leg.startMinutes)}</time><span><b>{leg.type === 'ride' ? leg.routeShortName || leg.routeId : leg.type === 'walk' ? 'Walk' : 'Drive'}</b> {leg.fromName === leg.toName ? `within ${leg.fromName}` : <>{leg.fromName}<ArrowRight size={12} />{leg.toName}</>}</span><small>{leg.durationMinutes > 0 && leg.durationMinutes < 1 ? '<1' : Number(leg.durationMinutes.toFixed(1))} min</small></div>)
+    return items
+  })}</div>
+}
+
 export function AgencyToolOutput({ result, onSelectEvent }: { result: ToolResult; onSelectEvent?: (event: OperationalEvent) => void }) {
   const data = result.data as { rows?: Record<string, unknown>[]; matches?: Array<{ kind: string; id: string; name: string }>; plan?: RoutingPlan; events?: Array<OperationalEvent & { routeName?: string; stopName?: string }>; counts?: Record<string, number>; summary?: { maximumCutoffMinutes: number; transitStatus?: { reachedStops: number } } }
-  if (data?.plan?.legs?.length) return <div className="agency-journey"><strong>{Number(data.plan.durationMinutes.toFixed(1))} min · {data.plan.legs.filter((leg) => leg.type === 'ride').length} transit legs</strong>{data.plan.legs.map((leg, index) => <div key={index}><time>{clockMinutes(leg.startMinutes)}</time><span><b>{leg.type === 'ride' ? leg.routeShortName || leg.routeId : leg.type === 'walk' ? 'Walk' : 'Drive'}</b> {leg.fromName}<ArrowRight size={12} />{leg.toName}</span><small>{Number(leg.durationMinutes.toFixed(1))} min</small></div>)}</div>
+  if (data?.plan?.legs?.length) return <AgencyJourney plan={data.plan} />
   if (data?.rows?.length) {
     const columns = Object.keys(data.rows[0])
     return <><ServiceProfileChart rows={data.rows} /><div className="agency-query-table"><table><thead><tr>{columns.map((key) => <th key={key}>{humanField(key)}</th>)}</tr></thead><tbody>{data.rows.slice(0, 40).map((row, i) => <tr key={i}>{columns.map((key) => <td key={key}>{row[key] == null ? '—' : typeof row[key] === 'number' ? row[key].toLocaleString() : String(row[key])}</td>)}</tr>)}</tbody></table>{data.rows.length > 40 ? <p className="agency-caption">Showing 40 of {data.rows.length} rows. The full result is in the activity details.</p> : null}</div></>
@@ -60,6 +71,6 @@ export function AgencyAnswer({ answer, onResult, onSelectEvent }: { answer: Quer
     {answer.warnings.length ? <details className="agency-source-details"><summary>What this answer covers</summary>{answer.warnings.map((warning) => <p className="agency-caption" key={warning}>{warning}</p>)}</details> : null}
     {answer.aiGenerated ? <details className="agency-source-details"><summary>Sources cited in the summary</summary>{answer.trace.map((call, index) => <div key={index}><strong>[{index + 1}] {toolNames[call.tool] || humanField(call.tool)}</strong><SourceLinks refs={call.result.provenance} /></div>)}</details> : null}
     {answer.evidenceRefs.length ? <details className="agency-source-details"><summary>Sources · {answer.evidenceRefs.length}</summary><SourceLinks refs={answer.evidenceRefs} /></details> : null}
-    <footer className="agency-answer-footer">As of {timeLabel(answer.generatedAt)}</footer>
+    <footer className="agency-answer-footer">As of {new Date(answer.generatedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</footer>
   </section>
 }

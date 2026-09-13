@@ -87,6 +87,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
     if (busy) return
     try {
       const result = await apiJson<{ entries: NotebookEntry[] }>(endpoint, { method: 'POST', body: JSON.stringify({ action: 'notebook-entry', id }) })
+      if (navigate || mode === 'ask') { onLocate([], []); const last = result.entries.at(-1)?.answer.trace.filter((call) => call.result.ok).at(-1)?.result; if (last) onResult(last) }
       setTurns(result.entries); setParentId(id); setAnswer(null); setAsked(''); setActivities([]); setNotebookOpen(false); if (navigate) setMode('ask')
       sessionStorage.setItem(`agency-entry-${projectId}`, String(id))
       if (navigate) requestAnimationFrame(() => document.querySelector('.agency-turn:last-of-type')?.scrollIntoView({ block: 'start' }))
@@ -108,7 +109,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   async function ask(nextQuestion = question) {
     if (busy || !nextQuestion.trim()) return
     if (!state?.provider.available) { document.querySelector<HTMLButtonElement>('.agency-ai-connection button[aria-expanded="false"]')?.click(); return }
-    setAsked(nextQuestion); setQuestion(''); setBusy(true); setAnswer(null); setActivities([]); setError('')
+    onLocate([], []); setAsked(nextQuestion); setQuestion(''); setBusy(true); setAnswer(null); setActivities([]); setError('')
     requestAnimationFrame(() => document.querySelector('.agency-pending-question')?.scrollIntoView({ block: 'start' }))
     const controller = new AbortController(); abortRef.current = controller
     try {
@@ -123,7 +124,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   }
 
   async function runSkill(skill: AgencySkill, inputs: Record<string, unknown>) {
-    setTurns([]); setParentId(null); setBusy(true); setError(''); setActivities([]); setAsked(skill.name); setMode('ask'); setNotebookOpen(false); setAnswer(null)
+    onLocate([], []); setTurns([]); setParentId(null); setBusy(true); setError(''); setActivities([]); setAsked(skill.name); setMode('ask'); setNotebookOpen(false); setAnswer(null)
     requestAnimationFrame(() => document.querySelector('.agency-pending-question')?.scrollIntoView({ block: 'start' }))
     const controller = new AbortController(); abortRef.current = controller
     try {
@@ -141,7 +142,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   function selectEvent(event: OperationalEvent, historical = true) {
     setSelectedEvent(event); setHistoricalEvent(historical)
     setMode('live')
-    setRouteFilter(event.routeId || ''); setEventFilter(event.type)
+    if (!historical) { setRouteFilter(event.routeId || ''); setEventFilter(event.type) }
     requestAnimationFrame(() => document.querySelector('.agency-scroll')?.scrollTo({ top: 0 }))
     locate(event.routeIds ?? (event.routeId ? [event.routeId] : []), event.stopId ? [event.stopId] : event.stopIds ?? [], event.stopCoordinate ? { coordinate: event.stopCoordinate, label: event.stopName || 'Reference stop' } : undefined)
   }
@@ -178,9 +179,9 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
           <AgencyProviderSettings endpoint={endpoint} provider={state.provider} onChange={() => void refresh()} />
 
           {notebookOpen ? <AgencyNotebook endpoint={endpoint} onOpen={(id) => void openEntry(id)} onBack={() => setNotebookOpen(false)} /> : <>
-          <div className="agency-conversation-toolbar"><button className="agency-text-button" onClick={() => setNotebookOpen(true)} disabled={busy}><History size={14} /> Saved work</button><button className="agency-text-button" disabled={busy} onClick={() => { setTurns([]); setParentId(null); setAnswer(null); setAsked(''); setActivities([]); sessionStorage.removeItem(`agency-entry-${projectId}`) }}><Plus size={14} /> New conversation</button></div>
+          <div className="agency-conversation-toolbar"><button className="agency-text-button" onClick={() => setNotebookOpen(true)} disabled={busy}><History size={14} /> Saved work</button><button className="agency-text-button" disabled={busy} onClick={() => { onLocate([], []); setTurns([]); setParentId(null); setAnswer(null); setAsked(''); setActivities([]); sessionStorage.removeItem(`agency-entry-${projectId}`) }}><Plus size={14} /> New conversation</button></div>
           {!turns.length && !answer && !busy ? <div className="agency-suggestions">{['Which routes have the widest departure intervals?', 'Summarize network health and data freshness.', 'What service runs after 22:00 today?'].map((suggestion) => <button key={suggestion} onClick={() => { setQuestion(suggestion); document.getElementById('agency-question')?.focus() }}>{suggestion}<ArrowRight size={14} /></button>)}</div> : null}
-          {turns.map((entry) => <article className="agency-turn" key={entry.id}><div className="agency-question-echo">{entry.title}</div><AgencyActivity activities={entry.activities} busy={false} trace={entry.answer.trace} /><AgencyAnswer answer={entry.answer} onResult={onResult} onSelectEvent={selectEvent} /><>{entry.notes ? <p className="agency-saved-note"><strong>Note</strong>{entry.notes.length > 300 ? `${entry.notes.slice(0, 300)}…` : entry.notes}</p> : null}<AgencyNoteEditor endpoint={endpoint} entry={entry} /></></article>)}
+          {turns.map((entry) => <article className="agency-turn" key={entry.id}><div className="agency-question-echo">{entry.title}</div><AgencyActivity activities={entry.activities} busy={false} trace={entry.answer.trace} /><AgencyAnswer answer={entry.answer} onResult={onResult} onSelectEvent={selectEvent} /><>{entry.notes ? <p className="agency-saved-note"><strong>Note</strong>{entry.notes.length > 300 ? `${entry.notes.slice(0, 300)}…` : entry.notes}</p> : null}<AgencyNoteEditor endpoint={endpoint} entry={entry} onSave={(notes) => setTurns((items) => items.map((item) => item.id === entry.id ? { ...item, notes } : item))} /></></article>)}
           {busy || answer ? <div className="agency-question-echo agency-pending-question">{asked}</div> : null}
           <AgencyActivity activities={activities} busy={busy} trace={answer?.trace ?? []} />
           {answer ? <AgencyAnswer answer={answer} onResult={onResult} onSelectEvent={selectEvent} /> : null}
