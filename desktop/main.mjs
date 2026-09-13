@@ -14,6 +14,9 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+app.setName('VIGO Agency')
+app.setPath('userData', path.join(app.getPath('appData'), 'VIGO Agency'))
+
 const studioScheme = 'vigo'
 const studioOrigin = `${studioScheme}://studio`
 const requestTimeoutMs = 15 * 60 * 1_000
@@ -177,7 +180,7 @@ function startEngine() {
     failPendingRequests(error)
     engine = null
     if (!quitting) {
-      dialog.showErrorBox('VIGO Engine stopped', 'Close and reopen VIGO Studio to restart the engine.')
+      dialog.showErrorBox('VIGO Engine stopped', 'Close and reopen VIGO Agency to restart the engine.')
       app.quit()
     }
   })
@@ -303,7 +306,7 @@ function installDesktopBridge() {
       const appearance = message.appearance === 'dark' ? 'dark' : 'light'
       nativeTheme.themeSource = appearance
       if (mainWindow && typeof message.title === 'string') {
-        mainWindow.setTitle(message.title.trim() || 'VIGO Studio')
+        mainWindow.setTitle(message.title.trim() || 'VIGO Agency')
       }
       return
     }
@@ -317,7 +320,7 @@ function installMenu() {
   const sendCommand = (command) => sendDesktopEvent('command', { command })
   const template = [
     {
-      label: 'VIGO Studio',
+      label: 'VIGO Agency',
       submenu: [
         { role: 'about' },
         { type: 'separator' },
@@ -369,7 +372,7 @@ function createWindow() {
     minWidth: 1180,
     minHeight: 760,
     show: false,
-    title: 'VIGO Studio',
+    title: 'VIGO Agency',
     icon: studioIconPath,
     ...(process.platform === 'darwin' ? {
       titleBarStyle: 'hiddenInset',
@@ -442,14 +445,14 @@ app.on('second-instance', () => {
 app.on('window-all-closed', () => app.quit())
 app.on('before-quit', () => {
   quitting = true
-  failPendingRequests(new Error('VIGO Studio is closing.'))
+  failPendingRequests(new Error('VIGO Agency is closing.'))
   engine?.kill()
   engine = null
 })
 
 if (hasSingleInstance) {
   app.whenReady().then(startStudio).catch((error) => {
-    dialog.showErrorBox('Unable to open VIGO Studio', error instanceof Error ? error.message : String(error))
+    dialog.showErrorBox('Unable to open VIGO Agency', error instanceof Error ? error.message : String(error))
     app.quit()
   })
 }

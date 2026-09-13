@@ -54,9 +54,9 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
       throw error
     }
   }
-  async function completeWith(connection, messages, tools, signal) {
+  async function completeWith(connection, messages, tools, signal, options = {}) {
     if (!connection.baseUrl || !connection.model) throw new Error('Connect an AI provider in Ask to use natural-language queries.')
-    const result = await request(connection, '/chat/completions', { model: connection.model, messages, ...(tools?.length ? { tools: tools.map((tool) => ({ type: 'function', function: tool })), tool_choice: 'auto' } : {}), max_completion_tokens: 1800, ...(connection.reasoningEffort ? { reasoning_effort: connection.reasoningEffort } : {}) }, signal)
+    const result = await request(connection, '/chat/completions', { model: connection.model, messages, ...(tools?.length ? { tools: tools.map((tool) => ({ type: 'function', function: tool })), tool_choice: options.toolChoice || 'auto' } : {}), max_completion_tokens: options.maxTokens || 1800, ...(connection.reasoningEffort ? { reasoning_effort: connection.reasoningEffort } : {}) }, signal)
     const message = result.choices?.[0]?.message
     if (!message || typeof message !== 'object') throw new Error('AI provider returned no response message.')
     return message
@@ -81,6 +81,6 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
       return this.status()
     },
     disconnect() { config = { baseUrl: '', model: '', key: '' }; source = 'session'; testedAt = null; return this.status() },
-    complete(messages, tools, signal) { return completeWith({ ...config }, messages, tools, signal) },
+    complete(messages, tools, signal, options) { return completeWith({ ...config }, messages, tools, signal, options) },
   }
 }

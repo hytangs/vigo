@@ -1,0 +1,29 @@
+{
+  "id": "service-supply-profile",
+  "name": "Scheduled service profile",
+  "description": "Measure scheduled trip starts by hour for a service date. Export the table and exact method for a paper, memo, or replication notebook.",
+  "inputs": [
+    {
+      "key": "serviceDate",
+      "label": "Service date",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "routeId",
+      "label": "Route (optional)",
+      "type": "route",
+      "required": false
+    }
+  ],
+  "steps": [
+    {
+      "tool": "service_profile",
+      "label": "Apply the service calendar and count trip starts",
+      "arguments": {
+        "serviceDate": "$input.serviceDate",
+        "routeId": "$input.routeId"
+      }
+    }
+  ]
+}

@@ -29,14 +29,14 @@ function DelayHistory({ points }: { points: Array<{ at: string; delaySeconds: nu
   const low = Math.min(0, ...points.map((point) => point.delaySeconds))
   const high = Math.max(1, ...points.map((point) => point.delaySeconds))
   const line = points.map((point) => `${8 + (Date.parse(point.at) - first) / width * 304},${64 - (point.delaySeconds - low) / (high - low) * 52}`).join(' ')
-  return <figure className="agency-history-chart"><figcaption>Recent departure delay · {points.length} observations</figcaption><svg viewBox="0 0 320 76" role="img" aria-label={`Delay changed from ${minutes(points[0].delaySeconds)} to ${minutes(points.at(-1)!.delaySeconds)}`}><path d="M8 64H312" className="agency-chart-axis" /><polyline points={line} fill="none" className="agency-chart-line" /></svg><div><span>{minutes(points[0].delaySeconds)}</span><span>{minutes(points.at(-1)!.delaySeconds)}</span></div></figure>
+  return <figure className="agency-history-chart"><figcaption>Trip’s next departure · delay history · {points.length} observations</figcaption><svg viewBox="0 0 320 76" role="img" aria-label={`Delay changed from ${minutes(points[0].delaySeconds)} to ${minutes(points.at(-1)!.delaySeconds)}`}><path d="M8 64H312" className="agency-chart-axis" /><polyline points={line} fill="none" className="agency-chart-line" /></svg><div><span>{minutes(points[0].delaySeconds)}</span><span>{minutes(points.at(-1)!.delaySeconds)}</span></div></figure>
 }
 
 export function SourceLinks({ refs }: { refs: string[] }) {
   return <ul className="agency-sources">{refs.map((ref) => <li key={ref}>{/^https?:\/\//i.test(ref) ? <a href={ref} target="_blank" rel="noreferrer">{ref}</a> : <code>{ref}</code>}</li>)}</ul>
 }
 
-export function AgencyEvidence({ event, state, projectId, onBack, onLocate }: { event: OperationalEvent; state: AgencyState; projectId: string; onBack: () => void; onLocate: () => void }) {
+export function AgencyEvidence({ historical = false, event, state, projectId, onBack, onLocate }: { historical?: boolean; event: OperationalEvent; state: AgencyState; projectId: string; onBack: () => void; onLocate: () => void }) {
   const [channel, setChannel] = useState<RiderDraft['channel']>('app')
   const [draft, setDraft] = useState<RiderDraft | null>(null)
   const [busy, setBusy] = useState(false)
@@ -53,10 +53,11 @@ export function AgencyEvidence({ event, state, projectId, onBack, onLocate }: { 
     finally { setBusy(false) }
   }
   return <section className="agency-evidence" aria-label="Operational evidence">
-    <button className="agency-text-button" onClick={onBack}><ArrowLeft size={15} /> All observations</button>
+    <button className="agency-text-button" onClick={onBack}><ArrowLeft size={15} /> {historical ? 'Back to conversation' : 'All observations'}</button>
     <div className="agency-section-label"><Radio size={13} /> Operational evidence <span>{event.severity}</span></div>
     <h2>{event.title}</h2>
-    <div className="agency-evidence-context">{route ? <span className="agency-route-label" style={{ '--line-color': route.color } as React.CSSProperties}>{route.name}</span> : null}<span>{event.stopId ? state.stopNames?.[event.stopId] || shortId(event.stopId) : 'Network observation'}</span>{event.directionId != null ? <span>Direction {event.directionId}</span> : null}</div>
+    <div className="agency-evidence-context">{route ? <span className="agency-route-label" style={{ '--line-color': route.color } as React.CSSProperties}>{route.name}</span> : null}<span>{event.stopId ? event.stopName || state.stopNames?.[event.stopId] || shortId(event.stopId) : 'Network observation'}</span>{event.directionId != null ? <span>Direction {event.directionId}</span> : null}</div>
+    {historical ? <p className="agency-caption">Saved evidence · values remain as they were when this answer was created.</p> : null}
     {!stillCurrent ? <div className="agency-notice">This event is no longer among the current observations. Its retained evidence is shown below.</div> : null}
     <EvidenceComparison event={event} />
     {event.evidence.alertDescription ? <p className="agency-alert-description">{event.evidence.alertDescription}</p> : null}
@@ -72,11 +73,11 @@ export function AgencyEvidence({ event, state, projectId, onBack, onLocate }: { 
       {event.evidence.feedAgeSeconds != null ? <div><dt>Source age</dt><dd>{Math.round(event.evidence.feedAgeSeconds)} seconds</dd></div> : null}
     </dl>
     {event.evidence.reason ? <p className="agency-caption">{event.evidence.reason}</p> : null}
-    {event.tripId ? <DelayHistory points={state.tripHistory[event.tripId] ?? []} /> : null}
-    <div className="agency-evidence-actions"><button className="agency-button" onClick={onLocate}><MapPin size={14} /> Locate on map</button><button className="agency-button is-primary" onClick={() => void generate()} disabled={busy || !stillCurrent}><FileText size={14} />{busy ? 'Preparing draft…' : 'Draft rider information'}<ChevronRight size={14} /></button></div>
-    <fieldset className="agency-channel-picker"><legend>Communication channel</legend>{(['app', 'signage', 'service-alert', 'social'] as const).map((item) => <label key={item}><input type="radio" name="draft-channel" checked={channel === item} onChange={() => { setChannel(item); setDraft(null) }} />{item === 'service-alert' ? 'Service alert' : item === 'app' ? 'Agency app' : item === 'signage' ? 'Digital sign' : 'Social'}</label>)}</fieldset>
+    {!historical && event.tripId ? <DelayHistory points={state.tripHistory[event.tripId] ?? []} /> : null}
+    <div className="agency-evidence-actions"><button className="agency-button" onClick={onLocate}><MapPin size={14} /> Locate on map</button>{!historical ? <button className="agency-button is-primary" onClick={() => void generate()} disabled={busy || !stillCurrent}><FileText size={14} />{busy ? 'Preparing draft…' : 'Draft rider information'}<ChevronRight size={14} /></button> : null}</div>
+    {!historical ? <fieldset className="agency-channel-picker"><legend>Communication channel</legend>{(['app', 'signage', 'service-alert', 'social'] as const).map((item) => <label key={item}><input type="radio" name="draft-channel" checked={channel === item} onChange={() => { setChannel(item); setDraft(null) }} />{item === 'service-alert' ? 'Service alert' : item === 'app' ? 'Agency app' : item === 'signage' ? 'Digital sign' : 'Social'}</label>)}</fieldset> : null}
     {error ? <p role="alert" className="agency-error">{error}</p> : null}
-    {draft ? <section className={`agency-draft is-${draft.channel}`} data-channel={draft.channel} aria-label="Rider information draft"><div className="agency-draft-label"><span>Draft · Human review required</span><button className="agency-icon-button" aria-label="Close draft" onClick={() => setDraft(null)}><X size={14} /></button></div><h3>{draft.headline}</h3><p>{draft.body}</p><p className="agency-caption">{draft.recommendedAction}</p><footer><span>{draft.generatedBy === 'model' ? 'AI arranged verified sentences' : 'Verified sentence template'}</span><button className="agency-text-button" onClick={() => void navigator.clipboard.writeText(`DRAFT · HUMAN REVIEW REQUIRED\n${draft.headline}\n\n${draft.body}\n\n${draft.recommendedAction}`).then(() => setCopied(true)).catch(() => setError('Clipboard unavailable. Select and copy the draft text.'))}>{copied ? <Check size={14} /> : <Clipboard size={14} />}{copied ? 'Copied' : 'Copy draft'}</button></footer></section> : null}
+    {draft ? <section className={`agency-draft is-${draft.channel}`} data-channel={draft.channel} aria-label="Rider information draft"><div className="agency-draft-label"><span>Draft · Human review required</span><button className="agency-icon-button" aria-label="Close draft" onClick={() => setDraft(null)}><X size={14} /></button></div><h3>{draft.headline}</h3><p>{draft.body}</p><p className="agency-caption">{draft.recommendedAction}</p><footer><span>{draft.generatedBy === 'model' ? 'AI-assisted draft' : 'Draft from source evidence'}</span><button className="agency-text-button" onClick={() => void navigator.clipboard.writeText(`DRAFT · HUMAN REVIEW REQUIRED\n${draft.headline}\n\n${draft.body}\n\n${draft.recommendedAction}`).then(() => setCopied(true)).catch(() => setError('Clipboard unavailable. Select and copy the draft text.'))}>{copied ? <Check size={14} /> : <Clipboard size={14} />}{copied ? 'Copied' : 'Copy draft'}</button></footer></section> : null}
     <details className="agency-source-details" open><summary>Sources · {event.sourceRefs.length}</summary><SourceLinks refs={event.sourceRefs} /></details>
   </section>
 }

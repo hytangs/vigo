@@ -45,8 +45,8 @@ await Promise.all([
 ])
 
 await writeFile(path.join(applicationRoot, 'package.json'), `${JSON.stringify({
-  name: 'vigo-studio',
-  productName: 'VIGO Studio',
+  name: 'vigo-agency',
+  productName: 'VIGO Agency',
   author: 'VIGO contributors',
   version: packageJson.version,
   private: true,
@@ -58,7 +58,7 @@ await bundleEngine()
 await mkdir(releaseRoot, { recursive: true })
 const applicationPaths = await packager({
   dir: applicationRoot,
-  name: 'VIGO Studio',
+  name: 'VIGO Agency',
   platform: process.platform,
   arch: process.arch,
   out: releaseRoot,
@@ -67,14 +67,14 @@ const applicationPaths = await packager({
   asar: false,
   electronVersion,
   icon: path.join(repositoryRoot, 'desktop', 'assets', process.platform === 'darwin' ? 'VIGO.icns' : process.platform === 'win32' ? 'VIGO.ico' : 'VIGOIcon.png'),
-  appBundleId: 'app.vigo.studio',
+  appBundleId: 'app.vigo.agency',
   appCategoryType: 'public.app-category.productivity',
   appVersion: packageJson.version,
   buildVersion: packageJson.version,
   extendInfo: {
-    CFBundleDisplayName: 'VIGO Studio',
+    CFBundleDisplayName: 'VIGO Agency',
     LSMinimumSystemVersion: '13.5',
-    NSDocumentsFolderUsageDescription: 'VIGO Studio reads and updates the City folders you choose.',
+    NSDocumentsFolderUsageDescription: 'VIGO Agency reads and updates the City folders you choose.',
   },
 })
 
@@ -90,7 +90,7 @@ if (process.platform === 'darwin') {
 const bytes = await directoryBytes(packaged.application)
 console.log(JSON.stringify({
   status: 'packaged',
-  product: 'VIGO Studio',
+  product: 'VIGO Agency',
   version: packageJson.version,
   electron: electronVersion,
   architecture: process.arch,
@@ -112,6 +112,9 @@ async function bundleEngine() {
 
   await bundle(path.join(repositoryRoot, 'src', 'server', 'vigo-api.mjs'), [
     '--file', path.join(serverRoot, 'vigo-api.mjs'),
+  ])
+  await bundle(path.join(repositoryRoot, 'src', 'server', 'agency-sql-worker.mjs'), [
+    '--file', path.join(serverRoot, 'agency-sql-worker.mjs'),
   ])
   await bundle(path.join(repositoryRoot, 'src', 'server', 'national-gtfs-worker.mjs'), [
     '--file', path.join(serverRoot, 'national-gtfs-worker.mjs'),

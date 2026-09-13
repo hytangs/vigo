@@ -31,9 +31,10 @@ assert.equal(failed.feeds[0].error, 'Fixture failure')
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agency-snapshot-'))
 const file = path.join(directory, 'schedule.sqlite')
 createAgencyFixture(file)
+const sourceSnapshot = realtimeFixture()
 let calls = 0
 let now = observationTime * 1000
-const agency = createAgencyService({ context: async () => ({ storePath: file, cityName: 'City X' }), inspectRealtime: async () => { calls++; return realtimeFixture() } }, { clock: () => now, provider: { available: false, model: null }, refreshMs: 60_000 })
+const agency = createAgencyService({ context: async () => ({ storePath: file, cityName: 'City X' }), inspectRealtime: async () => { calls++; return sourceSnapshot } }, { clock: () => now, provider: { available: false, model: null }, refreshMs: 60_000 })
 try {
   const request = { urls: { tripUpdates: 'https://example.org/feed' } }
   await agency.connect('city', request)
@@ -43,7 +44,18 @@ try {
   const result = await agency.handle('city', { action: 'tool', name: 'realtime_status' })
   assert.equal(live.observedAt, result.data.observedAt)
   const skill = await agency.handle('city', { action: 'run-skill', id: 'network-health-summary' })
-  assert.equal(skill.results[1].result.generatedAt, live.generatedAt)
+  assert.equal(skill.trace[1].result.generatedAt, live.generatedAt)
+  assert.match(skill.answer, /City X has/)
+  sourceSnapshot.alerts = Array.from({ length: 600 }, (_, index) => ({ id: `network-${index}`, severity: 'SEVERE', header: 'Network notice', sourceUrl: sourceSnapshot.feeds[0].sourceUrl }))
+  sourceSnapshot.tripUpdates[0].stopTimeUpdates[0].departure.delay = 300
+  const capped = await agency.state('city')
+  assert.equal(capped.events.length, 500)
+  assert.equal(capped.events.some((event) => event.type === 'delay'), false)
+  const scoped = await agency.state('city', { routeId: 'R', eventType: 'delay' })
+  assert.equal(scoped.events.length, 1, 'Filter before limiting, so network notices cannot hide a route finding')
+  assert.equal(scoped.events[0].routeId, 'R')
+  await assert.rejects(agency.state('city', { routeId: 'missing' }), /Unknown route/)
+  sourceSnapshot.alerts = []
   now += 181_000
   assert.equal((await agency.state('city')).counts.matchedTrips, 0, 'The same snapshot ages without a new fetch')
   assert.equal(calls, 1)

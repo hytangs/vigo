@@ -26,6 +26,14 @@ try {
   assert.equal(delayed.routes[0].headway, 'unknown')
   const compressed = derive(realtimeFixture([tripUpdate('T1', 300), tripUpdate('T2')]))
   assert.equal(compressed.events.find((event) => event.type === 'bunching').evidence.headwayRatio, 0.5)
+  const late = realtimeFixture([tripUpdate('T1', 300), tripUpdate('T2')])
+  const laterClock = observationTime + 360
+  late.feeds[0].feedTimestamp = laterClock
+  late.tripUpdates.forEach((update) => { update.timestamp = laterClock })
+  assert.equal(deriveOperationalState(context, late, laterClock).events.find((event) => event.type === 'bunching').evidence.observedHeadwaySeconds, 300, 'Keep a late departure whose scheduled time has already passed')
+  const duplicateStop = tripUpdate('T1', 300)
+  duplicateStop.stopTimeUpdates.push({ ...duplicateStop.stopTimeUpdates[0], departure: { delay: 900 } })
+  assert.equal(derive(realtimeFixture([duplicateStop])).events.length, 0, 'Conflicting stop predictions stay unknown')
   const wider = derive(realtimeFixture([tripUpdate('T1'), tripUpdate('T2', 600)]))
   const gap = wider.events.find((event) => event.type === 'service-gap')
   assert.equal(gap.evidence.observedHeadwaySeconds, 1200)
@@ -34,6 +42,12 @@ try {
   const missing = derive(realtimeFixture([tripUpdate('T1'), tripUpdate('T3', 600)]))
   assert.equal(missing.events.some((event) => event.type === 'service-gap'), false)
   assert.equal(missing.routes[0].headway, 'unknown')
+  const duplicate = derive(realtimeFixture([tripUpdate('T1', 300), tripUpdate('T1', 600)]))
+  assert.equal(duplicate.counts.unresolvedTrips, 2)
+  assert.equal(duplicate.events.length, 0)
+  assert.equal(context.matchTrip(tripUpdate('T1', 0, { directionId: 1 }), '2026-09-13').trip, undefined)
+  assert.equal(context.matchTrip(tripUpdate('T1', 0, { startDate: '20260231' }), '2026-09-13').trip, undefined)
+  assert.throws(() => serviceEpoch('2026-02-31', 'Etc/UTC'), /Invalid/)
   const cancelled = derive(realtimeFixture([tripUpdate('T1', 0, { scheduleRelationship: 'CANCELED' })]))
   assert.equal(cancelled.events[0].type, 'cancellation')
   const skipped = derive(realtimeFixture([tripUpdate('T1', 0, { stopTimeUpdates: [{ stopId: 'B', stopSequence: 30, scheduleRelationship: 'SKIPPED' }] })]))
@@ -57,8 +71,19 @@ try {
   const alert = realtimeFixture()
   alert.alerts.push({ id: 'alert', sourceUrl, severity: 'SEVERE', header: 'River stop closed', routeIds: ['R'], stopIds: ['A'], activePeriods: [{ start: observationTime - 60, end: observationTime + 60 }] })
   assert.equal(derive(alert).events[0].severity, 'critical')
+  context.routes.push({ ...context.routes[0], route_id: 'second\u001fR' })
+  const ambiguousAlert = derive(alert).events.find((event) => event.type === 'service-alert')
+  assert.deepEqual(ambiguousAlert.routeIds, [])
+  alert.alerts[0].sourceScope = 'second'
+  assert.deepEqual(derive(alert).events.find((event) => event.type === 'service-alert').routeIds, ['second\u001fR'])
+  delete alert.alerts[0].sourceScope
+  context.routes.pop()
   alert.alerts[0].activePeriods[0].end = observationTime
   assert.equal(derive(alert).counts.alerts, 0)
+  const station = { stop_id: 'STA', name: 'River Station', lat: 42.36, lon: -71.06, location_type: 1 }
+  context.stops.push(station); context.stopIndex.set('STA', station); context.stopIndex.get('A').parent_station = 'STA'
+  assert.equal(context.resolve({ query: 'River', kind: 'stop' }).matches[0].id, 'STA', 'Use the declared parent station for place names')
+  assert.equal(context.resolve({ query: 'A', kind: 'stop' }).matches[0].id, 'A', 'An explicit platform ID retains its identity')
   const history = createObservationHistory()
   assert.equal(history.update(delayed).tripHistory.T1.length, 1)
   assert.equal(history.update(delayed).tripHistory.T1.length, 1)

@@ -44,10 +44,11 @@ export async function gtfsQuery(storePath, { sql, limit = 100 }, { signal, timeo
   // SQLite synchronous execution cannot be interrupted by a JS timer. A small,
   // fixed read-only worker process can be killed even inside sqlite3_step.
   // Routing never uses this process; it uses Studio's native module adapters.
-  const worker = fork(fileURLToPath(new URL('../server/agency-sql-worker.mjs', import.meta.url)), [], {
+  let worker
+  try { worker = fork(fileURLToPath(new URL('../server/agency-sql-worker.mjs', import.meta.url)), [], {
     execArgv: [], stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
     env: { PATH: process.env.PATH, ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot } : {}), ELECTRON_RUN_AS_NODE: '1' },
-  })
+  }) } catch (error) { activeQueries--; throw error }
   return new Promise((resolve, reject) => {
     let result
     let failure
@@ -57,7 +58,7 @@ export async function gtfsQuery(storePath, { sql, limit = 100 }, { signal, timeo
     signal?.addEventListener('abort', abort, { once: true })
     worker.once('message', (message) => { result = message })
     worker.once('error', (error) => { failure = error })
-    worker.once('exit', () => {
+    worker.once('close', () => {
       clearTimeout(timer)
       signal?.removeEventListener('abort', abort)
       activeQueries--
@@ -65,6 +66,6 @@ export async function gtfsQuery(storePath, { sql, limit = 100 }, { signal, timeo
       else if (result?.ok) resolve(result.data)
       else reject(new Error(result?.error || 'SQL worker exited without a result.'))
     })
-    worker.send({ storePath, sql, limit })
+    worker.send({ storePath, sql, limit }, (error) => { if (error) { failure = error; worker.kill('SIGKILL') } })
   })
 }

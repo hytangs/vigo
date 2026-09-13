@@ -64,14 +64,16 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       continue
     }
     const predictions = []
-    const duplicateSequences = new Set()
-    for (const stopUpdate of update.stopTimeUpdates ?? []) {
+    const sequenceCounts = new Map()
+    const resolvedStops = (update.stopTimeUpdates ?? []).map((stopUpdate) => {
       const candidates = departures.filter((row) => (stopUpdate.stopSequence === undefined || row.stop_sequence === stopUpdate.stopSequence)
-        && (!stopUpdate.stopId || rawId(row.from_stop_id) === rawId(stopUpdate.stopId)))
-      if (candidates.length !== 1 || stopUpdate.stopSequence === undefined && !stopUpdate.stopId) continue
-      const row = candidates[0]
-      if (duplicateSequences.has(row.stop_sequence)) continue
-      duplicateSequences.add(row.stop_sequence)
+        && (!stopUpdate.stopId || (String(stopUpdate.stopId).includes('\u001f') ? row.from_stop_id === stopUpdate.stopId : rawId(row.from_stop_id) === rawId(stopUpdate.stopId))))
+      const row = candidates.length === 1 && (stopUpdate.stopSequence !== undefined || stopUpdate.stopId) ? candidates[0] : null
+      if (row) sequenceCounts.set(row.stop_sequence, (sequenceCounts.get(row.stop_sequence) ?? 0) + 1)
+      return { stopUpdate, row }
+    })
+    for (const { stopUpdate, row } of resolvedStops) {
+      if (!row || sequenceCounts.get(row.stop_sequence) !== 1) continue
       if (stopUpdate.scheduleRelationship === 'SKIPPED') {
         if (epoch + row.departure < nowSeconds - policy.freshnessSeconds || epoch + row.departure > nowSeconds + policy.windowMinutes * 60) continue
         add('skipped-stop', [...identity, row.stop_sequence], { ...base, stopId: row.from_stop_id, title: 'Scheduled stop skipped', severity: 'warning', evidence: { scheduledTime: epoch + row.departure, reason: 'StopTimeUpdate: SKIPPED' } })
@@ -83,7 +85,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       if (predictedTime === null) continue // Arrival predictions never stand in for departures.
       const prediction = { tripId: trip.trip_id, sequence: row.stop_sequence, stopId: row.from_stop_id, scheduledTime: epoch + row.departure, predictedTime, delaySeconds: predictedTime - epoch - row.departure, sourceRef: ref, observedAt: base.observedAt }
       predictions.push(prediction)
-      if (prediction.scheduledTime < nowSeconds || prediction.scheduledTime > nowSeconds + policy.windowMinutes * 60) continue
+      if (prediction.predictedTime < nowSeconds || prediction.predictedTime > nowSeconds + policy.windowMinutes * 60) continue
       const key = eventId(trip.route_id, trip.direction_id, row.from_stop_id, serviceDate)
       if (!groups.has(key)) groups.set(key, { trip, stopId: row.from_stop_id, serviceDate, epoch, predictions: [] })
       groups.get(key).predictions.push(prediction)
@@ -101,7 +103,9 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
   for (const [key, group] of groups) {
     const { trip, stopId, serviceDate, epoch } = group
     const ordered = group.predictions.sort((a, b) => a.predictedTime - b.predictedTime || a.tripId.localeCompare(b.tripId))
-    const allExpected = context.expectedDepartures(trip, stopId, serviceDate, nowSeconds - epoch, nowSeconds + policy.windowMinutes * 60 - epoch)
+    const firstScheduled = ordered.reduce((time, row) => Math.min(time, row.scheduledTime), nowSeconds)
+    const lastScheduled = ordered.reduce((time, row) => Math.max(time, row.scheduledTime), nowSeconds + policy.windowMinutes * 60)
+    const allExpected = context.expectedDepartures(trip, stopId, serviceDate, firstScheduled - epoch, lastScheduled - epoch)
     const reporting = new Set(ordered.map((row) => `${row.tripId}/${row.sequence}`))
     const completeWindow = allExpected.length >= 2 && allExpected.every((row) => reporting.has(`${row.trip_id}/${row.stop_sequence}`))
     for (let index = 1; index < ordered.length; index++) {
@@ -155,16 +159,16 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
     evidence: { ...(finite(vehicle.timestamp) ? { feedAgeSeconds: nowSeconds - vehicle.timestamp } : {}), reason: 'VehiclePosition timestamp is evaluated independently of the feed header.' }, sourceRefs: [`${vehicle.sourceUrl}#vehicle=${encodeURIComponent(vehicle.id)}`],
   })
   for (const event of events) for (const routeId of event.routeIds ?? (event.routeId ? [event.routeId] : [])) if (routes.has(routeId)) routes.get(routeId).events++
-  for (const event of events) { event.routeName = routes.get(event.routeId)?.name; event.stopName = context.stopIndex.get(event.stopId)?.name }
+  for (const event of events) { const stop = context.stopIndex.get(event.stopId); event.routeName = routes.get(event.routeId)?.name; event.stopName = stop?.name; if (stop) event.stopCoordinate = [stop.lon, stop.lat] }
   events.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || (b.evidence.delaySeconds ?? 0) - (a.evidence.delaySeconds ?? 0) || a.id.localeCompare(b.id))
   return { generatedAt, observedAt: snapshot?.fetchedAt ?? null, cityName: context.cityName, connected: Boolean(snapshot), coverage,
     counts: { routes: routes.size, stops: context.stops.length, vehicles: (snapshot?.vehicles ?? []).filter((vehicle) => recordFresh(vehicle) && finite(vehicle.timestamp)).length, trips: trips.length, matchedTrips: trips.filter((trip) => trip.status !== 'unresolved').length, unresolvedTrips: trips.filter((trip) => trip.status === 'unresolved').length, alerts: activeAlerts },
     feeds, routes: [...routes.values()], events, trips, warnings, policy }
 }
 
-export function createObservationHistory(policy = defaultPolicy) {
-  const events = new Map()
-  const trips = new Map()
+export function createObservationHistory(policy = defaultPolicy, retained = {}) {
+  const events = new Map((retained.history ?? []).map((event) => [event.id, event]))
+  const trips = new Map(Object.entries(retained.tripHistory ?? {}))
   let lastObservation = null
   return {
     update(state) {
@@ -173,7 +177,9 @@ export function createObservationHistory(policy = defaultPolicy) {
         for (const event of state.events) events.set(event.id, event)
         for (const trip of state.trips) if (finite(trip.delaySeconds)) {
           const series = trips.get(trip.tripId) ?? []
-          series.push({ at: state.observedAt, delaySeconds: trip.delaySeconds })
+          const point = { at: trip.observedAt || state.observedAt, delaySeconds: trip.delaySeconds, stopId: trip.nextStopId }
+          if (series.at(-1)?.at === point.at) series[series.length - 1] = point
+          else series.push(point)
           trips.set(trip.tripId, series)
         }
         lastObservation = state.observedAt

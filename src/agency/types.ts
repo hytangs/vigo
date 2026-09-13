@@ -23,6 +23,9 @@ export type OperationalEvent = {
   title: string
   routeId?: string
   routeIds?: string[]
+  routeName?: string
+  stopName?: string
+  stopCoordinate?: [number, number]
   directionId?: string
   tripId?: string
   vehicleId?: string
@@ -72,8 +75,10 @@ export type AgencyState = {
   generatedAt: string
   observedAt: string | null
   cityName: string
+  filteredEventCount?: number
   eventCount?: number
   stopNames?: Record<string, string>
+  stopLocations?: Record<string, { label: string; coordinate: [number, number] }>
   connected: boolean
   provider: ProviderState
   coverage: Coverage
@@ -97,6 +102,11 @@ export type ToolResult = {
 }
 
 export type QueryAnswer = {
+  entryId?: number
+  aiGenerated?: boolean
+  model?: string
+  citations?: number[]
+  report?: { title: string; method: string; inputs: Record<string, unknown>; rows: Record<string, unknown>[] }
   answer: string
   trace: Array<{ tool: string; arguments: Record<string, unknown>; result: ToolResult }>
   evidenceRefs: string[]
@@ -129,6 +139,9 @@ export type AgencySkill = {
   outputType: string
   enabled: boolean
   tools: string[]
+  instructions: string
+  inputs: Array<{ key: string; label: string; type: 'route' | 'date' | 'stop' | 'time' | 'minutes'; required: boolean }>
+  steps: Array<{ tool: string; arguments?: Record<string, unknown>; label?: string }>
 }
 
 export interface ProviderState {

@@ -1952,6 +1952,8 @@ function MapScopeControl({
 }
 
 function RouteSurface({
+  agencyFocus,
+  agencyLocation,
   projectId,
   feed,
   focusedPreview,
@@ -1996,6 +1998,8 @@ function RouteSurface({
   onSelectRoute,
   onSelectStop,
 }: {
+  agencyLocation?: { id: string; label: string; coordinate: [number, number] }
+  agencyFocus: boolean
   projectId: string
   feed: FeedSummary
   focusedPreview: MapPreview
@@ -2131,6 +2135,7 @@ function RouteSurface({
     <section className="route-surface" aria-label="GTFS map and service state" style={routeStyle}>
       <div className="surface-panel route-map-shell">
         <LazyVigoMap
+          focusLocation={agencyFocus ? agencyLocation : undefined}
           projectId={projectId}
           localStreetGraphAvailable={localStreetGraphAvailable}
           preview={mapPreview}
@@ -2169,20 +2174,21 @@ function RouteSurface({
           }}
           onRoutingPoint={onRoutingPoint}
         />
-        {!routingFocus && !analysisFocus ? (
+        {!agencyFocus && !routingFocus && !analysisFocus ? (
           <MapScopeControl
             mapScope={isNetworkMap ? 'network' : 'route'}
             routeFocusAvailable={Boolean(selectedRoute)}
             onMapScopeChange={onMapScopeChange}
           />
         ) : null}
+        {agencyFocus ? <div className="agency-map-context"><div><span>{routingFocus ? 'Journey' : analysisFocus ? 'Reachable area' : isNetworkMap ? 'Live network' : `Route ${selectedRoute?.shortName || selectedRoute?.longName || ''}`}</span><small>{routingFocus || analysisFocus ? 'From your investigation' : realtimeSnapshot ? `${visibleVehicleCount} reported vehicle locations` : 'Connect feeds to see vehicle reports'}</small></div>{!isNetworkMap || routingFocus || analysisFocus ? <button className="agency-button" onClick={() => onMapScopeChange('network')}>All routes</button> : null}</div> : null}
         {cityPreviewLoading ? (
           <div className="surface-loading-overlay" role="status" aria-live="polite">
             <span className="surface-preview-loading" />
             <strong>Loading City…</strong>
           </div>
         ) : null}
-        {!routingFocus && !analysisFocus ? (
+        {!agencyFocus && !routingFocus && !analysisFocus ? (
           <ServiceStateControl
             mode={vehicleMode}
             frame={vehicleFrame}
@@ -2304,6 +2310,7 @@ export default function App() {
   const [analysisOrigin, setAnalysisOrigin] = useState<RoutingPoint | null>(null)
   const [analyzeMode, setAnalyzeMode] = useState<AnalyzeMode>('single')
   const [agencyPlan, setAgencyPlan] = useState<RoutingPlan | null>(null)
+  const [agencyLocation, setAgencyLocation] = useState<{ id: string; label: string; coordinate: [number, number] } | undefined>()
   const [agencyReach, setAgencyReach] = useState<ReachResult | null>(null)
   const [reachResult, setReachResult] = useState<ReachResult | null>(null)
   const [reachComparison, setReachComparison] = useState<ReachComparisonResult[] | null>(null)
@@ -2369,7 +2376,8 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState<GtfsRouteStatusFilter>('all')
   const [page, setPage] = useState<'projects' | 'project'>('projects')
   const [activeFeedId, setActiveFeedId] = useState(bundleFeedId)
-  const [activeRouteTool, setActiveRouteTool] = useState<RouteToolKey>('explore')
+  const [activeRouteTool, setActiveRouteTool] = useState<RouteToolKey>(() => { const saved = sessionStorage.getItem('vigo-agency-view'); return ['explore', 'data', 'pathfinder', 'analyze', 'agency'].includes(saved || '') ? saved as RouteToolKey : 'agency' })
+  useEffect(() => { sessionStorage.setItem('vigo-agency-view', activeRouteTool) }, [activeRouteTool])
   const [dataSection, setDataSection] = useState<DataSection>('feeds')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [agencyMapOpen, setAgencyMapOpen] = useState(false)
@@ -2842,7 +2850,6 @@ export default function App() {
           : ''
       const nextSelectedId = preferredProjectId(nextProjects, currentSelectedId)
       setProjects(nextProjects)
-      setActiveRouteTool('explore')
       applyNetworkMapDefaults()
       setApiError('')
       if (nextSelectedId) {
@@ -3118,7 +3125,7 @@ export default function App() {
     if (selectedProjectId && selectedProjectId !== projectId) clearRealtimeConnection()
     beginCitySelection(projectId)
     setPage('project')
-    setActiveRouteTool('explore')
+    setActiveRouteTool('agency')
     applyNetworkMapDefaults()
   }
 
@@ -4715,11 +4722,11 @@ export default function App() {
     setSidebarCollapsed(false)
   }
 
-  function locateAgencyEntities(routeIds: string[], stopIds: string[]) {
-    setAgencyPlan(null); setAgencyReach(null)
+  function locateAgencyEntities(routeIds: string[], stopIds: string[], location?: { id: string; label: string; coordinate: [number, number] }) {
+    setAgencyPlan(null); setAgencyReach(null); setAgencyLocation(location)
     const route = preview.routes.find((item) => routeIds.includes(item.id) || Boolean(item.routeId && routeIds.includes(item.routeId)))
     if (route || routeIds[0]) { setSelectedRouteId(route?.id ?? routeIds[0]); setMapScope('route'); setRouteRenderMode('service') }
-    if (stopIds[0]) setSelectedStopId(stopIds[0])
+    setSelectedStopId(stopIds[0] || '')
     if (window.innerWidth <= 760) setAgencyMapOpen(true)
   }
 
@@ -5169,6 +5176,8 @@ export default function App() {
       ) : (
       <div className="workbench project-workbench route-investigation-shell">
         <RouteSurface
+          agencyFocus={activeRouteTool === 'agency'}
+          agencyLocation={agencyLocation}
           key={activeRouteTool === 'agency' ? `agency-map-${agencyMapOpen}` : 'studio-map'}
           projectId={selectedProject.id}
           feed={activeFeed}
@@ -5182,12 +5191,12 @@ export default function App() {
           basemap={basemap}
           localStreetGraphAvailable={selectedProject.osmStreetIndex?.status === 'ready'}
           selectedRouteId={selectedRoute?.id ?? ''}
-          selectedStopId={selectedStop?.id ?? ''}
+          selectedStopId={activeRouteTool === 'agency' ? selectedStopId : selectedStop?.id ?? ''}
           realtimeSnapshot={realtimeSnapshot}
           vehicleMode={vehicleMode}
           scheduleTimeMinutes={scheduleTimeMinutes}
           scheduleServiceDate={routingServiceDate}
-          routingEnabled={activeRouteTool === 'agency' ? Boolean(agencyPlan) : routingEnabled}
+          routingEnabled={activeRouteTool === 'agency' ? false : routingEnabled}
           routingOrigin={activeRouteTool === 'agency' ? agencyPlan?.origin ?? null : activeRouteTool === 'analyze' ? analysisOrigin : routingOrigin}
           routingWaypoints={activeRouteTool === 'agency' ? agencyPlan?.waypoints ?? [] : activeRouteTool === 'analyze' ? [] : routingWaypoints}
           routingDestination={activeRouteTool === 'agency' ? agencyPlan?.destination ?? null : activeRouteTool === 'analyze' ? null : routingDestination}
@@ -5206,11 +5215,11 @@ export default function App() {
           onMoveScenarioStop={activeRouteTool === 'analyze' ? moveScenarioStopFromMap : undefined}
           routingActivity={routingActivity}
           cityPreviewLoading={cityPreviewLoading}
-          onMapScopeChange={setMapScope}
+          onMapScopeChange={(scope) => { if (activeRouteTool === 'agency' && scope === 'network') { setAgencyPlan(null); setAgencyReach(null); setSelectedStopId('') } setMapScope(scope) }}
           onVehicleModeChange={changeVehicleMode}
           onScheduleTimeChange={setScheduleTimeMinutes}
           onScheduleServiceDateChange={changeRoutingServiceDate}
-          onRoutingPoint={activeRouteTool === 'analyze' ? analysisPointFromMap : routingPointFromMap}
+          onRoutingPoint={activeRouteTool === 'agency' ? undefined : activeRouteTool === 'analyze' ? analysisPointFromMap : routingPointFromMap}
           onSelectRoute={activeRouteTool === 'agency' ? (id) => locateAgencyEntities([id], []) : selectRoute}
           onSelectStop={activeRouteTool === 'agency' ? (id) => locateAgencyEntities([], [id]) : selectStop}
         />

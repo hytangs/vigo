@@ -72,6 +72,7 @@ export type VigoMapProps = {
   appearance: Appearance
   selectedRouteId: string
   selectedStopId: string
+  focusLocation?: { id: string; label: string; coordinate: LngLat }
   vehicleFrame: ServiceVehicleFrame
   routingEnabled?: boolean
   routingOrigin?: RoutingPoint | null
@@ -2285,6 +2286,7 @@ export function VigoMap({
   appearance,
   selectedRouteId,
   selectedStopId,
+  focusLocation,
   vehicleFrame,
   routingEnabled = false,
   routingOrigin,
@@ -3281,6 +3283,19 @@ export function VigoMap({
       map.getCanvas().style.cursor = ''
     }
   }, [effectiveLayers.routes, effectiveLayers.segments, onRoutingPoint, onSelectRoute, onSelectStop, preview, routingEnabled, scenarioFocus, scenarioPointPicking, selectedRouteId, vehicleFrame])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !focusLocation) return
+    const focus = () => {
+      if (mapRemovedRef.current) return
+      map.easeTo({ center: focusLocation.coordinate, zoom: Math.max(map.getZoom(), 14), duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450 })
+      setLiveSelection({ tone: 'stop', eyebrow: 'Reference stop', title: focusLocation.label, subtitle: 'Selected from Agency evidence', metrics: [] })
+    }
+    if (map.isStyleLoaded()) focus()
+    else map.once('idle', focus)
+    return () => { map.off('idle', focus) }
+  }, [focusLocation])
 
   return (
     <div className={classNames('map-stage', `basemap-${basemap}`)} data-map-state={mapVisualState}>

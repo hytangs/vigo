@@ -4,6 +4,7 @@ const separator = '\u001f'
 export const rawId = (value) => String(value ?? '').split(separator).at(-1)
 export const scopeOf = (value) => String(value ?? '').includes(separator) ? String(value).split(separator)[0] : ''
 export const dateToken = (date) => Number(String(date).replaceAll('-', ''))
+const validDate = (date) => /^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(Date.parse(`${date}T12:00:00Z`)) && new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) === date
 const isoDate = (token) => token ? String(token).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3') : null
 
 export function localDate(epochSeconds, timezone) {
@@ -12,7 +13,7 @@ export function localDate(epochSeconds, timezone) {
 
 // GTFS defines its service clock as noon minus twelve hours, including DST days.
 export function serviceEpoch(serviceDate, timezone) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) throw new Error('Invalid service date.')
+  if (!validDate(serviceDate)) throw new Error('Invalid service date.')
   const noon = Date.parse(`${serviceDate}T12:00:00Z`) / 1000
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, timeZoneName: 'longOffset' }).formatToParts(new Date(noon * 1000))
   const offset = parts.find((part) => part.type === 'timeZoneName')?.value ?? ''
@@ -83,12 +84,12 @@ export class AgencyContext {
 
   matchTrip(record, defaultDate) {
     const serviceDate = record.startDate ? isoDate(record.startDate) : defaultDate
-    if (!serviceDate || !/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) return { reason: 'Missing or invalid service date.' }
+    if (!serviceDate || !validDate(serviceDate)) return { reason: 'Missing or invalid service date.' }
     if (!record.tripId) return { reason: 'No exact trip identity; the indexed connections do not establish an original trip start time.' }
     const candidates = (this.tripIndex.get(rawId(record.tripId)) ?? []).filter((trip) =>
       (!record.sourceScope || scopeOf(trip.trip_id) === record.sourceScope)
       && (!String(record.tripId).includes(separator) || trip.trip_id === record.tripId)
-      && (!record.routeId || rawId(trip.route_id) === rawId(record.routeId))
+      && (!record.routeId || (String(record.routeId).includes(separator) ? trip.route_id === record.routeId : rawId(trip.route_id) === rawId(record.routeId)))
       && (record.directionId === undefined || String(trip.direction_id) === String(record.directionId))
       && this.activeServices(serviceDate).has(trip.service_id))
     if (candidates.length !== 1) return { reason: candidates.length ? 'Trip identity is ambiguous across source scopes.' : 'Trip is absent from active scheduled service.' }
@@ -110,12 +111,24 @@ export class AgencyContext {
   resolve({ query = '', kind = 'all', limit = 12 }) {
     const text = String(query).trim().toLocaleLowerCase()
     if (!text || text.length > 200) throw new Error('Supply an entity name or ID, up to 200 characters.')
+    const stopEntity = (row) => ({ kind: 'stop', id: row.stop_id, name: row.name, lat: row.lat, lon: row.lon, locationType: row.location_type })
+    const exactStops = this.stops.filter((row) => row.stop_id.toLocaleLowerCase() === text || rawId(row.stop_id).toLocaleLowerCase() === text).map(stopEntity)
+    // GTFS parent_station explicitly groups platforms into a station. Name
+    // lookup uses that declared identity, without a nearest-place guess.
+    const places = new Map()
+    for (const row of this.stops) {
+      if (![0, 1].includes(Number(row.location_type ?? 0))) continue
+      const parent = this.stopIndex.get(row.parent_station)
+      const place = parent && Number(parent.location_type) === 1 ? parent : row
+      if (!places.has(place.stop_id)) places.set(place.stop_id, { ...stopEntity(place), aliases: [] })
+      places.get(place.stop_id).aliases.push(row.name.toLocaleLowerCase())
+    }
     const entities = [
       ...(kind === 'all' || kind === 'route' ? this.routes.map((row) => ({ kind: 'route', id: row.route_id, name: row.short_name || row.long_name || rawId(row.route_id), description: row.long_name })) : []),
-      ...(kind === 'all' || kind === 'stop' ? this.stops.map((row) => ({ kind: 'stop', id: row.stop_id, name: row.name, lat: row.lat, lon: row.lon })) : []),
+      ...(kind === 'all' || kind === 'stop' ? exactStops.length ? exactStops : [...places.values()] : []),
     ]
-    const exact = entities.filter((row) => rawId(row.id).toLocaleLowerCase() === text || row.name.toLocaleLowerCase() === text)
+    const exact = entities.filter((row) => row.id.toLocaleLowerCase() === text || rawId(row.id).toLocaleLowerCase() === text || row.name.toLocaleLowerCase() === text || row.aliases?.includes(text))
     const matches = exact.length ? exact : entities.filter((row) => `${row.name} ${row.description ?? ''}`.toLocaleLowerCase().includes(text))
-    return { matches: matches.slice(0, Math.min(30, Math.max(1, Number(limit) || 12))), total: matches.length, method: exact.length ? 'exact' : 'literal substring', ambiguous: matches.length > 1 }
+    return { matches: matches.slice(0, Math.min(30, Math.max(1, Number(limit) || 12))).map(({ aliases, ...entity }) => entity), total: matches.length, method: exact.length ? 'exact' : 'literal substring', ambiguous: matches.length > 1 }
   }
 }

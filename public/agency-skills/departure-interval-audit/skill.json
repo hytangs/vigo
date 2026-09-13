@@ -1,0 +1,40 @@
+{
+  "id": "departure-interval-audit",
+  "name": "Departure interval audit",
+  "description": "Build a paired evidence table of scheduled and predicted departure intervals for one route, with scope and missing-data limits made explicit.",
+  "inputs": [
+    {
+      "key": "routeId",
+      "label": "Route to study",
+      "type": "route",
+      "required": true
+    }
+  ],
+  "steps": [
+    {
+      "tool": "realtime_status",
+      "label": "Measure reporting coverage for the route",
+      "arguments": {
+        "routeId": "$input.routeId"
+      }
+    },
+    {
+      "tool": "anomaly_scan",
+      "label": "Collect wider departure intervals",
+      "arguments": {
+        "routeId": "$input.routeId",
+        "eventType": "service-gap",
+        "sortBy": "headway"
+      }
+    },
+    {
+      "tool": "anomaly_scan",
+      "label": "Collect compressed departure intervals",
+      "arguments": {
+        "routeId": "$input.routeId",
+        "eventType": "bunching",
+        "sortBy": "headway"
+      }
+    }
+  ]
+}

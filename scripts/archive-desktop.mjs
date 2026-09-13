@@ -17,7 +17,7 @@ const appBundle = packaged.application
 const archivePath = packaged.archive
 
 await access(appBundle, constants.R_OK).catch(() => {
-  throw new Error('Missing VIGO Studio package. Run npm run package:studio first.')
+  throw new Error('Missing VIGO Agency package. Run npm run package:studio first.')
 })
 await mkdir(releaseRoot, { recursive: true })
 await rm(archivePath, { force: true })

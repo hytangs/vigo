@@ -5262,10 +5262,10 @@ async function route(request, response) {
     }
 
     if (action === 'agency') {
-      if (request.method === 'GET') sendJson(response, 200, await agency.state(projectId))
+      if (request.method === 'GET') sendJson(response, 200, await agency.state(projectId, { routeId: url.searchParams.get('routeId') || '', eventType: url.searchParams.get('eventType') || '' }))
       else if (request.method === 'POST') await withRequestAbort(request, response, async (signal) => {
         const body = await readBody(request)
-        if (body.action !== 'ask' || !String(request.headers.accept ?? '').includes('application/x-ndjson')) {
+        if (!['ask', 'briefing', 'run-skill'].includes(body.action) || !String(request.headers.accept ?? '').includes('application/x-ndjson')) {
           sendJson(response, 200, await agency.handle(projectId, body, signal)); return
         }
         response.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' })
@@ -5489,10 +5489,11 @@ async function route(request, response) {
 }
 
 const agency = createAgencyService({
+  skillDirectory: process.env.VIGO_AGENCY_SKILLS_DIR || path.join(staticRoot || path.resolve('public'), 'agency-skills'),
   async context(projectId) {
     const project = await readProjectMetadata(projectId)
     const { storePath } = await requireRoutingStore(projectId, project)
-    return { storePath, cityName: project.name }
+    return { storePath, cityName: project.name, agencyDirectory: path.join(path.dirname(storePath), '..', 'agency') }
   },
   inspectRealtime: inspectRealtimeFeed,
   route: runNationalRoute,

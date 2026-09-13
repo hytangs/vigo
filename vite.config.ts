@@ -26,6 +26,7 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 5178,
+    watch: { ignored: ['**/temp/**', '**/release/**', '**/public/assets/**', '**/public/index.html', '**/public/vigo.mjs', '**/public/_engine/**'] },
     proxy: {
       '/api': `http://127.0.0.1:${apiPort}`,
     },
