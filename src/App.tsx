@@ -1954,6 +1954,7 @@ function MapScopeControl({
 function RouteSurface({
   agencyFocus,
   agencyLocation,
+  routeDetailStatus,
   projectId,
   feed,
   focusedPreview,
@@ -2000,6 +2001,7 @@ function RouteSurface({
 }: {
   agencyLocation?: { id: string; label: string; coordinate: [number, number] }
   agencyFocus: boolean
+  routeDetailStatus?: string
   projectId: string
   feed: FeedSummary
   focusedPreview: MapPreview
@@ -2181,7 +2183,22 @@ function RouteSurface({
             onMapScopeChange={onMapScopeChange}
           />
         ) : null}
-        {agencyFocus ? <div className="agency-map-context"><div><span>{routingFocus ? 'Journey' : analysisFocus ? 'Reachable area' : isNetworkMap ? 'Live network' : `Route ${selectedRoute?.shortName || selectedRoute?.longName || ''}`}</span><small>{routingFocus || analysisFocus ? 'From your investigation' : realtimeSnapshot ? `${visibleVehicleCount} reported vehicle ${visibleVehicleCount === 1 ? 'location' : 'locations'}` : 'Connect feeds to see vehicle reports'}</small></div>{!isNetworkMap || routingFocus || analysisFocus ? <button className="agency-button" onClick={() => onMapScopeChange('network')}>All routes</button> : null}</div> : null}
+        {agencyFocus ? (
+          <div className="agency-map-context">
+            <div>
+              <span>{routingFocus ? 'Journey' : analysisFocus ? 'Reachable area' : isNetworkMap ? 'Live network' : `Route ${selectedRoute?.shortName || selectedRoute?.longName || ''}`}</span>
+              <small aria-live="polite">
+                {routingFocus || analysisFocus ? 'From your investigation' : (
+                  <>
+                    {realtimeSnapshot ? `${visibleVehicleCount} reported vehicle ${visibleVehicleCount === 1 ? 'location' : 'locations'}` : 'Connect feeds to see vehicle reports'}
+                    {!isNetworkMap && routeDetailStatus ? ` · ${routeDetailStatus}` : ''}
+                  </>
+                )}
+              </small>
+            </div>
+            {!isNetworkMap || routingFocus || analysisFocus ? <button className="agency-button" onClick={() => onMapScopeChange('network')}>All routes</button> : null}
+          </div>
+        ) : null}
         {cityPreviewLoading ? (
           <div className="surface-loading-overlay" role="status" aria-live="polite">
             <span className="surface-preview-loading" />
@@ -2937,10 +2954,12 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (page !== 'project' || activeRouteTool !== 'explore' || !selectedRoute) return
+    const needsRouteDetail = activeRouteTool === 'explore'
+      || activeRouteTool === 'agency' && mapScope === 'route'
+    if (page !== 'project' || !needsRouteDetail || !selectedRoute) return
     if (routeHasCompleteGtfsAnalysis(selectedRoute, preview, routingServiceDate)) return
     void loadGtfsRouteAnalysis(selectedRoute, selectedRoute.id)
-  }, [activeFeedId, activeRouteTool, page, preview, routingServiceDate, selectedProject.id, selectedRoute])
+  }, [activeFeedId, activeRouteTool, mapScope, page, preview, routingServiceDate, selectedProject.id, selectedRoute])
 
   useEffect(() => {
     if (page !== 'project' || activeRouteTool !== 'analyze') return
@@ -5179,6 +5198,9 @@ export default function App() {
         <RouteSurface
           agencyFocus={activeRouteTool === 'agency'}
           agencyLocation={agencyLocation}
+          routeDetailStatus={selectedRoute && routeHasCompleteGtfsAnalysis(selectedRoute, preview, routingServiceDate)
+            ? 'All route patterns'
+            : routeAnalysisError ? 'Route detail unavailable · overview only' : 'Loading full route…'}
           key={activeRouteTool === 'agency' ? `agency-map-${agencyMapOpen}` : 'studio-map'}
           projectId={selectedProject.id}
           feed={activeFeed}
