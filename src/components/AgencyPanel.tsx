@@ -1,4 +1,5 @@
 import { AgencyComposer } from './AgencyComposer'
+import { downloadText } from '../agency/exports'
 import { NetworkSelection } from './NetworkSelection'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Activity, ArrowRight, X, History, Plus } from 'lucide-react'
@@ -21,9 +22,7 @@ import { AgencyServiceEvents } from './AgencyServiceEvents'
 import { StopArrivalBoard } from './StopArrivalBoard'
 
 function exportObservation(state: AgencyState) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' }))
-  const link = document.createElement('a'); link.href = url; link.download = 'agency-observation.json'; link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  downloadText('agency-observation.json', JSON.stringify(state, null, 2), 'application/json')
 }
 
 export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMessage, realtimeLoading, onConnect, onDisconnect, onLocate, onResult, onOpenData, mapOpen, onToggleMap, selection = {}, timetable, onClearSelection, onBrowseRoute, browseRequest = 0 }: {

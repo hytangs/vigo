@@ -1,10 +1,10 @@
 # One bus, one control point
 
-VIGO Agency now demonstrates a decision from source evidence to a withdrawn rider message. Open **Operations → Replay → Uneven spacing**. This uses a synthetic City X, separate storage, a fixed timetable and a controllable clock. It does not connect to dispatch or publish to riders.
+VIGO Agency's replay API demonstrates a decision from source evidence to a withdrawn rider message. Run `npm run evaluate:replay` to exercise it; the disconnected Operations and Replay panels have been removed. This uses a synthetic City X, separate storage, a fixed timetable and a controllable clock. It does not connect to dispatch or publish to riders.
 
 The implementation reuses the operations ledger, finding transitions, knowledge approvals, message revisions and outbox. New modules supply replayable inputs, applicable procedure selection, holding comparisons and a sandbox transport. VIGO's routing engine and live network assessment are unchanged.
 
-## Try the workflow
+## Replay sequence
 
 1. Open the uneven-spacing scenario. Successive departures are predicted 3 and 17 minutes apart, against a 10-minute timetable. The selected bus is reported stopped at River control point.
 2. Inspect **Applicable procedure**. The synthetic SOP limits holding to 180 seconds, requires a clear berth and completed boarding, protects the following headway and caps downstream delay. An expired section and another stop's procedure are excluded.
@@ -73,7 +73,6 @@ The replay model receives only public synthetic data and has no web or publishin
 ```sh
 npm run evaluate:replay
 node test/check-operational-replay.mjs
-node test/check-agency-operations-runtime.mjs
 # With an explicitly configured VIGO_AGENCY_LLM_* connection:
 npm run evaluate:replay -- --ai
 ```
@@ -82,7 +81,7 @@ Each evaluation writes a dated result under `artifacts/replay/evaluations`, reta
 
 Both modes selected acceptable **hold durations**, including zero under different candidate labels. Automated identities exercise approval/delivery; they are not human reviewers. Manual task time, staff corrections, message editing, actual inference price and observed service impact remain `null`. The deterministic interface already solves these cases. No incremental decision-quality benefit from AI has been demonstrated.
 
-Tests cover procedure scope/expiry/conflicts/supersession, malformed service identity, missing inputs, exhaustive integer verification of the optimizer, denied approvals, outdated revisions, atomic rollback, cancellation/deadlines, duplicate delivery, withdrawal and restart. Browser controls passed at 320, 390, 760 and 1280 px. Moving the package preserves computed evidence; the bundled server asset path was checked. This is portability verification on one machine, not independent agency replication.
+Tests cover procedure scope/expiry/conflicts/supersession, malformed service identity, missing inputs, exhaustive integer verification of the optimizer, denied approvals, outdated revisions, atomic rollback, cancellation/deadlines, duplicate delivery, withdrawal and restart. Moving the package preserves computed evidence; the bundled server asset path was checked. This is portability verification on one machine, not independent agency replication.
 
 Development/evaluation used macOS ARM64, Node 26.7.0, and the existing `qwen3.5:4b` through Ollama. No larger model was loaded. Token counts are retained; subscription tier and monetary inference cost were not established. Coding, tests and this document are AI-assisted through Codex. The plot uses Python and Matplotlib 3.10.7:
 

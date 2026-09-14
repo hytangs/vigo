@@ -49,7 +49,6 @@
 .agency-connect { position: relative; margin: 16px 0; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-bg); padding: 16px; }
 .agency-connect-close { position: absolute; top: 7px; right: 7px; }
 .agency-connect .realtime-panel { margin: 0; }
-.agency-intro { max-width: 430px; font-size: 13px; line-height: 1.65; color: var(--text-muted); margin: 2px 0 24px; }
 .agency-provider-note { display: flex; justify-content: flex-end; color: var(--text-muted); font-size: 11px; }
 .agency-question-form { margin: 0; border: 1px solid var(--border-strong); border-radius: 11px; background: var(--control-surface); overflow: hidden; }
 .agency-question-form textarea { display: block; width: 100%; padding: 10px 15px; resize: vertical; min-height: 58px; max-height: 140px; border: 0; background: transparent; color: var(--text-strong); font: inherit; font-size: 14px; line-height: 1.6; outline-offset: -3px; }
@@ -80,18 +79,6 @@
 .agency-journey > div { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 9px; padding: 11px 0; border-top: 1px solid var(--border); font-size: 11px; }
 .agency-journey span { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .agency-journey time, .agency-journey small { color: var(--text-muted); font-size: 10px; }
-.agency-skill-list { display: grid; gap: 13px; }
-.agency-skill { border: 1px solid var(--border); border-radius: 10px; padding: 18px; background: var(--surface-bg); }
-.agency-skill > header { display: flex; gap: 11px; align-items: center; }
-.agency-skill-icon { display: flex; align-items: center; justify-content: center; color: var(--text-muted); background: var(--panel); border: 1px solid var(--border); width: 37px; height: 37px; border-radius: 9px; }
-.agency-skill h2 { color: var(--text-strong); font-size: 13px; font-weight: 600; margin: 0; }
-.agency-skill header > div > span { color: var(--text-muted); font-size: 10px; }
-.agency-skill > p { color: var(--text-muted); font-size: 11px; margin: 14px 0; }
-.agency-skill details { font-size: 10px; color: var(--text-muted); margin-bottom: 12px; }
-.agency-skill summary { cursor: pointer; }
-.agency-skill > footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
-.agency-skill > footer > span { font-size: 10px; color: var(--text-muted); }
-.agency-skill > select { width: 100%; }
 .agency-evidence > h2 { color: var(--text-strong); font-size: 25px; font-weight: 570; line-height: 1.25; letter-spacing: -.04em; margin: 10px 0 13px; }
 .agency-section-label { display: flex; align-items: center; gap: 7px; color: var(--text-muted); font-size: 10px; margin-top: 26px; }
 .agency-section-label > span { text-transform: capitalize; margin-left: auto; }
@@ -223,12 +210,6 @@
 .agency-notebook-list small, .agency-notebook-list strong { display: block; }
 .agency-notebook-list small { color: var(--text-muted); font-size: 10px; }
 .agency-notebook-list strong { margin-top: 5px; font-size: 13px; font-weight: 550; }
-.agency-skills-heading { margin-bottom: 22px; }
-.agency-skills-heading .agency-intro { margin-bottom: 14px; }
-.agency-skill-inputs { display: grid; gap: 12px; margin: 17px 0; }
-.agency-skill-inputs label { display: grid; gap: 6px; font-size: 11px; }
-.agency-skill-inputs input { padding: 9px 10px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 7px; font: inherit; }
-.agency-skill-inputs select { min-height: 36px; font-size: 11px; width: 100%; }
 .agency-method-text { white-space: pre-wrap; font-size: 12px; line-height: 1.8; margin-top: 16px; color: var(--text-muted); }
 .agency-map-context { position: absolute; z-index: 5; top: 16px; left: 16px; right: 56px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 4px 20px var(--shadow-color); pointer-events: none; }
 .agency-map-context button { pointer-events: auto; }
@@ -272,8 +253,6 @@
 .network-timetable { padding: 0; }
 .network-timetable .object-detail { padding: 8px 0 0; border: 0; }
 .network-timetable .object-detail-head { display: none; }
-
-.agency-filter-chip { display: flex; align-items: center; gap: 7px; border: 1px solid var(--border); background: var(--active-surface); border-radius: 5px; color: var(--text-strong); padding: 5px 8px; font-size: 10px; }
 
 .network-service-date { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0; font-size: 12px; color: var(--text-muted); }
 .network-service-date input { max-width: 160px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 6px 8px; font: inherit; }

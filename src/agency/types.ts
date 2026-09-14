@@ -159,22 +159,6 @@ export type RiderDraft = {
   language: string
 }
 
-export type AgencySkill = {
-  id: string
-  name: string
-  description: string
-  version: string
-  source: 'vigo' | 'external'
-  status: 'ready' | 'unavailable'
-  requiredInputs: string[]
-  outputType: string
-  enabled: boolean
-  tools: string[]
-  instructions: string
-  inputs: Array<{ key: string; label: string; type: 'route' | 'date' | 'stop' | 'time' | 'minutes'; required: boolean }>
-  steps: Array<{ tool: string; arguments?: Record<string, unknown>; label?: string }>
-}
-
 export interface ProviderState {
   web?: { provider: 'off' | 'wikipedia' | 'brave' | 'searxng'; baseUrl: string; hasKey: boolean; searchAvailable: boolean; readAvailable: boolean }
   available: boolean

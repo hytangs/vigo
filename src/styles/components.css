@@ -600,8 +600,7 @@
 }
 
 /* Loading is intentionally local to the affected surface; navigation stays live. */
-.surface-loading-overlay,
-.loading-overlay {
+.surface-loading-overlay {
   position: absolute;
   inset: 0;
   z-index: 30;
@@ -615,8 +614,7 @@
   backdrop-filter: blur(2px);
 }
 
-.surface-loading-overlay > div,
-.loading-overlay > div {
+.surface-loading-overlay > div {
   min-height: 44px;
   display: flex;
   align-items: center;
@@ -663,7 +661,6 @@
   padding: 17px;
   overflow: auto;
   border-radius: 10px;
-  background: var(--pq-surface-raised);
   overscroll-behavior: contain;
 }
 

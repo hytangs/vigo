@@ -168,10 +168,6 @@
   cursor: pointer;
 }
 
-.vigo-mark {
-  display: block;
-}
-
 .topbar-brand span {
   color: var(--text-muted);
   font-weight: 860;

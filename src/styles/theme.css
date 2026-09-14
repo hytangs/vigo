@@ -87,15 +87,6 @@
 
 /* Integrated compact application chrome. */
 
-.vigo-mark {
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
-    0 7px 18px rgba(15, 23, 42, 0.12);
-}
-
 .topbar-project-action {
   border-color: transparent;
 }
@@ -246,7 +237,6 @@
 }
 
 /* Project switcher and dialogs use the same flat, readable hierarchy. */
-.surface-switcher,
 .project-dialog {
   background: var(--panel-strong);
 }
@@ -1592,7 +1582,6 @@
 }
 
 /* Project library stays list-first rather than using dashboard cards. */
-.surface-switcher,
 .project-page.project-switcher {
   background: var(--panel-strong);
 }

@@ -11,7 +11,6 @@ import { Duplex, PassThrough } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import { Worker } from 'node:worker_threads'
 import {
-  mergeNationalGtfsStores,
   nationalFeedSummary,
   readNationalGtfsPreview,
   readNationalGtfsRouteCatalog,
@@ -1326,19 +1325,6 @@ function slugify(value) {
     .replace(/^-+|-+$/g, '')
 
   return slug || 'untitled-project'
-}
-
-function numeric(value) {
-  try {
-    if (value === null || value === undefined || value === '') return undefined
-    if (typeof value === 'number') return Number.isFinite(value) ? value : undefined
-    const number = typeof value === 'object' && typeof value.toNumber === 'function'
-      ? value.toNumber()
-      : Number(value)
-    return Number.isFinite(number) ? number : undefined
-  } catch {
-    return undefined
-  }
 }
 
 function integralRoutingMinute(value, label, fallback = 8 * 60) {

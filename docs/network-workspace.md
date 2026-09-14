@@ -1,6 +1,6 @@
 # One network workspace
 
-Explore and Agency previously kept separate selections. A route could be open on the map while the service list showed the whole network, and submitting an Ask question cleared the map. Network now owns one route and station selection. Overview, Ask, Skills and Operations sit beside the same map or line view.
+Network owns one route and station selection across **Overview**, **Routes**, and **Ask**. The map, line diagram, arrivals board and conversation use that shared context.
 
 Select a route in the catalog or search, inspect its reports, and expand **Timetable & patterns** for the existing direction browser and dated service bands. Select a station on the line or map to open the shared arrivals board. **Ask about this** keeps that selection; **All network** returns to the catalog. Route totals are labeled separately when a station is selected. Station events include its platforms, while a platform selection excludes another platform's departure deviations.
 
@@ -11,7 +11,9 @@ Select a route in the catalog or search, inspect its reports, and expand **Timet
 | Scheduled and predicted arrivals | `StopArrivalBoard` |
 | Delay evidence and history charts | `AgencyEvidence` |
 | Conversation and saved work | `AgencyPanel`, `AgencyAnswer`, existing notebook |
-| Staff decisions and rider guidance | `AgencyOperations` and the City operations ledger |
+| Rider guidance | `AgencyEvidence` drafts and Ask |
+
+The former Skills, Operations and Replay panels have been removed. Their backend research methods, operations ledger and replay API remain available to programmatic callers and their existing tests; they are not additional workspace views.
 
 The server resolves selected IDs against the existing City timetable. Studio feed prefixes and merged-store prefixes are translated only for known feeds. An ambiguous bare route or pattern ID cannot select an agency. Names and coordinates supplied to Ask come from that lookup. The selected context is retained with the answer, so a saved “here” question does not silently acquire the meaning of the current map. Opening saved work is explicit navigation; a background answer does not move the map.
 
@@ -25,4 +27,4 @@ Operations uses explicit serialized source revisions and evidence contents for e
 
 The network fixture covers feed collisions, pattern identity, station/platform event scope, previous-day vehicles after midnight, server-resolved Ask context, notebook retention and invalid selection rejection before model invocation. The existing Agency, UI, map, documentation and local HTTP security checks pass, along with TypeScript and the production web build.
 
-Browser checks used the local Boston feed: route selection, timetable patterns, the Red Line diagram, Park Street's single arrivals board, Operations and a real Qwen3.5 4B reply recognizing the selected route and station. These checks establish the tested interaction and data joins; they are not a general model-quality benchmark.
+The workspace runtime fixture checks route search, the three tabs, keyboard navigation, feed settings, recovery from a saved retired tab, and layout from 320 to 1280 pixels wide. Backend operations and replay checks run separately. Earlier browser checks used the local Boston feed for timetable patterns, the Red Line diagram, Park Street's arrivals board and a Qwen3.5 4B reply recognizing the selected route and station. These checks establish the tested interaction and data joins; they are not a general model-quality benchmark.

@@ -1,23 +1,23 @@
 # Agency operations prototype
 
-This prototype is outside the main Overview / Routes / Ask workspace. Its source, records and test harness remain available for research; it is not a production dispatch surface.
+This backend prototype is outside the main Overview / Routes / Ask workspace. Its API, records and service tests remain available for research. The disconnected Service desk UI has been removed.
 
 The [operational replay](operational-replay.md) adds a synthetic holding decision through procedure selection, alternative comparison, approval, sandbox receipt and evidence-driven withdrawal. It reuses this ledger in separate replay storage. Internal knowledge and staff annotations are excluded from model context by default; approval alone does not authorize model disclosure.
 
-The isolated **Service desk** prototype keeps a finding, source evidence, staff decisions and rider guidance in the same City. It works without a model. Ask can read approved public operational context and historical comparisons; only staff controls can change workflow records or release messages.
+The City operations ledger keeps findings, source evidence, staff decisions and rider guidance together. It works without a model. Ask can read approved public operational context and historical comparisons; mutations require explicit API requests from an authorized principal.
 
 ## Handle a finding
 
-1. Open **Findings → Track a current finding**. The selected evidence, timetable identity, source references and quality summary are retained. Tracking the same event twice opens the existing record.
+1. Call `operations-track` for a current finding. The selected evidence, timetable identity, source references and quality summary are retained. Tracking the same event twice returns the existing record.
 2. **Acknowledge**, **Investigate**, then **Record action**. Each transition requires a note. Link approved, unexpired context relevant to the finding's route or stop when useful.
 3. Prepare rider guidance, or continue to **Monitor**. A missing event or stale feed leaves current availability **unknown**; it never resolves the case automatically.
 4. **Resolve** with an explicit outcome and evidence reference: staff-confirmed recovery, false positive, or unable to confirm. Resolved cases can be reopened for investigation. These labels are staff assessments, not independently verified ground truth.
 
-Evidence remains as captured until **Refresh evidence** is used. A changed timetable requires a new finding against the new import. Every edit requires the current version; an outdated tab must reload before saving. Revision history preserves the preceding evidence and decisions.
+Evidence remains as captured until `operations-refresh` is used. A changed timetable requires a new finding against the new import. Every edit requires the current version; a stale client must reload before saving. Revision history preserves the preceding evidence and decisions.
 
 ## Add shared context
 
-**Knowledge** accepts SOPs, maintenance records, document excerpts and operating notes. Each record has a source reference, scope and review date. New entries and revisions start as drafts. Approval applies to that exact version. Expired or draft material cannot be linked as approved guidance.
+`knowledge-save` accepts SOPs, maintenance records, document excerpts and operating notes. Each record has a source reference, scope and review date. New entries and revisions start as drafts. Approval applies to that exact version. Expired or draft material cannot be linked as approved guidance.
 
 Keep source excerpts concise and identify their document revision or page. The API also supports exact stop scope. Content stays in the City ledger; no document crawler, embedding service or remote knowledge database is introduced. Ask's `operational_context` tool retrieves up to five dated, versioned excerpts and labels their status. Retrieved text is treated as evidence, never executable instructions. If used in Ask, these excerpts enter the configured model's context under the existing provider behavior.
 
@@ -71,6 +71,6 @@ Use the existing `POST /api/projects/:projectId/agency` endpoint. Every mutation
 
 Lists return 50 records by default, up to 100, and accept `query.before` as the last returned ID (ascending IDs). Audit pages return 50 newest revisions and accept `before` as the last sequence. Observation pages return 100 newest samples and accept `before` as the last bucket. No external publication credentials are required or stored.
 
-`npm run check:agency` includes the operations fixture. `node test/check-agency-operations-runtime.mjs` exercises the real React panel with an isolated SQLite service and Electron, including keyboard tabs, workflow notes, message revision, approval, local release, recorded receipt, audit, insufficient history and responsive widths. All observations and receipts in these tests are synthetic. Screenshots and runtime data remain in ignored `temp/` storage.
+`npm run check:agency` includes the operations service fixture, covering workflow notes, message revision, approval, local release, recorded receipt, audit and insufficient history. `node test/check-network-workspace-runtime.mjs` checks the active Network workspace, keyboard tabs and responsive widths. All observations and receipts in these tests are synthetic. Runtime data remain in ignored `temp/` storage.
 
 No dependencies or native routing algorithms change. The existing root assessment, assumptions and AI-use documents are preserved; this page describes the added behavior and its present limits.

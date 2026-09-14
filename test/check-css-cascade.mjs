@@ -53,6 +53,8 @@ const runtimeSource = [
   ...runtimeSourcePaths(resolve(rootDirectory, 'src')).map((path) => readFileSync(path, 'utf8')),
   ...runtimeSourcePaths(resolve(rootDirectory, 'desktop')).map((path) => readFileSync(path, 'utf8')),
 ].join('\n')
+// Longer class names and asset names must not keep retired selectors alive.
+const runtimeClassTokens = new Set(runtimeSource.match(/[-_a-zA-Z0-9]+/g))
 
 function selectorList(selector) {
   const selectors = []
@@ -98,7 +100,7 @@ function isInside(node, ancestor) {
 }
 
 function runtimeOwnsClass(className) {
-  return runtimeSource.includes(className)
+  return runtimeClassTokens.has(className)
     || generatedClassNames.has(className)
     || libraryClassPrefixes.some((prefix) => className.startsWith(prefix))
 }
