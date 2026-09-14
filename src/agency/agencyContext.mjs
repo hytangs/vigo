@@ -1,3 +1,6 @@
+import { localDate, serviceEpoch, validDate } from './agencyClock.mjs'
+export { localDate, serviceEpoch } from './agencyClock.mjs'
+import { scheduledServiceWindow } from './serviceWindow.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { WeightedLruCache } from '../server/weighted-lru-cache.mjs'
 
@@ -5,36 +8,7 @@ const separator = '\u001f'
 export const rawId = (value) => String(value ?? '').split(separator).at(-1)
 export const scopeOf = (value) => String(value ?? '').includes(separator) ? String(value).split(separator)[0] : ''
 export const dateToken = (date) => Number(String(date).replaceAll('-', ''))
-const validDate = (date) => /^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(Date.parse(`${date}T12:00:00Z`)) && new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) === date
 const isoDate = (token) => token ? String(token).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3') : null
-const dateFormats = new WeightedLruCache({ maxEntries: 32 })
-const offsetFormats = new WeightedLruCache({ maxEntries: 32 })
-const serviceEpochs = new WeightedLruCache({ maxEntries: 128 })
-
-export function localDate(epochSeconds, timezone) {
-  let format = dateFormats.get(timezone)
-  if (!format) { format = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }); dateFormats.set(timezone, format) }
-  return format.format(new Date(epochSeconds * 1000))
-}
-
-// GTFS defines its service clock as noon minus twelve hours, including DST days.
-export function serviceEpoch(serviceDate, timezone) {
-  if (!validDate(serviceDate)) throw new Error('Invalid service date.')
-  const key = JSON.stringify([serviceDate, typeof timezone, timezone]), cached = serviceEpochs.get(key)
-  if (cached !== undefined) return cached
-  const noon = Date.parse(`${serviceDate}T12:00:00Z`) / 1000
-  let format = offsetFormats.get(timezone)
-  if (!format) { format = new Intl.DateTimeFormat('en-US', { timeZone: timezone, timeZoneName: 'longOffset' }); offsetFormats.set(timezone, format) }
-  const parts = format.formatToParts(new Date(noon * 1000))
-  const offset = parts.find((part) => part.type === 'timeZoneName')?.value ?? ''
-  const match = /^GMT(?:([+-])(\d{2}):(\d{2}))?$/.exec(offset)
-  if (!match) throw new Error('Cannot resolve the agency timezone.')
-  const seconds = match[1] ? (Number(match[2]) * 3600 + Number(match[3]) * 60) * (match[1] === '+' ? 1 : -1) : 0
-  const epoch = noon - seconds - 43200
-  serviceEpochs.set(key, epoch)
-  return epoch
-}
-
 export class AgencyContext {
   constructor(storePath, cityName) {
     this.storePath = storePath
@@ -94,6 +68,10 @@ export class AgencyContext {
       this.lastDate = dates.length ? dates.reduce((a, b) => Math.max(a, b), -Infinity) : null
       this.frequencyTrips = new Set(this.db.prepare('SELECT DISTINCT trip_id FROM frequencies').all().map((row) => row.trip_id))
       this.scopes = [...new Set(this.trips.map((trip) => scopeOf(trip.trip_id)))]
+      this.scopeDates = new Map(this.scopes.map(scope => {
+        const dates = [...this.calendar.filter(row => scopeOf(row.service_id) === scope).flatMap(row => [row.start_date, row.end_date]), ...this.exceptions.filter(row => scopeOf(row.service_id) === scope && row.exception_type === 1).map(row => row.date)]
+        return [scope, dates.length ? { first: dates.reduce((a, b) => Math.min(a, b), Infinity), last: dates.reduce((a, b) => Math.max(a, b), -Infinity) } : null]
+      }))
       this.departures = this.db.prepare('SELECT departure, arrival, from_stop_id, to_stop_id, stop_sequence FROM connections WHERE trip_id=? ORDER BY stop_sequence')
       // The existing stop/departure covering index supplies these columns. Route
       // and direction belong to the already-loaded trips; reading them from
@@ -127,10 +105,25 @@ export class AgencyContext {
     const first = this.firstDate, last = this.lastDate
     const active = serviceDate ? this.activeServices(serviceDate) : new Set()
     const activeScopes = new Set([...active].map(scopeOf))
-    const missingScopes = this.scopes.filter(scope => !activeScopes.has(scope))
-    const valid = Boolean(this.timezone && first && last && token >= first && token <= last && active.size && !missingScopes.length)
-    return { valid, timezone: this.timezone, serviceDate, firstDate: isoDate(first), lastDate: isoDate(last), activeServices: active.size,
-      message: !this.timezone ? 'A single agency timezone is required.' : token > last ? 'This timetable has expired. Import current GTFS before connecting live feeds.' : token < first ? 'This timetable has not started yet.' : !active.size || missingScopes.length ? 'No active service is established for every feed scope on this date. Check calendar exceptions.' : 'Service dates and calendar exceptions cover today.' }
+    const sources = this.scopes.map(scope => {
+      const bounds = this.scopeDates.get(scope)
+      const covered = bounds && token >= bounds.first && token <= bounds.last
+      return { scope, status: !bounds || !this.timezone ? 'unknown' : covered ? activeScopes.has(scope) ? 'scheduled_service' : 'no_service_today' : 'outside_dates' }
+    })
+    // Past-midnight service belongs to its original GTFS day, even when the
+    // calendar's final date has passed. Read the existing cached trip spans
+    // only when a source is outside its date range.
+    if (this.timezone && sources.some(source => source.status === 'outside_dates')) {
+      const ongoing = scheduledServiceWindow(this, epochSeconds, epochSeconds + 1).trips
+      for (const source of sources) if (source.status === 'outside_dates' && ongoing.some(trip => scopeOf(trip.tripId) === source.scope)) source.status = 'continuing_service'
+    }
+    const valid = sources.some(source => ['scheduled_service', 'no_service_today', 'continuing_service'].includes(source.status))
+    const incomplete = sources.some(source => ['unknown', 'outside_dates'].includes(source.status))
+    return { valid, timezone: this.timezone, serviceDate, firstDate: isoDate(first), lastDate: isoDate(last), activeServices: active.size, sources,
+      message: !this.timezone ? 'A single agency timezone is required.' : !valid ? token > last && last ? 'This timetable has expired. Import current GTFS before connecting live feeds.' : 'No source timetable covers this time. Import current GTFS before connecting live feeds.'
+        : incomplete ? 'Some source timetables are outside their supported dates. Only trips with valid source and service-day matches are compared.'
+          : sources.some(source => source.status === 'continuing_service') ? 'Prior-day service continues past midnight.'
+            : !active.size ? 'The timetable covers today; no service is scheduled for this date.' : 'Service dates and calendar exceptions cover today.' }
   }
 
   // Identity checks share admission rules without loading unrelated stop times.

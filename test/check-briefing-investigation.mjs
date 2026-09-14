@@ -65,3 +65,6 @@ assert.equal(await investigateBriefing({diagnosis:{...diagnosis,network:{...diag
 
 const reordered=realizeInvestigation([{...ranking,hypothesis:'localized_corridor_disruption',status:'weakened'},ranking],result.facts,response.watchNext,narrative)
 assert.equal(reordered.explanation.hypothesis,'independent_late_trips','A weakened candidate cannot precede a model-assessed plausible explanation')
+
+assert.equal(reordered.explanation.rankingVerified, false)
+assert.doesNotMatch(reordered.explanation.text, /evidence currently favors/)

@@ -29,6 +29,7 @@ export type Evidence = {
 }
 
 export type OperationalEvent = {
+  scopeDescription?: string
   id: string
   type: 'delay' | 'bunching' | 'service-gap' | 'cancellation' | 'skipped-stop' | 'stale-data' | 'service-alert' | 'headway-review'
   severity: 'info' | 'warning' | 'critical'
@@ -133,6 +134,7 @@ export type QueryAnswer = {
   }
   timing?: { totalMs: number; modelCalls: number; modelMs: number; toolMs: number; inputTokens: number | null; outputTokens: number | null; firstResponseMs?: number | null; loadMs?: number | null; promptMs?: number | null; generationMs?: number | null }
   entryId?: number
+  responseBasis?: 'computed' | 'model_with_sources' | 'model_only'
   aiGenerated?: boolean
   model?: string
   citations?: number[]

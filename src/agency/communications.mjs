@@ -1,6 +1,8 @@
 import { rawId } from './agencyContext.mjs'
 
-const duration = (seconds) => `${Number((seconds / 60).toFixed(1))} min`
+const duration = seconds => seconds < 60 ? 'less than 1 min' : `about ${Math.round(seconds / 60)} min`
+const asOf = (value, context) => Number.isFinite(Date.parse(value)) ? `As of ${new Date(value).toLocaleString('en-US', { timeZone: context.timezone || 'UTC', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })}.` : 'Observation time unavailable.'
+const scopeSentence = event => event.scopeDescription || [event.directionId != null ? `Direction ${event.directionId}` : '', event.tripId ? `trip ${rawId(event.tripId)}` : ''].filter(Boolean).join(' · ')
 
 export function eventSentences(event, context) {
   const routeIds = event.routeIds ?? (event.routeId ? [event.routeId] : [])
@@ -28,7 +30,8 @@ export function eventSentences(event, context) {
     { id: 'fact', text: fact },
     ...(evidence.alertDescription ? [{ id: 'detail', text: evidence.alertDescription }] : []),
     ...(evidence.expectedDepartures ? [{ id: 'coverage', text: `Both of the ${evidence.expectedDepartures} scheduled departures in this comparison report a departure prediction at the reference stop.` }] : []),
-    { id: 'time', text: `Observation: ${new Date(event.observedAt).toISOString()}. Predictions may change.` },
+    ...(scopeSentence(event) ? [{ id: 'scope', text: `${scopeSentence(event)}.` }] : []),
+    { id: 'time', text: `${asOf(event.observedAt, context)} Predictions may change. Review before publishing.` },
   ]
 }
 
@@ -36,9 +39,11 @@ export async function draftRiderMessage({ event, context, channel, language = 'e
   if (!['app', 'signage', 'service-alert', 'social'].includes(channel)) throw new Error('Choose a supported communication channel.')
   if (!['en', 'English', 'en-US'].includes(language)) throw new Error('This starting template is English. Translate or draft directly in the conversation from the supplied evidence.')
   const sentences = eventSentences(event, context)
-  const chosen = channel === 'signage' || channel === 'social' ? ['fact'] : sentences.filter((sentence) => sentence.id !== 'time').map((sentence) => sentence.id)
+  const chosen = sentences.filter(sentence => !['signage', 'social'].includes(channel) || ['fact', 'scope', 'time'].includes(sentence.id)).map(sentence => sentence.id)
+  const disruptive = ['delay', 'service-gap', 'cancellation', 'skipped-stop'].includes(event.type)
+    || event.type === 'service-alert' && ['NO_SERVICE', 'SIGNIFICANT_DELAYS', 'DETOUR', 'REDUCED_SERVICE', 'STOP_MOVED', 'ACCESSIBILITY_ISSUE'].includes(event.evidence.alertEffect)
   return { headline: event.type === 'service-alert' ? 'Agency service information' : event.title,
-    body: [...chosen.map((id) => sentences.find((sentence) => sentence.id === id).text), 'We’re sorry for the disruption to your journey.'].join(accessibilityMode ? '\n\n' : ' '),
+    body: [...chosen.map((id) => sentences.find((sentence) => sentence.id === id).text), ...(disruptive ? ['We’re sorry for the disruption to your journey.'] : [])].join(accessibilityMode ? '\n\n' : ' '),
     recommendedAction: 'Check the agency’s latest service information before travelling.',
     affectedRoutes: event.routeIds ?? (event.routeId ? [event.routeId] : []), affectedStops: event.stopIds ?? (event.stopId ? [event.stopId] : []),
     evidenceRefs: [...event.sourceRefs], reviewRequired: true, generatedBy: 'template', channel, language: 'en', observedAt: event.observedAt }
@@ -55,9 +60,10 @@ export function draftRouteMessage({ context, state, routeIds, events, channel = 
   const alerts = events.filter(event => event.type === 'service-alert')
   const affected = [...new Set(events.filter(event => event.type === 'skipped-stop').map(event => context.stopIndex.get(event.stopId)?.name).filter(Boolean))]
   if (affected.length) facts.push(`Reported skipped stops: ${affected.join(', ')}.`)
+  const disruptionEstablished = facts.length > 0
   if (!facts.length) facts.push('Current reports do not establish a delay for the selected service. Please check the latest departure information before travelling.')
-  return { headline: 'Service update', body: `${facts.join(' ')} We’re sorry for the disruption to your journey.`, channel, language: 'en', generatedBy: 'template', reviewRequired: true,
+  return { headline: 'Service update', body: `${facts.join(' ')}${disruptionEstablished ? ' We’re sorry for the disruption to your journey.' : ''} ${asOf(state.observedAt, context)} Predictions may change. Review before publishing.`, channel, language: 'en', generatedBy: 'template', reviewRequired: true,
     observedAt: state.observedAt, affectedRoutes: routeIds, affectedStops: [...new Set(events.map(event => event.stopId).filter(Boolean))],
-    agencyExplanations: alerts.slice(0, 5).map(event => ({ title: event.title, description: event.evidence.alertDescription, cause: event.evidence.alertCause, observedAt: event.observedAt })),
+    agencyExplanations: alerts.slice(0, 5).map(event => ({ title: event.title, description: event.evidence.alertDescription, cause: event.evidence.alertCause, scope: event.scopeDescription, observedAt: event.observedAt })),
     evidenceRefs: [...new Set(events.flatMap(event => event.sourceRefs))], note: 'Agency explanations may concern different incidents. Establish the connection before attributing a cause. This draft has not been published.' }
 }

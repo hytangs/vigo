@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { draftRouteMessage } from '../src/agency/communications.mjs'
+import { draftRouteMessage, draftRiderMessage } from '../src/agency/communications.mjs'
 import { AgencyContext } from '../src/agency/agencyContext.mjs'
 import { deriveOperationalState } from '../src/agency/realtimeIntelligence.mjs'
 import { createToolRegistry } from '../src/agency/toolRegistry.mjs'
@@ -41,6 +41,14 @@ try {
   assert.match(cancellation.body, /1 cancelled trip/)
   assert.doesNotMatch(cancellation.body, /do not establish a delay/)
 
+  const noDisruption = draftRouteMessage({ context, state: { ...state, routes: state.routes.map(route => ({ ...route, maxDelaySeconds: null })) }, routeIds: ['R'], events: [] })
+  assert.doesNotMatch(noDisruption.body, /sorry|disruption/)
+  assert.match(noDisruption.body, /As of Sep 13.*Review before publishing/)
+  const eventDraft = await draftRiderMessage({ context, event: state.events.find(event => event.type === 'delay'), channel: 'signage' })
+  assert.match(eventDraft.body, /Direction 0.*trip T/)
+  assert.match(eventDraft.body, /As of Sep 13.*Review before publishing/)
+  const staleDraft = await draftRiderMessage({ context, event: { type: 'stale-data', title: 'Feed is stale', evidence: {}, observedAt: state.observedAt, sourceRefs: [] }, channel: 'app' })
+  assert.doesNotMatch(staleDraft.body, /sorry|disruption/)
   let modelCalls = 0
   const provider = { available: true, model: 'fixture', complete: async (messages, tools) => {
     const question = messages.filter(message => message.role === 'user').at(-1).content

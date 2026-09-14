@@ -98,7 +98,8 @@ const followup = await queryAgency({ question: 'Make that shorter', context, sta
 assert.equal(followup.answer, 'Time between vehicles.')
 const uncited = await queryAgency({ question: 'Explain indexing', context, state, callTool,
   provider: { available: true, complete: async () => ({ content: 'Use x[3] or `[3]`. [99]', finishReason: 'length' }) } })
-assert.equal(uncited.answer, 'Use x[3] or `[3]`.', 'Missing source references are removed without altering array notation')
+assert.match(uncited.answer, /\[3\]/, 'An invalid citation cannot be silently removed to disguise an unsupported statement')
+assert.match(uncited.warnings.join(' '), /Source \[99\].*not.*successful/)
 assert.deepEqual(uncited.citations, [])
 assert.match(uncited.warnings[0], /response limit/)
 let blankReplies = 0
@@ -164,6 +165,7 @@ let interruptedRound = 0
 const partial = await queryAgency({ question: 'Check service', context, state, callTool, provider: { available: true, complete: async () => { if (++interruptedRound === 1) return { tool_calls: [{ id: 'one', function: { name: 'anomaly_scan', arguments: '{}' } }] }; throw new Error('Provider unavailable') } } })
 assert.equal(partial.trace.length, 1)
 assert.equal(partial.warnings.includes('Provider unavailable'), true)
+assert.equal(partial.responseBasis, 'computed', 'An interrupted model leaves a computed evidence summary, not model prose')
 assert.match(partial.answer, /Departure later than scheduled/, 'Provider failure retains the deterministic evidence summary')
 assert.match(partial.answer, /model did not finish this answer/, 'A partial source result is not presented as a finished answer')
 for (const malformed of [[null], [{ id: 'missing-function' }], [{ id: 'same', function: { name: 'anomaly_scan', arguments: '{}' } }, { id: 'same', function: { name: 'anomaly_scan', arguments: '{}' } }], {}]) {
@@ -357,3 +359,9 @@ assert.equal(focused.trace.length, 2)
 assert.ok(focused.trace.every(call => !call.result.ok))
 assert.ok(!focused.runtime.networkTools.some(tool => tool.tool === 'run_runtime_study'))
 console.log('Focused Ask: research actions excluded from discovery, execution and runtime capabilities.')
+
+const fabricated = await queryAgency({ context, state, callTool, question: 'What disruption is happening now?', provider: { available: true, complete: async () => ({ content: 'A collision has closed route R. Service resumes in 12 minutes.' }) } })
+assert.equal(fabricated.responseBasis, 'model_only', 'A no-tool answer is never designated as computed service evidence')
+assert.equal(fabricated.trace.length, 0)
+assert.deepEqual(fabricated.evidenceRefs, [])
+assert.equal(answer.responseBasis, 'model_with_sources', 'A valid source does not establish entailment of the model interpretation')

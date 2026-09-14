@@ -15,7 +15,9 @@ const groupBy = (rows, field) => {
 
 export function diagnoseNetwork(context, state) {
   const from = Date.parse(state.generatedAt) / 1000, to = from + state.policy.windowMinutes * 60
-  const scheduled = state.coverage.valid ? scheduledServiceWindow(context, from, to) : { trips: [], excludedFrequencyTemplates: 0 }
+  const deleted = new Set(state.trips.filter(row => row.status === 'deleted').map(tripInstance))
+  const schedule = state.coverage.valid ? scheduledServiceWindow(context, from, to) : { trips: [], excludedFrequencyTemplates: 0 }
+  const scheduled = { ...schedule, trips: schedule.trips.filter(row => !deleted.has(row.key)) }
   const expected = new Map(scheduled.trips.map(row => [row.key, row]))
   const departures = state.measurements?.departures ?? [], intervals = state.measurements?.intervals ?? []
   const next = new Map()

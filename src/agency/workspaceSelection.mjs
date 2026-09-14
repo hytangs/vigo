@@ -1,3 +1,5 @@
+import { alertInScope } from './alertApplicability.mjs'
+
 // Studio previews and merged timetable stores use different feed delimiters.
 // Translate only known feed scopes; never guess an agency from a bare GTFS ID.
 export function indexedEntityId(context, kind, id, feedIds = []) {
@@ -41,6 +43,8 @@ export function selectedStopIds(context, selection) {
 }
 
 export function eventInSelection(event, selection, stopIds) {
+  if (!selection.route && !stopIds) return true // Unresolved notices remain visible in the network overview.
+  if (event.type === 'service-alert' && event.selectors) return alertInScope(event, { routeId: selection.route?.id, stopIds })
   if (selection.route && event.routeId !== selection.route.id && !event.routeIds?.includes(selection.route.id)) return false
   if (!stopIds) return true
   if (stopIds.has(event.stopId) || event.stopIds?.some(id => stopIds.has(id))) return true

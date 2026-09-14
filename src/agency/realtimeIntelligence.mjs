@@ -1,4 +1,6 @@
-import { rawId, scopeOf } from './agencyContext.mjs'
+import { rawId } from './agencyContext.mjs'
+
+import { alertSelectors, describeAlertScope } from './alertApplicability.mjs'
 
 export const defaultPolicy = Object.freeze({ freshnessSeconds: 180, windowMinutes: 30, historyMinutes: 30 })
 const finite = (value) => typeof value === 'number' && Number.isFinite(value)
@@ -86,7 +88,11 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
     const sourceTime = update.timestamp ?? feedByUrl.get(update.sourceUrl)?.feedTimestamp
     const base = { observedAt: new Date(sourceTime * 1000).toISOString(), routeId: trip.route_id, directionId: trip.direction_id ?? undefined, tripId: trip.trip_id, vehicleId: update.vehicleId, serviceDate, sourceRefs: [ref, `gtfs:trips/${encodeURIComponent(trip.trip_id)}?date=${serviceDate}`] }
     const identity = [trip.trip_id, serviceDate]
-    if (['CANCELED', 'DELETED'].includes(update.scheduleRelationship)) {
+    if (update.scheduleRelationship === 'DELETED') {
+      trips.push({ ...base, status: 'deleted' })
+      continue
+    }
+    if (update.scheduleRelationship === 'CANCELED') {
       add('cancellation', identity, { ...base, title: 'Scheduled trip cancelled', severity: 'warning', evidence: { reason: `TripDescriptor: ${update.scheduleRelationship}` } })
       trips.push({ ...base, status: 'cancelled' })
       continue
@@ -182,22 +188,17 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
   if (!measuredIntervals && snapshot) warnings.push('No fully reporting departure pair is available in the comparison window. Headway health is unknown.')
 
   let activeAlerts = 0
-  let alertRoutes, alertStops
   for (const alert of snapshot?.alerts ?? []) {
     if (!sourceFresh(alert)) continue
     if (alert.activePeriods?.length && !alert.activePeriods.some((period) => (!period.start || period.start <= nowSeconds) && (!period.end || period.end > nowSeconds))) continue
     activeAlerts++
-    alertRoutes ??= groupRows(context.routes, row => rawId(row.route_id))
-    alertStops ??= groupRows(context.stops, row => rawId(row.stop_id))
-    const resolveAlertIds = (ids, index, field) => [...new Set(ids.flatMap((id) => {
-      const matches = (index.get(rawId(id)) ?? []).filter((row) => (String(id).includes('\u001f') ? row[field] === id : rawId(row[field]) === String(id)) && (!alert.sourceScope || scopeOf(row[field]) === alert.sourceScope))
-      if (matches.length > 1) { warnings.push(`Alert ${alert.id}: ${field} ${id} is ambiguous across source scopes and is not assigned.`); return [] }
-      return matches.map((row) => row[field])
-    }))]
-    const routeIds = resolveAlertIds(alert.routeIds ?? [], alertRoutes, 'route_id')
-    const stopIds = resolveAlertIds(alert.stopIds ?? [], alertStops, 'stop_id')
+    const selectors = alertSelectors(context, alert)
+    const assigned = selectors.filter(selector => !selector.unresolved.length)
+    const routeIds = [...new Set(assigned.flatMap(selector => selector.routeIds))]
+    const stopIds = [...new Set(assigned.map(selector => selector.stopId).filter(Boolean))]
+    if (selectors.some(selector => selector.unresolved.length)) warnings.push(`Alert ${alert.id}: some selector constraints could not be resolved and are not assigned.`)
     for (const routeId of routeIds) routes.get(routeId).alerts++
-    add('service-alert', [alert.sourceUrl, alert.id], { observedAt: new Date(feedByUrl.get(alert.sourceUrl).feedTimestamp * 1000).toISOString(), title: alert.header || 'Service alert', routeId: routeIds.length === 1 ? routeIds[0] : undefined, routeIds, stopIds,
+    add('service-alert', [alert.sourceUrl, alert.id], { observedAt: new Date(feedByUrl.get(alert.sourceUrl).feedTimestamp * 1000).toISOString(), title: alert.header || 'Service alert', routeId: routeIds.length === 1 ? routeIds[0] : undefined, routeIds, stopIds, selectors, scopeDescription: describeAlertScope(selectors, context),
       severity: alert.severity === 'SEVERE' ? 'critical' : alert.severity === 'WARNING' ? 'warning' : 'info',
       evidence: { alertHeader: alert.header, alertDescription: alert.description, alertCause: alert.cause, alertEffect: alert.effect, alertUrl: alert.url, activePeriods: alert.activePeriods ?? [], informedEntities: alert.informedEntities ?? [], reason: [alert.effect, alert.cause].filter(Boolean).join(' · ') }, sourceRefs: [`${alert.sourceUrl}#entity=${encodeURIComponent(alert.id)}`] })
   }

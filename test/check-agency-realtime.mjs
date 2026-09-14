@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { stopBoard } from '../src/agency/stopBoard.mjs'
 import { AgencyContext, serviceEpoch } from '../src/agency/agencyContext.mjs'
 import { deriveOperationalState, createObservationHistory } from '../src/agency/realtimeIntelligence.mjs'
 import { createAgencyFixture, observationTime, realtimeFixture, tripUpdate, sourceUrl } from './fixtures/agency.mjs'
@@ -63,6 +64,13 @@ try {
   assert.throws(() => serviceEpoch('2026-02-31', 'Etc/UTC'), /Invalid/)
   const cancelled = derive(realtimeFixture([tripUpdate('T1', 0, { scheduleRelationship: 'CANCELED' })]))
   assert.equal(cancelled.events[0].type, 'cancellation')
+  const removedSnapshot = realtimeFixture([tripUpdate('T1', 0, { scheduleRelationship: 'DELETED' }), tripUpdate('T2', 0)])
+  const removed = derive(removedSnapshot)
+  assert.equal(removed.trips.find(trip => trip.tripId === 'T1').status, 'deleted')
+  assert.equal(removed.events.some(event => event.type === 'cancellation'), false)
+  const board = stopBoard(context, removedSnapshot, { stopId: 'A' }, observationTime)
+  assert.equal(board.rows.some(row => row.tripId === 'T1'), false, 'Deleted service is omitted from rider boards')
+  assert.equal(board.rows.some(row => row.tripId === 'T2'), true, 'Other published service remains visible')
   const skipped = derive(realtimeFixture([tripUpdate('T1', 0, { stopTimeUpdates: [{ stopId: 'B', stopSequence: 30, scheduleRelationship: 'SKIPPED' }] })]))
   assert.equal(skipped.events[0].type, 'skipped-stop')
   const terminal = derive(realtimeFixture([tripUpdate('T1', 0, { stopTimeUpdates: [{ stopId: 'C', stopSequence: 31, departure: { delay: 1200 } }] })]))
@@ -84,6 +92,7 @@ try {
   const alert = realtimeFixture()
   alert.alerts.push({ id: 'alert', sourceUrl, severity: 'SEVERE', header: 'River stop closed', routeIds: ['R'], stopIds: ['A'], activePeriods: [{ start: observationTime - 60, end: observationTime + 60 }] })
   assert.equal(derive(alert).events[0].severity, 'critical')
+  alert.alerts[0].stopIds = []
   context.routes.push({ ...context.routes[0], route_id: 'second\u001fR' })
   const ambiguousAlert = derive(alert).events.find((event) => event.type === 'service-alert')
   assert.deepEqual(ambiguousAlert.routeIds, [])
@@ -113,8 +122,33 @@ try {
   db.exec("INSERT INTO calendar_dates VALUES('S',20260913,2)")
   db.close()
   context = new AgencyContext(file, 'City X')
-  assert.equal(context.coverage(observationTime).valid, false, 'Calendar removals override regular service')
+  assert.equal(context.coverage(observationTime).valid, true, 'A covered date without service is not an invalid timetable')
+  assert.equal(context.coverage(observationTime).sources[0].status, 'no_service_today')
+  assert.equal(context.activeServices('2026-09-13').size, 0, 'Calendar removals still override regular service')
   assert.equal(derive(realtimeFixture()).counts.matchedTrips, 0)
+  context.close()
+  const coverageDb = new DatabaseSync(file)
+  coverageDb.exec(`DELETE FROM calendar_dates; DELETE FROM trips WHERE route_id='Q'; DELETE FROM connections WHERE route_id='Q';
+    INSERT INTO routes VALUES('weekday\u001fR','W','Weekday service',3,'336699');
+    INSERT INTO trips VALUES('weekday\u001fT','weekday\u001fR','weekday\u001fS',0);
+    INSERT INTO calendar VALUES('weekday\u001fS',1,1,1,1,1,0,0,20260901,20260930);`)
+  coverageDb.close()
+  context = new AgencyContext(file, 'City X')
+  assert.equal(context.coverage(observationTime).valid, true)
+  assert.equal(context.coverage(observationTime).sources.find(row => row.scope === 'weekday').status, 'no_service_today')
+  assert.equal(derive(realtimeFixture()).counts.matchedTrips, 3, 'An inactive Sunday feed does not block another source')
+  context.close()
+  const overnightDb = new DatabaseSync(file)
+  overnightDb.exec(`UPDATE calendar SET end_date=20260913;
+    INSERT INTO trips VALUES('LATE','R','S',0);
+    INSERT INTO connections VALUES(89400,90600,'LATE','R','S',0,'A','B',10);`)
+  overnightDb.close()
+  context = new AgencyContext(file, 'City X')
+  const overnight = Date.parse('2026-09-14T01:00:00Z') / 1000
+  assert.equal(context.coverage(overnight).valid, true, 'A prior-day trip remains covered past the last calendar date')
+  assert.equal(context.coverage(overnight).sources.find(row => row.scope === '').status, 'continuing_service')
+  assert.equal(context.matchTripIdentity({ tripId: 'LATE', startDate: '20260913' }, '2026-09-14').trip.trip_id, 'LATE')
+  assert.equal(context.coverage(overnight + 3600).valid, false, 'Coverage ends when the indexed spillover service ends')
   console.log('Agency realtime: schedule dates, DST, exact stops, delay, headways, missing reports, cancellation, skipped stops, independent freshness, alerts, history passed.')
 } finally {
   context.close()

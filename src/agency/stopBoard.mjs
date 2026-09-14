@@ -84,7 +84,8 @@ export function stopBoard(context, snapshot, { stopId, routeId, feedIds, windowM
         const arrival = { scheduled: finite(call.arrival) ? epoch + call.arrival : null, current: null }
         const departure = { scheduled: finite(call.departure) ? epoch + call.departure : null, current: null }
         if (updateFresh) {
-          if (['CANCELED', 'DELETED'].includes(update.scheduleRelationship)) status = 'cancelled'
+          if (update.scheduleRelationship === 'DELETED') continue
+          if (update.scheduleRelationship === 'CANCELED') status = 'cancelled'
           else if (!update.scheduleRelationship || update.scheduleRelationship === 'SCHEDULED') {
             const atCall = (update.stopTimeUpdates ?? []).filter(item => matchCall(pattern, item.stopId, item.stopSequence)?.index === index)
             if (atCall.length > 1) status = 'unresolved'

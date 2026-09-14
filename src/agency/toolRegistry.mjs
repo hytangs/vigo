@@ -1,3 +1,4 @@
+import { alertInScope, alertStopIds } from './alertApplicability.mjs'
 import { networkNarrative } from './networkNarrative.mjs'
 import { diagnoseNetwork, compactDiagnosis } from './networkDiagnosis.mjs'
 import { inspectOperationalService } from './serviceInspection.mjs'
@@ -68,7 +69,7 @@ export const internalToolDefinitions = [{ name: 'matrix', description: 'Compute 
 
 export function createToolRegistry({ context, state, snapshot, adapters, notebook, operations, scheduleIdentity, places, web, signal, now = Date.now }) {
   const generatedAt = state.generatedAt
-  const belongs = (event, routeId) => !routeId || event.routeId === routeId || event.routeIds?.includes(routeId)
+  const belongs = (event, routeId) => !routeId || (event.type === 'service-alert' && event.selectors ? alertInScope(event, { routeId }) : event.routeId === routeId || event.routeIds?.includes(routeId))
   const envelope = (data, provenance = [], warnings = [], presentation) => ({ ok: true, data, provenance, generatedAt, warnings, ...(presentation ? { presentation } : {}) })
   return async function callTool(name, input = {}) {
     const definition = [...toolDefinitions, ...internalToolDefinitions].find((tool) => tool.name === name)
@@ -204,12 +205,22 @@ export function createToolRegistry({ context, state, snapshot, adapters, noteboo
       const result = await gtfsQuery(context.storePath, args, { signal })
       return envelope(result, ['GTFS Static · VIGO SQLite'], result.truncated ? ['Result truncated at its row or byte limit.'] : [])
     }
-    if (name === 'realtime_status') return envelope({ ...state, history: undefined, tripHistory: undefined,
-      scope,
-      routes: state.routes.filter((route) => included(route.id)),
-      events: events.filter((event) => (!args.tripId || event.tripId === args.tripId) && (!args.stopId || event.stopId === args.stopId || event.stopIds?.includes(args.stopId)) && (!args.vehicleId || event.vehicleId === args.vehicleId)),
-      trips: state.trips.filter((trip) => included(trip.routeId) && (!args.tripId || trip.tripId === args.tripId) && (!args.vehicleId || trip.vehicleId === args.vehicleId)).slice(0, 100),
-    }, state.feeds.map((feed) => feed.sourceUrl), state.warnings, { routeIds: [...routeIds] })
+    if (name === 'realtime_status') {
+      const trip = args.tripId ? context.tripById.get(args.tripId) : null
+      const noticeStops = alertStopIds(context, args.stopId ? new Set([args.stopId]) : null)
+      const noticeRoutes = routeIds.size ? [...routeIds] : [trip?.route_id]
+      const selectedEvents = events.filter(event => {
+        if (args.vehicleId && event.vehicleId !== args.vehicleId) return false
+        if (event.type === 'service-alert' && event.selectors) return noticeRoutes.some(routeId => alertInScope(event, {
+          routeId, tripId: args.tripId, directionId: trip?.direction_id, stopIds: noticeStops,
+        }))
+        return (!args.tripId || event.tripId === args.tripId) && (!args.stopId || event.stopId === args.stopId || event.stopIds?.includes(args.stopId))
+      })
+      return envelope({ ...state, history: undefined, tripHistory: undefined, scope,
+        routes: state.routes.filter(route => included(route.id)), events: selectedEvents,
+        trips: state.trips.filter(trip => included(trip.routeId) && (!args.tripId || trip.tripId === args.tripId) && (!args.vehicleId || trip.vehicleId === args.vehicleId)).slice(0, 100),
+      }, state.feeds.map(feed => feed.sourceUrl), state.warnings, { routeIds: [...routeIds] })
+    }
     if (name === 'anomaly_scan' || name === 'service_alerts') {
       let selected = name === 'service_alerts' ? events.filter((event) => event.type === 'service-alert') : events.filter((event) => !args.eventType || event.type === args.eventType)
       if (name === 'service_alerts' && args.search) selected = selected.filter(event => [event.title, event.evidence.alertDescription, event.evidence.reason].join(' ').toLowerCase().includes(args.search.toLowerCase()))

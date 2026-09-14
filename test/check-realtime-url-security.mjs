@@ -51,10 +51,21 @@ await assert.rejects(
   /embedded credentials/,
 )
 
+// A resolver that never settles must not retain a feed request indefinitely.
+const hangingLookup = () => new Promise(() => {})
+await assert.rejects(fetchSafeRealtimeBody('https://example.test/feed.pb', { maximumBytes: 16, timeoutMs: 20, lookup: hangingLookup }), error => error.code === 'request_timeout')
+const controller = new AbortController()
+const pending = fetchSafeRealtimeBody('https://example.test/feed.pb', { maximumBytes: 16, timeoutMs: 10_000, lookup: hangingLookup, signal: controller.signal })
+controller.abort()
+await assert.rejects(pending, error => error.name === 'AbortError')
 const server = http.createServer((request, response) => {
   if (request.url === '/redirect') {
     response.writeHead(302, { location: '/feed.pb' })
     response.end()
+    return
+  }
+  if (request.url === '/slow-redirect') {
+    setTimeout(() => { response.writeHead(302, { location: '/slow-redirect' }); response.end() }, 30)
     return
   }
   response.writeHead(200, { 'content-type': 'application/x-protobuf' })
@@ -126,6 +137,9 @@ try {
     }),
     (error) => error.code === 'response_status',
   )
+  await assert.rejects(fetchSafeRealtimeBody(`http://127.0.0.1:${port}/slow-redirect`, {
+    maximumBytes: 16, allowPrivate: true, timeoutMs: 50, maximumRedirects: 5,
+  }), error => error.code === 'request_timeout', 'Redirects share one operation deadline')
 } finally {
   mock.restoreAll()
   net.setDefaultAutoSelectFamily(originalAutoSelectFamily)

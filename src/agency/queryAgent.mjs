@@ -81,8 +81,8 @@ export function compactResult(result, tool) {
   })
   if (tool === 'reach') return envelope({ request: data.request, summary: data.summary })
   const minutes = (seconds) => Number.isFinite(seconds) ? Number((seconds / 60).toFixed(1)) : undefined
-  const events = (data.events ?? []).slice(0, 3).map(({ id, title, type, observedAt, routeId, routeIds, routeName, stopId, stopIds, stopName, stopNames, tripId, tripIds, vehicleId, evidence: e }) => ({
-    id, title, type, observedAt, routeId, routeName, routeIds: data.scope?.routeIds?.length ? routeIds?.filter(id => data.scope.routeIds.includes(id)) : routeIds, stopId, stopIds, stopName, stopNames, tripId, tripIds, vehicleId,
+  const events = (data.events ?? []).slice(0, 3).map(({ id, title, type, observedAt, scopeDescription, routeId, routeIds, routeName, stopId, stopIds, stopName, stopNames, tripId, tripIds, vehicleId, evidence: e }) => ({
+    id, title, type, observedAt, scopeDescription, routeId, routeName, routeIds: data.scope?.routeIds?.length ? routeIds?.filter(id => data.scope.routeIds.includes(id)) : routeIds, stopId, stopIds, stopName, stopNames, tripId, tripIds, vehicleId,
     evidence: { delayMinutes: minutes(e.delaySeconds), scheduledTime: e.scheduledTime, predictedTime: e.predictedTime, scheduledMinutes: minutes(e.scheduledHeadwaySeconds), predictedMinutes: minutes(e.observedHeadwaySeconds), increaseMinutes: minutes(e.observedHeadwaySeconds - e.scheduledHeadwaySeconds), reportReason: e.reason, alertHeader: e.alertHeader, alertDescription: e.alertDescription?.slice(0, 3000), alertCause: e.alertCause, alertEffect: e.alertEffect, alertUrl: e.alertUrl, activePeriods: e.activePeriods },
   }))
   if (tool === 'realtime_status') return envelope({
@@ -365,12 +365,16 @@ export async function queryAgency({ question, context, state, callTool, provider
   // Numbered references resolve only to actual successful tool responses.
   // This does not verify the meaning of model-written claims.
   answer = answer.replace(/(^|[ \t])\[(\d+)\](?=$|[\s.,;:!?])/gm, (reference, _space, number) => {
-    if (!trace[Number(number) - 1]?.result.ok) return ''
+    if (!trace[Number(number) - 1]?.result.ok) {
+      warnings.push(`Source [${number}] does not refer to a successful check. The model's statement has not been verified.`)
+      return reference
+    }
     citations.add(Number(number))
     return reference
   })
   return {
     selection, dataPolicyVersion: 1,
+    responseBasis: renderedFromEvidence || !answer ? 'computed' : trace.some(call => call.result.ok) ? 'model_with_sources' : 'model_only',
     answer: answer || (trace.length ? `${signal?.aborted ? 'Stopped before the answer was finished.' : 'The model did not finish this answer.'} Your completed checks are saved below.\n\n${summarizeEvidence(trace)}` : signal?.aborted ? 'Stopped before a response was ready. You can continue this conversation.' : 'I could not get a response from the model. Please try again.'),
     timing: { ...timing, totalMs: performance.now() - startedAt },
     aiGenerated: Boolean(answer) && !renderedFromEvidence, model: answer ? provider.model : undefined, citations: [...citations],

@@ -26,7 +26,7 @@ export function investigationFacts(trace, diagnosis) {
       case 'alerts':
         if (!d.sourceAvailable) add(index + 1, 'A current agency notice check is unavailable.', false)
         else if (!d.matchingNotices) add(index + 1, 'No matching operational notice was found. This does not rule out an incident.', false)
-        else for (const notice of d.notices.slice(0, 4)) add(index + 1, `Agency notice for ${notice.routeIds?.map(id => names.get(id) || id).join(', ') || 'the selected stops'}: ${notice.title}`)
+        else for (const notice of d.notices.slice(0, 4)) add(index + 1, `Agency notice for ${notice.scopeDescription || notice.routeIds?.map(id => names.get(id) || id).join(', ') || 'the selected stops'}: ${notice.title}`)
         break
       case 'prediction_progression': {
         for (const trip of d.trips.slice(0, 6)) {
@@ -62,10 +62,10 @@ export function realizeInvestigation(ranked, facts, watch, narrative) {
   const leading = ranked[0], selected = new Map(facts.map(fact => [fact.id, fact]))
   const support = leading.supportingEvidenceIds.map(id => selected.get(id).statement)
   const against = leading.conflictingEvidenceIds.map(id => selected.get(id).statement)
-  const conclusion = leading.status === 'plausible' ? `The evidence currently favors ${labels[leading.hypothesis].toLowerCase()}.`
-    : leading.status === 'weakened' ? `The checked evidence weakens ${labels[leading.hypothesis].toLowerCase()} as an explanation.`
+  const conclusion = leading.status === 'plausible' ? `One explanation to investigate is ${labels[leading.hypothesis].toLowerCase()}. These checks do not establish it as the leading cause.`
+    : leading.status === 'weakened' ? `The model considers ${labels[leading.hypothesis].toLowerCase()} less consistent with these checks. This is an interpretation, not a confirmed exclusion.`
       : 'The completed checks do not yet distinguish a shared corridor problem from delays on individual trips.'
-  return { narrative: { ...narrative, elsewhere: '' }, explanation: { hypothesis: leading.hypothesis, status: leading.status,
+  return { narrative: { ...narrative, elsewhere: '' }, explanation: { hypothesis: leading.hypothesis, status: leading.status, rankingVerified: false,
     text: [conclusion, ...support, ...(against.length ? ['Evidence to weigh against that explanation:', ...against] : [])].join(' '), evidenceIds: [...leading.supportingEvidenceIds, ...leading.conflictingEvidenceIds] },
     assessment: conclusion, watchNext: nextChecks[watch], rankedHypotheses: ranked, facts }
 }

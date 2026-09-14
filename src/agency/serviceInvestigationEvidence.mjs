@@ -1,3 +1,4 @@
+import { alertInScope, alertStopIds } from './alertApplicability.mjs'
 import { tripInstance } from './serviceWindow.mjs'
 import { feedStates } from './realtimeIntelligence.mjs'
 import { readLampStudy } from './lampStudy.mjs'
@@ -13,14 +14,15 @@ export async function inspectService({ context, state, snapshot, directory }, { 
   if (aspect === 'historical_runtime') return readLampStudy(directory, { routeIds, limit: 6 })
   if (aspect === 'alerts') {
     const feeds = state.feeds.filter(feed => feed.kind === 'alerts')
-    const matches = state.events.filter(event => event.type === 'service-alert' && (event.routeIds?.some(id => scope.has(id)) || event.stopIds?.some(id => stops.has(id))))
+    const noticeStops = alertStopIds(context, stops)
+    const matches = state.events.filter(event => event.type === 'service-alert' && (scope.size || stops.size || tripId) && [...(scope.size ? scope : [undefined])].some(routeId => alertInScope(event, { routeId, stopIds: noticeStops, tripId })))
     // These GTFS effects concern access or information, not vehicle operation.
     // Keep their count, but do not invite a model to use an elevator outage as
     // evidence explaining a running-time or departure-delay pattern.
     const operational = matches.filter(event => !['ACCESSIBILITY_ISSUE', 'NO_EFFECT'].includes(event.evidence.alertEffect))
-    return { scope: { routeIds, stopIds, meaning: 'Notices matching the selected routes or stops. A notice elsewhere on the same route does not establish a problem at the selected station.' },
+    return { scope: { routeIds, stopIds, meaning: 'Notices whose selector matches the selected route and stop together. Trip and direction restrictions remain attached; a matching notice is not necessarily route-wide.' },
       sourceAvailable: Boolean(feeds.length && feeds.every(feed => feed.status === 'fresh')), matchingNotices: operational.length, otherNotices: matches.length - operational.length,
-      notices: operational.slice(0, 8).map(event => ({ title: event.title, effect: event.evidence.alertEffect, cause: event.evidence.alertCause, routeIds: event.routeIds,
+      notices: operational.slice(0, 8).map(event => ({ title: event.title, effect: event.evidence.alertEffect, cause: event.evidence.alertCause, routeIds: event.routeIds, scopeDescription: event.scopeDescription, selectors: event.selectors,
         stops: (event.stopIds ?? []).map(id => ({ id, name: context.stopIndex.get(id)?.name })), sourceRefs: event.sourceRefs, activePeriods: event.evidence.activePeriods })),
       limit: 'Notices describe only their stated location and period. They do not automatically explain every delay on an affected route.' }
   }

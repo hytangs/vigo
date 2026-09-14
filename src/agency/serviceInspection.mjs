@@ -1,3 +1,4 @@
+import { alertInScope, alertStopIds } from './alertApplicability.mjs'
 import { diagnoseNetwork } from './networkDiagnosis.mjs'
 import { serviceContextNarrative } from './networkNarrative.mjs'
 import { serviceEpoch } from './agencyContext.mjs'
@@ -87,13 +88,14 @@ export async function inspectOperationalService({ context, state, snapshot, dire
       occupancy: vehicle.occupancyStatus ?? null }]
   })
   const selectedStopIds = scope.stopIds.length ? scope.stopIds : [...new Set(uniqueTrips.slice(0, 6).map(row => row.stopId))]
+  const noticeStops = alertStopIds(context, stopSet)
   const alerts = state.events.filter(event => event.type === 'service-alert' && (allNetwork
-    || event.routeIds?.some(id => areaRoutes.has(id)) || event.stopIds?.some(id => stopSet.has(id))))
+    || (areaRoutes.size || stopSet.size || scope.tripId) && [...(areaRoutes.size ? areaRoutes : [undefined])].some(routeId => alertInScope(event, { routeId, stopIds: noticeStops, tripId: scope.tripId }))))
   const reportByKey = new Map(reports.map(row => [tripInstance(row), row]))
   const epochs = new Map()
   const epochFor = date => { if (!epochs.has(date)) epochs.set(date, serviceEpoch(date, context.timezone)); return epochs.get(date) }
   const horizons = (args.horizonMinutes ? [args.horizonMinutes] : [30, 60, 90]).map(horizon => {
-    const scheduled = scheduledServiceWindow(context, now, now + horizon * 60).trips.filter(row => tripSelected({ ...row, vehicleId: reportByKey.get(row.key)?.vehicleId }))
+    const scheduled = scheduledServiceWindow(context, now, now + horizon * 60).trips.filter(row => reportByKey.get(row.key)?.status !== 'deleted').filter(row => tripSelected({ ...row, vehicleId: reportByKey.get(row.key)?.vehicleId }))
       .filter(row => !stopSet.size || context.tripDepartures(row.tripId).some(call => stopSet.has(call.from_stop_id) && epochFor(row.serviceDate) + call.departure >= now && epochFor(row.serviceDate) + call.departure < now + horizon * 60
         || stopSet.has(call.to_stop_id) && epochFor(row.serviceDate) + call.arrival >= now && epochFor(row.serviceDate) + call.arrival < now + horizon * 60))
     return { minutes: horizon, through: clock(now + horizon * 60), scheduledTrips: scheduled.length,
@@ -120,7 +122,7 @@ export async function inspectOperationalService({ context, state, snapshot, dire
       scheduledMinutes: minutes(row.scheduledSeconds), predictedMinutes: minutes(row.predictedSeconds), tripIds: row.tripIds,
       comparedStops: counts.get(JSON.stringify([row.routeId, row.directionId, row.serviceDate, row.tripIds])).size })), totalIntervalPairs: pairs.length,
     notices: alerts.slice(0, 6).map(event => ({ title: event.title, description: event.evidence.alertDescription, routes: names(event.routeIds || []), stops: event.stopIds?.map(id => context.stopIndex.get(id)?.name),
-      effect: event.evidence.alertEffect, cause: event.evidence.alertCause, noticeDisplayPeriod: event.evidence.activePeriods?.map(period => ({ from: clock(period.start), to: clock(period.end) })), periodMeaning: 'Notice validity only; not incident onset or a recovery promise.' })), totalNotices: alerts.length,
+      scopeDescription: event.scopeDescription, selectors: event.selectors, effect: event.evidence.alertEffect, cause: event.evidence.alertCause, noticeDisplayPeriod: event.evidence.activePeriods?.map(period => ({ from: clock(period.start), to: clock(period.end) })), periodMeaning: 'Notice validity only; not incident onset or a recovery promise.' })), totalNotices: alerts.length,
     vehicles: vehicleRows.filter(row => row.occupancy || scope.vehicleIds.length || scope.tripId).slice(0, 6), freshVehicleReports: vehicleRows.length,
     progression: selectedRoutes.length && selectedStopIds.length ? await inspectService({ context, state, snapshot, directory }, { routeIds: selectedRoutes, stopIds: selectedStopIds, tripId: scope.tripId, vehicleIds: scope.vehicleIds, aspect: 'prediction_progression' }) : null,
     outlook: horizons,
@@ -147,7 +149,7 @@ export function inspectionFacts(data) {
     ...data.routes.map(route => `Route ${route.route}, whole-route comparison: ${route.reportingTrips} reporting trips; ${route.laterTrips} later, ${route.matchingTrips} matching timetable; ${route.cancelledTrips} cancellations in the assessment window. Maximum predicted departure delay ${route.maxDelayMinutes ?? 'unknown'} minutes. ${route.widerPairs} distinct departure pairs are farther apart than scheduled; ${route.closerPairs} closer together. This covers reporting trips only.`),
     ...data.concentrations.map(area => `${area.place}: overlapping late predictions on shared directed stop connections involve routes ${area.routes.map(route => route.name).join(', ')}, ${area.tripCount} trips; maximum predicted delay ${area.maxDelayMinutes} minutes. Geographic overlap does not establish a shared cause.`),
     ...data.intervals.map(pair => `Route ${pair.route}, direction ${pair.direction}, ${pair.stop}: two departures are predicted ${pair.predictedMinutes} minutes apart, scheduled ${pair.scheduledMinutes} minutes apart (${pair.predictedMinutes > pair.scheduledMinutes ? 'wider' : pair.predictedMinutes < pair.scheduledMinutes ? 'closer' : 'same'} spacing). The same pair is compared at ${pair.comparedStops} stops; those are not independent vehicle pairs.`),
-    ...data.notices.map(notice => `Agency notice for ${notice.routes.map(route => route.name).join(', ') || 'the stated stops'}: ${notice.title}. ${(notice.description || '').slice(0, 1200)} Effect: ${notice.effect}; reported cause: ${notice.cause || 'unspecified'}. Validity dates are not onset or recovery evidence. This does not establish the cause of every trip delay or a shared cause on other routes.`),
+    ...data.notices.map(notice => `Agency notice for ${notice.scopeDescription || notice.routes.map(route => route.name).join(', ') || 'the stated stops'}: ${notice.title}. ${(notice.description || '').slice(0, 1200)} Effect: ${notice.effect}; reported cause: ${notice.cause || 'unspecified'}. Validity dates are not onset or recovery evidence. This does not establish the cause of every trip delay or a shared cause on other routes.`),
     ...(!data.scope.allNetwork ? data.trips : []).map(trip => `Vehicle ${trip.vehicleId || 'not identified'}, route ${trip.route}: next compared DEPARTURE at ${trip.stop}, scheduled ${trip.scheduled}, predicted ${trip.predicted} (${trip.delayMinutes} minutes deviation). ${trip.retainedReports.length ? `Retained prediction reports: ${trip.retainedReports.map(row => `${row.at}, ${row.stop}, ${row.delayMinutes} minutes delay`).join('; ')}. These are changes in forecasts, not observed progression or incident onset.` : 'No retained prediction history is supplied for this trip.'}`),
     ...data.vehicles.filter(vehicle => vehicle.occupancy).map(vehicle => `Vehicle ${vehicle.vehicle}, route ${vehicle.route}, reports occupancy ${vehicle.occupancy} at ${vehicle.at}. This is a vehicle occupancy category, not APC passenger counts or a demand diagnosis.`),
     ...(data.aspect === 'outlook' ? data.outlook : []).map(row => `Schedule exposure through ${row.through} (${row.minutes} minutes): ${row.scheduledTrips} scheduled trips, ${row.reportedCancelled} reported cancelled, ${row.withoutMatchedReport} without a matching report. A future trip need not report yet; this is NOT a forecast of missing pull-outs or service recovery.`),

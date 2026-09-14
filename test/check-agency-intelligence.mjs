@@ -64,7 +64,9 @@ try {
   const noticeCheck = (await createToolRegistry({ ...f, state: noRedState, snapshot: noRedReports, adapters: {} })('inspect_service', { aspect: 'alerts' })).data
   assert.equal(noticeCheck.otherNotices, 1, 'An explicit network alert check also includes routes without reporting trips')
   const relatedNotices = (await call('inspect_service', { routeIds: ['39'], stopIds: ['C'], aspect: 'alerts' })).data
-  assert.deepEqual(relatedNotices.notices[0].stops, [{ id: 'B', name: 'Huntington Avenue' }], 'A broader route notice retains its actual station rather than acquiring the selected one')
+  assert.equal(relatedNotices.notices.length, 0, 'A route notice for another station is excluded from this station investigation')
+  const routeNotices = (await call('inspect_service', { routeIds: ['39'], aspect: 'alerts' })).data
+  assert.deepEqual(routeNotices.notices[0].stops, [{ id: 'B', name: 'Huntington Avenue' }], 'A route overview retains the actual station restriction')
   assert.deepEqual(relatedNotices.scope.stopIds, ['C'])
   const duplicateIntervals = { ...f.state, measurements: { ...f.state.measurements, intervals: [...f.state.measurements.intervals, ...f.state.measurements.intervals] } }
   const samePairs = (await createToolRegistry({ ...f, state: duplicateIntervals, adapters: {} })('inspect_service', {})).data
@@ -75,7 +77,7 @@ try {
   await assert.rejects(call('inspect_service', { horizonMinutes: 121 }), /Out-of-range/)
   const local = (await call('inspect_service', { stopIds: ['Harvard Square'] })).data
   assert.ok(local.trips.every(row => row.stop === 'Harvard Square' || row.stop === 'Huntington Avenue'))
-  assert.ok(local.notices.some(row => row.effect === 'SIGNIFICANT_DELAYS'))
+  assert.equal(local.notices.some(row => row.effect === 'SIGNIFICANT_DELAYS'), false, 'A delay notice at another stop does not apply to the selected station')
   const progression = (await call('inspect_service', { routeIds: ['39'], aspect: 'prediction_progression' })).data
   assert.ok(progression.totalTrips > 0, 'Route-wide progression does not require a separately selected stop')
   assert.match(progression.limit, /not an observed/)

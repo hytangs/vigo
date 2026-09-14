@@ -79,11 +79,32 @@ export async function assertSafeRealtimeUrl(sourceUrl, options) {
   return (await resolveSafeRealtimeTarget(sourceUrl, options)).parsedUrl
 }
 
-export async function fetchSafeRealtimeBody(
+// DNS promises are not cancellable, but waiting for them must be. The same
+// signal/deadline covers validation, every redirect, and the response body.
+function abortable(promise, signal) {
+  signal.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    const aborted = () => reject(signal.reason)
+    signal.addEventListener('abort', aborted, { once: true })
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', aborted))
+  })
+}
+
+export async function fetchSafeRealtimeBody(sourceUrl, options = {}) {
+  const { timeoutMs = 15_000 } = options
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new TypeError('timeoutMs must be a positive safe integer')
+  const controller = new AbortController()
+  const signal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal
+  signal.throwIfAborted()
+  const timer = setTimeout(() => controller.abort(Object.assign(new Error(`GTFS-RT request timed out after ${Math.round(timeoutMs / 1_000)} seconds.`), { code: 'request_timeout' })), timeoutMs)
+  try { return await fetchTarget(sourceUrl, { ...options, signal }) }
+  finally { clearTimeout(timer) }
+}
+
+async function fetchTarget(
   sourceUrl,
   {
     maximumBytes,
-    timeoutMs = 15_000,
     headers = {},
     lookup,
     allowPrivate,
@@ -97,8 +118,9 @@ export async function fetchSafeRealtimeBody(
   if (!Number.isInteger(maximumRedirects) || maximumRedirects < 0 || maximumRedirects > 5) throw new TypeError('maximumRedirects must be an integer from 0 to 5')
   let target
   try {
-    target = await resolveSafeRealtimeTarget(sourceUrl, { lookup, allowPrivate })
+    target = await abortable(resolveSafeRealtimeTarget(sourceUrl, { lookup, allowPrivate }), signal)
   } catch (error) {
+    if (signal.aborted) throw signal.reason
     error.code = 'unsafe_url'
     throw error
   }
@@ -125,7 +147,7 @@ export async function fetchSafeRealtimeBody(
         // reject redirects unless they explicitly opt in.
         let redirectUrl
         try { redirectUrl = new URL(response.headers.location, parsedUrl).href } catch { reject(new Error('Invalid redirect URL.')); return }
-        fetchSafeRealtimeBody(redirectUrl, { maximumBytes, timeoutMs, headers, lookup, allowPrivate, signal, maximumRedirects: maximumRedirects - 1 }).then(resolve, reject)
+        fetchTarget(redirectUrl, { maximumBytes, headers, lookup, allowPrivate, signal, maximumRedirects: maximumRedirects - 1 }).then(resolve, reject)
         return
       }
       if (status < 200 || status >= 300) {
@@ -160,13 +182,7 @@ export async function fetchSafeRealtimeBody(
         url: parsedUrl.href,
       }))
     })
-    const timeout = setTimeout(() => {
-      const error = new Error(`GTFS-RT request timed out after ${Math.round(timeoutMs / 1_000)} seconds.`)
-      error.code = 'request_timeout'
-      request.destroy(error)
-    }, timeoutMs)
-    request.on('close', () => clearTimeout(timeout))
-    request.on('error', reject)
+    request.on('error', error => reject(signal.aborted ? signal.reason : error))
     request.end()
   })
 }
