@@ -42,6 +42,7 @@ export type RoutingAccessAvailabilityHint = {
 export type RoutingLeg = {
   fare?: {
     status: 'published' | 'unavailable'
+    code?: string
     reason?: string
     source?: string
     standard?: string

@@ -5,8 +5,10 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import { quoteBoardingFare, farePriceLabel } from '../src/fares.mjs'
+import { parseFareAmount } from '../src/farePresentation.mjs'
+import { fareEventDay } from '../src/fareTime.mjs'
 import { compactResult } from '../src/agency/queryAgent.mjs'
-import { addGtfsFares } from '../src/server/gtfs-fare-store.mjs'
+import { addGtfsFares, writeGtfsFareCatalog } from '../src/server/gtfs-fare-store.mjs'
 import { buildNationalGtfsStore, buildNationalGtfsCityStore, mergeNationalGtfsStores, addNationalGtfsFares, routeNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
 
 const catalog = () => ({ version: 1, source: 'fixture.zip', tables: {
@@ -21,12 +23,52 @@ const catalog = () => ({ version: 1, source: 'fixture.zip', tables: {
     { network_id: 'N', from_area_id: '', to_area_id: '', fare_product_id: 'free', transfer_only: '1' }],
 } })
 const ride = { type: 'ride', routeId: 'R', fromStopId: 'S', toStopId: 'T', startMinutes: 480, endMinutes: 490 }
-const quote = (c, leg = ride, date = '2026-09-14') => quoteBoardingFare(c, leg, date)
+// Each edited fixture represents a new immutable imported catalog.
+const quote = (c, leg = ride, date = '2026-09-14') => quoteBoardingFare(structuredClone(c), leg, date)
+assert.equal(parseFareAmount('2.400', 'USD'), 2.4)
+assert.equal(parseFareAmount('1.23', 'JPY'), null)
+assert.equal(parseFareAmount('1.234', 'KWD'), 1.234)
+assert.equal(parseFareAmount('90071992547409.91', 'USD'), null, 'Never round unrepresentable decimal currency amounts.')
+assert.equal(farePriceLabel([{ amount: 2, currency: 'USD' }, { amount: 3, currency: 'CAD' }]), '$2.00 / CA$3.00')
+assert.deepEqual(fareEventDay('2026-03-08', 0, 'America/New_York'), { date: '20260307', weekday: 'saturday', seconds: 23 * 3600 })
+assert.equal(fareEventDay('2026-03-08', 180, 'America/New_York').seconds, 3 * 3600)
+assert.equal(fareEventDay('2026-11-01', 30, 'America/New_York').seconds, 90 * 60)
+assert.equal(fareEventDay('2026-11-01', 90, 'America/New_York').seconds, 90 * 60)
+assert.equal(fareEventDay('2026-09-14', 480, 'America/New_York', 'America/Chicago').seconds, 7 * 3600)
+assert.equal(fareEventDay('2026-02-30', 480, 'America/New_York'), null)
+assert.equal(fareEventDay('2026-09-14', 480, 'not-a-timezone'), null)
 assert.equal(farePriceLabel(quote(catalog()).options), '$2.40')
 assert.equal(quote(catalog()).options.length, 1, 'A free transfer is not a free boarding.')
 assert.equal(quote(catalog()).agencyUrl, 'https://example.com/fares')
 assert.equal(quote(catalog(), { ...ride, routeId: 'missing' }).status, 'unavailable')
 assert.equal(quote(catalog(), { ...ride, toStopId: 'missing' }).status, 'unavailable')
+{
+  const c = catalog()
+  const first = quoteBoardingFare(c, ride, '2026-09-14')
+  assert.equal(quoteBoardingFare(c, { ...ride }, '2026-09-14'), first, 'Repeated quotes reuse immutable results.')
+  assert.throws(() => { first.options[0].amount = 0 }, TypeError)
+}
+{
+  const c = catalog()
+  c.tables.fare_leg_rules = [{ network_id: 'N', from_area_id: 'origin', fare_product_id: 'free' }, { network_id: 'N', from_area_id: 'platform', fare_product_id: 'adult' }]
+  c.tables.stop_areas.push({ stop_id: 'S', area_id: 'platform' })
+  assert.equal(farePriceLabel(quote(c).options), '$2.40', 'An explicit platform area replaces, rather than adds to, its station area.')
+}
+{
+  const c = catalog(); c.tables.routes[0].agency_id = 'missing'
+  assert.equal(quote(c).code, 'invalid_data', 'An invalid agency ID must not fall back to the sole agency.')
+}
+{
+  const c = catalog(); delete c.tables.routes[0].network_id
+  c.tables.route_networks = [{ route_id: 'R', network_id: 'N' }]
+  assert.equal(quote(c).status, 'published')
+  c.tables.route_networks.push({ route_id: 'R', network_id: 'other' })
+  assert.equal(quote(c).code, 'invalid_data', 'Ambiguous network assignment cannot select a cheap fare.')
+}
+{
+  const c = catalog(); c.tables.fare_products.push({ ...c.tables.fare_products[0], amount: '0.00' })
+  assert.equal(quote(c).code, 'invalid_data', 'Conflicting product variants must not produce a misleading price range.')
+}
 for (const amount of ['', '-1', 'NaN', 'Infinity', '1e4', 'bad', '2.499']) {
   const c = catalog(); c.tables.fare_products[0].amount = amount
   assert.equal(quote(c).status, 'unavailable', amount)
@@ -40,6 +82,7 @@ for (const amount of ['', '-1', 'NaN', 'Infinity', '1e4', 'bad', '2.499']) {
 {
   const c = catalog()
   c.tables.fare_products.push({ fare_product_id: 'adult', amount: '3.00', currency: 'USD', fare_media_id: 'cash' })
+  c.tables.fare_media.push({ fare_media_id: 'cash', fare_media_name: 'Cash' })
   assert.equal(farePriceLabel(quote(c).options), '$2.40–$3.00')
   c.tables.fare_products[0].rider_category_id = 'child'
   c.tables.rider_categories = [{ rider_category_id: 'child', is_default_fare_category: '0' }]
@@ -70,6 +113,9 @@ for (const amount of ['', '-1', 'NaN', 'Infinity', '1e4', 'bad', '2.499']) {
   assert.equal(quote(c, { ...ride, startMinutes: 1470, scheduleMode: 'realtime-adjusted' }).status, 'unavailable', 'Prediction time cannot substitute for scheduled fare validation time.')
   c.tables.stops[1].stop_timezone = 'America/Chicago'
   assert.equal(quote(c, { ...ride, startMinutes: 1470 }).status, 'unavailable', 'A platform also inherits the station timezone.')
+  delete c.tables.stops[1].stop_timezone
+  c.tables.stops[0].stop_timezone = 'America/Chicago'
+  assert.equal(quote(c, { ...ride, startMinutes: 1470 }).status, 'published', 'A child timezone is ignored; a parent without one uses the agency timezone.')
 }
 {
   const c = catalog(); delete c.tables.fare_products
@@ -123,7 +169,15 @@ try {
   timed.tables.calendar_dates = c.tables.calendar_dates
   dbSchedule.prepare('INSERT INTO fare_catalogs VALUES(?,?)').run('', JSON.stringify(timed))
   const delayed = { ...ride, tripId: 'TR', scheduleMode: 'realtime-adjusted', stopIds: ['S', 'T'], startMinutes: 495, endMinutes: 505 }
-  assert.equal(addGtfsFares(dbSchedule, { ...plan, legs: [delayed] }).legs[0].fare.status, 'published', 'Timed fares use the uniquely matched scheduled sequence, not delayed predictions.')
+  let scheduledReads = 0
+  const countedSchedule = { prepare(sql) { const stmt = dbSchedule.prepare(sql); return {
+    get(...args) { return stmt.get(...args) }, all(...args) { if (sql.includes('FROM connections')) scheduledReads++; return stmt.all(...args) },
+  } } }
+  for (let i = 0; i < 10; i++) assert.equal(addGtfsFares(countedSchedule, { ...plan, legs: [delayed] }).legs[0].fare.status, 'published', 'Timed fares use the uniquely matched scheduled sequence, not delayed predictions.')
+  assert.equal(scheduledReads, 1, 'The same trip timetable is read only once across alternative plans.')
+  dbSchedule.exec("INSERT INTO connections VALUES('TR',2,29400,29700,'T','S'),('TR',3,29700,30000,'S','T')")
+  writeGtfsFareCatalog(dbSchedule, timed)
+  assert.equal(addGtfsFares(dbSchedule, { ...plan, legs: [delayed] }).legs[0].fare.code, 'schedule_unresolved', 'Repeated loop sequences remain ambiguous; do not pick a timed fare arbitrarily.')
   dbSchedule.close()
   for (const build of ['merge', 'city']) {
     const outputPath = path.join(root, `${build}.sqlite`)
@@ -141,5 +195,32 @@ try {
   const legacy = new DatabaseSync(':memory:')
   assert.equal(addGtfsFares(legacy, { ...plan, legs: [ride] }).legs[0].fare.status, 'unavailable')
   legacy.close()
+  const broken = new DatabaseSync(':memory:')
+  broken.exec("CREATE TABLE fare_catalogs(scope TEXT PRIMARY KEY,data TEXT); INSERT INTO fare_catalogs VALUES('', 'broken json')")
+  const safe = addGtfsFares(broken, plan)
+  assert.equal(safe.status, 'ready')
+  assert.equal(safe.legs.find(leg => leg.type === 'ride').fare.status, 'unavailable')
+  assert.equal(safe.durationMinutes, plan.durationMinutes)
+  broken.close()
+  const isolated = new DatabaseSync(':memory:')
+  writeGtfsFareCatalog(isolated, catalog())
+  let queries = 0, tripQueries = 0
+  const counted = { prepare(sql) { const stmt = isolated.prepare(sql); return {
+    get(...args) { queries++; return stmt.get(...args) },
+    all(...args) { queries++; if (sql.includes('FROM connections')) tripQueries++; return stmt.all(...args) },
+  } } }
+  const livePlan = { ...plan, legs: [{ ...ride, tripId: 'TR', scheduleMode: 'realtime-adjusted', stopIds: ['S', 'T'] }] }
+  assert.equal(addGtfsFares(counted, livePlan).legs[0].fare.status, 'published')
+  const warmQueries = queries
+  for (let i = 0; i < 100; i++) assert.equal(addGtfsFares(counted, { ...livePlan }).legs[0].fare.status, 'published')
+  assert.equal(queries, warmQueries, 'Warm fare annotation executes no SQL.')
+  assert.equal(tripQueries, 0, 'An untimed fare never queries the timetable, even for live-adjusted rides.')
+  writeGtfsFareCatalog(isolated, catalog())
+  const initial = addGtfsFares(isolated, plan)
+  const replacement = catalog(); replacement.tables.fare_products[0].amount = '4.00'
+  writeGtfsFareCatalog(isolated, replacement)
+  assert.equal(farePriceLabel(addGtfsFares(isolated, plan).legs.find(leg => leg.type === 'ride').fare.options), '$4.00', 'Replacing a catalog invalidates plan and quote caches.')
+  assert.equal(farePriceLabel(initial.legs.find(leg => leg.type === 'ride').fare.options), '$2.40', 'An earlier answer retains its own fare evidence.')
+  isolated.close()
 } finally { await fs.rm(root, { recursive: true, force: true }) }
 console.log('GTFS fare matching, import, merged-feed scoping and routing annotation passed.')
