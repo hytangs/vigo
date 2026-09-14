@@ -78,7 +78,7 @@ export function AgencyAnswer({ answer, onResult, onSelectEvent, onOpenEntry }: {
     {answer.warnings.length ? <details className="agency-source-details"><summary>What this answer covers</summary>{answer.warnings.map((warning) => <p className="agency-caption" key={warning}>{warning}</p>)}</details> : null}
     {answer.citations?.length ? <details className="agency-source-details"><summary>Sources cited in this answer</summary>{answer.trace.map((call, index) => answer.citations?.includes(index + 1) ? <div key={index}><strong>[{index + 1}] {toolNames[call.tool] || humanField(call.tool)}</strong><SourceLinks refs={call.result.provenance} /></div> : null)}</details> : null}
     {!answer.citations?.length && answer.evidenceRefs.length ? <details className="agency-source-details"><summary>Sources · {answer.evidenceRefs.length}</summary><SourceLinks refs={answer.evidenceRefs} /></details> : null}
-    {answer.runtime ? <AgencyRuntimeFacts runtime={answer.runtime} /> : null}
+    {answer.runtime ? <AgencyRuntimeFacts runtime={answer.runtime} expanded={answer.trace.some(call => call.tool === 'runtime_status')} /> : null}
     <footer className="agency-answer-footer">{answer.trace.length ? 'As of ' : ''}{new Date(answer.generatedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</footer>
   </section>
 }

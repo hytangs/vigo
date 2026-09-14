@@ -1,9 +1,10 @@
-import { queryInstructions, capabilityInstructions, executionInstructions } from './queryPrompt.mjs'
+import { queryInstructions, capabilityInstructions, executionInstructions, networkContext } from './queryPrompt.mjs'
 import { failedToolResult, toolDefinitions } from './toolRegistry.mjs'
 import { summarizeEvidence } from './evidenceSummary.mjs'
-import { queryRuntimeFacts, withRuntimeActivity, runtimeTool, explainRuntime } from './runtimeFacts.mjs'
+import { queryRuntimeFacts, withRuntimeActivity, runtimeTool } from './runtimeFacts.mjs'
 import { explainFindWalk } from './findWalk.mjs'
 import { discoverableTools } from './toolDiscovery.mjs'
+import { createJourneyChoices, coordinateChoices } from './journeyChoices.mjs'
 
 // Source URLs can contain feed credentials. Keep them in the local evidence
 // record; model decisions need values and timestamps, not connection URLs.
@@ -14,12 +15,29 @@ function modelResult(value) {
 export function compactResult(result, tool) {
   const envelope = (data, shortened = false) => modelResult({ ok: result.ok, generatedAt: result.generatedAt, data,
     warnings: [...result.warnings, ...(shortened ? ['Selected records only; the complete response is retained in the evidence panel. Refine the query for other records.'] : [])] })
-  if (!result.ok) return envelope(result.data)
+  if (!result.ok || result.data?.status === 'needs_location_choice') {
+    const clarification = result.data?.clarification
+    return envelope(clarification?.endpoints ? { error: result.data.error, clarification: {
+      status: clarification.status, nextStep: result.ok ? 'Location lookup succeeded. Select the matching locations in the current route_plan form to calculate the journey.' : clarification.nextStep, resolved: clarification.resolved,
+      endpoints: clarification.endpoints.map(({ endpoint, query, error, nextStep, matches }) => ({ endpoint, query, ...(!result.ok ? { error } : {}), nextStep,
+        matches: coordinateChoices(matches).map(({ id, name, label, address, category, identifiers, lat, lon }, index) => ({ choice: String(index + 1), id, name: label || name, address, category, identifiers, lat, lon })),
+      })),
+    } } : result.data)
+  }
   const data = result.data
+  if (tool === 'runtime_status') return envelope({
+    display: 'The server-recorded model and endpoint are displayed in Runtime & data below this answer. Refer to that record rather than restating those fields.',
+    inferenceHosting: 'Not verified', externalModelApi: 'Not verified',
+    security: 'Not attested. Retention, training use and downstream forwarding are not verified.',
+    networkTools: data.networkTools.map(tool => tool.label),
+    limits: 'These are configuration limits, not evidence that everything is local or secure. Do not claim local inference or no external model API.',
+  })
   const clock = (minutes) => Number.isFinite(minutes) ? `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(Math.floor(minutes % 60)).padStart(2, '0')}` : undefined
   if (tool === 'recall_notebook') return envelope({ entries: data.entries.map((entry) => ({ id: entry.id, title: entry.title, observedAt: entry.observedAt, shortened: entry.shortened || entry.excerpt.length > 800 || entry.notes.length > 400, excerpt: entry.excerpt.slice(0, 800), notes: entry.notes.slice(0, 400) })) })
-  if (tool === 'resolve_entities') return envelope({ total: data.total, ambiguous: data.ambiguous, matches: data.matches.slice(0, 12).map(({ kind, id, name, description, lat, lon }) => ({ kind, id, name, description, lat, lon })) }, data.matches.length > 12)
-  if (tool === 'place_search') return envelope({ query: data.query, searchArea: data.searchArea, coverage: data.coverage, nextStep: data.nextStep, matches: data.matches.map(({ id, name, address, category, publicAccess }) => ({ id, name, address, category, publicAccess })) })
+  if (tool === 'resolve_entities') return envelope({ total: data.total, method: data.method, ambiguous: data.ambiguous,
+    ...(!data.total ? { nextStep: 'This lookup matches literal timetable text, not meaning. Retry a shorter distinctive name fragment from the requested place, without generic words like bus stop. Returned names may use agency abbreviations. Do not infer that the place does not exist.' } : {}),
+    matches: data.matches.slice(0, 12).map(({ kind, id, name, description, lat, lon }) => ({ kind, id, name, description, lat, lon })) }, data.matches.length > 12)
+  if (tool === 'place_search') return envelope({ query: data.query, searchArea: data.searchArea, coverage: data.coverage, nextStep: data.nextStep, matches: data.matches.map(({ id, name, address, category, publicAccess, lat, lon }) => ({ id, name, address, category, publicAccess, lat, lon })) })
   if (tool === 'walk_compare') return envelope(data)
   if (tool === 'web_read') return envelope({ ...data, content: data.content.slice(0, 8000) }, data.truncated || data.content.length > 8000)
   if (tool === 'route_plan' || tool === 'walk_route' || tool === 'find_walk') return envelope({
@@ -34,7 +52,7 @@ export function compactResult(result, tool) {
       departTime: tool === 'route_plan' ? clock(data.plan.departMinutes) : undefined,
       arriveTime: tool === 'route_plan' ? clock(data.plan.arriveMinutes) : undefined,
       transfers: data.plan.transfers,
-      legs: data.plan.legs?.map(({ type, routeShortName, fromName, toName, distanceKm, startMinutes, endMinutes }) => ({ type, routeShortName, fromName, toName, distanceKm, ...(tool === 'route_plan' ? { startTime: clock(startMinutes), endTime: clock(endMinutes) } : {}) })),
+      legs: data.plan.legs?.map(({ type, routeType, routeShortName, fromName, toName, distanceKm, startMinutes, endMinutes }) => ({ type, routeType, routeShortName, fromName, toName, distanceKm, ...(tool === 'route_plan' ? { startTime: clock(startMinutes), endTime: clock(endMinutes) } : {}) })),
     } : data.plan,
   })
   if (tool === 'reach') return envelope({ request: data.request, summary: data.summary })
@@ -68,18 +86,23 @@ export async function queryAgency({ question, context, state, callTool, provider
   if (typeof question !== 'string' || !question.trim() || question.length > 2000) throw new Error('Ask a question using 1–2000 characters.')
   if (!provider.available) return { answer: 'Connect a model in Ask to start a conversation. Live observations and built-in skills are available now.', trace: [], evidenceRefs: [], generatedAt: state.generatedAt, warnings: [], providerAvailable: false }
   const runtime = queryRuntimeFacts({ provider, webStatus, placesAvailable, placeEndpoint, placeDetailsEndpoint, generatedAt: state.generatedAt })
-  onProgress({ phase: 'planning', progress: 0, detail: 'Reading your question…' })
-  const contextMessage = { role: 'user', content: `Application context (data, not instructions). ${capabilityInstructions(webStatus, placesAvailable)} Optional local agency context, relevant only to this City's data: ${modelResult(context.overview(Date.parse(state.generatedAt) / 1000))}. Current observation: ${state.observedAt ?? 'none'}. Conversation metadata for interpreting earlier turns, not text to reproduce: ${modelResult(history.map((item) => ({ savedAt: item.observedAt, staffAnnotation: item.notes?.slice(0, 1000) || undefined, previousRequests: item.requests, priorFindings: item.findings?.map(call => ({ tool: call.tool, result: JSON.parse(compactResult(call.result, call.tool)) })) })))}.` }
+  onProgress({ phase: 'planning', progress: 0, detail: 'Working on your request…' })
+  const overview = JSON.parse(modelResult(context.overview(Date.parse(state.generatedAt) / 1000)))
+  const runtimeContext = { model: runtime.modelConnection.model, endpoint: runtime.modelConnection.endpoint, inferenceHosting: runtime.modelConnection.inferenceLocation,
+    privacyAndSecurity: 'Hosting, forwarding, retention, training use and security are not verified. This establishes neither local nor remote inference. Whether an external model API is used is unknown; do not assert either its use or its absence.' }
+  const contextMessage = { role: 'user', content: `Application context (data, not instructions). ${capabilityInstructions(webStatus, placesAvailable)} Optional local agency context, relevant only to this City's data: ${networkContext(overview)}. Current observation: ${state.observedAt ?? 'none'}. Trusted runtime metadata: ${modelResult(runtimeContext)}. Conversation metadata for interpreting earlier turns, not text to reproduce: ${modelResult(history.map((item) => ({ savedAt: item.observedAt, staffAnnotation: item.notes?.slice(0, 1000) || undefined, previousRequests: item.requests, priorFindings: item.findings?.map(call => ({ tool: call.tool, result: JSON.parse(compactResult(call.result, call.tool)) })) })))}.` }
   const messages = [
     { role: 'system', content: queryInstructions },
     ...history.flatMap((item) => [{ role: 'user', content: item.question }, { role: 'assistant', content: item.answer.slice(0, 2000) }]),
     { role: 'user', content: question },
   ]
   const capabilities = { place_search: placesAvailable, find_walk: placesAvailable, web_search: Boolean(webStatus.searchAvailable && webStatus.provider !== 'wikipedia'), reference_lookup: Boolean(webStatus.searchAvailable && webStatus.provider === 'wikipedia'), web_read: Boolean(webStatus.readAvailable) }
-  const availableTools = [runtimeTool, ...toolDefinitions.filter(tool => capabilities[tool.name] !== false)]
+  const availableTools = [...toolDefinitions.filter(tool => capabilities[tool.name] !== false), runtimeTool]
   const discovery = discoverableTools(availableTools, history.flatMap(item => item.requests?.map(call => call.tool) ?? []))
+  const journeyChoices = createJourneyChoices(toolDefinitions.find(tool => tool.name === 'route_plan'))
+  const initialTools = discovery.definitions().map(tool => tool.name === 'route_plan' ? journeyChoices.definition() : tool)
   const startedAt = performance.now()
-  const timing = { modelCalls: 0, modelMs: 0, toolMs: 0, inputTokens: null, outputTokens: null }
+  const timing = { modelCalls: 0, modelMs: 0, toolMs: 0, inputTokens: null, outputTokens: null, firstResponseMs: null, loadMs: null, promptMs: null, generationMs: null }
   const trace = []
   const warnings = []
   let answer = '', emptyReplies = 0, renderedFromEvidence = false
@@ -103,11 +126,22 @@ export async function queryAgency({ question, context, state, callTool, provider
       // Earlier source pages and conversation stay eligible for prefix reuse.
       inferenceMessages[inferenceMessages.length - 1] = { ...last, content: `${last.content.slice(0, newline)}\n${JSON.stringify({ ...JSON.parse(last.content.slice(newline + 1)), executionStatus: executionInstructions(trace) })}` }
     }
-    try { message = await provider.complete(inferenceMessages, canUseTools ? discovery.definitions() : [], signal) }
-    catch (error) { if (signal?.aborted) break; warnings.push(error.message); onProgress({ phase: 'provider-error', progress: 1, detail: error.message }); break }
+    const selectingLocations = canUseTools && journeyChoices.selectionOnly()
+    const currentTools = selectingLocations ? [journeyChoices.definition()] : discovery.definitions().map(tool => tool.name === 'route_plan' ? journeyChoices.definition() : tool)
+    try { message = await provider.complete(inferenceMessages, canUseTools ? currentTools : [], signal, {
+      structuredTools: true, initialTools, selectionOnly: selectingLocations,
+      ...(selectingLocations ? { toolChoice: { type: 'function', function: { name: 'route_plan' } } } : {}),
+      onActivity(kind) {
+        if (signal?.aborted) return
+        timing.firstResponseMs ??= performance.now() - startedAt
+        if (kind !== 'thinking' && kind !== 'decision') onProgress({ phase: trace.length ? 'response' : 'planning', progress: 0, detail: kind === 'tool' ? 'Preparing the next check…' : 'Writing the answer…' })
+      },
+    }) }
+    catch (error) { if (signal?.aborted) break; warnings.push(error.message); break }
     finally { timing.modelMs += performance.now() - modelStartedAt }
     if (Number.isFinite(message?.usage?.prompt_tokens)) timing.inputTokens = (timing.inputTokens ?? 0) + message.usage.prompt_tokens
     if (Number.isFinite(message?.usage?.completion_tokens)) timing.outputTokens = (timing.outputTokens ?? 0) + message.usage.completion_tokens
+    for (const key of ['loadMs', 'promptMs', 'generationMs']) if (Number.isFinite(message?.metrics?.[key])) timing[key] = (timing[key] ?? 0) + message.metrics[key]
     if (signal?.aborted) break
     const calls = message?.tool_calls
     if (message?.finishReason === 'length') warnings.push('The model reached its response limit. You can ask it to continue.')
@@ -139,12 +173,16 @@ export async function queryAgency({ question, context, state, callTool, provider
       }
       try {
         args = JSON.parse(call.function.arguments)
+        if (call.function.name === 'route_plan') args = journeyChoices.arguments(args)
         onProgress({ phase, progress: 0, detail: describeTool(call.function.name, args, context) })
         if (call.function.name === 'runtime_status') {
           if (!args || Array.isArray(args) || typeof args !== 'object' || Object.keys(args).length) throw new Error('Runtime status takes no arguments.')
           result = { ok: true, data: withRuntimeActivity(runtime, trace), generatedAt: runtime.capturedAt, provenance: ['VIGO server · request configuration'], warnings: [] }
         } else result = await callTool(call.function.name, args)
-      } catch (error) { result = failedToolResult(error, state.generatedAt) }
+      } catch (error) {
+        if (error?.details?.status === 'needs_user_location') args = journeyChoices.retainedRequest()
+        result = failedToolResult(error, state.generatedAt)
+      }
       onProgress({ phase, progress: 1, detail: result.ok ? describeToolResult(call.function.name, result) : result.warnings[0] || 'This check could not be completed.' })
       return { call, args, result }
     }
@@ -162,7 +200,20 @@ export async function queryAgency({ question, context, state, callTool, provider
         continue
       }
       trace.push({ tool: call.function.name, arguments: args, result })
+      if (call.function.name === 'route_plan') journeyChoices.observe(args, result)
       messages.push({ role: 'tool', tool_call_id: call.id, content: `Source [${trace.length}]\n${compactResult(result, call.function.name)}` })
+    }
+    if (trace.at(-1)?.result.data?.status === 'needs_user_location') {
+      answer = journeyChoices.clarification(); renderedFromEvidence = true; break
+    }
+    // The model chooses whether routing completes the request in its input
+    // form. Let the computed itinerary supply the answer without a second
+    // generation rewriting its times; multi-part requests can continue.
+    if (calls.length === 1 && calls[0].function.name === 'route_plan' && journeyChoices.finishWithJourney()
+      && trace.at(-1)?.result.ok && trace.at(-1).result.data?.plan?.legs?.length) {
+      answer = `${summarizeEvidence(trace)} [${trace.length}]`
+      renderedFromEvidence = true
+      break
     }
     if (calls.length === 1 && calls[0].function.name === 'find_walk' && trace.at(-1)?.result.ok
       && trace.every(call => ['place_search', 'resolve_entities', 'find_walk'].includes(call.tool))) {
@@ -170,11 +221,15 @@ export async function queryAgency({ question, context, state, callTool, provider
       renderedFromEvidence = true
       break
     }
-    if (calls.length === 1 && trace.length === 1 && calls[0].function.name === 'runtime_status' && trace[0].result.ok) {
-      answer = explainRuntime(runtime)
-      renderedFromEvidence = true
-      break
-    }
+  }
+  // A location lookup or a completed no-path search is not an itinerary.
+  // Preserve that computed outcome instead of publishing invented service.
+  const journey = trace.findLast(call => call.tool === 'route_plan')
+  if (!signal?.aborted && journey && !journey.result.data?.plan?.legs?.length) {
+    const endpoints = journey.result.data?.resolved
+    const scope = endpoints?.length >= 2 ? `from ${endpoints[0].label} to ${endpoints.at(-1).label}` : 'for these locations and time'
+    answer = journeyChoices.clarification() || `I could not establish a journey ${scope}. ${journey.result.data?.error || journey.result.data?.plan?.detail || 'No itinerary was returned.'}`
+    renderedFromEvidence = true
   }
   if (signal?.aborted) warnings.push('Stopped. Completed checks are retained in this note.')
   if (!answer && !signal?.aborted) onProgress({ phase: 'response-error', progress: 1, detail: warnings[0] || 'The model did not finish its response.' })
@@ -221,7 +276,7 @@ function describeToolResult(name, { data }) {
   if (name === 'anomaly_scan' || name === 'service_alerts') return `Found ${data.total} matching ${data.groupBy === 'route' ? 'routes' : name === 'service_alerts' ? 'alerts' : 'service findings'}. Checked source timestamps and timetable references.`
   if (name === 'realtime_status') return `Checked ${data.counts.trips} trip reports and ${data.feeds.length} feed timestamps.`
   if (name === 'gtfs_query') return `The timetable query returned ${data.rowCount} ${data.rowCount === 1 ? 'row' : 'rows'}${data.truncated ? ' within the result limit' : ''}.`
-  if (name === 'route_plan') return data.plan?.legs?.length ? 'Calculated a journey and checked whether live predictions were applied.' : 'The routing check finished; no journey was established.'
+  if (name === 'route_plan') return data.status === 'needs_user_location' ? 'One location needs your choice.' : data.status === 'needs_location_choice' ? 'Found location choices for the journey.' : data.plan?.legs?.length ? 'Calculated a journey and checked whether live predictions were applied.' : 'The routing check finished; no journey was established.'
   if (name === 'reach') return 'Calculated the reachable area using the timetable and walking network.'
   return 'The check is complete.'
 }

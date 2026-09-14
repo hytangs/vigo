@@ -44,7 +44,7 @@ const answer = await queryAgency({ question: 'Is everything local and secure?', 
   history: [{ question: 'What model?', answer: 'Everything is local and secure.' }],
   provider: { ...inference, complete: async messages => {
     assert.match(messages[0].content, /Never infer architecture/)
-    assert.doesNotMatch(messages[1].content, /"modelConnection"|localhost:11434/, 'Deployment details are obtained through the runtime action, not a prompt for speculative paraphrasing')
+    assert.match(messages[1].content, /neither local nor remote inference/, 'Trusted runtime context distinguishes unknown hosting from both local and remote claims')
     assert.doesNotMatch(JSON.stringify(messages), /private-model-key|private-search-key/)
     if (++turn === 1) return { tool_calls: [{ id: 'read', function: { name: 'web_read', arguments: '{"url":"https://example.org"}' } }] }
     return { content: 'Model text cannot modify the runtime record.' }
@@ -57,13 +57,37 @@ const offline = await queryAgency({ question: 'Explain headways', context, state
 assert.deepEqual(offline.runtime.networkTools, [])
 assert.deepEqual(offline.runtime.networkToolCalls, [])
 assert.equal(offline.runtime.modelConnection.externalModelApi, 'unknown', 'Missing metadata must not become a local deployment claim')
+let runtimeTurn = 0
 const factual = await queryAgency({ question: 'Is inference local?', context, state, webStatus: web, placesAvailable: places.enabled, placeEndpoint: places.endpoint,
-  provider: { ...inference, complete: async () => ({ content: 'Everything is local and secure.', tool_calls: [{ id: 'runtime', function: { name: 'runtime_status', arguments: '{}' } }] }) } })
-assert.equal(factual.aiGenerated, false)
+  provider: { ...inference, complete: async messages => {
+    if (++runtimeTurn === 1) return { content: 'Everything is local and secure.', tool_calls: [{ id: 'runtime', function: { name: 'runtime_status', arguments: '{}' } }] }
+    const result = JSON.parse(messages.at(-1).content.split('\n').slice(1).join('\n'))
+    assert.equal(result.data.inferenceHosting, 'Not verified')
+    assert.doesNotMatch(JSON.stringify(result.data), /localhost:11434|arbitrary-model/, 'Ambiguous endpoint/model cues belong in the server-rendered record, not speculative prose')
+    return { content: 'Inference hosting is not verified by the server configuration. [1]' }
+  } } })
+assert.equal(factual.aiGenerated, true)
+assert.equal(runtimeTurn, 2, 'Runtime evidence returns to the conversation; it must not force a final answer')
 assert.equal(factual.trace.length, 1)
-assert.match(factual.answer, /\*\*Inference:\*\* Not verified/)
 assert.doesNotMatch(factual.answer, /Everything is local and secure/)
 assert.deepEqual(factual.runtime.networkToolCalls, [])
+
+let countTurn = 0
+const count = await queryAgency({ question: 'How many routes are there?', context: { ...context, overview: () => ({ cityName: 'City X', counts: { routes: 37 } }) }, state,
+  provider: { ...inference, complete: async (messages, tools) => {
+    if (++countTurn === 1) {
+      assert.ok(tools.some(tool => tool.name === 'runtime_status'), 'Privacy questions can request the server record without a discovery round')
+      assert.match(messages[1].content, /privacyAndSecurity.*not verified/, 'Hosting and privacy limits are server-supplied context even before a tool call')
+      // Reproduce the wrong selection from the reported failure.
+      return { tool_calls: [{ id: 'misrouted', function: { name: 'runtime_status', arguments: '{}' } }] }
+    }
+    assert.equal(messages.at(-2).role, 'assistant')
+    assert.ok(messages.some(message => message.content === 'How many routes are there?'))
+    return { content: 'City X has 37 indexed routes.' }
+  } } })
+assert.equal(count.answer, 'City X has 37 indexed routes.')
+assert.equal(countTurn, 2)
+assert.equal(count.runtime.modelConnection.inferenceLocation, 'unverified', 'A corrected transit answer still retains honest deployment metadata')
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'agency-runtime-'))
 let notebook

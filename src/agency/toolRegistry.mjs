@@ -1,11 +1,14 @@
+import { validateArguments } from './toolArguments.mjs'
+export { validateArguments } from './toolArguments.mjs'
 import { gtfsQuery } from './gtfsQuery.mjs'
 import { draftRiderMessage, draftRouteMessage } from './communications.mjs'
-import { resolveJourneyPoints } from './journeyInputs.mjs'
+import { resolveJourneyPoints, journeyTime } from './journeyInputs.mjs'
 import { calculateWalk } from './walking.mjs'
 import { findWalk } from './findWalk.mjs'
 
 export function failedToolResult(error, generatedAt) {
   const message = error instanceof Error ? error.message : 'This check could not be completed.'
+  if (['needs_location_choice', 'needs_user_location'].includes(error?.details?.status)) return { ok: true, data: { status: error.details.status, clarification: error.details }, provenance: [], generatedAt, warnings: [] }
   return { ok: false, data: { error: message, ...(error?.details ? { clarification: error.details } : {}) }, provenance: [], generatedAt, warnings: [message] }
 }
 
@@ -13,7 +16,7 @@ const object = (properties, required = []) => ({ type: 'object', properties, req
 const string = { type: 'string' }
 const routeScope = object({ routeId: string, routeNames: { type: 'array', description: 'Bare route numbers or proper names ONLY, without a generic Route prefix.', items: string, minItems: 1, maxItems: 8 } })
 const coordinate = object({ lat: { type: 'number', minimum: -90, maximum: 90 }, lon: { type: 'number', minimum: -180, maximum: 180 }, stopId: string }, ['lat', 'lon'])
-const transitPoint = object({ label: { type: 'string', maxLength: 160, description: 'Name for a coordinate endpoint, as supplied by the user or a checked public source.' }, stopName: { type: 'string', description: 'Proper station name ONLY; omit generic station/stop words.' }, placeQuery: string, stopId: string, placeId: string, lat: { type: 'number', minimum: -90, maximum: 90 }, lon: { type: 'number', minimum: -180, maximum: 180 } })
+const transitPoint = { anyOf: [{ type: 'string', minLength: 1, maxLength: 200, description: 'Station name, business or full address.' }, object({ label: { type: 'string', maxLength: 160 }, stopName: string, placeQuery: string, stopId: string, placeId: string, lat: { type: 'number', minimum: -90, maximum: 90 }, lon: { type: 'number', minimum: -180, maximum: 180 } })] }
 const walkingConstraints = { minimumDistanceMiles: { type: 'number', minimum: 0, maximum: 100, description: 'Minimum shortest walking distance, in miles. A failed path is unknown, never a pass.' }, timeBudgetMinutes: { type: 'number', minimum: 0, maximum: 1440 }, activityMinutes: { type: 'number', minimum: 0, maximum: 1440, description: 'Only a duration supplied by the user. Otherwise omit: time for buying food, eating or visiting remains unknown.' } }
 const serviceMinutes = { type: 'integer', minimum: 0, maximum: 2880 }
 const journey = { origin: transitPoint, serviceDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, departTime: { type: 'string', pattern: '^(?:[0-3][0-9]|4[0-7]):[0-5][0-9]$|^48:00$', description: 'Local HH:MM; hours 24–48 continue the service day.' } }
@@ -31,7 +34,7 @@ export const toolDefinitions = [
   { name: 'find_walk', description: 'Complete a time-limited outing in one call: find places for one or two ordered visits, measure all candidate walks, and return the shortest with remaining activity time. Use for food pickup followed by a park, or other visits. Each visit requires an exact osmTag category (for example amenity:fast_food or leisure:park). This is category discovery; use walk_route for already chosen named destinations. Omit query for a category-only visit; the server uses the current City and origin. Query narrows results to a business or place name. Categories do not verify opening hours or access.', parameters: object({ origin: { type: 'string', maxLength: 200, description: 'Starting station name, business name or address.' }, visits: { type: 'array', minItems: 1, maxItems: 2, items: object({ query: { type: 'string', maxLength: 200, description: 'Optional business or place name. Omit for a category-only visit.' }, osmTag: { type: 'string', pattern: '^[a-z_]+:[a-z_]+$' } }, ['osmTag']) }, timeBudgetMinutes: walkingConstraints.timeBudgetMinutes, activityMinutes: walkingConstraints.activityMinutes }, ['origin', 'visits', 'timeBudgetMinutes']) },
   { name: 'service_profile', description: 'Count scheduled trip starts by service hour on an exact date, with calendar exceptions. Optional exact route ID. Connections supply the first indexed departure; frequency templates are excluded.', parameters: object({ serviceDate: journey.serviceDate, routeId: string }, ['serviceDate']) },
   { name: 'gtfs_query', description: 'Read VIGO SQLite. Tables: routes(route_id,short_name,long_name,route_type), stops(stop_id,name,lat,lon), trips(trip_id,route_id,service_id,direction_id), connections(departure,arrival,trip_id,route_id,service_id,direction_id,from_stop_id,to_stop_id,stop_sequence), calendar, calendar_dates, frequencies, transfers, route_services. Times are service-day seconds. Connections are NOT original stop_times; do not invent terminal calls. One SELECT/WITH, approved functions, 200 rows maximum, 1.5s execution limit. Apply calendar exceptions for date-specific questions.', parameters: object({ sql: string, limit: { type: 'integer', minimum: 1, maximum: 200 } }, ['sql']) },
-  { name: 'route_plan', description: 'Compute transit journeys with VIGO. Pass stopName/placeQuery directly; no separate lookup needed. Supply serviceDate and either departTime or arriveBy. Optional waypoints preserve visit order, with no activity time. maxTransfers applies only without waypoints. Never drop unsupported constraints.', parameters: object({ ...journey, destination: transitPoint, arriveBy: journey.departTime, maxTransfers: { type: 'integer', minimum: 0, maximum: 31 }, waypoints: { type: 'array', items: transitPoint, minItems: 0, maxItems: 6 } }, ['origin', 'destination', 'serviceDate']) },
+  { name: 'route_plan', description: 'Compute transit journeys. Pass stopName/placeQuery directly; no separate lookup. Omit date and time to depart now in the City timezone. Otherwise use serviceDate and departTime or arriveBy (HH:MM). Waypoints preserve visit order, with no activity time; maxTransfers only without waypoints. Never drop constraints.', parameters: object({ ...journey, destination: transitPoint, arriveBy: journey.departTime, maxTransfers: { type: 'integer', minimum: 0, maximum: 31 }, waypoints: { type: 'array', items: transitPoint, minItems: 0, maxItems: 6 } }, ['origin', 'destination']) },
   { name: 'reach', description: 'Use VIGO scheduled Reach. Requires an indexed pedestrian street network. Realtime alerts are not applied to Reach.', parameters: object({ ...journey, cutoffMinutes: { type: 'integer', minimum: 5, maximum: 60 } }, ['origin', 'serviceDate', 'departTime', 'cutoffMinutes']) },
   { name: 'realtime_status', description: 'Check current service. Optional routeNames compares up to eight literal route names/numbers without separate lookups. Returns coverage, delays, intervals and feed ages.', parameters: object({ ...routeScope.properties, tripId: string, stopId: string, vehicleId: string }) },
   { name: 'anomaly_scan', description: 'Compare predicted departures with the timetable. routeNames accepts literal names/numbers. Rank intervals, delays or agency alerts; groupBy=route compares routes. Predictions are not measured past passage.', parameters: object({ ...routeScope.properties, eventType: { type: 'string', enum: ['delay', 'bunching', 'service-gap', 'cancellation', 'skipped-stop', 'stale-data', 'service-alert'] }, sortBy: { type: 'string', enum: ['severity', 'headway', 'headwayChange', 'delay'] }, groupBy: { type: 'string', enum: ['event', 'route'] } }) },
@@ -44,26 +47,6 @@ export const internalToolDefinitions = [{ name: 'matrix', description: 'Compute 
   serviceDate: journey.serviceDate, departMinutes: serviceMinutes,
 }, ['origins', 'destinations', 'serviceDate', 'departMinutes']) }]
 
-export function validateArguments(value, schema, name = 'arguments') {
-  if (schema.type === 'array') {
-    if (!Array.isArray(value) || value.length < schema.minItems || value.length > schema.maxItems) throw new Error(`Invalid ${name} size.`)
-    value.forEach((item, index) => validateArguments(item, schema.items, `${name}[${index}]`))
-  } else if (schema.type === 'object') {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${name} must be an object.`)
-    for (const key of Object.keys(value)) {
-      if (!Object.hasOwn(schema.properties, key)) throw new Error(`Unknown ${name}.${key}.`)
-      validateArguments(value[key], schema.properties[key], `${name}.${key}`)
-    }
-    for (const key of schema.required ?? []) if (!Object.hasOwn(value, key)) throw new Error(`${name}.${key} is required.`)
-  } else {
-    if (schema.type === 'integer' ? !Number.isInteger(value) : typeof value !== schema.type) throw new Error(`Invalid ${name}.`)
-    if (schema.type === 'number' && !Number.isFinite(value)) throw new Error(`Invalid ${name}.`)
-    if (schema.enum && !schema.enum.includes(value)) throw new Error(`Invalid ${name}.`)
-    if (schema.minimum !== undefined && value < schema.minimum || schema.maximum !== undefined && value > schema.maximum) throw new Error(`Out-of-range ${name}.`)
-    if (schema.pattern && !new RegExp(schema.pattern).test(value)) throw new Error(`Invalid ${name}.`)
-    if (typeof value === 'string' && value.length > (schema.maxLength ?? 8000)) throw new Error(`${name} is too long.`)
-  }
-}
 
 export function createToolRegistry({ context, state, snapshot, adapters, notebook, places, web, signal }) {
   const generatedAt = state.generatedAt
@@ -187,6 +170,8 @@ export function createToolRegistry({ context, state, snapshot, adapters, noteboo
       return envelope(await adapters.matrix({ origins: points(args.origins), destinations: points(args.destinations), serviceDate: args.serviceDate, departMinutes: args.departMinutes, allowServiceDateFallback: false }, signal), ['VIGO Matrix', 'GTFS Static'], ['Matrix uses scheduled service. Realtime observations and alerts are not applied.'])
     }
     if (name === 'route_plan' || name === 'reach') {
+      const defaultedTime = name === 'route_plan' && !args.serviceDate
+      if (name === 'route_plan') Object.assign(args, journeyTime(args, generatedAt, context.timezone))
       if (!args.departTime && !args.arriveBy) throw new Error('Supply a departure time or an arrival deadline.')
       if (args.departTime && args.arriveBy) throw new Error('Use either a departure time or an arrival deadline for this routing check, not both.')
       if (args.waypoints?.length && args.maxTransfers !== undefined) throw new Error('The routing engine cannot combine intermediate stops with a whole-journey transfer limit. Keep both requirements in the conversation; ask which to check first.')
@@ -212,7 +197,7 @@ export function createToolRegistry({ context, state, snapshot, adapters, noteboo
       const plans = result.plans ?? (result.plan ? [result.plan] : [result])
       const diagnostics = plans.map((plan) => plan?.diagnostics?.realtimeRouting).filter(Boolean)
       const applied = diagnostics.some((item) => item.status === 'applied' || item.status === 'cancellations_only')
-      return envelope({ ...result, resolved, request: { serviceDate: args.serviceDate, departTime, arriveBy, maxTransfers: args.maxTransfers, via: waypoints.map((point) => point.label) }, realtime: { suppliedTripUpdates: eligible.length, applied, diagnostics } }, ['VIGO Route', 'GTFS Static', ...sources, ...(eligible.length ? ['GTFS-Realtime TripUpdates'] : [])], [applied ? 'The engine applied a bounded TripUpdate overlay; inspect its diagnostics for excluded or pruned observations.' : 'Scheduled fallback: the engine did not report an applied realtime overlay.', 'Service alerts are shown as context; alert text does not automatically close routes or stops.'], { stopIds: [args.origin.stopId, args.destination.stopId].filter(Boolean) })
+      return envelope({ ...result, resolved, request: { serviceDate: args.serviceDate, departTime, arriveBy, timezone: context.timezone, ...(defaultedTime ? { timeAssumption: 'Current City date; current local time when no time was supplied.' } : {}), maxTransfers: args.maxTransfers, via: waypoints.map((point) => point.label) }, realtime: { suppliedTripUpdates: eligible.length, applied, diagnostics } }, ['VIGO Route', 'GTFS Static', ...sources, ...(eligible.length ? ['GTFS-Realtime TripUpdates'] : [])], [applied ? 'The engine applied a bounded TripUpdate overlay; inspect its diagnostics for excluded or pruned observations.' : 'Scheduled fallback: the engine did not report an applied realtime overlay.', 'Service alerts are shown as context; alert text does not automatically close routes or stops.'], { stopIds: [args.origin.stopId, args.destination.stopId].filter(Boolean) })
     }
     if (name === 'draft_rider_message') {
       const event = state.events.find((event) => event.id === args.eventId)

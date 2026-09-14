@@ -52,6 +52,7 @@ const nativeRequests = []
 const native = createProvider({ VIGO_AGENCY_LLM_BASE_URL: 'http://localhost:11434', VIGO_AGENCY_LLM_MODEL: 'local-model', VIGO_AGENCY_LLM_PROTOCOL: 'ollama', VIGO_AGENCY_LLM_CONTEXT_TOKENS: '8192', VIGO_AGENCY_LLM_REASONING_EFFORT: 'none' }, async (url, options) => {
   nativeRequests.push({ url, body: options.body && JSON.parse(options.body) })
   if (url.endsWith('/api/tags')) return Response.json({ models: [{ name: 'local-model' }] })
+  if (nativeRequests.at(-1).body.format) return Response.json({ message: { content: '{"action":"connection_check","arguments":{"ready":true}}' } })
   return Response.json({ done_reason: 'stop', prompt_eval_count: 100, eval_count: 20, message: { content: '', thinking: 'private reasoning', tool_calls: [{ function: { name: 'connection_check', arguments: { ready: true } } }] } })
 })
 assert.deepEqual((await native.models({ baseUrl: 'http://localhost:11434', protocol: 'ollama' })).models, ['local-model'])
@@ -78,3 +79,74 @@ const timed = createProvider({ VIGO_AGENCY_LLM_BASE_URL: 'http://localhost:11434
 // Keep the isolated fixture alive while the provider's unref'd deadline expires.
 const keepAlive = setInterval(() => {}, 2000)
 try { await assert.rejects(timed.complete([], []), /within 1 seconds/) } finally { clearInterval(keepAlive) }
+
+// Native streaming must surface activity before completion, without leaking
+// thinking or executing an incomplete function call.
+const { readProviderResponse } = await import('../src/agency/providerResponse.mjs')
+const encoder = new TextEncoder(), activities = []
+let streamController
+const stream = new ReadableStream({ start(controller) { streamController = controller } })
+const streamed = readProviderResponse(new Response(stream, { headers: { 'content-type': 'application/x-ndjson' } }), kind => activities.push(kind))
+streamController.enqueue(encoder.encode(JSON.stringify({ message: { thinking: 'private draft' } }) + '\n'))
+await new Promise(resolve => setImmediate(resolve))
+assert.deepEqual(activities, ['thinking'], 'Activity arrives while inference is still running')
+const wire = encoder.encode([
+  JSON.stringify({ message: { content: '你好' } }),
+  JSON.stringify({ message: { tool_calls: [{ function: { name: 'network_overview', arguments: {} } }] } }),
+  JSON.stringify({ message: { content: '' }, done: true, prompt_eval_count: 10, eval_count: 3, prompt_eval_duration: 1000000 }),
+].join('\n'))
+for (const byte of wire) streamController.enqueue(Uint8Array.of(byte))
+streamController.close()
+const assembled = await streamed
+assert.equal(assembled.message.content, '你好', 'UTF-8 and NDJSON boundaries may cross arbitrary network chunks')
+assert.equal(assembled.message.tool_calls.length, 1)
+assert.equal(assembled.prompt_eval_count, 10)
+assert.deepEqual(activities, ['thinking', 'content', 'tool'])
+assert.doesNotMatch(JSON.stringify(assembled), /private draft|thinking/)
+const ndjson = text => new Response(text, { headers: { 'content-type': 'application/x-ndjson' } })
+await assert.rejects(readProviderResponse(ndjson('{"message":{"content":"unfinished"}}\n')), /before its response was complete/)
+await assert.rejects(readProviderResponse(ndjson('{broken}\n')), /valid JSON/)
+await assert.rejects(readProviderResponse(ndjson('{"error":"private server detail"}\n')), error => !error.message.includes('private server detail'))
+await assert.rejects(readProviderResponse(ndjson('{"done":true}\n{"message":{"content":"extra"}}\n')), /after its completed response/)
+await assert.rejects(readProviderResponse(ndjson('x'.repeat(2_000_001))), /too large/)
+let cancelled = false
+const broken = new ReadableStream({ start(controller) { controller.enqueue(encoder.encode('not-json\n')) }, cancel() { cancelled = true } })
+await assert.rejects(readProviderResponse(new Response(broken, { headers: { 'content-type': 'application/x-ndjson' } })), /valid JSON/)
+assert.equal(cancelled, true, 'A rejected stream releases its upstream reader')
+console.log('Agency provider streaming: early activity, UTF-8 boundaries, complete tools, private reasoning exclusion, incomplete streams and bounded reads passed.')
+
+const { providerChoice } = await import('../src/agency/providerChoice.mjs')
+const { toolDefinitions } = await import('../src/agency/toolRegistry.mjs')
+const route = toolDefinitions.find(tool => tool.name === 'route_plan')
+const form = providerChoice([{ role: 'user', content: 'Find a bus from the museum to the airport.' }], [route])
+assert.deepEqual(form.parse('{"action":"answer","text":"There are 37 indexed routes."}'), { content: 'There are 37 indexed routes.' })
+assert.equal(form.parse('{"action":"route_plan","arguments":{"origin":"Museum","destination":"Airport"}}').tool_calls[0].function.name, 'route_plan')
+for (const bad of ['{"action":"route_plan","arguments":{"names":["Museum","Airport"]}}', '{"action":"route_plan","arguments":{"query":"Museum to airport"}}', '{"action":"invented","arguments":{}}', '{"answer":"Done","action":"route_plan"}', '{"answer":']) {
+  assert.throws(() => form.parse(bad), /Unknown|unavailable|did not finish/)
+}
+let formBody
+const formed = createProvider({ VIGO_AGENCY_LLM_BASE_URL: 'http://localhost:11434', VIGO_AGENCY_LLM_PROTOCOL: 'ollama', VIGO_AGENCY_LLM_MODEL: 'local-model' }, async (_url, options) => {
+  formBody = JSON.parse(options.body)
+  return Response.json({ message: { content: '{"action":"route_plan","arguments":{"origin":"Museum","destination":"Airport"}}' } })
+})
+const chosen = await formed.complete([{ role: 'user', content: 'Plan a journey' }], [route], undefined, { structuredTools: true })
+assert.deepEqual(formBody.format, form.format, 'Ollama receives the complete schema as an enforced response format')
+assert.equal(formBody.tools, undefined, 'One constrained action surface; do not mix native tool generation with the response form')
+assert.equal(formBody.options.presence_penalty, 0, 'Repeated field names and choices must not be penalized as creative repetition')
+assert.equal(formBody.options.temperature, 0, 'Structured choices default to deterministic sampling')
+assert.deepEqual(JSON.parse(chosen.tool_calls[0].function.arguments), { origin: 'Museum', destination: 'Airport' })
+assert.ok(chosen.tool_calls[0].id)
+const continued = providerChoice([{ role: 'assistant', tool_calls: chosen.tool_calls }, { role: 'tool', tool_call_id: chosen.tool_calls[0].id, content: 'Source [1]\n{}' }], [route])
+assert.match(continued.messages[1].content, /"action":"route_plan"/)
+assert.match(continued.messages[2].content, /Result of route_plan/)
+assert.equal(form.format.anyOf[0].properties.arguments.properties.origin.anyOf[0].maxLength, undefined, 'Decoder repetition limits must not disable argument-shape constraints')
+assert.throws(() => form.parse(JSON.stringify({ action: 'route_plan', arguments: { origin: 'x'.repeat(201), destination: 'Airport' } })), /too long/, 'String limits remain enforced before tool execution')
+const updated = providerChoice([{ role: 'user', content: 'Which destination?' }], [{ ...route, parameters: { type: 'object', properties: { destination: { type: 'string', enum: ['1', '2'] } }, required: ['destination'], additionalProperties: false } }], [route])
+assert.equal(updated.messages[0].content, form.messages[0].content, 'The policy and original forms stay a reusable prompt prefix')
+assert.match(updated.messages.at(-1).content, /Updated action forms/)
+assert.equal(updated.parse('{"action":"route_plan","arguments":{"destination":"2"}}').tool_calls.length, 1)
+assert.throws(() => updated.parse('{"action":"route_plan","arguments":{"destination":"3"}}'), /Invalid/)
+const selectionOnly = providerChoice([], [route], [route], true)
+assert.equal(selectionOnly.format.anyOf.length, 1)
+assert.throws(() => selectionOnly.parse('{"action":"answer","text":"Please choose all the locations yourself."}'), /unavailable/, 'The coordinate-selection stage cannot turn into a generic essay')
+console.log('Agency provider forms: enforced schemas, shared tool parameters, invalid argument rejection and evidence follow-ups passed.')

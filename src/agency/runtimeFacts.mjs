@@ -16,13 +16,8 @@ export function modelRuntimeFacts({ baseUrl, model, protocol }) {
     externalModelApi: endpoint.endpoint ? 'unverified' : 'unknown' })
 }
 
-export const runtimeTool = { name: 'runtime_status', description: 'Show the server-recorded model, endpoint, network tools and privacy limits directly as the final answer. Use for questions about this model, deployment or privacy; the server renders the facts without speculative paraphrasing.',
+export const runtimeTool = { name: 'runtime_status', description: 'Read server-recorded model connection and privacy limits. Only relevant to deployment/privacy questions, not transit network facts. This is evidence for the answer, not a command to end the conversation.',
   parameters: { type: 'object', properties: {}, required: [], additionalProperties: false } }
-
-export function explainRuntime(runtime) {
-  const connection = runtime.modelConnection
-  return `**Model:** ${connection.model || 'Not recorded'}\n**Inference:** Not verified\n**Endpoint:** ${connection.endpoint || 'Not recorded'}${connection.transport ? ` (${connection.transport.toUpperCase()})` : ''}\n**External model API:** Not verified; the configured endpoint may forward requests\n**Network-enabled tools:** ${runtime.networkTools.map(tool => tool.label).join(', ') || 'None enabled for this answer'}\n\nVIGO sends the question, supplied conversation context and tool results to the configured model endpoint. These settings do not verify where inference runs, downstream forwarding, retention, training use or security. Background feed refresh and other application traffic are outside this answer record.`
-}
 
 export function queryRuntimeFacts({ provider, webStatus, placesAvailable, placeEndpoint, placeDetailsEndpoint, generatedAt }) {
   const networkTools = []

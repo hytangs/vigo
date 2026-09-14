@@ -4,22 +4,24 @@ import { draftRiderMessage } from '../src/agency/communications.mjs'
 import { createProvider } from '../src/agency/provider.mjs'
 import { discoverableTools } from '../src/agency/toolDiscovery.mjs'
 import { toolDefinitions } from '../src/agency/toolRegistry.mjs'
+import { createJourneyChoices } from '../src/agency/journeyChoices.mjs'
 const state = { generatedAt: '2026-09-13T12:00:00Z', observedAt: '2026-09-13T12:00:00Z' }
 const context = { overview: () => ({ cityName: 'City X' }), routeIndex: new Map([['R', { short_name: 'R' }]]), stopIndex: new Map([['A', { name: 'River' }]]) }
 const event = { id: 'delay/T1', type: 'delay', title: 'Departure later than scheduled', routeId: 'R', stopId: 'A', observedAt: state.observedAt, evidence: { delaySeconds: 300 }, sourceRefs: ['fixture:trip/T1'] }
 const catalog = discoverableTools(toolDefinitions)
 assert.ok(JSON.stringify(catalog.definitions()).length < JSON.stringify(toolDefinitions).length / 2, 'Ordinary conversation does not carry every specialist schema')
 assert.throws(() => catalog.prepare({ names: ['invented_tool'] }), /available catalogue/)
-assert.ok(discoverableTools(toolDefinitions, ['route_plan']).definitions().some(tool => tool.name === 'route_plan'), 'Follow-ups retain tools used in their saved context')
+for (const name of ['network_overview', 'route_plan', 'realtime_status']) assert.ok(catalog.definitions().some(tool => tool.name === name), 'Common transit tools are ready without a discovery round')
+assert.ok(discoverableTools(toolDefinitions, ['walk_compare']).definitions().some(tool => tool.name === 'walk_compare'), 'Follow-ups retain tools used in their saved context')
 let discoveryTurn = 0, discoveryExecutions = 0
 const discovered = await queryAgency({ question: 'Check current service', context, state, placesAvailable: false,
   provider: { available: true, complete: async (messages, tools) => {
     if (++discoveryTurn === 1) {
-      assert.ok(!tools.some(tool => tool.name === 'realtime_status'))
+      assert.ok(!tools.some(tool => tool.name === 'anomaly_scan'))
       assert.ok(!JSON.stringify(tools.find(tool => tool.name === 'prepare_tools').parameters).includes('place_search'))
-      return { tool_calls: [{ id: 'prepare', function: { name: 'prepare_tools', arguments: '{"names":["realtime_status"]}' } }] }
+      return { tool_calls: [{ id: 'prepare', function: { name: 'prepare_tools', arguments: '{"names":["anomaly_scan"]}' } }] }
     }
-    assert.deepEqual(tools.find(tool => tool.name === 'realtime_status'), toolDefinitions.find(tool => tool.name === 'realtime_status'), 'Loaded tools retain their complete typed schema')
+    assert.deepEqual(tools.find(tool => tool.name === 'anomaly_scan'), toolDefinitions.find(tool => tool.name === 'anomaly_scan'), 'Loaded tools retain their complete typed schema')
     if (discoveryTurn === 2) return { tool_calls: [{ id: 'status', function: { name: 'realtime_status', arguments: '{}' } }] }
     assert.match(messages.at(-1).content, /Source \[1\]/, 'Preparing tools must not count as checked evidence')
     return { content: 'No reports are available. [1]' }
@@ -203,3 +205,111 @@ assert.equal(configured.key, undefined)
 assert.equal(JSON.parse(request.options.body).temperature, 0)
 assert.throws(() => createProvider({ VIGO_AGENCY_LLM_TEMPERATURE: 'invalid' }), /Temperature/)
 console.log('Agency agent: direct conversation, clarification, follow-ups, grounded tool explanations, bounded recovery, evidence preservation, cancellation, and private provider configuration passed.')
+const streamedProgress = []
+const streamedAnswer = await queryAgency({ question: 'How many routes?', context, state, onProgress: item => streamedProgress.push(item),
+  provider: { available: true, complete: async (_messages, _tools, _signal, options) => {
+    options.onActivity('thinking'); options.onActivity('content')
+    return { content: 'No count was supplied.', metrics: { loadMs: 2, promptMs: 3, generationMs: 4 } }
+  } } })
+assert.ok(streamedAnswer.timing.firstResponseMs >= 0)
+assert.equal(streamedAnswer.timing.promptMs, 3)
+assert.equal(streamedAnswer.timing.loadMs, 2)
+assert.equal(streamedAnswer.timing.generationMs, 4)
+assert.deepEqual(streamedProgress.map(item => item.detail), ['Working on your request…', 'Writing the answer…'], 'Activity replaces one phase without printing hidden reasoning')
+let failedJourneyTurn = 0
+const noJourney = await queryAgency({ question: 'Find a bus to the airport', context, state,
+  callTool: async () => ({ ok: false, data: { error: 'Place search timed out.' }, warnings: ['Place search timed out.'], provenance: [] }),
+  provider: { available: true, complete: async () => ++failedJourneyTurn === 1 ? { tool_calls: [{ id: 'route', function: { name: 'route_plan', arguments: '{"origin":"Museum","destination":"Airport"}' } }] } : { content: 'Take the invented express bus. It takes 45 minutes.' } },
+})
+assert.match(noJourney.answer, /Place search timed out/)
+assert.doesNotMatch(noJourney.answer, /invented express|45 minutes/)
+assert.equal(noJourney.aiGenerated, false)
+
+const routeDefinition = toolDefinitions.find(tool => tool.name === 'route_plan')
+const selection = createJourneyChoices(routeDefinition)
+const initialJourneyForm = selection.definition()
+assert.deepEqual(selection.arguments({ origin: 'Museum', destination: 'Airport', when: 'now', resultUse: 'answer' }), { origin: 'Museum', destination: 'Airport' })
+assert.deepEqual(selection.arguments({ origin: 'Museum', destination: 'Airport', when: { arriveBy: '18:00' }, resultUse: 'continue' }), { origin: 'Museum', destination: 'Airport', arriveBy: '18:00' })
+assert.throws(() => selection.arguments({ origin: 'Museum', destination: 'Airport', when: { arriveBy: '18:00', departTime: '17:00' }, resultUse: 'answer' }), /Unknown/)
+const museum = { kind: 'place', id: 'osm:way/321', name: 'Museum', label: 'Museum · River Street', lat: 20.25, lon: 10.75 }
+const terminal = { kind: 'stop', id: 'S7', name: 'Airport Terminal', lat: 20.5, lon: 10.5 }
+const unresolved = { ok: false, data: { error: 'Choose a location.', clarification: { endpoints: [
+  { endpoint: 0, matches: [museum, { ...museum, id: 'osm:way/322', name: 'Museum parking' }, { ...museum, lat: 200 }] },
+  { endpoint: 2, matches: [terminal] },
+], resolved: [{ endpoint: 1, label: 'Library', stopId: 'S0', lat: 20, lon: 10 }] } }, warnings: [], provenance: [] }
+const requested = { origin: 'Museum', destination: 'Airport', waypoints: ['Library'], serviceDate: '2026-10-01', arriveBy: '18:00' }
+selection.observe(requested, unresolved)
+const form = selection.definition()
+assert.deepEqual(form.parameters.required, ['origin', 'destination'], 'An already resolved intermediate stop needs no model decision')
+assert.deepEqual(form.parameters.properties.origin.enum, ['1', '2', 'unclear'], 'Only retrieved, valid coordinates or an explicit uncertainty choice are allowed')
+assert.match(form.parameters.properties.origin.description, /endpoint 0/)
+assert.doesNotMatch(form.parameters.properties.origin.description, /Museum/, 'Retrieved names remain source data instead of being promoted to system instructions')
+assert.doesNotMatch(form.description, /Library/, 'Fixed source labels also stay outside system-level action forms')
+for (const input of [{ origin: '3', destination: '1' }, { origin: '1' }, { origin: { lat: 1, lon: 2 }, destination: '1' }, { origin: '1', destination: '1', arriveBy: '22:00' }]) assert.throws(() => selection.arguments(input), /Invalid|required|Unknown/)
+const picked = selection.arguments({ origin: '1', destination: '1' })
+assert.deepEqual(picked, { serviceDate: '2026-10-01', arriveBy: '18:00', origin: { lat: 20.25, lon: 10.75, label: museum.label, placeId: museum.id }, destination: { lat: 20.5, lon: 10.5, label: terminal.name, stopId: terminal.id }, waypoints: [{ lat: 20, lon: 10, label: 'Library', stopId: 'S0' }] })
+museum.lat = 0
+assert.equal(selection.arguments({ origin: '1', destination: '1' }).origin.lat, 20.25, 'Selections retain a snapshot of the retrieved coordinates')
+selection.observe(picked, { ok: true })
+assert.equal(selection.definition(), initialJourneyForm, 'A finished journey restores the ordinary form for the next request')
+assert.deepEqual(createJourneyChoices(routeDefinition).definition(), initialJourneyForm, 'Choice state is not shared between conversations')
+
+let choiceRound = 0, routed = 0
+const journeyInput = { origin: requested.origin, destination: requested.destination, waypoints: requested.waypoints, when: { serviceDate: requested.serviceDate, arriveBy: requested.arriveBy }, resultUse: 'answer' }
+const journeyResult = { ok: true, data: { plan: { durationMinutes: 23.5, legs: [{ type: 'ride' }] }, request: { serviceDate: '2026-10-01', timezone: 'Etc/UTC' }, realtime: { applied: false } }, warnings: [], provenance: [] }
+const selectedJourney = await queryAgency({ question: 'Museum to airport via library, arrive by 6pm on October 1', context, state,
+  provider: { available: true, complete: async (_messages, tools) => {
+    if (++choiceRound === 1) return { tool_calls: [{ id: 'lookup', function: { name: 'route_plan', arguments: JSON.stringify(journeyInput) } }] }
+    if (choiceRound === 2) {
+      assert.deepEqual(tools.find(tool => tool.name === 'route_plan').parameters.required, ['origin', 'destination'])
+      return { tool_calls: [{ id: 'select', function: { name: 'route_plan', arguments: '{"origin":"1","destination":"1"}' } }] }
+    }
+    assert.fail('A completed journey needs no generation to rewrite its computed values')
+  } },
+  callTool: async (name, args) => {
+    assert.equal(name, 'route_plan')
+    if (++routed === 1) return unresolved
+    assert.equal(args.origin.lon, 10.75)
+    assert.equal(args.destination.stopId, 'S7')
+    assert.equal(args.waypoints[0].stopId, 'S0')
+    assert.equal(args.arriveBy, '18:00')
+    assert.equal(args.resultUse, undefined, 'The completion choice belongs to the harness, not the routing engine')
+    return journeyResult
+  },
+})
+assert.equal(routed, 2, 'One lookup and one coordinate routing check; no repeated geocoding round')
+assert.equal(selectedJourney.trace[1].arguments.destination.lon, 10.5, 'The saved evidence records the coordinates actually routed')
+assert.match(selectedJourney.answer, /23.5 minutes, including walking and waiting/)
+assert.match(selectedJourney.answer, /2026-10-01/)
+assert.match(selectedJourney.answer, /live predictions were not applied/)
+assert.equal(selectedJourney.aiGenerated, false)
+assert.deepEqual(selectedJourney.citations, [2])
+
+let continuedJourneyCalls = 0
+const continuedJourney = await queryAgency({ question: 'Calculate this journey, then explain the transfer policy', context, state,
+  provider: { available: true, complete: async () => ++continuedJourneyCalls === 1
+    ? { tool_calls: [{ id: 'continue-journey', function: { name: 'route_plan', arguments: JSON.stringify({ ...journeyInput, resultUse: 'continue' }) } }] }
+    : { content: 'The journey and the requested transfer explanation.' } }, callTool: async () => journeyResult,
+})
+assert.equal(continuedJourneyCalls, 2, 'A computed journey does not end a request that still needs other work')
+assert.match(continuedJourney.answer, /transfer explanation/)
+
+const retrySelection = createJourneyChoices(routeDefinition)
+retrySelection.observe({ origin: 'Library', destination: 'Airport', arriveBy: '18:00' }, { ok: true, data: { status: 'needs_location_choice', clarification: {
+  endpoints: [{ endpoint: 1, matches: [terminal, { ...terminal, id: 'S8', name: 'Other terminal platform' }] }],
+  resolved: [{ endpoint: 0, label: 'Library', stopId: 'S0', lat: 20, lon: 10 }],
+} } })
+assert.equal(retrySelection.selectionOnly(), true, 'A completed lookup leads to a selection task, not another free-form answer')
+const noPathRequest = retrySelection.arguments({ destination: '2' })
+retrySelection.observe(noPathRequest, { ok: true, data: { plan: { status: 'blocked', legs: [] } } })
+assert.deepEqual(retrySelection.definition().parameters.properties.destination.enum, ['1', 'unclear'], 'Review an untested arrival point before concluding that the whole destination is unreachable; preserve co-located stop identity')
+assert.equal(retrySelection.arguments({ destination: '1' }).destination.stopId, 'S7')
+assert.throws(() => retrySelection.arguments({ destination: '2' }), /Invalid/, 'Do not repeat the same no-path check')
+assert.throws(() => retrySelection.arguments({ destination: 'unclear' }), error => error.details.status === 'needs_user_location')
+assert.equal(retrySelection.retainedRequest().arriveBy, '18:00')
+assert.equal(retrySelection.retainedRequest().origin.stopId, 'S0')
+assert.equal(retrySelection.retainedRequest().destination, 'Airport', 'A clarification retains real journey inputs, never model option numbers')
+
+const failureActivity = []
+await queryAgency({ question: 'Hello', context, state, onProgress: item => failureActivity.push(item), provider: { available: true, complete: async () => { throw new Error('Fixture unavailable') } } })
+assert.equal(failureActivity.filter(item => item.detail === 'Fixture unavailable').length, 1, 'A provider failure appears once in activity')

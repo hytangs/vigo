@@ -114,7 +114,7 @@ export type QueryAnswer = {
     networkToolCalls: Array<{ tool: string; completed: boolean }>
     limits: string
   }
-  timing?: { totalMs: number; modelCalls: number; modelMs: number; toolMs: number; inputTokens: number | null; outputTokens: number | null }
+  timing?: { totalMs: number; modelCalls: number; modelMs: number; toolMs: number; inputTokens: number | null; outputTokens: number | null; firstResponseMs?: number | null; loadMs?: number | null; promptMs?: number | null; generationMs?: number | null }
   entryId?: number
   aiGenerated?: boolean
   model?: string

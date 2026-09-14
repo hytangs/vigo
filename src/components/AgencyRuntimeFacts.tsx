@@ -1,10 +1,10 @@
 import type { QueryAnswer } from '../agency/types'
 import { humanField, toolNames } from '../agency/presentation'
 
-export function AgencyRuntimeFacts({ runtime }: { runtime: NonNullable<QueryAnswer['runtime']> }) {
+export function AgencyRuntimeFacts({ runtime, expanded = false }: { runtime: NonNullable<QueryAnswer['runtime']>; expanded?: boolean }) {
   const connection = runtime.modelConnection
   const called = runtime.networkToolCalls.map(call => `${toolNames[call.tool] || humanField(call.tool)}${call.completed ? '' : ' (incomplete)'}`)
-  return <details className="agency-source-details">
+  return <details className="agency-source-details" open={expanded}>
     <summary>Runtime & data · server record</summary>
     <dl className="agency-facts">
       <div><dt>Model</dt><dd>{connection.model || 'Not recorded'}</dd></div>

@@ -73,7 +73,7 @@ assert.deepEqual(answer.citations, [1])
 assert.equal(answer.trace[0].result.data.plan.legs[0].coordinates.length, 1000, 'Full route geometry remains in saved evidence and available to the map')
 const offlineReply = await queryAgency({ question: 'Can you look online?', context, state, callTool, placesAvailable: false, provider: { available: true, complete: async (messages, definitions) => {
   assert.ok(!definitions.some((tool) => tool.name === 'place_search'), 'Disabled online lookup is not offered to the model')
-  assert.match(messages[1].content, /place_search unavailable/)
+  assert.match(messages[1].content, /place search unavailable/)
   return { content: 'Online place search is disabled on this server.' }
 } } })
 assert.equal(offlineReply.answer, 'Online place search is disabled on this server.', 'Assertions inside the provider must not be hidden by provider-error recovery')
@@ -118,3 +118,9 @@ const invalidDetails = createPlaceSearch({ env: { VIGO_AGENCY_PLACE_DETAILS_URL:
 invalidDetails.restore([restored.resolve('osm:node/11')])
 await assert.rejects(invalidDetails.details('osm:node/11'), /without embedded credentials/)
 console.log('Agency places: City-scoped online lookup, exact identities, private endpoints, caching, cancellation, provider failures, native walking handoff and model evidence passed.')
+places.restore([{ kind: 'place', id: 'osm:node/991', name: 'Known terminal', label: 'Known terminal · Airport Road', lat: 20, lon: 10 }])
+assert.equal(places.named('Known terminal')[0].id, 'osm:node/991')
+assert.equal(places.named('Known terminal · Airport Road')[0].id, 'osm:node/991')
+places.restore([{ kind: 'place', id: 'osm:node/992', name: 'Known terminal', label: 'Known terminal · Other Road', lat: 20.1, lon: 10.1 }])
+assert.equal(places.named('Known terminal').length, 2, 'Exact name collisions remain ambiguous')
+assert.equal(places.named('Known terminal · Airport Road').length, 1)

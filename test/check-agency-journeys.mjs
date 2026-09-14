@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createToolRegistry, failedToolResult } from '../src/agency/toolRegistry.mjs'
 import { queryAgency } from '../src/agency/queryAgent.mjs'
+import { journeyTime } from '../src/agency/journeyInputs.mjs'
 import { calculateWalk, walkingAssessment } from '../src/agency/walking.mjs'
 
 const stops = ['Library', 'Depot', 'Town Hall'].map((name, i) => ({ stop_id: `S${i}`, name, lon: i + 10, lat: i + 20 }))
@@ -21,7 +22,7 @@ assert.equal(request.arriveMinutes, 960)
 assert.equal(request.maxTransfers, 0, 'No-transfer requests must not be lost as falsy values')
 assert.equal(request.origin.stopId, 'S0')
 assert.equal(request.destination.stopId, 'S2')
-assert.deepEqual(result.data.request, { serviceDate: '2026-09-13', departTime: undefined, arriveBy: '16:00', maxTransfers: 0, via: [] })
+assert.deepEqual(result.data.request, { serviceDate: '2026-09-13', departTime: undefined, arriveBy: '16:00', timezone: undefined, maxTransfers: 0, via: [] })
 const ordered = { origin: input.origin, destination: input.destination, serviceDate: input.serviceDate, departTime: '09:15', waypoints: [{ stopName: 'Depot' }] }
 await callTool('route_plan', ordered)
 assert.equal(request.departMinutes, 555)
@@ -149,3 +150,60 @@ assert.match(outingAnswer.answer, /Town Common.*\n.*\n.*27 minutes/s)
 assert.doesNotMatch(outingAnswer.answer, /Private Garden|inside stations/)
 assert.match(outingAnswer.answer, /public access.*not confirmed/)
 console.log('Agency journeys: named endpoints, ambiguity, ordered stops, deadlines, transfer limits, multi-route scope, concurrent reads, timing and follow-up request context passed.')
+
+// The server supplies a real local clock; the model does not invent one.
+assert.deepEqual(journeyTime({}, '2026-09-14T01:00:00Z', 'America/Los_Angeles'), { serviceDate: '2026-09-13', departTime: '18:00' })
+assert.deepEqual(journeyTime({}, '2026-09-14T01:00:00Z', 'Asia/Tokyo'), { serviceDate: '2026-09-14', departTime: '10:00' })
+assert.deepEqual(journeyTime({ arriveBy: '24:30' }, state.generatedAt, 'UTC'), { serviceDate: '2026-09-13', arriveBy: '24:30' })
+assert.deepEqual(journeyTime({ serviceDate: '2026-10-01', departTime: '25:10' }), { serviceDate: '2026-10-01', departTime: '25:10' })
+assert.throws(() => journeyTime({}, state.generatedAt, null), /timezone/)
+assert.throws(() => journeyTime({ serviceDate: '2026-10-01' }, state.generatedAt, 'UTC'), /selected date/)
+assert.throws(() => journeyTime({ arriveBy: '18:00', departTime: '17:00' }, state.generatedAt, 'UTC'), /either/)
+const nowTool = createToolRegistry({ context: { ...context, timezone: 'America/Los_Angeles' }, state: { ...state, generatedAt: '2026-09-14T01:00:00Z' }, adapters: { route: async args => { assert.equal(args.serviceDate, '2026-09-13'); assert.equal(args.departMinutes, 1080); return { plan: { legs: [] } } } } })
+const now = await nowTool('route_plan', { origin: input.origin, destination: input.destination })
+assert.equal(now.data.request.timezone, 'America/Los_Angeles')
+assert.match(now.data.request.timeAssumption, /Current City date/)
+const plainNames = await callTool('route_plan', { ...input, origin: 'Library', destination: 'Town Hall' })
+assert.equal(plainNames.data.resolved[0].stopId, 'S0', 'Plain names resolve against exact GTFS identity before public place search')
+await assert.rejects(callTool('route_plan', { ...input, origin: '' }), /empty/)
+await assert.rejects(callTool('route_plan', { ...input, origin: 12 }), /place name/)
+await assert.rejects(callTool('route_plan', { ...input, origin: null }), /object/)
+await assert.rejects(callTool('route_plan', { ...input, origin: 'Ambiguous' }), /Which stop/)
+const candidates = query => [{ id: `osm:node/${query === 'Museum' ? 1 : 2}`, name: query, lat: 20, lon: 10 }]
+const { resolveJourneyPoints } = await import('../src/agency/journeyInputs.mjs')
+await assert.rejects(resolveJourneyPoints(context, { search: async ({query}) => ({ matches: [...candidates(query), { ...candidates(query)[0], id: 'osm:node/3' }] }) }, { origin: 'Museum', destination: 'Park' }), error => {
+  assert.equal(error.details.endpoints.length, 2, 'Both unresolved endpoints are returned in the same round')
+  assert.deepEqual(error.details.endpoints.map(item => item.query), ['Museum', 'Park'])
+  assert.match(error.details.nextStep, /calculate the requested journey now/)
+  return true
+})
+await assert.rejects(resolveJourneyPoints(context, { search: async () => ({ matches: [] }) }, { origin: 'Library', destination: 'Unknown place' }), error => {
+  assert.equal(error.details.resolved[0].stopId, 'S0', 'A failed second endpoint does not discard the first resolved identity')
+  return true
+})
+const cachedPlace = { id: 'osm:node/42', name: 'Passenger terminal', label: 'Passenger terminal · Airport Road', lat: 20, lon: 10, sourceUrl: 'https://example.test/map/42', category: { key: 'highway', value: 'bus_stop' } }
+const localPlaces = { named: query => query === cachedPlace.label ? [cachedPlace] : [], resolve: id => { assert.equal(id, cachedPlace.id); return cachedPlace }, search: () => assert.fail('Known exact names and IDs must not repeat the network lookup') }
+for (const origin of [cachedPlace.label, cachedPlace.id, { placeQuery: cachedPlace.label }]) {
+  const path = await resolveJourneyPoints(context, localPlaces, { origin, destination: 'Library' })
+  assert.equal(path.resolved[0].placeId, cachedPlace.id)
+}
+await assert.rejects(resolveJourneyPoints(context, { ...localPlaces,
+  resolve: () => ({ ...cachedPlace, category: { key: 'aeroway', value: 'aerodrome' } }),
+  search: async ({ query }) => { assert.equal(query, cachedPlace.name); return { matches: [cachedPlace] } },
+}, { origin: cachedPlace.id, destination: 'Library' }), error => {
+  assert.match(error.message, /passenger arrival point/)
+  assert.equal(error.details.endpoints[0].matches[0].lat, cachedPlace.lat, 'The follow-up has passenger location coordinates without another model search round')
+  assert.equal(error.details.resolved[0].lat, 20, 'A resolved endpoint keeps its coordinates across clarification')
+  return true
+})
+const airfields = [41, 42].map(id => ({ ...cachedPlace, id: `osm:way/${id}`, category: { key: 'aeroway', value: 'aerodrome' } }))
+await assert.rejects(resolveJourneyPoints(context, {
+  search: async () => ({ matches: airfields }),
+  details: async id => id === airfields[0].id ? { tags: { iata: 'XYZ', icao: 'KXYZ', name: 'Source name' } } : Promise.reject(new Error('Source unavailable')),
+}, { origin: 'Library', destination: 'XYZ airport' }), error => {
+  assert.equal(error.details.status, 'needs_location_choice', 'Multiple retrieved locations are a choice, not a failed lookup')
+  assert.deepEqual(error.details.endpoints[0].matches[0].identifiers, { iata: 'XYZ', icao: 'KXYZ' })
+  assert.equal(error.details.endpoints[0].matches[1].identifiers, undefined, 'A failed detail request must not invent an airport code')
+  assert.equal(error.details.resolved[0].stopId, 'S0')
+  return true
+})

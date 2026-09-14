@@ -1,4 +1,6 @@
 import { modelRuntimeFacts } from './runtimeFacts.mjs'
+import { readProviderResponse } from './providerResponse.mjs'
+import { providerChoice } from './providerChoice.mjs'
 
 function normalizeBaseUrl(value) {
   let url
@@ -7,25 +9,6 @@ function normalizeBaseUrl(value) {
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
   if (url.protocol !== 'https:' && !loopback) throw new Error('Remote providers require HTTPS. Local providers can use HTTP.')
   return url.toString().replace(/\/$/, '').replace(/\/chat\/completions$/, '')
-}
-
-async function readResponse(response) {
-  if (!response.ok) {
-    await response.body?.cancel()
-    const detail = response.status === 401 || response.status === 403 ? 'Check the API key and model permissions.' : response.status === 404 ? 'Check the API base URL and model name.' : response.status === 429 ? 'The provider is rate limited or its usage balance is exhausted.' : 'Check the provider status and try again.'
-    throw new Error(`AI provider returned HTTP ${response.status}. ${detail}`)
-  }
-  if (!response.body) throw new Error('AI provider returned an empty response.')
-  const reader = response.body.getReader(), chunks = []
-  let size = 0
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) break
-    size += value.byteLength
-    if (size > 2_000_000) { await reader.cancel(); throw new Error('AI provider response is too large.') }
-    chunks.push(value)
-  }
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { throw new Error('The provider did not return valid JSON. Check the API base URL.') }
 }
 
 function temperature(value) {
@@ -66,7 +49,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
     // A blank key retains the active key only for the same endpoint. It never crosses providers.
     return { baseUrl, model, protocol, contextTokens: contextSize(input.contextTokens ?? config.contextTokens), reasoningEffort: reasoning(input.reasoningEffort, protocol), temperature: temperature(input.temperature ?? (baseUrl === config.baseUrl ? config.temperature : undefined)), key: String(input.apiKey ?? '').trim() || (baseUrl === config.baseUrl ? config.key : '') }
   }
-  async function request(connection, suffix, body, signal) {
+  async function request(connection, suffix, body, signal, onActivity) {
     const timeout = AbortSignal.timeout(timeoutMs)
     try {
       const response = await fetcher(`${normalizeBaseUrl(connection.baseUrl)}${suffix}`, {
@@ -74,7 +57,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
         headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(connection.key ? { authorization: `Bearer ${connection.key}` } : {}) },
         ...(body ? { body: JSON.stringify(body) } : {}),
       })
-      return await readResponse(response)
+      return await readProviderResponse(response, onActivity)
     } catch (error) {
       if (signal?.aborted) throw error
       if (timeout.aborted) throw new Error(`The provider did not respond within ${timeoutMs / 1000} seconds.`)
@@ -85,20 +68,23 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
   async function completeWith(connection, messages, tools, signal, options = {}) {
     if (!connection.baseUrl || !connection.model) throw new Error('Connect an AI provider in Ask to use natural-language queries.')
     if (connection.protocol === 'ollama') {
+      const choice = options.structuredTools && tools?.length ? providerChoice(messages, tools, options.initialTools, options.selectionOnly) : null
       const names = new Map(messages.flatMap(message => (message.tool_calls ?? []).map(call => [call.id, call.function.name])))
       const nativeMessages = messages.map(message => ({ role: message.role, content: message.content ?? '',
         ...(message.role === 'tool' ? { tool_name: names.get(message.tool_call_id) } : {}),
         ...(message.tool_calls?.length ? { tool_calls: message.tool_calls.map(call => ({ function: { name: call.function.name, arguments: JSON.parse(call.function.arguments) } })) } : {}),
       }))
       const result = await request({ ...connection, baseUrl: normalizeBaseUrl(connection.baseUrl).replace(/\/(?:v1|api)$/, '') }, '/api/chat', {
-        model: connection.model, messages: nativeMessages, stream: false,
-        ...(tools?.length ? { tools: tools.map(tool => ({ type: 'function', function: tool })) } : {}),
+        model: connection.model, messages: choice?.messages ?? nativeMessages, stream: Boolean(options.onActivity),
+        ...(choice ? { format: choice.format } : tools?.length ? { tools: tools.map(tool => ({ type: 'function', function: tool })) } : {}),
         ...(connection.reasoningEffort ? { think: connection.reasoningEffort === 'none' ? false : connection.reasoningEffort === 'on' ? true : connection.reasoningEffort } : {}),
-        options: { num_ctx: connection.contextTokens, num_predict: options.maxTokens || 1800, ...(connection.temperature !== undefined ? { temperature: connection.temperature } : {}) },
-      }, signal)
+        options: { num_ctx: connection.contextTokens, num_predict: options.maxTokens || 1800, ...(choice ? { presence_penalty: 0 } : {}), ...(connection.temperature !== undefined ? { temperature: connection.temperature } : choice ? { temperature: 0 } : {}) },
+      }, signal, kind => options.onActivity?.(choice && kind === 'content' ? 'decision' : kind))
       if (!result.message) throw new Error('The local model returned no response message.')
-      return { content: result.message.content, tool_calls: result.message.tool_calls?.map(call => ({ id: `ollama-${++callSequence}`, type: 'function', function: { name: call.function.name, arguments: JSON.stringify(call.function.arguments) } })),
-        finishReason: result.done_reason, usage: { prompt_tokens: result.prompt_eval_count, completion_tokens: result.eval_count } }
+      const message = choice ? choice.parse(result.message.content) : { content: result.message.content, tool_calls: result.message.tool_calls?.map(call => ({ type: 'function', function: { name: call.function.name, arguments: JSON.stringify(call.function.arguments) } })) }
+      return { ...message, tool_calls: message.tool_calls?.map(call => ({ ...call, id: `ollama-${++callSequence}` })),
+        finishReason: result.done_reason, usage: { prompt_tokens: result.prompt_eval_count, completion_tokens: result.eval_count },
+        metrics: { loadMs: result.load_duration / 1e6, promptMs: result.prompt_eval_duration / 1e6, generationMs: result.eval_duration / 1e6 } }
     }
     const result = await request(connection, '/chat/completions', { model: connection.model, messages, ...(tools?.length ? { tools: tools.map((tool) => ({ type: 'function', function: tool })), tool_choice: options.toolChoice || 'auto' } : {}), max_completion_tokens: options.maxTokens || 1800, ...(connection.reasoningEffort ? { reasoning_effort: connection.reasoningEffort } : {}), ...(connection.temperature !== undefined ? { temperature: connection.temperature } : {}) }, signal)
     const message = result.choices?.[0]?.message
@@ -121,7 +107,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
     async connect(input, signal) {
       const next = candidate(input)
       if (!next.model) throw new Error('Choose or enter a model name.')
-      const message = await completeWith(next, [{ role: 'user', content: 'Connection test only. Call connection_check with ready set to true. Do not call any other tool or answer in prose.' }], [{ name: 'connection_check', description: 'Confirm that function calling works.', parameters: { type: 'object', properties: { ready: { type: 'boolean' } }, required: ['ready'], additionalProperties: false } }], signal)
+      const message = await completeWith(next, [{ role: 'user', content: 'Connection test only. Call connection_check with ready set to true. Do not call any other tool or answer in prose.' }], [{ name: 'connection_check', description: 'Confirm that function calling works.', parameters: { type: 'object', properties: { ready: { type: 'boolean' } }, required: ['ready'], additionalProperties: false } }], signal, { structuredTools: next.protocol === 'ollama' })
       const call = message.tool_calls?.find((item) => item.function?.name === 'connection_check')
       let args
       try { args = JSON.parse(call?.function?.arguments || '{}') } catch {}

@@ -2,6 +2,7 @@
 // every journey/SQL parameter for ordinary conversation. Selection is the
 // model's decision, never a keyword classifier over the user's question.
 const descriptions = {
+  runtime_status: 'Server-recorded model connection and privacy limits',
   network_overview: 'City, timetable coverage, counts and feed ages',
   recall_notebook: 'Saved conversations and staff notes',
   resolve_entities: 'GTFS stops and routes by name',
@@ -18,9 +19,12 @@ const descriptions = {
   draft_rider_message: 'Rider copy from operational evidence',
 }
 
+// Common requests must not spend a model round loading their own schema.
+const readyTools = new Set(['network_overview', 'resolve_entities', 'realtime_status', 'route_plan', 'runtime_status'])
+
 export function discoverableTools(available, retainedNames = []) {
-  const index = available.filter(tool => descriptions[tool.name])
-  const active = new Set(available.filter(tool => !descriptions[tool.name] || retainedNames.includes(tool.name)).map(tool => tool.name))
+  const index = available.filter(tool => descriptions[tool.name] && !readyTools.has(tool.name))
+  const active = new Set(available.filter(tool => !descriptions[tool.name] || readyTools.has(tool.name) || retainedNames.includes(tool.name)).map(tool => tool.name))
   const discovery = { name: 'prepare_tools', description: `Load specialist tools when needed, then use their supplied schemas. Routing tools resolve names directly. Available: ${index.map(tool => `${tool.name}: ${descriptions[tool.name]}`).join('; ')}.`,
     parameters: { type: 'object', properties: { names: { type: 'array', items: { type: 'string', enum: index.map(tool => tool.name) }, minItems: 1, maxItems: 4 } }, required: ['names'], additionalProperties: false } }
   return {

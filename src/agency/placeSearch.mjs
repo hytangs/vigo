@@ -61,7 +61,7 @@ export function createPlaceSearch({ stops = [], env = process.env, fetchImpl = f
       const [type, osmId] = id.slice(4).split('/')
       const tags = data.elements?.find(item => item.type === type && String(item.id) === osmId)?.tags
       if (!tags) return null
-      const result = { retrievedAt: new Date(clock()).toISOString(), url: url.href, tags: Object.fromEntries(['name', 'amenity', 'leisure', 'tourism', 'cuisine', 'takeaway', 'access', 'foot', 'operator', 'operator:type', 'opening_hours', 'website', 'contact:website', 'wikipedia'].filter(key => typeof tags[key] === 'string').map(key => [key, tags[key].slice(0, 500)])) }
+      const result = { retrievedAt: new Date(clock()).toISOString(), url: url.href, tags: Object.fromEntries(['name', 'iata', 'icao', 'amenity', 'leisure', 'tourism', 'cuisine', 'takeaway', 'access', 'foot', 'operator', 'operator:type', 'opening_hours', 'website', 'contact:website', 'wikipedia'].filter(key => typeof tags[key] === 'string').map(key => [key, tags[key].slice(0, 500)])) }
       details.set(id, result)
       if (details.size > 64) details.delete(details.keys().next().value)
       return structuredClone(result)
@@ -75,6 +75,10 @@ export function createPlaceSearch({ stops = [], env = process.env, fetchImpl = f
       const match = places.get(id)
       if (!match) throw new Error('Search for this place again before routing; its location is not in the current City session.')
       return match
+    },
+    named(query) {
+      const text = String(query).trim().toLocaleLowerCase()
+      return [...places.values()].filter(place => [place.name, place.label].some(name => name?.toLocaleLowerCase() === text))
     },
     async search({ query, near, withinCity = true, osmTag }, signal) {
       if (!enabled) throw new Error('Online place search is off on this server. Set VIGO_AGENCY_PLACE_SEARCH_URL to a Photon endpoint to enable it.')
