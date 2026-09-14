@@ -7,13 +7,14 @@ import { once } from 'node:events'
 import { createInterface } from 'node:readline'
 import Papa from 'papaparse'
 import packageJson from '../../package.json'
+import { CliUsageError, parseArguments, validateInvocation, value, values, enabled } from './arguments.mjs'
+import { commands, usage } from './commands.mjs'
+import { handleOutputErrors, readJsonObject, writeJsonResult, writeOutputFile } from './io.mjs'
 import { assertMatrixSize } from '../server/matrix-size.mjs'
 import {
   apiVersion,
   cityFormatVersion,
-  publicCliCommands,
   resultSchemaVersion,
-  supportedReachRasterSizes,
   vigoCapabilities,
 } from '../capabilities.mjs'
 import {
@@ -76,106 +77,6 @@ const publicResultMetadata = Object.freeze({
 function cityRevisionId(builtAt: string) {
   return builtAt.replace(/[-:]/gu, '').replace(/\.(\d{3})Z$/u, '-$1Z')
 }
-const supportedCommands = new Set<string>([
-  '_build-city',
-  '_build-osm-store',
-  '_prepare-osm-drive',
-  '_route-stream',
-  ...publicCliCommands,
-])
-
-function usage() {
-  return [
-    `VIGO ${packageJson.version}`,
-    '',
-    'Turn GTFS and OSM into a City. Ask it Route, Matrix, and Reach questions.',
-    '',
-    'Usage:',
-    '  vigo build --gtfs=/path/to/feed.zip --osm=/path/to/region.osm.pbf --output=/path/to/city',
-    '  vigo capabilities',
-    '  vigo inspect --city=/path/to/city',
-    '  vigo route --city=/path/to/city --request=/path/to/route.json [options]',
-    '  vigo route --city=/path/to/city --input=/path/to/ods.csv --output=/path/to/routes.csv [options]',
-    '  vigo matrix --city=/path/to/city --request=/path/to/matrix.json [options]',
-    '  vigo reach --city=/path/to/city --request=/path/to/reach.json [options]',
-    '  vigo compare --before=/path/to/result.json --after=/path/to/result.json',
-    '',
-    'Route CSV columns:',
-    '  id, origin_lon, origin_lat, destination_lon, destination_lat',
-    '  Optional: origin_stop_id, destination_stop_id, origin_name, destination_name',
-    '',
-    'Options:',
-    '  --city PATH                 Complete VIGO City directory',
-    '  --gtfs PATH                 GTFS ZIP for build; repeat for multiple sources',
-    '  --gtfs-scope VALUE          Optional unique scope for each repeated --gtfs',
-    '  --osm PATH                  OSM .pbf input for build',
-    '  --private-access VALUE      Build: public (default) or endpoints (authorized access)',
-    '  --output PATH               City output, route CSV output, or comparison output',
-    '  --replace                   Replace an existing City',
-    '  --input PATH                Route CSV input',
-    '  --request PATH              JSON request for Route, Matrix, or Reach',
-    '  --mode VALUE                transit, walk, or drive',
-    '  --time HH:MM                Selected time (default: 08:00)',
-    '  --time-preference VALUE     depart or arrive (default: depart)',
-    '  --objective VALUE           earliest_arrival (default)',
-    '  --departure-window MIN      Centered departure profile, +/- integral minutes 0-30 (depart only)',
-    '  --service-day VALUE         weekday, saturday, or sunday (derived from date)',
-    '  --service-date YYYY-MM-DD   Required exact service date',
-    '  --max-walk KM               Physical walking budget (default: 1.2)',
-    '  --max-transfers N           Maximum transit changes, 0–31 (default: unrestricted)',
-    '  --horizon MIN               Transit search horizon (default: 480)',
-    '  --cutoffs MINUTES           Reach limits, comma-separated (default: 15,30,45,60)',
-    '  --extent-radius KM          Reach computation radius (default: 8)',
-    `  --raster-size N             Reach grid: ${supportedReachRasterSizes.join(', ')} (default: 96)`,
-    '  --walk-speed KPH            Walking speed for Reach (default: 4.8)',
-    '  --help                      Show this help',
-    '  --version                   Print the VIGO version',
-    '',
-    'Point JSON:',
-    '  A point is a stop ID string or {"stopId":"..."} or {"coordinate":[lon,lat]}.',
-    '',
-    'Matrix request JSON:',
-    '  {"origins":[{"id":"a","point":"A"}],"destinations":[{"id":"b","point":"B"}]}',
-    '',
-    'Reach request JSON:',
-    '  {"origin":{"coordinate":[lon,lat]},"cutoffsMinutes":[15,30,45,60],"extentRadiusKm":8,"rasterSize":96}',
-    '',
-  ].join('\n')
-}
-
-function parseArguments(argv: string[]) {
-  const args: CliArguments = new Map()
-  const positionals: string[] = []
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index]
-    if (!token.startsWith('--')) {
-      positionals.push(token)
-      continue
-    }
-    const equals = token.indexOf('=')
-    const name = token.slice(2, equals >= 0 ? equals : undefined)
-    let optionValue = equals >= 0 ? token.slice(equals + 1) : 'true'
-    if (equals < 0 && argv[index + 1] && !argv[index + 1].startsWith('-')) {
-      optionValue = argv[index + 1]
-      index += 1
-    }
-    args.set(name, [...(args.get(name) ?? []), optionValue])
-  }
-  return { command: positionals[0] ?? 'route', args }
-}
-
-function value(args: CliArguments, name: string, fallback = '') {
-  return args.get(name)?.at(-1) ?? fallback
-}
-
-function values(args: CliArguments, name: string) {
-  return args.get(name) ?? []
-}
-
-function enabled(args: CliArguments, name: string) {
-  return ['1', 'true', 'yes'].includes(value(args, name).trim().toLowerCase())
-}
-
 function parseClock(input: string) {
   const match = /^(\d{1,2}):(\d{2})$/.exec(input.trim())
   if (!match) throw new Error(`Invalid --time value: ${input}`)
@@ -475,19 +376,9 @@ async function prepareRuntime(
   }
 }
 
-function writeJsonResult(payload: Record<string, unknown>, outputValue = '') {
-  const serialized = `${JSON.stringify(payload, null, 2)}\n`
-  if (outputValue) {
-    const outputPath = path.resolve(outputValue)
-    fs.mkdirSync(path.dirname(outputPath), { recursive: true })
-    fs.writeFileSync(outputPath, serialized)
-  }
-  process.stdout.write(serialized)
-}
-
 async function runRouteRequest(args: CliArguments) {
+  const request = await readStructuredRequest(args, 'route')
   const { storePath, streetStorePath, city } = resolveRuntimePaths(args)
-  const request = readStructuredRequest(args, 'route')
   if (request.scenario) throw new Error('Planned transit Scenarios are supported by Reach, not Route.')
   const options = runtimeOptions(args, request)
   const mode = String(value(args, 'mode', String(request.mode ?? 'transit')))
@@ -705,8 +596,7 @@ async function runRoute(args: CliArguments) {
     maxWalkKm,
     maxTransfers,
   }
-  fs.mkdirSync(path.dirname(outPath), { recursive: true })
-  fs.writeFileSync(outPath, `${Papa.unparse(rows, { newline: '\n' })}\n`)
+  writeOutputFile(outPath, `${Papa.unparse(rows, { newline: '\n' })}\n`)
   const outputElapsedMs = performance.now() - outputStarted
   const ready = rows.filter((row) => row.status === 'ready').length
   process.stdout.write(`${JSON.stringify({
@@ -914,28 +804,8 @@ async function runRouteStream(args: CliArguments) {
   }
 }
 
-function readStructuredRequest(args: CliArguments, command: string) {
-  const requestValue = value(args, 'request')
-  if (!requestValue.trim()) throw new Error(`${command} requires --request`)
-  const requestPath = path.resolve(requestValue)
-  if (!fs.existsSync(requestPath) || !fs.statSync(requestPath).isFile()) {
-    throw new Error(`Request file not found: ${requestPath}`)
-  }
-  if (fs.statSync(requestPath).size > 16 * 1024 * 1024) {
-    throw new Error(`${command} request exceeds the 16 MiB input limit`)
-  }
-  let request: unknown
-  try {
-    request = JSON.parse(fs.readFileSync(requestPath, 'utf8'))
-  } catch (error) {
-    throw new Error(
-      `${command} request is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
-    )
-  }
-  if (!request || typeof request !== 'object' || Array.isArray(request)) {
-    throw new Error(`${command} request must be one JSON object`)
-  }
-  return request as Record<string, unknown>
+async function readStructuredRequest(args: CliArguments, command: string) {
+  return await readJsonObject(value(args, 'request'), `${command} request`, { stdin: true, maxBytes: 16 * 1024 * 1024 }) as Record<string, unknown>
 }
 
 function analyticalPoint(
@@ -1146,8 +1016,8 @@ function computePreparedMatrix(
 
 
 async function runMatrix(args: CliArguments) {
+  const request = await readStructuredRequest(args, 'matrix')
   const paths = resolveRuntimePaths(args)
-  const request = readStructuredRequest(args, 'matrix')
   assertMatrixSize((request.origins as unknown[])?.length, (request.destinations as unknown[])?.length)
   const options = analyticalRuntimeOptions(args, 'matrix', request)
   const preparation = await prepareRuntime(paths.storePath, paths.streetStorePath, options.serviceDate, options.serviceDay)
@@ -1175,9 +1045,9 @@ function reachCutoffs(args: CliArguments, request: Record<string, unknown>) {
 }
 
 async function runReach(args: CliArguments) {
+  const request = await readStructuredRequest(args, 'reach')
   const { storePath, streetStorePath, city } = resolveRuntimePaths(args)
   if (!streetStorePath) throw new Error('reach requires a City with streets')
-  const request = readStructuredRequest(args, 'reach')
   const scenarioState = request.scenario as Record<string, unknown> | undefined
   if (request.traffic || request.live || scenarioState?.traffic || scenarioState?.live) {
     throw new Error('Reach does not support supplied traffic or live transit state.')
@@ -1773,20 +1643,11 @@ function runInspect(args: CliArguments) {
       streetEdges: city.streetStore?.edgeCount ?? null,
     },
     builtInMs: city.timing?.totalMs ?? null,
-  })
+  }, value(args, 'output'))
 }
 
-function readResultFile(input: string, label: string) {
-  if (!input.trim()) throw new Error(`compare requires --${label}`)
-  const filePath = path.resolve(input)
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-    throw new Error(`${label} result not found: ${filePath}`)
-  }
-  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'))
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error(`${label} result must be one JSON object`)
-  }
-  return parsed as Record<string, any>
+async function readResultFile(input: string, label: string) {
+  return await readJsonObject(input, `${label} result`) as Record<string, any>
 }
 
 function resultKind(result: Record<string, any>) {
@@ -1881,9 +1742,9 @@ function reachComparison(before: Record<string, any>, after: Record<string, any>
   )
 }
 
-function runCompare(args: CliArguments) {
-  const before = readResultFile(value(args, 'before'), 'before')
-  const after = readResultFile(value(args, 'after'), 'after')
+async function runCompare(args: CliArguments) {
+  const before = await readResultFile(value(args, 'before'), 'before')
+  const after = await readResultFile(value(args, 'after'), 'after')
   const beforeKind = resultKind(before)
   const afterKind = resultKind(after)
   if (beforeKind !== afterKind) throw new Error('compare requires two Results from the same Query family')
@@ -1906,18 +1767,17 @@ function runCompare(args: CliArguments) {
   }, value(args, 'output'))
 }
 
-const { command, args } = parseArguments(process.argv.slice(2))
-if (args.has('version')) {
-  process.stdout.write(`${packageJson.version}\n`)
-} else if (!command) {
-  process.stdout.write(usage())
-} else if (!supportedCommands.has(command)) {
-  process.stderr.write(`Unknown command: ${command}\n\n${usage()}`)
-  process.exitCode = 2
-} else if (args.has('help')) {
-  process.stdout.write(usage())
-} else {
-  try {
+handleOutputErrors()
+let activeCommand = ''
+try {
+  const { command, args } = parseArguments(process.argv.slice(2))
+  activeCommand = command
+  if (args.has('version')) {
+    process.stdout.write(`${packageJson.version}\n`)
+  } else if (!command || args.has('help')) {
+    process.stdout.write(usage(packageJson.version, command))
+  } else {
+    validateInvocation(command, args)
     if (command === '_build-city') await runCityCompiler(args)
     else if (command === '_build-osm-store') await runOsmCompiler(args)
     else if (command === '_prepare-osm-drive') await runOsmDriveCompiler(args)
@@ -1926,12 +1786,15 @@ if (args.has('version')) {
     else if (command === 'inspect') runInspect(args)
     else if (command === 'reach') await runReach(args)
     else if (command === 'matrix') await runMatrix(args)
-    else if (command === 'compare') runCompare(args)
+    else if (command === 'compare') await runCompare(args)
     else if (command === '_route-stream') await runRouteStream(args)
     else await runRoute(args)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    process.stderr.write(`VIGO ${command} failed: ${message}\n\n${usage()}`)
-    process.exitCode = 2
   }
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error)
+  const command = error instanceof CliUsageError ? error.command : activeCommand
+  const publicCommand = Object.hasOwn(commands, command) && commands[command].usage ? command : ''
+  process.stderr.write(`VIGO${command ? ` ${command}` : ''}: ${message}\n`)
+  process.stderr.write(`Run "vigo${publicCommand ? ` ${publicCommand}` : ''} --help" for usage.\n`)
+  process.exitCode = 2
 }

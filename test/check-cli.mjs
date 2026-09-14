@@ -102,6 +102,18 @@ try {
     'route', `--city=${cityPath}`, `--request=${routeRequest}`,
     '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2',
   ]))
+  const pipedRoute = JSON.parse(execFileSync(executable, [...prefix, 'route', `--city=${cityPath}`, '--request=-',
+    '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2', '--output=-'], {
+    encoding: 'utf8', cwd: temporaryRoot, input: fs.readFileSync(routeRequest, 'utf8'),
+  }))
+  assert.deepEqual(pipedRoute.query, route.query)
+  assert.equal(pipedRoute.result.durationMinutes, route.result.durationMinutes)
+  assert.equal(pipedRoute.status, route.status)
+  assert(!fs.existsSync(path.join(temporaryRoot, '-')), '--output=- must not create a file named -')
+  const inspectPath = path.join(temporaryRoot, 'inspect.json')
+  const savedInspection = JSON.parse(run(['inspect', `--city=${cityPath}`, `--output=${inspectPath}`]))
+  assert.deepEqual(savedInspection, inspected)
+  assert.deepEqual(JSON.parse(fs.readFileSync(inspectPath, 'utf8')), inspected)
   assert.equal(route.schemaVersion, 'vigo.result.route.v1')
   assert.equal(route.kind, 'route')
   assert.equal(route.status, 'ready')
