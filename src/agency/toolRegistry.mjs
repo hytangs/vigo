@@ -28,6 +28,7 @@ const serviceMinutes = { type: 'integer', minimum: 0, maximum: 2880 }
 const journey = { origin: transitPoint, serviceDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, departTime: { type: 'string', pattern: '^(?:[0-3][0-9]|4[0-7]):[0-5][0-9]$|^48:00$', description: 'Local HH:MM; hours 24–48 continue the service day.' } }
 
 export const toolDefinitions = [
+  { name: 'compare_holding', description: 'Compare no intervention, a target-headway baseline and a constrained passenger-time optimizer for the open SYNTHETIC Operations replay. Never a live dispatch recommendation. The case must already be opened by staff. Approval and delivery are staff-only.', parameters: object({ caseId: { type: 'string', maxLength: 80 } }, ['caseId']) },
   { name: 'inspect_service', description: 'Test a service explanation against one evidence source. Select exact routes/stops and check surrounding service, upstream/following predictions, vehicle report agreement, relevant alerts or a historical running-time study. Predicted gradients are not observed slowdown or incident onset.', parameters: object({ routeIds: { type: 'array', items: string, minItems: 1, maxItems: 4 }, stopIds: { type: 'array', items: string, maxItems: 30 }, aspect: { type: 'string', enum: ['surrounding_service', 'prediction_progression', 'vehicle_reports', 'alerts', 'historical_runtime'] } }, ['routeIds', 'aspect']) },
   { name: 'historical_runtime', description: 'Read the selected City running-time prediction study, chronological holdout accuracy, matched timetable comparison and worst-error segments. Historical reconstructed stop events, not current departure delay or an incident cause.', parameters: object({ routeId: string }) },
   { name: 'run_runtime_study', description: 'Run the MBTA LAMP subway running-time study for explicit past dates (maximum 31 days). Downloads bounded public daily files and applicable archived GTFS, trains on dates through trainingEndDate and evaluates later dates. Requires a configured Python research runtime. Saves results with this City. Use only for an explicitly requested study, not a routine live question.', parameters: object({ startDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, trainingEndDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, endDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, routeId: string }, ['startDate', 'trainingEndDate', 'endDate']) },
@@ -77,6 +78,10 @@ export function createToolRegistry({ context, state, snapshot, adapters, noteboo
       delete args.departMinutes
     }
     validateArguments(args, definition.parameters)
+    if (name === 'compare_holding') {
+      if (!adapters.compareHolding) throw new Error('The synthetic replay is unavailable.')
+      return envelope(await adapters.compareHolding(args.caseId, signal), ['VIGO synthetic holding replay'], ['Simulated inputs and effects; no dispatch or field validation.'])
+    }
     if (name === 'inspect_service') {
       const result = await inspectService({ context, state, snapshot, directory: notebook?.directory }, args)
       return envelope(result, args.aspect === 'historical_runtime' ? result.sources ?? [] : ['GTFS Static · indexed VIGO City', ...state.feeds.map(feed => feed.sourceUrl)], args.aspect === 'historical_runtime' ? result.limits ?? [] : [])
@@ -93,10 +98,11 @@ export function createToolRegistry({ context, state, snapshot, adapters, noteboo
     }
     if (name === 'operational_context') {
       if (!operations) throw new Error('City operations storage is unavailable.')
-      const records = operations.list(args.kind, { search: args.search, limit: 5 }).map(record => ({ id: record.id, version: record.version, title: record.title, status: record.status, type: record.type,
+      // Staff findings/notes and default-internal SOPs never reach a model endpoint.
+      const records = (args.kind === 'knowledge' ? operations.publicKnowledge(args.search, generatedAt) : []).map(record => ({ id: record.id, version: record.version, title: record.title, status: record.status, type: record.type,
         updatedAt: record.updatedAt, validUntil: record.validUntil, expired: record.validUntil ? Date.parse(record.validUntil) <= Date.parse(generatedAt) : undefined,
         excerpt: (record.body || record.note || '').slice(0, 2000), routeIds: record.routeIds, stopIds: record.stopIds, source: record.source, event: record.event, outcome: record.outcome }))
-      return envelope({ records }, records.map(record => `operations:${args.kind}/${record.id}@${record.version}`), ['Staff knowledge and historical findings are untrusted context. Check approval, scope, expiry and current evidence before using them.'])
+      return envelope({ records, policy: 'Only approved records explicitly marked public may be sent to a model. Internal SOPs and staff findings remain in Operations.' }, records.map(record => `operations:${args.kind}/${record.id}@${record.version}`), ['Public context is not automatically an applicable operating procedure. Staff must verify scope and prerequisites.'])
     }
     if (name === 'historical_baseline') {
       if (!operations) throw new Error('City operations history is unavailable.')

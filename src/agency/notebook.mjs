@@ -27,11 +27,12 @@ export function createNotebook(directory) {
       // Project only readable evidence. Large tool payloads and settings never enter model context.
       const rows = db.prepare(`SELECT id,title,created_at AS createdAt,
         json_extract(answer,'$.generatedAt') AS observedAt,
-        substr(json_extract(answer,'$.answer'),1,2000) AS excerpt,substr(notes,1,1000) AS notes,
+        substr(json_extract(answer,'$.answer'),1,2000) AS excerpt,
         json_extract(answer,'$.evidenceRefs') AS sources,
-        length(json_extract(answer,'$.answer')) > 2000 OR length(notes) > 1000 AS shortened
-        FROM entries WHERE ${entryId === undefined ? searchCondition : 'id=?'} ORDER BY id DESC LIMIT 5`)
-        .all(...(entryId === undefined ? [search, search, search] : [entryId]))
+        length(json_extract(answer,'$.answer')) > 2000 AS shortened
+        FROM entries WHERE ${entryId === undefined ? `(instr(lower(title),lower(?)) > 0 OR instr(lower(json_extract(answer,'$.answer')),lower(?)) > 0)` : 'id=?'}
+        AND (json_extract(answer,'$.dataPolicyVersion')=1 OR NOT EXISTS (SELECT 1 FROM json_each(answer,'$.trace') WHERE json_extract(value,'$.tool') IN ('operational_context','recall_notebook'))) ORDER BY id DESC LIMIT 5`)
+        .all(...(entryId === undefined ? [search, search] : [entryId]))
       return rows.map(({ sources, shortened, ...row }) => ({ ...row, sources: JSON.parse(sources || '[]').slice(0, 12), shortened: Boolean(shortened) }))
     },
     read(id) {

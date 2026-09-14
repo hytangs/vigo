@@ -64,7 +64,22 @@ window.runTests = async () => {
   document.querySelector('.agency-ops-records button').click();
   await wait(()=>document.querySelector('.agency-ops-detail'));
   if(document.querySelector('[role=alert]')) throw Error(document.querySelector('[role=alert]').textContent);
-  return {keyboardTabs:true,tracked:true,workflow:true,copyRevision:true,approval:true,localOutbox:true,staffReceipt:true,audit:true,insufficientHistory:true};
+  await click('Replay');
+  await wait(()=>button('Open scenario'));
+  await click('Open scenario');
+  await wait(()=>button('Prepare selected option'));
+  if(!document.querySelector('.agency-replay').textContent.includes('120 seconds')) throw Error('Constrained holding candidate missing');
+  await click('Prepare selected option');
+  await click('Approve option & message');
+  await click('Send to sandbox');
+  await click('Retry sandbox delivery');
+  await wait(()=>document.querySelector('.agency-replay').textContent.includes('Sandbox receipt recorded'));
+  await click('Next observation');
+  await wait(()=>document.querySelector('.agency-replay').textContent.includes('Reconsider this decision'));
+  if(button('Send to sandbox') || button('Retry sandbox delivery')) throw Error('Changed evidence cannot be delivered');
+  await click('Open new run');
+  await wait(()=>button('Prepare selected option'));
+  return {keyboardTabs:true,tracked:true,workflow:true,copyRevision:true,approval:true,localOutbox:true,staffReceipt:true,audit:true,insufficientHistory:true,replayApproval:true,replayRetry:true,replayWithdrawal:true};
 };
 window.layoutCheck = () => {
   const panel=document.querySelector('.agency-panel'); panel.style.height='100vh';

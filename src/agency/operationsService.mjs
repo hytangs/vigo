@@ -1,8 +1,9 @@
 import { authorize, permissions, workflow, channelLimits, fail, textField, isoDate, recordIdentity, eventVersion, eventAvailability, composeMessage, qualitySummary, historicalComparison } from './operations.mjs'
+import { procedureMetadata } from './procedures.mjs'
 
 const capabilities = { 'operations-track': 'finding', 'operations-transition': 'finding', 'operations-refresh': 'finding', 'knowledge-save': 'knowledge', 'knowledge-approve': 'approve',
   'message-draft': 'draft', 'message-edit': 'draft', 'message-approve': 'approve', 'message-release': 'publish', 'message-delivery': 'publish', 'message-withdraw': 'publish' }
-export const operationsActions = new Set(['operations-overview', 'operations-list', 'operations-record', 'operations-audit', 'operations-history', 'operations-baseline', 'operations-health', ...Object.keys(capabilities)])
+export const operationsActions = new Set(['operations-overview', 'operations-list', 'operations-record', 'operations-audit', 'operations-history', 'operations-baseline', 'operations-health', 'knowledge-select', ...Object.keys(capabilities)])
 
 export function handleOperations({ store, state, context, scheduleIdentity, principal, body, monitoring }) {
   authorize(principal, capabilities[body.action] || 'read')
@@ -21,6 +22,7 @@ export function handleOperations({ store, state, context, scheduleIdentity, prin
     return [...new Set(links)].map(id => {
       const record = read(id, 'knowledge')
       if (record.status !== 'approved' || Date.parse(record.validUntil) <= Date.parse(at)) fail('Linked knowledge must be approved and within its review period.', 409)
+      if (record.procedure && Date.parse(record.procedure.effectiveFrom) > Date.parse(at)) fail('This procedure is not effective yet.', 409)
       if (event) {
         const routes = event.routeIds || (event.routeId ? [event.routeId] : []), stops = event.stopIds || (event.stopId ? [event.stopId] : [])
         if (record.routeIds.length && !record.routeIds.some(id => routes.includes(id)) || record.stopIds.length && !record.stopIds.some(id => stops.includes(id))) fail('Knowledge scope does not match this finding.', 409)
@@ -43,6 +45,7 @@ export function handleOperations({ store, state, context, scheduleIdentity, prin
     return finding
   }
   switch (body.action) {
+    case 'knowledge-select': return store.procedures({ ...body.query, at })
     case 'operations-overview': return { principal: { id: principal.id, role: principal.role, capabilities: permissions[principal.role] }, quality: qualitySummary(state),
       findings: store.list('finding').map(finding => ({ ...finding, availability: current(finding) })), messages: store.list('message'), knowledge: store.list('knowledge'),
       monitoring: { ...monitoring, lastStoredAt: store.meta('lastStoredAt'), note: 'Observations are retained while Agency is open and active. A stopped application cannot monitor service.' },
@@ -96,8 +99,11 @@ export function handleOperations({ store, state, context, scheduleIdentity, prin
         if (!Array.isArray(routeIds) || routeIds.length > 20 || routeIds.some(id => !context.routeIndex.has(id)) || !Array.isArray(stopIds) || stopIds.length > 20 || stopIds.some(id => !context.stopIndex.has(id))) fail('Knowledge scope must use current City route and stop identities.')
         const validUntil = isoDate(body.validUntil, 'Review date')
         if (Date.parse(validUntil) <= Date.parse(at) || Date.parse(validUntil) > Date.parse(at) + 366 * 86_400_000) fail('Set a review date within the next year.')
+        const procedure = procedureMetadata(body.procedure === undefined ? previous?.procedure : body.procedure)
+        if (procedure && Date.parse(procedure.effectiveFrom) >= Date.parse(validUntil)) fail('Procedure validity must begin before the review date.')
         return save('knowledge', previous?.id, { title: textField(body.title, 'Title', 160), type: body.kind, body: textField(body.text, 'Knowledge text', 20_000),
-          source: textField(body.source, 'Source reference', 2000), routeIds, stopIds, validUntil, status: 'draft', author: principal.id, approvedBy: null })
+          source: textField(body.source, 'Source reference', 2000), routeIds, stopIds, validUntil, procedure,
+          visibility: body.visibility === 'public' ? 'public' : 'internal', status: 'draft', author: principal.id, approvedBy: null })
       }
       case 'knowledge-approve': {
         const record = read(body.id, 'knowledge')

@@ -1,0 +1,150 @@
+[
+  {
+    "id": "control-sop",
+    "kind": "knowledge",
+    "version": 1,
+    "title": "Synthetic River control point: holding",
+    "type": "sop",
+    "status": "approved",
+    "author": "fixture-author",
+    "approvedBy": "synthetic-reviewer",
+    "visibility": "public",
+    "source": "holding-v1/procedures.json \u00b7 simulated policy, not agency approval",
+    "routeIds": [
+      "R"
+    ],
+    "stopIds": [
+      "C"
+    ],
+    "validUntil": "2026-09-15T16:00:00Z",
+    "body": "At River control point, a supervisor may hold a stationary bus for up to 180 seconds after confirming the berth is clear and that no boarding access requirement prevents holding. Maintain at least 120 seconds before the following bus at every modeled stop. Do not add holding if any modeled downstream departure exceeds 600 seconds late. Escalate conflicting instructions to the duty supervisor.",
+    "procedure": {
+      "documentId": "SYN-HOLD",
+      "revision": "1",
+      "section": "2.1 / page 1",
+      "effectiveFrom": "2026-09-13T16:00:00Z",
+      "authority": "Duty supervisor (synthetic role)",
+      "prerequisites": [
+        "berth-clear",
+        "boarding-complete"
+      ],
+      "supersedes": [],
+      "holding": {
+        "maxHoldSeconds": 180,
+        "minFollowingHeadwaySeconds": 120,
+        "maxDownstreamDelaySeconds": 600
+      }
+    }
+  },
+  {
+    "id": "expired-sop",
+    "kind": "knowledge",
+    "version": 1,
+    "title": "Expired holding instructions",
+    "type": "sop",
+    "status": "approved",
+    "author": "fixture-author",
+    "approvedBy": "synthetic-reviewer",
+    "visibility": "public",
+    "source": "holding-v1/procedures.json \u00b7 simulated policy, not agency approval",
+    "routeIds": [
+      "R"
+    ],
+    "stopIds": [
+      "C"
+    ],
+    "validUntil": "2026-09-14T15:59:59Z",
+    "body": "At River control point, a supervisor may hold a stationary bus for up to 180 seconds after confirming the berth is clear and that no boarding access requirement prevents holding. Maintain at least 120 seconds before the following bus at every modeled stop. Do not add holding if any modeled downstream departure exceeds 600 seconds late. Escalate conflicting instructions to the duty supervisor.",
+    "procedure": {
+      "documentId": "SYN-HOLD",
+      "revision": "0",
+      "section": "2.1 / page 1",
+      "effectiveFrom": "2026-09-13T16:00:00Z",
+      "authority": "Duty supervisor (synthetic role)",
+      "prerequisites": [
+        "berth-clear",
+        "boarding-complete"
+      ],
+      "supersedes": [],
+      "holding": {
+        "maxHoldSeconds": 180,
+        "minFollowingHeadwaySeconds": 120,
+        "maxDownstreamDelaySeconds": 600
+      }
+    }
+  },
+  {
+    "id": "other-stop-sop",
+    "kind": "knowledge",
+    "version": 1,
+    "title": "Other control point holding",
+    "type": "sop",
+    "status": "approved",
+    "author": "fixture-author",
+    "approvedBy": "synthetic-reviewer",
+    "visibility": "public",
+    "source": "holding-v1/procedures.json \u00b7 simulated policy, not agency approval",
+    "routeIds": [
+      "R"
+    ],
+    "stopIds": [
+      "D"
+    ],
+    "validUntil": "2026-09-15T16:00:00Z",
+    "body": "At River control point, a supervisor may hold a stationary bus for up to 180 seconds after confirming the berth is clear and that no boarding access requirement prevents holding. Maintain at least 120 seconds before the following bus at every modeled stop. Do not add holding if any modeled downstream departure exceeds 600 seconds late. Escalate conflicting instructions to the duty supervisor.",
+    "procedure": {
+      "documentId": "SYN-HOLD",
+      "revision": "1",
+      "section": "2.1 / page 1",
+      "effectiveFrom": "2026-09-13T16:00:00Z",
+      "authority": "Duty supervisor (synthetic role)",
+      "prerequisites": [
+        "berth-clear",
+        "boarding-complete"
+      ],
+      "supersedes": [],
+      "holding": {
+        "maxHoldSeconds": 180,
+        "minFollowingHeadwaySeconds": 120,
+        "maxDownstreamDelaySeconds": 600
+      }
+    }
+  },
+  {
+    "id": "conflicting-sop",
+    "kind": "knowledge",
+    "version": 1,
+    "title": "Conflicting synthetic holding restriction",
+    "type": "sop",
+    "status": "approved",
+    "author": "fixture-author",
+    "approvedBy": "synthetic-reviewer",
+    "visibility": "public",
+    "source": "holding-v1/procedures.json \u00b7 simulated policy, not agency approval",
+    "routeIds": [
+      "R"
+    ],
+    "stopIds": [
+      "C"
+    ],
+    "validUntil": "2026-09-15T16:00:00Z",
+    "body": "At River control point, a supervisor may hold a stationary bus for up to 180 seconds after confirming the berth is clear and that no boarding access requirement prevents holding. Maintain at least 120 seconds before the following bus at every modeled stop. Do not add holding if any modeled downstream departure exceeds 600 seconds late. Escalate conflicting instructions to the duty supervisor.",
+    "procedure": {
+      "documentId": "SYN-RESTRICTION",
+      "revision": "1",
+      "section": "2.1 / page 1",
+      "effectiveFrom": "2026-09-13T16:00:00Z",
+      "authority": "Duty supervisor (synthetic role)",
+      "prerequisites": [
+        "berth-clear",
+        "boarding-complete"
+      ],
+      "supersedes": [],
+      "holding": {
+        "maxHoldSeconds": 0,
+        "minFollowingHeadwaySeconds": 120,
+        "maxDownstreamDelaySeconds": 600
+      }
+    }
+  }
+]

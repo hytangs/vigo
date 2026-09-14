@@ -30,7 +30,7 @@ export type Evidence = {
 
 export type OperationalEvent = {
   id: string
-  type: 'delay' | 'bunching' | 'service-gap' | 'cancellation' | 'skipped-stop' | 'stale-data' | 'service-alert'
+  type: 'delay' | 'bunching' | 'service-gap' | 'cancellation' | 'skipped-stop' | 'stale-data' | 'service-alert' | 'headway-review'
   severity: 'info' | 'warning' | 'critical'
   title: string
   routeId?: string

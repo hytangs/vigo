@@ -1,0 +1,141 @@
+{
+  "feed_info": [
+    {
+      "feed_publisher_name": "VIGO synthetic replay",
+      "feed_publisher_url": "https://github.com/vigo-developers/vigo-agency",
+      "feed_lang": "en",
+      "feed_version": "SYN-HOLD-1",
+      "feed_start_date": "20260914",
+      "feed_end_date": "20260914"
+    }
+  ],
+  "agency": [
+    {
+      "agency_id": "X",
+      "agency_name": "Synthetic City X",
+      "agency_url": "https://github.com/vigo-developers/vigo-agency",
+      "agency_timezone": "UTC"
+    }
+  ],
+  "routes": [
+    {
+      "route_id": "R",
+      "agency_id": "X",
+      "route_short_name": "R",
+      "route_long_name": "River to Library",
+      "route_type": 3
+    }
+  ],
+  "stops": [
+    {
+      "stop_id": "C",
+      "stop_name": "River control point",
+      "stop_lat": 42.3,
+      "stop_lon": -71.1
+    },
+    {
+      "stop_id": "D",
+      "stop_name": "Market",
+      "stop_lat": 42.31,
+      "stop_lon": -71.1
+    },
+    {
+      "stop_id": "E",
+      "stop_name": "Library",
+      "stop_lat": 42.32,
+      "stop_lon": -71.1
+    }
+  ],
+  "calendar_dates": [
+    {
+      "service_id": "DAY",
+      "date": "20260914",
+      "exception_type": 1
+    }
+  ],
+  "trips": [
+    {
+      "trip_id": "A",
+      "route_id": "R",
+      "service_id": "DAY",
+      "direction_id": 0
+    },
+    {
+      "trip_id": "B",
+      "route_id": "R",
+      "service_id": "DAY",
+      "direction_id": 0
+    },
+    {
+      "trip_id": "F",
+      "route_id": "R",
+      "service_id": "DAY",
+      "direction_id": 0
+    }
+  ],
+  "stop_times": [
+    {
+      "trip_id": "A",
+      "stop_id": "C",
+      "stop_sequence": 1,
+      "arrival_time": "15:50:00",
+      "departure_time": "15:50:00"
+    },
+    {
+      "trip_id": "A",
+      "stop_id": "D",
+      "stop_sequence": 2,
+      "arrival_time": "15:55:00",
+      "departure_time": "15:55:00"
+    },
+    {
+      "trip_id": "A",
+      "stop_id": "E",
+      "stop_sequence": 3,
+      "arrival_time": "16:00:00",
+      "departure_time": "16:00:00"
+    },
+    {
+      "trip_id": "B",
+      "stop_id": "C",
+      "stop_sequence": 1,
+      "arrival_time": "16:00:00",
+      "departure_time": "16:00:00"
+    },
+    {
+      "trip_id": "B",
+      "stop_id": "D",
+      "stop_sequence": 2,
+      "arrival_time": "16:05:00",
+      "departure_time": "16:05:00"
+    },
+    {
+      "trip_id": "B",
+      "stop_id": "E",
+      "stop_sequence": 3,
+      "arrival_time": "16:10:00",
+      "departure_time": "16:10:00"
+    },
+    {
+      "trip_id": "F",
+      "stop_id": "C",
+      "stop_sequence": 1,
+      "arrival_time": "16:10:00",
+      "departure_time": "16:10:00"
+    },
+    {
+      "trip_id": "F",
+      "stop_id": "D",
+      "stop_sequence": 2,
+      "arrival_time": "16:15:00",
+      "departure_time": "16:15:00"
+    },
+    {
+      "trip_id": "F",
+      "stop_id": "E",
+      "stop_sequence": 3,
+      "arrival_time": "16:20:00",
+      "departure_time": "16:20:00"
+    }
+  ]
+}

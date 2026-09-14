@@ -45,9 +45,8 @@ try {
   principal = { id: 'supervisor', role: 'reviewer' }
   knowledge = await change(knowledge, 'knowledge-approve')
   const recalled = await command({ action: 'tool', name: 'operational_context', arguments: { kind: 'knowledge', search: 'gap' } })
-  assert.equal(recalled.data.records[0].status, 'approved')
-  assert.match(recalled.provenance[0], /@2$/)
-  assert.match(recalled.warnings.join(), /untrusted/)
+  assert.equal(recalled.data.records.length, 0, 'Approved private SOPs stay out of model context')
+  assert.match(recalled.data.policy, /Internal SOPs/)
   finding = await change(finding, 'operations-transition', { status: 'investigating', note: 'Reviewed consecutive trip evidence.', knowledge: [knowledge.id] })
   let message = await command({ action: 'message-draft', findingId: finding.id, channel: 'app', audience: 'accessible-travel' })
   assert.match(message.body, /agency staff/)

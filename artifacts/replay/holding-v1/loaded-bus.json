@@ -1,0 +1,282 @@
+{
+  "initial": {
+    "vehicle_positions": {
+      "header": {
+        "gtfs_realtime_version": "2.0",
+        "timestamp": 1789401600
+      },
+      "entity": [
+        {
+          "id": "vehicle-B",
+          "vehicle": {
+            "trip": {
+              "trip_id": "B",
+              "route_id": "R",
+              "direction_id": 0,
+              "start_date": "20260914"
+            },
+            "vehicle": {
+              "id": "bus-B"
+            },
+            "current_status": "STOPPED_AT",
+            "stop_id": "C",
+            "timestamp": 1789401600
+          }
+        }
+      ]
+    },
+    "trip_updates": {
+      "header": {
+        "gtfs_realtime_version": "2.0",
+        "timestamp": 1789401600
+      },
+      "entity": [
+        {
+          "id": "A",
+          "trip_update": {
+            "trip": {
+              "trip_id": "A",
+              "route_id": "R",
+              "direction_id": 0,
+              "start_date": "20260914"
+            },
+            "timestamp": 1789401600,
+            "stop_time_update": [
+              {
+                "stop_id": "C",
+                "stop_sequence": 1,
+                "departure": {
+                  "time": 1789401300
+                }
+              },
+              {
+                "stop_id": "D",
+                "stop_sequence": 2,
+                "departure": {
+                  "time": 1789401600
+                }
+              },
+              {
+                "stop_id": "E",
+                "stop_sequence": 3,
+                "departure": {
+                  "time": 1789401900
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "B",
+          "trip_update": {
+            "trip": {
+              "trip_id": "B",
+              "route_id": "R",
+              "direction_id": 0,
+              "start_date": "20260914"
+            },
+            "timestamp": 1789401600,
+            "stop_time_update": [
+              {
+                "stop_id": "C",
+                "stop_sequence": 1,
+                "departure": {
+                  "time": 1789401600
+                }
+              },
+              {
+                "stop_id": "D",
+                "stop_sequence": 2,
+                "departure": {
+                  "time": 1789401900
+                }
+              },
+              {
+                "stop_id": "E",
+                "stop_sequence": 3,
+                "departure": {
+                  "time": 1789402200
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "F",
+          "trip_update": {
+            "trip": {
+              "trip_id": "F",
+              "route_id": "R",
+              "direction_id": 0,
+              "start_date": "20260914"
+            },
+            "timestamp": 1789401600,
+            "stop_time_update": [
+              {
+                "stop_id": "C",
+                "stop_sequence": 1,
+                "departure": {
+                  "time": 1789402500
+                }
+              },
+              {
+                "stop_id": "D",
+                "stop_sequence": 2,
+                "departure": {
+                  "time": 1789402800
+                }
+              },
+              {
+                "stop_id": "E",
+                "stop_sequence": 3,
+                "departure": {
+                  "time": 1789403100
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "changed": {
+    "vehicle_positions": {
+      "header": {
+        "gtfs_realtime_version": "2.0",
+        "timestamp": 1789401630
+      },
+      "entity": [
+        {
+          "id": "vehicle-B",
+          "vehicle": {
+            "trip": {
+              "trip_id": "B",
+              "route_id": "R",
+              "direction_id": 0,
+              "start_date": "20260914"
+            },
+            "vehicle": {
+              "id": "bus-B"
+            },
+            "current_status": "IN_TRANSIT_TO",
+            "stop_id": "C",
+            "timestamp": 1789401630
+          }
+        }
+      ]
+    },
+    "trip_updates": {
+      "header": {
+        "gtfs_realtime_version": "2.0",
+        "timestamp": 1789401630
+      },
+      "entity": [
+        {
+          "id": "A",
+          "trip_update": {
+            "trip": {
+              "trip_id": "A",
+              "route_id": "R",
+              "direction_id": 0,
+              "start_date": "20260914"
+            },
+            "timestamp": 1789401630,
+            "stop_time_update": [
+              {
+                "stop_id": "C",
+                "stop_sequence": 1,
+                "departure": {
+                  "time": 1789401300
+                }
+              },
+              {
+                "stop_id": "D",
+                "stop_sequence": 2,
+                "departure": {
+                  "time": 1789401600
+                }
+              },
+              {
+                "stop_id": "E",
+                "stop_sequence": 3,
+                "departure": {
+                  "time": 1789401900
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "B",
+          "trip_update": {
+            "trip": {
+              "trip_id": "B",
+              "route_id": "R",
+              "direction_id": 0,
+              "start_date": "20260914"
+            },
+            "timestamp": 1789401630,
+            "stop_time_update": [
+              {
+                "stop_id": "C",
+                "stop_sequence": 1,
+                "departure": {
+                  "time": 1789401630
+                }
+              },
+              {
+                "stop_id": "D",
+                "stop_sequence": 2,
+                "departure": {
+                  "time": 1789401930
+                }
+              },
+              {
+                "stop_id": "E",
+                "stop_sequence": 3,
+                "departure": {
+                  "time": 1789402230
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "F",
+          "trip_update": {
+            "trip": {
+              "trip_id": "F",
+              "route_id": "R",
+              "direction_id": 0,
+              "start_date": "20260914"
+            },
+            "timestamp": 1789401630,
+            "stop_time_update": [
+              {
+                "stop_id": "C",
+                "stop_sequence": 1,
+                "departure": {
+                  "time": 1789402500
+                }
+              },
+              {
+                "stop_id": "D",
+                "stop_sequence": 2,
+                "departure": {
+                  "time": 1789402800
+                }
+              },
+              {
+                "stop_id": "E",
+                "stop_sequence": 3,
+                "departure": {
+                  "time": 1789403100
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

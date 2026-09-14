@@ -18,6 +18,7 @@ import { readPublicPage } from './agency-web.mjs'
 import { createOperationsStore } from '../agency/operationsStore.mjs'
 import { operationsActions, handleOperations } from '../agency/operationsService.mjs'
 import { authorize, recordIdentity } from '../agency/operations.mjs'
+import { createReplayService } from '../agency/replayService.mjs'
 import { briefingPreferences, defaultBriefingPreferences, briefingStatus } from '../agency/briefingSchedule.mjs'
 
 export function createAgencyService(adapters, { provider = createProvider(), web = createWebResearch({ readPage: readPublicPage }), clock = () => Date.now(), policy = defaultPolicy, refreshMs = 10_000,
@@ -34,6 +35,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
       session.context.close()
       session.notebook.close()
       session.operations.close()
+      session.replay?.close()
     }
   }
   async function withSession(projectId, run) {
@@ -157,6 +159,10 @@ export function createAgencyService(adapters, { provider = createProvider(), web
       if (body.action === 'provider-connect') return provider.connect(body.connection, signal)
       if (body.action === 'provider-disconnect') return provider.disconnect()
       return withSession(projectId, async session => {
+        if (body.action.startsWith('replay-')) {
+          session.replay ??= createReplayService(path.join(session.notebook.directory, 'replay'), projectId)
+          return session.replay.handle(body, principal, signal, provider.forRequest?.() ?? provider)
+        }
         if (operationsActions.has(body.action)) {
           const state = current(session)
           return handleOperations({ store: session.operations, state, context: session.context, scheduleIdentity: session.scheduleIdentity, principal, body,
@@ -186,7 +192,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
         const progress = (item) => { if (item.preliminary) { onProgress?.(item); return }; const previous = activities.findIndex((entry) => entry.phase === item.phase); if (previous < 0) activities.push(item); else activities[previous] = item; onProgress?.(item) }
         const retain = (title, answer, kind = 'ask') => { const entry = session.notebook.save({ title, answer, activities, kind, parentId: body.parentId ?? null }); return { ...answer, entryId: entry.id } }
         const callTool = createToolRegistry({ context: session.context, state, snapshot: session.snapshot, notebook: session.notebook, operations: session.operations, scheduleIdentity: session.scheduleIdentity, places: session.places, web: research, signal,
-          adapters: { runtimeStudy: adapters.runtimeStudy, streetMatrix: adapters.streetMatrix ? (request, abort) => adapters.streetMatrix(projectId, request, abort) : undefined, matrix: (request, abort) => adapters.matrix(projectId, request, abort), route: (request, abort) => adapters.route(projectId, request, abort), reach: (request, abort) => adapters.reach(projectId, request, abort) } })
+          adapters: { compareHolding: (caseId, abort) => { session.replay ??= createReplayService(path.join(session.notebook.directory, 'replay'), projectId); return session.replay.compare(caseId, abort) }, runtimeStudy: adapters.runtimeStudy, streetMatrix: adapters.streetMatrix ? (request, abort) => adapters.streetMatrix(projectId, request, abort) : undefined, matrix: (request, abort) => adapters.matrix(projectId, request, abort), route: (request, abort) => adapters.route(projectId, request, abort), reach: (request, abort) => adapters.reach(projectId, request, abort) } })
         switch (body.action) {
           case 'connect': return { snapshot: await this.connect(projectId, body.request) }
           case 'disconnect': return this.disconnect(projectId)
@@ -216,7 +222,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
               }
               const requests = retained.map(call => ({ tool: call.tool, arguments: call.arguments }))
               const findings = retained.filter(call => ['place_search', 'find_walk', 'walk_compare', 'realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message'].includes(call.tool)).slice(-3)
-              history.unshift({ selection: previous.answer.selection, question: previous.title, answer: previous.answer.answer, notes: previous.notes, observedAt: previous.answer.generatedAt, requests, findings })
+              history.unshift({ selection: previous.answer.selection, question: previous.title, answer: previous.answer.answer, privateContext: previous.answer.dataPolicyVersion !== 1 && (previous.answer.trace ?? []).some(call => ['operational_context', 'recall_notebook'].includes(call.tool)), observedAt: previous.answer.generatedAt, requests, findings })
               parentId = previous.parentId
             }
             return retain(body.question, await queryAgency({ question: body.question, selection, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled, placeEndpoint: session.places.endpoint, placeDetailsEndpoint: session.places.detailsEndpoint, runtimeStudyAvailable: Boolean(adapters.runtimeStudy), webStatus: research }))

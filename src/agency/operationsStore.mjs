@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { operationsPolicy, fail, recordIdentity, qualitySummary } from './operations.mjs'
+import { applicableProcedures, procedureResult } from './procedures.mjs'
 
 // One City-owned ledger. Every human edit and its revision are committed together.
 export function createOperationsStore(directory, projectId, clock = () => Date.now()) {
@@ -22,6 +23,14 @@ export function createOperationsStore(directory, projectId, clock = () => Date.n
       CREATE TABLE IF NOT EXISTS samples (bucket INTEGER PRIMARY KEY, at TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY,value TEXT NOT NULL);
       PRAGMA user_version=1; COMMIT;`)
+    db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(record_id UNINDEXED,title,body);
+      CREATE TRIGGER IF NOT EXISTS knowledge_insert AFTER INSERT ON records WHEN new.kind='knowledge' BEGIN
+        INSERT INTO knowledge_fts VALUES(new.id,json_extract(new.data,'$.title'),json_extract(new.data,'$.body')); END;
+      CREATE TRIGGER IF NOT EXISTS knowledge_update AFTER UPDATE ON records WHEN new.kind='knowledge' BEGIN
+        DELETE FROM knowledge_fts WHERE record_id=old.id;
+        INSERT INTO knowledge_fts VALUES(new.id,json_extract(new.data,'$.title'),json_extract(new.data,'$.body')); END;
+      INSERT INTO knowledge_fts SELECT id,json_extract(data,'$.title'),json_extract(data,'$.body') FROM records
+        WHERE kind='knowledge' AND id NOT IN (SELECT record_id FROM knowledge_fts);`)
     db.prepare('INSERT OR IGNORE INTO owner VALUES(?)').run(projectId)
     if (db.prepare('SELECT id FROM owner').get().id !== projectId) fail('Operations storage belongs to another City.', 403)
   } catch (error) { db.close(); throw error }
@@ -33,7 +42,15 @@ export function createOperationsStore(directory, projectId, clock = () => Date.n
     if (!record || kind && record.kind !== kind) fail('Operations record not found in this City.', 404)
     return record
   }
-  const transaction = run => { db.exec('BEGIN IMMEDIATE'); try { const result = run(); db.exec('COMMIT'); return result } catch (error) { db.exec('ROLLBACK'); throw error } }
+  let depth = 0
+  const transaction = run => {
+    const nested = depth++, name = `operations_${nested}`
+    try {
+      db.exec(nested ? `SAVEPOINT ${name}` : 'BEGIN IMMEDIATE')
+      try { const result = run(); db.exec(nested ? `RELEASE ${name}` : 'COMMIT'); return result }
+      catch (error) { db.exec(nested ? `ROLLBACK TO ${name}; RELEASE ${name}` : 'ROLLBACK'); throw error }
+    } finally { depth-- }
+  }
   function save(kind, id, expectedVersion, value, principal, action) {
     const previous = id ? read(id, kind) : null
     if (previous && (!Number.isInteger(expectedVersion) || previous.version !== expectedVersion)) fail('This record changed. Reload before saving.', 409)
@@ -48,8 +65,31 @@ export function createOperationsStore(directory, projectId, clock = () => Date.n
   }
   const meta = key => { const row = db.prepare('SELECT value FROM metadata WHERE key=?').get(key); return row ? JSON.parse(row.value) : null }
   const setMeta = (key, value) => db.prepare('INSERT INTO metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, JSON.stringify(value))
+  const searchTerms = (search = '') => {
+    if (typeof search !== 'string' || search.length > 200) fail('Knowledge search must be at most 200 characters.')
+    return (search.match(/[\p{L}\p{N}]+/gu) ?? []).map(term => `"${term}"`).join(' OR ')
+  }
   return {
     read, transaction, save, meta, setMeta,
+    procedures(query) {
+      const terms = searchTerms(query.search)
+      // Applicability needs metadata, not thousands of full SOP passages in memory.
+      const records = db.prepare("SELECT id,kind,version,updated_at,json_remove(data,'$.body','$.source','$.note') AS data FROM records WHERE kind='knowledge'").all().map(decode)
+      const selection = applicableProcedures(query.recordIds ? records.filter(record => query.recordIds.includes(record.id)) : records, query)
+      const ids = selection.applicable.map(record => record.id)
+      const matches = ids.length && terms ? db.prepare(`SELECT record_id FROM knowledge_fts WHERE record_id IN (SELECT value FROM json_each(?)) AND knowledge_fts MATCH ? ORDER BY bm25(knowledge_fts),record_id LIMIT 5`).all(JSON.stringify(ids), terms).map(row => row.record_id) : ids.sort().slice(0, 5)
+      return procedureResult(selection, matches.map(id => read(id, 'knowledge')))
+    },
+    publicKnowledge(search, at) {
+      const terms = searchTerms(search)
+      if (!Number.isFinite(Date.parse(at))) fail('A current clock is required for model disclosure.')
+      const eligible = `kind='knowledge' AND json_extract(data,'$.visibility')='public' AND json_extract(data,'$.status')='approved'
+        AND julianday(json_extract(data,'$.validUntil'))>julianday(?)
+        AND (json_extract(data,'$.procedure') IS NULL OR julianday(json_extract(data,'$.procedure.effectiveFrom'))<=julianday(?))`
+      const rows = terms ? db.prepare(`SELECT record_id FROM knowledge_fts WHERE record_id IN (SELECT id FROM records WHERE ${eligible}) AND knowledge_fts MATCH ? ORDER BY bm25(knowledge_fts),record_id LIMIT 5`).all(at, at, terms)
+        : db.prepare(`SELECT id AS record_id FROM records WHERE ${eligible} ORDER BY updated_at DESC,id LIMIT 5`).all(at, at)
+      return rows.map(row => read(row.record_id, 'knowledge'))
+    },
     finding(eventKey) { return decode(db.prepare("SELECT * FROM records WHERE kind='finding' AND json_extract(data,'$.eventKey')=?").get(eventKey)) },
     list(kind, { search = '', before = '', limit = 50 } = {}) {
       if (typeof search !== 'string' || search.length > 200 || typeof before !== 'string' || before.length > 200 || !Number.isInteger(limit) || limit < 1 || limit > 100) fail('Invalid operations search.')

@@ -34,7 +34,7 @@ export function compactResult(result, tool) {
     limits: 'These are configuration limits, not evidence that everything is local or secure. Do not claim local inference or no external model API.',
   })
   const clock = (minutes) => Number.isFinite(minutes) ? `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(Math.floor(minutes % 60)).padStart(2, '0')}` : undefined
-  if (tool === 'recall_notebook') return envelope({ entries: data.entries.map((entry) => ({ id: entry.id, title: entry.title, observedAt: entry.observedAt, shortened: entry.shortened || entry.excerpt.length > 800 || entry.notes.length > 400, excerpt: entry.excerpt.slice(0, 800), notes: entry.notes.slice(0, 400) })) })
+  if (tool === 'recall_notebook') return envelope({ entries: data.entries.map((entry) => ({ id: entry.id, title: entry.title, observedAt: entry.observedAt, shortened: entry.shortened || entry.excerpt.length > 800, excerpt: entry.excerpt.slice(0, 800) })) })
   if (tool === 'resolve_entities') return envelope({ total: data.total, method: data.method, ambiguous: data.ambiguous,
     ...(!data.total ? { nextStep: 'This lookup matches literal timetable text, not meaning. Retry a shorter distinctive name fragment from the requested place, without generic words like bus stop. Returned names may use agency abbreviations. Do not infer that the place does not exist.' } : {}),
     matches: data.matches.slice(0, 12).map(({ kind, id, name, description, lat, lon }) => ({ kind, id, name, description, lat, lon })) }, data.matches.length > 12)
@@ -84,6 +84,8 @@ function replyText(content) {
 }
 
 export async function queryAgency({ question, context, state, callTool, provider, signal, onProgress = () => {}, history = [], selection = {}, placesAvailable = true, placeEndpoint, placeDetailsEndpoint, runtimeStudyAvailable = false, webStatus = {} }) {
+  // Legacy answers that used internal context cannot safely be re-sent or searched online.
+  history = history.filter(item => !item.privateContext).map(({ notes: _notes, ...item }) => item)
   if (typeof question !== 'string' || !question.trim() || question.length > 2000) throw new Error('Ask a question using 1–2000 characters.')
   if (!provider.available) return { answer: 'Connect a model in Ask to start a conversation. Live observations and built-in skills are available now.', trace: [], evidenceRefs: [], generatedAt: state.generatedAt, warnings: [], providerAvailable: false }
   const runtime = queryRuntimeFacts({ provider, webStatus, placesAvailable, placeEndpoint, placeDetailsEndpoint, runtimeStudyAvailable, generatedAt: state.generatedAt })
@@ -255,7 +257,7 @@ export async function queryAgency({ question, context, state, callTool, provider
     return reference
   })
   return {
-    selection,
+    selection, dataPolicyVersion: 1,
     answer: answer || (trace.length ? `${signal?.aborted ? 'Stopped before the answer was finished.' : 'The model did not finish this answer.'} Your completed checks are saved below.\n\n${summarizeEvidence(trace)}` : signal?.aborted ? 'Stopped before a response was ready. You can continue this conversation.' : 'I could not get a response from the model. Please try again.'),
     timing: { ...timing, totalMs: performance.now() - startedAt },
     aiGenerated: Boolean(answer) && !renderedFromEvidence, model: answer ? provider.model : undefined, citations: [...citations],

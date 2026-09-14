@@ -4,6 +4,8 @@ export type OperationsRecord = {
   id: string; kind: 'finding' | 'knowledge' | 'message'; version: number; updatedAt: string; title: string; status: string
   event?: OperationalEvent; owner?: string; note?: string; outcome?: { label: string; source: string }
   body?: string; type?: string; source?: string; validUntil?: string; routeIds?: string[]; stopIds?: string[]
+  visibility?: 'internal' | 'public'
+  procedure?: { documentId: string; revision: string; section: string; effectiveFrom: string; authority: string; prerequisites: string[]; supersedes: string[]; holding: { maxHoldSeconds: number; minFollowingHeadwaySeconds: number; maxDownstreamDelaySeconds: number } } | null
   channel?: string; audience?: string; expiresAt?: string; limit?: number; findingId?: string
   approvedBy?: string; delivery?: { receipt: string }; evidenceRefs?: string[]
   knowledge?: Array<{ id: string; version: number; title: string }>

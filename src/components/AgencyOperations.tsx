@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, Check, Download, RefreshCw } from 'lucide-react'
 import { apiJson } from '../app/api'
+import { AgencyReplay } from './AgencyReplay'
 import type { AgencyState, OperationalEvent } from '../agency/types'
 import type { OperationsRecord, OperationsOverview, HistoricalComparison } from '../agency/operationsTypes'
 
@@ -51,6 +52,8 @@ function RecordEditor({ record, overview, command, busy, onEvidence }: { record:
       <details><summary>Sources and reviewed context</summary>{record.evidenceRefs?.map(source => <p className="agency-caption" key={source}>{source}</p>)}{record.knowledge?.map(link => <p key={link.id}>{link.title} · version {link.version}</p>)}</details>
     </> : <>
       <p className="agency-ops-prose">{record.body}</p><p className="agency-caption">Source: {record.source}<br />Review by {new Date(record.validUntil!).toLocaleString()}</p>
+      <p className="agency-caption">{record.visibility === 'public' ? 'Public context · model use allowed after approval' : 'Internal context · excluded from model and web tools'}</p>
+      {record.procedure ? <p className="agency-caption">{record.procedure.documentId} · revision {record.procedure.revision} · {record.procedure.section} · authority: {record.procedure.authority}</p> : null}
       <p className="agency-caption">Scope: {record.routeIds?.join(', ') || 'City'}{record.stopIds?.length ? ` · stops ${record.stopIds.join(', ')}` : ''}</p>
       {record.status === 'draft' && can('approve') ? <button className="agency-button" disabled={busy} onClick={() => act('knowledge-approve')}>Approve context</button> : null}
       {can('knowledge') ? <details><summary>Revise context</summary><KnowledgeForm record={record} state={null} command={command} busy={busy} /></details> : null}
@@ -60,13 +63,16 @@ function RecordEditor({ record, overview, command, busy, onEvidence }: { record:
 
 function KnowledgeForm({ record, state, command, busy }: { record?: OperationsRecord; state: AgencyState | null; command: Command; busy: boolean }) {
   const [title, setTitle] = useState(record?.title || ''), [text, setText] = useState(record?.body || ''), [source, setSource] = useState(record?.source || '')
+  const [visibility, setVisibility] = useState(record?.visibility || 'internal')
   const [kind, setKind] = useState(record?.type || 'sop'), [routeId, setRouteId] = useState(record?.routeIds?.[0] || '')
   const [validUntil, setValidUntil] = useState((record?.validUntil || new Date(Date.now() + 30 * 86_400_000).toISOString()).slice(0, 10))
-  return <form className="agency-ops-form" onSubmit={event => { event.preventDefault(); void command({ action: 'knowledge-save', id: record?.id, version: record?.version, title, text, source, kind, validUntil, routeIds: record?.routeIds || (routeId ? [routeId] : []), stopIds: record?.stopIds || [] }) }}>
+  return <form className="agency-ops-form" onSubmit={event => { event.preventDefault(); void command({ action: 'knowledge-save', id: record?.id, version: record?.version, title, text, source, kind, validUntil, visibility, procedure: record?.procedure, routeIds: record?.routeIds || (routeId ? [routeId] : []), stopIds: record?.stopIds || [] }) }}>
     <label>Title<input required value={title} onChange={event => setTitle(event.target.value)} maxLength={160} /></label>
     <div className="agency-ops-fields"><label>Type<select value={kind} onChange={event => setKind(event.target.value)}>{['sop', 'maintenance', 'document', 'operating-note'].map(value => <option key={value} value={value}>{words(value)}</option>)}</select></label>{state ? <label>Route scope<select value={routeId} onChange={event => setRouteId(event.target.value)}><option value="">City-wide</option>{state.routes.map(route => <option key={route.id} value={route.id}>{route.name}</option>)}</select></label> : null}</div>
     <label>Operational context<textarea required value={text} onChange={event => setText(event.target.value)} maxLength={20000} rows={4} /></label>
     <label>Source reference<input required value={source} onChange={event => setSource(event.target.value)} maxLength={2000} placeholder="Document title, revision, page or internal reference" /></label>
+    <label className="agency-ops-check"><input type="checkbox" checked={visibility === 'public'} onChange={event => setVisibility(event.target.checked ? 'public' : 'internal')} />Public material — allow approved excerpts to reach the configured AI endpoint</label>
+    <p className="agency-caption">Internal by default. Staff notes and internal procedures stay in Operations; they are excluded from Ask and its web tools.</p>
     <label>Review date<input required type="date" value={validUntil} onChange={event => setValidUntil(event.target.value)} /></label>
     <button className="agency-button" disabled={busy} type="submit">Save for review</button>
   </form>
@@ -74,7 +80,7 @@ function KnowledgeForm({ record, state, command, busy }: { record?: OperationsRe
 
 export function AgencyOperations({ endpoint, state, onEvidence }: { endpoint: string; state: AgencyState; onEvidence: (event: OperationalEvent) => void }) {
   const [overview, setOverview] = useState<OperationsOverview | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(false)
-  const [view, setView] = useState<'finding' | 'message' | 'knowledge' | 'history'>('finding'), [selected, setSelected] = useState<string | null>(null)
+  const [view, setView] = useState<'finding' | 'message' | 'knowledge' | 'history' | 'replay'>('finding'), [selected, setSelected] = useState<string | null>(null)
   const [records, setRecords] = useState<OperationsRecord[] | null>(null), [search, setSearch] = useState(''), [baseline, setBaseline] = useState<HistoricalComparison | null>(null), [route, setRoute] = useState('')
   const [audit, setAudit] = useState<Array<{ sequence: number; version: number; at: string; actor: string; action: string; data: unknown }> | null>(null)
   const generation = useRef(0), readGeneration = useRef(0), mutation = useRef(false), mounted = useRef(true)
@@ -105,12 +111,12 @@ export function AgencyOperations({ endpoint, state, onEvidence }: { endpoint: st
   const listed = list.find(record => record.id === selected)
   const record = listed?.kind === 'finding' ? overview?.findings.find(record => record.id === selected) || listed : listed
   return <section className="agency-operations" aria-label="Operations workflow">
-    <p className="agency-intro">Keep an operational finding, its evidence, staff decisions and rider guidance together.</p>
+    {view !== 'replay' ? <p className="agency-intro">Keep an operational finding, its evidence, staff decisions and rider guidance together.</p> : null}
     {error ? <p className="agency-error" role="alert">{error}</p> : null}
     {overview ? <>
-      <div className="agency-ops-health"><strong>{overview.quality.alignmentRatio === null ? 'Reporting unknown' : `${overview.quality.alignedReports} / ${overview.quality.totalReports} reports aligned`}</strong><span>{overview.quality.comparedRoutes} routes with paired departures</span><details><summary>{overview.quality.flags.length ? `${overview.quality.flags.length} quality flags` : 'Quality and coverage'}</summary><p>{overview.quality.note}</p>{overview.quality.flags.map(flag => <p key={flag}>{words(flag)}</p>)}<p>{overview.monitoring.note}</p><p>Last retained: {overview.monitoring.lastStoredAt ? new Date(overview.monitoring.lastStoredAt).toLocaleString() : 'No observation yet'}</p><p>Access: {overview.principal.id} · {overview.principal.role}</p></details></div>
-      <nav className="agency-ops-nav" aria-label="Operations records">{(['finding', 'message', 'knowledge', 'history'] as const).map(value => <button className="agency-button" aria-pressed={view === value} key={value} disabled={busy} onClick={() => { ++readGeneration.current; setView(value); setSelected(null); setRecords(null); setSearch(''); setAudit(null) }}>{value === 'finding' ? 'Findings' : value === 'message' ? 'Rider guidance' : value === 'knowledge' ? 'Knowledge' : 'History'}</button>)}</nav>
-      {view === 'history' ? <>
+      {view !== 'replay' ? <div className="agency-ops-health"><strong>{overview.quality.alignmentRatio === null ? 'Reporting unknown' : `${overview.quality.alignedReports} / ${overview.quality.totalReports} reports aligned`}</strong><span>{overview.quality.comparedRoutes} routes with paired departures</span><details><summary>{overview.quality.flags.length ? `${overview.quality.flags.length} quality flags` : 'Quality and coverage'}</summary><p>{overview.quality.note}</p>{overview.quality.flags.map(flag => <p key={flag}>{words(flag)}</p>)}<p>{overview.monitoring.note}</p><p>Last retained: {overview.monitoring.lastStoredAt ? new Date(overview.monitoring.lastStoredAt).toLocaleString() : 'No observation yet'}</p><p>Access: {overview.principal.id} · {overview.principal.role}</p></details></div> : null}
+      <nav className="agency-ops-nav" aria-label="Operations records">{(['finding', 'message', 'knowledge', 'history', 'replay'] as const).map(value => <button className="agency-button" aria-pressed={view === value} key={value} disabled={busy} onClick={() => { ++readGeneration.current; setView(value); setSelected(null); setRecords(null); setSearch(''); setAudit(null) }}>{value === 'finding' ? 'Findings' : value === 'message' ? 'Rider guidance' : value === 'knowledge' ? 'Knowledge' : value === 'history' ? 'History' : 'Replay'}</button>)}</nav>
+      {view === 'replay' ? <AgencyReplay endpoint={endpoint} capabilities={overview.principal.capabilities} /> : view === 'history' ? <>
         <div className="agency-ops-fields"><label>Route<select value={route} onChange={event => { ++readGeneration.current; setRoute(event.target.value); setBaseline(null) }}><option value="">Choose a route</option>{state.routes.map(route => <option key={route.id} value={route.id}>{route.name}</option>)}</select></label><button className="agency-button" disabled={!route} onClick={() => void compare()}>Compare earlier service days</button></div>
         {baseline ? <><h3>{baseline.serviceDays < baseline.minimumDays ? `Building history · ${baseline.serviceDays} / ${baseline.minimumDays} comparable days` : `${baseline.weekday} · ${baseline.hour}:00 comparison`}</h3><div className="agency-ops-health"><strong>Historical median: {minute(baseline.baselineSeconds)}</strong><span>Current: {minute(baseline.currentSeconds)} · difference: {minute(baseline.differenceSeconds)}</span></div><p className="agency-caption">{baseline.method}</p><p>Chronological evaluation: {baseline.evaluation.cases} held-out days · mean absolute error {minute(baseline.evaluation.meanAbsoluteErrorSeconds)}</p><table className="agency-ops-history"><thead><tr><th>Service date</th><th>Daily median</th><th>Samples</th></tr></thead><tbody>{baseline.days.map(day => <tr key={day.date}><td>{day.date}</td><td>{minute(day.value)}</td><td>{day.samples}</td></tr>)}</tbody></table></> : <p className="agency-caption">One observation per five-minute interval, retained for up to 90 days. No observations are invented while the application is closed.</p>}
       </> : <>

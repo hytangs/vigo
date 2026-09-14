@@ -18,10 +18,11 @@ try {
   assert.equal(notebook.read(first.id).notes, 'A researcher note with an explicit limit.')
   assert.equal(notebook.list({ search: 'researcher' })[0].id, first.id)
   assert.equal(notebook.list({ search: 'checked departures' }).length, 2, 'Search includes the saved answer, not only its title')
-  const recalled = notebook.recall({ search: 'researcher' })
+  assert.equal(notebook.recall({ search: 'researcher' }).length, 0, 'Model retrieval never searches private annotations')
+  const recalled = notebook.recall({ entryId: first.id })
   assert.equal(recalled[0].id, first.id)
   assert.equal(recalled[0].observedAt, answer.generatedAt)
-  assert.equal(recalled[0].notes, notebook.read(first.id).notes)
+  assert.equal(recalled[0].notes, undefined, 'Staff annotations are not sent to model endpoints')
   assert.equal(recalled[0].excerpt, answer.answer)
   assert.equal(recalled[0].answer, undefined, 'Raw tool payloads stay out of retrieval context')
   assert.equal(notebook.recall({ search: '%' }).length, 0, 'Search terms are literal, not SQL wildcards')
@@ -38,7 +39,7 @@ try {
   notebook.annotate(large.id, 'y'.repeat(2000))
   const excerpt = notebook.recall({ entryId: large.id })[0]
   assert.equal(excerpt.excerpt.length, 2000)
-  assert.equal(excerpt.notes.length, 1000)
+  assert.equal(excerpt.notes, undefined)
   assert.equal(excerpt.shortened, true)
   const trace = [{ tool: 'service_profile', result: { ok: true, data: { rows: [{ service_hour: 8, scheduled_trip_starts: 3 }], serviceDate: '2026-09-13', rowCount: 1 }, generatedAt: answer.generatedAt, provenance: ['fixture'], warnings: [] } }]
   const provider = { available: true, model: 'fixture-model', complete: async () => ({ reasoning: 'private text', tool_calls: [{ function: { name: 'write_briefing', arguments: JSON.stringify({ factIds: [1, 2], text: 'Invented: 90 cancelled trips' }) } }] }) }

@@ -15,6 +15,7 @@ export function eventSentences(event, context) {
   let fact
   switch (event.type) {
     case 'delay': fact = `${subject}: departure${where} is predicted ${duration(evidence.delaySeconds)} later than scheduled.`; break
+    case 'headway-review':
     case 'bunching':
     case 'service-gap': fact = `${subject}: the interval between two predicted departures${where} is ${duration(evidence.observedHeadwaySeconds)}, compared with ${duration(evidence.scheduledHeadwaySeconds)} scheduled.`; break
     case 'cancellation': fact = `${subject}: a scheduled trip is reported cancelled.`; break

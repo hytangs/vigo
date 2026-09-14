@@ -1,0 +1,234 @@
+{
+  "schemaVersion": 1,
+  "id": "holding-v1",
+  "title": "One bus, one control point",
+  "synthetic": true,
+  "agency": "Synthetic City X",
+  "reviewer": null,
+  "timetable": "timetable.json",
+  "timetableVersion": "SYN-HOLD-1",
+  "procedures": "procedures.json",
+  "freshnessSeconds": 120,
+  "decisionLifetimeSeconds": 90,
+  "source": "Authored synthetic GTFS tables and GTFS-RT JSON observations; not captured agency feeds.",
+  "knownUnknowns": [
+    "No actual agency SOP or reviewer supplied. Approval identities in the fixture are synthetic.",
+    "Passenger counts and arrival rates are scenario assumptions, not APC/AFC observations.",
+    "No measured intervention, cause, recovery, routing restriction or accessible alternative."
+  ],
+  "cases": [
+    {
+      "id": "ordinary",
+      "label": "Even service",
+      "split": "development",
+      "observations": "ordinary.json",
+      "clock": "2026-09-14T16:00:00Z",
+      "changedClock": "2026-09-14T16:00:30Z",
+      "routeId": "R",
+      "controlStopId": "C",
+      "tripIds": [
+        "A",
+        "B",
+        "F"
+      ],
+      "procedureIds": [
+        "control-sop",
+        "expired-sop",
+        "other-stop-sop"
+      ],
+      "prerequisites": [
+        "berth-clear",
+        "boarding-complete"
+      ],
+      "onboardPassengers": 12,
+      "downstreamArrivalRates": [
+        {
+          "stopId": "D",
+          "passengersPerMinute": 2
+        },
+        {
+          "stopId": "E",
+          "passengersPerMinute": 2
+        }
+      ],
+      "expected": {
+        "status": "ready",
+        "acceptableCandidateIds": [
+          "none"
+        ],
+        "finding": "even-spacing",
+        "acceptableHoldSeconds": [
+          0
+        ]
+      }
+    },
+    {
+      "id": "disruption",
+      "label": "Uneven spacing",
+      "split": "development",
+      "observations": "disruption.json",
+      "clock": "2026-09-14T16:00:00Z",
+      "changedClock": "2026-09-14T16:00:30Z",
+      "routeId": "R",
+      "controlStopId": "C",
+      "tripIds": [
+        "A",
+        "B",
+        "F"
+      ],
+      "procedureIds": [
+        "control-sop",
+        "expired-sop",
+        "other-stop-sop"
+      ],
+      "prerequisites": [
+        "berth-clear",
+        "boarding-complete"
+      ],
+      "onboardPassengers": 40,
+      "downstreamArrivalRates": [
+        {
+          "stopId": "D",
+          "passengersPerMinute": 2
+        },
+        {
+          "stopId": "E",
+          "passengersPerMinute": 2
+        }
+      ],
+      "expected": {
+        "status": "ready",
+        "acceptableCandidateIds": [
+          "minimum-passenger-time"
+        ],
+        "finding": "uneven-spacing",
+        "acceptableHoldSeconds": [
+          120
+        ]
+      }
+    },
+    {
+      "id": "stale",
+      "label": "Stale observations",
+      "split": "development",
+      "observations": "stale.json",
+      "clock": "2026-09-14T16:00:00Z",
+      "changedClock": "2026-09-14T16:00:30Z",
+      "routeId": "R",
+      "controlStopId": "C",
+      "tripIds": [
+        "A",
+        "B",
+        "F"
+      ],
+      "procedureIds": [
+        "control-sop"
+      ],
+      "prerequisites": [
+        "berth-clear",
+        "boarding-complete"
+      ],
+      "onboardPassengers": 12,
+      "downstreamArrivalRates": [
+        {
+          "stopId": "D",
+          "passengersPerMinute": 2
+        },
+        {
+          "stopId": "E",
+          "passengersPerMinute": 2
+        }
+      ],
+      "expected": {
+        "status": "unavailable",
+        "acceptableCandidateIds": [],
+        "finding": "unknown",
+        "acceptableHoldSeconds": []
+      }
+    },
+    {
+      "id": "conflict",
+      "label": "Conflicting procedures",
+      "split": "held-out",
+      "observations": "conflict.json",
+      "clock": "2026-09-14T16:00:00Z",
+      "changedClock": "2026-09-14T16:00:30Z",
+      "routeId": "R",
+      "controlStopId": "C",
+      "tripIds": [
+        "A",
+        "B",
+        "F"
+      ],
+      "procedureIds": [
+        "control-sop",
+        "conflicting-sop"
+      ],
+      "prerequisites": [
+        "berth-clear",
+        "boarding-complete"
+      ],
+      "onboardPassengers": 12,
+      "downstreamArrivalRates": [
+        {
+          "stopId": "D",
+          "passengersPerMinute": 2
+        },
+        {
+          "stopId": "E",
+          "passengersPerMinute": 2
+        }
+      ],
+      "expected": {
+        "status": "unavailable",
+        "acceptableCandidateIds": [],
+        "finding": "unknown",
+        "acceptableHoldSeconds": []
+      }
+    },
+    {
+      "id": "loaded-bus",
+      "label": "High onboard load",
+      "split": "held-out",
+      "observations": "loaded-bus.json",
+      "clock": "2026-09-14T16:00:00Z",
+      "changedClock": "2026-09-14T16:00:30Z",
+      "routeId": "R",
+      "controlStopId": "C",
+      "tripIds": [
+        "A",
+        "B",
+        "F"
+      ],
+      "procedureIds": [
+        "control-sop"
+      ],
+      "prerequisites": [
+        "berth-clear",
+        "boarding-complete"
+      ],
+      "onboardPassengers": 100,
+      "downstreamArrivalRates": [
+        {
+          "stopId": "D",
+          "passengersPerMinute": 2
+        },
+        {
+          "stopId": "E",
+          "passengersPerMinute": 2
+        }
+      ],
+      "expected": {
+        "status": "ready",
+        "acceptableCandidateIds": [
+          "none"
+        ],
+        "finding": "uneven-spacing",
+        "acceptableHoldSeconds": [
+          0
+        ]
+      }
+    }
+  ],
+  "evaluationLabels": "Developer-authored expected constraints/actions. Not expert agency labels. Held-out scenarios are excluded from model prompts until their own evaluation."
+}

@@ -200,7 +200,7 @@ const recalled = await queryAgency({ question: 'Find my earlier service profile'
   callTool: async () => ({ ok: true, data: { entries: [{ id: 4, title: 'Service profile', excerpt: 'Three scheduled starts.', notes: 'Not demand.', observedAt: state.generatedAt, sources: ['https://private.example/feed?token=fixture-secret'] }] }, provenance: ['notebook:entry/4'], generatedAt: state.generatedAt, warnings: [] }),
   history: [{ question: 'Earlier study', answer: 'Saved result.', observedAt: state.generatedAt, notes: 'A staff annotation.' }],
   provider: { available: true, complete: async (messages) => {
-    assert.match(messages[1].content, /staffAnnotation.*A staff annotation/s)
+    assert.doesNotMatch(JSON.stringify(messages), /A staff annotation|Not demand/, 'Private notes never enter model context')
     assert.equal(messages.find(message => message.role === 'assistant').content, 'Saved result.', 'Assistant history contains the public answer without injected metadata')
     if (++recallRound === 1) return { tool_calls: [{ id: 'recall', function: { name: 'recall_notebook', arguments: '{"search":"service profile"}' } }] }
     assert.match(messages.filter(message => message.role !== 'system').at(-1).content, /Three scheduled starts/)

@@ -28,3 +28,16 @@
 .agency-ops-audit pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow-y: auto; font-size: 11px; }
 .agency-ops-history { width: 100%; text-align: left; border-collapse: collapse; font-size: 12px; }
 .agency-ops-history th, .agency-ops-history td { padding: 9px 5px; border-bottom: 1px solid var(--border); }
+
+.agency-replay { display: grid; gap: 16px; min-width: 0; }
+.agency-replay h3 { margin: 6px 0; font-size: 18px; }
+.agency-replay p { font-size: 13px; line-height: 1.6; margin: 6px 0; }
+.agency-replay-clock { display: grid; gap: 5px; padding-block: 10px; border-block: 1px solid var(--border); font-size: 12px; }
+.agency-replay-clock span { color: var(--text-muted); }
+.agency-replay-observation svg { width: 100%; max-height: 110px; color: var(--text-muted); }
+.agency-replay-observation svg text { fill: currentColor; font-size: 11px; }
+.agency-replay-options { display: grid; gap: 8px; }
+.agency-operations .agency-replay-option { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; cursor: pointer; }
+.agency-replay-option:has(input:checked) { background: var(--hover-surface); border-color: var(--accent); }
+.agency-replay-option strong { color: var(--text); display: block; font-size: 13px; }
+.agency-replay-option small { display: block; margin-top: 5px; line-height: 1.5; }
