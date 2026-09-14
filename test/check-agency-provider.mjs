@@ -67,7 +67,13 @@ assert.equal(nativeRequests.at(-1).body.messages[1].tool_name, 'connection_check
 assert.deepEqual(nativeRequests.at(-1).body.messages[0].tool_calls[0].function.arguments, { ready: true })
 for (const [reasoningEffort, expected] of [['on', true], ['low', 'low'], ['medium', 'medium'], ['high', 'high'], ['', undefined]]) {
   await native.connect({ baseUrl: 'http://localhost:11434', model: 'local-model', protocol: 'ollama', reasoningEffort })
+  assert.equal(nativeRequests.at(-1).body.think, false, 'The local connection probe does not run a reasoning investigation')
+  assert.equal(nativeRequests.at(-1).body.options.num_predict, 128, 'Bound the local test to its small required form')
+  assert.equal(nativeRequests.at(-1).body.options.temperature, 0)
+  assert.equal(native.status().reasoningEffort, reasoningEffort, 'Testing must preserve the selected reasoning setting')
+  await native.complete([{ role: 'user', content: 'A normal question after connecting' }], [])
   assert.equal(nativeRequests.at(-1).body.think, expected, 'Preserve native reasoning levels without guessing from a model name')
+  assert.equal(nativeRequests.at(-1).body.options.num_predict, 1800, 'The probe budget must not restrict normal questions')
 }
 await assert.rejects(provider.models({ baseUrl: 'https://models.example/v1', protocol: 'openai', reasoningEffort: 'on' }), /reasoning effort/)
 await assert.rejects(native.models({ baseUrl: 'http://localhost:11434', protocol: 'ollama', contextTokens: 10 }), /Local context/)

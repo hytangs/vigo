@@ -60,7 +60,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
       return await readProviderResponse(response, onActivity)
     } catch (error) {
       if (signal?.aborted) throw error
-      if (timeout.aborted) throw new Error(`The provider did not respond within ${timeoutMs / 1000} seconds.`)
+      if (timeout.aborted) throw new Error(`The provider did not respond within ${timeoutMs / 1000} seconds.${connection.protocol === 'ollama' ? ' Ollama may still be loading the model or handling another request. Wait for it to finish, then retry.' : ''}`)
       if (error instanceof TypeError) throw new Error('Could not reach the provider. Check the URL and whether the local model server is running.')
       throw error
     }
@@ -110,7 +110,10 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
       if (!next.model) throw new Error('Choose or enter a model name.')
       signal?.throwIfAborted()
       const attempt = ++connectionAttempt
-      const message = await completeWith(next, [{ role: 'user', content: 'Connection test only. Call connection_check with ready set to true. Do not call any other tool or answer in prose.' }], [{ name: 'connection_check', description: 'Confirm that function calling works.', parameters: { type: 'object', properties: { ready: { type: 'boolean' } }, required: ['ready'], additionalProperties: false } }], signal, { structuredTools: next.protocol === 'ollama', toolChoice: { type: 'function', function: { name: 'connection_check' } } })
+      // Connectivity needs a tiny tool result, not a reasoning run. Keep the
+      // user's chosen settings for subsequent questions, including reasoning.
+      const probe = next.protocol === 'ollama' ? { ...next, reasoningEffort: 'none', temperature: 0 } : next
+      const message = await completeWith(probe, [{ role: 'user', content: 'Connection test only. Call connection_check with ready set to true. Do not call any other tool or answer in prose.' }], [{ name: 'connection_check', description: 'Confirm that function calling works.', parameters: { type: 'object', properties: { ready: { type: 'boolean' } }, required: ['ready'], additionalProperties: false } }], signal, { ...(next.protocol === 'ollama' ? { maxTokens: 128 } : {}), structuredTools: next.protocol === 'ollama', toolChoice: { type: 'function', function: { name: 'connection_check' } } })
       const call = message.tool_calls?.find((item) => item.function?.name === 'connection_check')
       let args
       try { args = JSON.parse(call?.function?.arguments || '{}') } catch {}
