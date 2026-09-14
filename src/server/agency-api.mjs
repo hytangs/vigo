@@ -225,7 +225,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
               history.unshift({ selection: previous.answer.selection, question: previous.title, answer: previous.answer.answer, privateContext: previous.answer.dataPolicyVersion !== 1 && (previous.answer.trace ?? []).some(call => ['operational_context', 'recall_notebook'].includes(call.tool)), observedAt: previous.answer.generatedAt, requests, findings })
               parentId = previous.parentId
             }
-            return retain(body.question, await queryAgency({ question: body.question, selection, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled, placeEndpoint: session.places.endpoint, placeDetailsEndpoint: session.places.detailsEndpoint, runtimeStudyAvailable: Boolean(adapters.runtimeStudy), webStatus: research }))
+            return retain(body.question, await queryAgency({ question: body.question, selection, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled, placeEndpoint: session.places.endpoint, placeDetailsEndpoint: session.places.detailsEndpoint, webStatus: research }))
           }
           case 'run-skill': {
             const result = await session.skills.run(body.id, body.inputs ?? {}, callTool, progress, { signal, generatedAt: state.generatedAt })

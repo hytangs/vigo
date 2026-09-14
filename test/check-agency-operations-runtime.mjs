@@ -17,16 +17,24 @@ await service.connect('fixture', {})
 const harness = `import React from 'react';
 import {createRoot} from 'react-dom/client';
 import {AgencyPanel} from '/src/components/AgencyPanel.tsx';
+import {AgencyOperations} from '/src/components/AgencyOperations.tsx';
 import '/src/App.css';
 import '/src/index.css';
 Date.now = () => ${observationTime * 1000};
 const noop = () => {};
-createRoot(document.getElementById('root')).render(React.createElement('div',{className:'app-shell page-project view-agency',style:{display:'block',height:'100vh'}},React.createElement(AgencyPanel,{projectId:'fixture',snapshot:null,realtimeRequest:null,realtimeMessage:'',realtimeLoading:false,onConnect:noop,onDisconnect:noop,onLocate:noop,onBrowseRoute:noop,onClearSelection:noop,onResult:noop,onOpenData:noop,mapOpen:false,onToggleMap:noop})));
+const root = createRoot(document.getElementById('root'));
+const shell = child => React.createElement('div',{className:'app-shell page-project view-agency',style:{display:'block',height:'100vh'}},child);
+const renderWorkspace = () => root.render(shell(React.createElement(AgencyPanel,{projectId:'fixture',snapshot:null,realtimeRequest:null,realtimeMessage:'',realtimeLoading:false,onConnect:noop,onDisconnect:noop,onLocate:noop,onBrowseRoute:noop,onClearSelection:noop,onResult:noop,onOpenData:noop,mapOpen:false,onToggleMap:noop})));
+// Old prototype selections must recover to the focused workspace.
+sessionStorage.setItem('agency-mode-fixture','operations');
+renderWorkspace();
 const wait = async test => { const end=performance.now()+15000; while(performance.now()<end) { if(test()) return; await new Promise(resolve=>setTimeout(resolve,30)); } throw Error('UI condition timed out: '+test.toString()+'; '+document.body.innerText); };
 const button = label => [...document.querySelectorAll('button')].find(item=>item.textContent.trim()===label);
 const click = async label => { await wait(()=>button(label) && !button(label).disabled); button(label).click(); };
 const fill = (element,value) => { const setter=Object.getOwnPropertyDescriptor(element.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:element.tagName==='SELECT'?HTMLSelectElement.prototype:HTMLInputElement.prototype,'value').set; setter.call(element,value); element.dispatchEvent(new Event(element.tagName==='SELECT'?'change':'input',{bubbles:true})); };
 window.runTests = async () => {
+  await wait(()=>document.getElementById('agency-briefing'));
+  await click('Routes');
   await wait(()=>document.querySelector('.agency-route-browser'));
   if(document.querySelectorAll('[role=tab]').length!==3) throw Error('Keep only three primary views');
   fill(document.querySelector('[aria-label="Find a route"]'),'no such route');
@@ -37,10 +45,13 @@ window.runTests = async () => {
   await wait(()=>document.getElementById('agency-tab-ask').getAttribute('aria-selected')==='true');
   await wait(()=>document.querySelector('.agency-conversation-toolbar'));
   document.querySelector('.agency-more summary').click();
-  await click('Research');
-  await wait(()=>document.getElementById('agency-skills'));
-  document.querySelector('.agency-more summary').click();
-  await click('Service desk');
+  if(button('Research') || button('Service desk')) throw Error('Prototype navigation must stay outside the daily workspace');
+  await click('Feed settings');
+  await wait(()=>document.querySelector('.agency-connect'));
+  document.querySelector('[aria-label="Close feed settings"]').click();
+  // Exercise the retained operations prototype in isolation, not via product navigation.
+  const state=await fetch('/api/projects/fixture/agency').then(response=>response.json());
+  root.render(shell(React.createElement(AgencyOperations,{endpoint:'/api/projects/fixture/agency',state,onEvidence:noop})));
   await wait(()=>document.querySelector('.agency-ops-new'));
   document.querySelector('.agency-ops-new').open=true;
   const finding=[...document.querySelectorAll('.agency-ops-new button')].find(item=>item.textContent.includes('Wider departure'));
@@ -91,7 +102,9 @@ window.runTests = async () => {
   if(button('Send to sandbox') || button('Retry sandbox delivery')) throw Error('Changed evidence cannot be delivered');
   await click('Open new run');
   await wait(()=>button('Prepare selected option'));
-  return {keyboardTabs:true,tracked:true,workflow:true,copyRevision:true,approval:true,localOutbox:true,staffReceipt:true,audit:true,insufficientHistory:true,replayApproval:true,replayRetry:true,replayWithdrawal:true};
+  sessionStorage.setItem('agency-mode-fixture','live'); renderWorkspace();
+  await wait(()=>document.querySelector('.agency-route-browser'));
+  return {focusedWorkspace:true,legacyModeRecovery:true,keyboardTabs:true,tracked:true,workflow:true,copyRevision:true,approval:true,localOutbox:true,staffReceipt:true,audit:true,insufficientHistory:true,replayApproval:true,replayRetry:true,replayWithdrawal:true};
 };
 window.layoutCheck = async () => {
   const panel=document.querySelector('.agency-panel'); panel.style.height=innerHeight<=400?'176px':'100vh';

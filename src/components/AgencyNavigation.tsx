@@ -1,20 +1,21 @@
 import { useEffect, useRef, type ReactNode } from 'react'
-import { BookOpen, CheckSquare, Download, Map, MessageSquare, MoreHorizontal, Radio, RefreshCw, Route } from 'lucide-react'
+import { Download, Map, MessageSquare, MoreHorizontal, Radio, RefreshCw, Route } from 'lucide-react'
 
-export type AgencyMode = 'live' | 'briefing' | 'ask' | 'skills' | 'operations'
+export type AgencyMode = 'briefing' | 'live' | 'ask'
 const views = [
+  { id: 'briefing', label: 'Overview', icon: Radio },
   { id: 'live', label: 'Routes', icon: Route },
-  { id: 'briefing', label: 'Briefing', icon: Radio },
   { id: 'ask', label: 'Ask', icon: MessageSquare },
 ] as const
 
-export function AgencyNavigation({ mode, onChange, health, mapOpen, onToggleMap, onRefresh, onExport }: {
+export function AgencyNavigation({ mode, onChange, health, mapOpen, onToggleMap, onRefresh, onFeeds, onExport }: {
   mode: AgencyMode
   onChange: (mode: AgencyMode) => void
   health: ReactNode
   mapOpen: boolean
   onToggleMap: () => void
   onRefresh: () => void
+  onFeeds: () => void
   onExport?: () => void
 }) {
   const more = useRef<HTMLDetailsElement>(null)
@@ -44,8 +45,7 @@ export function AgencyNavigation({ mode, onChange, health, mapOpen, onToggleMap,
       <details className="agency-more" ref={more} onKeyDown={event => { if (event.key === 'Escape' && more.current) { more.current.open = false; more.current.querySelector('summary')?.focus() } }}>
         <summary className="agency-icon-button" aria-label="Network tools" title="Network tools"><MoreHorizontal size={18} /></summary>
         <div className="agency-more-options">
-          <button onClick={() => choose('skills')}><BookOpen size={15} />Research</button>
-          <button onClick={() => choose('operations')}><CheckSquare size={15} />Service desk</button>
+          <button onClick={() => { if (more.current) more.current.open = false; onFeeds() }}><Radio size={15} />Feed settings</button>
           <button onClick={() => { if (more.current) more.current.open = false; onRefresh() }}><RefreshCw size={15} />Refresh observations</button>
           {onExport ? <button onClick={() => { if (more.current) more.current.open = false; onExport() }}><Download size={15} />Export observations</button> : null}
         </div>

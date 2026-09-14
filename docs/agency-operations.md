@@ -1,8 +1,10 @@
-# Agency operations workflow
+# Agency operations prototype
+
+This prototype is outside the main Overview / Routes / Ask workspace. Its source, records and test harness remain available for research; it is not a production dispatch surface.
 
 The [operational replay](operational-replay.md) adds a synthetic holding decision through procedure selection, alternative comparison, approval, sandbox receipt and evidence-driven withdrawal. It reuses this ledger in separate replay storage. Internal knowledge and staff annotations are excluded from model context by default; approval alone does not authorize model disclosure.
 
-Agency → **Operations** keeps a finding, source evidence, staff decisions and rider guidance in the same City. It works without a model. Ask can read approved public operational context and historical comparisons; only staff controls can change workflow records or release messages.
+The isolated **Service desk** prototype keeps a finding, source evidence, staff decisions and rider guidance in the same City. It works without a model. Ask can read approved public operational context and historical comparisons; only staff controls can change workflow records or release messages.
 
 ## Handle a finding
 

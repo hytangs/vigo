@@ -106,12 +106,12 @@ function conversationEvidence(item) {
     priorFindings: item.findings?.map(call => ({ tool: call.tool, arguments: call.arguments, result: JSON.parse(compactResult(call.result, call.tool)) })) }
 }
 
-export async function queryAgency({ question, context, state, callTool, provider, signal, onProgress = () => {}, history = [], selection = {}, placesAvailable = true, placeEndpoint, placeDetailsEndpoint, runtimeStudyAvailable = false, webStatus = {} }) {
+export async function queryAgency({ question, context, state, callTool, provider, signal, onProgress = () => {}, history = [], selection = {}, placesAvailable = true, placeEndpoint, placeDetailsEndpoint, webStatus = {} }) {
   // Legacy answers that used internal context cannot safely be re-sent or searched online.
   history = history.filter(item => !item.privateContext).map(({ notes: _notes, ...item }) => item)
   if (typeof question !== 'string' || !question.trim() || question.length > 2000) throw new Error('Ask a question using 1–2000 characters.')
-  if (!provider.available) return { answer: 'Connect a model in Ask to start a conversation. Live observations and built-in skills are available now.', trace: [], evidenceRefs: [], generatedAt: state.generatedAt, warnings: [], providerAvailable: false }
-  const runtime = queryRuntimeFacts({ provider, webStatus, placesAvailable, placeEndpoint, placeDetailsEndpoint, runtimeStudyAvailable, generatedAt: state.generatedAt })
+  if (!provider.available) return { answer: 'Connect a model in Ask to start a conversation. Overview, routes and station departures remain available.', trace: [], evidenceRefs: [], generatedAt: state.generatedAt, warnings: [], providerAvailable: false }
+  const runtime = queryRuntimeFacts({ provider, webStatus, placesAvailable, placeEndpoint, placeDetailsEndpoint, generatedAt: state.generatedAt })
   onProgress({ phase: 'planning', progress: 0, detail: 'Working on your request…' })
   const overview = JSON.parse(modelResult(context.overview(Date.parse(state.generatedAt) / 1000)))
   const clock = agencyClock(state.generatedAt, context.timezone)
@@ -123,7 +123,7 @@ export async function queryAgency({ question, context, state, callTool, provider
     ...history.flatMap((item) => [{ role: 'user', content: item.question }, { role: 'assistant', content: item.answer.slice(0, 2000) }]),
     { role: 'user', content: question },
   ]
-  const capabilities = { run_runtime_study: runtimeStudyAvailable, place_search: placesAvailable, find_walk: placesAvailable, web_search: Boolean(webStatus.searchAvailable && webStatus.provider !== 'wikipedia'), reference_lookup: Boolean(webStatus.searchAvailable && webStatus.provider === 'wikipedia'), web_read: Boolean(webStatus.readAvailable) }
+  const capabilities = { run_runtime_study: false, compare_holding: false, place_search: placesAvailable, find_walk: placesAvailable, web_search: Boolean(webStatus.searchAvailable && webStatus.provider !== 'wikipedia'), reference_lookup: Boolean(webStatus.searchAvailable && webStatus.provider === 'wikipedia'), web_read: Boolean(webStatus.readAvailable) }
   const availableTools = [...toolDefinitions.filter(tool => capabilities[tool.name] !== false), runtimeTool, workspaceTool]
   const discovery = discoverableTools(availableTools, history.flatMap(item => item.requests?.map(call => call.tool) ?? []))
   const journeyChoices = createJourneyChoices(toolDefinitions.find(tool => tool.name === 'route_plan'))
@@ -217,6 +217,7 @@ export async function queryAgency({ question, context, state, callTool, provider
         return { call, prepared: result }
       }
       try {
+        if (!availableTools.some(tool => tool.name === call.function.name)) throw new Error('That tool is not available in Ask. Use the current service tools or saved evidence.')
         args = JSON.parse(call.function.arguments)
         if (call.function.name === 'inspect_service' && Object.hasOwn(args, 'scope')) {
           validateArguments(args, inspectionForm(toolDefinitions.find(tool => tool.name === 'inspect_service')).parameters)

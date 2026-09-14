@@ -338,3 +338,18 @@ assert.equal(retrySelection.retainedRequest().destination, 'Airport', 'A clarifi
 const failureActivity = []
 await queryAgency({ question: 'Hello', context, state, onProgress: item => failureActivity.push(item), provider: { available: true, complete: async () => { throw new Error('Fixture unavailable') } } })
 assert.equal(failureActivity.filter(item => item.detail === 'Fixture unavailable').length, 1, 'A provider failure appears once in activity')
+
+// Research adapters may exist on the server, but everyday Ask must not launch them.
+let focusedTurns = 0
+const focused = await queryAgency({ question: 'Explain this service and prepare an update.', context, state, placesAvailable: false, runtimeStudyAvailable: true,
+  provider: { available: true, complete: async (_messages, tools) => {
+    assert.ok(!JSON.stringify(tools).includes('compare_holding'))
+    assert.ok(!JSON.stringify(tools).includes('run_runtime_study'))
+    if (++focusedTurns === 1) return { tool_calls: ['compare_holding', 'run_runtime_study'].map((name, index) => ({ id: `outside-${index}`, function: { name, arguments: '{}' } })) }
+    return { content: 'Those research actions are outside Ask. Current service evidence and rider drafts remain available.' }
+  } }, callTool: () => assert.fail('A model cannot invoke an out-of-scope research adapter'),
+})
+assert.equal(focused.trace.length, 2)
+assert.ok(focused.trace.every(call => !call.result.ok))
+assert.ok(!focused.runtime.networkTools.some(tool => tool.tool === 'run_runtime_study'))
+console.log('Focused Ask: research actions excluded from discovery, execution and runtime capabilities.')

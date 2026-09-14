@@ -15,7 +15,7 @@ City -> Scenario -> Route | Matrix | Reach -> Result
 
 ## VIGO Studio
 
-- [Agency operations workflow, rider guidance and shared context](agency-operations.md)
+- [Research prototype: operations workflow and shared context](agency-operations.md)
 - [VIGO Studio Guide](studio.md)
 - [Inspect GTFS services](gtfs-visualizer.md)
 

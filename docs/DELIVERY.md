@@ -2,6 +2,12 @@
 
 This records the work completed after the request to leave `README.md`, `ASSUMPTIONS.md`, and `AI-USE.md` unchanged. Those three files retain their earlier state. The changes below supersede their descriptions of temporary history and the initial Skills panel.
 
+## Current product scope
+
+The everyday workspace is **Overview → Routes → Ask**. Overview assesses the current network; Routes reuses line diagrams, station departures and service alerts; Ask explains checked service evidence and drafts rider updates. Routing and saved historical studies remain reusable tools when a question needs them.
+
+Research packages and the Service desk/replay prototypes are outside the main workspace. Their source, test fixtures, saved records and APIs remain for research and reproducibility; they are not everyday navigation. Ask does not launch studies or simulate dispatch. Feed settings live in the network menu. Answer metadata is grouped under Details, while failures and timestamps remain visible. These scope decisions supersede the earlier UI descriptions below; retained examples are historical.
+
 ## What changed
 
 - **Live opens with a [network briefing](images/agency-briefing.png).** The model chooses relevant facts from the current timetable, departure comparisons, and agency alerts. Every selected fact links to its supporting tool result. The briefing shows its date and time; Update creates another saved snapshot. Realtime polling does not repeatedly invoke the model.
