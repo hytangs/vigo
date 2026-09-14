@@ -5105,7 +5105,7 @@ export default function App() {
           routeDetailStatus={selectedRoute && routeHasCompleteGtfsAnalysis(selectedRoute, preview, routingServiceDate)
             ? 'All route patterns'
             : routeAnalysisError ? 'Route detail unavailable · overview only' : 'Loading full route…'}
-          key={activeRouteTool === 'agency' ? `agency-map-${agencyMapOpen}` : 'studio-map'}
+          key={activeRouteTool === 'agency' ? 'network-map' : 'studio-map'}
           projectId={selectedProject.id}
           feed={activeFeed}
           focusedPreview={focusedMapPreview}
@@ -5150,21 +5150,38 @@ export default function App() {
           onSelectRoute={activeRouteTool === 'agency' ? (id) => locateAgencyEntities([id], []) : selectRoute}
           onSelectStop={activeRouteTool === 'agency' ? (id) => locateAgencyEntities([], [id]) : selectStop}
         />
-        {activeRouteTool === 'agency' ? <AgencyPanel key={selectedProjectId} projectId={selectedProjectId} selection={{ routeId: mapScope === 'route' && selectedRoute ? networkRouteId(selectedRoute) : undefined, stopId: selectedStopId || undefined }} onClearSelection={() => { returnToNetworkOverview(); clearAgencyMap() }} timetable={(
-          <NetworkTimetable
+        {activeRouteTool === 'agency' ? <AgencyPanel
+          key={selectedProjectId}
+          projectId={selectedProjectId}
+          selection={{ routeId: mapScope === 'route' && selectedRoute ? networkRouteId(selectedRoute) : undefined, stopId: selectedStopId || undefined }}
+          onClearSelection={() => { returnToNetworkOverview(); clearAgencyMap() }}
+          timetable={<NetworkTimetable
             feed={activeFeed}
             preview={visiblePreview}
             selectedRoute={mapScope === 'route' ? selectedRoute : undefined}
             selectedStop={selectedStop}
             analysisLoading={Boolean(selectedRoute && routeAnalysisRouteId === selectedRoute.id)}
             analysisError={routeAnalysisError}
+            serviceDate={routingServiceDate}
+            onServiceDateChange={changeRoutingServiceDate}
             routeRenderMode={routeRenderMode}
             onRouteRenderModeChange={setRouteRenderMode}
             onSelectPattern={(routeId) => selectRoute(routeId, 'pattern')}
             onOpenSources={openDataView}
             onClearSelection={returnToNetworkOverview}
-          />
-        )} snapshot={realtimeSnapshot} realtimeRequest={realtimeRequest} realtimeMessage={realtimeMessage} realtimeLoading={isRealtimeLoading} onConnect={(request) => void refreshRealtimeRequest(request)} onDisconnect={disconnectRealtime} onLocate={locateAgencyEntities} onResult={presentAgencyResult} onOpenData={openDataView} mapOpen={agencyMapOpen} onToggleMap={() => setAgencyMapOpen((open) => !open)} /> : null}
+          />}
+          snapshot={realtimeSnapshot}
+          realtimeRequest={realtimeRequest}
+          realtimeMessage={realtimeMessage}
+          realtimeLoading={isRealtimeLoading}
+          onConnect={(request) => void refreshRealtimeRequest(request)}
+          onDisconnect={disconnectRealtime}
+          onLocate={locateAgencyEntities}
+          onResult={presentAgencyResult}
+          onOpenData={openDataView}
+          mapOpen={agencyMapOpen}
+          onToggleMap={() => setAgencyMapOpen(open => !open)}
+        /> : null}
       </div>
       )
       )}

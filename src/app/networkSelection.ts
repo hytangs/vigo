@@ -10,8 +10,10 @@ export function networkRouteId(route: RouteIdentity): string {
 function studioId(id: string): string { return id.replace('\u001f', '::') }
 
 export function findNetworkRoute<T extends RouteIdentity>(routes: T[], id: string): T | undefined {
-  const direct = routes.find(route => route.id === id || route.patternId === id)
+  const direct = routes.find(route => route.id === id)
   if (direct) return direct
+  const patterns = routes.filter(route => route.patternId === id)
+  if (patterns.length) return new Set(patterns.map(networkRouteId)).size === 1 ? patterns[0] : undefined
   const scoped = routes.find(route => networkRouteId(route) === studioId(id))
   if (scoped) return scoped
   const matches = routes.filter(route => route.routeId === id)

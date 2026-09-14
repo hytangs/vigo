@@ -16,7 +16,7 @@ export function indexedEntityId(context, kind, id, feedIds = []) {
 }
 
 export function workspaceSelection(context, input = {}, feedIds = []) {
-  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['routeId', 'stopId'].includes(key))) {
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['routeId', 'stopId'].includes(key) || input[key] !== undefined && typeof input[key] !== 'string')) {
     throw Object.assign(new Error('Select a route or station using its timetable ID.'), { statusCode: 400 })
   }
   const selection = {}

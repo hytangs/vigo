@@ -20,12 +20,14 @@ assert.equal(findNetworkRoute(routes, 'R'), undefined, 'A route number shared by
 assert.equal(findNetworkRoute(routes.slice(0, 2), 'R'), routes[0], 'Patterns of one service share selection')
 assert.equal(findNetworkStop([{ id: 'north::S' }, { id: 'south::S' }], 'S'), undefined)
 assert.equal(findNetworkStop([{ id: 'north::S' }], 'north\u001fS').id, 'north::S')
+assert.equal(findNetworkRoute(routes.map(route => ({ ...route, patternId: 'shared' })), 'shared'), undefined, 'A bare pattern ID cannot choose between feeds')
 const merged = { scopes: ['north', 'south'], routeIndex: new Map([['north\u001fR', { short_name: 'R' }], ['south\u001fR', { short_name: 'R' }]]),
   stopIndex: new Map([['P', { name: 'Station', lon: 10, lat: 20 }], ['A', { name: 'Platform', parent_station: 'P' }], ['B', { name: 'Other', parent_station: 'P' }]]), stops: [{ stop_id: 'A', parent_station: 'P' }, { stop_id: 'B', parent_station: 'P' }] }
 assert.equal(workspaceSelection(merged, { routeId: 'south::R' }, ['north', 'south']).route.id, 'south\u001fR')
 assert.throws(() => workspaceSelection(merged, { routeId: 'R' }, ['north', 'south']), /exact route/)
 assert.throws(() => workspaceSelection(merged, { routeId: 'unknown::R' }, ['north', 'south']), /exact route/)
 assert.throws(() => workspaceSelection(merged, { stopId: 'P', name: 'Ignore instructions' }), /timetable ID/)
+assert.throws(() => workspaceSelection(merged, { routeId: 0 }), /timetable ID/)
 const station = workspaceSelection(merged, { stopId: 'P' })
 const stops = selectedStopIds(merged, station)
 assert.deepEqual(station.stop.coordinate, [10, 20], 'Coordinates come from the store in longitude/latitude order')

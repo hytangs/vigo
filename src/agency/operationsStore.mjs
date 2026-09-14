@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { operationsPolicy, fail, digest, qualitySummary } from './operations.mjs'
+import { operationsPolicy, fail, recordIdentity, qualitySummary } from './operations.mjs'
 
 // One City-owned ledger. Every human edit and its revision are committed together.
 export function createOperationsStore(directory, projectId, clock = () => Date.now()) {
@@ -62,7 +62,7 @@ export function createOperationsStore(directory, projectId, clock = () => Date.n
     },
     observe(state, scheduleIdentity) {
       if (!state.observedAt) return
-      const identity = digest([state.observedAt, scheduleIdentity, state.feeds.map(feed => [feed.sourceUrl, feed.feedTimestamp, feed.error])])
+      const identity = recordIdentity([state.observedAt, scheduleIdentity, state.feeds.map(feed => [feed.sourceUrl, feed.feedTimestamp, feed.error])])
       if (meta('lastObservation') === identity) return
       const parts = new Intl.DateTimeFormat('en-US', { timeZone: state.coverage.timezone || 'UTC', weekday: 'short', hour: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(state.generatedAt))
       const at = clock(), bucket = Math.floor(at / (operationsPolicy.sampleMinutes * 60_000))

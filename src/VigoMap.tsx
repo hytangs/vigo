@@ -1,3 +1,4 @@
+import { findNetworkStop } from './app/networkSelection'
 import { setMapSourceData } from './app/mapSourceUpdates'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection as GeoJsonFeatureCollection, GeoJsonProperties, Geometry } from 'geojson'
@@ -2338,7 +2339,11 @@ export function VigoMap({
   const suppressScenarioClickRef = useRef(false)
   const vehicleSourceStateRef = useRef<DynamicPointSourceState | null>(null)
   const onMoveScenarioStopRef = useRef(onMoveScenarioStop)
-  const [liveSelection, setLiveSelection] = useState<MapLiveSelection | null>(null)
+  const [liveSelection, setLiveSelection] = useState<MapLiveSelection | null>(() => {
+    if (!selectedStopId || routingEnabled || focusMode === 'scenario') return null
+    const stop = findNetworkStop(preview.stops, selectedStopId)
+    return { tone: 'stop', stopId: selectedStopId, eyebrow: 'Stop arrivals', title: stop?.name || 'Station', subtitle: '', metrics: [] }
+  })
   const [mapFailure, setMapFailure] = useState('')
   const [localStreetStatus, setLocalStreetStatus] = useState<{
     phase: 'idle' | 'loading' | 'ready' | 'empty' | 'error'
@@ -2516,10 +2521,10 @@ export function VigoMap({
     selectionScopeRef.current = { fitSignature, selectedRouteId }
     // Clicking a vehicle also selects its route. Keep that vehicle's card while
     // the route preview reloads, provided it still belongs to the visible scope.
-    setLiveSelection(previous => previous?.vehicleId && vehicleFrame.vehicles.some(vehicle =>
+    setLiveSelection(previous => previous?.stopId && previous.stopId === selectedStopId ? previous : previous?.vehicleId && vehicleFrame.vehicles.some(vehicle =>
       vehicle.id === previous.vehicleId && vehicle.sourceUrl === previous.vehicleSourceUrl
       && serviceVehicleIsVisible(vehicle, preview, selectedRouteId)) ? previous : null)
-  }, [fitSignature, selectedRouteId, vehicleFrame, preview])
+  }, [fitSignature, selectedRouteId, selectedStopId, vehicleFrame, preview])
 
   const stopSelectionRef = useRef({ projectId, selectedRouteId, selectedStopId })
   const vehicleStopSelectionRef = useRef<string | null>(null)
@@ -2531,12 +2536,22 @@ export function VigoMap({
     // Search and Agency evidence share map selection. A route's automatically
     // selected first stop should not open a board over a vehicle or route card.
     if (selectedByVehicle || previous.projectId !== projectId || previous.selectedRouteId !== selectedRouteId || previous.selectedStopId === selectedStopId || routingEnabled || scenarioFocus) return
-    const stop = preview.stops.find(item => item.id === selectedStopId)
+    const stop = findNetworkStop(preview.stops, selectedStopId)
     if (stop) {
       setLiveSelection({ tone: 'stop', stopId: stop.id, eyebrow: 'Stop arrivals', title: stop.name, subtitle: '', metrics: [] })
       mapRef.current?.easeTo({ center: stopLngLat(stop), zoom: Math.max(mapRef.current.getZoom(), 14), duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450 })
     }
   }, [projectId, selectedRouteId, selectedStopId, preview, routingEnabled, scenarioFocus])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const observer = new ResizeObserver(entries => {
+      if (entries.some(entry => entry.contentRect.width > 0 && entry.contentRect.height > 0)) mapRef.current?.resize()
+    })
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { eventSentences } from './communications.mjs'
 
 export const operationsPolicy = Object.freeze({ sampleMinutes: 5, retentionDays: 90, maxSamples: 25_920, minBaselineDays: 3, maxRecords: 10_000 })
@@ -9,8 +8,10 @@ export const fail = (message, statusCode = 400) => { throw Object.assign(new Err
 export function authorize(principal, capability) {
   if (!principal || typeof principal.id !== 'string' || !principal.id.trim() || principal.id.length > 120 || !Object.hasOwn(permissions, principal.role) || !permissions[principal.role].includes(capability)) fail('This account cannot perform this action.', 403)
 }
-export const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex')
-export const eventFingerprint = event => digest({ ...event, observedAt: undefined })
+// Compare the explicit source revision and evidence contents; these are
+// internal equality keys, not authentication or tamper-evidence claims.
+export const recordIdentity = value => JSON.stringify(value)
+export const eventVersion = event => recordIdentity({ ...event, observedAt: undefined })
 export function textField(value, name, max = 2000) {
   if (typeof value !== 'string' || !value.trim() || [...value].length > max) fail(`${name} must contain 1–${max} characters.`)
   return value.trim()
@@ -39,7 +40,7 @@ export function eventAvailability(finding, state, scheduleIdentity) {
   if (event.type === 'stale-data') return { status: 'unknown', reason: 'This finding concerns missing or stale data.' }
   const age = (Date.parse(state.generatedAt) - Date.parse(event.observedAt)) / 1000
   if (!state.connected || !state.coverage.valid || !Number.isFinite(age) || Math.abs(age) > state.policy.freshnessSeconds) return { status: 'unknown', reason: 'Current, aligned evidence is required.' }
-  return { status: 'current', event, changed: finding.fingerprint !== eventFingerprint(event) }
+  return { status: 'current', event, changed: finding.fingerprint !== eventVersion(event) }
 }
 export function composeMessage(event, context, { channel, audience }) {
   if (!Object.hasOwn(channelLimits, channel)) fail('Choose app, service-alert, social or signage.')

@@ -1,4 +1,4 @@
-import { authorize, permissions, workflow, channelLimits, fail, textField, isoDate, digest, eventFingerprint, eventAvailability, composeMessage, qualitySummary, historicalComparison } from './operations.mjs'
+import { authorize, permissions, workflow, channelLimits, fail, textField, isoDate, recordIdentity, eventVersion, eventAvailability, composeMessage, qualitySummary, historicalComparison } from './operations.mjs'
 
 const capabilities = { 'operations-track': 'finding', 'operations-transition': 'finding', 'operations-refresh': 'finding', 'knowledge-save': 'knowledge', 'knowledge-approve': 'approve',
   'message-draft': 'draft', 'message-edit': 'draft', 'message-approve': 'approve', 'message-release': 'publish', 'message-delivery': 'publish', 'message-withdraw': 'publish' }
@@ -65,16 +65,16 @@ export function handleOperations({ store, state, context, scheduleIdentity, prin
       case 'operations-track': {
         const event = state.events.find(event => event.id === body.eventId)
         if (!event) fail('Choose a finding from the current observation.', 409)
-        const eventKey = digest([scheduleIdentity, event.id])
+        const eventKey = recordIdentity([scheduleIdentity, event.id])
         const existing = store.finding(eventKey)
         if (existing) return existing
-        return save('finding', null, { title: event.title, eventKey, event, fingerprint: eventFingerprint(event), scheduleIdentity, status: 'new', owner: null, note: '', outcome: null,
+        return save('finding', null, { title: event.title, eventKey, event, fingerprint: eventVersion(event), scheduleIdentity, status: 'new', owner: null, note: '', outcome: null,
           firstSeenAt: at, evidenceUpdatedAt: at, quality: qualitySummary(state), knowledge: [] })
       }
       case 'operations-refresh': {
         const record = read(body.id, 'finding'), available = current(record)
         if (available.status !== 'current') fail(available.reason, 409)
-        return save('finding', record.id, { ...record, event: available.event, fingerprint: eventFingerprint(available.event), evidenceUpdatedAt: at, quality: qualitySummary(state) })
+        return save('finding', record.id, { ...record, event: available.event, fingerprint: eventVersion(available.event), evidenceUpdatedAt: at, quality: qualitySummary(state) })
       }
       case 'operations-transition': {
         const record = read(body.id, 'finding')

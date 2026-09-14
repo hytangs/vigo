@@ -340,3 +340,8 @@
 .network-timetable > summary { cursor: pointer; font-size: 13px; }
 .network-timetable .object-detail { padding: 20px 0 0; border: 0; }
 .network-timetable .object-detail-head { display: none; }
+
+.agency-filter-chip { display: flex; align-items: center; gap: 7px; border: 1px solid var(--border); background: var(--active-surface); border-radius: 5px; color: var(--text-strong); padding: 5px 8px; font-size: 10px; }
+
+.network-service-date { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0; font-size: 12px; color: var(--text-muted); }
+.network-service-date input { max-width: 160px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 6px 8px; font: inherit; }

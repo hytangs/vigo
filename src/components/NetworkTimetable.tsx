@@ -225,6 +225,8 @@ export function NetworkTimetable({
   selectedStop,
   analysisLoading,
   analysisError,
+  serviceDate,
+  onServiceDateChange,
   routeRenderMode,
   onRouteRenderModeChange,
   onSelectPattern,
@@ -237,6 +239,8 @@ export function NetworkTimetable({
   selectedStop?: StopMetric
   analysisLoading: boolean
   analysisError: string
+  serviceDate: string
+  onServiceDateChange: (date: string) => void
   routeRenderMode: RouteRenderMode
   onRouteRenderModeChange: (mode: RouteRenderMode) => void
   onSelectPattern: (routeId: string) => void
@@ -341,6 +345,7 @@ export function NetworkTimetable({
         renderMode={routeRenderMode}
         onSelectPattern={onSelectPattern}
       />
+      <label className="network-service-date">Service date<input type="date" value={serviceDate} onChange={event => onServiceDateChange(event.target.value)} /></label>
       <TemporalServiceCanvas
         routes={patterns}
         selectedRouteId={route.id}

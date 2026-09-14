@@ -26,7 +26,7 @@ function moduleUrl(path) {
 
 const presentation = await import(moduleUrl(resolve(root, 'src/app/gtfsPresentation.ts')))
 const analysis = await import(moduleUrl(resolve(root, 'src/app/gtfsAnalysis.ts')))
-const { ExploreObjectPanel } = await import(moduleUrl(resolve(root, 'src/components/ExploreObjectPanel.tsx')))
+const { NetworkTimetable } = await import(moduleUrl(resolve(root, 'src/components/NetworkTimetable.tsx')))
 const stops = [
   { id: 'a', name: 'Harvard', platformCode: '1' },
   { id: 'b', name: 'Central' },
@@ -83,7 +83,8 @@ const merged = analysis.mergeGtfsRouteAnalysis({ feeds: [{
 }] }, 'feed-a', { routes: [route], stops: [], stopPairs: [{ id: 'new-pair', patternId: route.id }] })
 assert.deepEqual(merged.feeds[0].mapPreview.stopPairs.map((pair) => pair.id), ['unrelated-pair', 'new-pair'], 'Replacing focused branches must also remove stop pairs belonging to retired patterns.')
 
-const render = (mode) => renderToStaticMarkup(createElement(ExploreObjectPanel, {
+const render = (mode) => renderToStaticMarkup(createElement(NetworkTimetable, {
+  serviceDate: '2026-09-14', onServiceDateChange: () => {},
   feed: { name: 'Fixture GTFS' }, preview: { routes: [loop, route], stops }, selectedRoute: loop,
   analysisLoading: false, analysisError: '', routeRenderMode: mode,
   onRouteRenderModeChange() {}, onSelectPattern() {}, onOpenSources() {}, onClearSelection() {},

@@ -16,7 +16,7 @@ import { createWebResearch } from '../agency/webResearch.mjs'
 import { readPublicPage } from './agency-web.mjs'
 import { createOperationsStore } from '../agency/operationsStore.mjs'
 import { operationsActions, handleOperations } from '../agency/operationsService.mjs'
-import { authorize, digest } from '../agency/operations.mjs'
+import { authorize, recordIdentity } from '../agency/operations.mjs'
 
 export function createAgencyService(adapters, { provider = createProvider(), web = createWebResearch({ readPage: readPublicPage }), clock = () => Date.now(), policy = defaultPolicy, refreshMs = 10_000,
   access = async () => ({ id: 'local-owner', role: 'admin' }) } = {}) {
@@ -64,7 +64,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
           active: 0, retired: false, disposed: false, history: createObservationHistory(policy, retained), skills: createSkillRegistry({ directory: adapters.skillDirectory, installedDirectory: path.join(notebook.directory, 'skills'), preferences: notebook.get('skills') ?? {} }), lastRead: clock() }
         session.places = createPlaceSearch({ stops: session.context.stops })
         session.operations = operations
-        session.scheduleIdentity = digest([storePath, stat.size, stat.mtimeMs])
+        session.scheduleIdentity = recordIdentity([storePath, stat.size, stat.mtimeMs])
       } catch (error) { operations?.close(); context?.close(); notebook.close(); throw error }
       sessions.set(projectId, session)
     }

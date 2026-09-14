@@ -53,6 +53,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   const stopId = selection.stopId || ''
   const selectionKey = JSON.stringify([routeId, stopId])
   const [loadedSelection, setLoadedSelection] = useState('')
+  const evidenceSelectionKey = useRef('')
   const selectionReady = loadedSelection === selectionKey
   const hasSelection = Boolean(routeId || stopId)
   const [search, setSearch] = useState('')
@@ -108,7 +109,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
     try {
       const result = await apiJson<{ entries: NotebookEntry[] }>(endpoint, { method: 'POST', body: JSON.stringify({ action: 'notebook-entry', id }), signal: controller.signal })
       if (controller.signal.aborted) return
-      if (navigate || mode === 'ask') {
+      if (navigate) {
         const saved = result.entries.at(-1)?.answer
         if (saved?.selection?.route || saved?.selection?.stop) onLocate(saved.selection.route ? [saved.selection.route.id] : [], saved.selection.stop ? [saved.selection.stop.id] : [])
         else { const last = saved?.trace.filter(call => call.result.ok).at(-1)?.result; if (last) onResult(last) }
@@ -134,6 +135,15 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   const events = selectionReady ? state?.events ?? [] : []
   const focusedRoute = selectionReady ? state?.routes.find(route => route.id === state.selection?.route?.id) : undefined
   useEffect(() => { setEventFilter('all') }, [selectionKey])
+  useEffect(() => {
+    if (!selectionReady || evidenceSelectionKey.current === selectionKey) return
+    evidenceSelectionKey.current = selectionKey
+    if (!selectedEvent) return
+    const current = state?.selection
+    const routeMatches = !current?.route || selectedEvent.routeId === current.route.id || selectedEvent.routeIds?.includes(current.route.id)
+    const stopMatches = !current?.stop || selectedEvent.stopId === current.stop.id || selectedEvent.stopIds?.includes(current.stop.id) || state?.events.some(event => event.id === selectedEvent.id)
+    if (!hasSelection || !routeMatches || !stopMatches) setSelectedEvent(null)
+  }, [selectionReady, selectionKey, state, selectedEvent, hasSelection])
 
   function stopInvestigation() {
     abortRef.current?.abort()
@@ -212,6 +222,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
             <div className="agency-route-table"><table><thead><tr><th>Route</th><th>Trip reports</th><th>Max delay</th><th>Longest gap</th><th>Alerts</th></tr></thead><tbody>{filteredRoutes.slice(0, showAllRoutes ? filteredRoutes.length : 7).map((route) => <tr key={route.id}><td><button onClick={() => { setSelectedEvent(null); locate([route.id], []) }} title={route.longName}><span className="agency-route-label" style={{ '--line-color': route.color } as React.CSSProperties}>{route.name}</span>{route.longName && route.longName !== route.name ? <span className="agency-route-description">{route.longName}</span> : null}</button></td><td>{state.connected ? route.reportingTrips : '—'}</td><td>{route.maxDelaySeconds == null ? '—' : minutes(Math.max(0, route.maxDelaySeconds))}</td><td><span className="agency-interval-state" title={route.widestInterval ? `At ${route.widestInterval.stopName}. Both consecutive trips report a departure prediction.` : 'No consecutive departure pair can be compared.'}>{route.widestInterval ? <><strong>{minutes(route.widestInterval.predictedSeconds)}</strong><small>{minutes(route.widestInterval.scheduledSeconds)} scheduled</small></> : 'No paired reports'}</span></td><td>{state.connected ? route.alerts : '—'}</td></tr>)}</tbody></table></div>
             {filteredRoutes.length > 7 ? <button className="agency-text-button agency-show-more" onClick={() => setShowAllRoutes((value) => !value)}>{showAllRoutes ? 'Show fewer routes' : `Browse ${filteredRoutes.length} routes`}<ChevronRight size={13} /></button> : null}
             </> : <>
+              {focusedRoute && stopId ? <p className="agency-caption">Route {focusedRoute.name} · current reports across the route</p> : null}
               {focusedRoute ? <div className="agency-metrics">{[
                 { label: 'Trip reports', value: state.connected ? focusedRoute.reportingTrips : '—', note: 'Matched to timetable' },
                 { label: 'Max delay', value: focusedRoute.maxDelaySeconds == null ? '—' : minutes(Math.max(0, focusedRoute.maxDelaySeconds)), note: 'Reported departures' },
