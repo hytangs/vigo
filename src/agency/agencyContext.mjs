@@ -133,7 +133,8 @@ export class AgencyContext {
       message: !this.timezone ? 'A single agency timezone is required.' : token > last ? 'This timetable has expired. Import current GTFS before connecting live feeds.' : token < first ? 'This timetable has not started yet.' : !active.size || missingScopes.length ? 'No active service is established for every feed scope on this date. Check calendar exceptions.' : 'Service dates and calendar exceptions cover today.' }
   }
 
-  matchTrip(record, defaultDate) {
+  // Identity checks share admission rules without loading unrelated stop times.
+  matchTripIdentity(record, defaultDate) {
     const serviceDate = record.startDate ? isoDate(record.startDate) : defaultDate
     if (!serviceDate || !validDate(serviceDate)) return { reason: 'Missing or invalid service date.' }
     if (!record.tripId) return { reason: 'No exact trip identity; the indexed connections do not establish an original trip start time.' }
@@ -146,7 +147,13 @@ export class AgencyContext {
     if (candidates.length !== 1) return { reason: candidates.length ? 'Trip identity is ambiguous across source scopes.' : 'Trip is absent from active scheduled service.' }
     const trip = candidates[0]
     if (this.frequencyTrips.has(trip.trip_id)) return { reason: 'Frequency trip instances need a retained start-time model.' }
-    return { trip, serviceDate, departures: this.tripDepartures(trip.trip_id), epoch: serviceEpoch(serviceDate, this.timezone) }
+    return { trip, serviceDate }
+  }
+
+  matchTrip(record, defaultDate) {
+    const match = this.matchTripIdentity(record, defaultDate)
+    if (!match.trip) return match
+    return { ...match, departures: this.tripDepartures(match.trip.trip_id), epoch: serviceEpoch(match.serviceDate, this.timezone) }
   }
 
   tripDepartures(tripId) {

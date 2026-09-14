@@ -81,7 +81,7 @@ export async function inspectOperationalService({ context, state, snapshot, dire
   const freshVehicles = (snapshot?.vehicles ?? []).filter(vehicle => feeds.some(feed => feed.sourceUrl === vehicle.sourceUrl && feed.kind === 'vehicles' && feed.status === 'fresh')
     && Number.isFinite(vehicle.timestamp) && Math.abs(now - vehicle.timestamp) <= state.policy.freshnessSeconds)
   const vehicleRows = freshVehicles.flatMap(vehicle => {
-    const match = context.matchTrip(vehicle, state.coverage.serviceDate)
+    const match = context.matchTripIdentity(vehicle, state.coverage.serviceDate)
     if (!match.trip || !tripSelected({ routeId: match.trip.route_id, tripId: match.trip.trip_id, vehicleId: vehicle.id }) || stopSet.size && !stopSet.has(vehicle.stopId)) return []
     return [{ vehicle: vehicle.label || vehicle.id, vehicleId: vehicle.id, route: names([match.trip.route_id])[0].name, tripId: match.trip.trip_id, at: clock(vehicle.timestamp), stop: context.stopIndex.get(vehicle.stopId)?.name,
       occupancy: vehicle.occupancyStatus ?? null }]

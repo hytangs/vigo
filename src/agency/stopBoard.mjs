@@ -21,17 +21,26 @@ function stationSchedule(context, stopId) {
   // Cache this read-only station lookup. Terminal arrivals are included through
   // to_stop_id; outgoing connections alone would lose the end of every trip.
   const trips = context.db.prepare(`SELECT trip_id, MIN(MIN(departure, arrival)) AS first_seconds, MAX(MAX(departure, arrival)) AS last_seconds FROM connections WHERE from_stop_id IN (${placeholders}) OR to_stop_id IN (${placeholders}) GROUP BY trip_id`).all(...ids, ...ids)
-  const result = { trips, members: new Set(ids), maxSeconds: trips.reduce((max, trip) => Math.max(max, trip.last_seconds), 0) }
+  const byService = new Map()
+  for (const record of trips) {
+    const trip = context.tripById.get(record.trip_id)
+    if (!trip) continue
+    if (!byService.has(trip.service_id)) byService.set(trip.service_id, [])
+    byService.get(trip.service_id).push({ first_seconds: record.first_seconds, last_seconds: record.last_seconds, trip })
+  }
+  const result = { byService, tripIds: new Set(trips.map(trip => trip.trip_id)), members: new Set(ids), maxSeconds: trips.reduce((max, trip) => Math.max(max, trip.last_seconds), 0) }
   cache.set(stopId, result)
   if (cache.size > 32) cache.delete(cache.keys().next().value)
   return result
 }
 
-function reportsByTrip(context, records, date) {
+function reportsByTrip(context, records, date, schedule, routeId) {
   const reports = new Map()
   for (const record of records ?? []) {
-    const match = context.matchTrip(record, date)
-    if (!match.trip) continue
+    // Resolve against the full feed before scoping to this station. Filtering
+    // candidates first could hide an ambiguous identity across source feeds.
+    const match = context.matchTripIdentity(record, date)
+    if (!match.trip || !schedule.tripIds.has(match.trip.trip_id) || routeId && match.trip.route_id !== routeId) continue
     const key = instanceKey(match.trip.trip_id, match.serviceDate)
     if (!reports.has(key)) reports.set(key, [])
     reports.get(key).push(record)
@@ -50,16 +59,16 @@ export function stopBoard(context, snapshot, { stopId, routeId, feedIds, windowM
   const today = localDate(now, context.timezone)
   const schedule = stationSchedule(context, place.id)
   const feeds = new Map(result.feeds.map(feed => [feed.sourceUrl, feed]))
-  const updates = reportsByTrip(context, snapshot?.tripUpdates, today)
-  const vehicles = reportsByTrip(context, snapshot?.vehicles, today)
+  const updates = reportsByTrip(context, snapshot?.tripUpdates, today, schedule, routeId)
+  const vehicles = reportsByTrip(context, snapshot?.vehicles, today, schedule, routeId)
   // Include every service-day offset represented here, including >24:00 and
   // the next day's early service. Epoch conversion also handles DST changes.
   for (let offset = -Math.ceil(schedule.maxSeconds / 86400) - 1; offset <= 1; offset++) {
     const date = shiftDate(today, offset), epoch = serviceEpoch(date, context.timezone)
     const active = context.activeServices(date)
-    for (const record of schedule.trips) {
-      const trip = context.tripById.get(record.trip_id)
-      if (!trip || routeId && trip.route_id !== routeId || !active.has(trip.service_id) || context.frequencyTrips.has(trip.trip_id)) continue
+    for (const record of [...active].flatMap(service => schedule.byService.get(service) ?? [])) {
+      const trip = record.trip
+      if (routeId && trip.route_id !== routeId || context.frequencyTrips.has(trip.trip_id)) continue
       const key = instanceKey(trip.trip_id, date)
       if (!updates.has(key) && !vehicles.has(key) && (epoch + record.first_seconds > result.until || epoch + record.last_seconds < now)) continue
       const { calls: pattern, continuous } = tripCalls(context, trip.trip_id)

@@ -8,8 +8,10 @@ import { AgencyContext, serviceEpoch, localDate, rawId } from '../src/agency/age
 import { agencyClock } from '../src/agency/agencyClock.mjs'
 import { deriveOperationalState } from '../src/agency/realtimeIntelligence.mjs'
 import { matchCall, tripCalls } from '../src/agency/routeOperations.mjs'
+import { stopBoard } from '../src/agency/stopBoard.mjs'
+import { scheduledServiceWindow } from '../src/agency/serviceWindow.mjs'
 import { WeightedLruCache } from '../src/server/weighted-lru-cache.mjs'
-import { createAgencyFixture, observationTime, realtimeFixture } from './fixtures/agency.mjs'
+import { createAgencyFixture, observationTime, realtimeFixture, tripUpdate } from './fixtures/agency.mjs'
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agency-efficiency-'))
 let context
@@ -92,4 +94,75 @@ matchCall(longTrip, 'stop-0', 0)
 const indexReads = stopReads
 for (let i = 0; i < 2000; i++) assert.equal(matchCall(longTrip, `stop-${i}`, i).index, i)
 assert.equal(stopReads, indexReads, 'Matching every report reuses the stop index instead of rereading the entire trip per report.')
-console.log('Agency efficiency: exact window reuse, bounded eviction, formatter reuse, indexed matching parity and advancing freshness passed.')
+
+const scopedDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'agency-schedule-efficiency-'))
+try {
+  const file = path.join(scopedDirectory, 'schedule.sqlite')
+  createAgencyFixture(file)
+  const db = new DatabaseSync(file)
+  db.exec(`
+    INSERT INTO stops VALUES('D','D',0,0,'',0,''),('E','E',0,0,'',0,'');
+    INSERT INTO calendar VALUES('ADDED',0,0,0,0,0,0,0,20260901,20260930);
+    INSERT INTO calendar_dates VALUES('ADDED',20260913,1),('S',20260914,2);
+    INSERT INTO trips VALUES('A-added','R','ADDED','0'),('NIGHT','R','S','0'),('OTHER','R','S','0'),('other'||char(31)||'T1','R','S','0'),('FREQ','R','S','0');
+    INSERT INTO connections VALUES
+      (43600,43900,'A-added','R','ADDED','0','D','E',10),
+      (86700,87000,'NIGHT','R','S','0','A','B',10),
+      (43600,43900,'OTHER','R','S','0','D','E',10),
+      (43600,43900,'other'||char(31)||'T1','R','S','0','D','E',10),
+      (43600,43900,'FREQ','R','S','0','A','B',10);
+    INSERT INTO frequencies VALUES('FREQ',43200,50000,600,0);
+  `)
+  db.close()
+  context = new AgencyContext(file, 'City X')
+  const loaded = []
+  const read = context.tripDepartures.bind(context)
+  context.tripDepartures = id => { loaded.push(id); return read(id) }
+  for (const record of [tripUpdate('T2'), tripUpdate('T1'), tripUpdate('FREQ'), tripUpdate('missing'), tripUpdate('T2', 0, { directionId: 1 }), tripUpdate('T2', 0, { startDate: '20260231' }), tripUpdate('T2', 0, { sourceScope: 'other' })]) {
+    const before = loaded.length
+    const identity = context.matchTripIdentity(record, '2026-09-13')
+    assert.equal(loaded.length, before, 'Resolving identity does not load trip geometry or stop times.')
+    const { departures, epoch, ...fullIdentity } = context.matchTrip(record, '2026-09-13')
+    assert.deepEqual(identity, fullIdentity, 'Identity-only checks retain the complete matcher’s admission rules.')
+  }
+  loaded.length = 0
+  const board = stopBoard(context, realtimeFixture([tripUpdate('T1', 60), tripUpdate('T2', 60), tripUpdate('OTHER', 60)]), { stopId: 'A' }, observationTime)
+  assert.ok(board.rows.some(row => row.tripId === 'T2' && row.status === 'live'))
+  assert.equal(board.rows.find(row => row.tripId === 'T1').status, 'scheduled', 'A trip at another station still makes an unscoped identity ambiguous.')
+  assert.ok(!loaded.includes('OTHER') && !loaded.includes('other\u001fT1'), 'A station board never loads stop times for reports on unrelated trips.')
+
+  // Retain the previous full-scan definition as an independent oracle for
+  // interval boundaries, active-calendar ordering and frequency exclusions.
+  const spans = context.db.prepare('SELECT trip_id, MIN(departure) AS first, MAX(arrival) AS last FROM connections GROUP BY trip_id').all()
+  const originalWindow = (from, to) => {
+    const trips = [], excluded = new Set()
+    const noon = Date.parse(`${localDate(from, context.timezone)}T12:00:00Z`)
+    for (let offset = -Math.ceil(Math.max(...spans.map(row => row.last)) / 86400); ; offset++) {
+      const serviceDate = new Date(noon + offset * 86400000).toISOString().slice(0, 10)
+      if (serviceDate > localDate(to, context.timezone)) break
+      const epoch = serviceEpoch(serviceDate, context.timezone), active = context.activeServices(serviceDate)
+      for (const row of spans) {
+        const trip = context.tripById.get(row.trip_id)
+        if (!trip || !active.has(trip.service_id)) continue
+        const seconds = Math.max(0, Math.min(to, epoch + row.last) - Math.max(from, epoch + row.first))
+        if (!seconds) continue
+        if (context.frequencyTrips.has(trip.trip_id)) { excluded.add(trip.trip_id); continue }
+        trips.push({ key: JSON.stringify([trip.trip_id, serviceDate]), tripId: trip.trip_id, routeId: trip.route_id, directionId: trip.direction_id, serviceDate, seconds, startsAt: epoch + row.first, endsAt: epoch + row.last })
+      }
+    }
+    return { trips, excludedFrequencyTemplates: excluded.size }
+  }
+  for (const [date, zone] of [['2026-09-13', 'Etc/UTC'], ['2026-09-14', 'Etc/UTC'], ['2026-09-13', 'Asia/Kathmandu'], ['2026-11-01', 'America/New_York']]) {
+    context.timezone = zone
+    const start = serviceEpoch(date, zone)
+    for (const [from, to] of [[0, 1800], [43500, 43900], [44040, 44400], [86300, 88000], [0, 86400], [43500, 43500]]) {
+      assert.deepEqual(scheduledServiceWindow(context, start + from, start + to), originalWindow(start + from, start + to))
+    }
+  }
+  const lookup = mock.method(context.tripById, 'get')
+  try {
+    scheduledServiceWindow(context, observationTime, observationTime + 1800)
+    assert.equal(lookup.mock.callCount(), 0, 'A warm service window does not repeatedly resolve every trip in the feed.')
+  } finally { lookup.mock.restore() }
+} finally { context?.close(); await fs.rm(scopedDirectory, { recursive: true, force: true }) }
+console.log('Agency efficiency: exact window reuse, bounded eviction, formatter reuse, indexed matching, scoped timetable reads, calendar parity and advancing freshness passed.')

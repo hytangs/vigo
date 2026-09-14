@@ -138,7 +138,7 @@ function describe(context, vehicle, now, policy, feeds, coverage, updates) {
   for (const kind of ['arrival', 'departure']) detail[kind].scheduled = finite(call[kind]) ? match.epoch + call[kind] : null
   const candidates = (updates.get(rawId(vehicle.tripId)) ?? []).filter(update => {
     if (update.vehicleId && update.vehicleId !== vehicle.id) return false
-    const identity = context.matchTrip(update, coverage.serviceDate)
+    const identity = context.matchTripIdentity(update, coverage.serviceDate)
     return identity.trip?.trip_id === match.trip.trip_id && identity.serviceDate === match.serviceDate
   })
   if (candidates.length !== 1) {

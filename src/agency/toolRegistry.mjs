@@ -243,7 +243,7 @@ export function createToolRegistry({ context, state, snapshot, adapters, noteboo
       const freshSources = new Set(state.feeds.filter((feed) => feed.status === 'fresh').map((feed) => feed.sourceUrl))
       const candidates = (snapshot?.tripUpdates ?? []).flatMap((update) => {
         if (!freshSources.has(update.sourceUrl)) return []
-        const match = context.matchTrip(update, args.serviceDate)
+        const match = context.matchTripIdentity(update, args.serviceDate)
         if (!match.trip || match.serviceDate !== args.serviceDate) return []
         if (typeof update.timestamp === 'number' && Math.abs(Date.parse(generatedAt) / 1000 - update.timestamp) > state.policy.freshnessSeconds) return []
         return [{ ...update, tripId: match.trip.trip_id }]

@@ -11,9 +11,16 @@ export function scheduledServiceWindow(context, from, to) {
   if (!context.timezone) return { trips: [], excludedFrequencyTemplates: 0 }
   if (!spansByContext.has(context)) {
     const spans = context.db.prepare('SELECT trip_id, MIN(departure) AS first, MAX(arrival) AS last FROM connections GROUP BY trip_id').all()
-    spansByContext.set(context, { spans, maxServiceSeconds: spans.reduce((max, row) => Math.max(max, row.last), 0) })
+    const byService = new Map()
+    for (const [order, row] of spans.entries()) {
+      const trip = context.tripById.get(row.trip_id)
+      if (!trip) continue
+      if (!byService.has(trip.service_id)) byService.set(trip.service_id, [])
+      byService.get(trip.service_id).push({ first: row.first, last: row.last, trip, order })
+    }
+    spansByContext.set(context, { byService, maxServiceSeconds: spans.reduce((max, row) => Math.max(max, row.last), 0) })
   }
-  const { spans, maxServiceSeconds } = spansByContext.get(context)
+  const { byService, maxServiceSeconds } = spansByContext.get(context)
   const date = localDate(from, context.timezone)
   const noon = Date.parse(`${date}T12:00:00Z`)
   const trips = [], excluded = new Set()
@@ -25,15 +32,19 @@ export function scheduledServiceWindow(context, from, to) {
     const serviceDate = new Date(noon + offset * 86400000).toISOString().slice(0, 10)
     if (serviceDate > lastDate) break
     const epoch = serviceEpoch(serviceDate, context.timezone), active = context.activeServices(serviceDate)
-    for (const row of spans) {
-      const trip = context.tripById.get(row.trip_id)
-      if (!trip || !active.has(trip.service_id)) continue
+    const selected = []
+    for (const service of active) for (const row of byService.get(service) ?? []) {
+      const trip = row.trip
       const seconds = Math.max(0, Math.min(to, epoch + row.last) - Math.max(from, epoch + row.first))
       if (!seconds) continue
       if (context.frequencyTrips.has(trip.trip_id)) { excluded.add(trip.trip_id); continue }
-      trips.push({ key: key(trip.trip_id, serviceDate), tripId: trip.trip_id, routeId: trip.route_id, directionId: trip.direction_id, serviceDate, seconds,
-        startsAt: epoch + row.first, endsAt: epoch + row.last })
+      selected.push({ row, seconds })
     }
+    // Preserve the timetable's trip order across multiple active calendars.
+    // Only intersecting trips need sorting, not every trip in the source feed.
+    selected.sort((a, b) => a.row.order - b.row.order)
+    for (const { row, seconds } of selected) trips.push({ key: key(row.trip.trip_id, serviceDate), tripId: row.trip.trip_id, routeId: row.trip.route_id, directionId: row.trip.direction_id, serviceDate, seconds,
+      startsAt: epoch + row.first, endsAt: epoch + row.last })
   }
   return { trips, excludedFrequencyTemplates: excluded.size }
 }

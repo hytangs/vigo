@@ -38,4 +38,28 @@ The benchmark opens the timetable read-only and replays the supplied snapshot at
 
 The efficiency regression checks exact SQL equivalence as a window advances, day/direction isolation, cache eviction and reload, formatter reuse, indexed versus linear call matching, and freshness expiry after caches warm. Existing Agency checks cover stop/route identity, daylight saving, calendars, headway evidence, provider/stream lifecycle, notebook retention, operational records and LAMP data limits.
 
-No extra result cache was placed around realtime assessments or LLM answers. This avoids turning a faster response into an older observation. Remaining work should be driven by measurements of cold station reads, transport serialization and actual model latency rather than wider caching by default.
+No extra result cache was placed around realtime assessments or LLM answers. This avoids turning a faster response into an older observation.
+
+## Follow-up: active calendars and station reads
+
+The next pass used `faca1dc` as its baseline and the same saved observation. Profiling separated the station's SQL lookup from live-trip matching and also measured the schedule window used by network diagnosis and service outlooks.
+
+- **Resolve identity before loading stop times.** `matchTripIdentity` retains the complete matcher’s date, source scope, route, direction, ambiguity and frequency checks. Station boards, prediction admission and evidence checks use it when they only need trip identity. The full matcher adds scheduled calls and the service-day anchor when requested. A board filters to its station only after resolving against the whole feed, so an ambiguous trip in another source cannot become a false match.
+- **Visit active calendars.** Station schedules and network trip spans are grouped once by their declared GTFS service IDs. Each read still resolves current calendar exceptions and exact time intersections. Service-window output retains its original ordering, overnight dates and frequency exclusions. The retained rows replace the previous flat rows; this does not add a cache of live results or another database.
+- **Expose cold costs.** The benchmark now includes a 30-minute service window and separately measures each view with a fresh Agency context. Cold here means empty application caches, not an empty operating-system disk cache.
+
+With one fresh context per measured function and 12 warm repetitions:
+
+| Work | Before warm median | After warm median |
+| --- | ---: | ---: |
+| Park Street, timetable only | 13.8 ms | 3.3 ms |
+| Park Street, live board | 24.9 ms | 13.9 ms |
+| Network scheduled-service window | 108.7 ms | 1.0 ms |
+
+The live station read loaded **134 trip schedules instead of 2,161**. Full station results with and without live data, the service window, and the prior network/line replay outputs passed deep equality. The independent shared-context benchmark measured an 8.4 ms warm station median and a 0.74 ms service-window median. Results vary with laptop load and execution order; these are computation measurements, not end-to-end app or model latency.
+
+Cold work remains: the station query must include incoming connections for terminal arrivals, and the current store has no incoming-stop index. Its query plan scans the connections table. The isolated live board remained around 0.7 seconds; the first service-window calculation was around 0.6 seconds. This pass does not claim a cold-start improvement or change the routing store to obtain one.
+
+Regression coverage now also compares identity-only and complete admission, checks cross-feed ambiguity before station filtering, verifies that unrelated reports do not load stop times, and compares service windows with the previous full-scan definition across calendar exceptions, time boundaries and timezones. Existing overnight and DST fixtures remain in the Agency suite.
+
+Validation passed: Agency, GTFS/fare, security, CLI, UI and map suites; TypeScript, web, CLI and native desktop build; packaged macOS arm64 runtime and City portability/route parity. The rebuilt application and ZIP are in the ignored `release/` directory. Protected assessment documents and routing/accessibility algorithms were not edited.

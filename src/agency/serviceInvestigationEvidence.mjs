@@ -62,7 +62,7 @@ export async function inspectService({ context, state, snapshot, directory }, { 
     const positions = new Set()
     for (const vehicle of snapshot?.vehicles ?? []) {
       if (!freshSources.has(vehicle.sourceUrl) || !Number.isFinite(vehicle.timestamp) || Math.abs(now - vehicle.timestamp) > state.policy.freshnessSeconds) continue
-      const match = context.matchTrip(vehicle, state.coverage.serviceDate)
+      const match = context.matchTripIdentity(vehicle, state.coverage.serviceDate)
       if (match.trip) positions.add(JSON.stringify([match.trip.trip_id, match.serviceDate]))
     }
     const keys = new Set(selected.map(tripInstance))
