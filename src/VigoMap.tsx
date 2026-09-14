@@ -30,6 +30,7 @@ import { cityPublicRouteKey } from './app/cityPreview'
 import { buildNetworkPerformanceProfile, type NetworkPerformanceProfile } from './networkPerformance'
 import { serviceKeyForRoute, serviceVehicleIsVisible, type ServiceVehicleFrame } from './serviceVehicles'
 import { AgencyVehicleDetails } from './components/AgencyVehicleDetails'
+import { StopArrivalBoard } from './components/StopArrivalBoard'
 import type { RoutingPlan, RoutingPoint } from './routingModel'
 import { routingPinLabel } from './routingPointSequence'
 import {
@@ -49,6 +50,7 @@ import {
 type FeatureCollection = GeoJsonFeatureCollection<Geometry, GeoJsonProperties>
 
 type MapLiveSelection = {
+  stopId?: string
   vehicleId?: string
   vehicleSourceUrl?: string
   tone: 'route' | 'segment' | 'stop' | 'vehicle'
@@ -75,7 +77,7 @@ export type VigoMapProps = {
   appearance: Appearance
   selectedRouteId: string
   selectedStopId: string
-  focusLocation?: { id: string; label: string; coordinate: LngLat }
+  focusLocation?: { id: string; label: string; coordinate: LngLat; stopId?: string }
   vehicleFrame: ServiceVehicleFrame
   routingEnabled?: boolean
   routingOrigin?: RoutingPoint | null
@@ -2519,6 +2521,23 @@ export function VigoMap({
       && serviceVehicleIsVisible(vehicle, preview, selectedRouteId)) ? previous : null)
   }, [fitSignature, selectedRouteId, vehicleFrame, preview])
 
+  const stopSelectionRef = useRef({ projectId, selectedRouteId, selectedStopId })
+  const vehicleStopSelectionRef = useRef<string | null>(null)
+  useEffect(() => {
+    const previous = stopSelectionRef.current
+    stopSelectionRef.current = { projectId, selectedRouteId, selectedStopId }
+    const selectedByVehicle = vehicleStopSelectionRef.current === selectedStopId
+    vehicleStopSelectionRef.current = null
+    // Search and Agency evidence share map selection. A route's automatically
+    // selected first stop should not open a board over a vehicle or route card.
+    if (selectedByVehicle || previous.projectId !== projectId || previous.selectedRouteId !== selectedRouteId || previous.selectedStopId === selectedStopId || routingEnabled || scenarioFocus) return
+    const stop = preview.stops.find(item => item.id === selectedStopId)
+    if (stop) {
+      setLiveSelection({ tone: 'stop', stopId: stop.id, eyebrow: 'Stop arrivals', title: stop.name, subtitle: '', metrics: [] })
+      mapRef.current?.easeTo({ center: stopLngLat(stop), zoom: Math.max(mapRef.current.getZoom(), 14), duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450 })
+    }
+  }, [projectId, selectedRouteId, selectedStopId, preview, routingEnabled, scenarioFocus])
+
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
 
@@ -3172,7 +3191,7 @@ export function VigoMap({
         const matchedRoute = preview.routes.find((route) => route.id === vehicle.routeFeatureId)
           ?? preview.routes.find((route) => serviceKeyForRoute(route) === vehicle.serviceKey)
         if (matchedRoute) onSelectRoute(matchedRoute.id)
-        if (vehicle.nextStopFeatureId) onSelectStop(vehicle.nextStopFeatureId)
+        if (vehicle.nextStopFeatureId) { vehicleStopSelectionRef.current = vehicle.nextStopFeatureId; onSelectStop(vehicle.nextStopFeatureId) }
         setLiveSelection({ tone: 'vehicle', ...vehicle.card, ...(vehicle.source === 'live' ? { vehicleId: vehicle.id, vehicleSourceUrl: vehicle.sourceUrl } : {}) })
       }
       let clickedVehicle: ServiceVehicleFrame['vehicles'][number] | undefined
@@ -3211,6 +3230,7 @@ export function VigoMap({
           setLiveSelection({
             tone: 'stop',
             eyebrow: 'GTFS stop',
+            stopId,
             title: textProperty(stopHit.properties, 'name', stopId),
             subtitle: textProperty(stopHit.properties, 'routes') || `Stop ${stopId}`,
             metrics: [
@@ -3301,7 +3321,7 @@ export function VigoMap({
     const focus = () => {
       if (mapRemovedRef.current) return
       map.easeTo({ center: focusLocation.coordinate, zoom: Math.max(map.getZoom(), 14), duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450 })
-      setLiveSelection({ tone: 'stop', eyebrow: 'Reference stop', title: focusLocation.label, subtitle: 'Selected from Agency evidence', metrics: [] })
+      setLiveSelection({ tone: 'stop', stopId: focusLocation.stopId, eyebrow: 'Reference stop', title: focusLocation.label, subtitle: 'Selected from Agency evidence', metrics: [] })
     }
     if (map.isStyleLoaded()) focus()
     else map.once('idle', focus)
@@ -3338,11 +3358,11 @@ export function VigoMap({
         </div>
       ) : null}
       {liveSelection ? (
-        <div className={classNames('map-live-card', `is-${liveSelection.tone}`, Boolean(liveSelection.vehicleId && projectId) && 'has-vehicle-timing')}>
+        <div className={classNames('map-live-card', `is-${liveSelection.tone}`, Boolean(liveSelection.vehicleId && projectId) && 'has-vehicle-timing', Boolean(liveSelection.stopId && projectId) && 'has-stop-arrivals')}>
           <button type="button" aria-label="Clear map selection" onClick={() => setLiveSelection(null)}>
             <X size={13} strokeWidth={2.6} aria-hidden="true" />
           </button>
-          {liveSelection.vehicleId && projectId ? <AgencyVehicleDetails key={`${projectId}/${liveSelection.vehicleSourceUrl}/${liveSelection.vehicleId}`} projectId={projectId} vehicleId={liveSelection.vehicleId} sourceUrl={liveSelection.vehicleSourceUrl} /> : <><span>{liveSelection.eyebrow}</span>
+          {liveSelection.stopId && projectId ? <StopArrivalBoard key={`${projectId}/${liveSelection.stopId}`} projectId={projectId} stopId={liveSelection.stopId} /> : liveSelection.vehicleId && projectId ? <AgencyVehicleDetails key={`${projectId}/${liveSelection.vehicleSourceUrl}/${liveSelection.vehicleId}`} projectId={projectId} vehicleId={liveSelection.vehicleId} sourceUrl={liveSelection.vehicleSourceUrl} /> : <><span>{liveSelection.eyebrow}</span>
           <strong>{liveSelection.title}</strong>
           <small>{liveSelection.subtitle}</small>
           {liveSelection.journey ? (

@@ -18,7 +18,7 @@ export function tripCalls(context, tripId) {
   return { calls, continuous: rows.every((row, index) => !index || rows[index - 1].to_stop_id === row.from_stop_id) }
 }
 
-function station(context, id) {
+export function station(context, id) {
   const stop = context.stopIndex.get(id)
   const parent = context.stopIndex.get(stop?.parent_station)
   const place = Number(parent?.location_type) === 1 ? parent : stop
@@ -52,13 +52,13 @@ function routePatterns(context, routeId, serviceDate) {
   return result
 }
 
-function fresh(record, feeds, now, policy, requireTimestamp = false) {
+export function fresh(record, feeds, now, policy, requireTimestamp = false) {
   if (feeds.get(record.sourceUrl)?.status !== 'fresh') return false
   if (!finite(record.timestamp)) return !requireTimestamp
   return Math.abs(now - record.timestamp) <= policy.freshnessSeconds
 }
 
-function matchCall(calls, stopId, sequence) {
+export function matchCall(calls, stopId, sequence) {
   if (!stopId && !finite(sequence)) return null
   const indexed = calls.map((call, index) => ({ ...call, index }))
   if (finite(sequence)) {
@@ -72,7 +72,7 @@ function matchCall(calls, stopId, sequence) {
   return candidates.length === 1 ? candidates[0] : null
 }
 
-function prediction(event, scheduled) {
+export function prediction(event, scheduled) {
   if (finite(event?.time)) return event.time
   return finite(event?.delay) && finite(scheduled) ? scheduled + event.delay : null
 }

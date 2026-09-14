@@ -43,3 +43,37 @@ export type RouteOperations = {
   vehicles: VehicleTiming[]
   warnings: string[]
 }
+
+export type StopBoardRow = {
+  key: string
+  tripId: string
+  serviceDate: string
+  routeId: string
+  routeName: string
+  color: string
+  directionId: string | null
+  destination: string
+  stopId: string
+  stopName: string
+  platform: string | null
+  vehicleId: string | null
+  vehicleLabel: string | null
+  vehicleSourceUrl: string | null
+  atStop: boolean
+  kind: 'arrival' | 'departure'
+  expected: number
+  arrival: VehicleTiming['arrival']
+  departure: VehicleTiming['departure']
+  status: 'live' | 'scheduled' | 'stale' | 'unresolved' | 'cancelled' | 'skipped'
+  predictionAt: number | null
+}
+
+export type StopBoard = {
+  stop: { id: string; name: string }
+  timezone: string | null
+  generatedAt: string
+  until: number
+  rows: StopBoardRow[]
+  total: number
+  warnings: string[]
+}

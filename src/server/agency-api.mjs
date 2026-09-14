@@ -10,6 +10,7 @@ import { createProvider } from '../agency/provider.mjs'
 import { queryAgency } from '../agency/queryAgent.mjs'
 import { createPlaceSearch } from '../agency/placeSearch.mjs'
 import { routeOperations, vehicleDetails } from '../agency/routeOperations.mjs'
+import { stopBoard } from '../agency/stopBoard.mjs'
 import { createWebResearch } from '../agency/webResearch.mjs'
 import { readPublicPage } from './agency-web.mjs'
 
@@ -33,7 +34,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
     finally { session.active--; if (session.retired) retire(session) }
   }
   async function sessionFor(projectId) {
-    const { storePath, cityName, agencyDirectory } = await adapters.context(projectId)
+    const { storePath, cityName, agencyDirectory, feedIds = [] } = await adapters.context(projectId)
     const stat = await fs.stat(storePath)
     if (closed) throw new Error('Agency service is closed.')
     let session = sessions.get(projectId)
@@ -60,6 +61,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
     }
     session.lastRead = clock()
     session.context.cityName = cityName
+    session.feedIds = feedIds
     session.active++
     return session
   }
@@ -133,6 +135,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
       return withSession(projectId, async session => {
         switch (body.action) {
           case 'route-line': return routeOperations(session.context, session.snapshot, body, clock() / 1000, policy)
+          case 'stop-board': return stopBoard(session.context, session.snapshot, { ...body, feedIds: session.feedIds }, clock() / 1000, policy)
           case 'vehicle': return vehicleDetails(session.context, session.snapshot, body, clock() / 1000, policy)
           case 'connection': return { request: session.request }
           case 'notebook': return { entries: session.notebook.list(body.query ?? {}) }

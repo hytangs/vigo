@@ -218,6 +218,9 @@ assert.equal(workspaceShapePoints, denseRoutes.length * 250, 'Published route po
 assert.ok(cityLod.routes.some((route) => route.id === selectedPatternId))
 assert.equal(new Set(cityLod.routes.map(cityPreview.cityPublicRouteKey)).size, cityLod.routes.length)
 assert.ok(cityLod.routes.some((route) => route.routeId === 'route-0' && route.tripCount === 3))
+const stopFocusedLod = cityPreview.buildCityPreviewLod({ routes: [], stops: denseStops, stopPairs: [] }, '', { maxStops: 16 }, 'feed::stop-2999')
+assert.ok(stopFocusedLod.stops.some(stop => stop.id === 'feed::stop-2999'), 'A searched stop remains available for its arrival board even in a sampled network.')
+assert.ok(stopFocusedLod.stops.length <= 16)
 const sameNameServiceLod = cityPreview.buildCityPreviewLod({
   routes: [
     { ...emptyRouteShells[0], id: 'feed::shuttle-a', routeId: 'shuttle-a', routeType: 3, shortName: 'Orange Line Shuttle', tripCount: 20, coordinates: [[-71.1, 42.3], [-71.0, 42.4]] },

@@ -5563,7 +5563,7 @@ const agency = createAgencyService({
   async context(projectId) {
     const project = await readProjectMetadata(projectId)
     const { storePath } = await requireRoutingStore(projectId, project)
-    return { storePath, cityName: project.name, agencyDirectory: path.join(path.dirname(storePath), '..', 'agency') }
+    return { storePath, cityName: project.name, agencyDirectory: path.join(path.dirname(storePath), '..', 'agency'), feedIds: project.feeds.filter(feed => feed.routingStore?.status === 'ready').map(feed => feed.id) }
   },
   inspectRealtime: inspectRealtimeFeed,
   route: runNationalRoute,

@@ -2003,7 +2003,7 @@ function RouteSurface({
   onSelectRoute,
   onSelectStop,
 }: {
-  agencyLocation?: { id: string; label: string; coordinate: [number, number] }
+  agencyLocation?: { id: string; label: string; coordinate: [number, number]; stopId?: string }
   agencyFocus: boolean
   routeDetailStatus?: string
   projectId: string
@@ -2053,8 +2053,8 @@ function RouteSurface({
   const isNetworkMap = mapScope === 'network' || !selectedRoute
   const routingCanvasPreview = useMemo<MapPreview>(() => ({ routes: [], stops: visiblePreview.stops, stopPairs: [] }), [visiblePreview.stops])
   const cityMapPreview = useMemo(
-    () => buildCityPreviewLod(visiblePreview, selectedRouteId),
-    [selectedRouteId, visiblePreview],
+    () => buildCityPreviewLod(visiblePreview, selectedRouteId, undefined, selectedStopId),
+    [selectedRouteId, selectedStopId, visiblePreview],
   )
   const mapPreview = routingFocus || analysisFocus ? routingCanvasPreview : isNetworkMap ? cityMapPreview : focusedPreview
   const mapLayers = useMemo<LayerState>(() => (
@@ -2117,6 +2117,7 @@ function RouteSurface({
   )
   const [servicePlaybackRunning, setServicePlaybackRunning] = useState(false)
   const [agencyView, setAgencyView] = useState<'map' | 'line'>('map')
+  useEffect(() => { if (agencyLocation || isNetworkMap) setAgencyView('map') }, [agencyLocation, isNetworkMap])
   const showAgencyLine = agencyFocus && agencyView === 'line' && !routingFocus && !analysisFocus
   const [servicePlaybackStep, setServicePlaybackStep] = useState(1)
   const playbackTimeRef = useRef(scheduleTimeMinutes)
@@ -2203,8 +2204,8 @@ function RouteSurface({
               </small>
             </div>
             <div className="agency-map-actions">
-              {!routingFocus && !analysisFocus ? <div className="agency-view-switch" role="group" aria-label="Route display"><button aria-pressed={!showAgencyLine} onClick={() => setAgencyView('map')}>Map</button><button aria-pressed={showAgencyLine} onClick={() => setAgencyView('line')}>Line view</button></div> : null}
-              {!isNetworkMap || routingFocus || analysisFocus ? <button className="agency-button" onClick={() => onMapScopeChange('network')}>All routes</button> : null}
+              {!isNetworkMap && !routingFocus && !analysisFocus ? <div className="agency-view-switch" role="group" aria-label="Route display"><button aria-pressed={!showAgencyLine} onClick={() => setAgencyView('map')}>Map</button><button aria-pressed={showAgencyLine} onClick={() => setAgencyView('line')}>Line view</button></div> : null}
+              {!isNetworkMap || routingFocus || analysisFocus ? <button className="agency-button" onClick={() => { setAgencyView('map'); onMapScopeChange('network') }}>All routes</button> : null}
             </div>
           </div>
         ) : null}
@@ -2336,7 +2337,7 @@ export default function App() {
   const [analysisOrigin, setAnalysisOrigin] = useState<RoutingPoint | null>(null)
   const [analyzeMode, setAnalyzeMode] = useState<AnalyzeMode>('single')
   const [agencyPlan, setAgencyPlan] = useState<RoutingPlan | null>(null)
-  const [agencyLocation, setAgencyLocation] = useState<{ id: string; label: string; coordinate: [number, number] } | undefined>()
+  const [agencyLocation, setAgencyLocation] = useState<{ id: string; label: string; coordinate: [number, number]; stopId?: string } | undefined>()
   const [agencyReach, setAgencyReach] = useState<ReachResult | null>(null)
   const [reachResult, setReachResult] = useState<ReachResult | null>(null)
   const [reachComparison, setReachComparison] = useState<ReachComparisonResult[] | null>(null)
@@ -3283,7 +3284,10 @@ export default function App() {
     }
     if (result.kind === 'stop') {
       setPage('project')
-      selectStop(result.id.slice('stop:'.length))
+      const stopId = result.id.slice('stop:'.length)
+      const stop = preview.stops.find(item => item.id === stopId)
+      if (activeRouteTool === 'agency') locateAgencyEntities([], [stopId], stop && typeof stop.lon === 'number' && typeof stop.lat === 'number' ? { id: stopId, label: stop.name, coordinate: [stop.lon, stop.lat] } : undefined)
+      else selectStop(stopId)
       setMapScope('network')
       setLayers((current) => ({ ...current, routes: true, stops: true, transfers: true }))
       return
@@ -4823,7 +4827,7 @@ export default function App() {
   }
 
   function locateAgencyEntities(routeIds: string[], stopIds: string[], location?: { id: string; label: string; coordinate: [number, number] }) {
-    setAgencyPlan(null); setAgencyReach(null); setAgencyLocation(location)
+    setAgencyPlan(null); setAgencyReach(null); setAgencyLocation(location ? { ...location, stopId: stopIds.length === 1 ? stopIds[0] : undefined } : undefined)
     if (!routeIds.length && !stopIds.length) { setSelectedRouteId(''); setMapScope('network') }
     const route = preview.routes.find((item) => routeIds.includes(item.id) || Boolean(item.routeId && routeIds.includes(item.routeId)))
     if (route || routeIds[0]) { setSelectedRouteId(route?.id ?? routeIds[0]); setMapScope('route'); setRouteRenderMode('service') }

@@ -1,0 +1,34 @@
+/* The same station board is used on the network map and the route diagram. */
+.route-map-shell .map-live-card.has-stop-arrivals { top: auto; bottom: 80px; width: min(420px, calc(100% - 24px)); max-height: min(calc(100% - 158px), 620px); overflow: auto; padding: 18px; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 12px; }
+.view-agency .route-map-shell .map-live-card.has-stop-arrivals { bottom: 28px; max-height: min(72%, 620px); }
+.stop-arrival-board { color: var(--text); font-size: 12px; }
+.stop-arrival-board header > span { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); }
+.stop-arrival-board h3 { margin: 5px 24px 4px 0; color: var(--text-strong); font-size: 22px; font-weight: 620; letter-spacing: -.025em; }
+.stop-arrival-board header p { margin: 0 0 16px; color: var(--text-muted); font-size: 11px; }
+.stop-board-routes { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+.stop-board-routes button { border: 1px solid var(--border); border-radius: 5px; padding: 5px 9px; background: var(--control-surface); color: var(--text-muted); cursor: pointer; font-size: 11px; }
+.stop-board-routes button[aria-pressed="true"] { border-color: var(--arrival-color, var(--vigo-lime-strong)); color: var(--text-strong); background: var(--active-surface); }
+.stop-board-list { list-style: none; margin: 0; padding: 0; }
+.stop-board-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 3px 10px; align-items: start; padding: 13px 0; border-top: 1px solid var(--border); }
+.stop-board-route { max-width: 76px; overflow-wrap: anywhere; min-width: 24px; padding: 3px 6px; border-left: 3px solid var(--arrival-color); border-radius: 3px; background: var(--control-surface); color: var(--text-strong); font-size: 11px; font-weight: 650; text-align: center; }
+.stop-board-service { min-width: 0; }
+.stop-arrival-board .stop-board-service strong { color: var(--text-strong); font-size: 12px; font-weight: 560; line-height: 1.4; }
+.stop-board-service small { display: block; margin-top: 4px; color: var(--text-muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.stop-board-time { text-align: right; font-variant-numeric: tabular-nums; }
+.stop-arrival-board .stop-board-time strong { color: var(--text-strong); font-size: 17px; font-weight: 600; white-space: nowrap; }
+.stop-board-time small { display: flex; justify-content: end; align-items: center; gap: 3px; margin-top: 4px; color: var(--text-muted); font-size: 10px; }
+.stop-board-time svg { color: var(--vigo-lime-strong); }
+.stop-board-baseline { grid-column: 2 / -1; margin: 0; color: var(--text-muted); font-size: 10px; text-align: right; }
+.stop-board-list .is-not-running .stop-board-time strong { color: var(--warn); font-size: 12px; }
+.stop-board-notice, .stop-board-empty { margin: 12px 0; color: var(--text-muted); font-size: 11px; line-height: 1.6; }
+.stop-board-more { width: 100%; padding: 10px; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--text); font-size: 11px; cursor: pointer; }
+.stop-arrival-board footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 14px; margin-top: 14px; color: var(--text-muted); font-size: 9px; line-height: 1.5; }
+.agency-line-station { border: 0; background: transparent; color: var(--text-strong); padding: 8px 4px; font-size: 11px; line-height: 1.4; text-align: inherit; cursor: pointer; border-radius: 5px; }
+.agency-line-station:hover, .agency-line-station[aria-pressed="true"] { background: var(--active-surface); color: var(--text-strong); }
+.agency-line-vehicle > span { color: var(--text-muted); font-size: 9px; white-space: nowrap; }
+.agency-line-station:focus-visible, .stop-arrival-board button:focus-visible { outline: 2px solid var(--vigo-lime-strong); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .view-agency .route-map-shell .map-live-card.has-stop-arrivals { bottom: 16px; max-height: 75%; padding: 14px; }
+  .stop-board-list li { column-gap: 7px; }
+  .stop-arrival-board .stop-board-time strong { font-size: 15px; }
+}
