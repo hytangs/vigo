@@ -254,9 +254,9 @@ assert.equal(noJourney.aiGenerated, false)
 const routeDefinition = toolDefinitions.find(tool => tool.name === 'route_plan')
 const selection = createJourneyChoices(routeDefinition)
 const initialJourneyForm = selection.definition()
-assert.deepEqual(selection.arguments({ origin: 'Museum', destination: 'Airport', when: 'now', resultUse: 'answer' }), { origin: 'Museum', destination: 'Airport' })
-assert.deepEqual(selection.arguments({ origin: 'Museum', destination: 'Airport', when: { arriveBy: '18:00' }, resultUse: 'continue' }), { origin: 'Museum', destination: 'Airport', arriveBy: '18:00' })
-assert.throws(() => selection.arguments({ origin: 'Museum', destination: 'Airport', when: { arriveBy: '18:00', departTime: '17:00' }, resultUse: 'answer' }), /Unknown/)
+assert.deepEqual(selection.arguments({ origin: 'Museum', destination: 'Airport', modes: ['transit'], when: 'now', resultUse: 'answer' }), { origin: 'Museum', destination: 'Airport', modes: ['transit'] })
+assert.deepEqual(selection.arguments({ origin: 'Museum', destination: 'Airport', modes: ['transit'], when: { arriveBy: '18:00' }, resultUse: 'continue' }), { origin: 'Museum', destination: 'Airport', modes: ['transit'], arriveBy: '18:00' })
+assert.throws(() => selection.arguments({ origin: 'Museum', destination: 'Airport', modes: ['transit'], when: { arriveBy: '18:00', departTime: '17:00' }, resultUse: 'answer' }), /Unknown/)
 const museum = { kind: 'place', id: 'osm:way/321', name: 'Museum', label: 'Museum · River Street', lat: 20.25, lon: 10.75 }
 const terminal = { kind: 'stop', id: 'S7', name: 'Airport Terminal', lat: 20.5, lon: 10.5 }
 const unresolved = { ok: false, data: { error: 'Choose a location.', clarification: { endpoints: [
@@ -281,12 +281,15 @@ assert.equal(selection.definition(), initialJourneyForm, 'A finished journey res
 assert.deepEqual(createJourneyChoices(routeDefinition).definition(), initialJourneyForm, 'Choice state is not shared between conversations')
 
 let choiceRound = 0, routed = 0
-const journeyInput = { origin: requested.origin, destination: requested.destination, waypoints: requested.waypoints, when: { serviceDate: requested.serviceDate, arriveBy: requested.arriveBy }, resultUse: 'answer' }
+const journeyInput = { modes: ['transit'], origin: requested.origin, destination: requested.destination, waypoints: requested.waypoints, when: { serviceDate: requested.serviceDate, arriveBy: requested.arriveBy }, resultUse: 'answer' }
 const journeyResult = { ok: true, data: { plan: { durationMinutes: 23.5, legs: [{ type: 'ride' }] }, request: { serviceDate: '2026-10-01', timezone: 'Etc/UTC' }, realtime: { applied: false } }, warnings: [], provenance: [] }
 const selectedJourney = await queryAgency({ question: 'Museum to airport via library, arrive by 6pm on October 1', context, state,
   provider: { available: true, complete: async (_messages, tools) => {
     if (++choiceRound === 1) return { tool_calls: [{ id: 'lookup', function: { name: 'route_plan', arguments: JSON.stringify(journeyInput) } }] }
     if (choiceRound === 2) {
+      assert.equal(_messages.length, 2, 'Location selection needs only its instruction and relevant candidates')
+      assert.match(_messages[1].content, /Museum.*Airport/s)
+      assert.doesNotMatch(_messages[0].content, /network_overview|gtfs_query/)
       assert.deepEqual(tools.find(tool => tool.name === 'route_plan').parameters.required, ['origin', 'destination'])
       return { tool_calls: [{ id: 'select', function: { name: 'route_plan', arguments: '{"origin":"1","destination":"1"}' } }] }
     }
@@ -305,9 +308,9 @@ const selectedJourney = await queryAgency({ question: 'Museum to airport via lib
 })
 assert.equal(routed, 2, 'One lookup and one coordinate routing check; no repeated geocoding round')
 assert.equal(selectedJourney.trace[1].arguments.destination.lon, 10.5, 'The saved evidence records the coordinates actually routed')
-assert.match(selectedJourney.answer, /23.5 minutes, including walking and waiting/)
-assert.match(selectedJourney.answer, /2026-10-01/)
-assert.match(selectedJourney.answer, /live predictions were not applied/)
+assert.match(selectedJourney.answer, /Transit: 24 min.*walking, waiting, and riding/s)
+assert.equal(selectedJourney.trace[1].result.data.request.serviceDate, '2026-10-01')
+assert.equal(selectedJourney.trace[1].result.data.realtime.applied, false, 'The itinerary retains its date and timetable-only status for display')
 assert.equal(selectedJourney.aiGenerated, false)
 assert.deepEqual(selectedJourney.citations, [2])
 

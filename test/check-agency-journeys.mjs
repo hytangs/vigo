@@ -50,7 +50,7 @@ assert.equal(ambiguity.data.clarification.matches.length, 3, 'The model receives
 assert.equal(routeCalls, before)
 let clockRound = 0
 const clockAnswer = await queryAgency({ question: 'Arrive by 16:00', context, state,
-  callTool: async () => ({ ...result, data: { ...result.data, plan: { status: 'ready', departMinutes: 938, arriveMinutes: 957, legs: [{ type: 'ride', startMinutes: 938, endMinutes: 957 }] } } }),
+  callTool: async () => ({ ...result, data: { ...result.data, plan: { status: 'ready', durationMinutes: 19, departMinutes: 938, arriveMinutes: 957, legs: [{ type: 'ride', startMinutes: 938, endMinutes: 957 }] } } }),
   provider: { available: true, complete: async messages => {
     if (++clockRound === 1) return { tool_calls: [{ id: 'journey', function: { name: 'route_plan', arguments: JSON.stringify(input) } }] }
     const plan = JSON.parse(messages.filter(message => message.role !== 'system').at(-1).content.split('\n').slice(1).join('\n')).data.plan

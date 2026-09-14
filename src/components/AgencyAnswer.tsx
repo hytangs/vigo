@@ -2,6 +2,7 @@ import { LampStudyResult, type LampStudyData } from './LampStudyResult'
 import { ArrowRight } from 'lucide-react'
 import type { OperationalEvent, QueryAnswer, ToolResult } from '../agency/types'
 import type { RoutingPlan } from '../routingModel'
+import { AgencyJourneys } from './AgencyJourney'
 import { downloadText } from '../agency/exports'
 import { humanField, toolNames } from '../agency/presentation'
 import { SourceLinks } from './AgencyEvidence'
@@ -11,7 +12,6 @@ import { AgencyWalkingAssessment, AgencyWalkingComparisons, type WalkingOutput }
 import { StopArrivalBoardView } from './StopArrivalBoard'
 import type { StopBoard } from '../agency/routeOperationsTypes'
 
-const clockMinutes = (value: number) => `${String(Math.floor(value / 60) % 24).padStart(2, '0')}:${String(Math.floor(value % 60)).padStart(2, '0')}`
 function answerText(text: string) {
   return text.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/g).map((part, index) => (
     part.startsWith('**') && part.endsWith('**') ? <strong key={index}>{part.slice(2, -2)}</strong>
@@ -26,23 +26,8 @@ function ServiceProfileChart({ rows }: { rows: Record<string, unknown>[] }) {
   return <figure className="agency-profile-chart"><figcaption>Scheduled trip starts by service hour</figcaption><svg viewBox="0 0 540 180" role="img" aria-label={`Scheduled trip starts from service hour ${first} to ${last}. Largest hourly count: ${peak}.`}><text x="4" y="20">{peak}</text><text x="21" y="147">0</text><line x1="42" x2="530" y1="143" y2="143" />{values.map((row) => <g key={row.service_hour}><rect x={44 + (row.service_hour - first) * width} y={143 - row.scheduled_trip_starts / peak * 125} width={Math.max(1, width - 4)} height={row.scheduled_trip_starts / peak * 125}><title>{row.service_hour}:00 · {row.scheduled_trip_starts} scheduled trip starts</title></rect><text x={44 + (row.service_hour - first) * width + (width - 4) / 2} y="163" textAnchor="middle">{row.service_hour}</text></g>)}</svg><p className="agency-caption">Service hours above 23 continue the same GTFS service day.</p></figure>
 }
 
-function AgencyJourney({ plan, endpoints }: { plan: RoutingPlan; endpoints?: Array<{ label: string }> }) {
-  const rides = plan.legs.filter((leg) => leg.type === 'ride').length
-  if (plan.travelMode === 'walk') {
-    const meters = plan.legs.reduce((sum, leg) => sum + (leg.distanceKm ?? 0) * 1000, 0)
-    const points = endpoints?.length ? endpoints : [plan.origin, plan.destination]
-    return <div className="agency-journey"><strong>{meters < 1000 ? `${Math.round(meters)} m` : `${Number((meters / 1000).toFixed(2))} km`} · about {Math.max(1, Math.ceil(plan.durationMinutes))} min walking</strong><p>{points.map((point, index) => <span key={index}>{index ? <ArrowRight size={12} /> : null}{point.label}</span>)}</p><small>Along the saved OpenStreetMap pedestrian network</small></div>
-  }
-  return <div className="agency-journey"><strong>{Number(plan.durationMinutes.toFixed(1))} min · {rides} transit {rides === 1 ? 'leg' : 'legs'}</strong><p className="agency-caption">Leave {clockMinutes(plan.departMinutes)} · arrive {clockMinutes(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</p>{plan.legs.flatMap((leg, index) => {
-    const previousEnd = index ? plan.legs[index - 1].endMinutes : leg.startMinutes
-    const wait = leg.startMinutes - previousEnd
-    const items = wait > 0 ? [<div key={`wait-${index}`}><time>{clockMinutes(previousEnd)}</time><span>Wait at {leg.fromName}</span><small>{wait < 1 ? '<1' : Number(wait.toFixed(1))} min</small></div>] : []
-    if (leg.type !== 'walk' || leg.durationMinutes !== 0 || leg.fromName !== leg.toName) items.push(<div key={`leg-${index}`}><time>{clockMinutes(leg.startMinutes)}</time><span><b>{leg.type === 'ride' ? leg.routeShortName || leg.routeId : leg.type === 'walk' ? 'Walk' : 'Drive'}</b> {leg.fromName === leg.toName ? `within ${leg.fromName}` : <>{leg.fromName}<ArrowRight size={12} />{leg.toName}</>}</span><small>{leg.durationMinutes > 0 && leg.durationMinutes < 1 ? '<1' : Number(leg.durationMinutes.toFixed(1))} min</small></div>)
-    return items
-  })}</div>
-}
 
-export function AgencyToolOutput({ result, onSelectEvent, onOpenEntry }: { result: ToolResult; onSelectEvent?: (event: OperationalEvent) => void; onOpenEntry?: (id: number) => void }) {
+export function AgencyToolOutput({ result, onSelectEvent, onOpenEntry, onResult }: { result: ToolResult; onResult?: (result: ToolResult) => void; onSelectEvent?: (event: OperationalEvent) => void; onOpenEntry?: (id: number) => void }) {
   const board = (result.data as { board?: StopBoard })?.board
   if (board) return <StopArrivalBoardView data={board} recorded />
   const lamp = result.data as LampStudyData
@@ -59,7 +44,7 @@ export function AgencyToolOutput({ result, onSelectEvent, onOpenEntry }: { resul
     {onOpenEntry ? <button className="agency-text-button" onClick={() => onOpenEntry(entry.id)}>Open original <ArrowRight size={13} /></button> : null}
   </article>)}</div>
   if (walking.comparisons) return <AgencyWalkingComparisons rows={walking.comparisons} />
-  if (data?.plan?.legs?.length) return <><AgencyJourney plan={data.plan} endpoints={data.resolved} /><AgencyWalkingAssessment assessment={walking.assessment} /></>
+  if ((result.data as { journeys?: unknown[] })?.journeys?.length || data?.plan?.legs?.length) return <><AgencyJourneys result={result} onResult={onResult} /><AgencyWalkingAssessment assessment={walking.assessment} /></>
   if (data?.rows?.length) {
     const columns = Object.keys(data.rows[0])
     return <><ServiceProfileChart rows={data.rows} /><div className="agency-query-table"><table><thead><tr>{columns.map((key) => <th key={key}>{humanField(key)}</th>)}</tr></thead><tbody>{data.rows.slice(0, 40).map((row, i) => <tr key={i}>{columns.map((key) => <td key={key}>{row[key] == null ? '—' : typeof row[key] === 'number' ? row[key].toLocaleString() : String(row[key])}</td>)}</tr>)}</tbody></table>{data.rows.length > 40 ? <p className="agency-caption">Showing 40 of {data.rows.length} rows. Download the record for the full result.</p> : null}</div></>
@@ -81,8 +66,8 @@ export function AgencyAnswer({ answer, onResult, onSelectEvent, onOpenEntry }: {
     {answer.scopeNote ? <p className="agency-caption">{answer.scopeNote}</p> : null}
     {answer.report?.rows.length && !lampResult ? <div className="agency-research-output"><div className="agency-section-heading"><div><h2>Evidence table</h2><span>{answer.report.rows.length} rows · retained with this note</span></div>{answer.report.rows.length ? <button className="agency-text-button" onClick={() => { const rows = answer.report!.rows; const columns = Object.keys(rows[0]); const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`; downloadText('agency-evidence.csv', [columns.map(cell).join(','), ...rows.map((row) => columns.map((key) => cell(row[key])).join(','))].join('\n'), 'text/csv') }}>Export CSV</button> : null}</div><AgencyToolOutput result={{ ok: true, data: { rows: answer.report.rows }, provenance: [], generatedAt: answer.generatedAt, warnings: [] }} /></div> : null}
     {lampResult ? <AgencyToolOutput result={lampResult} /> : null}
-    {result && !lampResult && !answer.report?.rows.length ? <AgencyToolOutput result={result} onSelectEvent={onSelectEvent} onOpenEntry={onOpenEntry} /> : null}
-    {Boolean(result?.presentation?.routeIds?.length === 1 || result?.presentation?.stopIds?.length === 1 || (result?.data as { plan?: unknown; surface?: unknown })?.plan || (result?.data as { surface?: unknown })?.surface) ? <button className="agency-text-button" onClick={() => result && onResult(result)}>Show on map <ArrowRight size={13} /></button> : null}
+    {result && !lampResult && !answer.report?.rows.length ? <AgencyToolOutput result={result} onSelectEvent={onSelectEvent} onOpenEntry={onOpenEntry} onResult={onResult} /> : null}
+    {!(result?.data as { journeys?: unknown[]; plan?: unknown })?.journeys?.length && !(result?.data as { plan?: RoutingPlan })?.plan?.legs?.length && Boolean(result?.presentation?.routeIds?.length === 1 || result?.presentation?.stopIds?.length === 1 || (result?.data as { plan?: unknown; surface?: unknown })?.plan || (result?.data as { surface?: unknown })?.surface) ? <button className="agency-text-button" onClick={() => result && onResult(result)}>Show on map <ArrowRight size={13} /></button> : null}
     {!result && answer.warnings.length ? <p className="agency-error" role="alert">{answer.warnings[0]}</p> : null}
     {answer.warnings.length || answer.evidenceRefs.length || answer.citations?.length || answer.runtime || answer.report || answer.selection?.route || answer.selection?.stop ? <details className="agency-source-details agency-answer-details" open={answer.trace.some(call => call.tool === 'runtime_status')}>
       <summary>Details{answer.citations?.length ? ` · ${answer.citations.length} ${answer.citations.length === 1 ? 'source' : 'sources'}` : ''}</summary>

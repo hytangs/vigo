@@ -1,4 +1,5 @@
 import { describeCurrentTime } from './currentTime.mjs'
+import { describeJourneys } from './journeyResults.mjs'
 
 function describeObservation(data) {
   const feeds = (data.feeds ?? []).map((feed) => `${feed.kind === 'tripUpdates' ? 'Trip updates' : feed.kind === 'vehicles' ? 'Vehicles' : feed.kind === 'alerts' ? 'Alerts' : 'Feed'}: ${feed.status}${feed.ageSeconds == null ? '' : `, ${Math.round(feed.ageSeconds)} seconds old`}`).join('; ')
@@ -39,8 +40,7 @@ export function summarizeEvidence(trace) {
     }
     case 'place_search': return `${data.matches.length} matching addresses from OpenStreetMap. ${data.matches.map((match) => `${match.name}: ${match.address}`).join('; ')}`
     case 'walk_route': return data.walking ? `The walk is ${Math.round(data.walking.distanceMeters)} m, about ${Math.round(data.walking.durationMinutes)} minutes on the saved pedestrian network.` : data.plan?.detail || 'No walking route could be established for these locations.'
-    case 'route_plan': if (data.plan?.legs?.length) return `The journey takes ${Number(data.plan.durationMinutes.toFixed(1))} minutes, including walking and waiting. ${data.request?.serviceDate ? `Times below are local to ${data.request.timezone || 'the agency'} on ${data.request.serviceDate}. ` : ''}${data.realtime?.applied ? 'It uses current trip predictions where the routing engine could apply them.' : 'It uses the timetable; live predictions were not applied.'}`
-      return `${data.plan?.status === 'ok' || data.plan?.status === 'ready' || data.plan?.legs?.length ? 'VIGO returned a journey.' : 'VIGO returned a routing result.'} ${data.realtime.applied ? 'The engine reports an applied TripUpdate overlay.' : 'This result uses scheduled service.'} Inspect journey details and engine diagnostics below.`
+    case 'route_plan': return describeJourneys(data)
     case 'reach': return data.summary?.transitStatus ? `From ${data.request?.origin?.label || 'your starting point'}, ${data.summary.transitStatus.reachedStops} transit stops are reachable within ${data.summary.maximumCutoffMinutes} minutes. This estimate includes walking and waiting, using the timetable. The map shows the reachable area.` : 'The reachable area is ready. It uses scheduled departures and the walking network for your selected time budget.'
     case 'draft_rider_message': return `${data.headline}\n\n${data.body}\n\nDraft · Human review required.`
     default: return 'The computed result is available below.'

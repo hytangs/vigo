@@ -72,6 +72,9 @@
 .agency-entity-results span { margin-top: 3px; font-size: 10px; color: var(--text-muted); overflow-wrap: anywhere; }
 .agency-answer-footer { display: flex; align-items: flex-start; gap: 5px; flex-wrap: wrap; color: var(--text-muted); font-size: 9px; padding: 10px 0; }
 .agency-answer-footer span { width: 100%; }
+.agency-journey-options { display: flex; gap: 8px; margin: 0 0 14px; }
+.agency-journey-options > button { flex: 1; min-height: 48px; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+.agency-journey-options > button[aria-pressed="true"] { border-color: var(--vigo-lime-strong); background: var(--active-surface); color: var(--text-strong); }
 .agency-journey { padding: 5px 12px 12px; }
 .agency-journey > strong { display: block; color: var(--text-strong); margin-bottom: 12px; }
 .agency-journey > div { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 9px; padding: 11px 0; border-top: 1px solid var(--border); font-size: 11px; }

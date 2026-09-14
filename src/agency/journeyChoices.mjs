@@ -11,14 +11,15 @@ const location = (item) => ({ lat: item.lat, lon: item.lon, label: item.label ||
 export function createJourneyChoices(definition) {
   let pending
   let finishWithJourney = false
+  let requestedModes = ['transit']
   const { serviceDate, departTime, arriveBy, ...endpoints } = definition.parameters.properties
   const { lat, lon, label } = endpoints.origin.anyOf.find(schema => schema.type === 'object').properties
   const point = { anyOf: [endpoints.origin.anyOf.find(schema => schema.type === 'string'), { type: 'object', properties: { lat, lon, label }, required: ['lat', 'lon'], additionalProperties: false }] }
   endpoints.origin = point; endpoints.destination = point
   endpoints.waypoints = { ...endpoints.waypoints, items: point }
   const timed = key => ({ type: 'object', properties: { [key]: key === 'departTime' ? departTime : arriveBy, serviceDate }, required: [key], additionalProperties: false })
-  const initial = { ...definition, description: 'Calculate a transit journey. Endpoints are place-name or known-ID strings; use coordinate objects only for coordinates already supplied by the user or a source. Choose when="now" unless the user specifies a time. Otherwise choose a departure time OR an arrival deadline, with optional date. The server resolves names to coordinates. Preserve intermediate visits and transfer limits.',
-    parameters: { ...definition.parameters, properties: { ...endpoints, when: { anyOf: [{ type: 'string', enum: ['now'] }, timed('departTime'), timed('arriveBy')] }, resultUse: { type: 'string', enum: ['answer', 'continue'], description: 'Choose answer when this journey fulfills the request: VIGO displays its exact times and steps immediately. Choose continue when further comparison, research or other work is requested.' } }, required: [...definition.parameters.required, 'when', 'resultUse'] } }
+  const initial = { ...definition, description: 'Calculate a journey for EVERY requested mode. For transit versus driving set modes=[transit,drive]; both are computed from the same resolved places and time. Endpoints are place-name or known-ID strings; use coordinate objects only for coordinates already supplied by the user or a source. Choose when="now" unless the user specifies a time. Otherwise choose a departure time OR an arrival deadline, with optional date. The server resolves names to coordinates. Preserve intermediate visits and transfer limits.',
+    parameters: { ...definition.parameters, properties: { ...endpoints, when: { anyOf: [{ type: 'string', enum: ['now'] }, timed('departTime'), timed('arriveBy')] }, resultUse: { type: 'string', enum: ['answer', 'continue'], description: 'Choose answer when this journey fulfills the request: VIGO displays its exact times and steps immediately. Choose continue when further comparison, research or other work is requested.' } }, required: [...definition.parameters.required, 'modes', 'when', 'resultUse'] } }
   const slots = (request) => [
     { key: 'origin', original: request.origin },
     ...(request.waypoints ?? []).map((original, i) => ({ key: `via${i + 1}`, original })),
@@ -39,7 +40,10 @@ export function createJourneyChoices(definition) {
   }
   return {
     finishWithJourney: () => finishWithJourney,
+    requestedModes: () => [...requestedModes],
     selectionOnly: () => Boolean(pending && pending.slots.every(slot => slot.fixed || slot.choices.length)),
+    locationContext: () => pending?.slots.map(slot => ({ endpoint: slot.key, requested: slot.original, fixed: slot.fixed && location(slot.fixed),
+      choices: slot.choices.flatMap(({ id, name, label, address, category, identifiers, lat, lon }, index) => slot.excluded?.has(index) ? [] : [{ choice: String(index + 1), id, name, label, address, category, identifiers, lat, lon }]) })),
     retainedRequest: () => pending && requestFor(pending.slots.map(slot => slot.fixed ? location(slot.fixed) : slot.original)),
     definition() {
       if (!pending) return initial
@@ -50,10 +54,11 @@ export function createJourneyChoices(definition) {
       if (!pending) {
         // Accept retained/programmatic requests in their original shape too.
         // The model-facing form requires one mutually exclusive time choice.
-        if (!input || !Object.hasOwn(input, 'when')) { finishWithJourney = false; return input }
+        if (!input || !Object.hasOwn(input, 'when')) { finishWithJourney = false; requestedModes = input?.modes ?? ['transit']; return input }
         validateArguments(input, initial.parameters)
         const { when, resultUse, ...request } = input
         finishWithJourney = resultUse === 'answer'
+        requestedModes = [...new Set(request.modes)]
         return when === 'now' ? request : { ...request, ...when }
       }
       validateArguments(input, schema())
