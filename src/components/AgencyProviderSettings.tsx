@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowRight, Check, ChevronDown, LoaderCircle, Settings2, Unplug, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, LoaderCircle, Settings2, Unplug } from 'lucide-react'
 import { apiJson } from '../app/api'
 import type { ProviderState } from '../agency/types'
 import { AgencyWebSettings } from './AgencyWebSettings'
@@ -34,8 +34,9 @@ export function AgencyProviderSettings({ endpoint, provider, onChange }: { endpo
   }
 
   return <section className={`agency-ai-connection ${open ? 'is-open' : ''}`} aria-label="AI connection">
-    <div className="agency-provider-note"><span className={`agency-status-dot ${provider.available ? 'is-ready' : ''}`} /><div><strong>{provider.available ? provider.model : 'Connect a model to Ask'}</strong><p>{provider.available ? `${provider.testedAt ? 'Function calling verified' : 'Configured on server'} · ${provider.source === 'session' ? 'This app session' : 'Environment settings'}` : 'Use your AI provider or a model running on this computer.'}</p></div><button className="agency-text-button" onClick={open ? () => { if (!busy) { setOpen(false); setApiKey('') } } : show} aria-expanded={open} aria-controls="agency-ai-settings">{open ? <X size={15} /> : provider.available ? <Settings2 size={15} /> : <>Connect<ArrowRight size={13} /></>}<span className="agency-visually-hidden">{open ? 'Close AI settings' : provider.available ? 'Edit AI connection' : ' AI provider'}</span></button></div>
+    <div className="agency-provider-note"><button className="agency-provider-toggle" onClick={open ? () => { if (!busy) { setOpen(false); setApiKey('') } } : show} aria-expanded={open} aria-controls="agency-ai-settings" aria-label={open ? 'Close AI settings' : provider.available ? 'Edit AI connection' : 'Connect AI provider'}><Settings2 size={14} /><span>{provider.available ? provider.model : 'Connect AI'}</span><ChevronDown size={13} /></button></div>
     {open ? <form id="agency-ai-settings" className="agency-ai-form" onSubmit={(event) => { event.preventDefault(); void submit('connect') }}>
+      <p className="agency-caption">{provider.available ? `${provider.testedAt ? 'Function calling verified' : 'Configured on server'} · ${provider.source === 'session' ? 'This app session' : 'Environment settings'}` : 'Use your AI provider or a model running on this computer.'}</p>
       <div className="agency-ai-presets" aria-label="Provider shortcuts"><button type="button" onClick={() => preset('https://api.openai.com/v1')} disabled={!!busy}>OpenAI</button><button type="button" onClick={() => preset('http://localhost:11434', '', 'ollama')} disabled={!!busy}>Ollama</button><button type="button" onClick={() => preset('http://localhost:1234/v1')} disabled={!!busy}>LM Studio</button><button type="button" onClick={() => preset('')} disabled={!!busy}>Custom</button></div>
       <label>Connection type<select value={protocol} disabled={!!busy} onChange={(event) => { setProtocol(event.target.value as 'openai' | 'ollama'); setReasoningEffort('') }}><option value="openai">OpenAI-compatible</option><option value="ollama">Ollama</option></select></label>
       {protocol === 'ollama' ? <label>Local context window<input type="number" min={2048} max={131072} step={1024} value={contextTokens} disabled={!!busy} onChange={(event) => setContextTokens(Number(event.target.value))} /><span className="agency-caption">More context retains longer investigations and uses more memory.</span></label> : null}

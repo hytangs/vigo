@@ -154,12 +154,13 @@ function TemporalServiceCanvas({
   )
 }
 
-function DirectionPatternBrowser({ routes, stops, selectedRouteId, renderMode, onSelectPattern }: {
+function DirectionPatternBrowser({ routes, stops, selectedRouteId, renderMode, onSelectPattern, onSelectStop }: {
   routes: RouteMetric[]
   stops: StopMetric[]
   selectedRouteId: string
   renderMode: RouteRenderMode
   onSelectPattern: (routeId: string) => void
+  onSelectStop?: (stopId: string) => void
 }) {
   const stopLookup = useMemo(() => new Map(stops.map((stop) => [stop.id, stop])), [stops])
   const directions = [...new Set(routes.map((route) => gtfsDirectionLabel(route.directionId)))]
@@ -168,47 +169,46 @@ function DirectionPatternBrowser({ routes, stops, selectedRouteId, renderMode, o
   const selectedStops = selectedRoute ? gtfsPatternStops(selectedRoute, stopLookup) : []
   return (
     <section className="gtfs-pattern-browser" aria-label="Route directions and branches">
-      <div className="object-section-heading">
-        <span><GitBranch size={13} />Directions</span>
-        <small>{routes.length} patterns</small>
-      </div>
-      <div className="gtfs-pattern-list">
-        {directions.map((direction) => (
-          <div className="gtfs-direction-group" key={direction} role="group" aria-label={direction}>
-            <h3>{direction}</h3>
-            {routes.map((route, index) => {
-              if (gtfsDirectionLabel(route.directionId) !== direction) return null
-              const orderedStops = gtfsPatternStops(route, stopLookup)
-              const firstStop = orderedStops[0]
-              const lastStop = orderedStops.at(-1)
-              const selected = route.id === selectedRouteId
-              return (
-                <button
-                  key={route.id}
-                  type="button"
-                  className={classNames('gtfs-pattern-choice', selected && 'is-active')}
-                  aria-pressed={selected && renderMode === 'pattern'}
-                  aria-label={`Show P${index + 1}, ${direction}, from ${firstStop?.name ?? 'unknown'} to ${lastStop?.name ?? 'unknown'}, ${orderedStops.length} stops`}
-                  title={route.geometrySource === 'shape' ? `shape_id=${route.shapeId ?? 'unavailable'}` : route.geometrySource === 'stop_sequence' ? 'Stop connections · exact path unavailable' : 'Geometry source unverified'}
-                  onClick={() => onSelectPattern(route.id)}
-                >
-                  <span className="gtfs-pattern-choice-heading"><b>P{index + 1}</b><small>{formatNumber(route.tripCount)} feed trips{selected && renderMode === 'pattern' ? <Check size={13} aria-hidden="true" /> : null}</small></span>
-                  <span className="gtfs-pattern-endpoints"><span>{firstStop?.name ?? 'Start unavailable'}</span><ArrowRight size={13} aria-hidden="true" /><strong>{lastStop?.name ?? 'End unavailable'}</strong></span>
-                  <span className="gtfs-pattern-facts">{orderedStops.length} stops{firstStop && firstStop.id === lastStop?.id ? ' · Loop' : ''}</span>
-                </button>
-              )
-            })}
-          </div>
-        ))}
-      </div>
+      <details className="object-disclosure">
+        <summary><GitBranch size={13} /> Route variants <small>{routes.length}</small></summary>
+        <div className="gtfs-pattern-list">
+          {directions.map((direction) => (
+            <div className="gtfs-direction-group" key={direction} role="group" aria-label={direction}>
+              <h3>{direction}</h3>
+              {routes.map((route, index) => {
+                if (gtfsDirectionLabel(route.directionId) !== direction) return null
+                const orderedStops = gtfsPatternStops(route, stopLookup)
+                const firstStop = orderedStops[0]
+                const lastStop = orderedStops.at(-1)
+                const selected = route.id === selectedRouteId
+                return (
+                  <button
+                    key={route.id}
+                    type="button"
+                    className={classNames('gtfs-pattern-choice', selected && 'is-active')}
+                    aria-pressed={selected && renderMode === 'pattern'}
+                    aria-label={`Show P${index + 1}, ${direction}, from ${firstStop?.name ?? 'unknown'} to ${lastStop?.name ?? 'unknown'}, ${orderedStops.length} stops`}
+                    title={route.geometrySource === 'shape' ? `shape_id=${route.shapeId ?? 'unavailable'}` : route.geometrySource === 'stop_sequence' ? 'Stop connections · exact path unavailable' : 'Geometry source unverified'}
+                    onClick={() => onSelectPattern(route.id)}
+                  >
+                    <span className="gtfs-pattern-choice-heading"><b>P{index + 1}</b><small>{formatNumber(route.tripCount)} feed trips{selected && renderMode === 'pattern' ? <Check size={13} aria-hidden="true" /> : null}</small></span>
+                    <span className="gtfs-pattern-endpoints"><span>{firstStop?.name ?? 'Start unavailable'}</span><ArrowRight size={13} aria-hidden="true" /><strong>{lastStop?.name ?? 'End unavailable'}</strong></span>
+                    <span className="gtfs-pattern-facts">{orderedStops.length} stops{firstStop && firstStop.id === lastStop?.id ? ' · Loop' : ''}</span>
+                  </button>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+      </details>
       {selectedRoute ? (
-        <details className="object-disclosure gtfs-stop-disclosure">
-          <summary>P{routes.indexOf(selectedRoute) + 1} · Stops <small>{selectedStops.length}</small></summary>
+        <details className="object-disclosure gtfs-stop-disclosure" open>
+          <summary>Stops · {gtfsDirectionLabel(selectedRoute.directionId)} <small>{selectedStops.length}</small></summary>
           <ol className="gtfs-ordered-stops">
             {selectedStops.map((stop, index) => (
               <li key={`${stop.id}:${stop.order}`}>
                 <span className="gtfs-stop-number">{stop.order}</span>
-                <span><strong>{stop.name}</strong><small>{index === 0 ? 'Start · ' : index === selectedStops.length - 1 ? 'End · ' : ''}{stop.id}{stop.platform ? ` · Platform ${stop.platform}` : ''}</small></span>
+                <span>{onSelectStop ? <button className="network-stop-button" onClick={() => onSelectStop(stop.id)}>{stop.name}<ArrowRight size={13} /></button> : <strong>{stop.name}</strong>}<small>{[index === 0 ? 'Start' : index === selectedStops.length - 1 ? 'End' : '', stop.platform ? `Platform ${stop.platform}` : ''].filter(Boolean).join(' · ')}</small></span>
               </li>
             ))}
           </ol>
@@ -230,6 +230,7 @@ export function NetworkTimetable({
   routeRenderMode,
   onRouteRenderModeChange,
   onSelectPattern,
+  onSelectStop,
   onOpenSources,
   onClearSelection,
 }: {
@@ -244,6 +245,7 @@ export function NetworkTimetable({
   routeRenderMode: RouteRenderMode
   onRouteRenderModeChange: (mode: RouteRenderMode) => void
   onSelectPattern: (routeId: string) => void
+  onSelectStop?: (stopId: string) => void
   onOpenSources: () => void
   onClearSelection: () => void
 }) {
@@ -267,27 +269,29 @@ export function NetworkTimetable({
           <h2>{selectedStop.name}</h2>
           <p>{selectedStop.parentStationName || (selectedStop.parentStationId ? 'Station platform' : 'Independent stop')}</p>
         </div>
-        <dl className="object-metric-grid">
-          <div><dt>Routes</dt><dd>{formatNumber(selectedStop.routes.length)}</dd></div>
-          <div><dt>Trips</dt><dd>{formatNumber(selectedStop.tripCount)}</dd></div>
-          <div><dt>Platform</dt><dd>{selectedStop.platformCode || 'Not encoded'}</dd></div>
-          <div><dt>Cluster</dt><dd>{selectedStop.parentStationId ? 'Encoded' : 'Review'}</dd></div>
-        </dl>
-        <section className="object-lineage">
-          <div className="object-section-heading"><span><Database size={13} />GTFS facts</span></div>
-          <button type="button" onClick={onOpenSources}>
-            <strong>stops.txt</strong>
-            <small>stop_id={selectedStop.id}</small>
-          </button>
-          <button type="button" onClick={onOpenSources}>
-            <strong>stop_times.txt</strong>
-            <small>{formatNumber(selectedStop.tripCount)} indexed references</small>
-          </button>
-          <button type="button" onClick={onOpenSources}>
-            <strong>transfers.txt + pathways.txt</strong>
-            <small>{selectedStop.parentStationId ? `parent_station=${selectedStop.parentStationId}` : 'No parent station encoded'}</small>
-          </button>
-        </section>
+        <details className="object-disclosure"><summary>Station details</summary>
+          <dl className="object-metric-grid">
+            <div><dt>Routes</dt><dd>{formatNumber(selectedStop.routes.length)}</dd></div>
+            <div><dt>Trips</dt><dd>{formatNumber(selectedStop.tripCount)}</dd></div>
+            <div><dt>Platform</dt><dd>{selectedStop.platformCode || 'Not encoded'}</dd></div>
+            <div><dt>Cluster</dt><dd>{selectedStop.parentStationId ? 'Encoded' : 'Review'}</dd></div>
+          </dl>
+          <section className="object-lineage">
+            <div className="object-section-heading"><span><Database size={13} />GTFS facts</span></div>
+            <button type="button" onClick={onOpenSources}>
+              <strong>stops.txt</strong>
+              <small>stop_id={selectedStop.id}</small>
+            </button>
+            <button type="button" onClick={onOpenSources}>
+              <strong>stop_times.txt</strong>
+              <small>{formatNumber(selectedStop.tripCount)} indexed references</small>
+            </button>
+            <button type="button" onClick={onOpenSources}>
+              <strong>transfers.txt + pathways.txt</strong>
+              <small>{selectedStop.parentStationId ? `parent_station=${selectedStop.parentStationId}` : 'No parent station encoded'}</small>
+            </button>
+          </section>
+        </details>
       </section>
     )
   }
@@ -321,12 +325,6 @@ export function NetworkTimetable({
         <h2>{route.shortName}</h2>
         <p>{routeListLabel(route)} · {feed.name}</p>
       </div>
-      <dl className="object-metric-grid">
-        <div title="Across all feed calendars"><dt>Feed span</dt><dd>{routeSpanLabel(serviceRoute, analysisLoading)}</dd></div>
-        <div title="Mean pattern headway weighted by trip count, across all feed calendars"><dt>Mean headway</dt><dd>{routeHeadwayLabel(serviceRoute, analysisLoading)}</dd></div>
-        <div><dt>Feed trips</dt><dd>{formatNumber(serviceTrips || route.tripCount)}</dd></div>
-        <div><dt>Unique stops</dt><dd>{formatNumber(serviceStops || route.stopIds.length)}</dd></div>
-      </dl>
       {analysisLoading ? (
         <div className="object-analysis-state" role="status">
           <Database size={14} />
@@ -338,13 +336,6 @@ export function NetworkTimetable({
           <span><strong>Analysis needs review</strong><small>{analysisError}</small></span>
         </div>
       ) : null}
-      <DirectionPatternBrowser
-        routes={patterns}
-        stops={preview.stops}
-        selectedRouteId={route.id}
-        renderMode={routeRenderMode}
-        onSelectPattern={onSelectPattern}
-      />
       <label className="network-service-date">Service date<input type="date" value={serviceDate} onChange={event => onServiceDateChange(event.target.value)} /></label>
       <TemporalServiceCanvas
         routes={patterns}
@@ -353,8 +344,23 @@ export function NetworkTimetable({
         onRenderModeChange={onRouteRenderModeChange}
         onSelectPattern={onSelectPattern}
       />
+      <DirectionPatternBrowser
+        routes={patterns}
+        stops={preview.stops}
+        selectedRouteId={route.id}
+        renderMode={routeRenderMode}
+        onSelectPattern={onSelectPattern}
+        onSelectStop={onSelectStop}
+      />
       <details className="object-disclosure" aria-label="GTFS source data">
-        <summary>Source data</summary>
+        <summary>Timetable details & sources</summary>
+        <dl className="object-metric-grid">
+          <div title="Across all feed calendars"><dt>Feed span</dt><dd>{routeSpanLabel(serviceRoute, analysisLoading)}</dd></div>
+          <div title="Mean pattern headway weighted by trip count, across all feed calendars"><dt>Mean headway</dt><dd>{routeHeadwayLabel(serviceRoute, analysisLoading)}</dd></div>
+          <div><dt>Feed trips</dt><dd>{formatNumber(serviceTrips || route.tripCount)}</dd></div>
+          <div><dt>Unique stops</dt><dd>{formatNumber(serviceStops || route.stopIds.length)}</dd></div>
+        </dl>
+
         <div className="lineage-stack">
           <button type="button" onClick={onOpenSources}>
             <i className="tone-fact" />

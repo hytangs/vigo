@@ -21,7 +21,7 @@ function arrivalLabel(row: StopBoardRow, now: number, timezone: string | null) {
   return minutes <= 0 ? 'Due' : `${minutes} min`
 }
 
-export function StopArrivalBoardView({ data, refreshError = '' }: { data: StopBoard; refreshError?: string }) {
+export function StopArrivalBoardView({ data, refreshError = '', showHeading = true }: { data: StopBoard; refreshError?: string; showHeading?: boolean }) {
   const [routeId, setRouteId] = useState('')
   const [expanded, setExpanded] = useState(false)
   const routes = [...new Map(data.rows.map(row => [row.routeId, { name: row.routeName, color: row.color }])).entries()]
@@ -30,7 +30,7 @@ export function StopArrivalBoardView({ data, refreshError = '' }: { data: StopBo
   const now = Date.parse(data.generatedAt) / 1000
   const time = (value: number | null, precise = false) => clock(value, data.timezone, now, precise)
   return <section className="stop-arrival-board" aria-label={`Arrivals at ${data.stop.name}`}>
-    <header><span>Stop arrivals</span><h3>{data.stop.name}</h3><p>{refreshError ? 'Last successful observation' : 'Next hour'}</p><AgencyFeedHealth feeds={(data.feeds ?? []).filter(feed => feed.kind === 'tripUpdates' || feed.kind === 'vehicles')} refreshFailed={Boolean(refreshError)} /></header>
+    <header><span>Stop arrivals</span>{showHeading ? <h3>{data.stop.name}</h3> : null}<p>{refreshError ? 'Last successful observation' : 'Next hour'}</p><AgencyFeedHealth feeds={(data.feeds ?? []).filter(feed => feed.kind === 'tripUpdates' || feed.kind === 'vehicles')} refreshFailed={Boolean(refreshError)} /></header>
     {refreshError ? <p className="stop-board-notice" role="alert">Arrivals could not be refreshed. Times below were recorded at {time(now, true)}.</p> : null}
     {routes.length > 1 ? <div className="stop-board-routes" role="group" aria-label="Filter arrivals by route"><button aria-pressed={!filter} onClick={() => { setRouteId(''); setExpanded(false) }}>All</button>{routes.map(([id, route]) => <button key={id} aria-pressed={filter === id} style={{ '--arrival-color': route.color } as CSSProperties} onClick={() => { setRouteId(id); setExpanded(false) }}>{route.name}</button>)}</div> : null}
     {data.warnings.map(warning => <p className="stop-board-notice" key={warning}>{warning}</p>)}
@@ -62,7 +62,7 @@ export function StopArrivalBoardView({ data, refreshError = '' }: { data: StopBo
   </section>
 }
 
-export function StopArrivalBoard({ projectId, stopId }: { projectId: string; stopId: string }) {
+export function StopArrivalBoard({ projectId, stopId, showHeading = true }: { projectId: string; stopId: string; showHeading?: boolean }) {
   const [data, setData] = useState<StopBoard | null>(null)
   const [error, setError] = useState('')
   useEffect(() => {
@@ -85,5 +85,5 @@ export function StopArrivalBoard({ projectId, stopId }: { projectId: string; sto
     document.addEventListener('visibilitychange', onVisible)
     return () => { controller.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
   }, [projectId, stopId])
-  return data ? <StopArrivalBoardView key={`${projectId}/${stopId}`} data={data} refreshError={error} /> : <p className="stop-board-empty" role={error ? 'alert' : 'status'}>{error || 'Loading stop arrivals…'}</p>
+  return data ? <StopArrivalBoardView key={`${projectId}/${stopId}`} data={data} refreshError={error} showHeading={showHeading} /> : <p className="stop-board-empty" role={error ? 'alert' : 'status'}>{error || 'Loading stop arrivals…'}</p>
 }

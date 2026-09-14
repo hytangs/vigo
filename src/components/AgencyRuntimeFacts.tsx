@@ -5,7 +5,7 @@ export function AgencyRuntimeFacts({ runtime, expanded = false }: { runtime: Non
   const connection = runtime.modelConnection
   const called = runtime.networkToolCalls.map(call => `${toolNames[call.tool] || humanField(call.tool)}${call.completed ? '' : ' (incomplete)'}`)
   return <details className="agency-source-details" open={expanded}>
-    <summary>Runtime & data · server record</summary>
+    <summary>Model & data</summary>
     <dl className="agency-facts">
       <div><dt>Model</dt><dd>{connection.model || 'Not recorded'}</dd></div>
       <div><dt>Inference hosting</dt><dd>Not independently verified</dd></div>

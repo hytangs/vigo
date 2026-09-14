@@ -20,15 +20,26 @@ import {AgencyPanel} from '/src/components/AgencyPanel.tsx';
 import '/src/App.css';
 Date.now = () => ${observationTime * 1000};
 const noop = () => {};
-createRoot(document.getElementById('root')).render(React.createElement('div',{className:'app-shell page-project view-agency',style:{display:'block',height:'100vh'}},React.createElement(AgencyPanel,{projectId:'fixture',snapshot:null,realtimeRequest:null,realtimeMessage:'',realtimeLoading:false,onConnect:noop,onDisconnect:noop,onLocate:noop,onResult:noop,onOpenData:noop,mapOpen:false,onToggleMap:noop})));
+createRoot(document.getElementById('root')).render(React.createElement('div',{className:'app-shell page-project view-agency',style:{display:'block',height:'100vh'}},React.createElement(AgencyPanel,{projectId:'fixture',snapshot:null,realtimeRequest:null,realtimeMessage:'',realtimeLoading:false,onConnect:noop,onDisconnect:noop,onLocate:noop,onBrowseRoute:noop,onClearSelection:noop,onResult:noop,onOpenData:noop,mapOpen:false,onToggleMap:noop})));
 const wait = async test => { const end=performance.now()+15000; while(performance.now()<end) { if(test()) return; await new Promise(resolve=>setTimeout(resolve,30)); } throw Error('UI condition timed out: '+test.toString()+'; '+document.body.innerText); };
 const button = label => [...document.querySelectorAll('button')].find(item=>item.textContent.trim()===label);
 const click = async label => { await wait(()=>button(label) && !button(label).disabled); button(label).click(); };
 const fill = (element,value) => { const setter=Object.getOwnPropertyDescriptor(element.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:element.tagName==='SELECT'?HTMLSelectElement.prototype:HTMLInputElement.prototype,'value').set; setter.call(element,value); element.dispatchEvent(new Event(element.tagName==='SELECT'?'change':'input',{bubbles:true})); };
 window.runTests = async () => {
-  await wait(()=>document.getElementById('agency-tab-operations'));
+  await wait(()=>document.querySelector('.agency-route-browser'));
+  if(document.querySelectorAll('[role=tab]').length!==3) throw Error('Keep only three primary views');
+  fill(document.querySelector('[aria-label="Find a route"]'),'no such route');
+  await wait(()=>document.querySelector('.agency-route-browser').textContent.includes('No routes match'));
+  document.querySelector('[aria-label="Clear route search"]').click();
+  await wait(()=>document.querySelector('.agency-route-list button'));
   document.getElementById('agency-tab-live').dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}));
-  await wait(()=>document.getElementById('agency-tab-operations').getAttribute('aria-selected')==='true');
+  await wait(()=>document.getElementById('agency-tab-ask').getAttribute('aria-selected')==='true');
+  await wait(()=>document.querySelector('.agency-conversation-toolbar'));
+  document.querySelector('.agency-more summary').click();
+  await click('Research');
+  await wait(()=>document.getElementById('agency-skills'));
+  document.querySelector('.agency-more summary').click();
+  await click('Service desk');
   await wait(()=>document.querySelector('.agency-ops-new'));
   document.querySelector('.agency-ops-new').open=true;
   const finding=[...document.querySelectorAll('.agency-ops-new button')].find(item=>item.textContent.includes('Wider departure'));
@@ -81,11 +92,29 @@ window.runTests = async () => {
   await wait(()=>button('Prepare selected option'));
   return {keyboardTabs:true,tracked:true,workflow:true,copyRevision:true,approval:true,localOutbox:true,staffReceipt:true,audit:true,insufficientHistory:true,replayApproval:true,replayRetry:true,replayWithdrawal:true};
 };
-window.layoutCheck = () => {
+window.layoutCheck = async () => {
   const panel=document.querySelector('.agency-panel'); panel.style.height='100vh';
   const overflow=[...document.querySelectorAll('.agency-panel,.agency-scroll,.agency-tabs,.agency-operations')].filter(item=>item.scrollWidth>item.clientWidth+2).map(item=>item.className);
   if(overflow.length) throw Error('Horizontal overflow at '+innerWidth+': '+overflow.join(', ')+'; '+JSON.stringify([...document.querySelector('.agency-panel').children].map(item=>[item.className,item.clientWidth,item.scrollWidth])));
-  return {width:innerWidth,overflow:false};
+  const views=[];
+  for(const id of ['live','ask']) {
+    document.getElementById('agency-tab-'+id).click();
+    await wait(()=>document.getElementById('agency-'+id));
+    const nav=document.querySelector('.agency-navigation').getBoundingClientRect();
+    if(nav.top < 0 || nav.height > 90) throw Error('Navigation must remain compact and visible');
+    const content=document.querySelector('.agency-scroll');
+    if(content.scrollWidth>content.clientWidth+2) throw Error('Network content overflows at '+innerWidth);
+    if(id==='ask') {
+      const composer=document.querySelector('.agency-question-form').getBoundingClientRect();
+      if(composer.top > 400) throw Error('Empty chat requires too much scrolling');
+      document.querySelector('.agency-provider-toggle').click();
+      await wait(()=>document.getElementById('agency-ai-settings'));
+      if(content.scrollWidth>content.clientWidth+2) throw Error('AI settings overflow at '+innerWidth);
+      document.querySelector('.agency-provider-toggle').click();
+    }
+    views.push(id);
+  }
+  return {width:innerWidth,overflow:false,views};
 };`
 const server = await createServer({ root, configFile: false, plugins: [react(), {
   name: 'operations-fixture',

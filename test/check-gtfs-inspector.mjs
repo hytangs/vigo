@@ -87,12 +87,14 @@ const render = (mode) => renderToStaticMarkup(createElement(NetworkTimetable, {
   serviceDate: '2026-09-14', onServiceDateChange: () => {},
   feed: { name: 'Fixture GTFS' }, preview: { routes: [loop, route], stops }, selectedRoute: loop,
   analysisLoading: false, analysisError: '', routeRenderMode: mode,
-  onRouteRenderModeChange() {}, onSelectPattern() {}, onOpenSources() {}, onClearSelection() {},
+  onRouteRenderModeChange() {}, onSelectPattern() {}, onSelectStop() {}, onOpenSources() {}, onClearSelection() {},
 }))
 const patternHtml = render('pattern')
 assert.match(patternHtml, /Show P1, Direction 0, from Harvard to Central, 2 stops/)
 assert.match(patternHtml, /Show P2, Direction not provided, from Harvard to Harvard, 3 stops/)
-assert.match(patternHtml, /P2 · Stops/)
+assert.match(patternHtml, /Stops · Direction not provided/)
+assert.equal((patternHtml.match(/class="network-stop-button"/g) || []).length, 3, 'Each loop stop remains a separate arrival-board link')
+assert.match(patternHtml, /<details class="object-disclosure"><summary><svg[^]*?Route variants/, 'Variants are secondary controls')
 assert.match(patternHtml, /shape_id=shape-1/)
 assert.match(patternHtml, /No trips on this date/)
 assert.match(patternHtml, /30:00/)

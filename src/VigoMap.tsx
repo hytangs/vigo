@@ -68,6 +68,7 @@ type MapLiveSelection = {
 }
 
 export type VigoMapProps = {
+  showStopDetails?: boolean
   projectId?: string
   localStreetGraphAvailable?: boolean
   preview: MapPreview
@@ -2282,6 +2283,7 @@ function applyNetworkLensPaint(map: MapLibreMap, networkLens: NetworkLens) {
 }
 
 export function VigoMap({
+  showStopDetails = true,
   projectId,
   localStreetGraphAvailable = false,
   preview,
@@ -3372,7 +3374,7 @@ export function VigoMap({
           </small>
         </div>
       ) : null}
-      {liveSelection ? (
+      {liveSelection && (showStopDetails || !liveSelection.stopId) ? (
         <div className={classNames('map-live-card', `is-${liveSelection.tone}`, Boolean(liveSelection.vehicleId && projectId) && 'has-vehicle-timing', Boolean(liveSelection.stopId && projectId) && 'has-stop-arrivals')}>
           <button type="button" aria-label="Clear map selection" onClick={() => setLiveSelection(null)}>
             <X size={13} strokeWidth={2.6} aria-hidden="true" />

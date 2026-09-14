@@ -10,7 +10,7 @@ function patternLabel(pattern: RoutePattern) {
 }
 const atReportedStop = (vehicle: VehicleTiming) => vehicle.status === 'STOPPED_AT' || vehicle.status === 'STOP_REPORTED'
 
-export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', onSelectStop }: { projectId: string; routeId: string; selectedStopId?: string; onSelectStop?: (id: string) => void }) {
+export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showStopDetails = true, onSelectStop }: { projectId: string; routeId: string; selectedStopId?: string; showStopDetails?: boolean; onSelectStop?: (id: string) => void }) {
   const [data, setData] = useState<RouteOperations | null>(null)
   const [error, setError] = useState('')
   const [choices, setChoices] = useState<Record<string, string>>({})
@@ -100,5 +100,5 @@ export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', onSel
       {unplaced.length ? <details className="agency-line-unplaced"><summary>{unplaced.length} vehicles without a current stop position</summary>{unplaced.map(vehicle => <button className="agency-text-button" key={vehicle.key} onClick={() => setSelected(vehicle.key)}>{vehicle.label} · {vehicle.warnings[0] || 'Trip pattern unavailable'}</button>)}</details> : null}
       <p className="agency-caption">Timetable dates: {data.serviceDates?.join(', ') || data.serviceDate} · Times in {data.timezone}. Arrival and departure predictions are kept separate.</p>
     </>}
-  </section>{selectedStop || selectedVehicle ? <aside className="agency-line-details"><button className="agency-icon-button" aria-label="Close details" onClick={() => { setSelected(null); setSelectedStop(null); onSelectStop?.('') }}><X size={15} /></button>{selectedStop ? <StopArrivalBoard key={`${projectId}/${selectedStop}`} projectId={projectId} stopId={selectedStop} /> : selectedVehicle ? <VehicleDetailsView vehicle={selectedVehicle} /> : null}</aside> : null}</>
+  </section>{(showStopDetails && selectedStop) || selectedVehicle ? <aside className="agency-line-details"><button className="agency-icon-button" aria-label="Close details" onClick={() => { setSelected(null); setSelectedStop(null); onSelectStop?.('') }}><X size={15} /></button>{showStopDetails && selectedStop ? <StopArrivalBoard key={`${projectId}/${selectedStop}`} projectId={projectId} stopId={selectedStop} /> : selectedVehicle ? <VehicleDetailsView vehicle={selectedVehicle} /> : null}</aside> : null}</>
 }

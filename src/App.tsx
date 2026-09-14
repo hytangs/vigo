@@ -1981,7 +1981,8 @@ function RouteSurface({
   return (
     <section className="route-surface" aria-label="GTFS map and service state" style={routeStyle}>
       <div className="surface-panel route-map-shell">
-        {showAgencyLine ? <AgencyRouteLine key={`${projectId}/${selectedRouteId}`} projectId={projectId} routeId={isNetworkMap ? '' : selectedRoute ? networkRouteId(selectedRoute) : selectedRouteId} selectedStopId={selectedStopId} onSelectStop={onSelectStop} /> : <LazyVigoMap
+        {showAgencyLine ? <AgencyRouteLine key={`${projectId}/${selectedRouteId}`} projectId={projectId} routeId={isNetworkMap ? '' : selectedRoute ? networkRouteId(selectedRoute) : selectedRouteId} selectedStopId={selectedStopId} showStopDetails={false} onSelectStop={onSelectStop} /> : <LazyVigoMap
+          showStopDetails={!agencyFocus}
           focusLocation={agencyFocus ? agencyLocation : undefined}
           projectId={projectId}
           localStreetGraphAvailable={localStreetGraphAvailable}
@@ -4656,13 +4657,13 @@ export default function App() {
     setAgencyLocation(undefined)
   }
 
-  function locateAgencyEntities(routeIds: string[], stopIds: string[], location?: { id: string; label: string; coordinate: [number, number] }) {
+  function locateAgencyEntities(routeIds: string[], stopIds: string[], location?: { id: string; label: string; coordinate: [number, number] }, revealMap = true) {
     setAgencyPlan(null); setAgencyReach(null); setAgencyLocation(location ? { ...location, stopId: stopIds.length === 1 ? stopIds[0] : undefined } : undefined)
     if (!routeIds.length && !stopIds.length) { setSelectedRouteId(''); setMapScope('network') }
     const route = routeIds.length === 1 ? findNetworkRoute(preview.routes, routeIds[0]) : undefined
     if (route || routeIds[0]) { setSelectedRouteId(route?.id ?? routeIds[0]); setMapScope('route'); setRouteRenderMode('service') }
     setSelectedStopId(stopIds[0] || '')
-    if (window.innerWidth <= 760) setAgencyMapOpen(true)
+    if (revealMap && window.innerWidth <= 760) setAgencyMapOpen(true)
   }
 
   function presentAgencyResult(result: ToolResult) {
@@ -5155,6 +5156,7 @@ export default function App() {
           projectId={selectedProjectId}
           selection={{ routeId: mapScope === 'route' && selectedRoute ? networkRouteId(selectedRoute) : undefined, stopId: selectedStopId || undefined }}
           onClearSelection={() => { returnToNetworkOverview(); clearAgencyMap() }}
+          onBrowseRoute={id => selectRoute(findNetworkRoute(preview.routes, id)?.id ?? id)}
           timetable={<NetworkTimetable
             feed={activeFeed}
             preview={visiblePreview}
@@ -5167,6 +5169,7 @@ export default function App() {
             routeRenderMode={routeRenderMode}
             onRouteRenderModeChange={setRouteRenderMode}
             onSelectPattern={(routeId) => selectRoute(routeId, 'pattern')}
+            onSelectStop={id => locateAgencyEntities([], [id], undefined, false)}
             onOpenSources={openDataView}
             onClearSelection={returnToNetworkOverview}
           />}
