@@ -2,6 +2,8 @@
 // every journey/SQL parameter for ordinary conversation. Selection is the
 // model's decision, never a keyword classifier over the user's question.
 const descriptions = {
+  operational_context: 'City SOPs, maintenance, operating notes and tracked findings',
+  historical_baseline: 'Comparable historical prediction summaries and chronological evaluation',
   runtime_status: 'Server-recorded model connection and privacy limits',
   network_overview: 'City, timetable coverage, counts and feed ages',
   recall_notebook: 'Saved conversations and staff notes',

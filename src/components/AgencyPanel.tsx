@@ -1,6 +1,6 @@
 import { NetworkSelection } from './NetworkSelection'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Activity, ArrowRight, ChevronRight, CircleHelp, Clock3, Download, Layers3, MessageSquare, Radio, RefreshCw, Map, Search, Send, Square, Workflow, X, History, Plus } from 'lucide-react'
+import { Activity, CheckSquare, ArrowRight, ChevronRight, CircleHelp, Clock3, Download, Layers3, MessageSquare, Radio, RefreshCw, Map, Search, Send, Square, Workflow, X, History, Plus } from 'lucide-react'
 import { apiJson, apiProgressJson, type ApiProgress } from '../app/api'
 import type { RealtimeInspectRequest } from '../app/realtime'
 import type { RealtimeSnapshot } from '../domain'
@@ -10,13 +10,14 @@ import { AgencyFeedHealth } from './AgencyFeedHealth'
 import { AgencyProviderSettings } from './AgencyProviderSettings'
 import { AgencyAnswer } from './AgencyAnswer'
 import { AgencyActivity } from './AgencyActivity'
+import { AgencyOperations } from './AgencyOperations'
 import { AgencyBriefing } from './AgencyBriefing'
 import { AgencySkills } from './AgencySkills'
 import { AgencyNotebook, AgencyNoteEditor, type NotebookEntry } from './AgencyNotebook'
 import { RealtimePanel } from './RealtimePanel'
 
-type Mode = 'live' | 'ask' | 'skills'
-const modes: Array<{ id: Mode; label: string; icon: typeof Radio }> = [{ id: 'live', label: 'Overview', icon: Radio }, { id: 'ask', label: 'Ask', icon: MessageSquare }, { id: 'skills', label: 'Skills', icon: Workflow }]
+type Mode = 'live' | 'ask' | 'skills' | 'operations'
+const modes: Array<{ id: Mode; label: string; icon: typeof Radio }> = [{ id: 'live', label: 'Overview', icon: Radio }, { id: 'ask', label: 'Ask', icon: MessageSquare }, { id: 'skills', label: 'Skills', icon: Workflow }, { id: 'operations', label: 'Operations', icon: CheckSquare }]
 const eventLabel: Record<OperationalEvent['type'], string> = { delay: 'Delay', bunching: 'Compressed interval', 'service-gap': 'Wider interval', cancellation: 'Cancellation', 'skipped-stop': 'Skipped stop', 'stale-data': 'Data freshness', 'service-alert': 'Service alert' }
 
 function exportObservation(state: AgencyState) {
@@ -188,7 +189,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   }
 
   return <section className="agency-panel" aria-label="Network workspace">
-    <header className="agency-header"><div><div className="agency-kicker"><span className="agency-wordmark">AGENCY</span><span>{state?.cityName || 'City operations'}</span></div><h1>{mode === 'live' ? 'Network' : mode === 'ask' ? 'Ask your network' : 'Research skills'}</h1></div><div className="agency-header-actions"><button className="agency-icon-button" aria-label="Open saved work" disabled={busy} onClick={() => { setMode('ask'); setNotebookOpen(true); scrollRef.current?.scrollTo({ top: 0 }) }}><History size={16} /></button><button className="agency-icon-button agency-mobile-map-toggle" aria-label={mapOpen ? "Hide map" : "Show map"} aria-pressed={mapOpen} onClick={onToggleMap}><Map size={16} /></button><button className="agency-icon-button" title="Refresh observation" aria-label="Refresh observation" onClick={() => void refresh()}><RefreshCw size={16} /></button>{state ? <button className="agency-icon-button" title="Export observation" aria-label="Export observation" onClick={() => exportObservation(state)}><Download size={16} /></button> : null}</div></header>
+    <header className="agency-header"><div><div className="agency-kicker"><span className="agency-wordmark">AGENCY</span><span>{state?.cityName || 'City operations'}</span></div><h1>{mode === 'live' ? 'Network' : mode === 'ask' ? 'Ask your network' : mode === 'operations' ? 'Service decisions' : 'Research skills'}</h1></div><div className="agency-header-actions"><button className="agency-icon-button" aria-label="Open saved work" disabled={busy} onClick={() => { setMode('ask'); setNotebookOpen(true); scrollRef.current?.scrollTo({ top: 0 }) }}><History size={16} /></button><button className="agency-icon-button agency-mobile-map-toggle" aria-label={mapOpen ? "Hide map" : "Show map"} aria-pressed={mapOpen} onClick={onToggleMap}><Map size={16} /></button><button className="agency-icon-button" title="Refresh observation" aria-label="Refresh observation" onClick={() => void refresh()}><RefreshCw size={16} /></button>{state ? <button className="agency-icon-button" title="Export observation" aria-label="Export observation" onClick={() => exportObservation(state)}><Download size={16} /></button> : null}</div></header>
     <div className="agency-tabs" role="tablist" aria-label="Network views">{modes.map(({ id, label, icon: Icon }) => <button key={id} role="tab" aria-selected={mode === id} aria-controls={`agency-${id}`} id={`agency-tab-${id}`} tabIndex={mode === id ? 0 : -1} onClick={() => { setMode(id); if (id === 'live') setSelectedEvent(null); requestAnimationFrame(() => { if (id === 'ask' && turns.length) document.querySelector('.agency-turn:last-of-type')?.scrollIntoView({ block: 'start' }); else scrollRef.current?.scrollTo({ top: 0 }) }) }} onKeyDown={(event) => { if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const index = modes.findIndex((item) => item.id === id); const next = event.key === 'Home' ? 0 : event.key === 'End' ? modes.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : modes.length - 1)) % modes.length; setMode(modes[next].id); document.querySelector('.agency-scroll')?.scrollTo({ top: 0 }); document.getElementById(`agency-tab-${modes[next].id}`)?.focus() }}><Icon size={15} />{label}</button>)}<div className="agency-live-indicator"><AgencyFeedHealth feeds={state?.feeds ?? []} refreshFailed={Boolean(observationError)} /></div></div>
     <div className="agency-scroll" ref={scrollRef}>
       {error || observationError ? <div className="agency-error" role="alert">{error || observationError}{!state || !state.coverage.valid ? <button className="agency-text-button" onClick={onOpenData}>Open City data <ArrowRight size={13} /></button> : null}</div> : null}
@@ -239,7 +240,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
           {answer ? <AgencyAnswer answer={answer} onResult={onResult} onSelectEvent={selectEvent} onOpenEntry={(id) => void openEntry(id)} /> : null}
           <form className="agency-question-form" onSubmit={(event) => { event.preventDefault(); void ask() }}><label htmlFor="agency-question">{parentId ? 'Continue the conversation' : 'Your question'}</label><textarea id="agency-question" placeholder="Which routes have the widest departure intervals right now?" value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={2000} rows={2} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void ask() } }} /><footer><span>Timetable · Realtime · Places · Routing</span>{busy ? <button type="button" className="agency-button" onClick={stopInvestigation}><Square size={13} /> Stop</button> : <button className="agency-button is-primary" disabled={!question.trim()} type="submit"><Send size={14} /> Ask</button>}</footer></form>
           </>}
-        </div> : <div id="agency-skills" role="tabpanel" aria-labelledby="agency-tab-skills"><AgencySkills skills={skills} state={state} endpoint={endpoint} busy={busy} onInstall={setSkills} onRun={(skill, input) => void runSkill(skill, input)} /></div>}
+        </div> : mode === 'operations' ? <div id="agency-operations" role="tabpanel" aria-labelledby="agency-tab-operations"><AgencyOperations endpoint={endpoint} state={state} onEvidence={selectEvent} /></div> : <div id="agency-skills" role="tabpanel" aria-labelledby="agency-tab-skills"><AgencySkills skills={skills} state={state} endpoint={endpoint} busy={busy} onInstall={setSkills} onRun={(skill, input) => void runSkill(skill, input)} /></div>}
       </> : null}
     </div>
   </section>

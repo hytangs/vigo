@@ -3,7 +3,7 @@
 .app-shell.page-project.view-agency .project-workbench { display: grid; grid-template-columns: minmax(470px, 1.15fr) minmax(280px, 1fr); grid-template-rows: minmax(0, 1fr); gap: 0; padding: 0; overflow: hidden; }
 .view-agency .route-surface { grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; }
 .view-agency .route-map-shell { border: 0; border-radius: 0; }
-.agency-panel { grid-column: 1; grid-row: 1; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); background: var(--panel); color: var(--text); border-right: 1px solid var(--border); font-size: 12px; line-height: 1.5; }
+.agency-panel { grid-column: 1; grid-row: 1; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); background: var(--panel); color: var(--text); border-right: 1px solid var(--border); font-size: 12px; line-height: 1.5; }
 .agency-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 25px 28px 20px; }
 .agency-kicker { display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: 11px; }
 .agency-wordmark { color: var(--text-strong); font-weight: 750; letter-spacing: .17em; font-size: 9px; padding-right: 10px; border-right: 1px solid var(--border-strong); }
@@ -193,11 +193,11 @@
   .view-agency.agency-map-open .route-surface { display: grid; grid-column: 1; grid-row: 2; }
   .agency-panel { border-right: 0; }
   .agency-mobile-map-toggle { display: inline-flex; }
-  .agency-header { padding: 18px 18px 16px; }
+  .agency-header { padding: 18px 18px 16px; flex-wrap: wrap; }
   .agency-header h1 { font-size: 25px; }
   .agency-scroll { padding: 20px 18px 25px; }
-  .agency-tabs { padding: 0 10px; gap: 0; }
-  .agency-tabs > button { padding: 0 12px; min-height: 42px; }
+  .agency-tabs { padding: 0 10px; gap: 0; flex-wrap: wrap; }
+  .agency-tabs > button { padding: 0 8px; min-height: 42px; gap: 4px; font-size: 11px; }
   .agency-live-indicator { font-size: 9px; }
   .agency-metrics > div { padding: 0 8px; }
   .agency-metrics strong { font-size: 27px; }

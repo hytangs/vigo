@@ -14,8 +14,12 @@ import { routeOperations, vehicleDetails } from '../agency/routeOperations.mjs'
 import { stopBoard } from '../agency/stopBoard.mjs'
 import { createWebResearch } from '../agency/webResearch.mjs'
 import { readPublicPage } from './agency-web.mjs'
+import { createOperationsStore } from '../agency/operationsStore.mjs'
+import { operationsActions, handleOperations } from '../agency/operationsService.mjs'
+import { authorize, digest } from '../agency/operations.mjs'
 
-export function createAgencyService(adapters, { provider = createProvider(), web = createWebResearch({ readPage: readPublicPage }), clock = () => Date.now(), policy = defaultPolicy, refreshMs = 10_000 } = {}) {
+export function createAgencyService(adapters, { provider = createProvider(), web = createWebResearch({ readPage: readPublicPage }), clock = () => Date.now(), policy = defaultPolicy, refreshMs = 10_000,
+  access = async () => ({ id: 'local-owner', role: 'admin' }) } = {}) {
   const sessions = new Map()
   let closed = false
   function retire(session) {
@@ -27,6 +31,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
       session.disposed = true
       session.context.close()
       session.notebook.close()
+      session.operations.close()
     }
   }
   async function withSession(projectId, run) {
@@ -50,14 +55,17 @@ export function createAgencyService(adapters, { provider = createProvider(), web
         retire(old); sessions.delete(oldId)
       }
       const notebook = createNotebook(agencyDirectory || path.join(path.dirname(storePath), 'agency'))
-      let context
+      let context, operations
       try {
         context = new AgencyContext(storePath, cityName)
+        operations = createOperationsStore(notebook.directory, projectId, clock)
         const retained = notebook.get('observation') ?? {}
         session = { notebook, storePath, modified: stat.mtimeMs, context, snapshot: retained.snapshot ?? null, request: retained.request ?? null, generation: 0, inFlight: null, timer: null,
           active: 0, retired: false, disposed: false, history: createObservationHistory(policy, retained), skills: createSkillRegistry({ directory: adapters.skillDirectory, installedDirectory: path.join(notebook.directory, 'skills'), preferences: notebook.get('skills') ?? {} }), lastRead: clock() }
         session.places = createPlaceSearch({ stops: session.context.stops })
-      } catch (error) { context?.close(); notebook.close(); throw error }
+        session.operations = operations
+        session.scheduleIdentity = digest([storePath, stat.size, stat.mtimeMs])
+      } catch (error) { operations?.close(); context?.close(); notebook.close(); throw error }
       sessions.set(projectId, session)
     }
     session.lastRead = clock()
@@ -69,7 +77,9 @@ export function createAgencyService(adapters, { provider = createProvider(), web
 
   function current(session) {
     const state = deriveOperationalState(session.context, session.snapshot, clock() / 1000, policy)
-    return { ...state, ...session.history.update(state), warnings: [...state.warnings, ...session.skills.warnings()], provider: { ...(provider.status?.() ?? { available: provider.available, model: provider.model }), web: web.status() } }
+    try { session.operations.observe(state, session.scheduleIdentity); session.storageError = null }
+    catch (error) { session.storageError = `Operations history could not be retained: ${error.message}` }
+    return { ...state, ...session.history.update(state), warnings: [...state.warnings, ...session.skills.warnings(), ...(session.storageError ? [session.storageError] : []), ...(session.refreshError ? [session.refreshError] : [])], provider: { ...(provider.status?.() ?? { available: provider.available, model: provider.model }), web: web.status() } }
   }
 
   async function refresh(session) {
@@ -78,14 +88,16 @@ export function createAgencyService(adapters, { provider = createProvider(), web
     const generation = session.generation
     const request = session.request
     session.inFlight = (async () => {
-      const snapshot = await adapters.inspectRealtime(request)
+      let snapshot
+      try { snapshot = await adapters.inspectRealtime(request); session.refreshError = null }
+      catch (error) { session.refreshError = `Realtime refresh failed: ${error.message}`; throw error }
       if (generation === session.generation) { session.snapshot = snapshot; const { history, tripHistory } = current(session); session.notebook.set('observation', { request: session.request, snapshot, history, tripHistory }) }
       return session.snapshot
     })().finally(() => { session.inFlight = null })
     return session.inFlight
   }
 
-  async function connect(projectId, request) {
+  async function resume(projectId, request) {
     return withSession(projectId, async session => {
       const coverage = session.context.coverage(clock() / 1000)
       if (!coverage.valid) throw Object.assign(new Error(coverage.message), { statusCode: 409 })
@@ -104,8 +116,9 @@ export function createAgencyService(adapters, { provider = createProvider(), web
   }
 
   return {
-    connect,
+    async connect(projectId, request) { authorize(await access(projectId), 'configure'); return resume(projectId, request) },
     async disconnect(projectId) {
+      authorize(await access(projectId), 'configure')
       return withSession(projectId, async session => {
         session.generation++; clearInterval(session.timer); session.timer = null; session.request = null; session.snapshot = null
         session.history = createObservationHistory(policy)
@@ -114,10 +127,13 @@ export function createAgencyService(adapters, { provider = createProvider(), web
       })
     },
     async state(projectId, { routeId = '', stopId = '', eventType = '' } = {}) {
+      authorize(await access(projectId), 'read')
       return withSession(projectId, async session => {
         const selection = workspaceSelection(session.context, { routeId, stopId }, session.feedIds)
         const stops = selectedStopIds(session.context, selection)
-        if (session.request && !session.timer && session.context.coverage(clock() / 1000).valid) await connect(projectId, session.request)
+        if (session.request && !session.timer && session.context.coverage(clock() / 1000).valid) {
+          try { await resume(projectId, session.request) } catch { /* Current reports keep aging; refresh failure is included below. */ }
+        }
         const state = current(session)
         const { trips, ...publicState } = state
         const selected = state.events.filter((event) => eventInSelection(event, selection, stops) && (!eventType || eventType === 'all' || event.type === eventType))
@@ -128,6 +144,10 @@ export function createAgencyService(adapters, { provider = createProvider(), web
       })
     },
     async handle(projectId, body, signal, onProgress) {
+      if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.action !== 'string') throw Object.assign(new Error('Choose an Agency action.'), { statusCode: 400 })
+      // Principal comes from the trusted host, never from request JSON or a model tool.
+      const principal = await access(projectId)
+      authorize(principal, ['web-connect', 'provider-models', 'provider-connect', 'provider-disconnect', 'skill-install', 'skill-enabled'].includes(body.action) ? 'configure' : body.action === 'notebook-note' ? 'finding' : 'read')
       if (body.action === 'web-status') return web.status()
       if (body.action === 'web-connect') return web.connect(body.connection, signal)
       if (body.action === 'provider-status') return provider.status()
@@ -135,6 +155,11 @@ export function createAgencyService(adapters, { provider = createProvider(), web
       if (body.action === 'provider-connect') return provider.connect(body.connection, signal)
       if (body.action === 'provider-disconnect') return provider.disconnect()
       return withSession(projectId, async session => {
+        if (operationsActions.has(body.action)) {
+          const state = current(session)
+          return handleOperations({ store: session.operations, state, context: session.context, scheduleIdentity: session.scheduleIdentity, principal, body,
+            monitoring: { active: Boolean(session.timer), refreshing: Boolean(session.inFlight), refreshError: session.refreshError || null, storageError: session.storageError || null } })
+        }
         switch (body.action) {
           case 'route-line': return routeOperations(session.context, session.snapshot, { ...body, routeId: indexedEntityId(session.context, 'route', body.routeId, session.feedIds) }, clock() / 1000, policy)
           case 'stop-board': return stopBoard(session.context, session.snapshot, { ...body, feedIds: session.feedIds }, clock() / 1000, policy)
@@ -154,10 +179,10 @@ export function createAgencyService(adapters, { provider = createProvider(), web
         const research = web.forRequest()
         const progress = (item) => { const previous = activities.findIndex((entry) => entry.phase === item.phase); if (previous < 0) activities.push(item); else activities[previous] = item; onProgress?.(item) }
         const retain = (title, answer, kind = 'ask') => { const entry = session.notebook.save({ title, answer, activities, kind, parentId: body.parentId ?? null }); return { ...answer, entryId: entry.id } }
-        const callTool = createToolRegistry({ context: session.context, state, snapshot: session.snapshot, notebook: session.notebook, places: session.places, web: research, signal,
+        const callTool = createToolRegistry({ context: session.context, state, snapshot: session.snapshot, notebook: session.notebook, operations: session.operations, scheduleIdentity: session.scheduleIdentity, places: session.places, web: research, signal,
           adapters: { streetMatrix: adapters.streetMatrix ? (request, abort) => adapters.streetMatrix(projectId, request, abort) : undefined, matrix: (request, abort) => adapters.matrix(projectId, request, abort), route: (request, abort) => adapters.route(projectId, request, abort), reach: (request, abort) => adapters.reach(projectId, request, abort) } })
         switch (body.action) {
-          case 'connect': return { snapshot: await connect(projectId, body.request) }
+          case 'connect': return { snapshot: await this.connect(projectId, body.request) }
           case 'disconnect': return this.disconnect(projectId)
           case 'tool': return callTool(body.name, body.arguments ?? {})
           case 'briefing': { if (!session.briefingJob) session.briefingJob = networkBriefing({ state, callTool, provider: inference, signal, onProgress: progress }).then((answer) => retain('Network briefing', answer, 'briefing')).finally(() => { session.briefingJob = null }); return session.briefingJob }
