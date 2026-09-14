@@ -1,4 +1,4 @@
-import { scheduledServiceWindow, tripInstance } from './serviceWindow.mjs'
+import { scheduledServiceWindow, scheduledServiceContext, tripInstance } from './serviceWindow.mjs'
 import { serviceConcentrations } from './serviceConcentrations.mjs'
 
 const sum = (rows, field) => rows.reduce((value, row) => value + row[field], 0)
@@ -84,8 +84,10 @@ export function diagnoseNetwork(context, state) {
   const byDelay = routes.filter(row => row.delaySeconds > 0).sort((a, b) => b.delaySeconds - a.delaySeconds || a.id.localeCompare(b.id))
   const intervalPairs = sum(routes, 'measuredPairs')
   return {
-    version: 1, generatedAt: state.generatedAt, timezone: context.timezone, window: { from, to, minutes: state.policy.windowMinutes },
-    status: !state.coverage.valid ? 'timetable_unavailable' : !reports.length ? 'prediction_coverage_unavailable' : 'measured',
+    version: 2, generatedAt: state.generatedAt, timezone: context.timezone, window: { from, to, minutes: state.policy.windowMinutes },
+    serviceContext: state.coverage.valid ? scheduledServiceContext(context, from, scheduled) : null,
+    status: !state.coverage.valid ? 'timetable_unavailable' : !reports.length
+      ? !scheduled.trips.length && !context.frequencyTrips.size ? 'no_scheduled_service' : 'prediction_coverage_unavailable' : 'measured',
     coverage: { scheduledTrips: scheduled.trips.length, reportingScheduledTrips: coveredTrips, unknownTrips: scheduled.trips.length - coveredTrips,
       scheduledRoutes: routes.filter(row => row.scheduledTrips).length, measuredRoutes: measuredRoutes.length, indexedRoutes: routes.length,
       scheduledVehicleMinutes: scheduledSeconds / 60, reportingVehicleMinutes: coverageSeconds / 60,

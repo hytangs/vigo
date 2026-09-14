@@ -1,4 +1,5 @@
 import { localDate, serviceEpoch } from './agencyContext.mjs'
+import { agencyClock } from './agencyClock.mjs'
 
 const spansByContext = new WeakMap()
 const key = (tripId, serviceDate) => JSON.stringify([tripId, serviceDate])
@@ -30,8 +31,29 @@ export function scheduledServiceWindow(context, from, to) {
       const seconds = Math.max(0, Math.min(to, epoch + row.last) - Math.max(from, epoch + row.first))
       if (!seconds) continue
       if (context.frequencyTrips.has(trip.trip_id)) { excluded.add(trip.trip_id); continue }
-      trips.push({ key: key(trip.trip_id, serviceDate), tripId: trip.trip_id, routeId: trip.route_id, directionId: trip.direction_id, serviceDate, seconds })
+      trips.push({ key: key(trip.trip_id, serviceDate), tripId: trip.trip_id, routeId: trip.route_id, directionId: trip.direction_id, serviceDate, seconds,
+        startsAt: epoch + row.first, endsAt: epoch + row.last })
     }
   }
   return { trips, excludedFrequencyTemplates: excluded.size }
+}
+
+// Compare this window with scheduled work ahead, not every route in the feed
+// or a city-specific definition of night. These are supply facts, not health.
+export function scheduledServiceContext(context, from, window) {
+  const referenceHours = 24
+  const reference = scheduledServiceWindow(context, from, from + referenceHours * 3600)
+  const active = window.trips.filter(trip => trip.startsAt <= from && trip.endsAt > from)
+  const windowRoutes = new Set(window.trips.map(trip => trip.routeId)).size
+  const referenceRoutes = new Set(reference.trips.map(trip => trip.routeId)).size
+  const nextStart = reference.trips.reduce((next, trip) => trip.startsAt > from ? Math.min(next, trip.startsAt) : next, Infinity)
+  // Frequency instances are not reconstructed by this index. Do not call the
+  // network inactive when any of its supply is outside the timed-trip model.
+  const complete = context.frequencyTrips.size === 0
+  return { clock: agencyClock(new Date(from * 1000).toISOString(), context.timezone), referenceHours, windowRoutes, referenceRoutes,
+    referenceComplete: context.coverage(from + referenceHours * 3600 - 1).valid,
+    activeTrips: active.length, complete,
+    phase: !complete ? 'incomplete' : !active.length ? 'between_runs' : 'scheduled_service',
+    nextScheduledTripAt: Number.isFinite(nextStart) ? new Date(nextStart * 1000).toISOString() : null,
+    nextScheduledTrip: Number.isFinite(nextStart) ? agencyClock(new Date(nextStart * 1000).toISOString(), context.timezone) : null }
 }

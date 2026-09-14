@@ -13,7 +13,7 @@ export function NetworkAssessment({ narrative, diagnosis, investigation }: { nar
     {investigation?.explanation ? <details className="network-assessment-coverage"><summary>Investigation · {investigation.checks.filter(check => check.completed).length} checks</summary><p>{investigation.explanation.text}</p><p>Assessment: {investigation.explanation.status}. {investigation.checks.map(check => `${check.aspect.replaceAll('_', ' ')}${check.completed ? '' : ' unavailable'}`).join(' · ')}</p></details> : null}
     {coverage.unknownTrips ? <p className="agency-briefing-scope">{coverage.unknownTrips} scheduled {coverage.unknownTrips === 1 ? 'trip has' : 'trips have'} no usable prediction or cancellation report. {coverage.unknownTrips === 1 ? 'Its condition remains' : 'Their conditions remain'} unknown.</p> : null}
     <details className="network-assessment-coverage">
-      <summary>Coverage &amp; route conditions · {coverage.reportingScheduledTrips}/{coverage.scheduledTrips} scheduled trips</summary>
+      <summary>Coverage &amp; route conditions{coverage.scheduledTrips ? ` · ${coverage.reportingScheduledTrips}/${coverage.scheduledTrips} scheduled trips` : ' · no timed trips scheduled'}</summary>
       <p>{narrative.coverage}</p>
       {coverage.reportingShare !== null ? <div className="network-assessment-meter" role="img" aria-label={`${Math.round(coverage.reportingShare * 100)} percent of scheduled vehicle-minutes covered by reporting trips`}><span style={{ width: `${coverage.reportingShare * 100}%` }} /></div> : null}
       {coverage.additionalReportingTrips ? <p>{coverage.additionalReportingTrips} additional reporting trips fall outside this scheduled window; their predictions remain in the assessment.</p> : null}

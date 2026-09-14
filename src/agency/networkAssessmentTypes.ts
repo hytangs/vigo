@@ -6,6 +6,11 @@ export type NetworkNarrative = {
 }
 export type NetworkDiagnosis = {
   version: number; generatedAt: string; window: { from: number; to: number; minutes: number }; status: string
+  serviceContext: null | {
+    clock: { date: string; time: string; timezone: string; zoneLabel: string }
+    referenceHours: number; windowRoutes: number; referenceRoutes: number; referenceComplete: boolean; activeTrips: number; complete: boolean
+    phase: 'between_runs' | 'scheduled_service' | 'incomplete'; nextScheduledTripAt: string | null
+  }
   coverage: {
     scheduledTrips: number; reportingScheduledTrips: number; unknownTrips: number
     measuredRoutes: number; scheduledRoutes: number; indexedRoutes: number

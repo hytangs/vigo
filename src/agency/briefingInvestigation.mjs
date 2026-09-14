@@ -28,6 +28,7 @@ export async function investigateBriefing({ diagnosis, narrative, provider, call
   }
   const n = diagnosis.network
   const context = { time: diagnosis.generatedAt, timezone: diagnosis.timezone, outlookThrough: new Date(diagnosis.window.to * 1000).toISOString(),
+    serviceContext: diagnosis.serviceContext, overview: narrative.overview,
     network: { reportingTrips: n.measuredTrips, measuredRoutes: diagnosis.coverage.measuredRoutes,
       routesWithLatePredictions: diagnosis.routes.filter(row => row.laterTrips).length,
       medianDeviationMinutes: Math.round(n.medianDeviationSeconds / 60), p90DeviationMinutes: Math.round(n.p90DeviationSeconds / 60),

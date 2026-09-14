@@ -3,6 +3,7 @@ import { ArrowRight, LoaderCircle, RefreshCw, Radio } from 'lucide-react'
 import { apiJson, apiProgressJson } from '../app/api'
 import type { AgencyState, QueryAnswer } from '../agency/types'
 import type { BriefingPreferences } from '../agency/networkAssessmentTypes'
+import { briefingRefreshAt } from '../agency/briefingSchedule.mjs'
 import type { NotebookEntry } from './AgencyNotebook'
 import { NetworkAssessment } from './NetworkAssessment'
 
@@ -22,18 +23,19 @@ export function AgencyBriefing({ endpoint, state, onOpen }: { endpoint: string; 
   const latestEndpoint = useRef(endpoint); latestEndpoint.current = endpoint
   const now = Math.max(Date.parse(state.generatedAt), wallClock)
   const assessed = Date.parse(briefing?.generatedAt ?? '')
-  const due = !briefing?.diagnosis || Boolean(state.scheduleIdentity && briefing.scheduleIdentity !== state.scheduleIdentity) || now >= assessed + preferences.intervalMinutes * 60000
+  const refreshAt = briefingRefreshAt(briefing, preferences)
+  const due = briefing?.diagnosis?.version !== 2 || Boolean(state.scheduleIdentity && briefing.scheduleIdentity !== state.scheduleIdentity) || refreshAt === null || now >= refreshAt
   const sourceUnavailable = briefing?.diagnosis?.coverage.feeds.some(feed => feed.kind === 'tripUpdates' && feed.status === 'fresh'
     && !state.feeds.some(current => current.sourceUrl === feed.sourceUrl && current.status === 'fresh')) || !state.coverage.valid
   const current = briefing?.diagnosis && !due && !sourceUnavailable
 
   useEffect(() => {
-    if (!Number.isFinite(assessed)) return
+    if (refreshAt === null) return
     const refreshClock = () => setWallClock(Date.now())
-    const timer = window.setTimeout(refreshClock, Math.max(0, assessed + preferences.intervalMinutes * 60000 - Date.now()) + 50)
+    const timer = window.setTimeout(refreshClock, Math.max(0, refreshAt - Date.now()) + 50)
     window.addEventListener('focus', refreshClock)
     return () => { window.clearTimeout(timer); window.removeEventListener('focus', refreshClock) }
-  }, [assessed, preferences.intervalMinutes])
+  }, [refreshAt])
 
   async function generate(force = false) {
     if (request.current) return
@@ -80,7 +82,7 @@ export function AgencyBriefing({ endpoint, state, onOpen }: { endpoint: string; 
     </div></header>
     {busy ? <p className="agency-briefing-progress" role="status"><LoaderCircle size={16} className="agency-spinner" />{activity}</p> : null}
     {current && briefing.narrative ? <>
-      <p className="agency-briefing-scope">Assessment at {time(assessed)} · next {briefing.diagnosis!.window.minutes} minutes · {preferences.automatic ? `next update ${time(assessed + preferences.intervalMinutes * 60000)}` : `manual update · expires ${time(assessed + preferences.intervalMinutes * 60000)}`}</p>
+      <p className="agency-briefing-scope">Assessment at {time(assessed)} · next {briefing.diagnosis!.window.minutes} minutes · {preferences.automatic ? `next update ${time(refreshAt!)}` : `manual update · expires ${time(refreshAt!)}`}</p>
       <NetworkAssessment narrative={briefing.narrative} diagnosis={briefing.diagnosis!} investigation={briefing.investigation} />
     </> : !busy ? <p>{briefing ? sourceUnavailable ? 'Live predictions are no longer current. The previous briefing is saved in the notebook.' : 'The previous briefing has expired. Update it for a current assessment.' : 'Assess network conditions from the timetable and currently reporting service.'}</p> : null}
     {briefing?.entryId ? <footer><span>{current ? briefing.aiGenerated ? 'AI assessment · evidence checked' : 'Computed from the shared service observation' : 'Previous assessment retained'}</span><button className="agency-text-button" onClick={() => onOpen(briefing.entryId!)}>Open evidence <ArrowRight size={13} /></button></footer> : null}

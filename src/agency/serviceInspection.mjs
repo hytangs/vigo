@@ -1,4 +1,5 @@
 import { diagnoseNetwork } from './networkDiagnosis.mjs'
+import { serviceContextNarrative } from './networkNarrative.mjs'
 import { serviceEpoch } from './agencyContext.mjs'
 import { inspectService } from './serviceInvestigationEvidence.mjs'
 import { scheduledServiceWindow, tripInstance } from './serviceWindow.mjs'
@@ -103,6 +104,7 @@ export async function inspectOperationalService({ context, state, snapshot, dire
     aspect,
     scope: { routes: names(selectedRoutes), stops: scope.stopIds.map(id => ({ id, name: context.stopIndex.get(id)?.name })), tripId: scope.tripId, vehicleId: args.vehicleId, allNetwork },
     asOf: clock(now), predictionWindowMinutes: state.policy.windowMinutes,
+    serviceContext: diagnosis.serviceContext, scheduledServiceSummary: serviceContextNarrative(diagnosis),
     coverage: { ...diagnosis.coverage, feeds: feeds.map(({ kind, status, ageSeconds }) => ({ kind, status, ageSeconds })) },
     network: { ...diagnosis.network, measuredRoutes: diagnosis.coverage.measuredRoutes, routesWithLatePredictions: diagnosis.routes.filter(route => route.laterTrips).length },
     routes: ordered.slice(0, 8).map(route => ({ route: route.name, id: route.id, scope: 'whole route within the prediction window', scheduledTrips: route.scheduledTrips,
@@ -137,8 +139,10 @@ export function inspectionFacts(data) {
   const n = data.network, c = data.coverage
   const facts = [
     ...(data.scope.allNetwork ? [
+      ...(data.scheduledServiceSummary ? [data.scheduledServiceSummary] : []),
       `Whole-network context: ${n.measuredTrips} trips on ${n.measuredRoutes} routes have comparable next-departure predictions; ${n.laterTrips} trips on ${n.routesWithLatePredictions} routes are later than scheduled, ${n.matchingTrips} match schedule. These comparisons do not establish actual passages or unreported service.`,
       `In the next ${data.predictionWindowMinutes} minutes, ${c.reportingScheduledTrips} of ${c.scheduledTrips} scheduled trip instances have matching reports; ${c.unknownTrips} are unreported. This is reporting coverage, not service health.`,
+      'Only trips with scheduled work in the assessment window belong in missing-service comparisons. The local hour alone does not establish whether service is scheduled.',
     ] : []),
     ...data.routes.map(route => `Route ${route.route}, whole-route comparison: ${route.reportingTrips} reporting trips; ${route.laterTrips} later, ${route.matchingTrips} matching timetable; ${route.cancelledTrips} cancellations in the assessment window. Maximum predicted departure delay ${route.maxDelayMinutes ?? 'unknown'} minutes. ${route.widerPairs} distinct departure pairs are farther apart than scheduled; ${route.closerPairs} closer together. This covers reporting trips only.`),
     ...data.concentrations.map(area => `${area.place}: overlapping late predictions on shared directed stop connections involve routes ${area.routes.map(route => route.name).join(', ')}, ${area.tripCount} trips; maximum predicted delay ${area.maxDelayMinutes} minutes. Geographic overlap does not establish a shared cause.`),
