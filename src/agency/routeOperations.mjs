@@ -4,18 +4,24 @@ import { defaultPolicy, feedStates } from './realtimeIntelligence.mjs'
 const finite = value => typeof value === 'number' && Number.isFinite(value)
 const sameId = (indexed, reported) => String(reported).includes('\u001f') ? indexed === reported : rawId(indexed) === rawId(reported)
 const patternCache = new WeakMap()
+const callsByDepartures = new WeakMap()
+const callIndexes = new WeakMap()
 
 // A connection's arrival belongs to its to_stop. The terminal arrival is known,
 // but the original terminal sequence and departure are not stored by VIGO.
 export function tripCalls(context, tripId) {
   const rows = context.tripDepartures(tripId)
+  const cached = callsByDepartures.get(rows)
+  if (cached) return cached
   const calls = rows.map((row, index) => ({
     stopId: row.from_stop_id, sequence: row.stop_sequence,
     arrival: rows[index - 1]?.to_stop_id === row.from_stop_id ? rows[index - 1].arrival : null,
     departure: row.departure,
   }))
   if (rows.length) calls.push({ stopId: rows.at(-1).to_stop_id, sequence: null, arrival: rows.at(-1).arrival, departure: null })
-  return { calls, continuous: rows.every((row, index) => !index || rows[index - 1].to_stop_id === row.from_stop_id) }
+  const result = { calls, continuous: rows.every((row, index) => !index || rows[index - 1].to_stop_id === row.from_stop_id) }
+  callsByDepartures.set(rows, result)
+  return result
 }
 
 export function station(context, id) {
@@ -60,15 +66,27 @@ export function fresh(record, feeds, now, policy, requireTimestamp = false) {
 
 export function matchCall(calls, stopId, sequence) {
   if (!stopId && !finite(sequence)) return null
-  const indexed = calls.map((call, index) => ({ ...call, index }))
+  let indexed = callIndexes.get(calls)
+  if (!indexed) {
+    indexed = { sequences: new Map(), stops: new Map(), lastSequence: -Infinity }
+    for (const [index, call] of calls.entries()) {
+      const entry = { ...call, index }, id = rawId(call.stopId)
+      if (!indexed.sequences.has(call.sequence)) indexed.sequences.set(call.sequence, [])
+      if (!indexed.stops.has(id)) indexed.stops.set(id, [])
+      indexed.sequences.get(call.sequence).push(entry)
+      indexed.stops.get(id).push(entry)
+      indexed.lastSequence = Math.max(indexed.lastSequence, call.sequence ?? -1)
+    }
+    callIndexes.set(calls, indexed)
+  }
   if (finite(sequence)) {
-    const exact = indexed.filter(call => call.sequence === sequence)
+    const exact = indexed.sequences.get(sequence) ?? []
     if (exact.length) return exact.length === 1 && (!stopId || sameId(exact[0].stopId, stopId)) ? exact[0] : null
   }
-  const candidates = indexed.filter(call => stopId && sameId(call.stopId, stopId))
+  const candidates = stopId ? (indexed.stops.get(rawId(stopId)) ?? []).filter(call => sameId(call.stopId, stopId)) : []
   // A unique terminal ID can match, but its unretained sequence cannot resolve
   // a loop or contradict the order of the known calls.
-  if (finite(sequence) && (candidates[0]?.sequence !== null || sequence <= Math.max(...calls.map(call => call.sequence ?? -1)))) return null
+  if (finite(sequence) && (candidates[0]?.sequence !== null || sequence <= indexed.lastSequence)) return null
   return candidates.length === 1 ? candidates[0] : null
 }
 

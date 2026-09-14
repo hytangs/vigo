@@ -84,9 +84,8 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
     void refresh(controller.signal)
     const timer = window.setInterval(() => void refresh(controller.signal), 10_000)
     return () => { controller.abort(); clearInterval(timer) }
-  }, [refresh])
+  }, [refresh, snapshot])
   useEffect(() => () => { abortRef.current?.abort(); entryAbortRef.current?.abort() }, [endpoint])
-  useEffect(() => { if (snapshot) void refresh() }, [snapshot, refresh])
   useEffect(() => {
     if (!state?.connected || snapshot) return
     const controller = new AbortController()

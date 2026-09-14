@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
+import { WeightedLruCache } from '../server/weighted-lru-cache.mjs'
 
 const separator = '\u001f'
 export const rawId = (value) => String(value ?? '').split(separator).at(-1)
@@ -6,21 +7,32 @@ export const scopeOf = (value) => String(value ?? '').includes(separator) ? Stri
 export const dateToken = (date) => Number(String(date).replaceAll('-', ''))
 const validDate = (date) => /^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(Date.parse(`${date}T12:00:00Z`)) && new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) === date
 const isoDate = (token) => token ? String(token).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3') : null
+const dateFormats = new WeightedLruCache({ maxEntries: 32 })
+const offsetFormats = new WeightedLruCache({ maxEntries: 32 })
+const serviceEpochs = new WeightedLruCache({ maxEntries: 128 })
 
 export function localDate(epochSeconds, timezone) {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(epochSeconds * 1000))
+  let format = dateFormats.get(timezone)
+  if (!format) { format = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }); dateFormats.set(timezone, format) }
+  return format.format(new Date(epochSeconds * 1000))
 }
 
 // GTFS defines its service clock as noon minus twelve hours, including DST days.
 export function serviceEpoch(serviceDate, timezone) {
   if (!validDate(serviceDate)) throw new Error('Invalid service date.')
+  const key = JSON.stringify([serviceDate, typeof timezone, timezone]), cached = serviceEpochs.get(key)
+  if (cached !== undefined) return cached
   const noon = Date.parse(`${serviceDate}T12:00:00Z`) / 1000
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, timeZoneName: 'longOffset' }).formatToParts(new Date(noon * 1000))
+  let format = offsetFormats.get(timezone)
+  if (!format) { format = new Intl.DateTimeFormat('en-US', { timeZone: timezone, timeZoneName: 'longOffset' }); offsetFormats.set(timezone, format) }
+  const parts = format.formatToParts(new Date(noon * 1000))
   const offset = parts.find((part) => part.type === 'timeZoneName')?.value ?? ''
   const match = /^GMT(?:([+-])(\d{2}):(\d{2}))?$/.exec(offset)
   if (!match) throw new Error('Cannot resolve the agency timezone.')
   const seconds = match[1] ? (Number(match[2]) * 3600 + Number(match[3]) * 60) * (match[1] === '+' ? 1 : -1) : 0
-  return noon - seconds - 43200
+  const epoch = noon - seconds - 43200
+  serviceEpochs.set(key, epoch)
+  return epoch
 }
 
 export class AgencyContext {
@@ -77,6 +89,9 @@ export class AgencyContext {
       }
       this.calendar = this.db.prepare('SELECT * FROM calendar').all()
       this.exceptions = this.db.prepare('SELECT * FROM calendar_dates').all()
+      const dates = [...this.calendar.flatMap(row => [row.start_date, row.end_date]), ...this.exceptions.filter(row => row.exception_type === 1).map(row => row.date)]
+      this.firstDate = dates.length ? dates.reduce((a, b) => Math.min(a, b), Infinity) : null
+      this.lastDate = dates.length ? dates.reduce((a, b) => Math.max(a, b), -Infinity) : null
       this.frequencyTrips = new Set(this.db.prepare('SELECT DISTINCT trip_id FROM frequencies').all().map((row) => row.trip_id))
       this.scopes = [...new Set(this.trips.map((trip) => scopeOf(trip.trip_id)))]
       this.departures = this.db.prepare('SELECT departure, arrival, from_stop_id, to_stop_id, stop_sequence FROM connections WHERE trip_id=? ORDER BY stop_sequence')
@@ -84,15 +99,17 @@ export class AgencyContext {
       // and direction belong to the already-loaded trips; reading them from
       // each connection forces thousands of extra disk lookups during refresh.
       this.referenceDepartures = this.db.prepare('SELECT trip_id, service_id, departure, stop_sequence FROM connections WHERE from_stop_id=? AND departure BETWEEN ? AND ? ORDER BY departure, trip_id')
-      this.activeCache = new Map()
-      this.tripCache = new Map()
+      this.activeCache = new WeightedLruCache({ maxEntries: 16 })
+      this.tripCache = new WeightedLruCache({ maxEntries: 4096, maxSegments: 250_000, maxBytes: 32 * 1024 * 1024 })
+      this.referenceCache = new WeightedLruCache({ maxEntries: 16_384, maxSegments: 100_000, maxBytes: 16 * 1024 * 1024 })
     } catch (error) { this.db.close(); throw error }
   }
 
-  close() { this.db.close() }
+  close() { this.tripCache.clear(); this.activeCache.clear(); this.referenceCache.clear(); this.db.close() }
 
   activeServices(serviceDate) {
-    if (this.activeCache.has(serviceDate)) return this.activeCache.get(serviceDate)
+    const cached = this.activeCache.get(serviceDate)
+    if (cached) return cached
     const token = dateToken(serviceDate)
     const weekday = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][new Date(`${serviceDate}T12:00:00Z`).getUTCDay()]
     const active = new Set(this.calendar.filter((row) => row.start_date <= token && row.end_date >= token && row[weekday] === 1).map((row) => row.service_id))
@@ -101,18 +118,16 @@ export class AgencyContext {
       if (row.exception_type === 2) active.delete(row.service_id)
     }
     this.activeCache.set(serviceDate, active)
-    if (this.activeCache.size > 4) this.activeCache.delete(this.activeCache.keys().next().value)
     return active
   }
 
   coverage(epochSeconds = Date.now() / 1000) {
     const serviceDate = this.timezone ? localDate(epochSeconds, this.timezone) : null
     const token = dateToken(serviceDate)
-    const dates = [...this.calendar.flatMap((row) => [row.start_date, row.end_date]), ...this.exceptions.filter((row) => row.exception_type === 1).map((row) => row.date)]
-    const first = dates.length ? dates.reduce((a, b) => Math.min(a, b), Infinity) : null
-    const last = dates.length ? dates.reduce((a, b) => Math.max(a, b), -Infinity) : null
+    const first = this.firstDate, last = this.lastDate
     const active = serviceDate ? this.activeServices(serviceDate) : new Set()
-    const missingScopes = this.scopes.filter((scope) => ![...active].some((id) => scopeOf(id) === scope))
+    const activeScopes = new Set([...active].map(scopeOf))
+    const missingScopes = this.scopes.filter(scope => !activeScopes.has(scope))
     const valid = Boolean(this.timezone && first && last && token >= first && token <= last && active.size && !missingScopes.length)
     return { valid, timezone: this.timezone, serviceDate, firstDate: isoDate(first), lastDate: isoDate(last), activeServices: active.size,
       message: !this.timezone ? 'A single agency timezone is required.' : token > last ? 'This timetable has expired. Import current GTFS before connecting live feeds.' : token < first ? 'This timetable has not started yet.' : !active.size || missingScopes.length ? 'No active service is established for every feed scope on this date. Check calendar exceptions.' : 'Service dates and calendar exceptions cover today.' }
@@ -135,16 +150,29 @@ export class AgencyContext {
   }
 
   tripDepartures(tripId) {
-    if (!this.tripCache.has(tripId)) this.tripCache.set(tripId, this.departures.all(tripId))
-    return this.tripCache.get(tripId)
+    let rows = this.tripCache.get(tripId)
+    if (!rows) {
+      rows = this.departures.all(tripId)
+      this.tripCache.set(tripId, rows, { segments: rows.length, bytes: JSON.stringify(rows).length * 2 })
+    }
+    return rows
   }
 
   expectedDepartures(trip, stopId, serviceDate, from, to) {
-    const active = this.activeServices(serviceDate)
-    return this.referenceDepartures.all(stopId, from, to).filter((row) => {
-      const scheduled = this.tripById.get(row.trip_id)
-      return active.has(row.service_id) && scheduled?.route_id === trip.route_id && scheduled.direction_id === trip.direction_id
-    })
+    // Read whole service-clock hours so advancing the observation by seconds
+    // reuses static rows. Always apply the exact, inclusive request bounds below.
+    const first = Math.floor(from / 3600) * 3600, last = Math.ceil(to / 3600) * 3600
+    const key = JSON.stringify([trip.route_id, trip.direction_id, stopId, serviceDate, first, last])
+    let rows = this.referenceCache.get(key)
+    if (!rows) {
+      const active = this.activeServices(serviceDate)
+      rows = this.referenceDepartures.all(stopId, first, last).filter(row => {
+        const scheduled = this.tripById.get(row.trip_id)
+        return active.has(row.service_id) && scheduled?.route_id === trip.route_id && scheduled.direction_id === trip.direction_id
+      })
+      this.referenceCache.set(key, rows, { segments: rows.length, bytes: key.length * 2 + JSON.stringify(rows).length * 2 })
+    }
+    return rows.filter(row => row.departure >= from && row.departure <= to)
   }
 
   overview(epochSeconds) {

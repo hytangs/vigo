@@ -4,6 +4,34 @@ export const defaultPolicy = Object.freeze({ freshnessSeconds: 180, windowMinute
 const finite = (value) => typeof value === 'number' && Number.isFinite(value)
 const eventId = (...parts) => parts.map((part) => encodeURIComponent(String(part ?? ''))).join('/')
 const severityOrder = { critical: 0, warning: 1, info: 2 }
+const departureIndexes = new WeakMap()
+
+function groupRows(rows, key) {
+  const groups = new Map()
+  for (const row of rows) {
+    const id = key(row)
+    if (!groups.has(id)) groups.set(id, [])
+    groups.get(id).push(row)
+  }
+  return groups
+}
+
+function reportedDeparture(rows, { stopSequence, stopId }) {
+  if (stopSequence === undefined && !stopId) return null
+  let index = departureIndexes.get(rows)
+  if (!index) {
+    index = { sequences: groupRows(rows, row => row.stop_sequence), stops: groupRows(rows, row => rawId(row.from_stop_id)) }
+    departureIndexes.set(rows, index)
+  }
+  const candidates = stopSequence !== undefined ? index.sequences.get(stopSequence) : index.stops.get(rawId(stopId))
+  let match = null
+  for (const row of candidates ?? []) {
+    if (stopId && (String(stopId).includes('\u001f') ? row.from_stop_id !== stopId : rawId(row.from_stop_id) !== rawId(stopId))) continue
+    if (match) return null
+    match = row
+  }
+  return match
+}
 
 export function feedStates(snapshot, nowSeconds, policy = defaultPolicy) {
   return (snapshot?.feeds ?? []).map((feed) => {
@@ -29,7 +57,8 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
     color: /^[0-9a-f]{6}$/i.test(route.color) ? `#${route.color}` : 'var(--text-muted)', mode: route.route_type,
     trips: 0, reportingTrips: 0, maxDelaySeconds: null, events: 0, alerts: 0, headway: 'unknown', widestInterval: null,
   }]))
-  if (coverage.serviceDate) for (const trip of context.trips) if (context.activeServices(coverage.serviceDate).has(trip.service_id)) routes.get(trip.route_id).trips++
+  const active = coverage.serviceDate ? context.activeServices(coverage.serviceDate) : new Set()
+  for (const trip of context.trips) if (active.has(trip.service_id)) routes.get(trip.route_id).trips++
   const add = (type, identity, fields) => events.push({ id: eventId(type, ...identity), type, severity: 'info', observedAt: generatedAt, ...fields })
   const sourceFresh = (record) => feedByUrl.get(record.sourceUrl)?.status === 'fresh'
   const recordFresh = (record) => sourceFresh(record) && (!finite(record.timestamp) || nowSeconds - record.timestamp <= policy.freshnessSeconds && record.timestamp - nowSeconds <= policy.freshnessSeconds)
@@ -69,9 +98,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
     const predictions = []
     const sequenceCounts = new Map()
     const resolvedStops = (update.stopTimeUpdates ?? []).map((stopUpdate) => {
-      const candidates = departures.filter((row) => (stopUpdate.stopSequence === undefined || row.stop_sequence === stopUpdate.stopSequence)
-        && (!stopUpdate.stopId || (String(stopUpdate.stopId).includes('\u001f') ? row.from_stop_id === stopUpdate.stopId : rawId(row.from_stop_id) === rawId(stopUpdate.stopId))))
-      const row = candidates.length === 1 && (stopUpdate.stopSequence !== undefined || stopUpdate.stopId) ? candidates[0] : null
+      const row = reportedDeparture(departures, stopUpdate)
       if (row) sequenceCounts.set(row.stop_sequence, (sequenceCounts.get(row.stop_sequence) ?? 0) + 1)
       return { stopUpdate, row }
     })
@@ -97,7 +124,9 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       if (!groups.has(key)) groups.set(key, { trip, stopId: row.from_stop_id, serviceDate, epoch, predictions: [] })
       groups.get(key).predictions.push(prediction)
     }
-    const next = predictions.filter((prediction) => prediction.predictedTime >= nowSeconds && prediction.predictedTime <= nowSeconds + policy.windowMinutes * 60).sort((a, b) => a.predictedTime - b.predictedTime)[0]
+    let next
+    for (const prediction of predictions) if (prediction.predictedTime >= nowSeconds && prediction.predictedTime <= nowSeconds + policy.windowMinutes * 60
+      && (!next || prediction.predictedTime < next.predictedTime)) next = prediction
     if (next) {
       route.maxDelaySeconds = Math.max(route.maxDelaySeconds ?? -Infinity, next.delaySeconds)
       if (next.delaySeconds > 0) add('delay', [...identity, next.sequence], { ...base, stopId: next.stopId, title: 'Departure later than scheduled', evidence: { scheduledTime: next.scheduledTime, predictedTime: next.predictedTime, delaySeconds: next.delaySeconds } })
@@ -153,17 +182,20 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
   if (!measuredIntervals && snapshot) warnings.push('No fully reporting departure pair is available in the comparison window. Headway health is unknown.')
 
   let activeAlerts = 0
+  let alertRoutes, alertStops
   for (const alert of snapshot?.alerts ?? []) {
     if (!sourceFresh(alert)) continue
     if (alert.activePeriods?.length && !alert.activePeriods.some((period) => (!period.start || period.start <= nowSeconds) && (!period.end || period.end > nowSeconds))) continue
     activeAlerts++
-    const resolveAlertIds = (ids, rows, field) => [...new Set(ids.flatMap((id) => {
-      const matches = rows.filter((row) => (String(id).includes('\u001f') ? row[field] === id : rawId(row[field]) === String(id)) && (!alert.sourceScope || scopeOf(row[field]) === alert.sourceScope))
+    alertRoutes ??= groupRows(context.routes, row => rawId(row.route_id))
+    alertStops ??= groupRows(context.stops, row => rawId(row.stop_id))
+    const resolveAlertIds = (ids, index, field) => [...new Set(ids.flatMap((id) => {
+      const matches = (index.get(rawId(id)) ?? []).filter((row) => (String(id).includes('\u001f') ? row[field] === id : rawId(row[field]) === String(id)) && (!alert.sourceScope || scopeOf(row[field]) === alert.sourceScope))
       if (matches.length > 1) { warnings.push(`Alert ${alert.id}: ${field} ${id} is ambiguous across source scopes and is not assigned.`); return [] }
       return matches.map((row) => row[field])
     }))]
-    const routeIds = resolveAlertIds(alert.routeIds ?? [], context.routes, 'route_id')
-    const stopIds = resolveAlertIds(alert.stopIds ?? [], context.stops, 'stop_id')
+    const routeIds = resolveAlertIds(alert.routeIds ?? [], alertRoutes, 'route_id')
+    const stopIds = resolveAlertIds(alert.stopIds ?? [], alertStops, 'stop_id')
     for (const routeId of routeIds) routes.get(routeId).alerts++
     add('service-alert', [alert.sourceUrl, alert.id], { observedAt: new Date(feedByUrl.get(alert.sourceUrl).feedTimestamp * 1000).toISOString(), title: alert.header || 'Service alert', routeId: routeIds.length === 1 ? routeIds[0] : undefined, routeIds, stopIds,
       severity: alert.severity === 'SEVERE' ? 'critical' : alert.severity === 'WARNING' ? 'warning' : 'info',
