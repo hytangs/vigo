@@ -12,6 +12,7 @@ import { findWalk } from './findWalk.mjs'
 import { serviceProfile } from './serviceProfile.mjs'
 import { stopBoard } from './stopBoard.mjs'
 import { historicalComparison } from './operations.mjs'
+import { currentTime, currentTimeTool } from './currentTime.mjs'
 
 export function failedToolResult(error, generatedAt) {
   const message = error instanceof Error ? error.message : 'This check could not be completed.'
@@ -29,6 +30,7 @@ const serviceMinutes = { type: 'integer', minimum: 0, maximum: 2880 }
 const journey = { origin: transitPoint, serviceDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, departTime: { type: 'string', pattern: '^(?:[0-3][0-9]|4[0-7]):[0-5][0-9]$|^48:00$', description: 'Local HH:MM; hours 24–48 continue the service day.' } }
 
 export const toolDefinitions = [
+  currentTimeTool,
   { name: 'stop_arrivals', description: 'Next services at a station, using the shared station board and current City clock. Default: next departure per route and direction within 24 hours, including after a night break. next_hour shows the next hour. Predictions and schedules stay separate. Supply a GTFS stop ID or unique exact station name; if no station is named or selected, ask which station. Omit routeId for every route, even when a route is selected on the map. Never substitute a network service profile.', parameters: object({ stopId: { type: 'string', maxLength: 500, description: 'GTFS stop ID or exact station name. Ambiguous names require a choice.' }, routeId: string, view: { type: 'string', enum: ['next_per_route', 'next_hour'] }, event: { type: 'string', enum: ['departure', 'arrival'] } }, ['stopId']) },
   { name: 'compare_holding', description: 'Compare no intervention, a target-headway baseline and a constrained passenger-time optimizer for the open SYNTHETIC Operations replay. Never a live dispatch recommendation. The case must already be opened by staff. Approval and delivery are staff-only.', parameters: object({ caseId: { type: 'string', maxLength: 80 } }, ['caseId']) },
   { name: 'inspect_service', description: 'Investigate service in one check: network/route patterns, shared locations, gaps, trip prediction history, agency causes, occupancy reports and scheduled outlook. Default diagnosis bundles the relevant evidence. Omit scope for the whole network; exact route names and station names are accepted. Use for why, impact, missing service, actions and confidence questions. Outlook is scheduled exposure, NOT a recovery or intervention forecast.', parameters: object({ routeIds: { type: 'array', items: string, minItems: 1, maxItems: 8 }, routeNames: routeScope.properties.routeNames, stopIds: { type: 'array', items: { type: 'string', description: 'Exact station ID or full name.' }, maxItems: 30 }, tripId: string, vehicleId: string,
@@ -63,7 +65,7 @@ export const internalToolDefinitions = [{ name: 'matrix', description: 'Compute 
 }, ['origins', 'destinations', 'serviceDate', 'departMinutes']) }]
 
 
-export function createToolRegistry({ context, state, snapshot, adapters, notebook, operations, scheduleIdentity, places, web, signal }) {
+export function createToolRegistry({ context, state, snapshot, adapters, notebook, operations, scheduleIdentity, places, web, signal, now = Date.now }) {
   const generatedAt = state.generatedAt
   const belongs = (event, routeId) => !routeId || event.routeId === routeId || event.routeIds?.includes(routeId)
   const envelope = (data, provenance = [], warnings = [], presentation) => ({ ok: true, data, provenance, generatedAt, warnings, ...(presentation ? { presentation } : {}) })
@@ -81,6 +83,10 @@ export function createToolRegistry({ context, state, snapshot, adapters, noteboo
       delete args.departMinutes
     }
     validateArguments(args, definition.parameters)
+    if (name === 'current_time') {
+      const data = currentTime(args.timezones, context.timezone, now())
+      return { ...envelope(data, ['VIGO server clock · runtime IANA timezone rules']), generatedAt: data.instant }
+    }
     if (name === 'compare_holding') {
       if (!adapters.compareHolding) throw new Error('The synthetic replay is unavailable.')
       return envelope(await adapters.compareHolding(args.caseId, signal), ['VIGO synthetic holding replay'], ['Simulated inputs and effects; no dispatch or field validation.'])

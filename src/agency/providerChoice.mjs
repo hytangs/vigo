@@ -28,7 +28,8 @@ export function providerChoice(messages, tools, initialTools = tools, selectionO
   // the user's objective before selecting a tool. It is not a reasoning log.
   const task = { type: 'string', description: 'Briefly restate the latest request, preserving its scope, horizon and requested deliverables. A selected route does not narrow a network question.' }
   const framing = selectionOnly || requiredTool ? {} : { task }
-  const answer = object({ ...framing, action: { type: 'string', enum: ['answer'] }, text: { type: 'string' } })
+  const answer = object({ ...framing, action: { type: 'string', enum: ['answer'] }, text: { type: 'string',
+    description: `Answer from stable knowledge or checked evidence.${tools.some(tool => tool.name === 'current_time') ? ' Current time/date questions, including follow-ups, require current_time instead; never compute timezone conversions in this field.' : ''}` } })
   const action = tool => ({ ...object({ ...framing, action: { type: 'string', enum: [tool.name] }, arguments: tool.parameters }), description: tool.description })
   if (requiredTool && !tools.some(tool => tool.name === requiredTool)) throw new Error('The required response tool is unavailable.')
   const restricted = selectionOnly || Boolean(requiredTool)

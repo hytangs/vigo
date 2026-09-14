@@ -240,7 +240,8 @@ assert.ok(streamedAnswer.timing.firstResponseMs >= 0)
 assert.equal(streamedAnswer.timing.promptMs, 3)
 assert.equal(streamedAnswer.timing.loadMs, 2)
 assert.equal(streamedAnswer.timing.generationMs, 4)
-assert.deepEqual(streamedProgress.map(item => item.detail), ['Working on your request…', 'Writing the answer…'], 'Activity replaces one phase without printing hidden reasoning')
+assert.deepEqual(streamedProgress.map(item => item.detail), ['Working on your request…', 'Preparing a response…', 'Writing the answer…'], 'Activity reports progress without printing hidden reasoning')
+assert.equal(new Set(streamedProgress.map(item => item.phase)).size, 1, 'Status updates replace the same activity row')
 let failedJourneyTurn = 0
 const noJourney = await queryAgency({ question: 'Find a bus to the airport', context, state,
   callTool: async () => ({ ok: false, data: { error: 'Place search timed out.' }, warnings: ['Place search timed out.'], provenance: [] }),

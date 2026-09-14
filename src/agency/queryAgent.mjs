@@ -6,6 +6,7 @@ import { explainFindWalk } from './findWalk.mjs'
 import { discoverableTools } from './toolDiscovery.mjs'
 import { createJourneyChoices, coordinateChoices } from './journeyChoices.mjs'
 import { agencyClock } from './agencyClock.mjs'
+import { describeCurrentTime } from './currentTime.mjs'
 import { inspectionFacts } from './serviceInspection.mjs'
 import { isDeepStrictEqual } from 'node:util'
 
@@ -103,7 +104,8 @@ function replyText(content) {
 
 function conversationEvidence(item) {
   return { savedAt: item.observedAt, selection: item.selection, previousRequests: item.requests,
-    priorFindings: item.findings?.map(call => ({ tool: call.tool, arguments: call.arguments, result: JSON.parse(compactResult(call.result, call.tool)) })) }
+    priorFindings: item.findings?.map(call => ({ tool: call.tool, arguments: call.arguments, result: JSON.parse(compactResult(call.result, call.tool)),
+      ...(call.tool === 'current_time' ? { freshness: 'Historical clock reading. Use current_time again for a new time question, including a different city.' } : {}) })) }
 }
 
 export async function queryAgency({ question, context, state, callTool, provider, signal, onProgress = () => {}, history = [], selection = {}, placesAvailable = true, placeEndpoint, placeDetailsEndpoint, webStatus = {} }) {
@@ -173,17 +175,21 @@ export async function queryAgency({ question, context, state, callTool, provider
       currentTools = [{ name: 'prepare_tools', description: 'If a material part of the request still needs evidence, select tools to continue. inspect_service: diagnosis/outlook; historical_baseline or historical_runtime: historical comparison; recall_notebook: saved work; operational_context: approved public references; service_alerts: notices; stop_arrivals: station times; route_plan: journeys; runtime_status: deployment facts. Otherwise answer the staff question now.',
         parameters: { type: 'object', properties: { names: { type: 'array', items: { type: 'string', enum: availableTools.map(tool => tool.name) }, minItems: 1, maxItems: 4 } }, required: ['names'], additionalProperties: false } }]
     }
+    const waiting = setTimeout(() => {
+      if (!signal?.aborted) onProgress({ phase: trace.length ? 'response' : 'planning', progress: 0, detail: 'Waiting for the model…' })
+    }, 8000)
     try { message = await provider.complete(inferenceMessages, canUseTools ? currentTools : [], signal, {
       structuredTools: true, initialTools: composeAssessment ? currentTools : initialTools, selectionOnly: selectingLocations,
       ...(selectingLocations ? { toolChoice: { type: 'function', function: { name: 'route_plan' } } } : {}),
       onActivity(kind) {
         if (signal?.aborted) return
+        clearTimeout(waiting)
         timing.firstResponseMs ??= performance.now() - startedAt
-        if (kind !== 'thinking' && kind !== 'decision') onProgress({ phase: trace.length ? 'response' : 'planning', progress: 0, detail: kind === 'tool' ? 'Preparing the next check…' : 'Writing the answer…' })
+        onProgress({ phase: trace.length ? 'response' : 'planning', progress: 0, detail: kind === 'thinking' || kind === 'decision' ? 'Preparing a response…' : kind === 'tool' ? 'Preparing the next check…' : 'Writing the answer…' })
       },
     }) }
     catch (error) { if (signal?.aborted) break; warnings.push(error.message); break }
-    finally { timing.modelMs += performance.now() - modelStartedAt }
+    finally { clearTimeout(waiting); timing.modelMs += performance.now() - modelStartedAt }
     if (Number.isFinite(message?.usage?.prompt_tokens)) timing.inputTokens = (timing.inputTokens ?? 0) + message.usage.prompt_tokens
     if (Number.isFinite(message?.usage?.completion_tokens)) timing.outputTokens = (timing.outputTokens ?? 0) + message.usage.completion_tokens
     for (const key of ['loadMs', 'promptMs', 'generationMs']) if (Number.isFinite(message?.metrics?.[key])) timing[key] = (timing[key] ?? 0) + message.metrics[key]
@@ -291,6 +297,11 @@ export async function queryAgency({ question, context, state, callTool, provider
     if (trace.at(-1)?.result.data?.status === 'needs_user_location') {
       answer = journeyChoices.clarification(); renderedFromEvidence = true; break
     }
+    if (calls.length === 1 && calls[0].function.name === 'current_time' && trace.at(-1)?.arguments.resultUse === 'answer' && trace.at(-1).result.ok) {
+      answer = `${describeCurrentTime(trace.at(-1).result.data)} [${trace.length}]`
+      renderedFromEvidence = true
+      break
+    }
     if (calls.length === 1 && calls[0].function.name === 'stop_arrivals' && finishWithTable && trace.at(-1)?.result.ok) {
       answer = `${summarizeEvidence(trace)} [${trace.length}]`
       renderedFromEvidence = true
@@ -344,12 +355,14 @@ export async function queryAgency({ question, context, state, callTool, provider
     timing: { ...timing, totalMs: performance.now() - startedAt },
     aiGenerated: Boolean(answer) && !renderedFromEvidence, model: answer ? provider.model : undefined, citations: [...citations],
     runtime: withRuntimeActivity(runtime, trace), timezone: clock?.timezone ?? null,
-    trace, evidenceRefs: [...new Set(trace.flatMap((call) => call.result.provenance))], generatedAt: state.generatedAt,
+    trace, evidenceRefs: [...new Set(trace.flatMap((call) => call.result.provenance))],
+    generatedAt: renderedFromEvidence && trace.at(-1)?.tool === 'current_time' ? trace.at(-1).result.generatedAt : state.generatedAt,
     warnings: [...new Set([...warnings, ...trace.flatMap((call) => call.result.warnings)])], providerAvailable: true,
   }
 }
 
 function describeTool(name, args, context) {
+  if (name === 'current_time') return 'Checking the current clock…'
   if (name === 'workspace_selection') return 'Reading the selected route and station…'
   if (name === 'inspect_service') return 'Checking service patterns, affected trips and possible explanations…'
   if (name === 'runtime_status') return 'Reading this answer’s model and network configuration…'
@@ -362,6 +375,7 @@ function describeTool(name, args, context) {
 }
 
 function describeToolResult(name, { data }) {
+  if (name === 'current_time') return 'Checked the current time and timezone.'
   if (name === 'workspace_selection') return 'Read the current workspace selection.'
   if (name === 'inspect_service') return data.routes ? `Checked ${data.totalRoutes} routes and the available operational evidence.` : 'Checked the requested service evidence.'
   if (name === 'runtime_status') return 'Read the server configuration and its verification limits.'

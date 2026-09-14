@@ -1,3 +1,5 @@
+import { describeCurrentTime } from './currentTime.mjs'
+
 function describeObservation(data) {
   const feeds = (data.feeds ?? []).map((feed) => `${feed.kind === 'tripUpdates' ? 'Trip updates' : feed.kind === 'vehicles' ? 'Vehicles' : feed.kind === 'alerts' ? 'Alerts' : 'Feed'}: ${feed.status}${feed.ageSeconds == null ? '' : `, ${Math.round(feed.ageSeconds)} seconds old`}`).join('; ')
   return `The feeds report ${data.counts.vehicles} vehicles with recent locations and ${data.counts.alerts} active service alerts. We matched ${data.counts.matchedTrips} trip reports to the timetable; ${data.counts.unresolvedTrips} could not be matched. ${feeds}. These reports do not cover every departure.`
@@ -11,6 +13,7 @@ export function summarizeEvidence(trace) {
   const last = good.at(-1)
   const data = last.result.data
   switch (last.tool) {
+    case 'current_time': return describeCurrentTime(data)
     case 'inspect_service': return data.routes ? `Checked service conditions for ${data.scope?.allNetwork ? 'the network' : data.scope?.routes?.map(route => route.name).join(', ') || 'the selected location'}. ${data.totalReportingTrips} ${data.totalReportingTrips === 1 ? 'trip has' : 'trips have'} comparable departure predictions; ${data.totalNotices} agency ${data.totalNotices === 1 ? 'notice was' : 'notices were'} found. A completed interpretation is not yet available.` : 'The requested service evidence was checked. A completed interpretation is not yet available.'
     case 'stop_arrivals': return data.board.rows.length ? `${data.board.nextPerRoute ? 'Next service for each route and direction' : 'Upcoming service'} at ${data.board.stop.name}. Predictions are shown where available; other times are scheduled.` : `No timed service was found at ${data.board.stop.name} in the next ${data.board.windowMinutes / 60} hours. This does not establish that all service has stopped.`
     case 'reference_lookup':
