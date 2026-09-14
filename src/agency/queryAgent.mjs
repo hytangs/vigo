@@ -10,7 +10,7 @@ import { agencyClock } from './agencyClock.mjs'
 // Source URLs can contain feed credentials. Keep them in the local evidence
 // record; model decisions need values and timestamps, not connection URLs.
 function modelResult(value) {
-  return JSON.stringify(value, (key, item) => ['provenance', 'sourceRefs', 'sourceUrl', 'sources'].includes(key) ? undefined : item)
+  return JSON.stringify(value, (key, item) => ['provenance', 'sourceRefs', 'sourceUrl', 'sources', 'sourceManifest', 'evaluationFile'].includes(key) ? undefined : item)
 }
 
 export function compactResult(result, tool) {
@@ -83,10 +83,10 @@ function replyText(content) {
   return text.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '').trim()
 }
 
-export async function queryAgency({ question, context, state, callTool, provider, signal, onProgress = () => {}, history = [], selection = {}, placesAvailable = true, placeEndpoint, placeDetailsEndpoint, webStatus = {} }) {
+export async function queryAgency({ question, context, state, callTool, provider, signal, onProgress = () => {}, history = [], selection = {}, placesAvailable = true, placeEndpoint, placeDetailsEndpoint, runtimeStudyAvailable = false, webStatus = {} }) {
   if (typeof question !== 'string' || !question.trim() || question.length > 2000) throw new Error('Ask a question using 1–2000 characters.')
   if (!provider.available) return { answer: 'Connect a model in Ask to start a conversation. Live observations and built-in skills are available now.', trace: [], evidenceRefs: [], generatedAt: state.generatedAt, warnings: [], providerAvailable: false }
-  const runtime = queryRuntimeFacts({ provider, webStatus, placesAvailable, placeEndpoint, placeDetailsEndpoint, generatedAt: state.generatedAt })
+  const runtime = queryRuntimeFacts({ provider, webStatus, placesAvailable, placeEndpoint, placeDetailsEndpoint, runtimeStudyAvailable, generatedAt: state.generatedAt })
   onProgress({ phase: 'planning', progress: 0, detail: 'Working on your request…' })
   const overview = JSON.parse(modelResult(context.overview(Date.parse(state.generatedAt) / 1000)))
   const clock = agencyClock(state.generatedAt, context.timezone)
@@ -98,7 +98,7 @@ export async function queryAgency({ question, context, state, callTool, provider
     ...history.flatMap((item) => [{ role: 'user', content: item.question }, { role: 'assistant', content: item.answer.slice(0, 2000) }]),
     { role: 'user', content: question },
   ]
-  const capabilities = { place_search: placesAvailable, find_walk: placesAvailable, web_search: Boolean(webStatus.searchAvailable && webStatus.provider !== 'wikipedia'), reference_lookup: Boolean(webStatus.searchAvailable && webStatus.provider === 'wikipedia'), web_read: Boolean(webStatus.readAvailable) }
+  const capabilities = { run_runtime_study: runtimeStudyAvailable, place_search: placesAvailable, find_walk: placesAvailable, web_search: Boolean(webStatus.searchAvailable && webStatus.provider !== 'wikipedia'), reference_lookup: Boolean(webStatus.searchAvailable && webStatus.provider === 'wikipedia'), web_read: Boolean(webStatus.readAvailable) }
   const availableTools = [...toolDefinitions.filter(tool => capabilities[tool.name] !== false), runtimeTool]
   const discovery = discoverableTools(availableTools, history.flatMap(item => item.requests?.map(call => call.tool) ?? []))
   const journeyChoices = createJourneyChoices(toolDefinitions.find(tool => tool.name === 'route_plan'))

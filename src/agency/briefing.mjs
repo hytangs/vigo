@@ -1,4 +1,7 @@
 import { summarizeEvidence } from './evidenceSummary.mjs'
+import { diagnoseNetwork, compactDiagnosis } from './networkDiagnosis.mjs'
+import { networkNarrative } from './networkNarrative.mjs'
+import { investigateBriefing } from './briefingInvestigation.mjs'
 
 const number = (value) => value > 0 && value < 0.1 ? 'less than 0.1' : Number(value.toFixed(1)).toLocaleString('en-US')
 export function briefingFacts(trace) {
@@ -7,6 +10,11 @@ export function briefingFacts(trace) {
   for (const [index, call] of trace.entries()) {
     if (!call.result.ok) continue
     const source = index + 1, data = call.result.data
+    if (data.dataset === 'MBTA LAMP subway performance' && data.comparison) {
+      const c = data.comparison
+      add(source, `On held-out dates after ${data.range.trainEnd} through ${data.range.end}, historical segment predictions had ${number(c.historical.maeSeconds)} seconds mean absolute error, compared with ${number(c.scheduled.maeSeconds)} seconds for the matched timetable. Both were evaluated on the same ${c.scoredTestSegments.toLocaleString('en-US')} segment records.`)
+      add(source, 'This retrospective study uses reconstructed LAMP stop events, which can include final arrival predictions. It does not validate current incidents, recovery, or passenger impact. Adjacent segments from the same trip are not independent observations.')
+    }
     const observation = data.observation || (call.tool === 'realtime_status' ? data : null)
     if (observation?.connected) {
       const sources = observation.feeds ?? []
@@ -40,6 +48,9 @@ export function briefingFacts(trace) {
 // attached to their computed values; model prose cannot invent a cause or count.
 export async function synthesizeEvidence({ trace, provider, signal, instructions = '', onProgress = () => {} }) {
   const facts = briefingFacts(trace)
+  const network = trace.find(call => call.result.ok && call.result.data.narrative)?.result.data.narrative
+  if (network) return { text: [network.overview, ...network.sections.map(section => `${section.title}\n${section.text}`), network.coverage].join('\n\n'), aiGenerated: false, citations: [] }
+  if (trace.length === 1 && trace[0].result.data.dataset === 'MBTA LAMP subway performance') return { text: facts.map(fact => fact.text).join('\n\n'), aiGenerated: false, citations: [] }
   const operational = trace.some((call) => ['network_overview', 'realtime_status', 'anomaly_scan', 'service_alerts'].includes(call.tool))
   const scopeNote = operational ? 'Departure predictions cover reporting trips, not every departure.' : undefined
   if (!provider.available || !facts.length) return { text: facts.length ? facts.slice(0, 2).map((fact) => fact.text).join('\n\n') : operational ? 'No specific service issue was established by these checks. This does not establish that every route is running to schedule.' : summarizeEvidence(trace), scopeNote, aiGenerated: false, citations: [] }
@@ -61,12 +72,36 @@ export async function synthesizeEvidence({ trace, provider, signal, instructions
   return { text: paragraphs.join('\n\n'), scopeNote, citations: [...citations], aiGenerated: true, model: provider.model }
 }
 
-export async function networkBriefing({ state, callTool, provider, signal, onProgress }) {
-  const steps = [['network_overview', {}], ['anomaly_scan', { eventType: 'service-gap', sortBy: 'headwayChange', groupBy: 'route' }], ['anomaly_scan', { eventType: 'delay', sortBy: 'delay', groupBy: 'route' }], ['service_alerts', {}]]
-  const trace = []
-  for (const [tool, args] of steps) trace.push({ tool, arguments: args, result: await callTool(tool, args) })
-  let summary, warning
-  try { summary = await synthesizeEvidence({ trace, provider, signal, onProgress }) }
-  catch (error) { if (signal?.aborted) throw error; warning = error.message; summary = await synthesizeEvidence({ trace, provider: { available: false } }) }
-  return { answer: summary.text, scopeNote: summary.scopeNote, aiGenerated: summary.aiGenerated, model: summary.model, citations: summary.citations, trace, generatedAt: state.generatedAt, evidenceRefs: [...new Set(trace.flatMap((call) => call.result.provenance))], warnings: [...new Set(trace.flatMap((call) => call.result.warnings)), ...(warning ? [warning] : [])], providerAvailable: provider.available }
+export async function networkBriefing({ context, state, provider, callTool, signal, scheduleIdentity, onProgress = () => {} }) {
+  onProgress({ phase: 'assessment', progress: 0, detail: 'Assessing scheduled service, reporting coverage, and shared locations…' })
+  const diagnosis = diagnoseNetwork(context, state), narrative = networkNarrative(diagnosis)
+  const provenance = ['GTFS Static · indexed VIGO City', ...state.feeds.map(feed => feed.sourceUrl)]
+  const trace = [{ tool: 'network_overview', arguments: {}, result: { ok: true, data: { diagnosis: compactDiagnosis(diagnosis) }, provenance, generatedAt: state.generatedAt, warnings: state.warnings } }]
+  onProgress({ phase: 'assessment', progress: 1, detail: 'Network assessment ready. Route and trip evidence retained.' })
+  const answer = { answer: [narrative.overview, ...narrative.sections.map(section => `${section.title}\n${section.text}`), narrative.elsewhere, narrative.coverage].filter(Boolean).join('\n\n'),
+    diagnosis, narrative, scheduleIdentity, aiGenerated: false, trace, timezone: context.timezone, generatedAt: state.generatedAt, evidenceRefs: provenance, warnings: [...state.warnings], providerAvailable: state.provider?.available ?? false }
+  onProgress({ preliminary: answer })
+  try {
+    const investigation = await investigateBriefing({ diagnosis, narrative, provider, callTool, signal, onProgress })
+    if (investigation) {
+      answer.trace.push(...investigation.trace)
+      answer.investigation = { plan: investigation.plan, focusTitle: investigation.focusTitle, explanation: investigation.explanation, watchNext: investigation.watchNext, assessment: investigation.assessment, rankedHypotheses: investigation.rankedHypotheses, facts: investigation.facts, incomplete: investigation.incomplete,
+        checks: investigation.trace.map(call => ({ aspect: call.arguments.aspect, completed: call.result.ok })) }
+      if (investigation.narrative) {
+        answer.narrative = investigation.narrative; answer.aiGenerated = true; answer.model = provider.model
+        answer.answer = [answer.narrative.overview, ...answer.narrative.sections.map(section => `${section.title}\n${section.text}`), `Working explanation · ${investigation.focusTitle}: ${investigation.explanation.text}`, `Watch next: ${investigation.watchNext}`].join('\n\n')
+      }
+      answer.evidenceRefs = [...new Set(answer.trace.flatMap(call => call.result.provenance))]
+    }
+  } catch (error) {
+    if (signal?.aborted) throw error
+    answer.investigation = { incomplete: true, checks: [] }
+    if (error.completedTrace) {
+      answer.trace.push(...error.completedTrace)
+      answer.investigation = { plan: error.investigationPlan, incomplete: true, checks: error.completedTrace.map(call => ({ aspect: call.arguments.aspect, completed: call.result.ok })) }
+      answer.evidenceRefs = [...new Set(answer.trace.flatMap(call => call.result.provenance))]
+    }
+    answer.warnings.push(`The AI investigation could not finish. The computed assessment is retained. ${error.message}`)
+  }
+  return answer
 }

@@ -2,10 +2,13 @@
 // every journey/SQL parameter for ordinary conversation. Selection is the
 // model's decision, never a keyword classifier over the user's question.
 const descriptions = {
+  inspect_service: 'Test hypotheses using surrounding service, prediction progression, vehicle agreement, alerts and historical evidence',
+  historical_runtime: 'LAMP running-time study and chronological prediction accuracy',
+  run_runtime_study: 'Run an explicitly requested LAMP historical study for past dates',
   operational_context: 'City SOPs, maintenance, operating notes and tracked findings',
   historical_baseline: 'Comparable historical prediction summaries and chronological evaluation',
   runtime_status: 'Server-recorded model connection and privacy limits',
-  network_overview: 'City, timetable coverage, counts and feed ages',
+  network_overview: 'Computed network diagnosis, all-service coverage, shared corridor patterns and counts',
   recall_notebook: 'Saved conversations and staff notes',
   resolve_entities: 'GTFS stops and routes by name',
   place_search: 'Business and address coordinates',

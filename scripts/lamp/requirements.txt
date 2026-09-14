@@ -1,0 +1,5 @@
+# Versions used for the retained study and figure; optional research runtime.
+pandas==2.3.3
+numpy==2.3.4
+pyarrow==22.0.0
+matplotlib==3.10.7

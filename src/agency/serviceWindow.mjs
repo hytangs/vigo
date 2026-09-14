@@ -1,0 +1,37 @@
+import { localDate, serviceEpoch } from './agencyContext.mjs'
+
+const spansByContext = new WeakMap()
+const key = (tripId, serviceDate) => JSON.stringify([tripId, serviceDate])
+export const tripInstance = (trip) => key(trip.tripId, trip.serviceDate)
+
+// Build once per read-only timetable. A service opportunity is the part of a
+// scheduled trip intersecting the assessment window, not its entire day's work.
+export function scheduledServiceWindow(context, from, to) {
+  if (!context.timezone) return { trips: [], excludedFrequencyTemplates: 0 }
+  if (!spansByContext.has(context)) {
+    const spans = context.db.prepare('SELECT trip_id, MIN(departure) AS first, MAX(arrival) AS last FROM connections GROUP BY trip_id').all()
+    spansByContext.set(context, { spans, maxServiceSeconds: spans.reduce((max, row) => Math.max(max, row.last), 0) })
+  }
+  const { spans, maxServiceSeconds } = spansByContext.get(context)
+  const date = localDate(from, context.timezone)
+  const noon = Date.parse(`${date}T12:00:00Z`)
+  const trips = [], excluded = new Set()
+  // Include prior service days with 24:00+ trips, and tomorrow when the window
+  // crosses midnight. Each date uses the GTFS noon-minus-12-hours clock (DST).
+  const daysBack = Math.ceil(maxServiceSeconds / 86400)
+  const lastDate = localDate(to, context.timezone)
+  for (let offset = -daysBack; ; offset++) {
+    const serviceDate = new Date(noon + offset * 86400000).toISOString().slice(0, 10)
+    if (serviceDate > lastDate) break
+    const epoch = serviceEpoch(serviceDate, context.timezone), active = context.activeServices(serviceDate)
+    for (const row of spans) {
+      const trip = context.tripById.get(row.trip_id)
+      if (!trip || !active.has(trip.service_id)) continue
+      const seconds = Math.max(0, Math.min(to, epoch + row.last) - Math.max(from, epoch + row.first))
+      if (!seconds) continue
+      if (context.frequencyTrips.has(trip.trip_id)) { excluded.add(trip.trip_id); continue }
+      trips.push({ key: key(trip.trip_id, serviceDate), tripId: trip.trip_id, routeId: trip.route_id, directionId: trip.direction_id, serviceDate, seconds })
+    }
+  }
+  return { trips, excludedFrequencyTemplates: excluded.size }
+}

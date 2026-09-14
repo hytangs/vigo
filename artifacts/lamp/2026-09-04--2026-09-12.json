@@ -1,0 +1,6766 @@
+{
+  "comparison": {
+    "eligibleTestSegments": 90348,
+    "scoredTestSegments": 90339,
+    "coverage": 0.9999003851773144,
+    "scheduled": {
+      "cases": 90339,
+      "maeSeconds": 56.02118686281673,
+      "p90AbsoluteErrorSeconds": 95.0,
+      "biasSeconds": -46.35326935210706
+    },
+    "historical": {
+      "cases": 90339,
+      "maeSeconds": 14.101412457521114,
+      "p90AbsoluteErrorSeconds": 29.0,
+      "biasSeconds": 6.9660667043026825
+    },
+    "maeChangeSeconds": -41.91977440529561
+  },
+  "days": [
+    {
+      "serviceDate": "20260910",
+      "scheduled": {
+        "cases": 32649,
+        "maeSeconds": 56.79123403473307,
+        "p90AbsoluteErrorSeconds": 96.0,
+        "biasSeconds": -46.294863548653865
+      },
+      "historical": {
+        "cases": 32649,
+        "maeSeconds": 14.837529480229103,
+        "p90AbsoluteErrorSeconds": 30.0,
+        "biasSeconds": 7.700909675640908
+      }
+    },
+    {
+      "serviceDate": "20260911",
+      "scheduled": {
+        "cases": 32226,
+        "maeSeconds": 55.39433997393409,
+        "p90AbsoluteErrorSeconds": 95.0,
+        "biasSeconds": -45.609942282628936
+      },
+      "historical": {
+        "cases": 32226,
+        "maeSeconds": 14.462421647117235,
+        "p90AbsoluteErrorSeconds": 30.5,
+        "biasSeconds": 7.717076273816173
+      }
+    },
+    {
+      "serviceDate": "20260912",
+      "scheduled": {
+        "cases": 25464,
+        "maeSeconds": 55.82716776625825,
+        "p90AbsoluteErrorSeconds": 95.0,
+        "biasSeconds": -47.36887370405278
+      },
+      "historical": {
+        "cases": 25464,
+        "maeSeconds": 12.700714734527176,
+        "p90AbsoluteErrorSeconds": 26.0,
+        "biasSeconds": 5.073437009110902
+      }
+    }
+  ],
+  "routes": [
+    {
+      "routeId": "Blue",
+      "scheduled": {
+        "cases": 12116,
+        "maeSeconds": 42.85919445361505,
+        "p90AbsoluteErrorSeconds": 76.0,
+        "biasSeconds": -39.932651039947174
+      },
+      "historical": {
+        "cases": 12116,
+        "maeSeconds": 4.895571970947508,
+        "p90AbsoluteErrorSeconds": 8.5,
+        "biasSeconds": 2.058827170683394
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "scheduled": {
+        "cases": 14617,
+        "maeSeconds": 61.10378326606007,
+        "p90AbsoluteErrorSeconds": 104.0,
+        "biasSeconds": -53.01703495929397
+      },
+      "historical": {
+        "cases": 14617,
+        "maeSeconds": 15.1804918930013,
+        "p90AbsoluteErrorSeconds": 37.5,
+        "biasSeconds": 5.131849900800438
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "scheduled": {
+        "cases": 11881,
+        "maeSeconds": 54.39584210083326,
+        "p90AbsoluteErrorSeconds": 94.0,
+        "biasSeconds": -48.180877030552985
+      },
+      "historical": {
+        "cases": 11881,
+        "maeSeconds": 13.700677552394579,
+        "p90AbsoluteErrorSeconds": 29.5,
+        "biasSeconds": 5.545682181634542
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "scheduled": {
+        "cases": 15117,
+        "maeSeconds": 61.689224052391346,
+        "p90AbsoluteErrorSeconds": 99.0,
+        "biasSeconds": -48.68320433948535
+      },
+      "historical": {
+        "cases": 15117,
+        "maeSeconds": 17.718743798372692,
+        "p90AbsoluteErrorSeconds": 29.0,
+        "biasSeconds": 10.105659191638553
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "scheduled": {
+        "cases": 15458,
+        "maeSeconds": 65.7457627118644,
+        "p90AbsoluteErrorSeconds": 112.0,
+        "biasSeconds": -49.981886401863115
+      },
+      "historical": {
+        "cases": 15458,
+        "maeSeconds": 21.537068184758702,
+        "p90AbsoluteErrorSeconds": 40.75,
+        "biasSeconds": 11.586298356837883
+      }
+    },
+    {
+      "routeId": "Mattapan",
+      "scheduled": {
+        "cases": 4725,
+        "maeSeconds": 35.24825396825397,
+        "p90AbsoluteErrorSeconds": 75.0,
+        "biasSeconds": -29.052698412698412
+      },
+      "historical": {
+        "cases": 4725,
+        "maeSeconds": 5.996507936507936,
+        "p90AbsoluteErrorSeconds": 11.400000000000091,
+        "biasSeconds": 1.6947089947089946
+      }
+    },
+    {
+      "routeId": "Red",
+      "scheduled": {
+        "cases": 16425,
+        "maeSeconds": 53.989832572298326,
+        "p90AbsoluteErrorSeconds": 93.0,
+        "biasSeconds": -43.254733637747336
+      },
+      "historical": {
+        "cases": 16425,
+        "maeSeconds": 12.226118721461187,
+        "p90AbsoluteErrorSeconds": 27.0,
+        "biasSeconds": 7.524292237442922
+      }
+    }
+  ],
+  "segments": [
+    {
+      "routeId": "Blue",
+      "directionId": 0,
+      "fromStopId": "70039",
+      "toStopId": "70838",
+      "fromName": "Government Center",
+      "toName": "Bowdoin",
+      "trainingDays": 6,
+      "predictedSeconds": 34.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 35.0,
+      "scheduled": {
+        "cases": 535,
+        "maeSeconds": 81.26915887850467,
+        "p90AbsoluteErrorSeconds": 88.0,
+        "biasSeconds": -80.48785046728972
+      },
+      "historical": {
+        "cases": 535,
+        "maeSeconds": 6.408411214953271,
+        "p90AbsoluteErrorSeconds": 8.5,
+        "biasSeconds": 5.01214953271028
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 0,
+      "fromStopId": "70041",
+      "toStopId": "70039",
+      "fromName": "State",
+      "toName": "Government Center",
+      "trainingDays": 6,
+      "predictedSeconds": 33.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 33.0,
+      "scheduled": {
+        "cases": 535,
+        "maeSeconds": 65.88971962616823,
+        "p90AbsoluteErrorSeconds": 89.0,
+        "biasSeconds": -65.75140186915888
+      },
+      "historical": {
+        "cases": 535,
+        "maeSeconds": 2.8327102803738318,
+        "p90AbsoluteErrorSeconds": 4.5,
+        "biasSeconds": 1.0102803738317756
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 0,
+      "fromStopId": "70043",
+      "toStopId": "70041",
+      "fromName": "Aquarium",
+      "toName": "State",
+      "trainingDays": 6,
+      "predictedSeconds": 29.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 29.0,
+      "scheduled": {
+        "cases": 535,
+        "maeSeconds": 30.938317757009347,
+        "p90AbsoluteErrorSeconds": 33.0,
+        "biasSeconds": -30.897196261682243
+      },
+      "historical": {
+        "cases": 535,
+        "maeSeconds": 1.422429906542056,
+        "p90AbsoluteErrorSeconds": 3.0,
+        "biasSeconds": 0.102803738317757
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 0,
+      "fromStopId": "70045",
+      "toStopId": "70043",
+      "fromName": "Maverick",
+      "toName": "Aquarium",
+      "trainingDays": 6,
+      "predictedSeconds": 89.25,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 89.0,
+      "scheduled": {
+        "cases": 535,
+        "maeSeconds": 58.33271028037383,
+        "p90AbsoluteErrorSeconds": 95.0,
+        "biasSeconds": -58.302803738317756
+      },
+      "historical": {
+        "cases": 535,
+        "maeSeconds": 3.938785046728972,
+        "p90AbsoluteErrorSeconds": 7.25,
+        "biasSeconds": 0.035981308411214954
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 0,
+      "fromStopId": "70047",
+      "toStopId": "70045",
+      "fromName": "Airport",
+      "toName": "Maverick",
+      "trainingDays": 6,
+      "predictedSeconds": 96.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 96.5,
+      "scheduled": {
+        "cases": 534,
+        "maeSeconds": 22.55992509363296,
+        "p90AbsoluteErrorSeconds": 30.0,
+        "biasSeconds": -20.750936329588015
+      },
+      "historical": {
+        "cases": 534,
+        "maeSeconds": 7.0767790262172285,
+        "p90AbsoluteErrorSeconds": 14.5,
+        "biasSeconds": 2.749063670411985
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 0,
+      "fromStopId": "70049",
+      "toStopId": "70047",
+      "fromName": "Wood Island",
+      "toName": "Airport",
+      "trainingDays": 6,
+      "predictedSeconds": 55.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 55.0,
+      "scheduled": {
+        "cases": 534,
+        "maeSeconds": 63.945692883895134,
+        "p90AbsoluteErrorSeconds": 68.0,
+        "biasSeconds": -63.5936329588015
+      },
+      "historical": {
+        "cases": 534,
+        "maeSeconds": 3.0655430711610485,
+        "p90AbsoluteErrorSeconds": 5.0,
+        "biasSeconds": 1.4063670411985019
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 0,
+      "fromStopId": "70051",
+      "toStopId": "70049",
+      "fromName": "Orient Heights",
+      "toName": "Wood Island",
+      "trainingDays": 6,
+      "predictedSeconds": 101.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 102.0,
+      "scheduled": {
+        "cases": 533,
+        "maeSeconds": 26.26266416510319,
+        "p90AbsoluteErrorSeconds": 20.0,
+        "biasSeconds": -7.538461538461538
+      },
+      "historical": {
+        "cases": 533,
+        "maeSeconds": 11.987804878048781,
+        "p90AbsoluteErrorSeconds": 6.300000000000011,
+        "biasSeconds": 10.961538461538462
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 0,
+      "fromStopId": "70053",
+      "toStopId": "70051",
+      "fromName": "Suffolk Downs",
+      "toName": "Orient Heights",
+      "trainingDays": 6,
+      "predictedSeconds": 97.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 95.0,
+      "scheduled": {
+        "cases": 534,
+        "maeSeconds": 25.94943820224719,
+        "p90AbsoluteErrorSeconds": 39.0,
+        "biasSeconds": -25.49250936329588
+      },
+      "historical": {
+        "cases": 534,
+        "maeSeconds": 9.037453183520599,
+        "p90AbsoluteErrorSeconds": 18.19999999999999,
+        "biasSeconds": -2.99250936329588
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 0,
+      "fromStopId": "70055",
+      "toStopId": "70053",
+      "fromName": "Beachmont",
+      "toName": "Suffolk Downs",
+      "trainingDays": 6,
+      "predictedSeconds": 46.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 46.0,
+      "scheduled": {
+        "cases": 534,
+        "maeSeconds": 13.9438202247191,
+        "p90AbsoluteErrorSeconds": 15.0,
+        "biasSeconds": -12.801498127340825
+      },
+      "historical": {
+        "cases": 534,
+        "maeSeconds": 1.857677902621723,
+        "p90AbsoluteErrorSeconds": 2.0,
+        "biasSeconds": 1.198501872659176
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 0,
+      "fromStopId": "70057",
+      "toStopId": "70055",
+      "fromName": "Revere Beach",
+      "toName": "Beachmont",
+      "trainingDays": 6,
+      "predictedSeconds": 69.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 69.0,
+      "scheduled": {
+        "cases": 535,
+        "maeSeconds": 50.93457943925234,
+        "p90AbsoluteErrorSeconds": 52.0,
+        "biasSeconds": -49.450467289719626
+      },
+      "historical": {
+        "cases": 535,
+        "maeSeconds": 2.3757009345794393,
+        "p90AbsoluteErrorSeconds": 2.0,
+        "biasSeconds": 1.5495327102803738
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 0,
+      "fromStopId": "70059",
+      "toStopId": "70057",
+      "fromName": "Wonderland",
+      "toName": "Revere Beach",
+      "trainingDays": 6,
+      "predictedSeconds": 35.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 35.0,
+      "scheduled": {
+        "cases": 535,
+        "maeSeconds": 24.441121495327103,
+        "p90AbsoluteErrorSeconds": 26.0,
+        "biasSeconds": -24.441121495327103
+      },
+      "historical": {
+        "cases": 535,
+        "maeSeconds": 1.0224299065420561,
+        "p90AbsoluteErrorSeconds": 2.6000000000000227,
+        "biasSeconds": 0.5588785046728972
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 1,
+      "fromStopId": "70038",
+      "toStopId": "70040",
+      "fromName": "Bowdoin",
+      "toName": "Government Center",
+      "trainingDays": 6,
+      "predictedSeconds": 15.25,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 15.0,
+      "scheduled": {
+        "cases": 568,
+        "maeSeconds": 44.146126760563384,
+        "p90AbsoluteErrorSeconds": 46.0,
+        "biasSeconds": -44.146126760563384
+      },
+      "historical": {
+        "cases": 568,
+        "maeSeconds": 1.4533450704225352,
+        "p90AbsoluteErrorSeconds": 2.75,
+        "biasSeconds": 0.6038732394366197
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 1,
+      "fromStopId": "70040",
+      "toStopId": "70042",
+      "fromName": "Government Center",
+      "toName": "State",
+      "trainingDays": 6,
+      "predictedSeconds": 34.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 33.0,
+      "scheduled": {
+        "cases": 569,
+        "maeSeconds": 26.35676625659051,
+        "p90AbsoluteErrorSeconds": 29.0,
+        "biasSeconds": -26.339191564147626
+      },
+      "historical": {
+        "cases": 569,
+        "maeSeconds": 2.1036906854130053,
+        "p90AbsoluteErrorSeconds": 4.0,
+        "biasSeconds": -0.3391915641476274
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 1,
+      "fromStopId": "70042",
+      "toStopId": "70044",
+      "fromName": "State",
+      "toName": "Aquarium",
+      "trainingDays": 6,
+      "predictedSeconds": 30.5,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 30.0,
+      "scheduled": {
+        "cases": 568,
+        "maeSeconds": 29.288732394366196,
+        "p90AbsoluteErrorSeconds": 33.0,
+        "biasSeconds": -29.288732394366196
+      },
+      "historical": {
+        "cases": 568,
+        "maeSeconds": 2.3661971830985915,
+        "p90AbsoluteErrorSeconds": 4.5,
+        "biasSeconds": 0.2112676056338028
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 1,
+      "fromStopId": "70044",
+      "toStopId": "70046",
+      "fromName": "Aquarium",
+      "toName": "Maverick",
+      "trainingDays": 6,
+      "predictedSeconds": 108.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 108.0,
+      "scheduled": {
+        "cases": 568,
+        "maeSeconds": 71.13732394366197,
+        "p90AbsoluteErrorSeconds": 76.0,
+        "biasSeconds": -70.52112676056338
+      },
+      "historical": {
+        "cases": 568,
+        "maeSeconds": 4.049295774647887,
+        "p90AbsoluteErrorSeconds": 6.5,
+        "biasSeconds": 0.9788732394366197
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 1,
+      "fromStopId": "70046",
+      "toStopId": "70048",
+      "fromName": "Maverick",
+      "toName": "Airport",
+      "trainingDays": 6,
+      "predictedSeconds": 79.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 80.0,
+      "scheduled": {
+        "cases": 568,
+        "maeSeconds": 39.441901408450704,
+        "p90AbsoluteErrorSeconds": 48.0,
+        "biasSeconds": -38.146126760563384
+      },
+      "historical": {
+        "cases": 568,
+        "maeSeconds": 6.862676056338028,
+        "p90AbsoluteErrorSeconds": 11.5,
+        "biasSeconds": 2.3538732394366195
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 1,
+      "fromStopId": "70048",
+      "toStopId": "70050",
+      "fromName": "Airport",
+      "toName": "Wood Island",
+      "trainingDays": 6,
+      "predictedSeconds": 57.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 57.0,
+      "scheduled": {
+        "cases": 568,
+        "maeSeconds": 62.646126760563384,
+        "p90AbsoluteErrorSeconds": 67.0,
+        "biasSeconds": -62.646126760563384
+      },
+      "historical": {
+        "cases": 568,
+        "maeSeconds": 2.7200704225352115,
+        "p90AbsoluteErrorSeconds": 5.0,
+        "biasSeconds": 0.3538732394366197
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 1,
+      "fromStopId": "70050",
+      "toStopId": "70052",
+      "fromName": "Wood Island",
+      "toName": "Orient Heights",
+      "trainingDays": 6,
+      "predictedSeconds": 105.75,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 105.0,
+      "scheduled": {
+        "cases": 568,
+        "maeSeconds": 16.095070422535212,
+        "p90AbsoluteErrorSeconds": 18.0,
+        "biasSeconds": -9.76056338028169
+      },
+      "historical": {
+        "cases": 568,
+        "maeSeconds": 7.007922535211268,
+        "p90AbsoluteErrorSeconds": 12.25,
+        "biasSeconds": 4.48943661971831
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 1,
+      "fromStopId": "70052",
+      "toStopId": "70054",
+      "fromName": "Orient Heights",
+      "toName": "Suffolk Downs",
+      "trainingDays": 6,
+      "predictedSeconds": 93.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 92.0,
+      "scheduled": {
+        "cases": 565,
+        "maeSeconds": 28.382300884955754,
+        "p90AbsoluteErrorSeconds": 39.0,
+        "biasSeconds": -12.785840707964601
+      },
+      "historical": {
+        "cases": 565,
+        "maeSeconds": 6.712389380530974,
+        "p90AbsoluteErrorSeconds": 15.5,
+        "biasSeconds": -1.7902654867256638
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 1,
+      "fromStopId": "70054",
+      "toStopId": "70056",
+      "fromName": "Suffolk Downs",
+      "toName": "Beachmont",
+      "trainingDays": 6,
+      "predictedSeconds": 47.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 47.0,
+      "scheduled": {
+        "cases": 565,
+        "maeSeconds": 64.52920353982302,
+        "p90AbsoluteErrorSeconds": 74.0,
+        "biasSeconds": -64.270796460177
+      },
+      "historical": {
+        "cases": 565,
+        "maeSeconds": 1.7663716814159292,
+        "p90AbsoluteErrorSeconds": 2.0,
+        "biasSeconds": 1.295575221238938
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 1,
+      "fromStopId": "70056",
+      "toStopId": "70058",
+      "fromName": "Beachmont",
+      "toName": "Revere Beach",
+      "trainingDays": 6,
+      "predictedSeconds": 71.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 71.0,
+      "scheduled": {
+        "cases": 565,
+        "maeSeconds": 48.01061946902655,
+        "p90AbsoluteErrorSeconds": 51.0,
+        "biasSeconds": -44.690265486725664
+      },
+      "historical": {
+        "cases": 565,
+        "maeSeconds": 5.505309734513275,
+        "p90AbsoluteErrorSeconds": 6.5,
+        "biasSeconds": 3.809734513274336
+      }
+    },
+    {
+      "routeId": "Blue",
+      "directionId": 1,
+      "fromStopId": "70058",
+      "toStopId": "70060",
+      "fromName": "Revere Beach",
+      "toName": "Wonderland",
+      "trainingDays": 6,
+      "predictedSeconds": 72.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 72.0,
+      "scheduled": {
+        "cases": 565,
+        "maeSeconds": 47.978761061946905,
+        "p90AbsoluteErrorSeconds": 56.0,
+        "biasSeconds": -36.26548672566372
+      },
+      "historical": {
+        "cases": 565,
+        "maeSeconds": 16.053097345132745,
+        "p90AbsoluteErrorSeconds": 36.60000000000002,
+        "biasSeconds": 11.734513274336283
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "170137",
+      "toStopId": "70135",
+      "fromName": "Babcock Street",
+      "toName": "Packard's Corner",
+      "trainingDays": 6,
+      "predictedSeconds": 119.25,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 129.0,
+      "scheduled": {
+        "cases": 339,
+        "maeSeconds": 31.89085545722714,
+        "p90AbsoluteErrorSeconds": 59.0,
+        "biasSeconds": 8.893805309734514
+      },
+      "historical": {
+        "cases": 339,
+        "maeSeconds": 32.01253687315634,
+        "p90AbsoluteErrorSeconds": 58.94999999999999,
+        "biasSeconds": 9.643805309734514
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "170141",
+      "toStopId": "170137",
+      "fromName": "Amory Street",
+      "toName": "Babcock Street",
+      "trainingDays": 6,
+      "predictedSeconds": 79.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 78.0,
+      "scheduled": {
+        "cases": 339,
+        "maeSeconds": 91.59292035398231,
+        "p90AbsoluteErrorSeconds": 131.0,
+        "biasSeconds": -91.41592920353982
+      },
+      "historical": {
+        "cases": 339,
+        "maeSeconds": 22.657817109144542,
+        "p90AbsoluteErrorSeconds": 43.0,
+        "biasSeconds": 3.0353982300884956
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70111",
+      "toStopId": "70107",
+      "fromName": "South Street",
+      "toName": "Boston College",
+      "trainingDays": 6,
+      "predictedSeconds": 152.75,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 150.0,
+      "scheduled": {
+        "cases": 335,
+        "maeSeconds": 38.38507462686567,
+        "p90AbsoluteErrorSeconds": 75.0,
+        "biasSeconds": -26.880597014925375
+      },
+      "historical": {
+        "cases": 335,
+        "maeSeconds": 29.96044776119403,
+        "p90AbsoluteErrorSeconds": 56.75,
+        "biasSeconds": 0.3694029850746269
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70113",
+      "toStopId": "70111",
+      "fromName": "Chestnut Hill Avenue",
+      "toName": "South Street",
+      "trainingDays": 6,
+      "predictedSeconds": 48.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 47.0,
+      "scheduled": {
+        "cases": 338,
+        "maeSeconds": 71.35502958579882,
+        "p90AbsoluteErrorSeconds": 79.0,
+        "biasSeconds": -71.35502958579882
+      },
+      "historical": {
+        "cases": 338,
+        "maeSeconds": 4.6982248520710055,
+        "p90AbsoluteErrorSeconds": 9.0,
+        "biasSeconds": 0.28994082840236685
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70115",
+      "toStopId": "70113",
+      "fromName": "Chiswick Road",
+      "toName": "Chestnut Hill Avenue",
+      "trainingDays": 6,
+      "predictedSeconds": 26.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 25.0,
+      "scheduled": {
+        "cases": 338,
+        "maeSeconds": 75.25739644970415,
+        "p90AbsoluteErrorSeconds": 97.0,
+        "biasSeconds": -74.49408284023669
+      },
+      "historical": {
+        "cases": 338,
+        "maeSeconds": 4.5828402366863905,
+        "p90AbsoluteErrorSeconds": 6.0,
+        "biasSeconds": 1.5769230769230769
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70117",
+      "toStopId": "70115",
+      "fromName": "Sutherland Road",
+      "toName": "Chiswick Road",
+      "trainingDays": 6,
+      "predictedSeconds": 52.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 49.0,
+      "scheduled": {
+        "cases": 338,
+        "maeSeconds": 45.42603550295858,
+        "p90AbsoluteErrorSeconds": 83.0,
+        "biasSeconds": -42.31360946745562
+      },
+      "historical": {
+        "cases": 338,
+        "maeSeconds": 13.662721893491124,
+        "p90AbsoluteErrorSeconds": 26.0,
+        "biasSeconds": 0.834319526627219
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70121",
+      "toStopId": "70117",
+      "fromName": "Washington Street",
+      "toName": "Sutherland Road",
+      "trainingDays": 6,
+      "predictedSeconds": 63.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 63.0,
+      "scheduled": {
+        "cases": 338,
+        "maeSeconds": 37.17455621301775,
+        "p90AbsoluteErrorSeconds": 64.0,
+        "biasSeconds": -32.15680473372781
+      },
+      "historical": {
+        "cases": 338,
+        "maeSeconds": 6.35207100591716,
+        "p90AbsoluteErrorSeconds": 14.0,
+        "biasSeconds": 1.2337278106508875
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70125",
+      "toStopId": "70121",
+      "fromName": "Warren Street",
+      "toName": "Washington Street",
+      "trainingDays": 6,
+      "predictedSeconds": 74.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 72.0,
+      "scheduled": {
+        "cases": 338,
+        "maeSeconds": 85.89940828402366,
+        "p90AbsoluteErrorSeconds": 117.0,
+        "biasSeconds": -85.75147928994083
+      },
+      "historical": {
+        "cases": 338,
+        "maeSeconds": 11.505917159763314,
+        "p90AbsoluteErrorSeconds": 20.5,
+        "biasSeconds": 1.28698224852071
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70127",
+      "toStopId": "70125",
+      "fromName": "Allston Street",
+      "toName": "Warren Street",
+      "trainingDays": 6,
+      "predictedSeconds": 21.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 21.0,
+      "scheduled": {
+        "cases": 338,
+        "maeSeconds": 38.437869822485204,
+        "p90AbsoluteErrorSeconds": 42.0,
+        "biasSeconds": -38.1301775147929
+      },
+      "historical": {
+        "cases": 338,
+        "maeSeconds": 2.7514792899408285,
+        "p90AbsoluteErrorSeconds": 4.0,
+        "biasSeconds": 0.8698224852071006
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70129",
+      "toStopId": "70127",
+      "fromName": "Griggs Street",
+      "toName": "Allston Street",
+      "trainingDays": 6,
+      "predictedSeconds": 21.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 21.0,
+      "scheduled": {
+        "cases": 338,
+        "maeSeconds": 56.70710059171598,
+        "p90AbsoluteErrorSeconds": 100.0,
+        "biasSeconds": -56.70710059171598
+      },
+      "historical": {
+        "cases": 338,
+        "maeSeconds": 2.133136094674556,
+        "p90AbsoluteErrorSeconds": 4.0,
+        "biasSeconds": 0.04437869822485207
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70131",
+      "toStopId": "70129",
+      "fromName": "Harvard Avenue",
+      "toName": "Griggs Street",
+      "trainingDays": 6,
+      "predictedSeconds": 37.5,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 37.0,
+      "scheduled": {
+        "cases": 339,
+        "maeSeconds": 37.58702064896755,
+        "p90AbsoluteErrorSeconds": 85.0,
+        "biasSeconds": -37.58702064896755
+      },
+      "historical": {
+        "cases": 339,
+        "maeSeconds": 4.063421828908554,
+        "p90AbsoluteErrorSeconds": 8.5,
+        "biasSeconds": 0.13421828908554573
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70135",
+      "toStopId": "70131",
+      "fromName": "Packard's Corner",
+      "toName": "Harvard Avenue",
+      "trainingDays": 6,
+      "predictedSeconds": 56.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 55.0,
+      "scheduled": {
+        "cases": 339,
+        "maeSeconds": 105.62241887905604,
+        "p90AbsoluteErrorSeconds": 131.0,
+        "biasSeconds": -105.62241887905604
+      },
+      "historical": {
+        "cases": 339,
+        "maeSeconds": 6.047197640117994,
+        "p90AbsoluteErrorSeconds": 11.199999999999989,
+        "biasSeconds": 0.5014749262536873
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70145",
+      "toStopId": "170141",
+      "fromName": "Boston University Central",
+      "toName": "Amory Street",
+      "trainingDays": 6,
+      "predictedSeconds": 112.25,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 116.0,
+      "scheduled": {
+        "cases": 340,
+        "maeSeconds": 97.92647058823529,
+        "p90AbsoluteErrorSeconds": 157.0,
+        "biasSeconds": -96.93235294117648
+      },
+      "historical": {
+        "cases": 340,
+        "maeSeconds": 30.738235294117647,
+        "p90AbsoluteErrorSeconds": 52.80000000000001,
+        "biasSeconds": 4.170588235294118
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70147",
+      "toStopId": "70145",
+      "fromName": "Boston University East",
+      "toName": "Boston University Central",
+      "trainingDays": 6,
+      "predictedSeconds": 33.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 31.0,
+      "scheduled": {
+        "cases": 340,
+        "maeSeconds": 29.058823529411764,
+        "p90AbsoluteErrorSeconds": 42.900000000000205,
+        "biasSeconds": -27.7
+      },
+      "historical": {
+        "cases": 340,
+        "maeSeconds": 12.211764705882352,
+        "p90AbsoluteErrorSeconds": 28.0,
+        "biasSeconds": 5.123529411764705
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70149",
+      "toStopId": "70147",
+      "fromName": "Blandford Street",
+      "toName": "Boston University East",
+      "trainingDays": 6,
+      "predictedSeconds": 65.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 66.0,
+      "scheduled": {
+        "cases": 340,
+        "maeSeconds": 45.358823529411765,
+        "p90AbsoluteErrorSeconds": 62.0,
+        "biasSeconds": -43.305882352941175
+      },
+      "historical": {
+        "cases": 340,
+        "maeSeconds": 9.632352941176471,
+        "p90AbsoluteErrorSeconds": 23.5,
+        "biasSeconds": 4.6647058823529415
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70153",
+      "toStopId": "71151",
+      "fromName": "Hynes Convention Center",
+      "toName": "Kenmore",
+      "trainingDays": 6,
+      "predictedSeconds": 103.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 104.0,
+      "scheduled": {
+        "cases": 340,
+        "maeSeconds": 87.22941176470589,
+        "p90AbsoluteErrorSeconds": 86.10000000000002,
+        "biasSeconds": -53.95294117647059
+      },
+      "historical": {
+        "cases": 340,
+        "maeSeconds": 25.0,
+        "p90AbsoluteErrorSeconds": 14.600000000000023,
+        "biasSeconds": 18.841176470588234
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70155",
+      "toStopId": "70153",
+      "fromName": "Copley",
+      "toName": "Hynes Convention Center",
+      "trainingDays": 6,
+      "predictedSeconds": 98.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 96.0,
+      "scheduled": {
+        "cases": 339,
+        "maeSeconds": 82.73746312684366,
+        "p90AbsoluteErrorSeconds": 96.19999999999999,
+        "biasSeconds": -82.28318584070796
+      },
+      "historical": {
+        "cases": 339,
+        "maeSeconds": 9.567846607669617,
+        "p90AbsoluteErrorSeconds": 17.5,
+        "biasSeconds": -0.7831858407079646
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70157",
+      "toStopId": "70155",
+      "fromName": "Arlington",
+      "toName": "Copley",
+      "trainingDays": 6,
+      "predictedSeconds": 75.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 74.0,
+      "scheduled": {
+        "cases": 339,
+        "maeSeconds": 48.16519174041298,
+        "p90AbsoluteErrorSeconds": 72.0,
+        "biasSeconds": -35.528023598820056
+      },
+      "historical": {
+        "cases": 339,
+        "maeSeconds": 26.26843657817109,
+        "p90AbsoluteErrorSeconds": 48.799999999999955,
+        "biasSeconds": 9.47197640117994
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70159",
+      "toStopId": "70157",
+      "fromName": "Boylston",
+      "toName": "Arlington",
+      "trainingDays": 6,
+      "predictedSeconds": 104.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 103.0,
+      "scheduled": {
+        "cases": 338,
+        "maeSeconds": 40.85502958579882,
+        "p90AbsoluteErrorSeconds": 82.0,
+        "biasSeconds": -37.56508875739645
+      },
+      "historical": {
+        "cases": 338,
+        "maeSeconds": 11.3698224852071,
+        "p90AbsoluteErrorSeconds": 21.80000000000001,
+        "biasSeconds": 1.8994082840236686
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70196",
+      "toStopId": "70159",
+      "fromName": "Park Street",
+      "toName": "Boylston",
+      "trainingDays": 6,
+      "predictedSeconds": 53.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 51.0,
+      "scheduled": {
+        "cases": 338,
+        "maeSeconds": 74.72485207100591,
+        "p90AbsoluteErrorSeconds": 128.3,
+        "biasSeconds": -71.87869822485207
+      },
+      "historical": {
+        "cases": 338,
+        "maeSeconds": 20.532544378698226,
+        "p90AbsoluteErrorSeconds": 55.80000000000001,
+        "biasSeconds": 9.887573964497042
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "70202",
+      "toStopId": "70196",
+      "fromName": "Government Center",
+      "toName": "Park Street",
+      "trainingDays": 6,
+      "predictedSeconds": 92.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 92.0,
+      "scheduled": {
+        "cases": 292,
+        "maeSeconds": 31.198630136986303,
+        "p90AbsoluteErrorSeconds": 38.900000000000034,
+        "biasSeconds": -3.767123287671233
+      },
+      "historical": {
+        "cases": 292,
+        "maeSeconds": 10.801369863013699,
+        "p90AbsoluteErrorSeconds": 19.900000000000034,
+        "biasSeconds": 5.123287671232877
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 0,
+      "fromStopId": "71151",
+      "toStopId": "70149",
+      "fromName": "Kenmore",
+      "toName": "Blandford Street",
+      "trainingDays": 6,
+      "predictedSeconds": 42.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 42.0,
+      "scheduled": {
+        "cases": 339,
+        "maeSeconds": 76.06784660766962,
+        "p90AbsoluteErrorSeconds": 85.0,
+        "biasSeconds": -76.06784660766962
+      },
+      "historical": {
+        "cases": 339,
+        "maeSeconds": 4.859882005899705,
+        "p90AbsoluteErrorSeconds": 9.699999999999989,
+        "biasSeconds": 0.016224188790560472
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "170136",
+      "toStopId": "170140",
+      "fromName": "Babcock Street",
+      "toName": "Amory Street",
+      "trainingDays": 6,
+      "predictedSeconds": 95.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 99.0,
+      "scheduled": {
+        "cases": 335,
+        "maeSeconds": 62.64776119402985,
+        "p90AbsoluteErrorSeconds": 112.60000000000002,
+        "biasSeconds": -58.080597014925374
+      },
+      "historical": {
+        "cases": 335,
+        "maeSeconds": 27.408955223880596,
+        "p90AbsoluteErrorSeconds": 48.0,
+        "biasSeconds": 5.605970149253731
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "170140",
+      "toStopId": "70144",
+      "fromName": "Amory Street",
+      "toName": "Boston University Central",
+      "trainingDays": 6,
+      "predictedSeconds": 104.0,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 106.0,
+      "scheduled": {
+        "cases": 335,
+        "maeSeconds": 120.04179104477612,
+        "p90AbsoluteErrorSeconds": 187.20000000000005,
+        "biasSeconds": -119.73731343283582
+      },
+      "historical": {
+        "cases": 335,
+        "maeSeconds": 30.79402985074627,
+        "p90AbsoluteErrorSeconds": 53.0,
+        "biasSeconds": 6.053731343283582
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70106",
+      "toStopId": "70110",
+      "fromName": "Boston College",
+      "toName": "South Street",
+      "trainingDays": 6,
+      "predictedSeconds": 112.25,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 116.0,
+      "scheduled": {
+        "cases": 310,
+        "maeSeconds": 71.66129032258064,
+        "p90AbsoluteErrorSeconds": 87.0,
+        "biasSeconds": -50.71935483870968
+      },
+      "historical": {
+        "cases": 310,
+        "maeSeconds": 26.39032258064516,
+        "p90AbsoluteErrorSeconds": 40.85000000000002,
+        "biasSeconds": 15.675806451612903
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70110",
+      "toStopId": "70112",
+      "fromName": "South Street",
+      "toName": "Chestnut Hill Avenue",
+      "trainingDays": 6,
+      "predictedSeconds": 98.5,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 97.0,
+      "scheduled": {
+        "cases": 326,
+        "maeSeconds": 45.02760736196319,
+        "p90AbsoluteErrorSeconds": 87.0,
+        "biasSeconds": 41.83742331288344
+      },
+      "historical": {
+        "cases": 326,
+        "maeSeconds": 31.901840490797547,
+        "p90AbsoluteErrorSeconds": 53.0,
+        "biasSeconds": 3.3374233128834354
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70112",
+      "toStopId": "70114",
+      "fromName": "Chestnut Hill Avenue",
+      "toName": "Chiswick Road",
+      "trainingDays": 6,
+      "predictedSeconds": 28.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 28.0,
+      "scheduled": {
+        "cases": 330,
+        "maeSeconds": 83.46060606060605,
+        "p90AbsoluteErrorSeconds": 97.0,
+        "biasSeconds": -83.46060606060605
+      },
+      "historical": {
+        "cases": 330,
+        "maeSeconds": 8.67878787878788,
+        "p90AbsoluteErrorSeconds": 26.0,
+        "biasSeconds": 5.63030303030303
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70114",
+      "toStopId": "70116",
+      "fromName": "Chiswick Road",
+      "toName": "Sutherland Road",
+      "trainingDays": 6,
+      "predictedSeconds": 35.5,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 35.0,
+      "scheduled": {
+        "cases": 330,
+        "maeSeconds": 50.58181818181818,
+        "p90AbsoluteErrorSeconds": 87.0,
+        "biasSeconds": -50.53333333333333
+      },
+      "historical": {
+        "cases": 330,
+        "maeSeconds": 3.1515151515151514,
+        "p90AbsoluteErrorSeconds": 5.5,
+        "biasSeconds": -0.03333333333333333
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70116",
+      "toStopId": "70120",
+      "fromName": "Sutherland Road",
+      "toName": "Washington Street",
+      "trainingDays": 6,
+      "predictedSeconds": 75.75,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 78.0,
+      "scheduled": {
+        "cases": 332,
+        "maeSeconds": 35.74096385542169,
+        "p90AbsoluteErrorSeconds": 65.0,
+        "biasSeconds": -13.524096385542169
+      },
+      "historical": {
+        "cases": 332,
+        "maeSeconds": 23.971385542168676,
+        "p90AbsoluteErrorSeconds": 46.25,
+        "biasSeconds": 8.677710843373495
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70120",
+      "toStopId": "70124",
+      "fromName": "Washington Street",
+      "toName": "Warren Street",
+      "trainingDays": 6,
+      "predictedSeconds": 80.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 80.0,
+      "scheduled": {
+        "cases": 333,
+        "maeSeconds": 88.21621621621621,
+        "p90AbsoluteErrorSeconds": 111.0,
+        "biasSeconds": -88.21621621621621
+      },
+      "historical": {
+        "cases": 333,
+        "maeSeconds": 11.45945945945946,
+        "p90AbsoluteErrorSeconds": 23.80000000000001,
+        "biasSeconds": 2.954954954954955
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70124",
+      "toStopId": "70126",
+      "fromName": "Warren Street",
+      "toName": "Allston Street",
+      "trainingDays": 6,
+      "predictedSeconds": 20.75,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 20.0,
+      "scheduled": {
+        "cases": 334,
+        "maeSeconds": 39.464071856287426,
+        "p90AbsoluteErrorSeconds": 42.0,
+        "biasSeconds": -39.464071856287426
+      },
+      "historical": {
+        "cases": 334,
+        "maeSeconds": 1.8712574850299402,
+        "p90AbsoluteErrorSeconds": 3.75,
+        "biasSeconds": -0.21407185628742514
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70126",
+      "toStopId": "70128",
+      "fromName": "Allston Street",
+      "toName": "Griggs Street",
+      "trainingDays": 6,
+      "predictedSeconds": 26.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 26.0,
+      "scheduled": {
+        "cases": 334,
+        "maeSeconds": 52.76646706586826,
+        "p90AbsoluteErrorSeconds": 95.0,
+        "biasSeconds": -52.76646706586826
+      },
+      "historical": {
+        "cases": 334,
+        "maeSeconds": 2.1197604790419162,
+        "p90AbsoluteErrorSeconds": 4.0,
+        "biasSeconds": 0.2754491017964072
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70128",
+      "toStopId": "70130",
+      "fromName": "Griggs Street",
+      "toName": "Harvard Avenue",
+      "trainingDays": 6,
+      "predictedSeconds": 31.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 30.0,
+      "scheduled": {
+        "cases": 334,
+        "maeSeconds": 42.26047904191617,
+        "p90AbsoluteErrorSeconds": 90.0,
+        "biasSeconds": -42.11077844311377
+      },
+      "historical": {
+        "cases": 334,
+        "maeSeconds": 3.6317365269461077,
+        "p90AbsoluteErrorSeconds": 7.0,
+        "biasSeconds": -0.17664670658682635
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70130",
+      "toStopId": "70134",
+      "fromName": "Harvard Avenue",
+      "toName": "Packard's Corner",
+      "trainingDays": 6,
+      "predictedSeconds": 70.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 69.0,
+      "scheduled": {
+        "cases": 335,
+        "maeSeconds": 99.84477611940298,
+        "p90AbsoluteErrorSeconds": 118.0,
+        "biasSeconds": -99.84477611940298
+      },
+      "historical": {
+        "cases": 335,
+        "maeSeconds": 6.882089552238806,
+        "p90AbsoluteErrorSeconds": 13.5,
+        "biasSeconds": 0.5208955223880597
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70134",
+      "toStopId": "170136",
+      "fromName": "Packard's Corner",
+      "toName": "Babcock Street",
+      "trainingDays": 6,
+      "predictedSeconds": 94.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 96.0,
+      "scheduled": {
+        "cases": 335,
+        "maeSeconds": 37.8,
+        "p90AbsoluteErrorSeconds": 76.60000000000002,
+        "biasSeconds": -30.176119402985076
+      },
+      "historical": {
+        "cases": 335,
+        "maeSeconds": 23.949253731343283,
+        "p90AbsoluteErrorSeconds": 44.60000000000002,
+        "biasSeconds": 6.391044776119403
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70144",
+      "toStopId": "70146",
+      "fromName": "Boston University Central",
+      "toName": "Boston University East",
+      "trainingDays": 6,
+      "predictedSeconds": 37.25,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 38.0,
+      "scheduled": {
+        "cases": 335,
+        "maeSeconds": 36.86268656716418,
+        "p90AbsoluteErrorSeconds": 86.60000000000002,
+        "biasSeconds": -28.623880597014924
+      },
+      "historical": {
+        "cases": 335,
+        "maeSeconds": 19.167910447761194,
+        "p90AbsoluteErrorSeconds": 42.75,
+        "biasSeconds": 8.81268656716418
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70146",
+      "toStopId": "70148",
+      "fromName": "Boston University East",
+      "toName": "Blandford Street",
+      "trainingDays": 6,
+      "predictedSeconds": 65.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 65.0,
+      "scheduled": {
+        "cases": 335,
+        "maeSeconds": 40.27164179104478,
+        "p90AbsoluteErrorSeconds": 62.0,
+        "biasSeconds": -32.83880597014925
+      },
+      "historical": {
+        "cases": 335,
+        "maeSeconds": 12.67313432835821,
+        "p90AbsoluteErrorSeconds": 41.5,
+        "biasSeconds": 6.974626865671642
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70148",
+      "toStopId": "71150",
+      "fromName": "Blandford Street",
+      "toName": "Kenmore",
+      "trainingDays": 6,
+      "predictedSeconds": 57.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 57.0,
+      "scheduled": {
+        "cases": 333,
+        "maeSeconds": 60.53453453453454,
+        "p90AbsoluteErrorSeconds": 69.0,
+        "biasSeconds": -60.348348348348345
+      },
+      "historical": {
+        "cases": 333,
+        "maeSeconds": 3.972972972972973,
+        "p90AbsoluteErrorSeconds": 7.0,
+        "biasSeconds": 0.12912912912912913
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70152",
+      "toStopId": "70154",
+      "fromName": "Hynes Convention Center",
+      "toName": "Copley",
+      "trainingDays": 6,
+      "predictedSeconds": 103.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 101.0,
+      "scheduled": {
+        "cases": 332,
+        "maeSeconds": 65.61144578313252,
+        "p90AbsoluteErrorSeconds": 93.0,
+        "biasSeconds": -56.70180722891566
+      },
+      "historical": {
+        "cases": 332,
+        "maeSeconds": 25.86144578313253,
+        "p90AbsoluteErrorSeconds": 66.30000000000007,
+        "biasSeconds": 14.376506024096386
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70154",
+      "toStopId": "70156",
+      "fromName": "Copley",
+      "toName": "Arlington",
+      "trainingDays": 6,
+      "predictedSeconds": 60.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 59.0,
+      "scheduled": {
+        "cases": 332,
+        "maeSeconds": 57.45783132530121,
+        "p90AbsoluteErrorSeconds": 67.0,
+        "biasSeconds": -56.40963855421687
+      },
+      "historical": {
+        "cases": 332,
+        "maeSeconds": 7.984939759036145,
+        "p90AbsoluteErrorSeconds": 16.5,
+        "biasSeconds": 3.0903614457831323
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70156",
+      "toStopId": "70158",
+      "fromName": "Arlington",
+      "toName": "Boylston",
+      "trainingDays": 6,
+      "predictedSeconds": 98.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 100.0,
+      "scheduled": {
+        "cases": 331,
+        "maeSeconds": 69.4833836858006,
+        "p90AbsoluteErrorSeconds": 101.0,
+        "biasSeconds": -51.036253776435046
+      },
+      "historical": {
+        "cases": 331,
+        "maeSeconds": 35.096676737160124,
+        "p90AbsoluteErrorSeconds": 87.0,
+        "biasSeconds": 24.25679758308157
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70158",
+      "toStopId": "70200",
+      "fromName": "Boylston",
+      "toName": "Park Street",
+      "trainingDays": 6,
+      "predictedSeconds": 67.75,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 68.0,
+      "scheduled": {
+        "cases": 291,
+        "maeSeconds": 53.419243986254294,
+        "p90AbsoluteErrorSeconds": 66.0,
+        "biasSeconds": -37.27491408934708
+      },
+      "historical": {
+        "cases": 291,
+        "maeSeconds": 23.32044673539519,
+        "p90AbsoluteErrorSeconds": 47.25,
+        "biasSeconds": 14.97508591065292
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "70200",
+      "toStopId": "70201",
+      "fromName": "Park Street",
+      "toName": "Government Center",
+      "trainingDays": 6,
+      "predictedSeconds": 59.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 62.0,
+      "scheduled": {
+        "cases": 290,
+        "maeSeconds": 71.46551724137932,
+        "p90AbsoluteErrorSeconds": 123.10000000000002,
+        "biasSeconds": -61.03793103448276
+      },
+      "historical": {
+        "cases": 290,
+        "maeSeconds": 22.162068965517243,
+        "p90AbsoluteErrorSeconds": 49.700000000000045,
+        "biasSeconds": 17.048275862068966
+      }
+    },
+    {
+      "routeId": "Green-B",
+      "directionId": 1,
+      "fromStopId": "71150",
+      "toStopId": "70152",
+      "fromName": "Kenmore",
+      "toName": "Hynes Convention Center",
+      "trainingDays": 6,
+      "predictedSeconds": 104.25,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 102.0,
+      "scheduled": {
+        "cases": 333,
+        "maeSeconds": 71.76276276276276,
+        "p90AbsoluteErrorSeconds": 90.80000000000001,
+        "biasSeconds": -68.50150150150151
+      },
+      "historical": {
+        "cases": 333,
+        "maeSeconds": 16.97822822822823,
+        "p90AbsoluteErrorSeconds": 42.55000000000001,
+        "biasSeconds": 7.248498498498498
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70151",
+      "toStopId": "70211",
+      "fromName": "Kenmore",
+      "toName": "Saint Mary's Street",
+      "trainingDays": 6,
+      "predictedSeconds": 120.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 118.0,
+      "scheduled": {
+        "cases": 361,
+        "maeSeconds": 47.13573407202216,
+        "p90AbsoluteErrorSeconds": 73.0,
+        "biasSeconds": -42.37119113573407
+      },
+      "historical": {
+        "cases": 361,
+        "maeSeconds": 11.757617728531857,
+        "p90AbsoluteErrorSeconds": 22.5,
+        "biasSeconds": -0.15650969529085873
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70153",
+      "toStopId": "70151",
+      "fromName": "Hynes Convention Center",
+      "toName": "Kenmore",
+      "trainingDays": 6,
+      "predictedSeconds": 112.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 111.0,
+      "scheduled": {
+        "cases": 350,
+        "maeSeconds": 57.28857142857143,
+        "p90AbsoluteErrorSeconds": 79.0,
+        "biasSeconds": -51.831428571428575
+      },
+      "historical": {
+        "cases": 350,
+        "maeSeconds": 14.728571428571428,
+        "p90AbsoluteErrorSeconds": 29.5,
+        "biasSeconds": 6.0685714285714285
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70155",
+      "toStopId": "70153",
+      "fromName": "Copley",
+      "toName": "Hynes Convention Center",
+      "trainingDays": 6,
+      "predictedSeconds": 97.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 97.0,
+      "scheduled": {
+        "cases": 350,
+        "maeSeconds": 80.94571428571429,
+        "p90AbsoluteErrorSeconds": 97.10000000000002,
+        "biasSeconds": -80.94571428571429
+      },
+      "historical": {
+        "cases": 350,
+        "maeSeconds": 10.974285714285715,
+        "p90AbsoluteErrorSeconds": 22.0,
+        "biasSeconds": 2.0542857142857143
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70157",
+      "toStopId": "70155",
+      "fromName": "Arlington",
+      "toName": "Copley",
+      "trainingDays": 6,
+      "predictedSeconds": 76.25,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 76.0,
+      "scheduled": {
+        "cases": 351,
+        "maeSeconds": 49.9059829059829,
+        "p90AbsoluteErrorSeconds": 72.0,
+        "biasSeconds": -32.794871794871796
+      },
+      "historical": {
+        "cases": 351,
+        "maeSeconds": 29.378205128205128,
+        "p90AbsoluteErrorSeconds": 61.75,
+        "biasSeconds": 10.955128205128204
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70159",
+      "toStopId": "70157",
+      "fromName": "Boylston",
+      "toName": "Arlington",
+      "trainingDays": 6,
+      "predictedSeconds": 103.75,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 103.0,
+      "scheduled": {
+        "cases": 350,
+        "maeSeconds": 45.76,
+        "p90AbsoluteErrorSeconds": 86.0,
+        "biasSeconds": -40.371428571428574
+      },
+      "historical": {
+        "cases": 350,
+        "maeSeconds": 14.774285714285714,
+        "p90AbsoluteErrorSeconds": 28.25,
+        "biasSeconds": 4.164285714285715
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70197",
+      "toStopId": "70159",
+      "fromName": "Park Street",
+      "toName": "Boylston",
+      "trainingDays": 6,
+      "predictedSeconds": 52.75,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 52.0,
+      "scheduled": {
+        "cases": 347,
+        "maeSeconds": 77.44092219020173,
+        "p90AbsoluteErrorSeconds": 137.40000000000003,
+        "biasSeconds": -74.84726224783861
+      },
+      "historical": {
+        "cases": 347,
+        "maeSeconds": 23.4978386167147,
+        "p90AbsoluteErrorSeconds": 64.25,
+        "biasSeconds": 12.979106628242075
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70202",
+      "toStopId": "70197",
+      "fromName": "Government Center",
+      "toName": "Park Street",
+      "trainingDays": 6,
+      "predictedSeconds": 91.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 92.0,
+      "scheduled": {
+        "cases": 323,
+        "maeSeconds": 32.795665634674926,
+        "p90AbsoluteErrorSeconds": 42.80000000000001,
+        "biasSeconds": 1.2910216718266254
+      },
+      "historical": {
+        "cases": 323,
+        "maeSeconds": 12.91640866873065,
+        "p90AbsoluteErrorSeconds": 23.80000000000001,
+        "biasSeconds": 7.071207430340557
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70204",
+      "toStopId": "70202",
+      "fromName": "Haymarket",
+      "toName": "Government Center",
+      "trainingDays": 5,
+      "predictedSeconds": 75.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 85.5,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 34.5,
+        "p90AbsoluteErrorSeconds": 42.1,
+        "biasSeconds": -34.5
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 10.5,
+        "p90AbsoluteErrorSeconds": 18.1,
+        "biasSeconds": 10.5
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70206",
+      "toStopId": "70204",
+      "fromName": "North Station",
+      "toName": "Haymarket",
+      "trainingDays": 5,
+      "predictedSeconds": 57.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 64.0,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 56.0,
+        "p90AbsoluteErrorSeconds": 62.4,
+        "biasSeconds": -56.0
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 8.0,
+        "p90AbsoluteErrorSeconds": 13.6,
+        "biasSeconds": 7.0
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70208",
+      "toStopId": "70206",
+      "fromName": "Science Park/West End",
+      "toName": "North Station",
+      "trainingDays": 5,
+      "predictedSeconds": 154.0,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 106.0,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 134.0,
+        "p90AbsoluteErrorSeconds": 163.6,
+        "biasSeconds": -134.0
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 48.0,
+        "p90AbsoluteErrorSeconds": 77.6,
+        "biasSeconds": -48.0
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70211",
+      "toStopId": "70213",
+      "fromName": "Saint Mary's Street",
+      "toName": "Hawes Street",
+      "trainingDays": 6,
+      "predictedSeconds": 54.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 52.0,
+      "scheduled": {
+        "cases": 365,
+        "maeSeconds": 53.76438356164383,
+        "p90AbsoluteErrorSeconds": 79.0,
+        "biasSeconds": -51.95616438356164
+      },
+      "historical": {
+        "cases": 365,
+        "maeSeconds": 12.40958904109589,
+        "p90AbsoluteErrorSeconds": 24.5,
+        "biasSeconds": 2.2013698630136984
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70213",
+      "toStopId": "70215",
+      "fromName": "Hawes Street",
+      "toName": "Kent Street",
+      "trainingDays": 6,
+      "predictedSeconds": 17.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 16.0,
+      "scheduled": {
+        "cases": 366,
+        "maeSeconds": 43.057377049180324,
+        "p90AbsoluteErrorSeconds": 46.0,
+        "biasSeconds": -43.057377049180324
+      },
+      "historical": {
+        "cases": 366,
+        "maeSeconds": 1.9371584699453552,
+        "p90AbsoluteErrorSeconds": 4.0,
+        "biasSeconds": -0.05737704918032787
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70215",
+      "toStopId": "70217",
+      "fromName": "Kent Street",
+      "toName": "Saint Paul Street",
+      "trainingDays": 6,
+      "predictedSeconds": 23.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 23.0,
+      "scheduled": {
+        "cases": 366,
+        "maeSeconds": 53.86612021857923,
+        "p90AbsoluteErrorSeconds": 98.5,
+        "biasSeconds": -53.60382513661202
+      },
+      "historical": {
+        "cases": 366,
+        "maeSeconds": 3.9098360655737703,
+        "p90AbsoluteErrorSeconds": 6.0,
+        "biasSeconds": 2.0846994535519126
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70217",
+      "toStopId": "70219",
+      "fromName": "Saint Paul Street",
+      "toName": "Coolidge Corner",
+      "trainingDays": 6,
+      "predictedSeconds": 54.25,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 54.0,
+      "scheduled": {
+        "cases": 366,
+        "maeSeconds": 59.18306010928962,
+        "p90AbsoluteErrorSeconds": 78.5,
+        "biasSeconds": -58.69125683060109
+      },
+      "historical": {
+        "cases": 366,
+        "maeSeconds": 13.459016393442623,
+        "p90AbsoluteErrorSeconds": 34.75,
+        "biasSeconds": 5.747267759562842
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70219",
+      "toStopId": "70223",
+      "fromName": "Coolidge Corner",
+      "toName": "Summit Avenue",
+      "trainingDays": 6,
+      "predictedSeconds": 81.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 80.0,
+      "scheduled": {
+        "cases": 366,
+        "maeSeconds": 37.33606557377049,
+        "p90AbsoluteErrorSeconds": 56.0,
+        "biasSeconds": -35.702185792349724
+      },
+      "historical": {
+        "cases": 366,
+        "maeSeconds": 13.28688524590164,
+        "p90AbsoluteErrorSeconds": 26.0,
+        "biasSeconds": 1.9863387978142077
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70227",
+      "toStopId": "70229",
+      "fromName": "Fairbanks Street",
+      "toName": "Washington Square",
+      "trainingDays": 6,
+      "predictedSeconds": 33.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 32.0,
+      "scheduled": {
+        "cases": 366,
+        "maeSeconds": 78.2431693989071,
+        "p90AbsoluteErrorSeconds": 92.0,
+        "biasSeconds": -78.12841530054645
+      },
+      "historical": {
+        "cases": 366,
+        "maeSeconds": 3.9918032786885247,
+        "p90AbsoluteErrorSeconds": 7.0,
+        "biasSeconds": 0.674863387978142
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70229",
+      "toStopId": "70231",
+      "fromName": "Washington Square",
+      "toName": "Tappan Street",
+      "trainingDays": 6,
+      "predictedSeconds": 34.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 34.0,
+      "scheduled": {
+        "cases": 366,
+        "maeSeconds": 25.612021857923498,
+        "p90AbsoluteErrorSeconds": 31.0,
+        "biasSeconds": -25.612021857923498
+      },
+      "historical": {
+        "cases": 366,
+        "maeSeconds": 3.650273224043716,
+        "p90AbsoluteErrorSeconds": 8.0,
+        "biasSeconds": 0.3879781420765027
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70231",
+      "toStopId": "70233",
+      "fromName": "Tappan Street",
+      "toName": "Dean Road",
+      "trainingDays": 6,
+      "predictedSeconds": 21.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 21.0,
+      "scheduled": {
+        "cases": 365,
+        "maeSeconds": 71.5123287671233,
+        "p90AbsoluteErrorSeconds": 102.0,
+        "biasSeconds": -71.42465753424658
+      },
+      "historical": {
+        "cases": 365,
+        "maeSeconds": 5.093150684931507,
+        "p90AbsoluteErrorSeconds": 15.600000000000023,
+        "biasSeconds": 2.9178082191780823
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70233",
+      "toStopId": "70235",
+      "fromName": "Dean Road",
+      "toName": "Englewood Avenue",
+      "trainingDays": 6,
+      "predictedSeconds": 80.5,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 72.5,
+      "scheduled": {
+        "cases": 362,
+        "maeSeconds": 32.24309392265194,
+        "p90AbsoluteErrorSeconds": 67.0,
+        "biasSeconds": -6.226519337016574
+      },
+      "historical": {
+        "cases": 362,
+        "maeSeconds": 20.95303867403315,
+        "p90AbsoluteErrorSeconds": 40.400000000000034,
+        "biasSeconds": -2.527624309392265
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70235",
+      "toStopId": "70237",
+      "fromName": "Englewood Avenue",
+      "toName": "Cleveland Circle",
+      "trainingDays": 6,
+      "predictedSeconds": 40.25,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 40.0,
+      "scheduled": {
+        "cases": 361,
+        "maeSeconds": 58.37950138504155,
+        "p90AbsoluteErrorSeconds": 86.0,
+        "biasSeconds": -47.89750692520776
+      },
+      "historical": {
+        "cases": 361,
+        "maeSeconds": 12.021468144044322,
+        "p90AbsoluteErrorSeconds": 13.25,
+        "biasSeconds": 7.420360110803324
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70502",
+      "toStopId": "70208",
+      "fromName": "Lechmere",
+      "toName": "Science Park/West End",
+      "trainingDays": 4,
+      "predictedSeconds": 82.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 68.5,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 51.5,
+        "p90AbsoluteErrorSeconds": 57.5,
+        "biasSeconds": -51.5
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 13.5,
+        "p90AbsoluteErrorSeconds": 19.5,
+        "biasSeconds": -13.5
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70506",
+      "toStopId": "70514",
+      "fromName": "Gilman Square",
+      "toName": "East Somerville",
+      "trainingDays": 5,
+      "predictedSeconds": 89.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 94.5,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 25.5,
+        "p90AbsoluteErrorSeconds": 31.5,
+        "biasSeconds": -25.5
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 7.5,
+        "p90AbsoluteErrorSeconds": 11.9,
+        "biasSeconds": 5.5
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70508",
+      "toStopId": "70506",
+      "fromName": "Magoun Square",
+      "toName": "Gilman Square",
+      "trainingDays": 5,
+      "predictedSeconds": 72.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 79.0,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 41.0,
+        "p90AbsoluteErrorSeconds": 49.8,
+        "biasSeconds": -41.0
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 11.0,
+        "p90AbsoluteErrorSeconds": 16.6,
+        "biasSeconds": 7.0
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70510",
+      "toStopId": "70508",
+      "fromName": "Ball Square",
+      "toName": "Magoun Square",
+      "trainingDays": 5,
+      "predictedSeconds": 53.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 59.5,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 7.5,
+        "p90AbsoluteErrorSeconds": 7.9,
+        "biasSeconds": -0.5
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 7.5,
+        "p90AbsoluteErrorSeconds": 12.7,
+        "biasSeconds": 6.5
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70512",
+      "toStopId": "70510",
+      "fromName": "Medford/Tufts",
+      "toName": "Ball Square",
+      "trainingDays": 4,
+      "predictedSeconds": 100.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 114.5,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 5.5,
+        "p90AbsoluteErrorSeconds": 5.9,
+        "biasSeconds": -5.5
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 14.0,
+        "p90AbsoluteErrorSeconds": 14.4,
+        "biasSeconds": 14.0
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 0,
+      "fromStopId": "70514",
+      "toStopId": "70502",
+      "fromName": "East Somerville",
+      "toName": "Lechmere",
+      "trainingDays": 5,
+      "predictedSeconds": 165.0,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 170.5,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 69.5,
+        "p90AbsoluteErrorSeconds": 69.9,
+        "biasSeconds": -69.5
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 5.5,
+        "p90AbsoluteErrorSeconds": 5.9,
+        "biasSeconds": 5.5
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70150",
+      "toStopId": "70152",
+      "fromName": "Kenmore",
+      "toName": "Hynes Convention Center",
+      "trainingDays": 6,
+      "predictedSeconds": 113.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 113.0,
+      "scheduled": {
+        "cases": 359,
+        "maeSeconds": 60.022284122562674,
+        "p90AbsoluteErrorSeconds": 81.0,
+        "biasSeconds": -56.80222841225627
+      },
+      "historical": {
+        "cases": 359,
+        "maeSeconds": 19.21727019498607,
+        "p90AbsoluteErrorSeconds": 55.0,
+        "biasSeconds": 10.197771587743732
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70152",
+      "toStopId": "70154",
+      "fromName": "Hynes Convention Center",
+      "toName": "Copley",
+      "trainingDays": 6,
+      "predictedSeconds": 105.75,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 107.0,
+      "scheduled": {
+        "cases": 346,
+        "maeSeconds": 62.971098265895954,
+        "p90AbsoluteErrorSeconds": 93.5,
+        "biasSeconds": -49.76878612716763
+      },
+      "historical": {
+        "cases": 346,
+        "maeSeconds": 30.628612716763005,
+        "p90AbsoluteErrorSeconds": 79.25,
+        "biasSeconds": 18.93208092485549
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70154",
+      "toStopId": "70156",
+      "fromName": "Copley",
+      "toName": "Arlington",
+      "trainingDays": 6,
+      "predictedSeconds": 61.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 61.0,
+      "scheduled": {
+        "cases": 350,
+        "maeSeconds": 55.825714285714284,
+        "p90AbsoluteErrorSeconds": 68.0,
+        "biasSeconds": -52.46
+      },
+      "historical": {
+        "cases": 350,
+        "maeSeconds": 12.231428571428571,
+        "p90AbsoluteErrorSeconds": 26.0,
+        "biasSeconds": 6.54
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70156",
+      "toStopId": "70158",
+      "fromName": "Arlington",
+      "toName": "Boylston",
+      "trainingDays": 6,
+      "predictedSeconds": 100.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 108.0,
+      "scheduled": {
+        "cases": 346,
+        "maeSeconds": 65.6271676300578,
+        "p90AbsoluteErrorSeconds": 103.0,
+        "biasSeconds": -48.4364161849711
+      },
+      "historical": {
+        "cases": 346,
+        "maeSeconds": 35.9393063583815,
+        "p90AbsoluteErrorSeconds": 71.5,
+        "biasSeconds": 22.21965317919075
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70158",
+      "toStopId": "70200",
+      "fromName": "Boylston",
+      "toName": "Park Street",
+      "trainingDays": 6,
+      "predictedSeconds": 67.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 70.0,
+      "scheduled": {
+        "cases": 330,
+        "maeSeconds": 47.67878787878788,
+        "p90AbsoluteErrorSeconds": 67.0,
+        "biasSeconds": -37.88484848484848
+      },
+      "historical": {
+        "cases": 330,
+        "maeSeconds": 23.006060606060608,
+        "p90AbsoluteErrorSeconds": 53.0,
+        "biasSeconds": 15.115151515151515
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70200",
+      "toStopId": "70201",
+      "fromName": "Park Street",
+      "toName": "Government Center",
+      "trainingDays": 6,
+      "predictedSeconds": 59.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 62.0,
+      "scheduled": {
+        "cases": 326,
+        "maeSeconds": 75.85889570552148,
+        "p90AbsoluteErrorSeconds": 124.0,
+        "biasSeconds": -69.9877300613497
+      },
+      "historical": {
+        "cases": 326,
+        "maeSeconds": 21.71472392638037,
+        "p90AbsoluteErrorSeconds": 57.5,
+        "biasSeconds": 15.911042944785276
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70201",
+      "toStopId": "70203",
+      "fromName": "Government Center",
+      "toName": "Haymarket",
+      "trainingDays": 5,
+      "predictedSeconds": 96.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 92.0,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 28.0,
+        "p90AbsoluteErrorSeconds": 32.0,
+        "biasSeconds": -28.0
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 5.0,
+        "p90AbsoluteErrorSeconds": 8.2,
+        "biasSeconds": -4.0
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70203",
+      "toStopId": "70205",
+      "fromName": "Haymarket",
+      "toName": "North Station",
+      "trainingDays": 5,
+      "predictedSeconds": 73.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 68.0,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 52.0,
+        "p90AbsoluteErrorSeconds": 56.8,
+        "biasSeconds": -52.0
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 6.0,
+        "p90AbsoluteErrorSeconds": 10.0,
+        "biasSeconds": -5.0
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70205",
+      "toStopId": "70207",
+      "fromName": "North Station",
+      "toName": "Science Park/West End",
+      "trainingDays": 5,
+      "predictedSeconds": 140.0,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 131.5,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 108.5,
+        "p90AbsoluteErrorSeconds": 116.1,
+        "biasSeconds": -108.5
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 9.5,
+        "p90AbsoluteErrorSeconds": 16.3,
+        "biasSeconds": -8.5
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70207",
+      "toStopId": "70501",
+      "fromName": "Science Park/West End",
+      "toName": "Lechmere",
+      "trainingDays": 5,
+      "predictedSeconds": 78.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 76.0,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 44.0,
+        "p90AbsoluteErrorSeconds": 44.8,
+        "biasSeconds": -44.0
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 2.0,
+        "p90AbsoluteErrorSeconds": 2.8,
+        "biasSeconds": -2.0
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70212",
+      "toStopId": "70150",
+      "fromName": "Saint Mary's Street",
+      "toName": "Kenmore",
+      "trainingDays": 6,
+      "predictedSeconds": 152.0,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 152.0,
+      "scheduled": {
+        "cases": 363,
+        "maeSeconds": 82.9504132231405,
+        "p90AbsoluteErrorSeconds": 122.60000000000002,
+        "biasSeconds": -74.04132231404958
+      },
+      "historical": {
+        "cases": 363,
+        "maeSeconds": 24.94490358126722,
+        "p90AbsoluteErrorSeconds": 57.0,
+        "biasSeconds": 11.479338842975206
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70214",
+      "toStopId": "70212",
+      "fromName": "Hawes Street",
+      "toName": "Saint Mary's Street",
+      "trainingDays": 6,
+      "predictedSeconds": 48.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 48.0,
+      "scheduled": {
+        "cases": 363,
+        "maeSeconds": 69.82644628099173,
+        "p90AbsoluteErrorSeconds": 83.0,
+        "biasSeconds": -69.82644628099173
+      },
+      "historical": {
+        "cases": 363,
+        "maeSeconds": 9.725895316804408,
+        "p90AbsoluteErrorSeconds": 18.5,
+        "biasSeconds": 1.6735537190082646
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70216",
+      "toStopId": "70214",
+      "fromName": "Kent Street",
+      "toName": "Hawes Street",
+      "trainingDays": 6,
+      "predictedSeconds": 25.5,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 25.0,
+      "scheduled": {
+        "cases": 362,
+        "maeSeconds": 63.693370165745854,
+        "p90AbsoluteErrorSeconds": 97.0,
+        "biasSeconds": -63.693370165745854
+      },
+      "historical": {
+        "cases": 362,
+        "maeSeconds": 2.6298342541436464,
+        "p90AbsoluteErrorSeconds": 5.400000000000034,
+        "biasSeconds": 0.30939226519337015
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70218",
+      "toStopId": "70216",
+      "fromName": "Saint Paul Street",
+      "toName": "Kent Street",
+      "trainingDays": 6,
+      "predictedSeconds": 25.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 27.0,
+      "scheduled": {
+        "cases": 361,
+        "maeSeconds": 69.24930747922437,
+        "p90AbsoluteErrorSeconds": 98.0,
+        "biasSeconds": -69.17728531855956
+      },
+      "historical": {
+        "cases": 361,
+        "maeSeconds": 5.119113573407202,
+        "p90AbsoluteErrorSeconds": 10.0,
+        "biasSeconds": 2.7202216066481992
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70220",
+      "toStopId": "70218",
+      "fromName": "Coolidge Corner",
+      "toName": "Saint Paul Street",
+      "trainingDays": 6,
+      "predictedSeconds": 69.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 70.0,
+      "scheduled": {
+        "cases": 362,
+        "maeSeconds": 77.37292817679558,
+        "p90AbsoluteErrorSeconds": 122.0,
+        "biasSeconds": -74.79834254143647
+      },
+      "historical": {
+        "cases": 362,
+        "maeSeconds": 14.544198895027625,
+        "p90AbsoluteErrorSeconds": 27.900000000000034,
+        "biasSeconds": 5.704419889502763
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70224",
+      "toStopId": "70220",
+      "fromName": "Summit Avenue",
+      "toName": "Coolidge Corner",
+      "trainingDays": 6,
+      "predictedSeconds": 49.5,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 49.0,
+      "scheduled": {
+        "cases": 360,
+        "maeSeconds": 21.56388888888889,
+        "p90AbsoluteErrorSeconds": 43.40000000000009,
+        "biasSeconds": -9.23611111111111
+      },
+      "historical": {
+        "cases": 360,
+        "maeSeconds": 13.66388888888889,
+        "p90AbsoluteErrorSeconds": 25.5,
+        "biasSeconds": 6.930555555555555
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70230",
+      "toStopId": "70228",
+      "fromName": "Washington Square",
+      "toName": "Fairbanks Street",
+      "trainingDays": 6,
+      "predictedSeconds": 26.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 26.0,
+      "scheduled": {
+        "cases": 358,
+        "maeSeconds": 38.997206703910614,
+        "p90AbsoluteErrorSeconds": 42.0,
+        "biasSeconds": -38.68994413407821
+      },
+      "historical": {
+        "cases": 358,
+        "maeSeconds": 3.4553072625698324,
+        "p90AbsoluteErrorSeconds": 6.0,
+        "biasSeconds": 1.0083798882681565
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70232",
+      "toStopId": "70230",
+      "fromName": "Tappan Street",
+      "toName": "Washington Square",
+      "trainingDays": 6,
+      "predictedSeconds": 60.5,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 61.0,
+      "scheduled": {
+        "cases": 355,
+        "maeSeconds": 14.63661971830986,
+        "p90AbsoluteErrorSeconds": 30.600000000000023,
+        "biasSeconds": 3.9943661971830986
+      },
+      "historical": {
+        "cases": 355,
+        "maeSeconds": 14.626760563380282,
+        "p90AbsoluteErrorSeconds": 30.100000000000023,
+        "biasSeconds": 3.4943661971830986
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70234",
+      "toStopId": "70232",
+      "fromName": "Dean Road",
+      "toName": "Tappan Street",
+      "trainingDays": 6,
+      "predictedSeconds": 33.5,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 34.0,
+      "scheduled": {
+        "cases": 356,
+        "maeSeconds": 25.679775280898877,
+        "p90AbsoluteErrorSeconds": 31.0,
+        "biasSeconds": -25.410112359550563
+      },
+      "historical": {
+        "cases": 356,
+        "maeSeconds": 4.193820224719101,
+        "p90AbsoluteErrorSeconds": 8.5,
+        "biasSeconds": 1.0898876404494382
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70236",
+      "toStopId": "70234",
+      "fromName": "Englewood Avenue",
+      "toName": "Dean Road",
+      "trainingDays": 6,
+      "predictedSeconds": 52.25,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 51.0,
+      "scheduled": {
+        "cases": 352,
+        "maeSeconds": 68.17897727272727,
+        "p90AbsoluteErrorSeconds": 90.0,
+        "biasSeconds": -62.68465909090909
+      },
+      "historical": {
+        "cases": 352,
+        "maeSeconds": 14.826704545454545,
+        "p90AbsoluteErrorSeconds": 25.700000000000017,
+        "biasSeconds": 1.65625
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70238",
+      "toStopId": "70236",
+      "fromName": "Cleveland Circle",
+      "toName": "Englewood Avenue",
+      "trainingDays": 6,
+      "predictedSeconds": 33.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 32.0,
+      "scheduled": {
+        "cases": 115,
+        "maeSeconds": 28.17391304347826,
+        "p90AbsoluteErrorSeconds": 36.0,
+        "biasSeconds": -27.078260869565216
+      },
+      "historical": {
+        "cases": 115,
+        "maeSeconds": 5.973913043478261,
+        "p90AbsoluteErrorSeconds": 10.600000000000009,
+        "biasSeconds": -0.0782608695652174
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70501",
+      "toStopId": "70513",
+      "fromName": "Lechmere",
+      "toName": "East Somerville",
+      "trainingDays": 5,
+      "predictedSeconds": 178.0,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 189.5,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 50.5,
+        "p90AbsoluteErrorSeconds": 51.7,
+        "biasSeconds": -50.5
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 11.5,
+        "p90AbsoluteErrorSeconds": 12.7,
+        "biasSeconds": 11.5
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70505",
+      "toStopId": "70507",
+      "fromName": "Gilman Square",
+      "toName": "Magoun Square",
+      "trainingDays": 5,
+      "predictedSeconds": 68.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 75.0,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 45.0,
+        "p90AbsoluteErrorSeconds": 49.0,
+        "biasSeconds": -45.0
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 7.0,
+        "p90AbsoluteErrorSeconds": 11.0,
+        "biasSeconds": 7.0
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70507",
+      "toStopId": "70509",
+      "fromName": "Magoun Square",
+      "toName": "Ball Square",
+      "trainingDays": 5,
+      "predictedSeconds": 56.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 60.5,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 59.5,
+        "p90AbsoluteErrorSeconds": 63.1,
+        "biasSeconds": -59.5
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 4.5,
+        "p90AbsoluteErrorSeconds": 8.1,
+        "biasSeconds": 4.5
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70509",
+      "toStopId": "70511",
+      "fromName": "Ball Square",
+      "toName": "Medford/Tufts",
+      "trainingDays": 5,
+      "predictedSeconds": 117.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 139.5,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 19.5,
+        "p90AbsoluteErrorSeconds": 27.9,
+        "biasSeconds": 19.5
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 22.5,
+        "p90AbsoluteErrorSeconds": 30.9,
+        "biasSeconds": 22.5
+      }
+    },
+    {
+      "routeId": "Green-C",
+      "directionId": 1,
+      "fromStopId": "70513",
+      "toStopId": "70505",
+      "fromName": "East Somerville",
+      "toName": "Gilman Square",
+      "trainingDays": 5,
+      "predictedSeconds": 78.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 88.5,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 31.5,
+        "p90AbsoluteErrorSeconds": 36.7,
+        "biasSeconds": -31.5
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 10.5,
+        "p90AbsoluteErrorSeconds": 15.7,
+        "biasSeconds": 10.5
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70151",
+      "toStopId": "70187",
+      "fromName": "Kenmore",
+      "toName": "Fenway",
+      "trainingDays": 6,
+      "predictedSeconds": 139.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 140.0,
+      "scheduled": {
+        "cases": 332,
+        "maeSeconds": 64.01807228915662,
+        "p90AbsoluteErrorSeconds": 109.90000000000003,
+        "biasSeconds": -60.77710843373494
+      },
+      "historical": {
+        "cases": 332,
+        "maeSeconds": 16.680722891566266,
+        "p90AbsoluteErrorSeconds": 31.900000000000034,
+        "biasSeconds": 6.066265060240964
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70153",
+      "toStopId": "70151",
+      "fromName": "Hynes Convention Center",
+      "toName": "Kenmore",
+      "trainingDays": 6,
+      "predictedSeconds": 112.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 112.0,
+      "scheduled": {
+        "cases": 336,
+        "maeSeconds": 63.63392857142857,
+        "p90AbsoluteErrorSeconds": 79.0,
+        "biasSeconds": -59.729166666666664
+      },
+      "historical": {
+        "cases": 336,
+        "maeSeconds": 12.485119047619047,
+        "p90AbsoluteErrorSeconds": 22.0,
+        "biasSeconds": 5.092261904761905
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70155",
+      "toStopId": "70153",
+      "fromName": "Copley",
+      "toName": "Hynes Convention Center",
+      "trainingDays": 6,
+      "predictedSeconds": 97.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 97.0,
+      "scheduled": {
+        "cases": 334,
+        "maeSeconds": 64.75449101796407,
+        "p90AbsoluteErrorSeconds": 91.69999999999999,
+        "biasSeconds": -46.74850299401198
+      },
+      "historical": {
+        "cases": 334,
+        "maeSeconds": 18.317365269461078,
+        "p90AbsoluteErrorSeconds": 20.5,
+        "biasSeconds": 11.140718562874252
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70157",
+      "toStopId": "70155",
+      "fromName": "Arlington",
+      "toName": "Copley",
+      "trainingDays": 6,
+      "predictedSeconds": 68.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 75.0,
+      "scheduled": {
+        "cases": 336,
+        "maeSeconds": 56.44345238095238,
+        "p90AbsoluteErrorSeconds": 70.0,
+        "biasSeconds": -27.294642857142858
+      },
+      "historical": {
+        "cases": 336,
+        "maeSeconds": 36.0625,
+        "p90AbsoluteErrorSeconds": 59.5,
+        "biasSeconds": 24.205357142857142
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70159",
+      "toStopId": "70157",
+      "fromName": "Boylston",
+      "toName": "Arlington",
+      "trainingDays": 6,
+      "predictedSeconds": 103.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 103.0,
+      "scheduled": {
+        "cases": 335,
+        "maeSeconds": 64.05671641791045,
+        "p90AbsoluteErrorSeconds": 89.0,
+        "biasSeconds": -62.66567164179104
+      },
+      "historical": {
+        "cases": 335,
+        "maeSeconds": 12.16865671641791,
+        "p90AbsoluteErrorSeconds": 22.5,
+        "biasSeconds": 2.5507462686567166
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70163",
+      "toStopId": "70161",
+      "fromName": "Woodland",
+      "toName": "Riverside",
+      "trainingDays": 6,
+      "predictedSeconds": 84.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 85.0,
+      "scheduled": {
+        "cases": 322,
+        "maeSeconds": 128.01242236024845,
+        "p90AbsoluteErrorSeconds": 117.80000000000007,
+        "biasSeconds": 83.75776397515529
+      },
+      "historical": {
+        "cases": 322,
+        "maeSeconds": 115.51552795031056,
+        "p90AbsoluteErrorSeconds": 146.1000000000003,
+        "biasSeconds": 109.50931677018633
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70165",
+      "toStopId": "70163",
+      "fromName": "Waban",
+      "toName": "Woodland",
+      "trainingDays": 6,
+      "predictedSeconds": 88.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 88.0,
+      "scheduled": {
+        "cases": 328,
+        "maeSeconds": 42.71646341463415,
+        "p90AbsoluteErrorSeconds": 94.0,
+        "biasSeconds": -36.076219512195124
+      },
+      "historical": {
+        "cases": 328,
+        "maeSeconds": 10.204268292682928,
+        "p90AbsoluteErrorSeconds": 19.30000000000001,
+        "biasSeconds": 5.984756097560975
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70167",
+      "toStopId": "70165",
+      "fromName": "Eliot",
+      "toName": "Waban",
+      "trainingDays": 6,
+      "predictedSeconds": 81.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 81.0,
+      "scheduled": {
+        "cases": 329,
+        "maeSeconds": 87.69908814589665,
+        "p90AbsoluteErrorSeconds": 103.0,
+        "biasSeconds": -87.69908814589665
+      },
+      "historical": {
+        "cases": 329,
+        "maeSeconds": 4.504559270516717,
+        "p90AbsoluteErrorSeconds": 8.0,
+        "biasSeconds": 1.2705167173252279
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70169",
+      "toStopId": "70167",
+      "fromName": "Newton Highlands",
+      "toName": "Eliot",
+      "trainingDays": 6,
+      "predictedSeconds": 89.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 90.0,
+      "scheduled": {
+        "cases": 329,
+        "maeSeconds": 29.088145896656535,
+        "p90AbsoluteErrorSeconds": 38.0,
+        "biasSeconds": -28.522796352583587
+      },
+      "historical": {
+        "cases": 329,
+        "maeSeconds": 6.75531914893617,
+        "p90AbsoluteErrorSeconds": 14.5,
+        "biasSeconds": 1.9772036474164134
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70171",
+      "toStopId": "70169",
+      "fromName": "Newton Centre",
+      "toName": "Newton Highlands",
+      "trainingDays": 6,
+      "predictedSeconds": 84.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 85.0,
+      "scheduled": {
+        "cases": 333,
+        "maeSeconds": 44.831831831831835,
+        "p90AbsoluteErrorSeconds": 94.0,
+        "biasSeconds": -42.789789789789786
+      },
+      "historical": {
+        "cases": 333,
+        "maeSeconds": 7.804804804804805,
+        "p90AbsoluteErrorSeconds": 13.800000000000011,
+        "biasSeconds": 4.381381381381382
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70173",
+      "toStopId": "70171",
+      "fromName": "Chestnut Hill",
+      "toName": "Newton Centre",
+      "trainingDays": 6,
+      "predictedSeconds": 144.0,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 146.0,
+      "scheduled": {
+        "cases": 336,
+        "maeSeconds": 72.88988095238095,
+        "p90AbsoluteErrorSeconds": 100.0,
+        "biasSeconds": -71.13392857142857
+      },
+      "historical": {
+        "cases": 336,
+        "maeSeconds": 11.211309523809524,
+        "p90AbsoluteErrorSeconds": 22.5,
+        "biasSeconds": 5.758928571428571
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70175",
+      "toStopId": "70173",
+      "fromName": "Reservoir",
+      "toName": "Chestnut Hill",
+      "trainingDays": 6,
+      "predictedSeconds": 117.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 118.0,
+      "scheduled": {
+        "cases": 335,
+        "maeSeconds": 57.504477611940295,
+        "p90AbsoluteErrorSeconds": 69.0,
+        "biasSeconds": -51.93432835820896
+      },
+      "historical": {
+        "cases": 335,
+        "maeSeconds": 12.23134328358209,
+        "p90AbsoluteErrorSeconds": 22.100000000000023,
+        "biasSeconds": 5.908955223880597
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70177",
+      "toStopId": "70175",
+      "fromName": "Beaconsfield",
+      "toName": "Reservoir",
+      "trainingDays": 6,
+      "predictedSeconds": 124.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 125.0,
+      "scheduled": {
+        "cases": 333,
+        "maeSeconds": 55.6036036036036,
+        "p90AbsoluteErrorSeconds": 75.0,
+        "biasSeconds": -49.927927927927925
+      },
+      "historical": {
+        "cases": 333,
+        "maeSeconds": 17.845345345345347,
+        "p90AbsoluteErrorSeconds": 38.5,
+        "biasSeconds": 8.635135135135135
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70179",
+      "toStopId": "70177",
+      "fromName": "Brookline Hills",
+      "toName": "Beaconsfield",
+      "trainingDays": 6,
+      "predictedSeconds": 92.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 93.0,
+      "scheduled": {
+        "cases": 334,
+        "maeSeconds": 98.2125748502994,
+        "p90AbsoluteErrorSeconds": 94.0,
+        "biasSeconds": -58.050898203592816
+      },
+      "historical": {
+        "cases": 334,
+        "maeSeconds": 33.11077844311377,
+        "p90AbsoluteErrorSeconds": 36.69999999999999,
+        "biasSeconds": 29.949101796407184
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70181",
+      "toStopId": "70179",
+      "fromName": "Brookline Village",
+      "toName": "Brookline Hills",
+      "trainingDays": 6,
+      "predictedSeconds": 84.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 85.0,
+      "scheduled": {
+        "cases": 333,
+        "maeSeconds": 40.63963963963964,
+        "p90AbsoluteErrorSeconds": 82.0,
+        "biasSeconds": -31.48048048048048
+      },
+      "historical": {
+        "cases": 333,
+        "maeSeconds": 9.036036036036036,
+        "p90AbsoluteErrorSeconds": 18.0,
+        "biasSeconds": 0.9159159159159159
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70183",
+      "toStopId": "70181",
+      "fromName": "Longwood",
+      "toName": "Brookline Village",
+      "trainingDays": 6,
+      "predictedSeconds": 79.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 79.0,
+      "scheduled": {
+        "cases": 334,
+        "maeSeconds": 49.80239520958084,
+        "p90AbsoluteErrorSeconds": 99.69999999999999,
+        "biasSeconds": -48.23952095808383
+      },
+      "historical": {
+        "cases": 334,
+        "maeSeconds": 6.790419161676646,
+        "p90AbsoluteErrorSeconds": 13.0,
+        "biasSeconds": 3.538922155688623
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70187",
+      "toStopId": "70183",
+      "fromName": "Fenway",
+      "toName": "Longwood",
+      "trainingDays": 6,
+      "predictedSeconds": 77.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 77.0,
+      "scheduled": {
+        "cases": 336,
+        "maeSeconds": 37.910714285714285,
+        "p90AbsoluteErrorSeconds": 53.0,
+        "biasSeconds": -32.07142857142857
+      },
+      "historical": {
+        "cases": 336,
+        "maeSeconds": 8.1875,
+        "p90AbsoluteErrorSeconds": 16.5,
+        "biasSeconds": -0.2857142857142857
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70198",
+      "toStopId": "70159",
+      "fromName": "Park Street",
+      "toName": "Boylston",
+      "trainingDays": 6,
+      "predictedSeconds": 53.25,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 52.0,
+      "scheduled": {
+        "cases": 329,
+        "maeSeconds": 107.53191489361703,
+        "p90AbsoluteErrorSeconds": 135.0,
+        "biasSeconds": -90.34042553191489
+      },
+      "historical": {
+        "cases": 329,
+        "maeSeconds": 25.079787234042552,
+        "p90AbsoluteErrorSeconds": 47.75,
+        "biasSeconds": 17.80775075987842
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70202",
+      "toStopId": "70198",
+      "fromName": "Government Center",
+      "toName": "Park Street",
+      "trainingDays": 6,
+      "predictedSeconds": 99.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 100.0,
+      "scheduled": {
+        "cases": 328,
+        "maeSeconds": 62.207317073170735,
+        "p90AbsoluteErrorSeconds": 89.0,
+        "biasSeconds": -57.03048780487805
+      },
+      "historical": {
+        "cases": 328,
+        "maeSeconds": 11.676829268292684,
+        "p90AbsoluteErrorSeconds": 22.0,
+        "biasSeconds": 5.676829268292683
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70204",
+      "toStopId": "70202",
+      "fromName": "Haymarket",
+      "toName": "Government Center",
+      "trainingDays": 6,
+      "predictedSeconds": 80.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 79.0,
+      "scheduled": {
+        "cases": 318,
+        "maeSeconds": 41.185534591194966,
+        "p90AbsoluteErrorSeconds": 58.0,
+        "biasSeconds": -28.08490566037736
+      },
+      "historical": {
+        "cases": 318,
+        "maeSeconds": 23.00314465408805,
+        "p90AbsoluteErrorSeconds": 56.0,
+        "biasSeconds": 11.915094339622641
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70206",
+      "toStopId": "70204",
+      "fromName": "North Station",
+      "toName": "Haymarket",
+      "trainingDays": 6,
+      "predictedSeconds": 52.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 52.0,
+      "scheduled": {
+        "cases": 323,
+        "maeSeconds": 71.9969040247678,
+        "p90AbsoluteErrorSeconds": 74.0,
+        "biasSeconds": -58.529411764705884
+      },
+      "historical": {
+        "cases": 323,
+        "maeSeconds": 13.495356037151703,
+        "p90AbsoluteErrorSeconds": 12.0,
+        "biasSeconds": 9.470588235294118
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70208",
+      "toStopId": "70206",
+      "fromName": "Science Park/West End",
+      "toName": "North Station",
+      "trainingDays": 6,
+      "predictedSeconds": 146.5,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 146.0,
+      "scheduled": {
+        "cases": 322,
+        "maeSeconds": 94.12422360248448,
+        "p90AbsoluteErrorSeconds": 114.90000000000003,
+        "biasSeconds": -82.56521739130434
+      },
+      "historical": {
+        "cases": 322,
+        "maeSeconds": 25.900621118012424,
+        "p90AbsoluteErrorSeconds": 48.30000000000007,
+        "biasSeconds": 3.2950310559006213
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70502",
+      "toStopId": "70208",
+      "fromName": "Lechmere",
+      "toName": "Science Park/West End",
+      "trainingDays": 6,
+      "predictedSeconds": 78.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 78.0,
+      "scheduled": {
+        "cases": 318,
+        "maeSeconds": 45.12893081761006,
+        "p90AbsoluteErrorSeconds": 49.0,
+        "biasSeconds": -31.455974842767297
+      },
+      "historical": {
+        "cases": 318,
+        "maeSeconds": 14.632075471698114,
+        "p90AbsoluteErrorSeconds": 15.300000000000011,
+        "biasSeconds": 10.544025157232705
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 0,
+      "fromStopId": "70504",
+      "toStopId": "70502",
+      "fromName": "Union Square",
+      "toName": "Lechmere",
+      "trainingDays": 3,
+      "predictedSeconds": 211.0,
+      "scheduledSeconds": 300.0,
+      "observedMedianSeconds": 254.5,
+      "scheduled": {
+        "cases": 2,
+        "maeSeconds": 60.5,
+        "p90AbsoluteErrorSeconds": 96.9,
+        "biasSeconds": -45.5
+      },
+      "historical": {
+        "cases": 2,
+        "maeSeconds": 60.5,
+        "p90AbsoluteErrorSeconds": 95.3,
+        "biasSeconds": 43.5
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70150",
+      "toStopId": "70152",
+      "fromName": "Kenmore",
+      "toName": "Hynes Convention Center",
+      "trainingDays": 6,
+      "predictedSeconds": 116.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 116.0,
+      "scheduled": {
+        "cases": 337,
+        "maeSeconds": 59.753709198813056,
+        "p90AbsoluteErrorSeconds": 78.40000000000003,
+        "biasSeconds": -56.86943620178042
+      },
+      "historical": {
+        "cases": 337,
+        "maeSeconds": 15.79080118694362,
+        "p90AbsoluteErrorSeconds": 36.900000000000034,
+        "biasSeconds": 6.630563798219584
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70152",
+      "toStopId": "70154",
+      "fromName": "Hynes Convention Center",
+      "toName": "Copley",
+      "trainingDays": 6,
+      "predictedSeconds": 109.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 107.0,
+      "scheduled": {
+        "cases": 328,
+        "maeSeconds": 61.34146341463415,
+        "p90AbsoluteErrorSeconds": 90.0,
+        "biasSeconds": -52.08536585365854
+      },
+      "historical": {
+        "cases": 328,
+        "maeSeconds": 26.567073170731707,
+        "p90AbsoluteErrorSeconds": 62.900000000000034,
+        "biasSeconds": 13.426829268292684
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70154",
+      "toStopId": "70156",
+      "fromName": "Copley",
+      "toName": "Arlington",
+      "trainingDays": 6,
+      "predictedSeconds": 60.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 61.0,
+      "scheduled": {
+        "cases": 329,
+        "maeSeconds": 56.723404255319146,
+        "p90AbsoluteErrorSeconds": 66.0,
+        "biasSeconds": -56.10334346504559
+      },
+      "historical": {
+        "cases": 329,
+        "maeSeconds": 7.329787234042553,
+        "p90AbsoluteErrorSeconds": 13.699999999999989,
+        "biasSeconds": 3.396656534954407
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70156",
+      "toStopId": "70158",
+      "fromName": "Arlington",
+      "toName": "Boylston",
+      "trainingDays": 6,
+      "predictedSeconds": 99.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 98.0,
+      "scheduled": {
+        "cases": 325,
+        "maeSeconds": 64.29230769230769,
+        "p90AbsoluteErrorSeconds": 100.0,
+        "biasSeconds": -46.70461538461539
+      },
+      "historical": {
+        "cases": 325,
+        "maeSeconds": 31.72923076923077,
+        "p90AbsoluteErrorSeconds": 75.60000000000002,
+        "biasSeconds": 19.526153846153846
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70158",
+      "toStopId": "70200",
+      "fromName": "Boylston",
+      "toName": "Park Street",
+      "trainingDays": 6,
+      "predictedSeconds": 69.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 68.0,
+      "scheduled": {
+        "cases": 325,
+        "maeSeconds": 48.51384615384615,
+        "p90AbsoluteErrorSeconds": 63.0,
+        "biasSeconds": -42.48923076923077
+      },
+      "historical": {
+        "cases": 325,
+        "maeSeconds": 16.338461538461537,
+        "p90AbsoluteErrorSeconds": 39.000000000000114,
+        "biasSeconds": 8.510769230769231
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70160",
+      "toStopId": "70162",
+      "fromName": "Riverside",
+      "toName": "Woodland",
+      "trainingDays": 6,
+      "predictedSeconds": 66.75,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 69.0,
+      "scheduled": {
+        "cases": 110,
+        "maeSeconds": 23.990909090909092,
+        "p90AbsoluteErrorSeconds": 18.0,
+        "biasSeconds": 23.045454545454547
+      },
+      "historical": {
+        "cases": 110,
+        "maeSeconds": 20.836363636363636,
+        "p90AbsoluteErrorSeconds": 12.350000000000009,
+        "biasSeconds": 16.295454545454547
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70162",
+      "toStopId": "70164",
+      "fromName": "Woodland",
+      "toName": "Waban",
+      "trainingDays": 6,
+      "predictedSeconds": 92.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 92.5,
+      "scheduled": {
+        "cases": 312,
+        "maeSeconds": 52.032051282051285,
+        "p90AbsoluteErrorSeconds": 92.0,
+        "biasSeconds": -42.19230769230769
+      },
+      "historical": {
+        "cases": 312,
+        "maeSeconds": 12.807692307692308,
+        "p90AbsoluteErrorSeconds": 18.400000000000034,
+        "biasSeconds": 7.8076923076923075
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70164",
+      "toStopId": "70166",
+      "fromName": "Waban",
+      "toName": "Eliot",
+      "trainingDays": 6,
+      "predictedSeconds": 84.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 85.0,
+      "scheduled": {
+        "cases": 322,
+        "maeSeconds": 34.42857142857143,
+        "p90AbsoluteErrorSeconds": 40.0,
+        "biasSeconds": -32.67701863354037
+      },
+      "historical": {
+        "cases": 322,
+        "maeSeconds": 5.919254658385094,
+        "p90AbsoluteErrorSeconds": 9.5,
+        "biasSeconds": 2.8229813664596275
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70166",
+      "toStopId": "70168",
+      "fromName": "Eliot",
+      "toName": "Newton Highlands",
+      "trainingDays": 6,
+      "predictedSeconds": 97.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 98.0,
+      "scheduled": {
+        "cases": 326,
+        "maeSeconds": 25.125766871165645,
+        "p90AbsoluteErrorSeconds": 33.0,
+        "biasSeconds": -18.61042944785276
+      },
+      "historical": {
+        "cases": 326,
+        "maeSeconds": 10.02760736196319,
+        "p90AbsoluteErrorSeconds": 14.5,
+        "biasSeconds": 4.389570552147239
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70168",
+      "toStopId": "70170",
+      "fromName": "Newton Highlands",
+      "toName": "Newton Centre",
+      "trainingDays": 6,
+      "predictedSeconds": 82.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 84.0,
+      "scheduled": {
+        "cases": 324,
+        "maeSeconds": 58.41358024691358,
+        "p90AbsoluteErrorSeconds": 98.0,
+        "biasSeconds": -57.91975308641975
+      },
+      "historical": {
+        "cases": 324,
+        "maeSeconds": 6.320987654320987,
+        "p90AbsoluteErrorSeconds": 12.199999999999989,
+        "biasSeconds": 3.4691358024691357
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70170",
+      "toStopId": "70172",
+      "fromName": "Newton Centre",
+      "toName": "Chestnut Hill",
+      "trainingDays": 6,
+      "predictedSeconds": 147.0,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 149.0,
+      "scheduled": {
+        "cases": 327,
+        "maeSeconds": 83.11926605504587,
+        "p90AbsoluteErrorSeconds": 100.0,
+        "biasSeconds": -81.10703363914374
+      },
+      "historical": {
+        "cases": 327,
+        "maeSeconds": 11.01223241590214,
+        "p90AbsoluteErrorSeconds": 18.400000000000034,
+        "biasSeconds": 4.370030581039756
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70172",
+      "toStopId": "70174",
+      "fromName": "Chestnut Hill",
+      "toName": "Reservoir",
+      "trainingDays": 6,
+      "predictedSeconds": 123.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 123.0,
+      "scheduled": {
+        "cases": 330,
+        "maeSeconds": 54.81515151515151,
+        "p90AbsoluteErrorSeconds": 67.0,
+        "biasSeconds": -50.17878787878788
+      },
+      "historical": {
+        "cases": 330,
+        "maeSeconds": 10.996969696969696,
+        "p90AbsoluteErrorSeconds": 15.0,
+        "biasSeconds": 4.63939393939394
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70174",
+      "toStopId": "70176",
+      "fromName": "Reservoir",
+      "toName": "Beaconsfield",
+      "trainingDays": 6,
+      "predictedSeconds": 119.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 119.0,
+      "scheduled": {
+        "cases": 326,
+        "maeSeconds": 67.46932515337423,
+        "p90AbsoluteErrorSeconds": 81.0,
+        "biasSeconds": -61.78834355828221
+      },
+      "historical": {
+        "cases": 326,
+        "maeSeconds": 14.5,
+        "p90AbsoluteErrorSeconds": 22.0,
+        "biasSeconds": 3.076687116564417
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70176",
+      "toStopId": "70178",
+      "fromName": "Beaconsfield",
+      "toName": "Brookline Hills",
+      "trainingDays": 6,
+      "predictedSeconds": 100.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 101.0,
+      "scheduled": {
+        "cases": 330,
+        "maeSeconds": 80.58484848484848,
+        "p90AbsoluteErrorSeconds": 87.0,
+        "biasSeconds": -75.16666666666667
+      },
+      "historical": {
+        "cases": 330,
+        "maeSeconds": 10.39090909090909,
+        "p90AbsoluteErrorSeconds": 15.100000000000023,
+        "biasSeconds": 4.833333333333333
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70178",
+      "toStopId": "70180",
+      "fromName": "Brookline Hills",
+      "toName": "Brookline Village",
+      "trainingDays": 6,
+      "predictedSeconds": 66.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 68.0,
+      "scheduled": {
+        "cases": 331,
+        "maeSeconds": 52.67371601208459,
+        "p90AbsoluteErrorSeconds": 110.0,
+        "biasSeconds": -49.181268882175225
+      },
+      "historical": {
+        "cases": 331,
+        "maeSeconds": 6.545317220543807,
+        "p90AbsoluteErrorSeconds": 12.5,
+        "biasSeconds": 1.7809667673716012
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70180",
+      "toStopId": "70182",
+      "fromName": "Brookline Village",
+      "toName": "Longwood",
+      "trainingDays": 6,
+      "predictedSeconds": 90.75,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 92.0,
+      "scheduled": {
+        "cases": 331,
+        "maeSeconds": 41.933534743202415,
+        "p90AbsoluteErrorSeconds": 88.0,
+        "biasSeconds": -34.090634441087616
+      },
+      "historical": {
+        "cases": 331,
+        "maeSeconds": 10.994712990936556,
+        "p90AbsoluteErrorSeconds": 15.25,
+        "biasSeconds": 6.941842900302115
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70182",
+      "toStopId": "70186",
+      "fromName": "Longwood",
+      "toName": "Fenway",
+      "trainingDays": 6,
+      "predictedSeconds": 67.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 68.0,
+      "scheduled": {
+        "cases": 331,
+        "maeSeconds": 44.2809667673716,
+        "p90AbsoluteErrorSeconds": 62.0,
+        "biasSeconds": -39.87613293051359
+      },
+      "historical": {
+        "cases": 331,
+        "maeSeconds": 7.341389728096677,
+        "p90AbsoluteErrorSeconds": 13.0,
+        "biasSeconds": 1.5226586102719033
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70186",
+      "toStopId": "70150",
+      "fromName": "Fenway",
+      "toName": "Kenmore",
+      "trainingDays": 6,
+      "predictedSeconds": 152.5,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 152.0,
+      "scheduled": {
+        "cases": 328,
+        "maeSeconds": 83.57317073170732,
+        "p90AbsoluteErrorSeconds": 104.0,
+        "biasSeconds": -67.3048780487805
+      },
+      "historical": {
+        "cases": 328,
+        "maeSeconds": 26.48780487804878,
+        "p90AbsoluteErrorSeconds": 66.10000000000002,
+        "biasSeconds": 15.25609756097561
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70200",
+      "toStopId": "70201",
+      "fromName": "Park Street",
+      "toName": "Government Center",
+      "trainingDays": 6,
+      "predictedSeconds": 61.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 62.0,
+      "scheduled": {
+        "cases": 328,
+        "maeSeconds": 100.9390243902439,
+        "p90AbsoluteErrorSeconds": 128.0,
+        "biasSeconds": -93.92682926829268
+      },
+      "historical": {
+        "cases": 328,
+        "maeSeconds": 22.835365853658537,
+        "p90AbsoluteErrorSeconds": 51.900000000000034,
+        "biasSeconds": 16.658536585365855
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70201",
+      "toStopId": "70203",
+      "fromName": "Government Center",
+      "toName": "Haymarket",
+      "trainingDays": 6,
+      "predictedSeconds": 97.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 98.0,
+      "scheduled": {
+        "cases": 328,
+        "maeSeconds": 29.38109756097561,
+        "p90AbsoluteErrorSeconds": 52.900000000000034,
+        "biasSeconds": -20.16768292682927
+      },
+      "historical": {
+        "cases": 328,
+        "maeSeconds": 16.588414634146343,
+        "p90AbsoluteErrorSeconds": 38.5,
+        "biasSeconds": 4.710365853658536
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70203",
+      "toStopId": "70205",
+      "fromName": "Haymarket",
+      "toName": "North Station",
+      "trainingDays": 6,
+      "predictedSeconds": 65.25,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 65.0,
+      "scheduled": {
+        "cases": 325,
+        "maeSeconds": 54.353846153846156,
+        "p90AbsoluteErrorSeconds": 67.60000000000002,
+        "biasSeconds": -52.261538461538464
+      },
+      "historical": {
+        "cases": 325,
+        "maeSeconds": 10.40846153846154,
+        "p90AbsoluteErrorSeconds": 18.55000000000001,
+        "biasSeconds": 2.4884615384615385
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70205",
+      "toStopId": "70207",
+      "fromName": "North Station",
+      "toName": "Science Park/West End",
+      "trainingDays": 6,
+      "predictedSeconds": 140.5,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 139.0,
+      "scheduled": {
+        "cases": 315,
+        "maeSeconds": 88.52063492063492,
+        "p90AbsoluteErrorSeconds": 123.0,
+        "biasSeconds": -83.12380952380953
+      },
+      "historical": {
+        "cases": 315,
+        "maeSeconds": 29.48095238095238,
+        "p90AbsoluteErrorSeconds": 75.10000000000002,
+        "biasSeconds": 13.138095238095238
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70207",
+      "toStopId": "70501",
+      "fromName": "Science Park/West End",
+      "toName": "Lechmere",
+      "trainingDays": 6,
+      "predictedSeconds": 74.25,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 75.0,
+      "scheduled": {
+        "cases": 312,
+        "maeSeconds": 50.24679487179487,
+        "p90AbsoluteErrorSeconds": 51.0,
+        "biasSeconds": -37.708333333333336
+      },
+      "historical": {
+        "cases": 312,
+        "maeSeconds": 11.54647435897436,
+        "p90AbsoluteErrorSeconds": 10.700000000000017,
+        "biasSeconds": 8.041666666666666
+      }
+    },
+    {
+      "routeId": "Green-D",
+      "directionId": 1,
+      "fromStopId": "70501",
+      "toStopId": "70503",
+      "fromName": "Lechmere",
+      "toName": "Union Square",
+      "trainingDays": 6,
+      "predictedSeconds": 316.75,
+      "scheduledSeconds": 420.0,
+      "observedMedianSeconds": 315.0,
+      "scheduled": {
+        "cases": 242,
+        "maeSeconds": 84.8099173553719,
+        "p90AbsoluteErrorSeconds": 136.8,
+        "biasSeconds": -49.743801652892564
+      },
+      "historical": {
+        "cases": 242,
+        "maeSeconds": 50.03099173553719,
+        "p90AbsoluteErrorSeconds": 124.05000000000001,
+        "biasSeconds": 26.233471074380166
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70155",
+      "toStopId": "70239",
+      "fromName": "Copley",
+      "toName": "Prudential",
+      "trainingDays": 6,
+      "predictedSeconds": 80.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 81.0,
+      "scheduled": {
+        "cases": 349,
+        "maeSeconds": 64.80515759312321,
+        "p90AbsoluteErrorSeconds": 105.0,
+        "biasSeconds": -63.33810888252149
+      },
+      "historical": {
+        "cases": 349,
+        "maeSeconds": 15.720630372492836,
+        "p90AbsoluteErrorSeconds": 43.69999999999999,
+        "biasSeconds": 9.34240687679083
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70157",
+      "toStopId": "70155",
+      "fromName": "Arlington",
+      "toName": "Copley",
+      "trainingDays": 6,
+      "predictedSeconds": 69.75,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 69.0,
+      "scheduled": {
+        "cases": 351,
+        "maeSeconds": 56.364672364672366,
+        "p90AbsoluteErrorSeconds": 72.0,
+        "biasSeconds": -34.364672364672366
+      },
+      "historical": {
+        "cases": 351,
+        "maeSeconds": 31.845441595441596,
+        "p90AbsoluteErrorSeconds": 51.25,
+        "biasSeconds": 15.885327635327636
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70159",
+      "toStopId": "70157",
+      "fromName": "Boylston",
+      "toName": "Arlington",
+      "trainingDays": 6,
+      "predictedSeconds": 103.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 102.0,
+      "scheduled": {
+        "cases": 350,
+        "maeSeconds": 60.61142857142857,
+        "p90AbsoluteErrorSeconds": 90.0,
+        "biasSeconds": -56.06285714285714
+      },
+      "historical": {
+        "cases": 350,
+        "maeSeconds": 14.297142857142857,
+        "p90AbsoluteErrorSeconds": 27.0,
+        "biasSeconds": 4.651428571428571
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70199",
+      "toStopId": "70159",
+      "fromName": "Park Street",
+      "toName": "Boylston",
+      "trainingDays": 6,
+      "predictedSeconds": 53.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 53.0,
+      "scheduled": {
+        "cases": 347,
+        "maeSeconds": 99.20461095100865,
+        "p90AbsoluteErrorSeconds": 136.0,
+        "biasSeconds": -98.69740634005764
+      },
+      "historical": {
+        "cases": 347,
+        "maeSeconds": 16.485590778097983,
+        "p90AbsoluteErrorSeconds": 48.30000000000007,
+        "biasSeconds": 9.819884726224783
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70202",
+      "toStopId": "70199",
+      "fromName": "Government Center",
+      "toName": "Park Street",
+      "trainingDays": 6,
+      "predictedSeconds": 98.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 100.0,
+      "scheduled": {
+        "cases": 346,
+        "maeSeconds": 63.96820809248555,
+        "p90AbsoluteErrorSeconds": 89.0,
+        "biasSeconds": -54.713872832369944
+      },
+      "historical": {
+        "cases": 346,
+        "maeSeconds": 15.829479768786127,
+        "p90AbsoluteErrorSeconds": 32.0,
+        "biasSeconds": 10.8121387283237
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70204",
+      "toStopId": "70202",
+      "fromName": "Haymarket",
+      "toName": "Government Center",
+      "trainingDays": 6,
+      "predictedSeconds": 78.75,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 78.0,
+      "scheduled": {
+        "cases": 333,
+        "maeSeconds": 43.549549549549546,
+        "p90AbsoluteErrorSeconds": 61.0,
+        "biasSeconds": -24.91891891891892
+      },
+      "historical": {
+        "cases": 333,
+        "maeSeconds": 27.254504504504503,
+        "p90AbsoluteErrorSeconds": 73.25,
+        "biasSeconds": 16.33108108108108
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70206",
+      "toStopId": "70204",
+      "fromName": "North Station",
+      "toName": "Haymarket",
+      "trainingDays": 6,
+      "predictedSeconds": 51.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 51.0,
+      "scheduled": {
+        "cases": 348,
+        "maeSeconds": 70.98563218390805,
+        "p90AbsoluteErrorSeconds": 76.0,
+        "biasSeconds": -58.456896551724135
+      },
+      "historical": {
+        "cases": 348,
+        "maeSeconds": 15.221264367816092,
+        "p90AbsoluteErrorSeconds": 18.5,
+        "biasSeconds": 10.043103448275861
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70208",
+      "toStopId": "70206",
+      "fromName": "Science Park/West End",
+      "toName": "North Station",
+      "trainingDays": 6,
+      "predictedSeconds": 142.75,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 142.0,
+      "scheduled": {
+        "cases": 345,
+        "maeSeconds": 107.72463768115942,
+        "p90AbsoluteErrorSeconds": 205.0,
+        "biasSeconds": -102.1536231884058
+      },
+      "historical": {
+        "cases": 345,
+        "maeSeconds": 35.68043478260869,
+        "p90AbsoluteErrorSeconds": 108.75,
+        "biasSeconds": -12.034057971014493
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70239",
+      "toStopId": "70243",
+      "fromName": "Prudential",
+      "toName": "Northeastern University",
+      "trainingDays": 6,
+      "predictedSeconds": 119.5,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 120.0,
+      "scheduled": {
+        "cases": 352,
+        "maeSeconds": 130.3409090909091,
+        "p90AbsoluteErrorSeconds": 140.90000000000003,
+        "biasSeconds": -97.46022727272727
+      },
+      "historical": {
+        "cases": 352,
+        "maeSeconds": 32.79261363636363,
+        "p90AbsoluteErrorSeconds": 33.5,
+        "biasSeconds": 20.823863636363637
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70243",
+      "toStopId": "70245",
+      "fromName": "Northeastern University",
+      "toName": "Museum of Fine Arts",
+      "trainingDays": 6,
+      "predictedSeconds": 97.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 93.5,
+      "scheduled": {
+        "cases": 352,
+        "maeSeconds": 86.39488636363636,
+        "p90AbsoluteErrorSeconds": 114.90000000000003,
+        "biasSeconds": -85.34943181818181
+      },
+      "historical": {
+        "cases": 352,
+        "maeSeconds": 20.43465909090909,
+        "p90AbsoluteErrorSeconds": 37.900000000000034,
+        "biasSeconds": -2.3494318181818183
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70245",
+      "toStopId": "70247",
+      "fromName": "Museum of Fine Arts",
+      "toName": "Longwood Medical Area",
+      "trainingDays": 6,
+      "predictedSeconds": 69.25,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 68.0,
+      "scheduled": {
+        "cases": 347,
+        "maeSeconds": 98.19596541786744,
+        "p90AbsoluteErrorSeconds": 134.0,
+        "biasSeconds": -96.57060518731988
+      },
+      "historical": {
+        "cases": 347,
+        "maeSeconds": 19.884005763688762,
+        "p90AbsoluteErrorSeconds": 40.150000000000034,
+        "biasSeconds": 2.594380403458213
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70247",
+      "toStopId": "70249",
+      "fromName": "Longwood Medical Area",
+      "toName": "Brigham Circle",
+      "trainingDays": 6,
+      "predictedSeconds": 61.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 62.0,
+      "scheduled": {
+        "cases": 345,
+        "maeSeconds": 73.38550724637682,
+        "p90AbsoluteErrorSeconds": 70.60000000000002,
+        "biasSeconds": -33.68695652173913
+      },
+      "historical": {
+        "cases": 345,
+        "maeSeconds": 30.41449275362319,
+        "p90AbsoluteErrorSeconds": 24.40000000000009,
+        "biasSeconds": 25.31304347826087
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70249",
+      "toStopId": "70251",
+      "fromName": "Brigham Circle",
+      "toName": "Fenwood Road",
+      "trainingDays": 6,
+      "predictedSeconds": 21.5,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 22.0,
+      "scheduled": {
+        "cases": 330,
+        "maeSeconds": 34.124242424242425,
+        "p90AbsoluteErrorSeconds": 42.0,
+        "biasSeconds": -33.6030303030303
+      },
+      "historical": {
+        "cases": 330,
+        "maeSeconds": 6.86060606060606,
+        "p90AbsoluteErrorSeconds": 24.5,
+        "biasSeconds": 4.8969696969696965
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70251",
+      "toStopId": "70253",
+      "fromName": "Fenwood Road",
+      "toName": "Mission Park",
+      "trainingDays": 6,
+      "predictedSeconds": 39.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 40.0,
+      "scheduled": {
+        "cases": 332,
+        "maeSeconds": 79.06024096385542,
+        "p90AbsoluteErrorSeconds": 105.50000000000051,
+        "biasSeconds": -78.44578313253012
+      },
+      "historical": {
+        "cases": 332,
+        "maeSeconds": 8.542168674698795,
+        "p90AbsoluteErrorSeconds": 23.5,
+        "biasSeconds": 5.4879518072289155
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70253",
+      "toStopId": "70255",
+      "fromName": "Mission Park",
+      "toName": "Riverway",
+      "trainingDays": 6,
+      "predictedSeconds": 80.25,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 86.0,
+      "scheduled": {
+        "cases": 333,
+        "maeSeconds": 38.606606606606604,
+        "p90AbsoluteErrorSeconds": 61.80000000000001,
+        "biasSeconds": -9.63963963963964
+      },
+      "historical": {
+        "cases": 333,
+        "maeSeconds": 36.87462462462462,
+        "p90AbsoluteErrorSeconds": 86.75,
+        "biasSeconds": 26.506756756756758
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70255",
+      "toStopId": "70257",
+      "fromName": "Riverway",
+      "toName": "Back of the Hill",
+      "trainingDays": 6,
+      "predictedSeconds": 42.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 45.0,
+      "scheduled": {
+        "cases": 329,
+        "maeSeconds": 23.65045592705167,
+        "p90AbsoluteErrorSeconds": 63.0,
+        "biasSeconds": -19.018237082066868
+      },
+      "historical": {
+        "cases": 329,
+        "maeSeconds": 12.100303951367781,
+        "p90AbsoluteErrorSeconds": 26.19999999999999,
+        "biasSeconds": 8.282674772036474
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70257",
+      "toStopId": "70260",
+      "fromName": "Back of the Hill",
+      "toName": "Heath Street",
+      "trainingDays": 6,
+      "predictedSeconds": 34.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 36.0,
+      "scheduled": {
+        "cases": 272,
+        "maeSeconds": 116.25735294117646,
+        "p90AbsoluteErrorSeconds": 88.0,
+        "biasSeconds": -27.323529411764707
+      },
+      "historical": {
+        "cases": 272,
+        "maeSeconds": 53.125,
+        "p90AbsoluteErrorSeconds": 20.400000000000006,
+        "biasSeconds": 51.55882352941177
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70502",
+      "toStopId": "70208",
+      "fromName": "Lechmere",
+      "toName": "Science Park/West End",
+      "trainingDays": 6,
+      "predictedSeconds": 77.25,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 78.0,
+      "scheduled": {
+        "cases": 338,
+        "maeSeconds": 50.59763313609467,
+        "p90AbsoluteErrorSeconds": 54.60000000000002,
+        "biasSeconds": -21.86390532544379
+      },
+      "historical": {
+        "cases": 338,
+        "maeSeconds": 25.38609467455621,
+        "p90AbsoluteErrorSeconds": 83.35000000000002,
+        "biasSeconds": 20.88609467455621
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70506",
+      "toStopId": "70514",
+      "fromName": "Gilman Square",
+      "toName": "East Somerville",
+      "trainingDays": 6,
+      "predictedSeconds": 82.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 83.0,
+      "scheduled": {
+        "cases": 347,
+        "maeSeconds": 51.04034582132565,
+        "p90AbsoluteErrorSeconds": 98.0,
+        "biasSeconds": -49.13256484149856
+      },
+      "historical": {
+        "cases": 347,
+        "maeSeconds": 6.534582132564841,
+        "p90AbsoluteErrorSeconds": 10.5,
+        "biasSeconds": 1.8544668587896254
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70508",
+      "toStopId": "70506",
+      "fromName": "Magoun Square",
+      "toName": "Gilman Square",
+      "trainingDays": 6,
+      "predictedSeconds": 67.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 67.0,
+      "scheduled": {
+        "cases": 343,
+        "maeSeconds": 55.86880466472303,
+        "p90AbsoluteErrorSeconds": 58.0,
+        "biasSeconds": -48.7201166180758
+      },
+      "historical": {
+        "cases": 343,
+        "maeSeconds": 7.813411078717201,
+        "p90AbsoluteErrorSeconds": 7.800000000000011,
+        "biasSeconds": 4.279883381924198
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70510",
+      "toStopId": "70508",
+      "fromName": "Ball Square",
+      "toName": "Magoun Square",
+      "trainingDays": 6,
+      "predictedSeconds": 51.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 51.0,
+      "scheduled": {
+        "cases": 345,
+        "maeSeconds": 16.39710144927536,
+        "p90AbsoluteErrorSeconds": 61.0,
+        "biasSeconds": -14.11304347826087
+      },
+      "historical": {
+        "cases": 345,
+        "maeSeconds": 4.927536231884058,
+        "p90AbsoluteErrorSeconds": 8.0,
+        "biasSeconds": 1.8434782608695652
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70512",
+      "toStopId": "70510",
+      "fromName": "Medford/Tufts",
+      "toName": "Ball Square",
+      "trainingDays": 6,
+      "predictedSeconds": 93.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 93.0,
+      "scheduled": {
+        "cases": 340,
+        "maeSeconds": 40.37352941176471,
+        "p90AbsoluteErrorSeconds": 38.10000000000002,
+        "biasSeconds": -11.426470588235293
+      },
+      "historical": {
+        "cases": 340,
+        "maeSeconds": 23.13235294117647,
+        "p90AbsoluteErrorSeconds": 19.0,
+        "biasSeconds": 15.573529411764707
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 0,
+      "fromStopId": "70514",
+      "toStopId": "70502",
+      "fromName": "East Somerville",
+      "toName": "Lechmere",
+      "trainingDays": 6,
+      "predictedSeconds": 160.0,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 161.0,
+      "scheduled": {
+        "cases": 350,
+        "maeSeconds": 100.13714285714286,
+        "p90AbsoluteErrorSeconds": 99.0,
+        "biasSeconds": -30.577142857142857
+      },
+      "historical": {
+        "cases": 350,
+        "maeSeconds": 56.08,
+        "p90AbsoluteErrorSeconds": 67.40000000000009,
+        "biasSeconds": 42.90857142857143
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70154",
+      "toStopId": "70156",
+      "fromName": "Copley",
+      "toName": "Arlington",
+      "trainingDays": 6,
+      "predictedSeconds": 58.75,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 59.0,
+      "scheduled": {
+        "cases": 348,
+        "maeSeconds": 58.735632183908045,
+        "p90AbsoluteErrorSeconds": 69.0,
+        "biasSeconds": -57.672413793103445
+      },
+      "historical": {
+        "cases": 348,
+        "maeSeconds": 8.512931034482758,
+        "p90AbsoluteErrorSeconds": 16.900000000000006,
+        "biasSeconds": 3.5775862068965516
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70156",
+      "toStopId": "70158",
+      "fromName": "Arlington",
+      "toName": "Boylston",
+      "trainingDays": 6,
+      "predictedSeconds": 99.25,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 99.0,
+      "scheduled": {
+        "cases": 342,
+        "maeSeconds": 69.69590643274854,
+        "p90AbsoluteErrorSeconds": 105.0,
+        "biasSeconds": -49.473684210526315
+      },
+      "historical": {
+        "cases": 342,
+        "maeSeconds": 36.58187134502924,
+        "p90AbsoluteErrorSeconds": 80.65000000000003,
+        "biasSeconds": 21.80263157894737
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70158",
+      "toStopId": "70200",
+      "fromName": "Boylston",
+      "toName": "Park Street",
+      "trainingDays": 6,
+      "predictedSeconds": 65.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 66.0,
+      "scheduled": {
+        "cases": 344,
+        "maeSeconds": 50.968023255813954,
+        "p90AbsoluteErrorSeconds": 68.0,
+        "biasSeconds": -41.51453488372093
+      },
+      "historical": {
+        "cases": 344,
+        "maeSeconds": 21.36046511627907,
+        "p90AbsoluteErrorSeconds": 52.5,
+        "biasSeconds": 12.98546511627907
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70200",
+      "toStopId": "70201",
+      "fromName": "Park Street",
+      "toName": "Government Center",
+      "trainingDays": 6,
+      "predictedSeconds": 60.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 61.0,
+      "scheduled": {
+        "cases": 344,
+        "maeSeconds": 102.46802325581395,
+        "p90AbsoluteErrorSeconds": 132.0,
+        "biasSeconds": -91.97383720930233
+      },
+      "historical": {
+        "cases": 344,
+        "maeSeconds": 28.08139534883721,
+        "p90AbsoluteErrorSeconds": 69.89999999999998,
+        "biasSeconds": 19.851744186046513
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70201",
+      "toStopId": "70203",
+      "fromName": "Government Center",
+      "toName": "Haymarket",
+      "trainingDays": 6,
+      "predictedSeconds": 94.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 96.0,
+      "scheduled": {
+        "cases": 341,
+        "maeSeconds": 40.71554252199414,
+        "p90AbsoluteErrorSeconds": 44.0,
+        "biasSeconds": -9.548387096774194
+      },
+      "historical": {
+        "cases": 341,
+        "maeSeconds": 27.46041055718475,
+        "p90AbsoluteErrorSeconds": 30.0,
+        "biasSeconds": 17.85923753665689
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70203",
+      "toStopId": "70205",
+      "fromName": "Haymarket",
+      "toName": "North Station",
+      "trainingDays": 6,
+      "predictedSeconds": 61.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 61.0,
+      "scheduled": {
+        "cases": 346,
+        "maeSeconds": 68.17052023121387,
+        "p90AbsoluteErrorSeconds": 70.0,
+        "biasSeconds": -41.66184971098266
+      },
+      "historical": {
+        "cases": 346,
+        "maeSeconds": 24.57514450867052,
+        "p90AbsoluteErrorSeconds": 27.0,
+        "biasSeconds": 16.838150289017342
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70205",
+      "toStopId": "70207",
+      "fromName": "North Station",
+      "toName": "Science Park/West End",
+      "trainingDays": 6,
+      "predictedSeconds": 139.0,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 139.0,
+      "scheduled": {
+        "cases": 345,
+        "maeSeconds": 86.4695652173913,
+        "p90AbsoluteErrorSeconds": 126.0,
+        "biasSeconds": -78.62028985507246
+      },
+      "historical": {
+        "cases": 345,
+        "maeSeconds": 36.68115942028985,
+        "p90AbsoluteErrorSeconds": 87.60000000000002,
+        "biasSeconds": 19.24927536231884
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70207",
+      "toStopId": "70501",
+      "fromName": "Science Park/West End",
+      "toName": "Lechmere",
+      "trainingDays": 6,
+      "predictedSeconds": 72.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 72.0,
+      "scheduled": {
+        "cases": 343,
+        "maeSeconds": 47.91253644314869,
+        "p90AbsoluteErrorSeconds": 55.0,
+        "biasSeconds": -45.13119533527697
+      },
+      "historical": {
+        "cases": 343,
+        "maeSeconds": 6.985422740524782,
+        "p90AbsoluteErrorSeconds": 10.0,
+        "biasSeconds": 2.868804664723032
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70240",
+      "toStopId": "70154",
+      "fromName": "Prudential",
+      "toName": "Copley",
+      "trainingDays": 6,
+      "predictedSeconds": 77.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 80.0,
+      "scheduled": {
+        "cases": 347,
+        "maeSeconds": 57.216138328530256,
+        "p90AbsoluteErrorSeconds": 112.0,
+        "biasSeconds": -46.247838616714695
+      },
+      "historical": {
+        "cases": 347,
+        "maeSeconds": 27.93227665706052,
+        "p90AbsoluteErrorSeconds": 71.5,
+        "biasSeconds": 19.2492795389049
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70244",
+      "toStopId": "70240",
+      "fromName": "Northeastern University",
+      "toName": "Prudential",
+      "trainingDays": 6,
+      "predictedSeconds": 100.0,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 101.0,
+      "scheduled": {
+        "cases": 348,
+        "maeSeconds": 121.67528735632185,
+        "p90AbsoluteErrorSeconds": 152.0,
+        "biasSeconds": -121.67528735632185
+      },
+      "historical": {
+        "cases": 348,
+        "maeSeconds": 12.278735632183908,
+        "p90AbsoluteErrorSeconds": 25.30000000000001,
+        "biasSeconds": 0.3936781609195402
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70246",
+      "toStopId": "70244",
+      "fromName": "Museum of Fine Arts",
+      "toName": "Northeastern University",
+      "trainingDays": 6,
+      "predictedSeconds": 105.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 100.0,
+      "scheduled": {
+        "cases": 348,
+        "maeSeconds": 77.05747126436782,
+        "p90AbsoluteErrorSeconds": 111.0,
+        "biasSeconds": -75.86781609195403
+      },
+      "historical": {
+        "cases": 348,
+        "maeSeconds": 24.916666666666668,
+        "p90AbsoluteErrorSeconds": 53.400000000000034,
+        "biasSeconds": 0.3563218390804598
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70248",
+      "toStopId": "70246",
+      "fromName": "Longwood Medical Area",
+      "toName": "Museum of Fine Arts",
+      "trainingDays": 6,
+      "predictedSeconds": 102.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 98.0,
+      "scheduled": {
+        "cases": 343,
+        "maeSeconds": 74.77842565597668,
+        "p90AbsoluteErrorSeconds": 123.60000000000002,
+        "biasSeconds": -67.35568513119533
+      },
+      "historical": {
+        "cases": 343,
+        "maeSeconds": 23.06997084548105,
+        "p90AbsoluteErrorSeconds": 56.80000000000001,
+        "biasSeconds": -6.673469387755102
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70250",
+      "toStopId": "70248",
+      "fromName": "Brigham Circle",
+      "toName": "Longwood Medical Area",
+      "trainingDays": 6,
+      "predictedSeconds": 61.75,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 59.0,
+      "scheduled": {
+        "cases": 334,
+        "maeSeconds": 58.10778443113772,
+        "p90AbsoluteErrorSeconds": 79.0,
+        "biasSeconds": -57.7185628742515
+      },
+      "historical": {
+        "cases": 334,
+        "maeSeconds": 17.714071856287426,
+        "p90AbsoluteErrorSeconds": 32.25,
+        "biasSeconds": 2.3278443113772456
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70252",
+      "toStopId": "70250",
+      "fromName": "Fenwood Road",
+      "toName": "Brigham Circle",
+      "trainingDays": 6,
+      "predictedSeconds": 28.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 28.0,
+      "scheduled": {
+        "cases": 320,
+        "maeSeconds": 44.440625,
+        "p90AbsoluteErrorSeconds": 36.0,
+        "biasSeconds": -17.034375
+      },
+      "historical": {
+        "cases": 320,
+        "maeSeconds": 17.446875,
+        "p90AbsoluteErrorSeconds": 8.0,
+        "biasSeconds": 14.965625
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70254",
+      "toStopId": "70252",
+      "fromName": "Mission Park",
+      "toName": "Fenwood Road",
+      "trainingDays": 6,
+      "predictedSeconds": 98.75,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 109.0,
+      "scheduled": {
+        "cases": 337,
+        "maeSeconds": 31.6973293768546,
+        "p90AbsoluteErrorSeconds": 65.80000000000007,
+        "biasSeconds": 11.525222551928783
+      },
+      "historical": {
+        "cases": 337,
+        "maeSeconds": 26.96364985163205,
+        "p90AbsoluteErrorSeconds": 58.650000000000034,
+        "biasSeconds": 14.793026706231455
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70256",
+      "toStopId": "70254",
+      "fromName": "Riverway",
+      "toName": "Mission Park",
+      "trainingDays": 6,
+      "predictedSeconds": 37.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 38.0,
+      "scheduled": {
+        "cases": 335,
+        "maeSeconds": 53.776119402985074,
+        "p90AbsoluteErrorSeconds": 86.0,
+        "biasSeconds": -52.42089552238806
+      },
+      "historical": {
+        "cases": 335,
+        "maeSeconds": 6.459701492537313,
+        "p90AbsoluteErrorSeconds": 12.0,
+        "biasSeconds": 3.7134328358208957
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70258",
+      "toStopId": "70256",
+      "fromName": "Back of the Hill",
+      "toName": "Riverway",
+      "trainingDays": 6,
+      "predictedSeconds": 41.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 42.0,
+      "scheduled": {
+        "cases": 336,
+        "maeSeconds": 58.75892857142857,
+        "p90AbsoluteErrorSeconds": 84.0,
+        "biasSeconds": -14.87797619047619
+      },
+      "historical": {
+        "cases": 336,
+        "maeSeconds": 31.961309523809526,
+        "p90AbsoluteErrorSeconds": 59.5,
+        "biasSeconds": 28.050595238095237
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70501",
+      "toStopId": "70513",
+      "fromName": "Lechmere",
+      "toName": "East Somerville",
+      "trainingDays": 6,
+      "predictedSeconds": 168.25,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 167.0,
+      "scheduled": {
+        "cases": 344,
+        "maeSeconds": 71.88081395348837,
+        "p90AbsoluteErrorSeconds": 93.0,
+        "biasSeconds": -64.51453488372093
+      },
+      "historical": {
+        "cases": 344,
+        "maeSeconds": 21.399709302325583,
+        "p90AbsoluteErrorSeconds": 42.14999999999998,
+        "biasSeconds": 7.2354651162790695
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70505",
+      "toStopId": "70507",
+      "fromName": "Gilman Square",
+      "toName": "Magoun Square",
+      "trainingDays": 6,
+      "predictedSeconds": 66.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 65.0,
+      "scheduled": {
+        "cases": 376,
+        "maeSeconds": 52.9813829787234,
+        "p90AbsoluteErrorSeconds": 58.0,
+        "biasSeconds": -52.901595744680854
+      },
+      "historical": {
+        "cases": 376,
+        "maeSeconds": 4.38031914893617,
+        "p90AbsoluteErrorSeconds": 7.0,
+        "biasSeconds": 1.0984042553191489
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70507",
+      "toStopId": "70509",
+      "fromName": "Magoun Square",
+      "toName": "Ball Square",
+      "trainingDays": 6,
+      "predictedSeconds": 52.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 52.0,
+      "scheduled": {
+        "cases": 376,
+        "maeSeconds": 62.00265957446808,
+        "p90AbsoluteErrorSeconds": 72.0,
+        "biasSeconds": -54.74202127659574
+      },
+      "historical": {
+        "cases": 376,
+        "maeSeconds": 8.27127659574468,
+        "p90AbsoluteErrorSeconds": 8.5,
+        "biasSeconds": 4.9388297872340425
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70509",
+      "toStopId": "70511",
+      "fromName": "Ball Square",
+      "toName": "Medford/Tufts",
+      "trainingDays": 6,
+      "predictedSeconds": 113.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 110.0,
+      "scheduled": {
+        "cases": 363,
+        "maeSeconds": 68.85950413223141,
+        "p90AbsoluteErrorSeconds": 86.0,
+        "biasSeconds": -14.055096418732782
+      },
+      "historical": {
+        "cases": 363,
+        "maeSeconds": 41.94765840220386,
+        "p90AbsoluteErrorSeconds": 74.80000000000001,
+        "biasSeconds": 29.143250688705233
+      }
+    },
+    {
+      "routeId": "Green-E",
+      "directionId": 1,
+      "fromStopId": "70513",
+      "toStopId": "70505",
+      "fromName": "East Somerville",
+      "toName": "Gilman Square",
+      "trainingDays": 6,
+      "predictedSeconds": 77.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 78.0,
+      "scheduled": {
+        "cases": 374,
+        "maeSeconds": 41.213903743315505,
+        "p90AbsoluteErrorSeconds": 48.0,
+        "biasSeconds": -41.160427807486634
+      },
+      "historical": {
+        "cases": 374,
+        "maeSeconds": 5.1550802139037435,
+        "p90AbsoluteErrorSeconds": 9.699999999999989,
+        "biasSeconds": 1.839572192513369
+      }
+    },
+    {
+      "routeId": "Mattapan",
+      "directionId": 0,
+      "fromStopId": "70261",
+      "toStopId": "70263",
+      "fromName": "Ashmont",
+      "toName": "Cedar Grove",
+      "trainingDays": 6,
+      "predictedSeconds": 83.75,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 83.0,
+      "scheduled": {
+        "cases": 329,
+        "maeSeconds": 25.243161094224924,
+        "p90AbsoluteErrorSeconds": 39.599999999999966,
+        "biasSeconds": 25.243161094224924
+      },
+      "historical": {
+        "cases": 329,
+        "maeSeconds": 9.39741641337386,
+        "p90AbsoluteErrorSeconds": 18.44999999999999,
+        "biasSeconds": 1.493161094224924
+      }
+    },
+    {
+      "routeId": "Mattapan",
+      "directionId": 0,
+      "fromStopId": "70263",
+      "toStopId": "70265",
+      "fromName": "Cedar Grove",
+      "toName": "Butler",
+      "trainingDays": 6,
+      "predictedSeconds": 105.75,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 107.0,
+      "scheduled": {
+        "cases": 330,
+        "maeSeconds": 72.45454545454545,
+        "p90AbsoluteErrorSeconds": 84.0,
+        "biasSeconds": -71.53333333333333
+      },
+      "historical": {
+        "cases": 330,
+        "maeSeconds": 8.57121212121212,
+        "p90AbsoluteErrorSeconds": 15.75,
+        "biasSeconds": 2.716666666666667
+      }
+    },
+    {
+      "routeId": "Mattapan",
+      "directionId": 0,
+      "fromStopId": "70265",
+      "toStopId": "70267",
+      "fromName": "Butler",
+      "toName": "Milton",
+      "trainingDays": 6,
+      "predictedSeconds": 38.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 38.0,
+      "scheduled": {
+        "cases": 332,
+        "maeSeconds": 21.99397590361446,
+        "p90AbsoluteErrorSeconds": 25.0,
+        "biasSeconds": -21.85542168674699
+      },
+      "historical": {
+        "cases": 332,
+        "maeSeconds": 2.2590361445783134,
+        "p90AbsoluteErrorSeconds": 4.0,
+        "biasSeconds": 0.14457831325301204
+      }
+    },
+    {
+      "routeId": "Mattapan",
+      "directionId": 0,
+      "fromStopId": "70267",
+      "toStopId": "70269",
+      "fromName": "Milton",
+      "toName": "Central Avenue",
+      "trainingDays": 6,
+      "predictedSeconds": 57.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 57.0,
+      "scheduled": {
+        "cases": 333,
+        "maeSeconds": 19.78078078078078,
+        "p90AbsoluteErrorSeconds": 66.80000000000001,
+        "biasSeconds": -18.68168168168168
+      },
+      "historical": {
+        "cases": 333,
+        "maeSeconds": 2.960960960960961,
+        "p90AbsoluteErrorSeconds": 6.0,
+        "biasSeconds": 0.35435435435435436
+      }
+    },
+    {
+      "routeId": "Mattapan",
+      "directionId": 0,
+      "fromStopId": "70269",
+      "toStopId": "70271",
+      "fromName": "Central Avenue",
+      "toName": "Valley Road",
+      "trainingDays": 6,
+      "predictedSeconds": 58.75,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 58.0,
+      "scheduled": {
+        "cases": 333,
+        "maeSeconds": 61.453453453453456,
+        "p90AbsoluteErrorSeconds": 67.0,
+        "biasSeconds": -61.393393393393396
+      },
+      "historical": {
+        "cases": 333,
+        "maeSeconds": 3.81006006006006,
+        "p90AbsoluteErrorSeconds": 6.75,
+        "biasSeconds": -0.14339339339339338
+      }
+    },
+    {
+      "routeId": "Mattapan",
+      "directionId": 0,
+      "fromStopId": "70271",
+      "toStopId": "70273",
+      "fromName": "Valley Road",
+      "toName": "Capen Street",
+      "trainingDays": 6,
+      "predictedSeconds": 57.5,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 57.0,
+      "scheduled": {
+        "cases": 333,
+        "maeSeconds": 6.384384384384385,
+        "p90AbsoluteErrorSeconds": 11.0,
+        "biasSeconds": -0.4084084084084084
+      },
+      "historical": {
+        "cases": 333,
+        "maeSeconds": 5.737237237237237,
+        "p90AbsoluteErrorSeconds": 12.5,
+        "biasSeconds": 2.0915915915915915
+      }
+    },
+    {
+      "routeId": "Mattapan",
+      "directionId": 0,
+      "fromStopId": "70273",
+      "toStopId": "70275",
+      "fromName": "Capen Street",
+      "toName": "Mattapan",
+      "trainingDays": 6,
+      "predictedSeconds": 34.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 33.0,
+      "scheduled": {
+        "cases": 333,
+        "maeSeconds": 26.43843843843844,
+        "p90AbsoluteErrorSeconds": 32.0,
+        "biasSeconds": -26.366366366366368
+      },
+      "historical": {
+        "cases": 333,
+        "maeSeconds": 3.645645645645646,
+        "p90AbsoluteErrorSeconds": 7.0,
+        "biasSeconds": -0.3663663663663664
+      }
+    },
+    {
+      "routeId": "Mattapan",
+      "directionId": 1,
+      "fromStopId": "70264",
+      "toStopId": "70261",
+      "fromName": "Cedar Grove",
+      "toName": "Ashmont",
+      "trainingDays": 6,
+      "predictedSeconds": 43.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 43.0,
+      "scheduled": {
+        "cases": 349,
+        "maeSeconds": 22.15186246418338,
+        "p90AbsoluteErrorSeconds": 21.0,
+        "biasSeconds": -10.140401146131806
+      },
+      "historical": {
+        "cases": 349,
+        "maeSeconds": 9.484240687679083,
+        "p90AbsoluteErrorSeconds": 8.0,
+        "biasSeconds": 6.859598853868195
+      }
+    },
+    {
+      "routeId": "Mattapan",
+      "directionId": 1,
+      "fromStopId": "70266",
+      "toStopId": "70264",
+      "fromName": "Butler",
+      "toName": "Cedar Grove",
+      "trainingDays": 6,
+      "predictedSeconds": 107.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 109.0,
+      "scheduled": {
+        "cases": 347,
+        "maeSeconds": 71.9913544668588,
+        "p90AbsoluteErrorSeconds": 83.0,
+        "biasSeconds": -69.30547550432277
+      },
+      "historical": {
+        "cases": 347,
+        "maeSeconds": 10.005763688760807,
+        "p90AbsoluteErrorSeconds": 16.0,
+        "biasSeconds": 3.6945244956772334
+      }
+    },
+    {
+      "routeId": "Mattapan",
+      "directionId": 1,
+      "fromStopId": "70268",
+      "toStopId": "70266",
+      "fromName": "Milton",
+      "toName": "Butler",
+      "trainingDays": 6,
+      "predictedSeconds": 57.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 57.0,
+      "scheduled": {
+        "cases": 342,
+        "maeSeconds": 8.783625730994151,
+        "p90AbsoluteErrorSeconds": 18.0,
+        "biasSeconds": -2.4853801169590644
+      },
+      "historical": {
+        "cases": 342,
+        "maeSeconds": 8.491228070175438,
+        "p90AbsoluteErrorSeconds": 17.0,
+        "biasSeconds": 0.5146198830409356
+      }
+    },
+    {
+      "routeId": "Mattapan",
+      "directionId": 1,
+      "fromStopId": "70270",
+      "toStopId": "70268",
+      "fromName": "Central Avenue",
+      "toName": "Milton",
+      "trainingDays": 6,
+      "predictedSeconds": 39.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 39.0,
+      "scheduled": {
+        "cases": 344,
+        "maeSeconds": 64.38372093023256,
+        "p90AbsoluteErrorSeconds": 84.0,
+        "biasSeconds": -64.38372093023256
+      },
+      "historical": {
+        "cases": 344,
+        "maeSeconds": 3.2674418604651163,
+        "p90AbsoluteErrorSeconds": 6.0,
+        "biasSeconds": 0.3953488372093023
+      }
+    },
+    {
+      "routeId": "Mattapan",
+      "directionId": 1,
+      "fromStopId": "70272",
+      "toStopId": "70270",
+      "fromName": "Valley Road",
+      "toName": "Central Avenue",
+      "trainingDays": 6,
+      "predictedSeconds": 70.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 72.0,
+      "scheduled": {
+        "cases": 342,
+        "maeSeconds": 47.619883040935676,
+        "p90AbsoluteErrorSeconds": 55.0,
+        "biasSeconds": -47.22222222222222
+      },
+      "historical": {
+        "cases": 342,
+        "maeSeconds": 5.286549707602339,
+        "p90AbsoluteErrorSeconds": 9.5,
+        "biasSeconds": 2.2777777777777777
+      }
+    },
+    {
+      "routeId": "Mattapan",
+      "directionId": 1,
+      "fromStopId": "70274",
+      "toStopId": "70272",
+      "fromName": "Capen Street",
+      "toName": "Valley Road",
+      "trainingDays": 6,
+      "predictedSeconds": 52.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 52.0,
+      "scheduled": {
+        "cases": 339,
+        "maeSeconds": 11.171091445427729,
+        "p90AbsoluteErrorSeconds": 14.0,
+        "biasSeconds": -3.7964601769911503
+      },
+      "historical": {
+        "cases": 339,
+        "maeSeconds": 7.625368731563422,
+        "p90AbsoluteErrorSeconds": 12.0,
+        "biasSeconds": 4.20353982300885
+      }
+    },
+    {
+      "routeId": "Mattapan",
+      "directionId": 1,
+      "fromStopId": "70276",
+      "toStopId": "70274",
+      "fromName": "Mattapan",
+      "toName": "Capen Street",
+      "trainingDays": 6,
+      "predictedSeconds": 28.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 27.0,
+      "scheduled": {
+        "cases": 339,
+        "maeSeconds": 32.78171091445428,
+        "p90AbsoluteErrorSeconds": 39.0,
+        "biasSeconds": -32.78171091445428
+      },
+      "historical": {
+        "cases": 339,
+        "maeSeconds": 3.1887905604719764,
+        "p90AbsoluteErrorSeconds": 7.0,
+        "biasSeconds": -0.7817109144542773
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70061",
+      "toStopId": "70063",
+      "fromName": "Alewife",
+      "toName": "Davis",
+      "trainingDays": 6,
+      "predictedSeconds": 110.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 97.0,
+      "scheduled": {
+        "cases": 107,
+        "maeSeconds": 26.738317757009344,
+        "p90AbsoluteErrorSeconds": 40.0,
+        "biasSeconds": -11.485981308411215
+      },
+      "historical": {
+        "cases": 107,
+        "maeSeconds": 26.11682242990654,
+        "p90AbsoluteErrorSeconds": 30.5,
+        "biasSeconds": -1.985981308411215
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70063",
+      "toStopId": "70065",
+      "fromName": "Davis",
+      "toName": "Porter",
+      "trainingDays": 6,
+      "predictedSeconds": 85.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 86.0,
+      "scheduled": {
+        "cases": 596,
+        "maeSeconds": 29.624161073825505,
+        "p90AbsoluteErrorSeconds": 40.0,
+        "biasSeconds": -25.026845637583893
+      },
+      "historical": {
+        "cases": 596,
+        "maeSeconds": 13.273489932885907,
+        "p90AbsoluteErrorSeconds": 33.5,
+        "biasSeconds": 10.077181208053691
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70065",
+      "toStopId": "70067",
+      "fromName": "Porter",
+      "toName": "Harvard",
+      "trainingDays": 6,
+      "predictedSeconds": 127.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 129.0,
+      "scheduled": {
+        "cases": 596,
+        "maeSeconds": 50.25503355704698,
+        "p90AbsoluteErrorSeconds": 78.0,
+        "biasSeconds": -44.328859060402685
+      },
+      "historical": {
+        "cases": 596,
+        "maeSeconds": 16.993288590604028,
+        "p90AbsoluteErrorSeconds": 31.5,
+        "biasSeconds": 3.9395973154362416
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70067",
+      "toStopId": "70069",
+      "fromName": "Harvard",
+      "toName": "Central",
+      "trainingDays": 6,
+      "predictedSeconds": 154.0,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 148.0,
+      "scheduled": {
+        "cases": 596,
+        "maeSeconds": 75.28020134228188,
+        "p90AbsoluteErrorSeconds": 96.0,
+        "biasSeconds": -73.16610738255034
+      },
+      "historical": {
+        "cases": 596,
+        "maeSeconds": 9.36744966442953,
+        "p90AbsoluteErrorSeconds": 12.0,
+        "biasSeconds": -1.8640939597315436
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70069",
+      "toStopId": "70071",
+      "fromName": "Central",
+      "toName": "Kendall/MIT",
+      "trainingDays": 6,
+      "predictedSeconds": 81.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 80.0,
+      "scheduled": {
+        "cases": 596,
+        "maeSeconds": 38.942953020134226,
+        "p90AbsoluteErrorSeconds": 42.0,
+        "biasSeconds": -38.869127516778526
+      },
+      "historical": {
+        "cases": 596,
+        "maeSeconds": 2.140939597315436,
+        "p90AbsoluteErrorSeconds": 3.0,
+        "biasSeconds": 0.13087248322147652
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70071",
+      "toStopId": "70073",
+      "fromName": "Kendall/MIT",
+      "toName": "Charles/MGH",
+      "trainingDays": 6,
+      "predictedSeconds": 67.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 67.0,
+      "scheduled": {
+        "cases": 596,
+        "maeSeconds": 50.263422818791945,
+        "p90AbsoluteErrorSeconds": 54.0,
+        "biasSeconds": -46.880872483221474
+      },
+      "historical": {
+        "cases": 596,
+        "maeSeconds": 6.927852348993288,
+        "p90AbsoluteErrorSeconds": 14.0,
+        "biasSeconds": 6.119127516778524
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70073",
+      "toStopId": "70075",
+      "fromName": "Charles/MGH",
+      "toName": "Park Street",
+      "trainingDays": 6,
+      "predictedSeconds": 60.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 61.0,
+      "scheduled": {
+        "cases": 595,
+        "maeSeconds": 53.39495798319328,
+        "p90AbsoluteErrorSeconds": 62.0,
+        "biasSeconds": -47.69075630252101
+      },
+      "historical": {
+        "cases": 595,
+        "maeSeconds": 13.405882352941177,
+        "p90AbsoluteErrorSeconds": 43.10000000000002,
+        "biasSeconds": 11.809243697478992
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70077",
+      "toStopId": "70079",
+      "fromName": "Downtown Crossing",
+      "toName": "South Station",
+      "trainingDays": 6,
+      "predictedSeconds": 25.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 25.0,
+      "scheduled": {
+        "cases": 595,
+        "maeSeconds": 48.32100840336135,
+        "p90AbsoluteErrorSeconds": 95.0,
+        "biasSeconds": -48.2
+      },
+      "historical": {
+        "cases": 595,
+        "maeSeconds": 0.8739495798319328,
+        "p90AbsoluteErrorSeconds": 1.0,
+        "biasSeconds": 0.11092436974789915
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70079",
+      "toStopId": "70081",
+      "fromName": "South Station",
+      "toName": "Broadway",
+      "trainingDays": 6,
+      "predictedSeconds": 72.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 72.0,
+      "scheduled": {
+        "cases": 595,
+        "maeSeconds": 45.418487394957985,
+        "p90AbsoluteErrorSeconds": 51.0,
+        "biasSeconds": -44.0436974789916
+      },
+      "historical": {
+        "cases": 595,
+        "maeSeconds": 6.258823529411765,
+        "p90AbsoluteErrorSeconds": 13.0,
+        "biasSeconds": 3.9563025210084035
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70081",
+      "toStopId": "70083",
+      "fromName": "Broadway",
+      "toName": "Andrew",
+      "trainingDays": 6,
+      "predictedSeconds": 108.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 107.0,
+      "scheduled": {
+        "cases": 595,
+        "maeSeconds": 15.198319327731092,
+        "p90AbsoluteErrorSeconds": 21.600000000000023,
+        "biasSeconds": -8.529411764705882
+      },
+      "historical": {
+        "cases": 595,
+        "maeSeconds": 9.769747899159665,
+        "p90AbsoluteErrorSeconds": 18.0,
+        "biasSeconds": 3.4705882352941178
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70083",
+      "toStopId": "70085",
+      "fromName": "Andrew",
+      "toName": "JFK/UMass",
+      "trainingDays": 6,
+      "predictedSeconds": 89.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 88.0,
+      "scheduled": {
+        "cases": 300,
+        "maeSeconds": 83.53333333333333,
+        "p90AbsoluteErrorSeconds": 93.0,
+        "biasSeconds": -83.09333333333333
+      },
+      "historical": {
+        "cases": 300,
+        "maeSeconds": 5.386666666666667,
+        "p90AbsoluteErrorSeconds": 9.100000000000023,
+        "biasSeconds": 3.3066666666666666
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70083",
+      "toStopId": "70095",
+      "fromName": "Andrew",
+      "toName": "JFK/UMass",
+      "trainingDays": 6,
+      "predictedSeconds": 85.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 85.0,
+      "scheduled": {
+        "cases": 295,
+        "maeSeconds": 71.49152542372882,
+        "p90AbsoluteErrorSeconds": 97.0,
+        "biasSeconds": -70.60338983050848
+      },
+      "historical": {
+        "cases": 295,
+        "maeSeconds": 6.7016949152542376,
+        "p90AbsoluteErrorSeconds": 23.600000000000023,
+        "biasSeconds": 5.277966101694915
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70085",
+      "toStopId": "70087",
+      "fromName": "JFK/UMass",
+      "toName": "Savin Hill",
+      "trainingDays": 6,
+      "predictedSeconds": 60.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 60.0,
+      "scheduled": {
+        "cases": 299,
+        "maeSeconds": 59.52842809364549,
+        "p90AbsoluteErrorSeconds": 62.0,
+        "biasSeconds": -56.59866220735786
+      },
+      "historical": {
+        "cases": 299,
+        "maeSeconds": 4.6923076923076925,
+        "p90AbsoluteErrorSeconds": 3.3999999999999773,
+        "biasSeconds": 3.4013377926421406
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70087",
+      "toStopId": "70089",
+      "fromName": "Savin Hill",
+      "toName": "Fields Corner",
+      "trainingDays": 6,
+      "predictedSeconds": 129.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 129.0,
+      "scheduled": {
+        "cases": 299,
+        "maeSeconds": 51.81605351170568,
+        "p90AbsoluteErrorSeconds": 57.0,
+        "biasSeconds": -50.4314381270903
+      },
+      "historical": {
+        "cases": 299,
+        "maeSeconds": 3.9264214046822743,
+        "p90AbsoluteErrorSeconds": 7.0,
+        "biasSeconds": 0.568561872909699
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70089",
+      "toStopId": "70091",
+      "fromName": "Fields Corner",
+      "toName": "Shawmut",
+      "trainingDays": 6,
+      "predictedSeconds": 53.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 52.0,
+      "scheduled": {
+        "cases": 299,
+        "maeSeconds": 66.49832775919732,
+        "p90AbsoluteErrorSeconds": 70.0,
+        "biasSeconds": -65.23411371237458
+      },
+      "historical": {
+        "cases": 299,
+        "maeSeconds": 4.0,
+        "p90AbsoluteErrorSeconds": 5.0,
+        "biasSeconds": 1.765886287625418
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70091",
+      "toStopId": "70093",
+      "fromName": "Shawmut",
+      "toName": "Ashmont",
+      "trainingDays": 6,
+      "predictedSeconds": 95.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 180.0,
+      "scheduled": {
+        "cases": 298,
+        "maeSeconds": 58.88255033557047,
+        "p90AbsoluteErrorSeconds": 85.0,
+        "biasSeconds": 21.593959731543624
+      },
+      "historical": {
+        "cases": 298,
+        "maeSeconds": 66.43288590604027,
+        "p90AbsoluteErrorSeconds": 104.30000000000001,
+        "biasSeconds": 63.104026845637584
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70095",
+      "toStopId": "70097",
+      "fromName": "JFK/UMass",
+      "toName": "North Quincy",
+      "trainingDays": 6,
+      "predictedSeconds": 323.5,
+      "scheduledSeconds": 420.0,
+      "observedMedianSeconds": 326.0,
+      "scheduled": {
+        "cases": 295,
+        "maeSeconds": 69.9728813559322,
+        "p90AbsoluteErrorSeconds": 100.0,
+        "biasSeconds": -67.88474576271186
+      },
+      "historical": {
+        "cases": 295,
+        "maeSeconds": 12.608474576271187,
+        "p90AbsoluteErrorSeconds": 31.5,
+        "biasSeconds": 10.310169491525423
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70097",
+      "toStopId": "70099",
+      "fromName": "North Quincy",
+      "toName": "Wollaston",
+      "trainingDays": 6,
+      "predictedSeconds": 61.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 62.0,
+      "scheduled": {
+        "cases": 295,
+        "maeSeconds": 56.6271186440678,
+        "p90AbsoluteErrorSeconds": 60.0,
+        "biasSeconds": -55.96949152542373
+      },
+      "historical": {
+        "cases": 295,
+        "maeSeconds": 3.328813559322034,
+        "p90AbsoluteErrorSeconds": 9.0,
+        "biasSeconds": 3.0305084745762714
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70099",
+      "toStopId": "70101",
+      "fromName": "Wollaston",
+      "toName": "Quincy Center",
+      "trainingDays": 6,
+      "predictedSeconds": 114.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 115.0,
+      "scheduled": {
+        "cases": 295,
+        "maeSeconds": 64.1457627118644,
+        "p90AbsoluteErrorSeconds": 68.0,
+        "biasSeconds": -60.342372881355935
+      },
+      "historical": {
+        "cases": 295,
+        "maeSeconds": 6.871186440677966,
+        "p90AbsoluteErrorSeconds": 10.0,
+        "biasSeconds": 5.657627118644068
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70101",
+      "toStopId": "70103",
+      "fromName": "Quincy Center",
+      "toName": "Quincy Adams",
+      "trainingDays": 6,
+      "predictedSeconds": 105.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 107.0,
+      "scheduled": {
+        "cases": 295,
+        "maeSeconds": 71.46101694915254,
+        "p90AbsoluteErrorSeconds": 77.0,
+        "biasSeconds": -63.94237288135593
+      },
+      "historical": {
+        "cases": 295,
+        "maeSeconds": 11.971186440677966,
+        "p90AbsoluteErrorSeconds": 20.700000000000045,
+        "biasSeconds": 10.557627118644067
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 0,
+      "fromStopId": "70103",
+      "toStopId": "70105",
+      "fromName": "Quincy Adams",
+      "toName": "Braintree",
+      "trainingDays": 6,
+      "predictedSeconds": 256.0,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 261.5,
+      "scheduled": {
+        "cases": 288,
+        "maeSeconds": 64.86111111111111,
+        "p90AbsoluteErrorSeconds": 182.20000000000005,
+        "biasSeconds": 63.173611111111114
+      },
+      "historical": {
+        "cases": 288,
+        "maeSeconds": 54.736111111111114,
+        "p90AbsoluteErrorSeconds": 166.20000000000005,
+        "biasSeconds": 47.173611111111114
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70064",
+      "toStopId": "70061",
+      "fromName": "Davis",
+      "toName": "Alewife",
+      "trainingDays": 6,
+      "predictedSeconds": 156.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 163.0,
+      "scheduled": {
+        "cases": 478,
+        "maeSeconds": 60.84518828451883,
+        "p90AbsoluteErrorSeconds": 100.0,
+        "biasSeconds": -0.602510460251046
+      },
+      "historical": {
+        "cases": 478,
+        "maeSeconds": 58.22594142259414,
+        "p90AbsoluteErrorSeconds": 123.5,
+        "biasSeconds": 22.897489539748953
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70066",
+      "toStopId": "70064",
+      "fromName": "Porter",
+      "toName": "Davis",
+      "trainingDays": 6,
+      "predictedSeconds": 107.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 108.0,
+      "scheduled": {
+        "cases": 478,
+        "maeSeconds": 23.97907949790795,
+        "p90AbsoluteErrorSeconds": 43.30000000000001,
+        "biasSeconds": -1.0794979079497908
+      },
+      "historical": {
+        "cases": 478,
+        "maeSeconds": 19.797071129707113,
+        "p90AbsoluteErrorSeconds": 32.5,
+        "biasSeconds": 11.42050209205021
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70068",
+      "toStopId": "70066",
+      "fromName": "Harvard",
+      "toName": "Porter",
+      "trainingDays": 6,
+      "predictedSeconds": 110.75,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 111.0,
+      "scheduled": {
+        "cases": 478,
+        "maeSeconds": 69.2050209205021,
+        "p90AbsoluteErrorSeconds": 72.0,
+        "biasSeconds": -62.11297071129707
+      },
+      "historical": {
+        "cases": 478,
+        "maeSeconds": 10.911087866108787,
+        "p90AbsoluteErrorSeconds": 8.25,
+        "biasSeconds": 7.137029288702929
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70070",
+      "toStopId": "70068",
+      "fromName": "Central",
+      "toName": "Harvard",
+      "trainingDays": 6,
+      "predictedSeconds": 142.5,
+      "scheduledSeconds": 240.0,
+      "observedMedianSeconds": 140.0,
+      "scheduled": {
+        "cases": 479,
+        "maeSeconds": 93.19415448851774,
+        "p90AbsoluteErrorSeconds": 110.0,
+        "biasSeconds": -92.33820459290187
+      },
+      "historical": {
+        "cases": 479,
+        "maeSeconds": 16.310020876826723,
+        "p90AbsoluteErrorSeconds": 42.69999999999999,
+        "biasSeconds": 5.161795407098121
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70072",
+      "toStopId": "70070",
+      "fromName": "Kendall/MIT",
+      "toName": "Central",
+      "trainingDays": 6,
+      "predictedSeconds": 64.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 64.0,
+      "scheduled": {
+        "cases": 478,
+        "maeSeconds": 58.99790794979079,
+        "p90AbsoluteErrorSeconds": 59.0,
+        "biasSeconds": -58.99790794979079
+      },
+      "historical": {
+        "cases": 478,
+        "maeSeconds": 1.6589958158995817,
+        "p90AbsoluteErrorSeconds": 4.0,
+        "biasSeconds": 0.6422594142259415
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70074",
+      "toStopId": "70072",
+      "fromName": "Charles/MGH",
+      "toName": "Kendall/MIT",
+      "trainingDays": 6,
+      "predictedSeconds": 44.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 44.0,
+      "scheduled": {
+        "cases": 477,
+        "maeSeconds": 75.75262054507337,
+        "p90AbsoluteErrorSeconds": 78.0,
+        "biasSeconds": -75.75262054507337
+      },
+      "historical": {
+        "cases": 477,
+        "maeSeconds": 1.530398322851153,
+        "p90AbsoluteErrorSeconds": 3.0,
+        "biasSeconds": 0.24737945492662475
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70076",
+      "toStopId": "70074",
+      "fromName": "Park Street",
+      "toName": "Charles/MGH",
+      "trainingDays": 6,
+      "predictedSeconds": 58.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 58.0,
+      "scheduled": {
+        "cases": 476,
+        "maeSeconds": 60.82142857142857,
+        "p90AbsoluteErrorSeconds": 63.0,
+        "biasSeconds": -60.52731092436975
+      },
+      "historical": {
+        "cases": 476,
+        "maeSeconds": 2.5105042016806722,
+        "p90AbsoluteErrorSeconds": 5.0,
+        "biasSeconds": 1.4726890756302522
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70078",
+      "toStopId": "70076",
+      "fromName": "Downtown Crossing",
+      "toName": "Park Street",
+      "trainingDays": 6,
+      "predictedSeconds": 26.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 28.0,
+      "scheduled": {
+        "cases": 469,
+        "maeSeconds": 63.77398720682303,
+        "p90AbsoluteErrorSeconds": 102.0,
+        "biasSeconds": -60.208955223880594
+      },
+      "historical": {
+        "cases": 469,
+        "maeSeconds": 17.735607675906184,
+        "p90AbsoluteErrorSeconds": 42.0,
+        "biasSeconds": 13.577825159914712
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70080",
+      "toStopId": "70078",
+      "fromName": "South Station",
+      "toName": "Downtown Crossing",
+      "trainingDays": 6,
+      "predictedSeconds": 24.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 24.0,
+      "scheduled": {
+        "cases": 470,
+        "maeSeconds": 73.01702127659574,
+        "p90AbsoluteErrorSeconds": 97.0,
+        "biasSeconds": -71.65531914893617
+      },
+      "historical": {
+        "cases": 470,
+        "maeSeconds": 3.5319148936170213,
+        "p90AbsoluteErrorSeconds": 4.0,
+        "biasSeconds": 1.4936170212765958
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70082",
+      "toStopId": "70080",
+      "fromName": "Broadway",
+      "toName": "South Station",
+      "trainingDays": 6,
+      "predictedSeconds": 91.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 92.0,
+      "scheduled": {
+        "cases": 478,
+        "maeSeconds": 27.771966527196653,
+        "p90AbsoluteErrorSeconds": 30.0,
+        "biasSeconds": -24.35774058577406
+      },
+      "historical": {
+        "cases": 478,
+        "maeSeconds": 5.48326359832636,
+        "p90AbsoluteErrorSeconds": 9.0,
+        "biasSeconds": 4.642259414225942
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70084",
+      "toStopId": "70082",
+      "fromName": "Andrew",
+      "toName": "Broadway",
+      "trainingDays": 6,
+      "predictedSeconds": 108.5,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 108.5,
+      "scheduled": {
+        "cases": 478,
+        "maeSeconds": 21.106694560669457,
+        "p90AbsoluteErrorSeconds": 27.0,
+        "biasSeconds": -2.7343096234309625
+      },
+      "historical": {
+        "cases": 478,
+        "maeSeconds": 17.043933054393307,
+        "p90AbsoluteErrorSeconds": 27.80000000000001,
+        "biasSeconds": 8.765690376569038
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70086",
+      "toStopId": "70084",
+      "fromName": "JFK/UMass",
+      "toName": "Andrew",
+      "trainingDays": 6,
+      "predictedSeconds": 97.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 98.0,
+      "scheduled": {
+        "cases": 232,
+        "maeSeconds": 61.87068965517241,
+        "p90AbsoluteErrorSeconds": 83.0,
+        "biasSeconds": -58.85344827586207
+      },
+      "historical": {
+        "cases": 232,
+        "maeSeconds": 7.913793103448276,
+        "p90AbsoluteErrorSeconds": 14.900000000000006,
+        "biasSeconds": 6.818965517241379
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70088",
+      "toStopId": "70086",
+      "fromName": "Savin Hill",
+      "toName": "JFK/UMass",
+      "trainingDays": 6,
+      "predictedSeconds": 65.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 65.0,
+      "scheduled": {
+        "cases": 232,
+        "maeSeconds": 53.01724137931034,
+        "p90AbsoluteErrorSeconds": 56.0,
+        "biasSeconds": -52.05172413793103
+      },
+      "historical": {
+        "cases": 232,
+        "maeSeconds": 3.439655172413793,
+        "p90AbsoluteErrorSeconds": 5.0,
+        "biasSeconds": 2.9482758620689653
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70090",
+      "toStopId": "70088",
+      "fromName": "Fields Corner",
+      "toName": "Savin Hill",
+      "trainingDays": 6,
+      "predictedSeconds": 141.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 142.0,
+      "scheduled": {
+        "cases": 232,
+        "maeSeconds": 41.19396551724138,
+        "p90AbsoluteErrorSeconds": 49.0,
+        "biasSeconds": -27.84051724137931
+      },
+      "historical": {
+        "cases": 232,
+        "maeSeconds": 16.211206896551722,
+        "p90AbsoluteErrorSeconds": 30.80000000000001,
+        "biasSeconds": 11.15948275862069
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70092",
+      "toStopId": "70090",
+      "fromName": "Shawmut",
+      "toName": "Fields Corner",
+      "trainingDays": 6,
+      "predictedSeconds": 45.75,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 45.0,
+      "scheduled": {
+        "cases": 232,
+        "maeSeconds": 73.83189655172414,
+        "p90AbsoluteErrorSeconds": 76.0,
+        "biasSeconds": -73.83189655172414
+      },
+      "historical": {
+        "cases": 232,
+        "maeSeconds": 1.8211206896551724,
+        "p90AbsoluteErrorSeconds": 3.200000000000003,
+        "biasSeconds": 0.41810344827586204
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70094",
+      "toStopId": "70092",
+      "fromName": "Ashmont",
+      "toName": "Shawmut",
+      "trainingDays": 6,
+      "predictedSeconds": 54.0,
+      "scheduledSeconds": 60.0,
+      "observedMedianSeconds": 54.0,
+      "scheduled": {
+        "cases": 233,
+        "maeSeconds": 28.819742489270386,
+        "p90AbsoluteErrorSeconds": 31.800000000000068,
+        "biasSeconds": 17.978540772532188
+      },
+      "historical": {
+        "cases": 233,
+        "maeSeconds": 25.523605150214593,
+        "p90AbsoluteErrorSeconds": 37.80000000000007,
+        "biasSeconds": 23.978540772532188
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70096",
+      "toStopId": "70084",
+      "fromName": "JFK/UMass",
+      "toName": "Andrew",
+      "trainingDays": 6,
+      "predictedSeconds": 96.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 97.0,
+      "scheduled": {
+        "cases": 248,
+        "maeSeconds": 86.16129032258064,
+        "p90AbsoluteErrorSeconds": 144.0,
+        "biasSeconds": -85.8225806451613
+      },
+      "historical": {
+        "cases": 248,
+        "maeSeconds": 4.685483870967742,
+        "p90AbsoluteErrorSeconds": 6.0,
+        "biasSeconds": 3.9838709677419355
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70098",
+      "toStopId": "70096",
+      "fromName": "North Quincy",
+      "toName": "JFK/UMass",
+      "trainingDays": 6,
+      "predictedSeconds": 375.0,
+      "scheduledSeconds": 360.0,
+      "observedMedianSeconds": 379.0,
+      "scheduled": {
+        "cases": 249,
+        "maeSeconds": 28.89156626506024,
+        "p90AbsoluteErrorSeconds": 57.00000000000017,
+        "biasSeconds": 28.811244979919678
+      },
+      "historical": {
+        "cases": 249,
+        "maeSeconds": 13.401606425702811,
+        "p90AbsoluteErrorSeconds": 20.200000000000017,
+        "biasSeconds": 11.401606425702811
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70100",
+      "toStopId": "70098",
+      "fromName": "Wollaston",
+      "toName": "North Quincy",
+      "trainingDays": 6,
+      "predictedSeconds": 64.0,
+      "scheduledSeconds": 120.0,
+      "observedMedianSeconds": 64.0,
+      "scheduled": {
+        "cases": 249,
+        "maeSeconds": 53.29317269076305,
+        "p90AbsoluteErrorSeconds": 58.0,
+        "biasSeconds": -51.78313253012048
+      },
+      "historical": {
+        "cases": 249,
+        "maeSeconds": 5.662650602409639,
+        "p90AbsoluteErrorSeconds": 13.0,
+        "biasSeconds": 4.216867469879518
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70102",
+      "toStopId": "70100",
+      "fromName": "Quincy Center",
+      "toName": "Wollaston",
+      "trainingDays": 6,
+      "predictedSeconds": 141.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 144.0,
+      "scheduled": {
+        "cases": 250,
+        "maeSeconds": 35.924,
+        "p90AbsoluteErrorSeconds": 46.0,
+        "biasSeconds": -28.924
+      },
+      "historical": {
+        "cases": 250,
+        "maeSeconds": 13.368,
+        "p90AbsoluteErrorSeconds": 24.5,
+        "biasSeconds": 9.576
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70104",
+      "toStopId": "70102",
+      "fromName": "Quincy Adams",
+      "toName": "Quincy Center",
+      "trainingDays": 6,
+      "predictedSeconds": 99.0,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 100.0,
+      "scheduled": {
+        "cases": 249,
+        "maeSeconds": 72.13253012048193,
+        "p90AbsoluteErrorSeconds": 82.0,
+        "biasSeconds": -70.64658634538152
+      },
+      "historical": {
+        "cases": 249,
+        "maeSeconds": 5.502008032128514,
+        "p90AbsoluteErrorSeconds": 8.0,
+        "biasSeconds": 4.570281124497992
+      }
+    },
+    {
+      "routeId": "Red",
+      "directionId": 1,
+      "fromStopId": "70105",
+      "toStopId": "70104",
+      "fromName": "Braintree",
+      "toName": "Quincy Adams",
+      "trainingDays": 6,
+      "predictedSeconds": 190.5,
+      "scheduledSeconds": 180.0,
+      "observedMedianSeconds": 190.0,
+      "scheduled": {
+        "cases": 55,
+        "maeSeconds": 14.836363636363636,
+        "p90AbsoluteErrorSeconds": 22.200000000000003,
+        "biasSeconds": 12.4
+      },
+      "historical": {
+        "cases": 55,
+        "maeSeconds": 10.9,
+        "p90AbsoluteErrorSeconds": 14.5,
+        "biasSeconds": 1.9
+      }
+    }
+  ],
+  "trainingRows": 211421,
+  "testRows": 90348,
+  "trainingDates": [
+    "20260904",
+    "20260905",
+    "20260906",
+    "20260907",
+    "20260908",
+    "20260909"
+  ],
+  "testDates": [
+    "20260910",
+    "20260911",
+    "20260912"
+  ],
+  "minimumTrainingDays": 3,
+  "version": 1,
+  "dataset": "MBTA LAMP subway performance",
+  "generatedAt": "2026-09-14T05:56:54.678295+00:00",
+  "question": "Can a median of earlier daily segment running times improve on the matched timetable for later service dates?",
+  "range": {
+    "start": "2026-09-04",
+    "trainEnd": "2026-09-09",
+    "end": "2026-09-12"
+  },
+  "filters": {
+    "inputRows": 384580,
+    "inputRowsByRoute": {
+      "Blue": 38241,
+      "Green-B": 48125,
+      "Green-C": 43838,
+      "Green-D": 57128,
+      "Green-E": 55744,
+      "Mattapan": 16114,
+      "Orange": 59244,
+      "Red": 66146
+    },
+    "ambiguousStopRows": 728,
+    "excludedAmbiguousTripRows": 4264,
+    "exactAdjacentMatches": 304255,
+    "unmatchedRows": 76061,
+    "unmatchedRowsByRoute": {
+      "Blue": 4730,
+      "Green-B": 4983,
+      "Green-C": 7818,
+      "Green-D": 11432,
+      "Green-E": 9312,
+      "Mattapan": 2291,
+      "Orange": 20416,
+      "Red": 15079
+    },
+    "missingScheduleComparisons": 0,
+    "excludedTimeComparisons": 2486,
+    "scheduleDisagreements": 0,
+    "missingOrNonpositiveTimes": 2486,
+    "eligibleSegments": 301769,
+    "eligibleSegmentsByRoute": {
+      "Blue": 33508,
+      "Green-B": 42300,
+      "Green-C": 35102,
+      "Green-D": 44149,
+      "Green-E": 45356,
+      "Mattapan": 13241,
+      "Orange": 38816,
+      "Red": 49297
+    }
+  },
+  "method": "Median of daily segment running-time medians from earlier service dates, grouped by exact route, direction and adjacent stops. Entire later dates are held out. Compare both models on identical eligible test segments; unsupported segments abstain.",
+  "limits": [
+    "LAMP reconstructed stop events can include final TripUpdate arrivals when VehiclePosition events are absent; these are not an independent sensor ground truth.",
+    "Historical archives can include retrospective corrections. This is a retrospective holdout evaluation, not proof of what an online model could know at every event time.",
+    "Historical running time is not current departure delay, a causal explanation, a recovery forecast, or passenger impact.",
+    "One short window is not a production accuracy guarantee. Long genuine runs remain included; no outlier winsorization or accuracy-based route selection."
+  ],
+  "sources": {
+    "index": "https://performancedata.mbta.com/lamp/subway-on-time-performance-v1/index.csv",
+    "archiveCatalog": "https://cdn.mbta.com/archive/archived_feeds.txt",
+    "dictionary": "https://github.com/mbta/lamp/blob/main/Data_Dictionary.md",
+    "dailyFiles": [
+      {
+        "size_bytes": 1589248,
+        "last_modified": "2026-09-06 00:12:39+00:00",
+        "service_date": "2026-09-04",
+        "file_url": "https://performancedata.mbta.com/lamp/subway-on-time-performance-v1/2026-09-04-subway-on-time-performance-v1.parquet"
+      },
+      {
+        "size_bytes": 1203193,
+        "last_modified": "2026-09-07 00:13:34+00:00",
+        "service_date": "2026-09-05",
+        "file_url": "https://performancedata.mbta.com/lamp/subway-on-time-performance-v1/2026-09-05-subway-on-time-performance-v1.parquet"
+      },
+      {
+        "size_bytes": 1184997,
+        "last_modified": "2026-09-08 00:17:08+00:00",
+        "service_date": "2026-09-06",
+        "file_url": "https://performancedata.mbta.com/lamp/subway-on-time-performance-v1/2026-09-06-subway-on-time-performance-v1.parquet"
+      },
+      {
+        "size_bytes": 1171612,
+        "last_modified": "2026-09-09 00:23:55+00:00",
+        "service_date": "2026-09-07",
+        "file_url": "https://performancedata.mbta.com/lamp/subway-on-time-performance-v1/2026-09-07-subway-on-time-performance-v1.parquet"
+      },
+      {
+        "size_bytes": 1619335,
+        "last_modified": "2026-09-10 01:50:15+00:00",
+        "service_date": "2026-09-08",
+        "file_url": "https://performancedata.mbta.com/lamp/subway-on-time-performance-v1/2026-09-08-subway-on-time-performance-v1.parquet"
+      },
+      {
+        "size_bytes": 1631773,
+        "last_modified": "2026-09-11 00:19:43+00:00",
+        "service_date": "2026-09-09",
+        "file_url": "https://performancedata.mbta.com/lamp/subway-on-time-performance-v1/2026-09-09-subway-on-time-performance-v1.parquet"
+      },
+      {
+        "size_bytes": 1495009,
+        "last_modified": "2026-09-12 01:41:15+00:00",
+        "service_date": "2026-09-10",
+        "file_url": "https://performancedata.mbta.com/lamp/subway-on-time-performance-v1/2026-09-10-subway-on-time-performance-v1.parquet"
+      },
+      {
+        "size_bytes": 1482497,
+        "last_modified": "2026-09-13 00:13:42+00:00",
+        "service_date": "2026-09-11",
+        "file_url": "https://performancedata.mbta.com/lamp/subway-on-time-performance-v1/2026-09-11-subway-on-time-performance-v1.parquet"
+      },
+      {
+        "size_bytes": 1144923,
+        "last_modified": "2026-09-14 00:15:56+00:00",
+        "service_date": "2026-09-12",
+        "file_url": "https://performancedata.mbta.com/lamp/subway-on-time-performance-v1/2026-09-12-subway-on-time-performance-v1.parquet"
+      }
+    ],
+    "timetables": [
+      {
+        "feed_start_date": "20260904",
+        "feed_end_date": "20261212",
+        "feed_version": "Fall 2026, 2026-09-11T20:42:05+00:00, version D",
+        "archive_url": "https://cdn.mbtace.com/archive/20260904.zip",
+        "archive_note": "",
+        "bytes": 30375108,
+        "service_dates": [
+          20260904,
+          20260905,
+          20260906,
+          20260907,
+          20260908,
+          20260909,
+          20260910,
+          20260911,
+          20260912
+        ]
+      }
+    ]
+  },
+  "studyId": "2026-09-14T05-56-54.678295+00-00",
+  "evaluationFile": "runs/2026-09-14T05-56-54.678295+00-00/evaluation.csv"
+}

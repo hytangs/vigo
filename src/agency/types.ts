@@ -1,3 +1,5 @@
+import type { NetworkDiagnosis, NetworkNarrative, BriefingPreferences, BriefingInvestigation } from './networkAssessmentTypes'
+
 export type WorkspaceSelectionInput = { routeId?: string; stopId?: string }
 export type WorkspaceSelection = {
   route?: { id: string; name: string; description?: string }
@@ -83,6 +85,7 @@ export type AgencyRoute = {
 }
 
 export type AgencyState = {
+  scheduleIdentity?: string
   selection?: WorkspaceSelection
   generatedAt: string
   observedAt: string | null
@@ -114,6 +117,11 @@ export type ToolResult = {
 }
 
 export type QueryAnswer = {
+  investigation?: BriefingInvestigation
+  briefingPreferences?: BriefingPreferences
+  diagnosis?: NetworkDiagnosis
+  narrative?: NetworkNarrative
+  scheduleIdentity?: string
   selection?: WorkspaceSelection
   timezone?: string | null
   runtime?: {

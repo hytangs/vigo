@@ -19,13 +19,14 @@ export function modelRuntimeFacts({ baseUrl, model, protocol }) {
 export const runtimeTool = { name: 'runtime_status', description: 'Read server-recorded model connection and privacy limits. Only relevant to deployment/privacy questions, not transit network facts. This is evidence for the answer, not a command to end the conversation.',
   parameters: { type: 'object', properties: {}, required: [], additionalProperties: false } }
 
-export function queryRuntimeFacts({ provider, webStatus, placesAvailable, placeEndpoint, placeDetailsEndpoint, generatedAt }) {
+export function queryRuntimeFacts({ provider, webStatus, placesAvailable, placeEndpoint, placeDetailsEndpoint, runtimeStudyAvailable = false, generatedAt }) {
   const networkTools = []
   if (webStatus.searchAvailable) networkTools.push({ tool: webStatus.provider === 'wikipedia' ? 'reference_lookup' : 'web_search',
     label: webStatus.provider === 'wikipedia' ? 'Public references' : 'Web search', endpoint: webStatus.endpoint ?? null })
   if (webStatus.readAvailable) networkTools.push({ tool: 'web_read', label: 'Public page reading', endpoint: 'Requested public website' })
   if (placesAvailable) networkTools.push({ tool: 'place_search', label: 'Place search', endpoint: placeEndpoint ?? null })
   if (placesAvailable && placeDetailsEndpoint) networkTools.push({ tool: 'find_walk', label: 'Map place details', endpoint: placeDetailsEndpoint })
+  if (runtimeStudyAvailable) networkTools.push({ tool: 'run_runtime_study', label: 'LAMP public data and archived timetables', endpoint: 'performancedata.mbta.com, cdn.mbta.com, cdn.mbtace.com' })
   return { capturedAt: generatedAt, modelConnection: provider.runtime ?? modelRuntimeFacts({ model: provider.model }), networkTools,
     limits: 'Endpoint configuration does not verify inference hosting, downstream forwarding, retention, training use, or security. Tools listed here can access a network; calls are not a traffic audit. Journey tools may use place search. Feed refresh and other application traffic are outside this answer record.' }
 }

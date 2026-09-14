@@ -29,3 +29,5 @@ output/
 *.out
 logs/
 tmp/
+# Optional LAMP research runtime bytecode
+__pycache__/

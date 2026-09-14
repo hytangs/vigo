@@ -1,4 +1,5 @@
 import { createAgencyService } from './agency-api.mjs'
+import { runLampStudy } from './lamp-study-runner.mjs'
 import crypto from 'node:crypto'
 import { createReadStream, existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
@@ -5336,7 +5337,7 @@ async function route(request, response) {
         response.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' })
         const write = (value) => { if (!signal.aborted && !response.destroyed && !response.writableEnded) response.write(`${JSON.stringify(value)}\n`) }
         try {
-          const result = await agency.handle(projectId, body, signal, (progress) => write({ type: 'progress', progress }))
+          const result = await agency.handle(projectId, body, signal, (progress) => write(progress.preliminary ? { ...progress.preliminary, type: 'preliminary' } : { type: 'progress', progress }))
           write({ type: 'complete', ...result })
         } catch (error) { if (!signal.aborted) write({ type: 'error', error: error.message }) }
         finally { if (!response.writableEnded) response.end() }
@@ -5559,6 +5560,7 @@ async function route(request, response) {
 }
 
 const agency = createAgencyService({
+  runtimeStudy: runLampStudy,
   skillDirectory: process.env.VIGO_AGENCY_SKILLS_DIR || path.join(staticRoot || path.resolve('public'), 'agency-skills'),
   async context(projectId) {
     const project = await readProjectMetadata(projectId)

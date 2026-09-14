@@ -1,3 +1,4 @@
+import { LampStudyResult, type LampStudyData } from './LampStudyResult'
 import { ArrowRight } from 'lucide-react'
 import type { OperationalEvent, QueryAnswer, ToolResult } from '../agency/types'
 import type { RoutingPlan } from '../routingModel'
@@ -5,6 +6,7 @@ import { downloadText } from '../agency/exports'
 import { humanField, toolNames } from '../agency/presentation'
 import { SourceLinks } from './AgencyEvidence'
 import { AgencyRuntimeFacts } from './AgencyRuntimeFacts'
+import { NetworkAssessment } from './NetworkAssessment'
 import { AgencyWalkingAssessment, AgencyWalkingComparisons, type WalkingOutput } from './AgencyWalking'
 
 const clockMinutes = (value: number) => `${String(Math.floor(value / 60) % 24).padStart(2, '0')}:${String(Math.floor(value % 60)).padStart(2, '0')}`
@@ -39,6 +41,8 @@ function AgencyJourney({ plan, endpoints }: { plan: RoutingPlan; endpoints?: Arr
 }
 
 export function AgencyToolOutput({ result, onSelectEvent, onOpenEntry }: { result: ToolResult; onSelectEvent?: (event: OperationalEvent) => void; onOpenEntry?: (id: number) => void }) {
+  const lamp = result.data as LampStudyData
+  if (lamp?.dataset === 'MBTA LAMP subway performance') return <LampStudyResult study={lamp} />
   const walking = result.data as WalkingOutput
   const data = result.data as { entries?: Array<{ id: number; title: string; observedAt: string; excerpt: string; notes: string; shortened: boolean }>; rows?: Record<string, unknown>[]; matches?: Array<{ kind: string; id: string; name: string; address?: string; category?: { key: string; value: string }; url?: string; title?: string; excerpt?: string }>; plan?: RoutingPlan; resolved?: Array<{ label: string }>; events?: Array<OperationalEvent & { routeName?: string; stopName?: string }>; counts?: Record<string, number>; summary?: { maximumCutoffMinutes: number; transitStatus?: { reachedStops: number } } }
   if (data?.matches?.some(item => item.url)) return <details className="agency-source-details"><summary>Public sources · {data.matches.length}</summary><div className="agency-recalled-work">{data.matches.filter(item => item.url && /^https?:\/\//i.test(item.url)).map(item => <article key={item.url}><a href={item.url} target="_blank" rel="noreferrer">{item.title || item.url}</a><p>{item.excerpt}</p></article>)}</div></details>
@@ -66,13 +70,16 @@ export function AgencyToolOutput({ result, onSelectEvent, onOpenEntry }: { resul
 export function AgencyAnswer({ answer, onResult, onSelectEvent, onOpenEntry }: { answer: QueryAnswer; onResult: (result: ToolResult) => void; onSelectEvent: (event: OperationalEvent) => void; onOpenEntry?: (id: number) => void }) {
   const citedComparison = answer.aiGenerated ? answer.trace.find((call, index) => answer.citations?.includes(index + 1) && (call.result.data as { events?: OperationalEvent[] }).events?.some((event) => event.evidence.observedHeadwaySeconds != null)) : null
   const result = citedComparison?.result ?? answer.trace.filter((call) => call.result.ok).at(-1)?.result
+  const lampResult = answer.trace.find(call => call.result.ok && (call.result.data as LampStudyData)?.dataset === 'MBTA LAMP subway performance')?.result
+  const lampReport = Boolean(lampResult && answer.report)
   return <section className="agency-answer" aria-label="Answer">
     {answer.selection?.route || answer.selection?.stop ? <p className="agency-caption">Asked about {answer.selection.stop?.name}{answer.selection.stop && answer.selection.route ? ' · ' : ''}{answer.selection.route ? `Route ${answer.selection.route.name}` : ''}</p> : null}
-    {answer.aiGenerated && answer.trace.length ? <div className="agency-ai-label">AI response · {answer.model}</div> : null}
-    <p className="agency-answer-text">{answerText(answer.answer)}</p>
+    {answer.aiGenerated && answer.trace.length && !lampReport ? <div className="agency-ai-label">AI response · {answer.model}</div> : null}
+    {answer.diagnosis && answer.narrative ? <><p className="agency-caption">Saved assessment · {new Date(answer.generatedAt).toLocaleString([], { timeZone: answer.timezone || undefined })}</p><NetworkAssessment diagnosis={answer.diagnosis} narrative={answer.narrative} investigation={answer.investigation} /></> : !lampReport ? <p className="agency-answer-text">{answerText(answer.answer)}</p> : null}
     {answer.scopeNote ? <p className="agency-caption">{answer.scopeNote}</p> : null}
-    {answer.report?.rows.length ? <div className="agency-research-output"><div className="agency-section-heading"><div><h2>Evidence table</h2><span>{answer.report.rows.length} rows · retained with this note</span></div>{answer.report.rows.length ? <button className="agency-text-button" onClick={() => { const rows = answer.report!.rows; const columns = Object.keys(rows[0]); const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`; downloadText('agency-evidence.csv', [columns.map(cell).join(','), ...rows.map((row) => columns.map((key) => cell(row[key])).join(','))].join('\n'), 'text/csv') }}>Export CSV</button> : null}</div><AgencyToolOutput result={{ ok: true, data: { rows: answer.report.rows }, provenance: [], generatedAt: answer.generatedAt, warnings: [] }} /></div> : null}
-    {result && !answer.report?.rows.length ? <AgencyToolOutput result={result} onSelectEvent={onSelectEvent} onOpenEntry={onOpenEntry} /> : null}
+    {answer.report?.rows.length && !lampResult ? <div className="agency-research-output"><div className="agency-section-heading"><div><h2>Evidence table</h2><span>{answer.report.rows.length} rows · retained with this note</span></div>{answer.report.rows.length ? <button className="agency-text-button" onClick={() => { const rows = answer.report!.rows; const columns = Object.keys(rows[0]); const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`; downloadText('agency-evidence.csv', [columns.map(cell).join(','), ...rows.map((row) => columns.map((key) => cell(row[key])).join(','))].join('\n'), 'text/csv') }}>Export CSV</button> : null}</div><AgencyToolOutput result={{ ok: true, data: { rows: answer.report.rows }, provenance: [], generatedAt: answer.generatedAt, warnings: [] }} /></div> : null}
+    {lampResult ? <AgencyToolOutput result={lampResult} /> : null}
+    {result && !lampResult && !answer.report?.rows.length ? <AgencyToolOutput result={result} onSelectEvent={onSelectEvent} onOpenEntry={onOpenEntry} /> : null}
     {answer.report ? <details className="agency-source-details"><summary>Research question, method & limits</summary><div className="agency-method-text">{answer.report.method}</div></details> : null}
     {Boolean(result?.presentation?.routeIds?.length === 1 || result?.presentation?.stopIds?.length === 1 || (result?.data as { plan?: unknown; surface?: unknown })?.plan || (result?.data as { surface?: unknown })?.surface) ? <button className="agency-text-button" onClick={() => result && onResult(result)}>Show on map <ArrowRight size={13} /></button> : null}
     {!result && answer.warnings.length ? <p className="agency-error" role="alert">{answer.warnings[0]}</p> : null}

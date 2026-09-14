@@ -19,6 +19,9 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
   const feedByUrl = new Map(feeds.map((feed) => [feed.sourceUrl, feed]))
   const events = []
   const trips = []
+  // Keep complete comparisons, including exact matches, for network diagnosis.
+  // These measurements remain server-side; the live API still returns a compact view.
+  const measurements = { departures: [], intervals: [] }
   const warnings = []
   const groups = new Map()
   const routes = new Map(context.routes.map((route) => [route.route_id, {
@@ -85,6 +88,10 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       if (predictedTime === null) continue // Arrival predictions never stand in for departures.
       const prediction = { tripId: trip.trip_id, sequence: row.stop_sequence, stopId: row.from_stop_id, scheduledTime: epoch + row.departure, predictedTime, delaySeconds: predictedTime - epoch - row.departure, sourceRef: ref, observedAt: base.observedAt }
       predictions.push(prediction)
+      if ((predictedTime >= nowSeconds && predictedTime <= nowSeconds + policy.windowMinutes * 60)
+        || (prediction.scheduledTime >= nowSeconds && prediction.scheduledTime <= nowSeconds + policy.windowMinutes * 60)) {
+        measurements.departures.push({ ...prediction, routeId: trip.route_id, directionId: trip.direction_id, serviceDate, toStopId: row.to_stop_id, vehicleId: update.vehicleId })
+      }
       if (prediction.predictedTime < nowSeconds || prediction.predictedTime > nowSeconds + policy.windowMinutes * 60) continue
       const key = eventId(trip.route_id, trip.direction_id, row.from_stop_id, serviceDate)
       if (!groups.has(key)) groups.set(key, { trip, stopId: row.from_stop_id, serviceDate, epoch, predictions: [] })
@@ -117,6 +124,10 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       if (expected.length !== 2 || !expected.every((row) => reporting.has(`${row.trip_id}/${row.stop_sequence}`))) { incompleteIntervals++; continue }
       measuredIntervals++
       const observedHeadwaySeconds = after.predictedTime - before.predictedTime
+      measurements.intervals.push({ routeId: trip.route_id, directionId: trip.direction_id, serviceDate, stopId,
+        tripIds: [before.tripId, after.tripId], scheduledSeconds: scheduledHeadwaySeconds, predictedSeconds: observedHeadwaySeconds,
+        fromTime: before.predictedTime, toTime: after.predictedTime,
+        observedAt: before.observedAt < after.observedAt ? before.observedAt : after.observedAt, sourceRefs: [before.sourceRef, after.sourceRef] })
       const route = routes.get(trip.route_id)
       if (!route.widestInterval || observedHeadwaySeconds > route.widestInterval.predictedSeconds) route.widestInterval = {
         predictedSeconds: observedHeadwaySeconds, scheduledSeconds: scheduledHeadwaySeconds,
@@ -167,7 +178,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
   events.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || (b.evidence.delaySeconds ?? 0) - (a.evidence.delaySeconds ?? 0) || a.id.localeCompare(b.id))
   return { generatedAt, observedAt: snapshot?.fetchedAt ?? null, cityName: context.cityName, connected: Boolean(snapshot), coverage,
     counts: { routes: routes.size, stops: context.stops.length, vehicles: (snapshot?.vehicles ?? []).filter((vehicle) => recordFresh(vehicle) && finite(vehicle.timestamp)).length, trips: trips.length, matchedTrips: trips.filter((trip) => trip.status !== 'unresolved').length, unresolvedTrips: trips.filter((trip) => trip.status === 'unresolved').length, alerts: activeAlerts },
-    feeds, routes: [...routes.values()], events, trips, warnings, policy }
+    feeds, routes: [...routes.values()], events, trips, measurements, warnings, policy }
 }
 
 export function createObservationHistory(policy = defaultPolicy, retained = {}) {

@@ -1,0 +1,29 @@
+export type NetworkNarrative = {
+  overview: string
+  sections: Array<{ id: string; title: string; routeIds: string[]; text: string }>
+  elsewhere: string
+  coverage: string
+}
+export type NetworkDiagnosis = {
+  version: number; generatedAt: string; window: { from: number; to: number; minutes: number }; status: string
+  coverage: {
+    scheduledTrips: number; reportingScheduledTrips: number; unknownTrips: number
+    measuredRoutes: number; scheduledRoutes: number; indexedRoutes: number
+    scheduledVehicleMinutes: number; reportingVehicleMinutes: number; reportingShare: number | null
+    additionalReportingTrips: number; excludedFrequencyTemplates: number
+    feeds: Array<{ kind: string; sourceUrl: string; status: string }>
+  }
+  routes: Array<{
+    id: string; name: string; scheduledTrips: number; reportingScheduledTrips: number; measuredTrips: number
+    laterTrips: number; earlierTrips: number; matchingTrips: number; cancelledTrips: number
+    medianDeviationSeconds: number | null; measuredPairs: number; widerPairs: number; closerPairs: number
+  }>
+  limits: string[]
+}
+export type BriefingPreferences = { intervalMinutes: 15 | 30 | 60; automatic: boolean }
+export type BriefingInvestigation = {
+  focusTitle?: string
+  explanation?: { hypothesis: string; status: string; text: string; evidenceIds: number[] }
+  watchNext?: string; assessment?: string; incomplete?: boolean
+  checks: Array<{ aspect: string; completed: boolean }>
+}

@@ -68,7 +68,8 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
   async function completeWith(connection, messages, tools, signal, options = {}) {
     if (!connection.baseUrl || !connection.model) throw new Error('Connect an AI provider in Ask to use natural-language queries.')
     if (connection.protocol === 'ollama') {
-      const choice = options.structuredTools && tools?.length ? providerChoice(messages, tools, options.initialTools, options.selectionOnly) : null
+      const requiredTool = options.toolChoice?.type === 'function' ? options.toolChoice.function?.name : null
+      const choice = (options.structuredTools || requiredTool) && tools?.length ? providerChoice(messages, tools, options.initialTools, options.selectionOnly, requiredTool) : null
       const names = new Map(messages.flatMap(message => (message.tool_calls ?? []).map(call => [call.id, call.function.name])))
       const nativeMessages = messages.map(message => ({ role: message.role, content: message.content ?? '',
         ...(message.role === 'tool' ? { tool_name: names.get(message.tool_call_id) } : {}),

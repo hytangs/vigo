@@ -1,3 +1,4 @@
+import { queryRuntimeFacts, withRuntimeActivity } from '../agency/runtimeFacts.mjs'
 import { indexedEntityId, workspaceSelection, selectedStopIds, eventInSelection } from '../agency/workspaceSelection.mjs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -17,6 +18,7 @@ import { readPublicPage } from './agency-web.mjs'
 import { createOperationsStore } from '../agency/operationsStore.mjs'
 import { operationsActions, handleOperations } from '../agency/operationsService.mjs'
 import { authorize, recordIdentity } from '../agency/operations.mjs'
+import { briefingPreferences, defaultBriefingPreferences, briefingStatus } from '../agency/briefingSchedule.mjs'
 
 export function createAgencyService(adapters, { provider = createProvider(), web = createWebResearch({ readPage: readPublicPage }), clock = () => Date.now(), policy = defaultPolicy, refreshMs = 10_000,
   access = async () => ({ id: 'local-owner', role: 'admin' }) } = {}) {
@@ -135,9 +137,9 @@ export function createAgencyService(adapters, { provider = createProvider(), web
           try { await resume(projectId, session.request) } catch { /* Current reports keep aging; refresh failure is included below. */ }
         }
         const state = current(session)
-        const { trips, ...publicState } = state
+        const { trips, measurements, ...publicState } = state
         const selected = state.events.filter((event) => eventInSelection(event, selection, stops) && (!eventType || eventType === 'all' || event.type === eventType))
-        return { ...publicState, selection, filters: { routeId, stopId, eventType }, filteredEventCount: selected.length,
+        return { ...publicState, scheduleIdentity: session.scheduleIdentity, selection, filters: { routeId, stopId, eventType }, filteredEventCount: selected.length,
           stopLocations: Object.fromEntries(selected.slice(0, 500).flatMap((event) => { const stop = session.context.stopIndex.get(event.stopId); return stop ? [[stop.stop_id, { label: stop.name, coordinate: [stop.lon, stop.lat] }]] : [] })),
           stopNames: Object.fromEntries(selected.slice(0, 500).flatMap((event) => event.stopId ? [[event.stopId, session.context.stopIndex.get(event.stopId)?.name || event.stopId]] : [])),
           eventCount: state.events.length, events: selected.slice(0, 500), warnings: [...state.warnings, ...(selected.length > 500 ? ['Showing the first 500 matching events. Choose a route or event type to narrow the view.'] : [])] }
@@ -147,7 +149,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
       if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.action !== 'string') throw Object.assign(new Error('Choose an Agency action.'), { statusCode: 400 })
       // Principal comes from the trusted host, never from request JSON or a model tool.
       const principal = await access(projectId)
-      authorize(principal, ['web-connect', 'provider-models', 'provider-connect', 'provider-disconnect', 'skill-install', 'skill-enabled'].includes(body.action) ? 'configure' : body.action === 'notebook-note' ? 'finding' : 'read')
+      authorize(principal, ['briefing-settings', 'web-connect', 'provider-models', 'provider-connect', 'provider-disconnect', 'skill-install', 'skill-enabled'].includes(body.action) ? 'configure' : body.action === 'notebook-note' ? 'finding' : 'read')
       if (body.action === 'web-status') return web.status()
       if (body.action === 'web-connect') return web.connect(body.connection, signal)
       if (body.action === 'provider-status') return provider.status()
@@ -168,7 +170,11 @@ export function createAgencyService(adapters, { provider = createProvider(), web
           case 'notebook': return { entries: session.notebook.list(body.query ?? {}) }
           case 'notebook-entry': { const entries = []; let id = body.id; while (id && entries.length < 30) { const entry = session.notebook.read(id); entries.unshift(entry); id = entry.parentId } return { entries } }
           case 'notebook-note': return session.notebook.annotate(body.id, body.notes)
-          case 'briefing-latest': return { entry: session.notebook.latest('briefing') }
+          case 'briefing-settings': { const preferences = briefingPreferences(body.preferences); session.notebook.set('briefing-preferences', preferences); return { preferences } }
+          case 'briefing-latest': {
+            const entry = session.notebook.latest('briefing'), preferences = session.notebook.get('briefing-preferences') ?? defaultBriefingPreferences
+            return { entry, ...briefingStatus(entry, preferences, clock(), session.scheduleIdentity) }
+          }
           case 'skills': return { skills: session.skills.list() }
           case 'skill-install': return { skills: session.skills.install(body.skill) }
           case 'skill-enabled': { const skill = session.skills.setEnabled(body.id, body.enabled); session.notebook.set('skills', Object.fromEntries(session.skills.list().map((item) => [item.id, item.enabled]))); return { skill } }
@@ -177,15 +183,23 @@ export function createAgencyService(adapters, { provider = createProvider(), web
         const activities = []
         const inference = provider.forRequest?.() ?? provider
         const research = web.forRequest()
-        const progress = (item) => { const previous = activities.findIndex((entry) => entry.phase === item.phase); if (previous < 0) activities.push(item); else activities[previous] = item; onProgress?.(item) }
+        const progress = (item) => { if (item.preliminary) { onProgress?.(item); return }; const previous = activities.findIndex((entry) => entry.phase === item.phase); if (previous < 0) activities.push(item); else activities[previous] = item; onProgress?.(item) }
         const retain = (title, answer, kind = 'ask') => { const entry = session.notebook.save({ title, answer, activities, kind, parentId: body.parentId ?? null }); return { ...answer, entryId: entry.id } }
         const callTool = createToolRegistry({ context: session.context, state, snapshot: session.snapshot, notebook: session.notebook, operations: session.operations, scheduleIdentity: session.scheduleIdentity, places: session.places, web: research, signal,
-          adapters: { streetMatrix: adapters.streetMatrix ? (request, abort) => adapters.streetMatrix(projectId, request, abort) : undefined, matrix: (request, abort) => adapters.matrix(projectId, request, abort), route: (request, abort) => adapters.route(projectId, request, abort), reach: (request, abort) => adapters.reach(projectId, request, abort) } })
+          adapters: { runtimeStudy: adapters.runtimeStudy, streetMatrix: adapters.streetMatrix ? (request, abort) => adapters.streetMatrix(projectId, request, abort) : undefined, matrix: (request, abort) => adapters.matrix(projectId, request, abort), route: (request, abort) => adapters.route(projectId, request, abort), reach: (request, abort) => adapters.reach(projectId, request, abort) } })
         switch (body.action) {
           case 'connect': return { snapshot: await this.connect(projectId, body.request) }
           case 'disconnect': return this.disconnect(projectId)
           case 'tool': return callTool(body.name, body.arguments ?? {})
-          case 'briefing': { if (!session.briefingJob) session.briefingJob = networkBriefing({ state, callTool, provider: inference, signal, onProgress: progress }).then((answer) => retain('Network briefing', answer, 'briefing')).finally(() => { session.briefingJob = null }); return session.briefingJob }
+          case 'briefing': {
+            const preferences = session.notebook.get('briefing-preferences') ?? defaultBriefingPreferences
+            const entry = session.notebook.latest('briefing')
+            if (body.force !== true && entry && (!preferences.automatic || briefingStatus(entry, preferences, clock(), session.scheduleIdentity).current)) return { ...entry.answer, entryId: entry.id, briefingPreferences: preferences }
+            if (!session.briefingJob) session.briefingJob = networkBriefing({ context: session.context, state, provider: inference, callTool, signal, scheduleIdentity: session.scheduleIdentity, onProgress: progress })
+              .then(answer => retain('Network briefing', { ...answer, scheduleIdentity: session.scheduleIdentity }, 'briefing'))
+              .finally(() => { session.briefingJob = null })
+            return { ...await session.briefingJob, briefingPreferences: preferences }
+          }
           case 'ask': {
             const selection = workspaceSelection(session.context, body.selection, session.feedIds)
             const history = []
@@ -205,7 +219,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
               history.unshift({ selection: previous.answer.selection, question: previous.title, answer: previous.answer.answer, notes: previous.notes, observedAt: previous.answer.generatedAt, requests, findings })
               parentId = previous.parentId
             }
-            return retain(body.question, await queryAgency({ question: body.question, selection, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled, placeEndpoint: session.places.endpoint, placeDetailsEndpoint: session.places.detailsEndpoint, webStatus: research }))
+            return retain(body.question, await queryAgency({ question: body.question, selection, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled, placeEndpoint: session.places.endpoint, placeDetailsEndpoint: session.places.detailsEndpoint, runtimeStudyAvailable: Boolean(adapters.runtimeStudy), webStatus: research }))
           }
           case 'run-skill': {
             const result = await session.skills.run(body.id, body.inputs ?? {}, callTool, progress, { signal, generatedAt: state.generatedAt })
@@ -221,6 +235,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
             }
             const rows = trace.flatMap(({ tool, result }) => result.data.rows ?? (tool === 'anomaly_scan' ? (result.data.events ?? []).filter((event) => event.evidence.observedHeadwaySeconds != null).map((event) => ({ route: event.routeName || event.routeId, reference_stop: event.stopName || event.stopId, observed_at: event.observedAt, predicted_minutes: event.evidence.observedHeadwaySeconds / 60, scheduled_minutes: event.evidence.scheduledHeadwaySeconds / 60, difference_minutes: (event.evidence.observedHeadwaySeconds - event.evidence.scheduledHeadwaySeconds) / 60 })) : []))
             const answer = { answer: summary.text, scopeNote: fallback.scopeNote, aiGenerated: summary.aiGenerated, model: summary.model, citations: summary.citations, trace, report: { title: result.skill.name, method: result.skill.instructions, inputs: body.inputs ?? {}, rows }, generatedAt: state.generatedAt, evidenceRefs: [...new Set(trace.flatMap((call) => call.result.provenance))], warnings: [...new Set(trace.flatMap((call) => call.result.warnings)), ...(warning ? [warning] : [])], providerAvailable: provider.available }
+            answer.runtime = withRuntimeActivity(queryRuntimeFacts({ provider: inference, webStatus: research, placesAvailable: session.places.enabled, placeEndpoint: session.places.endpoint, placeDetailsEndpoint: session.places.detailsEndpoint, runtimeStudyAvailable: Boolean(adapters.runtimeStudy), generatedAt: state.generatedAt }), trace)
             return retain(result.skill.name, answer, 'research')
           }
           default: throw Object.assign(new Error('Unknown Agency action.'), { statusCode: 400 })
