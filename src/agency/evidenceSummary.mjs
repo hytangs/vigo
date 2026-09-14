@@ -26,6 +26,12 @@ export function summarizeEvidence(trace) {
     }
     case 'realtime_status': return data.connected ? describeObservation(data) : 'Realtime is not connected. Current service health and data freshness are unknown.'
     case 'gtfs_query': return `${data.rowCount} ${data.rowCount === 1 ? 'row' : 'rows'} from the timetable${data.truncated ? ' (result limited)' : ''}. The results are shown below; the exact query is included in the downloadable record.`
+    case 'service_profile': {
+      const scope = `on ${data.serviceDate} at or after ${data.afterTime || '00:00'} (${data.timezone || 'agency time'})`
+      return data.groupBy === 'route'
+        ? `The timetable lists ${data.truncated ? 'at least ' : ''}${data.rows.length} routes with indexed departures ${scope}. The table shows local times; day offsets mark departures past midnight. These are scheduled departures; live operation is not established by this check.`
+        : `The timetable has ${data.rows.reduce((sum, row) => sum + row.scheduled_trip_starts, 0)} indexed trip starts ${scope}. The table groups starts by hour, not by an exact departure time. Service times of 24:00 or later continue past midnight.`
+    }
     case 'place_search': return `${data.matches.length} matching addresses from OpenStreetMap. ${data.matches.map((match) => `${match.name}: ${match.address}`).join('; ')}`
     case 'walk_route': return data.walking ? `The walk is ${Math.round(data.walking.distanceMeters)} m, about ${Math.round(data.walking.durationMinutes)} minutes on the saved pedestrian network.` : data.plan?.detail || 'No walking route could be established for these locations.'
     case 'route_plan': if (data.plan?.legs?.length) return `The journey takes ${Number(data.plan.durationMinutes.toFixed(1))} minutes, including walking and waiting. ${data.request?.serviceDate ? `Times below are local to ${data.request.timezone || 'the agency'} on ${data.request.serviceDate}. ` : ''}${data.realtime?.applied ? 'It uses current trip predictions where the routing engine could apply them.' : 'It uses the timetable; live predictions were not applied.'}`

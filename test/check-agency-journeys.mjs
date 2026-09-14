@@ -1,4 +1,12 @@
 import assert from 'node:assert/strict'
+import { agencyClock } from '../src/agency/agencyClock.mjs'
+
+const utcAfterMidnight = '2026-09-14T03:19:00Z'
+assert.deepEqual(agencyClock(utcAfterMidnight, 'America/Los_Angeles'), { date: '2026-09-13', time: '20:19', weekday: 'Sunday', timezone: 'America/Los_Angeles', zoneLabel: 'PDT' })
+assert.equal(agencyClock(utcAfterMidnight, 'Asia/Tokyo').date, '2026-09-14')
+assert.equal(agencyClock('2026-03-08T09:59:00Z', 'America/Los_Angeles').time, '01:59')
+assert.equal(agencyClock('2026-03-08T10:00:00Z', 'America/Los_Angeles').time, '03:00', 'Use the actual daylight-saving offset, not a fixed subtraction')
+assert.equal(agencyClock(utcAfterMidnight, null), null, 'An unknown agency timezone must not use the computer timezone')
 import { createToolRegistry, failedToolResult } from '../src/agency/toolRegistry.mjs'
 import { queryAgency } from '../src/agency/queryAgent.mjs'
 import { journeyTime } from '../src/agency/journeyInputs.mjs'

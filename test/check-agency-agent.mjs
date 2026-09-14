@@ -7,6 +7,30 @@ import { toolDefinitions } from '../src/agency/toolRegistry.mjs'
 import { createJourneyChoices } from '../src/agency/journeyChoices.mjs'
 const state = { generatedAt: '2026-09-13T12:00:00Z', observedAt: '2026-09-13T12:00:00Z' }
 const context = { overview: () => ({ cityName: 'City X' }), routeIndex: new Map([['R', { short_name: 'R' }]]), stopIndex: new Map([['A', { name: 'River' }]]) }
+const clockAnswer = await queryAgency({ question: 'What service runs after 22:00 today?', context: { ...context, timezone: 'America/Los_Angeles' }, state: { ...state, generatedAt: '2026-09-14T03:19:00Z' },
+  provider: { available: true, complete: async messages => {
+    const supplied = messages.find(message => message.content.includes('Current City clock:')).content
+    assert.match(supplied, /Sunday, 2026-09-13, 20:19 PDT/)
+    assert.match(supplied, /Today means 2026-09-13/)
+    assert.match(supplied, /Observation timestamp in UTC:/)
+    return { content: 'The local date is September 13.' }
+  } },
+})
+assert.equal(clockAnswer.timezone, 'America/Los_Angeles', 'The displayed answer timestamp retains the same agency timezone as the model context')
+let profileCalls = 0
+const profileAnswer = await queryAgency({ question: 'What service runs after 22:00 today?', context: { ...context, timezone: 'America/Los_Angeles' }, state: { ...state, generatedAt: '2026-09-14T03:19:00Z' },
+  provider: { available: true, complete: async (_messages, tools) => {
+    assert.equal(++profileCalls, 1, 'A completed service check does not need another model call to rewrite its counts')
+    assert.deepEqual(tools.find(tool => tool.name === 'service_profile').parameters.required, ['groupBy', 'resultUse'])
+    return { tool_calls: [{ id: 'profile', function: { name: 'service_profile', arguments: '{"groupBy":"hour","afterTime":"22:00","resultUse":"answer"}' } }] }
+  } }, callTool: async (_name, args) => {
+    assert.deepEqual(args, { groupBy: 'hour', afterTime: '22:00' })
+    return { ok: true, data: { serviceDate: '2026-09-13', timezone: 'America/Los_Angeles', afterTime: '22:00', groupBy: 'hour', rows: [120,104,79,43,18].map((n, i) => ({ service_hour: 22+i, scheduled_trip_starts: n })) }, warnings: [], provenance: ['fixture'] }
+  },
+})
+assert.match(profileAnswer.answer, /364 indexed trip starts on 2026-09-13/)
+assert.match(profileAnswer.answer, /groups starts by hour, not by an exact departure time/)
+assert.equal(profileAnswer.aiGenerated, false)
 const event = { id: 'delay/T1', type: 'delay', title: 'Departure later than scheduled', routeId: 'R', stopId: 'A', observedAt: state.observedAt, evidence: { delaySeconds: 300 }, sourceRefs: ['fixture:trip/T1'] }
 const catalog = discoverableTools(toolDefinitions)
 assert.ok(JSON.stringify(catalog.definitions()).length < JSON.stringify(toolDefinitions).length / 2, 'Ordinary conversation does not carry every specialist schema')

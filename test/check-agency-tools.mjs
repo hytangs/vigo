@@ -98,6 +98,29 @@ try {
   assert.deepEqual(matrix.data.durations, [12])
   assert.equal(requested.allowServiceDateFallback, false)
   await assert.rejects(call('matrix', { origins: [], destinations: [journey.destination], serviceDate: journey.serviceDate, departMinutes: journey.departMinutes }), /size/)
+  const nightFile = path.join(directory, 'night.sqlite')
+  createAgencyFixture(nightFile)
+  const nightDb = new DatabaseSync(nightFile)
+  nightDb.exec(`UPDATE metadata SET value='["America/Los_Angeles"]' WHERE key='agencyTimezones';
+    INSERT INTO routes VALUES('N','Night','Night service',3,'007D77');
+    INSERT INTO trips VALUES('late','N','S','0'),('overnight','N','S','0'),('frequency','N','S','0');
+    INSERT INTO connections VALUES
+      (78600,79800,'late','N','S','0','A','B',10),(80100,81000,'late','N','S','0','B','C',30),
+      (90900,91500,'overnight','N','S','0','A','B',10),(84600,85000,'frequency','N','S','0','A','B',10);
+    INSERT INTO frequencies VALUES('frequency',84600,86400,600,0);
+    INSERT INTO calendar_dates VALUES('S',20260914,2);`)
+  nightDb.close()
+  const nightContext = new AgencyContext(nightFile, 'City X')
+  try {
+    const nightCall = createToolRegistry({ context: nightContext, state: { ...state, generatedAt: '2026-09-14T03:19:00Z' }, snapshot, adapters: {} })
+    const night = await nightCall('service_profile', { groupBy: 'route', afterTime: '22:00' })
+    assert.equal(night.data.serviceDate, '2026-09-13', 'Today is the agency date even after UTC midnight')
+    assert.deepEqual(night.data.rows, [{ route: 'Night', route_name: 'Night service', scheduled_trips: 2, first_departure: '22:15', last_departure: '01:15 (+1 day)' }], 'Include departures of trips already underway and overnight service; display local time and exclude frequency templates')
+    const hours = await nightCall('service_profile', { afterTime: '22:00' })
+    assert.deepEqual(hours.data.rows, [{ service_hour: 25, scheduled_trip_starts: 1, routes: 1 }], 'An underway trip is not relabeled as a new trip start')
+    await assert.rejects(nightCall('service_profile', { serviceDate: '2026-09-14', groupBy: 'route', afterTime: '22:00' }), /No active/, 'Calendar removals override the regular weekly schedule')
+    await assert.rejects(nightCall('service_profile', { serviceDate: '2026-02-30' }), /valid service date/)
+  } finally { nightContext.close() }
   console.log('Agency tools: SQLite authorization, qualified bypasses, result size, expensive joins, process termination, cancellation, and native routing/reach handoff passed.')
 } finally {
   context?.close()

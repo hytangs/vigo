@@ -1,10 +1,12 @@
+import { agencyClock } from './agencyClock.mjs'
+
 export function journeyTime(args, generatedAt, timezone) {
   if (args.departTime && args.arriveBy) throw new Error('Use either a departure time or an arrival deadline, not both.')
   if (args.serviceDate && !args.departTime && !args.arriveBy) throw new Error('Supply a departure time or an arrival deadline for the selected date.')
   if (args.serviceDate) return args
-  if (!timezone || !Number.isFinite(Date.parse(generatedAt))) throw new Error('A current date and agency timezone are required to default the journey time.')
-  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(generatedAt)).map(part => [part.type, part.value]))
-  return { ...args, serviceDate: `${parts.year}-${parts.month}-${parts.day}`, ...(!args.departTime && !args.arriveBy ? { departTime: `${parts.hour}:${parts.minute}` } : {}) }
+  const clock = agencyClock(generatedAt, timezone)
+  if (!clock) throw new Error('A current date and agency timezone are required to default the journey time.')
+  return { ...args, serviceDate: clock.date, ...(!args.departTime && !args.arriveBy ? { departTime: clock.time } : {}) }
 }
 
 async function candidateIdentities(matches, places, signal) {

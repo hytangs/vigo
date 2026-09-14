@@ -107,6 +107,7 @@ export type ToolResult = {
 }
 
 export type QueryAnswer = {
+  timezone?: string | null
   runtime?: {
     capturedAt: string
     modelConnection: { model: string | null; protocol: string | null; endpoint: string | null; transport: string | null; endpointLocation: 'loopback' | 'other' | 'unknown'; inferenceLocation: 'unverified'; externalModelApi: 'not-configured-directly' | 'unverified' | 'unknown' }

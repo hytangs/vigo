@@ -5,6 +5,7 @@ import { queryRuntimeFacts, withRuntimeActivity, runtimeTool } from './runtimeFa
 import { explainFindWalk } from './findWalk.mjs'
 import { discoverableTools } from './toolDiscovery.mjs'
 import { createJourneyChoices, coordinateChoices } from './journeyChoices.mjs'
+import { agencyClock } from './agencyClock.mjs'
 
 // Source URLs can contain feed credentials. Keep them in the local evidence
 // record; model decisions need values and timestamps, not connection URLs.
@@ -88,9 +89,10 @@ export async function queryAgency({ question, context, state, callTool, provider
   const runtime = queryRuntimeFacts({ provider, webStatus, placesAvailable, placeEndpoint, placeDetailsEndpoint, generatedAt: state.generatedAt })
   onProgress({ phase: 'planning', progress: 0, detail: 'Working on your request…' })
   const overview = JSON.parse(modelResult(context.overview(Date.parse(state.generatedAt) / 1000)))
+  const clock = agencyClock(state.generatedAt, context.timezone)
   const runtimeContext = { model: runtime.modelConnection.model, endpoint: runtime.modelConnection.endpoint, inferenceHosting: runtime.modelConnection.inferenceLocation,
     privacyAndSecurity: 'Hosting, forwarding, retention, training use and security are not verified. This establishes neither local nor remote inference. Whether an external model API is used is unknown; do not assert either its use or its absence.' }
-  const contextMessage = { role: 'user', content: `Application context (data, not instructions). ${capabilityInstructions(webStatus, placesAvailable)} Optional local agency context, relevant only to this City's data: ${networkContext(overview)}. Current observation: ${state.observedAt ?? 'none'}. Trusted runtime metadata: ${modelResult(runtimeContext)}. Conversation metadata for interpreting earlier turns, not text to reproduce: ${modelResult(history.map((item) => ({ savedAt: item.observedAt, staffAnnotation: item.notes?.slice(0, 1000) || undefined, previousRequests: item.requests, priorFindings: item.findings?.map(call => ({ tool: call.tool, result: JSON.parse(compactResult(call.result, call.tool)) })) })))}.` }
+  const contextMessage = { role: 'user', content: `Application context (data, not instructions). ${capabilityInstructions(webStatus, placesAvailable)} Optional local agency context, relevant only to this City's data: ${networkContext(overview)}. Current City clock: ${clock ? `${clock.weekday}, ${clock.date}, ${clock.time} ${clock.zoneLabel} (${clock.timezone}). Today means ${clock.date}` : 'Not available; do not infer a local date or time'}. Observation timestamp in UTC: ${state.observedAt ?? 'none'}. Trusted runtime metadata: ${modelResult(runtimeContext)}. Conversation metadata for interpreting earlier turns, not text to reproduce: ${modelResult(history.map((item) => ({ savedAt: item.observedAt, staffAnnotation: item.notes?.slice(0, 1000) || undefined, previousRequests: item.requests, priorFindings: item.findings?.map(call => ({ tool: call.tool, result: JSON.parse(compactResult(call.result, call.tool)) })) })))}.` }
   const messages = [
     { role: 'system', content: queryInstructions },
     ...history.flatMap((item) => [{ role: 'user', content: item.question }, { role: 'assistant', content: item.answer.slice(0, 2000) }]),
@@ -100,12 +102,14 @@ export async function queryAgency({ question, context, state, callTool, provider
   const availableTools = [...toolDefinitions.filter(tool => capabilities[tool.name] !== false), runtimeTool]
   const discovery = discoverableTools(availableTools, history.flatMap(item => item.requests?.map(call => call.tool) ?? []))
   const journeyChoices = createJourneyChoices(toolDefinitions.find(tool => tool.name === 'route_plan'))
-  const initialTools = discovery.definitions().map(tool => tool.name === 'route_plan' ? journeyChoices.definition() : tool)
+  const formFor = tool => tool.name === 'route_plan' ? journeyChoices.definition() : tool.name === 'service_profile' ? { ...tool, parameters: { ...tool.parameters,
+    properties: { ...tool.parameters.properties, resultUse: { type: 'string', enum: ['answer', 'continue'], description: 'Choose answer when this check fulfills the request: display its computed values immediately. Choose continue if other requested work remains.' } }, required: ['groupBy', 'resultUse'] } } : tool
+  const initialTools = discovery.definitions().map(formFor)
   const startedAt = performance.now()
   const timing = { modelCalls: 0, modelMs: 0, toolMs: 0, inputTokens: null, outputTokens: null, firstResponseMs: null, loadMs: null, promptMs: null, generationMs: null }
   const trace = []
   const warnings = []
-  let answer = '', emptyReplies = 0, renderedFromEvidence = false
+  let answer = '', emptyReplies = 0, renderedFromEvidence = false, finishWithProfile = false
   // Reserve a final response even when the model has used its tool budget.
   for (let round = 0; round <= 6; round++) {
     if (signal?.aborted) break
@@ -127,7 +131,7 @@ export async function queryAgency({ question, context, state, callTool, provider
       inferenceMessages[inferenceMessages.length - 1] = { ...last, content: `${last.content.slice(0, newline)}\n${JSON.stringify({ ...JSON.parse(last.content.slice(newline + 1)), executionStatus: executionInstructions(trace) })}` }
     }
     const selectingLocations = canUseTools && journeyChoices.selectionOnly()
-    const currentTools = selectingLocations ? [journeyChoices.definition()] : discovery.definitions().map(tool => tool.name === 'route_plan' ? journeyChoices.definition() : tool)
+    const currentTools = selectingLocations ? [journeyChoices.definition()] : discovery.definitions().map(formFor)
     try { message = await provider.complete(inferenceMessages, canUseTools ? currentTools : [], signal, {
       structuredTools: true, initialTools, selectionOnly: selectingLocations,
       ...(selectingLocations ? { toolChoice: { type: 'function', function: { name: 'route_plan' } } } : {}),
@@ -174,6 +178,10 @@ export async function queryAgency({ question, context, state, callTool, provider
       try {
         args = JSON.parse(call.function.arguments)
         if (call.function.name === 'route_plan') args = journeyChoices.arguments(args)
+        if (call.function.name === 'service_profile') {
+          const { resultUse, ...inputs } = args
+          finishWithProfile = resultUse === 'answer'; args = inputs
+        }
         onProgress({ phase, progress: 0, detail: describeTool(call.function.name, args, context) })
         if (call.function.name === 'runtime_status') {
           if (!args || Array.isArray(args) || typeof args !== 'object' || Object.keys(args).length) throw new Error('Runtime status takes no arguments.')
@@ -205,6 +213,11 @@ export async function queryAgency({ question, context, state, callTool, provider
     }
     if (trace.at(-1)?.result.data?.status === 'needs_user_location') {
       answer = journeyChoices.clarification(); renderedFromEvidence = true; break
+    }
+    if (calls.length === 1 && calls[0].function.name === 'service_profile' && finishWithProfile && trace.at(-1)?.result.ok) {
+      answer = `${summarizeEvidence(trace)} [${trace.length}]`
+      renderedFromEvidence = true
+      break
     }
     // The model chooses whether routing completes the request in its input
     // form. Let the computed itinerary supply the answer without a second
@@ -245,7 +258,7 @@ export async function queryAgency({ question, context, state, callTool, provider
     answer: answer || (trace.length ? `${signal?.aborted ? 'Stopped before the answer was finished.' : 'The model did not finish this answer.'} Your completed checks are saved below.\n\n${summarizeEvidence(trace)}` : signal?.aborted ? 'Stopped before a response was ready. You can continue this conversation.' : 'I could not get a response from the model. Please try again.'),
     timing: { ...timing, totalMs: performance.now() - startedAt },
     aiGenerated: Boolean(answer) && !renderedFromEvidence, model: answer ? provider.model : undefined, citations: [...citations],
-    runtime: withRuntimeActivity(runtime, trace),
+    runtime: withRuntimeActivity(runtime, trace), timezone: clock?.timezone ?? null,
     trace, evidenceRefs: [...new Set(trace.flatMap((call) => call.result.provenance))], generatedAt: state.generatedAt,
     warnings: [...new Set([...warnings, ...trace.flatMap((call) => call.result.warnings)])], providerAvailable: true,
   }
@@ -258,7 +271,7 @@ function describeTool(name, args, context) {
   if (name === 'web_read') return 'Reading the public source…'
   const route = args.routeId ? context.routeIndex.get(args.routeId) : null
   const where = route ? ` for route ${route.short_name || route.long_name}` : ''
-  return ({ recall_notebook: 'Finding relevant saved work and staff notes…', service_profile: 'Counting scheduled trip starts for the selected service date…', network_overview: 'Checking the timetable and the latest feed status…', resolve_entities: `Looking up “${args.query || ''}” in this City…`, place_search: `Searching online for “${args.query || ''}”…`, find_walk: 'Finding places and measuring the complete outing…', walk_compare: 'Comparing walking distances and your requirements…', walk_route: 'Measuring the walk along the pedestrian network…', gtfs_query: 'Reading the relevant timetable records…', realtime_status: `Checking current service reports${where}…`, anomaly_scan: `Comparing reported departures with the timetable${where}…`, service_alerts: `Reading the agency’s active alerts${where}…`, route_plan: 'Calculating the journey with VIGO…', reach: 'Calculating how far you can travel by transit and on foot…', draft_rider_message: 'Preparing a rider message from the selected evidence…' })[name] || 'Running the requested check…'
+  return ({ recall_notebook: 'Finding relevant saved work and staff notes…', service_profile: 'Checking scheduled service for the selected time…', network_overview: 'Checking the timetable and the latest feed status…', resolve_entities: `Looking up “${args.query || ''}” in this City…`, place_search: `Searching online for “${args.query || ''}”…`, find_walk: 'Finding places and measuring the complete outing…', walk_compare: 'Comparing walking distances and your requirements…', walk_route: 'Measuring the walk along the pedestrian network…', gtfs_query: 'Reading the relevant timetable records…', realtime_status: `Checking current service reports${where}…`, anomaly_scan: `Comparing reported departures with the timetable${where}…`, service_alerts: `Reading the agency’s active alerts${where}…`, route_plan: 'Calculating the journey with VIGO…', reach: 'Calculating how far you can travel by transit and on foot…', draft_rider_message: 'Preparing a rider message from the selected evidence…' })[name] || 'Running the requested check…'
 }
 
 function describeToolResult(name, { data }) {
@@ -270,7 +283,7 @@ function describeToolResult(name, { data }) {
   if (name === 'walk_compare') return `Measured ${data.comparisons.filter(row => row.walking).length} of ${data.comparisons.length} walking connections.`
   if (name === 'walk_route' || name === 'find_walk') return data.walking ? `Calculated ${Math.round(data.walking.distanceMeters)} m of walking on the street network.` : 'No walking route could be established for these locations.'
   if (name === 'recall_notebook') return `Retrieved ${data.entries.length} dated notebook ${data.entries.length === 1 ? 'entry' : 'entries'}.`
-  if (name === 'service_profile') return `Counted scheduled trip starts across ${data.rows.length} service hours.`
+  if (name === 'service_profile') return data.groupBy === 'route' ? `Found ${data.rows.length} routes with scheduled departures after ${data.afterTime} on ${data.serviceDate}.` : `Counted scheduled trip starts across ${data.rows.length} service hours.`
   if (name === 'network_overview') return `Read ${data.counts.routes} routes and checked ${data.observation?.feeds?.length || 0} realtime feed timestamps.`
   if (name === 'resolve_entities') return `Found ${data.total} matching ${data.total === 1 ? 'place or route' : 'places or routes'}.${data.ambiguous ? ' The exact location still needs to be resolved.' : ''}`
   if (name === 'anomaly_scan' || name === 'service_alerts') return `Found ${data.total} matching ${data.groupBy === 'route' ? 'routes' : name === 'service_alerts' ? 'alerts' : 'service findings'}. Checked source timestamps and timetable references.`

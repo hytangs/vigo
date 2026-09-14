@@ -14,11 +14,12 @@ export function briefingFacts(trace) {
       for (const feed of sources.filter((feed) => feed.status !== 'fresh')) add(source, `${label(feed)} ${feed.status === 'stale' ? 'are out of date' : 'could not be verified'}. Check the source before using them for an operational decision.`, 'coverage')
       if (!observation.counts.matchedTrips) add(source, 'No current trip reports could be matched to this timetable. Departure conditions cannot be assessed.', 'coverage')
     } else if (observation) add(source, 'Live updates are not connected. Connect them to assess current service.', 'coverage')
-    if (call.tool === 'service_profile' && data.rows?.length) {
+    if (call.tool === 'service_profile' && data.groupBy === 'route') add(source, summarizeEvidence([call]))
+    if (call.tool === 'service_profile' && data.groupBy !== 'route' && data.rows?.length) {
       const rows = data.rows, total = rows.reduce((sum, row) => sum + row.scheduled_trip_starts, 0)
       const peak = Math.max(...rows.map((row) => row.scheduled_trip_starts))
       const hours = rows.filter((row) => row.scheduled_trip_starts === peak).map((row) => row.service_hour)
-      add(source, `The timetable has ${total.toLocaleString('en-US')} indexed trip starts on ${data.serviceDate}, across ${rows.length} service hours with departures.`)
+      add(source, `The timetable has ${total.toLocaleString('en-US')} indexed trip starts on ${data.serviceDate}${data.afterTime ? ` at or after ${data.afterTime}` : ''}, across ${rows.length} service hours with departures.`)
       add(source, `The largest hourly count is ${peak} trip starts in service hour${hours.length > 1 ? 's' : ''} ${hours.join(', ')}. Service hours above 23 continue the same GTFS service day.`)
       add(source, 'These counts describe scheduled supply. Frequency templates and trips without indexed connections are excluded; observed service, demand, and passenger capacity are not measured.')
     }
