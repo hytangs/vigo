@@ -1,0 +1,1649 @@
+{
+  "generatedAt": "2026-09-14T06:34:25.693Z",
+  "packageId": "holding-v1",
+  "timetableVersion": "SYN-HOLD-1",
+  "platform": {
+    "os": "darwin",
+    "architecture": "arm64",
+    "node": "v26.7.0"
+  },
+  "evaluation": "Developer-authored synthetic expectations, five scenarios. Two scenario variants held out of the development set. No agency expert or manual user study.",
+  "timer": "Per case: opening an isolated persisted replay through assessment, simulated approval/delivery, duplicate retry and changed-evidence withdrawal. AI mode includes two inference calls. First case includes cold SQLite work; model cache state is not controlled.",
+  "manual": {
+    "status": "not-run",
+    "reviewer": null,
+    "taskTimeMs": null,
+    "corrections": null,
+    "messageEditing": null
+  },
+  "observedServiceImpact": null,
+  "inferenceCost": null,
+  "summary": [
+    {
+      "mode": "deterministic",
+      "cases": 5,
+      "complete": 5,
+      "correctActions": 5,
+      "medianAssessmentMs": 2.1739999999990687,
+      "p90EndToEndMs": 22.94154200000048
+    },
+    {
+      "mode": "ai-orchestration",
+      "cases": 5,
+      "complete": 5,
+      "correctActions": 5,
+      "medianAssessmentMs": 9790.694,
+      "p90EndToEndMs": 12156.478667
+    }
+  ],
+  "rows": [
+    {
+      "caseId": "ordinary",
+      "split": "development",
+      "mode": "deterministic",
+      "synthetic": true,
+      "humanApproval": false,
+      "comparison": {
+        "status": "ready",
+        "simulated": true,
+        "candidates": [
+          {
+            "id": "none",
+            "label": "No additional hold",
+            "holdSeconds": 0,
+            "feasible": true,
+            "modeledPassengerMinutes": 400,
+            "changePassengerMinutes": 0,
+            "onboardExtraPassengerMinutes": 0,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 600,
+                "backSeconds": 600,
+                "delaySeconds": 0
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 600,
+                "backSeconds": 600,
+                "delaySeconds": 0
+              }
+            ]
+          },
+          {
+            "id": "target-headway",
+            "label": "Target-headway baseline",
+            "holdSeconds": 0,
+            "feasible": true,
+            "modeledPassengerMinutes": 400,
+            "changePassengerMinutes": 0,
+            "onboardExtraPassengerMinutes": 0,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 600,
+                "backSeconds": 600,
+                "delaySeconds": 0
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 600,
+                "backSeconds": 600,
+                "delaySeconds": 0
+              }
+            ]
+          },
+          {
+            "id": "minimum-passenger-time",
+            "label": "Passenger-time comparison",
+            "holdSeconds": 0,
+            "feasible": true,
+            "modeledPassengerMinutes": 400,
+            "changePassengerMinutes": 0,
+            "onboardExtraPassengerMinutes": 0,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 600,
+                "backSeconds": 600,
+                "delaySeconds": 0
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 600,
+                "backSeconds": 600,
+                "delaySeconds": 0
+              }
+            ]
+          }
+        ],
+        "selectedId": "none",
+        "maximumHoldSeconds": 180,
+        "procedureRefs": [
+          {
+            "id": "e5b787f7-38cb-4222-886d-3355a33b919b",
+            "version": 1,
+            "documentId": "SYN-HOLD",
+            "revision": "1",
+            "section": "2.1 / page 1"
+          }
+        ],
+        "assumptions": [
+          "12 passengers on board (synthetic input).",
+          "2 arriving passengers/minute at D (synthetic input).",
+          "2 arriving passengers/minute at E (synthetic input)."
+        ],
+        "limits": [
+          "Simulated passenger time over two headways at the listed downstream stops; not whole-route or observed benefit.",
+          "Holding shifts only the selected bus. Fixed running times, no overtaking, unlimited boarding capacity, no new riders boarding during the control-point hold.",
+          "No causal incident explanation, recovery forecast, alternative route or accessible journey is established."
+        ],
+        "authority": "Duty supervisor (synthetic role)"
+      },
+      "correctEvidenceStatus": true,
+      "procedureStatus": "applicable",
+      "correctAction": true,
+      "assessmentMs": 4.054500000000004,
+      "singleReceipt": true,
+      "withdrawnAfterChange": true,
+      "staleDeliveryRefused": true,
+      "complete": true,
+      "endToEndMs": 20.812375000000003
+    },
+    {
+      "caseId": "ordinary",
+      "split": "development",
+      "mode": "ai-orchestration",
+      "synthetic": true,
+      "humanApproval": false,
+      "comparison": {
+        "status": "ready",
+        "simulated": true,
+        "candidates": [
+          {
+            "id": "none",
+            "label": "No additional hold",
+            "holdSeconds": 0,
+            "feasible": true,
+            "modeledPassengerMinutes": 400,
+            "changePassengerMinutes": 0,
+            "onboardExtraPassengerMinutes": 0,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 600,
+                "backSeconds": 600,
+                "delaySeconds": 0
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 600,
+                "backSeconds": 600,
+                "delaySeconds": 0
+              }
+            ]
+          },
+          {
+            "id": "target-headway",
+            "label": "Target-headway baseline",
+            "holdSeconds": 0,
+            "feasible": true,
+            "modeledPassengerMinutes": 400,
+            "changePassengerMinutes": 0,
+            "onboardExtraPassengerMinutes": 0,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 600,
+                "backSeconds": 600,
+                "delaySeconds": 0
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 600,
+                "backSeconds": 600,
+                "delaySeconds": 0
+              }
+            ]
+          },
+          {
+            "id": "minimum-passenger-time",
+            "label": "Passenger-time comparison",
+            "holdSeconds": 0,
+            "feasible": true,
+            "modeledPassengerMinutes": 400,
+            "changePassengerMinutes": 0,
+            "onboardExtraPassengerMinutes": 0,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 600,
+                "backSeconds": 600,
+                "delaySeconds": 0
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 600,
+                "backSeconds": 600,
+                "delaySeconds": 0
+              }
+            ]
+          }
+        ],
+        "selectedId": "none",
+        "maximumHoldSeconds": 180,
+        "procedureRefs": [
+          {
+            "id": "63f158e1-c0f3-41d7-94e6-349a0f9bc627",
+            "version": 1,
+            "documentId": "SYN-HOLD",
+            "revision": "1",
+            "section": "2.1 / page 1"
+          }
+        ],
+        "assumptions": [
+          "12 passengers on board (synthetic input).",
+          "2 arriving passengers/minute at D (synthetic input).",
+          "2 arriving passengers/minute at E (synthetic input)."
+        ],
+        "limits": [
+          "Simulated passenger time over two headways at the listed downstream stops; not whole-route or observed benefit.",
+          "Holding shifts only the selected bus. Fixed running times, no overtaking, unlimited boarding capacity, no new riders boarding during the control-point hold.",
+          "No causal incident explanation, recovery forecast, alternative route or accessible journey is established."
+        ],
+        "authority": "Duty supervisor (synthetic role)"
+      },
+      "correctEvidenceStatus": true,
+      "procedureStatus": "applicable",
+      "ai": {
+        "status": "complete",
+        "candidateId": "none",
+        "evidenceIds": [
+          "procedure",
+          "actions"
+        ],
+        "candidate": {
+          "id": "none",
+          "label": "No additional hold",
+          "holdSeconds": 0,
+          "feasible": true,
+          "modeledPassengerMinutes": 400,
+          "changePassengerMinutes": 0,
+          "onboardExtraPassengerMinutes": 0,
+          "downstream": [
+            {
+              "stopId": "D",
+              "stopName": "Market",
+              "frontSeconds": 600,
+              "backSeconds": 600,
+              "delaySeconds": 0
+            },
+            {
+              "stopId": "E",
+              "stopName": "Library",
+              "frontSeconds": 600,
+              "backSeconds": 600,
+              "delaySeconds": 0
+            }
+          ]
+        },
+        "trace": [
+          {
+            "id": "procedure",
+            "result": {
+              "status": "applicable",
+              "records": [
+                {
+                  "id": "63f158e1-c0f3-41d7-94e6-349a0f9bc627",
+                  "kind": "knowledge",
+                  "version": 1,
+                  "updatedAt": "2026-09-14T16:00:00.000Z",
+                  "title": "Synthetic River control point: holding",
+                  "type": "sop",
+                  "status": "approved",
+                  "author": "fixture-author",
+                  "approvedBy": "synthetic-reviewer",
+                  "visibility": "public",
+                  "source": "holding-v1/procedures.json · simulated policy, not agency approval",
+                  "routeIds": [
+                    "R"
+                  ],
+                  "stopIds": [
+                    "C"
+                  ],
+                  "validUntil": "2026-09-15T16:00:00Z",
+                  "body": "At River control point, a supervisor may hold a stationary bus for up to 180 seconds after confirming the berth is clear and that no boarding access requirement prevents holding. Maintain at least 120 seconds before the following bus at every modeled stop. Do not add holding if any modeled downstream departure exceeds 600 seconds late. Escalate conflicting instructions to the duty supervisor.",
+                  "procedure": {
+                    "documentId": "SYN-HOLD",
+                    "revision": "1",
+                    "section": "2.1 / page 1",
+                    "effectiveFrom": "2026-09-13T16:00:00Z",
+                    "authority": "Duty supervisor (synthetic role)",
+                    "prerequisites": [
+                      "berth-clear",
+                      "boarding-complete"
+                    ],
+                    "supersedes": [],
+                    "holding": {
+                      "maxHoldSeconds": 180,
+                      "minFollowingHeadwaySeconds": 120,
+                      "maxDownstreamDelaySeconds": 600
+                    }
+                  },
+                  "appliesBecause": "Approved, effective at this replay time, covers this route and control point; all recorded prerequisites are confirmed."
+                }
+              ],
+              "rejected": [
+                {
+                  "id": "0ce32eb9-00a0-4435-9927-17c995b6d796",
+                  "reason": "outside-effective-period"
+                },
+                {
+                  "id": "7a09533b-19f4-4e00-b3c8-15a54ba416bb",
+                  "reason": "outside-control-scope"
+                }
+              ],
+              "conflictIds": [],
+              "note": "Text relevance cannot override scope, effective period or approval."
+            }
+          },
+          {
+            "id": "actions",
+            "result": {
+              "status": "ready",
+              "simulated": true,
+              "candidates": [
+                {
+                  "id": "none",
+                  "label": "No additional hold",
+                  "holdSeconds": 0,
+                  "feasible": true,
+                  "modeledPassengerMinutes": 400,
+                  "changePassengerMinutes": 0,
+                  "onboardExtraPassengerMinutes": 0,
+                  "downstream": [
+                    {
+                      "stopId": "D",
+                      "stopName": "Market",
+                      "frontSeconds": 600,
+                      "backSeconds": 600,
+                      "delaySeconds": 0
+                    },
+                    {
+                      "stopId": "E",
+                      "stopName": "Library",
+                      "frontSeconds": 600,
+                      "backSeconds": 600,
+                      "delaySeconds": 0
+                    }
+                  ]
+                },
+                {
+                  "id": "target-headway",
+                  "label": "Target-headway baseline",
+                  "holdSeconds": 0,
+                  "feasible": true,
+                  "modeledPassengerMinutes": 400,
+                  "changePassengerMinutes": 0,
+                  "onboardExtraPassengerMinutes": 0,
+                  "downstream": [
+                    {
+                      "stopId": "D",
+                      "stopName": "Market",
+                      "frontSeconds": 600,
+                      "backSeconds": 600,
+                      "delaySeconds": 0
+                    },
+                    {
+                      "stopId": "E",
+                      "stopName": "Library",
+                      "frontSeconds": 600,
+                      "backSeconds": 600,
+                      "delaySeconds": 0
+                    }
+                  ]
+                },
+                {
+                  "id": "minimum-passenger-time",
+                  "label": "Passenger-time comparison",
+                  "holdSeconds": 0,
+                  "feasible": true,
+                  "modeledPassengerMinutes": 400,
+                  "changePassengerMinutes": 0,
+                  "onboardExtraPassengerMinutes": 0,
+                  "downstream": [
+                    {
+                      "stopId": "D",
+                      "stopName": "Market",
+                      "frontSeconds": 600,
+                      "backSeconds": 600,
+                      "delaySeconds": 0
+                    },
+                    {
+                      "stopId": "E",
+                      "stopName": "Library",
+                      "frontSeconds": 600,
+                      "backSeconds": 600,
+                      "delaySeconds": 0
+                    }
+                  ]
+                }
+              ],
+              "selectedId": "none",
+              "maximumHoldSeconds": 180,
+              "procedureRefs": [
+                {
+                  "id": "63f158e1-c0f3-41d7-94e6-349a0f9bc627",
+                  "version": 1,
+                  "documentId": "SYN-HOLD",
+                  "revision": "1",
+                  "section": "2.1 / page 1"
+                }
+              ],
+              "assumptions": [
+                "12 passengers on board (synthetic input).",
+                "2 arriving passengers/minute at D (synthetic input).",
+                "2 arriving passengers/minute at E (synthetic input)."
+              ],
+              "limits": [
+                "Simulated passenger time over two headways at the listed downstream stops; not whole-route or observed benefit.",
+                "Holding shifts only the selected bus. Fixed running times, no overtaking, unlimited boarding capacity, no new riders boarding during the control-point hold.",
+                "No causal incident explanation, recovery forecast, alternative route or accessible journey is established."
+              ],
+              "authority": "Duty supervisor (synthetic role)"
+            }
+          }
+        ],
+        "latencyMs": 9786,
+        "usage": {
+          "promptTokens": 2276,
+          "outputTokens": 37
+        },
+        "model": "qwen3.5:4b",
+        "privacy": "Only this public synthetic case is sent to the configured model endpoint. No web tools, staff notes or private SOPs are supplied. Endpoint hosting and forwarding remain unverified."
+      },
+      "correctAction": true,
+      "assessmentMs": 9790.694,
+      "singleReceipt": true,
+      "withdrawnAfterChange": true,
+      "staleDeliveryRefused": true,
+      "complete": true,
+      "endToEndMs": 9805.247875
+    },
+    {
+      "caseId": "disruption",
+      "split": "development",
+      "mode": "deterministic",
+      "synthetic": true,
+      "humanApproval": false,
+      "comparison": {
+        "status": "ready",
+        "simulated": true,
+        "candidates": [
+          {
+            "id": "none",
+            "label": "No additional hold",
+            "holdSeconds": 0,
+            "feasible": true,
+            "modeledPassengerMinutes": 596,
+            "changePassengerMinutes": 0,
+            "onboardExtraPassengerMinutes": 0,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 180,
+                "backSeconds": 1020,
+                "delaySeconds": 0
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 180,
+                "backSeconds": 1020,
+                "delaySeconds": 0
+              }
+            ]
+          },
+          {
+            "id": "target-headway",
+            "label": "Target-headway baseline",
+            "holdSeconds": 180,
+            "feasible": true,
+            "modeledPassengerMinutes": 584,
+            "changePassengerMinutes": -12,
+            "onboardExtraPassengerMinutes": 120,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 360,
+                "backSeconds": 840,
+                "delaySeconds": 180
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 360,
+                "backSeconds": 840,
+                "delaySeconds": 180
+              }
+            ]
+          },
+          {
+            "id": "minimum-passenger-time",
+            "label": "Passenger-time comparison",
+            "holdSeconds": 120,
+            "feasible": true,
+            "modeledPassengerMinutes": 580,
+            "changePassengerMinutes": -16,
+            "onboardExtraPassengerMinutes": 80,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 300,
+                "backSeconds": 900,
+                "delaySeconds": 120
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 300,
+                "backSeconds": 900,
+                "delaySeconds": 120
+              }
+            ]
+          }
+        ],
+        "selectedId": "minimum-passenger-time",
+        "maximumHoldSeconds": 180,
+        "procedureRefs": [
+          {
+            "id": "7847480a-20c5-42b5-a401-827138b54059",
+            "version": 1,
+            "documentId": "SYN-HOLD",
+            "revision": "1",
+            "section": "2.1 / page 1"
+          }
+        ],
+        "assumptions": [
+          "40 passengers on board (synthetic input).",
+          "2 arriving passengers/minute at D (synthetic input).",
+          "2 arriving passengers/minute at E (synthetic input)."
+        ],
+        "limits": [
+          "Simulated passenger time over two headways at the listed downstream stops; not whole-route or observed benefit.",
+          "Holding shifts only the selected bus. Fixed running times, no overtaking, unlimited boarding capacity, no new riders boarding during the control-point hold.",
+          "No causal incident explanation, recovery forecast, alternative route or accessible journey is established."
+        ],
+        "authority": "Duty supervisor (synthetic role)"
+      },
+      "correctEvidenceStatus": true,
+      "procedureStatus": "applicable",
+      "correctAction": true,
+      "assessmentMs": 1.5010000000002037,
+      "singleReceipt": true,
+      "withdrawnAfterChange": true,
+      "staleDeliveryRefused": true,
+      "complete": true,
+      "endToEndMs": 13.828040999998848
+    },
+    {
+      "caseId": "disruption",
+      "split": "development",
+      "mode": "ai-orchestration",
+      "synthetic": true,
+      "humanApproval": false,
+      "comparison": {
+        "status": "ready",
+        "simulated": true,
+        "candidates": [
+          {
+            "id": "none",
+            "label": "No additional hold",
+            "holdSeconds": 0,
+            "feasible": true,
+            "modeledPassengerMinutes": 596,
+            "changePassengerMinutes": 0,
+            "onboardExtraPassengerMinutes": 0,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 180,
+                "backSeconds": 1020,
+                "delaySeconds": 0
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 180,
+                "backSeconds": 1020,
+                "delaySeconds": 0
+              }
+            ]
+          },
+          {
+            "id": "target-headway",
+            "label": "Target-headway baseline",
+            "holdSeconds": 180,
+            "feasible": true,
+            "modeledPassengerMinutes": 584,
+            "changePassengerMinutes": -12,
+            "onboardExtraPassengerMinutes": 120,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 360,
+                "backSeconds": 840,
+                "delaySeconds": 180
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 360,
+                "backSeconds": 840,
+                "delaySeconds": 180
+              }
+            ]
+          },
+          {
+            "id": "minimum-passenger-time",
+            "label": "Passenger-time comparison",
+            "holdSeconds": 120,
+            "feasible": true,
+            "modeledPassengerMinutes": 580,
+            "changePassengerMinutes": -16,
+            "onboardExtraPassengerMinutes": 80,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 300,
+                "backSeconds": 900,
+                "delaySeconds": 120
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 300,
+                "backSeconds": 900,
+                "delaySeconds": 120
+              }
+            ]
+          }
+        ],
+        "selectedId": "minimum-passenger-time",
+        "maximumHoldSeconds": 180,
+        "procedureRefs": [
+          {
+            "id": "1d5ba6d2-22a7-44a6-8f74-e037903f1f80",
+            "version": 1,
+            "documentId": "SYN-HOLD",
+            "revision": "1",
+            "section": "2.1 / page 1"
+          }
+        ],
+        "assumptions": [
+          "40 passengers on board (synthetic input).",
+          "2 arriving passengers/minute at D (synthetic input).",
+          "2 arriving passengers/minute at E (synthetic input)."
+        ],
+        "limits": [
+          "Simulated passenger time over two headways at the listed downstream stops; not whole-route or observed benefit.",
+          "Holding shifts only the selected bus. Fixed running times, no overtaking, unlimited boarding capacity, no new riders boarding during the control-point hold.",
+          "No causal incident explanation, recovery forecast, alternative route or accessible journey is established."
+        ],
+        "authority": "Duty supervisor (synthetic role)"
+      },
+      "correctEvidenceStatus": true,
+      "procedureStatus": "applicable",
+      "ai": {
+        "status": "complete",
+        "candidateId": "minimum-passenger-time",
+        "evidenceIds": [
+          "procedure",
+          "actions"
+        ],
+        "candidate": {
+          "id": "minimum-passenger-time",
+          "label": "Passenger-time comparison",
+          "holdSeconds": 120,
+          "feasible": true,
+          "modeledPassengerMinutes": 580,
+          "changePassengerMinutes": -16,
+          "onboardExtraPassengerMinutes": 80,
+          "downstream": [
+            {
+              "stopId": "D",
+              "stopName": "Market",
+              "frontSeconds": 300,
+              "backSeconds": 900,
+              "delaySeconds": 120
+            },
+            {
+              "stopId": "E",
+              "stopName": "Library",
+              "frontSeconds": 300,
+              "backSeconds": 900,
+              "delaySeconds": 120
+            }
+          ]
+        },
+        "trace": [
+          {
+            "id": "procedure",
+            "result": {
+              "status": "applicable",
+              "records": [
+                {
+                  "id": "1d5ba6d2-22a7-44a6-8f74-e037903f1f80",
+                  "kind": "knowledge",
+                  "version": 1,
+                  "updatedAt": "2026-09-14T16:00:00.000Z",
+                  "title": "Synthetic River control point: holding",
+                  "type": "sop",
+                  "status": "approved",
+                  "author": "fixture-author",
+                  "approvedBy": "synthetic-reviewer",
+                  "visibility": "public",
+                  "source": "holding-v1/procedures.json · simulated policy, not agency approval",
+                  "routeIds": [
+                    "R"
+                  ],
+                  "stopIds": [
+                    "C"
+                  ],
+                  "validUntil": "2026-09-15T16:00:00Z",
+                  "body": "At River control point, a supervisor may hold a stationary bus for up to 180 seconds after confirming the berth is clear and that no boarding access requirement prevents holding. Maintain at least 120 seconds before the following bus at every modeled stop. Do not add holding if any modeled downstream departure exceeds 600 seconds late. Escalate conflicting instructions to the duty supervisor.",
+                  "procedure": {
+                    "documentId": "SYN-HOLD",
+                    "revision": "1",
+                    "section": "2.1 / page 1",
+                    "effectiveFrom": "2026-09-13T16:00:00Z",
+                    "authority": "Duty supervisor (synthetic role)",
+                    "prerequisites": [
+                      "berth-clear",
+                      "boarding-complete"
+                    ],
+                    "supersedes": [],
+                    "holding": {
+                      "maxHoldSeconds": 180,
+                      "minFollowingHeadwaySeconds": 120,
+                      "maxDownstreamDelaySeconds": 600
+                    }
+                  },
+                  "appliesBecause": "Approved, effective at this replay time, covers this route and control point; all recorded prerequisites are confirmed."
+                }
+              ],
+              "rejected": [
+                {
+                  "id": "783e1da5-c9ff-468d-bdde-b72be6e05e9f",
+                  "reason": "outside-effective-period"
+                },
+                {
+                  "id": "dd23edf2-679b-4b58-89f0-b1980d255c17",
+                  "reason": "outside-control-scope"
+                }
+              ],
+              "conflictIds": [],
+              "note": "Text relevance cannot override scope, effective period or approval."
+            }
+          },
+          {
+            "id": "actions",
+            "result": {
+              "status": "ready",
+              "simulated": true,
+              "candidates": [
+                {
+                  "id": "none",
+                  "label": "No additional hold",
+                  "holdSeconds": 0,
+                  "feasible": true,
+                  "modeledPassengerMinutes": 596,
+                  "changePassengerMinutes": 0,
+                  "onboardExtraPassengerMinutes": 0,
+                  "downstream": [
+                    {
+                      "stopId": "D",
+                      "stopName": "Market",
+                      "frontSeconds": 180,
+                      "backSeconds": 1020,
+                      "delaySeconds": 0
+                    },
+                    {
+                      "stopId": "E",
+                      "stopName": "Library",
+                      "frontSeconds": 180,
+                      "backSeconds": 1020,
+                      "delaySeconds": 0
+                    }
+                  ]
+                },
+                {
+                  "id": "target-headway",
+                  "label": "Target-headway baseline",
+                  "holdSeconds": 180,
+                  "feasible": true,
+                  "modeledPassengerMinutes": 584,
+                  "changePassengerMinutes": -12,
+                  "onboardExtraPassengerMinutes": 120,
+                  "downstream": [
+                    {
+                      "stopId": "D",
+                      "stopName": "Market",
+                      "frontSeconds": 360,
+                      "backSeconds": 840,
+                      "delaySeconds": 180
+                    },
+                    {
+                      "stopId": "E",
+                      "stopName": "Library",
+                      "frontSeconds": 360,
+                      "backSeconds": 840,
+                      "delaySeconds": 180
+                    }
+                  ]
+                },
+                {
+                  "id": "minimum-passenger-time",
+                  "label": "Passenger-time comparison",
+                  "holdSeconds": 120,
+                  "feasible": true,
+                  "modeledPassengerMinutes": 580,
+                  "changePassengerMinutes": -16,
+                  "onboardExtraPassengerMinutes": 80,
+                  "downstream": [
+                    {
+                      "stopId": "D",
+                      "stopName": "Market",
+                      "frontSeconds": 300,
+                      "backSeconds": 900,
+                      "delaySeconds": 120
+                    },
+                    {
+                      "stopId": "E",
+                      "stopName": "Library",
+                      "frontSeconds": 300,
+                      "backSeconds": 900,
+                      "delaySeconds": 120
+                    }
+                  ]
+                }
+              ],
+              "selectedId": "minimum-passenger-time",
+              "maximumHoldSeconds": 180,
+              "procedureRefs": [
+                {
+                  "id": "1d5ba6d2-22a7-44a6-8f74-e037903f1f80",
+                  "version": 1,
+                  "documentId": "SYN-HOLD",
+                  "revision": "1",
+                  "section": "2.1 / page 1"
+                }
+              ],
+              "assumptions": [
+                "40 passengers on board (synthetic input).",
+                "2 arriving passengers/minute at D (synthetic input).",
+                "2 arriving passengers/minute at E (synthetic input)."
+              ],
+              "limits": [
+                "Simulated passenger time over two headways at the listed downstream stops; not whole-route or observed benefit.",
+                "Holding shifts only the selected bus. Fixed running times, no overtaking, unlimited boarding capacity, no new riders boarding during the control-point hold.",
+                "No causal incident explanation, recovery forecast, alternative route or accessible journey is established."
+              ],
+              "authority": "Duty supervisor (synthetic role)"
+            }
+          }
+        ],
+        "latencyMs": 9266,
+        "usage": {
+          "promptTokens": 2302,
+          "outputTokens": 40
+        },
+        "model": "qwen3.5:4b",
+        "privacy": "Only this public synthetic case is sent to the configured model endpoint. No web tools, staff notes or private SOPs are supplied. Endpoint hosting and forwarding remain unverified."
+      },
+      "correctAction": true,
+      "assessmentMs": 9270.442167,
+      "singleReceipt": true,
+      "withdrawnAfterChange": true,
+      "staleDeliveryRefused": true,
+      "complete": true,
+      "endToEndMs": 9301.844124999998
+    },
+    {
+      "caseId": "stale",
+      "split": "development",
+      "mode": "deterministic",
+      "synthetic": true,
+      "humanApproval": false,
+      "comparison": {
+        "status": "unavailable",
+        "reason": "vehicle_positions is missing, future-dated or stale. trip_updates is missing, future-dated or stale. Vehicle position is missing, future-dated or stale. Trip A is missing, future-dated or stale. Trip B is missing, future-dated or stale. Trip F is missing, future-dated or stale.",
+        "candidates": [],
+        "selectedId": null,
+        "simulated": true
+      },
+      "correctEvidenceStatus": true,
+      "procedureStatus": "applicable",
+      "correctAction": true,
+      "assessmentMs": 1.03966699999728,
+      "infeasiblePreparationRefused": true,
+      "complete": true,
+      "endToEndMs": 1.4266669999997248
+    },
+    {
+      "caseId": "stale",
+      "split": "development",
+      "mode": "ai-orchestration",
+      "synthetic": true,
+      "humanApproval": false,
+      "comparison": {
+        "status": "unavailable",
+        "reason": "vehicle_positions is missing, future-dated or stale. trip_updates is missing, future-dated or stale. Vehicle position is missing, future-dated or stale. Trip A is missing, future-dated or stale. Trip B is missing, future-dated or stale. Trip F is missing, future-dated or stale.",
+        "candidates": [],
+        "selectedId": null,
+        "simulated": true
+      },
+      "correctEvidenceStatus": true,
+      "procedureStatus": "applicable",
+      "ai": {
+        "status": "complete",
+        "candidateId": "escalate",
+        "evidenceIds": [
+          "actions",
+          "procedure"
+        ],
+        "candidate": null,
+        "trace": [
+          {
+            "id": "procedure",
+            "result": {
+              "status": "applicable",
+              "records": [
+                {
+                  "id": "c0ab8281-5b00-4328-9c86-4a5ab3fc2be2",
+                  "kind": "knowledge",
+                  "version": 1,
+                  "updatedAt": "2026-09-14T16:00:00.000Z",
+                  "title": "Synthetic River control point: holding",
+                  "type": "sop",
+                  "status": "approved",
+                  "author": "fixture-author",
+                  "approvedBy": "synthetic-reviewer",
+                  "visibility": "public",
+                  "source": "holding-v1/procedures.json · simulated policy, not agency approval",
+                  "routeIds": [
+                    "R"
+                  ],
+                  "stopIds": [
+                    "C"
+                  ],
+                  "validUntil": "2026-09-15T16:00:00Z",
+                  "body": "At River control point, a supervisor may hold a stationary bus for up to 180 seconds after confirming the berth is clear and that no boarding access requirement prevents holding. Maintain at least 120 seconds before the following bus at every modeled stop. Do not add holding if any modeled downstream departure exceeds 600 seconds late. Escalate conflicting instructions to the duty supervisor.",
+                  "procedure": {
+                    "documentId": "SYN-HOLD",
+                    "revision": "1",
+                    "section": "2.1 / page 1",
+                    "effectiveFrom": "2026-09-13T16:00:00Z",
+                    "authority": "Duty supervisor (synthetic role)",
+                    "prerequisites": [
+                      "berth-clear",
+                      "boarding-complete"
+                    ],
+                    "supersedes": [],
+                    "holding": {
+                      "maxHoldSeconds": 180,
+                      "minFollowingHeadwaySeconds": 120,
+                      "maxDownstreamDelaySeconds": 600
+                    }
+                  },
+                  "appliesBecause": "Approved, effective at this replay time, covers this route and control point; all recorded prerequisites are confirmed."
+                }
+              ],
+              "rejected": [],
+              "conflictIds": [],
+              "note": "Text relevance cannot override scope, effective period or approval."
+            }
+          },
+          {
+            "id": "actions",
+            "result": {
+              "status": "unavailable",
+              "reason": "vehicle_positions is missing, future-dated or stale. trip_updates is missing, future-dated or stale. Vehicle position is missing, future-dated or stale. Trip A is missing, future-dated or stale. Trip B is missing, future-dated or stale. Trip F is missing, future-dated or stale.",
+              "candidates": [],
+              "selectedId": null,
+              "simulated": true
+            }
+          }
+        ],
+        "latencyMs": 9269,
+        "usage": {
+          "promptTokens": 1854,
+          "outputTokens": 38
+        },
+        "model": "qwen3.5:4b",
+        "privacy": "Only this public synthetic case is sent to the configured model endpoint. No web tools, staff notes or private SOPs are supplied. Endpoint hosting and forwarding remain unverified."
+      },
+      "correctAction": true,
+      "assessmentMs": 9272.665416,
+      "infeasiblePreparationRefused": true,
+      "complete": true,
+      "endToEndMs": 9273.194958
+    },
+    {
+      "caseId": "conflict",
+      "split": "held-out",
+      "mode": "deterministic",
+      "synthetic": true,
+      "humanApproval": false,
+      "comparison": {
+        "status": "unavailable",
+        "reason": "Applicable procedures disagree. Escalate to the named authority before selecting a hold.",
+        "candidates": [],
+        "selectedId": null,
+        "simulated": true
+      },
+      "correctEvidenceStatus": true,
+      "procedureStatus": "conflict",
+      "correctAction": true,
+      "assessmentMs": 2.1739999999990687,
+      "infeasiblePreparationRefused": true,
+      "complete": true,
+      "endToEndMs": 2.6749159999999392
+    },
+    {
+      "caseId": "conflict",
+      "split": "held-out",
+      "mode": "ai-orchestration",
+      "synthetic": true,
+      "humanApproval": false,
+      "comparison": {
+        "status": "unavailable",
+        "reason": "Applicable procedures disagree. Escalate to the named authority before selecting a hold.",
+        "candidates": [],
+        "selectedId": null,
+        "simulated": true
+      },
+      "correctEvidenceStatus": true,
+      "procedureStatus": "conflict",
+      "ai": {
+        "status": "complete",
+        "candidateId": "escalate",
+        "evidenceIds": [
+          "procedure",
+          "actions"
+        ],
+        "candidate": null,
+        "trace": [
+          {
+            "id": "procedure",
+            "result": {
+              "status": "conflict",
+              "records": [
+                {
+                  "id": "cade97db-38f9-42a6-b6f0-14f72595ab01",
+                  "kind": "knowledge",
+                  "version": 1,
+                  "updatedAt": "2026-09-14T16:00:00.000Z",
+                  "title": "Synthetic River control point: holding",
+                  "type": "sop",
+                  "status": "approved",
+                  "author": "fixture-author",
+                  "approvedBy": "synthetic-reviewer",
+                  "visibility": "public",
+                  "source": "holding-v1/procedures.json · simulated policy, not agency approval",
+                  "routeIds": [
+                    "R"
+                  ],
+                  "stopIds": [
+                    "C"
+                  ],
+                  "validUntil": "2026-09-15T16:00:00Z",
+                  "body": "At River control point, a supervisor may hold a stationary bus for up to 180 seconds after confirming the berth is clear and that no boarding access requirement prevents holding. Maintain at least 120 seconds before the following bus at every modeled stop. Do not add holding if any modeled downstream departure exceeds 600 seconds late. Escalate conflicting instructions to the duty supervisor.",
+                  "procedure": {
+                    "documentId": "SYN-HOLD",
+                    "revision": "1",
+                    "section": "2.1 / page 1",
+                    "effectiveFrom": "2026-09-13T16:00:00Z",
+                    "authority": "Duty supervisor (synthetic role)",
+                    "prerequisites": [
+                      "berth-clear",
+                      "boarding-complete"
+                    ],
+                    "supersedes": [],
+                    "holding": {
+                      "maxHoldSeconds": 180,
+                      "minFollowingHeadwaySeconds": 120,
+                      "maxDownstreamDelaySeconds": 600
+                    }
+                  },
+                  "appliesBecause": "Approved, effective at this replay time, covers this route and control point; all recorded prerequisites are confirmed."
+                },
+                {
+                  "id": "55d7f497-3cfe-44d6-b4c0-0de820cdbb6b",
+                  "kind": "knowledge",
+                  "version": 1,
+                  "updatedAt": "2026-09-14T16:00:00.000Z",
+                  "title": "Conflicting synthetic holding restriction",
+                  "type": "sop",
+                  "status": "approved",
+                  "author": "fixture-author",
+                  "approvedBy": "synthetic-reviewer",
+                  "visibility": "public",
+                  "source": "holding-v1/procedures.json · simulated policy, not agency approval",
+                  "routeIds": [
+                    "R"
+                  ],
+                  "stopIds": [
+                    "C"
+                  ],
+                  "validUntil": "2026-09-15T16:00:00Z",
+                  "body": "At River control point, a supervisor may hold a stationary bus for up to 180 seconds after confirming the berth is clear and that no boarding access requirement prevents holding. Maintain at least 120 seconds before the following bus at every modeled stop. Do not add holding if any modeled downstream departure exceeds 600 seconds late. Escalate conflicting instructions to the duty supervisor.",
+                  "procedure": {
+                    "documentId": "SYN-RESTRICTION",
+                    "revision": "1",
+                    "section": "2.1 / page 1",
+                    "effectiveFrom": "2026-09-13T16:00:00Z",
+                    "authority": "Duty supervisor (synthetic role)",
+                    "prerequisites": [
+                      "berth-clear",
+                      "boarding-complete"
+                    ],
+                    "supersedes": [],
+                    "holding": {
+                      "maxHoldSeconds": 0,
+                      "minFollowingHeadwaySeconds": 120,
+                      "maxDownstreamDelaySeconds": 600
+                    }
+                  },
+                  "appliesBecause": "Approved, effective at this replay time, covers this route and control point; all recorded prerequisites are confirmed."
+                }
+              ],
+              "rejected": [],
+              "conflictIds": [
+                "cade97db-38f9-42a6-b6f0-14f72595ab01",
+                "55d7f497-3cfe-44d6-b4c0-0de820cdbb6b"
+              ],
+              "note": "Applicable procedures disagree. Escalate to the named authority before selecting a hold."
+            }
+          },
+          {
+            "id": "actions",
+            "result": {
+              "status": "unavailable",
+              "reason": "Applicable procedures disagree. Escalate to the named authority before selecting a hold.",
+              "candidates": [],
+              "selectedId": null,
+              "simulated": true
+            }
+          }
+        ],
+        "latencyMs": 12149,
+        "usage": {
+          "promptTokens": 2103,
+          "outputTokens": 41
+        },
+        "model": "qwen3.5:4b",
+        "privacy": "Only this public synthetic case is sent to the configured model endpoint. No web tools, staff notes or private SOPs are supplied. Endpoint hosting and forwarding remain unverified."
+      },
+      "correctAction": true,
+      "assessmentMs": 12155.789416999996,
+      "infeasiblePreparationRefused": true,
+      "complete": true,
+      "endToEndMs": 12156.478667
+    },
+    {
+      "caseId": "loaded-bus",
+      "split": "held-out",
+      "mode": "deterministic",
+      "synthetic": true,
+      "humanApproval": false,
+      "comparison": {
+        "status": "ready",
+        "simulated": true,
+        "candidates": [
+          {
+            "id": "none",
+            "label": "No additional hold",
+            "holdSeconds": 0,
+            "feasible": true,
+            "modeledPassengerMinutes": 500,
+            "changePassengerMinutes": 0,
+            "onboardExtraPassengerMinutes": 0,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 300,
+                "backSeconds": 900,
+                "delaySeconds": 0
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 300,
+                "backSeconds": 900,
+                "delaySeconds": 0
+              }
+            ]
+          },
+          {
+            "id": "target-headway",
+            "label": "Target-headway baseline",
+            "holdSeconds": 180,
+            "feasible": true,
+            "modeledPassengerMinutes": 716,
+            "changePassengerMinutes": 216,
+            "onboardExtraPassengerMinutes": 300,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 480,
+                "backSeconds": 720,
+                "delaySeconds": 180
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 480,
+                "backSeconds": 720,
+                "delaySeconds": 180
+              }
+            ]
+          },
+          {
+            "id": "minimum-passenger-time",
+            "label": "Passenger-time comparison",
+            "holdSeconds": 0,
+            "feasible": true,
+            "modeledPassengerMinutes": 500,
+            "changePassengerMinutes": 0,
+            "onboardExtraPassengerMinutes": 0,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 300,
+                "backSeconds": 900,
+                "delaySeconds": 0
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 300,
+                "backSeconds": 900,
+                "delaySeconds": 0
+              }
+            ]
+          }
+        ],
+        "selectedId": "none",
+        "maximumHoldSeconds": 180,
+        "procedureRefs": [
+          {
+            "id": "7fd16be0-4539-4731-933e-4d3a4c755e58",
+            "version": 1,
+            "documentId": "SYN-HOLD",
+            "revision": "1",
+            "section": "2.1 / page 1"
+          }
+        ],
+        "assumptions": [
+          "100 passengers on board (synthetic input).",
+          "2 arriving passengers/minute at D (synthetic input).",
+          "2 arriving passengers/minute at E (synthetic input)."
+        ],
+        "limits": [
+          "Simulated passenger time over two headways at the listed downstream stops; not whole-route or observed benefit.",
+          "Holding shifts only the selected bus. Fixed running times, no overtaking, unlimited boarding capacity, no new riders boarding during the control-point hold.",
+          "No causal incident explanation, recovery forecast, alternative route or accessible journey is established."
+        ],
+        "authority": "Duty supervisor (synthetic role)"
+      },
+      "correctEvidenceStatus": true,
+      "procedureStatus": "applicable",
+      "correctAction": true,
+      "assessmentMs": 2.1849590000056196,
+      "singleReceipt": true,
+      "withdrawnAfterChange": true,
+      "staleDeliveryRefused": true,
+      "complete": true,
+      "endToEndMs": 22.94154200000048
+    },
+    {
+      "caseId": "loaded-bus",
+      "split": "held-out",
+      "mode": "ai-orchestration",
+      "synthetic": true,
+      "humanApproval": false,
+      "comparison": {
+        "status": "ready",
+        "simulated": true,
+        "candidates": [
+          {
+            "id": "none",
+            "label": "No additional hold",
+            "holdSeconds": 0,
+            "feasible": true,
+            "modeledPassengerMinutes": 500,
+            "changePassengerMinutes": 0,
+            "onboardExtraPassengerMinutes": 0,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 300,
+                "backSeconds": 900,
+                "delaySeconds": 0
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 300,
+                "backSeconds": 900,
+                "delaySeconds": 0
+              }
+            ]
+          },
+          {
+            "id": "target-headway",
+            "label": "Target-headway baseline",
+            "holdSeconds": 180,
+            "feasible": true,
+            "modeledPassengerMinutes": 716,
+            "changePassengerMinutes": 216,
+            "onboardExtraPassengerMinutes": 300,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 480,
+                "backSeconds": 720,
+                "delaySeconds": 180
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 480,
+                "backSeconds": 720,
+                "delaySeconds": 180
+              }
+            ]
+          },
+          {
+            "id": "minimum-passenger-time",
+            "label": "Passenger-time comparison",
+            "holdSeconds": 0,
+            "feasible": true,
+            "modeledPassengerMinutes": 500,
+            "changePassengerMinutes": 0,
+            "onboardExtraPassengerMinutes": 0,
+            "downstream": [
+              {
+                "stopId": "D",
+                "stopName": "Market",
+                "frontSeconds": 300,
+                "backSeconds": 900,
+                "delaySeconds": 0
+              },
+              {
+                "stopId": "E",
+                "stopName": "Library",
+                "frontSeconds": 300,
+                "backSeconds": 900,
+                "delaySeconds": 0
+              }
+            ]
+          }
+        ],
+        "selectedId": "none",
+        "maximumHoldSeconds": 180,
+        "procedureRefs": [
+          {
+            "id": "442b0f04-a0d4-4320-a999-695ab50698ea",
+            "version": 1,
+            "documentId": "SYN-HOLD",
+            "revision": "1",
+            "section": "2.1 / page 1"
+          }
+        ],
+        "assumptions": [
+          "100 passengers on board (synthetic input).",
+          "2 arriving passengers/minute at D (synthetic input).",
+          "2 arriving passengers/minute at E (synthetic input)."
+        ],
+        "limits": [
+          "Simulated passenger time over two headways at the listed downstream stops; not whole-route or observed benefit.",
+          "Holding shifts only the selected bus. Fixed running times, no overtaking, unlimited boarding capacity, no new riders boarding during the control-point hold.",
+          "No causal incident explanation, recovery forecast, alternative route or accessible journey is established."
+        ],
+        "authority": "Duty supervisor (synthetic role)"
+      },
+      "correctEvidenceStatus": true,
+      "procedureStatus": "applicable",
+      "ai": {
+        "status": "complete",
+        "candidateId": "minimum-passenger-time",
+        "evidenceIds": [
+          "procedure",
+          "actions"
+        ],
+        "candidate": {
+          "id": "minimum-passenger-time",
+          "label": "Passenger-time comparison",
+          "holdSeconds": 0,
+          "feasible": true,
+          "modeledPassengerMinutes": 500,
+          "changePassengerMinutes": 0,
+          "onboardExtraPassengerMinutes": 0,
+          "downstream": [
+            {
+              "stopId": "D",
+              "stopName": "Market",
+              "frontSeconds": 300,
+              "backSeconds": 900,
+              "delaySeconds": 0
+            },
+            {
+              "stopId": "E",
+              "stopName": "Library",
+              "frontSeconds": 300,
+              "backSeconds": 900,
+              "delaySeconds": 0
+            }
+          ]
+        },
+        "trace": [
+          {
+            "id": "procedure",
+            "result": {
+              "status": "applicable",
+              "records": [
+                {
+                  "id": "442b0f04-a0d4-4320-a999-695ab50698ea",
+                  "kind": "knowledge",
+                  "version": 1,
+                  "updatedAt": "2026-09-14T16:00:00.000Z",
+                  "title": "Synthetic River control point: holding",
+                  "type": "sop",
+                  "status": "approved",
+                  "author": "fixture-author",
+                  "approvedBy": "synthetic-reviewer",
+                  "visibility": "public",
+                  "source": "holding-v1/procedures.json · simulated policy, not agency approval",
+                  "routeIds": [
+                    "R"
+                  ],
+                  "stopIds": [
+                    "C"
+                  ],
+                  "validUntil": "2026-09-15T16:00:00Z",
+                  "body": "At River control point, a supervisor may hold a stationary bus for up to 180 seconds after confirming the berth is clear and that no boarding access requirement prevents holding. Maintain at least 120 seconds before the following bus at every modeled stop. Do not add holding if any modeled downstream departure exceeds 600 seconds late. Escalate conflicting instructions to the duty supervisor.",
+                  "procedure": {
+                    "documentId": "SYN-HOLD",
+                    "revision": "1",
+                    "section": "2.1 / page 1",
+                    "effectiveFrom": "2026-09-13T16:00:00Z",
+                    "authority": "Duty supervisor (synthetic role)",
+                    "prerequisites": [
+                      "berth-clear",
+                      "boarding-complete"
+                    ],
+                    "supersedes": [],
+                    "holding": {
+                      "maxHoldSeconds": 180,
+                      "minFollowingHeadwaySeconds": 120,
+                      "maxDownstreamDelaySeconds": 600
+                    }
+                  },
+                  "appliesBecause": "Approved, effective at this replay time, covers this route and control point; all recorded prerequisites are confirmed."
+                }
+              ],
+              "rejected": [],
+              "conflictIds": [],
+              "note": "Text relevance cannot override scope, effective period or approval."
+            }
+          },
+          {
+            "id": "actions",
+            "result": {
+              "status": "ready",
+              "simulated": true,
+              "candidates": [
+                {
+                  "id": "none",
+                  "label": "No additional hold",
+                  "holdSeconds": 0,
+                  "feasible": true,
+                  "modeledPassengerMinutes": 500,
+                  "changePassengerMinutes": 0,
+                  "onboardExtraPassengerMinutes": 0,
+                  "downstream": [
+                    {
+                      "stopId": "D",
+                      "stopName": "Market",
+                      "frontSeconds": 300,
+                      "backSeconds": 900,
+                      "delaySeconds": 0
+                    },
+                    {
+                      "stopId": "E",
+                      "stopName": "Library",
+                      "frontSeconds": 300,
+                      "backSeconds": 900,
+                      "delaySeconds": 0
+                    }
+                  ]
+                },
+                {
+                  "id": "target-headway",
+                  "label": "Target-headway baseline",
+                  "holdSeconds": 180,
+                  "feasible": true,
+                  "modeledPassengerMinutes": 716,
+                  "changePassengerMinutes": 216,
+                  "onboardExtraPassengerMinutes": 300,
+                  "downstream": [
+                    {
+                      "stopId": "D",
+                      "stopName": "Market",
+                      "frontSeconds": 480,
+                      "backSeconds": 720,
+                      "delaySeconds": 180
+                    },
+                    {
+                      "stopId": "E",
+                      "stopName": "Library",
+                      "frontSeconds": 480,
+                      "backSeconds": 720,
+                      "delaySeconds": 180
+                    }
+                  ]
+                },
+                {
+                  "id": "minimum-passenger-time",
+                  "label": "Passenger-time comparison",
+                  "holdSeconds": 0,
+                  "feasible": true,
+                  "modeledPassengerMinutes": 500,
+                  "changePassengerMinutes": 0,
+                  "onboardExtraPassengerMinutes": 0,
+                  "downstream": [
+                    {
+                      "stopId": "D",
+                      "stopName": "Market",
+                      "frontSeconds": 300,
+                      "backSeconds": 900,
+                      "delaySeconds": 0
+                    },
+                    {
+                      "stopId": "E",
+                      "stopName": "Library",
+                      "frontSeconds": 300,
+                      "backSeconds": 900,
+                      "delaySeconds": 0
+                    }
+                  ]
+                }
+              ],
+              "selectedId": "none",
+              "maximumHoldSeconds": 180,
+              "procedureRefs": [
+                {
+                  "id": "442b0f04-a0d4-4320-a999-695ab50698ea",
+                  "version": 1,
+                  "documentId": "SYN-HOLD",
+                  "revision": "1",
+                  "section": "2.1 / page 1"
+                }
+              ],
+              "assumptions": [
+                "100 passengers on board (synthetic input).",
+                "2 arriving passengers/minute at D (synthetic input).",
+                "2 arriving passengers/minute at E (synthetic input)."
+              ],
+              "limits": [
+                "Simulated passenger time over two headways at the listed downstream stops; not whole-route or observed benefit.",
+                "Holding shifts only the selected bus. Fixed running times, no overtaking, unlimited boarding capacity, no new riders boarding during the control-point hold.",
+                "No causal incident explanation, recovery forecast, alternative route or accessible journey is established."
+              ],
+              "authority": "Duty supervisor (synthetic role)"
+            }
+          }
+        ],
+        "latencyMs": 11904,
+        "usage": {
+          "promptTokens": 2213,
+          "outputTokens": 40
+        },
+        "model": "qwen3.5:4b",
+        "privacy": "Only this public synthetic case is sent to the configured model endpoint. No web tools, staff notes or private SOPs are supplied. Endpoint hosting and forwarding remain unverified."
+      },
+      "correctAction": true,
+      "assessmentMs": 11909.701834,
+      "singleReceipt": true,
+      "withdrawnAfterChange": true,
+      "staleDeliveryRefused": true,
+      "complete": true,
+      "endToEndMs": 11930.081459
+    }
+  ]
+}
