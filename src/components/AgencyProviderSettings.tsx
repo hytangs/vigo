@@ -27,7 +27,12 @@ export function AgencyProviderSettings({ endpoint, provider, onChange }: { endpo
     setBusy(action); setError(''); setMessage('')
     try {
       const result = await apiJson<ProviderState & { models?: string[] }>(endpoint, { method: 'POST', signal: controller.signal, body: JSON.stringify({ action: `provider-${action}`, connection: { baseUrl, model, apiKey, reasoningEffort, protocol, contextTokens } }) })
-      if (action === 'models') { setModels(result.models || []); setMessage(result.models?.length ? `${result.models.length} ${result.models.length === 1 ? 'model' : 'models'} found. Choose one with function calling.` : 'No models were listed. You can enter a model name directly.') }
+      if (action === 'models') {
+        const available = result.models || []
+        setModels(available)
+        if (available.length === 1 && !model.trim()) setModel(available[0])
+        setMessage(available.length === 1 ? `Found ${available[0]}. Connect to test function calling.` : available.length ? `${available.length} models available in the Model field. Connect to test your selection.` : 'No models were listed. You can enter a model name directly.')
+      }
       else { setApiKey(''); onChange(); setMessage(action === 'connect' ? 'Connected. The model successfully called the test tool.' : 'Disconnected. The session key has been cleared.'); if (action === 'disconnect') { setModel(''); setBaseUrl(''); setModels([]) } }
     } catch (reason) { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Connection failed.') }
     finally { setBusy(''); abort.current = null }
