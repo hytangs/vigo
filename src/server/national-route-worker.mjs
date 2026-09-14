@@ -254,7 +254,7 @@ function compactWorkerResult(operation, result) {
   return result
 }
 
-async function prepareStreetStore(request) {
+async function prepareStreetStore(request, onProgress) {
   const streetStorePath = String(request?.streetStorePath ?? '').trim()
   if (!streetStorePath) {
     return {
@@ -269,6 +269,7 @@ async function prepareStreetStore(request) {
     prepareNationalOsmDriveStore,
     prepareNationalOsmNativeStore,
   } = await loadOsmModule()
+  onProgress?.({ phase: 'Opening walking street snapshot', detail: 'Loading the pedestrian routing network', modes: { walk: false, drive: false } })
   const prepared = prepareNationalOsmNativeStore(streetStorePath)
   if (!prepared.ready || !prepared.accelerated) {
     const error = new Error(
@@ -277,11 +278,11 @@ async function prepareStreetStore(request) {
     error.code = 'VIGO_STREET_ACCELERATOR_REQUIRED'
     throw error
   }
-  // Transit access, Reach, and Walk use the pedestrian kernel only. Preparing
-  // Boston's full driving kernel here added more than twelve seconds to a cold
-  // transit request even though no drive edge could participate in its answer.
-  // Keep the response shape stable and load Drive only for an explicit Drive
-  // preparation; street-route also prepares it immediately before a Drive query.
+  // Transit-only preparation needs pedestrian access. City warm-up explicitly
+  // loads both modes in the resident worker for later street queries.
+  if (request?.mode === 'drive' || request?.prepareDrive === true) {
+    onProgress?.({ phase: 'Opening driving street snapshot', detail: 'Walking ready · loading the directed driving network', modes: { walk: true, drive: false } })
+  }
   const drive = request?.mode === 'drive' || request?.prepareDrive === true
     ? prepareNationalOsmDriveStore(streetStorePath)
     : {
@@ -291,6 +292,9 @@ async function prepareStreetStore(request) {
         prepareMs: 0,
         buildMs: 0,
       }
+  if ((request?.mode === 'drive' || request?.prepareDrive === true) && (!drive.ready || !drive.accelerated)) {
+    throw new Error(`Driving accelerator unavailable (${drive.error || drive.reason || 'unknown reason'}). Rebuild the OpenStreetMap street index.`)
+  }
   return {
     ...prepared,
     drive,
@@ -304,7 +308,7 @@ parentPort.on('message', async (message) => {
   try {
     let result
     if (operation === 'prepare-street') {
-      const streetStore = await prepareStreetStore(request)
+      const streetStore = await prepareStreetStore(request, (progress) => parentPort.postMessage({ type: 'progress', id, progress, workerInstance }))
       result = {
         ready: true,
         streetStore,

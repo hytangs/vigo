@@ -17,6 +17,7 @@ import {
   readNationalGtfsStoreMetadata,
 } from './national-gtfs-store.mjs'
 import { readNationalOsmStreetGeometry, readNationalOsmStoreMetadata } from './national-osm-store.mjs'
+import { createStreetPreparationManager } from './street-preparation.mjs'
 import { readGtfsNetworkOverview, readGtfsRouteAnalysis } from './gtfs-analysis-store.mjs'
 import { decodeGtfsRealtimeFeed } from './gtfs-realtime-decoder.mjs'
 import { realtimeSnapshotFromFeeds } from './realtime-snapshot.mjs'
@@ -448,9 +449,9 @@ class NationalRouteWorkerClient {
       state,
       prepared: this.prepared,
       preparedContext: this.preparedContextKey || undefined,
-      streetStore: this.routingAccessPrepareResult?.streetStore
+      streetStore: this.streetPrepareResult?.streetStore
+        ?? this.routingAccessPrepareResult?.streetStore
         ?? this.transferPrepareResult?.streetStore
-        ?? this.streetPrepareResult?.streetStore
         ?? this.prepareResult?.streetStore,
       transferAdmission: osmStopTransfers
         ? {
@@ -632,7 +633,14 @@ class NationalRouteWorkerClient {
       ) {
         const streetStorePath = path.resolve(String(job.request.streetStorePath))
         if (message.result?.streetStore?.ready) {
-          this.streetPrepareResult = message.result
+          const retainedDrive = this.streetPrepareStorePath === streetStorePath
+            ? this.streetPrepareResult?.streetStore?.drive : null
+          // A transit-only request does not unload a previously prepared Drive
+          // kernel. Keep that readiness when its response says Drive was deferred.
+          this.streetPrepareResult = retainedDrive?.ready && retainedDrive.accelerated
+            && !retainedDrive.deferred && message.result.streetStore.drive?.deferred
+            ? { ...message.result, streetStore: { ...message.result.streetStore, drive: retainedDrive } }
+            : message.result
           this.streetPrepareStorePath = streetStorePath
         }
         if (message.result?.osmStopTransfers?.ready) {
@@ -921,6 +929,13 @@ class NationalRouteWorkerPool {
 
   isAdmissionPrepared(storePath, operation, streetStorePath) {
     return Boolean(this.clients.get(storePath)?.admissionPrepared(operation, streetStorePath))
+  }
+
+  isStreetPrepared(storePath, requireDrive = false) {
+    const client = this.clients.get(storePath)
+    const street = client?.streetPrepareResult?.streetStore
+    return Boolean(client?.hasWorker && street?.ready && street.accelerated
+      && (!requireDrive || (street.drive?.ready && street.drive.accelerated && !street.drive.deferred)))
   }
 
   dispatchRoutingAccessPrepared(storePath, operation, request, { signal, context, onProgress } = {}) {
@@ -1289,6 +1304,10 @@ class NationalRouteWorkerPool {
 }
 
 const nationalRouteWorkerPool = new NationalRouteWorkerPool(maxNationalRouteWorkerStores)
+const streetPreparationManager = createStreetPreparationManager({
+  pool: nationalRouteWorkerPool,
+  onJob: (job) => nationalImportJobs.set(job.id, job),
+})
 
 function now() {
   return new Date().toISOString()
@@ -2471,6 +2490,8 @@ async function deleteProject(projectId) {
   cityMaintenance.add(projectId)
   try {
     const project = await readProjectMetadata(projectId)
+    streetPreparationManager.invalidate(streetStoreFile(projectId))
+    await nationalRouteWorkerPool.retire(streetStoreFile(projectId))
     invalidateProjectRuntimeCaches(projectId)
     await Promise.all(projectNationalRoutingStorePaths(projectId, project).map((storePath) => (
       nationalRouteWorkerPool.retire(storePath)
@@ -2620,6 +2641,8 @@ async function resetCityData(projectId, body = {}) {
     }
 
     const before = await inspectCityData(projectId)
+    streetPreparationManager.invalidate(streetStoreFile(projectId))
+    await nationalRouteWorkerPool.retire(streetStoreFile(projectId))
     const storePaths = projectNationalRoutingStorePaths(projectId, project)
     await Promise.all(storePaths.map((storePath) => nationalRouteWorkerPool.retire(storePath)))
     invalidateProjectRuntimeCaches(projectId)
@@ -3214,6 +3237,10 @@ function cleanupUploadedSource(sourcePath, enabled) {
 
 async function launchNationalImportWorker(projectId, kind, job, workerUrl, workerData) {
   try {
+    if (kind === 'osm') {
+      streetPreparationManager.invalidate(streetStoreFile(projectId))
+      await nationalRouteWorkerPool.retire(streetStoreFile(projectId))
+    }
     await persistNationalJob(projectId, job)
     return new Worker(workerUrl, { workerData })
   } catch (error) {
@@ -3697,6 +3724,11 @@ async function startNationalOsmImport(projectId, body) {
           nationalRouteWorkerPool.retire(storePath)
         )))
         Object.assign(job, { status: 'complete', phase: 'Street index ready', progress: 1, detail: `${message.result.edgeCount.toLocaleString()} walk + ${message.result.driveEdgeCount.toLocaleString()} drive edges`, result: { ...message.result, sourceFile: sourceName }, finishedAt: now(), updatedAt: now() })
+        // The import worker exits with its memory. Open both saved networks in
+        // the worker that will serve walking and driving queries next.
+        void prepareProjectStreets(projectId, project).catch((error) => {
+          console.warn(`Unable to start street preparation for ${projectId}:`, error.message)
+        })
         await removeUploadedSource()
       } else if (message?.type === 'failed') {
         terminalMessageReceived = true
@@ -4005,7 +4037,9 @@ async function runSingleNationalRoute(projectId, body, signal, options = {}) {
   const serviceContext = nationalRequestServiceContext(body)
   const mode = ['walk', 'drive'].includes(body?.mode) ? body.mode : 'transit'
   const feedId = String(body?.feedId ?? '')
-  const { storePath } = await requireRoutingStore(projectId, project, feedId)
+  const storePath = mode === 'transit'
+    ? (await requireRoutingStore(projectId, project, feedId)).storePath
+    : await streetWorkerStore(projectId, project, feedId)
   const streetPath = project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))
     ? streetStoreFile(projectId)
     : undefined
@@ -4092,8 +4126,10 @@ async function runSingleNationalRoute(projectId, body, signal, options = {}) {
         ...(options.allowSubMinuteTimes ? { __allowSubMinuteTimes: true } : {}),
       }
   if (mode !== 'transit') {
+    // The City's resident worker already owns its pedestrian snapshot. A
+    // separate street-keyed worker can wait forever when all slots are leased.
     const plan = await nationalRouteWorkerPool.dispatch(
-      streetPath,
+      storePath,
       'street-route',
       routeRequest,
       signal,
@@ -4635,8 +4671,14 @@ async function runNationalMatrix(projectId, body, signal) {
   })
 }
 
+async function streetWorkerStore(projectId, project, feedId = '') {
+  const hasTimetable = project.routingStore?.status === 'ready' || project.feeds?.some(feed => feed.routingStore?.status === 'ready')
+  return hasTimetable ? (await requireRoutingStore(projectId, project, feedId)).storePath : streetStoreFile(projectId)
+}
+
 async function runNationalStreetMatrix(projectId, body, signal) {
   const project = await readProjectMetadata(projectId)
+  const storePath = await streetWorkerStore(projectId, project, String(body?.feedId ?? ''))
   const mode = String(body?.mode ?? '').trim()
   if (!['walk', 'drive'].includes(mode)) {
     const error = new Error('Street matrices require mode "walk" or "drive".')
@@ -4652,7 +4694,7 @@ async function runNationalStreetMatrix(projectId, body, signal) {
     throw error
   }
   return nationalRouteWorkerPool.dispatch(
-    streetPath,
+    storePath,
     'street-matrix',
     {
       ...body,
@@ -4794,6 +4836,29 @@ async function runServiceEdgeDecomposition(projectId, body, signal) {
     comparisonFeedId,
     ...decomposition,
   }
+}
+
+async function prepareProjectStreets(projectId, project, retry = false) {
+  const storePath = streetStoreFile(projectId)
+  const stats = await fs.stat(storePath)
+  return streetPreparationManager.start({
+    projectId, storePath, workerStorePath: await streetWorkerStore(projectId, project), retry,
+    identity: `${project.osmStreetIndex?.sourceFingerprint ?? ''}:${project.osmStreetIndex?.builtAt ?? ''}:${stats.size}:${stats.mtimeMs}`,
+    label: project.osmStreetIndex?.fileName || 'OpenStreetMap',
+  })
+}
+
+async function setStreetResidency(projectId, body) {
+  const project = await readProjectMetadata(projectId)
+  const storePath = await streetWorkerStore(projectId, project)
+  if (body?.resident !== true) return { residency: nationalRouteWorkerPool.setResidency(storePath, false, body?.leaseId), job: null }
+  if (project.osmStreetIndex?.status !== 'ready' || nationalImportProjects.get(projectId)?.has('osm')) {
+    const error = new Error('The OSM street import must finish before walking and driving can be prepared.')
+    error.statusCode = 409
+    throw error
+  }
+  const residency = nationalRouteWorkerPool.setResidency(storePath, true, body?.leaseId)
+  return { residency, job: await prepareProjectStreets(projectId, project, body?.retry === true) }
 }
 
 async function setRoutingResidency(projectId, body) {
@@ -5482,6 +5547,11 @@ async function route(request, response) {
       })
       return true
     }
+
+    if (request.method === 'POST' && action === 'street-residency') {
+      sendJson(response, 200, await setStreetResidency(projectId, await readBody(request)))
+      return true
+    }
   }
 
   sendJson(response, 404, { error: 'Not found' })
@@ -5497,6 +5567,7 @@ const agency = createAgencyService({
   },
   inspectRealtime: inspectRealtimeFeed,
   route: runNationalRoute,
+  streetMatrix: runNationalStreetMatrix,
   reach: runReach,
   matrix: runNationalMatrix,
 })

@@ -484,6 +484,7 @@ if (worker) {
     transitPreparationWorker.once('error', reject)
     transitPreparationWorker.on('message', (message) => {
       if (message?.id !== 'transit-street-preparation-fixture') return
+      if (message.type === 'progress') return
       clearTimeout(timeout)
       if (message.type === 'failed') reject(new Error(message.error))
       else if (message.type === 'complete') resolve(message)
@@ -506,6 +507,36 @@ if (worker) {
     'Transit preparation must not configure the unrelated Drive kernel.',
   )
   assert.equal(transitPreparation.result.streetStore.drive.prepareMs, 0)
+
+  const backgroundWorker = new Worker(new URL('../src/server/national-route-worker.mjs', import.meta.url))
+  const backgroundStages = []
+  const requestBackgroundWorker = (id, operation, request) => new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Background street worker timed out.')), 5_000)
+    const receive = (message) => {
+      if (message.id !== id) return
+      if (message.type === 'progress') { backgroundStages.push(message.progress); return }
+      clearTimeout(timeout)
+      backgroundWorker.off('message', receive)
+      if (message.type === 'failed') reject(new Error(message.error))
+      else resolve(message)
+    }
+    backgroundWorker.on('message', receive)
+    backgroundWorker.postMessage({ id, operation, storePath: currentStore, request: { ...request, streetStorePath: currentStore } })
+  })
+  try {
+    const prepared = await requestBackgroundWorker('background-prepare', 'prepare-street', { prepareDrive: true })
+    assert.equal(prepared.result.streetStore.ready, true)
+    assert.equal(prepared.result.streetStore.drive.ready, true)
+    assert.equal(prepared.result.streetStore.drive.accelerated, true)
+    assert.notEqual(prepared.result.streetStore.drive.deferred, true)
+    assert.deepEqual(backgroundStages.map((stage) => stage.phase), ['Opening walking street snapshot', 'Opening driving street snapshot'])
+    for (const request of [walkRequest, driveRequest]) {
+      const routed = await requestBackgroundWorker(`background-${request.mode}`, 'street-route', request)
+      assert.equal(routed.result.status, 'ready')
+      assert.equal(routed.result.travelMode, request.mode)
+      assert.equal(routed.workerInstance, prepared.workerInstance, 'Street queries must reuse the prepared worker')
+    }
+  } finally { await backgroundWorker.terminate() }
 
   const worker = new Worker(new URL('../src/server/national-route-worker.mjs', import.meta.url))
   const workerResult = await new Promise((resolve, reject) => {

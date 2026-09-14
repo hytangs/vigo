@@ -12,6 +12,9 @@ import { createAgencyFixture, realtimeFixture, observationTime } from './fixture
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agency-tools-'))
 const file = path.join(directory, 'schedule.sqlite')
 createAgencyFixture(file)
+const namesDb = new DatabaseSync(file)
+namesDb.exec("INSERT INTO stops VALUES('METRO','Metro Center',42.36,-71.06,'',1,''); INSERT INTO stops VALUES('SHOP','Metro Center shop',42.36,-71.06,'',0,'')")
+namesDb.close()
 let context
 try {
   const placeParameters = toolDefinitions.find(tool => tool.name === 'place_search').parameters
@@ -53,6 +56,9 @@ try {
   await assert.rejects(expensive, /cancelled/)
   assert.equal((await q('SELECT count(*) AS n FROM trips')).rows[0].n, 3003, 'Later queries still work after cancellation')
   context = new AgencyContext(file, 'City X')
+  assert.equal(context.resolve({ query: 'Metro Center station', kind: 'stop' }).matches[0].id, 'METRO', 'A typed station label resolves to its exact GTFS station, not a nearby similarly named stop')
+  assert.equal(context.resolve({ query: 'Metro Center station, City X', kind: 'stop' }).method, 'exact')
+  assert.equal(context.resolve({ query: 'Metro Center station, Another City', kind: 'stop' }).matches.length, 0)
   const snapshot = realtimeFixture()
   const state = deriveOperationalState(context, snapshot, observationTime)
   let requested

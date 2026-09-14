@@ -26,6 +26,8 @@ import {
 import './App.css'
 import type { ToolResult } from './agency/types'
 import { AgencyPanel } from './components/AgencyPanel'
+import { BackgroundTasks } from './components/BackgroundTasks'
+import { isActiveTask, isPreparationJob, preparationTasks, updateProjectJob, type PreparationTask } from './app/preparation'
 import { apiJson, apiProgressJson, type ApiProgress } from './app/api'
 import { statusFromJobStatus, statusFromStoreStatus, type ActivityStatus } from './app/status'
 import {
@@ -41,6 +43,7 @@ import { scenarioStorageKey } from './app/scenarioDraftStorage'
 import { createScenarioRoadGeometryRequest } from './app/scenarioRoadGeometryRequest'
 import { useScenarioDrafts } from './app/useScenarioDrafts'
 import { useNationalRouting } from './app/useNationalRouting'
+import { useStreetPreparation } from './app/useStreetPreparation'
 import { mergeGtfsRouteAnalysis, routeHasCompleteGtfsAnalysis, type GtfsRouteAnalysis } from './app/gtfsAnalysis'
 import { routeListLabels } from './app/routePresentation'
 import { buildCityPreviewLod } from './app/cityPreview'
@@ -2384,6 +2387,10 @@ export default function App() {
   const [osmImportJobId, setOsmImportJobId] = useState('')
   const [importMessage, setImportMessage] = useState('')
   const importPollingPromisesRef = useRef(new Map<string, Promise<JobRecord>>())
+  const [pendingPreparations, setPendingPreparations] = useState<Record<string, PreparationTask>>({})
+  const [preparationErrors, setPreparationErrors] = useState<Record<string, string>>({})
+  const [preparationJobUpdates, setPreparationJobUpdates] = useState<Record<string, JobRecord>>({})
+  const [backgroundTasksOpen, setBackgroundTasksOpen] = useState(false)
   const routingMergeRequestRef = useRef('')
   const [routingMergeRetryNonce, setRoutingMergeRetryNonce] = useState(0)
   const [realtimeSnapshot, setRealtimeSnapshot] = useState<RealtimeSnapshot | null>(null)
@@ -2433,18 +2440,34 @@ export default function App() {
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? emptyCityProject(health?.storageRoot),
     [projects, selectedProjectId, health?.storageRoot],
   )
-  const latestGtfsJob = [...selectedProject.jobs]
+  const preparationJobs = selectedProject.jobs.map((job) => preparationJobUpdates[job.id] ?? job)
+  const streetPreparation = useStreetPreparation({
+    active: page === 'project' && selectedProject.osmStreetIndex?.status === 'ready' && !isOsmImporting,
+    projectId: selectedProject.id,
+    identity: `${selectedProject.osmStreetIndex?.builtAt ?? ''}:${selectedProject.osmStreetIndex?.bytes ?? ''}`,
+    refreshKey: activeRouteTool === 'pathfinder' ? routingMode : '',
+  })
+  const latestGtfsJob = [...preparationJobs]
     .filter((job) => job.kind === 'national-gtfs-import')
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
-  const latestOsmJob = [...selectedProject.jobs]
+  const visiblePreparationTasks = preparationTasks(preparationJobs,
+    [
+      ...Object.entries(pendingPreparations).filter(([key]) => key.startsWith(`${selectedProject.id}:`)).map(([, task]) => task),
+      ...(cityPreviewLoadingProjectId === selectedProject.id ? [{ id: `${selectedProject.id}:loading`, kind: 'city-data-load', label: selectedProject.name, status: 'running' as const, phase: 'Loading transit feeds and map data', createdAt: selectedProject.updatedAt }] : []),
+      ...(streetPreparation.task ? [streetPreparation.task] : []),
+    ],
+    preparationErrors)
+  const selectedPreparationProjectRef = useRef(selectedProject.id)
+  selectedPreparationProjectRef.current = selectedProject.id
+  const latestOsmJob = [...preparationJobs]
     .filter((job) => job.kind === 'national-osm-import')
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
-  const gtfsImportJob = selectedProject.jobs.find((job) => job.id === gtfsImportJobId) ?? latestGtfsJob
-  const osmImportJob = selectedProject.jobs.find((job) => job.id === osmImportJobId) ?? latestOsmJob
-  const latestActiveGtfsJob = selectedProject.jobs.find((job) => (
+  const gtfsImportJob = preparationJobs.find((job) => job.id === gtfsImportJobId) ?? latestGtfsJob
+  const osmImportJob = preparationJobs.find((job) => job.id === osmImportJobId) ?? latestOsmJob
+  const latestActiveGtfsJob = preparationJobs.find((job) => (
     job.kind === 'national-gtfs-import' && ['queued', 'running'].includes(job.status)
   ))
-  const latestActiveOsmJob = selectedProject.jobs.find((job) => (
+  const latestActiveOsmJob = preparationJobs.find((job) => (
     job.kind === 'national-osm-import' && ['queued', 'running'].includes(job.status)
   ))
   useEffect(() => {
@@ -2521,7 +2544,11 @@ export default function App() {
     routingOrigin && routingDestination &&
     [routingOrigin, ...routingWaypoints, routingDestination].some((point) => point.source === 'map'),
   )
-  const routingStreetState: 'ready' | 'loading' | 'missing' = !mapPointRoutingNeedsStreetGraph ||
+  const routingStreetState: 'ready' | 'loading' | 'missing' = routingMode !== 'transit'
+    ? selectedProject.osmStreetIndex?.status === 'ready'
+      ? streetPreparation.ready ? 'ready' : 'loading'
+      : selectedProject.osmStreetIndex?.status === 'building' || isOsmImporting ? 'loading' : 'missing'
+    : !mapPointRoutingNeedsStreetGraph ||
     Boolean(nationalRoutingFeed && selectedProject.osmStreetIndex?.status === 'ready')
     ? 'ready'
     : selectedProject.osmStreetIndex?.status === 'building'
@@ -2782,7 +2809,7 @@ export default function App() {
     ?? routingChoices[0]
     ?? null
   const routingActivity = buildRoutingActivity({
-    routingError: nationalRouting.error,
+    routingError: nationalRouting.error || (routingMode !== 'transit' ? streetPreparation.error : ''),
     routingErrorStatus: nationalRouting.errorStatus,
     routingPlan,
     storeBackedRouting,
@@ -4334,9 +4361,20 @@ export default function App() {
         firstPoll = false
         const result = await apiJson<{ job: JobRecord }>(
           `/api/projects/${encodeURIComponent(projectId)}/national-gtfs-job?jobId=${encodeURIComponent(jobId)}`,
-        )
+        ).catch((error) => {
+          setPreparationErrors((current) => ({ ...current, [jobId]: error instanceof Error ? error.message : 'Task status is unavailable.' }))
+          throw error
+        })
+        // Keep frequent job ticks separate from the feeds used to build the map.
+        setPreparationJobUpdates((current) => ({ ...current, [jobId]: result.job }))
+        setProjects((current) => current.find((project) => project.id === projectId)?.jobs.some((job) => job.id === jobId)
+          ? current : updateProjectJob(current, projectId, result.job))
+        setPreparationErrors((current) => {
+          if (!current[jobId]) return current
+          const next = { ...current }; delete next[jobId]; return next
+        })
         const progress = Math.round(Number(result.job.progress ?? 0) * 100)
-        onProgress([result.job.phase, progress ? `${progress}%` : '', result.job.detail].filter(Boolean).join(' / '))
+        if (selectedPreparationProjectRef.current === projectId) onProgress([result.job.phase, progress ? `${progress}%` : '', result.job.detail].filter(Boolean).join(' / '))
         if (result.job.status === 'failed' || result.job.status === 'cancelled') {
           await refreshImportedProject(projectId, false).catch(() => {})
           throw new Error(result.job.error || (result.job.status === 'cancelled' ? 'Preparation cancelled.' : failureLabel))
@@ -4352,6 +4390,34 @@ export default function App() {
         importPollingPromisesRef.current.delete(jobId)
       }
     }
+  }
+
+  async function startPreparation(kind: string, label: string, submit: () => Promise<{ id: string }>) {
+    const projectId = selectedProject.id
+    const key = `${projectId}:${kind}`
+    const task: PreparationTask = { id: key, kind, label, status: 'running', phase: 'Loading source data', createdAt: new Date().toISOString() }
+    setPendingPreparations((current) => ({ ...current, [key]: task }))
+    setBackgroundTasksOpen(true)
+    try {
+      const result = await submit()
+      setProjects((current) => updateProjectJob(current, projectId, {
+        ...task, status: 'queued', progress: 0, phase: 'Waiting for processing status', ...result,
+      }))
+      setPendingPreparations((current) => { const next = { ...current }; delete next[key]; return next })
+      return result
+    } catch (error) {
+      setPendingPreparations((current) => ({ ...current, [key]: { ...task, status: 'failed', error: error instanceof Error ? error.message : 'Could not load source data.' } }))
+      throw error
+    }
+  }
+
+  async function reconnectPreparation(task: PreparationTask) {
+    if (task.kind === 'street-runtime-prepare') { streetPreparation.retry(); return }
+    const projectId = selectedProject.id
+    try {
+      await waitForImportJob(projectId, task.id, () => {}, 'Data preparation failed')
+      await refreshImportedProject(projectId, true)
+    } catch { /* The task panel retains the last status and connection error. */ }
   }
 
   async function refreshImportedProject(projectId: string, hydrate = true) {
@@ -4406,15 +4472,15 @@ export default function App() {
       setOsmStreetMessage('Retrying OSM preparation…')
     }
     try {
-      const result = await apiJson<{ job: JobRecord }>(`/api/projects/${encodeURIComponent(selectedProject.id)}/national-job-retry`, {
+      const nextJob = await startPreparation(job.kind, job.label, async () => (await apiJson<{ job: JobRecord }>(`/api/projects/${encodeURIComponent(selectedProject.id)}/national-job-retry`, {
         method: 'POST',
         body: JSON.stringify({ jobId: job.id }),
-      })
-      if (kind === 'gtfs') setGtfsImportJobId(result.job.id)
-      else setOsmImportJobId(result.job.id)
+      })).job)
+      if (kind === 'gtfs') setGtfsImportJobId(nextJob.id)
+      else setOsmImportJobId(nextJob.id)
       const completed = await waitForImportJob(
         selectedProject.id,
-        result.job.id,
+        nextJob.id,
         kind === 'gtfs' ? setImportMessage : setOsmStreetMessage,
         kind === 'gtfs' ? 'GTFS indexing failed' : 'Street indexing failed',
       )
@@ -4436,29 +4502,30 @@ export default function App() {
   }
 
   useEffect(() => {
-    const activeJobs: Array<{ job: JobRecord; kind: 'gtfs' | 'osm' }> = [
-      ...(latestActiveGtfsJob ? [{ job: latestActiveGtfsJob, kind: 'gtfs' as const }] : []),
-      ...(latestActiveOsmJob ? [{ job: latestActiveOsmJob, kind: 'osm' as const }] : []),
-    ]
-    for (const { job, kind } of activeJobs) {
+    const projectId = selectedProject.id
+    for (const job of preparationJobs.filter((entry) => isPreparationJob(entry) && isActiveTask(entry))) {
+      if (importPollingPromisesRef.current.has(job.id)) continue
+      const kind = job.kind === 'national-osm-import' ? 'osm' : 'gtfs'
       void waitForImportJob(
-        selectedProject.id,
+        projectId,
         job.id,
         kind === 'gtfs' ? setImportMessage : setOsmStreetMessage,
         kind === 'gtfs' ? 'GTFS indexing failed' : 'Street indexing failed',
       ).then(async (completed) => {
-        await refreshImportedProject(selectedProject.id, true)
-        if (kind === 'gtfs' && completed.result?.feedId) setActiveFeedId(completed.result.feedId)
+        await refreshImportedProject(projectId, true)
+        if (selectedPreparationProjectRef.current === projectId && kind === 'gtfs' && completed.result?.feedId) setActiveFeedId(completed.result.feedId)
       }).catch((error) => {
+        if (selectedPreparationProjectRef.current !== projectId) return
         const message = error instanceof Error ? error.message : 'Preparation failed.'
         if (kind === 'gtfs') setImportMessage(message)
         else setOsmStreetMessage(message)
       }).finally(() => {
+        if (selectedPreparationProjectRef.current !== projectId) return
         if (kind === 'gtfs') setIsImporting(false)
         else setIsOsmImporting(false)
       })
     }
-  }, [latestActiveGtfsJob?.id, latestActiveOsmJob?.id, selectedProject.id])
+  }, [preparationJobs.filter((job) => isPreparationJob(job) && isActiveTask(job)).map((job) => job.id).sort().join('|'), selectedProject.id])
 
   function replaceExistingSchedule(fileName: string) {
     if (!selectedProject.feeds.length) return false
@@ -4506,11 +4573,11 @@ export default function App() {
     setIsImporting(true)
     try {
       setImportMessage(`Staging ${file.name} for SQLite indexing...`)
-      const job = await uploadProjectSourceFile(
+      const job = await startPreparation('national-gtfs-import', file.name, () => uploadProjectSourceFile(
         file,
         'national-gtfs-upload',
         replaceExistingSchedule(file.name),
-      )
+      ))
       setGtfsImportJobId(job.id)
       const completed = await waitForImportJob(selectedProject.id, job.id, setImportMessage, 'GTFS indexing failed')
       await refreshImportedProject(selectedProject.id, true)
@@ -4531,7 +4598,7 @@ export default function App() {
     setIsImporting(true)
     setImportMessage('Starting local GTFS index')
     try {
-      const { job } = await apiJson<{ job: { id: string } }>(`/api/projects/${encodeURIComponent(selectedProject.id)}/national-gtfs-import`, {
+      const job = await startPreparation('national-gtfs-import', sourcePath.split(/[\\/]/).pop() || 'GTFS feed', async () => (await apiJson<{ job: JobRecord }>(`/api/projects/${encodeURIComponent(selectedProject.id)}/national-gtfs-import`, {
         method: 'POST',
         body: JSON.stringify({
           sourcePath,
@@ -4539,7 +4606,7 @@ export default function App() {
           preloadServiceDate: routingServiceDate,
           preloadServiceDay: routingServiceDay,
         }),
-      })
+      })).job)
       setGtfsImportJobId(job.id)
       const completed = await waitForImportJob(selectedProject.id, job.id, setImportMessage, 'GTFS indexing failed')
       await refreshImportedProject(selectedProject.id, true)
@@ -4557,10 +4624,10 @@ export default function App() {
     setIsOsmImporting(true)
     setOsmStreetMessage('Starting local street index')
     try {
-      const { job } = await apiJson<{ job: { id: string } }>(`/api/projects/${encodeURIComponent(selectedProject.id)}/national-osm-import`, {
+      const job = await startPreparation('national-osm-import', sourcePath.split(/[\\/]/).pop() || 'OSM streets', async () => (await apiJson<{ job: JobRecord }>(`/api/projects/${encodeURIComponent(selectedProject.id)}/national-osm-import`, {
         method: 'POST',
         body: JSON.stringify({ sourcePath }),
-      })
+      })).job)
       setOsmImportJobId(job.id)
       await waitForImportJob(selectedProject.id, job.id, setOsmStreetMessage, 'Street indexing failed')
       await refreshImportedProject(selectedProject.id, true)
@@ -4578,7 +4645,7 @@ export default function App() {
     setIsOsmImporting(true)
     try {
       setOsmStreetMessage(`Staging ${file.name} for SQLite street indexing...`)
-      const job = await uploadProjectSourceFile(file, 'national-osm-upload')
+      const job = await startPreparation('national-osm-import', file.name, () => uploadProjectSourceFile(file, 'national-osm-upload'))
       setOsmImportJobId(job.id)
       await waitForImportJob(selectedProject.id, job.id, setOsmStreetMessage, 'Street indexing failed')
       await refreshImportedProject(selectedProject.id, true)
@@ -4892,6 +4959,10 @@ export default function App() {
         />
 
         <div className="topbar-actions">
+          {page === 'project' ? <BackgroundTasks key={selectedProject.id}
+            tasks={visiblePreparationTasks} open={backgroundTasksOpen} onOpenChange={setBackgroundTasksOpen}
+            onOpenData={openDataView} onReconnect={(task) => { void reconnectPreparation(task) }}
+          /> : null}
           {page === 'project' ? (
             <button
               type="button"
@@ -4969,6 +5040,10 @@ export default function App() {
             serviceDecompositionError={serviceDecompositionError}
             routingStoreAvailable={storeBackedRouting}
             streetGraphAvailable={selectedProject.osmStreetIndex?.status === 'ready'}
+            preparationTasks={visiblePreparationTasks}
+            streetGraphBuilding={selectedProject.osmStreetIndex?.status === 'building'}
+            routingStoreBuilding={selectedProject.routingStore?.status === 'building'}
+            onOpenTasks={() => setBackgroundTasksOpen(true)}
             onServiceDateChange={(value) => {
               changeRoutingServiceDate(value)
               invalidateAnalyzeResult()

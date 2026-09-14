@@ -53,7 +53,12 @@ export class AgencyContext {
         if (![0, 1].includes(Number(row.location_type ?? 0))) continue
         const parent = this.stopIndex.get(row.parent_station)
         const place = parent && Number(parent.location_type) === 1 ? parent : row
-        if (!places.has(place.stop_id)) places.set(place.stop_id, { ...stopEntity(place), aliases: [] })
+        if (!places.has(place.stop_id)) {
+          const names = [place.name, ...(Number(place.location_type) === 1 ? [`${place.name} station`] : [])]
+          // Exact typed and City-qualified labels still identify the same GTFS
+          // record. Do not strip words, fuzzy-match names or move coordinates.
+          places.set(place.stop_id, { ...stopEntity(place), aliases: names.flatMap(name => [name, `${name}, ${this.cityName}`]).map(name => name.toLocaleLowerCase()) })
+        }
         places.get(place.stop_id).aliases.push(row.name.toLocaleLowerCase())
       }
       this.stopPlaces = [...places.values()]

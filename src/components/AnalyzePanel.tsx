@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react'
 import type { ApiProgress } from '../app/api'
+import { preparationState, type PreparationTask } from '../app/preparation'
 import { classNames, formatNumber, type RouteMetric, type StopMetric } from '../domain'
 import { gtfsDirectionLabel, gtfsPatternStops, gtfsPatternTimetable } from '../app/gtfsPresentation'
 import { scopedRouteServiceKey } from '../routeServices'
@@ -90,6 +91,10 @@ type AnalyzePanelProps = {
   serviceDecompositionError: string
   routingStoreAvailable: boolean
   streetGraphAvailable: boolean
+  preparationTasks: PreparationTask[]
+  streetGraphBuilding: boolean
+  routingStoreBuilding: boolean
+  onOpenTasks: () => void
   onServiceDateChange: (value: string) => void
   onDepartMinutesChange: (value: number) => void
   onMaxWalkKmChange: (value: number) => void
@@ -575,6 +580,10 @@ export function AnalyzePanel({
   analysis,
   routingStoreAvailable,
   streetGraphAvailable,
+  preparationTasks,
+  streetGraphBuilding,
+  routingStoreBuilding,
+  onOpenTasks,
   comparison,
   serviceDecomposition,
   serviceDecompositionLoading,
@@ -649,6 +658,19 @@ export function AnalyzePanel({
     && !roadInferencePending
     && (mode === 'compare' ? comparisonReady : routingStoreAvailable),
   )
+  const transitSetup = preparationState(mode === 'compare' ? feeds.length >= 2 : routingStoreAvailable,
+    preparationTasks, mode === 'compare' ? ['national-gtfs-import'] : ['national-gtfs-import', 'national-gtfs-merge'], routingStoreBuilding)
+  const streetSetup = preparationState(streetGraphAvailable, preparationTasks, ['national-osm-import'], streetGraphBuilding)
+  const dataPreparing = [transitSetup, streetSetup].some((state) => state.status === 'working')
+  const setupHint = !streetGraphAvailable || !(mode === 'compare' ? comparisonReady : routingStoreAvailable)
+    ? [transitSetup, streetSetup].some((state) => state.status === 'paused')
+      ? 'Task updates are paused. Open background tasks to reconnect.'
+      : dataPreparing ? 'Data is being prepared. You can choose the origin while it runs.'
+        : mode === 'compare' && feeds.length >= 2 && !comparisonReady ? 'Select at least two GTFS feeds above.'
+          : 'Finish the data setup above, then run the analysis.'
+    : !origin ? 'Click the map to choose an origin.'
+      : routeAnalysisLoading ? 'Loading the selected route’s timetable…'
+        : roadInferencePending ? 'Finish the scenario road trace before running Reach.' : ''
   const routeOptions = useMemo(() => {
     const query = routeQuery.trim().toLocaleLowerCase()
     const matching = routes.filter((route) => (
@@ -745,6 +767,21 @@ export function AnalyzePanel({
             </button>
           </div>
         </div>
+
+        <section className="reach-data-setup" aria-label="Reach data setup">
+          <header><strong>Data setup</strong><button type="button" onClick={onOpenTasks}>View tasks</button></header>
+          <ul>
+            {[
+              { title: mode === 'compare' ? 'GTFS feeds to compare' : 'Transit schedules', state: transitSetup, missing: mode === 'compare' ? 'Add at least two GTFS ZIPs in City.' : 'Add a GTFS ZIP in City.' },
+              { title: 'OSM walking network', state: streetSetup, missing: 'Add an OSM .pbf covering this City.' },
+            ].map(({ title, state, missing }) => <li key={title} className={state.status === 'failed' ? 'is-failed' : state.status === 'ready' ? 'is-ready' : undefined}>
+              {state.status === 'ready' ? <CheckCircle2 size={15} /> : state.status === 'working' ? <LoaderCircle size={15} className="task-spinner" /> : <Database size={15} />}
+              <div><strong>{title}</strong>{state.detail || state.status === 'missing' ? <small>{state.detail || missing}</small> : null}</div>
+              <span>{state.label}</span>
+            </li>)}
+          </ul>
+          {[transitSetup, streetSetup].some((state) => state.status === 'missing' || state.status === 'failed') ? <button className="reach-setup-action" type="button" onClick={onOpenData}>Open City data</button> : null}
+        </section>
 
         {mode === 'compare' ? (
           <div className="reach-comparison-picker">
@@ -1284,7 +1321,7 @@ export function AnalyzePanel({
           </button>
           {loading || !canRun ? (
             <small className="reach-run-hint">
-              {loading ? 'Computing the complete reached-street surface…' : 'Choose an origin and finish the required data setup'}
+              {loading ? 'Computing the complete reached-street surface…' : setupHint}
             </small>
           ) : null}
           {loading && progress ? (
@@ -1299,10 +1336,6 @@ export function AnalyzePanel({
           ) : null}
         </div>
 
-        {mode === 'single' && !routingStoreAvailable ? <p className="reach-inline-note is-error">A persisted transit routing store is required.</p> : null}
-        {mode === 'compare' && feeds.length < 2 ? <p className="reach-inline-note is-error">At least two independently indexed GTFS feeds are required for comparison.</p> : null}
-        {mode === 'compare' && feeds.length >= 2 && comparisonFeedIds.length < 2 ? <p className="reach-inline-note is-error">Select at least two GTFS feeds to compare.</p> : null}
-        {!streetGraphAvailable ? <p className="reach-inline-note is-error">Import OSM to compute Reach on the pedestrian street network.</p> : null}
         {roadInferencePending && streetGraphAvailable ? <p className="reach-inline-note">Road inference is still building. Finish the road trace before running the analysis.</p> : null}
         {error ? <p className="reach-inline-note is-error" role="alert">{error}</p> : null}
       </form>

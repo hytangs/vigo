@@ -6,6 +6,7 @@ const descriptions = {
   recall_notebook: 'Saved conversations and staff notes',
   resolve_entities: 'GTFS stops and routes by name',
   place_search: 'Business and address coordinates',
+  walk_compare: 'Compare candidate walking distances and test distance requirements in a batch',
   walk_route: 'Walking distance and time, including ordered visits',
   service_profile: 'Scheduled trip starts by hour on a date',
   gtfs_query: 'Read-only SQL against indexed transit tables',

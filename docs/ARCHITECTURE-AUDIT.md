@@ -1,5 +1,15 @@
 # Agency architecture audit
 
+## September 13 follow-up: operational quality
+
+The comparison with [Swiftly Performance Insights](https://www.goswift.ly/performance-insights) and [TransitMatters' dashboard](https://transitmatters.org/blog/transitmatters-launches-all-new-data-dashboard) identifies a substantial evidence gap, not a basis for claiming superiority. Swiftly documents historical playback, actual-versus-scheduled running times, on-time performance and headway analysis. TransitMatters presents historical station-pair travel times, headways, dwell and slow-zone measures. Its [dashboard](https://github.com/transitmatters/t-performance-dash) and [performance pipeline](https://github.com/transitmatters/mbta-performance) separate presentation from historical data processing.
+
+VIGO currently has a bidirectional route view, exact scheduled/current vehicle timing, recent observation history, service-date-aware GTFS tools and native journey computation. Its departure comparisons use predictions; they are not a historical archive of measured stop passages. It does not yet demonstrate competitor-level historical performance analysis, ridership integration, validated slow-zone baselines, or dispatch publishing. A visual line diagram does not close those gaps.
+
+This review retains one City context and reusable computational tools. The additional walking workflow composes existing place lookup and native routing; it does not introduce a second router, another agent framework or a new database. Declared station entrances, OSM identities/categories, measurements and unknown access conditions survive through the answer. The small model chooses the workflow; the server calculates and renders its numerical result. Standalone conversation and other research continue to use model-written replies.
+
+The [Photon API](https://github.com/komoot/photon/blob/master/docs/api-v1.md) supports geographic focus and category filters. These help separate parks from similarly named hotels, shops, roads and parking. They do not prove that a place is open or that eating is permitted. The source record and its limits remain part of the evidence.
+
 September 13, 2026. Scope: a small cleanup after the initial delivery. The three protected project documents were not edited.
 
 ## Decision

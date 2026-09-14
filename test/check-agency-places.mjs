@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { createPlaceSearch } from '../src/agency/placeSearch.mjs'
 import { createToolRegistry } from '../src/agency/toolRegistry.mjs'
 import { queryAgency } from '../src/agency/queryAgent.mjs'
+import { compactResult } from '../src/agency/queryAgent.mjs'
 
 const feature = (id, name, lon, lat) => ({ type: 'Feature', properties: { osm_type: 'N', osm_id: id, name, housenumber: '17', street: 'Market Street', city: 'City X' }, geometry: { type: 'Point', coordinates: [lon, lat] } })
 const stops = [{ stop_id: 'internal', name: 'Internal station node', location_type: 3, lon: 0, lat: 0 }, { stop_id: 'A', name: 'Library', lon: 10, lat: 20 }, { stop_id: 'B', name: 'Station', lon: 11, lat: 21 }]
@@ -76,4 +77,44 @@ const offlineReply = await queryAgency({ question: 'Can you look online?', conte
   return { content: 'Online place search is disabled on this server.' }
 } } })
 assert.equal(offlineReply.answer, 'Online place search is disabled on this server.', 'Assertions inside the provider must not be hidden by provider-error recovery')
+
+const categoryPlaces = createPlaceSearch({ stops, env: {}, fetchImpl: async url => {
+  assert.equal(url.searchParams.get('osm_tag'), 'leisure:park')
+  const park = feature(11, 'Central Common', 10.1, 20.1), hotel = feature(12, 'Park Palace', 10.2, 20.2)
+  Object.assign(park.properties, { osm_key: 'leisure', osm_value: 'park' })
+  Object.assign(hotel.properties, { osm_key: 'tourism', osm_value: 'hotel' })
+  return Response.json({ features: [hotel, park] }) // A provider ignoring the filter cannot admit the hotel.
+} })
+const parks = await categoryPlaces.search({ query: 'park', osmTag: 'leisure:park' })
+assert.deepEqual(parks.matches.map(m => m.name), ['Central Common'])
+assert.equal(parks.matches[0].publicAccess, 'unverified', 'Mapped park category does not prove access or food permission')
+const projection = JSON.parse(compactResult({ ok: true, data: parks, warnings: [] }, 'place_search'))
+assert.deepEqual(projection.data.matches[0].category, { key: 'leisure', value: 'park' })
+assert.equal(projection.data.matches[0].publicAccess, 'unverified')
+const restored = createPlaceSearch({ stops, env: {}, fetchImpl: () => assert.fail('A retained exact identity should not be geocoded again') })
+restored.restore(parks.matches)
+assert.equal(restored.resolve('osm:node/11').lat, 20.1)
+parks.matches[0].lat = 0
+assert.equal(restored.resolve('osm:node/11').lat, 20.1)
+let now = Date.now(), detailRequests = 0
+const detailed = createPlaceSearch({ clock: () => now, env: { VIGO_AGENCY_PLACE_DETAILS_URL: 'http://localhost:2322/osm/' }, fetchImpl: async url => {
+  detailRequests++
+  assert.equal(url.href, 'http://localhost:2322/osm/node/11.json')
+  return Response.json({ elements: [{ type: 'node', id: 12, tags: { access: 'yes' } }, { type: 'node', id: 11, tags: { leisure: 'park', access: 'private', unrelated: 'not needed' } }] })
+} })
+detailed.restore(restored.resolve('osm:node/11') ? [restored.resolve('osm:node/11')] : [])
+const detail = await detailed.details('osm:node/11')
+assert.deepEqual(detail.tags, { leisure: 'park', access: 'private' }, 'Use the exact OSM identity and only relevant tags')
+detail.tags.access = 'yes'
+assert.equal((await detailed.details('osm:node/11')).tags.access, 'private')
+assert.equal(detailRequests, 1)
+now += 15 * 60_000
+await detailed.details('osm:node/11')
+assert.equal(detailRequests, 2, 'Map detail evidence expires rather than silently becoming permanent')
+assert.equal(detailed.detailsEndpoint, 'localhost:2322', 'Runtime facts expose the configured details host')
+const disabledDetails = createPlaceSearch({ env: { VIGO_AGENCY_PLACE_DETAILS_URL: 'off' }, fetchImpl: () => assert.fail('Details disabled') })
+assert.equal(await disabledDetails.details('osm:node/11'), null)
+const invalidDetails = createPlaceSearch({ env: { VIGO_AGENCY_PLACE_DETAILS_URL: 'https://user:secret@localhost/' }, fetchImpl: () => assert.fail('No embedded credentials') })
+invalidDetails.restore([restored.resolve('osm:node/11')])
+await assert.rejects(invalidDetails.details('osm:node/11'), /without embedded credentials/)
 console.log('Agency places: City-scoped online lookup, exact identities, private endpoints, caching, cancellation, provider failures, native walking handoff and model evidence passed.')

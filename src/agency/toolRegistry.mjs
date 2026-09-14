@@ -1,6 +1,8 @@
 import { gtfsQuery } from './gtfsQuery.mjs'
 import { draftRiderMessage, draftRouteMessage } from './communications.mjs'
 import { resolveJourneyPoints } from './journeyInputs.mjs'
+import { calculateWalk } from './walking.mjs'
+import { findWalk } from './findWalk.mjs'
 
 export function failedToolResult(error, generatedAt) {
   const message = error instanceof Error ? error.message : 'This check could not be completed.'
@@ -12,6 +14,7 @@ const string = { type: 'string' }
 const routeScope = object({ routeId: string, routeNames: { type: 'array', description: 'Bare route numbers or proper names ONLY, without a generic Route prefix.', items: string, minItems: 1, maxItems: 8 } })
 const coordinate = object({ lat: { type: 'number', minimum: -90, maximum: 90 }, lon: { type: 'number', minimum: -180, maximum: 180 }, stopId: string }, ['lat', 'lon'])
 const transitPoint = object({ label: { type: 'string', maxLength: 160, description: 'Name for a coordinate endpoint, as supplied by the user or a checked public source.' }, stopName: { type: 'string', description: 'Proper station name ONLY; omit generic station/stop words.' }, placeQuery: string, stopId: string, placeId: string, lat: { type: 'number', minimum: -90, maximum: 90 }, lon: { type: 'number', minimum: -180, maximum: 180 } })
+const walkingConstraints = { minimumDistanceMiles: { type: 'number', minimum: 0, maximum: 100, description: 'Minimum shortest walking distance, in miles. A failed path is unknown, never a pass.' }, timeBudgetMinutes: { type: 'number', minimum: 0, maximum: 1440 }, activityMinutes: { type: 'number', minimum: 0, maximum: 1440, description: 'Only a duration supplied by the user. Otherwise omit: time for buying food, eating or visiting remains unknown.' } }
 const serviceMinutes = { type: 'integer', minimum: 0, maximum: 2880 }
 const journey = { origin: transitPoint, serviceDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, departTime: { type: 'string', pattern: '^(?:[0-3][0-9]|4[0-7]):[0-5][0-9]$|^48:00$', description: 'Local HH:MM; hours 24–48 continue the service day.' } }
 
@@ -22,8 +25,10 @@ export const toolDefinitions = [
   { name: 'network_overview', description: 'Read City, timetable coverage, network counts and feed ages.', parameters: object({}) },
   { name: 'recall_notebook', description: 'Search saved work by short phrase, empty search for recent work, or entryId. Returns five dated excerpts; recheck historical findings for current conditions.', parameters: object({ search: { type: 'string', maxLength: 200 }, entryId: { type: 'integer', minimum: 1 } }) },
   { name: 'resolve_entities', description: 'Find GTFS routes/stops by literal proper name or number. Routing tools accept names directly. Businesses need place_search.', parameters: object({ query: string, kind: { type: 'string', enum: ['all', 'route', 'stop'] } }, ['query']) },
-  { name: 'place_search', description: 'Search Photon/OpenStreetMap for businesses/addresses. Include city/neighborhood; optional nearStopId. withinCity defaults true (GTFS bounds), false searches beyond. Returns five candidates; clarify ambiguity.', parameters: object({ query: { type: 'string', maxLength: 200 }, nearStopId: string, withinCity: { type: 'boolean' } }, ['query']) },
-  { name: 'walk_route', description: 'Calculate walking distance, estimated minutes and map geometry on VIGO’s saved pedestrian network. Pass stopName or placeQuery directly, or a known stopId/placeId. Optional waypoints are visited in order, with no activity time. No date or departure time needed. Never substitute straight-line distance.', parameters: object({ origin: transitPoint, destination: transitPoint, waypoints: { type: 'array', items: transitPoint, minItems: 0, maxItems: 6 } }, ['origin', 'destination']) },
+  { name: 'place_search', description: 'Search Photon/OpenStreetMap for businesses/addresses. Include city/neighborhood; optional nearStopName or nearStopId. osmTag filters the mapped category, such as leisure:park or tourism:museum; a name is not a category or public-access evidence. withinCity defaults true (GTFS bounds), false searches beyond. Returns five candidates; clarify ambiguity.', parameters: object({ query: { type: 'string', maxLength: 200 }, nearStopId: string, nearStopName: string, osmTag: { type: 'string', pattern: '^[a-z_]+:[a-z_]+$' }, withinCity: { type: 'boolean' } }, ['query']) },
+  { name: 'walk_route', description: 'Calculate walking distance, estimated minutes and map geometry on VIGO’s saved pedestrian network. Pass stopName or placeQuery directly, or a known stopId/placeId. Optional waypoints are visited in order, with no assumed activity time. Pass any minimumDistanceMiles and timeBudgetMinutes. Station-level walks compare mapped entrances and exclude time inside. No date needed.', parameters: object({ ...walkingConstraints, origin: transitPoint, destination: transitPoint, waypoints: { type: 'array', items: transitPoint, minItems: 0, maxItems: 6 } }, ['origin', 'destination']) },
+  { name: 'walk_compare', description: 'Measure walking to up to six candidate destinations in one check. Pass minimumDistanceMiles to test each from the origin; pairwise=true also checks every ordered pair of destinations. Do this BEFORE recommending places with distance constraints. Unreachable pairs remain unknown.', parameters: object({ ...walkingConstraints, origin: transitPoint, destinations: { type: 'array', items: transitPoint, minItems: 1, maxItems: 6 }, pairwise: { type: 'boolean' } }, ['origin', 'destinations']) },
+  { name: 'find_walk', description: 'Complete a time-limited outing in one call: find places for one or two ordered visits, measure all candidate walks, and return the shortest with remaining activity time. Use for food pickup followed by a park, or other visits. Each visit requires an exact osmTag category (for example amenity:fast_food or leisure:park). This is category discovery; use walk_route for already chosen named destinations. Omit query for a category-only visit; the server uses the current City and origin. Query narrows results to a business or place name. Categories do not verify opening hours or access.', parameters: object({ origin: { type: 'string', maxLength: 200, description: 'Starting station name, business name or address.' }, visits: { type: 'array', minItems: 1, maxItems: 2, items: object({ query: { type: 'string', maxLength: 200, description: 'Optional business or place name. Omit for a category-only visit.' }, osmTag: { type: 'string', pattern: '^[a-z_]+:[a-z_]+$' } }, ['osmTag']) }, timeBudgetMinutes: walkingConstraints.timeBudgetMinutes, activityMinutes: walkingConstraints.activityMinutes }, ['origin', 'visits', 'timeBudgetMinutes']) },
   { name: 'service_profile', description: 'Count scheduled trip starts by service hour on an exact date, with calendar exceptions. Optional exact route ID. Connections supply the first indexed departure; frequency templates are excluded.', parameters: object({ serviceDate: journey.serviceDate, routeId: string }, ['serviceDate']) },
   { name: 'gtfs_query', description: 'Read VIGO SQLite. Tables: routes(route_id,short_name,long_name,route_type), stops(stop_id,name,lat,lon), trips(trip_id,route_id,service_id,direction_id), connections(departure,arrival,trip_id,route_id,service_id,direction_id,from_stop_id,to_stop_id,stop_sequence), calendar, calendar_dates, frequencies, transfers, route_services. Times are service-day seconds. Connections are NOT original stop_times; do not invent terminal calls. One SELECT/WITH, approved functions, 200 rows maximum, 1.5s execution limit. Apply calendar exceptions for date-specific questions.', parameters: object({ sql: string, limit: { type: 'integer', minimum: 1, maximum: 200 } }, ['sql']) },
   { name: 'route_plan', description: 'Compute transit journeys with VIGO. Pass stopName/placeQuery directly; no separate lookup needed. Supply serviceDate and either departTime or arriveBy. Optional waypoints preserve visit order, with no activity time. maxTransfers applies only without waypoints. Never drop unsupported constraints.', parameters: object({ ...journey, destination: transitPoint, arriveBy: journey.departTime, maxTransfers: { type: 'integer', minimum: 0, maximum: 31 }, waypoints: { type: 'array', items: transitPoint, minItems: 0, maxItems: 6 } }, ['origin', 'destination', 'serviceDate']) },
@@ -103,21 +108,44 @@ export function createToolRegistry({ context, state, snapshot, adapters, noteboo
     }
     if (name === 'place_search') {
       if (!places) throw new Error('Place search is not available on this server.')
-      const near = args.nearStopId ? context.stopIndex.get(args.nearStopId) : undefined
+      if (args.nearStopId && args.nearStopName) throw new Error('Supply a stop name or ID, not both.')
+      let near = args.nearStopId ? context.stopIndex.get(args.nearStopId) : undefined
+      if (args.nearStopName) {
+        const matches = context.resolve({ query: args.nearStopName, kind: 'stop' }).matches
+        if (matches.length !== 1) throw Object.assign(new Error('Choose the search starting station.'), { details: { matches } })
+        near = context.stopIndex.get(matches[0].id)
+      }
       if (args.nearStopId && !near) throw new Error('Resolve an exact stop ID before using it as a search focus.')
-      const data = await places.search({ query: args.query, withinCity: args.withinCity, near }, signal)
+      const data = await places.search({ query: args.query, withinCity: args.withinCity, near, osmTag: args.osmTag }, signal)
       return { ...envelope(data, ['Photon · © OpenStreetMap contributors', ...data.matches.map((match) => match.sourceUrl)]), generatedAt: data.searchedAt }
     }
+    if (name === 'find_walk') {
+      if (!places) throw new Error('Place search is not available on this server.')
+      const result = await findWalk(context, places, adapters, args, signal)
+      return envelope(result.data, result.sources, result.warnings)
+    }
     if (name === 'walk_route') {
-      const { origin, destination, waypoints, resolved, sources } = await resolveJourneyPoints(context, places, args, signal)
-      const result = await adapters.route({ origin, destination, ...(waypoints.length ? { waypoints } : {}), mode: 'walk', departMinutes: 0 }, signal)
-      const plan = result.plan
-      const ready = plan?.status === 'ready' && plan.travelMode === 'walk' && Number.isFinite(plan.durationMinutes) && plan.durationMinutes >= 0 && plan.legs?.length && plan.legs.every((leg) => leg.type === 'walk' && Number.isFinite(leg.distanceKm) && leg.distanceKm >= 0)
-      const distanceMeters = ready ? plan.legs.reduce((sum, leg) => sum + leg.distanceKm * 1000, 0) : null
-      const walking = ready ? { distanceMeters, distanceMiles: distanceMeters / 1609.344, durationMinutes: plan.durationMinutes, walkingSpeedKph: plan.diagnostics?.walkingSpeedKph,
-        endpointConnectionsMeters: { origin: plan.diagnostics?.originSnapDistanceM, destination: plan.diagnostics?.destinationSnapDistanceM } } : null
-      const warnings = ready ? ['Walking time is estimated from the saved pedestrian network and walking speed. Place map points may differ from public or accessible entrances.'] : [plan?.detail || 'No walking route was established. Check the City’s OpenStreetMap street index and endpoint coverage.']
-      return envelope({ ...result, walking, resolved }, ['VIGO Route · saved OpenStreetMap pedestrian network', ...sources], warnings)
+      const result = await calculateWalk(context, places, adapters, args, signal)
+      return envelope(result.data, result.sources, result.warnings)
+    }
+    if (name === 'walk_compare') {
+      const pairs = args.destinations.map(destination => ({ origin: args.origin, destination }))
+      if (args.pairwise) for (const origin of args.destinations) for (const destination of args.destinations) if (origin !== destination) pairs.push({ origin, destination })
+      const comparisons = [], sources = new Set(), warnings = new Set()
+      for (const pair of pairs) {
+        signal?.throwIfAborted()
+        try {
+          const result = await calculateWalk(context, places, adapters, { ...args, ...pair }, signal)
+          for (const source of result.sources) sources.add(source)
+          for (const warning of result.warnings) warnings.add(warning)
+          const { walking, assessment, resolved, entrances } = result.data
+          comparisons.push({ from: resolved[0], to: resolved.at(-1), walking, assessment, entrances })
+        } catch (error) {
+          signal?.throwIfAborted()
+          comparisons.push({ from: pair.origin, to: pair.destination, walking: null, error: error.message, clarification: error.details })
+        }
+      }
+      return envelope({ comparisons, pairwise: Boolean(args.pairwise), minimumDistanceMiles: args.minimumDistanceMiles }, [...sources], [...warnings])
     }
     if (name === 'service_profile') {
       if (new Date(`${args.serviceDate}T12:00:00Z`).toISOString().slice(0, 10) !== args.serviceDate) throw new Error('Invalid service date.')

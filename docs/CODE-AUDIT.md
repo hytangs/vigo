@@ -1,5 +1,21 @@
 # Agency code and commit audit
 
+## September 13 follow-up
+
+The history now contains 23 commits after `[START OF VIGO AGENCY]`, through `3f847e0`. The earlier review below covers the first 17. This pass inspected the surviving provider, query, place, journey, notebook and runtime boundaries added or changed by `41db489`, `165dee1`, `3f5619a`, `876e83f`, `1aa8026` and `3f847e0`, and reviewed the pending preparation UI/server changes together. This is a focused source and regression review, not a claim that every possible agency query has been evaluated.
+
+Corrections from the reported Park Street failures:
+
+- Place results had lost their OSM categories before reaching the model. Categories now remain visible, requested filters are checked against returned metadata, and exact OSM place details retain access/takeout evidence with a bounded 15-minute cache.
+- A station centroid could attach to a disconnected pedestrian component. Walking compares the station's declared GTFS entrances using the existing native matrix. An intermediate station keeps one entrance across adjacent legs. Arbitrary coordinate endpoints are unchanged. Distance requirements use the exact international mile; a failed path remains unknown.
+- Street requests could wait indefinitely for a third worker while both City workers were leased. Routes, matrices and background street preparation now share the City's resident worker. An OSM-only City can also execute walking without a timetable.
+- A complete outing is a reusable tool with a small input schema, category-specific visits, native measurement and a readable evidence summary. Its server-rendered summary is distinguished from AI-generated prose. A dedicated walking presentation component keeps result rendering out of the orchestration code.
+- Background tasks show actual preparation phases, retain failures and retry, share work across windows and stop polling after completion. Entering a routing mode reacquires preparation. Transit preparation preserves the already loaded driving network.
+
+Adversarial fixtures cover private parks, provider-ignored category filters, conflicting identities, missing categories, disconnected entrances, intermediate-station continuity, exact distance boundaries, unknown activity durations, two occupied worker slots, an OSM-only City, later timetable arrival, preparation failure/retry and retained Drive readiness. Live replay failures are retained alongside the successful diagnostic; tests do not establish general 4B-model reliability. See [walking evidence](evidence/agency-walking-audit.json) and [Ask methods](ASK-QUALITY.md).
+
+The protected `README.md`, `ASSUMPTIONS.md` and `AI-USE.md` remain unchanged. No dependencies or model weights were added in this follow-up.
+
 Reviewed on September 13, 2026, in `vigo-developers/vigo-agency`. The starting checkout was clean on `main`. The review covers the 17 commits after `ea65ae6` (`[START OF VIGO AGENCY]`), through `4ea670b`, and their combined changes across 82 files. The original VIGO checkout and native routing implementation were outside this change.
 
 The useful boundaries are already present: one timetable context and observation session per City; reusable transit tools; a provider adapter; a City notebook; and separate Live, Ask, evidence, and research views. Replacing them with another agent framework would add work without correcting the failures found here. This pass strengthens ownership, request cancellation, exact identities, and reuse within those boundaries.

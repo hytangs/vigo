@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { createToolRegistry, failedToolResult } from '../src/agency/toolRegistry.mjs'
 import { queryAgency } from '../src/agency/queryAgent.mjs'
+import { calculateWalk, walkingAssessment } from '../src/agency/walking.mjs'
 
 const stops = ['Library', 'Depot', 'Town Hall'].map((name, i) => ({ stop_id: `S${i}`, name, lon: i + 10, lat: i + 20 }))
 const routes = [{ id: 'R1', name: '1', short_name: '1' }, { id: 'R2', name: '2', short_name: '2' }]
 const context = { stopIndex: new Map(stops.map(s => [s.stop_id, s])), routeIndex: new Map(routes.map(r => [r.id, r])), overview: () => ({ cityName: 'City X' }),
-  resolve({ query, kind }) { const items = kind === 'route' ? routes : stops; const matches = items.filter(s => s.name === query || query === 'Ambiguous').map(s => ({ id: s.stop_id || s.id, name: s.name })); return { matches, total: matches.length, ambiguous: matches.length > 1 } },
+  resolve({ query, kind }) { const items = kind === 'route' ? routes : stops; const matches = items.filter(s => s.name === query || query === 'Ambiguous').map(s => ({ id: s.stop_id || s.id, name: s.name })); return { method: 'exact', matches, total: matches.length, ambiguous: matches.length > 1 } },
 }
 const state = { generatedAt: '2026-09-13T12:00:00Z', feeds: [], routes, trips: [], events: routes.map(r => ({ id: r.id, routeId: r.id, title: 'Delay', evidence: { delaySeconds: 60 }, sourceRefs: [] })), warnings: [] }
 let request, routeCalls = 0
@@ -78,4 +79,73 @@ const followup = await queryAgency({ question: 'Same route, arrive by 17:00 inst
   return { content: 'I can retain your endpoints and no-transfer requirement when checking the new deadline.' }
 } } })
 assert.match(followup.answer, /retain your endpoints and no-transfer requirement/)
+
+const station = { stop_id: 'station', name: 'Central', location_type: 1, lon: 10, lat: 20 }
+const entrances = ['disconnected', 'north', 'south'].map((name, i) => ({ stop_id: name, name, parent_station: 'station', location_type: 2, lon: 10 + i, lat: 20 }))
+const walkingContext = { ...context, stopIndex: new Map([station, ...entrances].map(stop => [stop.stop_id, stop])) }
+let matrixCalls = 0, walkingRequest
+const walkingAdapters = {
+  streetMatrix: async ({ origins, destinations }) => {
+    matrixCalls++
+    return { rows: origins.flatMap((from, originIndex) => destinations.map((to, destinationIndex) => {
+      // Nearest entrance is disconnected. The two intermediate-station legs
+      // favour different entrances: minima must not teleport through it.
+      const blocked = from.stopId === 'disconnected' || to.stopId === 'disconnected'
+      const km = to.stopId === 'north' ? 0.2 : to.stopId === 'south' ? 0.5 : from.stopId === 'north' ? 1 : 0.3
+      return { originIndex, destinationIndex, status: blocked ? 'blocked' : 'ready', distanceKm: blocked ? null : km }
+    })) }
+  },
+  route: async input => {
+    walkingRequest = input
+    return { plan: { status: 'ready', travelMode: 'walk', durationMinutes: 10, legs: [{ type: 'walk', distanceKm: 0.8 }] } }
+  },
+}
+const stroll = { origin: { lat: 20, lon: 9 }, destination: { lat: 20, lon: 14 }, waypoints: [{ stopId: 'station' }], minimumDistanceMiles: 1, timeBudgetMinutes: 40 }
+const measured = await calculateWalk(walkingContext, null, walkingAdapters, stroll)
+assert.equal(walkingRequest.waypoints[0].stopId, 'south', 'Choose the shortest complete walk through one recorded entrance, not separate leg minima')
+assert.equal(matrixCalls, 2)
+assert.equal(measured.data.entrances[0].station, 'Central')
+assert.equal(measured.data.assessment.meetsMinimumDistance, false)
+assert.equal(measured.data.assessment.minutesAfterWalking, 30)
+assert.equal(measured.data.assessment.fitsIncludingActivities, null, 'Forty minutes cannot be declared sufficient when ordering/eating duration is unknown')
+assert.match(measured.warnings.join(' '), /inside the station/)
+assert.equal(walkingAssessment({ distanceMeters: 1609.344, durationMinutes: 20 }, { minimumDistanceMiles: 1, timeBudgetMinutes: 40, activityMinutes: 20 }).meetsMinimumDistance, true)
+assert.equal(walkingAssessment({ distanceMeters: 1609.343, durationMinutes: 20 }, { minimumDistanceMiles: 1 }).meetsMinimumDistance, false, 'Do not round a sub-mile path into a pass')
+assert.equal(walkingAssessment(null, { minimumDistanceMiles: 1 }).meetsMinimumDistance, null)
+await calculateWalk(walkingContext, null, walkingAdapters, { origin: stroll.origin, destination: stroll.destination })
+assert.equal(matrixCalls, 2, 'Arbitrary map coordinates never get moved to convenient station entrances')
+const disconnected = { ...walkingAdapters, streetMatrix: async () => ({ rows: [] }) }
+await assert.rejects(calculateWalk(walkingContext, null, disconnected, stroll), /No connected walk/)
+
+const comparisonsTool = createToolRegistry({ context: walkingContext, state, adapters: walkingAdapters })
+const comparisons = await comparisonsTool('walk_compare', { origin: stroll.origin, destinations: [{ stopId: 'station' }, stroll.destination], minimumDistanceMiles: 1, pairwise: true })
+assert.equal(comparisons.data.comparisons.length, 4, 'Compare origin-to-candidates and both directed pairs')
+assert.ok(comparisons.data.comparisons.every(row => row.assessment.meetsMinimumDistance === false))
+const mixed = await comparisonsTool('walk_compare', { origin: stroll.origin, destinations: [stroll.destination, { stopId: 'missing' }] })
+assert.ok(mixed.data.comparisons[0].walking)
+assert.equal(mixed.data.comparisons[1].walking, null, 'Retain a failed candidate beside successful calculations')
+assert.match(mixed.data.comparisons[1].error, /Unknown stop/)
+const visitPlaces = [
+  { id: 'osm:node/1', name: 'Takeout', address: '1 Market Street', lon: 11, lat: 20, sourceUrl: 'https://www.openstreetmap.org/node/1', category: { key: 'amenity', value: 'fast_food' } },
+  { id: 'osm:node/2', name: 'Private Garden', address: '2 Market Street', lon: 12, lat: 20, sourceUrl: 'https://www.openstreetmap.org/node/2', category: { key: 'leisure', value: 'park' } },
+  { id: 'osm:node/3', name: 'Town Common', address: '3 Market Street', lon: 13, lat: 20, sourceUrl: 'https://www.openstreetmap.org/node/3', category: { key: 'leisure', value: 'park' } },
+]
+const visitTool = createToolRegistry({ context, state, places: {
+  search: async ({ osmTag }) => ({ matches: osmTag === 'leisure:park' ? visitPlaces.slice(1) : visitPlaces.slice(0, 1) }),
+  resolve: id => visitPlaces.find(place => place.id === id),
+  details: async id => ({ url: 'https://www.openstreetmap.org/', tags: id.endsWith('/1') ? { takeaway: 'yes' } : id.endsWith('/2') ? { access: 'private' } : {} }),
+}, adapters: { route: async input => ({ plan: { ...input, status: 'ready', travelMode: 'walk', durationMinutes: input.destination.coordinate[0], legs: [{ type: 'walk', distanceKm: 1 }] } }) } })
+const visitArgs = { origin: 'Library', visits: [{ query: 'takeout', osmTag: 'amenity:fast_food' }, { osmTag: 'leisure:park' }], timeBudgetMinutes: 40 }
+const outing = await visitTool('find_walk', visitArgs)
+await assert.rejects(visitTool('find_walk', { ...visitArgs, visits: [{ query: 'public park' }] }), /osmTag/)
+assert.equal(outing.data.visits.at(-1).name, 'Town Common', 'A shorter explicitly private park must not win')
+assert.equal(outing.data.comparison.checked, 2)
+assert.equal(outing.data.comparison.restricted, 1)
+assert.equal(outing.data.assessment.fitsIncludingActivities, null)
+const outingAnswer = await queryAgency({ question: 'Takeout and a park in 40 minutes', context, state, callTool: visitTool, provider: { available: true, complete: async () => ({ tool_calls: [{ id: 'outing', function: { name: 'find_walk', arguments: JSON.stringify(visitArgs) } }] }) } })
+assert.equal(outingAnswer.timing.modelCalls, 1, 'The complete measured outing needs no second model pass to repeat numbers')
+assert.equal(outingAnswer.aiGenerated, false, 'Distinguish server-rendered evidence from model prose')
+assert.match(outingAnswer.answer, /Town Common.*\n.*\n.*27 minutes/s)
+assert.doesNotMatch(outingAnswer.answer, /Private Garden|inside stations/)
+assert.match(outingAnswer.answer, /public access.*not confirmed/)
 console.log('Agency journeys: named endpoints, ambiguity, ordered stops, deadlines, transfer limits, multi-route scope, concurrent reads, timing and follow-up request context passed.')

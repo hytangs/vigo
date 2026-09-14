@@ -150,7 +150,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
         const progress = (item) => { const previous = activities.findIndex((entry) => entry.phase === item.phase); if (previous < 0) activities.push(item); else activities[previous] = item; onProgress?.(item) }
         const retain = (title, answer, kind = 'ask') => { const entry = session.notebook.save({ title, answer, activities, kind, parentId: body.parentId ?? null }); return { ...answer, entryId: entry.id } }
         const callTool = createToolRegistry({ context: session.context, state, snapshot: session.snapshot, notebook: session.notebook, places: session.places, web: research, signal,
-          adapters: { matrix: (request, abort) => adapters.matrix(projectId, request, abort), route: (request, abort) => adapters.route(projectId, request, abort), reach: (request, abort) => adapters.reach(projectId, request, abort) } })
+          adapters: { streetMatrix: adapters.streetMatrix ? (request, abort) => adapters.streetMatrix(projectId, request, abort) : undefined, matrix: (request, abort) => adapters.matrix(projectId, request, abort), route: (request, abort) => adapters.route(projectId, request, abort), reach: (request, abort) => adapters.reach(projectId, request, abort) } })
         switch (body.action) {
           case 'connect': return { snapshot: await connect(projectId, body.request) }
           case 'disconnect': return this.disconnect(projectId)
@@ -163,14 +163,18 @@ export function createAgencyService(adapters, { provider = createProvider(), web
               const previous = session.notebook.read(parentId)
               // Retain the most recent journey inputs, even across intervening
               // explanations. Older plans must not overwrite a later revision.
-              const categories = [['route_plan', 'walk_route', 'reach'], ['realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message']]
+              const categories = [['route_plan', 'walk_route', 'walk_compare', 'find_walk', 'reach'], ['place_search'], ['realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message']]
               const retained = categories.flatMap(tools => history.some(item => item.requests?.some(call => tools.includes(call.tool))) ? [] : (previous.answer.trace ?? []).filter(call => call.result.ok && tools.includes(call.tool)).slice(-2))
+              for (const call of retained) {
+                if (call.tool === 'place_search') session.places.restore(call.result.data.matches)
+                if (call.tool === 'find_walk') session.places.restore(call.result.data.visits)
+              }
               const requests = retained.map(call => ({ tool: call.tool, arguments: call.arguments }))
-              const findings = retained.filter(call => ['realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message'].includes(call.tool)).slice(-1)
+              const findings = retained.filter(call => ['place_search', 'find_walk', 'walk_compare', 'realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message'].includes(call.tool)).slice(-3)
               history.unshift({ question: previous.title, answer: previous.answer.answer, notes: previous.notes, observedAt: previous.answer.generatedAt, requests, findings })
               parentId = previous.parentId
             }
-            return retain(body.question, await queryAgency({ question: body.question, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled, placeEndpoint: session.places.endpoint, webStatus: research }))
+            return retain(body.question, await queryAgency({ question: body.question, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled, placeEndpoint: session.places.endpoint, placeDetailsEndpoint: session.places.detailsEndpoint, webStatus: research }))
           }
           case 'run-skill': {
             const result = await session.skills.run(body.id, body.inputs ?? {}, callTool, progress, { signal, generatedAt: state.generatedAt })

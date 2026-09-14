@@ -1,4 +1,149 @@
 /* Top bar */
+/* Background preparation remains visible from every City view. */
+.background-tasks {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.topbar:has(.background-tasks-panel) {
+  z-index: 60;
+}
+
+.background-tasks-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-strong);
+  color: var(--text-strong);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.background-tasks-trigger b {
+  min-width: 17px;
+  border-radius: 4px;
+  background: var(--active-surface);
+  text-align: center;
+}
+
+.background-tasks-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(370px, calc(100vw - 24px));
+  max-height: min(560px, calc(100dvh - 80px));
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--panel-strong);
+  color: var(--text-strong);
+  box-shadow: var(--shadow-soft);
+  font-size: 12px;
+}
+
+.background-tasks-panel header,
+.background-task-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.background-tasks-panel header > strong {
+  flex: 1;
+  font-size: 13px;
+}
+
+.background-tasks-panel button {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text-strong);
+  cursor: pointer;
+}
+
+.background-tasks-panel p {
+  margin: 8px 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.background-tasks-panel ul {
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.background-task {
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.background-task-heading strong {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.background-task-heading > span {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.background-task small {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.background-task progress {
+  display: block;
+  width: 100%;
+  height: 5px;
+  margin: 8px 0;
+  accent-color: var(--accent);
+}
+
+.background-task.is-complete .background-task-heading > svg {
+  color: var(--accent);
+}
+
+.background-task.is-failed .background-task-heading > svg {
+  color: var(--danger, #c24135);
+}
+
+.background-tasks-data {
+  width: 100%;
+}
+
+.task-spinner {
+  flex-shrink: 0;
+  animation: preparation-spin 1.2s linear infinite;
+}
+
+@keyframes preparation-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-spinner { animation: none; }
+}
+
+@media (max-width: 760px) {
+  .background-tasks-trigger > span { display: none; }
+  .background-tasks-panel { position: fixed; top: 58px; right: 12px; }
+}
+
 /* Primary top bar, command center, and command results. */
 .topbar {
   position: relative;
