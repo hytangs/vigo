@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { mock } from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
 import { AgencyContext, serviceEpoch } from '../src/agency/agencyContext.mjs'
 import { deriveOperationalState, createObservationHistory } from '../src/agency/realtimeIntelligence.mjs'
@@ -15,7 +16,7 @@ import { createAgencyFixture, observationTime as now, realtimeFixture, tripUpdat
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'network-diagnosis-'))
 const file = path.join(directory, 'schedule.sqlite')
-let context, service
+let context, service, coverageReads
 try {
   createAgencyFixture(file)
   const db = new DatabaseSync(file)
@@ -123,17 +124,27 @@ try {
   const adapters = { context: async () => ({ storePath: file, cityName: 'City X', agencyDirectory: path.join(directory, 'agency') }), inspectRealtime: async () => snapshot }
   service = createAgencyService(adapters, options)
   await service.connect('x', { sourceUrl: 'fixture' })
+  coverageReads = mock.method(AgencyContext.prototype, 'coverage')
   const [a, b] = await Promise.all([service.handle('x', { action: 'briefing' }), service.handle('x', { action: 'briefing' })])
+  const sharedReads = coverageReads.mock.callCount()
   assert.equal(a.entryId, b.entryId, 'Concurrent tabs share one assessment')
   assert.equal(modelCalls, 0, 'Network diagnosis incurs no LLM latency')
   assert.equal(a.diagnosis.routes.length, 3)
   const live = await service.state('x')
   assert.equal('measurements' in live, false)
   assert.equal('trips' in live, false)
-  assert.equal((await service.handle('x', { action: 'briefing' })).entryId, a.entryId)
+  coverageReads.mock.resetCalls()
+  assert.deepEqual(await service.handle('x', { action: 'briefing' }), a, 'Returning a retained briefing preserves its entire answer and observation time.')
+  assert.equal(coverageReads.mock.callCount(), 0, 'A retained briefing must not rebuild current network state before returning.')
+  const forced = await service.handle('x', { action: 'briefing', force: true })
+  assert.notEqual(forced.entryId, a.entryId)
+  assert.ok(coverageReads.mock.callCount() > 0, 'Force refresh obtains current evidence.')
+  assert.equal(coverageReads.mock.callCount(), sharedReads, 'Concurrent readers require no more assessment work than one forced refresh.')
+  coverageReads.mock.resetCalls()
   clock += 15 * 60000
   assert.equal((await service.handle('x', { action: 'briefing-latest' })).current, false)
-  assert.notEqual((await service.handle('x', { action: 'briefing' })).entryId, a.entryId)
+  assert.notEqual((await service.handle('x', { action: 'briefing' })).entryId, forced.entryId)
+  assert.ok(coverageReads.mock.callCount() > 0, 'Expiry obtains current evidence rather than extending the retained answer.')
   await service.handle('x', { action: 'briefing-settings', preferences: { intervalMinutes: 60, automatic: false } })
   service.close(); service = createAgencyService(adapters, options)
   assert.deepEqual((await service.handle('x', { action: 'briefing-latest' })).preferences, { intervalMinutes: 60, automatic: false })
@@ -142,4 +153,4 @@ try {
   assert.equal(briefingStatus({ answer: a }, defaultBriefingPreferences, now * 1000, 'changed').current, false, 'A timetable replacement invalidates the briefing')
   assert.equal(briefingStatus({ answer: a }, defaultBriefingPreferences, now * 1000 - 1, a.scheduleIdentity).current, false)
   console.log('Network assessment: all routes, complete comparisons, distinct trips, weighted coverage, spatial/time/direction identity, source-clock history, overnight service, cache/expiry/persistence, and no LLM overhead passed.')
-} finally { service?.close(); context?.close(); await fs.rm(directory, { recursive: true, force: true }) }
+} finally { coverageReads?.mock.restore(); service?.close(); context?.close(); await fs.rm(directory, { recursive: true, force: true }) }

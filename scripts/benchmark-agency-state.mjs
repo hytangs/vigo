@@ -1,10 +1,14 @@
 import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import assert from 'node:assert/strict'
 import { performance } from 'node:perf_hooks'
 import { AgencyContext } from '../src/agency/agencyContext.mjs'
 import { deriveOperationalState } from '../src/agency/realtimeIntelligence.mjs'
 import { routeOperations } from '../src/agency/routeOperations.mjs'
 import { stopBoard } from '../src/agency/stopBoard.mjs'
 import { scheduledServiceWindow } from '../src/agency/serviceWindow.mjs'
+import { createAgencyService } from '../src/server/agency-api.mjs'
 
 const args = process.argv.slice(2)
 if (args.length < 4 || args.length > 5) {
@@ -49,7 +53,29 @@ for (const [name, run] of Object.entries(views)) {
     report.isolated[name] = { contextMs, firstCallMs: performance.now() - callStarted }
   } finally { freshContext.close() }
 }
-report.scope = 'Read-only snapshot replay at its saved timestamp. Timings use one shared City context in view order; isolated first calls each open a new context. The service window spans 30 minutes. Excludes feed retrieval, HTTP serialization, UI rendering, routing search and model inference. Cold means application caches, not OS disk caches. Cache bytes are estimates, not process memory.'
+// Request measurements use disposable Agency history. Never update the saved
+// City's notebook or fetch its live feeds while replaying an old observation.
+const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agency-request-benchmark-'))
+const service = createAgencyService({
+  context: async () => ({ storePath, cityName: 'Saved City', agencyDirectory: directory }),
+  inspectRealtime: async () => snapshot,
+}, { clock: () => now * 1000, refreshMs: 3600_000, provider: { available: false } })
+try {
+  await service.connect('replay', { sourceUrl: 'saved-observation' })
+  const briefing = await service.handle('replay', { action: 'briefing' })
+  report.requests = {}
+  for (const [name, run] of Object.entries({ state: () => service.state('replay'), retainedBriefing: () => service.handle('replay', { action: 'briefing' }) })) {
+    const times = []
+    let result
+    for (let i = 0; i < report.iterations; i++) { const started = performance.now(); result = await run(); times.push(performance.now() - started) }
+    times.sort((a, b) => a - b)
+    // Notebook JSON omits undefined properties, just like the HTTP response.
+    if (name === 'retainedBriefing') assert.deepEqual(JSON.parse(JSON.stringify(result)), JSON.parse(JSON.stringify(briefing)))
+    const serializeStart = performance.now(), serialized = JSON.stringify(result)
+    report.requests[name] = { warmMedianMs: times[Math.floor(times.length / 2)], warmP95Ms: times[Math.ceil(times.length * 0.95) - 1], serializeMs: performance.now() - serializeStart, bytes: Buffer.byteLength(serialized) }
+  }
+} finally { service.close(); await fs.rm(directory, { recursive: true, force: true }) }
+report.scope = 'Read-only timetable and saved-snapshot replay. Timings use one shared City context in view order; isolated first calls each open a new context. The service window spans 30 minutes. Request measurements use temporary history with network and model calls disabled; JSON serialization is measured separately. Excludes network transport, UI rendering, routing search and inference. Cold means application caches, not OS disk caches. Cache bytes are estimates, not process memory.'
 const text = JSON.stringify(report, null, 2) + '\n'
 if (reportPath) await fs.writeFile(reportPath, text)
 console.log(text)

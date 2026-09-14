@@ -1,10 +1,18 @@
 import { gtfsRealtimeEnums as gtfsRealtime } from './gtfs-realtime-decoder.mjs'
 
 const numeric = (value) => typeof value === 'number' && Number.isFinite(value) ? value : undefined
+const enumLabels = new WeakMap()
 
 function enumLabel(enumObject, value) {
   if (value === null || value === undefined) return undefined
-  return Object.entries(enumObject).find(([, enumValue]) => enumValue === value)?.[0]
+  let labels = enumLabels.get(enumObject)
+  if (!labels) {
+    // Decoder enums are frozen. Build their reverse lookup once per enum.
+    labels = new Map()
+    for (const [label, code] of Object.entries(enumObject)) if (!labels.has(code)) labels.set(code, label)
+    enumLabels.set(enumObject, labels)
+  }
+  return labels.get(value)
 }
 
 function translatedText(value) {
@@ -15,7 +23,12 @@ function translatedText(value) {
 }
 
 function compactObject(value) {
-  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined && entry !== null && entry !== ''))
+  const result = {}
+  for (const key of Object.keys(value)) {
+    const entry = value[key]
+    if (entry !== undefined && entry !== null && entry !== '') result[key] = entry
+  }
+  return result
 }
 
 function tripFields(trip) {
@@ -119,13 +132,20 @@ function alertToRecord(entity) {
 }
 
 export function realtimeSnapshotFromFeed(feed, sourceUrl, fetchedAt, contentType) {
-  const entities = (feed.entity ?? []).filter((entity) => !entity.isDeleted)
-  const identity = (record) => ({ ...record, sourceUrl, sourceFeedTimestamp: numeric(feed.header?.timestamp) })
-  const vehicles = entities.filter((entity) => entity.vehicle).map(vehiclePositionToRecord).map(identity)
-  const tripUpdates = entities.filter((entity) => entity.tripUpdate).map(tripUpdateToRecord).map(identity)
-  const alerts = entities.filter((entity) => entity.alert).map(alertToRecord).map(identity)
-  const classified = vehicles.length + tripUpdates.length + alerts.length
   const feedTimestamp = numeric(feed.header?.timestamp)
+  const identity = (record) => ({ ...record, sourceUrl, sourceFeedTimestamp: feedTimestamp })
+  const vehicles = [], tripUpdates = [], alerts = []
+  let entityCount = 0
+  for (const entity of feed.entity ?? []) {
+    if (entity.isDeleted) continue
+    entityCount++
+    // Retain each supported record, even if a source supplies multiple kinds
+    // in one entity; unknown kinds still contribute to the entity count.
+    if (entity.vehicle) vehicles.push(identity(vehiclePositionToRecord(entity)))
+    if (entity.tripUpdate) tripUpdates.push(identity(tripUpdateToRecord(entity)))
+    if (entity.alert) alerts.push(identity(alertToRecord(entity)))
+  }
+  const classified = vehicles.length + tripUpdates.length + alerts.length
   const ageSeconds = Number.isFinite(feedTimestamp)
     ? Date.parse(fetchedAt) / 1000 - feedTimestamp
     : undefined
@@ -143,12 +163,12 @@ export function realtimeSnapshotFromFeed(feed, sourceUrl, fetchedAt, contentType
     gtfsRealtimeVersion: feed.header?.gtfsRealtimeVersion || undefined,
     incrementality: enumLabel(gtfsRealtime.FeedHeader.Incrementality, feed.header?.incrementality),
     contentType,
-    entityCount: entities.length,
+    entityCount,
     counts: {
       vehicles: vehicles.length,
       tripUpdates: tripUpdates.length,
       alerts: alerts.length,
-      other: Math.max(0, entities.length - classified),
+      other: Math.max(0, entityCount - classified),
     },
     vehicles,
     tripUpdates,
@@ -202,4 +222,3 @@ export function realtimeSnapshotFromFeeds(records) {
     alerts,
   }
 }
-

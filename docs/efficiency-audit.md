@@ -63,3 +63,27 @@ Cold work remains: the station query must include incoming connections for termi
 Regression coverage now also compares identity-only and complete admission, checks cross-feed ambiguity before station filtering, verifies that unrelated reports do not load stop times, and compares service windows with the previous full-scan definition across calendar exceptions, time boundaries and timezones. Existing overnight and DST fixtures remain in the Agency suite.
 
 Validation passed: Agency, GTFS/fare, security, CLI, UI and map suites; TypeScript, web, CLI and native desktop build; packaged macOS arm64 runtime and City portability/route parity. The rebuilt application and ZIP are in the ignored `release/` directory. Protected assessment documents and routing/accessibility algorithms were not edited.
+
+## Further pass: request overhead and feed normalization
+
+Baseline: `a7b37df`. This pass profiled the API request path, retained history, normalization of decoded realtime records, and the existing cold-station query. It makes two runtime changes:
+
+- A retained briefing, or a request joining an investigation already in progress, returns before assembling another network assessment. Existing authorization, timetable identity, automatic-update preferences, expiry and force-refresh behavior remain in place. This reuses the existing briefing record; it adds no cache of current network state.
+- Realtime normalization reuses reverse lookups of the decoder's frozen enums, constructs compact records without arrays of key/value pairs, and classifies entities in one pass. It retains source timestamps, zero values, signed delays, unknown enum handling, deletion rules and ordering without mutating the decoded feed.
+
+| Measurement | Before warm median | After warm median | Input |
+| --- | ---: | ---: | --- |
+| Retained briefing request | 109.9 ms | 3.2 ms | Same saved MBTA observation; disposable history; no network or model calls |
+| Decoded-feed normalization | 114.3 ms | 29.7 ms | Synthetic load: 2,000 trip updates, each with 40 stop updates |
+
+Both measurements use 12 warm repetitions on the same macOS arm64 / Node 26.7.0 environment. Briefing output matched at the JSON response boundary, including its original observation time. The synthetic normalized output also matched its saved baseline; a separate normalization benchmark measured 26.1 ms. These are bounded local measurements, not live-feed throughput or LLM latency claims. Full state requests remained roughly 0.1–0.2 seconds under variable load; they are still recomputed. The cold station lookup remains unchanged.
+
+The Agency benchmark now includes request and serialization costs separately and writes history only to a temporary directory that it removes afterward. To measure normalization independently, supply decoded GTFS-Realtime JSON, not a VIGO-normalized snapshot:
+
+```sh
+node scripts/benchmark-realtime-snapshot.mjs DECODED_FEED.json report.json
+```
+
+Regression checks verify that cached requests do no new coverage work, concurrent readers share assessment work, and forced/expired requests still recalculate. Normalization tests cover every supported enum plus invalid values, multi-kind and deleted entities, empty/zero/negative values, independent source clocks and input immutability. No routing/accessibility algorithm or assessment document was changed.
+
+This pass passed Agency, GTFS/fare, security, CLI, UI and map suites, followed by the desktop build and packaged macOS arm64 runtime/City portability checks. The standalone app and ZIP were rebuilt in `release/`.

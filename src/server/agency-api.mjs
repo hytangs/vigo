@@ -168,7 +168,16 @@ export function createAgencyService(adapters, { provider = createProvider(), web
           return handleOperations({ store: session.operations, state, context: session.context, scheduleIdentity: session.scheduleIdentity, principal, body,
             monitoring: { active: Boolean(session.timer), refreshing: Boolean(session.inFlight), refreshError: session.refreshError || null, storageError: session.storageError || null } })
         }
+        const briefingSettings = body.action === 'briefing' ? session.notebook.get('briefing-preferences') ?? defaultBriefingPreferences : null
         switch (body.action) {
+          case 'briefing': {
+            const entry = body.force === true ? null : session.notebook.latest('briefing')
+            if (body.force !== true && entry && (!briefingSettings.automatic || briefingStatus(entry, briefingSettings, clock(), session.scheduleIdentity).current)) return { ...entry.answer, entryId: entry.id, briefingPreferences: briefingSettings }
+            // Sharing a retained or in-flight briefing needs no new assessment.
+            // Expired and forced requests continue below with current evidence.
+            if (session.briefingJob) return { ...await session.briefingJob, briefingPreferences: briefingSettings }
+            break
+          }
           case 'route-line': return routeOperations(session.context, session.snapshot, { ...body, routeId: indexedEntityId(session.context, 'route', body.routeId, session.feedIds) }, clock() / 1000, policy)
           case 'stop-board': return stopBoard(session.context, session.snapshot, { ...body, feedIds: session.feedIds }, clock() / 1000, policy)
           case 'vehicle': return vehicleDetails(session.context, session.snapshot, body, clock() / 1000, policy)
@@ -198,13 +207,10 @@ export function createAgencyService(adapters, { provider = createProvider(), web
           case 'disconnect': return this.disconnect(projectId)
           case 'tool': return callTool(body.name, body.arguments ?? {})
           case 'briefing': {
-            const preferences = session.notebook.get('briefing-preferences') ?? defaultBriefingPreferences
-            const entry = session.notebook.latest('briefing')
-            if (body.force !== true && entry && (!preferences.automatic || briefingStatus(entry, preferences, clock(), session.scheduleIdentity).current)) return { ...entry.answer, entryId: entry.id, briefingPreferences: preferences }
-            if (!session.briefingJob) session.briefingJob = networkBriefing({ context: session.context, state, provider: inference, callTool, signal, scheduleIdentity: session.scheduleIdentity, onProgress: progress })
+            session.briefingJob = networkBriefing({ context: session.context, state, provider: inference, callTool, signal, scheduleIdentity: session.scheduleIdentity, onProgress: progress })
               .then(answer => retain('Network briefing', { ...answer, scheduleIdentity: session.scheduleIdentity }, 'briefing'))
               .finally(() => { session.briefingJob = null })
-            return { ...await session.briefingJob, briefingPreferences: preferences }
+            return { ...await session.briefingJob, briefingPreferences: briefingSettings }
           }
           case 'ask': {
             const selection = workspaceSelection(session.context, body.selection, session.feedIds)
