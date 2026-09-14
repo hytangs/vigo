@@ -119,6 +119,8 @@ function mergeThroughRide(left, right) {
   }
   return {
     ...left,
+    // Extending the endpoints invalidates a boarding quote for the shorter leg.
+    fare: undefined,
     toStopId: right.toStopId,
     toStationGroupId: right.toStationGroupId,
     toName: right.toName,

@@ -423,13 +423,13 @@ parentPort.on('message', async (message) => {
         nativeCoordinateAccess: routing.nativeCoordinateAccess ?? null,
       }
     } else if (operation === 'window') {
-      const { routeNationalGtfsDepartureWindow } = await loadGtfsModule()
+      const { routeNationalGtfsDepartureWindow, addNationalGtfsFares } = await loadGtfsModule()
       const routed = routeNationalGtfsDepartureWindow(storePath, request)
       const earliestTransit = earliestTransitEvidenceFromPlans(routed.profile?.plans)
       const { plans: _samplePlans, ...profile } = routed.profile
       result = {
-        plan: routed.plan,
-        choices: routed.choices,
+        plan: addNationalGtfsFares(storePath, routed.plan),
+        choices: routed.choices.map(plan => addNationalGtfsFares(storePath, plan)),
         profile,
         ...(earliestTransit ? { earliestTransit } : {}),
       }
@@ -468,8 +468,8 @@ parentPort.on('message', async (message) => {
         }),
       })
     } else if (operation === 'route') {
-      const { routeNationalGtfsStore } = await loadGtfsModule()
-      result = routeNationalGtfsStore(storePath, request)
+      const { routeNationalGtfsStore, addNationalGtfsFares } = await loadGtfsModule()
+      result = addNationalGtfsFares(storePath, routeNationalGtfsStore(storePath, request))
     } else if (operation === 'street-route') {
       const {
         prepareNationalOsmDriveStore,

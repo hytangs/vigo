@@ -1,0 +1,32 @@
+.routing-fares {
+  margin: 12px 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.routing-fares > summary {
+  width: fit-content;
+  cursor: pointer;
+  padding: 6px 0;
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.routing-fares > div {
+  margin: 8px 0;
+}
+
+.routing-fares p {
+  margin: 6px 0;
+}
+
+.routing-fares small {
+  display: block;
+  font-size: 11px;
+}
+
+.routing-fares a {
+  color: inherit;
+  text-decoration: underline;
+}

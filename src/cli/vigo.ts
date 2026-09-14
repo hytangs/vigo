@@ -35,6 +35,7 @@ import {
   readNationalGtfsStoreMetadata,
   routeNationalGtfsReach,
   routeNationalGtfsDepartureWindow,
+  addNationalGtfsFares,
   routeNationalGtfsMatrix,
   routeNationalGtfsStore,
 } from '../server/national-gtfs-store.mjs'
@@ -249,14 +250,14 @@ function routeOne(storePath: string, request: Record<string, unknown>, departure
       stepMinutes: 1,
     })
     return {
-      plan: decorateCliRoutingPlan(profile.plan),
-      choices: profile.choices.map(decorateCliRoutingPlan),
+      plan: decorateCliRoutingPlan(addNationalGtfsFares(storePath, profile.plan)),
+      choices: profile.choices.map(plan => decorateCliRoutingPlan(addNationalGtfsFares(storePath, plan))),
       profileSampleCount: profile.profile.sampleCount,
       elapsedMs: performance.now() - startedAt,
     }
   }
   return {
-    plan: decorateCliRoutingPlan(routeNationalGtfsStore(storePath, request)),
+    plan: decorateCliRoutingPlan(addNationalGtfsFares(storePath, routeNationalGtfsStore(storePath, request))),
     profileSampleCount: 0,
     elapsedMs: performance.now() - startedAt,
   }

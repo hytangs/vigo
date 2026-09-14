@@ -10,6 +10,7 @@ import { describeCurrentTime } from './currentTime.mjs'
 import { describeJourneys, journeyBreakdown, verifyJourneyModes } from './journeyResults.mjs'
 import { inspectionFacts } from './serviceInspection.mjs'
 import { isDeepStrictEqual } from 'node:util'
+import { boardingFareEvidence } from '../fares.mjs'
 
 const workspaceTool = { name: 'workspace_selection', description: 'Read the verified route/station currently selected in the workspace, including names, IDs and coordinates. Use for this route, this station, here or selection questions; it does not identify an unrelated named service.',
   parameters: { type: 'object', properties: {}, additionalProperties: false } }
@@ -54,7 +55,7 @@ export function compactResult(result, tool) {
   if (tool === 'route_plan' && data.journeys) return envelope({ resolved: data.resolved, request: data.request, completion: data.completion,
     journeys: data.journeys.map(item => ({ mode: item.mode, status: item.status, reason: item.reason, realtime: item.realtime,
       ...(item.plan ? { durationMinutes: item.plan.durationMinutes, departTime: clock(item.plan.departMinutes), arriveTime: clock(item.plan.arriveMinutes),
-        timeBreakdown: journeyBreakdown(item.plan), transfers: item.plan.transfers } : {}) })) })
+        timeBreakdown: journeyBreakdown(item.plan), transfers: item.plan.transfers, fares: boardingFareEvidence(item.plan) } : {}) })) })
   if (tool === 'recall_notebook') return envelope({ entries: data.entries.map((entry) => ({ id: entry.id, title: entry.title, observedAt: entry.observedAt, shortened: entry.shortened || entry.excerpt.length > 800, excerpt: entry.excerpt.slice(0, 800) })) })
   if (tool === 'resolve_entities') return envelope({ total: data.total, method: data.method, ambiguous: data.ambiguous,
     ...(!data.total ? { nextStep: 'This lookup matches literal timetable text, not meaning. Retry a shorter distinctive name fragment from the requested place, without generic words like bus stop. Returned names may use agency abbreviations. Do not infer that the place does not exist.' } : {}),
@@ -71,6 +72,7 @@ export function compactResult(result, tool) {
     plan: data.plan ? {
       status: data.plan.status, detail: data.plan.detail, travelMode: data.plan.travelMode,
       durationMinutes: data.plan.durationMinutes,
+      fares: boardingFareEvidence(data.plan),
       departTime: tool === 'route_plan' ? clock(data.plan.departMinutes) : undefined,
       arriveTime: tool === 'route_plan' ? clock(data.plan.arriveMinutes) : undefined,
       transfers: data.plan.transfers,

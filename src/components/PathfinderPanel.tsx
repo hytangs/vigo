@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react'
 import { classNames } from '../domain'
+import { RoutingFare } from './RoutingFare'
 import { formatScheduleClock } from '../scheduledVehicles'
 import type {
   RoutingPlan,
@@ -189,6 +190,7 @@ function RoutingItinerary({
       ) : null}
 
       <RoutingPointSequence plan={plan} />
+      <RoutingFare plan={plan} />
 
       <ol>
         {plan.legs.map((leg, index) => {

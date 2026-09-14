@@ -112,6 +112,7 @@ export {
   selectNationalDepartureWindowChoices,
 } from './national-route-choices.mjs'
 export { WeightedLruCache } from './weighted-lru-cache.mjs'
+import { readGtfsFareCatalog, writeGtfsFareCatalog, copyGtfsFareCatalogs, addGtfsFares } from './gtfs-fare-store.mjs'
 
 const storeSchemaVersion = 'vigo.routing.store.v1'
 const transferSemanticsVersion = 'vigo.routing.transfers.v3'
@@ -2034,6 +2035,8 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
   }
 
   try {
+    const fareCatalog = await readGtfsFareCatalog(archive, { budget: zipImportBudget })
+    writeGtfsFareCatalog(db, fareCatalog, scope)
     const agencyEntry = gtfsTableEntry(archive, 'agency.txt')
     if (agencyEntry) {
       const agencyProfile = await streamTable(agencyEntry, (row) => {
@@ -2430,6 +2433,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       sourceFingerprint,
       sourceFile: path.basename(zipPath),
       sourceBytes: archive.compressedBytes,
+      fareData: fareCatalog ? { standard: fareCatalog.tables.fare_products ? 'GTFS Fares v2' : fareCatalog.tables.fare_attributes ? 'GTFS Fares v1' : null, boardingPrices: !fareCatalog.unavailableReason, transferTotals: false } : null,
       builtAt: new Date().toISOString(),
       routeCount: counts['routes.txt'] ?? 0,
       stopCount: counts['stops.txt'] ?? 0,
@@ -2673,6 +2677,7 @@ export async function mergeNationalGtfsStores({ stores, outputPath, onProgress, 
       report(onProgress, 'Merging exact GTFS stores', index / descriptors.length * 0.72, path.basename(descriptor.storePath))
       db.exec(`ATTACH DATABASE ${sqlLiteral(descriptor.storePath)} AS ${alias}`)
       runTransaction(db, () => {
+        copyGtfsFareCatalogs(db, alias, descriptor.scope)
         db.exec(`
           INSERT INTO stops
             SELECT ${prefixSql} || stop_id, name, lat, lon,
@@ -11463,6 +11468,11 @@ function routeNationalGtfsArriveByStore(
   }
 }
 
+
+export function addNationalGtfsFares(storePath, plan) {
+  if (plan?.status !== 'ready' || !plan.legs?.some(leg => leg.type === 'ride')) return plan
+  return addGtfsFares(openNationalStore(storePath).db, plan)
+}
 
 export function routeNationalGtfsStore(storePath, request) {
   validateTransitRideRequirement(request)

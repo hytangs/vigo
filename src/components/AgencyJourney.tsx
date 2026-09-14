@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ArrowRight } from 'lucide-react'
+import { RoutingFare } from './RoutingFare'
 import type { RoutingPlan } from '../routingModel'
 import type { ToolResult } from '../agency/types'
 import { journeyDuration, journeyModeNames, type Journey, type JourneyData } from '../agency/journeyResults.mjs'
@@ -37,7 +38,7 @@ export function AgencyJourneys({ result, onResult }: { result: ToolResult; onRes
   return <div>
     {journeys && journeys.length > 1 ? <div className="agency-journey-options" role="group" aria-label="Travel modes">{journeys.map(item => <button type="button" className="agency-button" key={item.mode} aria-pressed={selected?.mode === item.mode} onClick={() => show(item)}><strong>{journeyModeNames[item.mode]}</strong><span>{item.status === 'ready' && item.plan ? journeyDuration(item.plan.durationMinutes) : 'Unavailable'}</span></button>)}</div> : null}
     {plan && plan.travelMode !== 'walk' ? <p className="agency-caption">{data.request?.serviceDate ? `${data.request.serviceDate} · ` : ''}{plan.travelMode === 'drive' ? 'Road estimate · live traffic, parking and access walks excluded' : (selected?.realtime?.applied ?? data.realtime?.applied) ? 'Live predictions where applied' : 'Scheduled service · live predictions not applied'}</p> : null}
-    {plan ? <AgencyJourney plan={plan} endpoints={data.resolved} /> : <p className="agency-caption">{selected?.reason || 'No journey was established.'}</p>}
+    {plan ? <><RoutingFare plan={plan} /><AgencyJourney plan={plan} endpoints={data.resolved} /></> : <p className="agency-caption">{selected?.reason || 'No journey was established.'}</p>}
     {onResult && plan ? <button className="agency-text-button" onClick={() => onResult({ ...result, data: { ...data, plan, ...(selected ? { realtime: selected.realtime } : {}) } })}>Show on map <ArrowRight size={13} /></button> : null}
   </div>
 }

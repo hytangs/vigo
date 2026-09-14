@@ -40,6 +40,14 @@ export type RoutingAccessAvailabilityHint = {
 }
 
 export type RoutingLeg = {
+  fare?: {
+    status: 'published' | 'unavailable'
+    reason?: string
+    source?: string
+    standard?: string
+    agencyUrl?: string
+    options?: Array<{ productId: string; name: string; amount: number; currency: string; media?: string; riderCategory?: string }>
+  }
   type: 'walk' | 'ride' | 'drive'
   travelMode?: RoutingTravelMode
   scheduleMode?: Exclude<RoutingScheduleMode, 'none'>
