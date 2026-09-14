@@ -112,7 +112,9 @@ async function bundleEngine() {
   })
 
   await bundle(path.join(repositoryRoot, 'src', 'server', 'vigo-api.mjs'), [
-    '--file', path.join(serverRoot, 'vigo-api.mjs'),
+    '--dir', serverRoot,
+    '--entryFileNames', 'vigo-api.mjs',
+    '--chunkFileNames', 'api-[name].mjs',
   ])
   await bundle(path.join(repositoryRoot, 'src', 'server', 'agency-sql-worker.mjs'), [
     '--file', path.join(serverRoot, 'agency-sql-worker.mjs'),

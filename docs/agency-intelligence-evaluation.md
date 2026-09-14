@@ -4,7 +4,7 @@ September 14, 2026. Implementation and answer review by the coding assistant. Th
 
 ## Result: not ready for the requested standard
 
-The complete recheck produced **2 acceptable, 3 partial and 27 failed answers**. The adequate answers were the three-channel rider drafts and the combined Route 39 investigation; even those need editorial refinement. They do not establish that the remaining operational questions are supported. [All recheck answers](evidence/agency-intelligence-qwen-recheck.jsonl) and the [individual review](evidence/agency-intelligence-recheck-review.json) are retained, including failures.
+The complete recheck produced **2 acceptable, 3 partial and 27 failed answers**. The adequate answers were the three-channel rider drafts and the combined Route 39 investigation; even those need editorial refinement. They do not establish that the remaining operational questions are supported. [All recheck answers](evidence/agency-intelligence-qwen-recheck.json) and the [individual review](evidence/agency-intelligence-recheck-review.json) are retained, including failures.
 
 | Complete 32-question run | Acceptable | Partial | Failed | Median agent time | Model calls |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -15,7 +15,7 @@ The recheck took 33.3 minutes of accumulated agent time. Machine load, prompt ca
 
 The remaining failures are not cosmetic. They include excluding a shared cause because no alert confirms one, confusing forecast history with actual delay onset, treating missing crew records as evidence that no reliefs are endangered, inventing mechanical diagnostic capability, and interpreting fresh feeds as proof of prediction accuracy. The current model must not be described as an expert operational decision system based on these results.
 
-After the final code refinements, a three-question ordinary-mode spot check gave **0 acceptable, 1 partial and 2 failed answers**. “Route 66” resolved in one inspection, and the headway concept question used no live tools. The resulting prose still contained unsupported causal exclusions and incorrect wait arithmetic; the three-channel draft needed editing. [Exact final spot-check answers](evidence/agency-intelligence-final-spot.jsonl) and [review](evidence/agency-intelligence-final-spot-review.json) distinguish successful orchestration from unsuccessful interpretation. The delivered implementation has not passed the entire 32-question corpus.
+After the final code refinements, a three-question ordinary-mode spot check gave **0 acceptable, 1 partial and 2 failed answers**. “Route 66” resolved in one inspection, and the headway concept question used no live tools. The resulting prose still contained unsupported causal exclusions and incorrect wait arithmetic; the three-channel draft needed editing. [Exact final spot-check answers](evidence/agency-intelligence-final-spot.json) and [review](evidence/agency-intelligence-final-spot-review.json) distinguish successful orchestration from unsuccessful interpretation. The delivered implementation has not passed the entire 32-question corpus.
 
 ## First complete run
 
@@ -23,9 +23,9 @@ The 32-question run with `qwen3.5:4b` produced **0 acceptable, 4 partial and 28 
 
 The main failures were consequential: assigning one route's cause to other routes, inventing delay onset from forecast history, treating absent alerts as counterevidence, treating future non-reporting as failed service, and calculating passenger waits without the required assumptions. Several questions timed out or omitted requested deliverables. Fluent wording did not make these answers suitable for operations.
 
-[Exact answers and tool records](evidence/agency-intelligence-qwen-32.jsonl) and the [individual review](evidence/agency-intelligence-review.json) include every result. This run predates the final fixes for repeated inspections, scoped model context, query-parameter retention and conversation evidence retention. Those changes have deterministic regression coverage; their existence must not be counted as passing model answers. The older runner did not write a completion footer: all 32 IDs and successful process exit were checked separately.
+[Exact answers and tool records](evidence/agency-intelligence-qwen-32.json) and the [individual review](evidence/agency-intelligence-review.json) include every result. This run predates the final fixes for repeated inspections, scoped model context, query-parameter retention and conversation evidence retention. Those changes have deterministic regression coverage; their existence must not be counted as passing model answers. The older runner did not write a completion footer: all 32 IDs and successful process exit were checked separately.
 
-The [earlier 30-question baseline](evidence/agency-intelligence-baseline.jsonl) used the previous Ask pipeline. It invoked the timetable profile 19 times and never used a service investigation. Returning a timetable quickly was not a useful answer to network diagnosis, fleet readiness or intervention questions. The new investigation addresses that tool-selection gap, but this completed run still fails the requested answer-quality standard.
+The [earlier 30-question baseline](evidence/agency-intelligence-baseline.json) used the previous Ask pipeline. It invoked the timetable profile 19 times and never used a service investigation. Returning a timetable quickly was not a useful answer to network diagnosis, fleet readiness or intervention questions. The new investigation addresses that tool-selection gap, but this completed run still fails the requested answer-quality standard.
 
 ## Question coverage
 
@@ -72,11 +72,11 @@ The question types are not separate chat modes. They share the same context and 
 
 ## Model experiments
 
-All candidates stayed below the requested approximately 6B ceiling. The retained configuration is `qwen3.5:4b` with an 8,192-token context. A separate eight-question pilot of [Phi-4-mini](https://huggingface.co/microsoft/Phi-4-mini-instruct), served as `phi4-mini:3.8b`, produced **0 acceptable, 2 partial and 6 failed answers**. [Pilot answers](evidence/agency-intelligence-phi-pilot.jsonl) and [review](evidence/agency-intelligence-phi-review.json) are retained. That pilot predates on-demand workspace selection, so it is not a matched comparison with the final implementation.
+All candidates stayed below the requested approximately 6B ceiling. The retained configuration is `qwen3.5:4b` with an 8,192-token context. A separate eight-question pilot of [Phi-4-mini](https://huggingface.co/microsoft/Phi-4-mini-instruct), served as `phi4-mini:3.8b`, produced **0 acceptable, 2 partial and 6 failed answers**. [Pilot answers](evidence/agency-intelligence-phi-pilot.json) and [review](evidence/agency-intelligence-phi-review.json) are retained. That pilot predates on-demand workspace selection, so it is not a matched comparison with the final implementation.
 
 The [Qwen3 4B instruction model](https://ollama.com/library/qwen3%3A4b-instruct-2507-q4_K_M) was also tried on one diagnostic question; it confused a maximum with an average and suggested stairs as an accessible alternative. That one failure was enough to reject it for this setup, not to rank the model generally. Both comparison models were unloaded and removed from disk. Shorter writing prompts and a separate factual-editing pass also failed to remove unsupported claims; neither experiment became another production stage.
 
-A six-question pilot enabled reasoning on the same `qwen3.5:4b` model, still at 8,192 context tokens. **Five questions timed out and one incorrectly denied that Route 66 existed after a failed literal lookup.** [Exact pilot answers](evidence/agency-intelligence-reasoning-pilot.jsonl) and [review](evidence/agency-intelligence-reasoning-review.json) record the 120-second provider timeout and the tested implementation. The route-label fix came afterward. Reasoning mode was not promoted to the live configuration; these results do not show that more reasoning time supplies the missing operational reliability.
+A six-question pilot enabled reasoning on the same `qwen3.5:4b` model, still at 8,192 context tokens. **Five questions timed out and one incorrectly denied that Route 66 existed after a failed literal lookup.** [Exact pilot answers](evidence/agency-intelligence-reasoning-pilot.json) and [review](evidence/agency-intelligence-reasoning-review.json) record the 120-second provider timeout and the tested implementation. The route-label fix came afterward. Reasoning mode was not promoted to the live configuration; these results do not show that more reasoning time supplies the missing operational reliability.
 
 ## What an adequate answer should say
 
@@ -104,6 +104,8 @@ VIGO_AGENCY_LLM_TEMPERATURE=0 \
 VIGO_AGENCY_LLM_TIMEOUT_MS=120000 \
 npm run evaluate:intelligence -- --output /tmp/vigo-intelligence-new.jsonl
 ```
+
+Public answer records are standard JSON arrays converted losslessly from the runner’s JSONL output. Record order, answers, evidence, timings and review scores are unchanged.
 
 `--ids 1,4,5` selects a diagnostic subset. Output files are created exclusively, never overwritten. The record contains the model configuration, starting Git revision and dirty state, exact answers, tool arguments/results, warnings and timings. A missing completion record or missing question IDs indicates a partial run. Total time includes the agent's model and tool work; it excludes fixture construction. These sequential development runs do not control machine load or serving caches.
 
