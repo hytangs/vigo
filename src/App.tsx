@@ -1,3 +1,4 @@
+import { PrimaryNav, type RouteToolKey } from './components/PrimaryNav'
 import { findNetworkRoute, findNetworkStop, networkRouteId } from './app/networkSelection'
 import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -15,9 +16,7 @@ import {
   Navigation2,
   Pencil,
   Radio,
-  Radar,
   RefreshCw,
-  Route,
   Server,
   Settings,
   TableProperties,
@@ -178,7 +177,7 @@ import {
   type ServiceEdgeDecomposition,
 } from './reach'
 
-type RouteToolKey = 'data' | 'pathfinder' | 'analyze' | 'agency'
+
 type MapScope = 'network' | 'route'
 const desktopReachRasterSize = 128
 
@@ -297,103 +296,6 @@ function scrollWorkbenchToTop() {
   requestAnimationFrame(() => {
     document.querySelector('.workbench')?.scrollTo({ top: 0, left: 0, behavior: 'smooth' })
   })
-}
-
-function PrimaryNavButton({
-  title,
-  label = title,
-  shortcut,
-  icon,
-  active,
-  disabled,
-  onClick,
-}: {
-  title: string
-  label?: string
-  shortcut?: string
-  icon: ReactNode
-  active: boolean
-  disabled: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      className={classNames('sidebar-rail-button', active && 'is-active')}
-      onClick={onClick}
-      disabled={disabled}
-      title={shortcut ? `${title} (${shortcut})` : title}
-      aria-label={title}
-      aria-keyshortcuts={shortcut}
-      aria-current={active ? 'page' : undefined}
-    >
-      {icon}
-      <span className="sidebar-rail-label">{label}</span>
-    </button>
-  )
-}
-
-function PrimaryNav({
-  page,
-  activeRouteTool,
-  hasActiveData,
-  onOpenNetwork,
-  onOpenRouting,
-  onOpenAnalyze,
-  onOpenSettings,
-}: {
-  page: 'projects' | 'project'
-  activeRouteTool: RouteToolKey
-  hasActiveData: boolean
-  onOpenNetwork: () => void
-  onOpenRouting: () => void
-  onOpenAnalyze: () => void
-  onOpenSettings: () => void
-}) {
-  return (
-    <nav className="sidebar-rail" aria-label="VIGO Studio">
-      <div className="sidebar-rail-main">
-        <PrimaryNavButton
-          title="Network"
-          label="Network"
-          shortcut="1"
-          icon={<Route size={19} aria-hidden="true" />}
-          active={page === 'project' && activeRouteTool === 'agency'}
-          disabled={page !== 'project' || !hasActiveData}
-          onClick={onOpenNetwork}
-        />
-        <PrimaryNavButton
-          title="Route"
-          label="Route"
-          shortcut="2"
-          icon={<Navigation2 size={19} aria-hidden="true" />}
-          active={page === 'project' && activeRouteTool === 'pathfinder'}
-          disabled={page !== 'project' || !hasActiveData}
-          onClick={onOpenRouting}
-        />
-        <PrimaryNavButton
-          title="Analyze"
-          label="Analyze"
-          shortcut="3"
-          icon={<Radar size={19} aria-hidden="true" />}
-          active={page === 'project' && activeRouteTool === 'analyze'}
-          disabled={page !== 'project' || !hasActiveData}
-          onClick={onOpenAnalyze}
-        />
-      </div>
-      <div className="sidebar-rail-bottom">
-        <PrimaryNavButton
-          title="City"
-          label="City"
-          shortcut="5"
-          icon={<Settings size={19} aria-hidden="true" />}
-          active={page === 'project' && activeRouteTool === 'data'}
-          disabled={false}
-          onClick={onOpenSettings}
-        />
-      </div>
-    </nav>
-  )
 }
 
 function VigoSidebar({

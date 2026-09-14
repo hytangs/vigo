@@ -300,11 +300,6 @@
   grid-template-columns: var(--pq-sidebar-width) minmax(0, 1fr);
 }
 
-.sidebar-rail-bottom {
-  padding-top: 7px;
-  border-top-color: var(--border);
-}
-
 .sidebar-panel-head {
   border: 0;
   border-bottom: 1px solid var(--border);
@@ -1427,7 +1422,6 @@
 }
 
 @media (forced-colors: active) {
-  .sidebar-rail-button.is-active,
   .surface-switcher-row.is-current {
     border: 2px solid Highlight;
   }

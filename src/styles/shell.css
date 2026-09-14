@@ -201,46 +201,6 @@
   overflow: hidden;
 }
 
-.sidebar-rail {
-  min-width: 0;
-  min-height: 0;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-}
-
-.sidebar-rail-main,
-.sidebar-rail-bottom {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.sidebar-rail-bottom {
-  border-top: 1px solid var(--border);
-}
-
-.sidebar-rail-button {
-  position: relative;
-  cursor: pointer;
-}
-
-.sidebar-rail-button:hover {
-  color: #e8f1fb;
-  border-color: rgba(219, 231, 242, 0.12);
-  background: rgba(255, 255, 255, 0.065);
-}
-
-.sidebar-rail-button:disabled {
-  cursor: default;
-  opacity: 0.28;
-}
-
-.sidebar-rail-button:disabled:hover {
-  color: #93a1b4;
-  background: transparent;
-}
-
 .sidebar-panel {
   min-width: 0;
   min-height: 0;

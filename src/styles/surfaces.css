@@ -1624,8 +1624,7 @@
   border-right: 1px solid var(--border);
 }
 
-.app-shell.view-data .sidebar-panel,
-.app-shell.view-data .sidebar-rail-bottom {
+.app-shell.view-data .sidebar-panel {
   display: none;
 }
 
@@ -2337,24 +2336,13 @@
     bottom: 0;
     left: 0;
     width: auto;
-    height: 54px;
+    height: var(--mobile-nav-height, 60px);
     display: block;
     border: 0;
     border-top: 1px solid var(--border);
     border-radius: 0;
     overflow: hidden;
     box-shadow: none;
-  }
-
-  .app-shell.view-data .sidebar-rail {
-    height: 100%;
-    display: grid;
-    padding: 4px 7px;
-    border: 0;
-  }
-
-  .app-shell.view-data .sidebar-rail-bottom {
-    display: grid;
   }
 }
 
@@ -3083,8 +3071,8 @@
 
 @media (max-width: 760px) {
   .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar:has(.sidebar-panel.is-pathfinder) {
-    height: 59svh;
-    max-height: 59svh;
+    height: 100%;
+    max-height: none;
   }
 
   .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar:has(.sidebar-panel.is-pathfinder) .sidebar-panel.is-pathfinder {
@@ -3094,6 +3082,7 @@
 
   .app-shell.page-project:not(.project-empty):not(.view-data) .shell-body {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1.15fr) minmax(0, 1fr);
   }
 
   .app-shell.page-project.routing-detail-open:not(.project-empty):not(.view-data) .shell-body {
@@ -3102,10 +3091,11 @@
 
   .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar {
     width: 100%;
-    min-height: 300px;
-    max-height: 46svh;
+    min-height: 0;
+    height: 100%;
+    max-height: none;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) 48px;
+    grid-template-rows: minmax(0, 1fr);
     border-right: 0;
     border-bottom: 1px solid var(--border);
     overflow: hidden;

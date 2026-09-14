@@ -1,6 +1,7 @@
+import { AgencyComposer } from './AgencyComposer'
 import { NetworkSelection } from './NetworkSelection'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Activity, ArrowLeft, ArrowRight, ChevronRight, Radio, Send, Square, X, History, Plus } from 'lucide-react'
+import { Activity, ArrowLeft, ArrowRight, ChevronRight, Radio, X, History, Plus } from 'lucide-react'
 import { apiJson, apiProgressJson, type ApiProgress } from '../app/api'
 import type { RealtimeInspectRequest } from '../app/realtime'
 import type { RealtimeSnapshot } from '../domain'
@@ -202,7 +203,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
     locate(event.routeIds ?? (event.routeId ? [event.routeId] : []), event.stopId ? [event.stopId] : event.stopIds ?? [], event.stopCoordinate ? { coordinate: event.stopCoordinate, label: event.stopName || 'Reference stop' } : undefined)
   }
 
-  return <section className="agency-panel" aria-label="Network workspace">
+  return <section className={`agency-panel ${state && mode === 'ask' && !notebookOpen ? 'has-composer' : ''}`} aria-label="Network workspace">
     <AgencyNavigation mode={mode} onChange={next => {
       setMode(next); setSelectedEvent(null)
       requestAnimationFrame(() => { if (next === 'ask' && turns.length) scrollToContent('.agency-turn:last-of-type'); else scrollRef.current?.scrollTo({ top: 0 }) })
@@ -242,10 +243,11 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
           {busy || answer ? <div className="agency-question-echo agency-pending-question">{asked}</div> : null}
           <AgencyActivity activities={activities} busy={busy} trace={answer?.trace ?? []} />
           {answer ? <AgencyAnswer answer={answer} onResult={onResult} onSelectEvent={selectEvent} onOpenEntry={(id) => void openEntry(id)} /> : null}
-          <form className="agency-question-form" onSubmit={(event) => { event.preventDefault(); void ask() }}><label htmlFor="agency-question"><span className="agency-visually-hidden">Your question</span></label><textarea id="agency-question" placeholder="Ask about service, routes or a journey…" value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={2000} rows={2} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void ask() } }} /><footer><span>⌘ / Ctrl + Enter to send</span>{busy ? <button type="button" className="agency-button" onClick={stopInvestigation}><Square size={13} /> Stop</button> : <button className="agency-button is-primary" disabled={!question.trim()} type="submit"><Send size={14} /> Ask</button>}</footer></form>
+
           </>}
         </div> : mode === 'operations' ? <section id="agency-operations" aria-label="Service desk"><div className="agency-tool-heading"><button className="agency-text-button" onClick={() => setMode('live')}><ArrowLeft size={14} />Routes</button><h2>Service desk</h2></div><AgencyOperations endpoint={endpoint} state={state} onEvidence={selectEvent} /></section> : <section id="agency-skills" aria-label="Research"><div className="agency-tool-heading"><button className="agency-text-button" onClick={() => setMode('live')}><ArrowLeft size={14} />Routes</button><h2>Research</h2></div><AgencySkills skills={skills} state={state} endpoint={endpoint} busy={busy} onInstall={setSkills} onRun={(skill, input) => void runSkill(skill, input)} /></section>}
       </> : null}
     </div>
+    {state && mode === 'ask' && !notebookOpen ? <div className="agency-composer-dock"><AgencyComposer question={question} busy={busy} onChange={setQuestion} onSubmit={() => void ask()} onStop={stopInvestigation} /></div> : null}
   </section>
 }

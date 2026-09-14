@@ -18,6 +18,7 @@ const harness = `import React from 'react';
 import {createRoot} from 'react-dom/client';
 import {AgencyPanel} from '/src/components/AgencyPanel.tsx';
 import '/src/App.css';
+import '/src/index.css';
 Date.now = () => ${observationTime * 1000};
 const noop = () => {};
 createRoot(document.getElementById('root')).render(React.createElement('div',{className:'app-shell page-project view-agency',style:{display:'block',height:'100vh'}},React.createElement(AgencyPanel,{projectId:'fixture',snapshot:null,realtimeRequest:null,realtimeMessage:'',realtimeLoading:false,onConnect:noop,onDisconnect:noop,onLocate:noop,onBrowseRoute:noop,onClearSelection:noop,onResult:noop,onOpenData:noop,mapOpen:false,onToggleMap:noop})));
@@ -93,7 +94,7 @@ window.runTests = async () => {
   return {keyboardTabs:true,tracked:true,workflow:true,copyRevision:true,approval:true,localOutbox:true,staffReceipt:true,audit:true,insufficientHistory:true,replayApproval:true,replayRetry:true,replayWithdrawal:true};
 };
 window.layoutCheck = async () => {
-  const panel=document.querySelector('.agency-panel'); panel.style.height='100vh';
+  const panel=document.querySelector('.agency-panel'); panel.style.height=innerHeight<=400?'176px':'100vh';
   const overflow=[...document.querySelectorAll('.agency-panel,.agency-scroll,.agency-tabs,.agency-operations')].filter(item=>item.scrollWidth>item.clientWidth+2).map(item=>item.className);
   if(overflow.length) throw Error('Horizontal overflow at '+innerWidth+': '+overflow.join(', ')+'; '+JSON.stringify([...document.querySelector('.agency-panel').children].map(item=>[item.className,item.clientWidth,item.scrollWidth])));
   const views=[];
@@ -106,7 +107,11 @@ window.layoutCheck = async () => {
     if(content.scrollWidth>content.clientWidth+2) throw Error('Network content overflows at '+innerWidth);
     if(id==='ask') {
       const composer=document.querySelector('.agency-question-form').getBoundingClientRect();
-      if(composer.top > 400) throw Error('Empty chat requires too much scrolling');
+      if(composer.bottom > panel.getBoundingClientRect().bottom || composer.top < nav.bottom) throw Error('Composer must remain visible below navigation');
+      const originalTop=composer.top;
+      const spacer=document.createElement('div'); spacer.style.height='1800px'; content.appendChild(spacer); content.scrollTop=900;
+      if(Math.abs(document.querySelector('.agency-question-form').getBoundingClientRect().top-originalTop)>1) throw Error('Reading history must not move the composer');
+      spacer.remove(); content.scrollTop=0;
       document.querySelector('.agency-provider-toggle').click();
       await wait(()=>document.getElementById('agency-ai-settings'));
       if(content.scrollWidth>content.clientWidth+2) throw Error('AI settings overflow at '+innerWidth);
@@ -114,7 +119,7 @@ window.layoutCheck = async () => {
     }
     views.push(id);
   }
-  return {width:innerWidth,overflow:false,views};
+  return {width:innerWidth,height:innerHeight,overflow:false,views};
 };`
 const server = await createServer({ root, configFile: false, plugins: [react(), {
   name: 'operations-fixture',
@@ -142,7 +147,7 @@ app.whenReady().then(async()=>{ try {
   await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/operations-fixture.html`)});
   await window.webContents.executeJavaScript('new Promise((resolve,reject)=>{const start=Date.now();const timer=setInterval(()=>{if(window.runTests){clearInterval(timer);resolve()}else if(Date.now()-start>20000){clearInterval(timer);reject(Error("Fixture did not load"))}},50)})');
   const result=await window.webContents.executeJavaScript('window.runTests()');
-  for(const width of [1280,760,390,320]) { window.setSize(width,1000); await new Promise(resolve=>setTimeout(resolve,200)); result[width]=await window.webContents.executeJavaScript('window.layoutCheck()'); if(width===1280||width===320) fs.writeFileSync(${JSON.stringify(directory)}+'/operations-'+width+'.png',(await window.webContents.capturePage()).toPNG()); }
+  for(const [width,height] of [[1280,1000],[760,1000],[390,1000],[320,1000],[760,400]]) { window.setContentSize(width,height); await new Promise(resolve=>setTimeout(resolve,200)); result[width+'x'+height]=await window.webContents.executeJavaScript('window.layoutCheck()'); if(width===1280||width===320) fs.writeFileSync(${JSON.stringify(directory)}+'/operations-'+width+'.png',(await window.webContents.capturePage()).toPNG()); }
   console.log(JSON.stringify({passed:true,...result,screenshots:${JSON.stringify(directory)}})); app.exit(0);
 }catch(error){console.error(error);app.exit(1)}});`)
 try {
