@@ -1,3 +1,5 @@
+import { modelRuntimeFacts } from './runtimeFacts.mjs'
+
 function normalizeBaseUrl(value) {
   let url
   try { url = new URL(String(value).trim()) } catch { throw new Error('Enter an API base URL, such as https://api.openai.com/v1.') }
@@ -130,7 +132,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
     disconnect() { config = { baseUrl: '', model: '', key: '' }; revision++; source = 'session'; testedAt = null; return this.status() },
     forRequest() {
       const connection = { ...config }, startedAtRevision = revision
-      return { available: this.available, model: this.model, complete(messages, tools, signal, options) {
+      return { available: this.available, model: this.model, runtime: modelRuntimeFacts(connection), complete(messages, tools, signal, options) {
         if (revision !== startedAtRevision) throw new Error('The model connection changed. Ask again to use the new connection.')
         return completeWith(connection, messages, tools, signal, options)
       } }

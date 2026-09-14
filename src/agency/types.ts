@@ -107,6 +107,13 @@ export type ToolResult = {
 }
 
 export type QueryAnswer = {
+  runtime?: {
+    capturedAt: string
+    modelConnection: { model: string | null; protocol: string | null; endpoint: string | null; transport: string | null; endpointLocation: 'loopback' | 'other' | 'unknown'; inferenceLocation: 'unverified'; externalModelApi: 'not-configured-directly' | 'unverified' | 'unknown' }
+    networkTools: Array<{ tool: string; label: string; endpoint: string | null }>
+    networkToolCalls: Array<{ tool: string; completed: boolean }>
+    limits: string
+  }
   timing?: { totalMs: number; modelCalls: number; modelMs: number; toolMs: number; inputTokens: number | null; outputTokens: number | null }
   entryId?: number
   aiGenerated?: boolean

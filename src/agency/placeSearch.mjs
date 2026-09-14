@@ -1,4 +1,5 @@
 import { setTimeout as pause } from 'node:timers/promises'
+import { endpointFacts } from './runtimeFacts.mjs'
 
 // Only explicit place queries leave the server. No conversation, staff notes,
 // feed URLs, or model credentials are sent to the geocoder.
@@ -17,6 +18,7 @@ export function createPlaceSearch({ stops = [], env = process.env, fetchImpl = f
   const cache = new Map(), places = new Map()
   return {
     enabled,
+    endpoint: enabled ? endpointFacts(endpoint).endpoint : null,
     resolve(id) {
       const match = places.get(id)
       if (!match) throw new Error('Search for this place again before routing; its location is not in the current City session.')

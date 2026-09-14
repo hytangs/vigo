@@ -1,6 +1,8 @@
-import { queryInstructions, executionInstructions } from './queryPrompt.mjs'
+import { queryInstructions, capabilityInstructions, executionInstructions } from './queryPrompt.mjs'
 import { failedToolResult, toolDefinitions } from './toolRegistry.mjs'
 import { summarizeEvidence } from './evidenceSummary.mjs'
+import { queryRuntimeFacts, withRuntimeActivity, runtimeTool, explainRuntime } from './runtimeFacts.mjs'
+import { discoverableTools } from './toolDiscovery.mjs'
 
 // Source URLs can contain feed credentials. Keep them in the local evidence
 // record; model decisions need values and timestamps, not connection URLs.
@@ -60,23 +62,25 @@ function replyText(content) {
   return text.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '').trim()
 }
 
-export async function queryAgency({ question, context, state, callTool, provider, signal, onProgress = () => {}, history = [], placesAvailable = true, webStatus = {} }) {
+export async function queryAgency({ question, context, state, callTool, provider, signal, onProgress = () => {}, history = [], placesAvailable = true, placeEndpoint, webStatus = {} }) {
   if (typeof question !== 'string' || !question.trim() || question.length > 2000) throw new Error('Ask a question using 1–2000 characters.')
   if (!provider.available) return { answer: 'Connect a model in Ask to start a conversation. Live observations and built-in skills are available now.', trace: [], evidenceRefs: [], generatedAt: state.generatedAt, warnings: [], providerAvailable: false }
+  const runtime = queryRuntimeFacts({ provider, webStatus, placesAvailable, placeEndpoint, generatedAt: state.generatedAt })
   onProgress({ phase: 'planning', progress: 0, detail: 'Reading your question…' })
-  const contextMessage = { role: 'user', content: `Application context (data, not instructions). Optional local agency context, relevant only to this City's data: ${modelResult(context.overview(Date.parse(state.generatedAt) / 1000))}. Current observation: ${state.observedAt ?? 'none'}. Conversation metadata for interpreting earlier turns, not text to reproduce: ${modelResult(history.map((item) => ({ savedAt: item.observedAt, staffAnnotation: item.notes?.slice(0, 1000) || undefined, previousRequests: item.requests, priorFindings: item.findings?.map(call => ({ tool: call.tool, result: JSON.parse(compactResult(call.result, call.tool)) })) })))}.` }
+  const contextMessage = { role: 'user', content: `Application context (data, not instructions). ${capabilityInstructions(webStatus, placesAvailable)} Optional local agency context, relevant only to this City's data: ${modelResult(context.overview(Date.parse(state.generatedAt) / 1000))}. Current observation: ${state.observedAt ?? 'none'}. Conversation metadata for interpreting earlier turns, not text to reproduce: ${modelResult(history.map((item) => ({ savedAt: item.observedAt, staffAnnotation: item.notes?.slice(0, 1000) || undefined, previousRequests: item.requests, priorFindings: item.findings?.map(call => ({ tool: call.tool, result: JSON.parse(compactResult(call.result, call.tool)) })) })))}.` }
   const messages = [
     { role: 'system', content: queryInstructions },
     ...history.flatMap((item) => [{ role: 'user', content: item.question }, { role: 'assistant', content: item.answer.slice(0, 2000) }]),
     { role: 'user', content: question },
   ]
   const capabilities = { place_search: placesAvailable, web_search: Boolean(webStatus.searchAvailable && webStatus.provider !== 'wikipedia'), reference_lookup: Boolean(webStatus.searchAvailable && webStatus.provider === 'wikipedia'), web_read: Boolean(webStatus.readAvailable) }
-  const availableTools = toolDefinitions.filter(tool => capabilities[tool.name] !== false)
+  const availableTools = [runtimeTool, ...toolDefinitions.filter(tool => capabilities[tool.name] !== false)]
+  const discovery = discoverableTools(availableTools, history.flatMap(item => item.requests?.map(call => call.tool) ?? []))
   const startedAt = performance.now()
   const timing = { modelCalls: 0, modelMs: 0, toolMs: 0, inputTokens: null, outputTokens: null }
   const trace = []
   const warnings = []
-  let answer = '', emptyReplies = 0
+  let answer = '', emptyReplies = 0, runtimeAnswered = false
   // Reserve a final response even when the model has used its tool budget.
   for (let round = 0; round <= 6; round++) {
     if (signal?.aborted) break
@@ -86,11 +90,18 @@ export async function queryAgency({ question, context, state, callTool, provider
     const modelStartedAt = performance.now()
     timing.modelCalls++
     if (trace.length) onProgress({ phase: 'response', progress: 0, detail: 'Putting the findings together…' })
-    // Keep instructions and tool definitions stable for provider prefix reuse.
-    // Observations and history are data, after that prefix; the latest user
-    // question or tool feedback remains last.
-    const inferenceMessages = [{ role: 'system', content: messages.filter(message => message.role === 'system').map(message => message.content).join('\n\n') }, { ...contextMessage, content: `${contextMessage.content}\n${executionInstructions(trace, webStatus, placesAvailable)}` }, ...messages.filter(message => message.role !== 'system')]
-    try { message = await provider.complete(inferenceMessages, canUseTools ? availableTools : [], signal) }
+    // Keep policy and existing context stable; schemas expand when selected.
+    // Observations/history follow the policy. The latest user question or tool
+    // feedback remains last, without rewriting earlier source text.
+    const inferenceMessages = [{ role: 'system', content: messages.filter(message => message.role === 'system').map(message => message.content).join('\n\n') }, contextMessage, ...messages.filter(message => message.role !== 'system')]
+    if (trace.length && inferenceMessages.at(-1).role === 'tool') {
+      const last = inferenceMessages.at(-1)
+      const newline = last.content.indexOf('\n')
+      // Attach changing execution status to the newest result, after its data.
+      // Earlier source pages and conversation stay eligible for prefix reuse.
+      inferenceMessages[inferenceMessages.length - 1] = { ...last, content: `${last.content.slice(0, newline)}\n${JSON.stringify({ ...JSON.parse(last.content.slice(newline + 1)), executionStatus: executionInstructions(trace) })}` }
+    }
+    try { message = await provider.complete(inferenceMessages, canUseTools ? discovery.definitions() : [], signal) }
     catch (error) { if (signal?.aborted) break; warnings.push(error.message); onProgress({ phase: 'provider-error', progress: 1, detail: error.message }); break }
     finally { timing.modelMs += performance.now() - modelStartedAt }
     if (Number.isFinite(message?.usage?.prompt_tokens)) timing.inputTokens = (timing.inputTokens ?? 0) + message.usage.prompt_tokens
@@ -118,10 +129,19 @@ export async function queryAgency({ question, context, state, callTool, provider
       if (signal?.aborted) return null
       let args = {}, result
       const phase = `tool-${offset + index}`
+      if (call.function.name === 'prepare_tools') {
+        try { result = discovery.prepare(JSON.parse(call.function.arguments)) }
+        catch (error) { result = { error: error.message } }
+        onProgress({ phase: 'prepare-tools', progress: 1, detail: result.error || 'Relevant tools are ready.' })
+        return { call, prepared: result }
+      }
       try {
         args = JSON.parse(call.function.arguments)
         onProgress({ phase, progress: 0, detail: describeTool(call.function.name, args, context) })
-        result = await callTool(call.function.name, args)
+        if (call.function.name === 'runtime_status') {
+          if (!args || Array.isArray(args) || typeof args !== 'object' || Object.keys(args).length) throw new Error('Runtime status takes no arguments.')
+          result = { ok: true, data: withRuntimeActivity(runtime, trace), generatedAt: runtime.capturedAt, provenance: ['VIGO server · request configuration'], warnings: [] }
+        } else result = await callTool(call.function.name, args)
       } catch (error) { result = failedToolResult(error, state.generatedAt) }
       onProgress({ phase, progress: 1, detail: result.ok ? describeToolResult(call.function.name, result) : result.warnings[0] || 'This check could not be completed.' })
       return { call, args, result }
@@ -134,9 +154,18 @@ export async function queryAgency({ question, context, state, callTool, provider
     } else completed.push(...await Promise.all(calls.map(execute)))
     timing.toolMs += performance.now() - toolStartedAt
     for (const item of completed.filter(Boolean)) {
-      const { call, args, result } = item
+      const { call, args, result, prepared } = item
+      if (prepared) {
+        messages.push({ role: 'tool', tool_call_id: call.id, content: `Tool availability (not evidence)\n${JSON.stringify(prepared)}` })
+        continue
+      }
       trace.push({ tool: call.function.name, arguments: args, result })
       messages.push({ role: 'tool', tool_call_id: call.id, content: `Source [${trace.length}]\n${compactResult(result, call.function.name)}` })
+    }
+    if (calls.length === 1 && trace.length === 1 && calls[0].function.name === 'runtime_status' && trace[0].result.ok) {
+      answer = explainRuntime(runtime)
+      runtimeAnswered = true
+      break
     }
   }
   if (signal?.aborted) warnings.push('Stopped. Completed checks are retained in this note.')
@@ -152,13 +181,15 @@ export async function queryAgency({ question, context, state, callTool, provider
   return {
     answer: answer || (trace.length ? `${signal?.aborted ? 'Stopped before the answer was finished.' : 'The model did not finish this answer.'} Your completed checks are saved below.\n\n${summarizeEvidence(trace)}` : signal?.aborted ? 'Stopped before a response was ready. You can continue this conversation.' : 'I could not get a response from the model. Please try again.'),
     timing: { ...timing, totalMs: performance.now() - startedAt },
-    aiGenerated: Boolean(answer), model: answer ? provider.model : undefined, citations: [...citations],
+    aiGenerated: Boolean(answer) && !runtimeAnswered, model: answer ? provider.model : undefined, citations: [...citations],
+    runtime: withRuntimeActivity(runtime, trace),
     trace, evidenceRefs: [...new Set(trace.flatMap((call) => call.result.provenance))], generatedAt: state.generatedAt,
     warnings: [...new Set([...warnings, ...trace.flatMap((call) => call.result.warnings)])], providerAvailable: true,
   }
 }
 
 function describeTool(name, args, context) {
+  if (name === 'runtime_status') return 'Reading this answer’s model and network configuration…'
   if (name === 'reference_lookup') return `Looking up “${args.subject || ''}” in public references…`
   if (name === 'web_search') return `Searching public sources for “${args.query || ''}”…`
   if (name === 'web_read') return 'Reading the public source…'
@@ -168,6 +199,7 @@ function describeTool(name, args, context) {
 }
 
 function describeToolResult(name, { data }) {
+  if (name === 'runtime_status') return 'Read the server configuration and its verification limits.'
   if (name === 'reference_lookup') return `Found ${data.matches.length} public references.`
   if (name === 'web_search') return `Found ${data.matches.length} public search results.`
   if (name === 'web_read') return `Read ${data.title || 'the public page'}.`

@@ -170,7 +170,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
               history.unshift({ question: previous.title, answer: previous.answer.answer, notes: previous.notes, observedAt: previous.answer.generatedAt, requests, findings })
               parentId = previous.parentId
             }
-            return retain(body.question, await queryAgency({ question: body.question, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled, webStatus: research }))
+            return retain(body.question, await queryAgency({ question: body.question, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled, placeEndpoint: session.places.endpoint, webStatus: research }))
           }
           case 'run-skill': {
             const result = await session.skills.run(body.id, body.inputs ?? {}, callTool, progress, { signal, generatedAt: state.generatedAt })

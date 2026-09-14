@@ -4,6 +4,7 @@ import type { RoutingPlan } from '../routingModel'
 import { downloadText } from '../agency/exports'
 import { humanField, toolNames } from '../agency/presentation'
 import { SourceLinks } from './AgencyEvidence'
+import { AgencyRuntimeFacts } from './AgencyRuntimeFacts'
 
 const clockMinutes = (value: number) => `${String(Math.floor(value / 60) % 24).padStart(2, '0')}:${String(Math.floor(value % 60)).padStart(2, '0')}`
 function answerText(text: string) {
@@ -73,6 +74,7 @@ export function AgencyAnswer({ answer, onResult, onSelectEvent, onOpenEntry }: {
     {answer.warnings.length ? <details className="agency-source-details"><summary>What this answer covers</summary>{answer.warnings.map((warning) => <p className="agency-caption" key={warning}>{warning}</p>)}</details> : null}
     {answer.citations?.length ? <details className="agency-source-details"><summary>Sources cited in this answer</summary>{answer.trace.map((call, index) => answer.citations?.includes(index + 1) ? <div key={index}><strong>[{index + 1}] {toolNames[call.tool] || humanField(call.tool)}</strong><SourceLinks refs={call.result.provenance} /></div> : null)}</details> : null}
     {!answer.citations?.length && answer.evidenceRefs.length ? <details className="agency-source-details"><summary>Sources · {answer.evidenceRefs.length}</summary><SourceLinks refs={answer.evidenceRefs} /></details> : null}
+    {answer.runtime ? <AgencyRuntimeFacts runtime={answer.runtime} /> : null}
     <footer className="agency-answer-footer">{answer.trace.length ? 'As of ' : ''}{new Date(answer.generatedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</footer>
   </section>
 }

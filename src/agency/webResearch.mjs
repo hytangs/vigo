@@ -1,3 +1,5 @@
+import { endpointFacts } from './runtimeFacts.mjs'
+
 // A search provider is independent of the language model. Only the explicit
 // query leaves the server; provider credentials never enter model context.
 const referenceUrl = 'https://en.wikipedia.org/w/api.php'
@@ -100,6 +102,7 @@ export function createWebResearch({ env = process.env, fetchImpl = fetch, readPa
       const connection = { ...config }, started = revision
       return {
         ...this.status(),
+        endpoint: connection.provider === 'off' ? null : endpointFacts(connection.baseUrl).endpoint,
         async search(query, signal) {
           signal?.throwIfAborted()
           if (started !== revision) throw new Error('The search connection changed. Ask again to use it.')

@@ -2,9 +2,31 @@ import assert from 'node:assert/strict'
 import { queryAgency } from '../src/agency/queryAgent.mjs'
 import { draftRiderMessage } from '../src/agency/communications.mjs'
 import { createProvider } from '../src/agency/provider.mjs'
+import { discoverableTools } from '../src/agency/toolDiscovery.mjs'
+import { toolDefinitions } from '../src/agency/toolRegistry.mjs'
 const state = { generatedAt: '2026-09-13T12:00:00Z', observedAt: '2026-09-13T12:00:00Z' }
 const context = { overview: () => ({ cityName: 'City X' }), routeIndex: new Map([['R', { short_name: 'R' }]]), stopIndex: new Map([['A', { name: 'River' }]]) }
 const event = { id: 'delay/T1', type: 'delay', title: 'Departure later than scheduled', routeId: 'R', stopId: 'A', observedAt: state.observedAt, evidence: { delaySeconds: 300 }, sourceRefs: ['fixture:trip/T1'] }
+const catalog = discoverableTools(toolDefinitions)
+assert.ok(JSON.stringify(catalog.definitions()).length < JSON.stringify(toolDefinitions).length / 2, 'Ordinary conversation does not carry every specialist schema')
+assert.throws(() => catalog.prepare({ names: ['invented_tool'] }), /available catalogue/)
+assert.ok(discoverableTools(toolDefinitions, ['route_plan']).definitions().some(tool => tool.name === 'route_plan'), 'Follow-ups retain tools used in their saved context')
+let discoveryTurn = 0, discoveryExecutions = 0
+const discovered = await queryAgency({ question: 'Check current service', context, state, placesAvailable: false,
+  provider: { available: true, complete: async (messages, tools) => {
+    if (++discoveryTurn === 1) {
+      assert.ok(!tools.some(tool => tool.name === 'realtime_status'))
+      assert.ok(!JSON.stringify(tools.find(tool => tool.name === 'prepare_tools').parameters).includes('place_search'))
+      return { tool_calls: [{ id: 'prepare', function: { name: 'prepare_tools', arguments: '{"names":["realtime_status"]}' } }] }
+    }
+    assert.deepEqual(tools.find(tool => tool.name === 'realtime_status'), toolDefinitions.find(tool => tool.name === 'realtime_status'), 'Loaded tools retain their complete typed schema')
+    if (discoveryTurn === 2) return { tool_calls: [{ id: 'status', function: { name: 'realtime_status', arguments: '{}' } }] }
+    assert.match(messages.at(-1).content, /Source \[1\]/, 'Preparing tools must not count as checked evidence')
+    return { content: 'No reports are available. [1]' }
+  } }, callTool: async name => { discoveryExecutions++; assert.equal(name, 'realtime_status'); return { ok: false, data: null, provenance: [], generatedAt: state.generatedAt, warnings: ['No reports'] } } })
+assert.equal(discoveryExecutions, 1)
+assert.equal(discovered.trace.length, 1)
+assert.deepEqual(discovered.citations, [])
 let round = 0
 const provider = { available: true, model: 'fixture-model', complete: async () => ++round === 1 ? { tool_calls: [{ id: 'call-1', function: { name: 'anomaly_scan', arguments: '{}' } }] } : { content: 'A departure on R is five minutes late. [1] That is a trip-level finding, not evidence of a route-wide disruption.' } }
 const callTool = async () => ({ ok: true, data: { events: [event], total: 1 }, provenance: event.sourceRefs, generatedAt: state.generatedAt, warnings: [] })
@@ -70,16 +92,18 @@ assert.equal(atBudget.trace.length, 8)
 assert.equal(budgetRounds, 2)
 assert.match(atBudget.answer, /Here is the comparison/)
 
-let compactRound = 0, initialSystem = ''
+let compactRound = 0, initialSystem = '', initialContext = ''
 const largeEvents = Array.from({ length: 50 }, (_, index) => ({ ...event, id: `event-${index}`, evidence: { ...event.evidence, comparisonTrips: Array.from({ length: 100 }, () => ({ tripId: 'T1' })) } }))
 const scoped = await queryAgency({ question: 'Check route R', context, state,
   callTool: async () => ({ ok: true, data: { connected: true, observedAt: state.generatedAt, scope: { routeId: 'R' }, counts: { routes: 100 }, feeds: [], routes: [{ id: 'R', name: 'R', maxDelaySeconds: 300 }], events: largeEvents }, provenance: ['fixture:route/R'], warnings: [] }),
   provider: { available: true, complete: async (messages) => {
-    if (++compactRound === 1) { initialSystem = messages[0].content; return { tool_calls: [{ id: 'status', function: { name: 'realtime_status', arguments: '{"routeId":"R"}' } }] } }
+    if (++compactRound === 1) { initialSystem = messages[0].content; initialContext = messages[1].content; return { tool_calls: [{ id: 'status', function: { name: 'realtime_status', arguments: '{"routeId":"R"}' } }] } }
     const payload = JSON.parse(messages.filter(message => message.role !== 'system').at(-1).content.split('\n').slice(1).join('\n'))
     assert.equal(messages.filter(message => message.role === 'system').length, 1, 'Local chat templates receive one initial system message')
     assert.equal(messages[0].role, 'system')
     assert.equal(messages[0].content, initialSystem, 'Stable instructions do not change when a tool finishes')
+    assert.equal(messages[1].content, initialContext, 'Tool progress must not invalidate earlier conversation and source context')
+    assert.match(payload.executionStatus, /realtime_status: completed/)
     assert.doesNotMatch(initialSystem, /priorFindings|previousRequests|Current observation/)
     assert.equal(messages.at(-1).role, 'tool', 'Tool feedback remains the latest conversation message')
     assert.equal(payload.data.scope.routeId, 'R')

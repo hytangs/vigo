@@ -75,7 +75,7 @@
     "check:portability": "node test/check-city-portability.mjs",
     "check:packaged": "node test/check-packaged-studio.mjs",
     "check:studio-runtime": "node test/check-scenario-draft-lifecycle.mjs && node test/check-map-runtime.mjs",
-    "check:agency": "node test/check-agency-skills.mjs && node test/check-agency-realtime.mjs && node test/check-agency-tools.mjs && node test/check-agency-places.mjs && node test/check-agency-journeys.mjs && node test/check-agency-agent.mjs && node test/check-agency-communications.mjs && node test/check-agency-web.mjs && node test/check-agency-provider.mjs && node test/check-agency-snapshot.mjs && node test/check-agency-lifecycle.mjs && node test/check-agency-route-line.mjs && node test/check-agency-notebook.mjs && node test/check-agency-briefing.mjs"
+    "check:agency": "node test/check-agency-skills.mjs && node test/check-agency-realtime.mjs && node test/check-agency-tools.mjs && node test/check-agency-places.mjs && node test/check-agency-journeys.mjs && node test/check-agency-agent.mjs && node test/check-agency-communications.mjs && node test/check-agency-web.mjs && node test/check-agency-provider.mjs && node test/check-agency-runtime.mjs && node test/check-agency-snapshot.mjs && node test/check-agency-lifecycle.mjs && node test/check-agency-route-line.mjs && node test/check-agency-notebook.mjs && node test/check-agency-briefing.mjs"
   },
   "dependencies": {
     "jszip": "^3.10.1",

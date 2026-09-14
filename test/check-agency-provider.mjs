@@ -26,9 +26,12 @@ assert.equal(requests.at(-1).headers.authorization, 'Bearer session-secret')
 await provider.models({ baseUrl: 'https://different.example/v1' })
 assert.equal(requests.at(-1).headers.authorization, undefined, 'Never carry a key to another endpoint')
 const activeRequest = provider.forRequest()
+const originalRuntime = { ...activeRequest.runtime }
 await activeRequest.complete([{ role: 'user', content: 'A private investigation' }], [])
 assert.equal(requests.at(-1).url, 'https://models.example/v1/chat/completions')
 await provider.connect({ baseUrl: 'https://different.example/v1', model: 'other-model' })
+assert.deepEqual(activeRequest.runtime, originalRuntime)
+assert.equal(provider.forRequest().runtime.endpoint, 'different.example')
 const countBefore = requests.length
 assert.throws(() => activeRequest.complete([{ role: 'user', content: 'Continue the private investigation' }], []), /connection changed/)
 assert.equal(requests.length, countBefore, 'An active investigation cannot send its next round to a newly selected provider')
