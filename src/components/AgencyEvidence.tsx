@@ -36,14 +36,16 @@ export function SourceLinks({ refs }: { refs: string[] }) {
   return <ul className="agency-sources">{refs.map((ref) => <li key={ref}>{/^https?:\/\//i.test(ref) ? <a href={ref} target="_blank" rel="noreferrer">{ref}</a> : <code>{ref}</code>}</li>)}</ul>
 }
 
-export function AgencyEvidence({ historical = false, event, state, projectId, onBack, onLocate }: { historical?: boolean; event: OperationalEvent; state: AgencyState; projectId: string; onBack: () => void; onLocate: () => void }) {
+export function AgencyEvidence({ historical = false, event, state, projectId, onBack, onLocate, onUpdate }: { historical?: boolean; event: OperationalEvent; state: AgencyState; projectId: string; onBack: () => void; onLocate: () => void; onUpdate: (event: OperationalEvent) => void }) {
   const [channel, setChannel] = useState<RiderDraft['channel']>('app')
   const [draft, setDraft] = useState<RiderDraft | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const route = state.routes.find((item) => item.id === event.routeId)
-  const stillCurrent = state.events.some((item) => item.id === event.id)
+  const latest = state.events.find((item) => item.id === event.id)
+  const stillCurrent = Boolean(latest)
+  const hasNewerReport = latest && (latest.observedAt !== event.observedAt || JSON.stringify(latest.evidence) !== JSON.stringify(event.evidence))
   async function generate() {
     setBusy(true); setError(''); setCopied(false)
     try {
@@ -57,7 +59,8 @@ export function AgencyEvidence({ historical = false, event, state, projectId, on
     <div className="agency-section-label"><Radio size={13} /> Operational evidence <span>{event.severity}</span></div>
     <h2>{event.title}</h2>
     <div className="agency-evidence-context">{route ? <span className="agency-route-label" style={{ '--line-color': route.color } as React.CSSProperties}>{route.name}</span> : null}<span>{event.stopId ? event.stopName || state.stopNames?.[event.stopId] || shortId(event.stopId) : 'Network observation'}</span>{event.directionId != null ? <span>Direction {event.directionId}</span> : null}</div>
-    {historical ? <p className="agency-caption">Saved evidence · values remain as they were when this answer was created.</p> : null}
+    <p className="agency-caption">{historical ? 'Saved evidence from this answer.' : 'Evidence held at the selected observation.'} The map and line view show the latest available feed reports.</p>
+    {!historical && hasNewerReport ? <div className="agency-notice">A newer report is available. <button className="agency-text-button" onClick={() => onUpdate(latest)}>Update evidence</button></div> : null}
     {!historical && !stillCurrent ? <div className="agency-notice">This event is no longer among the current observations. Its retained evidence is shown below.</div> : null}
     <EvidenceComparison event={event} />
     {event.evidence.alertDescription ? <p className="agency-alert-description">{event.evidence.alertDescription}</p> : null}
@@ -74,7 +77,7 @@ export function AgencyEvidence({ historical = false, event, state, projectId, on
     </dl>
     {event.evidence.reason ? <p className="agency-caption">{event.evidence.reason}</p> : null}
     {!historical && event.tripId ? <DelayHistory points={state.tripHistory[`${event.tripId}/${event.serviceDate}`] ?? []} /> : null}
-    <div className="agency-evidence-actions"><button className="agency-button" onClick={onLocate}><MapPin size={14} /> Locate on map</button>{!historical ? <button className="agency-button is-primary" onClick={() => void generate()} disabled={busy || !stillCurrent}><FileText size={14} />{busy ? 'Preparing draft…' : 'Draft rider information'}<ChevronRight size={14} /></button> : null}</div>
+    <div className="agency-evidence-actions"><button className="agency-button" onClick={onLocate}><MapPin size={14} /> Locate on map</button>{!historical ? <button className="agency-button is-primary" onClick={() => void generate()} disabled={busy || !stillCurrent}><FileText size={14} />{busy ? 'Preparing draft…' : 'Draft from latest report'}<ChevronRight size={14} /></button> : null}</div>
     {!historical ? <fieldset className="agency-channel-picker"><legend>Communication channel</legend>{(['app', 'signage', 'service-alert', 'social'] as const).map((item) => <label key={item}><input type="radio" name="draft-channel" checked={channel === item} onChange={() => { setChannel(item); setDraft(null) }} />{item === 'service-alert' ? 'Service alert' : item === 'app' ? 'Agency app' : item === 'signage' ? 'Digital sign' : 'Social'}</label>)}</fieldset> : null}
     {error ? <p role="alert" className="agency-error">{error}</p> : null}
     {draft ? <section className={`agency-draft is-${draft.channel}`} data-channel={draft.channel} aria-label="Rider information draft"><div className="agency-draft-label"><span>Draft · Human review required</span><button className="agency-icon-button" aria-label="Close draft" onClick={() => setDraft(null)}><X size={14} /></button></div><h3>{draft.headline}</h3><p>{draft.body}</p><p className="agency-caption">{draft.recommendedAction}</p><footer><span>{draft.generatedBy === 'model' ? 'AI-assisted draft' : 'Draft from source evidence'}</span><button className="agency-text-button" onClick={() => void navigator.clipboard.writeText(`DRAFT · HUMAN REVIEW REQUIRED\n${draft.headline}\n\n${draft.body}\n\n${draft.recommendedAction}`).then(() => setCopied(true)).catch(() => setError('Clipboard unavailable. Select and copy the draft text.'))}>{copied ? <Check size={14} /> : <Clipboard size={14} />}{copied ? 'Copied' : 'Copy draft'}</button></footer></section> : null}

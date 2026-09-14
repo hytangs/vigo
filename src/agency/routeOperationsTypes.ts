@@ -1,3 +1,5 @@
+import type { FeedState } from './types'
+
 export type VehicleTiming = {
   key: string
   id: string
@@ -66,6 +68,15 @@ export type StopBoardRow = {
   departure: VehicleTiming['departure']
   status: 'live' | 'scheduled' | 'stale' | 'unresolved' | 'cancelled' | 'skipped'
   predictionAt: number | null
+  stopSequence: number | null
+  timingIssue: string | null
+  source: {
+    url: string
+    entityId: string
+    stopSequence: number | null
+    arrival: { time?: number; delay?: number; uncertainty?: number } | null
+    departure: { time?: number; delay?: number; uncertainty?: number } | null
+  } | null
 }
 
 export type StopBoard = {
@@ -73,6 +84,7 @@ export type StopBoard = {
   timezone: string | null
   generatedAt: string
   until: number
+  feeds: FeedState[]
   rows: StopBoardRow[]
   total: number
   warnings: string[]

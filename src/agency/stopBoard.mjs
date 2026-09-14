@@ -1,6 +1,6 @@
 import { rawId, localDate, serviceEpoch } from './agencyContext.mjs'
 import { defaultPolicy, feedStates } from './realtimeIntelligence.mjs'
-import { tripCalls, station, fresh, matchCall, prediction } from './routeOperations.mjs'
+import { tripCalls, station, fresh, matchCall, stopPrediction } from './routeOperations.mjs'
 
 const finite = value => typeof value === 'number' && Number.isFinite(value)
 const schedules = new WeakMap()
@@ -53,11 +53,11 @@ export function stopBoard(context, snapshot, { stopId, feedIds }, now = Date.now
   stopId = indexedBoardStop(context, stopId, feedIds)
   const place = station(context, stopId)
   const generatedAt = new Date(now * 1000).toISOString()
-  const result = { stop: place, timezone: context.timezone, generatedAt, until: now + 3600, rows: [], total: 0, warnings: [] }
+  const result = { stop: place, timezone: context.timezone, generatedAt, until: now + 3600, feeds: feedStates(snapshot, now, policy), rows: [], total: 0, warnings: [] }
   if (!context.timezone) { result.warnings.push('A single agency timezone is required to show stop times.'); return result }
   const today = localDate(now, context.timezone)
   const schedule = stationSchedule(context, place.id)
-  const feeds = new Map(feedStates(snapshot, now, policy).map(feed => [feed.sourceUrl, feed]))
+  const feeds = new Map(result.feeds.map(feed => [feed.sourceUrl, feed]))
   const updates = reportsByTrip(context, snapshot?.tripUpdates, today)
   const vehicles = reportsByTrip(context, snapshot?.vehicles, today)
   // Include every service-day offset represented here, including >24:00 and
@@ -79,6 +79,7 @@ export function stopBoard(context, snapshot, { stopId, feedIds }, now = Date.now
         const update = candidates.length === 1 ? candidates[0] : null
         const updateFresh = update && fresh(update, feeds, now, policy)
         let status = candidates.length > 1 ? 'unresolved' : update && !updateFresh ? 'stale' : 'scheduled'
+        let timingIssue = null, source = null
         const arrival = { scheduled: finite(call.arrival) ? epoch + call.arrival : null, current: null }
         const departure = { scheduled: finite(call.departure) ? epoch + call.departure : null, current: null }
         if (updateFresh) {
@@ -88,11 +89,14 @@ export function stopBoard(context, snapshot, { stopId, feedIds }, now = Date.now
             if (atCall.length > 1) status = 'unresolved'
             else if (atCall.length === 1) {
               const report = atCall[0]
+              source = { url: update.sourceUrl, entityId: update.id, stopSequence: report.stopSequence ?? null,
+                arrival: report.arrival ?? null, departure: report.departure ?? null }
               if (report.scheduleRelationship === 'SKIPPED') status = 'skipped'
               else if (!report.scheduleRelationship || report.scheduleRelationship === 'SCHEDULED') {
-                arrival.current = prediction(report.arrival, arrival.scheduled)
-                departure.current = prediction(report.departure, departure.scheduled)
-                if (finite(arrival.current) || finite(departure.current)) status = 'live'
+                const timing = stopPrediction(report, arrival.scheduled, departure.scheduled)
+                arrival.current = timing.arrival; departure.current = timing.departure; timingIssue = timing.issue
+                if (timingIssue) status = 'unresolved'
+                else if (finite(arrival.current) || finite(departure.current)) status = 'live'
               }
             }
           } else status = 'unresolved'
@@ -114,8 +118,9 @@ export function stopBoard(context, snapshot, { stopId, feedIds }, now = Date.now
           routeId: trip.route_id, routeName: route?.short_name || route?.long_name || rawId(trip.route_id),
           color: /^[0-9a-f]{6}$/i.test(route?.color) ? `#${route.color}` : 'var(--text-muted)',
           directionId: trip.direction_id ?? null, destination, stopId: call.stopId, stopName: stop?.name || rawId(call.stopId), platform: stop?.platform_code || null,
-          vehicleId: vehicle?.id || (updateFresh ? update.vehicleId : null) || null, vehicleLabel: vehicle?.label || vehicle?.id || (updateFresh ? update.vehicleId : null) || null,
+          vehicleId: vehicle?.id || (updateFresh ? update.vehicleId : null) || null, vehicleLabel: vehicle?.label || vehicle?.id || (updateFresh ? update.vehicleLabel || update.vehicleId : null) || null,
           vehicleSourceUrl: vehicle?.sourceUrl || null, atStop, kind, expected, arrival, departure, status,
+          stopSequence: call.sequence, source, timingIssue,
           predictionAt: updateFresh ? update.timestamp ?? feeds.get(update.sourceUrl)?.feedTimestamp ?? null : null })
       }
     }

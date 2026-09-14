@@ -77,6 +77,16 @@ export function prediction(event, scheduled) {
   return finite(event?.delay) && finite(scheduled) ? scheduled + event.delay : null
 }
 
+// Negative deviations are valid. Only a contradiction between two reported
+// events at the same stop prevents presenting them as usable predictions.
+export function stopPrediction(report, scheduledArrival, scheduledDeparture) {
+  const arrival = prediction(report.arrival, scheduledArrival)
+  const departure = prediction(report.departure, scheduledDeparture)
+  const issue = finite(arrival) && finite(departure) && arrival > departure
+    ? 'The source places arrival after departure at this stop.' : null
+  return { arrival: issue ? null : arrival, departure: issue ? null : departure, issue }
+}
+
 function describe(context, vehicle, now, policy, feeds, coverage, updates) {
   const match = coverage.valid ? context.matchTrip(vehicle, coverage.serviceDate) : { reason: coverage.message }
   const vehicleFresh = fresh(vehicle, feeds, now, policy, true)
@@ -132,7 +142,9 @@ function describe(context, vehicle, now, policy, feeds, coverage, updates) {
     detail.warnings.push(stopUpdate.scheduleRelationship === 'SKIPPED' ? 'This stop is reported skipped.' : 'No current timing is reported at this stop.')
     return detail
   }
-  for (const kind of ['arrival', 'departure']) detail[kind].current = prediction(stopUpdate[kind], detail[kind].scheduled)
+  const timing = stopPrediction(stopUpdate, detail.arrival.scheduled, detail.departure.scheduled)
+  if (timing.issue) { detail.warnings.push(timing.issue); return detail }
+  for (const kind of ['arrival', 'departure']) detail[kind].current = timing[kind]
   detail.delayKind = ['arrival', 'departure'].find(kind => finite(detail[kind].scheduled) && finite(detail[kind].current)) ?? null
   const comparison = detail[detail.delayKind]
   detail.delaySeconds = comparison ? comparison.current - comparison.scheduled : null

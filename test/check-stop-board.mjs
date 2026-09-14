@@ -44,6 +44,27 @@ try {
   assert.equal(row().departure.current, epoch + 43980)
   assert.equal(row().vehicleId, 'vehicle-T1', 'TripUpdate identity is available without GPS')
   assert.equal(row().status, 'live')
+  assert.equal(result.feeds[0].status, 'fresh')
+  assert.equal(row().stopSequence, 30)
+  assert.equal(row().source.stopSequence, 30)
+  assert.equal(row().source.url, sourceUrl)
+  assert.deepEqual(row().source.arrival, report.stopTimeUpdates[0].arrival, 'Source event remains available for inspection')
+  report.vehicleLabel = '101-102'
+  assert.equal(row().vehicleLabel, '101-102', 'A reported consist label must not be replaced with the internal vehicle ID')
+  const reportedArrival = report.stopTimeUpdates[0].arrival
+  report.stopTimeUpdates[0].arrival = { time: epoch + 44000 }
+  assert.equal(row().status, 'unresolved', 'Arrival after departure is a contradictory prediction')
+  assert.equal(row().arrival.current, null)
+  assert.equal(row().departure.current, null)
+  assert.equal(row().source.arrival.time, epoch + 44000, 'Retain contradictory source values without advertising them as an ETA')
+  assert.match(row().timingIssue, /arrival after departure/)
+  report.stopTimeUpdates[0].arrival = reportedArrival
+  const early = tripUpdate('T3', 0, { stopTimeUpdates: [{ stopId: 'B', stopSequence: 30, arrival: { delay: -1020 }, departure: { delay: -1020 } }] })
+  snapshot.tripUpdates.push(early)
+  const earlyRow = board().rows.find(row => row.tripId === 'T3')
+  assert.equal(earlyRow.status, 'live', 'A 17-minute early prediction alone is not an identity failure')
+  assert.equal(earlyRow.arrival.current - earlyRow.arrival.scheduled, -1020)
+  snapshot.tripUpdates.pop()
   assert.equal(board('C').rows.find(row => row.tripId === 'T1').arrival.current, epoch + 44200, 'Terminal arrival retained')
   assert.equal(board('C').rows.find(row => row.tripId === 'T1').departure.scheduled, null)
   assert.ok(!result.rows.some(row => row.tripId === 'FREQ'), 'Frequency templates are not advertised as specific arrivals')
@@ -74,6 +95,10 @@ try {
   snapshot.feeds[0].feedTimestamp = undefined
   assert.equal(row().arrival.current, null, 'Unknown feed time is not fresh')
   snapshot.feeds[0].feedTimestamp = observationTime
+  snapshot.feeds[0].error = 'Fetch failed'
+  assert.equal(board().feeds[0].status, 'error', 'Recent timestamp does not hide a failed source refresh')
+  assert.equal(row().status, 'stale')
+  delete snapshot.feeds[0].error
   snapshot.tripUpdates.push(tripUpdate('LOOP', 0, { stopTimeUpdates: [{ stopId: 'B', arrival: { time: epoch + 44100 } }] }))
   assert.ok(board().rows.filter(row => row.tripId === 'LOOP').every(row => row.arrival.current === null), 'Repeated stops require an exact occurrence')
   snapshot.feeds.push({ sourceUrl: 'vehicles', kind: 'vehicles', feedTimestamp: observationTime })

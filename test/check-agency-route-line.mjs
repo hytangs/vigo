@@ -58,6 +58,12 @@ try {
   snapshot.vehicles[0].stopId = 'B'; snapshot.vehicles[0].currentStopSequence = 30
 
   const update = snapshot.tripUpdates[0].stopTimeUpdates[1]
+  update.arrival = { time: epoch + 43981 }
+  assert.equal(detail().arrival.current, null)
+  assert.equal(detail().departure.current, null)
+  assert.match(detail().warnings.join(), /arrival after departure/, 'Vehicle and station views reject the same contradictory timing')
+  update.arrival = { time: epoch + 42840, delay: 120 }
+  assert.equal(detail().delaySeconds, -900, 'Explicit early time takes precedence over a conflicting delay; no magnitude heuristic')
   update.arrival = undefined
   vehicle = detail()
   assert.equal(vehicle.arrival.current, null, 'A departure prediction never becomes an arrival prediction')

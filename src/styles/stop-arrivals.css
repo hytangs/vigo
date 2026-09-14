@@ -1,5 +1,5 @@
 /* The same station board is used on the network map and the route diagram. */
-.route-map-shell .map-live-card.has-stop-arrivals { top: auto; bottom: 80px; width: min(420px, calc(100% - 24px)); max-height: min(calc(100% - 158px), 620px); overflow: auto; padding: 18px; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 12px; }
+.route-map-shell .map-live-card.has-stop-arrivals { top: auto; bottom: 80px; width: min(440px, calc(100% - 24px)); max-height: min(calc(100% - 158px), 620px); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; padding: 18px; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 12px; }
 .view-agency .route-map-shell .map-live-card.has-stop-arrivals { bottom: 28px; max-height: min(72%, 620px); }
 .stop-arrival-board { color: var(--text); font-size: 12px; }
 .stop-arrival-board header > span { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); }
@@ -16,13 +16,33 @@
 .stop-board-service small { display: block; margin-top: 4px; color: var(--text-muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .stop-board-time { text-align: right; font-variant-numeric: tabular-nums; }
 .stop-arrival-board .stop-board-time strong { color: var(--text-strong); font-size: 17px; font-weight: 600; white-space: nowrap; }
-.stop-board-time small { display: flex; justify-content: end; align-items: center; gap: 3px; margin-top: 4px; color: var(--text-muted); font-size: 10px; }
+.stop-board-time small { display: flex; flex-wrap: wrap; justify-content: end; align-items: center; gap: 3px; margin-top: 4px; color: var(--text-muted); font-size: 10px; }
 .stop-board-time svg { color: var(--vigo-lime-strong); }
-.stop-board-baseline { grid-column: 2 / -1; margin: 0; color: var(--text-muted); font-size: 10px; text-align: right; }
+.stop-board-baseline { grid-column: 2 / -1; min-width: 0; margin: 0; color: var(--text-muted); font-size: 11px; text-align: right; }
+.stop-board-baseline summary { cursor: pointer; padding: 4px 0; }
+.stop-board-baseline b { color: var(--text); font-weight: 500; }
+.stop-board-baseline dl { text-align: left; margin: 8px 0 0; padding: 10px; border-radius: 6px; background: var(--control-surface); line-height: 1.6; }
+.stop-board-baseline dl > div { margin: 0 0 7px; }
+.stop-board-baseline dt { font-size: 10px; }
+.stop-board-baseline dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.stop-board-baseline a { color: var(--text); }
 .stop-board-list .is-not-running .stop-board-time strong { color: var(--warn); font-size: 12px; }
 .stop-board-notice, .stop-board-empty { margin: 12px 0; color: var(--text-muted); font-size: 11px; line-height: 1.6; }
 .stop-board-more { width: 100%; padding: 10px; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--text); font-size: 11px; cursor: pointer; }
-.stop-arrival-board footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 14px; margin-top: 14px; color: var(--text-muted); font-size: 9px; line-height: 1.5; }
+.stop-arrival-board footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 14px; margin-top: 14px; color: var(--text-muted); font-size: 10px; line-height: 1.5; }
+.agency-feed-health { position: relative; color: var(--text-muted); font-size: 11px; margin-bottom: 12px; }
+.agency-live-indicator .agency-feed-health { margin-bottom: 0; }
+.agency-feed-health summary { display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none; padding: 4px 0; }
+.agency-feed-health summary::-webkit-details-marker { display: none; }
+.agency-feed-health summary > i { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--text-muted); }
+.agency-feed-health[data-health="fresh"] summary > i { background: var(--vigo-lime-strong); }
+.agency-feed-health[data-health="partial"] summary > i, .agency-feed-health[data-health="unavailable"] summary > i { background: var(--warn); }
+.agency-feed-health ul { position: absolute; z-index: 15; right: 0; top: 100%; width: 260px; max-width: 75vw; list-style: none; margin: 4px 0 0; padding: 12px; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 4px 20px var(--shadow-color); white-space: normal; }
+.agency-feed-health li + li { margin-top: 8px; }
+.agency-feed-health li strong, .agency-feed-health li span { display: block; font-size: 11px; line-height: 1.5; }
+.agency-feed-health li strong { color: var(--text); font-weight: 500; }
+.stop-arrival-board .agency-feed-health ul { position: static; width: auto; box-shadow: none; }
+.agency-feed-health summary:focus-visible, .stop-board-baseline summary:focus-visible { outline: 2px solid var(--vigo-lime-strong); outline-offset: 2px; }
 .agency-line-station { border: 0; background: transparent; color: var(--text-strong); padding: 8px 4px; font-size: 11px; line-height: 1.4; text-align: inherit; cursor: pointer; border-radius: 5px; }
 .agency-line-station:hover, .agency-line-station[aria-pressed="true"] { background: var(--active-surface); color: var(--text-strong); }
 .agency-line-vehicle > span { color: var(--text-muted); font-size: 9px; white-space: nowrap; }

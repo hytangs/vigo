@@ -72,11 +72,12 @@ export function AgencyRouteLine({ projectId, routeId }: { projectId: string; rou
         const Arrow = up ? ArrowUp : ArrowDown
         const patterns = data.patterns.filter(other => other.directionId === pattern.directionId)
         const vehicles = data.vehicles.filter(vehicle => vehicle.patternId === pattern.id && vehicle.callIndex !== null)
+        const otherVehicles = data.vehicles.filter(vehicle => vehicle.patternId !== pattern.id && vehicle.callIndex !== null && patterns.some(other => other.id === vehicle.patternId))
         const stops = pattern.stops.map((stop, index) => ({ ...stop, index }))
         if (up) stops.reverse()
         return <section className={`agency-line-direction ${up ? 'is-up' : ''}`} key={pattern.directionId ?? 'unknown'} aria-label={`Toward ${pattern.stops.at(-1)?.name}`}>
-          <header><Arrow size={18} /><div><strong>To {pattern.stops.at(-1)?.name}</strong><small>{vehicles.length} reported {vehicles.length === 1 ? 'vehicle' : 'vehicles'}</small></div></header>
-          {patterns.length > 1 ? <select aria-label={`Stop pattern toward ${pattern.stops.at(-1)?.name}`} value={pattern.id} onChange={event => { const next = patterns.find(item => item.id === event.target.value); if (next) choosePattern(next) }}>{patterns.map(item => <option key={item.id} value={item.id}>{patternLabel(item)}</option>)}</select> : <p className="agency-line-origin">From {pattern.stops[0]?.name}</p>}
+          <header><Arrow size={18} /><div><strong>To {pattern.stops.at(-1)?.name}</strong><small>{vehicles.length} reported {vehicles.length === 1 ? 'vehicle' : 'vehicles'}{otherVehicles.length ? ` · ${otherVehicles.length} on other stop patterns` : ''}</small></div></header>
+          {patterns.length > 1 ? <select aria-label={`Stop pattern toward ${pattern.stops.at(-1)?.name}`} value={pattern.id} onChange={event => { const next = patterns.find(item => item.id === event.target.value); if (next) choosePattern(next) }}>{patterns.map(item => <option key={item.id} value={item.id}>{patternLabel(item)} · {data.vehicles.filter(vehicle => vehicle.patternId === item.id && vehicle.callIndex !== null).length} vehicles</option>)}</select> : <p className="agency-line-origin">From {pattern.stops[0]?.name}</p>}
           {!paired ? <ol>{stops.map(stop => {
             const at = vehicles.filter(vehicle => vehicle.callIndex === stop.index && atReportedStop(vehicle))
             const approaching = vehicles.filter(vehicle => vehicle.callIndex === stop.index && !atReportedStop(vehicle))

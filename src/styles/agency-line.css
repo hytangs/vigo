@@ -51,7 +51,7 @@
 .agency-line-unplaced { padding: 18px 0; margin-top: 18px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
 .agency-line-unplaced summary { cursor: pointer; }
 .agency-line-unplaced button { display: block; margin-top: 10px; text-align: left; }
-.agency-line-details { position: absolute; bottom: 16px; left: 16px; right: 16px; z-index: 6; max-height: min(60%, 410px); overflow: auto; padding: 18px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 28px var(--shadow-color); }
+.agency-line-details { position: absolute; bottom: 16px; left: 16px; right: 16px; z-index: 6; max-height: min(60%, 410px); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; padding: 18px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 28px var(--shadow-color); }
 .agency-line-details > button { position: absolute; top: 8px; right: 8px; }
 .agency-vehicle-detail { color: var(--text); font-size: 11px; line-height: 1.5; }
 .agency-vehicle-detail header > span { color: var(--text-muted); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }

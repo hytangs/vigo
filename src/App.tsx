@@ -2197,7 +2197,7 @@ function RouteSurface({
               <small aria-live="polite">
                 {routingFocus || analysisFocus ? 'From your investigation' : (
                   <>
-                    {realtimeSnapshot ? `${visibleVehicleCount} reported vehicle ${visibleVehicleCount === 1 ? 'location' : 'locations'}` : 'Connect feeds to see vehicle reports'}
+                    {realtimeSnapshot ? `Latest feed · ${visibleVehicleCount} vehicle ${visibleVehicleCount === 1 ? 'location' : 'locations'}` : 'Connect feeds to see vehicle reports'}
                     {!isNetworkMap && routeDetailStatus ? ` · ${routeDetailStatus}` : ''}
                   </>
                 )}
