@@ -11,6 +11,7 @@ export function summarizeEvidence(trace) {
   const last = good.at(-1)
   const data = last.result.data
   switch (last.tool) {
+    case 'stop_arrivals': return data.board.rows.length ? `${data.board.nextPerRoute ? 'Next service for each route and direction' : 'Upcoming service'} at ${data.board.stop.name}. Predictions are shown where available; other times are scheduled.` : `No timed service was found at ${data.board.stop.name} in the next ${data.board.windowMinutes / 60} hours. This does not establish that all service has stopped.`
     case 'reference_lookup':
     case 'web_search': return `Found ${data.matches.length} public search results. These are leads; read the sources to verify their details.`
     case 'web_read': return `Read ${data.title || data.url}. The source text is retained for inspection; check its subject and date before drawing conclusions.`

@@ -42,7 +42,7 @@ export function createWebResearch({ env = process.env, fetchImpl = fetch, readPa
   let config = { provider: env.VIGO_AGENCY_WEB_SEARCH_PROVIDER || (env.VIGO_AGENCY_WEB_SEARCH_URL ? 'searxng' : env.VIGO_AGENCY_WEB_SEARCH_KEY ? 'brave' : 'wikipedia'),
     baseUrl: env.VIGO_AGENCY_WEB_SEARCH_URL || '', key: env.VIGO_AGENCY_WEB_SEARCH_KEY || '' }
   const readAvailable = env.VIGO_AGENCY_WEB_READ !== 'off' && Boolean(readPage)
-  let revision = 0
+  let revision = 0, connectionAttempt = 0
   const cache = new Map()
   function candidate(input) {
     if (!['off', 'wikipedia', 'brave', 'searxng'].includes(input?.provider)) throw new Error('Choose Wikipedia, Brave Search, SearXNG, or Off.')
@@ -94,7 +94,11 @@ export function createWebResearch({ env = process.env, fetchImpl = fetch, readPa
     status() { return { provider: config.provider, baseUrl: config.provider === 'searxng' ? config.baseUrl : '', hasKey: Boolean(config.key), searchAvailable: config.provider !== 'off', readAvailable } },
     async connect(input, signal) {
       const next = candidate(input)
+      signal?.throwIfAborted()
+      const attempt = ++connectionAttempt
       if (next.provider !== 'off') await search(next, 'public transit', signal)
+      signal?.throwIfAborted()
+      if (attempt !== connectionAttempt) throw new Error('This connection test was superseded by newer search settings.')
       config = next; revision++; cache.clear()
       return this.status()
     },

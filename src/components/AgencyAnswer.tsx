@@ -8,6 +8,8 @@ import { SourceLinks } from './AgencyEvidence'
 import { AgencyRuntimeFacts } from './AgencyRuntimeFacts'
 import { NetworkAssessment } from './NetworkAssessment'
 import { AgencyWalkingAssessment, AgencyWalkingComparisons, type WalkingOutput } from './AgencyWalking'
+import { StopArrivalBoardView } from './StopArrivalBoard'
+import type { StopBoard } from '../agency/routeOperationsTypes'
 
 const clockMinutes = (value: number) => `${String(Math.floor(value / 60) % 24).padStart(2, '0')}:${String(Math.floor(value % 60)).padStart(2, '0')}`
 function answerText(text: string) {
@@ -41,6 +43,8 @@ function AgencyJourney({ plan, endpoints }: { plan: RoutingPlan; endpoints?: Arr
 }
 
 export function AgencyToolOutput({ result, onSelectEvent, onOpenEntry }: { result: ToolResult; onSelectEvent?: (event: OperationalEvent) => void; onOpenEntry?: (id: number) => void }) {
+  const board = (result.data as { board?: StopBoard })?.board
+  if (board) return <StopArrivalBoardView data={board} recorded />
   const lamp = result.data as LampStudyData
   if (lamp?.dataset === 'MBTA LAMP subway performance') return <LampStudyResult study={lamp} />
   const walking = result.data as WalkingOutput
@@ -73,7 +77,7 @@ export function AgencyAnswer({ answer, onResult, onSelectEvent, onOpenEntry }: {
   const lampResult = answer.trace.find(call => call.result.ok && (call.result.data as LampStudyData)?.dataset === 'MBTA LAMP subway performance')?.result
   const lampReport = Boolean(lampResult && answer.report)
   return <section className="agency-answer" aria-label="Answer">
-    {answer.selection?.route || answer.selection?.stop ? <p className="agency-caption">Asked about {answer.selection.stop?.name}{answer.selection.stop && answer.selection.route ? ' · ' : ''}{answer.selection.route ? `Route ${answer.selection.route.name}` : ''}</p> : null}
+    {answer.selection?.route || answer.selection?.stop ? <p className="agency-caption">Map selection at time of question: {answer.selection.stop?.name}{answer.selection.stop && answer.selection.route ? ' · ' : ''}{answer.selection.route ? `Route ${answer.selection.route.name}` : ''}</p> : null}
     {answer.aiGenerated && answer.trace.length && !lampReport ? <div className="agency-ai-label">AI response · {answer.model}</div> : null}
     {answer.diagnosis && answer.narrative ? <><p className="agency-caption">Saved assessment · {new Date(answer.generatedAt).toLocaleString([], { timeZone: answer.timezone || undefined })}</p><NetworkAssessment diagnosis={answer.diagnosis} narrative={answer.narrative} investigation={answer.investigation} /></> : !lampReport ? <p className="agency-answer-text">{answerText(answer.answer)}</p> : null}
     {answer.scopeNote ? <p className="agency-caption">{answer.scopeNote}</p> : null}

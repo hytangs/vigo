@@ -85,6 +85,8 @@ export type StopBoard = {
   timezone: string | null
   generatedAt: string
   until: number
+  windowMinutes?: number
+  nextPerRoute?: boolean
   feeds: FeedState[]
   rows: StopBoardRow[]
   total: number

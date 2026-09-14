@@ -38,7 +38,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
   config.contextTokens = contextSize(environment.VIGO_AGENCY_LLM_CONTEXT_TOKENS)
   const timeoutMs = Number(environment.VIGO_AGENCY_LLM_TIMEOUT_MS ?? 45_000)
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 300_000) throw new Error('Provider timeout must be between 1,000 and 300,000 milliseconds.')
-  let source = 'environment', testedAt = null, revision = 0, callSequence = 0
+  let source = 'environment', testedAt = null, revision = 0, callSequence = 0, connectionAttempt = 0
   function candidate(input) {
     if (!input || typeof input !== 'object') throw new Error('Enter the provider connection details.')
     const baseUrl = normalizeBaseUrl(input.baseUrl)
@@ -108,15 +108,19 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
     async connect(input, signal) {
       const next = candidate(input)
       if (!next.model) throw new Error('Choose or enter a model name.')
+      signal?.throwIfAborted()
+      const attempt = ++connectionAttempt
       const message = await completeWith(next, [{ role: 'user', content: 'Connection test only. Call connection_check with ready set to true. Do not call any other tool or answer in prose.' }], [{ name: 'connection_check', description: 'Confirm that function calling works.', parameters: { type: 'object', properties: { ready: { type: 'boolean' } }, required: ['ready'], additionalProperties: false } }], signal, { structuredTools: next.protocol === 'ollama' })
       const call = message.tool_calls?.find((item) => item.function?.name === 'connection_check')
       let args
       try { args = JSON.parse(call?.function?.arguments || '{}') } catch {}
       if (args?.ready !== true) throw new Error('The model responded, but did not call the test tool. Choose a model that supports function calling.')
+      signal?.throwIfAborted()
+      if (attempt !== connectionAttempt) throw new Error('This connection test was superseded by newer AI settings.')
       config = next; revision++; source = 'session'; testedAt = new Date().toISOString()
       return this.status()
     },
-    disconnect() { config = { baseUrl: '', model: '', key: '' }; revision++; source = 'session'; testedAt = null; return this.status() },
+    disconnect() { connectionAttempt++; config = { baseUrl: '', model: '', key: '' }; revision++; source = 'session'; testedAt = null; return this.status() },
     forRequest() {
       const connection = { ...config }, startedAtRevision = revision
       return { available: this.available, model: this.model, runtime: modelRuntimeFacts(connection), complete(messages, tools, signal, options) {

@@ -39,11 +39,13 @@ function reportsByTrip(context, records, date) {
   return reports
 }
 
-export function stopBoard(context, snapshot, { stopId, feedIds }, now = Date.now() / 1000, policy = defaultPolicy) {
+export function stopBoard(context, snapshot, { stopId, routeId, feedIds, windowMinutes = 60, event, nextPerRoute = false }, now = Date.now() / 1000, policy = defaultPolicy) {
+  if (!Number.isInteger(windowMinutes) || windowMinutes < 1 || windowMinutes > 1440 || event !== undefined && !['arrival', 'departure'].includes(event) || typeof nextPerRoute !== 'boolean') throw new Error('Choose a station board window of 1–1440 minutes and arrival or departure times.')
   stopId = indexedBoardStop(context, stopId, feedIds)
+  if (routeId) routeId = indexedEntityId(context, 'route', routeId, feedIds)
   const place = station(context, stopId)
   const generatedAt = new Date(now * 1000).toISOString()
-  const result = { stop: place, timezone: context.timezone, generatedAt, until: now + 3600, feeds: feedStates(snapshot, now, policy), rows: [], total: 0, warnings: [] }
+  const result = { stop: place, timezone: context.timezone, generatedAt, until: now + windowMinutes * 60, windowMinutes, nextPerRoute, feeds: feedStates(snapshot, now, policy), rows: [], total: 0, warnings: [] }
   if (!context.timezone) { result.warnings.push('A single agency timezone is required to show stop times.'); return result }
   const today = localDate(now, context.timezone)
   const schedule = stationSchedule(context, place.id)
@@ -57,7 +59,7 @@ export function stopBoard(context, snapshot, { stopId, feedIds }, now = Date.now
     const active = context.activeServices(date)
     for (const record of schedule.trips) {
       const trip = context.tripById.get(record.trip_id)
-      if (!trip || !active.has(trip.service_id) || context.frequencyTrips.has(trip.trip_id)) continue
+      if (!trip || routeId && trip.route_id !== routeId || !active.has(trip.service_id) || context.frequencyTrips.has(trip.trip_id)) continue
       const key = instanceKey(trip.trip_id, date)
       if (!updates.has(key) && !vehicles.has(key) && (epoch + record.first_seconds > result.until || epoch + record.last_seconds < now)) continue
       const { calls: pattern, continuous } = tripCalls(context, trip.trip_id)
@@ -97,10 +99,11 @@ export function stopBoard(context, snapshot, { stopId, feedIds }, now = Date.now
         // A fresh exact position beyond this call establishes that it has passed.
         if (vehicleCall && vehicleCall.index > index) continue
         const atStop = vehicleCall?.index === index && vehicle?.currentStatus === 'STOPPED_AT' && !['cancelled', 'skipped'].includes(status)
-        const kind = finite(arrival.current) ? 'arrival' : finite(departure.current) ? 'departure' : finite(arrival.scheduled) ? 'arrival' : 'departure'
+        const kind = event || (finite(arrival.current) ? 'arrival' : finite(departure.current) ? 'departure' : finite(arrival.scheduled) ? 'arrival' : 'departure')
         const time = (kind === 'arrival' ? arrival : departure)
+        if (status === 'live' && !finite(time.current)) status = 'scheduled'
         const expected = time.current ?? time.scheduled
-        const leaves = departure.current ?? arrival.current ?? departure.scheduled ?? arrival.scheduled
+        const leaves = event === 'departure' ? expected : departure.current ?? arrival.current ?? departure.scheduled ?? arrival.scheduled
         if (!finite(expected) || expected > result.until || !atStop && leaves < now) continue
         const route = context.routeIndex.get(trip.route_id)
         const stop = context.stopIndex.get(call.stopId)
@@ -116,6 +119,16 @@ export function stopBoard(context, snapshot, { stopId, feedIds }, now = Date.now
     }
   }
   result.rows.sort((a, b) => Number(b.atStop) - Number(a.atStop) || a.expected - b.expected || a.key.localeCompare(b.key))
+  if (nextPerRoute) {
+    const seen = new Set()
+    result.rows = result.rows.filter(row => {
+      if (['cancelled', 'skipped'].includes(row.status)) return false
+      const key = JSON.stringify([row.routeId, row.directionId])
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
   result.total = result.rows.length
   result.rows = result.rows.slice(0, 100)
   if (!snapshot) result.warnings.push('Timetable only · connect live feeds for arrival predictions.')

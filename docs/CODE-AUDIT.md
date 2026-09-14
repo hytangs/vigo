@@ -1,5 +1,33 @@
 # Agency code and commit audit
 
+## September 14 repository review
+
+This pass started from clean commit `9258255` in the Agency repository. Source review covered the frontend request and navigation boundaries, City/session ownership, model and search adapters, tool validation, station boards, notebook and operations storage, desktop IPC, and the GTFS/native routing interfaces. The complete release suite exercised the inherited routing, import, security, portability, cache and atlas paths. This is a repository-wide boundary and regression review, not a claim of line-by-line verification or production certification.
+
+Three concrete failures were corrected:
+
+| Failure | Change | Regression evidence |
+| --- | --- | --- |
+| The shared progress reader left its stream locked and did not cancel upstream work after parser or consumer failures. It could also wait for socket closure after a complete result. | Release the reader on every exit and finish on the terminal event. | Split UTF-8/JSON chunks, error events, malformed JSON, throwing consumers, early socket termination and a completed result on an open socket. |
+| A slow model/search connection test could overwrite newer settings, including a disconnect. | Apply settings only from the latest uncancelled connection attempt. Failed replacement tests retain the existing configuration. | Both adapters: newer success, disconnect, cancellation despite a late transport response, and a newer failed test. |
+| A Park Street next-departure question returned a whole-network daily profile. Ask had no direct station-board tool. | Expose the existing board as `stop_arrivals`, accepting an indexed ID or a unique exact station name. Next-per-route queries cover each direction within 24 hours; regular live boards retain their one-hour window. Route filtering happens before the display limit. Completed boards render directly, with scheduled and predicted times separated. | Exact names/IDs, all routes despite a selected map route, route filters, cancelled trips, terminal arrival versus departure, a night break, clock formatting, and a model attempting to replace the board with an incorrect shortened list. |
+
+The actual Qwen3.5 4B replay returned Park Street's five routes and ten direction rows in one model call. All ten were scheduled departures in this overnight observation. An intermediate replay found the right data but the model omitted two rows in its prose; the final implementation uses the complete board instead. [Retained diagnostic](evidence/agency-station-arrivals.json) records both this failure and the verified result. Its single-run timing is not a speed benchmark or a general model-quality evaluation.
+
+Saved Ask boards reuse the station UI with absolute timestamps and a recorded-state label. They do not claim that an old countdown or feed status is still current. Follow-ups retain the station request. The selected map route is labeled as context at the time of the question, rather than being described as the question's scope.
+
+Validation on macOS ARM64 / Node 26.7.0:
+
+- `check:release`: passed, including the full engine, Agency, runtime/cache and atlas checks.
+- `check:ui` and `check:agency`: passed after the relevant fixes; the new streaming, connection-order and station-arrival checks are included in these commands.
+- `check:studio-runtime`: passed, including map behavior, navigation, scenario lifecycle, operations/replay interactions and responsive layouts through 320 px width and a 400 px tall window.
+- `check:lamp`: passed; no new historical dataset or model weights were downloaded.
+- Native `cargo test`: 16 passed; formatting and release Clippy with warnings denied passed.
+- `npm audit`: zero reported vulnerabilities at the time of this review.
+- Production build, type checking and documentation checks passed.
+
+The existing shared City context, routing adapters and evidence stores remain useful boundaries. There is no reason from this review to add another agent framework or data store. `App.tsx`, `vigo-api.mjs` and `national-gtfs-store.mjs` remain large maintenance surfaces; future extractions should follow concrete use cases with routing parity checks. This pass makes no new claim about cross-platform execution, model factual reliability, prediction accuracy or deployment privacy. The three protected submission documents and original VIGO checkout were not edited.
+
 ## September 13 follow-up
 
 The history now contains 23 commits after `[START OF VIGO AGENCY]`, through `3f847e0`. The earlier review below covers the first 17. This pass inspected the surviving provider, query, place, journey, notebook and runtime boundaries added or changed by `41db489`, `165dee1`, `3f5619a`, `876e83f`, `1aa8026` and `3f847e0`, and reviewed the pending preparation UI/server changes together. This is a focused source and regression review, not a claim that every possible agency query has been evaluated.

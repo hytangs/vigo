@@ -26,6 +26,15 @@ export function compactResult(result, tool) {
     } } : result.data)
   }
   const data = result.data
+  if (tool === 'stop_arrivals') {
+    const board = data.board
+    const time = seconds => seconds == null ? null : agencyClock(new Date(seconds * 1000).toISOString(), board.timezone)
+    return envelope({ station: board.stop.name, stopId: board.stop.id, timezone: board.timezone, checkedAt: time(Date.parse(board.generatedAt) / 1000),
+      until: time(board.until), total: board.total, rows: board.rows.slice(0, 8).map(row => ({ route: row.routeName, destination: row.destination,
+        platform: row.platform, status: row.status, atStop: row.atStop, vehicle: row.vehicleLabel,
+        arrival: { scheduled: time(row.arrival.scheduled), predicted: time(row.arrival.current) },
+        departure: { scheduled: time(row.departure.scheduled), predicted: time(row.departure.current) } })) }, board.total > 8)
+  }
   if (tool === 'runtime_status') return envelope({
     display: 'The server-recorded model and endpoint are displayed in Runtime & data below this answer. Refer to that record rather than restating those fields.',
     inferenceHosting: 'Not verified', externalModelApi: 'Not verified',
@@ -104,14 +113,14 @@ export async function queryAgency({ question, context, state, callTool, provider
   const availableTools = [...toolDefinitions.filter(tool => capabilities[tool.name] !== false), runtimeTool]
   const discovery = discoverableTools(availableTools, history.flatMap(item => item.requests?.map(call => call.tool) ?? []))
   const journeyChoices = createJourneyChoices(toolDefinitions.find(tool => tool.name === 'route_plan'))
-  const formFor = tool => tool.name === 'route_plan' ? journeyChoices.definition() : tool.name === 'service_profile' ? { ...tool, parameters: { ...tool.parameters,
-    properties: { ...tool.parameters.properties, resultUse: { type: 'string', enum: ['answer', 'continue'], description: 'Choose answer when this check fulfills the request: display its computed values immediately. Choose continue if other requested work remains.' } }, required: ['groupBy', 'resultUse'] } } : tool
+  const formFor = tool => tool.name === 'route_plan' ? journeyChoices.definition() : ['service_profile', 'stop_arrivals'].includes(tool.name) ? { ...tool, parameters: { ...tool.parameters,
+    properties: { ...tool.parameters.properties, resultUse: { type: 'string', enum: ['answer', 'continue'], description: 'answer displays the complete computed board/table, including all routes and times; do not continue just to rewrite it. continue only if a different tool is still needed for another part of the user request.' } }, required: [...(tool.name === 'service_profile' ? ['groupBy'] : ['stopId']), 'resultUse'] } } : tool
   const initialTools = discovery.definitions().map(formFor)
   const startedAt = performance.now()
   const timing = { modelCalls: 0, modelMs: 0, toolMs: 0, inputTokens: null, outputTokens: null, firstResponseMs: null, loadMs: null, promptMs: null, generationMs: null }
   const trace = []
   const warnings = []
-  let answer = '', emptyReplies = 0, renderedFromEvidence = false, finishWithProfile = false
+  let answer = '', emptyReplies = 0, renderedFromEvidence = false, finishWithTable = false
   // Reserve a final response even when the model has used its tool budget.
   for (let round = 0; round <= 6; round++) {
     if (signal?.aborted) break
@@ -180,9 +189,9 @@ export async function queryAgency({ question, context, state, callTool, provider
       try {
         args = JSON.parse(call.function.arguments)
         if (call.function.name === 'route_plan') args = journeyChoices.arguments(args)
-        if (call.function.name === 'service_profile') {
+        if (['service_profile', 'stop_arrivals'].includes(call.function.name)) {
           const { resultUse, ...inputs } = args
-          finishWithProfile = resultUse === 'answer'; args = inputs
+          finishWithTable = resultUse === 'answer'; args = inputs
         }
         onProgress({ phase, progress: 0, detail: describeTool(call.function.name, args, context) })
         if (call.function.name === 'runtime_status') {
@@ -216,7 +225,7 @@ export async function queryAgency({ question, context, state, callTool, provider
     if (trace.at(-1)?.result.data?.status === 'needs_user_location') {
       answer = journeyChoices.clarification(); renderedFromEvidence = true; break
     }
-    if (calls.length === 1 && calls[0].function.name === 'service_profile' && finishWithProfile && trace.at(-1)?.result.ok) {
+    if (calls.length === 1 && ['service_profile', 'stop_arrivals'].includes(calls[0].function.name) && finishWithTable && trace.at(-1)?.result.ok) {
       answer = `${summarizeEvidence(trace)} [${trace.length}]`
       renderedFromEvidence = true
       break
@@ -244,6 +253,13 @@ export async function queryAgency({ question, context, state, callTool, provider
     const endpoints = journey.result.data?.resolved
     const scope = endpoints?.length >= 2 ? `from ${endpoints[0].label} to ${endpoints.at(-1).label}` : 'for these locations and time'
     answer = journeyChoices.clarification() || `I could not establish a journey ${scope}. ${journey.result.data?.error || journey.result.data?.plan?.detail || 'No itinerary was returned.'}`
+    renderedFromEvidence = true
+  }
+  // A station board already contains the complete answer, including service
+  // after a night break. Do not replace it with a model's shortened time list.
+  if (!signal?.aborted && trace.at(-1)?.tool === 'stop_arrivals' && trace.at(-1).result.ok
+    && trace.every(call => ['resolve_entities', 'stop_arrivals'].includes(call.tool))) {
+    answer = `${summarizeEvidence(trace)} [${trace.length}]`
     renderedFromEvidence = true
   }
   if (signal?.aborted) warnings.push('Stopped. Completed checks are retained in this note.')
@@ -274,7 +290,7 @@ function describeTool(name, args, context) {
   if (name === 'web_read') return 'Reading the public source…'
   const route = args.routeId ? context.routeIndex.get(args.routeId) : null
   const where = route ? ` for route ${route.short_name || route.long_name}` : ''
-  return ({ recall_notebook: 'Finding relevant saved work and staff notes…', service_profile: 'Checking scheduled service for the selected time…', network_overview: 'Checking the timetable and the latest feed status…', resolve_entities: `Looking up “${args.query || ''}” in this City…`, place_search: `Searching online for “${args.query || ''}”…`, find_walk: 'Finding places and measuring the complete outing…', walk_compare: 'Comparing walking distances and your requirements…', walk_route: 'Measuring the walk along the pedestrian network…', gtfs_query: 'Reading the relevant timetable records…', realtime_status: `Checking current service reports${where}…`, anomaly_scan: `Comparing reported departures with the timetable${where}…`, service_alerts: `Reading the agency’s active alerts${where}…`, route_plan: 'Calculating the journey with VIGO…', reach: 'Calculating how far you can travel by transit and on foot…', draft_rider_message: 'Preparing a rider message from the selected evidence…' })[name] || 'Running the requested check…'
+  return ({ recall_notebook: 'Finding relevant saved work and staff notes…', service_profile: 'Checking scheduled service for the selected time…', stop_arrivals: 'Checking the station arrival board…', network_overview: 'Checking the timetable and the latest feed status…', resolve_entities: `Looking up “${args.query || ''}” in this City…`, place_search: `Searching online for “${args.query || ''}”…`, find_walk: 'Finding places and measuring the complete outing…', walk_compare: 'Comparing walking distances and your requirements…', walk_route: 'Measuring the walk along the pedestrian network…', gtfs_query: 'Reading the relevant timetable records…', realtime_status: `Checking current service reports${where}…`, anomaly_scan: `Comparing reported departures with the timetable${where}…`, service_alerts: `Reading the agency’s active alerts${where}…`, route_plan: 'Calculating the journey with VIGO…', reach: 'Calculating how far you can travel by transit and on foot…', draft_rider_message: 'Preparing a rider message from the selected evidence…' })[name] || 'Running the requested check…'
 }
 
 function describeToolResult(name, { data }) {
@@ -286,6 +302,7 @@ function describeToolResult(name, { data }) {
   if (name === 'walk_compare') return `Measured ${data.comparisons.filter(row => row.walking).length} of ${data.comparisons.length} walking connections.`
   if (name === 'walk_route' || name === 'find_walk') return data.walking ? `Calculated ${Math.round(data.walking.distanceMeters)} m of walking on the street network.` : 'No walking route could be established for these locations.'
   if (name === 'recall_notebook') return `Retrieved ${data.entries.length} dated notebook ${data.entries.length === 1 ? 'entry' : 'entries'}.`
+  if (name === 'stop_arrivals') return `Checked upcoming service at ${data.board.stop.name}.`
   if (name === 'service_profile') return data.groupBy === 'route' ? `Found ${data.rows.length} routes with scheduled departures after ${data.afterTime} on ${data.serviceDate}.` : `Counted scheduled trip starts across ${data.rows.length} service hours.`
   if (name === 'network_overview') return `Read ${data.counts.routes} routes and checked ${data.observation?.feeds?.length || 0} realtime feed timestamps.`
   if (name === 'resolve_entities') return `Found ${data.total} matching ${data.total === 1 ? 'place or route' : 'places or routes'}.${data.ambiguous ? ' The exact location still needs to be resolved.' : ''}`

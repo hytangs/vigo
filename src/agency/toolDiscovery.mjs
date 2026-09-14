@@ -16,6 +16,7 @@ const descriptions = {
   walk_compare: 'Compare candidate walking distances and test distance requirements in a batch',
   walk_route: 'Walking distance and time, including ordered visits',
   service_profile: 'Scheduled trip starts by hour on a date',
+  stop_arrivals: 'Next station departures per route, with scheduled and predicted times',
   gtfs_query: 'Read-only SQL against indexed transit tables',
   route_plan: 'Transit journeys with arrival deadlines and constraints',
   reach: 'Places reachable within a travel-time budget',
@@ -26,7 +27,7 @@ const descriptions = {
 }
 
 // Common requests must not spend a model round loading their own schema.
-const readyTools = new Set(['network_overview', 'resolve_entities', 'realtime_status', 'route_plan', 'runtime_status', 'service_profile'])
+const readyTools = new Set(['network_overview', 'resolve_entities', 'realtime_status', 'route_plan', 'runtime_status', 'service_profile', 'stop_arrivals'])
 
 export function discoverableTools(available, retainedNames = []) {
   const index = available.filter(tool => descriptions[tool.name] && !readyTools.has(tool.name))

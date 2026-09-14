@@ -111,18 +111,26 @@ export async function apiProgressJson<T>(
       lineParts.push(chunk.slice(start, newline))
       consume(lineParts.join(''))
       lineParts = []
+      if (result) return
       start = newline + 1
       newline = chunk.indexOf('\n', start)
     }
     if (start < chunk.length) lineParts.push(chunk.slice(start))
   }
 
-  while (true) {
-    const next = await reader.read()
-    consumeChunk(decoder.decode(next.value, { stream: !next.done }))
-    if (next.done) break
+  try {
+    while (!result) {
+      const next = await reader.read()
+      consumeChunk(decoder.decode(next.value, { stream: !next.done }))
+      if (next.done) break
+    }
+    if (!result) consume(lineParts.join(''))
+    if (!result) throw new Error('The analysis stream ended before returning a surface.')
+    return result
+  } finally {
+    // A terminal event finishes the request. Parse or callback failures must
+    // also close the response so the server can cancel its remaining work.
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
   }
-  consume(lineParts.join(''))
-  if (!result) throw new Error('The analysis stream ended before returning a surface.')
-  return result
 }

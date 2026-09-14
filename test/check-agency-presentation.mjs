@@ -42,5 +42,11 @@ try {
   assert.match(html, /Recorded prediction/)
   assert.doesNotMatch(html, /<strong>15 min<\/strong>|<strong>Due<\/strong>|<strong>At stop<\/strong>/, 'A retained response is not a current countdown or vehicle position')
   assert.match(html, /12:05/, 'A failed refresh preserves the last known absolute time')
+  const { AgencyToolOutput } = await server.ssrLoadModule('/src/components/AgencyAnswer.tsx')
+  html = renderToStaticMarkup(createElement(AgencyToolOutput, { result: { ok: true, data: { board: data }, provenance: [], warnings: [] } }))
+  assert.match(html, /Recorded arrivals/)
+  assert.match(html, /Saved with this answer/)
+  assert.match(html, /Recorded prediction/)
+  assert.doesNotMatch(html, /Feeds current|<strong>15 min<\/strong>|\[object Object\]/, 'Saved Ask boards reuse station UI without pretending to be a current countdown or a raw JSON table')
 } finally { await server.close() }
 console.log('Agency presentation: partial/failed/unknown feeds, deviations, rendered midnight dates, service dates, timezone and last-known refresh failure passed.')
