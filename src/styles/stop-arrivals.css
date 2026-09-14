@@ -43,7 +43,9 @@
 .agency-feed-health li strong { color: var(--text); font-weight: 500; }
 .stop-arrival-board .agency-feed-health ul { position: static; width: auto; box-shadow: none; }
 .agency-feed-health summary:focus-visible, .stop-board-baseline summary:focus-visible { outline: 2px solid var(--vigo-lime-strong); outline-offset: 2px; }
-.agency-line-station { border: 0; background: transparent; color: var(--text-strong); padding: 8px 4px; font-size: 11px; line-height: 1.4; text-align: inherit; cursor: pointer; border-radius: 5px; }
+.agency-line-station { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; min-height: 44px; border: 1px solid var(--border); background: var(--control-surface); color: var(--text-strong); padding: 8px; font-size: 12px; line-height: 1.4; text-align: inherit; cursor: pointer; border-radius: 6px; }
+.agency-line-station > span { min-width: 0; overflow-wrap: anywhere; }
+.agency-line-station > svg { flex-shrink: 0; color: var(--text-muted); }
 .agency-line-station:hover, .agency-line-station[aria-pressed="true"] { background: var(--active-surface); color: var(--text-strong); }
 .agency-line-vehicle > span { color: var(--text-muted); font-size: 9px; white-space: nowrap; }
 .agency-line-station:focus-visible, .stop-arrival-board button:focus-visible { outline: 2px solid var(--vigo-lime-strong); outline-offset: 2px; }

@@ -154,10 +154,11 @@ function TemporalServiceCanvas({
   )
 }
 
-function DirectionPatternBrowser({ routes, stops, selectedRouteId, renderMode, onSelectPattern, onSelectStop }: {
+function DirectionPatternBrowser({ routes, stops, selectedRouteId, selectedStopId, renderMode, onSelectPattern, onSelectStop }: {
   routes: RouteMetric[]
   stops: StopMetric[]
   selectedRouteId: string
+  selectedStopId?: string
   renderMode: RouteRenderMode
   onSelectPattern: (routeId: string) => void
   onSelectStop?: (stopId: string) => void
@@ -205,12 +206,10 @@ function DirectionPatternBrowser({ routes, stops, selectedRouteId, renderMode, o
         <details className="object-disclosure gtfs-stop-disclosure" open>
           <summary>Stops · {gtfsDirectionLabel(selectedRoute.directionId)} <small>{selectedStops.length}</small></summary>
           <ol className="gtfs-ordered-stops">
-            {selectedStops.map((stop, index) => (
-              <li key={`${stop.id}:${stop.order}`}>
-                <span className="gtfs-stop-number">{stop.order}</span>
-                <span>{onSelectStop ? <button className="network-stop-button" onClick={() => onSelectStop(stop.id)}>{stop.name}<ArrowRight size={13} /></button> : <strong>{stop.name}</strong>}<small>{[index === 0 ? 'Start' : index === selectedStops.length - 1 ? 'End' : '', stop.platform ? `Platform ${stop.platform}` : ''].filter(Boolean).join(' · ')}</small></span>
-              </li>
-            ))}
+            {selectedStops.map((stop, index) => {
+              const content = <><span className="gtfs-stop-number">{stop.order}</span><span className="gtfs-stop-name"><strong>{stop.name}</strong><small>{[index === 0 ? 'Start' : index === selectedStops.length - 1 ? 'End' : '', stop.platform ? `Platform ${stop.platform}` : ''].filter(Boolean).join(' · ')}</small></span></>
+              return <li key={`${stop.id}:${stop.order}`}>{onSelectStop ? <button className="network-stop-button" aria-label={`Arrivals at ${stop.name}`} aria-pressed={selectedStopId === stop.id} onClick={() => onSelectStop(stop.id)}>{content}<ArrowRight size={14} aria-hidden="true" /></button> : content}</li>
+            })}
           </ol>
         </details>
       ) : null}
@@ -348,6 +347,7 @@ export function NetworkTimetable({
         routes={patterns}
         stops={preview.stops}
         selectedRouteId={route.id}
+        selectedStopId={selectedStop?.id}
         renderMode={routeRenderMode}
         onSelectPattern={onSelectPattern}
         onSelectStop={onSelectStop}

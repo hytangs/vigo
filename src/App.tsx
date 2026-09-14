@@ -1787,8 +1787,8 @@ function RouteSurface({
   onScheduleTimeChange: (minutes: number) => void
   onScheduleServiceDateChange: (serviceDate: string) => void
   onRoutingPoint?: (point: RoutingPoint) => void
-  onSelectRoute: (id: string) => void
-  onSelectStop: (id: string) => void
+  onSelectRoute: (id: string, options?: { inspect?: boolean }) => void
+  onSelectStop: (id: string, options?: { inspect?: boolean }) => void
 }) {
   const isNetworkMap = mapScope === 'network' || !selectedRoute
   const routingCanvasPreview = useMemo<MapPreview>(() => ({ routes: [], stops: visiblePreview.stops, stopPairs: [] }), [visiblePreview.stops])
@@ -1916,12 +1916,8 @@ function RouteSurface({
           onMoveScenarioStop={onMoveScenarioStop}
           routingStatusTitle={!routingOrigin && !routingDestination ? 'Choose origin and destination' : routingActivity.title}
           routingStatusDetail={!routingOrigin && !routingDestination ? 'Search for two places or pick them on the map.' : routingActivity.detail}
-          onSelectRoute={(id) => {
-            onSelectRoute(id)
-          }}
-          onSelectStop={(id) => {
-            onSelectStop(id)
-          }}
+          onSelectRoute={onSelectRoute}
+          onSelectStop={onSelectStop}
           onRoutingPoint={onRoutingPoint}
         />}
         {!agencyFocus && !routingFocus && !analysisFocus ? (
@@ -2153,6 +2149,7 @@ export default function App() {
   const [dataSection, setDataSection] = useState<DataSection>('feeds')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [agencyMapOpen, setAgencyMapOpen] = useState(false)
+  const [agencyBrowseRequest, setAgencyBrowseRequest] = useState(0)
   const [projectDialog, setProjectDialog] = useState<ProjectDialogState | null>(null)
   const [projectDialogBusy, setProjectDialogBusy] = useState(false)
   const [projectDialogError, setProjectDialogError] = useState('')
@@ -3025,7 +3022,7 @@ export default function App() {
       setPage('project')
       const stopId = result.id.slice('stop:'.length)
       const stop = preview.stops.find(item => item.id === stopId)
-      if (activeRouteTool === 'agency') locateAgencyEntities([], [stopId], stop && typeof stop.lon === 'number' && typeof stop.lat === 'number' ? { id: stopId, label: stop.name, coordinate: [stop.lon, stop.lat] } : undefined)
+      if (activeRouteTool === 'agency') browseAgencyEntities([], [stopId], stop && typeof stop.lon === 'number' && typeof stop.lat === 'number' ? { id: stopId, label: stop.name, coordinate: [stop.lon, stop.lat] } : undefined)
       else selectStop(stopId)
       setMapScope('network')
       setLayers((current) => ({ ...current, routes: true, stops: true, transfers: true }))
@@ -4568,6 +4565,13 @@ export default function App() {
     if (revealMap && window.innerWidth <= 760) setAgencyMapOpen(true)
   }
 
+  function browseAgencyEntities(routeIds: string[], stopIds: string[], location?: { id: string; label: string; coordinate: [number, number] }) {
+    locateAgencyEntities(routeIds, stopIds, location, false)
+    if (!routeIds.some(Boolean) && !stopIds.some(Boolean)) return
+    setAgencyBrowseRequest(request => request + 1)
+    setAgencyMapOpen(false)
+  }
+
   function presentAgencyResult(result: ToolResult) {
     const data = result.data as { plan?: RoutingPlan; surface?: unknown }
     if (data?.plan) { setAgencyLocation(undefined); setAgencyPlan(data.plan); setAgencyReach(null); setMapScope('route') }
@@ -5050,8 +5054,8 @@ export default function App() {
           onScheduleTimeChange={setScheduleTimeMinutes}
           onScheduleServiceDateChange={changeRoutingServiceDate}
           onRoutingPoint={activeRouteTool === 'agency' ? undefined : activeRouteTool === 'analyze' ? analysisPointFromMap : routingPointFromMap}
-          onSelectRoute={activeRouteTool === 'agency' ? (id) => locateAgencyEntities([id], []) : selectRoute}
-          onSelectStop={activeRouteTool === 'agency' ? (id) => locateAgencyEntities([], [id]) : selectStop}
+          onSelectRoute={activeRouteTool === 'agency' ? (id, options) => options?.inspect === false ? locateAgencyEntities([id], []) : browseAgencyEntities([id], []) : id => selectRoute(id)}
+          onSelectStop={activeRouteTool === 'agency' ? (id, options) => options?.inspect === false ? locateAgencyEntities([], [id]) : browseAgencyEntities([], [id]) : selectStop}
         />
         {activeRouteTool === 'agency' ? <AgencyPanel
           key={selectedProjectId}
@@ -5071,7 +5075,7 @@ export default function App() {
             routeRenderMode={routeRenderMode}
             onRouteRenderModeChange={setRouteRenderMode}
             onSelectPattern={(routeId) => selectRoute(routeId, 'pattern')}
-            onSelectStop={id => locateAgencyEntities([], [id], undefined, false)}
+            onSelectStop={id => browseAgencyEntities([], [id])}
             onOpenSources={openDataView}
             onClearSelection={returnToNetworkOverview}
           />}
@@ -5085,6 +5089,7 @@ export default function App() {
           onResult={presentAgencyResult}
           onOpenData={openDataView}
           mapOpen={agencyMapOpen}
+          browseRequest={agencyBrowseRequest}
           onToggleMap={() => setAgencyMapOpen(open => !open)}
         /> : null}
       </div>

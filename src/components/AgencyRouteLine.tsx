@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { ArrowDown, ArrowUp, Route, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronRight, Route, X } from 'lucide-react'
 import { apiJson } from '../app/api'
 import type { RouteOperations, RoutePattern, VehicleTiming } from '../agency/routeOperationsTypes'
 import { VehicleDetailsView, vehicleDelayLabel, vehicleStopLabel } from './AgencyVehicleDetails'
@@ -61,8 +61,9 @@ export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showS
     const time = estimate !== null && vehicle.timezone ? new Date(estimate * 1000).toLocaleTimeString([], { timeZone: vehicle.timezone, hour: 'numeric', minute: '2-digit' }) : null
     return <button key={vehicle.key} className="agency-line-vehicle" aria-pressed={selected === vehicle.key} aria-label={`Vehicle ${vehicle.label}, ${vehicleStopLabel(vehicle)}, ${vehicleDelayLabel(vehicle.delaySeconds)}${time ? `, ${vehicle.arrival.current !== null ? 'arrival' : 'departure'} ${time}` : ''}`} title={`${vehicleStopLabel(vehicle)} · ${vehicleDelayLabel(vehicle.delaySeconds)}`} onClick={() => { setSelected(vehicle.key); setSelectedStop(null) }}><Arrow size={12} /><strong>{vehicle.label}</strong>{time ? <span>{vehicle.arrival.current !== null ? '' : 'Dep. '}{time}</span> : null}</button>
   }
-  function stopButton(stop: RoutePattern['stops'][number]) {
-    return <button className="agency-line-station" aria-pressed={selectedStop === stop.id} aria-label={`Arrivals at ${stop.name}`} onClick={() => { setSelectedStop(stop.id); setSelected(null); onSelectStop?.(stop.id) }}>{stop.name}</button>
+  function selectStop(id: string) { setSelectedStop(id); setSelected(null); onSelectStop?.(id) }
+  function stopButton(stop: RoutePattern['stops'][number], marker = false) {
+    return <button className="agency-line-station" aria-pressed={selectedStop === stop.id} aria-label={`Arrivals at ${stop.name}`} onClick={() => selectStop(stop.id)}>{marker ? <i aria-hidden="true" /> : null}<span>{stop.name}</span><ChevronRight size={14} aria-hidden="true" /></button>
   }
 
   return <><section className="agency-line-view" aria-label="Bidirectional route line view" style={{ '--line-color': data?.color || 'var(--vigo-lime-strong)' } as CSSProperties}>
@@ -83,7 +84,7 @@ export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showS
           {!paired ? <ol>{stops.map(stop => {
             const at = vehicles.filter(vehicle => vehicle.callIndex === stop.index && atReportedStop(vehicle))
             const approaching = vehicles.filter(vehicle => vehicle.callIndex === stop.index && !atReportedStop(vehicle))
-            return <li key={`${stop.id}/${stop.index}`}><div className="agency-line-approaching">{!up ? approaching.map(vehicle => vehicleChip(vehicle, up)) : null}</div><div className="agency-line-stop"><i />{stopButton(stop)}</div><div className="agency-line-at">{at.map(vehicle => vehicleChip(vehicle, up))}</div><div className="agency-line-approaching">{up ? approaching.map(vehicle => vehicleChip(vehicle, up)) : null}</div></li>
+            return <li key={`${stop.id}/${stop.index}`}><div className="agency-line-approaching">{!up ? approaching.map(vehicle => vehicleChip(vehicle, up)) : null}</div><div className="agency-line-stop">{stopButton(stop, true)}</div><div className="agency-line-at">{at.map(vehicle => vehicleChip(vehicle, up))}</div><div className="agency-line-approaching">{up ? approaching.map(vehicle => vehicleChip(vehicle, up)) : null}</div></li>
           })}</ol> : null}
         </section>
       })}{paired ? <ol className="agency-line-paired">{visiblePatterns[0].stops.map((stop, index) => <li key={`${stop.id}/${index}`}>
@@ -93,7 +94,7 @@ export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showS
           const vehicles = data.vehicles.filter(vehicle => vehicle.patternId === pattern.id && vehicle.callIndex === callIndex)
           const at = vehicles.filter(atReportedStop)
           const approaching = vehicles.filter(vehicle => !atReportedStop(vehicle))
-          return <div className={`agency-line-traffic ${up ? 'is-up' : 'is-down'}`} key={pattern.id}><div>{!up ? approaching.map(vehicle => vehicleChip(vehicle, up)) : null}</div><div><i />{at.map(vehicle => vehicleChip(vehicle, up))}</div><div>{up ? approaching.map(vehicle => vehicleChip(vehicle, up)) : null}</div></div>
+          return <div className={`agency-line-traffic ${up ? 'is-up' : 'is-down'}`} key={pattern.id}><button className="agency-line-stop-marker" tabIndex={-1} aria-label={`Arrivals at ${stop.name}`} onClick={() => selectStop(stop.id)}><i /></button><div>{!up ? approaching.map(vehicle => vehicleChip(vehicle, up)) : null}</div><div>{at.map(vehicle => vehicleChip(vehicle, up))}</div><div>{up ? approaching.map(vehicle => vehicleChip(vehicle, up)) : null}</div></div>
         })}
         <span>{stopButton(stop)}</span>
       </li>)}</ol> : null}</div>}

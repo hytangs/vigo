@@ -26,7 +26,8 @@ function exportObservation(state: AgencyState) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMessage, realtimeLoading, onConnect, onDisconnect, onLocate, onResult, onOpenData, mapOpen, onToggleMap, selection = {}, timetable, onClearSelection, onBrowseRoute }: {
+export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMessage, realtimeLoading, onConnect, onDisconnect, onLocate, onResult, onOpenData, mapOpen, onToggleMap, selection = {}, timetable, onClearSelection, onBrowseRoute, browseRequest = 0 }: {
+  browseRequest?: number
   selection?: WorkspaceSelectionInput
   timetable?: ReactNode
   onClearSelection: () => void
@@ -131,7 +132,14 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
     requestAnimationFrame(() => scrollToContent('.agency-turn:last-of-type'))
   }
   const focusedRoute = selectionReady ? state?.routes.find(route => route.id === state.selection?.route?.id) : undefined
+  const handledBrowseRequest = useRef(browseRequest)
   useEffect(() => { setEventFilter('all'); scrollRef.current?.scrollTo({ top: 0 }) }, [selectionKey])
+  useEffect(() => {
+    if (browseRequest === handledBrowseRequest.current) return
+    handledBrowseRequest.current = browseRequest
+    setMode('live'); setSelectedEvent(null)
+    scrollRef.current?.scrollTo({ top: 0 })
+  }, [browseRequest])
   useEffect(() => {
     if (!selectionReady || evidenceSelectionKey.current === selectionKey) return
     evidenceSelectionKey.current = selectionKey
@@ -200,7 +208,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
               {focusedRoute.maxDelaySeconds != null ? <span>Max delay {minutes(Math.max(0, focusedRoute.maxDelaySeconds))}</span> : null}
               {state.connected && focusedRoute.alerts ? <span>{focusedRoute.alerts} alerts</span> : null}
             </div> : null}
-            {selectionReady && stopId ? <StopArrivalBoard projectId={projectId} stopId={stopId} showHeading={false} /> : null}
+            {stopId ? <StopArrivalBoard key={`${projectId}/${stopId}`} projectId={projectId} stopId={stopId} showHeading={!selectionReady} /> : null}
             {selectionReady && timetable ? <div className="network-timetable">{timetable}</div> : null}
             <AgencyServiceEvents state={state} ready={selectionReady} filter={eventFilter} onFilter={setEventFilter} onSelect={event => selectEvent(event, false)} />
           </> : null}

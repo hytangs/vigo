@@ -343,9 +343,14 @@
   .agency-navigation .agency-live-indicator { display: none; }
 }
 
-.network-stop-button { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; padding: 4px 0; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
-.network-stop-button:hover { color: var(--vigo-lime-strong); }
+.network-stop-button { display: grid; grid-template-columns: 23px minmax(0, 1fr) 14px; grid-column: 1 / -1; align-items: center; gap: 9px; width: 100%; min-height: 48px; padding: 8px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.network-stop-button:hover, .network-stop-button[aria-pressed="true"] { background: var(--active-surface); border-color: var(--border); }
+.network-stop-button:focus-visible { outline: 2px solid var(--vigo-lime-strong); outline-offset: -2px; }
+.gtfs-stop-name { display: grid; gap: 3px; min-width: 0; }
 .network-stop-button svg { flex-shrink: 0; color: var(--text-muted); }
+.map-stop-tooltip { pointer-events: none; }
+.map-stop-tooltip .maplibregl-popup-content { padding: 8px 12px; border-radius: 6px; background: var(--panel); color: var(--text-strong); font-family: inherit; font-size: 12px; box-shadow: 0 2px 12px var(--shadow-color); }
+.map-stop-tooltip .maplibregl-popup-tip { border-top-color: var(--panel); border-bottom-color: var(--panel); }
 
 .agency-panel.has-composer { grid-template-rows: auto minmax(0, 1fr) auto; }
 .agency-composer-dock { padding: 12px 22px 16px; border-top: 1px solid var(--border); background: var(--panel); }

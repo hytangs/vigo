@@ -22,8 +22,8 @@
 .agency-line-direction li:first-child::before { top: 50%; }
 .agency-line-direction li:last-child::before { bottom: 50%; }
 .agency-line-stop { position: relative; display: flex; align-items: center; gap: 6px; }
-.agency-line-stop i { position: absolute; left: -23px; height: 9px; width: 9px; border: 2px solid var(--line-color); border-radius: 50%; background: var(--panel); }
-.agency-line-stop > span { color: var(--text-strong); font-size: 11px; line-height: 1.4; }
+.agency-line-stop .agency-line-station { margin-left: -29px; width: calc(100% + 29px); padding-left: 29px; }
+.agency-line-stop i { position: absolute; left: 6px; height: 9px; width: 9px; border: 2px solid var(--line-color); border-radius: 50%; background: var(--panel); }
 .agency-line-at, .agency-line-approaching { display: flex; flex-wrap: wrap; gap: 4px; }
 .agency-line-at:not(:empty) { padding-top: 6px; }
 .agency-line-approaching:not(:empty) { padding: 8px 0; }
@@ -47,7 +47,12 @@
 .agency-line-traffic i { position: absolute; top: calc(50% - 4px); width: 9px; height: 9px; border: 2px solid var(--line-color); border-radius: 50%; background: var(--panel); }
 .agency-line-traffic.is-down i { right: 7px; }
 .agency-line-traffic.is-up i { left: 7px; }
-.agency-line-traffic .agency-line-vehicle { flex-shrink: 0; height: 20px; padding: 2px 5px; font-size: 10px; line-height: 14px; }
+.agency-line-stop-marker { position: absolute; top: calc(50% - 22px); width: 44px; height: 44px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.agency-line-traffic.is-down .agency-line-stop-marker { right: -11px; }
+.agency-line-traffic.is-up .agency-line-stop-marker { left: -11px; }
+.agency-line-traffic .agency-line-stop-marker i { left: 17px; right: auto; }
+.agency-line-stop-marker:hover i { box-shadow: 0 0 0 4px var(--active-surface); }
+.agency-line-traffic .agency-line-vehicle { position: relative; flex-shrink: 0; height: 20px; padding: 2px 5px; font-size: 10px; line-height: 14px; }
 .agency-line-unplaced { padding: 18px 0; margin-top: 18px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
 .agency-line-unplaced summary { cursor: pointer; }
 .agency-line-unplaced button { display: block; margin-top: 10px; text-align: left; }
