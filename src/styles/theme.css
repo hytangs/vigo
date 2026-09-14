@@ -300,7 +300,7 @@
   --text-strong: #101418;
   --text: #272c31;
   --text-soft: #4f5964;
-  --text-muted: #717b87;
+  --text-muted: #626d79;
   --text-faint: #9aa2ab;
   --accent: var(--vigo-lime-strong);
   --accent-2: #2f766a;
@@ -412,8 +412,10 @@
 .app-shell button:focus-visible,
 .app-shell input:focus-visible,
 .app-shell select:focus-visible,
+.app-shell textarea:focus-visible,
+.app-shell a:focus-visible,
 .app-shell summary:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--vigo-lime-strong) 72%, white);
+  outline: 2px solid var(--vigo-lime-strong);
   outline-offset: 2px;
 }
 

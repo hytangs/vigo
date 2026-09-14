@@ -6,7 +6,8 @@
 .stop-arrival-board h3 { margin: 5px 24px 4px 0; color: var(--text-strong); font-size: 22px; font-weight: 620; letter-spacing: -.025em; }
 .stop-arrival-board header p { margin: 0 0 16px; color: var(--text-muted); font-size: 11px; }
 .stop-board-routes { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
-.stop-board-routes button { border: 1px solid var(--border); border-radius: 5px; padding: 5px 9px; background: var(--control-surface); color: var(--text-muted); cursor: pointer; font-size: 11px; }
+.stop-board-routes button { min-height: 32px; border: 1px solid var(--border); border-radius: var(--pq-radius); padding: 6px 10px; background: var(--control-surface); color: var(--text-muted); cursor: pointer; font-size: 11px; }
+.stop-board-routes button:hover { background: var(--hover-surface); color: var(--text-strong); }
 .stop-board-routes button[aria-pressed="true"] { border-color: var(--arrival-color, var(--vigo-lime-strong)); color: var(--text-strong); background: var(--active-surface); }
 .stop-board-list { list-style: none; margin: 0; padding: 0; }
 .stop-board-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 3px 10px; align-items: start; padding: 13px 0; border-top: 1px solid var(--border); }
@@ -19,7 +20,7 @@
 .stop-board-time small { display: flex; flex-wrap: wrap; justify-content: end; align-items: center; gap: 3px; margin-top: 4px; color: var(--text-muted); font-size: 10px; }
 .stop-board-time svg { color: var(--vigo-lime-strong); }
 .stop-board-baseline { grid-column: 2 / -1; min-width: 0; margin: 0; color: var(--text-muted); font-size: 11px; text-align: right; }
-.stop-board-baseline summary { cursor: pointer; padding: 4px 0; }
+.stop-board-baseline summary { min-height: 32px; cursor: pointer; padding: 6px 0; }
 .stop-board-baseline b { color: var(--text); font-weight: 500; }
 .stop-board-baseline dl { text-align: left; margin: 8px 0 0; padding: 10px; border-radius: 6px; background: var(--control-surface); line-height: 1.6; }
 .stop-board-baseline dl > div { margin: 0 0 7px; }

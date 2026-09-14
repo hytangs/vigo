@@ -1,6 +1,6 @@
-.agency-map-actions { display: flex; align-items: center; gap: 8px; }
+.agency-map-actions { display: flex; align-items: center; flex-shrink: 0; gap: 8px; }
 .agency-view-switch { display: flex; padding: 3px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-bg); }
-.agency-view-switch button { border: 0; border-radius: 4px; background: transparent; color: var(--text-muted); padding: 5px 8px; font-size: 11px; cursor: pointer; white-space: nowrap; }
+.agency-view-switch button { min-height: 32px; border: 0; border-radius: 4px; background: transparent; color: var(--text-muted); padding: 5px 8px; font-size: 11px; cursor: pointer; white-space: nowrap; }
 .agency-view-switch button[aria-pressed="true"] { background: var(--active-surface); color: var(--text-strong); }
 .agency-view-switch button:focus-visible, .agency-line-vehicle:focus-visible { outline: 2px solid var(--vigo-lime-strong); outline-offset: 3px; }
 .agency-line-view { position: absolute; inset: 96px 0 0; overflow: auto; padding: 12px 24px 28px; color: var(--text); background: var(--panel); scrollbar-width: thin; overscroll-behavior: contain; }
@@ -14,7 +14,7 @@
 .agency-line-direction > header > svg { flex-shrink: 0; }
 .agency-line-direction header strong { display: block; font-size: 12px; color: var(--text-strong); font-weight: 620; }
 .agency-line-direction header small { display: block; margin-top: 4px; color: var(--text-muted); font-size: 10px; }
-.agency-line-direction > select { width: 100%; margin: 12px 0 8px; height: 32px; padding: 4px 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--control-surface); color: var(--text); font-size: 10px; }
+.agency-line-direction > select { width: 100%; margin: 12px 0 8px; min-height: 36px; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--pq-radius); background: var(--control-surface); color: var(--text); font-size: 12px; }
 .agency-line-origin { min-height: 32px; margin: 12px 0 20px; font-size: 10px; color: var(--text-muted); }
 .agency-line-direction ol { list-style: none; margin: 0; padding: 0; }
 .agency-line-direction li { position: relative; min-height: 66px; padding: 12px 0 12px 29px; display: flex; flex-direction: column; justify-content: center; }
