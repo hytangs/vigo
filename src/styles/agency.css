@@ -70,7 +70,6 @@
 .agency-event-mark { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 7px; border: 1px solid var(--border); }
 .agency-event[data-severity="critical"] .agency-event-mark { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 25%, var(--border)); }
 .agency-event.is-warning .agency-event-mark { color: var(--warn); }
-.agency-filter-chip { display: flex; align-items: center; gap: 7px; border: 1px solid var(--border); background: var(--active-surface); border-radius: 5px; color: var(--text-strong); padding: 5px 8px; font-size: 10px; cursor: pointer; }
 .agency-caption, .agency-method-note { font-size: 10px; color: var(--text-muted); line-height: 1.6; }
 .agency-method-note { display: flex; align-items: flex-start; gap: 7px; margin: 20px 0 0; }
 .agency-method-note svg { flex: 0 0 13px; margin-top: 2px; }
@@ -331,3 +330,13 @@
 .agency-recalled-work p { font-size: 12px; line-height: 1.8; white-space: pre-wrap; }
 .agency-web-settings { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 12px; }
 .agency-web-settings > summary { color: var(--text-muted); cursor: pointer; }
+
+.network-selection { display: grid; gap: 16px; padding: 20px 0; border-bottom: 1px solid var(--border); }
+.network-selection > button { justify-self: start; }
+.network-selection-name { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.network-selection-name > strong { font-size: 22px; letter-spacing: -.025em; }
+.network-selection p { color: var(--text-muted); margin: 6px 0 0; font-size: 12px; line-height: 1.5; }
+.network-timetable { border-bottom: 1px solid var(--border); padding: 18px 0; }
+.network-timetable > summary { cursor: pointer; font-size: 13px; }
+.network-timetable .object-detail { padding: 20px 0 0; border: 0; }
+.network-timetable .object-detail-head { display: none; }

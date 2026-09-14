@@ -1,3 +1,4 @@
+import { indexedEntityId, workspaceSelection, selectedStopIds, eventInSelection } from '../agency/workspaceSelection.mjs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { createNotebook } from '../agency/notebook.mjs'
@@ -112,14 +113,15 @@ export function createAgencyService(adapters, { provider = createProvider(), web
         return { ok: true }
       })
     },
-    async state(projectId, { routeId = '', eventType = '' } = {}) {
+    async state(projectId, { routeId = '', stopId = '', eventType = '' } = {}) {
       return withSession(projectId, async session => {
-        if (routeId && !session.context.routeIndex.has(routeId)) throw Object.assign(new Error('Unknown route filter.'), { statusCode: 400 })
+        const selection = workspaceSelection(session.context, { routeId, stopId }, session.feedIds)
+        const stops = selectedStopIds(session.context, selection)
         if (session.request && !session.timer && session.context.coverage(clock() / 1000).valid) await connect(projectId, session.request)
         const state = current(session)
         const { trips, ...publicState } = state
-        const selected = state.events.filter((event) => (!routeId || event.routeId === routeId || event.routeIds?.includes(routeId)) && (!eventType || eventType === 'all' || event.type === eventType))
-        return { ...publicState, filters: { routeId, eventType }, filteredEventCount: selected.length,
+        const selected = state.events.filter((event) => eventInSelection(event, selection, stops) && (!eventType || eventType === 'all' || event.type === eventType))
+        return { ...publicState, selection, filters: { routeId, stopId, eventType }, filteredEventCount: selected.length,
           stopLocations: Object.fromEntries(selected.slice(0, 500).flatMap((event) => { const stop = session.context.stopIndex.get(event.stopId); return stop ? [[stop.stop_id, { label: stop.name, coordinate: [stop.lon, stop.lat] }]] : [] })),
           stopNames: Object.fromEntries(selected.slice(0, 500).flatMap((event) => event.stopId ? [[event.stopId, session.context.stopIndex.get(event.stopId)?.name || event.stopId]] : [])),
           eventCount: state.events.length, events: selected.slice(0, 500), warnings: [...state.warnings, ...(selected.length > 500 ? ['Showing the first 500 matching events. Choose a route or event type to narrow the view.'] : [])] }
@@ -134,7 +136,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
       if (body.action === 'provider-disconnect') return provider.disconnect()
       return withSession(projectId, async session => {
         switch (body.action) {
-          case 'route-line': return routeOperations(session.context, session.snapshot, body, clock() / 1000, policy)
+          case 'route-line': return routeOperations(session.context, session.snapshot, { ...body, routeId: indexedEntityId(session.context, 'route', body.routeId, session.feedIds) }, clock() / 1000, policy)
           case 'stop-board': return stopBoard(session.context, session.snapshot, { ...body, feedIds: session.feedIds }, clock() / 1000, policy)
           case 'vehicle': return vehicleDetails(session.context, session.snapshot, body, clock() / 1000, policy)
           case 'connection': return { request: session.request }
@@ -160,6 +162,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
           case 'tool': return callTool(body.name, body.arguments ?? {})
           case 'briefing': { if (!session.briefingJob) session.briefingJob = networkBriefing({ state, callTool, provider: inference, signal, onProgress: progress }).then((answer) => retain('Network briefing', answer, 'briefing')).finally(() => { session.briefingJob = null }); return session.briefingJob }
           case 'ask': {
+            const selection = workspaceSelection(session.context, body.selection, session.feedIds)
             const history = []
             let parentId = body.parentId
             while (parentId && history.length < 6) {
@@ -174,10 +177,10 @@ export function createAgencyService(adapters, { provider = createProvider(), web
               }
               const requests = retained.map(call => ({ tool: call.tool, arguments: call.arguments }))
               const findings = retained.filter(call => ['place_search', 'find_walk', 'walk_compare', 'realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message'].includes(call.tool)).slice(-3)
-              history.unshift({ question: previous.title, answer: previous.answer.answer, notes: previous.notes, observedAt: previous.answer.generatedAt, requests, findings })
+              history.unshift({ selection: previous.answer.selection, question: previous.title, answer: previous.answer.answer, notes: previous.notes, observedAt: previous.answer.generatedAt, requests, findings })
               parentId = previous.parentId
             }
-            return retain(body.question, await queryAgency({ question: body.question, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled, placeEndpoint: session.places.endpoint, placeDetailsEndpoint: session.places.detailsEndpoint, webStatus: research }))
+            return retain(body.question, await queryAgency({ question: body.question, selection, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled, placeEndpoint: session.places.endpoint, placeDetailsEndpoint: session.places.detailsEndpoint, webStatus: research }))
           }
           case 'run-skill': {
             const result = await session.skills.run(body.id, body.inputs ?? {}, callTool, progress, { signal, generatedAt: state.generatedAt })

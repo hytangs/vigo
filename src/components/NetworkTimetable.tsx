@@ -218,7 +218,7 @@ function DirectionPatternBrowser({ routes, stops, selectedRouteId, renderMode, o
   )
 }
 
-export function ExploreObjectPanel({
+export function NetworkTimetable({
   feed,
   preview,
   selectedRoute,
@@ -247,7 +247,7 @@ export function ExploreObjectPanel({
     return (
       <section className="sidebar-section object-first-empty">
         <SearchCheck size={18} />
-        <strong>Explore the GTFS map</strong>
+        <strong>Explore the network</strong>
         <p>Select a route or stop.</p>
         <button type="button" className="text-action" onClick={onOpenSources}>View source tables</button>
       </section>

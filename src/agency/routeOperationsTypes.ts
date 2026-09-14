@@ -34,6 +34,7 @@ export type RoutePattern = {
 }
 
 export type RouteOperations = {
+  serviceDates?: string[]
   routeId: string
   name: string
   color: string

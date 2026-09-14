@@ -5327,7 +5327,7 @@ async function route(request, response) {
     }
 
     if (action === 'agency') {
-      if (request.method === 'GET') sendJson(response, 200, await agency.state(projectId, { routeId: url.searchParams.get('routeId') || '', eventType: url.searchParams.get('eventType') || '' }))
+      if (request.method === 'GET') sendJson(response, 200, await agency.state(projectId, { routeId: url.searchParams.get('routeId') || '', stopId: url.searchParams.get('stopId') || '', eventType: url.searchParams.get('eventType') || '' }))
       else if (request.method === 'POST') await withRequestAbort(request, response, async (signal) => {
         const body = await readBody(request)
         if (!['ask', 'briefing', 'run-skill'].includes(body.action) || !String(request.headers.accept ?? '').includes('application/x-ndjson')) {

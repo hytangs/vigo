@@ -137,47 +137,6 @@
   font-weight: 680;
 }
 
-.route-tree-item {
-  height: 50px;
-  padding: 2px 0;
-}
-
-.route-tree-item .route-row {
-  height: 46px;
-  min-height: 46px;
-  grid-template-columns: 3px 48px minmax(0, 1fr);
-  gap: 8px;
-  padding: 0 8px;
-  border-radius: 6px;
-}
-
-.route-tree-item .route-row > b {
-  width: 3px;
-  height: 24px;
-}
-
-.route-tree-item .route-row > strong {
-  font-size: 0.72rem;
-  font-weight: 650;
-}
-
-.route-tree-item .route-row > span {
-  font-size: 0.6rem;
-  font-weight: 500;
-}
-
-.route-tree-item .route-row:hover {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--text-strong) 5%, transparent);
-}
-
-.route-tree-item .route-row.is-selected,
-.route-tree-item .route-row[aria-current="true"] {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--route-color, var(--accent)) 8%, var(--panel));
-  box-shadow: inset 2px 0 0 var(--route-color, var(--accent));
-}
-
 /* Controls use compact radii, plain fills, and teal focus treatment. */
 .button,
 .icon-button,
@@ -336,9 +295,7 @@
     grid-template-rows: minmax(300px, 56svh) minmax(0, 1fr);
   }
 
-  .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar,
-  .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar:has(.route-browser-section.has-object-detail),
-  .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar:has(.sidebar-panel.is-explore .route-browser-section.has-object-detail) {
+  .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar {
     height: 100%;
     max-height: none;
   }

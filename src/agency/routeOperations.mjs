@@ -25,13 +25,13 @@ export function station(context, id) {
   return { id: place?.stop_id ?? id, name: place?.name || rawId(id) }
 }
 
-function routePatterns(context, routeId, serviceDate) {
+function routePatterns(context, routeId, serviceDates) {
   let cache = patternCache.get(context)
   if (!cache) { cache = new Map(); patternCache.set(context, cache) }
-  const key = JSON.stringify([routeId, serviceDate])
+  const key = JSON.stringify([routeId, serviceDates])
   if (cache.has(key)) return cache.get(key)
   const patterns = new Map(), byTrip = new Map()
-  const active = context.activeServices(serviceDate)
+  const active = new Set(serviceDates.flatMap(date => [...context.activeServices(date)]))
   for (const trip of context.trips) {
     if (trip.route_id !== routeId || !active.has(trip.service_id)) continue
     const { calls, continuous } = tripCalls(context, trip.trip_id)
@@ -175,16 +175,19 @@ export function routeOperations(context, snapshot, { routeId }, now = Date.now()
   const resolved = context.routeIndex.has(routeId) ? context.routeIndex.get(routeId) : null
   if (!resolved) throw new Error('Choose an exact route from this City’s timetable.')
   const { feeds, updates, coverage } = inputs(context, snapshot, now, policy)
-  const topology = coverage.serviceDate ? routePatterns(context, routeId, coverage.serviceDate) : { patterns: [], byTrip: new Map() }
   const vehicles = []
   for (const vehicle of snapshot?.vehicles ?? []) {
     if (vehicle.routeId && !sameId(routeId, vehicle.routeId)) continue
     const detail = describe(context, vehicle, now, policy, feeds, coverage, updates)
     if (detail.routeId !== routeId) continue
-    detail.patternId = topology.byTrip.get(detail.tripId) ?? null
     vehicles.push(detail)
   }
+  // A fresh vehicle may still be serving yesterday's >24:00 trip. Keep that
+  // exact service day's patterns alongside today's, grouped by stop sequence.
+  const serviceDates = [...new Set([coverage.serviceDate, ...vehicles.filter(vehicle => vehicle.fresh && vehicle.callIndex !== null).map(vehicle => vehicle.serviceDate)].filter(Boolean))].sort()
+  const topology = serviceDates.length ? routePatterns(context, routeId, serviceDates) : { patterns: [], byTrip: new Map() }
+  for (const vehicle of vehicles) vehicle.patternId = topology.byTrip.get(vehicle.tripId) ?? null
   return { routeId, name: resolved.short_name || resolved.long_name || rawId(routeId), color: /^[0-9a-f]{6}$/i.test(resolved.color) ? `#${resolved.color}` : 'var(--vigo-lime-strong)',
-    serviceDate: coverage.serviceDate, timezone: context.timezone, generatedAt: new Date(now * 1000).toISOString(), observedAt: snapshot?.fetchedAt ?? null,
+    serviceDate: coverage.serviceDate, serviceDates, timezone: context.timezone, generatedAt: new Date(now * 1000).toISOString(), observedAt: snapshot?.fetchedAt ?? null,
     patterns: topology.patterns, vehicles, warnings: coverage.valid ? [] : [coverage.message] }
 }

@@ -10,16 +10,17 @@ function patternLabel(pattern: RoutePattern) {
 }
 const atReportedStop = (vehicle: VehicleTiming) => vehicle.status === 'STOPPED_AT' || vehicle.status === 'STOP_REPORTED'
 
-export function AgencyRouteLine({ projectId, routeId }: { projectId: string; routeId: string }) {
+export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', onSelectStop }: { projectId: string; routeId: string; selectedStopId?: string; onSelectStop?: (id: string) => void }) {
   const [data, setData] = useState<RouteOperations | null>(null)
   const [error, setError] = useState('')
   const [choices, setChoices] = useState<Record<string, string>>({})
   const [selected, setSelected] = useState<string | null>(null)
-  const [selectedStop, setSelectedStop] = useState<string | null>(null)
+  const [selectedStop, setSelectedStop] = useState<string | null>(selectedStopId || null)
+  useEffect(() => { setSelectedStop(selectedStopId || null) }, [selectedStopId])
   useEffect(() => {
     const controller = new AbortController()
     let pending = false
-    setData(null); setError(''); setChoices({}); setSelected(null); setSelectedStop(null)
+    setData(null); setError(''); setChoices({}); setSelected(null)
     if (!routeId) return () => controller.abort()
     async function refresh() {
       if (pending) return
@@ -52,6 +53,7 @@ export function AgencyRouteLine({ projectId, routeId }: { projectId: string; rou
     setChoices(previous => ({ ...previous, [pattern.directionId ?? 'unknown']: pattern.id, ...(opposite.length === 1 ? { [opposite[0].directionId ?? 'unknown']: opposite[0].id } : {}) }))
     setSelected(null)
     setSelectedStop(null)
+    onSelectStop?.('')
   }
   function vehicleChip(vehicle: VehicleTiming, up: boolean) {
     const Arrow = up ? ArrowUp : ArrowDown
@@ -60,7 +62,7 @@ export function AgencyRouteLine({ projectId, routeId }: { projectId: string; rou
     return <button key={vehicle.key} className="agency-line-vehicle" aria-pressed={selected === vehicle.key} aria-label={`Vehicle ${vehicle.label}, ${vehicleStopLabel(vehicle)}, ${vehicleDelayLabel(vehicle.delaySeconds)}${time ? `, ${vehicle.arrival.current !== null ? 'arrival' : 'departure'} ${time}` : ''}`} title={`${vehicleStopLabel(vehicle)} · ${vehicleDelayLabel(vehicle.delaySeconds)}`} onClick={() => { setSelected(vehicle.key); setSelectedStop(null) }}><Arrow size={12} /><strong>{vehicle.label}</strong>{time ? <span>{vehicle.arrival.current !== null ? '' : 'Dep. '}{time}</span> : null}</button>
   }
   function stopButton(stop: RoutePattern['stops'][number]) {
-    return <button className="agency-line-station" aria-pressed={selectedStop === stop.id} aria-label={`Arrivals at ${stop.name}`} onClick={() => { setSelectedStop(stop.id); setSelected(null) }}>{stop.name}</button>
+    return <button className="agency-line-station" aria-pressed={selectedStop === stop.id} aria-label={`Arrivals at ${stop.name}`} onClick={() => { setSelectedStop(stop.id); setSelected(null); onSelectStop?.(stop.id) }}>{stop.name}</button>
   }
 
   return <><section className="agency-line-view" aria-label="Bidirectional route line view" style={{ '--line-color': data?.color || 'var(--vigo-lime-strong)' } as CSSProperties}>
@@ -96,7 +98,7 @@ export function AgencyRouteLine({ projectId, routeId }: { projectId: string; rou
         <span>{stopButton(stop)}</span>
       </li>)}</ol> : null}</div>}
       {unplaced.length ? <details className="agency-line-unplaced"><summary>{unplaced.length} vehicles without a current stop position</summary>{unplaced.map(vehicle => <button className="agency-text-button" key={vehicle.key} onClick={() => setSelected(vehicle.key)}>{vehicle.label} · {vehicle.warnings[0] || 'Trip pattern unavailable'}</button>)}</details> : null}
-      <p className="agency-caption">{data.serviceDate} · Times in {data.timezone}. Arrival and departure predictions are kept separate.</p>
+      <p className="agency-caption">Timetable dates: {data.serviceDates?.join(', ') || data.serviceDate} · Times in {data.timezone}. Arrival and departure predictions are kept separate.</p>
     </>}
-  </section>{selectedStop || selectedVehicle ? <aside className="agency-line-details"><button className="agency-icon-button" aria-label="Close details" onClick={() => { setSelected(null); setSelectedStop(null) }}><X size={15} /></button>{selectedStop ? <StopArrivalBoard key={`${projectId}/${selectedStop}`} projectId={projectId} stopId={selectedStop} /> : selectedVehicle ? <VehicleDetailsView vehicle={selectedVehicle} /> : null}</aside> : null}</>
+  </section>{selectedStop || selectedVehicle ? <aside className="agency-line-details"><button className="agency-icon-button" aria-label="Close details" onClick={() => { setSelected(null); setSelectedStop(null); onSelectStop?.('') }}><X size={15} /></button>{selectedStop ? <StopArrivalBoard key={`${projectId}/${selectedStop}`} projectId={projectId} stopId={selectedStop} /> : selectedVehicle ? <VehicleDetailsView vehicle={selectedVehicle} /> : null}</aside> : null}</>
 }

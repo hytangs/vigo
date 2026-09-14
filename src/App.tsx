@@ -1,3 +1,4 @@
+import { findNetworkRoute, findNetworkStop, networkRouteId } from './app/networkSelection'
 import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
   type LucideIcon,
@@ -45,7 +46,6 @@ import { useScenarioDrafts } from './app/useScenarioDrafts'
 import { useNationalRouting } from './app/useNationalRouting'
 import { useStreetPreparation } from './app/useStreetPreparation'
 import { mergeGtfsRouteAnalysis, routeHasCompleteGtfsAnalysis, type GtfsRouteAnalysis } from './app/gtfsAnalysis'
-import { routeListLabels } from './app/routePresentation'
 import { buildCityPreviewLod } from './app/cityPreview'
 import { filterPreviewByStatus, previewForSelectedRoute } from './app/mapPresentation'
 import { formatBytes } from './app/presentation'
@@ -99,7 +99,7 @@ import {
 } from './components/AnalyzePanel'
 import { FirstRunSetupDialog, ProjectEditorDialog } from './components/ProjectDialogs'
 import { CityPanel, type DataSection } from './components/CityPanel'
-import { ExploreObjectPanel } from './components/ExploreObjectPanel'
+import { NetworkTimetable } from './components/NetworkTimetable'
 import { ServiceStateControl } from './components/ServiceStateControl'
 import { RealtimePanel } from './components/RealtimePanel'
 import { realtimeRefreshMs, type RealtimeInspectRequest } from './app/realtime'
@@ -178,7 +178,7 @@ import {
   type ServiceEdgeDecomposition,
 } from './reach'
 
-type RouteToolKey = 'explore' | 'data' | 'pathfinder' | 'analyze' | 'agency'
+type RouteToolKey = 'data' | 'pathfinder' | 'analyze' | 'agency'
 type MapScope = 'network' | 'route'
 const desktopReachRasterSize = 128
 
@@ -245,47 +245,6 @@ function latestCoverageDateMatchingWeekday(completeEndDate: string, preferredDat
 
 function latestMidweekCoverageDate(completeEndDate: string) {
   return latestCoverageDateForWeekday(completeEndDate, 3)
-}
-
-type PublicRouteEntry = {
-  key: string
-  representative: RouteMetric
-  variants: RouteMetric[]
-  tripCount: number
-  detailLabel: string
-}
-
-function publicRouteEntries(routes: RouteMetric[]): PublicRouteEntry[] {
-  const groups = new Map<string, RouteMetric[]>()
-  for (const route of routes) {
-    const key = scopedRouteServiceKey(route)
-    const group = groups.get(key)
-    if (group) group.push(route)
-    else groups.set(key, [route])
-  }
-
-  const entries = Array.from(groups.entries())
-    .map(([key, group]) => {
-      const variants = [...group].sort((left, right) => {
-      const rankDelta = (left.patternRank ?? Number.MAX_SAFE_INTEGER) - (right.patternRank ?? Number.MAX_SAFE_INTEGER)
-      if (rankDelta) return rankDelta
-      return right.tripCount - left.tripCount
-    })
-      return {
-        key,
-        representative: variants[0],
-        variants,
-        tripCount: variants.reduce((sum, route) => sum + route.tripCount, 0),
-        detailLabel: '',
-      }
-    })
-    .filter((entry) => Boolean(entry.representative))
-    .sort((left, right) => right.tripCount - left.tripCount)
-  const labels = routeListLabels(entries.map((entry) => entry.representative))
-  return entries.map((entry) => ({
-    ...entry,
-    detailLabel: labels.get(entry.representative.id) ?? entry.representative.longName,
-  }))
 }
 
 function quietMapLabel(value: string) {
@@ -378,32 +337,30 @@ function PrimaryNav({
   page,
   activeRouteTool,
   hasActiveData,
-  onOpenExplore,
+  onOpenNetwork,
   onOpenRouting,
   onOpenAnalyze,
-  onOpenAgency,
   onOpenSettings,
 }: {
   page: 'projects' | 'project'
   activeRouteTool: RouteToolKey
   hasActiveData: boolean
-  onOpenExplore: () => void
+  onOpenNetwork: () => void
   onOpenRouting: () => void
   onOpenAnalyze: () => void
-  onOpenAgency: () => void
   onOpenSettings: () => void
 }) {
   return (
     <nav className="sidebar-rail" aria-label="VIGO Studio">
       <div className="sidebar-rail-main">
         <PrimaryNavButton
-          title="Explore"
-          label="Explore"
+          title="Network"
+          label="Network"
           shortcut="1"
           icon={<Route size={19} aria-hidden="true" />}
-          active={page === 'project' && activeRouteTool === 'explore'}
+          active={page === 'project' && activeRouteTool === 'agency'}
           disabled={page !== 'project' || !hasActiveData}
-          onClick={onOpenExplore}
+          onClick={onOpenNetwork}
         />
         <PrimaryNavButton
           title="Route"
@@ -423,7 +380,6 @@ function PrimaryNav({
           disabled={page !== 'project' || !hasActiveData}
           onClick={onOpenAnalyze}
         />
-        <PrimaryNavButton title="Agency" label="Agency" shortcut="4" icon={<Activity size={19} aria-hidden="true" />} active={page === 'project' && activeRouteTool === 'agency'} disabled={page !== 'project' || !hasActiveData} onClick={onOpenAgency} />
       </div>
       <div className="sidebar-rail-bottom">
         <PrimaryNavButton
@@ -448,8 +404,6 @@ function VigoSidebar({
   activeFeedId,
   activeRouteTool,
   analysisPanel,
-  objectPanel,
-  preview,
   visiblePreview,
   selectedRoute,
   mapScope,
@@ -490,12 +444,10 @@ function VigoSidebar({
   hasActiveData,
   onOpenProject,
   onSelectFeed,
-  onSelectRoute,
   onOpenFeed,
-  onOpenExplore,
+  onOpenNetwork,
   onOpenRouting,
   onOpenAnalyze,
-  onOpenAgency,
   onOpenSettings,
   onOpenLive,
   onMapScopeChange,
@@ -525,8 +477,6 @@ function VigoSidebar({
   activeFeedId: string
   activeRouteTool: RouteToolKey
   analysisPanel?: ReactNode
-  objectPanel?: ReactNode
-  preview: MapPreview
   visiblePreview: MapPreview
   selectedRoute?: RouteMetric
   mapScope: MapScope
@@ -544,12 +494,10 @@ function VigoSidebar({
   hasActiveData: boolean
   onOpenProject: (id: string) => void
   onSelectFeed: (id: string) => void
-  onSelectRoute: (id: string) => void
   onOpenFeed: () => void
-  onOpenExplore: () => void
+  onOpenNetwork: () => void
   onOpenRouting: () => void
   onOpenAnalyze: () => void
-  onOpenAgency: () => void
   onOpenSettings: () => void
   onOpenLive: () => void
   onMapScopeChange: (scope: MapScope) => void
@@ -598,7 +546,6 @@ function VigoSidebar({
   | 'onClearRouting'
 >) {
   const isDataPanel = page === 'project' && activeRouteTool === 'data'
-  const isExplorePanel = page === 'project' && activeRouteTool === 'explore'
   const isPathfinderPanel = page === 'project' && activeRouteTool === 'pathfinder'
   const isAnalyzePanel = page === 'project' && activeRouteTool === 'analyze'
   const panelTitle = page === 'projects'
@@ -609,15 +556,13 @@ function VigoSidebar({
         ? 'Analyze'
         : isPathfinderPanel
           ? 'Route'
-          : 'Explore'
+          : 'Network'
   const panelSubtitle = page === 'projects'
     ? `${projects.length} Cities`
     : isPathfinderPanel
       ? ''
     : isAnalyzePanel
       ? 'Reach and compare'
-    : isExplorePanel
-      ? ''
     : hasActiveData
       ? activeFeedId === bundleFeedId
         ? quietMapLabel(selectedProject.name)
@@ -626,7 +571,6 @@ function VigoSidebar({
   const routeFocusActive = mapScope === 'route' && Boolean(selectedRoute)
   const networkPreview = useMemo(() => buildCityPreviewLod(visiblePreview), [visiblePreview])
   const scopedMapPreview = routeFocusActive ? previewForSelectedRoute(visiblePreview, selectedRoute) : networkPreview
-  const performanceProfile = useMemo(() => buildNetworkPerformanceProfile(preview), [preview])
   const scopedPerformanceProfile = useMemo(
     () => buildNetworkPerformanceProfile(scopedMapPreview, { precise: routeFocusActive }),
     [routeFocusActive, scopedMapPreview],
@@ -649,26 +593,6 @@ function VigoSidebar({
     [liveVehicleCount, realtimeSnapshot, renderingLive, scheduleProjectionEnabled, scopedMapPreview, scheduleServiceDate, scheduleTimeMinutes, scheduledVehicles],
   )
   const lensInsight = buildNetworkLensInsight(activeFeed, visiblePreview, networkLens)
-  const [routeScrollTop, setRouteScrollTop] = useState(0)
-  const [routeViewportHeight, setRouteViewportHeight] = useState(560)
-  const routeListRef = useRef<HTMLDivElement>(null)
-  const publicRoutes = useMemo(() => publicRouteEntries(visiblePreview.routes), [visiblePreview.routes])
-  const sortedRouteList = useMemo(
-    () => [...publicRoutes].sort((left, right) => left.representative.shortName.localeCompare(right.representative.shortName, undefined, { numeric: true })),
-    [publicRoutes],
-  )
-  const publicRouteCount = publicRoutes.length
-  const routeRowHeight = 50
-  const routeOverscan = 8
-  const routeWindowSize = Math.max(
-    performanceProfile.routeListWindowSize,
-    Math.ceil(routeViewportHeight / routeRowHeight) + routeOverscan * 2,
-  )
-  const routeWindowStart = Math.max(0, Math.floor(routeScrollTop / routeRowHeight) - routeOverscan)
-  const routeWindowEnd = Math.min(publicRouteCount, routeWindowStart + routeWindowSize)
-  const routeList = sortedRouteList.slice(routeWindowStart, routeWindowEnd)
-  const routeTopSpacer = routeWindowStart * routeRowHeight
-  const routeBottomSpacer = Math.max(0, (publicRouteCount - routeWindowEnd) * routeRowHeight)
   const networkIndexState = routingStoreReady
     ? 'SQLite service model open'
     : routingStoreStored
@@ -682,52 +606,15 @@ function VigoSidebar({
         ? networkIndexState
         : ''
 
-  useEffect(() => {
-    setRouteScrollTop(0)
-  }, [activeFeedId, preview])
-
-  useEffect(() => {
-    const viewport = routeListRef.current
-    if (!isExplorePanel || !viewport) return undefined
-
-    const syncViewport = () => {
-      const nextHeight = viewport.clientHeight
-      setRouteViewportHeight(nextHeight)
-      const maxScrollTop = Math.max(0, sortedRouteList.length * routeRowHeight - nextHeight)
-      if (viewport.scrollTop > maxScrollTop) viewport.scrollTop = maxScrollTop
-      setRouteScrollTop(viewport.scrollTop)
-    }
-
-    syncViewport()
-    const observer = new ResizeObserver(syncViewport)
-    observer.observe(viewport)
-    return () => observer.disconnect()
-  }, [isExplorePanel, routeRowHeight, sortedRouteList.length])
-
-  useEffect(() => {
-    if (!isExplorePanel || !selectedRoute || !routeListRef.current) return
-    const selectedIndex = sortedRouteList.findIndex((entry) => entry.key === scopedRouteServiceKey(selectedRoute))
-    if (selectedIndex < 0) return
-    const rowTop = selectedIndex * routeRowHeight
-    const rowBottom = rowTop + routeRowHeight
-    const viewport = routeListRef.current
-    if (rowTop < viewport.scrollTop || rowBottom > viewport.scrollTop + viewport.clientHeight) {
-      const nextScrollTop = Math.max(0, rowTop - Math.max(0, viewport.clientHeight - routeRowHeight) / 2)
-      viewport.scrollTop = nextScrollTop
-      setRouteScrollTop(viewport.scrollTop)
-    }
-  }, [isExplorePanel, selectedRoute, sortedRouteList])
-
   return (
     <aside className="app-sidebar" aria-label="City navigation">
       <PrimaryNav
         page={page}
         activeRouteTool={activeRouteTool}
         hasActiveData={hasActiveData}
-        onOpenExplore={onOpenExplore}
+        onOpenNetwork={onOpenNetwork}
         onOpenRouting={onOpenRouting}
         onOpenAnalyze={onOpenAnalyze}
-        onOpenAgency={onOpenAgency}
         onOpenSettings={onOpenSettings}
       />
       <section className={classNames('sidebar-panel', page === 'project' && `is-${activeRouteTool}`)} aria-label="City panel">
@@ -839,55 +726,6 @@ function VigoSidebar({
                 onScheduleServiceDateChange={onScheduleServiceDateChange}
                 onOpenLive={onOpenLive}
               />
-            ) : null}
-
-            {hasActiveData && isExplorePanel ? (
-              <div className={classNames('sidebar-section route-browser-section', selectedRoute && 'has-object-detail')}>
-                {selectedRoute ? objectPanel : (
-                  <>
-                    <div className="sidebar-section-title route-browser-heading">
-                      <div>
-                        <strong>Routes</strong>
-                      </div>
-                      <span>{formatNumber(publicRouteCount)} service{publicRouteCount === 1 ? '' : 's'}</span>
-                    </div>
-                    <div
-                      ref={routeListRef}
-                      className="sidebar-list compact route-browser-list is-virtual"
-                      onScroll={(event) => {
-                        setRouteScrollTop(event.currentTarget.scrollTop)
-                        setRouteViewportHeight(event.currentTarget.clientHeight)
-                      }}
-                    >
-                      {routeTopSpacer > 0 ? <div className="route-list-spacer" style={{ height: routeTopSpacer }} /> : null}
-                      {routeList.map((entry) => {
-                        const route = entry.representative
-
-                        return (
-                          <div
-                            key={entry.key}
-                            className="route-tree-item"
-                            style={{ '--route-color': route.color } as CSSProperties}
-                          >
-                            <button
-                              type="button"
-                              className="sidebar-list-row route-row"
-                              onClick={() => onSelectRoute(route.id)}
-                              title={entry.detailLabel}
-                              aria-label={`${route.shortName}, ${entry.detailLabel}`}
-                            >
-                              <b style={{ background: route.color }} />
-                              <strong>{route.shortName}</strong>
-                              <span>{entry.detailLabel}</span>
-                            </button>
-                          </div>
-                        )
-                      })}
-                      {routeBottomSpacer > 0 ? <div className="route-list-spacer" style={{ height: routeBottomSpacer }} /> : null}
-                    </div>
-                  </>
-                )}
-              </div>
             ) : null}
 
             {hasActiveData && isPathfinderPanel ? (
@@ -1864,7 +1702,7 @@ function EmptyOperationsStart({
         <div className="surface-source-intake-copy">
           <span className="eyebrow">City data</span>
           <h1 id="surface-source-intake-title">Build {quietMapLabel(project.name)}</h1>
-          <p>Add GTFS and OSM to open Explore, Route, and Analyze.</p>
+          <p>Add GTFS and OSM to open Network, Route, and Analyze.</p>
         </div>
 
         <div className="surface-source-statuses" aria-label="City sources">
@@ -2143,7 +1981,7 @@ function RouteSurface({
   return (
     <section className="route-surface" aria-label="GTFS map and service state" style={routeStyle}>
       <div className="surface-panel route-map-shell">
-        {showAgencyLine ? <AgencyRouteLine key={`${projectId}/${selectedRouteId}`} projectId={projectId} routeId={isNetworkMap ? '' : selectedRoute?.routeId || selectedRouteId} /> : <LazyVigoMap
+        {showAgencyLine ? <AgencyRouteLine key={`${projectId}/${selectedRouteId}`} projectId={projectId} routeId={isNetworkMap ? '' : selectedRoute ? networkRouteId(selectedRoute) : selectedRouteId} selectedStopId={selectedStopId} onSelectStop={onSelectStop} /> : <LazyVigoMap
           focusLocation={agencyFocus ? agencyLocation : undefined}
           projectId={projectId}
           localStreetGraphAvailable={localStreetGraphAvailable}
@@ -2407,7 +2245,7 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState<GtfsRouteStatusFilter>('all')
   const [page, setPage] = useState<'projects' | 'project'>('projects')
   const [activeFeedId, setActiveFeedId] = useState(bundleFeedId)
-  const [activeRouteTool, setActiveRouteTool] = useState<RouteToolKey>(() => { const saved = sessionStorage.getItem('vigo-agency-view'); return ['explore', 'data', 'pathfinder', 'analyze', 'agency'].includes(saved || '') ? saved as RouteToolKey : 'agency' })
+  const [activeRouteTool, setActiveRouteTool] = useState<RouteToolKey>(() => { const saved = sessionStorage.getItem('vigo-agency-view'); return ['data', 'pathfinder', 'analyze', 'agency'].includes(saved || '') ? saved as RouteToolKey : 'agency' })
   useEffect(() => { sessionStorage.setItem('vigo-agency-view', activeRouteTool) }, [activeRouteTool])
   const [dataSection, setDataSection] = useState<DataSection>('feeds')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -2750,7 +2588,7 @@ export default function App() {
     })
   }, [deferredQuery, networkSearchIndex, preview, projects, recentSearchIds])
   const selectedRoute = selectedRouteId
-    ? preview.routes.find((route) => route.id === selectedRouteId || route.patternId === selectedRouteId)
+    ? findNetworkRoute(preview.routes, selectedRouteId)
     : undefined
   const activeScenario = scenarioDrafts.find(
     (entry) => entry.id === activeScenarioId,
@@ -2798,7 +2636,7 @@ export default function App() {
     || analyzeMode === 'single' && activeScenarioStopPlacement,
   )
   const selectedStop = selectedStopId
-    ? preview.stops.find((stop) => stop.id === selectedStopId)
+    ? findNetworkStop(preview.stops, selectedStopId)
     : undefined
   const focusedMapPreview = useMemo(
     () => previewForSelectedRoute(workbenchMapPreview, selectedRoute, routeRenderMode),
@@ -2989,8 +2827,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    const needsRouteDetail = activeRouteTool === 'explore'
-      || activeRouteTool === 'agency' && mapScope === 'route'
+    const needsRouteDetail = activeRouteTool === 'agency' && mapScope === 'route'
     if (page !== 'project' || !needsRouteDetail || !selectedRoute) return
     if (routeHasCompleteGtfsAnalysis(selectedRoute, preview, routingServiceDate)) return
     void loadGtfsRouteAnalysis(selectedRoute, selectedRoute.id)
@@ -3060,12 +2897,12 @@ export default function App() {
 
   useEffect(() => {
     if (cityPreviewLoading || selectedProject.id === '__empty_city__') return
-    if (selectedRouteId && !preview.routes.some((route) => route.id === selectedRouteId || route.patternId === selectedRouteId)) {
+    if (selectedRouteId && !findNetworkRoute(preview.routes, selectedRouteId)) {
       setSelectedRouteId('')
       navigationMemoryRef.current = rememberRoute(selectedProject.id, '')
     }
-    if (selectedStopId && !preview.stops.some((stop) => stop.id === selectedStopId)) setSelectedStopId('')
-  }, [preview, selectedProject.id, selectedRouteId, selectedStopId, cityPreviewLoading])
+    if (activeRouteTool !== 'agency' && selectedStopId && !findNetworkStop(preview.stops, selectedStopId)) setSelectedStopId('')
+  }, [preview, selectedProject.id, selectedRouteId, selectedStopId, cityPreviewLoading, activeRouteTool])
 
   useEffect(() => {
     if (activeFeedId !== bundleFeedId && !selectedProject.feeds.some((feed) => feed.id === activeFeedId)) {
@@ -3171,7 +3008,7 @@ export default function App() {
     setOsmStreetMessage('')
     setQuery('')
     setStatusFilter('all')
-    setActiveRouteTool('explore')
+    setActiveRouteTool('agency')
     setSidebarCollapsed(false)
     applyNetworkMapDefaults()
   }
@@ -3255,16 +3092,15 @@ export default function App() {
     setSelectedRouteId(nextRouteId)
     setRouteRenderMode(renderMode)
     navigationMemoryRef.current = rememberRoute(selectedProject.id, nextRouteId)
-    if (route?.stopIds.length) {
-      setSelectedStopId((current) => route.stopIds.includes(current) ? current : route.stopIds[0])
-    }
-    setActiveRouteTool('explore')
+    setSelectedStopId('')
+    clearAgencyMap()
+    setActiveRouteTool('agency')
     applyRouteMapDefaults()
   }
 
   function selectStop(stopId: string) {
     setSelectedStopId(stopId)
-    setActiveRouteTool('explore')
+    setActiveRouteTool('agency')
   }
 
   function activateSearchResult(result: SearchResult) {
@@ -3309,7 +3145,7 @@ export default function App() {
       openSettingsView()
     } else {
       setPage('project')
-      openRoutesView()
+      openNetworkView()
     }
   }
 
@@ -4691,7 +4527,7 @@ export default function App() {
         setSelectedRouteId('')
         setSelectedStopId('')
         setMapScope('network')
-        setActiveRouteTool('explore')
+        setActiveRouteTool('agency')
       }
     } catch (error) {
       if (requestId !== realtimeRequestIdRef.current) return
@@ -4802,22 +4638,16 @@ export default function App() {
     if (!openedDesktop) setSetupError('Folder selection is available in VIGO Studio.')
   }
 
-  function openRoutesView() {
-    setActiveRouteTool('explore')
-    returnToNetworkOverview()
+  function openNetworkView() {
+    setActiveRouteTool('agency')
+    setRoutingEnabled(false)
+    setSidebarCollapsed(false)
   }
 
   function openPathfinderView() {
     setActiveRouteTool('pathfinder')
     setMapScope('route')
     setRoutingEnabled(false)
-  }
-
-  function openAgencyView() {
-    setActiveRouteTool('agency')
-    setMapScope('network')
-    setRoutingEnabled(false)
-    setSidebarCollapsed(false)
   }
 
   function clearAgencyMap() {
@@ -4829,7 +4659,7 @@ export default function App() {
   function locateAgencyEntities(routeIds: string[], stopIds: string[], location?: { id: string; label: string; coordinate: [number, number] }) {
     setAgencyPlan(null); setAgencyReach(null); setAgencyLocation(location ? { ...location, stopId: stopIds.length === 1 ? stopIds[0] : undefined } : undefined)
     if (!routeIds.length && !stopIds.length) { setSelectedRouteId(''); setMapScope('network') }
-    const route = preview.routes.find((item) => routeIds.includes(item.id) || Boolean(item.routeId && routeIds.includes(item.routeId)))
+    const route = routeIds.length === 1 ? findNetworkRoute(preview.routes, routeIds[0]) : undefined
     if (route || routeIds[0]) { setSelectedRouteId(route?.id ?? routeIds[0]); setMapScope('route'); setRouteRenderMode('service') }
     setSelectedStopId(stopIds[0] || '')
     if (window.innerWidth <= 760) setAgencyMapOpen(true)
@@ -4886,7 +4716,7 @@ export default function App() {
       let action: (() => void) | null = null
       switch (event.code) {
         case 'Digit1':
-          action = hasActiveOperationsData ? openRoutesView : null
+          action = hasActiveOperationsData ? openNetworkView : null
           break
         case 'Digit2':
           action = hasActiveOperationsData ? openPathfinderView : null
@@ -4895,7 +4725,7 @@ export default function App() {
           action = hasActiveOperationsData ? openAnalyzeView : null
           break
         case 'Digit4':
-          action = hasActiveOperationsData ? openAgencyView : null
+          action = hasActiveOperationsData ? openNetworkView : null
           break
         case 'Digit5':
           action = openSettingsView
@@ -4998,10 +4828,9 @@ export default function App() {
             page={page}
             activeRouteTool={activeRouteTool}
             hasActiveData={hasActiveOperationsData}
-            onOpenExplore={openRoutesView}
+            onOpenNetwork={openNetworkView}
             onOpenRouting={openPathfinderView}
             onOpenAnalyze={openAnalyzeView}
-        onOpenAgency={openAgencyView}
             onOpenSettings={openSettingsView}
           />
         </aside>
@@ -5125,22 +4954,6 @@ export default function App() {
             onCancel={cancelSurfaceAnalysis}
           />
         ) : undefined}
-        objectPanel={(
-          <ExploreObjectPanel
-            feed={activeFeed}
-            preview={visiblePreview}
-            selectedRoute={selectedRoute}
-            selectedStop={selectedStop}
-            analysisLoading={Boolean(selectedRoute && routeAnalysisRouteId === selectedRoute.id)}
-            analysisError={routeAnalysisError}
-            routeRenderMode={routeRenderMode}
-            onRouteRenderModeChange={setRouteRenderMode}
-            onSelectPattern={(routeId) => selectRoute(routeId, 'pattern')}
-            onOpenSources={openDataView}
-            onClearSelection={returnToNetworkOverview}
-          />
-        )}
-        preview={preview}
         visiblePreview={visiblePreview}
         selectedRoute={selectedRoute}
         mapScope={mapScope}
@@ -5181,12 +4994,10 @@ export default function App() {
         hasActiveData={hasActiveOperationsData}
         onOpenProject={openProject}
         onSelectFeed={selectFeed}
-        onSelectRoute={selectRoute}
         onOpenFeed={openDataView}
-        onOpenExplore={openRoutesView}
+        onOpenNetwork={openNetworkView}
         onOpenRouting={openPathfinderView}
         onOpenAnalyze={openAnalyzeView}
-        onOpenAgency={openAgencyView}
         onOpenSettings={openSettingsView}
         onOpenLive={() => {
           if (!realtimeSnapshot) {
@@ -5194,7 +5005,7 @@ export default function App() {
             return
           }
           setMapScope('network')
-          setActiveRouteTool('explore')
+          setActiveRouteTool('agency')
           setVehicleMode('live')
         }}
         onMapScopeChange={setMapScope}
@@ -5331,7 +5142,7 @@ export default function App() {
           onMoveScenarioStop={activeRouteTool === 'analyze' ? moveScenarioStopFromMap : undefined}
           routingActivity={routingActivity}
           cityPreviewLoading={cityPreviewLoading}
-          onMapScopeChange={(scope) => { if (activeRouteTool === 'agency' && scope === 'network') { clearAgencyMap(); setSelectedStopId('') } setMapScope(scope) }}
+          onMapScopeChange={(scope) => { if (activeRouteTool === 'agency' && scope === 'network') { clearAgencyMap(); returnToNetworkOverview() } setMapScope(scope) }}
           onVehicleModeChange={changeVehicleMode}
           onScheduleTimeChange={setScheduleTimeMinutes}
           onScheduleServiceDateChange={changeRoutingServiceDate}
@@ -5339,7 +5150,21 @@ export default function App() {
           onSelectRoute={activeRouteTool === 'agency' ? (id) => locateAgencyEntities([id], []) : selectRoute}
           onSelectStop={activeRouteTool === 'agency' ? (id) => locateAgencyEntities([], [id]) : selectStop}
         />
-        {activeRouteTool === 'agency' ? <AgencyPanel key={selectedProjectId} projectId={selectedProjectId} snapshot={realtimeSnapshot} realtimeRequest={realtimeRequest} realtimeMessage={realtimeMessage} realtimeLoading={isRealtimeLoading} onConnect={(request) => void refreshRealtimeRequest(request)} onDisconnect={disconnectRealtime} onLocate={locateAgencyEntities} onResult={presentAgencyResult} onOpenData={openDataView} mapOpen={agencyMapOpen} onToggleMap={() => setAgencyMapOpen((open) => !open)} /> : null}
+        {activeRouteTool === 'agency' ? <AgencyPanel key={selectedProjectId} projectId={selectedProjectId} selection={{ routeId: mapScope === 'route' && selectedRoute ? networkRouteId(selectedRoute) : undefined, stopId: selectedStopId || undefined }} onClearSelection={() => { returnToNetworkOverview(); clearAgencyMap() }} timetable={(
+          <NetworkTimetable
+            feed={activeFeed}
+            preview={visiblePreview}
+            selectedRoute={mapScope === 'route' ? selectedRoute : undefined}
+            selectedStop={selectedStop}
+            analysisLoading={Boolean(selectedRoute && routeAnalysisRouteId === selectedRoute.id)}
+            analysisError={routeAnalysisError}
+            routeRenderMode={routeRenderMode}
+            onRouteRenderModeChange={setRouteRenderMode}
+            onSelectPattern={(routeId) => selectRoute(routeId, 'pattern')}
+            onOpenSources={openDataView}
+            onClearSelection={returnToNetworkOverview}
+          />
+        )} snapshot={realtimeSnapshot} realtimeRequest={realtimeRequest} realtimeMessage={realtimeMessage} realtimeLoading={isRealtimeLoading} onConnect={(request) => void refreshRealtimeRequest(request)} onDisconnect={disconnectRealtime} onLocate={locateAgencyEntities} onResult={presentAgencyResult} onOpenData={openDataView} mapOpen={agencyMapOpen} onToggleMap={() => setAgencyMapOpen((open) => !open)} /> : null}
       </div>
       )
       )}

@@ -67,6 +67,7 @@ export function AgencyAnswer({ answer, onResult, onSelectEvent, onOpenEntry }: {
   const citedComparison = answer.aiGenerated ? answer.trace.find((call, index) => answer.citations?.includes(index + 1) && (call.result.data as { events?: OperationalEvent[] }).events?.some((event) => event.evidence.observedHeadwaySeconds != null)) : null
   const result = citedComparison?.result ?? answer.trace.filter((call) => call.result.ok).at(-1)?.result
   return <section className="agency-answer" aria-label="Answer">
+    {answer.selection?.route || answer.selection?.stop ? <p className="agency-caption">Asked about {answer.selection.stop?.name}{answer.selection.stop && answer.selection.route ? ' · ' : ''}{answer.selection.route ? `Route ${answer.selection.route.name}` : ''}</p> : null}
     {answer.aiGenerated && answer.trace.length ? <div className="agency-ai-label">AI response · {answer.model}</div> : null}
     <p className="agency-answer-text">{answerText(answer.answer)}</p>
     {answer.scopeNote ? <p className="agency-caption">{answer.scopeNote}</p> : null}

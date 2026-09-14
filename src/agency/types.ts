@@ -1,3 +1,9 @@
+export type WorkspaceSelectionInput = { routeId?: string; stopId?: string }
+export type WorkspaceSelection = {
+  route?: { id: string; name: string; description?: string }
+  stop?: { id: string; name: string; coordinate: [number, number] }
+}
+
 export type Evidence = {
   scheduledTime?: number
   predictedTime?: number
@@ -77,6 +83,7 @@ export type AgencyRoute = {
 }
 
 export type AgencyState = {
+  selection?: WorkspaceSelection
   generatedAt: string
   observedAt: string | null
   cityName: string
@@ -107,6 +114,7 @@ export type ToolResult = {
 }
 
 export type QueryAnswer = {
+  selection?: WorkspaceSelection
   timezone?: string | null
   runtime?: {
     capturedAt: string

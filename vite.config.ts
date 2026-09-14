@@ -28,7 +28,9 @@ export default defineConfig({
     port: 5178,
     watch: { ignored: ['**/temp/**', '**/release/**', '**/public/assets/**', '**/public/index.html', '**/public/vigo.mjs', '**/public/_engine/**'] },
     proxy: {
-      '/api': `http://127.0.0.1:${apiPort}`,
+      // Preserve the browser's Host so the API can verify the same local
+      // origin even when a second development checkout uses another port.
+      '/api': { target: `http://127.0.0.1:${apiPort}`, changeOrigin: false },
     },
   },
   preview: {

@@ -1,3 +1,4 @@
+import { indexedEntityId } from './workspaceSelection.mjs'
 import { rawId, localDate, serviceEpoch } from './agencyContext.mjs'
 import { defaultPolicy, feedStates } from './realtimeIntelligence.mjs'
 import { tripCalls, station, fresh, matchCall, stopPrediction } from './routeOperations.mjs'
@@ -8,18 +9,7 @@ const instanceKey = (tripId, date) => JSON.stringify([tripId, date])
 const shiftDate = (date, days) => new Date(Date.parse(`${date}T12:00:00Z`) + days * 86400000).toISOString().slice(0, 10)
 
 export function indexedBoardStop(context, stopId, feedIds = []) {
-  if (typeof stopId !== 'string' || !stopId || stopId.length > 500) throw new Error('Choose an exact stop from this City’s timetable.')
-  if (context.stopIndex.has(stopId)) return stopId
-  const delimiter = stopId.indexOf('::')
-  const feedId = stopId.slice(0, delimiter), localId = stopId.slice(delimiter + 2)
-  if (delimiter > 0 && feedIds.includes(feedId)) {
-    const scopedId = `${feedId}\u001f${localId}`
-    if (context.stopIndex.has(scopedId)) return scopedId
-    // Studio scopes even a single-feed preview; its unmerged SQLite keeps raw
-    // GTFS IDs. Only the known single source may cross this boundary.
-    if (feedIds.length === 1 && context.scopes.length === 1 && context.scopes[0] === '' && context.stopIndex.has(localId)) return localId
-  }
-  throw new Error('Choose an exact stop from this City’s timetable.')
+  return indexedEntityId(context, 'stop', stopId, feedIds)
 }
 
 function stationSchedule(context, stopId) {

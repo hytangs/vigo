@@ -323,41 +323,6 @@
   font-weight: 520;
 }
 
-.route-browser-list.is-virtual {
-  gap: 0;
-  padding: 0;
-  scrollbar-gutter: stable;
-}
-
-.route-tree-item {
-  min-width: 0;
-  box-sizing: border-box;
-}
-
-.route-tree-item .route-row {
-  width: 100%;
-  grid-template-areas: "marker code meta";
-  align-items: center;
-  border-color: transparent;
-  background: transparent;
-}
-
-.route-tree-item .route-row > b {
-  grid-area: marker;
-  border-radius: 999px;
-}
-
-.route-tree-item .route-row > strong {
-  grid-area: code;
-  color: var(--text-strong);
-}
-
-.route-tree-item .route-row > span {
-  grid-area: meta;
-  color: var(--text-muted);
-  text-align: left;
-}
-
 /* Quiet map framing. The map stage and its renderer remain untouched. */
 .route-investigation-shell,
 .workbench.project-workbench.route-investigation-shell {
@@ -1336,10 +1301,6 @@
     grid-template-rows: auto minmax(0, 1fr);
   }
 
-  .sidebar-panel.is-explore .route-browser-section {
-    min-height: 180px;
-  }
-
   .app-frame {
     grid-column: 1;
     min-height: 0;
@@ -1467,7 +1428,6 @@
 
 @media (forced-colors: active) {
   .sidebar-rail-button.is-active,
-  .route-tree-item .route-row.is-selected,
   .surface-switcher-row.is-current {
     border: 2px solid Highlight;
   }

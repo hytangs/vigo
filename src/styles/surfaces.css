@@ -2502,57 +2502,6 @@
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-.sidebar-panel.is-explore .route-browser-section {
-  grid-template-rows: auto minmax(160px, 1fr) auto;
-}
-
-.sidebar-panel.is-explore .route-browser-heading {
-  align-items: start;
-}
-
-.route-browser-heading > div {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.sidebar-panel.is-explore .route-browser-heading strong {
-  color: var(--text-strong);
-  font-size: 0.78rem;
-  font-weight: 720;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.route-browser-heading small {
-  color: var(--text-muted);
-  font-size: 0.62rem;
-  font-weight: 520;
-  line-height: 1.35;
-}
-
-.route-browser-heading > span {
-  color: var(--text-muted);
-  font-size: 0.62rem;
-  font-weight: 650;
-}
-
-.sidebar-panel.is-explore .sidebar-list-row.route-row span {
-  font-size: 0.68rem;
-  font-weight: 560;
-}
-
-.sidebar-panel.is-explore .route-browser-section.has-object-detail {
-  grid-template-rows: minmax(0, 1fr);
-  gap: 0;
-}
-
-.route-browser-section.has-object-detail .object-detail {
-  min-height: 0;
-  height: 100%;
-  animation: vigo-surface-in 220ms var(--ease-standard) both;
-}
-
 .route-map-shell .map-live-card {
   top: 72px;
 }
@@ -3143,16 +3092,6 @@
     max-height: none;
   }
 
-  .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar:has(.sidebar-panel.is-explore .route-browser-section.has-object-detail) {
-    height: 62svh;
-    max-height: 62svh;
-  }
-
-  .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar:has(.route-browser-section.has-object-detail) .sidebar-panel.is-explore {
-    height: 100%;
-    max-height: none;
-  }
-
   .app-shell.page-project:not(.project-empty):not(.view-data) .shell-body {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -3174,10 +3113,6 @@
 
   .sidebar-panel {
     min-width: 0;
-  }
-
-  .sidebar-panel.is-explore .route-browser-section.has-object-detail {
-    grid-template-rows: minmax(0, 1fr);
   }
 
   .routing-detail-panel {
