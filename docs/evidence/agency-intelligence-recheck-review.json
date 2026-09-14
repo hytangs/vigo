@@ -1,0 +1,251 @@
+{
+  "reviewer": "Codex coding assistant; individual review against the synthetic fixture and the same criteria used for the first complete run. No agency or independent human validation.",
+  "scope": "One complete 32-question recheck. Adequate fixture answers do not establish field readiness or general model capability.",
+  "pipeline": "Typed scopes, shared inspection facts, on-demand workspace selection, repeated successful inspection reuse and query-parameter retention. This process started before the final history/notice boundary tests, composition-history retention and removal of the word quota. Do not count those later edits as model-tested by this cohort.",
+  "timingLimits": "Development timings with uncontrolled machine load and caches. A three-question writing experiment shared the model endpoint during the early questions; builds and API checks also ran during development. This is not a controlled speed comparison.",
+  "run": {
+    "type": "run",
+    "startedAt": "2026-09-14T09:20:09.620Z",
+    "revision": "dd0b31a7b3854003ee4a941d1a64911116957a89",
+    "dirty": true,
+    "model": "qwen3.5:4b",
+    "protocol": "ollama",
+    "contextTokens": 8192,
+    "reasoningEffort": "none",
+    "temperature": 0,
+    "scenario": "Synthetic evaluation network; not Boston observations. Frozen at 08:00 EDT, September 14. Missing APC, crew, maintenance, fleet, dispatch and historical outcome data are deliberate.",
+    "selection": {
+      "route": {
+        "id": "39",
+        "name": "39",
+        "description": "Synthetic service 39"
+      },
+      "stop": {
+        "id": "C",
+        "name": "Harvard Square",
+        "coordinate": [
+          -71.08999999999999,
+          42.35
+        ]
+      }
+    },
+    "questions": 32,
+    "questionIds": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32
+    ]
+  },
+  "completion": {
+    "recordType": "complete",
+    "finishedAt": "2026-09-14T09:53:30.534Z",
+    "answered": 32
+  },
+  "summary": {
+    "acceptable": 2,
+    "partial": 3,
+    "fail": 27,
+    "medianAgentSeconds": 48.03996527100001,
+    "totalAgentMinutes": 33.34661651255001,
+    "modelCalls": 100,
+    "toolCalls": {
+      "inspect_service": 43,
+      "service_alerts": 3,
+      "resolve_entities": 3,
+      "draft_rider_message": 1,
+      "historical_runtime": 1,
+      "service_profile": 1
+    }
+  },
+  "cases": [
+    {
+      "id": 1,
+      "rating": "fail",
+      "reason": "Correctly identifies late routes and the Route 66 cancellation, but says the absence of a shared cause means the incidents are isolated; full occupancy is also presented as exacerbating the delay without evidence."
+    },
+    {
+      "id": 2,
+      "rating": "fail",
+      "reason": "Denies the supplied Route 39 construction notice and invents a dispatch/re-entry mechanism for a FULL vehicle. Neither a depot failure nor vehicle shortage is established."
+    },
+    {
+      "id": 3,
+      "rating": "fail",
+      "reason": "Extends Route 39 construction to feeder or parallel services without evidence. Shared stop connections establish overlap, not that mechanism."
+    },
+    {
+      "id": 4,
+      "rating": "fail",
+      "reason": "After an invalid Route 66 name and a successful correction, the request reached its 180-second deadline without a completed interpretation."
+    },
+    {
+      "id": 5,
+      "rating": "fail",
+      "reason": "Invents actual delay onset at Harvard Square from three same-stop forecasts, invents Route 15, and says reduced spacing increases rider waits."
+    },
+    {
+      "id": 6,
+      "rating": "fail",
+      "reason": "Silently picks Route 39 without identifying the trip; invents contained delay propagation, unchanged headways, no downstream impacts and persistence until construction ends."
+    },
+    {
+      "id": 7,
+      "rating": "partial",
+      "reason": "Finds the Route 39 zero-spacing pair and distinguishes the Route 66 gap, but does not use the second distinct close pair to answer single-pair versus broader spacing. Its intervention discussion is insufficiently conditioned on the gap ahead."
+    },
+    {
+      "id": 8,
+      "rating": "fail",
+      "reason": "Correctly locates the Route 66 25-minute predicted gap, but also describes Route 39 close spacing and lateness as a critical long gap without supporting interval evidence."
+    },
+    {
+      "id": 9,
+      "rating": "fail",
+      "reason": "Adopts the unsupported 35-minute premise, declares a prediction artifact, excludes unobserved dispatch/short-turn causes, and incorrectly says Routes 55 and 57 match schedule."
+    },
+    {
+      "id": 10,
+      "rating": "fail",
+      "reason": "Obtains missing historical-study evidence but interprets its absence as normal weekly performance or rider memory bias. A running-time study is also conflated with overall weekly reliability."
+    },
+    {
+      "id": 11,
+      "rating": "fail",
+      "reason": "After repeated invented stop IDs, assigns the Route 66 cancellation to Route 39 and recommends investigating that nonexistent cancellation."
+    },
+    {
+      "id": 12,
+      "rating": "fail",
+      "reason": "Treats absent shared-cause confirmation as evidence of distinct causes and instructs staff to handle 55 and 57 as independent incidents."
+    },
+    {
+      "id": 13,
+      "rating": "fail",
+      "reason": "Dismisses the user-reported crash because the feed lacks a crash notice; does not establish intersection scope or calculate its scheduled exposure."
+    },
+    {
+      "id": 14,
+      "rating": "fail",
+      "reason": "Projects the morning snapshot into 30/60/90-minute future service and promises matching schedules for three routes without a calibrated forecast."
+    },
+    {
+      "id": 15,
+      "rating": "partial",
+      "reason": "Correctly avoids a recovery-time promise, but treats hypothetical 4:20 clearance as requiring confirmation and does not establish the relevant route, clock or recovery dependencies."
+    },
+    {
+      "id": 16,
+      "rating": "fail",
+      "reason": "Prescribes no intervention for Route 39, invents a slow-moving construction queue and omits comparison of the requested options and the network's Route 66 cancellation/gap."
+    },
+    {
+      "id": 17,
+      "rating": "fail",
+      "reason": "Does not identify the bus, turns a headway difference into rider wait extension, and recommends against a short-turn without its feasible turn, direction or vehicle inputs."
+    },
+    {
+      "id": 18,
+      "rating": "fail",
+      "reason": "Orders immediate spare deployment to Route 39 and claims a higher marginal passenger benefit from late-trip counts. It never establishes the three intended routes, spare locations, crews or demand."
+    },
+    {
+      "id": 19,
+      "rating": "fail",
+      "reason": "Asserts high-risk transfer points without arrival/departure/transfer-allowance comparisons, places the FULL vehicle at the wrong stop, and substitutes rider drafting for the connection assessment."
+    },
+    {
+      "id": 20,
+      "rating": "fail",
+      "reason": "Declares supply-side failure rather than unusually high demand without passenger counts or a demand baseline; the single FULL report cannot establish or exclude either mechanism."
+    },
+    {
+      "id": 21,
+      "rating": "fail",
+      "reason": "Infers risky pull-outs from morning delays, uses 35 rather than 33 for the timing-comparison denominator, relocates FULL occupancy to Kenmore and invents a maintenance cause for rider copy."
+    },
+    {
+      "id": 22,
+      "rating": "fail",
+      "reason": "Opens by asserting no reliefs or assignments are endangered because the roster is absent. The later missing-data qualification contradicts but does not repair that unsupported operational conclusion."
+    },
+    {
+      "id": 23,
+      "rating": "fail",
+      "reason": "Invents an UNKNOWN vehicle, says a GTFS inspection can retrieve door/propulsion telemetry, recommends against swapping, then conditionally authorizes continued operation from that nonexistent check."
+    },
+    {
+      "id": 24,
+      "rating": "fail",
+      "reason": "Attributes Red Line running delay to Park Street elevator maintenance, associates it with Harvard Square and falsely excludes a common infrastructure cause on other routes."
+    },
+    {
+      "id": 25,
+      "rating": "fail",
+      "reason": "Misreads a 14-minute headway deviation as a 14-minute interval versus 10 scheduled minutes; invents a 2-minute wait and a maintenance cause for Route 66."
+    },
+    {
+      "id": 26,
+      "rating": "fail",
+      "reason": "Does not establish the A/B endpoints or suspended segment, never attempts a journey, invents Route 15 as a candidate and suggests monitoring for speculative short-turn/express service."
+    },
+    {
+      "id": 27,
+      "rating": "acceptable",
+      "reason": "Produces all three channel drafts with the correct late-route group, Route 66 cancellation, Route 39 construction scope, separate Park Street access notice and an apology, without inventing a restoration deadline. The long analyst preamble and instruction to deploy immediately are unnecessary; no publication was executed or verified."
+    },
+    {
+      "id": 28,
+      "rating": "partial",
+      "reason": "Recognizes the limited Route 39 notice and need to compare coverage, but does not perform that comparison and treats unspecified direction coverage as definitely missing."
+    },
+    {
+      "id": 29,
+      "rating": "fail",
+      "reason": "Declares that fresh feeds exclude AVL/GTFS-RT error, uses the wrong comparison denominator, invents wider gaps on 39/55/57 and again treats unconfirmed common causes as distinct events."
+    },
+    {
+      "id": 30,
+      "rating": "fail",
+      "reason": "Treats a current alert search as yesterday's incident record, invents route examples R102/102 and drafts an unsupported claim that yesterday's period had no official incidents."
+    },
+    {
+      "id": 31,
+      "rating": "acceptable",
+      "reason": "Correctly combines Route 39 late predictions, two close-spacing examples, its scoped construction notice and lack of a restoration time. It does not claim actual onset or a common cause on nearby routes. Its next-step discussion is shallow but supported; this is an adequate fixture answer, not proof of agency readiness."
+    },
+    {
+      "id": 32,
+      "rating": "fail",
+      "reason": "Projects morning delays into an evening-peak travel advisory, declares distinct causes and omits PM readiness, crew, fleet and forecast requirements."
+    }
+  ]
+}

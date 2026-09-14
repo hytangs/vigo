@@ -64,9 +64,15 @@ try {
   let calls = 0
   service = createAgencyService({ context: async () => ({ storePath: file, cityName: 'City X', agencyDirectory: directory, feedIds: ['fixture'] }), inspectRealtime: async () => realtimeFixture([tripUpdate('T1', 600)]) }, {
     clock: () => observationTime * 1000,
-    provider: { available: true, model: 'fixture', complete: async messages => {
+    provider: { available: true, model: 'fixture', complete: async (messages, tools) => {
       calls++
-      const supplied = messages.find(message => message.content.includes('Selected workspace objects')).content
+      if (calls === 1) {
+        const supplied = messages.find(message => message.content.includes('Workspace selection available')).content
+        assert.doesNotMatch(supplied, /River service|"coordinate":\[-71.06,42.36\]/, 'Unrelated questions are not anchored to a map-selected entity')
+        assert.ok(tools.some(tool => tool.name === 'workspace_selection'))
+        return { tool_calls: [{ id: 'selected', function: { name: 'workspace_selection', arguments: '{}' } }] }
+      }
+      const supplied = messages.find(message => message.role === 'tool').content
       assert.match(supplied, /"route":\{"id":"R","name":"R","description":"River service"\}/)
       assert.match(supplied, /"stop":\{"id":"A","name":"River","coordinate":\[-71.06,42.36\]\}/)
       return { content: 'The selected station is River on route R.' }
@@ -82,6 +88,6 @@ try {
   assert.deepEqual(answer.selection, state.selection, 'UI and Ask resolve exactly the same selection')
   assert.deepEqual((await service.handle('x', { action: 'notebook-entry', id: answer.entryId })).entries[0].answer.selection, state.selection, 'Saved answers retain their original context')
   await assert.rejects(service.handle('x', { action: 'ask', question: 'What is here?', selection: { stopId: 'missing' } }), /exact stop/)
-  assert.equal(calls, 1, 'Invalid selection never reaches the model')
+  assert.equal(calls, 2, 'Invalid selection never reaches the model')
 } finally { service?.close(); await fs.rm(directory, { recursive: true, force: true }) }
 console.log('Network workspace: exact feed identities, parent/platform filtering, shared Ask context and saved selection passed.')

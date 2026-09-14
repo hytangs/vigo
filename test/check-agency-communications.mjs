@@ -44,6 +44,13 @@ try {
   let modelCalls = 0
   const provider = { available: true, model: 'fixture', complete: async (messages, tools) => {
     const question = messages.filter(message => message.role === 'user').at(-1).content
+    if (question === 'Investigate R') return { tool_calls: [{ id: 'inspect', function: { name: 'inspect_service', arguments: '{"scope":"routes","routeNames":["R"]}' } }] }
+    if (question.startsWith('{"question":"Investigate R"')) return { content: 'Route R has late departure predictions. [1]' }
+    if (question === 'Use that investigation for a draft') {
+      assert.match(messages[1].content, /previousRequests.*inspect_service.*routeNames.*R/s)
+      assert.match(messages[1].content, /priorFindings.*Maximum predicted departure delay/s, 'Follow-ups retain the checked investigation, not only its generated prose')
+      return { content: 'We’re sorry for the delays on R. Check current departures before travelling.' }
+    }
     if (question === 'Check R' && !messages.some(message => message.role === 'tool')) return { tool_calls: [{ id: 'status', function: { name: 'realtime_status', arguments: '{"routeNames":["R"]}' } }] }
     if (question === 'Check R') return { content: 'Some departures on R are predicted late. [1]' }
     modelCalls++
@@ -62,6 +69,10 @@ try {
   assert.match(third.answer, /We’re sorry/)
   assert.equal(modelCalls, 2, 'Drafting and revision each require only one inference when context supplies the facts')
   assert.equal(third.trace.length, 0)
+  const investigation = await service.handle('x', { action: 'ask', question: 'Investigate R' })
+  const investigationDraft = await service.handle('x', { action: 'ask', question: 'Use that investigation for a draft', parentId: investigation.entryId })
+  assert.match(investigationDraft.answer, /sorry/)
+  assert.equal(investigationDraft.trace.length, 0)
 
   let round = 0
   const researched = await queryAgency({ question: 'Find a cause and draft a rider update', context, state, webStatus: { searchAvailable: true, readAvailable: true },

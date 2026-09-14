@@ -1,0 +1,162 @@
+[
+  {
+    "id": 1,
+    "type": "Network health",
+    "question": "How is the network performing right now? Which routes or areas need attention?"
+  },
+  {
+    "id": 2,
+    "type": "Exception discovery",
+    "question": "What is abnormal right now that I probably haven’t noticed yet?"
+  },
+  {
+    "id": 3,
+    "type": "Geographic concentration",
+    "question": "Are today’s delays scattered across the network, or concentrated around a particular corridor or terminal?"
+  },
+  {
+    "id": 4,
+    "type": "Route-level diagnosis",
+    "question": "Why is Route 66 performing badly this morning? Is it traffic, long dwell times, missing trips, or uneven departures?"
+  },
+  {
+    "id": 5,
+    "type": "Trip-level diagnosis",
+    "question": "Why is bus 1827 twenty minutes behind schedule? Where did the delay begin?"
+  },
+  {
+    "id": 6,
+    "type": "Delay propagation",
+    "question": "This trip is late now. Which downstream trips, reliefs, connections, or blocks will it affect over the next two hours?"
+  },
+  {
+    "id": 7,
+    "type": "Headway / bunching analysis",
+    "question": "Where are buses bunching, and is this a single bad pair or a corridor-wide headway problem?"
+  },
+  {
+    "id": 8,
+    "type": "Gap detection",
+    "question": "Where will riders experience unusually long gaps during the next 30 minutes?"
+  },
+  {
+    "id": 9,
+    "type": "Missing-service diagnosis",
+    "question": "Why is there a 35-minute gap here? Was a trip cancelled, never dispatched, short-turned, or simply not reporting?"
+  },
+  {
+    "id": 10,
+    "type": "Service reliability trend",
+    "question": "Has the Red Line been unusually unreliable this week, or does today merely feel terrible because humans remember pain better than normality?"
+  },
+  {
+    "id": 11,
+    "type": "Incident detection",
+    "question": "Something appears wrong around Harvard Square. What changed, when did it start, and which services are involved?"
+  },
+  {
+    "id": 12,
+    "type": "Shared-cause inference",
+    "question": "Routes 39, 55, and 57 all became late around the same place. Is there evidence of a common disruption?"
+  },
+  {
+    "id": 13,
+    "type": "Incident impact estimation",
+    "question": "A crash is blocking this intersection. Which routes, trips, stops, and riders are likely to be affected?"
+  },
+  {
+    "id": 14,
+    "type": "Future-state prediction",
+    "question": "If nothing is done, what will service look like 30, 60, and 90 minutes from now?"
+  },
+  {
+    "id": 15,
+    "type": "Recovery estimation",
+    "question": "If the blockage clears at 4:20, when should headways return approximately to normal?"
+  },
+  {
+    "id": 16,
+    "type": "Intervention recommendation",
+    "question": "Should we hold, short-turn, express, insert another vehicle, or leave the service alone?"
+  },
+  {
+    "id": 17,
+    "type": "Intervention simulation",
+    "question": "If I short-turn this bus at Kenmore, what happens to waits on both sides of the turn?"
+  },
+  {
+    "id": 18,
+    "type": "Resource prioritization",
+    "question": "I have two spare buses and three routes deteriorating. Where would an extra vehicle produce the largest benefit?"
+  },
+  {
+    "id": 19,
+    "type": "Connection protection",
+    "question": "Which bus-to-rail or bus-to-bus connections are at high risk of being missed, and should any departures be held?"
+  },
+  {
+    "id": 20,
+    "type": "Crowding / capacity",
+    "question": "Where is demand exceeding available capacity, and is it caused by unusually high demand or degraded service?"
+  },
+  {
+    "id": 21,
+    "type": "Fleet availability",
+    "question": "Do we have enough usable vehicles to operate the PM peak? Which pull-outs are at risk?"
+  },
+  {
+    "id": 22,
+    "type": "Operator / crew consequence",
+    "question": "Which operator reliefs or assignments are endangered by the current delays?"
+  },
+  {
+    "id": 23,
+    "type": "Vehicle condition / maintenance triage",
+    "question": "This vehicle has generated repeated door and propulsion warnings. Can it finish the block, or should we swap it?"
+  },
+  {
+    "id": 24,
+    "type": "Infrastructure problem diagnosis",
+    "question": "Are repeated delays at this station associated with elevators, signals, fare gates, platforms, construction, or something outside the system?"
+  },
+  {
+    "id": 25,
+    "type": "Rider-impact translation",
+    "question": "Operationally this is a 14-minute headway deviation. What does that actually mean for passengers at the affected stops?"
+  },
+  {
+    "id": 26,
+    "type": "Alternative journey generation",
+    "question": "If this segment is suspended, what practical alternatives can we give riders from A to B right now?"
+  },
+  {
+    "id": 27,
+    "type": "Rider communication drafting",
+    "question": "What should we tell riders about this disruption, separately for the app, station signs, and social media?"
+  },
+  {
+    "id": 28,
+    "type": "Communication adequacy check",
+    "question": "Does the current alert actually cover everyone affected, or are we missing stations, directions, accessibility impacts, or useful alternatives?"
+  },
+  {
+    "id": 29,
+    "type": "Data-quality / confidence question",
+    "question": "Can I trust this conclusion? Are we seeing a real service problem or bad/missing AVL, GTFS-RT, APC, or dispatch data?"
+  },
+  {
+    "id": 30,
+    "type": "Post-event explanation and learning",
+    "question": "What happened yesterday between 4 and 6 PM, what caused the worst passenger impacts, what actions were taken, and did those actions improve service?"
+  },
+  {
+    "id": 31,
+    "type": "Combined route investigation",
+    "question": "What is going on with the 39?"
+  },
+  {
+    "id": 32,
+    "type": "Peak preparation",
+    "question": "Anything I should worry about for the evening peak?"
+  }
+]

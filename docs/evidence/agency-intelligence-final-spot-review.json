@@ -1,0 +1,64 @@
+{
+  "reviewer": "Codex coding assistant; no independent human or agency validation.",
+  "scope": "Three-question spot check of the delivered implementation, not a complete rerun or readiness claim.",
+  "run": {
+    "type": "run",
+    "startedAt": "2026-09-14T10:07:25.709Z",
+    "revision": "dd0b31a7b3854003ee4a941d1a64911116957a89",
+    "dirty": true,
+    "model": "qwen3.5:4b",
+    "protocol": "ollama",
+    "contextTokens": 8192,
+    "reasoningEffort": "none",
+    "temperature": 0,
+    "scenario": "Synthetic evaluation network; not Boston observations. Frozen at 08:00 EDT, September 14. Missing APC, crew, maintenance, fleet, dispatch and historical outcome data are deliberate.",
+    "selection": {
+      "route": {
+        "id": "39",
+        "name": "39",
+        "description": "Synthetic service 39"
+      },
+      "stop": {
+        "id": "C",
+        "name": "Harvard Square",
+        "coordinate": [
+          -71.08999999999999,
+          42.35
+        ]
+      }
+    },
+    "questions": 3,
+    "questionIds": [
+      4,
+      25,
+      27
+    ]
+  },
+  "completion": {
+    "recordType": "complete",
+    "finishedAt": "2026-09-14T10:10:06.481Z",
+    "answered": 3
+  },
+  "summary": {
+    "acceptable": 0,
+    "partial": 1,
+    "fail": 2
+  },
+  "cases": [
+    {
+      "id": 4,
+      "rating": "fail",
+      "reason": "The typed Route 66 label now resolves in one successful inspection, but the answer excludes traffic/dwell causes without evidence and implies a narrower prediction horizon can establish the cancellation cause."
+    },
+    {
+      "id": 25,
+      "rating": "fail",
+      "reason": "Correctly uses a direct conceptual answer without live tools, then invents incorrect waiting-time arithmetic and conflates a headway deviation with a trip delay. Correct tool selection did not establish mathematical correctness."
+    },
+    {
+      "id": 27,
+      "rating": "partial",
+      "reason": "Provides all three channels with largely supported route and notice facts, but lacks the requested apologetic wording, adds an unverified monitoring/update commitment, overstates reporting evidence as on-time operation and leaves a long internal checklist in the response."
+    }
+  ]
+}

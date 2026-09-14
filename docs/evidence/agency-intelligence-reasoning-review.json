@@ -1,0 +1,83 @@
+{
+  "reviewer": "Codex coding assistant. No independent human or agency review.",
+  "scope": "Six-question diagnostic, not a complete 32-question run or a matched model benchmark.",
+  "pipeline": "Shared inspection and final history/notice context refinements, with response word quota removed. This run predates typed route-label aliases and the policy clarification allowing conceptual questions to use their givens directly.",
+  "run": {
+    "type": "run",
+    "startedAt": "2026-09-14T09:54:05.729Z",
+    "revision": "dd0b31a7b3854003ee4a941d1a64911116957a89",
+    "dirty": true,
+    "model": "qwen3.5:4b",
+    "protocol": "ollama",
+    "contextTokens": 8192,
+    "reasoningEffort": "on",
+    "temperature": 0,
+    "scenario": "Synthetic evaluation network; not Boston observations. Frozen at 08:00 EDT, September 14. Missing APC, crew, maintenance, fleet, dispatch and historical outcome data are deliberate.",
+    "selection": {
+      "route": {
+        "id": "39",
+        "name": "39",
+        "description": "Synthetic service 39"
+      },
+      "stop": {
+        "id": "C",
+        "name": "Harvard Square",
+        "coordinate": [
+          -71.08999999999999,
+          42.35
+        ]
+      }
+    },
+    "questions": 6,
+    "questionIds": [
+      1,
+      4,
+      5,
+      16,
+      25,
+      27
+    ]
+  },
+  "completion": {
+    "recordType": "complete",
+    "finishedAt": "2026-09-14T10:06:58.415Z",
+    "answered": 6
+  },
+  "summary": {
+    "acceptable": 0,
+    "partial": 0,
+    "fail": 6
+  },
+  "cases": [
+    {
+      "id": 1,
+      "rating": "fail",
+      "reason": "The model did not complete a usable answer within the configured provider timeout."
+    },
+    {
+      "id": 4,
+      "rating": "fail",
+      "reason": "Treats the failed literal Route 66 lookup as proof that the route is absent, then substitutes the selected Route 39. This run predates the exact typed route-label alias fix."
+    },
+    {
+      "id": 5,
+      "rating": "fail",
+      "reason": "The model did not complete a usable answer within the configured provider timeout."
+    },
+    {
+      "id": 16,
+      "rating": "fail",
+      "reason": "The model did not complete a usable answer within the configured provider timeout."
+    },
+    {
+      "id": 25,
+      "rating": "fail",
+      "reason": "The model did not complete a usable answer within the configured provider timeout."
+    },
+    {
+      "id": 27,
+      "rating": "fail",
+      "reason": "The model did not complete a usable answer within the configured provider timeout."
+    }
+  ]
+}

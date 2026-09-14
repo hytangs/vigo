@@ -110,7 +110,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
       if (!next.model) throw new Error('Choose or enter a model name.')
       signal?.throwIfAborted()
       const attempt = ++connectionAttempt
-      const message = await completeWith(next, [{ role: 'user', content: 'Connection test only. Call connection_check with ready set to true. Do not call any other tool or answer in prose.' }], [{ name: 'connection_check', description: 'Confirm that function calling works.', parameters: { type: 'object', properties: { ready: { type: 'boolean' } }, required: ['ready'], additionalProperties: false } }], signal, { structuredTools: next.protocol === 'ollama' })
+      const message = await completeWith(next, [{ role: 'user', content: 'Connection test only. Call connection_check with ready set to true. Do not call any other tool or answer in prose.' }], [{ name: 'connection_check', description: 'Confirm that function calling works.', parameters: { type: 'object', properties: { ready: { type: 'boolean' } }, required: ['ready'], additionalProperties: false } }], signal, { structuredTools: next.protocol === 'ollama', toolChoice: { type: 'function', function: { name: 'connection_check' } } })
       const call = message.tool_calls?.find((item) => item.function?.name === 'connection_check')
       let args
       try { args = JSON.parse(call?.function?.arguments || '{}') } catch {}

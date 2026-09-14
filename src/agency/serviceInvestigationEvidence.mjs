@@ -5,11 +5,11 @@ import { readLampStudy } from './lampStudy.mjs'
 const countTiming = rows => ({ trips: rows.length, late: rows.filter(row => row.delaySeconds > 0).length,
   maxDelayMinutes: rows.length ? Math.round(Math.max(...rows.map(row => row.delaySeconds)) / 60) : null })
 
-export async function inspectService({ context, state, snapshot, directory }, { routeIds, stopIds = [], aspect }) {
+export async function inspectService({ context, state, snapshot, directory }, { routeIds, stopIds = [], tripId, vehicleIds = [], aspect }) {
   if (!routeIds.every(id => context.routeIndex.has(id)) || !stopIds.every(id => context.stopIndex.has(id))) throw new Error('Choose routes and stops from this City.')
   const scope = new Set(routeIds), stops = new Set(stopIds)
   const measurements = state.measurements?.departures ?? []
-  const selected = measurements.filter(row => scope.has(row.routeId))
+  const selected = measurements.filter(row => scope.has(row.routeId) && (!tripId || row.tripId === tripId) && (!vehicleIds.length || vehicleIds.includes(row.vehicleId)))
   if (aspect === 'historical_runtime') return readLampStudy(directory, { routeIds, limit: 6 })
   if (aspect === 'alerts') {
     const feeds = state.feeds.filter(feed => feed.kind === 'alerts')
@@ -18,8 +18,10 @@ export async function inspectService({ context, state, snapshot, directory }, { 
     // Keep their count, but do not invite a model to use an elevator outage as
     // evidence explaining a running-time or departure-delay pattern.
     const operational = matches.filter(event => !['ACCESSIBILITY_ISSUE', 'NO_EFFECT'].includes(event.evidence.alertEffect))
-    return { sourceAvailable: Boolean(feeds.length && feeds.every(feed => feed.status === 'fresh')), matchingNotices: operational.length, otherNotices: matches.length - operational.length,
-      notices: operational.slice(0, 8).map(event => ({ title: event.title, effect: event.evidence.alertEffect, cause: event.evidence.alertCause, routeIds: event.routeIds, sourceRefs: event.sourceRefs, activePeriods: event.evidence.activePeriods })),
+    return { scope: { routeIds, stopIds, meaning: 'Notices matching the selected routes or stops. A notice elsewhere on the same route does not establish a problem at the selected station.' },
+      sourceAvailable: Boolean(feeds.length && feeds.every(feed => feed.status === 'fresh')), matchingNotices: operational.length, otherNotices: matches.length - operational.length,
+      notices: operational.slice(0, 8).map(event => ({ title: event.title, effect: event.evidence.alertEffect, cause: event.evidence.alertCause, routeIds: event.routeIds,
+        stops: (event.stopIds ?? []).map(id => ({ id, name: context.stopIndex.get(id)?.name })), sourceRefs: event.sourceRefs, activePeriods: event.evidence.activePeriods })),
       limit: 'Notices describe only their stated location and period. They do not automatically explain every delay on an affected route.' }
   }
   if (aspect === 'surrounding_service') {
@@ -38,10 +40,13 @@ export async function inspectService({ context, state, snapshot, directory }, { 
     for (const row of selected) { const key = tripInstance(row); if (!trips.has(key)) trips.set(key, []); trips.get(key).push(row) }
     const rows = [...trips.values()].flatMap(values => {
       values.sort((a, b) => a.sequence - b.sequence)
-      const inside = values.filter(row => stops.has(row.stopId))
+      const inside = stops.size ? values.filter(row => stops.has(row.stopId)) : values
       if (!inside.length) return []
       const first = inside[0], before = values.filter(row => row.sequence < first.sequence).at(-1), last = inside.at(-1)
-      const history = (state.tripHistory?.[`${first.tripId}/${first.serviceDate}`] ?? []).filter(point => point.stopId === first.stopId)
+      const now = Date.parse(state.generatedAt)
+      const history = (state.tripHistory?.[`${first.tripId}/${first.serviceDate}`] ?? [])
+        .filter(point => point.stopId === first.stopId && Date.parse(point.at) <= now && Date.parse(point.at) >= now - state.policy.historyMinutes * 60_000)
+        .sort((a, b) => a.at.localeCompare(b.at))
       return [{ routeId: first.routeId, tripId: first.tripId, directionId: first.directionId,
         entryDelayMinutes: Math.round(first.delaySeconds / 60), upstreamDelayMinutes: before ? Math.round(before.delaySeconds / 60) : null,
         predictedChangeWithinAreaMinutes: inside.length > 1 ? Math.round((last.delaySeconds - first.delaySeconds) / 60) : null,

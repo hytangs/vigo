@@ -62,7 +62,14 @@ export class AgencyContext {
         places.get(place.stop_id).aliases.push(row.name.toLocaleLowerCase())
       }
       this.stopPlaces = [...places.values()]
-      this.routeEntities = this.routes.map((row) => ({ kind: 'route', id: row.route_id, name: row.short_name || row.long_name || rawId(row.route_id), description: row.long_name }))
+      this.routeEntities = this.routes.map(row => {
+        const names = [...new Set([row.short_name, row.long_name, rawId(row.route_id)].filter(Boolean))]
+        // Accept the exact typed labels used in the UI, just as station lookup
+        // does above. Every alias comes from an indexed record; collisions
+        // remain ambiguous rather than choosing a route by similarity.
+        return { kind: 'route', id: row.route_id, name: row.short_name || row.long_name || rawId(row.route_id), description: row.long_name,
+          aliases: names.flatMap(name => [name, `Route ${name}`]).map(name => name.toLocaleLowerCase()) }
+      })
       this.stopsBySearchId = new Map()
       for (const stop of this.stops) for (const key of new Set([stop.stop_id.toLocaleLowerCase(), rawId(stop.stop_id).toLocaleLowerCase()])) {
         if (!this.stopsBySearchId.has(key)) this.stopsBySearchId.set(key, [])

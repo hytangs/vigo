@@ -27,7 +27,7 @@ const descriptions = {
 }
 
 // Common requests must not spend a model round loading their own schema.
-const readyTools = new Set(['network_overview', 'resolve_entities', 'realtime_status', 'route_plan', 'runtime_status', 'service_profile', 'stop_arrivals'])
+const readyTools = new Set(['inspect_service', 'network_overview', 'resolve_entities', 'realtime_status', 'route_plan', 'runtime_status', 'service_profile', 'stop_arrivals'])
 
 export function discoverableTools(available, retainedNames = []) {
   const index = available.filter(tool => descriptions[tool.name] && !readyTools.has(tool.name))
@@ -37,7 +37,7 @@ export function discoverableTools(available, retainedNames = []) {
   return {
     definitions: () => [...available.filter(tool => active.has(tool.name)), ...(index.length ? [discovery] : [])],
     prepare(input) {
-      if (!input || Object.keys(input).some(key => key !== 'names') || !Array.isArray(input.names) || input.names.length < 1 || input.names.length > 4 || input.names.some(name => !index.some(tool => tool.name === name))) throw new Error('Choose one to four tools from the available catalogue.')
+      if (!input || Object.keys(input).some(key => key !== 'names') || !Array.isArray(input.names) || input.names.length < 1 || input.names.length > 4 || input.names.some(name => !available.some(tool => tool.name === name))) throw new Error('Choose one to four tools from the available catalogue.')
       for (const name of input.names) active.add(name)
       return { available: input.names, nextStep: 'Use the tools now available. Preparing tools has not queried any data.' }
     },

@@ -24,14 +24,18 @@ const toolForm = tool => `${tool.name} ${fields(tool.parameters)}\n${tool.descri
 // schemas rather than maintaining a second set of parameter definitions.
 export function providerChoice(messages, tools, initialTools = tools, selectionOnly = false, requiredTool = null) {
   const object = properties => ({ type: 'object', properties, required: Object.keys(properties), additionalProperties: false })
-  const answer = object({ action: { type: 'string', enum: ['answer'] }, text: { type: 'string' } })
-  const action = tool => ({ ...object({ action: { type: 'string', enum: [tool.name] }, arguments: tool.parameters }), description: tool.description })
+  // A short task restatement gives small models an explicit place to preserve
+  // the user's objective before selecting a tool. It is not a reasoning log.
+  const task = { type: 'string', description: 'Briefly restate the latest request, preserving its scope, horizon and requested deliverables. A selected route does not narrow a network question.' }
+  const framing = selectionOnly || requiredTool ? {} : { task }
+  const answer = object({ ...framing, action: { type: 'string', enum: ['answer'] }, text: { type: 'string' } })
+  const action = tool => ({ ...object({ ...framing, action: { type: 'string', enum: [tool.name] }, arguments: tool.parameters }), description: tool.description })
   if (requiredTool && !tools.some(tool => tool.name === requiredTool)) throw new Error('The required response tool is unavailable.')
   const restricted = selectionOnly || Boolean(requiredTool)
   const choices = tools.filter(tool => !requiredTool || tool.name === requiredTool).map(action)
   const format = { anyOf: [...choices, ...(restricted ? [] : [answer])] }
   const updates = tools.filter(tool => JSON.stringify(tool) !== JSON.stringify(initialTools.find(initial => initial.name === tool.name)))
-  const instructions = `Select the next action, then fill its fields. For a tool use {"action":"tool name","arguments":{...}}. Only when no further work is needed use {"action":"answer","text":"your user-facing answer"}. If work remains, select a tool; do not announce a check without doing it. Fill the exact fields below; ? means optional. Return only that JSON object. This form stays internal.\n${initialTools.map(toolForm).join('\n\n')}`
+  const instructions = `${Object.keys(framing).length ? 'First fill task with a short restatement of the latest user request, not the map selection. Then select the next action. ' : ''}For a tool fill action and arguments. Only when no further work is needed select action=answer and fill text with the complete user-facing response. Match the requested scope and deliver all parts, not just one fact. If work remains, select a tool; do not announce a check without doing it. Fill the exact fields below; ? means optional. Return only that JSON object. This form stays internal.\n${initialTools.map(toolForm).join('\n\n')}`
   const names = new Map(messages.flatMap(message => (message.tool_calls ?? []).map(call => [call.id, call.function.name])))
   return {
     format: samplerSchema(format),

@@ -20,7 +20,7 @@ assert.equal(clockAnswer.timezone, 'America/Los_Angeles', 'The displayed answer 
 let profileCalls = 0
 const profileAnswer = await queryAgency({ question: 'What service runs after 22:00 today?', context: { ...context, timezone: 'America/Los_Angeles' }, state: { ...state, generatedAt: '2026-09-14T03:19:00Z' },
   provider: { available: true, complete: async (_messages, tools) => {
-    assert.equal(++profileCalls, 1, 'A completed service check does not need another model call to rewrite its counts')
+    if (++profileCalls === 2) return { content: '364 indexed trip starts on 2026-09-13 after 22:00 in America/Los_Angeles. The table groups starts by hour, not by an exact departure time. [1]' }
     assert.deepEqual(tools.find(tool => tool.name === 'service_profile').parameters.required, ['groupBy', 'resultUse'])
     return { tool_calls: [{ id: 'profile', function: { name: 'service_profile', arguments: '{"groupBy":"hour","afterTime":"22:00","resultUse":"answer"}' } }] }
   } }, callTool: async (_name, args) => {
@@ -30,10 +30,11 @@ const profileAnswer = await queryAgency({ question: 'What service runs after 22:
 })
 assert.match(profileAnswer.answer, /364 indexed trip starts on 2026-09-13/)
 assert.match(profileAnswer.answer, /groups starts by hour, not by an exact departure time/)
-assert.equal(profileAnswer.aiGenerated, false)
+assert.equal(profileAnswer.aiGenerated, true)
+assert.equal(profileCalls, 2, 'A timetable result is assessed against the question instead of automatically ending any operational investigation')
 const event = { id: 'delay/T1', type: 'delay', title: 'Departure later than scheduled', routeId: 'R', stopId: 'A', observedAt: state.observedAt, evidence: { delaySeconds: 300 }, sourceRefs: ['fixture:trip/T1'] }
 const catalog = discoverableTools(toolDefinitions)
-assert.ok(JSON.stringify(catalog.definitions()).length < JSON.stringify(toolDefinitions).length / 2, 'Ordinary conversation does not carry every specialist schema')
+for (const name of ['gtfs_query', 'walk_compare', 'run_runtime_study', 'compare_holding']) assert.ok(!catalog.definitions().some(tool => tool.name === name), 'Specialist schemas load only when needed')
 assert.throws(() => catalog.prepare({ names: ['invented_tool'] }), /available catalogue/)
 for (const name of ['network_overview', 'route_plan', 'realtime_status']) assert.ok(catalog.definitions().some(tool => tool.name === name), 'Common transit tools are ready without a discovery round')
 assert.ok(discoverableTools(toolDefinitions, ['walk_compare']).definitions().some(tool => tool.name === 'walk_compare'), 'Follow-ups retain tools used in their saved context')
