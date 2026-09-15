@@ -230,4 +230,49 @@ for (const tripId of ['T1', 'T2']) {
 }
 
 disposeNationalGtfsStore(storePath)
-console.log('GTFS-RT routing check passed (delay overlay, stale-trip replacement, cancellation, and scheduled fallback).')
+
+// Exercise the public store adapter as well as the native kernel. The stop's
+// identity and minimum transfer time must survive replacing either vehicle.
+const interchangeSchedule = {
+  stops: ['A', 'B', 'C'].map((id, i) => ({ id, name: id, lon: i * 0.1, lat: 0, locationType: 0 })),
+  routes: [{ id: 'R', shortName: 'R', routeType: 3, scheduledTrips: [
+    ['feeder', [['A', 600], ['B', 610]]],
+    ['tight', [['B', 611], ['C', 620]]],
+    ['later', [['B', 620], ['C', 630]]],
+  ].map(([tripId, calls]) => ({ tripId, serviceId: 'weekday', serviceDays: ['weekday'],
+    stopTimes: calls.map(([stopId, time], i) => ({ stopId, sequence: i + 1, arrivalMinutes: time, departureMinutes: time })),
+  })) }],
+}
+for (const minTransferTimeSeconds of [60, 61, 120, Infinity]) {
+  const transferStore = path.join(folder, `transfer-${minTransferTimeSeconds}.sqlite`)
+  const transferSchedule = path.join(folder, `transfer-${minTransferTimeSeconds}.json`)
+  await fs.writeFile(transferSchedule, JSON.stringify({ ...interchangeSchedule, transferRules: [{
+    fromStopId: 'B', toStopId: 'B', transferType: minTransferTimeSeconds === Infinity ? 3 : 2,
+    ...(Number.isFinite(minTransferTimeSeconds) ? { minTransferTimeSeconds } : {}),
+  }] }))
+  await buildRoutingStoreFromSchedules({ schedules: [{ feedId: 'fixture', schedulePath: transferSchedule }], outputPath: transferStore })
+  const anchored = { ...request, maxWalkKm: 0.2,
+    origin: { coordinate: [0, 0], source: 'stop', stopId: 'fixture\u001fA' },
+    destination: { coordinate: [0.2, 0], source: 'stop', stopId: 'fixture\u001fC' },
+  }
+  for (const updatedTrips of [[], ['feeder'], ['tight'], ['feeder', 'tight']]) {
+    const plan = routeNationalGtfsStore(transferStore, { ...anchored,
+      realtimeSnapshot: updatedTrips.length ? realtime(updatedTrips.map(tripId => ({ tripId,
+        startDate: '20260821', scheduleRelationship: 'SCHEDULED', delaySeconds: 0, stopTimeUpdates: [],
+      }))) : undefined,
+    })
+    const label = `${minTransferTimeSeconds}s transfer; updated: ${updatedTrips}`
+    assert.equal(plan.status, minTransferTimeSeconds === Infinity ? 'blocked' : 'ready', label)
+    if (plan.status === 'ready') assert.equal(plan.arriveMinutes, minTransferTimeSeconds <= 60 ? 620 : 630, label)
+  }
+  // Starting at the platform is not an interchange, even when transfers are
+  // prohibited there. The realtime vehicle remains available for first boarding.
+  const initial = routeNationalGtfsStore(transferStore, { ...anchored,
+    origin: { coordinate: [0.1, 0], source: 'stop', stopId: 'fixture\u001fB' }, departMinutes: 610,
+    realtimeSnapshot: realtime([{ tripId: 'tight', startDate: '20260821', delaySeconds: 0 }]),
+  })
+  assert.equal(initial.status, 'ready')
+  assert.equal(initial.arriveMinutes, 620)
+  disposeNationalGtfsStore(transferStore)
+}
+console.log('GTFS-RT routing check passed (predictions, skipped stops, cancellation, fallback, and realtime transfer rules).')

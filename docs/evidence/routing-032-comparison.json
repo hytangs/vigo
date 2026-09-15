@@ -1,0 +1,113 @@
+{
+  "recordedAt": "2026-09-15T07:10:50.766525+00:00",
+  "baseline": "v0.3.2 (e74b13a)",
+  "candidate": "main with realtime stop identity and transfer-rule repair",
+  "data": {
+    "city": "Boston",
+    "timetable": "mbta.gtfs.zip imported 2026-09-13T08:27:08.531Z",
+    "routes": 399,
+    "stops": 10311,
+    "streetNetwork": "saved City OpenStreetMap pedestrian and driving snapshots",
+    "serviceDate": "2026-09-14"
+  },
+  "comparison": {
+    "total": 51,
+    "identicalResults": 51,
+    "ready": 44,
+    "blockedInBoth": 7,
+    "compared": [
+      "status",
+      "departure",
+      "arrival",
+      "walkingMinutes",
+      "mode",
+      "scheduleMode",
+      "ride identities, stops and times",
+      "blocked detail"
+    ],
+    "excluded": [
+      "elapsedMs"
+    ]
+  },
+  "transferRegression": {
+    "minimumSeconds": 61,
+    "availableSeconds": 60,
+    "baselineArrivalMinutes": 620,
+    "fixedArrivalMinutes": 630,
+    "description": "Realtime-updated tight connection is rejected; next feasible departure selected."
+  },
+  "validation": {
+    "nativeRealtimeOracleComparisons": 260,
+    "storeTransferCases": 20,
+    "packagedNativeRealtimeOracleComparisons": 260,
+    "routingAndGtfsSuites": "passed",
+    "nativeAndInterfaceParity": "passed",
+    "renderedRefreshIsolation": {
+      "routeSourceUpdates": 0,
+      "accessibilitySourceUpdates": 0,
+      "panZoomPreserved": true
+    },
+    "desktopPackageAndSignature": "passed"
+  },
+  "limits": [
+    "Single saved Boston City; not a worldwide quality claim.",
+    "Three realtime cases use synthetic trip updates, not retained live observations.",
+    "Seven blocked cases share an airport coordinate without pedestrian access in the saved network; actual Airport station cases are ready.",
+    "No independent coordinate snapping or live arrival accuracy oracle.",
+    "Elapsed times were excluded; this is not a controlled speed benchmark.",
+    "Ask place resolution and LLM quality are outside this direct-coordinate comparison."
+  ],
+  "results": [
+    {"id":"Chinatown to Allston depart 220","status":"ready","departure":220,"arrival":314.183,"walkingMinutes":24.216,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"WMLRailJob-841783-503","from":"South Station","to":"Boston Landing","fromStopId":"NEC-2287","toStopId":"WML-0035-01","departure":285,"arrival":300}]},
+    {"id":"Chinatown to Allston depart 480","status":"ready","departure":480,"arrival":508.75,"walkingMinutes":7.517,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77745697","from":"Boylston","to":"Blandford Street","fromStopId":"70159","toStopId":"70149","departure":486,"arrival":498},{"tripId":"78173710","from":"Commonwealth Ave @ Silber Way","to":"Brighton Ave @ Linden St","fromStopId":"951","toStopId":"962","departure":499,"arrival":507}]},
+    {"id":"Chinatown to Allston depart 1080","status":"ready","departure":1080,"arrival":1118.75,"walkingMinutes":7.517,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77745747","from":"Boylston","to":"Blandford Street","fromStopId":"70159","toStopId":"70149","departure":1090,"arrival":1103},{"tripId":"78173720","from":"Commonwealth Ave @ Silber Way","to":"Brighton Ave @ Linden St","fromStopId":"951","toStopId":"962","departure":1105,"arrival":1117}]},
+    {"id":"Chinatown to Allston depart 1385","status":"ready","departure":1385,"arrival":1427.4,"walkingMinutes":15.483,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77871241","from":"Park Street","to":"Harvard","fromStopId":"70076","toStopId":"70068","departure":1394,"arrival":1404},{"tripId":"78182813","from":"Harvard Sq @ Garden St - Dawes Island","to":"Cambridge St @ Franklin St","fromStopId":"22549","toStopId":"1193","departure":1410,"arrival":1422}]},
+    {"id":"Chinatown to Allston depart 1470","status":"ready","departure":1470,"arrival":1506.75,"walkingMinutes":7.517,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77745908","from":"Boylston","to":"Blandford Street","fromStopId":"70159","toStopId":"70149","departure":1478,"arrival":1490},{"tripId":"78182358","from":"Commonwealth Ave @ Silber Way","to":"Brighton Ave @ Linden St","fromStopId":"951","toStopId":"962","departure":1497,"arrival":1505}]},
+    {"id":"Chinatown to Allston arrive 1080","status":"ready","departure":1039.5333333333333,"arrival":1076.95,"walkingMinutes":11.917000000000002,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"79275536","from":"Tufts Medical Center","to":"Back Bay","fromStopId":"70016","toStopId":"70014","departure":1042,"arrival":1044},{"tripId":"77745679","from":"Copley","to":"Harvard Avenue","fromStopId":"70155","toStopId":"70131","departure":1049,"arrival":1072}]},
+    {"id":"Chinatown to Allston walk","status":"ready","departure":480,"arrival":555.2875566297038,"walkingMinutes":75.28755662970377,"mode":"walk","rides":[]},
+    {"id":"Chinatown to Allston drive","status":"ready","departure":480,"arrival":487.07033333333334,"walkingMinutes":0,"mode":"drive","rides":[]},
+    {"id":"Kendall to South Station depart 220","status":"ready","departure":220,"arrival":318,"walkingMinutes":30.317,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77745105","from":"Lechmere","to":"Park Street","fromStopId":"70502","toStopId":"70199","departure":295,"arrival":307}]},
+    {"id":"Kendall to South Station depart 480","status":"ready","departure":480,"arrival":491.083,"walkingMinutes":1.033,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77871048","from":"Kendall/MIT","to":"South Station","fromStopId":"70071","toStopId":"70079","departure":484,"arrival":491}]},
+    {"id":"Kendall to South Station depart 1080","status":"ready","departure":1080,"arrival":1091.083,"walkingMinutes":1.033,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77871146","from":"Kendall/MIT","to":"South Station","fromStopId":"70071","toStopId":"70079","departure":1083,"arrival":1091}]},
+    {"id":"Kendall to South Station depart 1385","status":"ready","departure":1385,"arrival":1393.083,"walkingMinutes":1.033,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77871481","from":"Kendall/MIT","to":"South Station","fromStopId":"70071","toStopId":"70079","departure":1386,"arrival":1393}]},
+    {"id":"Kendall to South Station depart 1470","status":"ready","departure":1470,"arrival":1482.083,"walkingMinutes":1.033,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77871488","from":"Kendall/MIT","to":"South Station","fromStopId":"70071","toStopId":"70079","departure":1475,"arrival":1482}]},
+    {"id":"Kendall to South Station arrive 1080","status":"ready","departure":1069.05,"arrival":1078.083,"walkingMinutes":1.033,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77871449","from":"Kendall/MIT","to":"South Station","fromStopId":"70071","toStopId":"70079","departure":1070,"arrival":1078}]},
+    {"id":"Kendall to South Station walk","status":"ready","departure":480,"arrival":520.0904130352336,"walkingMinutes":40.09041303523363,"mode":"walk","rides":[]},
+    {"id":"Kendall to South Station drive","status":"ready","departure":480,"arrival":485.41883333333334,"walkingMinutes":0,"mode":"drive","rides":[]},
+    {"id":"Back Bay to airport depart 220","status":"blocked","departure":220,"walkingMinutes":0,"mode":"transit","rides":[],"detail":"No station is reachable within the selected walking budget."},
+    {"id":"Back Bay to airport depart 480","status":"blocked","departure":480,"walkingMinutes":0,"mode":"transit","rides":[],"detail":"No station is reachable within the selected walking budget."},
+    {"id":"Back Bay to airport depart 1080","status":"blocked","departure":1080,"walkingMinutes":0,"mode":"transit","rides":[],"detail":"No station is reachable within the selected walking budget."},
+    {"id":"Back Bay to airport depart 1385","status":"blocked","departure":1385,"walkingMinutes":0,"mode":"transit","rides":[],"detail":"No station is reachable within the selected walking budget."},
+    {"id":"Back Bay to airport depart 1470","status":"blocked","departure":1470,"walkingMinutes":0,"mode":"transit","rides":[],"detail":"No station is reachable within the selected walking budget."},
+    {"id":"Back Bay to airport arrive 1080","status":"blocked","departure":600,"walkingMinutes":0,"mode":"transit","rides":[],"detail":"No station is reachable within the selected walking budget."},
+    {"id":"Back Bay to airport walk","status":"blocked","departure":480,"arrival":null,"walkingMinutes":0,"mode":"walk","rides":[],"detail":"No walk path was found within 50.0 km."},
+    {"id":"Back Bay to airport drive","status":"ready","departure":480,"arrival":488.60366666666664,"walkingMinutes":0,"mode":"drive","rides":[]},
+    {"id":"Harvard to Forest Hills depart 220","status":"ready","departure":220,"arrival":345.05,"walkingMinutes":9.8,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"78174849","from":"Harvard Sq @ Garden St - Dawes Island","to":"Huntington Ave opp Fenwood Rd","fromStopId":"22549","toStopId":"1317","departure":296,"arrival":321},{"tripId":"78940783","from":"Huntington Ave @ Fenwood Rd","to":"South St @ St Rose St","fromStopId":"1363","toStopId":"2007","departure":328,"arrival":339}]},
+    {"id":"Harvard to Forest Hills depart 480","status":"ready","departure":480,"arrival":540.45,"walkingMinutes":4.1,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77871387","from":"Harvard","to":"Andrew","fromStopId":"70067","toStopId":"70083","departure":482,"arrival":499},{"tripId":"78941785","from":"Preble St @ Dorchester Ave","to":"Forest Hills","fromStopId":"35202","toStopId":"875","departure":503,"arrival":540}]},
+    {"id":"Harvard to Forest Hills depart 1080","status":"ready","departure":1080,"arrival":1129.367,"walkingMinutes":8.834,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77871451","from":"Harvard","to":"South Station","fromStopId":"70067","toStopId":"70079","departure":1082,"arrival":1096},{"tripId":"WMLRailJob-842059-771","from":"South Station","to":"Forest Hills","fromStopId":"NEC-2287","toStopId":"NEC-2237-03","departure":1115,"arrival":1128}]},
+    {"id":"Harvard to Forest Hills depart 1385","status":"ready","departure":1385,"arrival":1433.45,"walkingMinutes":5.367,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77871226","from":"Harvard","to":"Andrew","fromStopId":"70067","toStopId":"70083","departure":1388,"arrival":1404},{"tripId":"78941861","from":"Boston St @ Ellery St","to":"Forest Hills","fromStopId":"2905","toStopId":"875","departure":1411,"arrival":1433}]},
+    {"id":"Harvard to Forest Hills depart 1470","status":"ready","departure":1470,"arrival":1519.45,"walkingMinutes":5.367,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77871228","from":"Harvard","to":"Andrew","fromStopId":"70067","toStopId":"70083","departure":1477,"arrival":1493},{"tripId":"78941773","from":"Boston St @ Ellery St","to":"Forest Hills","fromStopId":"2905","toStopId":"875","departure":1500,"arrival":1519}]},
+    {"id":"Harvard to Forest Hills arrive 1080","status":"ready","departure":1030.35,"arrival":1067.367,"walkingMinutes":8.834,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77871180","from":"Harvard","to":"South Station","fromStopId":"70067","toStopId":"70079","departure":1032,"arrival":1046},{"tripId":"WMLRailJob-842068-1765","from":"South Station","to":"Forest Hills","fromStopId":"NEC-2287","toStopId":"NEC-2237-03","departure":1052,"arrival":1066}]},
+    {"id":"Harvard to Forest Hills walk","status":"ready","departure":480,"arrival":593.2047646051926,"walkingMinutes":113.20476460519264,"mode":"walk","rides":[]},
+    {"id":"Harvard to Forest Hills drive","status":"ready","departure":480,"arrival":494.67766666666665,"walkingMinutes":0,"mode":"drive","rides":[]},
+    {"id":"Fenway to South End depart 220","status":"ready","departure":220,"arrival":312.083,"walkingMinutes":25.9,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"78181289","from":"Ruggles","to":"Nubian","fromStopId":"17863","toStopId":"64000","departure":287,"arrival":293},{"tripId":"78181246","from":"Nubian","to":"Washington St @ Union Pk","fromStopId":"64000","toStopId":"5093","departure":299,"arrival":304}]},
+    {"id":"Fenway to South End depart 480","status":"ready","departure":480,"arrival":512.833,"walkingMinutes":19.1,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77745596","from":"Kenmore","to":"Arlington","fromStopId":"70150","toStopId":"70156","departure":491,"arrival":499},{"tripId":"78180876","from":"Arlington St @ Saint James Ave","to":"Herald St @ Harrison Ave","fromStopId":"145","toStopId":"11481","departure":501,"arrival":505}]},
+    {"id":"Fenway to South End depart 1080","status":"ready","departure":1080,"arrival":1114.833,"walkingMinutes":19.1,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77745361","from":"Kenmore","to":"Arlington","fromStopId":"70150","toStopId":"70156","departure":1091,"arrival":1099},{"tripId":"78180894","from":"Arlington St @ Saint James Ave","to":"Herald St @ Harrison Ave","fromStopId":"145","toStopId":"11481","departure":1101,"arrival":1107}]},
+    {"id":"Fenway to South End depart 1385","status":"ready","departure":1385,"arrival":1418.833,"walkingMinutes":18.716,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77745021","from":"Kenmore","to":"Copley","fromStopId":"70150","toStopId":"70154","departure":1395,"arrival":1400},{"tripId":"78182444","from":"Boylston St @ Dartmouth St","to":"Herald St @ Harrison Ave","fromStopId":"175","toStopId":"11481","departure":1405,"arrival":1411}]},
+    {"id":"Fenway to South End depart 1470","status":"ready","departure":1470,"arrival":1508.833,"walkingMinutes":18.716,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77745458","from":"Kenmore","to":"Copley","fromStopId":"70150","toStopId":"70154","departure":1481,"arrival":1487},{"tripId":"78182443","from":"Boylston St @ Dartmouth St","to":"Herald St @ Harrison Ave","fromStopId":"175","toStopId":"11481","departure":1495,"arrival":1501}]},
+    {"id":"Fenway to South End arrive 1080","status":"ready","departure":1040.3,"arrival":1079.65,"walkingMinutes":17.5,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77744791","from":"Kenmore","to":"Boylston","fromStopId":"70150","toStopId":"70158","departure":1050,"arrival":1061},{"tripId":"78591065","from":"Tremont St @ Boylston Station","to":"Washington St @ E Berkeley St","fromStopId":"8279","toStopId":"5098","departure":1065,"arrival":1073}]},
+    {"id":"Fenway to South End walk","status":"ready","departure":480,"arrival":524.4335246025757,"walkingMinutes":44.43352460257577,"mode":"walk","rides":[]},
+    {"id":"Fenway to South End drive","status":"ready","departure":480,"arrival":485.52483333333333,"walkingMinutes":0,"mode":"drive","rides":[]},
+    {"id":"Chinatown to Allston realtime delay 0","status":"ready","departure":1385,"arrival":1427.4,"walkingMinutes":15.483,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77871241","from":"Park Street","to":"Harvard","fromStopId":"70076","toStopId":"70068","departure":1394,"arrival":1404},{"tripId":"78182813","from":"Harvard Sq @ Garden St - Dawes Island","to":"Cambridge St @ Franklin St","fromStopId":"22549","toStopId":"1193","departure":1410,"arrival":1422}]},
+    {"id":"Chinatown to Allston realtime delay 300","status":"ready","departure":1385,"arrival":1427.4,"walkingMinutes":15.483,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77871241","from":"Park Street","to":"Harvard","fromStopId":"70076","toStopId":"70068","departure":1394,"arrival":1404},{"tripId":"78182813","from":"Harvard Sq @ Garden St - Dawes Island","to":"Cambridge St @ Franklin St","fromStopId":"22549","toStopId":"1193","departure":1410,"arrival":1422}]},
+    {"id":"Chinatown to Allston realtime delay 900","status":"ready","departure":1385,"arrival":1427.4,"walkingMinutes":15.483,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"77871241","from":"Park Street","to":"Harvard","fromStopId":"70076","toStopId":"70068","departure":1394,"arrival":1404},{"tripId":"78182813","from":"Harvard Sq @ Garden St - Dawes Island","to":"Cambridge St @ Franklin St","fromStopId":"22549","toStopId":"1193","departure":1410,"arrival":1422}]},
+    {"id":"Back Bay to Airport station depart 220","status":"ready","departure":220,"arrival":288.883,"walkingMinutes":20.883,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"78181032","from":"91 E Concord St","to":"Airport","fromStopId":"5089","toStopId":"7096","departure":264,"arrival":288}]},
+    {"id":"Back Bay to Airport station depart 480","status":"ready","departure":480,"arrival":500,"walkingMinutes":1.733,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"79275644","from":"Back Bay","to":"State","fromStopId":"70015","toStopId":"70023","departure":486,"arrival":492},{"tripId":"78878770","from":"State","to":"Airport","fromStopId":"70042","toStopId":"70048","departure":494,"arrival":500}]},
+    {"id":"Back Bay to Airport station depart 1080","status":"ready","departure":1080,"arrival":1104,"walkingMinutes":1.733,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"79275744","from":"Back Bay","to":"State","fromStopId":"70015","toStopId":"70023","departure":1086,"arrival":1093},{"tripId":"78878902","from":"State","to":"Airport","fromStopId":"70042","toStopId":"70048","departure":1098,"arrival":1104}]},
+    {"id":"Back Bay to Airport station depart 1385","status":"ready","departure":1385,"arrival":1406,"walkingMinutes":1.733,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"79275794","from":"Back Bay","to":"State","fromStopId":"70015","toStopId":"70023","departure":1386,"arrival":1392},{"tripId":"78878965","from":"State","to":"Airport","fromStopId":"70042","toStopId":"70048","departure":1400,"arrival":1406}]},
+    {"id":"Back Bay to Airport station depart 1470","status":"ready","departure":1470,"arrival":1500,"walkingMinutes":1.733,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"79275809","from":"Back Bay","to":"State","fromStopId":"70015","toStopId":"70023","departure":1476,"arrival":1482},{"tripId":"78878949","from":"State","to":"Airport","fromStopId":"70042","toStopId":"70048","departure":1494,"arrival":1500}]},
+    {"id":"Back Bay to Airport station arrive 1080","status":"ready","departure":1061.8166666666666,"arrival":1078,"walkingMinutes":1.733,"mode":"transit","scheduleMode":"exact","rides":[{"tripId":"79275740","from":"Back Bay","to":"State","fromStopId":"70015","toStopId":"70023","departure":1062,"arrival":1069},{"tripId":"78878850","from":"State","to":"Airport","fromStopId":"70042","toStopId":"70048","departure":1072,"arrival":1078}]},
+    {"id":"Back Bay to Airport station walk","status":"ready","departure":480,"arrival":622.274633063998,"walkingMinutes":142.27463306399798,"mode":"walk","rides":[]},
+    {"id":"Back Bay to Airport station drive","status":"ready","departure":480,"arrival":487.7345,"walkingMinutes":0,"mode":"drive","rides":[]}
+  ]
+}

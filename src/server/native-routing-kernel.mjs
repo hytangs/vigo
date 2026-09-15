@@ -878,6 +878,7 @@ export function routeNativeTimetableOverlayMany(kernel, request) {
     allowPreRideTransfers: request.allowPreRideTransfers === true,
     allowPostRideTransfers: request.allowPostRideTransfers,
     overlayStopCount: overlay.stopCount ?? 0,
+    overlayBaseStops: overlay.baseStops,
     directionOffsets: overlay.directionOffsets ?? [0],
     directionStops: overlay.directionStops ?? [],
     directionStopOffsetsSeconds: overlay.directionStopOffsetsSeconds ?? [],

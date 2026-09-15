@@ -148,6 +148,15 @@ pub(super) fn certify(
     forbidden.resize(stop_count, 0);
     let mut minimum = base.same_stop_transfer_minimum.to_vec();
     minimum.resize(stop_count, 0);
+    if let Some(identities) = &input.overlay_base_stops {
+        for (local, original) in identities.iter().enumerate() {
+            if *original >= 0 {
+                forbidden[base.stop_count + local] = base.forbidden_same_stop[*original as usize];
+                minimum[base.stop_count + local] =
+                    base.same_stop_transfer_minimum[*original as usize];
+            }
+        }
+    }
     let mut kernel = TimetableKernel::new(TimetableKernelInput {
         stop_count: stop_count as u32,
         run_count: original_trips.len() as u32,

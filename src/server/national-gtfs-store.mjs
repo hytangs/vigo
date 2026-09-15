@@ -7960,7 +7960,7 @@ function realtimeStopUpdateIndex(updates) {
   const bySequence = new Map()
   const byStopId = new Map()
   let unsupported = false
-  for (const update of updates) {
+  for (const update of updates ?? []) {
     const relationship = realtimeStopTimeRelationship(update?.scheduleRelationship)
     if (relationship === 'UNSCHEDULED' || relationship === 'UNKNOWN') {
       unsupported = true
@@ -8473,6 +8473,7 @@ function searchActiveServiceKernelNativeRealtime(
     allowPostRideTransfers: [allowsTerminalTransfers(destinationStops)],
     overlay: {
       stopCount: overlay.overlayStopIds?.length ?? 0,
+      baseStops: overlay.overlayStopBaseStopIds.map(stop => stop ?? -1),
       directionOffsets: overlay.directionOffsets,
       directionStops: overlay.directionStops,
       directionStopOffsetsSeconds: overlay.directionStopOffsetsSeconds,

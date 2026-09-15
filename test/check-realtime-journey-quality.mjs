@@ -27,7 +27,7 @@ function kernelFor(trips, stopCount, minimum = [0, 0, 0, 0]) {
     continuityBreak: new Uint8Array(trip.length), canBoard: new Uint8Array(board), canAlight: new Uint8Array(alight),
     tripStart: new Uint32Array(starts), departureOffset: new Uint32Array(offsets), departureOrder: new Uint32Array(order),
     transferOffset: new Uint32Array(stopCount + 1), transferTo: new Uint32Array(), transferDuration: new Uint32Array(),
-    forbiddenSameStop: new Uint8Array(stopCount),
+    forbiddenSameStop: Uint8Array.from(minimum, value => value === Infinity ? 1 : 0),
     sameStopTransferMinimum: new Uint32Array(minimum),
   })
 }
@@ -35,13 +35,13 @@ function kernelFor(trips, stopCount, minimum = [0, 0, 0, 0]) {
 const compare = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
 // Exhaustive complete-journey enumeration on tiny acyclic networks. This is
 // independent of the native stop labels, run dominance and Pareto machinery.
-function enumerate(trips, walks, maximumBoardings, updates, minimum) {
+function enumerate(trips, walks, maximumBoardings, minimum) {
   let best = [Infinity, Infinity, Infinity]
   function visit(stop, time, boardings, walking) {
     if (stop === 3 && boardings && compare([time, boardings, walking], best) < 0) best = [time, boardings, walking]
     if (boardings >= maximumBoardings) return
     for (const calls of trips) for (let i = 0; i < calls.length - 1; i++) {
-      const ready = time + (boardings && !updates.includes(calls) ? minimum[stop] : 0)
+      const ready = time + (boardings ? minimum[stop] : 0)
       if (calls[i].stop !== stop || calls[i].time < ready || calls[i].board === false) continue
       for (let j = i + 1; j < calls.length; j++) {
         if (calls[j].alight !== false) visit(calls[j].stop, calls[j].time, boardings + 1, walking)
@@ -66,7 +66,7 @@ function overlayRequest(updates, walks, excluded, maximumBoardings) {
     originStops: [0, 1, 2, 4, 5, 6], originWalkSeconds: [...walks, ...walks], originCandidateIndices: [0, 1, 2, 0, 1, 2],
     destinationOffsets: [0, 2], destinationStops: [3, 7], destinationWalkSeconds: [0, 0], destinationCandidateIndices: [0, 0],
     departure: 0, horizon: 2000, excludedTrips: excluded, allowPreRideTransfers: false, maximumBoardings,
-    overlayStopCount: 4, directionOffsets: offsets, directionStops: stops, directionStopOffsetsSeconds: times,
+    overlayStopCount: 4, overlayBaseStops: [0, 1, 2, 3], directionOffsets: offsets, directionStops: stops, directionStopOffsetsSeconds: times,
     serviceStartSeconds: starts, serviceEndSeconds: starts, serviceHeadwaySeconds: starts.map(() => 1),
     directionCanBoard: canBoard, directionCanAlight: canAlight,
     supplementalTransferOffsets: [0, 1, 2, 3, 4, 5, 6, 7, 8],
@@ -80,7 +80,7 @@ function check(trips, updates, replaced, canceled, walks, cap, minimum = [0, 0, 
   const kernel = kernelFor(trips, 4, minimum)
   const excluded = [...replaced, ...canceled]
   const active = trips.filter((_, i) => !excluded.includes(i)).concat(updates)
-  const expected = enumerate(active, walks, cap ?? 4, updates, minimum)
+  const expected = enumerate(active, walks, cap ?? 4, minimum)
   const request = overlayRequest(updates, walks, excluded, cap)
   const result = kernel.routeOverlayManyCsa(request)
   assert.equal(result.timetable.bestArrivals[0], expected[0])
@@ -123,6 +123,25 @@ check([
   [{ stop: 1, time: 200 }, { stop: 3, time: 400 }],
   [{ stop: 0, time: 150 }, { stop: 3, time: 400 }],
 ], [], [], [], [0, 2000, 2000])
+
+// A replacement vehicle is at the same physical stop. Updating its prediction
+// must not turn an impossible interchange into a valid ten-second connection.
+const interchange = [
+  [{ stop: 0, time: 100 }, { stop: 1, time: 200 }],
+  [{ stop: 1, time: 210 }, { stop: 3, time: 300 }],
+  [{ stop: 1, time: 400 }, { stop: 3, time: 500 }],
+]
+for (const minimum of [0, 10, 11, 70, Infinity]) {
+  for (const replaced of [[0], [1], [0, 1]]) {
+    check(interchange, replaced.map(i => interchange[i]), replaced, [], [0, 2000, 2000], 3, [0, minimum, 0, 0])
+  }
+}
+check([sameTrain], [sameTrain], [0], [], [0, 2000, 2000], 3, [0, Infinity, 0, 0])
+const identityKernel = kernelFor(interchange, 4)
+const identityRequest = overlayRequest([interchange[1]], [0, 2000, 2000], [1], 3)
+for (const overlayBaseStops of [[0], [0, 1, 2, 4], [0, 1, 2, -2]]) {
+  assert.throws(() => identityKernel.routeOverlayManyCsa({ ...identityRequest, overlayBaseStops }), /stop identities/)
+}
 
 // Fixed seed, broad combinations of unaffected, delayed, skipped and canceled
 // trips; identifiers and coordinates play no role in the expected answer.

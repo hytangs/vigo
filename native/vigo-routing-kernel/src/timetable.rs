@@ -319,6 +319,9 @@ pub struct TimetableOverlayManyQueryInput {
     pub horizon: f64,
     pub allow_pre_ride_transfers: bool,
     pub overlay_stop_count: u32,
+    /// Resident identity for each overlay stop, or -1 for a new scenario stop.
+    /// Realtime replacements inherit the original station's transfer rules.
+    pub overlay_base_stops: Option<Vec<i32>>,
     pub direction_offsets: Vec<u32>,
     pub direction_stops: Vec<u32>,
     pub direction_stop_offsets_seconds: Vec<f64>,
@@ -5125,6 +5128,16 @@ impl TimetableKernel {
             .stop_count
             .checked_add(overlay_stop_count)
             .ok_or_else(|| Error::from_reason("Rust timetable overlay stop count overflowed."))?;
+        if input.overlay_base_stops.as_ref().is_some_and(|stops| {
+            stops.len() != overlay_stop_count
+                || stops
+                    .iter()
+                    .any(|stop| *stop < -1 || *stop >= self.stop_count as i32)
+        }) {
+            return Err(Error::from_reason(
+                "Rust timetable overlay stop identities are inconsistent.",
+            ));
+        }
         let compiled = compile_timetable_overlay(&input, self.stop_count)?;
         let combined_run_count = self
             .run_count
@@ -5554,6 +5567,13 @@ impl TimetableKernel {
                     && compiled.events[overlay_index].departure == connection_departure
                 {
                     let event = compiled.events[overlay_index];
+                    let rule_stop = input
+                        .overlay_base_stops
+                        .as_ref()
+                        .and_then(|stops| stops.get(event.from - base_stop_count))
+                        .copied()
+                        .filter(|stop| *stop >= 0)
+                        .map(|stop| stop as usize);
                     for layer in first_layer..=maximum_layer {
                         let input_stop = layer.saturating_sub(1) * combined_stop_count + event.from;
                         let output_stop = layer * combined_stop_count + event.to;
@@ -5570,14 +5590,16 @@ impl TimetableKernel {
                                 active_states &= active_states - 1;
                                 let has_ride = state_flags & 4 != 0;
                                 let state = input_stop * STATE_STRIDE + state_flags;
+                                if has_ride
+                                    && rule_stop.is_some_and(|stop| forbidden_same_stop[stop] == 1)
+                                {
+                                    continue;
+                                }
                                 if boarding_ready_time(
                                     many_workspace.labels[state],
                                     has_ride,
                                     state_flags & 1 != 0,
-                                    same_stop_transfer_minimum
-                                        .get(event.from)
-                                        .copied()
-                                        .unwrap_or(0),
+                                    rule_stop.map_or(0, |stop| same_stop_transfer_minimum[stop]),
                                 ) <= f64::from(event.departure)
                                 {
                                     boarding_state = state as i32;
