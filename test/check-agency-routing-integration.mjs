@@ -17,11 +17,11 @@ import { buildRoutingStoreFromSchedules, disposeNationalGtfsStore, routeNational
 const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-ask-routing-'))
 const serviceDate = process.env.VIGO_TEST_ASK_DATE || '2026-08-21'
 const sourceUrl = 'https://example.org/trips.pb'
-const names = { A: 'Origin', X: 'Library', H: 'Interchange bus stop', B: 'Interchange platform', D: 'Destination' }
+const names = { A: 'Riverside Library', X: 'Library', H: 'Interchange bus stop', B: 'Interchange platform', D: 'Civic Hospital' }
 const point = (id, lon) => ({ id, name: names[id], lon, lat: 0, locationType: 0 })
 const trip = (tripId, calls) => ({ tripId, serviceId: 'weekday', serviceDays: ['weekday'],
   stopTimes: calls.map(([stopId, time], i) => ({ stopId, sequence: i + 1, arrivalMinutes: time, departureMinutes: time })) })
-const initial = { origin: 'Origin', destination: 'Destination', modes: ['transit'],
+const initial = { origin: names.A, destination: names.D, modes: ['transit'],
   when: { serviceDate, departTime: '08:00' }, explain: false }
 const firstRide = plan => plan.legs.find(leg => leg.type === 'ride')
 const toolCall = args => ({ tool_calls: [{ id: 'journey', function: { name: 'route_plan', arguments: JSON.stringify(args) } }] })
@@ -59,8 +59,8 @@ try {
     try {
       const callTool = registry(updates(0))
       let modelCalls = 0
-      const result = await queryAgency({ question: `Origin to Destination on ${serviceDate} at 08:00 by transit`, context, state, callTool,
-        provider: { available: true, complete: async () => { assert.equal(++modelCalls, 1, 'A simple journey skips the second generation'); return toolCall(initial) } } })
+      const result = await queryAgency({ question: `${names.A} to ${names.D} on ${serviceDate} at 08:00 by transit`, context, state, callTool,
+        provider: { available: true, complete: async () => { assert.equal(++modelCalls, 1, 'A simple journey skips the second generation'); return toolCall(minimum === 181 ? { ...initial, when: JSON.stringify(initial.when) } : initial) } } })
       assert.equal(result.responseBasis, 'computed')
       assert.match(result.answer, /Transit: 30 min/)
       const data = result.trace[0].result.data, plan = data.plan
@@ -151,16 +151,18 @@ try {
       // Opt in explicitly; ordinary regression checks never load a model or
       // use a network provider. This uses the real native fixture above.
       if (minimum === 181 && process.env.VIGO_TEST_ASK_MODEL) {
+        const protocol = process.env.VIGO_TEST_ASK_PROTOCOL || 'ollama'
         const provider = createProvider({ VIGO_AGENCY_LLM_BASE_URL: process.env.VIGO_TEST_ASK_URL || 'http://127.0.0.1:11434',
-          VIGO_AGENCY_LLM_PROTOCOL: 'ollama', VIGO_AGENCY_LLM_MODEL: process.env.VIGO_TEST_ASK_MODEL,
-          VIGO_AGENCY_LLM_REASONING_EFFORT: 'none' }, (url, options) => {
+          VIGO_AGENCY_LLM_PROTOCOL: protocol, VIGO_AGENCY_LLM_MODEL: process.env.VIGO_TEST_ASK_MODEL,
+          VIGO_AGENCY_LLM_API_KEY: process.env.VIGO_TEST_ASK_KEY,
+          VIGO_AGENCY_LLM_REASONING_EFFORT: protocol === 'ollama' ? 'none' : '' }, (url, options) => {
           const body = JSON.parse(options.body)
-          console.log(JSON.stringify({ modelRequestCharacters: body.messages.reduce((n, message) => n + message.content.length, 0), schemaCharacters: JSON.stringify(body.format).length }))
+          console.log(JSON.stringify({ modelRequestCharacters: body.messages.reduce((n, message) => n + (message.content?.length ?? 0), 0), schemaCharacters: JSON.stringify(body.format ?? body.tools ?? {}).length }))
           return fetch(url, options)
         })
         const history = []
         for (const question of [
-          `How do I go from Origin to Destination on ${serviceDate} at 08:00 by transit?`,
+          `How do I go from ${names.A} to ${names.D} on ${serviceDate} at 08:00 by transit?`,
           'Explain the interchange in that journey. Does the walking path into the platform have verified station data?',
           `Same endpoints on ${serviceDate} at 08:00, but no transfers. Is there a journey?`,
         ]) {

@@ -1,14 +1,25 @@
-// Compatible providers sometimes encode numeric fields as JSON strings. Only
-// the declared numeric type may be converted; IDs stay strings, and the normal
-// validator still rejects unknown fields, units, fractions and invalid ranges.
+// Compatible providers sometimes JSON-encode nested objects/arrays or numbers
+// as strings. Decode only a schema-declared type; names and IDs stay strings.
+// The normal validator still rejects unknown fields and invalid values.
 export function normalizeArguments(value, schema) {
   if (!schema) return value
   if (schema.anyOf) {
+    // A valid literal string must win over interpreting it as encoded JSON,
+    // regardless of branch order (for example a place name or identifier).
+    for (const option of schema.anyOf) {
+      try { validateArguments(value, option); return value } catch { /* Try another declared shape. */ }
+    }
     for (const option of schema.anyOf) {
       const candidate = normalizeArguments(value, option)
       try { validateArguments(candidate, option); return candidate } catch { /* Try the other declared shape. */ }
     }
     return value
+  }
+  if (typeof value === 'string' && value.length <= 8000 && ['object', 'array'].includes(schema.type)) {
+    try {
+      const decoded = JSON.parse(value)
+      if (schema.type === 'array' ? Array.isArray(decoded) : decoded !== null && typeof decoded === 'object' && !Array.isArray(decoded)) value = decoded
+    } catch { /* Preserve malformed input for the ordinary validation error. */ }
   }
   if (schema.type === 'object' && value && typeof value === 'object' && !Array.isArray(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeArguments(item, schema.properties?.[key])]))
   if (schema.type === 'array' && Array.isArray(value)) return value.map(item => normalizeArguments(item, schema.items))

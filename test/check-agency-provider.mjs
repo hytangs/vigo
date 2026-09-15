@@ -140,6 +140,24 @@ console.log('Agency provider streaming: early activity, UTF-8 boundaries, comple
 const { providerChoice } = await import('../src/agency/providerChoice.mjs')
 const { toolDefinitions } = await import('../src/agency/toolRegistry.mjs')
 const route = toolDefinitions.find(tool => tool.name === 'route_plan')
+const { normalizeArguments, validateArguments } = await import('../src/agency/toolArguments.mjs')
+const { createJourneyChoices } = await import('../src/agency/journeyChoices.mjs')
+const journeySchema = createJourneyChoices(route).definition().parameters
+const encodedJourney = { origin: 'Riverside Library', destination: 'Civic Hospital', modes: '["transit","drive"]',
+  when: '{"serviceDate":"2026-09-18","departTime":"08:00"}', explain: false }
+const decodedJourney = normalizeArguments(encodedJourney, journeySchema)
+validateArguments(decodedJourney, journeySchema)
+assert.deepEqual(decodedJourney.when, { serviceDate: '2026-09-18', departTime: '08:00' })
+assert.deepEqual(decodedJourney.modes, ['transit', 'drive'])
+assert.equal(encodedJourney.when, '{"serviceDate":"2026-09-18","departTime":"08:00"}', 'Do not mutate the provider record')
+for (const when of ['{broken', 'null', '[]', '{"departTime":"08:00","unexpected":true}', '{"departTime":"2026-09-18T08:00"}', ' '.repeat(8000) + '{}']) {
+  assert.throws(() => validateArguments(normalizeArguments({ ...encodedJourney, when }, journeySchema), journeySchema))
+}
+for (const modes of ['["flight"]', '["transit","drive","transit"]', '{"mode":"transit"}']) {
+  assert.throws(() => validateArguments(normalizeArguments({ ...encodedJourney, modes }, journeySchema), journeySchema))
+}
+const literal = '{"id":"0042"}'
+assert.equal(normalizeArguments(literal, { anyOf: [{ type: 'object', properties: { id: { type: 'string' } } }, { type: 'string' }] }), literal, 'A valid string branch takes precedence over decoding, even when listed last')
 const form = providerChoice([{ role: 'user', content: 'Find a bus from the museum to the airport.' }], [route])
 assert.deepEqual(form.parse('{"action":"answer","text":"There are 37 indexed routes."}'), { content: 'There are 37 indexed routes.' })
 assert.equal(form.parse('{"action":"route_plan","arguments":{"origin":"Museum","destination":"Airport"}}').tool_calls[0].function.name, 'route_plan')
