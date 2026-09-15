@@ -50,6 +50,9 @@ import {
 } from './reach'
 
 type FeatureCollection = GeoJsonFeatureCollection<Geometry, GeoJsonProperties>
+const emptyRoutingPoints: RoutingPoint[] = []
+const emptyScenarioStops: ScenarioStopDraft[] = []
+const emptyCoordinates: [number, number][] = []
 
 type MapLiveSelection = {
   stopId?: string
@@ -2308,7 +2311,7 @@ export function VigoMap({
   vehicleFrame,
   routingEnabled = false,
   routingOrigin,
-  routingWaypoints = [],
+  routingWaypoints: suppliedWaypoints = emptyRoutingPoints,
   routingDestination,
   routingPlan,
   routingStatusTitle,
@@ -2319,8 +2322,8 @@ export function VigoMap({
   scenarioView = 'baseline',
   scenarioRenderMode = 'area',
   scenarioCutoffMinutes = 45,
-  scenarioSketchStops = [],
-  scenarioSketchGeometry = [],
+  scenarioSketchStops: suppliedSketchStops = emptyScenarioStops,
+  scenarioSketchGeometry: suppliedSketchGeometry = emptyCoordinates,
   scenarioPointPicking = false,
   onMoveScenarioStop,
   performanceProfile: providedPerformanceProfile,
@@ -2329,6 +2332,10 @@ export function VigoMap({
   onSelectStop,
   onRoutingPoint,
 }: VigoMapProps) {
+  // An absent overlay stays the same input across unrelated parent renders.
+  const routingWaypoints = suppliedWaypoints.length ? suppliedWaypoints : emptyRoutingPoints
+  const scenarioSketchStops = suppliedSketchStops.length ? suppliedSketchStops : emptyScenarioStops
+  const scenarioSketchGeometry = suppliedSketchGeometry.length ? suppliedSketchGeometry : emptyCoordinates
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const mapRemovedRef = useRef(false)
@@ -2860,16 +2867,6 @@ export function VigoMap({
       setVisibility(map, reachComparisonLayerIds(comparisonEntries.length), scenarioFocus)
       setVisibility(map, reachComparisonLayerIds(comparisonEntries.length).filter((layerId) => layerId.endsWith('-area') || layerId.endsWith('-contours')), scenarioFocus && scenarioRenderMode === 'area')
       setVisibility(map, reachComparisonLayerIds(comparisonEntries.length).filter((layerId) => layerId.endsWith('-access-edges')), scenarioFocus && scenarioRenderMode === 'streets')
-      const focusedAnalysis = reachResult ?? comparisonEntries[0]?.result
-      if (scenarioFocus && focusedAnalysis) {
-        const [west, south, east, north] = focusedAnalysis.surface.displayBounds
-          ?? focusedAnalysis.surface.raster.bounds
-        map.fitBounds([[west, south], [east, north]], {
-          padding: routeFitPadding(map),
-          duration: 360,
-          maxZoom: 14,
-        })
-      }
     }
     if (mapReadyRef.current || map.loaded()) update()
     else map.once('load', update)
@@ -2878,6 +2875,29 @@ export function VigoMap({
       map.off('load', update)
     }
   }, [comparisonAccessEdgesGeoJson, comparisonAreasGeoJson, comparisonContoursGeoJson, comparisonEntries, scenarioAccessEdgesGeoJson, reachResult, scenarioAreaGeoJson, scenarioContoursGeoJson, scenarioFocus, scenarioRenderMode, scenarioSketchGeoJson, serviceDecomposition])
+
+  // Editing overlays or refreshing unrelated state must not reset a user's
+  // pan/zoom. Only a newly selected accessibility result changes the viewport.
+  const focusedAnalysis = reachResult ?? comparisonEntries[0]?.result
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !scenarioFocus || !focusedAnalysis) return
+    const fit = () => {
+      const [west, south, east, north] = focusedAnalysis.surface.displayBounds
+        ?? focusedAnalysis.surface.raster.bounds
+      map.fitBounds([[west, south], [east, north]], {
+        padding: routeFitPadding(map),
+        duration: 360,
+        maxZoom: 14,
+      })
+    }
+    if (mapReadyRef.current || map.loaded()) fit()
+    else map.once('load', fit)
+    return () => {
+      if (mapRemovedRef.current) return
+      map.off('load', fit)
+    }
+  }, [focusedAnalysis, scenarioFocus])
 
   useEffect(() => {
     const map = mapRef.current

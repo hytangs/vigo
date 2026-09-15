@@ -128,7 +128,7 @@ import { entityFeedScope } from './networkTruth'
 import { buildNetworkPerformanceProfile } from './networkPerformance'
 import { scopedRouteServiceKey, type RouteRenderMode } from './routeServices'
 import { formatServiceTime, scheduledServiceEndMinutes, scheduledVehicleDiagnostics, scheduledVehiclesAtTime } from './scheduledVehicles'
-import { buildServiceVehicleFrame, serviceKeyForRoute, serviceVehicleCount, type ServiceVehicleMode } from './serviceVehicles'
+import { buildServiceVehicleFrame, serviceKeyForRoute, serviceVehicleCount, type ServiceVehicleMode, type ServiceVehicleFrame } from './serviceVehicles'
 import { AgencyRouteLine } from './components/AgencyRouteLine'
 import {
   type RoutingPlan,
@@ -1696,6 +1696,11 @@ function MapScopeControl({
   )
 }
 
+const emptyRoutingPoints: RoutingPoint[] = []
+const emptyScenarioStops: ScenarioStopDraft[] = []
+const emptyCoordinates: [number, number][] = []
+const emptyVehicleFrame: ServiceVehicleFrame = { mode: 'schedule', vehicles: [], tripUpdateCount: 0, alertCount: 0 }
+
 function RouteSurface({
   agencyFocus,
   agencyLocation,
@@ -1824,13 +1829,13 @@ function RouteSurface({
     [analysisFocus, mapPreview, routingFocus, scheduleServiceDate, scheduleTimeMinutes, vehicleMode],
   )
   const vehicleFrame = useMemo(
-    () => buildServiceVehicleFrame({
+    () => routingFocus || analysisFocus ? emptyVehicleFrame : buildServiceVehicleFrame({
       mode: vehicleMode,
       preview: vehicleMode === 'live' ? visiblePreview : mapPreview,
       realtimeSnapshot,
       scheduledVehicles,
     }),
-    [mapPreview, realtimeSnapshot, scheduledVehicles, vehicleMode, visiblePreview],
+    [analysisFocus, mapPreview, realtimeSnapshot, routingFocus, scheduledVehicles, vehicleMode, visiblePreview],
   )
   const visibleVehicleCount = serviceVehicleCount(vehicleFrame, isNetworkMap ? undefined : selectedRoute, mapPreview)
   const selectedPatternOnly = !isNetworkMap && mapPreview.routes.length === 1 && (selectedRoute?.serviceVariantCount ?? 1) > 1
@@ -2507,9 +2512,9 @@ export default function App() {
     : undefined
   const scenarioSketchStops = ['add-line', 'change-line'].includes(activeScenarioChange?.kind ?? '')
     ? activeScenarioChange.stops
-    : []
+    : emptyScenarioStops
   const scenarioSketchGeometry = useMemo<[number, number][]>(() => {
-    if (!activeScenarioChange || scenarioSketchStops.length < 2) return []
+    if (!activeScenarioChange || scenarioSketchStops.length < 2) return emptyCoordinates
     const geometryMode = activeScenarioChange.geometryMode
       ?? (activeScenarioChange.timeModel === 'infer-road'
         ? 'auto-road'
@@ -2528,7 +2533,7 @@ export default function App() {
     // Do not draw an invented chord while the hybrid OSM/shape path is still
     // being prepared. Existing route shape remains useful context; a new
     // line stays point-only until its road geometry is certified.
-    if (geometryMode === 'auto-road') return publishedGeometry ?? []
+    if (geometryMode === 'auto-road') return publishedGeometry ?? emptyCoordinates
     return scenarioSketchStops.map((stop) => stop.coordinate)
   }, [activeScenarioChange, activeScenarioRoute, scenarioSketchStops])
   const activeScenarioStopPlacement = scenarioStopPlacement?.interventionId === activeScenarioChange?.id
@@ -5043,7 +5048,7 @@ export default function App() {
           scheduleServiceDate={routingServiceDate}
           routingEnabled={activeRouteTool === 'agency' ? false : routingEnabled}
           routingOrigin={activeRouteTool === 'agency' ? agencyPlan?.origin ?? null : activeRouteTool === 'analyze' ? analysisOrigin : routingOrigin}
-          routingWaypoints={activeRouteTool === 'agency' ? agencyPlan?.waypoints ?? [] : activeRouteTool === 'analyze' ? [] : routingWaypoints}
+          routingWaypoints={activeRouteTool === 'agency' ? agencyPlan?.waypoints ?? emptyRoutingPoints : activeRouteTool === 'analyze' ? emptyRoutingPoints : routingWaypoints}
           routingDestination={activeRouteTool === 'agency' ? agencyPlan?.destination ?? null : activeRouteTool === 'analyze' ? null : routingDestination}
           routingPlan={activeRouteTool === 'agency' ? agencyPlan : activeRouteTool === 'analyze' ? null : routingPlan}
           routingFocus={activeRouteTool === 'pathfinder' || activeRouteTool === 'agency' && Boolean(agencyPlan)}
@@ -5054,8 +5059,8 @@ export default function App() {
           scenarioView={scenarioView}
           scenarioRenderMode={scenarioRenderMode}
           scenarioCutoffMinutes={scenarioCutoffMinutes}
-          scenarioSketchStops={activeRouteTool === 'analyze' ? scenarioSketchStops : []}
-          scenarioSketchGeometry={activeRouteTool === 'analyze' ? scenarioSketchGeometry : []}
+          scenarioSketchStops={activeRouteTool === 'analyze' ? scenarioSketchStops : emptyScenarioStops}
+          scenarioSketchGeometry={activeRouteTool === 'analyze' ? scenarioSketchGeometry : emptyCoordinates}
           scenarioPointPicking={scenarioPointPicking}
           onMoveScenarioStop={activeRouteTool === 'analyze' ? moveScenarioStopFromMap : undefined}
           routingActivity={routingActivity}

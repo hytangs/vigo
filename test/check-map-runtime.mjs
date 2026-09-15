@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { build } from 'vite'
+import react from '@vitejs/plugin-react'
 import electronPath from 'electron'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
@@ -13,6 +14,7 @@ try {
   await fs.writeFile(path.join(temporary, 'index.html'), '<div id="map" style="width:512px;height:512px"></div><script type="module" src="/fixture.mjs"></script>')
   await fs.writeFile(path.join(temporary, 'fixture.mjs'), `
 import { Map, AttributionControl } from '../../src/app/mapRuntime.ts';
+import { runMapRefreshChecks } from '../../test/fixtures/map-refresh.jsx';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { ensureVehicleDirectionSprite, vehicleHeadingLayer, vehicleMarkerLayer } from '../../src/app/mapDirections.ts';
 window.checkMap = async () => {
@@ -49,10 +51,11 @@ window.checkMap = async () => {
   const details = document.querySelector('.maplibregl-ctrl-attrib details');
   if (!details || details.hasAttribute('onload') || details.hasAttribute('ontoggle') || window.attributionExecuted) throw Error('Unsafe attribution survived sanitization');
   map.remove();
-  return {rendered:true,sourceUpdate:true,sanitizedAttribution:true,offlineDirections:true,networkHeadings:true,mapRotation:true};
+  document.getElementById('map').remove();
+  return {rendered:true,sourceUpdate:true,sanitizedAttribution:true,offlineDirections:true,networkHeadings:true,mapRotation:true,refreshIsolation:await runMapRefreshChecks()};
 };
 `)
-  await build({ configFile: false, root: temporary, publicDir: false, logLevel: 'warn', build: { chunkSizeWarningLimit: 1500 } })
+  await build({ configFile: false, root: temporary, plugins: [react()], publicDir: false, logLevel: 'warn', build: { chunkSizeWarningLimit: 1500 } })
   const dist = path.join(temporary, 'dist')
   await fs.writeFile(path.join(temporary, 'main.cjs'), `
 const {app,BrowserWindow,protocol,net} = require('electron');
