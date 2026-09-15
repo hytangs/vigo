@@ -9,7 +9,7 @@ function kernelFor(trips, stopCount, minimum = [0, 0, 0, 0]) {
   const departure = [], arrival = [], from = [], to = [], sequence = [], trip = [], board = [], alight = [], starts = [0]
   for (const [id, calls] of trips.entries()) {
     for (let i = 0; i < calls.length - 1; i++) {
-      departure.push(calls[i].time); arrival.push(calls[i + 1].time)
+      departure.push(calls[i].time); arrival.push(calls[i + 1].arrival ?? calls[i + 1].time)
       from.push(calls[i].stop); to.push(calls[i + 1].stop); sequence.push(i)
       trip.push(id); board.push(calls[i].board === false ? 0 : 1); alight.push(calls[i + 1].alight === false ? 0 : 1)
     }
@@ -44,7 +44,7 @@ function enumerate(trips, walks, maximumBoardings, minimum) {
       const ready = time + (boardings ? minimum[stop] : 0)
       if (calls[i].stop !== stop || calls[i].time < ready || calls[i].board === false) continue
       for (let j = i + 1; j < calls.length; j++) {
-        if (calls[j].alight !== false) visit(calls[j].stop, calls[j].time, boardings + 1, walking)
+        if (calls[j].alight !== false) visit(calls[j].stop, calls[j].arrival ?? calls[j].time, boardings + 1, walking)
       }
     }
   }
@@ -53,11 +53,12 @@ function enumerate(trips, walks, maximumBoardings, minimum) {
 }
 
 function overlayRequest(updates, walks, excluded, maximumBoardings) {
-  const stops = [], times = [], offsets = [0], starts = [], canBoard = [], canAlight = []
+  const stops = [], times = [], arrivals = [], offsets = [0], starts = [], canBoard = [], canAlight = []
   for (const calls of updates) {
     starts.push(calls[0].time)
     for (const call of calls) {
       stops.push(call.stop); times.push(call.time - calls[0].time)
+      arrivals.push(call === calls[0] ? 0 : (call.arrival ?? call.time) - calls[0].time)
       canBoard.push(call.board === false ? 0 : 1); canAlight.push(call.alight === false ? 0 : 1)
     }
     offsets.push(stops.length)
@@ -67,6 +68,7 @@ function overlayRequest(updates, walks, excluded, maximumBoardings) {
     destinationOffsets: [0, 2], destinationStops: [3, 7], destinationWalkSeconds: [0, 0], destinationCandidateIndices: [0, 0],
     departure: 0, horizon: 2000, excludedTrips: excluded, allowPreRideTransfers: false, maximumBoardings,
     overlayStopCount: 4, overlayBaseStops: [0, 1, 2, 3], directionOffsets: offsets, directionStops: stops, directionStopOffsetsSeconds: times,
+    directionArrivalOffsetsSeconds: arrivals,
     serviceStartSeconds: starts, serviceEndSeconds: starts, serviceHeadwaySeconds: starts.map(() => 1),
     directionCanBoard: canBoard, directionCanAlight: canAlight,
     supplementalTransferOffsets: [0, 1, 2, 3, 4, 5, 6, 7, 8],
@@ -102,8 +104,8 @@ function check(trips, updates, replaced, canceled, walks, cap, minimum = [0, 0, 
       const calls = trip < -1 ? updates[-trip - 2] : trips[trip]
       const board = calls[t.chainBoardSequences[i]], alight = calls[t.chainAlightSequences[i] + 1]
       assert.equal(board.stop, at); assert(board.time >= time); assert.notEqual(board.board, false)
-      assert.notEqual(alight.alight, false); assert.equal(alight.time, t.chainArrivals[i])
-      at = alight.stop; time = alight.time
+      assert.notEqual(alight.alight, false); assert.equal(alight.arrival ?? alight.time, t.chainArrivals[i])
+      at = alight.stop; time = alight.arrival ?? alight.time
     }
     assert.equal(at, 3); assert.equal(time, expected[0])
   }
@@ -137,10 +139,22 @@ for (const minimum of [0, 10, 11, 70, Infinity]) {
   }
 }
 check([sameTrain], [sameTrain], [0], [], [0, 2000, 2000], 3, [0, Infinity, 0, 0])
+// Riders may alight and transfer while their first vehicle is still dwelling.
+const dwelling = [
+  [{ stop: 0, time: 100 }, { stop: 1, arrival: 200, time: 400 }, { stop: 3, time: 600 }],
+  [{ stop: 1, time: 250 }, { stop: 3, time: 300 }],
+  [{ stop: 1, time: 500 }, { stop: 3, time: 550 }],
+]
+for (const replaced of [[0], [1], [0, 1]]) {
+  check(dwelling, replaced.map(i => dwelling[i]), replaced, [], [0, 2000, 2000], 3)
+}
 const identityKernel = kernelFor(interchange, 4)
 const identityRequest = overlayRequest([interchange[1]], [0, 2000, 2000], [1], 3)
 for (const overlayBaseStops of [[0], [0, 1, 2, 4], [0, 1, 2, -2]]) {
   assert.throws(() => identityKernel.routeOverlayManyCsa({ ...identityRequest, overlayBaseStops }), /stop identities/)
+}
+for (const directionArrivalOffsetsSeconds of [[0], [0, -1], [0, 91], [1, 90]]) {
+  assert.throws(() => identityKernel.routeOverlayManyCsa({ ...identityRequest, directionArrivalOffsetsSeconds }), /arrivals|direction arrays/)
 }
 
 // Fixed seed, broad combinations of unaffected, delayed, skipped and canceled
@@ -152,10 +166,10 @@ for (let sample = 0; sample < 120; sample++) {
     let time = 60 + random(100)
     return [0, 1, 2, 3].filter(stop => stop === 0 || stop === 3 || random(2)).map(stop => {
       time += 20 + random(180)
-      return { stop, time, board: random(8) !== 0, alight: random(8) !== 0 }
+      return { stop, time, arrival: time - random(15), board: random(8) !== 0, alight: random(8) !== 0 }
     })
   })
-  const updates = [trips[0].map(call => ({ ...call, time: call.time + 60 }))]
+  const updates = [trips[0].map(call => ({ ...call, time: call.time + 60, arrival: call.arrival + 60 }))]
   check(trips, updates, [0], sample % 3 === 0 ? [1] : [], [random(160), random(160), random(160)], sample % 2 ? 1 : 3)
   check(trips, updates, [0], [], [random(160), random(160), random(160)], 3, [0, 70, 90, 0])
 }

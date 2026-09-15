@@ -94,6 +94,22 @@ assert.equal(delayed.diagnostics.algorithm, 'rust_resident_query_overlay_connect
 assert.equal(delayed.diagnostics.realtimeRouting.appliedTrips, 1)
 assert.equal(delayed.diagnostics.realtimeRouting.replacedTrips, 1)
 
+for (const delay of [120, -60]) {
+  const propagated = routeNationalGtfsStore(storePath, { ...request,
+    realtimeSnapshot: realtime([{ tripId: 'T1', startDate: '20260821',
+      stopTimeUpdates: [{ stopSequence: 2, arrival: { delay }, departure: { delay } }],
+    }]),
+  })
+  assert.equal(propagated.arriveMinutes, 620 + delay / 60, 'A stop-level prediction applies to following unreported calls.')
+  assert.equal(propagated.diagnostics.realtimeRouting.appliedTrips, 1)
+}
+const noData = routeNationalGtfsStore(storePath, { ...request,
+  realtimeSnapshot: realtime([{ tripId: 'T1', startDate: '20260821', delaySeconds: 120,
+    stopTimeUpdates: [{ stopSequence: 2, scheduleRelationship: 'NO_DATA' }],
+  }]),
+})
+assert.equal(noData.arriveMinutes, 620, 'NO_DATA clears propagated delay; later timing falls back to the timetable.')
+
 const stopTimed = routeNationalGtfsStore(storePath, {
   ...request,
   realtimeSnapshot: realtime([{
@@ -171,6 +187,14 @@ assert.equal(canceled.scheduleMode, 'exact')
 assert.equal(firstRide(canceled).tripId, 'fixture\u001fT2')
 assert.equal(canceled.arriveMinutes, 640)
 assert.equal(canceled.diagnostics.realtimeRouting.canceledTrips, 1)
+for (const scheduleRelationship of ['DELETED', 3, 7]) {
+  const removed = routeNationalGtfsStore(storePath, { ...request,
+    realtimeSnapshot: realtime([{ tripId: 'T1', startDate: '20260821', scheduleRelationship }]),
+  })
+  assert.equal(removed.status, 'ready')
+  assert.equal(firstRide(removed).tripId, 'fixture\u001fT2')
+  assert.equal(removed.diagnostics.realtimeRouting.canceledTrips, 1)
+}
 
 const unmatched = routeNationalGtfsStore(storePath, {
   ...request,
@@ -275,4 +299,35 @@ for (const minTransferTimeSeconds of [60, 61, 120, Infinity]) {
   assert.equal(initial.arriveMinutes, 620)
   disposeNationalGtfsStore(transferStore)
 }
-console.log('GTFS-RT routing check passed (predictions, skipped stops, cancellation, fallback, and realtime transfer rules).')
+const dwellStore = path.join(folder, 'dwell.sqlite')
+const dwellSchedule = path.join(folder, 'dwell.json')
+await fs.writeFile(dwellSchedule, JSON.stringify({
+  stops: ['A', 'B', 'C', 'D'].map((id, i) => ({ id, name: id, lon: i * 0.1, lat: 0, locationType: 0 })),
+  routes: [{ id: 'R', shortName: 'R', routeType: 3, scheduledTrips: [
+    ['dwell', [['A', 600, 600], ['B', 610, 615], ['C', 620, 620]]],
+    ['connection', [['B', 612, 612], ['D', 618, 618]]],
+    ['later', [['B', 630, 630], ['D', 636, 636]]],
+  ].map(([tripId, calls]) => ({ tripId, serviceId: 'weekday', serviceDays: ['weekday'],
+    stopTimes: calls.map(([stopId, arrivalMinutes, departureMinutes], i) => ({ stopId, sequence: i + 1, arrivalMinutes, departureMinutes })),
+  })) }], transferRules: [],
+}))
+await buildRoutingStoreFromSchedules({ schedules: [{ feedId: 'fixture', schedulePath: dwellSchedule }], outputPath: dwellStore })
+const stopPoint = (id, i) => ({ coordinate: [i * 0.1, 0], source: 'stop', stopId: `fixture\u001f${id}` })
+const dwellRequest = { ...request, maxWalkKm: 0.2, origin: stopPoint('A', 0), destination: stopPoint('D', 3),
+  realtimeSnapshot: realtime([{ tripId: 'dwell', startDate: '20260821', delaySeconds: 0 }]),
+}
+const transferDuringDwell = routeNationalGtfsStore(dwellStore, dwellRequest)
+assert.equal(transferDuringDwell.arriveMinutes, 618)
+assert.equal(firstRide(transferDuringDwell).endMinutes, 610)
+assert.equal(routeNationalGtfsStore(dwellStore, { ...dwellRequest, destination: stopPoint('B', 1) }).arriveMinutes, 610)
+const boardDuringDwell = routeNationalGtfsStore(dwellStore, { ...dwellRequest,
+  origin: stopPoint('B', 1), destination: stopPoint('C', 2), departMinutes: 613,
+})
+assert.equal(firstRide(boardDuringDwell).startMinutes, 615)
+assert.equal(boardDuringDwell.arriveMinutes, 620)
+const deadline = routeNationalGtfsStore(dwellStore, { ...dwellRequest, timePreference: 'arrive', arriveMinutes: 619 })
+assert.equal(deadline.status, 'ready')
+assert(deadline.arriveMinutes <= 619)
+assert.equal(firstRide(deadline).endMinutes, 610)
+disposeNationalGtfsStore(dwellStore)
+console.log('GTFS-RT routing check passed (dwell, propagated delay, skipped stops, cancellation, fallback, and transfer rules).')

@@ -30,3 +30,13 @@ node test/check-gtfs-realtime-routing.mjs
 ```
 
 The comparator excludes runtime timings. This run is not a controlled speed benchmark. It does not independently validate coordinate snapping, actual delivered service, live prediction accuracy, or Ask's place resolution. Those remain separate from direct-coordinate routing parity.
+
+## Final timing audit
+
+A second audit preserved the 51-case comparison and repaired additional realtime timing defects. Arrival and departure now remain separate inside the native overlay, allowing riders to transfer during their first vehicle's dwell. A controlled native case previously arrived at second 550 because that transfer was missed; it now arrives at second 300. Store-level tests also cover alighting, boarding during dwell, and arrive-by requests.
+
+Stop-level delay now carries forward to subsequent unreported calls, with a new prediction overriding it and `NO_DATA` clearing it. Clearing a prediction uses scheduled fallback; it does not establish on-time operation. In the sparse-update regression, a two-minute delay at the middle stop previously disappeared downstream, producing an arrival at minute 620; the corrected arrival is minute 622. These rules follow the [GTFS-Realtime trip-update specification](https://gtfs.org/documentation/realtime/reference/#message-tripupdate).
+
+The timing resolver is now a small separate module. Sequence-specific updates apply only to that visit on a loop; ambiguous stop-ID-only updates on repeated stops are rejected. Contradictory timestamps do not create backwards ride segments. Numeric cancellation/deletion values preserve the published enum values, including the unused slot before `REPLACEMENT`.
+
+The final checks include 263 native exhaustive comparisons with dwell and transfer variations, store-level timing regressions, the routing and GTFS suites, interface parity, and desktop package verification. The native comparisons also run against the packaged binary. [Timing audit evidence](evidence/routing-timing-audit.json) records the bounded findings; the earlier 260-case evidence remains the historical first audit.

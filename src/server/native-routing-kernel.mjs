@@ -882,6 +882,7 @@ export function routeNativeTimetableOverlayMany(kernel, request) {
     directionOffsets: overlay.directionOffsets ?? [0],
     directionStops: overlay.directionStops ?? [],
     directionStopOffsetsSeconds: overlay.directionStopOffsetsSeconds ?? [],
+    directionArrivalOffsetsSeconds: overlay.directionArrivalOffsetsSeconds,
     serviceStartSeconds: overlay.serviceStartSeconds ?? [],
     serviceEndSeconds: overlay.serviceEndSeconds ?? [],
     serviceHeadwaySeconds: overlay.serviceHeadwaySeconds ?? [],

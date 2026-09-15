@@ -325,6 +325,9 @@ pub struct TimetableOverlayManyQueryInput {
     pub direction_offsets: Vec<u32>,
     pub direction_stops: Vec<u32>,
     pub direction_stop_offsets_seconds: Vec<f64>,
+    /// Optional arrival offsets preserve dwell time in realtime replacements.
+    /// Frequency scenarios without this field retain their existing offsets.
+    pub direction_arrival_offsets_seconds: Option<Vec<f64>>,
     pub service_start_seconds: Vec<f64>,
     pub service_end_seconds: Vec<f64>,
     pub service_headway_seconds: Vec<f64>,
@@ -717,6 +720,10 @@ fn compile_timetable_overlay(
         || input.direction_offsets.first().copied() != Some(0)
         || input.direction_offsets[direction_count] as usize != input.direction_stops.len()
         || input.direction_stops.len() != input.direction_stop_offsets_seconds.len()
+        || input
+            .direction_arrival_offsets_seconds
+            .as_ref()
+            .is_some_and(|times| times.len() != input.direction_stops.len())
         || input.service_end_seconds.len() != direction_count
         || input.service_headway_seconds.len() != direction_count
         || input
@@ -754,6 +761,11 @@ fn compile_timetable_overlay(
             ));
         }
         let offsets = &input.direction_stop_offsets_seconds[direction_start..direction_end];
+        let arrivals = input
+            .direction_arrival_offsets_seconds
+            .as_ref()
+            .map(|times| &times[direction_start..direction_end])
+            .unwrap_or(offsets);
         if offsets
             .iter()
             .any(|seconds| !seconds.is_finite() || *seconds < 0.0)
@@ -762,6 +774,16 @@ fn compile_timetable_overlay(
         {
             return Err(Error::from_reason(
                 "Rust timetable overlay stop offsets must start at zero and be finite and nondecreasing.",
+            ));
+        }
+        if arrivals.iter().enumerate().any(|(index, arrival)| {
+            !arrival.is_finite()
+                || *arrival < 0.0
+                || *arrival > offsets[index]
+                || (index > 0 && *arrival < offsets[index - 1])
+        }) {
+            return Err(Error::from_reason(
+                "Rust timetable overlay arrivals must fall between adjacent departures.",
             ));
         }
         let service_start = input.service_start_seconds[direction];
@@ -814,7 +836,7 @@ fn compile_timetable_overlay(
                 if departure > f64::from(query_horizon) {
                     break;
                 }
-                let arrival = trip_start + offsets[offset_index + 1];
+                let arrival = trip_start + arrivals[offset_index + 1];
                 events.push(OverlayScanEvent {
                     departure: finite_u32_time(departure, "connection departure")?,
                     arrival: finite_u32_time(arrival, "connection arrival")?,

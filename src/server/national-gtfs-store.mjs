@@ -113,6 +113,7 @@ export {
 } from './national-route-choices.mjs'
 export { WeightedLruCache } from './weighted-lru-cache.mjs'
 import { readGtfsFareCatalog, writeGtfsFareCatalog, copyGtfsFareCatalogs, addGtfsFares } from './gtfs-fare-store.mjs'
+import { resolveRealtimeTripTimes } from './realtime-trip-timing.mjs'
 
 const storeSchemaVersion = 'vigo.routing.store.v1'
 const transferSemanticsVersion = 'vigo.routing.transfers.v3'
@@ -7883,14 +7884,8 @@ function resolveRealtimeTripIndex(kernel, tripId) {
 function realtimeTripRelationship(value) {
   if (value === undefined || value === null || value === '') return 'SCHEDULED'
   if (typeof value === 'number') {
-    return ['SCHEDULED', 'ADDED', 'UNSCHEDULED', 'CANCELED', 'REPLACEMENT', 'DUPLICATED', 'DELETED'][value] ?? 'UNKNOWN'
+    return { 0: 'SCHEDULED', 1: 'ADDED', 2: 'UNSCHEDULED', 3: 'CANCELED', 5: 'REPLACEMENT', 6: 'DUPLICATED', 7: 'DELETED' }[value] ?? 'UNKNOWN'
   }
-  return String(value).trim().toUpperCase()
-}
-
-function realtimeStopTimeRelationship(value) {
-  if (value === undefined || value === null || value === '') return 'SCHEDULED'
-  if (typeof value === 'number') return ['SCHEDULED', 'SKIPPED', 'NO_DATA', 'UNSCHEDULED'][value] ?? 'UNKNOWN'
   return String(value).trim().toUpperCase()
 }
 
@@ -7945,33 +7940,6 @@ function realtimeEpochToServiceSeconds(epochSeconds, serviceDate, timezone) {
     / 86_400_000,
   )
   return dayOffset * 86_400 + parts.hour * 3_600 + parts.minute * 60 + parts.second
-}
-
-function realtimeAdjustedStopTime(staticSeconds, event, fallbackDelay, serviceDate, timezone) {
-  const explicit = realtimeEpochToServiceSeconds(event?.time, serviceDate, timezone)
-  if (explicit !== undefined) return explicit
-  const baseline = numeric(staticSeconds, Number.NaN)
-  if (!Number.isFinite(baseline)) return undefined
-  const delay = numeric(event?.delay, numeric(fallbackDelay, 0))
-  return baseline + delay
-}
-
-function realtimeStopUpdateIndex(updates) {
-  const bySequence = new Map()
-  const byStopId = new Map()
-  let unsupported = false
-  for (const update of updates ?? []) {
-    const relationship = realtimeStopTimeRelationship(update?.scheduleRelationship)
-    if (relationship === 'UNSCHEDULED' || relationship === 'UNKNOWN') {
-      unsupported = true
-      continue
-    }
-    if (relationship === 'NO_DATA') continue
-    const sequence = numeric(update?.stopSequence, Number.NaN)
-    if (Number.isInteger(sequence)) bySequence.set(sequence, update)
-    if (String(update?.stopId ?? '').trim()) byStopId.set(String(update.stopId), update)
-  }
-  return { bySequence, byStopId, unsupported }
 }
 
 function realtimeStaticTripStopTimes(store, tripId) {
@@ -8100,57 +8068,14 @@ function buildRealtimeTimetableOverlay(store, kernel, snapshot, context) {
       diagnostics.invalidTrips += 1
       continue
     }
-    const updateIndex = realtimeStopUpdateIndex(update.stopTimeUpdates)
-    if (updateIndex.unsupported) {
-      diagnostics.unsupportedTrips += 1
+    const timing = resolveRealtimeTripTimes(rows, update,
+      epoch => realtimeEpochToServiceSeconds(epoch, serviceDate, timezone))
+    if (timing.status !== 'ready') {
+      diagnostics[timing.status === 'unsupported' ? 'unsupportedTrips' : 'invalidTrips'] += 1
       continue
     }
-    const stopTimes = []
-    let previousArrival = Number.NEGATIVE_INFINITY
-    let previousDeparture = Number.NEGATIVE_INFINITY
-    let valid = true
-    let intersectsCandidate = false
-    for (const row of rows) {
-      const sequence = numeric(row.stop_sequence, Number.NaN)
-      const stopId = String(row.stop_id)
-      const stopUpdate = updateIndex.bySequence.get(sequence)
-        ?? updateIndex.byStopId.get(stopId)
-        ?? updateIndex.byStopId.get(stopId.split('\u001f').at(-1))
-      const skipped = realtimeStopTimeRelationship(stopUpdate?.scheduleRelationship) === 'SKIPPED'
-      const arrival = realtimeAdjustedStopTime(
-        row.arrival,
-        stopUpdate?.arrival,
-        update.delaySeconds,
-        serviceDate,
-        timezone,
-      )
-      const departure = realtimeAdjustedStopTime(
-        row.departure,
-        stopUpdate?.departure,
-        update.delaySeconds,
-        serviceDate,
-        timezone,
-      )
-      if (!Number.isFinite(arrival) || !Number.isFinite(departure) || departure < arrival || arrival < previousArrival || departure < previousDeparture) {
-        valid = false
-        break
-      }
-      if (candidateStopIds.has(stopId)) intersectsCandidate = true
-      stopTimes.push({
-        stopId,
-        sequence,
-        arrival,
-        departure,
-        canBoard: !skipped && (row.can_board === undefined || Number(row.can_board) === 1),
-        canAlight: !skipped && (row.can_alight === undefined || Number(row.can_alight) === 1),
-      })
-      previousArrival = arrival
-      previousDeparture = departure
-    }
-    if (!valid || stopTimes.length < 2) {
-      diagnostics.invalidTrips += 1
-      continue
-    }
+    const stopTimes = timing.stopTimes
+    const intersectsCandidate = stopTimes.some(stop => candidateStopIds.has(stop.stopId))
     candidates.push({
       tripIndex,
       tripId: staticTripId,
@@ -8198,6 +8123,7 @@ function buildRealtimeTimetableOverlay(store, kernel, snapshot, context) {
   const directionOffsets = [0]
   const directionStops = []
   const directionStopOffsetsSeconds = []
+  const directionArrivalOffsetsSeconds = []
   const directionCanBoard = []
   const directionCanAlight = []
   const serviceStartSeconds = []
@@ -8214,11 +8140,13 @@ function buildRealtimeTimetableOverlay(store, kernel, snapshot, context) {
       directionCanAlight.push(stopTime.canAlight !== false ? 1 : 0)
       const eventTime = index + 1 < trip.stopTimes.length ? stopTime.departure : stopTime.arrival
       directionStopOffsetsSeconds.push(eventTime - firstDeparture)
+      directionArrivalOffsetsSeconds.push(index === 0 ? 0 : stopTime.arrival - firstDeparture)
     }
     if (directionStopOffsetsSeconds.slice(directionStart).some((offset, index, offsets) => !Number.isFinite(offset) || offset < 0 || (index > 0 && offset < offsets[index - 1]))) {
       diagnostics.invalidTrips += 1
       directionStops.length = directionStart
       directionStopOffsetsSeconds.length = directionStart
+      directionArrivalOffsetsSeconds.length = directionStart
       directionCanBoard.length = directionStart
       directionCanAlight.length = directionStart
       excludedTripIndices.delete(trip.tripIndex)
@@ -8278,6 +8206,7 @@ function buildRealtimeTimetableOverlay(store, kernel, snapshot, context) {
     directionOffsets,
     directionStops,
     directionStopOffsetsSeconds,
+    directionArrivalOffsetsSeconds,
     directionCanBoard,
     directionCanAlight,
     serviceStartSeconds,
@@ -8477,6 +8406,7 @@ function searchActiveServiceKernelNativeRealtime(
       directionOffsets: overlay.directionOffsets,
       directionStops: overlay.directionStops,
       directionStopOffsetsSeconds: overlay.directionStopOffsetsSeconds,
+      directionArrivalOffsetsSeconds: overlay.directionArrivalOffsetsSeconds,
       serviceStartSeconds: overlay.serviceStartSeconds,
       serviceEndSeconds: overlay.serviceEndSeconds,
       serviceHeadwaySeconds: overlay.serviceHeadwaySeconds,
