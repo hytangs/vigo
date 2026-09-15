@@ -1461,6 +1461,35 @@ fn expand_many_transfer_edges(
     }
 }
 
+// Zero duration does not itself establish identity: a published transfer
+// between two different stops may also have a zero minimum. Realtime supplies
+// explicit physical stop IDs; legacy scenario overlays retain their policy.
+fn overlay_identity_transfer(
+    input: &TimetableOverlayManyQueryInput,
+    base_stop_count: usize,
+    from: usize,
+    edge: usize,
+) -> bool {
+    if input.supplemental_transfer_duration[edge] != 0 {
+        return false;
+    }
+    let Some(identities) = &input.overlay_base_stops else {
+        return true;
+    };
+    let physical_stop = |stop: usize| {
+        if stop < base_stop_count {
+            Some(stop as i32)
+        } else {
+            identities
+                .get(stop - base_stop_count)
+                .copied()
+                .filter(|id| *id >= 0)
+        }
+    };
+    let source = physical_stop(from);
+    source.is_some() && source == physical_stop(input.supplemental_transfer_to[edge] as usize)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn expand_many_combined_transfer_edges_chain(
     workspace: &mut ManyWorkspace,
@@ -1471,6 +1500,7 @@ fn expand_many_combined_transfer_edges_chain(
     base_transfer_edges: &[TransferEdge],
     supplemental_transfer_offset: &[u32],
     supplemental_transfer_edges: &[TransferEdge],
+    supplemental_identity_edges: &[bool],
     stop: usize,
     arrival: f64,
     has_ride: bool,
@@ -1513,13 +1543,11 @@ fn expand_many_combined_transfer_edges_chain(
     stats.explicit_transfer_checks = stats
         .explicit_transfer_checks
         .saturating_add((end - start) as u32);
-    for edge in &supplemental_transfer_edges[start..end] {
+    for (offset, edge) in supplemental_transfer_edges[start..end].iter().enumerate() {
         let duration = edge.duration();
-        // Positive explicit edges already carry their interchange duration.
-        // A zero-second supplemental edge is an identity bridge between the
-        // resident and overlay domains, so retain generic post-ride boarding
-        // slack and keep the equal-departure scan order independent.
-        let needs_board_slack = has_ride && duration == 0;
+        // Physical edges carry their interchange duration, even when zero.
+        // Only identity bridges retain generic post-ride boarding slack.
+        let needs_board_slack = has_ride && supplemental_identity_edges[start + offset];
         relax_many_record(
             workspace,
             epoch,
@@ -5190,9 +5218,23 @@ impl TimetableKernel {
             .zip(input.supplemental_transfer_duration.iter().copied())
             .map(|(stop, duration)| TransferEdge::new(stop, duration))
             .collect::<Vec<_>>();
+        let mut supplemental_identity_edges = Vec::with_capacity(supplemental_transfer_edges.len());
+        for stop in 0..combined_stop_count {
+            for edge in input.supplemental_transfer_offsets[stop] as usize
+                ..input.supplemental_transfer_offsets[stop + 1] as usize
+            {
+                supplemental_identity_edges.push(overlay_identity_transfer(
+                    &input,
+                    self.stop_count,
+                    stop,
+                    edge,
+                ));
+            }
+        }
         let compile_ns = compile_started.elapsed().as_nanos() as f64;
         let transient_bytes = compiled.byte_length()
-            + supplemental_transfer_edges.capacity() * std::mem::size_of::<TransferEdge>();
+            + supplemental_transfer_edges.capacity() * std::mem::size_of::<TransferEdge>()
+            + supplemental_identity_edges.capacity() * std::mem::size_of::<bool>();
 
         let destination_count = input.destination_offsets.len().saturating_sub(1);
         if input
@@ -5350,6 +5392,7 @@ impl TimetableKernel {
                     transfer_edges,
                     &input.supplemental_transfer_offsets,
                     &supplemental_transfer_edges,
+                    &supplemental_identity_edges,
                     stop,
                     arrival,
                     false,
@@ -5530,6 +5573,7 @@ impl TimetableKernel {
                                         transfer_edges,
                                         &input.supplemental_transfer_offsets,
                                         &supplemental_transfer_edges,
+                                        &supplemental_identity_edges,
                                         bridge_stop,
                                         f64::from(connection_departure),
                                         true,
@@ -5573,6 +5617,7 @@ impl TimetableKernel {
                                     transfer_edges,
                                     &input.supplemental_transfer_offsets,
                                     &supplemental_transfer_edges,
+                                    &supplemental_identity_edges,
                                     alight_stop,
                                     f64::from(arrival.arrival),
                                     true,
@@ -5681,6 +5726,7 @@ impl TimetableKernel {
                                     transfer_edges,
                                     &input.supplemental_transfer_offsets,
                                     &supplemental_transfer_edges,
+                                    &supplemental_identity_edges,
                                     output_stop,
                                     f64::from(event.arrival),
                                     true,

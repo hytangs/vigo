@@ -148,6 +148,7 @@ const monotonicNow = nodePerformance.now.bind(nodePerformance)
 const realtimeRoutingMaxTripUpdates = 256
 const realtimeRoutingMaxStops = 4_096
 const realtimeTripLookupCache = new WeakMap()
+const realtimeIncomingTransferCache = new WeakMap()
 const realtimeTimezoneFormatterCache = new Map()
 // Internal controls must not be representable in HTTP, CLI, worker, or JSON
 // request payloads. A module-private Symbol survives local object spreads used
@@ -7871,6 +7872,30 @@ function realtimeTripLookup(kernel) {
   return lookup
 }
 
+// The overlay and resident stop IDs denote the same physical stops. Compile
+// incoming edges once per immutable service kernel so copying only transfers
+// touching updated stops does not rescan the entire network on every query.
+function realtimeIncomingTransfers(kernel) {
+  const cached = realtimeIncomingTransferCache.get(kernel)
+  if (cached) return cached
+  const offsets = new Uint32Array(kernel.stopIds.length + 1)
+  for (const to of kernel.transferTo) offsets[to + 1] += 1
+  for (let stop = 0; stop < kernel.stopIds.length; stop++) offsets[stop + 1] += offsets[stop]
+  const cursor = offsets.slice()
+  const from = new Uint32Array(kernel.transferTo.length)
+  const edges = new Uint32Array(kernel.transferTo.length)
+  for (let stop = 0; stop < kernel.stopIds.length; stop++) {
+    for (let edge = kernel.transferOffset[stop]; edge < kernel.transferOffset[stop + 1]; edge++) {
+      const index = cursor[kernel.transferTo[edge]]++
+      from[index] = stop
+      edges[index] = edge
+    }
+  }
+  const result = { offsets, from, edges }
+  realtimeIncomingTransferCache.set(kernel, result)
+  return result
+}
+
 function resolveRealtimeTripIndex(kernel, tripId) {
   const normalizedTripId = String(tripId ?? '').trim()
   if (!normalizedTripId) return undefined
@@ -8185,12 +8210,27 @@ function buildRealtimeTimetableOverlay(store, kernel, snapshot, context) {
     { length: kernel.stopIds.length + overlayStopIds.length },
     () => new Map(),
   )
+  const overlayByBase = new Map(overlayStopBaseStopIds.map((base, local) => [base, kernel.stopIds.length + local]))
+  const incoming = overlayStopIds.length ? realtimeIncomingTransfers(kernel) : null
   for (let localStop = 0; localStop < overlayStopIds.length; localStop += 1) {
     const baseStop = overlayStopBaseStopIds[localStop]
     if (baseStop === undefined) continue
     const combinedStop = kernel.stopIds.length + localStop
     retainOverlayTransfer(outgoing, combinedStop, baseStop, 0)
     retainOverlayTransfer(outgoing, baseStop, combinedStop, 0)
+    // Transfer search takes one physical edge after alighting. An identity
+    // bridge alone would consume that step and lose cross-platform transfers.
+    // Copy the prepared directed edges, retaining their exact durations and
+    // exclusions, across every resident/updated endpoint combination.
+    for (let edge = kernel.transferOffset[baseStop]; edge < kernel.transferOffset[baseStop + 1]; edge++) {
+      const to = kernel.transferTo[edge], duration = kernel.transferDuration[edge]
+      retainOverlayTransfer(outgoing, combinedStop, to, duration)
+      const updatedTo = overlayByBase.get(to)
+      if (updatedTo !== undefined) retainOverlayTransfer(outgoing, combinedStop, updatedTo, duration)
+    }
+    for (let index = incoming.offsets[baseStop]; index < incoming.offsets[baseStop + 1]; index++) {
+      retainOverlayTransfer(outgoing, incoming.from[index], combinedStop, kernel.transferDuration[incoming.edges[index]])
+    }
   }
   const transfer = overlayTransferCsr(outgoing)
   const ready = realtimeTrips.length > 0 || excludedTripIndices.size > 0

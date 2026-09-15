@@ -140,7 +140,12 @@ pub(super) fn certify(
         {
             transfer_to.push(input.supplemental_transfer_to[index]);
             transfer_duration.push(input.supplemental_transfer_duration[index]);
-            identity_transfers.push(input.supplemental_transfer_duration[index] == 0);
+            identity_transfers.push(overlay_identity_transfer(
+                input,
+                base.stop_count,
+                stop,
+                index,
+            ));
         }
         transfer_offset.push(transfer_to.len() as u32);
     }

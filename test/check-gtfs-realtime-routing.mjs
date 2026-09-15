@@ -299,6 +299,44 @@ for (const minTransferTimeSeconds of [60, 61, 120, Infinity]) {
   assert.equal(initial.arriveMinutes, 620)
   disposeNationalGtfsStore(transferStore)
 }
+// A bus may reach the interchange, yet arrive too late for its published
+// platform transfer. Do not round 181 seconds down to three minutes or force
+// the nearest alighting stop. With 180 seconds, staying aboard must win the
+// walking tie; otherwise the preceding stop can still catch the same train.
+for (const minimum of [0, 180, 181, Infinity]) {
+  const interchangeStore = path.join(folder, `interchange-${minimum}.sqlite`)
+  const interchangePath = path.join(folder, `interchange-${minimum}.json`)
+  const positions = { A: 0, X: .01, H: .013, B: .013, D: .03 }
+  await fs.writeFile(interchangePath, JSON.stringify({
+    stops: Object.entries(positions).map(([id, lon]) => ({ id, name: id, lon, lat: 0, locationType: 0 })),
+    routes: [{ id: 'R', shortName: 'R', routeType: 3, scheduledTrips: [
+      ['bus', [['A', 480], ['X', 489], ['H', 493]]],
+      ['train', [['B', 496], ['D', 510]]],
+      ['later', [['B', 500], ['D', 514]]],
+    ].map(([tripId, calls]) => ({ tripId, serviceId: 'weekday', serviceDays: ['weekday'],
+      stopTimes: calls.map(([stopId, time], i) => ({ stopId, sequence: i + 1, arrivalMinutes: time, departureMinutes: time })),
+    })) }],
+    transferRules: [
+      { fromStopId: 'X', toStopId: 'B', transferType: 2, minTransferTimeSeconds: 297 },
+      { fromStopId: 'H', toStopId: 'B', transferType: minimum === Infinity ? 3 : 2,
+        ...(Number.isFinite(minimum) ? { minTransferTimeSeconds: minimum } : {}) },
+      ...(minimum === 0 ? [{ fromStopId: 'B', toStopId: 'B', transferType: 2, minTransferTimeSeconds: 400 }] : []),
+    ],
+  }))
+  await buildRoutingStoreFromSchedules({ schedules: [{ feedId: 'fixture', schedulePath: interchangePath }], outputPath: interchangeStore })
+  for (const updated of [[], ['bus'], ['train'], ['bus', 'train']]) {
+    const plan = routeNationalGtfsStore(interchangeStore, { ...request, departMinutes: 480, maxWalkKm: .2,
+      origin: { coordinate: [0, 0], source: 'stop', stopId: 'fixture\u001fA' },
+      destination: { coordinate: [.03, 0], source: 'stop', stopId: 'fixture\u001fD' },
+      ...(updated.length ? { realtimeSnapshot: realtime(updated.map(tripId => ({ tripId, startDate: '20260821', delaySeconds: 0 }))) } : {}),
+    })
+    assert.equal(plan.status, 'ready', `transfer ${minimum}, realtime ${updated}: ${plan.detail}`)
+    assert.equal(plan.arriveMinutes, 510)
+    assert.equal(firstRide(plan).toStopId, `fixture\u001f${minimum <= 180 ? 'H' : 'X'}`, `transfer ${minimum}, realtime ${updated}`)
+  }
+  disposeNationalGtfsStore(interchangeStore)
+}
+
 const dwellStore = path.join(folder, 'dwell.sqlite')
 const dwellSchedule = path.join(folder, 'dwell.json')
 await fs.writeFile(dwellSchedule, JSON.stringify({
