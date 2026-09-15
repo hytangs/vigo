@@ -2,6 +2,7 @@ import { indexedEntityId } from './workspaceSelection.mjs'
 import { rawId, localDate, serviceEpoch } from './agencyContext.mjs'
 import { defaultPolicy, feedStates } from './realtimeIntelligence.mjs'
 import { tripCalls, station, fresh, matchCall, stopPrediction } from './routeOperations.mjs'
+import { vehicleTrip } from './vehicleTrip.mjs'
 
 const finite = value => typeof value === 'number' && Number.isFinite(value)
 const schedules = new WeakMap()
@@ -48,7 +49,7 @@ function reportsByTrip(context, records, date, schedule, routeId) {
   return reports
 }
 
-export function stopBoard(context, snapshot, { stopId, routeId, feedIds, windowMinutes = 60, event, nextPerRoute = false }, now = Date.now() / 1000, policy = defaultPolicy) {
+export function stopBoard(context, snapshot, { stopId, routeId, vehicleId, feedIds, windowMinutes = 60, event, nextPerRoute = false }, now = Date.now() / 1000, policy = defaultPolicy) {
   if (!Number.isInteger(windowMinutes) || windowMinutes < 1 || windowMinutes > 1440 || event !== undefined && !['arrival', 'departure'].includes(event) || typeof nextPerRoute !== 'boolean') throw new Error('Choose a station board window of 1–1440 minutes and arrival or departure times.')
   stopId = indexedBoardStop(context, stopId, feedIds)
   if (routeId) routeId = indexedEntityId(context, 'route', routeId, feedIds)
@@ -59,6 +60,14 @@ export function stopBoard(context, snapshot, { stopId, routeId, feedIds, windowM
   const today = localDate(now, context.timezone)
   const schedule = stationSchedule(context, place.id)
   const feeds = new Map(result.feeds.map(feed => [feed.sourceUrl, feed]))
+  if (vehicleId !== undefined) {
+    result.vehicle = vehicleTrip(context, snapshot, { vehicleId, routeId }, feeds, now, policy)
+    if (result.vehicle.issue) return result
+    if (!schedule.tripIds.has(result.vehicle.tripId)) {
+      result.vehicle.issue = `Vehicle ${result.vehicle.label}’s reported trip does not call at ${place.name}.`
+      return result
+    }
+  }
   const updates = reportsByTrip(context, snapshot?.tripUpdates, today, schedule, routeId)
   const vehicles = reportsByTrip(context, snapshot?.vehicles, today, schedule, routeId)
   // Include every service-day offset represented here, including >24:00 and
@@ -68,6 +77,7 @@ export function stopBoard(context, snapshot, { stopId, routeId, feedIds, windowM
     const active = context.activeServices(date)
     for (const record of [...active].flatMap(service => schedule.byService.get(service) ?? [])) {
       const trip = record.trip
+      if (result.vehicle && (trip.trip_id !== result.vehicle.tripId || date !== result.vehicle.serviceDate)) continue
       if (routeId && trip.route_id !== routeId || context.frequencyTrips.has(trip.trip_id)) continue
       const key = instanceKey(trip.trip_id, date)
       if (!updates.has(key) && !vehicles.has(key) && (epoch + record.first_seconds > result.until || epoch + record.last_seconds < now)) continue
@@ -77,9 +87,10 @@ export function stopBoard(context, snapshot, { stopId, routeId, feedIds, windowM
       for (const [index, call] of pattern.entries()) {
         if (!schedule.members.has(call.stopId)) continue
         const candidates = updates.get(key) ?? []
-        const update = candidates.length === 1 ? candidates[0] : null
+        const conflict = result.vehicle && candidates.some(update => update.vehicleId && update.vehicleId !== result.vehicle.id)
+        const update = candidates.length === 1 && !conflict ? candidates[0] : null
         const updateFresh = update && fresh(update, feeds, now, policy)
-        let status = candidates.length > 1 ? 'unresolved' : update && !updateFresh ? 'stale' : 'scheduled'
+        let status = candidates.length > 1 || conflict ? 'unresolved' : update && !updateFresh ? 'stale' : 'scheduled'
         let timingIssue = null, source = null
         const arrival = { scheduled: finite(call.arrival) ? epoch + call.arrival : null, current: null }
         const departure = { scheduled: finite(call.departure) ? epoch + call.departure : null, current: null }
@@ -129,7 +140,7 @@ export function stopBoard(context, snapshot, { stopId, routeId, feedIds, windowM
     }
   }
   result.rows.sort((a, b) => Number(b.atStop) - Number(a.atStop) || a.expected - b.expected || a.key.localeCompare(b.key))
-  if (nextPerRoute) {
+  if (nextPerRoute && !result.vehicle) {
     const seen = new Set()
     result.rows = result.rows.filter(row => {
       if (['cancelled', 'skipped'].includes(row.status)) return false

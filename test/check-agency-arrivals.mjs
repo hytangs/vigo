@@ -8,6 +8,7 @@ import { deriveOperationalState } from '../src/agency/realtimeIntelligence.mjs'
 import { createToolRegistry } from '../src/agency/toolRegistry.mjs'
 import { queryAgency, compactResult } from '../src/agency/queryAgent.mjs'
 import { stopBoard } from '../src/agency/stopBoard.mjs'
+import { describeVehicleArrival } from '../src/agency/vehicleTrip.mjs'
 import { createAgencyFixture, realtimeFixture, tripUpdate, observationTime } from './fixtures/agency.mjs'
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agency-arrivals-'))
@@ -38,6 +39,7 @@ try {
   assert.ok(!stopBoard(context, arrivalOnly, { stopId: 'B', event: 'departure' }, observationTime + 660).rows.some(row => row.tripId === 'T1'), 'An arrival-only report cannot move a past scheduled departure into the future')
   assert.equal(result.data.board.rows.find(row => row.routeId === 'R').departure.scheduled, observationTime + 1200)
   assert.equal((await callTool('stop_arrivals', { stopId: 'B', routeId: 'Q' })).data.board.rows.length, 1)
+  assert.equal((await callTool('stop_arrivals', { stopId: 'Library', routeId: 'Other route' })).data.board.rows[0].routeId, 'Q', 'Exact route display names resolve to indexed IDs')
   assert.equal((await callTool('stop_arrivals', { stopId: 'C', routeId: 'R' })).data.board.rows.length, 0, 'Terminal arrivals must not become departures')
   await assert.rejects(callTool('stop_arrivals', { stopId: 'wrong-city::B' }), /exact stop/)
   await assert.rejects(callTool('stop_arrivals', { stopId: 'B', routeId: 'missing' }), /exact indexed route/)
@@ -73,5 +75,70 @@ try {
   assert.equal(rewritten.aiGenerated, false)
   assert.match(rewritten.answer, /2 routes have upcoming service at Library/)
   assert.doesNotMatch(rewritten.answer, /one minute|Only R/, 'A model rewrite cannot replace a complete station board with an incomplete or invented time list')
+  const destinationTime = observationTime + 27 * 60
+  const targetUpdate = tripUpdate('T2', 0, { vehicleId: 'fleet-42', vehicleLabel: '42', stopTimeUpdates: [
+    { stopId: 'B', stopSequence: 30, arrival: { delay: 60 }, departure: { delay: 60 } },
+    { stopId: 'C', stopSequence: 50, arrival: { time: destinationTime } },
+  ] })
+  const laterAssignment = tripUpdate('T3', 0, { vehicleId: 'fleet-42', vehicleLabel: '42' })
+  const fleet = realtimeFixture([tripUpdate('T1'), targetUpdate, laterAssignment])
+  fleet.feeds.push({ sourceUrl: 'vehicles', kind: 'vehicles', feedTimestamp: observationTime })
+  const position = { id: 'fleet-42', label: '42', sourceUrl: 'vehicles', timestamp: observationTime, tripId: 'T2', routeId: 'R', startDate: '20260913', stopId: 'B', currentStopSequence: 30, currentStatus: 'IN_TRANSIT_TO' }
+  fleet.vehicles = [position]
+  const vehicleBoard = (options = {}) => stopBoard(context, fleet, { stopId: 'C', vehicleId: '42', event: 'arrival', nextPerRoute: true, ...options }, observationTime)
+  const target = vehicleBoard()
+  assert.deepEqual(target.rows.map(row => row.tripId), ['T2'], 'Filter the current vehicle trip before next-route reduction; exclude the earlier bus and advance assignments')
+  assert.equal(target.vehicle.label, '42')
+  assert.equal(target.rows[0].arrival.current, destinationTime, 'Use the requested terminal prediction, not the vehicle’s current stop')
+  assert.equal(target.rows[0].departure.current, null, 'Never fabricate a terminal departure')
+  assert.equal(target.rows[0].arrival.scheduled, observationTime + 24 * 60)
+  assert.match(describeVehicleArrival(target), /Vehicle 42 on R.*Terminal.*12:27.*27 min.*Scheduled arrival: 12:24/s)
+  assert.deepEqual(vehicleBoard({ vehicleId: 'fleet-42' }).rows, target.rows, 'Public labels and internal IDs resolve to the same vehicle')
+  const vehicleTool = createToolRegistry({ context, snapshot: fleet, state: deriveOperationalState(context, fleet, observationTime) })
+  let vehicleRounds = 0
+  const vehicleAnswer = await queryAgency({ question: 'When does vehicle 42 on R arrive at Terminal?', context, state, callTool: vehicleTool,
+    selection: { stop: { id: 'A', name: 'River' } }, provider: { available: true, complete: async (_messages, tools) => {
+      assert.equal(++vehicleRounds, 1, 'A vehicle arrival needs no prose-generation round')
+      assert.ok(tools.find(tool => tool.name === 'stop_arrivals').parameters.anyOf.find(form => form.properties.scope.enum[0] === 'vehicle').required.includes('vehicleId'))
+      return { tool_calls: [{ id: 'vehicle', function: { name: 'stop_arrivals', arguments: JSON.stringify({ stopId: 'Terminal', vehicleId: '42', routeId: 'R', resultUse: 'answer' }) } }] }
+    } },
+  })
+  assert.equal(vehicleAnswer.aiGenerated, false)
+  assert.match(vehicleAnswer.answer, /expected to arrive at Terminal at 12:27/)
+  assert.equal(vehicleAnswer.trace[0].result.data.board.rows[0].kind, 'arrival', 'Vehicle ETA defaults to arrival, independent of map selection')
+  targetUpdate.scheduleRelationship = 'CANCELED'
+  assert.match(describeVehicleArrival(vehicleBoard()), /cancelled/)
+  delete targetUpdate.scheduleRelationship
+  targetUpdate.stopTimeUpdates[1].scheduleRelationship = 'SKIPPED'
+  assert.match(describeVehicleArrival(vehicleBoard()), /skip Terminal/)
+  delete targetUpdate.stopTimeUpdates[1].scheduleRelationship
+  delete targetUpdate.stopTimeUpdates[1].arrival
+  targetUpdate.stopTimeUpdates[1].departure = { time: destinationTime }
+  assert.equal(vehicleBoard().rows[0].arrival.current, null)
+  assert.match(describeVehicleArrival(vehicleBoard()), /no reported arrival prediction/, 'A departure is not an arrival ETA')
+  delete targetUpdate.stopTimeUpdates[1].departure
+  targetUpdate.stopTimeUpdates[1].arrival = { time: destinationTime }
+  targetUpdate.vehicleId = 'different-bus'
+  assert.equal(vehicleBoard().rows[0].status, 'unresolved')
+  assert.equal(vehicleBoard().rows[0].arrival.current, null, 'Conflicting vehicle assignments cannot supply an ETA')
+  targetUpdate.vehicleId = 'fleet-42'
+  targetUpdate.timestamp = observationTime - 181
+  assert.match(describeVehicleArrival(vehicleBoard()), /no fresh arrival prediction/)
+  targetUpdate.timestamp = observationTime
+  fleet.vehicles.push({ ...position, id: 'other-42' })
+  assert.match(vehicleBoard().vehicle.issue, /More than one/)
+  fleet.vehicles.pop()
+  assert.match(vehicleBoard({ vehicleId: 'unknown' }).vehicle.issue, /not identified/)
+  assert.match(vehicleBoard({ routeId: 'Q' }).vehicle.issue, /not currently reported/)
+  assert.equal(vehicleBoard({ stopId: 'A' }).rows.length, 0, 'A fresh position past the requested call suppresses its old ETA')
+  position.stopId = 'C'; position.currentStopSequence = 50; position.currentStatus = 'STOPPED_AT'
+  assert.match(describeVehicleArrival(vehicleBoard()), /reported at Terminal now/)
+  fleet.vehicles = []
+  assert.match(vehicleBoard().vehicle.issue, /More than one/, 'No position means advance assignments cannot be chosen as the current trip')
+  fleet.tripUpdates.pop()
+  assert.equal(vehicleBoard().rows[0].arrival.current, destinationTime, 'A single exact fresh TripUpdate works without GPS')
+  targetUpdate.timestamp = observationTime - 181
+  assert.match(vehicleBoard().vehicle.issue, /out of date/)
+
 } finally { context?.close(); await fs.rm(directory, { recursive: true, force: true }) }
 console.log('Agency arrivals: shared station board, exact route scope, cancellations, departure semantics, overnight next service and one-call display passed.')

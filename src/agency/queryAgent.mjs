@@ -39,7 +39,7 @@ export function compactResult(result, tool) {
   if (tool === 'stop_arrivals') {
     const board = data.board
     const time = seconds => seconds == null ? null : agencyClock(new Date(seconds * 1000).toISOString(), board.timezone)
-    return envelope({ station: board.stop.name, stopId: board.stop.id, timezone: board.timezone, checkedAt: time(Date.parse(board.generatedAt) / 1000),
+    return envelope({ station: board.stop.name, stopId: board.stop.id, vehicle: board.vehicle, timezone: board.timezone, checkedAt: time(Date.parse(board.generatedAt) / 1000),
       until: time(board.until), total: board.total, routeCount: board.routeCount, rowMeaning: 'Departures or route-direction combinations, not distinct routes.', rows: board.rows.slice(0, 8).map(row => ({ route: row.routeName, destination: row.destination,
         platform: row.platform, status: row.status, atStop: row.atStop, vehicle: row.vehicleLabel,
         arrival: { scheduled: time(row.arrival.scheduled), predicted: time(row.arrival.current) },
@@ -149,8 +149,17 @@ export async function queryAgency({ question, context, state, callTool, provider
     return { ...tool, description: `${tool.description} Choose scope=network for the whole network; routes/stops/vehicle/trip for the named entity TYPE. A vehicle number is not a route number. selected_route/selected_stop are only for explicit references such as this route or here.`,
       parameters: { anyOf: [branch('network', {}), branch('routes', { routeNames }), branch('stops', { stopIds: { ...stopIds, minItems: 1 } }), branch('vehicle', { vehicleId }), branch('trip', { tripId }), ...(selection.route ? [branch('selected_route', {})] : []), ...(selection.stop ? [branch('selected_stop', {})] : [])] } }
   }
-  const formFor = tool => tool.name === 'inspect_service' ? inspectionForm(tool) : tool.name === 'route_plan' ? journeyChoices.definition() : ['service_profile', 'stop_arrivals'].includes(tool.name) ? { ...tool, parameters: { ...tool.parameters,
-    properties: { ...tool.parameters.properties, resultUse: { type: 'string', enum: ['answer', 'continue'], description: 'answer displays the complete computed board/table, including all routes and times; do not continue just to rewrite it. continue only if a different tool is still needed for another part of the user request.' } }, required: [...(tool.name === 'service_profile' ? ['groupBy'] : ['stopId']), 'resultUse'] } } : tool
+  const resultUse = { type: 'string', enum: ['answer', 'continue'], description: 'answer displays the complete computed result. continue only if a different tool is still needed for another part of the request.' }
+  const arrivalForm = tool => {
+    const { stopId, routeId, vehicleId, view, event } = tool.parameters.properties
+    const branch = (scope, properties, required) => ({ type: 'object', properties: { scope: { type: 'string', enum: [scope] }, ...properties, resultUse }, required: ['scope', ...required, 'resultUse'], additionalProperties: false })
+    return { ...tool, description: `${tool.description} Choose scope=vehicle when the user names a specific bus/train number; scope=station for the next services regardless of vehicle.`, parameters: { anyOf: [
+      branch('vehicle', { vehicleId, stopId, routeId, event }, ['vehicleId', 'stopId']),
+      branch('station', { stopId, routeId, view, event }, ['stopId']),
+    ] } }
+  }
+  const formFor = tool => tool.name === 'inspect_service' ? inspectionForm(tool) : tool.name === 'stop_arrivals' ? arrivalForm(tool) : tool.name === 'route_plan' ? journeyChoices.definition() : tool.name === 'service_profile' ? { ...tool, parameters: { ...tool.parameters,
+    properties: { ...tool.parameters.properties, resultUse }, required: ['groupBy', 'resultUse'] } } : tool
   const initialTools = discovery.definitions().map(formFor)
   const startedAt = performance.now()
   const timing = { modelCalls: 0, modelMs: 0, toolMs: 0, inputTokens: null, outputTokens: null, firstResponseMs: null, loadMs: null, promptMs: null, generationMs: null }
@@ -293,7 +302,7 @@ export async function queryAgency({ question, context, state, callTool, provider
           }
         }
         if (['service_profile', 'stop_arrivals'].includes(call.function.name)) {
-          const { resultUse, ...inputs } = args
+          const { resultUse, scope: _scope, ...inputs } = args
           finishWithTable = resultUse === 'answer'; args = inputs
         }
         onProgress({ phase, progress: 0, detail: describeTool(call.function.name, args, context) })
@@ -450,7 +459,7 @@ function describeToolResult(name, { data }) {
   if (name === 'walk_compare') return `Measured ${data.comparisons.filter(row => row.walking).length} of ${data.comparisons.length} walking connections.`
   if (name === 'walk_route' || name === 'find_walk') return data.walking ? `Calculated ${Math.round(data.walking.distanceMeters)} m of walking on the street network.` : 'No walking route could be established for these locations.'
   if (name === 'recall_notebook') return `Retrieved ${data.entries.length} dated notebook ${data.entries.length === 1 ? 'entry' : 'entries'}.`
-  if (name === 'stop_arrivals') return `Checked upcoming service at ${data.board.stop.name}.`
+  if (name === 'stop_arrivals') return data.board.vehicle ? data.board.vehicle.issue || `Checked vehicle ${data.board.vehicle.label} at ${data.board.stop.name}.` : `Checked upcoming service at ${data.board.stop.name}.`
   if (name === 'service_profile') return data.groupBy === 'route' ? `Found ${data.rows.length} routes with scheduled departures after ${data.afterTime} on ${data.serviceDate}.` : `Counted scheduled trip starts across ${data.rows.length} service hours.`
   if (name === 'network_overview') return `Read ${data.counts.routes} routes and checked ${data.observation?.feeds?.length || 0} realtime feed timestamps.`
   if (name === 'resolve_entities') return `Found ${data.total} matching ${data.total === 1 ? 'place or route' : 'places or routes'}.${data.ambiguous ? ' The exact location still needs to be resolved.' : ''}`

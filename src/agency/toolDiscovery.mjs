@@ -17,7 +17,7 @@ const descriptions = {
   walk_compare: 'Compare candidate walking distances and test distance requirements in a batch',
   walk_route: 'Walking distance and time, including ordered visits',
   service_profile: 'Scheduled trip starts by hour on a date',
-  stop_arrivals: 'Next station departures per route, with scheduled and predicted times',
+  stop_arrivals: 'Station times for all routes or a specified vehicle, with separate schedules and predictions',
   gtfs_query: 'Read-only SQL against indexed transit tables',
   route_plan: 'Transit journeys with arrival deadlines and constraints',
   reach: 'Places reachable within a travel-time budget',

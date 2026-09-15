@@ -1,5 +1,6 @@
 import { describeCurrentTime } from './currentTime.mjs'
 import { describeJourneys } from './journeyResults.mjs'
+import { describeVehicleArrival } from './vehicleTrip.mjs'
 
 function describeObservation(data) {
   const feeds = (data.feeds ?? []).map((feed) => `${feed.kind === 'tripUpdates' ? 'Trip updates' : feed.kind === 'vehicles' ? 'Vehicles' : feed.kind === 'alerts' ? 'Alerts' : 'Feed'}: ${feed.status}${feed.ageSeconds == null ? '' : `, ${Math.round(feed.ageSeconds)} seconds old`}`).join('; ')
@@ -19,6 +20,7 @@ export function summarizeEvidence(trace) {
     case 'inspect_service': return data.routes ? `Checked service conditions for ${data.scope?.allNetwork ? 'the network' : data.scope?.routes?.map(route => route.name).join(', ') || 'the selected location'}. ${data.totalReportingTrips} ${data.totalReportingTrips === 1 ? 'trip has' : 'trips have'} comparable departure predictions; ${data.totalNotices} agency ${data.totalNotices === 1 ? 'notice was' : 'notices were'} found. A completed interpretation is not yet available.` : 'The requested service evidence was checked. A completed interpretation is not yet available.'
     case 'stop_arrivals': {
       const board = data.board
+      if (board.vehicle) return describeVehicleArrival(board)
       const count = board.routeCount > 0 ? `${board.routeCount} ${board.routeCount === 1 ? 'route has' : 'routes have'} upcoming service at ${board.stop.name} in the next ${board.windowMinutes / 60} hours. ` : ''
       return board.rows.length ? `${count || `${board.nextPerRoute ? 'Next service for each route and direction' : 'Upcoming service'} at ${board.stop.name}. `}Predictions are shown where available; other times are scheduled.` : `No timed service was found at ${board.stop.name} in the next ${board.windowMinutes / 60} hours. This does not establish that all service has stopped.`
     }

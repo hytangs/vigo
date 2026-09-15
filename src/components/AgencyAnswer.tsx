@@ -29,7 +29,7 @@ function ServiceProfileChart({ rows }: { rows: Record<string, unknown>[] }) {
 
 export function AgencyToolOutput({ result, onSelectEvent, onOpenEntry, onResult }: { result: ToolResult; onResult?: (result: ToolResult) => void; onSelectEvent?: (event: OperationalEvent) => void; onOpenEntry?: (id: number) => void }) {
   const board = (result.data as { board?: StopBoard })?.board
-  if (board) return <StopArrivalBoardView data={board} recorded />
+  if (board) return board.vehicle && !board.rows.length ? null : <StopArrivalBoardView data={board} recorded />
   const lamp = result.data as LampStudyData
   if (lamp?.dataset === 'MBTA LAMP subway performance') return <LampStudyResult study={lamp} />
   const walking = result.data as WalkingOutput

@@ -81,6 +81,7 @@ export type StopBoardRow = {
 }
 
 export type StopBoard = {
+  vehicle?: { id: string | null; label: string; tripId: string | null; serviceDate: string | null; routeId: string | null; routeName: string | null; observedAt: number | null; issue: string | null }
   stop: { id: string; name: string }
   timezone: string | null
   generatedAt: string
