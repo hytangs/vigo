@@ -1,3 +1,21 @@
+// Compatible providers sometimes encode numeric fields as JSON strings. Only
+// the declared numeric type may be converted; IDs stay strings, and the normal
+// validator still rejects unknown fields, units, fractions and invalid ranges.
+export function normalizeArguments(value, schema) {
+  if (!schema) return value
+  if (schema.anyOf) {
+    for (const option of schema.anyOf) {
+      const candidate = normalizeArguments(value, option)
+      try { validateArguments(candidate, option); return candidate } catch { /* Try the other declared shape. */ }
+    }
+    return value
+  }
+  if (schema.type === 'object' && value && typeof value === 'object' && !Array.isArray(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeArguments(item, schema.properties?.[key])]))
+  if (schema.type === 'array' && Array.isArray(value)) return value.map(item => normalizeArguments(item, schema.items))
+  if (['integer', 'number'].includes(schema.type) && typeof value === 'string' && /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(value)) return Number(value)
+  return value
+}
+
 export function validateArguments(value, schema, name = 'arguments') {
   if (schema.anyOf) {
     const matching = schema.anyOf.filter(option => option.type === typeof value)

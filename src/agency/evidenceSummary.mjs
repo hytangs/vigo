@@ -18,6 +18,7 @@ export function summarizeEvidence(trace) {
   switch (last.tool) {
     case 'current_time': return describeCurrentTime(data)
     case 'inspect_service': return data.routes ? `Checked service conditions for ${data.scope?.allNetwork ? 'the network' : data.scope?.routes?.map(route => route.name).join(', ') || 'the selected location'}. ${data.totalReportingTrips} ${data.totalReportingTrips === 1 ? 'trip has' : 'trips have'} comparable departure predictions; ${data.totalNotices} agency ${data.totalNotices === 1 ? 'notice was' : 'notices were'} found. A completed interpretation is not yet available.` : 'The requested service evidence was checked. A completed interpretation is not yet available.'
+    case 'service_timing': return data.summary
     case 'stop_arrivals': {
       const board = data.board
       if (board.vehicle) return describeVehicleArrival(board)

@@ -11,9 +11,10 @@ import { NetworkAssessment } from './NetworkAssessment'
 import { AgencyWalkingAssessment, AgencyWalkingComparisons, type WalkingOutput } from './AgencyWalking'
 import { StopArrivalBoardView } from './StopArrivalBoard'
 import type { StopBoard } from '../agency/routeOperationsTypes'
+import { publicReply } from '../agency/publicReply.mjs'
 
 function answerText(text: string) {
-  return text.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/g).map((part, index) => (
+  return publicReply(text).split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/g).map((part: string, index: number) => (
     part.startsWith('**') && part.endsWith('**') ? <strong key={index}>{part.slice(2, -2)}</strong>
       : part.startsWith('`') && part.endsWith('`') ? <code key={index}>{part.slice(1, -1)}</code> : part
   ))

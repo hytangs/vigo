@@ -1,0 +1,159 @@
+{
+  "method": "Sequential local Qwen3.5 4B diagnostics on retained Boston feed snapshots. Departure was rerun after clarifying terminal lookup. These are not a matched latency benchmark or a Flash provider test.",
+  "records": [
+    {
+      "question": "when did live vehiucle 1777 on bus route 9 depart from terminal",
+      "model": "qwen3.5:4b",
+      "generatedAt": "2026-09-15T03:17:42.493Z",
+      "answer": "Vehicle 1777 on 9 is scheduled to leave Boylston St @ Dartmouth St at 2026-09-14 23:25 EDT. Its actual departure time is not recorded. The last retained departure prediction was 2026-09-14 23:25 EDT, reported at 2026-09-14 23:17 EDT; this is a forecast, not a recorded departure. [1]",
+      "timing": {
+        "modelCalls": 1,
+        "modelMs": 20899.566666,
+        "toolMs": 41.930709000000206,
+        "inputTokens": 4336,
+        "outputTokens": 79,
+        "firstResponseMs": 16484.484083,
+        "loadMs": 29.73225,
+        "promptMs": 16070.756,
+        "generationMs": 4394.197,
+        "totalMs": 20945.629417
+      },
+      "calls": [
+        {
+          "tool": "service_timing",
+          "arguments": {
+            "view": "trip",
+            "vehicleId": "1777"
+          },
+          "ok": true,
+          "rows": [
+            {
+              "event": "departure",
+              "terminal": "Boylston St @ Dartmouth St",
+              "scheduled": "2026-09-14 23:25 EDT",
+              "prediction": "2026-09-14 23:25 EDT",
+              "status": "Prediction"
+            },
+            {
+              "event": "arrival",
+              "terminal": "City Point Bus Terminal",
+              "scheduled": "2026-09-14 23:48 EDT",
+              "prediction": "2026-09-14 23:44 EDT",
+              "status": "Prediction"
+            }
+          ],
+          "asOf": "2026-09-14 23:17 EDT"
+        }
+      ]
+    },
+    {
+      "question": "what's route 9's current buses",
+      "model": "qwen3.5:4b",
+      "generatedAt": "2026-09-15T03:14:42.518Z",
+      "answer": "5 vehicles have a fresh location report on Route 9. Upcoming trip assignments are not counted as additional vehicles. No timing comparison means the delay is unknown. [1]",
+      "timing": {
+        "modelCalls": 1,
+        "modelMs": 10498.120332999999,
+        "toolMs": 220.35725000000093,
+        "inputTokens": 5166,
+        "outputTokens": 69,
+        "firstResponseMs": 6652.289916999987,
+        "loadMs": 4.070833,
+        "promptMs": 6100.386,
+        "generationMs": 3852.003,
+        "totalMs": 10719.225291999988
+      },
+      "calls": [
+        {
+          "tool": "service_timing",
+          "arguments": {
+            "view": "vehicles",
+            "routeId": "9"
+          },
+          "ok": true,
+          "rows": [
+            {
+              "vehicle": "1820",
+              "destination": "Boylston St @ Dartmouth St",
+              "reported stop": "P St @ E Broadway",
+              "stop status": "At stop",
+              "schedule comparison": "No comparison"
+            },
+            {
+              "vehicle": "1747",
+              "destination": "City Point Bus Terminal",
+              "reported stop": "Arlington St @ Saint James Ave",
+              "stop status": "Toward stop",
+              "schedule comparison": "3.4 min late"
+            },
+            {
+              "vehicle": "1805",
+              "destination": "Boylston St @ Dartmouth St",
+              "reported stop": "E Berkeley St @ Harrison Ave",
+              "stop status": "Toward stop",
+              "schedule comparison": "0.8 min late"
+            },
+            {
+              "vehicle": "1863",
+              "destination": "City Point Bus Terminal",
+              "reported stop": "Farragut Rd opp E 2nd St",
+              "stop status": "Toward stop",
+              "schedule comparison": "0.4 min early"
+            },
+            {
+              "vehicle": "1777",
+              "destination": "City Point Bus Terminal",
+              "reported stop": "Boylston St @ Dartmouth St",
+              "stop status": "At stop",
+              "schedule comparison": "Matches schedule"
+            }
+          ],
+          "asOf": "2026-09-14 23:14 EDT"
+        }
+      ]
+    },
+    {
+      "question": "how long it takes for a full cycle now",
+      "model": "qwen3.5:4b",
+      "generatedAt": "2026-09-15T03:14:42.518Z",
+      "answer": "City Point Bus Terminal → Boylston St @ Dartmouth St → City Point Bus Terminal: 51–54 min of scheduled running time, excluding terminal layovers. A full vehicle cycle includes the return trip and terminal layovers; headway is the spacing between vehicles. Current full-cycle time is not verified because linked vehicle blocks and actual terminal departures are not retained here. The table uses scheduled work overlapping the next hour. [1]",
+      "timing": {
+        "modelCalls": 1,
+        "modelMs": 8594.236208000002,
+        "toolMs": 920.9640000000072,
+        "inputTokens": 5601,
+        "outputTokens": 65,
+        "firstResponseMs": 4812.34416600001,
+        "loadMs": 7.60325,
+        "promptMs": 4684.97,
+        "generationMs": 3780.458,
+        "totalMs": 9516.049165999997
+      },
+      "calls": [
+        {
+          "tool": "service_timing",
+          "arguments": {
+            "view": "cycle",
+            "routeId": "9"
+          },
+          "ok": true,
+          "rows": [
+            {
+              "from": "City Point Bus Terminal",
+              "to": "Boylston St @ Dartmouth St",
+              "scheduled running time": "28–31 min",
+              "trips": 7
+            },
+            {
+              "from": "Boylston St @ Dartmouth St",
+              "to": "City Point Bus Terminal",
+              "scheduled running time": "23 min",
+              "trips": 6
+            }
+          ],
+          "asOf": "2026-09-14 23:14 EDT"
+        }
+      ]
+    }
+  ]
+}

@@ -12,6 +12,7 @@ import { calculateWalk } from './walking.mjs'
 import { findWalk } from './findWalk.mjs'
 import { serviceProfile } from './serviceProfile.mjs'
 import { stopBoard } from './stopBoard.mjs'
+import { serviceTiming } from './serviceTiming.mjs'
 import { nearbyStops } from './nearbyStops.mjs'
 import { historicalComparison } from './operations.mjs'
 import { currentTime, currentTimeTool } from './currentTime.mjs'
@@ -34,7 +35,8 @@ const journey = { origin: transitPoint, serviceDate: { type: 'string', pattern: 
 
 export const toolDefinitions = [
   currentTimeTool,
-  { name: 'stop_arrivals', description: 'Arrival or departure times at a station, optionally for a particular vehicle. Uses the station timetable and latest predictions. Defaults to next departure per route/direction within 24 hours; next_hour limits to one hour. For a vehicle ETA set vehicleId, destination stopId and event=arrival. Omit routeId for all routes regardless of map selection. Never substitute a network service profile.', parameters: object({ stopId: { ...string, description: 'Destination station name or GTFS stop ID. Never a route or vehicle number.' }, routeId: { ...string, description: 'Optional route ID or short name.' }, vehicleId: { ...string, description: 'Optional public vehicle number or feed ID; restricts to its reported trip, excluding other vehicles and future assignments.' }, view: { type: 'string', enum: ['next_per_route', 'next_hour'] }, event: { type: 'string', enum: ['departure', 'arrival'] } }, ['stopId']) },
+  { name: 'service_timing', description: 'Route vehicles and trip/cycle times, using the same data as the line diagram. vehicles lists distinct fresh vehicle positions, not future trip assignments. trip answers WHEN DID a vehicle DEPART/LEAVE its terminal: supply vehicleId only; VIGO finds its trip origin and checks past terminal evidence. Do not look up a generic Terminal stop. cycle compares out-and-back running time and states layover/actual-time limits. A cycle is NOT headway. Use routeId as an exact route name or ID, or vehicleId as the public fleet number.', parameters: object({ view: { type: 'string', enum: ['vehicles', 'trip', 'cycle'] }, routeId: string, vehicleId: string }, ['view']) },
+  { name: 'stop_arrivals', description: 'Arrival or departure times at a station, optionally for a particular vehicle. Uses the station timetable and latest predictions. Defaults to next departure per route/direction within 24 hours; next_hour limits to one hour. For a future vehicle ETA set vehicleId, destination stopId and event=arrival. Past terminal departures use service_timing view=trip. Omit routeId for all routes regardless of map selection. Never substitute a network service profile.', parameters: object({ stopId: { ...string, description: 'Destination station name or GTFS stop ID. Never a route or vehicle number.' }, routeId: { ...string, description: 'Optional route ID or short name.' }, vehicleId: { ...string, description: 'Optional public vehicle number or feed ID; restricts to its reported trip, excluding other vehicles and future assignments.' }, view: { type: 'string', enum: ['next_per_route', 'next_hour'] }, event: { type: 'string', enum: ['departure', 'arrival'] } }, ['stopId']) },
   { name: 'compare_holding', description: 'Compare no intervention, a target-headway baseline and a constrained passenger-time optimizer for the open SYNTHETIC Operations replay. Never a live dispatch recommendation. The case must already be opened by staff. Approval and delivery are staff-only.', parameters: object({ caseId: { type: 'string', maxLength: 80 } }, ['caseId']) },
   { name: 'inspect_service', description: 'Investigate service in one check: network/route patterns, shared locations, gaps, trip prediction history, agency causes, occupancy reports and scheduled outlook. Default diagnosis bundles the relevant evidence. Omit scope for the whole network; exact route names and station names are accepted. Use for why, impact, missing service, actions and confidence questions. Outlook is scheduled exposure, NOT a recovery or intervention forecast.', parameters: object({ routeIds: { type: 'array', items: string, minItems: 1, maxItems: 8 }, routeNames: routeScope.properties.routeNames, stopIds: { type: 'array', items: { type: 'string', description: 'Exact station ID or full name.' }, maxItems: 30 }, tripId: string, vehicleId: string,
     aspect: { type: 'string', enum: ['diagnosis', 'outlook', 'surrounding_service', 'prediction_progression', 'vehicle_reports', 'alerts', 'historical_runtime'] }, horizonMinutes: { type: 'integer', minimum: 1, maximum: 120 } }) },
@@ -122,7 +124,7 @@ export function createToolRegistry({ context, state, snapshot, adapters, noteboo
       if (!context.routeIndex.has(args.routeId)) throw new Error('Choose a current indexed route.')
       return envelope(historicalComparison(operations.routeSamples(args.routeId, scheduleIdentity), state, args.routeId, scheduleIdentity), ['operations:retained-prediction-samples'])
     }
-    if (name !== 'stop_arrivals' && args.routeId && !context.routeIndex.has(args.routeId)) throw new Error('Resolve an exact indexed route ID first.')
+    if (!['stop_arrivals', 'service_timing'].includes(name) && args.routeId && !context.routeIndex.has(args.routeId)) throw new Error('Resolve an exact indexed route ID first.')
     const routeIds = new Set(args.routeId ? [args.routeId] : [])
     for (const name of args.routeNames ?? []) {
       const match = context.resolve({ query: name, kind: 'route' })
@@ -195,6 +197,11 @@ export function createToolRegistry({ context, state, snapshot, adapters, noteboo
       const data = await serviceProfile(context, args, generatedAt, signal)
       return envelope(data, ['GTFS Static · calendar, calendar_dates, connections, frequencies'], [data.groupBy === 'route' ? 'Routes have at least one indexed departure at or after the selected time. First/last times are across stops, not terminal departures or a promise of continuous service.' : 'Trip starts use the first indexed connection of each active trip.', 'Frequency templates and trips without connections are excluded. Hours above 24 continue the selected GTFS service day. These are scheduled records, not observed service.', ...(data.truncated ? ['The result reached its row or byte limit.'] : [])])
     }
+    if (name === 'service_timing') {
+      const data = serviceTiming(context, snapshot, state, args, Date.parse(generatedAt) / 1000)
+      return envelope(data, ['GTFS Static · indexed trip times', ...(snapshot?.feeds ?? []).map(feed => feed.sourceUrl)], data.warnings,
+        { routeIds: data.routeId ? [data.routeId] : [] })
+    }
     if (name === 'stop_arrivals') {
       const scope = { stopId: args.stopId, routeId: args.routeId }
       for (const [field, kind, index] of [['stopId', 'stop', context.stopIndex], ['routeId', 'route', context.routeIndex]]) {
@@ -203,6 +210,7 @@ export function createToolRegistry({ context, state, snapshot, adapters, noteboo
         if (resolved.method === 'exact' && resolved.total === 1) scope[field] = resolved.matches[0].id
       }
       if (scope.routeId && !context.routeIndex.has(scope.routeId)) throw new Error('Resolve an exact indexed route ID first.')
+      if (!context.stopIndex.has(scope.stopId) && args.vehicleId) throw new Error('Unknown stop. Choose an exact stop name. For a vehicle’s terminal departure or trip endpoints, call service_timing with view=trip and vehicleId; that check finds the terminals from its trip without needing a stop name.')
       const board = stopBoard(context, snapshot, { ...args, ...scope, windowMinutes: args.view === 'next_hour' ? 60 : 1440, nextPerRoute: args.view !== 'next_hour', event: args.event || (args.vehicleId ? 'arrival' : 'departure') }, Date.parse(generatedAt) / 1000)
       return envelope({ board }, ['GTFS Static · indexed station timetable', ...board.feeds.map(feed => feed.sourceUrl)], board.warnings,
         { stopIds: [board.stop.id], routeIds: scope.routeId ? [scope.routeId] : board.vehicle?.routeId ? [board.vehicle.routeId] : [] })
@@ -224,7 +232,8 @@ export function createToolRegistry({ context, state, snapshot, adapters, noteboo
       })
       return envelope({ ...state, history: undefined, tripHistory: undefined, scope,
         routes: state.routes.filter(route => included(route.id)), events: selectedEvents,
-        trips: state.trips.filter(trip => included(trip.routeId) && (!args.tripId || trip.tripId === args.tripId) && (!args.vehicleId || trip.vehicleId === args.vehicleId)).slice(0, 100),
+        trips: state.trips.filter(trip => included(trip.routeId) && (!args.tripId || trip.tripId === args.tripId) && (!args.vehicleId || trip.vehicleId === args.vehicleId)).slice(0, 100)
+          .map(trip => ({ ...trip, nextStopName: context.stopIndex.get(trip.nextStopId)?.name ?? null })),
       }, state.feeds.map(feed => feed.sourceUrl), state.warnings, { routeIds: [...routeIds] })
     }
     if (name === 'anomaly_scan' || name === 'service_alerts') {

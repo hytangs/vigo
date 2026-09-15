@@ -1,3 +1,4 @@
+import { publicReply } from '../agency/publicReply.mjs'
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowUpRight, Download, Search } from 'lucide-react'
 import { apiJson, type ApiProgress } from '../app/api'
@@ -9,7 +10,7 @@ type EntrySummary = Pick<NotebookEntry, 'id' | 'parentId' | 'kind' | 'title' | '
 function exportEntry(entry: NotebookEntry) {
   const answer = entry.answer
   const report = answer.report
-  downloadText(`agency-note-${entry.id}.md`, `# ${entry.title}\n\nSaved ${entry.createdAt}. Evidence as of ${answer.generatedAt}.\n\n${answer.aiGenerated ? `AI response (${answer.model || 'configured provider'}). ${answer.responseBasis === 'model_only' ? 'No evidence was checked in this turn.' : 'Citations identify sources, but do not verify model-written claims.'}\n\n` : ''}${answer.answer}\n\n${report ? `${report.method}\n\nInputs: ${JSON.stringify(report.inputs)}\n\n` : ''}## Researcher notes\n\n${entry.notes || 'No notes added.'}\n\n## Sources\n\n${answer.evidenceRefs.map((ref) => `- ${ref}`).join('\n')}\n\n## Limits\n\n${answer.warnings.map((warning) => `- ${warning}`).join('\n')}\n\n## Reproduction\n\n${answer.trace.map((call, i) => `### ${i + 1}. ${call.tool}\n\n\`\`\`json\n${JSON.stringify(call.arguments, null, 2)}\n\`\`\`\n`).join('\n')}`)
+  downloadText(`agency-note-${entry.id}.md`, `# ${entry.title}\n\nSaved ${entry.createdAt}. Evidence as of ${answer.generatedAt}.\n\n${answer.aiGenerated ? `AI response (${answer.model || 'configured provider'}). ${answer.responseBasis === 'model_only' ? 'No evidence was checked in this turn.' : 'Citations identify sources, but do not verify model-written claims.'}\n\n` : ''}${publicReply(answer.answer)}\n\n${report ? `${report.method}\n\nInputs: ${JSON.stringify(report.inputs)}\n\n` : ''}## Researcher notes\n\n${entry.notes || 'No notes added.'}\n\n## Sources\n\n${answer.evidenceRefs.map((ref) => `- ${ref}`).join('\n')}\n\n## Limits\n\n${answer.warnings.map((warning) => `- ${warning}`).join('\n')}\n\n## Reproduction\n\n${answer.trace.map((call, i) => `### ${i + 1}. ${call.tool}\n\n\`\`\`json\n${JSON.stringify(call.arguments, null, 2)}\n\`\`\`\n`).join('\n')}`)
 }
 export function AgencyNotebook({ endpoint, onOpen, onBack }: { endpoint: string; onOpen: (id: number) => void; onBack: () => void }) {
   const [entries, setEntries] = useState<EntrySummary[]>([])
