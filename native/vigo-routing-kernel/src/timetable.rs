@@ -3,6 +3,7 @@ use napi_derive::napi;
 use std::time::Instant;
 
 mod journeys;
+mod overlay_quality;
 pub use journeys::TimetableMatrixJourney;
 
 const STATE_STRIDE: usize = 8;
@@ -333,6 +334,9 @@ pub struct TimetableOverlayManyQueryInput {
     pub direction_can_alight: Option<Vec<u8>>,
     pub allow_post_ride_transfers: Option<Vec<bool>>,
     pub maximum_boardings: Option<u32>,
+    /// Certify secondary objectives for a single journey, without charging
+    /// matrix/scenario callers for itinerary ranking.
+    pub certify_journey: Option<bool>,
 }
 
 #[napi(object)]
@@ -345,6 +349,10 @@ pub struct TimetableOverlayManyQueryResult {
     pub scan_ns: f64,
     pub transient_bytes: f64,
     pub workspace_bytes: f64,
+    pub lexicographic_certified: bool,
+    pub quality_query_ns: f64,
+    pub quality_bytes: f64,
+    pub quality_reason: Option<String>,
 }
 
 #[napi(object)]
@@ -867,6 +875,9 @@ struct ProfileWorkspace {
     run_generation: Vec<u32>,
     labels: Vec<ProfileLabel>,
     overflowed: bool,
+    // Query-local overlay identity edges preserve a same-stop interchange
+    // minimum. Ordinary explicit walk edges already include their duration.
+    identity_transfer_edges: Vec<bool>,
 }
 
 impl ProfileWorkspace {
@@ -880,6 +891,7 @@ impl ProfileWorkspace {
             run_generation: vec![0; run_count],
             labels: Vec::with_capacity(32_768),
             overflowed: false,
+            identity_transfer_edges: Vec::new(),
         }
     }
 
@@ -914,6 +926,7 @@ impl ProfileWorkspace {
             + self.frontier_head.len() * std::mem::size_of::<i32>()
             + self.run_generation.len() * std::mem::size_of::<u32>()
             + self.labels.capacity() * std::mem::size_of::<ProfileLabel>()
+            + self.identity_transfer_edges.capacity() * std::mem::size_of::<bool>()
     }
 }
 
@@ -1833,13 +1846,19 @@ fn expand_round_transfers(
     stats.explicit_transfer_checks = stats
         .explicit_transfer_checks
         .saturating_add((end - start) as u32);
-    for edge in &transfer_edges[start..end] {
+    for (offset, edge) in transfer_edges[start..end].iter().enumerate() {
         let target = edge.stop();
         let duration = edge.duration();
         let target_arrival = arrival + f64::from(duration);
         if !deadline_allows(stop_deadlines[target], target_arrival) {
             continue;
         }
+        let needs_board_slack = !has_ride
+            || workspace
+                .identity_transfer_edges
+                .get(start + offset)
+                .copied()
+                .unwrap_or(false);
         add_round_label(
             workspace,
             epoch,
@@ -1851,7 +1870,7 @@ fn expand_round_transfers(
             target_arrival,
             has_ride,
             has_ride,
-            !has_ride,
+            needs_board_slack,
             source_label,
             1,
             NO_STATE,
@@ -5339,6 +5358,10 @@ impl TimetableKernel {
                 scan_ns: scan_started.elapsed().as_nanos() as f64,
                 transient_bytes: transient_bytes as f64,
                 workspace_bytes,
+                lexicographic_certified: false,
+                quality_query_ns: 0.0,
+                quality_bytes: 0.0,
+                quality_reason: None,
             });
         }
 
@@ -5719,6 +5742,49 @@ impl TimetableKernel {
         let workspace_bytes = many_workspace.byte_length() as f64;
         many_workspace.predecessors = Vec::new();
         many_workspace.run_boarding_state = Vec::new();
+        let scan_ns = scan_started.elapsed().as_nanos() as f64;
+        let mut lexicographic_certified = false;
+        let mut quality_query_ns = 0.0;
+        let mut quality_bytes = 0.0;
+        let mut quality_reason = None;
+        if input.certify_journey == Some(true) && destination_count == 1 && best_state >= 0 {
+            let quality_started = Instant::now();
+            match overlay_quality::certify(
+                self,
+                &input,
+                &compiled,
+                &chain,
+                best_overall_arrival,
+                best_destination_index as u32,
+            ) {
+                Ok(quality) => {
+                    let result = quality.result;
+                    if result.improved_candidate {
+                        chain = (0..result.chain_kinds.len())
+                            .map(|index| {
+                                (
+                                    result.chain_kinds[index],
+                                    result.chain_from_stops[index],
+                                    result.chain_to_stops[index],
+                                    result.chain_trip_or_candidate[index],
+                                    result.chain_board_sequences[index],
+                                    result.chain_alight_sequences[index],
+                                    result.chain_durations[index],
+                                    result.chain_arrivals[index],
+                                )
+                            })
+                            .collect();
+                        best_destination_index = result.best_destination_index.unwrap() as i32;
+                    }
+                    quality_bytes = quality.bytes;
+                    lexicographic_certified = true;
+                }
+                // Retain the live earliest-arrival witness on a resource or
+                // certification failure, never silently restore cancelled trips.
+                Err(error) => quality_reason = Some(error.reason),
+            }
+            quality_query_ns = quality_started.elapsed().as_nanos() as f64;
+        }
         Ok(TimetableOverlayManyQueryResult {
             timetable: TimetableManyQueryResult {
                 supported: true,
@@ -5746,11 +5812,15 @@ impl TimetableKernel {
             },
             overlay_connections: compiled.events.len() as u32,
             overlay_runs: compiled.run_count as u32,
-            supplemental_transfer_edges: supplemental_transfer_edges.len() as u32,
+            supplemental_transfer_edges: input.supplemental_transfer_to.len() as u32,
             compile_ns,
-            scan_ns: scan_started.elapsed().as_nanos() as f64,
+            scan_ns,
             transient_bytes: transient_bytes as f64,
             workspace_bytes,
+            lexicographic_certified,
+            quality_query_ns,
+            quality_bytes,
+            quality_reason,
         })
     }
 

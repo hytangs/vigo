@@ -131,6 +131,32 @@ assert.equal(firstRide(delayedFromMiddle).fromStopId, 'fixture\u001fB')
 assert.equal(firstRide(delayedFromMiddle).startMinutes, 615)
 assert.equal(delayedFromMiddle.arriveMinutes, 625)
 
+const skippedMiddle = routeNationalGtfsStore(storePath, {
+  ...request,
+  origin: { coordinate: [0.01, 0], source: 'stop', stopId: 'fixture\u001fB' },
+  departMinutes: 605,
+  realtimeSnapshot: realtime([{
+    tripId: 'T1', startDate: '20260821', scheduleRelationship: 'SCHEDULED',
+    stopTimeUpdates: [{ stopId: 'B', stopSequence: 2, scheduleRelationship: 'SKIPPED' }],
+  }]),
+})
+assert.equal(skippedMiddle.status, 'ready')
+assert.equal(firstRide(skippedMiddle).tripId, 'fixture\u001fT2', 'Never restore scheduled boarding at a live skipped stop.')
+assert.equal(skippedMiddle.arriveMinutes, 640)
+assert.equal(skippedMiddle.diagnostics.realtimeRouting.replacedTrips, 1)
+
+const skippedAlighting = routeNationalGtfsStore(storePath, {
+  ...request,
+  origin: { ...request.origin, source: 'stop', stopId: 'fixture\u001fA' },
+  destination: { coordinate: [0.01, 0], source: 'stop', stopId: 'fixture\u001fB' },
+  realtimeSnapshot: realtime([{
+    tripId: 'T1', startDate: '20260821', scheduleRelationship: 'SCHEDULED',
+    stopTimeUpdates: [{ stopId: 'B', scheduleRelationship: 'SKIPPED' }],
+  }]),
+})
+assert.equal(firstRide(skippedAlighting).tripId, 'fixture\u001fT2', 'A stop-ID-only update must also prevent alighting at a skipped stop.')
+assert.equal(skippedAlighting.arriveMinutes, 635)
+
 const canceled = routeNationalGtfsStore(storePath, {
   ...request,
   realtimeSnapshot: realtime([{
@@ -181,6 +207,27 @@ assert.equal(stale.scheduleMode, 'exact')
 assert.equal(firstRide(stale).tripId, 'fixture\u001fT1')
 assert.equal(stale.arriveMinutes, 620)
 assert.equal(stale.diagnostics.realtimeRouting.status, 'stale_fallback')
+
+// A later stop is much closer to the origin and boards the same vehicle.
+// An update to another trip must not change the scheduled route's tie-break.
+const downstreamAccess = {
+  ...request,
+  departMinutes: 580,
+  origin: { coordinate: [0.009, 0], label: 'Near the middle stop', source: 'map' },
+}
+const downstreamScheduled = routeNationalGtfsStore(storePath, downstreamAccess)
+assert.equal(firstRide(downstreamScheduled).fromStopId, 'fixture\u001fB')
+for (const tripId of ['T1', 'T2']) {
+  const live = routeNationalGtfsStore(storePath, {
+    ...downstreamAccess,
+    realtimeSnapshot: realtime([{ tripId, startDate: '20260821', scheduleRelationship: 'SCHEDULED', delaySeconds: 0, stopTimeUpdates: [] }]),
+  })
+  assert.equal(firstRide(live).fromStopId, 'fixture\u001fB', `An update to ${tripId} must retain the closer boarding stop.`)
+  assert.equal(live.arriveMinutes, downstreamScheduled.arriveMinutes)
+  assert.equal(live.walkMinutes, downstreamScheduled.walkMinutes)
+  assert.equal(live.diagnostics.searchStats.activeServiceKernel.lexicographicCertified, true)
+  assert.equal(live.diagnostics.searchStats.nativeTimetableKernel.scalar.journeyQuality.certified, true)
+}
 
 disposeNationalGtfsStore(storePath)
 console.log('GTFS-RT routing check passed (delay overlay, stale-trip replacement, cancellation, and scheduled fallback).')

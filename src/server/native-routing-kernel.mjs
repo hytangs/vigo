@@ -863,6 +863,7 @@ export function routeNativeTimetableOverlayMany(kernel, request) {
   }
   const overlay = request.overlay ?? {}
   const result = record.kernel.routeOverlayManyCsa({
+    certifyJourney: request.certifyJourney === true,
     originStops: request.originSeeds.map((seed) => seed.stop),
     originWalkSeconds: request.originSeeds.map((seed) => seed.walkSeconds),
     originCandidateIndices: request.originSeeds.map((seed, index) => seed.candidateIndex ?? index),
@@ -898,6 +899,10 @@ export function routeNativeTimetableOverlayMany(kernel, request) {
     scanMs: normalizeNativeMilliseconds(result.scanNs),
     transientBytes: result.transientBytes,
     workspaceBytes: result.workspaceBytes,
+    lexicographicCertified: result.lexicographicCertified === true,
+    qualityQueryMs: normalizeNativeMilliseconds(result.qualityQueryNs),
+    qualityBytes: result.qualityBytes,
+    qualityReason: result.qualityReason,
     queryMs: normalizeNativeMilliseconds(result.timetable.queryNs),
     configureMs: record.configureMs,
     kernelDiagnostics: record.diagnostics,

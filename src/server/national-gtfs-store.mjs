@@ -7962,7 +7962,7 @@ function realtimeStopUpdateIndex(updates) {
   let unsupported = false
   for (const update of updates) {
     const relationship = realtimeStopTimeRelationship(update?.scheduleRelationship)
-    if (relationship === 'SKIPPED' || relationship === 'UNSCHEDULED' || relationship === 'UNKNOWN') {
+    if (relationship === 'UNSCHEDULED' || relationship === 'UNKNOWN') {
       unsupported = true
       continue
     }
@@ -8113,7 +8113,10 @@ function buildRealtimeTimetableOverlay(store, kernel, snapshot, context) {
     for (const row of rows) {
       const sequence = numeric(row.stop_sequence, Number.NaN)
       const stopId = String(row.stop_id)
-      const stopUpdate = updateIndex.bySequence.get(sequence) ?? updateIndex.byStopId.get(stopId)
+      const stopUpdate = updateIndex.bySequence.get(sequence)
+        ?? updateIndex.byStopId.get(stopId)
+        ?? updateIndex.byStopId.get(stopId.split('\u001f').at(-1))
+      const skipped = realtimeStopTimeRelationship(stopUpdate?.scheduleRelationship) === 'SKIPPED'
       const arrival = realtimeAdjustedStopTime(
         row.arrival,
         stopUpdate?.arrival,
@@ -8138,8 +8141,8 @@ function buildRealtimeTimetableOverlay(store, kernel, snapshot, context) {
         sequence,
         arrival,
         departure,
-        canBoard: row.can_board === undefined || Number(row.can_board) === 1,
-        canAlight: row.can_alight === undefined || Number(row.can_alight) === 1,
+        canBoard: !skipped && (row.can_board === undefined || Number(row.can_board) === 1),
+        canAlight: !skipped && (row.can_alight === undefined || Number(row.can_alight) === 1),
       })
       previousArrival = arrival
       previousDeparture = departure
@@ -8459,6 +8462,7 @@ function searchActiveServiceKernelNativeRealtime(
   maxTransfers,
 ) {
   const raw = routeNativeTimetableOverlayMany(kernel, {
+    certifyJourney: true,
     originSeeds: realtimeOverlaySeeds(kernel, originStops, overlay),
     destinationSeedSets: [realtimeOverlayDestinationSeeds(kernel, destinationStops, overlay)],
     excludedTrips: overlay.excludedTrips,
@@ -8500,6 +8504,7 @@ function searchActiveServiceKernelNativeRealtime(
     bestDestinationIndex: raw.bestDestinationIndex,
     chain,
     realtimeOverlay: true,
+    lexicographicCertified: raw.lexicographicCertified,
     realtimeOverlayDiagnostics: overlay.diagnostics,
     overlayConnections: raw.overlayConnections,
     overlayRuns: raw.overlayRuns,
@@ -8511,8 +8516,9 @@ function searchActiveServiceKernelNativeRealtime(
     dominatedTripBoardings: raw.dominatedTripBoardings,
     explicitTransferChecks: raw.explicitTransferChecks,
     scalarPhases: {
-        compileMs: timingMilliseconds(raw.compileMs),
-        scanMs: timingMilliseconds(raw.scanMs),
+      compileMs: timingMilliseconds(raw.compileMs),
+      scanMs: timingMilliseconds(raw.scanMs),
+      qualityMs: timingMilliseconds(raw.qualityQueryMs),
       chainMs: 0,
     },
     heuristicMode: 'none',
@@ -8521,6 +8527,12 @@ function searchActiveServiceKernelNativeRealtime(
       configureMs: timingMilliseconds(raw.configureMs),
       queryMs: Number(queryMs.toFixed(3)),
       diagnostics: raw.kernelDiagnostics,
+      journeyQuality: {
+        certified: raw.lexicographicCertified,
+        queryMs: raw.qualityQueryMs,
+        bytes: raw.qualityBytes,
+        reason: raw.qualityReason,
+      },
     },
   }
 }
@@ -8932,7 +8944,7 @@ function activeServiceKernelUnmaterializedSearchStats(store, search, context) {
     nativeCoordinateAccess = null,
   } = context
   const paretoCertifier = search.paretoFrontier === true
-  const lexicographicCertifier = paretoCertifier
+  const lexicographicCertifier = paretoCertifier || search.lexicographicCertified === true
     || (request.maxTransfers !== undefined && search.realtimeOverlay !== true)
   const transferWork = paretoCertifier
     ? activeServiceKernelTransferWorkPhases(null, search)
@@ -9098,7 +9110,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
   const routeLookup = store.routeLookup
   const chain = search.chain
   const paretoCertifier = search.paretoFrontier === true
-  const lexicographicCertifier = paretoCertifier
+  const lexicographicCertifier = paretoCertifier || search.lexicographicCertified === true
     || (request.maxTransfers !== undefined && search.realtimeOverlay !== true)
   const transferWork = paretoCertifier
     ? activeServiceKernelTransferWorkPhases(null, search)

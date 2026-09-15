@@ -1,0 +1,74 @@
+{
+  "recordedAt": "2026-09-15T03:43:14.777Z",
+  "scope": "Controlled boarding comparison using saved Boston GTFS and OSM. Original realtime payload was not retained; replay injects a zero-delay update for the selected train and restricts access to the two compared platforms. This isolates ranking, not live service accuracy or global route optimality.",
+  "input": {
+    "origin": [
+      -71.0628588,
+      42.3510772
+    ],
+    "destination": [
+      -71.1313217,
+      42.3525753
+    ],
+    "serviceDate": "2026-09-14",
+    "departMinutes": 1385,
+    "boardingStops": [
+      "70159",
+      "70196"
+    ]
+  },
+  "savedResult": {
+    "status": "ready",
+    "arrivalMinutes": 1428.35,
+    "walkingMinutes": 15.767,
+    "boardingStop": "Park Street",
+    "boardingMinutes": 1396,
+    "trip": "77745916",
+    "accessWalkingMinutes": 8.417,
+    "queryMs": 143.05
+  },
+  "scheduledComparison": {
+    "status": "ready",
+    "arrivalMinutes": 1428.35,
+    "walkingMinutes": 12.367,
+    "boardingStop": "Boylston",
+    "boardingMinutes": 1398,
+    "trip": "77745916",
+    "accessWalkingMinutes": 5.017,
+    "queryMs": 723.508
+  },
+  "realtimeComparison": {
+    "status": "ready",
+    "arrivalMinutes": 1428.35,
+    "walkingMinutes": 12.367,
+    "boardingStop": "Boylston",
+    "boardingMinutes": 1398,
+    "trip": "77745916",
+    "accessWalkingMinutes": 5.017,
+    "queryMs": 16.217,
+    "quality": {
+      "certified": true,
+      "queryMs": 3.113,
+      "bytes": 12865185
+    }
+  },
+  "warmSamples": 20,
+  "timing": {
+    "qualityMedianMs": 2.424,
+    "qualityP95Ms": 2.862,
+    "routeMedianMs": 6.437,
+    "routeP95Ms": 7.644
+  },
+  "automatedVerification": {
+    "exhaustiveComparisons": 244,
+    "checks": [
+      "check-realtime-journey-quality",
+      "check-gtfs-realtime-routing",
+      "check:routing",
+      "check-rust-routing-kernel",
+      "check-native-matrices",
+      "check-routing-interface-parity",
+      "typecheck"
+    ]
+  }
+}
