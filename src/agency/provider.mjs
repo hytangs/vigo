@@ -98,7 +98,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
         finishReason: result.done_reason, usage: { prompt_tokens: result.prompt_eval_count, completion_tokens: result.eval_count },
         metrics: { loadMs: result.load_duration / 1e6, promptMs: result.prompt_eval_duration / 1e6, generationMs: result.eval_duration / 1e6 } }
     }
-    const result = await request(connection, '/chat/completions', { model: connection.model, messages, ...(tools?.length ? { tools: tools.map((tool) => ({ type: 'function', function: tool })), tool_choice: options.toolChoice || 'auto' } : {}), max_completion_tokens: options.maxTokens || 1800, ...(connection.reasoningEffort ? { reasoning_effort: connection.reasoningEffort } : {}), ...(connection.temperature !== undefined ? { temperature: connection.temperature } : {}) }, signal)
+    const result = await request(connection, '/chat/completions', { model: connection.model, messages, ...(tools?.length ? { tools: tools.map((tool) => ({ type: 'function', function: tool })), tool_choice: options.toolChoice || 'auto' } : { tool_choice: 'none' }), max_completion_tokens: options.maxTokens || 1800, ...(connection.reasoningEffort ? { reasoning_effort: connection.reasoningEffort } : {}), ...(connection.temperature !== undefined ? { temperature: connection.temperature } : {}) }, signal)
     const message = result.choices?.[0]?.message
     if (!message || typeof message !== 'object') throw new Error('AI provider returned no response message.')
     return { ...message, finishReason: result.choices[0].finish_reason, usage: result.usage }

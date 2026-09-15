@@ -42,6 +42,21 @@ const callTool = createToolRegistry({ context, state, places, adapters: { reach:
   return { plan: blocked ? { status: 'blocked', detail: 'No pedestrian path.' } : { status: 'ready', travelMode: 'walk', origin: input.origin, destination: input.destination, durationMinutes: 6, legs: [{ type: 'walk', distanceKm: 0.48, fromName: input.origin.label, toName: input.destination.label, coordinates: Array(1000).fill([10, 20]) }], diagnostics: { walkingSpeedKph: 4.8 } } }
 } } })
 await assert.rejects(callTool('place_search', { query: 'Coffee', nearStopId: 'invented' }), /exact stop ID/)
+await assert.rejects(callTool('place_search', { query: 'park', near: { placeId: 'osm:node/999' } }), /Search for this place again/)
+await assert.rejects(callTool('place_search', { query: 'park', near: { placeId: 'osm:node/1' }, nearStopId: 'B' }), /one search focus/)
+const nearbyPlaces = await callTool('place_search', { query: 'Coffee', near: { placeId: 'osm:node/1' } })
+assert.equal(requestUrl.searchParams.get('lon'), '10.1', 'Search uses the previously resolved place, not the City centre')
+assert.equal(nearbyPlaces.data.matches[0].straightLineMeters, 0)
+assert.ok(nearbyPlaces.data.matches[1].straightLineMeters > 0)
+assert.equal(JSON.parse(compactResult(nearbyPlaces, 'place_search')).data.matches[0].straightLineMeters, 0)
+let nearRounds = 0
+const ambiguousNear = await queryAgency({ question: 'Find parks near Coffee House', context, state, callTool, provider: { available: true, complete: async () => {
+  if (++nearRounds === 1) return { tool_calls: [{ id: 'near', function: { name: 'place_search', arguments: JSON.stringify({ query: 'park', near: { placeQuery: 'Coffee House' } }) } }] }
+  throw new Error('Fixture stops before location selection')
+} } })
+assert.equal(ambiguousNear.trace[0].result.data.status, 'needs_location_choice')
+assert.match(ambiguousNear.answer, /still needs a choice/, 'A partial location search remains readable if the model stops')
+assert.match(compactResult(ambiguousNear.trace[0].result, 'place_search'), /repeat place_search with near/)
 const input = { origin: { placeId: 'osm:node/1', lat: 0, lon: 0 }, destination: { stopId: 'B' } }
 const result = await callTool('walk_route', input)
 assert.deepEqual(requested.origin.coordinate, [10.1, 20.2], 'Route uses the provider result, never model-supplied replacement coordinates')
@@ -73,7 +88,7 @@ assert.deepEqual(answer.citations, [1])
 assert.equal(answer.trace[0].result.data.plan.legs[0].coordinates.length, 1000, 'Full route geometry remains in saved evidence and available to the map')
 const offlineReply = await queryAgency({ question: 'Can you look online?', context, state, callTool, placesAvailable: false, provider: { available: true, complete: async (messages, definitions) => {
   assert.ok(!definitions.some((tool) => tool.name === 'place_search'), 'Disabled online lookup is not offered to the model')
-  assert.match(messages[1].content, /place search unavailable/)
+  assert.match(messages[1].content, /place_search unavailable/)
   return { content: 'Online place search is disabled on this server.' }
 } } })
 assert.equal(offlineReply.answer, 'Online place search is disabled on this server.', 'Assertions inside the provider must not be hidden by provider-error recovery')

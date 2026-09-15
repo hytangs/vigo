@@ -162,7 +162,7 @@ export type RiderDraft = {
 }
 
 export interface ProviderState {
-  web?: { provider: 'off' | 'wikipedia' | 'brave' | 'searxng'; baseUrl: string; hasKey: boolean; searchAvailable: boolean; readAvailable: boolean }
+  web?: { provider: 'off' | 'duckduckgo' | 'wikipedia' | 'brave' | 'searxng'; baseUrl: string; hasKey: boolean; searchAvailable: boolean; readAvailable: boolean }
   available: boolean
   model: string | null
   baseUrl?: string

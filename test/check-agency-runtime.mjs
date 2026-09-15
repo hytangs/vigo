@@ -32,7 +32,7 @@ assert.equal(endpointFacts('invalid').endpointLocation, 'unknown')
 assert.equal(endpointFacts('https://127.0.0.2').endpointLocation, 'loopback')
 
 const web = createWebResearch({ env: {}, readPage: async () => ({}) }).forRequest()
-assert.equal(web.endpoint, 'en.wikipedia.org')
+assert.equal(web.endpoint, 'html.duckduckgo.com')
 const places = createPlaceSearch({ env: {} })
 assert.equal(places.endpoint, 'photon.komoot.io')
 const privateSearch = createWebResearch({ env: { VIGO_AGENCY_WEB_SEARCH_PROVIDER: 'searxng', VIGO_AGENCY_WEB_SEARCH_URL: 'http://localhost:8080/search', VIGO_AGENCY_WEB_SEARCH_KEY: 'private-search-key' } }).forRequest()
@@ -49,7 +49,7 @@ const answer = await queryAgency({ question: 'Is everything local and secure?', 
     if (++turn === 1) return { tool_calls: [{ id: 'read', function: { name: 'web_read', arguments: '{"url":"https://example.org"}' } }] }
     return { content: 'Model text cannot modify the runtime record.' }
   } }, callTool: async () => ({ ok: false, data: null, warnings: ['Unavailable'], provenance: [], generatedAt: state.generatedAt }) })
-assert.deepEqual(answer.runtime.networkTools.map(tool => tool.tool), ['reference_lookup', 'web_read', 'place_search'])
+assert.deepEqual(answer.runtime.networkTools.map(tool => tool.tool), ['web_search', 'web_read', 'place_search'])
 assert.deepEqual(answer.runtime.networkToolCalls, [{ tool: 'web_read', completed: false }], 'A failed call is still an attempted use, not proof of zero network traffic')
 assert.equal(answer.runtime.modelConnection.model, 'arbitrary-model')
 const offline = await queryAgency({ question: 'Explain headways', context, state, placesAvailable: false, webStatus: { searchAvailable: false, readAvailable: false },
@@ -63,6 +63,8 @@ const factual = await queryAgency({ question: 'Is inference local?', context, st
     if (++runtimeTurn === 1) return { content: 'Everything is local and secure.', tool_calls: [{ id: 'runtime', function: { name: 'runtime_status', arguments: '{}' } }] }
     const result = JSON.parse(messages.at(-1).content.split('\n').slice(1).join('\n'))
     assert.equal(result.data.inferenceHosting, 'Not verified')
+    assert.match(result.data.requestWorkflow.execution, /VIGO validates arguments/)
+    assert.match(result.data.requestWorkflow.diagnosis, /not private model reasoning/)
     assert.doesNotMatch(JSON.stringify(result.data), /localhost:11434|arbitrary-model/, 'Ambiguous endpoint/model cues belong in the server-rendered record, not speculative prose')
     return { content: 'Inference hosting is not verified by the server configuration. [1]' }
   } } })

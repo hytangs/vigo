@@ -140,6 +140,7 @@ export function stopBoard(context, snapshot, { stopId, routeId, feedIds, windowM
     })
   }
   result.total = result.rows.length
+  result.routeCount = new Set(result.rows.filter(row => !['cancelled', 'skipped'].includes(row.status)).map(row => row.routeId)).size
   result.rows = result.rows.slice(0, 100)
   if (!snapshot) result.warnings.push('Timetable only · connect live feeds for arrival predictions.')
   else if (![...feeds.values()].some(feed => feed.kind === 'tripUpdates' && feed.status === 'fresh')) result.warnings.push('Live predictions are unavailable or out of date. Scheduled times are shown.')

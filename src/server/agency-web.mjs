@@ -5,7 +5,7 @@ export async function readPublicPage(url, signal) {
   const timeout = AbortSignal.timeout(20_000)
   let response
   try {
-    response = await fetchSafeRealtimeBody(url, { maximumBytes: 520_000, timeoutMs: 20_000, maximumRedirects: 3, allowPrivate: false,
+    response = await fetchSafeRealtimeBody(url, { maximumBytes: 2_000_000, timeoutMs: 20_000, maximumRedirects: 3, allowPrivate: false,
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       headers: { Accept: 'text/html,text/plain', 'User-Agent': 'VIGO-Agency (https://github.com/vigo-developers/vigo-agency)' } })
   } catch (error) {

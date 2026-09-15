@@ -5,6 +5,7 @@ import { createProvider } from '../src/agency/provider.mjs'
 import { discoverableTools } from '../src/agency/toolDiscovery.mjs'
 import { toolDefinitions } from '../src/agency/toolRegistry.mjs'
 import { createJourneyChoices } from '../src/agency/journeyChoices.mjs'
+import { stopChoices } from '../src/agency/stopChoices.mjs'
 const state = { generatedAt: '2026-09-13T12:00:00Z', observedAt: '2026-09-13T12:00:00Z' }
 const context = { overview: () => ({ cityName: 'City X' }), routeIndex: new Map([['R', { short_name: 'R' }]]), stopIndex: new Map([['A', { name: 'River' }]]) }
 const clockAnswer = await queryAgency({ question: 'What service runs after 22:00 today?', context: { ...context, timezone: 'America/Los_Angeles' }, state: { ...state, generatedAt: '2026-09-14T03:19:00Z' },
@@ -365,3 +366,73 @@ assert.equal(fabricated.responseBasis, 'model_only', 'A no-tool answer is never 
 assert.equal(fabricated.trace.length, 0)
 assert.deepEqual(fabricated.evidenceRefs, [])
 assert.equal(answer.responseBasis, 'model_with_sources', 'A valid source does not establish entailment of the model interpretation')
+
+const missingRadius = { status: 'no_stops_in_radius', point: { lat: 42.3, lon: -71.1 }, radiusMeters: 500, total: 0, routeCount: null, matches: [], nearestStops: [
+  { id: 'STREET', name: 'Main Street', lat: 42.31, lon: -71.1, distanceMeters: 800 },
+  { id: 'TERMINAL', name: 'Harbor Passenger Terminal', lat: 42.32, lon: -71.1, distanceMeters: 1100 },
+] }
+const stopForm = stopChoices(missingRadius)
+assert.deepEqual(stopForm.arguments({ choice: '2', resultUse: 'answer' }), { stopId: 'TERMINAL', resultUse: 'answer' })
+assert.throws(() => stopForm.arguments({ choice: 'invented', resultUse: 'answer' }), /Invalid/)
+assert.equal(stopForm.arguments({ choice: 'unclear', resultUse: 'answer' }), null)
+for (const choice of ['2', 'unclear', 'prose']) {
+  let round = 0; const executed = []
+  const selected = await queryAgency({ context, state, question: 'Which services stop at the Harbor Passenger Terminal?',
+    provider: { available: true, complete: async (messages, tools, _signal, options) => {
+      if (++round === 1) {
+        assert.ok(tools.some(tool => tool.name === 'place_search') && tools.some(tool => tool.name === 'nearby_stops'), 'Geographic discovery does not need a model round to load tools')
+        return { tool_calls: [{ id: 'near', function: { name: 'nearby_stops', arguments: JSON.stringify({ point: missingRadius.point, radiusMeters: 500 }) } }] }
+      }
+      assert.equal(options.selectionOnly, true)
+      assert.equal(options.toolChoice.function.name, 'stop_arrivals')
+      assert.equal(tools.length, 1)
+      assert.match(messages.at(-1).content, /Harbor Passenger Terminal/)
+      if (choice === 'prose') return { content: 'There are zero services at the terminal.' }
+      return { tool_calls: [{ id: 'chosen-stop', function: { name: 'stop_arrivals', arguments: JSON.stringify({ choice, resultUse: 'answer' }) } }] }
+    } }, callTool: async (tool, args) => {
+      executed.push({ tool, args })
+      return { ok: true, warnings: [], provenance: ['GTFS fixture'], generatedAt: state.generatedAt,
+        data: tool === 'nearby_stops' ? missingRadius : { board: { stop: { id: args.stopId, name: 'Harbor Passenger Terminal' }, rows: [], total: 0, windowMinutes: 1440, generatedAt: state.generatedAt, timezone: 'Etc/UTC' } } }
+    } })
+  assert.equal(round, 2, 'One bounded selection after the lookup; no extra prose round')
+  if (choice === '2') {
+    assert.equal(executed[1].args.stopId, 'TERMINAL', 'The server passes the selected GTFS identity, not a model-invented name')
+    assert.match(selected.answer, /Harbor Passenger Terminal/)
+  } else {
+    assert.equal(executed.length, 1)
+    assert.match(selected.answer, /does not establish the services/)
+    assert.doesNotMatch(selected.answer, /zero services/)
+  }
+}
+console.log('Agency geographic handoff: bounded stop choices, explicit ambiguity, and rejection of unsupported zero-service prose passed.')
+
+let lookupRounds = 0, executedLookups = 0
+const reusedLookup = await queryAgency({ context, state, question: 'Find River Cafe',
+  callTool: async () => { executedLookups++; return { ok: true, data: { query: 'River Cafe', matches: [] }, warnings: [], provenance: [] } },
+  provider: { available: true, complete: async messages => {
+    lookupRounds++
+    if (lookupRounds < 3) return { tool_calls: [{ id: `lookup-${lookupRounds}`, function: { name: 'place_search', arguments: JSON.stringify({ query: lookupRounds === 1 ? 'River Cafe' : ' RIVER   CAFE ' }) } }] }
+    assert.match(messages.at(-1).content, /already ran in this turn/)
+    return { content: 'This map lookup did not resolve River Cafe. [1]' }
+  } },
+})
+assert.equal(executedLookups, 1, 'Capitalization retries reuse existing evidence instead of another network call')
+assert.equal(reusedLookup.trace.length, 1, 'One lookup stays one check and one source')
+assert.deepEqual(reusedLookup.citations, [1])
+
+let repairRounds = 0, repairedLookups = 0
+const repairingProvider = createProvider({ VIGO_AGENCY_LLM_BASE_URL: 'http://localhost:11434', VIGO_AGENCY_LLM_PROTOCOL: 'ollama', VIGO_AGENCY_LLM_MODEL: 'fixture' }, async (_url, options) => {
+  const body = JSON.parse(options.body)
+  repairRounds++
+  const framing = body.format.anyOf[0].properties.task ? { task: 'Find the cafe' } : {}
+  const reply = repairRounds < 3 ? { ...framing, action: 'place_search', arguments: { query: 'River Cafe', ...(repairRounds === 1 ? { osmTag: '' } : {}) } } : { action: 'answer', text: 'The cafe lookup completed. [2]' }
+  if (repairRounds === 2) assert.match(body.messages.map(message => message.content).join('\n'), /Invalid arguments.osmTag/)
+  return Response.json({ message: { content: JSON.stringify(reply) } })
+})
+const repaired = await queryAgency({ question: 'Find River Cafe', context, state, provider: repairingProvider,
+  callTool: async (_name, args) => { repairedLookups++; assert.deepEqual(args, { query: 'River Cafe' }); return { ok: true, data: { matches: [] }, warnings: [], provenance: [] } },
+})
+assert.equal(repairedLookups, 1, 'Invalid local argument forms do not execute; corrected forms do')
+assert.equal(repaired.trace.length, 2)
+assert.equal(repaired.trace[0].result.ok, false)
+assert.match(repaired.answer, /lookup completed/)

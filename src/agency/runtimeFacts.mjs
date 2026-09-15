@@ -16,7 +16,7 @@ export function modelRuntimeFacts({ baseUrl, model, protocol }) {
     externalModelApi: endpoint.endpoint ? 'unverified' : 'unknown' })
 }
 
-export const runtimeTool = { name: 'runtime_status', description: 'Read server-recorded model connection and privacy limits. Only relevant to deployment/privacy questions, not transit network facts. This is evidence for the answer, not a command to end the conversation.',
+export const runtimeTool = { name: 'runtime_status', description: 'Read server-recorded model connection, request workflow and privacy limits. Use for questions about the AI setup, harness or what VIGO sends; not transit network facts. This is evidence for the answer, not a command to end the conversation.',
   parameters: { type: 'object', properties: {}, required: [], additionalProperties: false } }
 
 export function queryRuntimeFacts({ provider, webStatus, placesAvailable, placeEndpoint, placeDetailsEndpoint, runtimeStudyAvailable = false, generatedAt }) {
@@ -28,6 +28,11 @@ export function queryRuntimeFacts({ provider, webStatus, placesAvailable, placeE
   if (placesAvailable && placeDetailsEndpoint) networkTools.push({ tool: 'find_walk', label: 'Map place details', endpoint: placeDetailsEndpoint })
   if (runtimeStudyAvailable) networkTools.push({ tool: 'run_runtime_study', label: 'LAMP public data and archived timetables', endpoint: 'performancedata.mbta.com, cdn.mbta.com, cdn.mbtace.com' })
   return { capturedAt: generatedAt, modelConnection: provider.runtime ?? modelRuntimeFacts({ model: provider.model }), networkTools,
+    requestWorkflow: {
+      sentToModel: ['The current question and application instructions', 'City clock, indexed network summary and available capabilities', 'Supplied conversation history and selected tool schemas', 'Compact results of completed tools, with source references'],
+      execution: 'The model selects tools and arguments. VIGO validates arguments, runs the selected tools, and returns evidence. Journey location choices use retrieved coordinates. Completed journeys and station boards can render directly; other replies may include model interpretation.',
+      diagnosis: 'Tool calls, results and timings are retained in the answer record. These show the executed workflow, not private model reasoning. A hypothetical routing question does not require live service inspection.',
+    },
     limits: 'Endpoint configuration does not verify inference hosting, downstream forwarding, retention, training use, or security. Tools listed here can access a network; calls are not a traffic audit. Journey tools may use place search. Feed refresh and other application traffic are outside this answer record.' }
 }
 

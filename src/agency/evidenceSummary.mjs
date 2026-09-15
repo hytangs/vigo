@@ -13,10 +13,15 @@ export function summarizeEvidence(trace) {
   if (!good.length) return 'I could not complete this check. The activity below explains what happened; your question is ready to retry.'
   const last = good.at(-1)
   const data = last.result.data
+  if (data.status === 'needs_location_choice') return 'The starting place still needs a choice from the returned locations. No journey or nearby-place comparison has been calculated yet.'
   switch (last.tool) {
     case 'current_time': return describeCurrentTime(data)
     case 'inspect_service': return data.routes ? `Checked service conditions for ${data.scope?.allNetwork ? 'the network' : data.scope?.routes?.map(route => route.name).join(', ') || 'the selected location'}. ${data.totalReportingTrips} ${data.totalReportingTrips === 1 ? 'trip has' : 'trips have'} comparable departure predictions; ${data.totalNotices} agency ${data.totalNotices === 1 ? 'notice was' : 'notices were'} found. A completed interpretation is not yet available.` : 'The requested service evidence was checked. A completed interpretation is not yet available.'
-    case 'stop_arrivals': return data.board.rows.length ? `${data.board.nextPerRoute ? 'Next service for each route and direction' : 'Upcoming service'} at ${data.board.stop.name}. Predictions are shown where available; other times are scheduled.` : `No timed service was found at ${data.board.stop.name} in the next ${data.board.windowMinutes / 60} hours. This does not establish that all service has stopped.`
+    case 'stop_arrivals': {
+      const board = data.board
+      const count = board.routeCount > 0 ? `${board.routeCount} ${board.routeCount === 1 ? 'route has' : 'routes have'} upcoming service at ${board.stop.name} in the next ${board.windowMinutes / 60} hours. ` : ''
+      return board.rows.length ? `${count || `${board.nextPerRoute ? 'Next service for each route and direction' : 'Upcoming service'} at ${board.stop.name}. `}Predictions are shown where available; other times are scheduled.` : `No timed service was found at ${board.stop.name} in the next ${board.windowMinutes / 60} hours. This does not establish that all service has stopped.`
+    }
     case 'reference_lookup':
     case 'web_search': return `Found ${data.matches.length} public search results. These are leads; read the sources to verify their details.`
     case 'web_read': return `Read ${data.title || data.url}. The source text is retained for inspection; check its subject and date before drawing conclusions.`

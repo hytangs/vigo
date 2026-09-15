@@ -1,5 +1,6 @@
 import { setTimeout as pause } from 'node:timers/promises'
 import { endpointFacts } from './runtimeFacts.mjs'
+import { haversineKm } from '../server/geometry-utils.mjs'
 
 // Only explicit place queries leave the server. No conversation, staff notes,
 // feed URLs, or model credentials are sent to the geocoder.
@@ -122,12 +123,13 @@ export function createPlaceSearch({ stops = [], env = process.env, fetchImpl = f
         const street = [clean(p.housenumber), clean(p.street)].filter(Boolean).join(' ')
         const address = [...new Set([street, clean(p.district), clean(p.city), clean(p.state), clean(p.postcode), clean(p.country)].filter(Boolean))].join(', ')
         const name = clean(p.name) || street || address
-        matches.push({ kind: 'place', id, name, category, publicAccess: 'unverified', label: [...new Set([name, street || clean(p.city)].filter(Boolean))].join(' · '), address, lat, lon, sourceUrl: `https://www.openstreetmap.org/${type}/${p.osm_id}` })
+        matches.push({ kind: 'place', id, name, category, publicAccess: 'unverified', label: [...new Set([name, street || clean(p.city)].filter(Boolean))].join(' · '), address, lat, lon, sourceUrl: `https://www.openstreetmap.org/${type}/${p.osm_id}`,
+          ...(near && validPoint(near.lon, near.lat) ? { straightLineMeters: Math.round(haversineKm([near.lon, near.lat], [lon, lat]) * 1000) } : {}) })
       }
       if (payload.features.length && !matches.length && !osmTag) throw new Error('Place search returned no usable location coordinates.')
       const data = { query: query.trim(), searchedAt: new Date(clock()).toISOString(), searchArea: withinCity && hasBounds ? 'Current City stop coverage bounds' : 'Worldwide, with a location preference', matches,
         attribution: '© OpenStreetMap contributors · Photon', coverage: 'Up to five OpenStreetMap matches, not a complete business directory. An empty result does not establish that a place does not exist. Map categories describe features; they do not verify public access, permission to eat, takeout service, opening hours or accessible entrances. A hotel, shop or street name is not evidence of a public park.',
-        ...(!matches.length ? { nextStep: 'Look up the business street address in an available public source, then geocode that verified address. Do not repeat the same search or substitute a different business.' } : {}) }
+        ...(!matches.length ? { nextStep: 'Try one plausible spelling of the same place name with its city, including joined or separated transliterations. Do not repeat the identical query or change the business. If still unresolved, use a connected web search or a supplied official source for its street address, then geocode that verified address. A map miss is not evidence that an online search found nothing.' } : {}) }
       cache.set(key, data)
       while (cache.size > 100) cache.delete(cache.keys().next().value)
       return remember(data)

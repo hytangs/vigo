@@ -26,8 +26,10 @@ export function providerChoice(messages, tools, initialTools = tools, selectionO
   const object = properties => ({ type: 'object', properties, required: Object.keys(properties), additionalProperties: false })
   // A short task restatement gives small models an explicit place to preserve
   // the user's objective before selecting a tool. It is not a reasoning log.
-  const task = { type: 'string', description: 'Briefly restate the latest request, preserving its scope, horizon and requested deliverables. A selected route does not narrow a network question.' }
-  const framing = selectionOnly || requiredTool ? {} : { task }
+  const task = { type: 'string', description: 'One short sentence stating the latest request, preserving its scope, horizon and deliverables. A selected route does not narrow a network question.' }
+  // Preserve intent once. Rewriting it after every tool adds generated tokens
+  // without new evidence; the original question remains in the conversation.
+  const framing = selectionOnly || requiredTool || messages.some(message => message.role === 'tool') ? {} : { task }
   const answer = object({ ...framing, action: { type: 'string', enum: ['answer'] }, text: { type: 'string',
     description: `Answer from stable knowledge or checked evidence.${tools.some(tool => tool.name === 'current_time') ? ' Current time/date questions, including follow-ups, require current_time instead; never compute timezone conversions in this field.' : ''}` } })
   const action = tool => ({ ...object({ ...framing, action: { type: 'string', enum: [tool.name] }, arguments: tool.parameters }), description: tool.description })
@@ -58,7 +60,17 @@ export function providerChoice(messages, tools, initialTools = tools, selectionO
       }
       const choice = choices.find(choice => choice.properties.action.enum.includes(result?.action))
       if (!choice) throw new Error('The model selected an unavailable tool.')
-      validateArguments(result, choice)
+      const { arguments: inputs, ...envelope } = result
+      const { arguments: inputSchema, ...properties } = choice.properties
+      validateArguments(envelope, { ...choice, properties, required: choice.required.filter(key => key !== 'arguments') })
+      try { validateArguments(inputs, inputSchema) }
+      catch (error) {
+        // Return the invalid form to the ordinary tool-validation loop so the
+        // model can correct it. It must not execute unchecked or masquerade as
+        // a provider outage. Malformed JSON and unknown actions still fail.
+        if (inputs !== undefined) error.toolCall = { name: result.action, arguments: JSON.stringify(inputs) }
+        throw error
+      }
       return { content: '', tool_calls: [{ type: 'function', function: { name: result.action, arguments: JSON.stringify(result.arguments) } }] }
     },
   }

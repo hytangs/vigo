@@ -61,7 +61,7 @@ try {
     } },
   })
   assert.equal(answer.aiGenerated, false)
-  assert.match(answer.answer, /each route and direction at Library/)
+  assert.match(answer.answer, /2 routes have upcoming service at Library/)
   assert.deepEqual(answer.citations, [1])
   assert.deepEqual(new Set(answer.trace[0].result.data.board.rows.map(row => row.routeId)), new Set(['R', 'Q']), 'Explicit all-route station queries remain independent of the route selected on the map')
   let round = 0
@@ -71,7 +71,7 @@ try {
       : { content: 'Only R is running; the next bus is in one minute.' } },
   })
   assert.equal(rewritten.aiGenerated, false)
-  assert.match(rewritten.answer, /each route and direction at Library/)
+  assert.match(rewritten.answer, /2 routes have upcoming service at Library/)
   assert.doesNotMatch(rewritten.answer, /one minute|Only R/, 'A model rewrite cannot replace a complete station board with an incomplete or invented time list')
 } finally { context?.close(); await fs.rm(directory, { recursive: true, force: true }) }
 console.log('Agency arrivals: shared station board, exact route scope, cancellations, departure semantics, overnight next service and one-call display passed.')

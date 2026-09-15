@@ -14,6 +14,7 @@ const file = path.join(directory, 'schedule.sqlite')
 createAgencyFixture(file)
 const namesDb = new DatabaseSync(file)
 namesDb.exec("INSERT INTO stops VALUES('METRO','Metro Center',42.36,-71.06,'',1,''); INSERT INTO stops VALUES('SHOP','Metro Center shop',42.36,-71.06,'',0,'')")
+namesDb.exec("INSERT INTO calendar_dates VALUES('S',20260914,2)")
 namesDb.close()
 let context
 try {
@@ -68,6 +69,27 @@ try {
     reach: async (input) => { requested = input; return { origin: input.origin } },
   } })
   const journey = { origin: { stopId: 'A', lat: 0, lon: 0 }, destination: { stopId: 'B', lat: 0, lon: 0 }, serviceDate: '2026-09-13', departMinutes: 720 }
+  const around = { point: { lat: 42.36, lon: -71.06 }, radiusMeters: 50 }
+  const nearby = (await call('nearby_stops', around)).data
+  assert.deepEqual(nearby.matches.map(stop => stop.id), ['A', 'SHOP'], 'Only boarding stops within the requested radius; parent stations are not duplicate platforms')
+  assert.equal(nearby.routeCount, 1, 'Repeated trips do not inflate the unique route count')
+  assert.deepEqual(nearby.matches[0].routes.map(route => route.id), ['R'])
+  assert.deepEqual(nearby.matches[1].routes, [], 'Nearby geography does not grant a disconnected stop another stop’s routes')
+  assert.equal(nearby.matches[0].distanceMeters, 0)
+  assert.equal(nearby.serviceDate, '2026-09-13')
+  assert.match(nearby.meaning, /does not establish site service/)
+  const limited = (await call('nearby_stops', { ...around, limit: 1 })).data
+  assert.equal(limited.matches.length, 1)
+  assert.equal(limited.total, 2)
+  assert.equal(limited.truncated, true)
+  assert.equal((await call('nearby_stops', { ...around, point: { lat: 42.38, lon: -71.04 } })).data.routeCount, 1, 'Terminal arrivals count even without an outgoing connection')
+  assert.equal((await call('nearby_stops', { ...around, serviceDate: '2026-09-14' })).data.routeCount, 0, 'Calendar removals apply to nearby route counts')
+  const outside = (await call('nearby_stops', { ...around, point: { lat: 0, lon: 0 } })).data
+  assert.equal(outside.total, 0, 'No place-name similarity or City substitution affects coordinate lookup')
+  assert.equal(outside.routeCount, null, 'An empty radius is not a zero-service finding at a place')
+  assert.equal(outside.status, 'no_stops_in_radius')
+  assert.ok(outside.nearestStops.length && outside.nearestStops.every(stop => stop.distanceMeters > around.radiusMeters), 'Outside candidates retain their true distances and must not be counted inside the radius')
+  for (const invalid of [{ point: { lat: 91, lon: 0 } }, { radiusMeters: 0 }, { radiusMeters: 5001 }, { limit: 31 }, { serviceDate: '2026-02-30' }]) await assert.rejects(call('nearby_stops', { ...around, ...invalid }))
   const originalEvents = state.events
   state.events = [
     { id: 'longest', type: 'service-gap', routeId: 'R', evidence: { observedHeadwaySeconds: 1800, scheduledHeadwaySeconds: 1740 }, sourceRefs: ['fixture:longest'] },

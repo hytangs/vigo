@@ -4,12 +4,22 @@ import { endpointFacts } from './runtimeFacts.mjs'
 // query leaves the server; provider credentials never enter model context.
 const referenceUrl = 'https://en.wikipedia.org/w/api.php'
 const braveUrl = 'https://api.search.brave.com/res/v1/web/search'
+const duckUrl = 'https://html.duckduckgo.com/html/'
 const clean = (value, limit) => typeof value === 'string' ? value.trim().slice(0, limit) : ''
 
 export function publicUrl(value) {
   const url = new URL(value)
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Use a public HTTP(S) URL without embedded credentials.')
   return url.href
+}
+
+// Search-engine HTML is not a search API. In particular Google's HTTP 200
+// JavaScript challenge must never become a successful source for a business.
+function isSearchResultsUrl(value) {
+  const url = new URL(value), host = url.hostname.replace(/^www\./, '')
+  if (['google.com', 'bing.com'].includes(host)) return url.pathname === '/search' && url.searchParams.has('q')
+  if (['duckduckgo.com', 'html.duckduckgo.com', 'lite.duckduckgo.com'].includes(host)) return url.searchParams.has('q')
+  return host === 'search.yahoo.com' && url.pathname === '/search' && url.searchParams.has('p')
 }
 
 export function pageText(html) {
@@ -19,6 +29,27 @@ export function pageText(html) {
       const value = name[1].toLowerCase() === 'x' ? parseInt(name.slice(2), 16) : Number(name.slice(1))
       return value > 0 && value <= 0x10ffff ? String.fromCodePoint(value) : ''
     }).replace(/\s+/g, ' ').trim()
+}
+
+// Read DuckDuckGo's documented non-JavaScript results, not a generic page
+// scrape. Join snippets by destination URL so adjacent results cannot mix.
+export function duckSearchResults(html) {
+  const matches = new Map(), snippets = new Map()
+  for (const anchor of html.matchAll(/<a\b([^>]*)>([^]*?)<\/a\s*>/gi)) {
+    const classes = anchor[1].match(/\bclass\s*=\s*(["'])(.*?)\1/i)?.[2].split(/\s+/) ?? []
+    if (!classes.includes('result__a') && !classes.includes('result__snippet')) continue
+    const href = anchor[1].match(/\bhref\s*=\s*(["'])(.*?)\1/i)?.[2]
+    if (!href) continue
+    try {
+      const link = new URL(pageText(href), duckUrl)
+      const url = publicUrl(['duckduckgo.com', 'html.duckduckgo.com'].includes(link.hostname) && link.pathname === '/l/' ? link.searchParams.get('uddg') : link.href)
+      const text = pageText(anchor[2])
+      if (classes.includes('result__a') && text && !matches.has(url)) matches.set(url, { title: text.slice(0, 200), url, publishedAt: null })
+      if (classes.includes('result__snippet')) snippets.set(url, text.slice(0, 1200))
+    } catch { /* Invalid destinations are not evidence. */ }
+  }
+  if (!matches.size && !/class\s*=\s*["'][^"']*\bno-results\b/i.test(html)) throw new Error('DuckDuckGo did not return readable search results. Try again later or connect Brave Search or SearXNG in Web sources.')
+  return [...matches.values()].slice(0, 5).map(match => ({ ...match, excerpt: snippets.get(match.url) || '' }))
 }
 
 // Prefer the publisher's semantic main region; retain useful source links so
@@ -39,14 +70,15 @@ export function readablePage(html, baseUrl) {
 }
 
 export function createWebResearch({ env = process.env, fetchImpl = fetch, readPage, clock = Date.now } = {}) {
-  let config = { provider: env.VIGO_AGENCY_WEB_SEARCH_PROVIDER || (env.VIGO_AGENCY_WEB_SEARCH_URL ? 'searxng' : env.VIGO_AGENCY_WEB_SEARCH_KEY ? 'brave' : 'wikipedia'),
+  let config = { provider: env.VIGO_AGENCY_WEB_SEARCH_PROVIDER || (env.VIGO_AGENCY_WEB_SEARCH_URL ? 'searxng' : env.VIGO_AGENCY_WEB_SEARCH_KEY ? 'brave' : 'duckduckgo'),
     baseUrl: env.VIGO_AGENCY_WEB_SEARCH_URL || '', key: env.VIGO_AGENCY_WEB_SEARCH_KEY || '' }
   const readAvailable = env.VIGO_AGENCY_WEB_READ !== 'off' && Boolean(readPage)
   let revision = 0, connectionAttempt = 0
   const cache = new Map()
   function candidate(input) {
-    if (!['off', 'wikipedia', 'brave', 'searxng'].includes(input?.provider)) throw new Error('Choose Wikipedia, Brave Search, SearXNG, or Off.')
+    if (!['off', 'duckduckgo', 'wikipedia', 'brave', 'searxng'].includes(input?.provider)) throw new Error('Choose DuckDuckGo, Wikipedia, Brave Search, SearXNG, or Off.')
     if (input.provider === 'off') return { provider: 'off', baseUrl: '', key: '' }
+    if (input.provider === 'duckduckgo') return { provider: 'duckduckgo', baseUrl: duckUrl, key: '' }
     if (input.provider === 'wikipedia') return { provider: 'wikipedia', baseUrl: referenceUrl, key: '' }
     const baseUrl = input.provider === 'brave' ? braveUrl : publicUrl(input.baseUrl)
     const url = new URL(baseUrl)
@@ -56,17 +88,17 @@ export function createWebResearch({ env = process.env, fetchImpl = fetch, readPa
     return { provider: input.provider, baseUrl, key }
   }
   async function search(connection, query, signal) {
-    if (connection.provider === 'off') throw new Error('Web search is not connected. Choose Wikipedia, Brave Search or SearXNG in AI settings. You can still read agency alerts and draft without a confirmed cause.')
+    if (connection.provider === 'off') throw new Error('Web search is not connected. Choose DuckDuckGo, Brave Search or SearXNG in AI settings → Web sources.')
     if (typeof query !== 'string' || !query.trim() || query.length > 300) throw new Error('Use a public search query of 1–300 characters.')
     const url = new URL(connection.baseUrl)
     url.searchParams.set(connection.provider === 'wikipedia' ? 'gsrsearch' : 'q', query.trim())
     if (connection.provider === 'wikipedia') Object.entries({ action: 'query', generator: 'search', gsrlimit: '5', prop: 'extracts|info', inprop: 'url', exintro: '1', explaintext: '1', exchars: '1200', format: 'json', formatversion: '2', utf8: '1' }).forEach(([key, value]) => url.searchParams.set(key, value))
     else if (connection.provider === 'brave') url.searchParams.set('count', '5')
-    else { url.searchParams.set('format', 'json'); url.searchParams.set('categories', 'general') }
+    else if (connection.provider === 'searxng') { url.searchParams.set('format', 'json'); url.searchParams.set('categories', 'general') }
     const timeout = AbortSignal.timeout(12_000)
     const response = await fetchImpl(url, { redirect: 'error', signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-      headers: { Accept: 'application/json', 'User-Agent': 'VIGO-Agency (https://github.com/vigo-developers/vigo-agency)', ...(connection.key ? connection.provider === 'brave' ? { 'X-Subscription-Token': connection.key } : { Authorization: `Bearer ${connection.key}` } : {}) } })
-    if (!response.ok) { await response.body?.cancel(); throw new Error(`Web search returned HTTP ${response.status}. Check its connection in AI settings; drafting is still available.`) }
+      headers: { Accept: connection.provider === 'duckduckgo' ? 'text/html' : 'application/json', 'User-Agent': 'VIGO-Agency (https://github.com/vigo-developers/vigo-agency)', ...(connection.key ? connection.provider === 'brave' ? { 'X-Subscription-Token': connection.key } : { Authorization: `Bearer ${connection.key}` } : {}) } })
+    if (!response.ok || connection.provider === 'duckduckgo' && response.status !== 200) { await response.body?.cancel(); throw new Error(`Web search returned HTTP ${response.status}. Try later or choose another search provider in AI settings.`) }
     if (!response.body) throw new Error('Web search returned no response.')
     const reader = response.body.getReader(), chunks = []
     let bytes = 0
@@ -79,15 +111,18 @@ export function createWebResearch({ env = process.env, fetchImpl = fetch, readPa
         chunks.push(value)
       }
     } finally { await reader.cancel().catch(() => {}); reader.releaseLock() }
+    const body = Buffer.concat(chunks).toString('utf8')
+    const coverage = 'Search results are leads, not confirmed causes. Read the source and check the subject and date. Missing results do not prove nonexistence.'
+    if (connection.provider === 'duckduckgo') return { query, matches: duckSearchResults(body), retrievedAt: new Date(clock()).toISOString(), coverage }
     let payload
-    try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { throw new Error('The search endpoint did not return JSON. Enable JSON output for SearXNG.') }
+    try { payload = JSON.parse(body) } catch { throw new Error('The search endpoint did not return JSON. Enable JSON output for SearXNG.') }
     const rows = connection.provider === 'wikipedia' ? (payload.query?.pages ?? (payload.batchcomplete ? [] : undefined)) : connection.provider === 'brave' ? payload.web?.results : payload.results
     if (!Array.isArray(rows)) throw new Error('The search provider returned an unsupported result.')
     if (connection.provider === 'wikipedia') rows.sort((a, b) => (a.index ?? Infinity) - (b.index ?? Infinity))
     const matches = rows.slice(0, 5).flatMap(row => {
       try { return [{ title: clean(row.title, 200), url: publicUrl(connection.provider === 'wikipedia' ? row.fullurl : row.url), excerpt: pageText(row.extract || row.description || row.content || '').slice(0, 1200), publishedAt: clean(row.page_age || row.publishedDate, 100) || null }] } catch { return [] }
     })
-    return { query, matches, retrievedAt: new Date(clock()).toISOString(), coverage: connection.provider === 'wikipedia' ? 'Wikipedia reference search only, not a live news or market index. These are introductory extracts from separate articles, not interchangeable descriptions. Read the matching source for further details. Missing results do not prove nonexistence.' : 'Search results are leads, not confirmed causes. Read the source and check the subject and date.' }
+    return { query, matches, retrievedAt: new Date(clock()).toISOString(), coverage: connection.provider === 'wikipedia' ? 'Wikipedia reference search only, not a live news or market index. These are introductory extracts from separate articles, not interchangeable descriptions. Read the matching source for further details. Missing results do not prove nonexistence.' : coverage }
   }
   config = candidate({ provider: config.provider, baseUrl: config.baseUrl, apiKey: config.key })
   return {
@@ -118,7 +153,9 @@ export function createWebResearch({ env = process.env, fetchImpl = fetch, readPa
         },
         async read(url, signal) {
           if (!readAvailable) throw new Error('Public page reading is disabled on this server.')
-          const result = await readPage(publicUrl(url), signal)
+          const target = publicUrl(url)
+          if (isSearchResultsUrl(target)) throw new Error(`This is a search-results URL, not a source page. ${['duckduckgo', 'brave', 'searxng'].includes(connection.provider) ? 'Use web_search with the search terms, then read a returned source.' : 'General web search is not connected. Choose DuckDuckGo, Brave Search or SearXNG in AI settings → Web sources. Wikipedia and the map index do not replace a business web search.'}`)
+          const result = await readPage(target, signal)
           return { ...result, retrievedAt: new Date(clock()).toISOString() }
         },
       }

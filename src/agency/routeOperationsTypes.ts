@@ -87,6 +87,7 @@ export type StopBoard = {
   until: number
   windowMinutes?: number
   nextPerRoute?: boolean
+  routeCount?: number
   feeds: FeedState[]
   rows: StopBoardRow[]
   total: number

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import http from 'node:http'
 import { PassThrough } from 'node:stream'
 import { EventEmitter } from 'node:events'
-import { createWebResearch, pageText, readablePage } from '../src/agency/webResearch.mjs'
+import { createWebResearch, pageText, readablePage, duckSearchResults } from '../src/agency/webResearch.mjs'
 import { readPublicPage } from '../src/server/agency-web.mjs'
 import { fetchSafeRealtimeBody } from '../src/server/realtime-url-security.mjs'
 
@@ -16,9 +16,12 @@ const web = createWebResearch({ env: { VIGO_AGENCY_WEB_SEARCH_PROVIDER: 'off' },
 assert.equal(web.status().searchAvailable, false)
 assert.equal(web.status().readAvailable, true)
 await assert.rejects(web.forRequest().search('R delays'), /not connected/)
+await assert.rejects(web.forRequest().read('https://www.google.com/search?q=some+business'), /General web search is not connected/)
 await web.connect({ provider: 'brave', apiKey: 'search-secret' })
 assert.doesNotMatch(JSON.stringify(web.status()), /search-secret/)
 const session = web.forRequest()
+await assert.rejects(session.read('https://www.google.com/search?q=some+business'), /Use web_search/)
+assert.equal((await session.read('https://developers.google.com/search/docs')).title, 'Notice', 'Ordinary source pages remain readable')
 const result = await session.search('City X route R delay')
 assert.equal(result.matches.length, 1)
 assert.equal(result.matches[0].excerpt, 'Road work today')
@@ -51,7 +54,7 @@ assert.deepEqual(page.links, [{ title: 'Visit', url: 'https://cafe.example/visit
 const disabled = createWebResearch({ env: { VIGO_AGENCY_WEB_READ: 'off' }, readPage: () => assert.fail() })
 await assert.rejects(disabled.forRequest().read('https://example.org'), /disabled/)
 
-const reference = createWebResearch({ env: {}, fetchImpl: async (url, options) => {
+const reference = createWebResearch({ env: { VIGO_AGENCY_WEB_SEARCH_PROVIDER: 'wikipedia' }, fetchImpl: async (url, options) => {
   assert.equal(url.hostname, 'en.wikipedia.org')
   assert.equal(url.searchParams.get('gsrsearch'), 'KLM Delft houses')
   assert.equal(options.headers.Authorization, undefined)
@@ -63,6 +66,35 @@ const referenceResult = await reference.forRequest().search('KLM Delft houses')
 assert.equal(referenceResult.matches[0].url, 'https://en.wikipedia.org/wiki/List_of_KLM_Delft_Blue_houses')
 assert.equal(referenceResult.matches[0].excerpt, 'A collection of miniatures.')
 assert.match(referenceResult.coverage, /not a live news or market/)
+
+const duckHtml = `<a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fcafe.example%2Fvisit%3Fx%3D1%26y%3D2" class="result__a">River &amp; Lake Cafe</a>
+<a class="result__a" href="https://park.example/">Riverside Park</a>
+<a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fcafe.example%2Fvisit%3Fx%3D1%26y%3D2"><b>12 Main Street</b></a>
+<a class="result__a" href="javascript:alert(1)">Unsafe</a>
+<a href="https://ads.example/">Advertisement</a>`
+assert.deepEqual(duckSearchResults(duckHtml), [
+  { title: 'River & Lake Cafe', url: 'https://cafe.example/visit?x=1&y=2', excerpt: '12 Main Street', publishedAt: null },
+  { title: 'Riverside Park', url: 'https://park.example/', excerpt: '', publishedAt: null },
+])
+assert.deepEqual(duckSearchResults('<div class="no-results">No results</div>'), [])
+for (const html of ['<form id="challenge-form">Please verify</form>', '<p>Enable JavaScript</p>', '<h1>Unexpected page</h1>']) assert.throws(() => duckSearchResults(html), /did not return readable/)
+let duckRequests = 0
+const duck = createWebResearch({ env: {}, fetchImpl: async (url, options) => {
+  duckRequests++
+  assert.equal(url.host, 'html.duckduckgo.com')
+  assert.equal(url.searchParams.get('q'), 'River Cafe City X')
+  assert.equal(options.headers.Authorization, undefined)
+  assert.equal(options.headers['X-Subscription-Token'], undefined)
+  assert.equal(options.body, undefined)
+  return new Response(duckHtml, { headers: { 'Content-Type': 'text/html' } })
+} })
+assert.equal(duck.status().provider, 'duckduckgo', 'General web search is available independently of model credentials')
+assert.equal(duck.forRequest().endpoint, 'html.duckduckgo.com')
+assert.equal((await duck.forRequest().search('River Cafe City X')).matches.length, 2)
+await duck.forRequest().search('River Cafe City X')
+assert.equal(duckRequests, 1, 'Search reuse avoids another network lookup')
+const challenged = createWebResearch({ env: {}, fetchImpl: async () => new Response('challenge', { status: 202 }) })
+await assert.rejects(challenged.forRequest().search('City X'), /HTTP 202/, 'Challenge pages are failures, not empty results or evidence')
 
 const oversized = createWebResearch({ env: { VIGO_AGENCY_WEB_SEARCH_URL: 'http://localhost:8888/search' }, fetchImpl: async () => new Response('x'.repeat(512_001)) })
 await assert.rejects(oversized.forRequest().search('R'), /size limit/)

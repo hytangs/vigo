@@ -36,6 +36,7 @@ try {
   const snapshot = realtimeFixture([report])
   const board = (stopId = 'B', now = observationTime) => stopBoard(context, snapshot, { stopId }, now)
   let result = board()
+  assert.equal(result.routeCount, 1, 'Multiple trips and opposite directions do not become multiple routes')
   const row = () => board().rows.find(row => row.tripId === 'T1')
   assert.equal(result.stop.id, 'station', 'A platform opens the declared parent station')
   assert.ok(result.rows.some(row => row.directionId === '1' && row.platform === '2'), 'Opposite platforms and directions appear together')
