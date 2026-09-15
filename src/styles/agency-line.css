@@ -1,3 +1,4 @@
+.app-shell .route-surface .route-map-shell:has(> .agency-line-view) { background: var(--panel); }
 .agency-map-actions { display: flex; align-items: center; flex-shrink: 0; gap: 8px; }
 .agency-view-switch { display: flex; padding: 3px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-bg); }
 .agency-view-switch button { min-height: 32px; border: 0; border-radius: 4px; background: transparent; color: var(--text-muted); padding: 5px 8px; font-size: 11px; cursor: pointer; white-space: nowrap; }
