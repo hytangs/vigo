@@ -33,6 +33,7 @@ type UseNationalRoutingOptions = {
   projectId: string
   feedId: string
   storeKey: string
+  streetKey?: string
   origin: RoutingPoint | null
   waypoints: RoutingPoint[]
   destination: RoutingPoint | null
@@ -70,6 +71,7 @@ export function useNationalRouting({
   projectId,
   feedId,
   storeKey,
+  streetKey = '',
   origin,
   waypoints,
   destination,
@@ -95,10 +97,13 @@ export function useNationalRouting({
   const [error, setError] = useState('')
   const [errorStatus, setErrorStatus] = useState<ApiRoutingStatus | undefined>()
   const routeRequestGate = useRef(new LatestRequestGate())
+  // Feed updates are observations, not edits to a requested journey.
+  const latestSnapshot = useRef(realtimeSnapshot)
+  latestSnapshot.current = realtimeSnapshot
   const streetMode = mode !== 'transit'
   const readinessKey = storeKey ? `${storeKey}:${serviceDate}:${serviceDay}` : ''
   const ready = streetMode
-    ? Boolean(active && feedId && storeKey && routeAllowed)
+    ? Boolean(feedId && storeKey && routeAllowed)
     : Boolean(readinessKey && readyKey === readinessKey)
   const serviceDateAvailability = streetMode
     ? 'unknown'
@@ -108,8 +113,32 @@ export function useNationalRouting({
     [serviceCoverage, serviceDate, serviceDateSuggestions, streetMode],
   )
 
+  const request = useMemo(() => ({ projectId, storeKey, streetKey, body: {
+    feedId,
+    mode,
+    origin,
+    waypoints,
+    destination,
+    departMinutes,
+    arriveMinutes: departMinutes,
+    timePreference,
+    serviceDay,
+    serviceDate,
+    allowServiceDateFallback: false,
+    maxWalkKm,
+    maxTransfers,
+    allowLongWalk,
+    includeEarliestTransit: mode === 'transit',
+    objective: 'earliest_arrival',
+    maxStreetKm: mode === 'drive' ? 750 : 50,
+    departureWindowMinutes: streetMode ? 0 : departureWindowMinutes,
+    departureWindowDirection: !streetMode && departureWindowMinutes > 0 ? 'forward' : undefined,
+  } }), [allowLongWalk, departMinutes, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, origin, projectId, serviceDate, serviceDay, storeKey, streetKey, streetMode, timePreference, waypoints])
+  const completedRequest = useRef<typeof request | null>(null)
+
   const reset = useCallback(() => {
     routeRequestGate.current.cancel()
+    completedRequest.current = null
     setChoices([])
     setLoading(false)
     setAlternativesLoading(false)
@@ -154,7 +183,9 @@ export function useNationalRouting({
   }, [active, feedId, onError, projectId, readinessKey, ready, serviceDate, serviceDay, streetMode])
 
   useEffect(() => {
-    if (!active || !feedId || !origin || !destination || !routeAllowed || !ready || (!streetMode && serviceDateAvailability === 'outside')) {
+    if (completedRequest.current !== request) setChoices(current => current.length ? [] : current)
+    if (!feedId || !origin || !destination || (!streetMode && serviceDateAvailability === 'outside')) {
+      completedRequest.current = null
       routeRequestGate.current.cancel()
       setChoices((current) => current.length ? [] : current)
       setLoading(false)
@@ -162,6 +193,15 @@ export function useNationalRouting({
       if (!origin || !destination) setError('')
       return
     }
+
+    if (!active || !routeAllowed || !ready) {
+      routeRequestGate.current.cancel()
+      setLoading(false)
+      setAlternativesLoading(false)
+      return
+    }
+    // Navigation and readiness checks do not invalidate a completed journey.
+    if (completedRequest.current === request) return
 
     const requestToken = routeRequestGate.current.begin()
     const controller = requestToken.controller
@@ -178,39 +218,23 @@ export function useNationalRouting({
         method: 'POST',
         signal: controller.signal,
         body: JSON.stringify({
-          feedId,
-          mode,
-          origin,
-          waypoints,
-          destination,
-          departMinutes,
-          arriveMinutes: departMinutes,
-          timePreference,
-          serviceDay,
-          serviceDate,
-          allowServiceDateFallback: false,
-          maxWalkKm,
-          maxTransfers,
-          allowLongWalk,
-          includeEarliestTransit: mode === 'transit',
-          objective: 'earliest_arrival',
-          maxStreetKm: mode === 'drive' ? 750 : 50,
-          departureWindowMinutes: streetMode ? 0 : departureWindowMinutes,
-          departureWindowDirection: !streetMode && departureWindowMinutes > 0 ? 'forward' : undefined,
-          realtimeSnapshot: !streetMode && realtimeSnapshot
+          ...request.body,
+          realtimeSnapshot: !streetMode && latestSnapshot.current
             ? {
-                sourceUrl: realtimeSnapshot.sourceUrl,
-                sourceUrls: realtimeSnapshot.sourceUrls,
-                fetchedAt: realtimeSnapshot.fetchedAt,
-                feedTimestamp: realtimeSnapshot.feedTimestamp,
-                tripUpdates: realtimeSnapshot.tripUpdates,
+                sourceUrl: latestSnapshot.current.sourceUrl,
+                sourceUrls: latestSnapshot.current.sourceUrls,
+                fetchedAt: latestSnapshot.current.fetchedAt,
+                feedTimestamp: latestSnapshot.current.feedTimestamp,
+                tripUpdates: latestSnapshot.current.tripUpdates,
               }
             : undefined,
         }),
       },
     ).then((response) => {
       if (!ownsCommit()) return
-      setChoices(normalizeChoices(response))
+      const normalized = normalizeChoices(response)
+      completedRequest.current = request
+      setChoices(normalized)
       setLoading(false)
       setAlternativesLoading(false)
     }).catch((reason) => {
@@ -229,7 +253,7 @@ export function useNationalRouting({
     return () => {
       routeRequestGate.current.cancel(requestToken)
     }
-  }, [active, allowLongWalk, departMinutes, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, onError, origin, projectId, ready, realtimeSnapshot, routeAllowed, serviceDate, serviceDateAvailability, serviceDay, streetMode, timePreference, waypoints])
+  }, [active, departureWindowMinutes, destination, feedId, onError, origin, projectId, ready, request, routeAllowed, serviceDateAvailability, streetMode, timePreference])
 
   return {
     alternativesLoading,

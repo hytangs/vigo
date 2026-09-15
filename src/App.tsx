@@ -1,3 +1,4 @@
+import { startPolling } from './app/polling'
 import { PrimaryNav, type RouteToolKey } from './components/PrimaryNav'
 import { findNetworkRoute, findNetworkStop, networkRouteId } from './app/networkSelection'
 import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
@@ -2136,6 +2137,7 @@ export default function App() {
   const [isRealtimeLoading, setIsRealtimeLoading] = useState(false)
   const [realtimeRequest, setRealtimeRequest] = useState<RealtimeInspectRequest | null>(null)
   const realtimeInFlightRef = useRef(false)
+  const realtimeAbortRef = useRef<AbortController | null>(null)
   const realtimeRequestIdRef = useRef(0)
   const [query, setQuery] = useState('')
   const navigationMemoryRef = useRef(readNavigationMemory())
@@ -2295,15 +2297,16 @@ export default function App() {
       : 'missing'
   const nationalRouting = useNationalRouting({
     active: Boolean(
-      nationalRoutingFeed
+      page === 'project' && nationalRoutingFeed
       && activeRouteTool === 'pathfinder',
     ),
     projectId: selectedProject.id,
     feedId: nationalRoutingFeed?.id ?? '',
     storeKey: nationalRoutingStoreKey,
-    origin: activeRouteTool === 'pathfinder' ? routingOrigin : null,
+    streetKey: `${selectedProject.osmStreetIndex?.builtAt ?? ''}:${selectedProject.osmStreetIndex?.bytes ?? ''}`,
+    origin: routingOrigin,
     waypoints: routingWaypoints,
-    destination: activeRouteTool === 'pathfinder' ? routingDestination : null,
+    destination: routingDestination,
     mode: routingMode,
     departMinutes: scheduleTimeMinutes,
     timePreference: routingTimePreference,
@@ -2841,6 +2844,8 @@ export default function App() {
   }
 
   function clearRealtimeConnection() {
+    realtimeAbortRef.current?.abort()
+    realtimeAbortRef.current = null
     realtimeRequestIdRef.current += 1
     realtimeInFlightRef.current = false
     setRealtimeRequest(null)
@@ -4399,11 +4404,13 @@ export default function App() {
 
   const refreshRealtimeRequest = useCallback(async (
     request: RealtimeInspectRequest,
-    options: { background?: boolean; openPanel?: boolean } = {},
+    options: { background?: boolean; openPanel?: boolean; signal?: AbortSignal } = {},
   ) => {
-    if (realtimeInFlightRef.current) {
-      return
-    }
+    if (realtimeInFlightRef.current && options.background) return
+    realtimeAbortRef.current?.abort()
+    const controller = new AbortController()
+    realtimeAbortRef.current = controller
+    const signal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal
 
     const requestId = realtimeRequestIdRef.current + 1
     realtimeRequestIdRef.current = requestId
@@ -4416,9 +4423,10 @@ export default function App() {
     try {
       const result = await apiJson<{ snapshot: RealtimeSnapshot }>('/api/realtime/inspect', {
         method: 'POST',
+        signal,
         body: JSON.stringify({ ...request, projectId: selectedProjectId }),
       })
-      if (requestId !== realtimeRequestIdRef.current) return
+      if (requestId !== realtimeRequestIdRef.current || signal.aborted) return
       setRealtimeSnapshot(result.snapshot)
       setRealtimeRequest(request)
       setRealtimeMessage('')
@@ -4430,25 +4438,28 @@ export default function App() {
         setActiveRouteTool('agency')
       }
     } catch (error) {
-      if (requestId !== realtimeRequestIdRef.current) return
+      if (requestId !== realtimeRequestIdRef.current || signal.aborted) return
       const message = error instanceof Error ? error.message : 'GTFS-RT decode failed.'
       setRealtimeMessage(message)
     } finally {
       if (requestId === realtimeRequestIdRef.current) {
         realtimeInFlightRef.current = false
+        realtimeAbortRef.current = null
         if (!options.background) setIsRealtimeLoading(false)
       }
     }
   }, [selectedProjectId])
 
   useEffect(() => {
-    if (!realtimeRequest) return
-    const interval = window.setInterval(() => {
-      void refreshRealtimeRequest(realtimeRequest, { background: true })
-    }, realtimeRefreshMs)
-
-    return () => window.clearInterval(interval)
-  }, [realtimeRequest, refreshRealtimeRequest])
+    if (!realtimeRequest || page !== 'project') return
+    const polling = startPolling(
+      signal => refreshRealtimeRequest(realtimeRequest, { background: true, signal }),
+      realtimeRefreshMs,
+      { immediate: false },
+    )
+    return polling.stop
+  }, [page, realtimeRequest, refreshRealtimeRequest])
+  useEffect(() => () => realtimeAbortRef.current?.abort(), [])
 
   function connectRealtime(request: RealtimeInspectRequest) {
     void refreshRealtimeRequest(request, { openPanel: true })

@@ -4,6 +4,8 @@ import { NetworkSelection } from './NetworkSelection'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Activity, ArrowRight, X, History, Plus } from 'lucide-react'
 import { apiJson, apiProgressJson, type ApiProgress } from '../app/api'
+import { startPolling } from '../app/polling'
+import { realtimeRefreshMs } from '../app/realtime'
 import type { RealtimeInspectRequest } from '../app/realtime'
 import type { RealtimeSnapshot } from '../domain'
 import type { AgencyState, OperationalEvent, QueryAnswer, ToolResult, WorkspaceSelectionInput } from '../agency/types'
@@ -69,6 +71,8 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   const [turns, setTurns] = useState<NotebookEntry[]>([])
   const [parentId, setParentId] = useState<number | null>(null)
   const refreshGeneration = useRef(0)
+  const observationPolling = useRef<ReturnType<typeof startPolling> | null>(null)
+  const hasSnapshot = Boolean(snapshot)
   const scrollRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const entryAbortRef = useRef<AbortController | null>(null)
@@ -80,11 +84,12 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
     finally { if (generation === refreshGeneration.current && !signal?.aborted) setLoading(false) }
   }, [endpoint, routeId, stopId, selectionKey, eventFilter])
   useEffect(() => {
-    const controller = new AbortController()
-    void refresh(controller.signal)
-    const timer = window.setInterval(() => void refresh(controller.signal), 10_000)
-    return () => { controller.abort(); clearInterval(timer) }
-  }, [refresh, snapshot])
+    // The server owns feed ingestion. Read its state on one cadence; a map
+    // snapshot update must not launch another assessment or cancel this one.
+    const polling = startPolling(refresh, realtimeRefreshMs)
+    observationPolling.current = polling
+    return () => { polling.stop(); observationPolling.current = null }
+  }, [refresh, hasSnapshot])
   useEffect(() => () => { abortRef.current?.abort(); entryAbortRef.current?.abort() }, [endpoint])
   useEffect(() => {
     if (!state?.connected || snapshot) return
@@ -190,7 +195,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
     <AgencyNavigation mode={mode} onChange={next => {
       setMode(next); setSelectedEvent(null)
       requestAnimationFrame(() => { if (next === 'ask' && turns.length) scrollToContent('.agency-turn:last-of-type'); else scrollRef.current?.scrollTo({ top: 0 }) })
-    }} health={<AgencyFeedHealth feeds={state?.feeds ?? []} refreshFailed={Boolean(observationError)} />} mapOpen={mapOpen} onToggleMap={onToggleMap} onRefresh={() => void refresh()} onFeeds={() => setFeedsOpen(open => !open)} onExport={state ? () => exportObservation(state) : undefined} />
+    }} health={<AgencyFeedHealth feeds={state?.feeds ?? []} refreshFailed={Boolean(observationError)} />} mapOpen={mapOpen} onToggleMap={onToggleMap} onRefresh={() => void observationPolling.current?.refresh()} onFeeds={() => setFeedsOpen(open => !open)} onExport={state ? () => exportObservation(state) : undefined} />
     <div className="agency-scroll" ref={scrollRef}>
       {error || observationError ? <div className="agency-error" role="alert">{error || observationError}{!state || !state.coverage.valid ? <button className="agency-text-button" onClick={onOpenData}>Open City data <ArrowRight size={13} /></button> : null}</div> : null}
       {loading && !state ? <div className="agency-empty"><Activity size={24} /><h2>Reading the City</h2><p>Checking the indexed timetable and service calendar.</p></div> : null}
@@ -217,7 +222,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
           {state.warnings.length ? <details className="agency-source-details"><summary>Coverage notes</summary>{state.warnings.map(warning => <p className="agency-caption" key={warning}>{warning}</p>)}</details> : null}
         </div> : mode === 'ask' ? <div id="agency-ask" role="tabpanel" aria-labelledby="agency-tab-ask">
           {notebookOpen ? <AgencyNotebook endpoint={endpoint} onOpen={(id) => void openEntry(id)} onBack={() => setNotebookOpen(false)} /> : <>
-          <AgencyProviderSettings endpoint={endpoint} provider={state.provider} onChange={() => void refresh()} actions={
+          <AgencyProviderSettings endpoint={endpoint} provider={state.provider} onChange={() => void observationPolling.current?.refresh()} actions={
             <div className="agency-conversation-toolbar"><button className="agency-text-button" onClick={() => setNotebookOpen(true)} disabled={busy}><History size={14} /> History</button><button className="agency-text-button" disabled={busy} onClick={() => { entryAbortRef.current?.abort(); setTurns([]); setParentId(null); setAnswer(null); setAsked(''); setActivities([]); sessionStorage.removeItem(`agency-entry-${projectId}`) }}><Plus size={14} /> New chat</button></div>
           } />
           {!turns.length && !answer && !busy ? <div className="agency-suggestions">{(hasSelection ? ['Summarize service here.', 'Which alerts apply here?', stopId ? 'When are the next departures?' : 'Draft a rider update for this route.'] : ['Which routes need attention now?', 'Summarize current service alerts.', 'What service runs after 22:00 today?']).map((suggestion) => <button key={suggestion} onClick={() => { setQuestion(suggestion); document.getElementById('agency-question')?.focus() }}>{suggestion}<ArrowRight size={14} /></button>)}</div> : null}

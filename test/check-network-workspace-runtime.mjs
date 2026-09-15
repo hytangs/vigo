@@ -23,7 +23,10 @@ Date.now = () => ${observationTime * 1000};
 const noop = () => {};
 const root = createRoot(document.getElementById('root'));
 const shell = child => React.createElement('div',{className:'app-shell page-project view-agency',style:{display:'block',height:'100vh'}},child);
-const renderWorkspace = () => root.render(shell(React.createElement(AgencyPanel,{projectId:'fixture',snapshot:null,realtimeRequest:null,realtimeMessage:'',realtimeLoading:false,onConnect:noop,onDisconnect:noop,onLocate:noop,onBrowseRoute:noop,onClearSelection:noop,onResult:noop,onOpenData:noop,mapOpen:false,onToggleMap:noop})));
+let observationReads = 0;
+const originalFetch = window.fetch;
+window.fetch = (url, init) => { if(String(url).includes('/agency?') && (!init?.method || init.method === 'GET')) observationReads++; return originalFetch(url, init); };
+const renderWorkspace = (snapshot = null) => root.render(shell(React.createElement(AgencyPanel,{projectId:'fixture',snapshot,realtimeRequest:null,realtimeMessage:'',realtimeLoading:false,onConnect:noop,onDisconnect:noop,onLocate:noop,onBrowseRoute:noop,onClearSelection:noop,onResult:noop,onOpenData:noop,mapOpen:false,onToggleMap:noop})));
 // Old prototype selections must recover to the focused workspace.
 sessionStorage.setItem('agency-mode-fixture','operations');
 renderWorkspace();
@@ -33,6 +36,14 @@ const click = async label => { await wait(()=>button(label) && !button(label).di
 const fill = (element,value) => { const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; setter.call(element,value); element.dispatchEvent(new Event('input',{bubbles:true})); };
 window.runTests = async () => {
   await wait(()=>document.getElementById('agency-briefing'));
+  const snapshot = {...${JSON.stringify(snapshot)}, counts: {vehicles: ${snapshot.vehicles.length}, tripUpdates: ${snapshot.tripUpdates.length}, alerts: ${snapshot.alerts.length}}};
+  const previousReads = observationReads;
+  renderWorkspace(snapshot);
+  await wait(()=>observationReads > previousReads);
+  const connectedReads = observationReads;
+  for(let i=0;i<5;i++) { renderWorkspace({...snapshot,fetchedAt:new Date(Date.now()+i*1000).toISOString()}); await new Promise(resolve=>setTimeout(resolve,30)); }
+  if(observationReads !== connectedReads) throw Error('Map feed updates must not start duplicate dashboard assessments');
+
   await click('Routes');
   await wait(()=>document.querySelector('.agency-route-browser'));
   if(document.querySelectorAll('[role=tab]').length!==3) throw Error('Keep only three primary views');
@@ -50,7 +61,7 @@ window.runTests = async () => {
   document.querySelector('[aria-label="Close feed settings"]').click();
   await click('Routes');
   await wait(()=>document.querySelector('.agency-route-browser'));
-  return {focusedWorkspace:true,legacyModeRecovery:true,keyboardTabs:true,routeSearch:true,feedSettings:true};
+  return {snapshotRefreshIsolation:true,focusedWorkspace:true,legacyModeRecovery:true,keyboardTabs:true,routeSearch:true,feedSettings:true};
 };
 window.layoutCheck = async () => {
   const panel=document.querySelector('.agency-panel'); panel.style.height=innerHeight<=400?'176px':'100vh';
