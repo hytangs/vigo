@@ -71,6 +71,12 @@ assert.equal(verifyJourneyModes(['drive'], { journeys: [{ mode: 'drive', status:
 assert.match(describeJourneys({ journeys: [{ mode: 'drive', status: 'ready' }] }), /Drive: unavailable/, 'A malformed result remains readable without inventing a duration')
 
 const choices = createJourneyChoices(toolDefinitions.find(tool => tool.name === 'route_plan'))
+assert.ok(choices.definition().parameters.required.includes('explain'))
+choices.arguments({ ...input, when: 'now', explain: false })
+assert.equal(choices.finishWithJourney(), true, 'Ordinary directions use the direct result path')
+choices.arguments({ ...input, when: 'now', explain: true })
+assert.equal(choices.finishWithJourney(), false, 'Explicit analysis returns the computed evidence to the model')
+assert.throws(() => choices.arguments({ ...input, when: 'now', explain: false, resultUse: 'continue' }), /one journey completion/)
 assert.ok(choices.definition().parameters.required.includes('modes'), 'The model must enumerate modes rather than inherit transit')
 const request = choices.arguments({ ...input, when: 'now', resultUse: 'answer' })
 choices.observe(request, { ok: true, data: { status: 'needs_location_choice', clarification: { endpoints: [{ endpoint: 1, matches: [{ id: 'destination', name: 'Destination', lat: 40, lon: -71 }] }], resolved: [{ endpoint: 0, label: 'Origin', lat: 40, lon: -70 }] } } })

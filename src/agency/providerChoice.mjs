@@ -2,9 +2,10 @@ import { validateArguments } from './toolArguments.mjs'
 
 function samplerSchema(schema) {
   // Expanding long strings inside repeated objects can exceed llama.cpp's
-  // grammar limits. Enforce shape/types/enums while decoding; validate string
-  // lengths and patterns against the unchanged tool schema before execution.
-  const { minLength: _min, maxLength: _max, pattern: _pattern, ...result } = schema
+  // grammar limits. Keep date/time patterns in the decoder so a local model
+  // cannot repeatedly fill an HH:MM field with a full ISO timestamp. String
+  // lengths remain enforced against the original schema before execution.
+  const { minLength: _min, maxLength: _max, description: _description, ...result } = schema
   if (schema.properties) result.properties = Object.fromEntries(Object.entries(schema.properties).map(([key, value]) => [key, samplerSchema(value)]))
   if (schema.items) result.items = samplerSchema(schema.items)
   if (schema.anyOf) result.anyOf = schema.anyOf.map(samplerSchema)
@@ -24,21 +25,17 @@ const toolForm = tool => `${tool.name} ${fields(tool.parameters)}\n${tool.descri
 // schemas rather than maintaining a second set of parameter definitions.
 export function providerChoice(messages, tools, initialTools = tools, selectionOnly = false, requiredTool = null) {
   const object = properties => ({ type: 'object', properties, required: Object.keys(properties), additionalProperties: false })
-  // A short task restatement gives small models an explicit place to preserve
-  // the user's objective before selecting a tool. It is not a reasoning log.
-  const task = { type: 'string', description: 'One short sentence stating the latest request, preserving its scope, horizon and deliverables. A selected route does not narrow a network question.' }
-  // Preserve intent once. Rewriting it after every tool adds generated tokens
-  // without new evidence; the original question remains in the conversation.
-  const framing = selectionOnly || requiredTool || messages.some(message => message.role === 'tool') ? {} : { task }
-  const answer = object({ ...framing, action: { type: 'string', enum: ['answer'] }, text: { type: 'string',
+  // Select the action directly. Re-generating the user's question before
+  // every first action adds latency without supplying another observation.
+  const answer = object({ action: { type: 'string', enum: ['answer'] }, text: { type: 'string',
     description: `Answer from stable knowledge or checked evidence.${tools.some(tool => tool.name === 'current_time') ? ' Current time/date questions, including follow-ups, require current_time instead; never compute timezone conversions in this field.' : ''}` } })
-  const action = tool => ({ ...object({ ...framing, action: { type: 'string', enum: [tool.name] }, arguments: tool.parameters }), description: tool.description })
+  const action = tool => ({ ...object({ action: { type: 'string', enum: [tool.name] }, arguments: tool.parameters }), description: tool.description })
   if (requiredTool && !tools.some(tool => tool.name === requiredTool)) throw new Error('The required response tool is unavailable.')
   const restricted = selectionOnly || Boolean(requiredTool)
   const choices = tools.filter(tool => !requiredTool || tool.name === requiredTool).map(action)
   const format = { anyOf: [...choices, ...(restricted ? [] : [answer])] }
   const updates = tools.filter(tool => JSON.stringify(tool) !== JSON.stringify(initialTools.find(initial => initial.name === tool.name)))
-  const instructions = `${Object.keys(framing).length ? 'First fill task with a short restatement of the latest user request, not the map selection. Then select the next action. ' : ''}For a tool fill action and arguments. Only when no further work is needed select action=answer and fill text with the complete user-facing response. Match the requested scope and deliver all parts, not just one fact. If work remains, select a tool; do not announce a check without doing it. Fill the exact fields below; ? means optional. Return only that JSON object. This form stays internal.\n${initialTools.map(toolForm).join('\n\n')}`
+  const instructions = `For a tool fill action and arguments. Only when no further work is needed select action=answer and fill text with the complete user-facing response. Match the latest request's scope, not the map selection, and deliver all parts. If work remains, select a tool; do not announce a check without doing it. Fill the exact fields below; ? means optional. Return only that JSON object. This form stays internal.\n${initialTools.map(toolForm).join('\n\n')}`
   const names = new Map(messages.flatMap(message => (message.tool_calls ?? []).map(call => [call.id, call.function.name])))
   return {
     format: samplerSchema(format),

@@ -227,7 +227,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
                 if (call.tool === 'find_walk') session.places.restore(call.result.data.visits)
               }
               const requests = retained.map(call => ({ tool: call.tool, arguments: call.arguments }))
-              const findings = retained.filter(call => ['place_search', 'find_walk', 'walk_compare', 'inspect_service', 'service_timing', 'stop_arrivals', 'realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message'].includes(call.tool)).slice(-3)
+              const findings = retained.filter(call => ['route_plan', 'walk_route', 'place_search', 'find_walk', 'walk_compare', 'inspect_service', 'service_timing', 'stop_arrivals', 'realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message'].includes(call.tool)).slice(-3)
               history.unshift({ selection: previous.answer.selection, question: previous.title, answer: previous.answer.answer, privateContext: previous.answer.dataPolicyVersion !== 1 && (previous.answer.trace ?? []).some(call => ['operational_context', 'recall_notebook'].includes(call.tool)), observedAt: previous.answer.generatedAt, requests, findings })
               parentId = previous.parentId
             }

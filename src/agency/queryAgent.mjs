@@ -8,7 +8,8 @@ import { createJourneyChoices, coordinateChoices } from './journeyChoices.mjs'
 import { stopChoices } from './stopChoices.mjs'
 import { agencyClock } from './agencyClock.mjs'
 import { describeCurrentTime } from './currentTime.mjs'
-import { describeJourneys, journeyBreakdown, verifyJourneyModes } from './journeyResults.mjs'
+import { describeJourneys, verifyJourneyModes } from './journeyResults.mjs'
+import { journeyPlanEvidence, journeyRealtimeEvidence } from './journeyEvidence.mjs'
 import { inspectionFacts } from './serviceInspection.mjs'
 import { isDeepStrictEqual } from 'node:util'
 import { boardingFareEvidence } from '../fares.mjs'
@@ -56,11 +57,9 @@ export function compactResult(result, tool) {
     networkTools: data.networkTools.map(tool => tool.label),
     limits: 'These are configuration limits, not evidence that everything is local or secure. Do not claim local inference or no external model API.',
   })
-  const clock = (minutes) => Number.isFinite(minutes) ? `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(Math.floor(minutes % 60)).padStart(2, '0')}` : undefined
   if (tool === 'route_plan' && data.journeys) return envelope({ resolved: data.resolved, request: data.request, completion: data.completion,
-    journeys: data.journeys.map(item => ({ mode: item.mode, status: item.status, reason: item.reason, realtime: item.realtime,
-      ...(item.plan ? { durationMinutes: item.plan.durationMinutes, departTime: clock(item.plan.departMinutes), arriveTime: clock(item.plan.arriveMinutes),
-        timeBreakdown: journeyBreakdown(item.plan), transfers: item.plan.transfers, fares: boardingFareEvidence(item.plan) } : {}) })) })
+    journeys: data.journeys.map(item => ({ ...journeyPlanEvidence(item.plan), mode: item.mode, status: item.status, reason: item.reason,
+      realtime: journeyRealtimeEvidence(item.realtime) })) })
   if (tool === 'recall_notebook') return envelope({ entries: data.entries.map((entry) => ({ id: entry.id, title: entry.title, observedAt: entry.observedAt, shortened: entry.shortened || entry.excerpt.length > 800, excerpt: entry.excerpt.slice(0, 800) })) })
   if (tool === 'resolve_entities') return envelope({ total: data.total, method: data.method, ambiguous: data.ambiguous,
     ...(!data.total ? { nextStep: 'No literal timetable match. For a landmark or address, use place_search with the original place name, then nearby_stops with the returned coordinates. Journeys accept names directly in route_plan. Do not retry capitalization changes or invent stop names. This result says nothing about whether the place exists.' } : {}),
@@ -69,19 +68,17 @@ export function compactResult(result, tool) {
   if (tool === 'walk_compare') return envelope(data)
   if (tool === 'web_read') return envelope({ ...data, content: data.content.slice(0, 8000) }, data.truncated || data.content.length > 8000)
   if (tool === 'route_plan' || tool === 'walk_route' || tool === 'find_walk') return envelope({
-    realtime: data.realtime,
+    realtime: journeyRealtimeEvidence(data.realtime),
     // Keep units and clocks attached to their values instead of asking the
     // model to convert service minutes or interpret unlabeled distances.
     walking: data.walking ? { distance: `${Math.round(data.walking.distanceMeters)} metres (${data.walking.distanceMiles.toFixed(2)} miles)`, estimatedTime: `${data.walking.durationMinutes.toFixed(1)} minutes`, walkingSpeedKph: data.walking.walkingSpeedKph } : data.walking,
     resolved: data.resolved, request: data.request, entrances: data.entrances, assessment: data.assessment, visits: data.visits?.map(({ id, name, address, category, publicAccess, evidence }) => ({ id, name, address, category, publicAccess, mapTags: evidence?.tags })), comparison: data.comparison,
-    plan: data.plan ? {
+    plan: tool === 'route_plan' ? journeyPlanEvidence(data.plan) : data.plan ? {
       status: data.plan.status, detail: data.plan.detail, travelMode: data.plan.travelMode,
       durationMinutes: data.plan.durationMinutes,
       fares: boardingFareEvidence(data.plan),
-      departTime: tool === 'route_plan' ? clock(data.plan.departMinutes) : undefined,
-      arriveTime: tool === 'route_plan' ? clock(data.plan.arriveMinutes) : undefined,
       transfers: data.plan.transfers,
-      legs: data.plan.legs?.map(({ type, routeType, routeShortName, fromName, toName, distanceKm, startMinutes, endMinutes }) => ({ type, routeType, routeShortName, fromName, toName, distanceKm, ...(tool === 'route_plan' ? { startTime: clock(startMinutes), endTime: clock(endMinutes) } : {}) })),
+      legs: data.plan.legs?.map(({ type, routeType, routeShortName, fromName, toName, distanceKm }) => ({ type, routeType, routeShortName, fromName, toName, distanceKm })),
     } : data.plan,
   })
   if (tool === 'reach') return envelope({ request: data.request, summary: data.summary })
@@ -119,7 +116,10 @@ const lookupArguments = args => Object.fromEntries(Object.entries(args).map(([ke
 
 export async function queryAgency({ question, context, state, callTool, provider, signal, onProgress = () => {}, history = [], selection = {}, placesAvailable = true, placeEndpoint, placeDetailsEndpoint, webStatus = {} }) {
   // Legacy answers that used internal context cannot safely be re-sent or searched online.
-  history = history.filter(item => !item.privateContext).map(({ notes: _notes, ...item }) => ({ ...item, answer: replyText(item.answer) }))
+  history = history.filter(item => !item.privateContext).map(({ notes: _notes, ...item }) => ({ ...item,
+    // Numbered sources belong to their original answer. Replaying those
+    // numbers encourages citations to nonexistent checks in the new turn.
+    answer: replyText(item.answer).replace(/(^|[ \t])\[\d+\](?=$|[\s.,;:!?])/gm, '$1').trim() }))
   if (typeof question !== 'string' || !question.trim() || question.length > 2000) throw new Error('Ask a question using 1–2000 characters.')
   if (!provider.available) return { answer: 'Connect a model in Ask to start a conversation. Overview, routes and station departures remain available.', trace: [], evidenceRefs: [], generatedAt: state.generatedAt, warnings: [], providerAvailable: false }
   const runtime = queryRuntimeFacts({ provider, webStatus, placesAvailable, placeEndpoint, placeDetailsEndpoint, generatedAt: state.generatedAt })
@@ -182,6 +182,11 @@ export async function queryAgency({ question, context, state, callTool, provider
     // Observations/history follow the policy. The latest user question or tool
     // feedback remains last, without rewriting earlier source text.
     let inferenceMessages = [{ role: 'system', content: messages.filter(message => message.role === 'system').map(message => message.content).join('\n\n') }, contextMessage, ...messages.filter(message => message.role !== 'system')]
+    if (!round && history.some(item => item.findings?.some(call => call.tool === 'route_plan' && call.result.ok))) {
+      // Keep the distinction next to the latest request, where a small model
+      // chooses its next action. A selected route is not an alternatives search.
+      inferenceMessages[inferenceMessages.length - 1] = { role: 'user', content: `${question}\n\nVIGO request handling: compare the requested conditions with the saved journey inputs. Changed conditions require route_plan with those changes; reuse the endpoints, not the previous conclusion. An explanation of the saved itinerary needs only its evidence, without doing or announcing another task. Call it the saved journey; no numbered source exists until a tool runs in this turn.` }
+    }
     if (trace.length && inferenceMessages.at(-1).role === 'tool') {
       const last = inferenceMessages.at(-1)
       const newline = last.content.indexOf('\n')

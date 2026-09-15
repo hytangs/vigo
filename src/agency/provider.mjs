@@ -42,8 +42,11 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
   if (!['openai', 'ollama'].includes(config.protocol)) throw new Error('Choose openai or ollama as the model protocol.')
   config.reasoningEffort = reasoning(config.reasoningEffort, config.protocol)
   config.contextTokens = contextSize(environment.VIGO_AGENCY_LLM_CONTEXT_TOKENS)
-  const timeoutMs = Number(environment.VIGO_AGENCY_LLM_TIMEOUT_MS ?? 45_000)
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 300_000) throw new Error('Provider timeout must be between 1,000 and 300,000 milliseconds.')
+  // Local prefill plus a constrained tool form can exceed the cloud request
+  // budget on a busy laptop. Keep an explicit override and a bounded timeout;
+  // streamed activity still reaches Ask while the local model is working.
+  const configuredTimeoutMs = environment.VIGO_AGENCY_LLM_TIMEOUT_MS === undefined ? null : Number(environment.VIGO_AGENCY_LLM_TIMEOUT_MS)
+  if (configuredTimeoutMs !== null && (!Number.isInteger(configuredTimeoutMs) || configuredTimeoutMs < 1000 || configuredTimeoutMs > 300_000)) throw new Error('Provider timeout must be between 1,000 and 300,000 milliseconds.')
   let source = 'environment', testedAt = null, revision = 0, callSequence = 0, connectionAttempt = 0
   function candidate(input) {
     if (!input || typeof input !== 'object') throw new Error('Enter the provider connection details.')
@@ -56,6 +59,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
     return { baseUrl, model, protocol, contextTokens: contextSize(input.contextTokens ?? config.contextTokens), reasoningEffort: reasoning(input.reasoningEffort, protocol), temperature: temperature(input.temperature ?? (baseUrl === config.baseUrl ? config.temperature : undefined)), key: String(input.apiKey ?? '').trim() || (baseUrl === config.baseUrl ? config.key : '') }
   }
   async function request(connection, suffix, body, signal, onActivity) {
+    const timeoutMs = configuredTimeoutMs ?? (connection.protocol === 'ollama' ? 90_000 : 45_000)
     const timeout = AbortSignal.timeout(timeoutMs)
     let activity
     try {

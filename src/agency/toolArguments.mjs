@@ -41,7 +41,7 @@ export function validateArguments(value, schema, name = 'arguments') {
     if (schema.type === 'number' && !Number.isFinite(value)) throw new Error(`Invalid ${name}.`)
     if (schema.enum && !schema.enum.includes(value)) throw new Error(`Invalid ${name}.`)
     if (schema.minimum !== undefined && value < schema.minimum || schema.maximum !== undefined && value > schema.maximum) throw new Error(`Out-of-range ${name}.`)
-    if (schema.pattern && !new RegExp(schema.pattern).test(value)) throw new Error(`Invalid ${name}.`)
+    if (schema.pattern && !new RegExp(schema.pattern).test(value)) throw new Error(`Invalid ${name}. Expected ${schema.description || `format ${schema.pattern}`}`)
     if (typeof value === 'string' && value.length > (schema.maxLength ?? 8000)) throw new Error(`${name} is too long.`)
     if (typeof value === 'string' && value.length < (schema.minLength ?? 0)) throw new Error(`${name} is empty.`)
   }
