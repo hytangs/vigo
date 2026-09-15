@@ -35,3 +35,13 @@ The LAMP result remains a retrospective historical running-time baseline. Replay
 Before describing Ask as verified operational intelligence, test unsupported incident/recovery claims and valid-but-irrelevant citations against an explicit claim-to-evidence representation. A stronger causal evaluation must hide the deterministic recommendation, include contradictory and unavailable observations, and score abstention and operational decisions independently. This pass deliberately does not replace that work with another prompt or another feature surface.
 
 The protected root README, assumptions and AI-use documents were not edited. Their authorship and assessment claims require their owner's review.
+
+## Follow-up: Ollama timeouts
+
+The desktop preset left reasoning at provider default, while the earlier browser server explicitly used `none`. Ollama enables thinking by default for supported models ([Ollama documentation](https://docs.ollama.com/capabilities/thinking)). The desktop's 45-second deadline could interrupt both initial tool selection and the short follow-up that chooses journey coordinates. The timeout message incorrectly suggested no model response even when generation had started.
+
+New Ollama connections now default to reasoning off. Explicit provider-default and reasoning settings remain available for questions. The bounded location-selection step always uses reasoning off and at most 256 output tokens, with the existing 8K context preserved to avoid a model reload. Coordinates, mode choices and timing constraints remain owned by the journey tool. Timeout messages distinguish observed reasoning, an incomplete response, and no received activity; no private reasoning text is retained.
+
+On this 16 GB Apple-silicon machine with the already-loaded `qwen3.5:4b`, the retained Fremont Street Experience → New York–New York location form timed out at 45 seconds with provider-default thinking. A subsequent run with reasoning off selected the intended pedestrian area and casino in 1.9 seconds. Both full questions then produced itineraries through the patched API: 15.3 seconds with “by transit,” and 13.6 seconds without it, including the same unrelated map selection. These are local warm-run observations, not a cold-start benchmark or a guarantee for other questions; prompt and place caches differ across runs. No larger model or extra inference call was introduced.
+
+Regression checks cover local defaults, explicit reasoning settings, bounded selection, retained context size, normal response budgets and truthful timeout activity. The full Agency suite, TypeScript check, desktop build and packaged-runtime checks passed. The updated app was built separately so the running session was not overwritten.

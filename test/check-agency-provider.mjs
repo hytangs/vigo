@@ -78,6 +78,12 @@ for (const [reasoningEffort, expected] of [['on', true], ['low', 'low'], ['mediu
 await assert.rejects(provider.models({ baseUrl: 'https://models.example/v1', protocol: 'openai', reasoningEffort: 'on' }), /reasoning effort/)
 await assert.rejects(native.models({ baseUrl: 'http://localhost:11434', protocol: 'ollama', contextTokens: 10 }), /Local context/)
 assert.throws(() => createProvider({ VIGO_AGENCY_LLM_PROTOCOL: 'invented' }), /protocol/)
+assert.equal(createProvider({ VIGO_AGENCY_LLM_PROTOCOL: 'ollama' }).status().reasoningEffort, 'none', 'Environment and desktop connections default to quick local responses')
+assert.equal(createProvider({ VIGO_AGENCY_LLM_PROTOCOL: 'ollama', VIGO_AGENCY_LLM_REASONING_EFFORT: '' }).status().reasoningEffort, '', 'Explicit provider default remains available')
+assert.equal(createProvider({}).status().reasoningEffort, '', 'Cloud providers retain their own default')
+await native.connect({ baseUrl: 'http://localhost:11434', model: 'local-model', protocol: 'ollama' })
+await native.complete([{ role: 'user', content: 'A question using the connection defaults' }], [])
+assert.equal(nativeRequests.at(-1).body.think, false, 'Session connections and environment configuration use the same local default')
 console.log('Agency provider: model discovery, inference verification, private session keys, endpoint isolation, failure recovery, and disconnect passed.')
 
 for (const value of ['NaN', '0', '300001']) assert.throws(() => createProvider({ VIGO_AGENCY_LLM_TIMEOUT_MS: value }), /timeout/)
@@ -85,6 +91,15 @@ const timed = createProvider({ VIGO_AGENCY_LLM_BASE_URL: 'http://localhost:11434
 // Keep the isolated fixture alive while the provider's unref'd deadline expires.
 const keepAlive = setInterval(() => {}, 2000)
 try { await assert.rejects(timed.complete([], []), /within 1 seconds/) } finally { clearInterval(keepAlive) }
+for (const [kind, detail] of [['thinking', /still reasoning/], ['content', /started responding/]]) {
+  const active = createProvider({ VIGO_AGENCY_LLM_BASE_URL: 'http://localhost:11434', VIGO_AGENCY_LLM_PROTOCOL: 'ollama', VIGO_AGENCY_LLM_MODEL: 'local-model', VIGO_AGENCY_LLM_TIMEOUT_MS: '1000' }, async (_url, options) => new Response(new ReadableStream({ start(controller) {
+    controller.enqueue(new TextEncoder().encode(JSON.stringify({ message: { [kind]: 'private unfinished text' } }) + '\n'))
+    options.signal.addEventListener('abort', () => controller.error(options.signal.reason), { once: true })
+  } }), { headers: { 'content-type': 'application/x-ndjson' } }))
+  const timer = setInterval(() => {}, 2000)
+  try { await assert.rejects(active.complete([], [], undefined, { onActivity() {} }), error => detail.test(error.message) && !/private unfinished text|No response activity/.test(error.message)) }
+  finally { clearInterval(timer) }
+}
 
 // Native streaming must surface activity before completion, without leaking
 // thinking or executing an incomplete function call.
@@ -131,7 +146,7 @@ for (const bad of ['{"task":"Plan a journey","action":"route_plan","arguments":{
   assert.throws(() => form.parse(bad), /Unknown|unavailable|did not finish/)
 }
 let formBody
-const formed = createProvider({ VIGO_AGENCY_LLM_BASE_URL: 'http://localhost:11434', VIGO_AGENCY_LLM_PROTOCOL: 'ollama', VIGO_AGENCY_LLM_MODEL: 'local-model' }, async (_url, options) => {
+const formed = createProvider({ VIGO_AGENCY_LLM_BASE_URL: 'http://localhost:11434', VIGO_AGENCY_LLM_PROTOCOL: 'ollama', VIGO_AGENCY_LLM_MODEL: 'local-model', VIGO_AGENCY_LLM_REASONING_EFFORT: 'on' }, async (_url, options) => {
   formBody = JSON.parse(options.body)
   return Response.json({ message: { content: JSON.stringify({ ...(formBody.format.anyOf[0].properties.task ? { task: 'Plan a journey' } : {}), action: 'route_plan', arguments: { origin: 'Museum', destination: 'Airport' } }) } })
 })
@@ -163,3 +178,12 @@ assert.throws(() => requiredForm.parse(JSON.stringify({action: 'answer', text: '
 assert.throws(() => providerChoice([], [route], [route], false, 'missing'), /unavailable/)
 await formed.complete([], [route], undefined, {toolChoice: {type: 'function', function: {name: route.name}}})
 assert.equal(formBody.format.anyOf.length, 1, 'Native required-tool requests must also constrain Ollama output')
+assert.equal(formBody.think, true, 'A required tool by itself must not disable requested investigation reasoning')
+await formed.complete([], [route], undefined, { structuredTools: true, selectionOnly: true })
+assert.equal(formBody.think, false, 'Bounded coordinate choices cannot consume the investigation reasoning budget')
+assert.equal(formBody.options.num_predict, 256)
+assert.equal(formBody.options.num_ctx, 8192, 'Selection should reuse the loaded model context instead of reloading it')
+assert.equal(formed.status().reasoningEffort, 'on', 'A short location choice does not change the connection settings')
+await formed.complete([], [route], undefined, { structuredTools: true })
+assert.equal(formBody.think, true)
+assert.equal(formBody.options.num_predict, 1800, 'Full questions retain their response budget after a location choice')

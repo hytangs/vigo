@@ -25,13 +25,19 @@ function contextSize(value) {
 }
 
 function reasoning(value, protocol) {
-  const effort = String(value ?? '')
+  const effort = String(value ?? (protocol === 'ollama' ? 'none' : ''))
   if (!['', 'none', 'low', 'medium', 'high', ...(protocol === 'ollama' ? ['on'] : [])].includes(effort)) throw new Error('Unsupported reasoning effort.')
   return effort
 }
 
+function timeoutDetail(activity, protocol) {
+  if (activity === 'thinking') return 'It was still reasoning. Try turning reasoning off in AI settings.'
+  if (activity) return 'It started responding, but the response was incomplete.'
+  return `No response activity was received.${protocol === 'ollama' ? ' Ollama may be loading the model or handling another request.' : ''}`
+}
+
 export function createProvider(environment = process.env, fetcher = globalThis.fetch) {
-  let config = { baseUrl: String(environment.VIGO_AGENCY_LLM_BASE_URL ?? '').replace(/\/$/, ''), model: String(environment.VIGO_AGENCY_LLM_MODEL ?? ''), key: String(environment.VIGO_AGENCY_LLM_API_KEY ?? ''), reasoningEffort: String(environment.VIGO_AGENCY_LLM_REASONING_EFFORT ?? ''), temperature: temperature(environment.VIGO_AGENCY_LLM_TEMPERATURE) }
+  let config = { baseUrl: String(environment.VIGO_AGENCY_LLM_BASE_URL ?? '').replace(/\/$/, ''), model: String(environment.VIGO_AGENCY_LLM_MODEL ?? ''), key: String(environment.VIGO_AGENCY_LLM_API_KEY ?? ''), reasoningEffort: environment.VIGO_AGENCY_LLM_REASONING_EFFORT, temperature: temperature(environment.VIGO_AGENCY_LLM_TEMPERATURE) }
   config.protocol = environment.VIGO_AGENCY_LLM_PROTOCOL || 'openai'
   if (!['openai', 'ollama'].includes(config.protocol)) throw new Error('Choose openai or ollama as the model protocol.')
   config.reasoningEffort = reasoning(config.reasoningEffort, config.protocol)
@@ -51,16 +57,17 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
   }
   async function request(connection, suffix, body, signal, onActivity) {
     const timeout = AbortSignal.timeout(timeoutMs)
+    let activity
     try {
       const response = await fetcher(`${normalizeBaseUrl(connection.baseUrl)}${suffix}`, {
         method: body ? 'POST' : 'GET', redirect: 'error', signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
         headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(connection.key ? { authorization: `Bearer ${connection.key}` } : {}) },
         ...(body ? { body: JSON.stringify(body) } : {}),
       })
-      return await readProviderResponse(response, onActivity)
+      return await readProviderResponse(response, kind => { activity = kind; onActivity?.(kind) })
     } catch (error) {
       if (signal?.aborted) throw error
-      if (timeout.aborted) throw new Error(`The provider did not respond within ${timeoutMs / 1000} seconds.${connection.protocol === 'ollama' ? ' Ollama may still be loading the model or handling another request. Wait for it to finish, then retry.' : ''}`)
+      if (timeout.aborted) throw new Error(`The model did not finish within ${timeoutMs / 1000} seconds. ${timeoutDetail(activity, connection.protocol)}`)
       if (error instanceof TypeError) throw new Error('Could not reach the provider. Check the URL and whether the local model server is running.')
       throw error
     }
@@ -70,6 +77,10 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
     if (connection.protocol === 'ollama') {
       const requiredTool = options.toolChoice?.type === 'function' ? options.toolChoice.function?.name : null
       const choice = (options.structuredTools || requiredTool) && tools?.length ? providerChoice(messages, tools, options.initialTools, options.selectionOnly, requiredTool) : null
+      // Choosing supplied location IDs needs a small form, not another full
+      // investigation. Explicit reasoning settings still apply to other turns.
+      const selecting = choice && options.selectionOnly
+      const effort = selecting ? 'none' : connection.reasoningEffort
       const names = new Map(messages.flatMap(message => (message.tool_calls ?? []).map(call => [call.id, call.function.name])))
       const nativeMessages = messages.map(message => ({ role: message.role, content: message.content ?? '',
         ...(message.role === 'tool' ? { tool_name: names.get(message.tool_call_id) } : {}),
@@ -78,8 +89,8 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
       const result = await request({ ...connection, baseUrl: normalizeBaseUrl(connection.baseUrl).replace(/\/(?:v1|api)$/, '') }, '/api/chat', {
         model: connection.model, messages: choice?.messages ?? nativeMessages, stream: Boolean(options.onActivity),
         ...(choice ? { format: choice.format } : tools?.length ? { tools: tools.map(tool => ({ type: 'function', function: tool })) } : {}),
-        ...(connection.reasoningEffort ? { think: connection.reasoningEffort === 'none' ? false : connection.reasoningEffort === 'on' ? true : connection.reasoningEffort } : {}),
-        options: { num_ctx: connection.contextTokens, num_predict: options.maxTokens || 1800, ...(choice ? { presence_penalty: 0 } : {}), ...(connection.temperature !== undefined ? { temperature: connection.temperature } : choice ? { temperature: 0 } : {}) },
+        ...(effort ? { think: effort === 'none' ? false : effort === 'on' ? true : effort } : {}),
+        options: { num_ctx: connection.contextTokens, num_predict: selecting ? Math.min(options.maxTokens || 256, 256) : options.maxTokens || 1800, ...(choice ? { presence_penalty: 0 } : {}), ...(connection.temperature !== undefined ? { temperature: connection.temperature } : choice ? { temperature: 0 } : {}) },
       }, signal, kind => options.onActivity?.(choice && kind === 'content' ? 'decision' : kind))
       if (!result.message) throw new Error('The local model returned no response message.')
       const message = choice ? choice.parse(result.message.content) : { content: result.message.content, tool_calls: result.message.tool_calls?.map(call => ({ type: 'function', function: { name: call.function.name, arguments: JSON.stringify(call.function.arguments) } })) }
