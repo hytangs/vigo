@@ -28,7 +28,7 @@ const descriptions = {
 }
 
 // Common requests must not spend a model round loading their own schema.
-const readyTools = new Set(['inspect_service', 'service_timing', 'network_overview', 'resolve_entities', 'place_search', 'nearby_stops', 'realtime_status', 'route_plan', 'runtime_status', 'service_profile', 'stop_arrivals'])
+const readyTools = new Set(['inspect_service', 'service_timing', 'gtfs_query', 'resolve_entities', 'place_search', 'nearby_stops', 'route_plan', 'runtime_status', 'service_profile', 'stop_arrivals'])
 
 export function discoverableTools(available, retainedNames = []) {
   const index = available.filter(tool => descriptions[tool.name] && !readyTools.has(tool.name))

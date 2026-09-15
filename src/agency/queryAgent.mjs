@@ -207,6 +207,7 @@ export async function queryAgency({ question, context, state, callTool, provider
       // catalogue in the model context. A further evidence request returns to
       // the normal tool loop; this is not an unconditional final-answer step.
       inferenceMessages = [{ role: 'system', content: assessmentInstructions }, { role: 'user', content: modelResult({ question,
+        ...(emptyReplies ? { responseInstruction: 'The last response contained no finished public answer. Return only the concise final answer from the evidence below, without a thinking process or a private draft.' } : {}),
         clock, availableData: operationalDataContext(state), ...(repeatedInspection ? { completion: 'The last inspection repeated the same arguments against the same frozen observation. Use the existing evidence to answer now, including any missing input; do not claim new checks or a completed forecast.' } : {}), history: history.slice(-2).map(item => ({ question: item.question, answer: item.answer.slice(0, 1600), ...conversationEvidence(item) })),
         evidence: trace.map((call, index) => ({ source: index + 1, tool: call.tool, arguments: call.arguments, result: JSON.parse(compactResult(call.result, call.tool)) })) }) }]
       currentTools = [{ name: 'prepare_tools', description: 'If a material part of the request still needs evidence, select tools to continue. inspect_service: diagnosis/outlook; historical_baseline or historical_runtime: historical comparison; recall_notebook: saved work; operational_context: approved public references; service_alerts: notices; stop_arrivals: station times; route_plan: journeys; runtime_status: deployment facts. Otherwise answer the staff question now.',
@@ -365,7 +366,7 @@ export async function queryAgency({ question, context, state, callTool, provider
       renderedFromEvidence = true
       break
     }
-    if (calls.length === 1 && ['stop_arrivals', 'service_timing'].includes(calls[0].function.name) && finishWithTable && trace.at(-1)?.result.ok) {
+    if (calls.length === 1 && ['stop_arrivals', 'service_timing'].includes(calls[0].function.name) && finishWithTable && !assessmentMode && trace.at(-1)?.result.ok) {
       answer = `${summarizeEvidence(trace)} [${trace.length}]`
       renderedFromEvidence = true
       break

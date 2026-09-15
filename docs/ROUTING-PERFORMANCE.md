@@ -55,7 +55,7 @@ These are generic transfer repairs. They introduce no Harvard-specific selection
 ## Measurement boundaries
 
 - Route: public store adapter through a complete materialized itinerary, including walking and ride geometry. Departure-window cases include the displayed alternatives.
-- Reach: one-to-many transit search, pedestrian expansion, complete travel-time raster and contour generation. This does not measure only the timetable kernel.
+- Reach: transit search to all reachable stops, pedestrian expansion, complete travel-time raster and contour generation. This does not measure only the timetable kernel.
 - Fresh-process CLI: process launch through process exit with all JSON received. Includes startup, data preparation, computation and serialization. The OS disk cache is **not** cleared.
 - Resident CLI: one request at a time through receipt of its complete JSON line, before the benchmark parses it. Includes computation, materialization, serialization and pipe transport.
 - Warm measurements follow one unmeasured warm-up per case in each process. Normal engine/access/geometry caches remain enabled in both releases. There is no LLM in these measurements.

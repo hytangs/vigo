@@ -105,7 +105,7 @@ export async function inspectOperationalService({ context, state, snapshot, dire
   return {
     aspect,
     scope: { routes: names(selectedRoutes), stops: scope.stopIds.map(id => ({ id, name: context.stopIndex.get(id)?.name })), tripId: scope.tripId, vehicleId: args.vehicleId, allNetwork },
-    asOf: clock(now), predictionWindowMinutes: state.policy.windowMinutes,
+    asOf: clock(now), predictionWindowMinutes: state.policy.windowMinutes, requestedHorizonMinutes: args.horizonMinutes,
     serviceContext: diagnosis.serviceContext, scheduledServiceSummary: serviceContextNarrative(diagnosis),
     coverage: { ...diagnosis.coverage, feeds: feeds.map(({ kind, status, ageSeconds }) => ({ kind, status, ageSeconds })) },
     network: { ...diagnosis.network, measuredRoutes: diagnosis.coverage.measuredRoutes, routesWithLatePredictions: diagnosis.routes.filter(route => route.laterTrips).length },
@@ -137,7 +137,11 @@ export async function inspectOperationalService({ context, state, snapshot, dire
 // Model-facing facts attach the measurement, scope and interpretation limit to
 // each value. Full structured data remain in the saved technical record.
 export function inspectionFacts(data) {
-  if (!data.routes) return data
+  if (!data.routes) return data.notices ? { ...data, notices: data.notices.map(notice => ({ ...notice,
+    activePeriods: notice.activePeriods?.map(period => Object.fromEntries(['start', 'end'].map(key => [key,
+      Number.isFinite(period[key]) ? agencyClock(new Date(period[key] * 1000).toISOString(), data.timezone) : null]))),
+    periodMeaning: 'Notice display periods in the agency timezone, not incident onset or recovery time.',
+  })) } : data
   const n = data.network, c = data.coverage
   const facts = [
     ...(data.scope.allNetwork ? [
@@ -152,7 +156,7 @@ export function inspectionFacts(data) {
     ...data.notices.map(notice => `Agency notice for ${notice.scopeDescription || notice.routes.map(route => route.name).join(', ') || 'the stated stops'}: ${notice.title}. ${(notice.description || '').slice(0, 1200)} Effect: ${notice.effect}; reported cause: ${notice.cause || 'unspecified'}. Validity dates are not onset or recovery evidence. This does not establish the cause of every trip delay or a shared cause on other routes.`),
     ...(!data.scope.allNetwork ? data.trips : []).map(trip => `Vehicle ${trip.vehicleId || 'not identified'}, route ${trip.route}: next compared DEPARTURE at ${trip.stop}, scheduled ${trip.scheduled}, predicted ${trip.predicted} (${trip.delayMinutes} minutes deviation). ${trip.retainedReports.length ? `Retained prediction reports: ${trip.retainedReports.map(row => `${row.at}, ${row.stop}, ${row.delayMinutes} minutes delay`).join('; ')}. These are changes in forecasts, not observed progression or incident onset.` : 'No retained prediction history is supplied for this trip.'}`),
     ...data.vehicles.filter(vehicle => vehicle.occupancy).map(vehicle => `Vehicle ${vehicle.vehicle}, route ${vehicle.route}, reports occupancy ${vehicle.occupancy} at ${vehicle.at}. This is a vehicle occupancy category, not APC passenger counts or a demand diagnosis.`),
-    ...(data.aspect === 'outlook' ? data.outlook : []).map(row => `Schedule exposure through ${row.through} (${row.minutes} minutes): ${row.scheduledTrips} scheduled trips, ${row.reportedCancelled} reported cancelled, ${row.withoutMatchedReport} without a matching report. A future trip need not report yet; this is NOT a forecast of missing pull-outs or service recovery.`),
+    ...(data.aspect === 'outlook' || data.requestedHorizonMinutes !== undefined ? data.outlook : []).map(row => `Schedule exposure through ${row.through} (${row.minutes} minutes): ${row.scheduledTrips} scheduled trips, ${row.reportedCancelled} reported cancelled, ${row.withoutMatchedReport} without a matching report. A future trip need not report yet; this is NOT a forecast of missing pull-outs or service recovery.`),
   ]
   return { scope: data.scope, asOf: data.asOf,
     servicePattern: { routesWithLatePredictions: data.routes.filter(route => route.laterTrips).map(route => route.route),

@@ -35,9 +35,9 @@ assert.equal(profileAnswer.aiGenerated, true)
 assert.equal(profileCalls, 2, 'A timetable result is assessed against the question instead of automatically ending any operational investigation')
 const event = { id: 'delay/T1', type: 'delay', title: 'Departure later than scheduled', routeId: 'R', stopId: 'A', observedAt: state.observedAt, evidence: { delaySeconds: 300 }, sourceRefs: ['fixture:trip/T1'] }
 const catalog = discoverableTools(toolDefinitions)
-for (const name of ['gtfs_query', 'walk_compare', 'run_runtime_study', 'compare_holding']) assert.ok(!catalog.definitions().some(tool => tool.name === name), 'Specialist schemas load only when needed')
+for (const name of ['network_overview', 'realtime_status', 'walk_compare', 'run_runtime_study', 'compare_holding']) assert.ok(!catalog.definitions().some(tool => tool.name === name), 'Specialist schemas load only when needed')
 assert.throws(() => catalog.prepare({ names: ['invented_tool'] }), /available catalogue/)
-for (const name of ['network_overview', 'route_plan', 'realtime_status']) assert.ok(catalog.definitions().some(tool => tool.name === name), 'Common transit tools are ready without a discovery round')
+for (const name of ['gtfs_query', 'route_plan', 'inspect_service', 'service_timing']) assert.ok(catalog.definitions().some(tool => tool.name === name), 'Common transit tools are ready without a discovery round')
 assert.ok(discoverableTools(toolDefinitions, ['walk_compare']).definitions().some(tool => tool.name === 'walk_compare'), 'Follow-ups retain tools used in their saved context')
 let discoveryTurn = 0, discoveryExecutions = 0
 const discovered = await queryAgency({ question: 'Check current service', context, state, placesAvailable: false,

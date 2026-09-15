@@ -5,5 +5,13 @@ export function publicReply(content) {
     ? content.filter(part => part?.type === 'text' && typeof part.text === 'string').map(part => part.text).join('') : ''
   const cleaned = text.replace(/<think\b[^>]*>[\s\S]*?(?:<\/think\s*>|$)/gi, '')
   const closing = [...cleaned.matchAll(/<\/think\s*>/gi)].at(-1)
-  return (closing ? cleaned.slice(closing.index + closing[0].length) : cleaned).trim()
+  const reply = (closing ? cleaned.slice(closing.index + closing[0].length) : cleaned).trim()
+  // Some compatible endpoints put an explicitly labelled private draft in
+  // content instead of a reasoning field. Only accept its separate final
+  // answer; an unfinished draft uses Ask's existing bounded retry.
+  if (/^(?:#{1,6}\s*|\*\*)?(?:Thinking Process|Internal Reasoning)(?:\*\*)?\s*:/i.test(reply)) {
+    const final = /^(?:#{1,6}\s*|\*\*)?Final Answer(?:\*\*)?\s*:(?:\*\*)?\s*/im.exec(reply)
+    return final ? reply.slice(final.index + final[0].length).trim() : ''
+  }
+  return reply
 }

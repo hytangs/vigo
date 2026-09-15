@@ -92,6 +92,9 @@ try {
     assert.doesNotMatch(publicReply(content), /private|think|unfinished/)
   }
   assert.equal(publicReply('private draft</think>Public answer.'), 'Public answer.')
+  assert.equal(publicReply('Thinking Process:\nprivate unfinished draft'), '')
+  assert.equal(publicReply('**Thinking Process:**\nprivate draft\n**Final Answer:**\nPublic answer.'), 'Public answer.')
+  assert.equal(publicReply('This explains the thinking process behind a service change.'), 'This explains the thinking process behind a service change.')
   let round = 0
   const normalized = await queryAgency({ question: 'Check R for an hour', context, state, callTool: async (name, args) => {
     assert.equal(name, 'inspect_service'); assert.equal(args.horizonMinutes, 60)
