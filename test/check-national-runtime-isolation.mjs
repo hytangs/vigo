@@ -37,7 +37,7 @@ async function writeFixtureProject(projectId) {
   await fs.writeFile(path.join(metaPath, 'project.json'), `${JSON.stringify(fixtureProject(projectId))}\n`)
   const database = new DatabaseSync(storePath)
   try {
-    database.exec('CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    database.exec("CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE stops(stop_id TEXT PRIMARY KEY); INSERT INTO stops VALUES('fixture-origin'),('fixture-destination');")
     const insert = database.prepare('INSERT INTO metadata(key,value) VALUES(?,?)')
     insert.run('schemaVersion', JSON.stringify('vigo.routing.store.v1'))
     insert.run(

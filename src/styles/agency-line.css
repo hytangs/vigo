@@ -105,3 +105,11 @@
 
 .agency-line-vehicle.has-alert { border-color: var(--warn); }
 .agency-line-indicator { color: var(--warn); font-weight: 700; }
+
+.agency-trip-position { display: grid; gap: 5px; margin: 18px 0; padding: 14px 16px; border-left: 3px solid var(--vigo-lime-strong); background: var(--active-surface); }
+.agency-trip-position > span { color: var(--text-muted); font-size: 12px; }
+.agency-trip-position > strong { color: var(--text-strong); font-size: 17px; line-height: 1.4; }
+.agency-trip-passed-toggle { margin-bottom: 10px; }
+.agency-trip-timetable .is-current-stop { background: var(--active-surface); }
+.agency-trip-timetable .is-current-stop th { border-left-color: var(--vigo-lime-strong); }
+.agency-trip-timetable .is-passed-stop { color: var(--text-muted); }

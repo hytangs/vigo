@@ -1729,7 +1729,7 @@ const emptyCoordinates: [number, number][] = []
 const emptyVehicleFrame: ServiceVehicleFrame = { mode: 'schedule', vehicles: [], tripUpdateCount: 0, alertCount: 0 }
 
 function RouteSurface({
-  onOpenVehicleTrip,
+  onOpenTrip,
   operationalEvents,
   agencyFocus,
   scheduleLoadStatus,
@@ -1825,7 +1825,7 @@ function RouteSurface({
   onScheduleTimeChange: (minutes: number) => void
   onScheduleServiceDateChange: (serviceDate: string) => void
   onRoutingPoint?: (point: RoutingPoint) => void
-  onOpenVehicleTrip?: (trip: TripTarget) => void
+  onOpenTrip?: (trip: TripTarget) => void
   onSelectRoute: (id: string, options?: { inspect?: boolean }) => void
   onSelectStop: (id: string, options?: { inspect?: boolean }) => void
 }) {
@@ -1915,7 +1915,7 @@ function RouteSurface({
   function navigateVehicle(vehicle: VehicleTiming, destination: 'line' | 'trip') {
     if (!vehicle.routeId) return
     if (destination === 'trip') {
-      if (vehicle.tripId && vehicle.serviceDate) onOpenVehicleTrip?.({ routeId: vehicle.routeId, tripId: vehicle.tripId, serviceDate: vehicle.serviceDate })
+      if (vehicle.tripId && vehicle.serviceDate) onOpenTrip?.({ routeId: vehicle.routeId, tripId: vehicle.tripId, serviceDate: vehicle.serviceDate })
     }
     else { onSelectRoute(vehicle.routeId, { inspect: false }); setAgencyView('line') }
   }
@@ -1965,8 +1965,8 @@ function RouteSurface({
         ) : null}
       </div>
       <div className="surface-panel route-map-shell">
-        {showAgencyLine ? <AgencyRouteLine vehicleFrame={vehicleFrame} onOpenTrip={onOpenVehicleTrip} key={`${projectId}/${selectedRouteId}`} projectId={projectId} preview={focusedPreview} routeId={isNetworkMap ? '' : selectedRoute ? networkRouteId(selectedRoute) : selectedRouteId} selectedStopId={selectedStopId} showStopDetails={false} onSelectStop={onSelectStop} onNavigateVehicle={navigateVehicle} /> : <LazyVigoMap
-          onOpenTrip={agencyFocus ? onOpenVehicleTrip : undefined}
+        {showAgencyLine ? <AgencyRouteLine vehicleFrame={vehicleFrame} onOpenTrip={onOpenTrip} key={`${projectId}/${selectedRouteId}`} projectId={projectId} preview={focusedPreview} routeId={isNetworkMap ? '' : selectedRoute ? networkRouteId(selectedRoute) : selectedRouteId} selectedStopId={selectedStopId} showStopDetails={false} onSelectStop={onSelectStop} onNavigateVehicle={navigateVehicle} /> : <LazyVigoMap
+          onOpenTrip={agencyFocus ? onOpenTrip : undefined}
           onNavigateVehicle={agencyFocus ? navigateVehicle : undefined}
           showStopDetails={!agencyFocus}
           focusLocation={agencyFocus ? agencyLocation : undefined}
@@ -5194,7 +5194,7 @@ export default function App() {
       ) : (
       <div className="workbench project-workbench route-investigation-shell">
         <RouteSurface
-          onOpenVehicleTrip={openAgencyTrip}
+          onOpenTrip={openAgencyTrip}
           operationalEvents={activeRouteTool === 'agency' ? operationalEvents : undefined}
           agencyFocus={activeRouteTool === 'agency'}
           scheduleLoadStatus={scheduleLoadStatus}

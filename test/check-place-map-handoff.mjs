@@ -23,6 +23,7 @@ try {
   notebook.close()
   let checked = false
   service = createAgencyService({ context: async () => ({ storePath, cityName: 'City X', agencyDirectory: directory }) }, {
+    clock: () => Date.parse('2026-09-16T12:01:00Z'),
     provider: { available: true, complete: async messages => {
       const context = messages.find(message => message.content?.includes('Conversation metadata'))?.content
       assert.match(context, /17 Market Street, City X/, 'The source address survives into a show-it-on-map follow-up')

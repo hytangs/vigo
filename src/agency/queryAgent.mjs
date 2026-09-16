@@ -123,7 +123,7 @@ const lookupArguments = args => Object.fromEntries(Object.entries(args).map(([ke
 
 export async function queryAgency({ question, context, state, callTool, provider, signal, onProgress = () => {}, history = [], selection = {}, placesAvailable = true, placeEndpoint, placeDetailsEndpoint, webStatus = {} }) {
   // Legacy answers that used internal context cannot safely be re-sent or searched online.
-  history = workingConversation(history, Date.parse(state.generatedAt)).map(({ notes: _notes, ...item }) => ({ ...item,
+  history = workingConversation(history, Date.parse(state.generatedAt), item => JSON.stringify({ ...item, findings: undefined, requests: undefined, ...conversationEvidence(item) }).length).map(({ notes: _notes, ...item }) => ({ ...item,
     // Numbered sources belong to their original answer. Replaying those
     // numbers encourages citations to nonexistent checks in the new turn.
     answer: replyText(item.answer).replace(/(^|[ \t])\[\d+\](?=$|[\s.,;:!?])/gm, '$1').trim() }))

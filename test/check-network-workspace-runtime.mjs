@@ -28,6 +28,7 @@ const harness = `import React from 'react';
 import {createRoot} from 'react-dom/client';
 import {AgencyPanel} from '/src/components/AgencyPanel.tsx';
 import {NetworkAssessment} from '/src/components/NetworkAssessment.tsx';
+import {StopArrivalBoardView} from '/src/components/StopArrivalBoard.tsx';
 import '/src/App.css';
 import '/src/index.css';
 Date.now = () => ${observationTime * 1000};
@@ -35,7 +36,7 @@ const noop = () => {};
 const root = createRoot(document.getElementById('root'));
 let appearance='light', renderKey=0, failLatestBriefing=true;
 const shell = child => React.createElement('div',{className:'app-shell appearance-'+appearance+' page-project view-agency',style:{display:'block',height:'100vh',maxWidth:'480px'}},child);
-let observationReads = 0, legacyTimetable = false, omitTimetablePredictions = false;
+let observationReads = 0, legacyTimetable = false, omitTimetablePredictions = false, timetableProgress = false;
 const timetablePolls = new Map(), originalInterval = window.setInterval, originalClearInterval = window.clearInterval;
 window.setInterval = (callback, ms, ...args) => {const id=originalInterval(callback,ms,...args);if(ms===15000)timetablePolls.set(id,callback);return id};
 window.clearInterval = id => {timetablePolls.delete(id);originalClearInterval(id)};
@@ -54,9 +55,12 @@ window.fetch = (url, init) => {
     if(legacyTimetable && init?.method === 'POST' && JSON.parse(init.body).includeTrips && response.ok) {
       const result=await response.json(); delete result.trips; delete result.trip; return Response.json(result);
     }
-    if(omitTimetablePredictions && init?.method === 'POST' && JSON.parse(init.body).includeTrips && response.ok) {
+    if((omitTimetablePredictions || timetableProgress) && init?.method === 'POST' && JSON.parse(init.body).includeTrips && response.ok) {
       const result=await response.json();
-      result.trip?.calls.forEach(call=>{call.arrival.current=null;call.departure.current=null});
+      result.trip?.calls.forEach((call,index)=>{
+        if(omitTimetablePredictions){call.arrival.current=null;call.departure.current=null}
+        if(timetableProgress)call.progress=index===0?'Passed':index===1?'At stop':'Upcoming';
+      });
       return Response.json(result);
     }
     if(!providerAvailable && String(url).includes('/agency?') && response.ok) {
@@ -326,6 +330,15 @@ window.runTests = async () => {
   for(const target of locationHost.querySelectorAll('.network-assessment-location')) target.click();
   locationHost.querySelector('.network-assessment-location').click();
   check(JSON.stringify(locatedStops)===JSON.stringify(['A','B','A','A']),'Briefing positions use exact concentration and spacing stop IDs, including repeated clicks');
+  const openedTrips=[];
+  const instant=Date.now()/1000;
+  const boardRow={key:'arrival',routeId:'feed::R',tripId:'T2',serviceDate:'2026-09-13',routeName:'R',color:'#ffcc00',destination:'Terminal',stopName:'Station B',stopId:'B',kind:'departure',status:'live',expected:instant+60,arrival:{scheduled:instant,current:instant+60},departure:{scheduled:instant,current:instant+60}};
+  locationRoot.render(React.createElement(StopArrivalBoardView,{data:{stop:{name:'Station B'},generatedAt:new Date().toISOString(),timezone:'Etc/UTC',rows:[boardRow],warnings:[],feeds:[],total:1},onOpenTrip:trip=>openedTrips.push(trip)}));
+  await wait(()=>locationHost.querySelector('.stop-board-trip-link'));
+  locationHost.querySelector('.stop-board-service button').click();
+  locationHost.querySelector('.stop-board-baseline summary').click();
+  locationHost.querySelector('.stop-board-trip-link').click();
+  check(openedTrips.length===2 && openedTrips.every(trip=>trip.routeId==='feed::R' && trip.tripId==='T2' && trip.serviceDate==='2026-09-13'),'Both arrival links retain exact route, trip and service date');
   locationRoot.unmount(); locationHost.remove();
   return {snapshotRefreshIsolation:true,focusedWorkspace:true,legacyModeRecovery:true,keyboardTabs:true,overviewFilters:true,priorityRouteNavigation:true,eventReturnNavigation:true,routeSearchSortReset:true,eventPagination:true,pendingFilterTruth:true,scopedExports:true,questionRetry:true,questionDraftPreserved:true,imeAndBusyGuard:true,modelSetupPreservesDraft:true,feedSettingsFocus:true,disclosureEscape:true,observationRetry:true,briefingReadRetry:true};
 };
@@ -360,9 +373,22 @@ window.routeCheck = async () => {
   await wait(()=>document.querySelector('.agency-trip-timetable tbody')?.textContent.includes('Last prediction'));
   check(document.querySelector('.agency-trip-timetable tbody').textContent.includes('12:28'),'Dropped feed predictions retain their earlier value with an explicit historical label');
   chooser.value='T1';chooser.dispatchEvent(new Event('change',{bubbles:true}));
-  await wait(()=>document.querySelector('.agency-trip-timetable tbody')?.textContent.includes('No data') && !document.querySelector('.agency-trip-timetable tbody').textContent.includes('Last prediction') && document.querySelector('.agency-trip-timetable select').value==='T1');
+  await wait(()=>document.querySelector('.agency-trip-timetable tbody tr') && !document.querySelector('.agency-trip-timetable tbody').textContent.includes('Last prediction') && document.querySelector('.agency-trip-timetable select').value==='T1');
   check(!document.querySelector('.agency-trip-timetable tbody').textContent.includes('Last prediction'),'Retained predictions cannot leak between trips');
+  check(!/Upcoming|No data/.test(document.querySelector('.agency-trip-timetable tbody').textContent),'Trip rows omit repetitive progress and missing-history labels');
+  check(Boolean(document.querySelector('.agency-trip-position')),'Trip presents vehicle position above the timetable');
   omitTimetablePredictions=false;
+  timetableProgress=true;
+  for(const poll of timetablePolls.values()) poll();
+  await wait(()=>document.querySelector('.agency-trip-passed-toggle'));
+  check(!document.querySelector('.is-passed-stop'),'Passed stops start collapsed');
+  check(document.querySelector('.agency-trip-position').textContent.includes('At stop') && document.querySelector('tr[aria-current="step"]'),'Reported current stop appears in summary and highlighted row');
+  document.querySelector('.agency-trip-passed-toggle').click();
+  await wait(()=>document.querySelector('.is-passed-stop'));
+  check(document.querySelector('.agency-trip-passed-toggle').getAttribute('aria-expanded')==='true','Passed stops can be expanded');
+  document.querySelector('.agency-trip-passed-toggle').click();
+  await wait(()=>!document.querySelector('.is-passed-stop'));
+  timetableProgress=false;
 
 };
 window.layoutCheck = async () => {

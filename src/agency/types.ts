@@ -93,7 +93,6 @@ export type AgencyRoute = {
 
 export type AgencyState = {
   mapOperationalEvents?: OperationalEvent[]
-  mapGapEvents?: OperationalEvent[]
   scheduleIdentity?: string
   selection?: WorkspaceSelection
   generatedAt: string

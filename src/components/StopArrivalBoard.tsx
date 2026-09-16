@@ -40,17 +40,20 @@ export function StopArrivalBoardView({ data, refreshError = '', showHeading = tr
     {routes.length > 1 ? <div className="stop-board-routes" role="group" aria-label="Filter arrivals by route"><button aria-pressed={!filter} onClick={() => { setRouteId(''); setExpanded(false) }}>All</button>{routes.map(([id, route]) => <button key={id} aria-pressed={filter === id} style={{ '--arrival-color': route.color } as CSSProperties} onClick={() => { setRouteId(id); setExpanded(false) }}>{route.name}</button>)}</div> : null}
     {data.warnings.map(warning => <p className="stop-board-notice" key={warning}>{warning}</p>)}
     {!rows.length ? <p className="stop-board-empty">No timed service is available here in the next {(data.windowMinutes ?? 60) === 60 ? 'hour' : `${(data.windowMinutes ?? 60) / 60} hours`}.</p> : <ol className="stop-board-list">{rows.slice(0, expanded || data.nextPerRoute ? undefined : 8).map(row => {
+      const openTrip = onOpenTrip && row.routeId && row.tripId && row.serviceDate
+        ? () => onOpenTrip({ routeId: row.routeId, tripId: row.tripId, serviceDate: row.serviceDate })
+        : undefined
       const timing = row[row.kind]
       const notRunning = row.status === 'cancelled' || row.status === 'skipped'
       return <li key={row.key} className={notRunning ? 'is-not-running' : ''}>
         <span className="stop-board-route" style={{ '--arrival-color': row.color } as CSSProperties}>{row.routeName}</span>
-        <div className="stop-board-service"><strong>{onOpenTrip && row.routeId && row.tripId && row.serviceDate ? <button className="stop-board-trip" onClick={() => onOpenTrip({ routeId: row.routeId, tripId: row.tripId, serviceDate: row.serviceDate })} aria-label={`Open trip ${row.tripId} to ${row.destination}`}>To {row.destination}</button> : <>To {row.destination}</>}</strong><small>{[row.vehicleLabel ? `Vehicle ${row.vehicleLabel}` : 'Vehicle not reported', row.platform ? `Platform ${row.platform}` : row.stopName !== data.stop.name ? row.stopName : ''].filter(Boolean).join(' · ')}</small></div>
+        <div className="stop-board-service"><strong>{openTrip ? <button type="button" className="stop-board-trip" onClick={openTrip} aria-label={`Open trip ${row.tripId} to ${row.destination}`}>To {row.destination}</button> : <>To {row.destination}</>}</strong><small>{[row.vehicleLabel ? `Vehicle ${row.vehicleLabel}` : 'Vehicle not reported', row.platform ? `Platform ${row.platform}` : row.stopName !== data.stop.name ? row.stopName : ''].filter(Boolean).join(' · ')}</small></div>
         <div className="stop-board-time"><strong>{snapshot && !notRunning ? time(row.expected) : arrivalLabel(row, now, data.timezone)}</strong><small>{row.kind === 'departure' && !notRunning ? 'Departs · ' : ''}{row.status === 'live' ? <><Radio size={10} aria-hidden="true" /> {snapshot ? 'Recorded prediction' : `Prediction ${time(timing.current)}`}</> : row.atStop && !snapshot ? 'Reported at this stop' : notRunning ? time(timing.scheduled) : 'Schedule only'}</small></div>
         <details className="stop-board-baseline"><summary>{row.status === 'live' ? <>Scheduled {time(timing.scheduled)}{scheduleDeviation(timing.scheduled, timing.current) ? <b> · {scheduleDeviation(timing.scheduled, timing.current)}</b> : null}</> : row.status === 'stale' ? 'Prediction out of date' : row.status === 'unresolved' ? 'Conflicting reports · schedule shown' : 'Timing details'}</summary>
           {row.timingIssue ? <p>{row.timingIssue}</p> : null}
           <dl>
             <div><dt>Service date</dt><dd>{row.serviceDate}</dd></div>
-            <div><dt>Trip</dt><dd>{row.tripId}</dd></div>
+            <div><dt>Trip</dt><dd>{openTrip ? <button type="button" className="stop-board-trip stop-board-trip-link" onClick={openTrip} aria-label={`Open live trip ${row.tripId} on ${row.serviceDate}`}>{row.tripId}</button> : row.tripId}</dd></div>
             <div><dt>Stop · sequence</dt><dd>{row.stopId} · {row.stopSequence ?? 'Terminal sequence not retained'}</dd></div>
             {(['arrival', 'departure'] as const).map(kind => <div key={kind}><dt>{kind === 'arrival' ? 'Arrival' : 'Departure'}</dt><dd>Scheduled {time(row[kind].scheduled, true)}<br />Prediction {time(row[kind].current, true)}</dd></div>)}
             {row.source ? <>

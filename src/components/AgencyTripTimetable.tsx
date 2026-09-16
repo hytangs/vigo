@@ -12,6 +12,8 @@ export function AgencyTripTimetable({ projectId, routeId, initialTripId = '', in
   const [date, setDate] = useState(initialServiceDate)
   const [data, setData] = useState<Timetable | null>(null)
   const [error, setError] = useState('')
+  const [showPassed, setShowPassed] = useState(false)
+  useEffect(() => setShowPassed(false), [projectId, routeId, selection, date])
   const [kind, setKind] = useState<'arrival' | 'departure'>('departure')
   useEffect(() => {
     const controller = new AbortController()
@@ -56,6 +58,9 @@ export function AgencyTripTimetable({ projectId, routeId, initialTripId = '', in
     const nextDay = new Intl.DateTimeFormat('en-CA', { timeZone: data.timezone }).format(instant) !== data.trip?.serviceDate
     return instant.toLocaleString([], { timeZone: data.timezone, ...(nextDay ? { month: 'short', day: 'numeric' } as const : {}), hour: 'numeric', minute: '2-digit' })
   }
+  const currentCall = data?.trip?.calls.find(call => call.progress === 'At stop' || call.progress === 'Next stop')
+  const passedCount = data?.trip?.calls.filter(call => call.progress === 'Passed').length ?? 0
+  const visibleCalls = data?.trip?.calls.filter(call => showPassed || call.progress !== 'Passed') ?? []
   return <section className="agency-trip-timetable" aria-label="Trip timetable">
     <div className="agency-trip-controls"><label>Service date<input type="date" value={date || data?.trip?.serviceDate || ''} onChange={event => { setDate(event.target.value); setSelection('') }} /></label>
       <label>Trip<select value={selection || data?.trip?.id || ''} onChange={event => setSelection(event.target.value)} disabled={!data?.trips.length}>
@@ -64,15 +69,16 @@ export function AgencyTripTimetable({ projectId, routeId, initialTripId = '', in
       <label>Times<select value={kind} onChange={event => setKind(event.target.value as typeof kind)}><option value="departure">Departures</option><option value="arrival">Arrivals</option></select></label></div>
     {error ? <p role="alert">{error}</p> : !data ? <p role="status">Loading timetable…</p> : !data.trip ? <p>No indexed fixed-schedule trips for this service date.</p> : <>
       <h2>To {data.trip.destination}</h2><p>{data.trip.status} · {data.trip.serviceDate} · {data.timezone}</p>
-      <p>Predictions only · actual times unavailable.</p>
-      <div className="agency-trip-table-scroll"><table aria-label={`Scheduled and predicted ${kind} times`}><thead><tr><th scope="col">Stop</th><th scope="col">Scheduled</th><th scope="col">Live / last prediction</th></tr></thead><tbody>{data.trip.calls.map(call => {
+      <div className="agency-trip-position">{currentCall ? <><span>{currentCall.progress === 'At stop' ? 'At stop' : 'Next stop'}</span><strong>{currentCall.stop.name}</strong></> : <span>Current vehicle position unavailable</span>}</div>
+      {passedCount > 0 ? <button type="button" className="agency-text-button agency-trip-passed-toggle" aria-expanded={showPassed} onClick={() => setShowPassed(value => !value)}>{showPassed ? 'Hide' : 'Show'} {passedCount} passed {passedCount === 1 ? 'stop' : 'stops'}</button> : null}
+      <div className="agency-trip-table-scroll"><table aria-label={`Scheduled and predicted ${kind} times`}><thead><tr><th scope="col">Stop</th><th scope="col">Scheduled</th><th scope="col">Predicted</th></tr></thead><tbody>{visibleCalls.map(call => {
         const event = call[kind]
         const last = event.current === null ? call.lastPrediction?.[kind] : undefined
         const value = event.current ?? last?.time ?? null
-        const label = last ? 'Last prediction' : event.current !== null ? call.progress === 'Passed' ? 'Reported prediction' : call.progress === 'Upcoming' || call.progress === 'Next stop' ? 'Upcoming prediction' : 'Prediction' : 'No data'
-        return <tr key={call.index}><th scope="row"><span className="agency-trip-stop">{call.stop.name}</span>{call.status || call.progress ? <small>{call.status || call.progress}</small> : null}</th><td>{clock(event.scheduled)}</td><td>{clock(value)}<small>{label}{last?.observedAt ? ` · updated ${clock(last.observedAt)}` : ''}</small>{value !== null && event.scheduled !== null ? <small>{vehicleDelayLabel(value - event.scheduled)}</small> : null}</td></tr>
+        const current = call === currentCall
+        return <tr key={call.index} className={current ? 'is-current-stop' : call.progress === 'Passed' ? 'is-passed-stop' : undefined} aria-current={current ? 'step' : undefined}><th scope="row"><span className="agency-trip-stop">{call.stop.name}</span>{call.status ? <small>{call.status}</small> : current ? <small>{call.progress}</small> : null}</th><td>{clock(event.scheduled)}</td><td>{clock(value)}{last ? <small>Last prediction{last.observedAt ? ` · updated ${clock(last.observedAt)}` : ''}</small> : null}{value !== null && event.scheduled !== null ? <small>{vehicleDelayLabel(value - event.scheduled)}</small> : null}</td></tr>
       })}</tbody></table></div>
-      <details className="agency-trip-source"><summary>Timing &amp; source</summary><p className="agency-caption">{data.trip.predictionAt ? `Trip update ${clock(data.trip.predictionAt)}. ` : ''}Passed and current-stop labels use a fresh vehicle-position report. Last predictions are retained while viewing this trip; they are not actual times. — means unavailable. Predictions do not confirm arrival or departure. Frequency-based trips require a trip-instance timetable.</p></details>
+      <details className="agency-trip-source"><summary>Timing &amp; source</summary><p className="agency-caption">{data.trip.predictionAt ? `Trip update ${clock(data.trip.predictionAt)}. ` : ''}Trip progress uses a fresh vehicle-position report. Passed stops are collapsed; their scheduled times are not recorded arrival or departure times. Last predictions are retained while viewing this trip; they are not actual times. — means unavailable. Predictions do not confirm arrival or departure. Frequency-based trips require a trip-instance timetable.</p></details>
     </>}
   </section>
 }

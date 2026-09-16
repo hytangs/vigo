@@ -59,3 +59,5 @@
 .stop-board-trip { all: unset; cursor: pointer; color: inherit; font: inherit; }
 .stop-board-trip:hover { text-decoration: underline; text-underline-offset: 3px; }
 .stop-board-trip:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 2px; }
+
+.stop-board-trip-link { text-decoration: underline; text-underline-offset: 3px; }
