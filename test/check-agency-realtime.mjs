@@ -28,6 +28,7 @@ try {
   assert.equal(normal.routes[0].widestInterval.scheduledSeconds, 600)
   const delayed = derive(realtimeFixture([tripUpdate('T1', 1200)]))
   assert.equal(delayed.events.find((event) => event.type === 'delay').evidence.delaySeconds, 1200)
+  assert.equal(delayed.events.find((event) => event.type === 'delay').severity, 'critical')
   assert.equal(delayed.events[0].vehicleId, 'vehicle-T1')
   assert.equal(delayed.routes[0].headway, 'unknown')
   assert.equal(delayed.routes[0].widestInterval, null, 'One reporting trip cannot establish a gap')
@@ -36,6 +37,7 @@ try {
   assert.equal(laterService.events.some((event) => event.type === 'delay'), false)
   const compressed = derive(realtimeFixture([tripUpdate('T1', 300), tripUpdate('T2')]))
   assert.equal(compressed.events.find((event) => event.type === 'bunching').evidence.headwayRatio, 0.5)
+  assert.equal(compressed.events.find((event) => event.type === 'bunching').severity, 'warning')
   const late = realtimeFixture([tripUpdate('T1', 300), tripUpdate('T2')])
   const laterClock = observationTime + 360
   late.feeds[0].feedTimestamp = laterClock

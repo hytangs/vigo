@@ -128,7 +128,7 @@ const transferLayerIds = ['vigo-transfer-stops']
 const coverageLayerIds = ['vigo-coverage']
 const scenarioLayerIds = ['vigo-scenario-routes']
 const accessLayerIds = ['vigo-access-outer', 'vigo-access-middle', 'vigo-access-inner']
-const vehicleLayerIds = ['vigo-vehicle-gap-ring', 'vigo-vehicle-occupancy-ring', 'vigo-vehicle-indicator-label', 'vigo-vehicle-halo', 'vigo-vehicles', 'vigo-vehicle-headings', 'vigo-vehicle-labels']
+const vehicleLayerIds = ['vigo-vehicle-delay-ring', 'vigo-vehicle-gap-ring', 'vigo-vehicle-occupancy-ring', 'vigo-vehicle-indicator-label', 'vigo-vehicle-halo', 'vigo-vehicles', 'vigo-vehicle-headings', 'vigo-vehicle-labels']
 const routingLayerIds = ['vigo-routing-walk-casing', 'vigo-routing-walk', 'vigo-routing-drive-casing', 'vigo-routing-drive', 'vigo-routing-ride-casing', 'vigo-routing-ride', 'vigo-routing-labels', 'vigo-routing-pin-halo', 'vigo-routing-pins']
 const reachResultLayerIds = [
   'vigo-scenario-area',
@@ -546,6 +546,7 @@ function serviceVehicleFeatures(frame: ServiceVehicleFrame, preview: MapPreview,
           coordinates: vehicle.coordinate,
         },
         properties: {
+          delaySeverity: vehicle.delaySeverity || '',
           gapSeverity: vehicle.gapSeverity || '',
           crowded: vehicle.crowded || false,
           indicatorLabel: vehicle.indicatorLabel || '',
@@ -1921,6 +1922,12 @@ function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
   if (!map.getLayer(vehicleMarkerLayer.id)) map.addLayer(vehicleMarkerLayer)
   if (!map.getLayer(vehicleHeadingLayer.id)) map.addLayer(vehicleHeadingLayer)
 
+  if (!map.getLayer('vigo-vehicle-delay-ring')) map.addLayer({
+    id: 'vigo-vehicle-delay-ring', type: 'circle', source: 'vigo-service-vehicles',
+    filter: ['in', ['get', 'delaySeverity'], ['literal', ['warning', 'critical']]],
+    paint: { 'circle-radius': 6, 'circle-color': '#000000', 'circle-opacity': 0,
+      'circle-stroke-width': ['case', ['==', ['get', 'delaySeverity'], 'critical'], 3, 2], 'circle-stroke-color': '#38bdf8' },
+  })
   if (!map.getLayer('vigo-vehicle-gap-ring')) map.addLayer({
     id: 'vigo-vehicle-gap-ring', type: 'circle', source: 'vigo-service-vehicles',
     filter: ['in', ['get', 'gapSeverity'], ['literal', ['warning', 'critical']]],

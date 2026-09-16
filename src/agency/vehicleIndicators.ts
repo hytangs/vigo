@@ -12,14 +12,18 @@ export function vehicleReportFresh(vehicle: RealtimeVehicle, snapshot: RealtimeS
 }
 const raw = (id?: string) => id?.split('\u001f').at(-1)
 // Match the reported vehicle AND trip instance, never a route number alone.
-export function vehicleGap(vehicle: RealtimeVehicle, snapshot: RealtimeSnapshot, events: OperationalEvent[], now = Date.now() / 1000) {
+export function vehicleAlert(vehicle: RealtimeVehicle, snapshot: RealtimeSnapshot, events: OperationalEvent[], kind: 'spacing' | 'delay' = 'spacing', now = Date.now() / 1000) {
   if (!vehicleReportFresh(vehicle, snapshot, now)) return undefined
   if (!vehicle.tripId || !vehicle.startDate || !vehicle.routeId) return undefined
   const peers = snapshot.vehicles.filter(item => raw(item.tripId) === raw(vehicle.tripId) && item.startDate === vehicle.startDate && item.startTime === vehicle.startTime)
   if (peers.length !== 1) return undefined
-  return events.filter(event => event.type === 'service-gap' && event.vehicleId === vehicle.id && raw(event.tripId) === raw(vehicle.tripId)
+  return events.filter(event => (kind === 'delay' ? event.type === 'delay' : ['service-gap', 'bunching'].includes(event.type)) && event.vehicleId === vehicle.id && raw(event.tripId) === raw(vehicle.tripId)
     && raw(event.routeId) === raw(vehicle.routeId) && event.serviceDate?.replaceAll('-', '') === vehicle.startDate?.replaceAll('-', '')
     && event.evidence.tripStartTime === vehicle.startTime
     && Number.isFinite(Date.parse(event.observedAt)) && Math.abs(now - Date.parse(event.observedAt) / 1000) <= 180)
-    .sort((a, b) => (b.evidence.observedHeadwaySeconds || 0) - (a.evidence.observedHeadwaySeconds || 0))[0]
+    .sort((a, b) => ({ critical: 2, warning: 1, info: 0 }[b.severity] - { critical: 2, warning: 1, info: 0 }[a.severity]) || Math.abs((b.evidence.observedHeadwaySeconds ?? 0) - (b.evidence.scheduledHeadwaySeconds ?? 0) || b.evidence.delaySeconds || 0) - Math.abs((a.evidence.observedHeadwaySeconds ?? 0) - (a.evidence.scheduledHeadwaySeconds ?? 0) || a.evidence.delaySeconds || 0))[0]
+}
+
+export function vehicleGap(vehicle: RealtimeVehicle, snapshot: RealtimeSnapshot, events: OperationalEvent[], now = Date.now() / 1000) {
+  return vehicleAlert(vehicle, snapshot, events, 'spacing', now)
 }

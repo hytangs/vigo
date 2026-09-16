@@ -195,10 +195,11 @@ export async function runMapRefreshChecks() {
     await render({ preview: { ...latePreview, stops: latePreview.stops.map(stop => ({ ...stop, lon: stop.lon + 2 })) } })
     check(fits === resultCamera.fits && JSON.stringify(map.getCenter().toArray()) === JSON.stringify(resultCamera.center)
       && map.getZoom() === resultCamera.zoom, 'Late City preview data must not override a completed Analyze result extent')
-    const indicatorFrame = { mode: 'live', tripUpdateCount: 1, alertCount: 0, vehicles: [{ id: 'V', source: 'live', coordinate: [0,0], serviceKey: 'R', routeId: 'R', routeShortName: 'R', routeColor: '#007f76', tripId: 'T', gapSeverity: 'critical', crowded: true, indicatorLabel: '30 min gap · scheduled 10 min · Full', card: { title: 'V', metrics: [] } }] }
+    const indicatorFrame = { mode: 'live', tripUpdateCount: 1, alertCount: 0, vehicles: [{ id: 'V', source: 'live', coordinate: [0,0], serviceKey: 'R', routeId: 'R', routeShortName: 'R', routeColor: '#007f76', tripId: 'T', gapSeverity: 'critical', delaySeverity: 'warning', crowded: true, indicatorLabel: '30 min gap · scheduled 10 min · Full', card: { title: 'V', metrics: [] } }] }
     await render({ focusMode: 'network', reachResult: null, routingOrigin: null, preview: { routes: [], stops: [], stopPairs: [] }, layers: { routes: true, stops: false }, vehicleFrame: indicatorFrame })
     map.jumpTo({ center: [0,0], zoom: 14 })
     await wait(() => map.queryRenderedFeatures({ layers: ['vigo-vehicle-gap-ring'] }).length > 0)
+    check(map.queryRenderedFeatures({ layers: ['vigo-vehicle-delay-ring'] }).length > 0, 'Delay ring renders independently of headway and crowding')
     check(map.queryRenderedFeatures({ layers: ['vigo-vehicle-occupancy-ring'] }).length > 0, 'Crowding and gap rings render independently on the same vehicle')
     await render({ layers: { routes: false, stops: false } })
     check(map.getLayoutProperty('vigo-vehicle-gap-ring', 'visibility') === 'none', 'Vehicle layer toggle hides gap indicators too')

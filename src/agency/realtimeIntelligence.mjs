@@ -1,3 +1,4 @@
+import { delayAlert, spacingAlert } from './alertPolicy.mjs'
 import { rawId } from './agencyContext.mjs'
 
 import { alertSelectors, describeAlertScope } from './alertApplicability.mjs'
@@ -135,7 +136,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       && (!next || prediction.predictedTime < next.predictedTime)) next = prediction
     if (next) {
       route.maxDelaySeconds = Math.max(route.maxDelaySeconds ?? -Infinity, next.delaySeconds)
-      if (next.delaySeconds > 0) add('delay', [...identity, next.sequence], { ...base, stopId: next.stopId, title: 'Departure later than scheduled', evidence: { scheduledTime: next.scheduledTime, predictedTime: next.predictedTime, delaySeconds: next.delaySeconds } })
+      if (next.delaySeconds > 0) add('delay', [...identity, next.sequence], { ...base, severity: delayAlert(next.delaySeconds).severity, stopId: next.stopId, title: 'Departure later than scheduled', evidence: { alertReason: delayAlert(next.delaySeconds).alertReason, ...(update.startTime ? { tripStartTime: update.startTime } : {}), scheduledTime: next.scheduledTime, predictedTime: next.predictedTime, delaySeconds: next.delaySeconds } })
     }
     trips.push({ ...base, status: 'matched', ...(next ? { nextStopId: next.stopId, scheduledTime: next.scheduledTime, predictedTime: next.predictedTime, delaySeconds: next.delaySeconds } : {}), departurePredictions: predictions.length })
   }
@@ -176,11 +177,11 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       route.headway = 'changed'
       const compressed = observedHeadwaySeconds < scheduledHeadwaySeconds
       add(compressed ? 'bunching' : 'service-gap', [key, before.tripId, after.tripId], {
-        severity: !compressed && observedHeadwaySeconds >= 1200 && observedHeadwaySeconds >= 3 * scheduledHeadwaySeconds && observedHeadwaySeconds - scheduledHeadwaySeconds >= 600 ? 'critical' : !compressed && observedHeadwaySeconds >= 1.5 * scheduledHeadwaySeconds && observedHeadwaySeconds - scheduledHeadwaySeconds >= 300 ? 'warning' : 'info',
+        severity: spacingAlert(scheduledHeadwaySeconds, observedHeadwaySeconds).severity,
         vehicleId: after.vehicleId,
         title: compressed ? 'Compressed departure interval' : 'Wider departure interval', routeId: trip.route_id, directionId: trip.direction_id ?? undefined,
         tripId: after.tripId, stopId, serviceDate, observedAt: before.observedAt < after.observedAt ? before.observedAt : after.observedAt,
-        evidence: { ...(after.tripStartTime ? { tripStartTime: after.tripStartTime } : {}), scheduledHeadwaySeconds, observedHeadwaySeconds, headwayRatio: observedHeadwaySeconds / scheduledHeadwaySeconds,
+        evidence: { alertReason: spacingAlert(scheduledHeadwaySeconds, observedHeadwaySeconds).alertReason, ...(after.tripStartTime ? { tripStartTime: after.tripStartTime } : {}), scheduledHeadwaySeconds, observedHeadwaySeconds, headwayRatio: observedHeadwaySeconds / scheduledHeadwaySeconds,
           referenceStopId: stopId, comparisonWindow: [before.scheduledTime, after.scheduledTime], expectedDepartures: expected.length, reportingTrips: expected.filter((row) => reporting.has(`${row.trip_id}/${row.stop_sequence}`)).length,
           tripIds: [before.tripId, after.tripId], reason: 'Two consecutive scheduled departures, both reporting at this stop. This is a predicted interval, not an observed passage or route-wide regularity claim.' },
         sourceRefs: [before.sourceRef, after.sourceRef, `gtfs:connections/${encodeURIComponent(stopId)}?date=${serviceDate}`],
@@ -216,7 +217,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
     if (['cancellation', 'skipped-stop', 'headway-review'].includes(event.type)) route.serviceChanges++
   }
   for (const event of events) { const stop = context.stopIndex.get(event.stopId); event.routeName = routes.get(event.routeId)?.name; event.stopName = stop?.name; if (stop) event.stopCoordinate = [stop.lon, stop.lat] }
-  events.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || (b.evidence.delaySeconds ?? 0) - (a.evidence.delaySeconds ?? 0) || a.id.localeCompare(b.id))
+  events.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || Math.abs((b.evidence.observedHeadwaySeconds ?? 0) - (b.evidence.scheduledHeadwaySeconds ?? 0) || b.evidence.delaySeconds || 0) - Math.abs((a.evidence.observedHeadwaySeconds ?? 0) - (a.evidence.scheduledHeadwaySeconds ?? 0) || a.evidence.delaySeconds || 0) || a.id.localeCompare(b.id))
   return { generatedAt, observedAt: snapshot?.fetchedAt ?? null, cityName: context.cityName, connected: Boolean(snapshot), coverage,
     counts: { routes: routes.size, stops: context.stops.length, vehicles: (snapshot?.vehicles ?? []).filter((vehicle) => recordFresh(vehicle) && finite(vehicle.timestamp)).length, trips: trips.length, matchedTrips: trips.filter((trip) => trip.status !== 'unresolved').length, unresolvedTrips: trips.filter((trip) => trip.status === 'unresolved').length, alerts: activeAlerts },
     feeds, routes: [...routes.values()], events, trips, measurements, warnings, policy }

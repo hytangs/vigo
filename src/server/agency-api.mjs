@@ -159,14 +159,15 @@ export function createAgencyService(adapters, { provider = createProvider(), web
         }
         const state = current(session)
         const { trips, measurements, ...publicState } = state
-        const mapGaps = new Map()
+        const mapAlerts = new Map()
         for (const event of state.events) {
-          if (event.type !== 'service-gap' || !event.vehicleId) continue
-          const key = JSON.stringify([event.tripId, event.vehicleId, event.serviceDate, event.evidence.tripStartTime])
-          if ((mapGaps.get(key)?.evidence.observedHeadwaySeconds ?? -1) < event.evidence.observedHeadwaySeconds) mapGaps.set(key, { ...event, stopName: session.context.stopIndex.get(event.stopId)?.name || event.stopId })
+          if (!['service-gap', 'bunching', 'delay'].includes(event.type) || !event.vehicleId) continue
+          const key = JSON.stringify([event.type, event.tripId, event.vehicleId, event.serviceDate, event.evidence.tripStartTime])
+          const magnitude = item => ({ critical: 2, warning: 1, info: 0 }[item.severity] * 1e9) + Math.abs((item.evidence.observedHeadwaySeconds ?? 0) - (item.evidence.scheduledHeadwaySeconds ?? 0) || item.evidence.delaySeconds || 0)
+          if (!mapAlerts.has(key) || magnitude(mapAlerts.get(key)) < magnitude(event)) mapAlerts.set(key, { ...event, stopName: session.context.stopIndex.get(event.stopId)?.name || event.stopId })
         }
         const selected = state.events.filter((event) => eventInSelection(event, selection, stops) && (!eventType || eventType === 'all' || event.type === eventType))
-        return { ...publicState, mapGapEvents: [...mapGaps.values()], scheduleIdentity: session.scheduleIdentity, selection, filters: { routeId, stopId, eventType }, filteredEventCount: selected.length,
+        return { ...publicState, mapOperationalEvents: [...mapAlerts.values()], scheduleIdentity: session.scheduleIdentity, selection, filters: { routeId, stopId, eventType }, filteredEventCount: selected.length,
           stopLocations: Object.fromEntries(selected.slice(0, 500).flatMap((event) => { const stop = session.context.stopIndex.get(event.stopId); return stop ? [[stop.stop_id, { label: stop.name, coordinate: [stop.lon, stop.lat] }]] : [] })),
           stopNames: Object.fromEntries(selected.slice(0, 500).flatMap((event) => event.stopId ? [[event.stopId, session.context.stopIndex.get(event.stopId)?.name || event.stopId]] : [])),
           eventCount: state.events.length, events: selected.slice(0, 500), warnings: [...state.warnings, ...(selected.length > 500 ? ['Showing the first 500 matching events. Choose a route or event type to narrow the view.'] : [])] }

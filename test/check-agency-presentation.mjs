@@ -21,6 +21,10 @@ assert.equal(scheduleDeviation(1000, null), null)
 
 const server = await createServer({ configFile: false, plugins: [react()], server: { middlewareMode: true }, appType: 'custom' })
 try {
+  const { AgencyServiceEvents } = await server.ssrLoadModule('/src/components/AgencyServiceEvents.tsx')
+  const alertHtml = renderToStaticMarkup(createElement(AgencyServiceEvents, { state: { routes: [], events: [{ id: 'delay', type: 'delay', severity: 'warning', title: 'Departure later than scheduled', evidence: { delaySeconds: 600, alertReason: 'Predicted departure is at least 5 minutes late.' } }] }, ready: true, filter: 'all', onFilter() {}, onSelect() {} }))
+  assert.match(alertHtml, /Warning · Departure later than scheduled/)
+  assert.match(alertHtml, /Predicted departure is at least 5 minutes late/)
   const { StopArrivalBoardView } = await server.ssrLoadModule('/src/components/StopArrivalBoard.tsx')
   const epoch = Date.parse('2026-09-14T04:00:00Z') / 1000
   const data = {

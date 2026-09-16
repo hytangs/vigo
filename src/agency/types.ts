@@ -7,6 +7,7 @@ export type WorkspaceSelection = {
 }
 
 export type Evidence = {
+  alertReason?: string
   tripStartTime?: string
   scheduledTime?: number
   predictedTime?: number
@@ -89,6 +90,7 @@ export type AgencyRoute = {
 }
 
 export type AgencyState = {
+  mapOperationalEvents?: OperationalEvent[]
   mapGapEvents?: OperationalEvent[]
   scheduleIdentity?: string
   selection?: WorkspaceSelection

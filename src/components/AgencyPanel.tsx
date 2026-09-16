@@ -88,7 +88,7 @@ export function AgencyPanel({ onOperationalEvents, projectId, snapshot, realtime
   const endpoint = `/api/projects/${encodeURIComponent(projectId)}/agency`
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const generation = ++refreshGeneration.current
-    try { const next = await apiJson<AgencyState>(`${endpoint}?${new URLSearchParams({ routeId, stopId, eventType: eventFilter })}`, { signal }); if (generation === refreshGeneration.current && !signal?.aborted) { setState(next); onOperationalEvents?.(next.mapGapEvents || []); setLoadedSelection(selectionKey); setLoadedEventFilter(eventFilter); setObservationError('') } }
+    try { const next = await apiJson<AgencyState>(`${endpoint}?${new URLSearchParams({ routeId, stopId, eventType: eventFilter })}`, { signal }); if (generation === refreshGeneration.current && !signal?.aborted) { setState(next); onOperationalEvents?.(next.mapOperationalEvents || next.mapGapEvents || []); setLoadedSelection(selectionKey); setLoadedEventFilter(eventFilter); setObservationError('') } }
     catch (reason) { if (generation === refreshGeneration.current && !signal?.aborted) { onOperationalEvents?.([]); setObservationError(reason instanceof Error ? reason.message : 'Observation unavailable.') } }
     finally { if (generation === refreshGeneration.current && !signal?.aborted) setLoading(false) }
   }, [endpoint, routeId, stopId, selectionKey, eventFilter, onOperationalEvents])
