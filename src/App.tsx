@@ -1945,11 +1945,11 @@ function RouteSurface({
         {agencyFocus ? (
           <div className="agency-map-context">
             <div>
-              <span>{routingFocus ? 'Journey' : analysisFocus ? 'Reachable area' : isNetworkMap ? 'Live network' : `Route ${selectedRoute?.shortName || selectedRoute?.longName || ''}`}</span>
+              <span>{routingFocus ? 'Journey' : analysisFocus ? 'Reachable area' : isNetworkMap ? vehicleMode === 'live' ? 'Live network' : 'Scheduled network' : `Route ${selectedRoute?.shortName || selectedRoute?.longName || ''}`}</span>
               <small aria-live="polite">
                 {routingFocus || analysisFocus ? 'From your investigation' : (
                   <>
-                    {realtimeSnapshot ? `Latest feed · ${visibleVehicleCount} vehicle ${visibleVehicleCount === 1 ? 'location' : 'locations'}` : 'Connect feeds to see vehicle reports'}
+                    {vehicleMode === 'schedule' ? `Estimated positions · ${formatServiceTime(scheduleTimeMinutes)}` : realtimeSnapshot ? `Latest feed · ${visibleVehicleCount} vehicle ${visibleVehicleCount === 1 ? 'location' : 'locations'}` : 'Connect feeds to see vehicle reports'}
                     {!isNetworkMap && routeDetailStatus ? ` · ${routeDetailStatus}` : ''}
                   </>
                 )}
@@ -1967,7 +1967,7 @@ function RouteSurface({
             <strong>Loading City…</strong>
           </div>
         ) : null}
-        {!agencyFocus && !routingFocus && !analysisFocus ? (
+        {!showAgencyLine && !routingFocus && !analysisFocus ? (
           <ServiceStateControl
             mode={vehicleMode}
             frame={vehicleFrame}
