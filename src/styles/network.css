@@ -598,6 +598,8 @@
 
 .service-playback-date {
   width: 142px;
+  max-width: 100%;
+  box-sizing: border-box;
   min-width: 0;
   height: 34px;
   padding: 0 6px;
@@ -610,7 +612,7 @@
   font-weight: 590;
 }
 
-@container route-map (max-width: 760px) {
+@container route-map (max-width: 900px) {
   .service-state-panel.is-schedule {
     grid-template-columns: auto minmax(120px, 1fr) 34px 78px;
   }
@@ -1200,7 +1202,7 @@
 .service-indicator-legend p { margin: 6px 0; line-height: 1.4; }
 
 .route-surface > .service-toolbar:empty { display: none; }
-.route-surface > .service-toolbar { min-width: 0; background: var(--panel); }
+.route-surface > .service-toolbar { min-width: 0; background: var(--panel); container: route-map / inline-size; }
 .route-surface > .service-toolbar > .service-state-panel { position: static; width: 100%; max-width: none; transform: none; border-radius: 0; box-shadow: none; box-sizing: border-box; }
 .occupancy-glyph { display: inline-flex; align-items: center; gap: 4px; padding: 4px 7px; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text-muted); }
 .occupancy-glyph.is-crowded { color: #b45309; }
