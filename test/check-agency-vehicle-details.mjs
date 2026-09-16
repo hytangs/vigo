@@ -25,6 +25,9 @@ try {
     delayKind: 'arrival', delaySeconds: 720,
   }
   const render = patch => renderToStaticMarkup(createElement(VehicleDetailsView, { vehicle: { ...vehicle, ...patch } }))
+  assert.match(render({ occupancy: 'FULL' }), /Reported occupancy · Full/)
+  assert.match(render({ occupancy: null }), /Occupancy unknown/)
+  assert.match(render({ occupancy: 'FULL', fresh: false }), /Not current/)
   let html = render({})
   assert.match(html, /1826 <small>Route 1<\/small>/, 'Copied vehicle and route identifiers stay distinct')
   assert.match(html, /Trip update/)

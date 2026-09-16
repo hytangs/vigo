@@ -29,7 +29,7 @@ function exportObservation(state: AgencyState) {
   downloadText('agency-observation.json', JSON.stringify(state, null, 2), 'application/json')
 }
 
-export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMessage, realtimeLoading, onConnect, onDisconnect, onLocate, onResult, onOpenData, mapOpen, onToggleMap, selection = {}, timetable, onClearSelection, onBrowseRoute, browseRequest = 0 }: {
+export function AgencyPanel({ onOperationalEvents, projectId, snapshot, realtimeRequest, realtimeMessage, realtimeLoading, onConnect, onDisconnect, onLocate, onResult, onOpenData, mapOpen, onToggleMap, selection = {}, timetable, onClearSelection, onBrowseRoute, browseRequest = 0 }: {
   browseRequest?: number
   selection?: WorkspaceSelectionInput
   timetable?: ReactNode
@@ -37,6 +37,7 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   onBrowseRoute: (id: string) => void
   mapOpen: boolean
   onToggleMap: () => void
+  onOperationalEvents?: (events: OperationalEvent[]) => void
   projectId: string
   snapshot: RealtimeSnapshot | null
   realtimeRequest: RealtimeInspectRequest | null
@@ -83,13 +84,14 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   const routeReturn = useRef<{ id: string; top: number } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const entryAbortRef = useRef<AbortController | null>(null)
+  useEffect(() => { onOperationalEvents?.([]); return () => onOperationalEvents?.([]) }, [projectId, onOperationalEvents])
   const endpoint = `/api/projects/${encodeURIComponent(projectId)}/agency`
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const generation = ++refreshGeneration.current
-    try { const next = await apiJson<AgencyState>(`${endpoint}?${new URLSearchParams({ routeId, stopId, eventType: eventFilter })}`, { signal }); if (generation === refreshGeneration.current && !signal?.aborted) { setState(next); setLoadedSelection(selectionKey); setLoadedEventFilter(eventFilter); setObservationError('') } }
-    catch (reason) { if (generation === refreshGeneration.current && !signal?.aborted) setObservationError(reason instanceof Error ? reason.message : 'Observation unavailable.') }
+    try { const next = await apiJson<AgencyState>(`${endpoint}?${new URLSearchParams({ routeId, stopId, eventType: eventFilter })}`, { signal }); if (generation === refreshGeneration.current && !signal?.aborted) { setState(next); onOperationalEvents?.(next.mapGapEvents || []); setLoadedSelection(selectionKey); setLoadedEventFilter(eventFilter); setObservationError('') } }
+    catch (reason) { if (generation === refreshGeneration.current && !signal?.aborted) { onOperationalEvents?.([]); setObservationError(reason instanceof Error ? reason.message : 'Observation unavailable.') } }
     finally { if (generation === refreshGeneration.current && !signal?.aborted) setLoading(false) }
-  }, [endpoint, routeId, stopId, selectionKey, eventFilter])
+  }, [endpoint, routeId, stopId, selectionKey, eventFilter, onOperationalEvents])
   useEffect(() => {
     // The server owns feed ingestion. Read its state on one cadence; a map
     // snapshot update must not launch another assessment or cancel this one.

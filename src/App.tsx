@@ -26,7 +26,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import './App.css'
-import type { ToolResult } from './agency/types'
+import type { ToolResult, OperationalEvent } from './agency/types'
 import { AgencyPanel } from './components/AgencyPanel'
 import { BackgroundTasks } from './components/BackgroundTasks'
 import { isActiveTask, isPreparationJob, preparationTasks, updateProjectJob, type PreparationTask } from './app/preparation'
@@ -1712,6 +1712,7 @@ const emptyCoordinates: [number, number][] = []
 const emptyVehicleFrame: ServiceVehicleFrame = { mode: 'schedule', vehicles: [], tripUpdateCount: 0, alertCount: 0 }
 
 function RouteSurface({
+  operationalEvents,
   agencyFocus,
   scheduleLoadStatus,
   agencyLocation,
@@ -1761,6 +1762,7 @@ function RouteSurface({
   onSelectStop,
 }: {
   agencyLocation?: { id: string; label: string; coordinate: [number, number]; stopId?: string }
+  operationalEvents?: OperationalEvent[]
   agencyFocus: boolean
   scheduleLoadStatus?: string
   routeDetailStatus?: string
@@ -1846,9 +1848,10 @@ function RouteSurface({
       mode: vehicleMode,
       preview: vehicleMode === 'live' ? visiblePreview : mapPreview,
       realtimeSnapshot,
+      operationalEvents,
       scheduledVehicles,
     }),
-    [analysisFocus, mapPreview, realtimeSnapshot, routingFocus, scheduledVehicles, vehicleMode, visiblePreview],
+    [analysisFocus, mapPreview, realtimeSnapshot, operationalEvents, routingFocus, scheduledVehicles, vehicleMode, visiblePreview],
   )
   const visibleVehicleCount = serviceVehicleCount(vehicleFrame, isNetworkMap || scheduledNetwork ? undefined : selectedRoute, mapPreview)
   const selectedPatternOnly = !isNetworkMap && mapPreview.routes.length === 1 && (selectedRoute?.serviceVariantCount ?? 1) > 1
@@ -2081,6 +2084,7 @@ export default function App() {
   const [setupError, setSetupError] = useState('')
   const [apiError, setApiError] = useState('')
   const [layers, setLayers] = useState<LayerState>(initialLayers)
+  const [operationalEvents, setOperationalEvents] = useState<OperationalEvent[]>([])
   const [vehicleMode, setVehicleMode] = useState<ServiceVehicleMode>('schedule')
   const [selectedRouteId, setSelectedRouteId] = useState('')
   const [selectedStopId, setSelectedStopId] = useState('')
@@ -5094,6 +5098,7 @@ export default function App() {
       ) : (
       <div className="workbench project-workbench route-investigation-shell">
         <RouteSurface
+          operationalEvents={activeRouteTool === 'agency' ? operationalEvents : undefined}
           agencyFocus={activeRouteTool === 'agency'}
           scheduleLoadStatus={scheduleLoadStatus}
           agencyLocation={agencyLocation}
@@ -5146,6 +5151,7 @@ export default function App() {
           onSelectStop={activeRouteTool === 'agency' ? (id, options) => options?.inspect === false ? locateAgencyEntities([], [id]) : browseAgencyEntities([], [id]) : selectStop}
         />
         {activeRouteTool === 'agency' ? <AgencyPanel
+          onOperationalEvents={setOperationalEvents}
           key={selectedProjectId}
           projectId={selectedProjectId}
           selection={{ routeId: mapScope === 'route' && selectedRoute ? networkRouteId(selectedRoute) : undefined, stopId: selectedStopId || undefined }}

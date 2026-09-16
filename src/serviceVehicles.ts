@@ -1,3 +1,5 @@
+import { occupancyIndicator, vehicleGap, vehicleReportFresh } from './agency/vehicleIndicators'
+import type { OperationalEvent } from './agency/types'
 import type { LngLat, MapPreview, RealtimeSnapshot, RouteMetric, ScheduledTrip, StopMetric } from './domain'
 import { scopedRouteServiceKey } from './routeServices'
 import { formatScheduleClock, formatServiceTime, type ScheduledVehicle } from './scheduledVehicles'
@@ -30,6 +32,9 @@ export type ServiceVehicle = {
   routeColor: string
   tripId: string
   nextStopFeatureId?: string
+  gapSeverity?: string
+  indicatorLabel?: string
+  crowded?: boolean
   card: ServiceVehicleCard
 }
 
@@ -160,7 +165,7 @@ function delayLabel(delaySeconds: number | undefined) {
   return `${minutes > 0 ? '+' : ''}${minutes}m`
 }
 
-function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview): ServiceVehicle[] {
+function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview, events: OperationalEvent[] = []): ServiceVehicle[] {
   if (!snapshot) return []
   const index = previewVehicleIndex(preview)
   const tripUpdates = new Map<string, RealtimeSnapshot['tripUpdates'][number]>()
@@ -205,6 +210,10 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
         ? 'Not encoded'
         : formatScheduleClock(scheduledArrivalMinutes + Math.round((delaySeconds ?? 0) / 60))
     const stop = stopFor(index, nextStopId)
+    const gap = vehicleGap(vehicle, snapshot, events)
+    const occupancy = occupancyIndicator(vehicle.occupancyStatus)
+    const fresh = vehicleReportFresh(vehicle, snapshot)
+    const gapLabel = gap ? `${Math.round((gap.evidence.observedHeadwaySeconds || 0) / 60)} min gap · scheduled ${Math.round((gap.evidence.scheduledHeadwaySeconds || 0) / 60)} min` : ''
     const routeShortName = route?.shortName || routeId || 'Unassigned'
 
     return [{
@@ -221,6 +230,9 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
       routeShortName,
       routeColor: route?.color ?? '#6af3ee',
       tripId,
+      gapSeverity: gap?.severity,
+      crowded: fresh && occupancy.crowded,
+      indicatorLabel: [gapLabel, fresh && occupancy.label !== 'Occupancy unknown' ? occupancy.label : ''].filter(Boolean).join(' · '),
       nextStopFeatureId: stop?.id,
       card: {
         eyebrow: 'Live vehicle',
@@ -233,7 +245,8 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
           arrivalLabel: realtimeArrivalTimestamp || delaySeconds !== undefined ? 'Expected arrival' : 'Scheduled arrival',
         },
         metrics: [
-          { value: codeLabel(vehicle.occupancyStatus), label: 'occupancy' },
+          { value: `${occupancy.label}${fresh ? '' : ' (not current)'}`, label: 'reported occupancy' },
+          ...(gap ? [{ value: gapLabel, label: `Predicted at ${gap.stopName || gap.stopId}; direction ${gap.directionId ?? 'unknown'}` }] : []),
           { value: delayLabel(delaySeconds), label: 'delay' },
           { value: realtimeClock(vehicle.timestamp), label: 'seen' },
         ],
@@ -292,16 +305,18 @@ export function buildServiceVehicleFrame({
   preview,
   realtimeSnapshot,
   scheduledVehicles,
+  operationalEvents = [],
 }: {
   mode: ServiceVehicleMode
   preview: MapPreview
   realtimeSnapshot: RealtimeSnapshot | null
+  operationalEvents?: OperationalEvent[]
   scheduledVehicles: ScheduledVehicle[]
 }): ServiceVehicleFrame {
   return {
     mode,
     vehicles: mode === 'live'
-      ? realtimeVehicles(realtimeSnapshot, preview)
+      ? realtimeVehicles(realtimeSnapshot, preview, operationalEvents)
       : scheduledServiceVehicles(scheduledVehicles, preview),
     fetchedAt: mode === 'live' ? realtimeSnapshot?.fetchedAt : undefined,
     tripUpdateCount: mode === 'live' ? realtimeSnapshot?.counts.tripUpdates ?? 0 : 0,

@@ -159,8 +159,14 @@ export function createAgencyService(adapters, { provider = createProvider(), web
         }
         const state = current(session)
         const { trips, measurements, ...publicState } = state
+        const mapGaps = new Map()
+        for (const event of state.events) {
+          if (event.type !== 'service-gap' || !event.vehicleId) continue
+          const key = JSON.stringify([event.tripId, event.vehicleId, event.serviceDate, event.evidence.tripStartTime])
+          if ((mapGaps.get(key)?.evidence.observedHeadwaySeconds ?? -1) < event.evidence.observedHeadwaySeconds) mapGaps.set(key, { ...event, stopName: session.context.stopIndex.get(event.stopId)?.name || event.stopId })
+        }
         const selected = state.events.filter((event) => eventInSelection(event, selection, stops) && (!eventType || eventType === 'all' || event.type === eventType))
-        return { ...publicState, scheduleIdentity: session.scheduleIdentity, selection, filters: { routeId, stopId, eventType }, filteredEventCount: selected.length,
+        return { ...publicState, mapGapEvents: [...mapGaps.values()], scheduleIdentity: session.scheduleIdentity, selection, filters: { routeId, stopId, eventType }, filteredEventCount: selected.length,
           stopLocations: Object.fromEntries(selected.slice(0, 500).flatMap((event) => { const stop = session.context.stopIndex.get(event.stopId); return stop ? [[stop.stop_id, { label: stop.name, coordinate: [stop.lon, stop.lat] }]] : [] })),
           stopNames: Object.fromEntries(selected.slice(0, 500).flatMap((event) => event.stopId ? [[event.stopId, session.context.stopIndex.get(event.stopId)?.name || event.stopId]] : [])),
           eventCount: state.events.length, events: selected.slice(0, 500), warnings: [...state.warnings, ...(selected.length > 500 ? ['Showing the first 500 matching events. Choose a route or event type to narrow the view.'] : [])] }

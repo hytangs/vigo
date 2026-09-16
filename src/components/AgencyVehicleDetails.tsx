@@ -1,3 +1,4 @@
+import { occupancyIndicator } from '../agency/vehicleIndicators'
 import { useEffect, useState } from 'react'
 import { apiJson } from '../app/api'
 import type { VehicleTiming } from '../agency/routeOperationsTypes'
@@ -32,7 +33,7 @@ export function VehicleDetailsView({ vehicle }: { vehicle: VehicleTiming }) {
     {next ? <p className="agency-vehicle-next"><span>Next prediction</span><strong>{next.stop.name}</strong></p> : null}
     <table aria-label={`Scheduled and predicted times at ${timing.stop?.name ?? 'the reported stop'}`}><thead><tr><th scope="col">{next ? 'Event' : 'At this stop'}</th><th scope="col">Scheduled</th><th scope="col">Predicted</th></tr></thead><tbody>{(['arrival', 'departure'] as const).map(kind => <tr key={kind}><th scope="row">{kind === 'arrival' ? 'Arrival' : 'Departure'}</th><td>{clock(timing[kind].scheduled, vehicle)}</td><td>{clock(timing[kind].current, vehicle)}</td></tr>)}</tbody></table>
     {timing.delayKind ? <p className="agency-vehicle-deviation">{timing.delayKind === 'arrival' ? 'Arrival' : 'Departure'} · <strong>{vehicleDelayLabel(timing.delaySeconds)}</strong></p> : null}
-    {vehicle.occupancy && vehicle.occupancy !== 'NO_DATA_AVAILABLE' ? <p className="agency-caption">Occupancy · {vehicle.occupancy.toLowerCase().replaceAll('_', ' ')}</p> : null}
+    <p className={occupancyIndicator(vehicle.occupancy || undefined).crowded && vehicle.fresh ? 'agency-vehicle-warning' : 'agency-caption'}><strong>Reported occupancy · {occupancyIndicator(vehicle.occupancy || undefined).label}</strong>{!vehicle.fresh ? ' · Not current' : ''}</p>
     <footer><span>Vehicle seen {clock(vehicle.observedAt, vehicle, true)}{!vehicle.fresh ? ' · Not current' : ''}</span>{vehicle.predictionAt ? <span>Trip update {clock(vehicle.predictionAt, vehicle, true)}</span> : null}<span>— means timing unavailable.</span></footer>
     <details className="agency-vehicle-source"><summary>Trip & service day</summary><p>Trip {vehicle.tripId?.split('\u001f').at(-1) || 'unassigned'} · {vehicle.serviceDate || 'unknown date'} · {vehicle.timezone || 'unknown timezone'}</p></details>
   </section>

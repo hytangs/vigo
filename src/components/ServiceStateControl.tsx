@@ -73,6 +73,7 @@ export function ServiceStateControl({
           {mode === 'schedule' || diagnostics.tone !== 'good' ? <small>{diagnostics.title}{mode === 'schedule' && onNow ? <> · <button type="button" className="service-now-button" onClick={onNow}>Now</button></> : null}</small> : null}
         </span>
       </div>
+      {mode === 'live' ? <details className="service-indicator-legend"><summary>Gap &amp; crowding key</summary><p>Amber: predicted gap ≥1.5× scheduled and ≥5 min extra. Red: ≥3× scheduled, ≥20 min total and ≥10 min extra.</p><p>Purple outer ring: reported crowded, full, or not accepting passengers. Labels show the reported category. No ring can mean missing data.</p><p>Gaps are predictions at a reference stop; open the vehicle for location and direction.</p></details> : null}
       {mode === 'schedule' ? (
         <>
           <button type="button" className="service-playback-toggle" onClick={onTogglePlayback} aria-label={playbackRunning ? 'Pause service playback' : 'Play service playback'}>

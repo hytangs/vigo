@@ -114,6 +114,9 @@ try {
   Date.now = () => now
   const { AgencyRouteBrowser } = await server.ssrLoadModule('/src/components/AgencyRouteBrowser.tsx')
   const render = (changes = {}, props = {}) => renderToStaticMarkup(createElement(AgencyRouteBrowser, { state: { ...state, ...changes }, onSelect: () => {}, ...props }))
+  const gapHtml = render({ routes: [route('R', { reportingTrips: 2, comparedPairs: 4, widestInterval: { predictedSeconds: 1800, scheduledSeconds: 600, stopName: 'River', directionId: '0' } })] })
+  assert.match(gapHtml, /Worst predicted gap: 30 min \/ 10 min scheduled/)
+  assert.match(gapHtml, /River · direction 0 · 4 stop-pair comparisons/)
   const html = render()
   assert.match(html, /aria-label="Find a route"/)
   assert.match(html, /role="group" aria-label="Filter routes"/)

@@ -57,7 +57,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
   const routes = new Map(context.routes.map((route) => [route.route_id, {
     id: route.route_id, name: route.short_name || route.long_name || rawId(route.route_id), longName: route.long_name || '',
     color: /^[0-9a-f]{6}$/i.test(route.color) ? `#${route.color}` : 'var(--text-muted)', mode: route.route_type,
-    trips: 0, reportingTrips: 0, maxDelaySeconds: null, events: 0, alerts: 0, serviceChanges: 0, headway: 'unknown', widestInterval: null,
+    trips: 0, reportingTrips: 0, maxDelaySeconds: null, events: 0, alerts: 0, serviceChanges: 0, headway: 'unknown', comparedPairs: 0, widestInterval: null,
   }]))
   const active = coverage.serviceDate ? context.activeServices(coverage.serviceDate) : new Set()
   for (const trip of context.trips) if (active.has(trip.service_id)) routes.get(trip.route_id).trips++
@@ -119,7 +119,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       const departure = stopUpdate.departure
       const predictedTime = finite(departure?.time) ? departure.time : finite(departure?.delay) ? epoch + row.departure + departure.delay : null
       if (predictedTime === null) continue // Arrival predictions never stand in for departures.
-      const prediction = { tripId: trip.trip_id, sequence: row.stop_sequence, stopId: row.from_stop_id, scheduledTime: epoch + row.departure, predictedTime, delaySeconds: predictedTime - epoch - row.departure, sourceRef: ref, observedAt: base.observedAt }
+      const prediction = { ...(update.vehicleId ? { vehicleId: update.vehicleId } : {}), ...(update.startTime ? { tripStartTime: update.startTime } : {}), tripId: trip.trip_id, sequence: row.stop_sequence, stopId: row.from_stop_id, scheduledTime: epoch + row.departure, predictedTime, delaySeconds: predictedTime - epoch - row.departure, sourceRef: ref, observedAt: base.observedAt }
       predictions.push(prediction)
       if ((predictedTime >= nowSeconds && predictedTime <= nowSeconds + policy.windowMinutes * 60)
         || (prediction.scheduledTime >= nowSeconds && prediction.scheduledTime <= nowSeconds + policy.windowMinutes * 60)) {
@@ -164,9 +164,10 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
         fromTime: before.predictedTime, toTime: after.predictedTime,
         observedAt: before.observedAt < after.observedAt ? before.observedAt : after.observedAt, sourceRefs: [before.sourceRef, after.sourceRef] })
       const route = routes.get(trip.route_id)
+      route.comparedPairs++
       if (!route.widestInterval || observedHeadwaySeconds > route.widestInterval.predictedSeconds) route.widestInterval = {
         predictedSeconds: observedHeadwaySeconds, scheduledSeconds: scheduledHeadwaySeconds,
-        stopId, stopName: context.stopIndex.get(stopId)?.name || stopId,
+        directionId: trip.direction_id, stopId, stopName: context.stopIndex.get(stopId)?.name || stopId,
       }
       if (observedHeadwaySeconds === scheduledHeadwaySeconds) {
         if (completeWindow && route.headway === 'unknown') route.headway = 'matches-schedule'
@@ -175,9 +176,11 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       route.headway = 'changed'
       const compressed = observedHeadwaySeconds < scheduledHeadwaySeconds
       add(compressed ? 'bunching' : 'service-gap', [key, before.tripId, after.tripId], {
+        severity: !compressed && observedHeadwaySeconds >= 1200 && observedHeadwaySeconds >= 3 * scheduledHeadwaySeconds && observedHeadwaySeconds - scheduledHeadwaySeconds >= 600 ? 'critical' : !compressed && observedHeadwaySeconds >= 1.5 * scheduledHeadwaySeconds && observedHeadwaySeconds - scheduledHeadwaySeconds >= 300 ? 'warning' : 'info',
+        vehicleId: after.vehicleId,
         title: compressed ? 'Compressed departure interval' : 'Wider departure interval', routeId: trip.route_id, directionId: trip.direction_id ?? undefined,
         tripId: after.tripId, stopId, serviceDate, observedAt: before.observedAt < after.observedAt ? before.observedAt : after.observedAt,
-        evidence: { scheduledHeadwaySeconds, observedHeadwaySeconds, headwayRatio: observedHeadwaySeconds / scheduledHeadwaySeconds,
+        evidence: { ...(after.tripStartTime ? { tripStartTime: after.tripStartTime } : {}), scheduledHeadwaySeconds, observedHeadwaySeconds, headwayRatio: observedHeadwaySeconds / scheduledHeadwaySeconds,
           referenceStopId: stopId, comparisonWindow: [before.scheduledTime, after.scheduledTime], expectedDepartures: expected.length, reportingTrips: expected.filter((row) => reporting.has(`${row.trip_id}/${row.stop_sequence}`)).length,
           tripIds: [before.tripId, after.tripId], reason: 'Two consecutive scheduled departures, both reporting at this stop. This is a predicted interval, not an observed passage or route-wide regularity claim.' },
         sourceRefs: [before.sourceRef, after.sourceRef, `gtfs:connections/${encodeURIComponent(stopId)}?date=${serviceDate}`],

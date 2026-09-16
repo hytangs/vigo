@@ -128,7 +128,7 @@ const transferLayerIds = ['vigo-transfer-stops']
 const coverageLayerIds = ['vigo-coverage']
 const scenarioLayerIds = ['vigo-scenario-routes']
 const accessLayerIds = ['vigo-access-outer', 'vigo-access-middle', 'vigo-access-inner']
-const vehicleLayerIds = ['vigo-vehicle-halo', 'vigo-vehicles', 'vigo-vehicle-headings', 'vigo-vehicle-labels']
+const vehicleLayerIds = ['vigo-vehicle-gap-ring', 'vigo-vehicle-occupancy-ring', 'vigo-vehicle-indicator-label', 'vigo-vehicle-halo', 'vigo-vehicles', 'vigo-vehicle-headings', 'vigo-vehicle-labels']
 const routingLayerIds = ['vigo-routing-walk-casing', 'vigo-routing-walk', 'vigo-routing-drive-casing', 'vigo-routing-drive', 'vigo-routing-ride-casing', 'vigo-routing-ride', 'vigo-routing-labels', 'vigo-routing-pin-halo', 'vigo-routing-pins']
 const reachResultLayerIds = [
   'vigo-scenario-area',
@@ -546,6 +546,9 @@ function serviceVehicleFeatures(frame: ServiceVehicleFrame, preview: MapPreview,
           coordinates: vehicle.coordinate,
         },
         properties: {
+          gapSeverity: vehicle.gapSeverity || '',
+          crowded: vehicle.crowded || false,
+          indicatorLabel: vehicle.indicatorLabel || '',
           vehicleIndex,
           vehicleId: vehicle.id,
           label: vehicle.card.title,
@@ -1917,6 +1920,25 @@ function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
 
   if (!map.getLayer(vehicleMarkerLayer.id)) map.addLayer(vehicleMarkerLayer)
   if (!map.getLayer(vehicleHeadingLayer.id)) map.addLayer(vehicleHeadingLayer)
+
+  if (!map.getLayer('vigo-vehicle-gap-ring')) map.addLayer({
+    id: 'vigo-vehicle-gap-ring', type: 'circle', source: 'vigo-service-vehicles',
+    filter: ['in', ['get', 'gapSeverity'], ['literal', ['warning', 'critical']]],
+    paint: { 'circle-radius': 10, 'circle-color': '#000000', 'circle-opacity': 0,
+      'circle-stroke-width': 3, 'circle-stroke-color': ['case', ['==', ['get', 'gapSeverity'], 'critical'], '#ef4444', '#f59e0b'] },
+  })
+  if (!map.getLayer('vigo-vehicle-occupancy-ring')) map.addLayer({
+    id: 'vigo-vehicle-occupancy-ring', type: 'circle', source: 'vigo-service-vehicles',
+    filter: ['==', ['get', 'crowded'], true],
+    paint: { 'circle-radius': 15, 'circle-color': '#000000', 'circle-opacity': 0,
+      'circle-stroke-width': 2, 'circle-stroke-color': '#c084fc' },
+  })
+  if (!map.getLayer('vigo-vehicle-indicator-label')) map.addLayer({
+    id: 'vigo-vehicle-indicator-label', type: 'symbol', source: 'vigo-service-vehicles', minzoom: 12,
+    filter: ['!=', ['get', 'indicatorLabel'], ''],
+    layout: { 'text-field': ['get', 'indicatorLabel'], 'text-size': 11, 'text-offset': [0, -1.8], 'text-anchor': 'bottom', 'text-allow-overlap': false },
+    paint: { 'text-color': '#ffffff', 'text-halo-color': '#111827', 'text-halo-width': 2 },
+  })
 
   if (!map.getLayer('vigo-vehicle-labels')) {
     map.addLayer({
@@ -3425,6 +3447,7 @@ export function VigoMap({
           <button type="button" aria-label="Clear map selection" onClick={() => setLiveSelection(null)}>
             <X size={13} strokeWidth={2.6} aria-hidden="true" />
           </button>
+          {liveSelection.vehicleId ? vehicleFrame.vehicles.find(vehicle => vehicle.id === liveSelection.vehicleId && vehicle.sourceUrl === liveSelection.vehicleSourceUrl)?.card.metrics.filter(metric => metric.label.startsWith('Predicted at ')).map(metric => <p className="agency-vehicle-warning" key={metric.label}><strong>{metric.value}</strong><br />{metric.label}</p>) : null}
           {liveSelection.stopId && projectId ? <StopArrivalBoard key={`${projectId}/${liveSelection.stopId}`} projectId={projectId} stopId={liveSelection.stopId} /> : liveSelection.vehicleId && projectId ? <AgencyVehicleDetails key={`${projectId}/${liveSelection.vehicleSourceUrl}/${liveSelection.vehicleId}`} projectId={projectId} vehicleId={liveSelection.vehicleId} sourceUrl={liveSelection.vehicleSourceUrl} /> : <><span>{liveSelection.eyebrow}</span>
           <strong>{liveSelection.title}</strong>
           <small>{liveSelection.subtitle}</small>

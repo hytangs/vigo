@@ -110,6 +110,7 @@ const scheduledVehiclesCompiled = ts.transpileModule(scheduledVehiclesSource, {
 }).outputText.replace("from './app/geometry'", `from '${geometryUrl}'`)
 const scheduledVehicles = await import(`data:text/javascript;base64,${Buffer.from(scheduledVehiclesCompiled).toString('base64')}`)
 const scheduledVehiclesUrl = `data:text/javascript;base64,${Buffer.from(scheduledVehiclesCompiled).toString('base64')}`
+const vehicleIndicatorsUrl = `data:text/javascript;base64,${Buffer.from(ts.transpileModule(readFileSync(resolve('src/agency/vehicleIndicators.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText).toString('base64')}`
 const serviceVehiclesCompiled = ts.transpileModule(serviceVehiclesSource, {
   compilerOptions: {
     module: ts.ModuleKind.ES2022,
@@ -117,6 +118,7 @@ const serviceVehiclesCompiled = ts.transpileModule(serviceVehiclesSource, {
   },
   fileName: 'serviceVehicles.ts',
 }).outputText
+  .replace("from './agency/vehicleIndicators'", `from '${vehicleIndicatorsUrl}'`)
   .replace("from './scheduledVehicles'", `from '${scheduledVehiclesUrl}'`)
   .replace("from './routeServices'", `from '${routeServicesUrl}'`)
 const serviceVehicles = await import(`data:text/javascript;base64,${Buffer.from(serviceVehiclesCompiled).toString('base64')}`)

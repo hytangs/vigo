@@ -1194,3 +1194,7 @@
   font-size: 0.54rem;
   font-weight: 740;
 }
+
+.service-indicator-legend { grid-column: 1 / -1; order: 10; font-size: 11px; }
+.service-indicator-legend summary { cursor: pointer; }
+.service-indicator-legend p { margin: 6px 0; line-height: 1.4; }

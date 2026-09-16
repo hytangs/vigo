@@ -7,6 +7,7 @@ export type WorkspaceSelection = {
 }
 
 export type Evidence = {
+  tripStartTime?: string
   scheduledTime?: number
   predictedTime?: number
   delaySeconds?: number
@@ -83,10 +84,12 @@ export type AgencyRoute = {
   alerts: number
   serviceChanges?: number
   headway: 'unknown' | 'changed' | 'matches-schedule'
-  widestInterval?: { predictedSeconds: number; scheduledSeconds: number; stopId: string; stopName: string } | null
+  comparedPairs?: number
+  widestInterval?: { directionId?: number | string; predictedSeconds: number; scheduledSeconds: number; stopId: string; stopName: string } | null
 }
 
 export type AgencyState = {
+  mapGapEvents?: OperationalEvent[]
   scheduleIdentity?: string
   selection?: WorkspaceSelection
   generatedAt: string

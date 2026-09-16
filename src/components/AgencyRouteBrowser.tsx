@@ -62,6 +62,7 @@ export function AgencyRouteBrowser({ state, onSelect, initialFilter = 'all', onF
             {reporting && route.headway === 'changed' ? <span className="agency-route-indicator" title="At least one fully reporting departure pair has different predicted spacing from the timetable.">Spacing changed</span> : null}
             {freshness.attentionRouteIds.has(route.id) ? <span className="agency-route-indicator">Service change reported</span> : null}
           </span> : null}
+          {reporting && route.widestInterval ? <small title="Largest verified predicted interval in the current assessment window. Predictions are not measured vehicle passage; missing pairs remain unknown.">Worst predicted gap: {Math.round(route.widestInterval.predictedSeconds / 60)} min / {Math.round(route.widestInterval.scheduledSeconds / 60)} min scheduled · {route.widestInterval.stopName} · direction {route.widestInterval.directionId ?? 'unknown'} · {route.comparedPairs ?? 0} stop-pair comparisons</small> : <small>Headway coverage unknown</small>}
         </span>
         <ChevronRight size={15} aria-hidden="true" />
       </button>
