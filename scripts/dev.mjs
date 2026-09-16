@@ -1,5 +1,28 @@
 import { spawn } from 'node:child_process'
+import { createServer } from 'node:net'
 import process from 'node:process'
+
+async function findApiPort() {
+  const preferred = Number(process.env.VIGO_PORT ?? process.env.VIGO_API_PORT ?? 5179) || 5179
+  const host = (process.env.VIGO_HOST || '127.0.0.1').trim() || '127.0.0.1'
+  for (let port = preferred; port <= 65535; port += 1) {
+    const available = await new Promise((resolve, reject) => {
+      const probe = createServer()
+      probe.once('error', (error) => {
+        if (error.code === 'EADDRINUSE') resolve(false)
+        else reject(error)
+      })
+      probe.listen(port, host, () => probe.close(() => resolve(true)))
+    })
+    if (available) {
+      if (port !== preferred) console.log(`[dev] API port ${preferred} is busy; using ${port}.`)
+      return port
+    }
+  }
+  throw new Error('No available API port found.')
+}
+
+process.env.VIGO_PORT = String(await findApiPort())
 
 const children = []
 
