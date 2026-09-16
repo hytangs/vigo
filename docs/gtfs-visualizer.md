@@ -1,6 +1,6 @@
-# Explore GTFS in VIGO Studio
+# Inspect GTFS in VIGO Agency
 
-Open **Explore** to understand the transit service represented by a City.
+Open **Network → Routes** to understand the transit service represented by a City.
 
 ## Map
 
@@ -22,4 +22,4 @@ The **Estimated** readout identifies these simulated positions. Vehicles stay at
 
 Stop placement on a shape is an ordered geometric estimate. The current index does not retain `shape_dist_traveled` or every untimed intermediate call, so playback cannot establish exact vehicle locations between timed calls. A timetable band represents the first departure through the last arrival, including any gaps in service.
 
-Live service is another Explore lens. Studio Route can apply a bounded overlay of matched, supported Trip Updates. Vehicle Positions and Alerts are display data. See the [realtime limits](known-routing-limitations.md#realtime); this is unavailable through the public CLI.
+Live service appears alongside the timetable. Realtime Route processes supported Trip Updates in the desktop or from a caller-supplied CLI snapshot. Vehicle Positions and Alerts are display data. See [realtime routing](REALTIME-ROUTING.md) and the [realtime limits](known-routing-limitations.md#realtime).

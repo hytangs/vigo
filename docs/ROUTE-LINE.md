@@ -1,6 +1,6 @@
 # Vehicle timing and line view
 
-In Agency, select a route in Live, then choose **Line view** above the map. The two tracks show each direction's stops and reported vehicles. Select a vehicle in either view to compare scheduled and current arrival and departure at its reported stop. Branch selectors retain the actual trip patterns.
+In Agency, open **Network → Routes** and select a route to see its line diagram. The two tracks show each direction's stops and reported vehicles. Select a vehicle in either view to compare scheduled and current arrival and departure at its reported stop. Branch selectors retain the actual trip patterns.
 
 The vehicle card previously depended on the map's partial timetable preview and could choose a past stop from the trip update. It now reads the City's full connection store through the shared Agency context. Selecting a vehicle also selected its route, which could immediately clear the card as the map reloaded; the card now survives that change while the vehicle remains in scope.
 

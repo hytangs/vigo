@@ -1,6 +1,6 @@
-# Contributing to VIGO
+# Contributing to VIGO Agency
 
-VIGO is pre-release software. This repository contains VIGO Studio, the command
+VIGO Agency is pre-release software. This repository contains the Agency desktop, the command
 line, and their shared computation code. Keep language bindings, notebooks,
 generated data, release archives, private datasets, and local files outside it.
 
@@ -34,7 +34,7 @@ files under `release/`.
 
 Run `npm test` while working. Before proposing a release-affecting change, run
 `npm run check:release`. On each supported target,
-`npm run release:studio` builds, packages, checks the bundled runtime, and archives VIGO Studio; macOS bundles receive an ad-hoc signature.
+`npm run release:studio` builds, packages, checks the bundled runtime, and archives VIGO Agency; macOS bundles receive an ad-hoc signature.
 Report which checks ran and which platform-specific checks did not.
 
 ## Claims and limitations
@@ -46,7 +46,7 @@ the behavior that the source and tests implement.
 
 ## Security reports
 
-The browser development server is loopback-only. Packaged VIGO Studio uses an
+The browser development server is loopback-only. Packaged VIGO Agency uses an
 internal memory channel and does not listen on a local port. Use GitHub private
 vulnerability reporting for sensitive reports. If it is unavailable, open a
 brief public issue requesting a private contact channel without including exploit

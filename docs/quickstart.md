@@ -1,4 +1,6 @@
-# VIGO 0.3.2 Quickstart
+# VIGO Agency routing quickstart
+
+For the desktop workspace, start with the [Agency guide](agency.md). The commands below use Agency's inherited VIGO routing engine.
 
 Build one City, then reuse it for Route, Matrix, and Reach. Build and first-query time depend on the size of the supplied network.
 
@@ -8,8 +10,8 @@ VIGO 0.3.2 requires Node.js 24.18 or newer and npm 11.6 or newer.
 Source builds also require the pinned Rust toolchain. Supported targets are macOS Apple Silicon/Intel, Linux ARM64/x64 with glibc, and Windows x64. Use a native build for the target OS and CPU; City data moves between them. See the [platform and City limits](known-routing-limitations.md).
 
 ```bash
-git clone --branch v0.3.2 https://github.com/hytangs/vigo.git
-cd vigo
+git clone https://github.com/vigo-developers/vigo-agency.git
+cd vigo-agency
 npm ci
 npm run build
 npm link

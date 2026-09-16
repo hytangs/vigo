@@ -394,12 +394,12 @@ The abstraction is stable; support in 0.3.2 is deliberately narrower:
 Baseline City & \yes & \yes & \yes & CLI; Studio offers Route and Reach \\
 Planned service & \no & \no & \yes & CLI and Studio \\
 Traffic & Drive & Drive & \no & CLI \\
-Live transit & Studio & \no & \no & Studio state only \\
+Live transit & \yes & \no & \no & Studio; CLI with supplied snapshot \\
 \bottomrule
 \end{tabularx}
 \end{center}
 
-Planned service can add scheduled service or exclude selected routes for Reach. Traffic carries time-bounded directed road observations for Drive Route and Drive Matrix. Live transit routing is available only in Studio Route: supported Trip Updates modify matched scheduled trips in a bounded overlay. Vehicle Positions and Alerts do not change routing. Feeds older than 180 seconds fall back to the schedule; missing timestamps do not establish freshness. Added trips and skipped-stop changes are unsupported. At most 256 adjusted trips are retained after considering at most 1,024 updates; this is not complete realtime network coverage.
+Planned service can add scheduled service or exclude selected routes for Reach. Traffic carries time-bounded directed road observations for Drive Route and Drive Matrix. Live transit Route processes supported Trip Updates against matched scheduled trips in Studio and the CLI. CLI callers supply \field{realtimeSnapshot} and select \code{--data-mode realtime}. The complete supplied snapshot is processed without trip-count caps; unreported trips retain scheduled times. Cancellations and skipped calls are supported; added trips without a scheduled instance remain unsupported. Vehicle Positions and Alerts do not change routing. Inspect realtime diagnostics for freshness exclusions and scheduled fallback. Matrix and Reach remain scheduled.
 
 Use \code{vigo capabilities} to inspect support. Supply planned changes in the Reach request\textquotesingle s \field{scenario} object, or supplied traffic in a Drive request\textquotesingle s \field{traffic} object. Unsupported combinations exit nonzero; changes are never silently ignored.
 
@@ -476,7 +476,7 @@ Matrix & No & Yes & Scalar rows with optional transit journeys. \\
 Reach & Yes & Yes & Surface and contours. \\
 Planned service & Yes & Yes & Reach only. \\
 Traffic state & No & Yes & Drive Route and Matrix. \\
-Live transit & Yes & No & Studio state. \\
+Live transit & Yes & Yes & Route with a supplied snapshot. \\
 Compare & Yes & Yes & Studio computes and compares Reach surfaces; CLI compares saved Results. \\
 \bottomrule
 \end{tabularx}

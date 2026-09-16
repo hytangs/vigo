@@ -36,4 +36,4 @@ Web search is configured separately. Connecting an LLM does not grant online sea
 
 Predicted spacing is not measured headway; retained forecast changes are not actual vehicle progression. Reporting coverage is not service health. Ask has no connected crew roster, maintenance clearance, passenger-demand model or live intervention simulator. It can discuss conditional options and draft rider text; it does not authorize dispatch or publish messages.
 
-See [implementation and measured answer quality](ASK-CHECKED-ASSESSMENTS.md) for the checks and their remaining failures. The [operations ledger](agency-operations.md) and [synthetic replay](operational-replay.md) are research APIs, not hidden everyday workspace panels.
+The [operations ledger](agency-operations.md) and [synthetic replay](operational-replay.md) are research APIs, not hidden everyday workspace panels.

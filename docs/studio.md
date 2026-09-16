@@ -1,22 +1,22 @@
-# VIGO Studio Guide
+# VIGO Agency desktop guide
 
-VIGO Studio provides network exploration, Route planning, and Reach analysis over the VIGO routing engine.
+VIGO Agency provides Network, Route, Analyze and City views over the VIGO routing engine. See the [Agency guide](agency.md) for Overview, Routes and Ask.
 
 ## Open a City
 
 Select a project from the Studio library and import GTFS and OSM. Rebuild when the source feed or street extract changes. Studio currently stores its projects in a library format; it cannot directly open the movable City directories built by the CLI.
 
-## Explore
+## Network
 
-### Network
+### Routes
 
-View transit lines, stops, stations, and streets together. Select a service to inspect its directions, patterns, stop sequence, service span, and exact-date trip count.
+Open **Network → Routes** to view transit lines, stops, stations, and streets together. Select a service to inspect its directions, patterns, stop sequence, service span, and exact-date trip count.
 
 ### Playback
 
 Choose a service date and local time. Scheduled playback uses trip-level stop times active on that date; it does not animate the route-wide trip total. Live state, when available, stays separate from the baseline schedule.
 
-Live Vehicle Positions and Alerts are displayed for inspection. Only supported, matched Trip Updates affect Studio Route; this is a bounded overlay over static service, not complete realtime network routing. See the [realtime limits](known-routing-limitations.md#realtime), including freshness fallback and unsupported trip/stop changes.
+Vehicle Positions and Alerts are displayed for inspection. In **Realtime** mode, Route processes the supplied Trip Updates into a separate timetable; unreported trips retain scheduled times. **Scheduled · Research** uses an explicit service date/time without live observations. See [realtime routing](REALTIME-ROUTING.md) and its [limits](known-routing-limitations.md#realtime).
 
 ## Route
 

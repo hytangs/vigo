@@ -8,7 +8,7 @@ Scenarios do not edit imported GTFS or OSM. A complete alternative feed creates 
 
 Multiple nonconflicting planned changes may coexist. Conflicts require an explicit resolution. A Scenario never moves automatically to another City revision, and expired live state cannot be queried.
 
-VIGO 0.3.2 supports planned service changes in Reach, supplied traffic in Drive Route and Drive Matrix, and a bounded Trip Updates overlay in Studio Route. Live transit Scenarios are unavailable through the public CLI; see the [realtime limits](known-routing-limitations.md#realtime). Inspect supported combinations with `vigo capabilities`. Unsupported CLI requests exit nonzero with an explanation.
+VIGO 0.3.2 supports planned service changes in Reach, supplied traffic in Drive Route and Drive Matrix, and realtime Route from supported Trip Updates. CLI Route accepts a top-level `realtimeSnapshot` with `--data-mode realtime`; this is separate from the planned-service `scenario` object. Matrix and Reach remain scheduled. See the [realtime limits](known-routing-limitations.md#realtime). Inspect supported combinations with `vigo capabilities`. Unsupported CLI requests exit nonzero with an explanation.
 
 ## Planned service
 

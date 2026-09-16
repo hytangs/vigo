@@ -55,7 +55,7 @@ It prunes prefixes whose best possible completion is strictly
 dominated by an existing journey. A verified walk that already beats the exact
 earliest transit arrival bypasses the bounded transit pass.
 
-Depart-at transit, arrive-by transit, walking, driving, waypoints, and batch requests remain Route variants. Studio also offers bounded realtime-adjusted transit Route; this is unavailable through the public CLI. See the [realtime limits](known-routing-limitations.md#realtime).
+Depart-at transit, arrive-by transit, walking, driving, waypoints, and batch requests remain Route variants. Desktop and CLI Route support realtime transit. CLI callers supply `realtimeSnapshot` and select `--data-mode realtime`; scheduled mode remains the CLI default. See [data modes and provenance](REALTIME-ROUTING.md). See the [realtime limits](known-routing-limitations.md#realtime).
 
 ## Maximum transfers
 

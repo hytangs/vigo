@@ -57,8 +57,8 @@ for (const relativePath of removedFiles) {
   assert(!fs.existsSync(repositoryPath(relativePath)), `Removed product concept returned: ${relativePath}`)
 }
 
-const readme = `${read('README.md')}\n${read('docs/foundation.md')}`
-for (const statement of ['Turn city transport data into answers.', 'City → Scenario → Query → Result', 'Route', 'Matrix', 'Reach']) {
+const readme = read('README.md')
+for (const statement of ['VIGO Agency', 'Overview', 'Routes', 'Ask', 'Route', 'Matrix', 'Reach']) {
   assert(readme.includes(statement), `README is missing: ${statement}`)
 }
 

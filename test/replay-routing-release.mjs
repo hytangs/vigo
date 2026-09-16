@@ -1,5 +1,5 @@
 // Opt-in release comparison on supplied, identical GTFS/OSM stores. No network
-// retrieval or LLM is involved. See docs/ROUTING-032-VERIFICATION.md.
+// retrieval or LLM is involved.
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
