@@ -17,6 +17,7 @@ import { publicReply as replyText } from './publicReply.mjs'
 import { normalizeArguments } from './toolArguments.mjs'
 import { inspectUnverifiedReply } from './replyInspection.mjs'
 import { placeEvidenceText } from './placeResults.mjs'
+import { chooseSourceAddress, publicPlaceSources } from './placeRecovery.mjs'
 import { assessmentChoices, renderAssessment, serviceChecks } from './serviceAssessment.mjs'
 
 const workspaceTool = { name: 'workspace_selection', description: 'Read the verified route/station currently selected in the workspace, including names, IDs and coordinates. Use when the question asks which station/route is selected, or needs its coordinates. Operational checks can use assess_service selected_route/selected_stop directly without this lookup. No trip or vehicle is selected.',
@@ -189,11 +190,14 @@ export async function queryAgency({ question, context, state, callTool, provider
   } } })
   const formFor = tool => tool.name === 'assess_service' ? assessmentForm(tool) : tool.name === 'inspect_service' ? inspectionForm(tool) : tool.name === 'service_timing' ? timingForm(tool) : tool.name === 'stop_arrivals' ? arrivalForm(tool) : tool.name === 'route_plan' ? journeyChoices.definition() : tool.name === 'service_profile' ? { ...tool, parameters: { ...tool.parameters,
     properties: { ...tool.parameters.properties, resultUse }, required: ['groupBy', 'resultUse'] } } : tool
-  const initialTools = discovery.definitions().map(formFor)
+  const placeForm = tool => tool.name === 'place_search' ? { ...tool, parameters: { ...tool.parameters,
+    properties: { ...tool.parameters.properties, name: { ...tool.parameters.properties.name, description: 'Requested business name without city, copied exactly from the user or retained sources. Use an empty string for street-address geocoding or category discovery.' } }, required: ['query', 'name'] } } : tool
+  const initialTools = discovery.definitions().map(formFor).map(placeForm)
   const startedAt = performance.now()
   const timing = { modelCalls: 0, modelMs: 0, toolMs: 0, inputTokens: null, outputTokens: null, firstResponseMs: null, loadMs: null, promptMs: null, generationMs: null }
   const trace = []
   const warnings = []
+  let placeWebRecovery = false, placeAddressRecovery = false
   let pendingAssessment = null, inspectedReply = false, repairAssessment = null, assessmentRepairs = 0, assessmentExtended = false
   let answer = '', emptyReplies = 0, renderedFromEvidence = false, finishWithTable = false, composeAssessment = false, assessmentMode = false, repeatedInspection = false
   // Reserve a final response even when the model has used its tool budget.
@@ -223,7 +227,7 @@ export async function queryAgency({ question, context, state, callTool, provider
       // Earlier source pages and conversation stay eligible for prefix reuse.
       inferenceMessages[inferenceMessages.length - 1] = { ...last, content: `${last.content.slice(0, newline)}\n${JSON.stringify({ ...JSON.parse(last.content.slice(newline + 1)), executionStatus: executionInstructions(trace) })}` }
     }
-    let currentTools = selectingStop ? [selectingStop.tool] : selectingLocations ? [journeyChoices.definition()] : discovery.definitions().filter(tool => tool.name !== 'continue_journey' || !continuationUsed).map(formFor)
+    let currentTools = selectingStop ? [selectingStop.tool] : selectingLocations ? [journeyChoices.definition()] : discovery.definitions().filter(tool => tool.name !== 'continue_journey' || !continuationUsed).map(formFor).map(placeForm)
     if (pendingAssessment) {
       currentTools = [assessmentChoices(pendingAssessment.data, assessmentForm(toolDefinitions.find(tool => tool.name === 'assess_service')).parameters.properties.targets)]
       inferenceMessages = [{ role: 'system', content: 'Arrange the completed operational checks in the most useful reading order. Choose the sections needed to answer this question completely, retaining every named target. If an essential check is missing, select missingChecks to run it before answering. Fleet, crew, block fitness, door or propulsion faults require resources; rider drafts require communications. Do not write an answer or change any facts. Call finish_assessment.' },
@@ -274,6 +278,28 @@ export async function queryAgency({ question, context, state, callTool, provider
     if (Number.isFinite(message?.usage?.completion_tokens)) timing.outputTokens = (timing.outputTokens ?? 0) + message.usage.completion_tokens
     for (const key of ['loadMs', 'promptMs', 'generationMs']) if (Number.isFinite(message?.metrics?.[key])) timing[key] = (timing[key] ?? 0) + message.metrics[key]
     if (signal?.aborted) break
+    // Finish an unresolved place lookup instead of asking permission for the
+    // web/address steps already needed to answer the user's request.
+    if (canUseTools && !message?.tool_calls?.length && trace.length < 7) {
+      const lookup = trace.findLast(call => call.tool === 'place_search' && call.result.ok)
+      const onlyLocationChecks = trace.every(call => ['place_search', 'resolve_entities', 'web_search', 'web_read', 'reference_lookup'].includes(call.tool))
+      if (lookup && onlyLocationChecks && lookup.result.data?.matches?.length === 0) {
+        const sources = publicPlaceSources(history, trace)
+        if (sources.length && !placeAddressRecovery) {
+          placeAddressRecovery = true
+          const recoveryStarted = performance.now()
+          timing.modelCalls++
+          try {
+            const address = await chooseSourceAddress(provider, question, lookup.arguments.query, sources, signal)
+            if (address) message = { tool_calls: [{ id: `address-recovery-${round}`, function: { name: 'place_search', arguments: JSON.stringify({ query: address, name: '' }) } }] }
+          } catch (error) { if (!signal?.aborted) warnings.push(error.message) }
+          finally { timing.modelMs += performance.now() - recoveryStarted }
+        } else if (!sources.length && capabilities.web_search && !placeWebRecovery) {
+          placeWebRecovery = true
+          message = { tool_calls: [{ id: `place-web-recovery-${round}`, function: { name: 'web_search', arguments: JSON.stringify({ query: lookup.arguments.query }) } }] }
+        }
+      }
+    }
     if (provider.reviewUnverifiedReplies && !inspectedReply && !pendingAssessment && !selectingLocations && !selectingStop
       && !message?.tool_calls?.length && replyText(message?.content)) {
       inspectedReply = true
@@ -491,6 +517,11 @@ export async function queryAgency({ question, context, state, callTool, provider
       messages.push({ role: 'tool', tool_call_id: call.id, content: `Source [${trace.length}]\n${compactResult(result, call.function.name)}` })
     }
     if (answer && renderedFromEvidence) break
+    if (calls.length === 1 && calls[0].id.startsWith('address-recovery-') && trace.at(-1)?.result.ok && trace.at(-1).result.data?.matches?.length) {
+      answer = `${placeEvidenceText(trace)}\n\nThis marks the sourced street address; the business entrance has not been verified.`
+      renderedFromEvidence = true
+      break
+    }
     if (trace.at(-1)?.result.data?.status === 'needs_user_location') {
       answer = journeyChoices.clarification(); renderedFromEvidence = true; break
     }

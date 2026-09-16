@@ -239,7 +239,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
               const previous = session.notebook.read(parentId)
               // Retain the most recent journey inputs, even across intervening
               // explanations. Older plans must not overwrite a later revision.
-              const categories = [['route_plan', 'walk_route', 'walk_compare', 'find_walk', 'reach'], ['place_search'], ['inspect_service', 'service_timing', 'stop_arrivals', 'realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message']]
+              const categories = [['route_plan', 'walk_route', 'walk_compare', 'find_walk', 'reach'], ['place_search'], ['web_search', 'web_read', 'reference_lookup'], ['inspect_service', 'service_timing', 'stop_arrivals', 'realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message']]
               const retained = categories.flatMap(tools => history.some(item => item.requests?.some(call => tools.includes(call.tool))) ? [] : (previous.answer.trace ?? []).filter(call => call.result.ok && tools.includes(call.tool)).slice(-2))
               if (!history.some(item => item.pendingJourney || item.requests?.some(call => call.tool === 'route_plan'))) {
                 for (const slot of previous.answer.pendingJourney?.slots ?? []) {
@@ -253,7 +253,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
                 if (call.tool === 'route_plan') for (const endpoint of call.result.data?.clarification?.endpoints ?? []) session.places.restore(endpoint.matches)
               }
               const requests = retained.map(call => ({ tool: call.tool, arguments: call.arguments }))
-              const findings = retained.filter(call => ['route_plan', 'walk_route', 'place_search', 'find_walk', 'walk_compare', 'inspect_service', 'service_timing', 'stop_arrivals', 'realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message'].includes(call.tool)).slice(-3)
+              const findings = retained.filter(call => ['route_plan', 'walk_route', 'place_search', 'web_search', 'web_read', 'reference_lookup', 'find_walk', 'walk_compare', 'inspect_service', 'service_timing', 'stop_arrivals', 'realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message'].includes(call.tool))
               history.unshift({ pendingJourney: previous.answer.pendingJourney, selection: previous.answer.selection, question: previous.title, answer: previous.answer.answer, privateContext: previous.answer.dataPolicyVersion !== 1 && (previous.answer.trace ?? []).some(call => ['operational_context', 'recall_notebook'].includes(call.tool)), observedAt: previous.answer.generatedAt, requests, findings })
               parentId = previous.parentId
             }

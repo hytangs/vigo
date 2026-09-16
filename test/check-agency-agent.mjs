@@ -428,12 +428,12 @@ const repairingProvider = createProvider({ VIGO_AGENCY_LLM_BASE_URL: 'http://loc
   }
   repairRounds++
   const framing = body.format.anyOf[0].properties.task ? { task: 'Find the cafe' } : {}
-  const reply = repairRounds < 3 ? { ...framing, action: 'place_search', arguments: { query: 'River Cafe', ...(repairRounds === 1 ? { osmTag: '' } : {}) } } : { action: 'answer', text: 'The cafe lookup completed. [2]' }
+  const reply = repairRounds < 3 ? { ...framing, action: 'place_search', arguments: { query: 'River Cafe', name: 'River Cafe', ...(repairRounds === 1 ? { osmTag: '' } : {}) } } : { action: 'answer', text: 'The cafe lookup completed. [2]' }
   if (repairRounds === 2) assert.match(body.messages.map(message => message.content).join('\n'), /Invalid arguments.osmTag/)
   return Response.json({ message: { content: JSON.stringify(reply) } })
 })
 const repaired = await queryAgency({ question: 'Find River Cafe', context, state, provider: repairingProvider,
-  callTool: async (_name, args) => { repairedLookups++; assert.deepEqual(args, { query: 'River Cafe' }); return { ok: true, data: { matches: [] }, warnings: [], provenance: [] } },
+  callTool: async (_name, args) => { repairedLookups++; assert.deepEqual(args, { query: 'River Cafe', name: 'River Cafe' }); return { ok: true, data: { matches: [] }, warnings: [], provenance: [] } },
 })
 assert.equal(repairedLookups, 1, 'Invalid local argument forms do not execute; corrected forms do')
 assert.equal(repaired.trace.length, 2)

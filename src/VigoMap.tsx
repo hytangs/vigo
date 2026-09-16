@@ -2263,9 +2263,9 @@ function applyNetworkLensPaint(map: MapLibreMap, networkLens: NetworkLens) {
   const lineOpacity = routeLensOpacity(networkLens)
   const transferOpacity = networkLens === 'transfer' ? 0.78 : networkLens === 'risk' ? 0.28 : 0.46
   const stopOpacity = ['interpolate', ['linear'], ['zoom'], 9, 0.5, 12, 0.85, 14, 1]
-  const routeFilter: FilterSpecification | null = networkLens === 'shape' || networkLens === 'risk'
-    ? null
-    : ['any', ['==', ['get', 'geometrySource'], 'shape'], ['==', ['get', 'selectedPattern'], true]] as FilterSpecification
+  // Schematic stop-to-stop geometry is still a route. Keep it visible in
+  // every lens instead of silently dropping services without shapes.txt.
+  const routeFilter: FilterSpecification | null = null
 
   if (map.getLayer('vigo-routes')) {
     map.setFilter('vigo-routes', routeFilter)

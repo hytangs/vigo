@@ -48,6 +48,7 @@ import { useNationalRouting } from './app/useNationalRouting'
 import { readRoutingDataModePreference, saveRoutingDataModePreference } from './app/routingDataMode'
 import { useStreetPreparation } from './app/useStreetPreparation'
 import { mergeGtfsRouteAnalysis, routeHasCompleteGtfsAnalysis, type GtfsRouteAnalysis } from './app/gtfsAnalysis'
+import { loadNetworkSchedules } from './app/networkSchedule'
 import { buildCityPreviewLod } from './app/cityPreview'
 import { filterPreviewByStatus, previewForSelectedRoute } from './app/mapPresentation'
 import { formatBytes } from './app/presentation'
@@ -1712,6 +1713,7 @@ const emptyVehicleFrame: ServiceVehicleFrame = { mode: 'schedule', vehicles: [],
 
 function RouteSurface({
   agencyFocus,
+  scheduleLoadStatus,
   agencyLocation,
   routeDetailStatus,
   projectId,
@@ -1760,6 +1762,7 @@ function RouteSurface({
 }: {
   agencyLocation?: { id: string; label: string; coordinate: [number, number]; stopId?: string }
   agencyFocus: boolean
+  scheduleLoadStatus?: string
   routeDetailStatus?: string
   projectId: string
   feed: FeedSummary
@@ -1806,12 +1809,13 @@ function RouteSurface({
   onSelectStop: (id: string, options?: { inspect?: boolean }) => void
 }) {
   const isNetworkMap = mapScope === 'network' || !selectedRoute
+  const scheduledNetwork = agencyFocus && vehicleMode === 'schedule' && !routingFocus && !analysisFocus
   const routingCanvasPreview = useMemo<MapPreview>(() => ({ routes: [], stops: visiblePreview.stops, stopPairs: [] }), [visiblePreview.stops])
   const cityMapPreview = useMemo(
     () => buildCityPreviewLod(visiblePreview, selectedRouteId, undefined, selectedStopId),
     [selectedRouteId, selectedStopId, visiblePreview],
   )
-  const mapPreview = routingFocus || analysisFocus ? routingCanvasPreview : isNetworkMap ? cityMapPreview : focusedPreview
+  const mapPreview = routingFocus || analysisFocus ? routingCanvasPreview : isNetworkMap || scheduledNetwork ? cityMapPreview : focusedPreview
   const mapLayers = useMemo<LayerState>(() => (
     routingFocus || analysisFocus
       ? {
@@ -1826,7 +1830,7 @@ function RouteSurface({
       }
       : layers
   ), [analysisFocus, layers, routingFocus])
-  const selectedMapRouteId = routingFocus || analysisFocus || isNetworkMap ? '' : selectedRouteId
+  const selectedMapRouteId = routingFocus || analysisFocus || isNetworkMap || scheduledNetwork ? '' : selectedRouteId
   const performanceProfile = useMemo(
     () => buildNetworkPerformanceProfile(routingFocus || analysisFocus ? visiblePreview : mapPreview, { precise: !isNetworkMap && !routingFocus && !analysisFocus }),
     [analysisFocus, isNetworkMap, mapPreview, routingFocus, visiblePreview],
@@ -1846,7 +1850,7 @@ function RouteSurface({
     }),
     [analysisFocus, mapPreview, realtimeSnapshot, routingFocus, scheduledVehicles, vehicleMode, visiblePreview],
   )
-  const visibleVehicleCount = serviceVehicleCount(vehicleFrame, isNetworkMap ? undefined : selectedRoute, mapPreview)
+  const visibleVehicleCount = serviceVehicleCount(vehicleFrame, isNetworkMap || scheduledNetwork ? undefined : selectedRoute, mapPreview)
   const selectedPatternOnly = !isNetworkMap && mapPreview.routes.length === 1 && (selectedRoute?.serviceVariantCount ?? 1) > 1
   const unknownBranchVehicles = vehicleMode === 'live' && selectedPatternOnly && selectedRoute
     ? vehicleFrame.vehicles.filter((vehicle) => vehicle.serviceKey === serviceKeyForRoute(selectedRoute) && !vehicle.routeFeatureId).length
@@ -1871,6 +1875,19 @@ function RouteSurface({
     [mapPreview, scheduleServiceDate],
   )
   const [servicePlaybackRunning, setServicePlaybackRunning] = useState(false)
+  const [scheduleClockError, setScheduleClockError] = useState('')
+  async function scheduleNow() {
+    setServicePlaybackRunning(false)
+    setScheduleClockError('')
+    try {
+      const result = await apiJson<{ data: { instant: string; clocks: Array<{ timezone: string }> } }>(`/api/projects/${encodeURIComponent(projectId)}/agency`, {
+        method: 'POST', body: JSON.stringify({ action: 'tool', name: 'current_time', arguments: { resultUse: 'continue' } }),
+      })
+      const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: result.data.clocks[0].timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(result.data.instant)).map(part => [part.type, part.value]))
+      onScheduleServiceDateChange(`${parts.year}-${parts.month}-${parts.day}`)
+      onScheduleTimeChange(Number(parts.hour) * 60 + Number(parts.minute))
+    } catch (error) { setScheduleClockError(error instanceof Error ? error.message : 'Current City time is unavailable.') }
+  }
   const [agencyView, setAgencyView] = useState<'map' | 'line'>('map')
   useEffect(() => { if (agencyLocation || isNetworkMap) setAgencyView('map') }, [agencyLocation, isNetworkMap])
   const showAgencyLine = agencyFocus && agencyView === 'line' && !routingFocus && !analysisFocus
@@ -1910,7 +1927,7 @@ function RouteSurface({
           basemap={basemap}
           appearance={appearance}
           performanceProfile={performanceProfile}
-          focusMode={analysisFocus ? 'scenario' : routingFocus ? 'routing' : isNetworkMap ? 'network' : 'route'}
+          focusMode={analysisFocus ? 'scenario' : routingFocus ? 'routing' : isNetworkMap || scheduledNetwork ? 'network' : 'route'}
           selectedRouteId={selectedMapRouteId}
           selectedStopId={selectedStopId}
           vehicleFrame={vehicleFrame}
@@ -1950,6 +1967,8 @@ function RouteSurface({
                 {routingFocus || analysisFocus ? 'From your investigation' : (
                   <>
                     {vehicleMode === 'schedule' ? `Estimated positions · ${formatServiceTime(scheduleTimeMinutes)}` : realtimeSnapshot ? `Latest feed · ${visibleVehicleCount} vehicle ${visibleVehicleCount === 1 ? 'location' : 'locations'}` : 'Connect feeds to see vehicle reports'}
+                    {vehicleMode === 'schedule' && scheduleLoadStatus ? ` · ${scheduleLoadStatus}` : ''}
+                    {scheduleClockError ? ` · ${scheduleClockError}` : ''}
                     {!isNetworkMap && routeDetailStatus ? ` · ${routeDetailStatus}` : ''}
                   </>
                 )}
@@ -1969,6 +1988,7 @@ function RouteSurface({
         ) : null}
         {!showAgencyLine && !routingFocus && !analysisFocus ? (
           <ServiceStateControl
+            onNow={() => void scheduleNow()}
             mode={vehicleMode}
             frame={vehicleFrame}
             vehicleCount={visibleVehicleCount}
@@ -2497,7 +2517,29 @@ export default function App() {
   const hasActiveOperationsData = hasOperationsData(selectedProject) && (activeFeed.routeCount > 0 || preview.routes.length > 0)
   const networkSearchIndex = useMemo(() => buildNetworkSearchIndex(preview), [preview])
   const visiblePreview = useMemo(() => filterPreviewByStatus(preview, statusFilter), [preview, statusFilter])
-  const workbenchMapPreview = visiblePreview
+  const workbenchMapPreview = activeRouteTool === 'agency' && vehicleMode === 'schedule' ? preview : visiblePreview
+  const [scheduleLoadStatus, setScheduleLoadStatus] = useState('')
+  const scheduleRequestsKey = JSON.stringify([...new Map(preview.routes.map(route => {
+    const feedId = activeFeedId === bundleFeedId ? entityFeedScope(route.id) : activeFeedId
+    const routeId = route.routeId || route.id
+    return [`${feedId}/${routeId}`, { feedId, routeId }] as const
+  })).values()].sort((a, b) => `${a.feedId}/${a.routeId}`.localeCompare(`${b.feedId}/${b.routeId}`)))
+  useEffect(() => {
+    if (page !== 'project' || activeRouteTool !== 'agency' || vehicleMode !== 'schedule') return
+    const controller = new AbortController()
+    const requests = (JSON.parse(scheduleRequestsKey) as Array<{ feedId: string; routeId: string }>).filter(request => request.feedId)
+    setScheduleLoadStatus(requests.length ? `Loading schedules · 0/${requests.length} routes` : '')
+    void loadNetworkSchedules(requests, request => apiJson<{ feedId: string; analysis: GtfsRouteAnalysis }>(
+      `/api/projects/${encodeURIComponent(selectedProject.id)}/gtfs-route-analysis`,
+      { method: 'POST', signal: controller.signal, body: JSON.stringify({ ...request, serviceDate: routingServiceDate }) },
+    ), (results, completed, failures) => {
+      setProjects(current => current.map(project => project.id === selectedProject.id
+        ? results.reduce((next, result) => mergeGtfsRouteAnalysis(next, result.feedId, result.analysis), project) : project))
+      setScheduleLoadStatus(completed < requests.length ? `Loading schedules · ${completed}/${requests.length} routes`
+        : failures ? `${failures} route schedules unavailable` : 'Schedule loading complete')
+    }, controller.signal)
+    return () => controller.abort()
+  }, [page, activeRouteTool, vehicleMode, selectedProject.id, routingServiceDate, scheduleRequestsKey])
   const searchResults = useMemo(() => {
     return buildSearchResults({
       query: deferredQuery,
@@ -5053,6 +5095,7 @@ export default function App() {
       <div className="workbench project-workbench route-investigation-shell">
         <RouteSurface
           agencyFocus={activeRouteTool === 'agency'}
+          scheduleLoadStatus={scheduleLoadStatus}
           agencyLocation={agencyLocation}
           routeDetailStatus={selectedRoute && routeHasCompleteGtfsAnalysis(selectedRoute, preview, routingServiceDate)
             ? 'All route patterns'

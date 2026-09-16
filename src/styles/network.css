@@ -497,6 +497,28 @@
   font-variant-numeric: tabular-nums;
 }
 
+.service-clock-input {
+  width: 5.5em;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: inherit;
+  background: var(--panel);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.service-now-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .service-state-readout small {
   color: var(--text-muted);
   font-size: 0.64rem;

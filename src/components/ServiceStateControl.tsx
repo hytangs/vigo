@@ -1,4 +1,5 @@
 import { Clock3, Pause, Play, Radio } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { classNames, formatNumber } from '../domain'
 import { formatServiceTime, type ScheduledVehicleDiagnostics } from '../scheduledVehicles'
 import type { ServiceVehicleFrame, ServiceVehicleMode } from '../serviceVehicles'
@@ -18,6 +19,7 @@ export function ServiceStateControl({
   onPlaybackStepChange,
   onScheduleTimeChange,
   onScheduleServiceDateChange,
+  onNow,
 }: {
   mode: ServiceVehicleMode
   frame: ServiceVehicleFrame
@@ -33,7 +35,16 @@ export function ServiceStateControl({
   onPlaybackStepChange: (step: number) => void
   onScheduleTimeChange: (minutes: number) => void
   onScheduleServiceDateChange: (serviceDate: string) => void
+  onNow?: () => void
 }) {
+  const [clockInput, setClockInput] = useState(formatServiceTime(scheduleTimeMinutes))
+  useEffect(() => setClockInput(formatServiceTime(scheduleTimeMinutes)), [scheduleTimeMinutes])
+  const commitClock = () => {
+    const match = /^(\d{1,2}):([0-5]\d)$/.exec(clockInput.trim())
+    const minutes = match ? Number(match[1]) * 60 + Number(match[2]) : NaN
+    if (Number.isFinite(minutes) && minutes >= 0 && minutes <= scheduleEndMinutes) onScheduleTimeChange(minutes)
+    else setClockInput(formatServiceTime(scheduleTimeMinutes))
+  }
   const liveUpdatedLabel = frame.freshness?.status === 'stale'
     ? `Stale · ${Math.round(frame.freshness.ageSeconds ?? 0)}s`
     : frame.fetchedAt
@@ -58,8 +69,8 @@ export function ServiceStateControl({
       <div className={classNames('service-state-readout', `tone-${diagnostics.tone}`)} title={diagnostics.detail} aria-live="polite">
         {mode === 'live' ? <Radio size={15} /> : <Clock3 size={15} />}
         <span>
-          <strong>{mode === 'live' ? `Live · ${formatNumber(vehicleCount)} vehicles` : <><span className="service-estimate-label">Estimated</span><time>{formatServiceTime(scheduleTimeMinutes)}</time></>}</strong>
-          {mode === 'schedule' || diagnostics.tone !== 'good' ? <small>{diagnostics.title}</small> : null}
+          <strong>{mode === 'live' ? `Live · ${formatNumber(vehicleCount)} vehicles` : <><span className="service-estimate-label">Estimated</span><input className="service-clock-input" aria-label="Scheduled time (HH:MM)" value={clockInput} onChange={event => setClockInput(event.currentTarget.value)} onFocus={() => { if (playbackRunning) onTogglePlayback() }} onBlur={commitClock} onKeyDown={event => { if (event.key === 'Enter') { commitClock(); event.currentTarget.blur() } }} /></>}</strong>
+          {mode === 'schedule' || diagnostics.tone !== 'good' ? <small>{diagnostics.title}{mode === 'schedule' && onNow ? <> · <button type="button" className="service-now-button" onClick={onNow}>Now</button></> : null}</small> : null}
         </span>
       </div>
       {mode === 'schedule' ? (

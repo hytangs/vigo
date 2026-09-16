@@ -7,6 +7,7 @@ import { haversineKm } from '../server/geometry-utils.mjs'
 let nextRequestAt = 0
 const clean = (value) => typeof value === 'string' ? value.trim().slice(0, 200) : ''
 const validPoint = (lon, lat) => Number.isFinite(lon) && Math.abs(lon) <= 180 && Number.isFinite(lat) && Math.abs(lat) <= 90
+const normalizedName = value => clean(value).normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
 
 async function fetchPlaceJson(url, signal, fetchImpl) {
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Configure a valid HTTP(S) place endpoint without embedded credentials.')
@@ -81,7 +82,7 @@ export function createPlaceSearch({ stops = [], env = process.env, fetchImpl = f
       const text = String(query).trim().toLocaleLowerCase()
       return [...places.values()].filter(place => [place.name, place.label].some(name => name?.toLocaleLowerCase() === text))
     },
-    async search({ query, near, withinCity = true, osmTag }, signal) {
+    async search({ query, near, withinCity = true, osmTag, name: expectedName }, signal) {
       if (!enabled) throw new Error('Online place search is off on this server. Set VIGO_AGENCY_PLACE_SEARCH_URL to a Photon endpoint to enable it.')
       if (typeof query !== 'string' || !query.trim() || query.length > 200) throw new Error('Use a place name or address of 1–200 characters.')
       const url = new URL(endpoint)
@@ -96,7 +97,7 @@ export function createPlaceSearch({ stops = [], env = process.env, fetchImpl = f
       const center = near ?? (hasBounds ? { lon: (bounds[0] + bounds[2]) / 2, lat: (bounds[1] + bounds[3]) / 2 } : null)
       if (near) url.searchParams.set('location_bias_scale', '0')
       if (center && validPoint(center.lon, center.lat)) { url.searchParams.set('lon', String(center.lon)); url.searchParams.set('lat', String(center.lat)) }
-      const key = url.href, cached = cache.get(key)
+      const key = `${url.href}|${normalizedName(expectedName)}`, cached = cache.get(key)
       signal?.throwIfAborted()
       const remember = (data) => {
         for (const match of data.matches) { places.delete(match.id); places.set(match.id, match) }
@@ -110,6 +111,8 @@ export function createPlaceSearch({ stops = [], env = process.env, fetchImpl = f
       const payload = await fetchPlaceJson(url, signal, fetchImpl)
       if (!Array.isArray(payload?.features)) throw new Error('Place search returned an unreadable result.')
       const matches = [], seen = new Set()
+      let unrelated = 0
+      const requestedHouse = !expectedName && !osmTag ? /^\s*(\d+[a-z]?(?:-\d+)?)\s+/i.exec(query)?.[1].toLowerCase() : null
       for (const feature of payload.features.slice(0, 5)) {
         const p = feature?.properties ?? {}, [lon, lat] = Array.isArray(feature?.geometry?.coordinates) ? feature.geometry.coordinates : []
         const type = { N: 'node', W: 'way', R: 'relation' }[p.osm_type]
@@ -117,16 +120,21 @@ export function createPlaceSearch({ stops = [], env = process.env, fetchImpl = f
         if (withinCity && hasBounds && (lon < bounds[0] || lon > bounds[2] || lat < bounds[1] || lat > bounds[3])) continue
         const category = p.osm_key && p.osm_value ? { key: clean(p.osm_key), value: clean(p.osm_value) } : null
         if (osmTag && `${category?.key}:${category?.value}` !== osmTag) continue
+        if (expectedName && !normalizedName(p.name).includes(normalizedName(expectedName))) { unrelated++; continue }
+        if (requestedHouse && clean(p.housenumber).toLowerCase() !== requestedHouse) { unrelated++; continue }
         const id = `osm:${type}/${p.osm_id}`
         if (seen.has(id)) continue
         seen.add(id)
         const street = [clean(p.housenumber), clean(p.street)].filter(Boolean).join(' ')
         const address = [...new Set([street, clean(p.district), clean(p.city), clean(p.state), clean(p.postcode), clean(p.country)].filter(Boolean))].join(', ')
-        const name = clean(p.name) || street || address
-        matches.push({ kind: 'place', id, name, category, publicAccess: 'unverified', label: [...new Set([name, street || clean(p.city)].filter(Boolean))].join(' · '), address, lat, lon, sourceUrl: `https://www.openstreetmap.org/${type}/${p.osm_id}`,
+        const addressLookup = !expectedName && !osmTag && clean(p.housenumber) && query.split(/\s+/).includes(clean(p.housenumber))
+        // An address lookup locates the address, not another tenant at it.
+        if (addressLookup && matches.some(match => match.addressLocation && match.address === address)) continue
+        const name = addressLookup ? street : clean(p.name) || street || address
+        matches.push({ kind: 'place', id, name, category: addressLookup ? null : category, ...(addressLookup ? { addressLocation: true } : {}), publicAccess: 'unverified', label: [...new Set([name, street || clean(p.city)].filter(Boolean))].join(' · '), address, lat, lon, sourceUrl: `https://www.openstreetmap.org/${type}/${p.osm_id}`,
           ...(near && validPoint(near.lon, near.lat) ? { straightLineMeters: Math.round(haversineKm([near.lon, near.lat], [lon, lat]) * 1000) } : {}) })
       }
-      if (payload.features.length && !matches.length && !osmTag) throw new Error('Place search returned no usable location coordinates.')
+      if (payload.features.length && !matches.length && !osmTag && !unrelated) throw new Error('Place search returned no usable location coordinates.')
       const data = { query: query.trim(), searchedAt: new Date(clock()).toISOString(), searchArea: withinCity && hasBounds ? 'Current City stop coverage bounds' : 'Worldwide, with a location preference', matches,
         attribution: '© OpenStreetMap contributors · Photon', coverage: 'Up to five OpenStreetMap matches, not a complete business directory. An empty result does not establish that a place does not exist. Map categories describe features; they do not verify public access, permission to eat, takeout service, opening hours or accessible entrances. A hotel, shop or street name is not evidence of a public park.',
         ...(!matches.length ? { nextStep: 'Try one plausible spelling of the same place name with its city, including joined or separated transliterations. Do not repeat the identical query or change the business. If still unresolved, use a connected web search or a supplied official source for its street address, then geocode that verified address. A map miss is not evidence that an online search found nothing.' } : {}) }
