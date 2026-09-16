@@ -122,6 +122,17 @@ const serviceVehiclesCompiled = ts.transpileModule(serviceVehiclesSource, {
   .replace("from './scheduledVehicles'", `from '${scheduledVehiclesUrl}'`)
   .replace("from './routeServices'", `from '${routeServicesUrl}'`)
 const serviceVehicles = await import(`data:text/javascript;base64,${Buffer.from(serviceVehiclesCompiled).toString('base64')}`)
+// Route arrows follow trip geometry, including overlapping outbound/return segments.
+{
+  const route = { coordinates: [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]] }
+  assert.equal(serviceVehicles.routeDirectionBearing([0.5, 0], route), 90)
+  assert.equal(serviceVehicles.routeDirectionBearing([0.5, 1], route), 270)
+  const trip = { stopTimes: [{ sequence: 1, shapeIndex: 2, progress: 0.5 }, { sequence: 2, shapeIndex: 3, progress: 0.75 }] }
+  assert.equal(serviceVehicles.routeDirectionBearing([0.5, 0], route, trip, 2), 270, 'Stop sequence selects the correct leg rather than the nearest opposing leg')
+  assert.equal(serviceVehicles.routeDirectionBearing([0.5, 1], route, trip, 1, true), 270, 'Stopped vehicles point along their onward leg')
+  assert.equal(serviceVehicles.routeDirectionBearing([0, 0], undefined), undefined, 'No invented heading without a matched route')
+  assert.equal(serviceVehicles.routeDirectionBearing([0, 0], { coordinates: [[0, 0], [0, 0]] }), undefined)
+}
 const firstRenderTelemetryCompiled = ts.transpileModule(firstRenderTelemetrySource, {
   compilerOptions: {
     module: ts.ModuleKind.ES2022,

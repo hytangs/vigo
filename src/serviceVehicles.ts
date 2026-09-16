@@ -167,6 +167,35 @@ function delayLabel(delaySeconds: number | undefined) {
   return `${minutes > 0 ? '+' : ''}${minutes}m`
 }
 
+/** Follow the matched GTFS shape, never the vehicle's compass reading. */
+export function routeDirectionBearing(coordinate: LngLat, route: RouteMetric | undefined, trip?: ScheduledTrip, sequence?: number, stopped = false) {
+  const points = route?.coordinates
+  if (!points || points.length < 2) return undefined
+  const stopIndex = sequence === undefined ? -1 : trip?.stopTimes.findIndex(stop => stop.sequence === sequence) ?? -1
+  const fromStop = trip?.stopTimes[Math.max(0, stopIndex - (stopped ? 0 : 1))]
+  const toStop = trip?.stopTimes[stopIndex + (stopped ? 1 : 0)]
+  const start = stopIndex >= 0 && fromStop?.shapeIndex !== undefined ? fromStop.shapeIndex : 0
+  const end = stopIndex >= 0 && toStop?.shapeIndex !== undefined ? toStop.shapeIndex : points.length - 1
+  const reverse = (trip?.stopTimes.at(-1)?.progress ?? 1) < (trip?.stopTimes[0]?.progress ?? 0)
+  const scale = Math.cos(coordinate[1] * Math.PI / 180)
+  let best = Infinity
+  let bearing: number | undefined
+  for (let i = Math.max(0, Math.min(start, end)); i < Math.min(points.length - 1, Math.max(start, end)); i++) {
+    const a = points[i], b = points[i + 1]
+    const dx = (b[0] - a[0]) * scale, dy = b[1] - a[1]
+    const length = dx * dx + dy * dy
+    if (!Number.isFinite(length) || length === 0) continue
+    const x = (coordinate[0] - a[0]) * scale, y = coordinate[1] - a[1]
+    const t = Math.max(0, Math.min(1, (x * dx + y * dy) / length))
+    const distance = (x - t * dx) ** 2 + (y - t * dy) ** 2
+    if (distance < best) {
+      best = distance
+      bearing = (Math.atan2(dx, dy) * 180 / Math.PI + (reverse ? 180 : 0) + 360) % 360
+    }
+  }
+  return bearing
+}
+
 function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview, events: OperationalEvent[] = []): ServiceVehicle[] {
   if (!snapshot) return []
   const index = previewVehicleIndex(preview)
@@ -191,6 +220,11 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
       ? patternRoute
       : undefined
     const route = exactPattern ?? assignment?.route ?? serviceRoute
+    const directionId = scheduledTrip?.directionId ?? vehicle.directionId ?? tripUpdate?.directionId
+    const directionPatterns = serviceRoute ? preview.routes.filter(candidate =>
+      serviceKeyForRoute(candidate) === serviceKeyForRoute(serviceRoute)
+      && directionId !== undefined && String(candidate.directionId) === String(directionId)) : []
+    const directionRoute = exactPattern ?? (directionPatterns.length === 1 ? directionPatterns[0] : undefined)
     const nextStopId = vehicle.stopId || tripUpdate?.nextStopId
     const nextStopUpdate = tripUpdate?.stopTimeUpdates?.find((update) => (
       Boolean(update.stopId && nextStopId && unscopedId(update.stopId) === unscopedId(nextStopId))
@@ -225,7 +259,8 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
       sourceUrl: vehicle.sourceUrl,
       source: 'live' as const,
       coordinate: [vehicle.lon, vehicle.lat] as LngLat,
-      bearing: typeof vehicle.bearing === 'number' && Number.isFinite(vehicle.bearing) ? vehicle.bearing : undefined,
+      bearing: routeDirectionBearing([vehicle.lon, vehicle.lat], directionRoute, scheduledTrip,
+        vehicle.currentStopSequence ?? scheduledStopTime?.sequence ?? tripUpdate?.nextStopSequence, vehicle.currentStatus === 'STOPPED_AT'),
       serviceKey: route ? serviceKeyForRoute(route) : routeId,
       // A route_id identifies the whole service. Without trip membership,
       // selecting the first indexed pattern would invent a branch match.
