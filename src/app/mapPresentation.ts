@@ -180,9 +180,11 @@ export function previewForSelectedRoute(
     route.id === selectedRoute.id || (Boolean(selectedRoute.patternId) && route.patternId === selectedRoute.patternId
       && scopedRouteServiceKey(route) === scopedRouteServiceKey(selectedRoute))
   )) ?? selectedRoute
-  const routes = renderMode === 'pattern'
+  const matchingRoutes = renderMode === 'pattern'
     ? [selectedPattern]
     : preview.routes.filter((route) => scopedRouteServiceKey(route) === scopedRouteServiceKey(selectedPattern))
+  // An explicit selection stays visible even when a network filter excludes it.
+  const routes = matchingRoutes.length ? matchingRoutes : [selectedPattern]
   const routeIds = new Set(routes.flatMap((route) => [route.id, route.patternId ?? route.id]))
   const stopIds = new Set(routes.flatMap((route) => route.stopIds))
 

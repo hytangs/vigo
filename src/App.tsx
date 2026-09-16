@@ -1811,7 +1811,7 @@ function RouteSurface({
   onSelectStop: (id: string, options?: { inspect?: boolean }) => void
 }) {
   const isNetworkMap = mapScope === 'network' || !selectedRoute
-  const scheduledNetwork = agencyFocus && vehicleMode === 'schedule' && !routingFocus && !analysisFocus
+  const scheduledNetwork = isNetworkMap && agencyFocus && vehicleMode === 'schedule' && !routingFocus && !analysisFocus
   const routingCanvasPreview = useMemo<MapPreview>(() => ({ routes: [], stops: visiblePreview.stops, stopPairs: [] }), [visiblePreview.stops])
   const cityMapPreview = useMemo(
     () => buildCityPreviewLod(visiblePreview, selectedRouteId, undefined, selectedStopId),
@@ -2092,6 +2092,7 @@ export default function App() {
   const [selectedRouteId, setSelectedRouteId] = useState('')
   const [selectedStopId, setSelectedStopId] = useState('')
   const routeAnalysisAbortRef = useRef<AbortController | null>(null)
+  const routeAnalysisKeyRef = useRef('')
   const routeAnalysisRequestIdRef = useRef(0)
   const [routeAnalysisRouteId, setRouteAnalysisRouteId] = useState('')
   const [routeAnalysisError, setRouteAnalysisError] = useState('')
@@ -2644,8 +2645,8 @@ export default function App() {
     ? findNetworkStop(preview.stops, selectedStopId)
     : undefined
   const focusedMapPreview = useMemo(
-    () => previewForSelectedRoute(workbenchMapPreview, selectedRoute, routeRenderMode),
-    [routeRenderMode, selectedRoute, workbenchMapPreview],
+    () => previewForSelectedRoute(preview, selectedRoute, routeRenderMode),
+    [routeRenderMode, selectedRoute, preview],
   )
   const routingChoices = nationalRouting.choices
   const routingPlan = routingChoices.find((plan) => plan.id === selectedRoutingPlanId)
@@ -3060,9 +3061,12 @@ export default function App() {
     const routeId = route.routeId || route.id
     if (!feedId || !routeId) return
 
+    const requestKey = JSON.stringify([selectedProject.id, feedId, routeId, routingServiceDate])
+    if (routeAnalysisAbortRef.current && routeAnalysisKeyRef.current === requestKey) return
     routeAnalysisAbortRef.current?.abort()
     const controller = new AbortController()
     routeAnalysisAbortRef.current = controller
+    routeAnalysisKeyRef.current = requestKey
     const requestId = routeAnalysisRequestIdRef.current + 1
     routeAnalysisRequestIdRef.current = requestId
     setRouteAnalysisRouteId(selectedId)
@@ -3103,6 +3107,7 @@ export default function App() {
     clearAgencyMap()
     setActiveRouteTool('agency')
     applyRouteMapDefaults()
+    if (route) void loadGtfsRouteAnalysis(route, nextRouteId)
   }
 
   function selectStop(stopId: string) {

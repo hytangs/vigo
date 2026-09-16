@@ -177,6 +177,7 @@ assert.equal(
   'Patterns from one GTFS route_id must remain grouped in the inspector.',
 )
 const secondServicePreview = { routes: sameNameBranches, stops: [], stopPairs: [] }
+assert.deepEqual(presentation.previewForSelectedRoute({ routes: [], stops: [], stopPairs: [] }, sameNameBranches[1]).routes, [sameNameBranches[1]], 'Keep the explicitly selected line visible when the network preview excludes it')
 assert.equal(presentation.previewForSelectedRoute(secondServicePreview, sameNameBranches[1], 'pattern').routes[0].id,
   sameNameBranches[1].id, 'Missing pattern IDs must not select the first unrelated route.')
 assert.deepEqual(presentation.previewForSelectedRoute(secondServicePreview, sameNameBranches[1]).routes.map(route => route.id),
