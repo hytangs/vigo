@@ -105,6 +105,26 @@ export function stopPrediction(report, scheduledArrival, scheduledDeparture) {
   return { arrival: issue ? null : arrival, departure: issue ? null : departure, issue }
 }
 
+function nextCallPrediction(context, calls, afterIndex, reportsByCall, epoch) {
+  for (let index = afterIndex + 1; index < calls.length; index++) {
+    const reports = reportsByCall.get(index) ?? []
+    if (reports.length !== 1) continue
+    const report = reports[0], call = calls[index]
+    if (report.scheduleRelationship && report.scheduleRelationship !== 'SCHEDULED') continue
+    const scheduledArrival = finite(call.arrival) ? epoch + call.arrival : null
+    const scheduledDeparture = finite(call.departure) ? epoch + call.departure : null
+    const timing = stopPrediction(report, scheduledArrival, scheduledDeparture)
+    if (timing.issue || !finite(timing.arrival) && !finite(timing.departure)) continue
+    const arrival = { scheduled: scheduledArrival, current: timing.arrival }
+    const departure = { scheduled: scheduledDeparture, current: timing.departure }
+    const delayKind = finite(arrival.scheduled) && finite(arrival.current) ? 'arrival'
+      : finite(departure.scheduled) && finite(departure.current) ? 'departure' : null
+    const comparison = delayKind === 'arrival' ? arrival : delayKind === 'departure' ? departure : null
+    return { stop: { ...station(context, call.stopId), stopId: call.stopId }, callIndex: index,
+      arrival, departure, delayKind, delaySeconds: comparison ? comparison.current - comparison.scheduled : null }
+  }
+}
+
 function describe(context, vehicle, now, policy, feeds, coverage, updates) {
   const match = coverage.valid ? context.matchTrip(vehicle, coverage.serviceDate) : { reason: coverage.message }
   const vehicleFresh = fresh(vehicle, feeds, now, policy, true)
@@ -153,8 +173,24 @@ function describe(context, vehicle, now, policy, feeds, coverage, updates) {
     detail.callIndex = null
     return detail
   }
-  const stopUpdates = (update.stopTimeUpdates ?? []).filter(item => matchCall(calls, item.stopId, item.stopSequence)?.index === call.index)
-  if (stopUpdates.length !== 1) { detail.warnings.push('No single prediction is available for this reported stop.'); return detail }
+  const reportsByCall = new Map()
+  for (const item of update.stopTimeUpdates ?? []) {
+    const matchedCall = matchCall(calls, item.stopId, item.stopSequence)
+    if (!matchedCall) continue
+    if (!reportsByCall.has(matchedCall.index)) reportsByCall.set(matchedCall.index, [])
+    reportsByCall.get(matchedCall.index).push(item)
+  }
+  // VehiclePosition and TripUpdate need not advance at the same instant. Keep
+  // a later stop's forecast separate from timing at the reported vehicle stop.
+  if (vehicleFresh) {
+    const next = nextCallPrediction(context, calls, call.index, reportsByCall, match.epoch)
+    if (next) detail.nextPrediction = next
+  }
+  const stopUpdates = reportsByCall.get(call.index) ?? []
+  if (stopUpdates.length !== 1) {
+    detail.warnings.push(stopUpdates.length ? 'Multiple prediction records claim this reported stop; its timing is unresolved.' : 'No prediction is supplied for this reported stop.')
+    return detail
+  }
   const stopUpdate = stopUpdates[0]
   if (stopUpdate.scheduleRelationship && stopUpdate.scheduleRelationship !== 'SCHEDULED') {
     detail.warnings.push(stopUpdate.scheduleRelationship === 'SKIPPED' ? 'This stop is reported skipped.' : 'No current timing is reported at this stop.')
@@ -162,6 +198,10 @@ function describe(context, vehicle, now, policy, feeds, coverage, updates) {
   }
   const timing = stopPrediction(stopUpdate, detail.arrival.scheduled, detail.departure.scheduled)
   if (timing.issue) { detail.warnings.push(timing.issue); return detail }
+  if (!finite(timing.arrival) && !finite(timing.departure)) {
+    detail.warnings.push('No arrival or departure prediction is supplied for this reported stop.')
+    return detail
+  }
   for (const kind of ['arrival', 'departure']) detail[kind].current = timing[kind]
   detail.delayKind = ['arrival', 'departure'].find(kind => finite(detail[kind].scheduled) && finite(detail[kind].current)) ?? null
   const comparison = detail[detail.delayKind]

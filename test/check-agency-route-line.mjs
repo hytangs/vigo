@@ -101,5 +101,75 @@ try {
   assert.throws(detail, /ambiguous/)
   assert.equal(vehicleDetails(context, snapshot, { vehicleId: 'vehicle-T1', sourceUrl: vehicleSource }, observationTime).callIndex, 2)
   assert.throws(() => routeOperations(context, snapshot, { routeId: 'missing' }, observationTime), /exact route/)
-  console.log('Agency route line: bidirectional patterns, branches, loops, exact vehicle stops, separate schedule/current arrival and departure, terminal arrivals, duplicate identities, freshness and missing predictions passed.')
+
+  // A source can drop the current stop while VehiclePosition still reports it.
+  // Later predictions must remain useful without being attributed to that stop.
+  const nextSnapshot = realtimeFixture([tripUpdate('LOOP', 900, { vehicleId: 'loop-bus', stopTimeUpdates: [
+    { stopId: 'C', stopSequence: 90, arrival: { time: epoch + 44440 } },
+    { stopId: 'A', stopSequence: 50, arrival: { time: epoch + 44140 }, departure: { time: epoch + 44200 } },
+    { stopId: 'B', stopSequence: 30, arrival: { time: epoch + 43840 }, departure: { time: epoch + 43900 } },
+  ] })])
+  nextSnapshot.feeds.push({ sourceUrl: vehicleSource, kind: 'vehicles', feedTimestamp: observationTime })
+  nextSnapshot.vehicles = [{ id: 'loop-bus', sourceUrl: vehicleSource, timestamp: observationTime,
+    tripId: 'LOOP', routeId: 'R', directionId: 0, startDate: '20260913', stopId: 'A', currentStopSequence: 10, currentStatus: 'STOPPED_AT' }]
+  const nextDetail = () => vehicleDetails(context, nextSnapshot, { vehicleId: 'loop-bus' }, observationTime)
+  const reports = nextSnapshot.tripUpdates[0].stopTimeUpdates
+  let downstream = nextDetail()
+  assert.equal(downstream.arrival.current, null)
+  assert.equal(downstream.departure.current, null, 'A downstream prediction must never fill the reported stop’s missing time')
+  assert.match(downstream.warnings.join(), /No prediction is supplied for this reported stop/)
+  assert.deepEqual(downstream.nextPrediction, {
+    stop: { id: 'B', stopId: 'B', name: 'Library' }, callIndex: 1,
+    arrival: { scheduled: epoch + 43740, current: epoch + 43840 },
+    departure: { scheduled: epoch + 43800, current: epoch + 43900 }, delayKind: 'arrival', delaySeconds: 100,
+  }, 'Use the nearest downstream call in the timetable, not the first feed record')
+  for (const relationship of ['SKIPPED', 'NO_DATA']) {
+    reports[2].scheduleRelationship = relationship
+    assert.equal(nextDetail().nextPrediction.callIndex, 2, `${relationship} cannot supply a downstream prediction`)
+  }
+  delete reports[2].scheduleRelationship
+  reports.push({ ...reports[2] })
+  assert.equal(nextDetail().nextPrediction.callIndex, 2, 'Duplicate reports for the nearest stop remain unresolved')
+  reports.pop()
+  reports[2].arrival.time = epoch + 43901
+  assert.equal(nextDetail().nextPrediction.callIndex, 2, 'Contradictory arrival and departure cannot supply a downstream prediction')
+  reports[2].arrival = { delay: 100 }
+  assert.equal(nextDetail().nextPrediction.arrival.current, epoch + 43840, 'A stop-specific delay can resolve against its own scheduled arrival')
+  reports[2].stopSequence = 50
+  assert.equal(nextDetail().nextPrediction.callIndex, 2, 'Stop identity and sequence must agree')
+  reports[2].stopSequence = 30
+  reports[2].arrival = {}; reports[2].departure = {}
+  downstream = nextDetail()
+  assert.equal(downstream.nextPrediction.callIndex, 2, 'The repeated stop is resolved by its retained sequence')
+  delete reports[1].stopSequence
+  assert.equal(nextDetail().nextPrediction.callIndex, 3, 'An ambiguous repeated stop cannot be used as the next prediction')
+  assert.equal(nextDetail().nextPrediction.departure.current, null, 'A terminal arrival does not invent a departure')
+  reports[1].stopSequence = 50
+  nextSnapshot.vehicles[0].currentStopSequence = 50
+  assert.equal(nextDetail().nextPrediction.callIndex, 3, 'Past calls are excluded even if they have predictions')
+  nextSnapshot.vehicles[0].stopId = 'C'; nextSnapshot.vehicles[0].currentStopSequence = 90
+  assert.equal(nextDetail().nextPrediction, undefined, 'There is no downstream call beyond the terminal')
+  nextSnapshot.vehicles[0].stopId = 'A'; nextSnapshot.vehicles[0].currentStopSequence = 10
+  reports.push({ stopId: 'A', stopSequence: 10 })
+  assert.match(nextDetail().warnings.join(), /No arrival or departure prediction is supplied for this reported stop/, 'A current-stop record without usable events must explain why the table shows another stop')
+  assert.equal(nextDetail().nextPrediction.callIndex, 2)
+  reports.at(-1).departure = { delay: 20 }
+  assert.equal(nextDetail().warnings.length, 0, 'A supplied departure does not require an arrival prediction')
+  reports.pop()
+  reports.push({ stopId: 'A', stopSequence: 10, departure: { delay: 20 } }, { stopId: 'A', stopSequence: 10, departure: { delay: 30 } })
+  assert.match(nextDetail().warnings.join(), /Multiple prediction records claim this reported stop/, 'Duplicate current-stop reports are distinguished from absent reports')
+  assert.equal(nextDetail().nextPrediction.callIndex, 2, 'A duplicate current stop does not invalidate a distinct downstream call')
+  reports.splice(-2)
+  nextSnapshot.tripUpdates[0].timestamp = observationTime - 181
+  assert.equal(nextDetail().nextPrediction, undefined, 'Stale trip reports cannot supply the next prediction')
+  nextSnapshot.tripUpdates[0].timestamp = observationTime
+  nextSnapshot.vehicles[0].timestamp = observationTime - 181
+  assert.equal(nextDetail().nextPrediction, undefined, 'A stale position cannot establish which calls are downstream')
+  nextSnapshot.vehicles[0].timestamp = observationTime
+  nextSnapshot.tripUpdates[0].scheduleRelationship = 'CANCELED'
+  assert.equal(nextDetail().nextPrediction, undefined)
+  delete nextSnapshot.tripUpdates[0].scheduleRelationship
+  nextSnapshot.tripUpdates.push({ ...nextSnapshot.tripUpdates[0], id: 'duplicate-loop-report' })
+  assert.equal(nextDetail().nextPrediction, undefined, 'Ambiguous trip reports cannot supply the next prediction')
+  console.log('Agency route line: bidirectional patterns, branches, loops, exact vehicle stops, separate current-stop and downstream predictions, terminal arrivals, duplicate identities, freshness and missing predictions passed.')
 } finally { context?.close(); await fs.rm(directory, { recursive: true, force: true }) }

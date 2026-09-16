@@ -65,6 +65,9 @@
 .agency-vehicle-detail h3 small { color: var(--text-muted); font-size: 11px; font-weight: 450; letter-spacing: normal; }
 .agency-vehicle-detail header p { margin: 2px 0 14px; color: var(--text-muted); }
 .agency-vehicle-position { margin: 0 0 10px; color: var(--text-strong); font-size: 12px; }
+.agency-vehicle-next { display: grid; gap: 3px; margin: 12px 0 4px; padding-top: 12px; border-top: 1px solid var(--border); }
+.agency-vehicle-next > span { color: var(--text-muted); font-size: 10px; }
+.agency-vehicle-detail .agency-vehicle-next > strong { color: var(--text-strong); font-size: 12px; font-weight: 550; line-height: 1.5; }
 .agency-vehicle-detail table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .agency-vehicle-detail th, .agency-vehicle-detail td { padding: 8px 0; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .agency-vehicle-detail th { color: var(--text-muted); font-size: 10px; font-weight: 450; }

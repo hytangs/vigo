@@ -22,6 +22,14 @@ export type VehicleTiming = {
   departure: { scheduled: number | null; current: number | null }
   delaySeconds: number | null
   delayKind: 'arrival' | 'departure' | null
+  nextPrediction?: {
+    stop: { id: string; stopId: string; name: string }
+    callIndex: number
+    arrival: { scheduled: number | null; current: number | null }
+    departure: { scheduled: number | null; current: number | null }
+    delayKind: 'arrival' | 'departure' | null
+    delaySeconds: number | null
+  }
   occupancy: string | null
   warnings: string[]
 }

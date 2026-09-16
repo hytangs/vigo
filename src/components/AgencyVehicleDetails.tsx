@@ -23,14 +23,17 @@ function clock(timestamp: number | null, vehicle: VehicleTiming, seconds = false
 }
 
 export function VehicleDetailsView({ vehicle }: { vehicle: VehicleTiming }) {
+  const next = vehicle.arrival.current === null && vehicle.departure.current === null ? vehicle.nextPrediction : undefined
+  const timing = next ?? vehicle
   return <section className="agency-vehicle-detail" aria-label={`Vehicle ${vehicle.label} schedule and current timing`}>
-    <header><span>Live vehicle</span><h3>{vehicle.label}<small>{vehicle.routeName}</small></h3><p>{vehicle.destination ? `To ${vehicle.destination}` : 'Destination unavailable'}</p></header>
+    <header><span>Live vehicle</span><h3>{vehicle.label} <small>Route {vehicle.routeName}</small></h3><p>{vehicle.destination ? `To ${vehicle.destination}` : 'Destination unavailable'}</p></header>
     <p className="agency-vehicle-position">{vehicleStopLabel(vehicle)}</p>
-    <table aria-label="Scheduled and current stop times"><thead><tr><th scope="col">At this stop</th><th scope="col">Scheduled</th><th scope="col">Current</th></tr></thead><tbody>{(['arrival', 'departure'] as const).map(kind => <tr key={kind}><th scope="row">{kind === 'arrival' ? 'Arrival' : 'Departure'}</th><td>{clock(vehicle[kind].scheduled, vehicle)}</td><td>{clock(vehicle[kind].current, vehicle)}</td></tr>)}</tbody></table>
-    {vehicle.delayKind ? <p className="agency-vehicle-deviation">{vehicle.delayKind === 'arrival' ? 'Arrival' : 'Departure'} · <strong>{vehicleDelayLabel(vehicle.delaySeconds)}</strong></p> : null}
-    {vehicle.occupancy && vehicle.occupancy !== 'NO_DATA_AVAILABLE' ? <p className="agency-caption">Occupancy · {vehicle.occupancy.toLowerCase().replaceAll('_', ' ')}</p> : null}
     {vehicle.warnings.map(warning => <p className="agency-vehicle-warning" key={warning}>{warning}</p>)}
-    <footer><span>Vehicle seen {clock(vehicle.observedAt, vehicle, true)}{!vehicle.fresh ? ' · Not current' : ''}</span>{vehicle.predictionAt ? <span>Prediction updated {clock(vehicle.predictionAt, vehicle, true)}</span> : null}<span>Current times are feed predictions. — means not supplied.</span></footer>
+    {next ? <p className="agency-vehicle-next"><span>Next prediction</span><strong>{next.stop.name}</strong></p> : null}
+    <table aria-label={`Scheduled and predicted times at ${timing.stop?.name ?? 'the reported stop'}`}><thead><tr><th scope="col">{next ? 'Event' : 'At this stop'}</th><th scope="col">Scheduled</th><th scope="col">Predicted</th></tr></thead><tbody>{(['arrival', 'departure'] as const).map(kind => <tr key={kind}><th scope="row">{kind === 'arrival' ? 'Arrival' : 'Departure'}</th><td>{clock(timing[kind].scheduled, vehicle)}</td><td>{clock(timing[kind].current, vehicle)}</td></tr>)}</tbody></table>
+    {timing.delayKind ? <p className="agency-vehicle-deviation">{timing.delayKind === 'arrival' ? 'Arrival' : 'Departure'} · <strong>{vehicleDelayLabel(timing.delaySeconds)}</strong></p> : null}
+    {vehicle.occupancy && vehicle.occupancy !== 'NO_DATA_AVAILABLE' ? <p className="agency-caption">Occupancy · {vehicle.occupancy.toLowerCase().replaceAll('_', ' ')}</p> : null}
+    <footer><span>Vehicle seen {clock(vehicle.observedAt, vehicle, true)}{!vehicle.fresh ? ' · Not current' : ''}</span>{vehicle.predictionAt ? <span>Trip update {clock(vehicle.predictionAt, vehicle, true)}</span> : null}<span>— means timing unavailable.</span></footer>
     <details className="agency-vehicle-source"><summary>Trip & service day</summary><p>Trip {vehicle.tripId?.split('\u001f').at(-1) || 'unassigned'} · {vehicle.serviceDate || 'unknown date'} · {vehicle.timezone || 'unknown timezone'}</p></details>
   </section>
 }
