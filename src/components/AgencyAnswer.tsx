@@ -1,3 +1,4 @@
+import { AgencyCoverageNotes } from './AgencyCoverageNotes'
 import { LampStudyResult, type LampStudyData } from './LampStudyResult'
 import { ArrowRight } from 'lucide-react'
 import type { OperationalEvent, QueryAnswer, ToolResult } from '../agency/types'
@@ -105,7 +106,7 @@ export function AgencyAnswer({ answer, onResult, onSelectEvent, onOpenEntry }: {
     {answer.warnings.length || answer.evidenceRefs.length || answer.citations?.length || answer.runtime || answer.report || answer.selection?.route || answer.selection?.stop ? <details className="agency-source-details agency-answer-details" open={answer.trace.some(call => call.tool === 'runtime_status')}>
       <summary>Details{answer.citations?.length ? ` · ${answer.citations.length} ${answer.citations.length === 1 ? 'source' : 'sources'}` : ''}</summary>
     {answer.selection?.route || answer.selection?.stop ? <p className="agency-caption">Map selection at time of question: {answer.selection.stop?.name}{answer.selection.stop && answer.selection.route ? ' · ' : ''}{answer.selection.route ? `Route ${answer.selection.route.name}` : ''}</p> : null}
-      {answer.warnings.length ? <div><h4>Coverage</h4>{answer.warnings.map(warning => <p className="agency-caption" key={warning}>{warning}</p>)}</div> : null}
+      {answer.warnings.length ? <div><h4>Coverage</h4><AgencyCoverageNotes warnings={answer.warnings} /></div> : null}
       {answer.citations?.length ? <div><h4>Sources</h4>{answer.trace.map((call, index) => answer.citations?.includes(index + 1) ? <div key={index}><strong>[{index + 1}] {toolNames[call.tool] || humanField(call.tool)}</strong><SourceLinks refs={call.result.provenance} /></div> : null)}</div> : answer.evidenceRefs.length ? <SourceLinks refs={answer.evidenceRefs} /> : null}
       {answer.report ? <div><h4>Method</h4><div className="agency-method-text">{answer.report.method}</div></div> : null}
       {answer.runtime ? <AgencyRuntimeFacts runtime={answer.runtime} expanded={answer.trace.some(call => call.tool === 'runtime_status')} /> : null}

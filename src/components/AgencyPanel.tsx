@@ -1,3 +1,4 @@
+import { AgencyCoverageNotes } from './AgencyCoverageNotes'
 import { AgencyComposer } from './AgencyComposer'
 import { downloadText } from '../agency/exports'
 import { NetworkSelection } from './NetworkSelection'
@@ -285,7 +286,7 @@ export function AgencyPanel({ onOperationalEvents, projectId, snapshot, realtime
           <AgencyBriefing endpoint={endpoint} state={state} onOpen={id => void openEntry(id)} />
           {hasSelection ? <p className="agency-caption">Service updates for the selected route or stop. <button className="agency-text-button" onClick={onClearSelection}>Show all updates</button></p> : null}
           <AgencyServiceEvents state={state} ready={eventsReady} filter={eventFilter} onFilter={setEventFilter} onSelect={event => selectEvent(event, false)} />
-          {state.warnings.length ? <details className="agency-source-details"><summary>Coverage notes</summary>{state.warnings.map(warning => <p className="agency-caption" key={warning}>{warning}</p>)}</details> : null}
+          {state.warnings.length ? <details className="agency-source-details"><summary>Coverage notes</summary><AgencyCoverageNotes warnings={state.warnings} /></details> : null}
         </div> : mode === 'ask' ? <div id="agency-ask" role="tabpanel" aria-labelledby="agency-tab-ask">
           {notebookOpen ? <AgencyNotebook endpoint={endpoint} onOpen={(id) => void openEntry(id)} onBack={() => setNotebookOpen(false)} /> : <>
           <AgencyProviderSettings endpoint={endpoint} provider={state.provider} onChange={() => void observationPolling.current?.refresh()} actions={

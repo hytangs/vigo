@@ -142,6 +142,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
   }
 
   let incompleteIntervals = 0
+  let reorderedIntervals = 0
   let measuredIntervals = 0
   for (const [key, group] of groups) {
     const { trip, stopId, serviceDate, epoch } = group
@@ -155,7 +156,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       const before = ordered[index - 1]
       const after = ordered[index]
       const scheduledHeadwaySeconds = after.scheduledTime - before.scheduledTime
-      if (scheduledHeadwaySeconds <= 0) { incompleteIntervals++; continue }
+      if (scheduledHeadwaySeconds <= 0) { reorderedIntervals++; continue }
       const expected = allExpected.filter((row) => row.departure + epoch >= before.scheduledTime && row.departure + epoch <= after.scheduledTime)
       if (expected.length !== 2 || !expected.every((row) => reporting.has(`${row.trip_id}/${row.stop_sequence}`))) { incompleteIntervals++; continue }
       measuredIntervals++
@@ -188,7 +189,8 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       })
     }
   }
-  if (incompleteIntervals) warnings.push(`${incompleteIntervals} intervals cannot be compared because reporting is incomplete or predicted trip order differs from the timetable.`)
+  if (incompleteIntervals) warnings.push(`${incompleteIntervals} stop-level headway comparisons skipped: the pair does not contain exactly two consecutive scheduled departures with usable reports.`)
+  if (reorderedIntervals) warnings.push(`${reorderedIntervals} stop-level headway comparisons skipped: predicted departure order differs from the timetable or scheduled departure times are equal.`)
   if (!measuredIntervals && snapshot) warnings.push('No fully reporting departure pair is available in the comparison window. Headway health is unknown.')
 
   let activeAlerts = 0
@@ -200,7 +202,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
     const assigned = selectors.filter(selector => !selector.unresolved.length)
     const routeIds = [...new Set(assigned.flatMap(selector => selector.routeIds))]
     const stopIds = [...new Set(assigned.map(selector => selector.stopId).filter(Boolean))]
-    if (selectors.some(selector => selector.unresolved.length)) warnings.push(`Alert ${alert.id}: some selector constraints could not be resolved and are not assigned.`)
+    if (selectors.some(selector => selector.unresolved.length)) warnings.push(`Alert ${alert.id}: unresolved scope (${[...new Set(selectors.flatMap(selector => selector.unresolved))].join('; ')}).`)
     for (const routeId of routeIds) routes.get(routeId).alerts++
     add('service-alert', [alert.sourceUrl, alert.id], { observedAt: new Date(feedByUrl.get(alert.sourceUrl).feedTimestamp * 1000).toISOString(), title: alert.header || 'Service alert', routeId: routeIds.length === 1 ? routeIds[0] : undefined, routeIds, stopIds, selectors, scopeDescription: describeAlertScope(selectors, context),
       severity: alert.severity === 'SEVERE' ? 'critical' : alert.severity === 'WARNING' ? 'warning' : 'info',

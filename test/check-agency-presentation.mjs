@@ -21,6 +21,20 @@ assert.equal(scheduleDeviation(1000, null), null)
 
 const server = await createServer({ configFile: false, plugins: [react()], server: { middlewareMode: true }, appType: 'custom' })
 try {
+  const { AgencyCoverageNotes } = await server.ssrLoadModule('/src/components/AgencyCoverageNotes.tsx')
+  const coverageHtml = renderToStaticMarkup(createElement(AgencyCoverageNotes, { warnings: [
+    'Alert 1: unresolved scope (stop; source feed).',
+    'Alert 2: unresolved scope (stop).',
+    'Alert 2: unresolved scope (stop).',
+    '1131 intervals cannot be compared because reporting is incomplete or predicted trip order differs from the timetable.',
+    'Another coverage limitation.',
+  ] }))
+  assert.match(coverageHtml, /2 alerts with unresolved scope/)
+  assert.match(coverageHtml, /Stop could not be matched uniquely · 2/)
+  assert.match(coverageHtml, /Alert IDs: 1, 2/)
+  assert.match(coverageHtml, /not confirmed disruptions/)
+  assert.match(coverageHtml, /Another coverage limitation/)
+  assert.doesNotMatch(coverageHtml, /Alert 2: unresolved/)
   const { AgencyRouteLine } = await server.ssrLoadModule('/src/components/AgencyRouteLine.tsx')
   const initialLine = renderToStaticMarkup(createElement(AgencyRouteLine, { projectId: 'city', routeId: 'R', preview: {
     routes: [{ id: 'R', directionId: '0', shortName: 'R', color: '#abcdef', stopIds: ['A', 'B'], tripCount: 2 }],
