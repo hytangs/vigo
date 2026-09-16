@@ -14,6 +14,7 @@ import type { StopBoard } from '../agency/routeOperationsTypes'
 import { publicReply } from '../agency/publicReply.mjs'
 import { journeyContinuityIssue } from '../journeyIntegrity.mjs'
 import { retainedNetworkAssessmentText } from '../agency/serviceAssessmentText.mjs'
+import { placeMapLocation, retainedPlaces } from '../agency/placeResults.mjs'
 
 function answerText(text: string) {
   return publicReply(text).split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/g).map((part: string, index: number) => (
@@ -69,7 +70,10 @@ export function AgencyToolOutput({ result, onSelectEvent, onOpenEntry, onResult 
     const columns = Object.keys(data.rows[0])
     return <><ServiceProfileChart rows={data.rows} /><div className="agency-query-table"><table><thead><tr>{columns.map((key) => <th key={key}>{humanField(key)}</th>)}</tr></thead><tbody>{data.rows.slice(0, 40).map((row, i) => <tr key={i}>{columns.map((key) => <td key={key}>{row[key] == null ? '—' : typeof row[key] === 'number' ? row[key].toLocaleString() : String(row[key])}</td>)}</tr>)}</tbody></table>{data.rows.length > 40 ? <p className="agency-caption">Showing 40 of {data.rows.length} rows. Download the record for the full result.</p> : null}</div></>
   }
-  if (data?.matches) return <div className="agency-entity-results">{data.matches.map((item) => <div key={`${item.kind}/${item.id}`}><strong>{item.name}</strong><span>{item.category ? `${humanField(item.category.value)} · ` : ''}{item.address || `${item.kind} · ${item.id}`}</span></div>)}</div>
+  if (data?.matches) return <div className="agency-entity-results">{data.matches.map((item) => {
+    const location = placeMapLocation(item)
+    return <div key={`${item.kind}/${item.id}`}><strong>{item.name}</strong><span>{item.category ? `${humanField(item.category.value)} · ` : ''}{item.address || `${item.kind} · ${item.id}`}</span>{location && onResult ? <button className="agency-text-button" onClick={() => onResult({ ...result, presentation: { location } })}>Show on map <ArrowRight size={13} /></button> : null}</div>
+  })}</div>
   if (data?.events) return <div className="agency-answer-events">{data.events.slice(0, 8).map((event) => <button key={event.id} onClick={() => onSelectEvent?.(event)}><div><strong>{event.routeName ? `${event.routeName} · ` : ''}{event.title}</strong><span>{event.scopeDescription || event.stopName || (event.type === 'service-alert' ? 'Published by the agency' : 'Current service report')}</span>{event.evidence.observedHeadwaySeconds != null ? <p><b>{Number((event.evidence.observedHeadwaySeconds / 60).toFixed(1))} min apart</b><span>Scheduled: {Number(((event.evidence.scheduledHeadwaySeconds ?? 0) / 60).toFixed(1))} min</span></p> : event.evidence.delaySeconds != null ? <p>{Number((event.evidence.delaySeconds / 60).toFixed(1))} min later than scheduled</p> : null}</div><ArrowRight size={15} /></button>)}</div>
   if (data?.summary?.transitStatus) return <dl className="agency-facts"><div><dt>Travel time budget</dt><dd>{data.summary.maximumCutoffMinutes} min</dd></div><div><dt>Transit stops reached</dt><dd>{data.summary.transitStatus.reachedStops}</dd></div></dl>
   if (data?.counts) return <dl className="agency-facts">{Object.entries(data.counts).map(([key, value]) => <div key={key}><dt>{humanField(key)}</dt><dd>{value.toLocaleString()}</dd></div>)}</dl>
@@ -80,6 +84,8 @@ export function AgencyAnswer({ answer, onResult, onSelectEvent, onOpenEntry }: {
   const displayText = retainedNetworkAssessmentText(answer) || answer.answer
   const citedComparison = answer.aiGenerated ? answer.trace.find((call, index) => answer.citations?.includes(index + 1) && (call.result.data as { events?: OperationalEvent[] }).events?.some((event) => event.evidence.observedHeadwaySeconds != null)) : null
   const result = citedComparison?.result ?? answer.trace.filter((call) => call.result.ok).at(-1)?.result
+  const places = retainedPlaces(answer.trace)
+  const resultIsPlaces = answer.trace.some(call => call.tool === 'place_search' && call.result === result)
   const lampResult = answer.trace.find(call => call.result.ok && (call.result.data as LampStudyData)?.dataset === 'MBTA LAMP subway performance')?.result
   const lampReport = Boolean(lampResult && answer.report)
   const invalidJourney = answer.trace.some(call => {
@@ -92,7 +98,8 @@ export function AgencyAnswer({ answer, onResult, onSelectEvent, onOpenEntry }: {
     {answer.scopeNote ? <p className="agency-caption">{answer.scopeNote}</p> : null}
     {answer.report?.rows.length && !lampResult ? <div className="agency-research-output"><div className="agency-section-heading"><div><h2>Evidence table</h2><span>{answer.report.rows.length} rows · retained with this note</span></div>{answer.report.rows.length ? <button className="agency-text-button" onClick={() => { const rows = answer.report!.rows; const columns = Object.keys(rows[0]); const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`; downloadText('agency-evidence.csv', [columns.map(cell).join(','), ...rows.map((row) => columns.map((key) => cell(row[key])).join(','))].join('\n'), 'text/csv') }}>Export CSV</button> : null}</div><AgencyToolOutput result={{ ok: true, data: { rows: answer.report.rows }, provenance: [], generatedAt: answer.generatedAt, warnings: [] }} /></div> : null}
     {lampResult ? <AgencyToolOutput result={lampResult} /> : null}
-    {result && !lampResult && !answer.report?.rows.length ? <AgencyToolOutput result={result} onSelectEvent={onSelectEvent} onOpenEntry={onOpenEntry} onResult={onResult} /> : null}
+    {places.length ? <AgencyToolOutput result={{ ok: true, data: { matches: places }, provenance: [], warnings: [], generatedAt: answer.generatedAt }} onResult={onResult} /> : null}
+    {result && !resultIsPlaces && !lampResult && !answer.report?.rows.length ? <AgencyToolOutput result={result} onSelectEvent={onSelectEvent} onOpenEntry={onOpenEntry} onResult={onResult} /> : null}
     {!(result?.data as { journeys?: unknown[]; plan?: unknown })?.journeys?.length && !(result?.data as { plan?: RoutingPlan })?.plan?.legs?.length && Boolean(result?.presentation?.routeIds?.length === 1 || result?.presentation?.stopIds?.length === 1 || (result?.data as { plan?: unknown; surface?: unknown })?.plan || (result?.data as { surface?: unknown })?.surface) ? <button className="agency-text-button" onClick={() => result && onResult(result)}>Show on map <ArrowRight size={13} /></button> : null}
     {!result && answer.warnings.length ? <p className="agency-error" role="alert">{answer.warnings[0]}</p> : null}
     {answer.warnings.length || answer.evidenceRefs.length || answer.citations?.length || answer.runtime || answer.report || answer.selection?.route || answer.selection?.stop ? <details className="agency-source-details agency-answer-details" open={answer.trace.some(call => call.tool === 'runtime_status')}>

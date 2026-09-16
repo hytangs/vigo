@@ -16,6 +16,7 @@ import { boardingFareEvidence } from '../fares.mjs'
 import { publicReply as replyText } from './publicReply.mjs'
 import { normalizeArguments } from './toolArguments.mjs'
 import { inspectUnverifiedReply } from './replyInspection.mjs'
+import { placeEvidenceText } from './placeResults.mjs'
 import { assessmentChoices, renderAssessment, serviceChecks } from './serviceAssessment.mjs'
 
 const workspaceTool = { name: 'workspace_selection', description: 'Read the verified route/station currently selected in the workspace, including names, IDs and coordinates. Use when the question asks which station/route is selected, or needs its coordinates. Operational checks can use assess_service selected_route/selected_stop directly without this lookup. No trip or vehicle is selected.',
@@ -286,6 +287,15 @@ export async function queryAgency({ question, context, state, callTool, provider
         if (Number.isFinite(reviewed.usage?.prompt_tokens)) timing.inputTokens = (timing.inputTokens ?? 0) + reviewed.usage.prompt_tokens
         if (Number.isFinite(reviewed.usage?.completion_tokens)) timing.outputTokens = (timing.outputTokens ?? 0) + reviewed.usage.completion_tokens
         message = reviewed.choice.action === 'inspect' ? { tool_calls: [{ id: `review-${round}`, function: { name: 'assess_service', arguments: JSON.stringify(reviewed.choice.inputs) } }] } : { content: reviewed.choice.text }
+        // A lookup already supplied the candidates. Do not replace them with
+        // a generic request to provide the same location again.
+        if (reviewed.clarificationEntity === 'location' && trace.some(call => call.tool === 'place_search' && call.result.ok)
+          && trace.every(call => ['place_search', 'resolve_entities', 'web_search', 'web_read', 'nearby_stops'].includes(call.tool))
+          && !trace.some(call => call.result.data?.status === 'needs_location_choice')) {
+          const lookup = trace.findLast(call => call.tool === 'place_search' && call.result.ok)
+          message = { content: placeEvidenceText(trace) || `The map search returned no matches for “${lookup.arguments.query}”. Try a street address or city to narrow the search. This does not mean the place does not exist.` }
+          renderedFromEvidence = true
+        }
       } catch (error) {
         warnings.push(error.message)
         const places = trace.flatMap((call, index) => call.tool === 'place_search' && call.result.ok

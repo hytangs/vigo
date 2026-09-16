@@ -80,6 +80,35 @@ assert.equal(lookup.responseBasis, 'computed')
 assert.equal(lookup.aiGenerated, false)
 assert.deepEqual(lookup.citations, [1])
 
+// A successful lookup must survive a reviewer asking for the same location.
+for (const matches of [[warehouse], [warehouse, terminal], []]) {
+  let round = 0
+  const located = await queryAgency({ question: 'Where is this warehouse, show on map', context, state,
+    callTool: async () => result({ query: 'W41', matches }), provider: { available: true, reviewUnverifiedReplies: true, complete: async () => {
+      if (++round === 1) return { tool_calls: [{ id: 'place', function: { name: 'place_search', arguments: '{"query":"W41"}' } }] }
+      if (round === 2) return { content: 'Here is the lookup.' }
+      return { tool_calls: [{ id: 'review', function: { name: 'inspect_reply', arguments: '{"action":"clarify","entity":"location","missingData":"none"}' } }] }
+    } } })
+  assert.doesNotMatch(located.answer, /Which location do you mean/)
+  assert.equal(located.responseBasis, 'computed')
+  if (matches.length) {
+    assert.match(located.answer, /W41 Metropolitan Storage Warehouse/)
+    assert.deepEqual(located.citations, [1])
+    if (matches.length > 1) assert.match(located.answer, /choose the intended match/)
+  } else assert.match(located.answer, /no matches.*W41.*does not mean the place does not exist/)
+}
+
+let interruptedRound = 0
+const interruptedPlaces = await queryAgency({ question: 'Where is the warehouse, show on map', context, state,
+  callTool: async name => result({ matches: name === 'place_search' ? [warehouse] : [{ kind: 'stop', id: 'S', name: 'Nearby station' }] }),
+  provider: { available: true, complete: async () => {
+    if (++interruptedRound === 1) return { tool_calls: [{ id: 'place', function: { name: 'place_search', arguments: '{"query":"W41"}' } }] }
+    if (interruptedRound === 2) return { tool_calls: [{ id: 'stops', function: { name: 'nearby_stops', arguments: JSON.stringify({ point: { lat: warehouse.lat, lon: warehouse.lon }, radiusMeters: 500 }) } }] }
+    throw new Error('Fixture: provider interrupted after nearby stops')
+  } } })
+assert.match(interruptedPlaces.answer, /W41 Metropolitan Storage Warehouse/)
+assert.match(interruptedPlaces.answer, /1 nearby transit stops/)
+
 const airport = { ...terminal, id: 'osm:way/200', name: 'Airport', category: { key: 'aeroway', value: 'aerodrome' } }
 await assert.rejects(resolveJourneyPoints(context, {
   resolve: () => airport,

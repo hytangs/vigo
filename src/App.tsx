@@ -4612,6 +4612,7 @@ export default function App() {
     if (data?.plan && journeyContinuityIssue(data.plan)) { setAgencyPlan(null); return }
     if (data?.plan) { setAgencyLocation(undefined); setAgencyPlan(data.plan); setAgencyReach(null); setMapScope('route') }
     else if (data?.surface) { setAgencyLocation(undefined); setAgencyReach(result.data as ReachResult); setAgencyPlan(null); setMapScope('network') }
+    else if (result.presentation?.location) locateAgencyEntities([], [], result.presentation.location)
     else if (result.presentation?.routeIds?.length === 1 || result.presentation?.stopIds?.length === 1) locateAgencyEntities(result.presentation.routeIds ?? [], result.presentation.stopIds ?? [])
     if (window.innerWidth <= 760 && (data?.plan || data?.surface)) setAgencyMapOpen(true)
   }

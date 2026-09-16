@@ -42,7 +42,29 @@ try {
   assert.match(html, /Recorded prediction/)
   assert.doesNotMatch(html, /<strong>15 min<\/strong>|<strong>Due<\/strong>|<strong>At stop<\/strong>/, 'A retained response is not a current countdown or vehicle position')
   assert.match(html, /12:05/, 'A failed refresh preserves the last known absolute time')
-  const { AgencyToolOutput, AgencyAnswerText } = await server.ssrLoadModule('/src/components/AgencyAnswer.tsx')
+  const { AgencyToolOutput, AgencyAnswerText, AgencyAnswer } = await server.ssrLoadModule('/src/components/AgencyAnswer.tsx')
+  const place = { kind: 'place', id: 'osm:node/1', name: 'Fixture restaurant', address: '17 Market Street', lat: 20, lon: 10 }
+  const placeResult = { ok: true, data: { matches: [place] }, warnings: [], provenance: [], generatedAt: '2026-09-16T12:00:00Z' }
+  const retainedAnswer = { answer: 'Response interrupted.', trace: [
+    { tool: 'place_search', result: placeResult },
+    { tool: 'place_search', result: placeResult },
+    { tool: 'nearby_stops', result: { ...placeResult, data: { matches: [{ kind: 'stop', id: 'S', name: 'Nearby station' }] } } },
+  ], warnings: [], evidenceRefs: [] }
+  const placeHtml = renderToStaticMarkup(createElement(AgencyAnswer, { answer: retainedAnswer, onResult() {} }))
+  assert.equal((placeHtml.match(/Fixture restaurant/g) || []).length, 1, 'Retain and deduplicate earlier places when nearby stops ran last')
+  assert.match(placeHtml, /Nearby station/)
+  assert.match(placeHtml, /Show on map/)
+  let mapped
+  const output = AgencyToolOutput({ result: placeResult, onResult: result => { mapped = result } })
+  const visit = element => {
+    if (!element?.props) return
+    if (element.type === 'button') element.props.onClick()
+    for (const child of [element.props.children].flat(Infinity)) visit(child)
+  }
+  visit(output)
+  assert.deepEqual(mapped.presentation.location, { id: place.id, label: place.name, coordinate: [10, 20] }, 'Map action uses the returned longitude and latitude')
+  const invalidPlace = renderToStaticMarkup(createElement(AgencyToolOutput, { result: { ...placeResult, data: { matches: [{ ...place, lat: 200 }] } }, onResult() {} }))
+  assert.doesNotMatch(invalidPlace, /Show on map/, 'Invalid coordinates cannot produce a map action')
   const structuredAnswer = renderToStaticMarkup(createElement(AgencyAnswerText, { text: '### Service to check\n\nStart with these reports.\n\n- **C** — 23.3 min predicted, 9 min scheduled.\n- **23** — 25.9 min predicted, 14 min scheduled.\n\n93 scheduled trips remain unknown. [1]' }))
   assert.equal((structuredAnswer.match(/<li>/g) || []).length, 2, 'Route priorities render as separate semantic list items')
   assert.equal((structuredAnswer.match(/<p(?: |>)/g) || []).length, 3, 'Headings, findings and missing coverage remain separate blocks')

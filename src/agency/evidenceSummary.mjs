@@ -1,6 +1,7 @@
 import { describeCurrentTime } from './currentTime.mjs'
 import { describeJourneys } from './journeyResults.mjs'
 import { describeVehicleArrival } from './vehicleTrip.mjs'
+import { placeEvidenceText } from './placeResults.mjs'
 
 function describeObservation(data) {
   const feeds = (data.feeds ?? []).map((feed) => `${feed.kind === 'tripUpdates' ? 'Trip updates' : feed.kind === 'vehicles' ? 'Vehicles' : feed.kind === 'alerts' ? 'Alerts' : 'Feed'}: ${feed.status}${feed.ageSeconds == null ? '' : `, ${Math.round(feed.ageSeconds)} seconds old`}`).join('; ')
@@ -10,6 +11,12 @@ function describeObservation(data) {
 // A deterministic fallback for interrupted answers and non-model workflows.
 // Completed evidence remains readable when the provider cannot finish.
 export function summarizeEvidence(trace) {
+  const summary = summarizeLastEvidence(trace)
+  const places = placeEvidenceText(trace)
+  return places && trace.filter(call => call.result.ok).at(-1)?.tool !== 'place_search' ? `${places}\n\n${summary}` : summary
+}
+
+function summarizeLastEvidence(trace) {
   const good = trace.filter((call) => call.result.ok)
   if (!good.length) return 'I could not complete this check. The activity below explains what happened; your question is ready to retry.'
   const last = good.at(-1)
@@ -47,6 +54,7 @@ export function summarizeEvidence(trace) {
         : `The timetable has ${data.rows.reduce((sum, row) => sum + row.scheduled_trip_starts, 0)} indexed trip starts ${scope}. The table groups starts by hour, not by an exact departure time. Service times of 24:00 or later continue past midnight.`
     }
     case 'place_search': return `${data.matches.length} matching addresses from OpenStreetMap. ${data.matches.map((match) => `${match.name}: ${match.address}`).join('; ')}`
+    case 'nearby_stops': return `${data.matches.length} nearby transit stops. These are stops near the searched location, not the place itself.`
     case 'walk_route': return data.walking ? `The walk is ${Math.round(data.walking.distanceMeters)} m, about ${Math.round(data.walking.durationMinutes)} minutes on the saved pedestrian network.` : data.plan?.detail || 'No walking route could be established for these locations.'
     case 'route_plan': return describeJourneys(data)
     case 'reach': return data.summary?.transitStatus ? `From ${data.request?.origin?.label || 'your starting point'}, ${data.summary.transitStatus.reachedStops} transit stops are reachable within ${data.summary.maximumCutoffMinutes} minutes. This estimate includes walking and waiting, using the timetable. The map shows the reachable area.` : 'The reachable area is ready. It uses scheduled departures and the walking network for your selected time budget.'

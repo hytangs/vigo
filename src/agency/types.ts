@@ -115,7 +115,7 @@ export type ToolResult = {
   provenance: string[]
   generatedAt: string
   warnings: string[]
-  presentation?: { routeIds?: string[]; stopIds?: string[] }
+  presentation?: { routeIds?: string[]; stopIds?: string[]; location?: { id: string; label: string; coordinate: [number, number] } }
 }
 
 export type QueryAnswer = {

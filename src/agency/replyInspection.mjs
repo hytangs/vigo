@@ -20,6 +20,7 @@ export async function inspectUnverifiedReply({ provider, question, draft, contex
   const fields = raw.action === 'reply' ? ['text'] : raw.action === 'inspect' ? ['inputs'] : ['entity', 'missingData']
   let choice = normalizeArguments({ action: raw.action, ...Object.fromEntries(fields.filter(key => Object.hasOwn(raw, key)).map(key => [key, raw[key]])) }, parameters)
   validateArguments(choice, parameters)
+  const clarificationEntity = choice.action === 'clarify' ? choice.entity : undefined
   if (choice.action === 'clarify') {
     const questions = { trip: 'Which trip do you mean? Provide its trip ID, or route, direction and departure time.', vehicle: 'Which vehicle do you mean? Provide its vehicle number.', route: 'Which route do you mean?', stop: 'Which station or stop do you mean?', location: 'Which location do you mean? Provide the intersection, address or a map point.' }
     const missing = { none: '', assignments: 'Crew rosters, block and relief assignments are not connected; identifying a trip does not supply those records.', maintenance: 'Fault codes and maintenance clearance are not connected. Dispatch and maintenance must assess vehicle fitness.', passengers: 'Passenger counts and a demand baseline are not connected.' }
@@ -27,5 +28,5 @@ export async function inspectUnverifiedReply({ provider, question, draft, contex
     choice = { action: 'reply', text: [questions[choice.entity], missing[choice.missingData]].filter(Boolean).join(' ') }
   }
   if (choice.action === 'reply' && !choice.text || choice.action === 'inspect' && !choice.inputs) throw new Error('The response inspection omitted its selected result.')
-  return { choice, usage: response.usage }
+  return { choice, clarificationEntity, usage: response.usage }
 }
