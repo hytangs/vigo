@@ -21,6 +21,9 @@ export function AgencyTripTimetable({ projectId, routeId }: { projectId: string;
       pending = true
       try {
         const result = await apiJson<Timetable>(`/api/projects/${encodeURIComponent(projectId)}/agency`, { method: 'POST', body: JSON.stringify({ action: 'route-line', routeId, includeTrips: true, tripId: selection || undefined, serviceDate: date || undefined }), signal: controller.signal })
+        if (!result || !Array.isArray(result.trips) || !('trip' in result) || (result.trip !== null && !Array.isArray(result.trip?.calls))) {
+          throw new Error('Trip timetable is unavailable from this API version. Restart the local API server to load the updated timetable. This view will retry automatically.')
+        }
         if (!controller.signal.aborted) { setData(result); setError(''); if (!selection && result.trip) setSelection(result.trip.id) }
       } catch (reason) { if (!controller.signal.aborted) { setData(null); setError(reason instanceof Error ? reason.message : 'Trip timing unavailable.') } }
       finally { pending = false }

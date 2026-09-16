@@ -34,7 +34,7 @@ const noop = () => {};
 const root = createRoot(document.getElementById('root'));
 let appearance='light', renderKey=0, failLatestBriefing=true;
 const shell = child => React.createElement('div',{className:'app-shell appearance-'+appearance+' page-project view-agency',style:{display:'block',height:'100vh',maxWidth:'480px'}},child);
-let observationReads = 0;
+let observationReads = 0, legacyTimetable = false;
 let selectedScope = {}, activeSnapshot = null, browseRequest = 0, holdObservation = false, providerAvailable = true, failNextObservation = false;
 const pendingObservations = [], pendingQuestions = [], downloads = [], blobs = new Map();
 const originalFetch = window.fetch;
@@ -47,6 +47,9 @@ window.fetch = (url, init) => {
   if(init?.method === 'POST' && JSON.parse(init.body).action === 'ask') return new Promise((resolve,reject)=>pendingQuestions.push({resolve,reject,body:JSON.parse(init.body),signal:init.signal}));
   if(init?.method === 'POST' && JSON.parse(init.body).action === 'briefing-latest' && failLatestBriefing) {failLatestBriefing=false;return Promise.reject(Error('Fixture briefing temporarily unavailable'))}
   return originalFetch(url, init).then(async response=>{
+    if(legacyTimetable && init?.method === 'POST' && JSON.parse(init.body).includeTrips && response.ok) {
+      const result=await response.json(); delete result.trips; delete result.trip; return Response.json(result);
+    }
     if(!providerAvailable && String(url).includes('/agency?') && response.ok) {
       const state=await response.json();
       return Response.json({...state,provider:{...state.provider,available:false,model:null}});
@@ -102,6 +105,13 @@ window.runTests = async () => {
   await click('Updates');
   await wait(()=>document.querySelector('.agency-service-events'));
   check(!document.querySelector('.network-timetable') && !document.querySelector('.agency-trip-timetable'),'Updates is a distinct route section');
+  legacyTimetable=true;
+  await click('Trip times');
+  await wait(()=>document.querySelector('.agency-trip-timetable [role="alert"]'));
+  check(document.querySelector('.agency-trip-timetable [role="alert"]').textContent.includes('Restart the local API server'),'An older route-line API must report the compatibility problem without crashing the workspace');
+  await click('Stops');
+  await wait(()=>document.querySelector('[data-testid="stop-patterns"]'));
+  legacyTimetable=false;
   await click('Trip times');
   await wait(()=>document.querySelector('.agency-trip-timetable tbody tr'));
 
