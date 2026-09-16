@@ -108,6 +108,7 @@ export async function inspectOperationalService({ context, state, snapshot, dire
     aspect,
     scope: { routes: names(selectedRoutes), stops: scope.stopIds.map(id => ({ id, name: context.stopIndex.get(id)?.name })), tripId: scope.tripId, vehicleId: args.vehicleId, allNetwork },
     asOf: clock(now), predictionWindowMinutes: state.policy.windowMinutes, requestedHorizonMinutes: args.horizonMinutes,
+    matchedTripReports: reports.length,
     serviceContext: diagnosis.serviceContext, scheduledServiceSummary: serviceContextNarrative(diagnosis),
     coverage: { ...diagnosis.coverage, feeds: feeds.map(({ kind, status, ageSeconds }) => ({ kind, status, ageSeconds })) },
     network: { ...diagnosis.network, measuredRoutes: diagnosis.coverage.measuredRoutes, routesWithLatePredictions: diagnosis.routes.filter(route => route.laterTrips).length },

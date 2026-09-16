@@ -1,5 +1,7 @@
 # Agency architecture audit
 
+**September 13, 2026 archive.** This describes the implementation reviewed then. Some UI and context-sharing descriptions were subsequently replaced. See the [current Agency guide](agency.md), [workspace design](network-workspace.md) and [Ask follow-up](ASK-CHECKED-ASSESSMENTS.md).
+
 ## September 13 follow-up: operational quality
 
 The comparison with [Swiftly Performance Insights](https://www.goswift.ly/performance-insights) and [TransitMatters' dashboard](https://transitmatters.org/blog/transitmatters-launches-all-new-data-dashboard) identifies a substantial evidence gap, not a basis for claiming superiority. Swiftly documents historical playback, actual-versus-scheduled running times, on-time performance and headway analysis. TransitMatters presents historical station-pair travel times, headways, dwell and slow-zone measures. Its [dashboard](https://github.com/transitmatters/t-performance-dash) and [performance pipeline](https://github.com/transitmatters/mbta-performance) separate presentation from historical data processing.

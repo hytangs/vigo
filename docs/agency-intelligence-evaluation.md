@@ -1,5 +1,7 @@
 # Agency question evaluation
 
+**Historical local-model evaluation.** These results and settings belong to the runs below; they do not describe the currently connected model. Later cloud-model tests and implementation changes are recorded in the [broad audit](ASK-AUDIT-2026-09-15.md) and [checked-assessment follow-up](ASK-CHECKED-ASSESSMENTS.md). The original answers and reviews are preserved.
+
 September 14, 2026. Implementation and answer review by the coding assistant. This is a development evaluation, not an agency acceptance test.
 
 ## Result: not ready for the requested standard
@@ -13,7 +15,7 @@ The complete recheck produced **2 acceptable, 3 partial and 27 failed answers**.
 
 The recheck took 33.3 minutes of accumulated agent time. Machine load, prompt caches and concurrent development work were not controlled, so these figures are not a speedup claim. The recheck process predates the final timestamp/notice boundary refinements, composition-history retention, typed route-label aliases and prompt simplifications. Those later edits must not be counted as model-tested by this cohort.
 
-The remaining failures are not cosmetic. They include excluding a shared cause because no alert confirms one, confusing forecast history with actual delay onset, treating missing crew records as evidence that no reliefs are endangered, inventing mechanical diagnostic capability, and interpreting fresh feeds as proof of prediction accuracy. The current model must not be described as an expert operational decision system based on these results.
+The remaining failures are not cosmetic. They include excluding a shared cause because no alert confirms one, confusing forecast history with actual delay onset, treating missing crew records as evidence that no reliefs are endangered, inventing mechanical diagnostic capability, and interpreting fresh feeds as proof of prediction accuracy. The tested model must not be described as an expert operational decision system based on these results.
 
 After the final code refinements, a three-question ordinary-mode spot check gave **0 acceptable, 1 partial and 2 failed answers**. “Route 66” resolved in one inspection, and the headway concept question used no live tools. The resulting prose still contained unsupported causal exclusions and incorrect wait arithmetic; the three-channel draft needed editing. [Exact final spot-check answers](evidence/agency-intelligence-final-spot.json) and [review](evidence/agency-intelligence-final-spot-review.json) distinguish successful orchestration from unsuccessful interpretation. The delivered implementation has not passed the entire 32-question corpus.
 
@@ -72,7 +74,7 @@ The question types are not separate chat modes. They share the same context and 
 
 ## Model experiments
 
-All candidates stayed below the requested approximately 6B ceiling. The retained configuration is `qwen3.5:4b` with an 8,192-token context. A separate eight-question pilot of [Phi-4-mini](https://huggingface.co/microsoft/Phi-4-mini-instruct), served as `phi4-mini:3.8b`, produced **0 acceptable, 2 partial and 6 failed answers**. [Pilot answers](evidence/agency-intelligence-phi-pilot.json) and [review](evidence/agency-intelligence-phi-review.json) are retained. That pilot predates on-demand workspace selection, so it is not a matched comparison with the final implementation.
+All candidates stayed below the requested approximately 6B ceiling. The configuration retained for those runs was `qwen3.5:4b` with an 8,192-token context. A separate eight-question pilot of [Phi-4-mini](https://huggingface.co/microsoft/Phi-4-mini-instruct), served as `phi4-mini:3.8b`, produced **0 acceptable, 2 partial and 6 failed answers**. [Pilot answers](evidence/agency-intelligence-phi-pilot.json) and [review](evidence/agency-intelligence-phi-review.json) are retained. That pilot predates on-demand workspace selection, so it is not a matched comparison with the final implementation.
 
 The [Qwen3 4B instruction model](https://ollama.com/library/qwen3%3A4b-instruct-2507-q4_K_M) was also tried on one diagnostic question; it confused a maximum with an average and suggested stairs as an accessible alternative. That one failure was enough to reject it for this setup, not to rank the model generally. Both comparison models were unloaded and removed from disk. Shorter writing prompts and a separate factual-editing pass also failed to remove unsupported claims; neither experiment became another production stage.
 

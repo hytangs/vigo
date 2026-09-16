@@ -56,6 +56,10 @@ export async function assessService(environment, args) {
     const scope = target.kind === 'network' ? {} : { [({ route: 'routeNames', stop: 'stopIds', vehicle: 'vehicleId', trip: 'tripId' })[target.kind]]: ['route', 'stop'].includes(target.kind) ? [target.name] : target.name }
     const d = await inspect(scope)
     inspections.push({ target, data: d })
+    if (['vehicle', 'trip'].includes(target.kind) && !d.matchedTripReports && !d.freshVehicleReports) {
+      add(target.name, 'conditions', `No matching ${target.kind} report was found for “${target.name}”. Confirm its ${target.kind === 'vehicle' ? 'fleet number' : 'trip ID and service date'}. No report does not establish that it is out of service.${checks.includes('resources') ? ' Maintenance clearance, fault logs and crew/block assignments are not connected; identifying the vehicle does not supply those records.' : ''}`)
+      continue
+    }
     const label = target.kind === 'network' ? 'Network' : target.kind === 'route' ? `Route ${d.scope.routes.map(row => row.name).join(', ')}` : target.kind === 'vehicle' ? `Vehicle ${target.name}` : target.name
     const routeText = d.routes.map(row => `${row.route}: ${!row.reportingTrips ? 'no comparable next-departure predictions' : row.matchingTrips === row.reportingTrips ? `all ${row.reportingTrips} reporting trips match their next scheduled departures` : `${row.laterTrips} of ${row.reportingTrips} reporting trips have a late next departure${row.laterTrips && row.maxDelayMinutes !== null ? `, up to ${n(row.maxDelayMinutes)} min` : ''}`}${row.cancelledTrips ? `; ${row.cancelledTrips} ${row.cancelledTrips === 1 ? 'trip is' : 'trips are'} reported cancelled` : ''}`).join('; ')
     const scopeNote = target.kind === 'network' || target.kind === 'route' ? 'These are predictions for reporting trips, not actual passages or all service.' : 'Route totals describe the whole route; the selected vehicle or stop is assessed separately.'

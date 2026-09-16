@@ -13,6 +13,7 @@ import { networkBriefing } from '../src/agency/briefing.mjs'
 import { inspectUnverifiedReply } from '../src/agency/replyInspection.mjs'
 import { serviceAssessmentTool } from '../src/agency/serviceAssessment.mjs'
 import { briefingStatus, defaultBriefingPreferences } from '../src/agency/briefingSchedule.mjs'
+import { checkNetworkClaims } from '../src/agency/networkClaimCheck.mjs'
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-assessment-'))
 const f = intelligenceScenario(directory), callTool = createToolRegistry({ ...f, adapters: {} })
@@ -33,6 +34,23 @@ try {
   assert.match(renderAssessment(coverage), /77 scheduled trips, 1 reported cancelled, 36 without/)
   const history = await get([{ kind: 'vehicle', name: '1827' }], ['history'])
   assert.match(renderAssessment(history), /10 min over 8 min/)
+  const timingHistory = await callTool('service_timing', { view: 'prediction_history', vehicleId: '1827' })
+  assert.equal(timingHistory.ok, true)
+  assert.match(renderAssessment(timingHistory.data), /10 min over 8 min/)
+  let historyCalls = 0
+  const directHistory = await queryAgency({ ...f, callTool, question: 'How has vehicle 1827 delay changed?', provider: { available: true, complete: async () => {
+    historyCalls++
+    return { tool_calls: [{ id: 'history', function: { name: 'service_timing', arguments: JSON.stringify({ view: 'prediction_history', vehicleId: '1827', resultUse: 'answer' }) } }] }
+  } } })
+  assert.equal(historyCalls, 1, 'A complete computed history needs no second model call to rewrite its values')
+  assert.match(directHistory.answer, /10 min over 8 min/)
+  assert.equal(directHistory.aiGenerated, false)
+  await assert.rejects(callTool('service_timing', { view: 'prediction_history' }), /Supply the vehicle number/)
+  const unknown = await get([{ kind: 'vehicle', name: 'not-a-fleet-number' }], ['resources'])
+  assert.match(renderAssessment(unknown), /No matching vehicle report/)
+  assert.match(renderAssessment(unknown), /fault logs and crew\/block assignments are not connected/)
+  const cancelled = await get([{ kind: 'vehicle', name: 'vehicle-66-2' }], ['conditions'])
+  assert.doesNotMatch(renderAssessment(cancelled), /No matching vehicle report/, 'A cancellation without a location or forecast is still a matching report')
   const resources = await get([{ kind: 'network' }], ['resources', 'interventions'])
   assert.match(renderAssessment(resources), /do not establish usable fleet/)
   assert.match(renderAssessment(resources), /No optimal spare location, holding duration or wait reduction has been computed/)
@@ -109,17 +127,47 @@ try {
   const diagnosis = diagnoseNetwork(f.context, f.state), narrative = networkNarrative(diagnosis)
   const facts = networkSynthesisFacts(diagnosis)
   assert.equal(facts.find(row => row.kind === 'coverage').cancelledTrips, 1)
+  assert.deepEqual(facts.find(row => row.kind === 'coverage').feeds.map(row => row.status), diagnosis.coverage.feeds.map(row => row.status), 'The writer receives feed freshness rather than inferring outages from reporting counts')
   const paragraphs = [
     { title: 'Service priorities', text: 'The cancellation and wider spacing on Route 66 deserve attention; the reporting picture is incomplete.', basis: 'observation', evidenceIds: ['f1'] },
     { title: 'Next check', text: 'Check following departures before assuming the gap is recovering.', basis: 'next_check', evidenceIds: ['f1'] },
   ]
   const mock = supported => ({ available: true, model: 'test', complete: async (_messages, tools) => {
     if (!_messages[0].content.startsWith('Independently review')) return { content: paragraphs.map(row => row.text).join('\n\n') }
-    return { content: JSON.stringify({ verdicts: paragraphs.map(({ title, basis, evidenceIds, text }, i) => ({ paragraph: i + 1, title, basis, evidenceIds, supported, unsupportedQuote: supported ? '' : text, reason: supported ? 'Supported by the frozen observation.' : 'The selected reference does not support the claim.' })) }) }
+    return { content: JSON.stringify({ routeClaims: [], verdicts: paragraphs.map(({ title, basis, evidenceIds, text }, i) => ({ paragraph: i + 1, title, basis, evidenceIds, supported, unsupportedQuote: supported ? '' : text, reason: supported ? 'Supported by the frozen observation.' : 'The selected reference does not support the claim.' })) }) }
   } })
   const synthesis = await synthesizeNetwork({ diagnosis, narrative, provider: mock(true) })
   assert.equal(synthesis.narrative.overview, paragraphs[0].text, 'The model authors the overview; it is not the static template with an AI label')
   assert.equal(synthesis.review.verdicts.length, 2)
+  const claim = (routeId, condition, quote = 'Public statement') => ({ paragraph: 1, routeId, condition, quote })
+  const check = (routeId, condition) => checkNetworkClaims(diagnosis, ['Public statement'], [claim(routeId, condition)])[0].supported
+  assert.equal(check('Red', 'all_reporting_late'), false)
+  assert.equal(check('Red', 'all_reporting_match_schedule'), true)
+  assert.equal(check('Red', 'normal_service'), false, 'Matching predictions cannot prove normal service for the entire route')
+  assert.equal(check('39', 'all_reporting_late'), true)
+  assert.equal(check('39', 'possible_longer_waits'), false, 'Lateness does not establish a wider headway')
+  assert.equal(check('66', 'possible_longer_waits'), true)
+  assert.equal(check('66', 'observed_longer_waits'), false, 'Predicted spacing cannot establish measured rider waiting')
+  assert.equal(check('66', 'reported_cancellation'), true)
+  assert.equal(check('39', 'reported_cancellation'), false, 'A delay is not a reported cancellation')
+  const noComparisons = { routes: [{ id: 'x', name: 'Unreported', measuredTrips: 0, matchingTrips: 0, laterTrips: 0, measuredPairs: 0, widerPairs: 0 }] }
+  assert.equal(checkNetworkClaims(noComparisons, ['Public statement'], [claim('x', 'all_reporting_match_schedule')])[0].supported, false, 'An empty denominator cannot establish schedule agreement')
+  assert.throws(() => checkNetworkClaims(diagnosis, ['Different wording'], [claim('66', 'reported_cancellation')]), /exact public wording/)
+  assert.throws(() => checkNetworkClaims(diagnosis, ['Public statement'], [claim('unknown', 'late_departures')]), /identify its route/)
+  let writes = 0
+  const falseApproval = { available: true, complete: async (_messages, tools) => {
+    if (!tools.length) { writes++; return { content: 'Red Line reporting trips are all late.\n\nRoute 66 has a reported cancellation.' } }
+    const review = { routeClaims: [{ sentenceId: 'p1s1', routeId: 'Red', condition: 'all_reporting_late' }], verdicts: [
+      { paragraph: 1, title: 'Red', basis: 'observation', supported: true, unsupportedQuote: '', reason: 'Model mistakenly accepted the assertion.', evidenceIds: ['f1'] },
+      { paragraph: 2, title: '66', basis: 'observation', supported: true, unsupportedQuote: '', reason: 'Cancellation is reported.', evidenceIds: ['f1'] },
+    ] }
+    return { tool_calls: [{ function: { name: 'review_network', arguments: JSON.stringify(review) } }] }
+  } }
+  const checked = await synthesizeNetwork({ diagnosis, narrative, provider: falseApproval })
+  assert.equal(writes, 2, 'Contradictory computed evidence triggers one revision despite model approval')
+  assert.equal(checked.narrative.overview, 'Route 66 has a reported cancellation.')
+  assert.equal(checked.review.excludedParagraphs.length, 1)
+  assert.equal(checked.review.routeClaims[0].supported, false)
   await assert.rejects(synthesizeNetwork({ diagnosis, narrative, provider: mock(false) }), /did not support every paragraph/)
   assert.equal(await synthesizeNetwork({ diagnosis, narrative, provider: { available: false } }), null)
   const unavailable = await networkBriefing({ ...f, provider: { available: false }, callTool })

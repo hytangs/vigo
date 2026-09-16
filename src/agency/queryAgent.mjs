@@ -40,7 +40,7 @@ export function compactResult(result, tool) {
     } } : result.data)
   }
   const data = result.data
-  if (tool === 'assess_service') return envelope({ asOf: data.asOf, requested: data.requested, sections: data.sections, meaning: data.meaning })
+  if (data.kind === 'service_assessment') return envelope({ asOf: data.asOf, requested: data.requested, sections: data.sections, meaning: data.meaning })
   if (tool === 'inspect_service') return envelope(inspectionFacts(data))
   if (tool === 'service_timing') return envelope({ summary: data.summary, route: data.routeName, asOf: data.asOf, rows: data.rows })
   if (tool === 'stop_arrivals') {
@@ -156,7 +156,7 @@ export async function queryAgency({ question, context, state, callTool, provider
   const timingForm = tool => {
     const { routeId, vehicleId } = tool.parameters.properties
     const branch = (view, properties, required) => ({ type: 'object', properties: { view: { type: 'string', enum: [view] }, ...properties, resultUse }, required: ['view', ...required, 'resultUse'], additionalProperties: false })
-    return { ...tool, parameters: { anyOf: [branch('vehicles', { routeId }, ['routeId']), branch('terminal_departure', { vehicleId, routeId }, ['vehicleId']), branch('cycle', { routeId }, ['routeId'])] } }
+    return { ...tool, parameters: { anyOf: [branch('vehicles', { routeId }, ['routeId']), branch('prediction_history', { vehicleId }, ['vehicleId']), branch('terminal_departure', { vehicleId, routeId }, ['vehicleId']), branch('cycle', { routeId }, ['routeId'])] } }
   }
   const arrivalForm = tool => {
     const { stopId, routeId, vehicleId, view, event } = tool.parameters.properties
@@ -217,7 +217,7 @@ export async function queryAgency({ question, context, state, callTool, provider
         { role: 'user', content: `What this answer must accomplish: ${question}\nFirst verify the scope: a network result does not answer a question about here/this station. If wrong, use correctTargets to recheck the selected or named target. Otherwise select the sections that answer this request. If the requested output has not been produced, request its missing check.` }]
     } else if (repairAssessment) {
       currentTools = [assessmentForm(toolDefinitions.find(tool => tool.name === 'assess_service'))]
-      inferenceMessages = [{ role: 'system', content: 'Select the scope and checks directly from the user question. Network-wide questions and unnamed services use kind=network. Never substitute the map selection. If the question says here, this station or this stop, use selected_stop and copy that exact phrase into reference. For this route, use selected_route with that reference. No trip or vehicle is selected. Include only relevant checks. Only an explicitly different day/week/year uses period=historical. Questions about the origin of a current delay remain current with a history check. Fill assess_service; no prose.' },
+      inferenceMessages = [{ role: 'system', content: 'Select the scope and checks directly from the user question. Use network only for a network-wide request. Never widen a failed local check to the network or substitute a selected route for a vehicle. If the question says here, this station or this stop, use selected_stop and copy that exact phrase into reference. For this route, use selected_route with that reference. No trip or vehicle is selected. Include only relevant checks. Only an explicitly different day/week/year uses period=historical. Questions about the origin of a current delay remain current with a history check. Fill assess_service; no prose.' },
         { role: 'user', content: modelResult({ question, availableSelectionTypes: Object.keys(selection), previousError: repairAssessment.error }) }]
     } else if (selectingStop) {
       inferenceMessages = selectingStop.messages(question, overview.cityName)
@@ -342,7 +342,7 @@ export async function queryAgency({ question, context, state, callTool, provider
             if (typeof target.kind !== 'string') throw new Error('Choose a target kind from the form.')
             if (target.kind.startsWith('selected_')) {
               const kind = target.kind.slice('selected_'.length)
-              if (!selection[kind] || !question.toLowerCase().includes(String(target.reference).toLowerCase()) || context.resolve({ kind, query: target.reference }).method === 'exact') throw new Error('The selected scope has no valid verbatim reference in the supplied question. Re-read the question; use network for a network-wide question.')
+              if (!selection[kind] || !question.toLowerCase().includes(String(target.reference).toLowerCase()) || context.resolve({ kind, query: target.reference }).method === 'exact') throw new Error('Copy the actual referring words from the question into reference, not the selected name or a paraphrase. Keep the requested entity type. A failed reference is not a reason to widen the scope to network.')
               return { kind, name: selection[kind].name }
             }
             const resolvedName = trace.some(call => call.tool === 'resolve_entities' && call.result.ok && supplied.includes(String(call.arguments.query).toLowerCase())
@@ -440,7 +440,8 @@ export async function queryAgency({ question, context, state, callTool, provider
         assessmentMode = true
         repairAssessment = !result.ok && assessmentRepairs++ < 1 ? { arguments: args, error: result.warnings?.[0] } : null
       }
-      if (call.function.name === 'assess_service' && result.ok) {
+      if (result.ok && result.data?.kind === 'service_assessment') {
+        assessmentMode = true
         const uniqueSections = new Map([...(pendingAssessment?.data.sections || []), ...result.data.sections].map(section => [JSON.stringify([section.target, section.check, section.text]), section]))
         const sections = [...uniqueSections.values()].map((section, i) => ({ ...section, id: `s${i + 1}` }))
         const preface = [...new Set([pendingAssessment?.data.preface, result.data.preface].filter(Boolean))].join('\n\n')
@@ -458,6 +459,11 @@ export async function queryAgency({ question, context, state, callTool, provider
     }
     if (calls.length === 1 && calls[0].function.name === 'current_time' && trace.at(-1)?.arguments.resultUse === 'answer' && trace.at(-1).result.ok) {
       answer = `${describeCurrentTime(trace.at(-1).result.data)} [${trace.length}]`
+      renderedFromEvidence = true
+      break
+    }
+    if (calls.length === 1 && calls[0].function.name === 'service_timing' && finishWithTable && pendingAssessment && trace.at(-1)?.result.ok) {
+      answer = `${renderAssessment(pendingAssessment.data)} [${pendingAssessment.sources.join("] [")}]`
       renderedFromEvidence = true
       break
     }
@@ -511,7 +517,7 @@ export async function queryAgency({ question, context, state, callTool, provider
     answer = `${summarizeEvidence(trace)} [${trace.length}]`
     renderedFromEvidence = true
   }
-  if (!signal?.aborted && trace.at(-1)?.tool === 'service_timing' && trace.at(-1).result.ok
+  if (!signal?.aborted && !pendingAssessment && trace.at(-1)?.tool === 'service_timing' && trace.at(-1).result.ok
     && trace.filter(call => call.tool === 'service_timing').length === 1
     && trace.every(call => ['resolve_entities', 'workspace_selection', 'service_timing'].includes(call.tool))) {
     answer = `${summarizeEvidence(trace)} [${trace.length}]`; renderedFromEvidence = true
@@ -543,7 +549,7 @@ export async function queryAgency({ question, context, state, callTool, provider
 }
 
 function describeTool(name, args, context) {
-  if (name === 'service_timing') return args.view === 'vehicles' ? 'Checking reported vehicles…' : args.view === 'cycle' ? 'Comparing terminal-to-terminal running times…' : 'Checking the vehicle’s terminal times…'
+  if (name === 'service_timing') return args.view === 'vehicles' ? 'Checking reported vehicles…' : args.view === 'prediction_history' ? 'Comparing retained vehicle predictions…' : args.view === 'cycle' ? 'Comparing terminal-to-terminal running times…' : 'Checking the vehicle’s terminal times…'
   if (name === 'route_plan' && args.modes?.length > 1) return 'Comparing transit and driving for the same journey…'
   if (name === 'current_time') return 'Checking the current clock…'
   if (name === 'workspace_selection') return 'Reading the selected route and station…'
@@ -572,7 +578,7 @@ function describeToolResult(name, { data }) {
   if (name === 'walk_route' || name === 'find_walk') return data.walking ? `Calculated ${Math.round(data.walking.distanceMeters)} m of walking on the street network.` : 'No walking route could be established for these locations.'
   if (name === 'recall_notebook') return `Retrieved ${data.entries.length} dated notebook ${data.entries.length === 1 ? 'entry' : 'entries'}.`
   if (name === 'stop_arrivals') return data.board.vehicle ? data.board.vehicle.issue || `Checked vehicle ${data.board.vehicle.label} at ${data.board.stop.name}.` : `Checked upcoming service at ${data.board.stop.name}.`
-  if (name === 'service_timing') return data.view === 'vehicles' ? `Checked ${data.rows.length} reported vehicles.` : 'Checked the terminal timetable and available reports.'
+  if (name === 'service_timing') return data.kind === 'service_assessment' ? 'Compared retained vehicle predictions.' : data.view === 'vehicles' ? `Checked ${data.rows.length} reported vehicles.` : 'Checked the terminal timetable and available reports.'
   if (name === 'service_profile') return data.groupBy === 'route' ? `Found ${data.rows.length} routes with scheduled departures after ${data.afterTime} on ${data.serviceDate}.` : `Counted scheduled trip starts across ${data.rows.length} service hours.`
   if (name === 'network_overview') return `Read ${data.counts.routes} routes and checked ${data.observation?.feeds?.length || 0} realtime feed timestamps.`
   if (name === 'resolve_entities') return `Found ${data.total} matching ${data.total === 1 ? 'place or route' : 'places or routes'}.${data.ambiguous ? ' The exact location still needs to be resolved.' : ''}`

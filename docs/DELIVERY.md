@@ -1,14 +1,16 @@
 # Agency delivery notes — September 13, 2026
 
+**Historical delivery record.** Screenshots, model settings and the Live/Skills interactions below describe that development stage. Use the [Agency guide](agency.md) for current navigation and the [checked-assessment report](ASK-CHECKED-ASSESSMENTS.md) for later answer-quality work. Original results and limitations remain retained here.
+
 This records the work completed after the request to leave `README.md`, `ASSUMPTIONS.md`, and `AI-USE.md` unchanged. Those three files retain their earlier state. The changes below supersede their descriptions of temporary history and the initial Skills panel.
 
-## Current product scope
+## Subsequent scope note
 
 The everyday workspace is **Overview → Routes → Ask**. Overview assesses the current network; Routes reuses line diagrams, station departures and service alerts; Ask explains checked service evidence and drafts rider updates. Routing and saved historical studies remain reusable tools when a question needs them.
 
 Research packages and the Service desk/replay prototypes are outside the main workspace. Their source, test fixtures, saved records and APIs remain for research and reproducibility; they are not everyday navigation. Ask does not launch studies or simulate dispatch. Feed settings live in the network menu. Answer metadata is grouped under Details, while failures and timestamps remain visible. These scope decisions supersede the earlier UI descriptions below; retained examples are historical.
 
-## What changed
+## Original delivery
 
 - **Live opens with a [network briefing](images/agency-briefing.png).** The model chooses relevant facts from the current timetable, departure comparisons, and agency alerts. Every selected fact links to its supporting tool result. The briefing shows its date and time; Update creates another saved snapshot. Realtime polling does not repeatedly invoke the model.
 - **Ask keeps the investigation.** Questions, completed checks, answers, sources, and researcher notes are saved in the City's SQLite notebook. Saved work supports search and older entries; opening an investigation restores its conversation and associated map. Follow-up questions retain prior context. Reloading the page or restarting the server preserves saved work.
