@@ -4,6 +4,7 @@ import type { MapPreview } from '../domain'
 import { apiJson } from '../app/api'
 import type { RouteOperations, RoutePattern, VehicleTiming } from '../agency/routeOperationsTypes'
 import { VehicleDetailsView, vehicleDelayLabel, vehicleStopLabel } from './AgencyVehicleDetails'
+import { AgencyTripTimetable } from './AgencyTripTimetable'
 import { StopArrivalBoard } from './StopArrivalBoard'
 
 function patternLabel(pattern: RoutePattern) {
@@ -28,6 +29,7 @@ export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showS
   }, [preview, routeId])
   const [loadedData, setData] = useState<RouteOperations | null>(null)
   const data = loadedData ?? fallback
+  const [view, setView] = useState<'trips' | 'positions'>('trips')
   const [error, setError] = useState('')
   const [choices, setChoices] = useState<Record<string, string>>({})
   const [selected, setSelected] = useState<string | null>(null)
@@ -84,7 +86,9 @@ export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showS
 
   return <><section className="agency-line-view" aria-label="Bidirectional route line view" style={{ '--line-color': data?.color || 'var(--vigo-lime-strong)' } as CSSProperties}>
     {!routeId ? <div className="agency-empty"><Route size={25} /><h2>See a route in both directions</h2><p>Choose a route in Live to see its stops and reported vehicles.</p></div> : !data && error ? <p className="agency-error" role="alert">{error}</p> : !data ? <p className="agency-caption" role="status">Reading the route’s stop patterns…</p> : <>
-      <div className="agency-line-intro"><strong>Stops & arrivals</strong><p>Select a station for upcoming vehicles. Select a vehicle for its schedule.</p><span>Both directions · Reported positions on a schematic line.</span></div>
+      <div className="agency-line-intro"><strong>Route timetable</strong><div className="agency-view-switch" role="group" aria-label="Line content"><button aria-pressed={view === 'trips'} onClick={() => { setView('trips'); setSelected(null); setSelectedStop(null); onSelectStop?.('') }}>Trip times</button><button aria-pressed={view === 'positions'} onClick={() => setView('positions')}>Stops & vehicles</button></div></div>
+      {view === 'trips' ? <AgencyTripTimetable projectId={projectId} routeId={routeId} /> : <>
+      <p className="agency-caption">Select a stop for arrivals or a vehicle for its reported position.</p>
       {error ? <p className="agency-error" role="alert">{error}</p> : null}
       {(error && !loadedData ? [] : data.warnings).map(warning => <p key={warning} className="agency-vehicle-warning">{warning}</p>)}
       {!data.patterns.length ? <p className="agency-caption">No continuous stop pattern is indexed for this service day.</p> : <div className="agency-line-directions" style={{ gridTemplateColumns: `repeat(${visiblePatterns.length}, minmax(0, 1fr))` }}>{visiblePatterns.map((pattern, directionIndex) => {
@@ -116,7 +120,7 @@ export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showS
         <span>{stopButton(stop)}</span>
       </li>)}</ol> : null}</div>}
       {unplaced.length ? <details className="agency-line-unplaced"><summary>{unplaced.length} vehicles without a current stop position</summary>{unplaced.map(vehicle => <button className="agency-text-button" key={vehicle.key} onClick={() => setSelected(vehicle.key)}>{vehicle.label} · {vehicle.warnings[0] || 'Trip pattern unavailable'}</button>)}</details> : null}
-      <p className="agency-caption">Timetable dates: {data.serviceDates?.join(', ') || data.serviceDate} · Times in {data.timezone}. Arrival and departure predictions are kept separate.</p>
+      <p className="agency-caption">Timetable dates: {data.serviceDates?.join(', ') || data.serviceDate} · Times in {data.timezone}. Arrival and departure predictions are kept separate.</p></>}
     </>}
   </section>{(showStopDetails && selectedStop) || selectedVehicle ? <aside className="agency-line-details"><button className="agency-icon-button" aria-label="Close details" onClick={() => { setSelected(null); setSelectedStop(null); onSelectStop?.('') }}><X size={15} /></button>{showStopDetails && selectedStop ? <StopArrivalBoard key={`${projectId}/${selectedStop}`} projectId={projectId} stopId={selectedStop} /> : selectedVehicle ? <VehicleDetailsView vehicle={selectedVehicle} /> : null}</aside> : null}</>
 }

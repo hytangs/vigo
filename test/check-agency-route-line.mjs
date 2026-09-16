@@ -47,6 +47,31 @@ try {
   assert.ok(line.vehicles[0].patternId)
   assert.equal(tripCalls(context, 'T1').calls.at(-1).sequence, null, 'Do not invent a terminal sequence')
 
+  const timetable = (tripId = 'T1') => routeOperations(context, snapshot, { routeId: 'R', includeTrips: true, tripId }, observationTime)
+  let table = timetable()
+  assert.equal(table.trips.length, 7, 'All fixed timetable trips are available, including trips without vehicles')
+  assert.deepEqual(table.trip.calls[1].arrival, { scheduled: epoch + 43740, current: epoch + 43860 })
+  assert.deepEqual(table.trip.calls[1].departure, { scheduled: epoch + 43800, current: epoch + 43980 })
+  assert.equal(table.trip.calls[2].departure.scheduled, null, 'No fabricated terminal departure')
+  assert.equal(timetable('T2').trip.status, 'Scheduled only')
+  snapshot.tripUpdates[0].timestamp = observationTime - 181
+  assert.equal(timetable().trip.calls[1].arrival.current, null, 'Stale reports never become current or actual times')
+  snapshot.tripUpdates[0].timestamp = observationTime
+  snapshot.tripUpdates.push({ ...snapshot.tripUpdates[0], id: 'duplicate' })
+  assert.equal(timetable().trip.status, 'Unresolved reports')
+  assert.equal(timetable().trip.calls[1].arrival.current, null)
+  snapshot.tripUpdates.pop()
+  snapshot.tripUpdates[0].scheduleRelationship = 'CANCELED'
+  assert.equal(timetable().trip.status, 'CANCELED')
+  assert.equal(timetable().trip.calls[1].arrival.current, null)
+  delete snapshot.tripUpdates[0].scheduleRelationship
+  snapshot.tripUpdates[0].stopTimeUpdates[1].scheduleRelationship = 'SKIPPED'
+  assert.equal(timetable().trip.calls[1].status, 'SKIPPED')
+  assert.equal(timetable().trip.calls[1].arrival.current, null)
+  delete snapshot.tripUpdates[0].stopTimeUpdates[1].scheduleRelationship
+  assert.throws(() => timetable('missing'), /active timetable trip/)
+  assert.equal(routeOperations(context, snapshot, { routeId: 'R', includeTrips: true, serviceDate: '2026-10-01' }, observationTime).trip, null)
+
   snapshot.vehicles[0].stopId = 'C'; snapshot.vehicles[0].currentStopSequence = 10
   assert.equal(detail().callIndex, null, 'A terminal ID cannot contradict a retained sequence')
   snapshot.vehicles[0].currentStopSequence = 90

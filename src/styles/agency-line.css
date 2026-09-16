@@ -90,3 +90,17 @@
   .agency-line-details { max-height: 75%; }
   .view-agency .route-map-shell .map-live-card.has-vehicle-timing { max-height: 85%; }
 }
+.agency-line-intro .agency-view-switch { width: fit-content; margin-top: 12px; }
+.agency-trip-controls { display: flex; flex-wrap: wrap; gap: 12px; }
+.agency-trip-controls label { display: grid; gap: 6px; min-width: 0; font-size: 12px; }
+.agency-trip-controls label:nth-child(2) { flex: 1; }
+.agency-trip-controls input, .agency-trip-controls select { min-height: 40px; max-width: 100%; padding: 8px; color: var(--text); background: var(--control-surface); border: 1px solid var(--border); border-radius: 6px; }
+.agency-trip-timetable h2 { margin: 24px 0 8px; color: var(--text-strong); font-size: 24px; }
+.agency-trip-timetable p { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.agency-trip-table-scroll { overflow-x: auto; }
+.agency-trip-timetable table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.agency-trip-timetable th, .agency-trip-timetable td { padding: 14px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+.agency-trip-timetable td { white-space: nowrap; }
+.agency-trip-timetable thead th { color: var(--text-muted); font-weight: 500; }
+.agency-trip-timetable tbody th { border-left: 3px solid var(--line-color); color: var(--text-strong); }
+.agency-trip-timetable small { display: block; color: var(--text-muted); font-weight: 400; }

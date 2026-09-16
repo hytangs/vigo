@@ -1,4 +1,5 @@
-import { rawId } from './agencyContext.mjs'
+import { rawId, serviceEpoch } from './agencyContext.mjs'
+import { validDate } from './agencyClock.mjs'
 import { defaultPolicy, feedStates } from './realtimeIntelligence.mjs'
 
 const finite = value => typeof value === 'number' && Number.isFinite(value)
@@ -228,7 +229,7 @@ export function vehicleDetails(context, snapshot, { vehicleId, sourceUrl }, now 
   return describe(context, vehicles[0], now, policy, feeds, coverage, updates)
 }
 
-export function routeOperations(context, snapshot, { routeId }, now = Date.now() / 1000, policy = defaultPolicy) {
+export function routeOperations(context, snapshot, { routeId, includeTrips = false, tripId, serviceDate }, now = Date.now() / 1000, policy = defaultPolicy) {
   if (typeof routeId !== 'string' || !routeId || routeId.length > 500) throw new Error('Choose a route.')
   const resolved = context.routeIndex.has(routeId) ? context.routeIndex.get(routeId) : null
   if (!resolved) throw new Error('Choose an exact route from this City’s timetable.')
@@ -247,5 +248,51 @@ export function routeOperations(context, snapshot, { routeId }, now = Date.now()
   for (const vehicle of vehicles) vehicle.patternId = topology.byTrip.get(vehicle.tripId) ?? null
   return { routeId, name: resolved.short_name || resolved.long_name || rawId(routeId), color: /^[0-9a-f]{6}$/i.test(resolved.color) ? `#${resolved.color}` : 'var(--vigo-lime-strong)',
     serviceDate: coverage.serviceDate, serviceDates, timezone: context.timezone, generatedAt: new Date(now * 1000).toISOString(), observedAt: snapshot?.fetchedAt ?? null,
+    ...(includeTrips ? routeTripTimetable(context, snapshot, routeId, serviceDate || coverage.serviceDate, tripId, now, policy) : {}),
     patterns: topology.patterns, vehicles, warnings: coverage.valid ? [] : [coverage.message] }
+}
+
+// Timetable trips remain selectable without a VehiclePosition. Feed events are
+// predictions, including past timestamps; they do not establish actual passage.
+function routeTripTimetable(context, snapshot, routeId, serviceDate, tripId, now, policy) {
+  if (!validDate(serviceDate)) throw new Error('Choose a valid service date.')
+  const epoch = serviceEpoch(serviceDate, context.timezone)
+  const active = context.activeServices(serviceDate)
+  const trips = context.trips.filter(trip => trip.route_id === routeId && active.has(trip.service_id) && !context.frequencyTrips.has(trip.trip_id)).flatMap(trip => {
+    const { calls, continuous } = tripCalls(context, trip.trip_id)
+    if (!continuous || !calls.length) return []
+    return [{ id: trip.trip_id, directionId: trip.direction_id ?? null, destination: station(context, calls.at(-1).stopId).name,
+      departure: epoch + calls[0].departure, arrival: epoch + calls.at(-1).arrival }]
+  }).sort((a, b) => a.departure - b.departure || a.id.localeCompare(b.id))
+  const selected = tripId ? trips.find(trip => trip.id === tripId) : trips.find(trip => trip.arrival >= now) ?? trips.at(-1)
+  if (tripId && !selected) throw new Error('Choose an active timetable trip on this route and service date.')
+  if (!selected) return { trips, trip: null }
+  const { feeds } = inputs(context, snapshot, now, policy)
+  const updates = (snapshot?.tripUpdates ?? []).filter(update => {
+    const match = context.matchTripIdentity(update, serviceDate)
+    return match.trip?.trip_id === selected.id && match.serviceDate === serviceDate
+  })
+  const update = updates.length === 1 ? updates[0] : null
+  const status = updates.length > 1 ? 'Unresolved reports' : !update ? 'Scheduled only' : !fresh(update, feeds, now, policy) ? 'Stale report'
+    : update.scheduleRelationship && update.scheduleRelationship !== 'SCHEDULED' ? update.scheduleRelationship : 'Predictions available'
+  const usable = status === 'Predictions available'
+  const { calls } = tripCalls(context, selected.id)
+  const reports = new Map()
+  for (const report of usable ? update.stopTimeUpdates ?? [] : []) {
+    const call = matchCall(calls, report.stopId, report.stopSequence)
+    if (call) reports.set(call.index, [...(reports.get(call.index) ?? []), report])
+  }
+  return { trips, trip: { ...selected, serviceDate, status,
+    predictionAt: update?.timestamp ?? (update ? feeds.get(update.sourceUrl)?.feedTimestamp : null) ?? null,
+    calls: calls.map((call, index) => {
+      const arrival = finite(call.arrival) ? epoch + call.arrival : null
+      const departure = finite(call.departure) ? epoch + call.departure : null
+      const candidates = reports.get(index) ?? []
+      const report = candidates.length === 1 ? candidates[0] : null
+      const relationship = report?.scheduleRelationship
+      const timing = report && (!relationship || relationship === 'SCHEDULED') ? stopPrediction(report, arrival, departure) : null
+      return { stop: station(context, call.stopId), index,
+        status: candidates.length > 1 ? 'Unresolved' : relationship && relationship !== 'SCHEDULED' ? relationship : timing?.issue || '',
+        arrival: { scheduled: arrival, current: timing?.arrival ?? null }, departure: { scheduled: departure, current: timing?.departure ?? null } }
+    }) } }
 }
