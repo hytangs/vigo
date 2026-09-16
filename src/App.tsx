@@ -1123,7 +1123,7 @@ function ProjectsPage({
                   type="button"
                   className="surface-switcher-open"
                   onClick={() => onOpenProject(project.id)}
-                  aria-label={`Open ${project.name} Routes`}
+                  aria-label={hasData ? `Open ${project.name} network` : `Set up ${project.name}`}
                   aria-current={isSelected ? 'page' : undefined}
                 >
                   <span className={classNames('surface-readiness-dot', hasData && 'is-ready')} aria-hidden="true" />
@@ -1278,6 +1278,16 @@ function ImportPanel({
           <span>Manifest</span>
         </button>
       </div>
+
+      <section className="network-import-example" aria-label="Boston example files">
+        <h3>Try Boston</h3>
+        <p>Download these example files, then choose or drop them below.</p>
+        <div>
+          <a href="https://cdn.mbta.com/MBTA_GTFS.zip" target="_blank" rel="noopener noreferrer" download="MBTA_GTFS.zip"><Download size={16} aria-hidden="true" /><span>MBTA timetable <small>GTFS ZIP · routes, stops and schedules</small></span></a>
+          <a href="https://drive.google.com/uc?export=download&amp;id=1EiCPazDU8PNi2-swpe9poI2C5tOuJ-q7" target="_blank" rel="noopener noreferrer"><Download size={16} aria-hidden="true" /><span>Boston streets <small>boston.pbf · walking and driving network</small></span></a>
+        </div>
+        <small>Google Drive may ask you to confirm the PBF download. <a href="https://drive.google.com/file/d/1EiCPazDU8PNi2-swpe9poI2C5tOuJ-q7/view?usp=share_link" target="_blank" rel="noopener noreferrer">View source file</a></small>
+      </section>
 
       <div
         className={classNames('drop-zone', isImporting && 'is-working')}
@@ -1553,6 +1563,7 @@ function CitySourceStatus({
 
 function EmptyOperationsStart({
   project,
+  onOpenNetwork,
   osmStreetReady,
   isImporting,
   isOsmImporting,
@@ -1577,6 +1588,7 @@ function EmptyOperationsStart({
   onRetryOsm,
 }: {
   project: VigoProject
+  onOpenNetwork: () => void
   osmStreetReady: boolean
   isImporting: boolean
   isOsmImporting: boolean
@@ -1600,9 +1612,10 @@ function EmptyOperationsStart({
   onCancelOsm: () => void
   onRetryOsm: () => void
 }) {
+  const gtfsReady = hasOperationsData(project)
   const gtfsDetail = isImporting
     ? importMessage || 'Building the local timetable index…'
-    : 'Add a GTFS ZIP to load routes and schedules'
+    : gtfsReady ? 'Timetable indexed and ready' : 'Add a GTFS ZIP to load routes and schedules'
   const osmDetail = osmStreetReady
     ? `${formatNumber(project.osmStreetIndex?.edgeCount ?? 0)} walk edges indexed locally`
     : isOsmImporting
@@ -1615,7 +1628,7 @@ function EmptyOperationsStart({
         <div className="surface-source-intake-copy">
           <span className="eyebrow">City data</span>
           <h1 id="surface-source-intake-title">Build {quietMapLabel(project.name)}</h1>
-          <p>Add GTFS and OSM to open Network, Route, and Analyze.</p>
+          <p>Add a timetable and optional street data. Open the network when you’re ready.</p>
         </div>
 
         <div className="surface-source-statuses" aria-label="City sources">
@@ -1623,10 +1636,10 @@ function EmptyOperationsStart({
             icon={<FileArchive size={18} />}
             title="GTFS timetable"
             detail={gtfsDetail}
-            ready={false}
+            ready={gtfsReady}
             working={isImporting}
             missingLabel="Required"
-            status={statusFromJobStatus(gtfsJob?.status ?? (isImporting ? 'running' : 'missing'))}
+            status={statusFromJobStatus(gtfsJob?.status ?? (isImporting ? 'running' : gtfsReady ? 'complete' : 'missing'))}
           />
           <CitySourceStatus
             icon={<Navigation2 size={18} />}
@@ -1642,6 +1655,8 @@ function EmptyOperationsStart({
         <p className="surface-source-hint">
           GTFS supplies scheduled transit. OSM supplies walking and driving streets.
         </p>
+
+        <button type="button" className="button button-primary" disabled={!gtfsReady || isImporting || isOsmImporting} onClick={onOpenNetwork}>Open network</button>
 
         <ImportPanel
           isImporting={isImporting}
@@ -2080,6 +2095,7 @@ export default function App() {
   const [basemap, setBasemap] = useState<Basemap>('streets')
   const [projects, setProjects] = useState<VigoProject[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState('')
+  const [openedNetworkProjectId, setOpenedNetworkProjectId] = useState('')
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [runtimeConfig, setRuntimeConfig] = useState<VigoRuntimeConfig | null>(null)
   const [setupOpen, setSetupOpen] = useState(false)
@@ -2522,7 +2538,7 @@ export default function App() {
     projectRoutingFeed?.routingStore?.connectionCount
       ?? scopedRoutingFeeds.reduce((sum, feed) => sum + Number(feed.routingStore?.connectionCount ?? 0), 0),
   )
-  const hasActiveOperationsData = hasOperationsData(selectedProject) && (activeFeed.routeCount > 0 || preview.routes.length > 0)
+  const hasActiveOperationsData = openedNetworkProjectId === selectedProject.id && hasOperationsData(selectedProject) && (activeFeed.routeCount > 0 || preview.routes.length > 0)
   const networkSearchIndex = useMemo(() => buildNetworkSearchIndex(preview), [preview])
   const visiblePreview = useMemo(() => filterPreviewByStatus(preview, statusFilter), [preview, statusFilter])
   const workbenchMapPreview = activeRouteTool === 'agency' && vehicleMode === 'schedule' ? preview : visiblePreview
@@ -2676,7 +2692,7 @@ export default function App() {
   }, [routingChoices, selectedRoutingPlanId])
   const isProjectEmpty = page === 'project'
     && activeRouteTool !== 'data'
-    && !hasOperationsData(selectedProject)
+    && (!hasOperationsData(selectedProject) || openedNetworkProjectId !== selectedProject.id)
 
   function clearAnalysisState() {
     invalidateAnalyzeResult()
@@ -2750,8 +2766,7 @@ export default function App() {
       setApiError('')
       if (nextSelectedId) {
         setSelectedProjectId(nextSelectedId)
-        setPage('project')
-        beginCitySelection(nextSelectedId, nextProjects)
+        setPage('projects')
       } else {
         setPage('projects')
       }
@@ -2932,6 +2947,7 @@ export default function App() {
       project.id === cleanedProject.id ? cleanedProject : project
     )))
     if (selectedProjectId !== cleanedProject.id) return
+    setOpenedNetworkProjectId('')
 
     cancelRouteAnalysis()
     invalidateAnalyzeResult()
@@ -3022,6 +3038,8 @@ export default function App() {
   }
 
   function openProject(projectId: string) {
+    const project = projects.find(item => item.id === projectId)
+    setOpenedNetworkProjectId(project && hasOperationsData(project) ? projectId : '')
     if (selectedProjectId && selectedProjectId !== projectId) clearRealtimeConnection()
     beginCitySelection(projectId)
     setPage('project')
@@ -4669,6 +4687,8 @@ export default function App() {
   }
 
   function openNetworkView() {
+    if (!hasOperationsData(selectedProject)) return
+    setOpenedNetworkProjectId(selectedProject.id)
     setActiveRouteTool('agency')
     setRoutingEnabled(false)
     setSidebarCollapsed(false)
@@ -5139,8 +5159,9 @@ export default function App() {
           )}
         />
       ) : (
-      !hasOperationsData(selectedProject) ? (
+      !hasOperationsData(selectedProject) || openedNetworkProjectId !== selectedProject.id ? (
         <EmptyOperationsStart
+          onOpenNetwork={openNetworkView}
           project={selectedProject}
           {...importPanelProps}
         />

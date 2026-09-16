@@ -507,3 +507,13 @@
   .network-route-table td::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 400; color: var(--text-muted); }
   .network-route-basis { display: inline; margin-left: 4px; }
 }
+
+.network-import-example { margin: 0 0 20px; padding: 16px; border: 1px solid var(--border); border-radius: 10px; }
+.network-import-example h3 { margin: 0; color: var(--text-strong); font-size: 16px; }
+.network-import-example p { margin: 6px 0 14px; color: var(--text-muted); font-size: 13px; }
+.network-import-example > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px; }
+.network-import-example > div > a { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-strong); text-decoration: none; }
+.network-import-example > div > a:hover { background: var(--surface-bg); }
+.network-import-example small { display: block; font-size: 12px; color: var(--text-muted); }
+.network-import-example > small { margin-top: 12px; }
+.network-import-example > small a { color: inherit; }
