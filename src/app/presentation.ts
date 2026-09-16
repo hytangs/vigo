@@ -112,3 +112,33 @@ export function routingPlanRouteSequence(plan: RoutingPlan) {
     coordinates: [],
   })
 }
+
+export function routingDataModeLabel(plan: RoutingPlan) {
+  const mode = plan.diagnostics?.routingDataMode ?? plan.diagnostics?.routingDataProvenance?.mode
+  return mode === 'scheduled' ? 'Scheduled · Research' : mode === 'realtime' ? 'Realtime' : ''
+}
+
+export function routingRealtimeDetail(plan: RoutingPlan) {
+  const modeLabel = routingDataModeLabel(plan)
+  if (modeLabel === 'Scheduled · Research') return `${modeLabel} · Published timetable`
+  const realtime = plan.diagnostics?.realtimeRouting
+  const rides = plan.legs.filter(leg => leg.type === 'ride')
+  const predicted = rides.filter(leg => leg.scheduleMode === 'realtime-adjusted').length
+  const applied = (realtime?.appliedTrips ?? 0) + (realtime?.canceledTrips ?? 0)
+  let detail = predicted
+    ? predicted === rides.length ? 'Live predictions' : 'Live predictions and scheduled times'
+    : realtime?.canceledTrips && applied > 0
+      ? 'Live cancellations applied; journey times scheduled'
+      : applied > 0
+        ? 'Realtime updates applied; journey times scheduled'
+        : realtime?.status === 'stale_fallback'
+          ? 'Scheduled times; realtime snapshot stale or invalid'
+          : 'Scheduled times; no realtime updates applied'
+  const coverage = realtime?.coverage
+  if (coverage && coverage.inputUpdates > 0) {
+    detail += ` · ${coverage.appliedUpdates} of ${coverage.inputUpdates} supplied updates used`
+    if (coverage.rejectedUpdates > 0) detail += `; ${coverage.rejectedUpdates} excluded`
+    if (coverage.prunedUpdates > 0) detail += `; ${coverage.prunedUpdates} omitted`
+  }
+  return modeLabel ? `${modeLabel} · ${detail}` : detail
+}

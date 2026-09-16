@@ -17,10 +17,10 @@ export function PrimaryNav({ page, activeRouteTool, hasActiveData, onOpenNetwork
     { id: 'analyze', label: 'Analyze', shortcut: '3', icon: Radar, open: onOpenAnalyze },
     { id: 'data', label: 'City', shortcut: '5', icon: Settings, open: onOpenSettings },
   ] as const
-  return <nav className="sidebar-rail" aria-label="VIGO Studio">{destinations.map(({ id, label, shortcut, icon: Icon, open }) => <button
+  return <nav className="sidebar-rail" aria-label="VIGO Agency">{destinations.map(({ id, label, shortcut, icon: Icon, open }) => <button
     key={id} type="button" className="sidebar-rail-button" onClick={open}
     disabled={id !== 'data' && (page !== 'project' || !hasActiveData)}
     title={`${label} (${shortcut})`} aria-label={label} aria-keyshortcuts={shortcut}
     aria-current={page === 'project' && activeRouteTool === id ? 'page' : undefined}
-  ><span className="sidebar-rail-icon"><Icon size={19} aria-hidden="true" /></span><span className="sidebar-rail-label">{label}</span></button>)}</nav>
+  ><span className="sidebar-rail-icon"><Icon size={19} aria-hidden="true" /></span></button>)}</nav>
 }

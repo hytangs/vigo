@@ -9,7 +9,7 @@ export function NetworkSelection({ selection, loading, asking, onClear, onAsk }:
   onAsk: () => void
 }) {
   return <section className={`network-selection ${asking ? 'is-asking' : ''}`} aria-label="Selected network context">
-    <button className="agency-text-button" onClick={onClear}><ArrowLeft size={14} /> All routes</button>
+    <button className="agency-text-button" onClick={onClear}><ArrowLeft size={14} />{asking ? 'Clear selection' : 'All routes'}</button>
     <div><div className="network-selection-name">
       <strong>{loading ? 'Opening selection…' : selection?.stop?.name || selection?.route?.name || 'Selection unavailable'}</strong>
       {!asking ? <button className="agency-text-button" onClick={onAsk}><MessageSquare size={14} /> Ask</button> : null}

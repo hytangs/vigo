@@ -7,7 +7,7 @@ import path from 'node:path'
 
 const root = path.resolve(import.meta.dirname, '..')
 const directory = await fs.mkdtemp(path.join(root, 'temp', 'routing-refresh-runtime-'))
-const server = await createServer({ root, configFile: false, plugins: [react(), {
+const server = await createServer({ root, configFile: false, cacheDir: path.join(directory, 'vite-cache'), plugins: [react(), {
   name: 'routing-refresh-fixture',
   configureServer(vite) { vite.middlewares.use(async (req, res, next) => {
     if (req.url !== '/routing-refresh.html') return next()

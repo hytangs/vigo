@@ -314,7 +314,7 @@
   --pq-surface-raised: #ffffff;
   --pq-surface-hover: #f4f6f3;
   --pq-rail-width: 48px;
-  --workbench-sidebar: clamp(368px, 27vw, 404px);
+  --workbench-sidebar: 360px;
   --routing-detail-width: clamp(310px, 24vw, 360px);
   --workbench-surface: #ffffff;
   --workbench-rule: var(--border);
@@ -1089,6 +1089,15 @@
   padding: 0 9px;
 }
 
+.pathfinder-time-field.pathfinder-depart-now {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
 .pathfinder-time-field input,
 .pathfinder-date-field input {
   min-height: 32px;
@@ -1634,7 +1643,7 @@
 @media (max-width: 980px) {
   .app-shell,
   .app-shell.appearance-light {
-    --workbench-sidebar: clamp(328px, 40vw, 360px);
+    --workbench-sidebar: 340px;
   }
 
   .topbar,

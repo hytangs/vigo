@@ -24,6 +24,7 @@ import {
   type MapFirstRenderTracker,
 } from './app/mapFirstRenderTelemetry'
 import { inferredRouteJumpThresholdKm, routeStopPairCoordinates, routingLabelAnchor } from './app/mapPresentation'
+import { mapFitPadding, previewStopBounds } from './app/mapViewport'
 import { ensureVehicleDirectionSprite, vehicleHeadingLayer, vehicleMarkerLayer } from './app/mapDirections'
 import { coordinateDistanceKm } from './app/geometry'
 import { reportDesktopMapFailed, reportDesktopMapPhase, reportDesktopMapReady } from './app/desktopBridge'
@@ -1135,13 +1136,7 @@ function updateDynamicPointSource(
 
 function routeFitPadding(map: MapLibreMap) {
   const { clientWidth, clientHeight } = map.getContainer()
-  if (clientWidth >= 900 && clientHeight >= 640) {
-    return { top: 56, right: 58, bottom: 118, left: 58 }
-  }
-  if (clientWidth >= 640) {
-    return { top: 72, right: 72, bottom: 138, left: 72 }
-  }
-  return { top: 86, right: 54, bottom: 142, left: 54 }
+  return mapFitPadding(clientWidth, clientHeight)
 }
 
 function setVisibility(map: MapLibreMap, layerIds: string[], visible: boolean) {
@@ -2454,6 +2449,8 @@ export function VigoMap({
     () => reachComparison ?? [],
     [reachComparison],
   )
+  const focusedAnalysis = reachResult ?? comparisonEntries[0]?.result
+  const cityBounds = useMemo(() => previewStopBounds(preview), [preview.stops])
   const comparisonContoursGeoJson = useMemo(
     () => scenarioRenderMode === 'area'
       ? comparisonEntries.map((entry) => reachComparisonContourFeatures(entry.result, scenarioCutoffMinutes))
@@ -2589,8 +2586,17 @@ export function VigoMap({
       ],
     }
 
-    const initialBounds = mapContentBounds(routesGeoJson, stopsGeoJson)
+    const analysisBounds = scenarioFocus && focusedAnalysis
+      ? focusedAnalysis.surface.displayBounds ?? focusedAnalysis.surface.raster.bounds
+      : null
+    const initialRoutingBounds = routingEnabled || Boolean(routingPlan) || scenarioFocus
+      ? mapContentBounds(routingGeoJson, routingPinsGeoJson)
+      : null
+    const initialBounds: LngLatBoundsLike | null = analysisBounds
+      ? [[analysisBounds[0], analysisBounds[1]], [analysisBounds[2], analysisBounds[3]]]
+      : initialRoutingBounds ?? mapContentBounds(routesGeoJson, stopsGeoJson) ?? cityBounds
     if (initialBounds) lastFitSignatureRef.current = fitSignature
+    if (initialRoutingBounds) lastRoutingFitSignatureRef.current = routingFitSignature
     let map: MapLibreMap
     let mapReadyFallbackTimer: number | null = null
     let mapReadyFallbackAttempts = 0
@@ -2605,7 +2611,7 @@ export function VigoMap({
         zoom: initialBounds ? undefined : 1.7,
         bounds: initialBounds ?? undefined,
         fitBoundsOptions: initialBounds
-          ? { padding: 48, duration: 0, maxZoom: 13.2 }
+          ? { padding: mapFitPadding(containerRef.current.clientWidth, containerRef.current.clientHeight), duration: 0, maxZoom: initialRoutingBounds ? 14.6 : 13.2 }
           : undefined,
         attributionControl: false,
       })
@@ -2670,11 +2676,6 @@ export function VigoMap({
         applyNetworkLensPaint(map, networkLens)
         const tracker = mapTelemetryRef.current
         if (tracker && markMapLoaded(tracker, performance.now())) reportPhase('map-load')
-        if (basemapRef.current === 'none' || basemapRef.current === 'offline') {
-          if (tracker) markBasemapRequested(tracker, basemapRef.current, performance.now())
-          syncBasemap(map, basemapRef.current, appearanceRef.current)
-          reportBasemapReadiness()
-        }
       } catch (error) {
         reportMapFailure('render', error)
       }
@@ -2757,14 +2758,6 @@ export function VigoMap({
       if (tracker && tracker.key === mapTelemetryKey && markLocalSourceRendered(tracker, performance.now())) {
         reportPhase('local-source-render')
       }
-      const currentBasemap = basemapRef.current
-      if (tracker && currentBasemap !== 'none' && currentBasemap !== 'offline') {
-        markBasemapRequested(tracker, currentBasemap, performance.now())
-        syncBasemap(map, currentBasemap, appearanceRef.current)
-        if (map.getSource('osm') && map.isSourceLoaded('osm') && markBasemapReady(tracker, performance.now())) {
-          reportPhase('basemap-ready')
-        }
-      }
       reportDesktopMapReady({
         feedName,
         state,
@@ -2800,7 +2793,12 @@ export function VigoMap({
         setMapSourceData(source(map, 'vigo-routing'), showRoutingPlan ? routingGeoJson : emptyCollection)
         setMapSourceData(source(map, 'vigo-routing-pins'), showRoutingPlan ? routingPinsGeoJson : emptyCollection)
         const shouldFit = fitSignature !== lastFitSignatureRef.current
-        const bounds = shouldFit ? mapContentBounds(routesGeoJson, stopsGeoJson) : null
+        const hasFocusedCamera = (scenarioFocus && Boolean(focusedAnalysis))
+          || (showRoutingPlan && (routingGeoJson.features.length > 0 || routingPinsGeoJson.features.length > 0))
+        // Late city data supplies an initial context, but must not replace the
+        // camera already owned by route points, a Reach result, or the user.
+        if (shouldFit && hasFocusedCamera) lastFitSignatureRef.current = fitSignature
+        const bounds = shouldFit && !hasFocusedCamera ? mapContentBounds(routesGeoJson, stopsGeoJson) ?? cityBounds : null
         if (bounds) {
           const isFirstFit = lastFitSignatureRef.current === ''
           lastFitSignatureRef.current = fitSignature
@@ -2810,7 +2808,7 @@ export function VigoMap({
             maxZoom: 13.2,
           })
         }
-        if (showRoutingPlan && routingFitSignature !== lastRoutingFitSignatureRef.current) {
+        if (showRoutingPlan && !(scenarioFocus && focusedAnalysis) && routingFitSignature !== lastRoutingFitSignatureRef.current) {
           const routingBounds = mapContentBounds(routingGeoJson, routingPinsGeoJson)
           if (routingBounds) {
             lastRoutingFitSignatureRef.current = routingFitSignature
@@ -2840,7 +2838,7 @@ export function VigoMap({
       if (mapRemovedRef.current) return
       map.off('render', reportReadyIfRendered)
     }
-  }, [accessGeoJson, feedName, fitSignature, mapTelemetryKey, mapVisualState, routesGeoJson, routingEnabled, routingFitSignature, routingGeoJson, routingPinsGeoJson, routingPlan, scenarioFocus, segmentsGeoJson, stopsGeoJson])
+  }, [accessGeoJson, cityBounds, feedName, fitSignature, focusedAnalysis, mapTelemetryKey, mapVisualState, routesGeoJson, routingEnabled, routingFitSignature, routingGeoJson, routingPinsGeoJson, routingPlan, scenarioFocus, segmentsGeoJson, stopsGeoJson])
 
   useEffect(() => {
     const map = mapRef.current
@@ -2878,7 +2876,6 @@ export function VigoMap({
 
   // Editing overlays or refreshing unrelated state must not reset a user's
   // pan/zoom. Only a newly selected accessibility result changes the viewport.
-  const focusedAnalysis = reachResult ?? comparisonEntries[0]?.result
   useEffect(() => {
     const map = mapRef.current
     if (!map || !scenarioFocus || !focusedAnalysis) return
@@ -2916,29 +2913,28 @@ export function VigoMap({
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !mapReadyRef.current) return
-    basemapRef.current = basemap
-    appearanceRef.current = appearance
-    const tracker = mapTelemetryRef.current
-    const remoteBasemapDeferred = basemap !== 'none'
-      && basemap !== 'offline'
-      && hasDrawableNetwork
-      && tracker?.localSourceRenderedAt === undefined
-    if (remoteBasemapDeferred) return
-    if (tracker) markBasemapRequested(tracker, basemap, performance.now())
-    syncBasemap(map, basemap, appearance)
-    if (!tracker) return
-    const ready = basemap === 'none'
-      || (basemap === 'offline' && !localStreetGraphAvailable)
-      || (basemap === 'offline' && Boolean(map.getSource('vigo-local-streets') && map.isSourceLoaded('vigo-local-streets')))
-      || (basemap !== 'offline' && Boolean(map.getSource('osm') && map.isSourceLoaded('osm')))
-    if (ready && markBasemapReady(tracker, performance.now())) {
-      reportDesktopMapPhase({
-        phase: 'basemap-ready',
-        ...desktopMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
-      })
+    if (!map) return
+    const update = () => {
+      const tracker = mapTelemetryRef.current
+      if (tracker) markBasemapRequested(tracker, basemap, performance.now())
+      syncBasemap(map, basemap, appearance)
+      if (!tracker) return
+      const ready = basemap === 'none'
+        || (basemap === 'offline' && !localStreetGraphAvailable)
+        || (basemap === 'offline' && Boolean(map.getSource('vigo-local-streets') && map.isSourceLoaded('vigo-local-streets')))
+        || (basemap !== 'offline' && Boolean(map.getSource('osm') && map.isSourceLoaded('osm')))
+      if (ready && markBasemapReady(tracker, performance.now())) {
+        reportDesktopMapPhase({
+          phase: 'basemap-ready',
+          ...desktopMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
+        })
+      }
     }
-  }, [appearance, basemap, hasDrawableNetwork, routesGeoJson.features.length, stopsGeoJson.features.length])
+    // Start tiles once the style is ready, after local source updates have been
+    // queued. Route and Analyze intentionally hide GTFS layers, so waiting for
+    // a rendered route or stop can prevent the basemap from ever starting.
+    return scheduleMapFrameUpdate(map, mapReadyRef.current, update, () => mapRemovedRef.current)
+  }, [appearance, basemap, localStreetGraphAvailable, routesGeoJson.features.length, stopsGeoJson.features.length])
 
   useEffect(() => {
     const map = mapRef.current

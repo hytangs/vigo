@@ -45,6 +45,7 @@ import { scenarioStorageKey } from './app/scenarioDraftStorage'
 import { createScenarioRoadGeometryRequest } from './app/scenarioRoadGeometryRequest'
 import { useScenarioDrafts } from './app/useScenarioDrafts'
 import { useNationalRouting } from './app/useNationalRouting'
+import { readRoutingDataModePreference, saveRoutingDataModePreference } from './app/routingDataMode'
 import { useStreetPreparation } from './app/useStreetPreparation'
 import { mergeGtfsRouteAnalysis, routeHasCompleteGtfsAnalysis, type GtfsRouteAnalysis } from './app/gtfsAnalysis'
 import { buildCityPreviewLod } from './app/cityPreview'
@@ -133,6 +134,7 @@ import { buildServiceVehicleFrame, serviceKeyForRoute, serviceVehicleCount, type
 import { AgencyRouteLine } from './components/AgencyRouteLine'
 import {
   type RoutingPlan,
+  type RoutingDataMode,
   type RoutingPoint,
   type RoutingTimePreference,
   type RoutingTravelMode,
@@ -330,6 +332,7 @@ function VigoSidebar({
   routingStoreConnectionCount,
   routingTimePreference,
   routingMode,
+  routingDataMode,
   routingDepartureWindowMinutes,
   routingMaxWalkKm,
   routingMaxTransfers,
@@ -365,6 +368,7 @@ function VigoSidebar({
   onReorderRoutingPoints,
   onRoutingTimePreferenceChange,
   onRoutingModeChange,
+  onRoutingDataModeChange,
   onRoutingDepartureWindowChange,
   onRoutingMaxWalkKmChange,
   onRoutingMaxTransfersChange,
@@ -419,6 +423,7 @@ function VigoSidebar({
   | 'routingStoreReady'
   | 'routingTimePreference'
   | 'routingMode'
+  | 'routingDataMode'
   | 'routingDepartureWindowMinutes'
   | 'routingMaxWalkKm'
   | 'routingMaxTransfers'
@@ -440,6 +445,7 @@ function VigoSidebar({
   | 'onScheduleTimeChange'
   | 'onRoutingTimePreferenceChange'
   | 'onRoutingModeChange'
+  | 'onRoutingDataModeChange'
   | 'onRoutingDepartureWindowChange'
   | 'onRoutingMaxWalkKmChange'
   | 'onRoutingMaxTransfersChange'
@@ -466,7 +472,7 @@ function VigoSidebar({
     : isPathfinderPanel
       ? ''
     : isAnalyzePanel
-      ? 'Reach and compare'
+      ? ''
     : hasActiveData
       ? activeFeedId === bundleFeedId
         ? quietMapLabel(selectedProject.name)
@@ -644,6 +650,7 @@ function VigoSidebar({
                 routingStoreReady={routingStoreReady}
                 routingTimePreference={routingTimePreference}
                 routingMode={routingMode}
+                routingDataMode={routingDataMode}
                 routingDepartureWindowMinutes={routingDepartureWindowMinutes}
                 routingMaxWalkKm={routingMaxWalkKm}
                 routingMaxTransfers={routingMaxTransfers}
@@ -665,6 +672,7 @@ function VigoSidebar({
                 onScheduleTimeChange={onScheduleTimeChange}
                 onRoutingTimePreferenceChange={onRoutingTimePreferenceChange}
                 onRoutingModeChange={onRoutingModeChange}
+                onRoutingDataModeChange={onRoutingDataModeChange}
                 onRoutingDepartureWindowChange={onRoutingDepartureWindowChange}
                 onRoutingMaxWalkKmChange={onRoutingMaxWalkKmChange}
                 onRoutingMaxTransfersChange={onRoutingMaxTransfersChange}
@@ -2068,6 +2076,8 @@ export default function App() {
   const [routingResidencyCoverage, setRoutingResidencyCoverage] = useState<RoutingServiceCoverage | null>(null)
   const [routingTimePreference, setRoutingTimePreference] = useState<RoutingTimePreference>('depart')
   const [routingMode, setRoutingMode] = useState<RoutingTravelMode>('transit')
+  const [routingDataMode, setRoutingDataMode] = useState<RoutingDataMode>(readRoutingDataModePreference)
+  useEffect(() => { saveRoutingDataModePreference(routingDataMode) }, [routingDataMode])
   const [routingDepartureWindowMinutes, setRoutingDepartureWindowMinutes] = useState<RoutingDepartureWindowMinutes>(20)
   const [routingMaxWalkKm, setRoutingMaxWalkKm] = useState(1.2)
   const [routingMaxTransfers, setRoutingMaxTransfers] = useState<number | undefined>()
@@ -2314,6 +2324,7 @@ export default function App() {
     waypoints: routingWaypoints,
     destination: routingDestination,
     mode: routingMode,
+    routingDataMode,
     departMinutes: scheduleTimeMinutes,
     timePreference: routingTimePreference,
     serviceDay: routingServiceDay,
@@ -3086,6 +3097,13 @@ export default function App() {
   function changeRoutingMode(mode: RoutingTravelMode) {
     setRoutingMode(mode)
     if (mode !== 'transit') setRoutingTimePreference('depart')
+    setSelectedRoutingPlanId('')
+    nationalRouting.reset()
+  }
+
+  function changeRoutingDataMode(mode: RoutingDataMode) {
+    if (mode === routingDataMode) return
+    setRoutingDataMode(mode)
     setSelectedRoutingPlanId('')
     nationalRouting.reset()
   }
@@ -4820,7 +4838,8 @@ export default function App() {
             }}
             onCutoffChange={(value) => {
               setScenarioCutoffMinutes(value)
-              if (value > (reachResult?.request.cutoffsMinutes.at(-1) ?? 0)) {
+              const results = reachComparison?.map(entry => entry.result) ?? (reachResult ? [reachResult] : [])
+              if (!results.length || results.some(result => !result.request.cutoffsMinutes.includes(value))) {
                 invalidateAnalyzeResult()
               }
             }}
@@ -4867,6 +4886,11 @@ export default function App() {
               updateScenarioChange(interventionId, { stops: [] })
             }}
             onViewChange={setScenarioView}
+            onSetOrigin={(point) => {
+              invalidateAnalyzeResult()
+              setScenarioStopPlacement(null)
+              setAnalysisOrigin(point)
+            }}
             onClearOrigin={() => {
               invalidateAnalyzeResult()
               setScenarioStopPlacement(null)
@@ -4901,6 +4925,7 @@ export default function App() {
         routingStoreConnectionCount={routingStoreConnectionCount}
         routingTimePreference={routingTimePreference}
         routingMode={routingMode}
+        routingDataMode={routingDataMode}
         routingDepartureWindowMinutes={routingDepartureWindowMinutes}
         routingMaxWalkKm={routingMaxWalkKm}
         routingMaxTransfers={routingMaxTransfers}
@@ -4944,6 +4969,7 @@ export default function App() {
         onReorderRoutingPoints={reorderRoutingPoints}
         onRoutingTimePreferenceChange={changeRoutingTimePreference}
         onRoutingModeChange={changeRoutingMode}
+        onRoutingDataModeChange={changeRoutingDataMode}
         onRoutingDepartureWindowChange={changeRoutingDepartureWindow}
         onRoutingMaxWalkKmChange={changeRoutingMaxWalkKm}
         onRoutingMaxTransfersChange={setRoutingMaxTransfers}

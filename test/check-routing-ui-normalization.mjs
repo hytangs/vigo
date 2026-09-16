@@ -12,6 +12,8 @@ import {
   routingLegDetail,
   routingLegPrimaryLabel,
   routingPlanRouteSequence,
+  routingRealtimeDetail,
+  routingDataModeLabel,
 } from '../src/app/presentation.ts'
 
 const point = (label) => ({ label, coordinate: [0, 0], source: 'stop' })
@@ -62,6 +64,42 @@ const exactStopPlan = plan('exact-stop-plan', [
   walk({ fromName: 'Destination terminal', toName: 'Destination terminal', fromStopId: 'stop-f', toStopId: 'stop-f', startMinutes: 526, endMinutes: 526, distanceKm: 0, walkSource: 'direct' }),
 ])
 const normalizedExactStopPlan = normalizeReceivedRoutingPlan(exactStopPlan)
+const withRealtime = (realtimeRouting, legs = exactStopPlan.legs) => ({ ...exactStopPlan, legs,
+  diagnostics: { ...exactStopPlan.diagnostics, realtimeRouting } })
+assert.equal(routingRealtimeDetail(exactStopPlan), 'Scheduled times; no realtime updates applied')
+assert.equal(routingRealtimeDetail(withRealtime({ status: 'cancellations_only', appliedTrips: 0, canceledTrips: 1,
+  coverage: { inputUpdates: 1, appliedUpdates: 1, rejectedUpdates: 0, prunedUpdates: 0, complete: true } })),
+  'Live cancellations applied; journey times scheduled · 1 of 1 supplied updates used',
+  'A journey selected after a cancellation still reflects live routing even when its own times are scheduled')
+assert.equal(routingRealtimeDetail(withRealtime({ status: 'partial', appliedTrips: 1, canceledTrips: 0,
+  coverage: { inputUpdates: 3, appliedUpdates: 1, rejectedUpdates: 2, prunedUpdates: 0, complete: false } })),
+  'Realtime updates applied; journey times scheduled · 1 of 3 supplied updates used; 2 excluded')
+const liveLegs = exactStopPlan.legs.map(leg => leg.tripId === 'Line A-trip' ? { ...leg, scheduleMode: 'realtime-adjusted' } : leg)
+assert.match(routingRealtimeDetail(withRealtime({ status: 'partial', appliedTrips: 1 }, liveLegs)), /^Live predictions and scheduled times/,
+  'One predicted leg must never relabel the rest of the itinerary as predicted')
+assert.match(routingRealtimeDetail(withRealtime({ status: 'applied', appliedTrips: 3 }, liveLegs.map(leg => leg.type === 'ride' ? { ...leg, scheduleMode: 'realtime-adjusted' } : leg))), /^Live predictions$/)
+assert.equal(routingRealtimeDetail(withRealtime({ status: 'stale_fallback', appliedTrips: 0, canceledTrips: 0,
+  coverage: { inputUpdates: 2, appliedUpdates: 0, rejectedUpdates: 2, prunedUpdates: 0, complete: false } })),
+  'Scheduled times; realtime snapshot stale or invalid · 0 of 2 supplied updates used; 2 excluded')
+assert.equal(routingRealtimeDetail(withRealtime({ status: 'partial', appliedTrips: 0, canceledTrips: 0 })),
+  'Scheduled times; no realtime updates applied', 'A status name without applied updates cannot imply live routing')
+const provenance = {
+  schemaVersion: 'vigo.routing.data-provenance.v1', mode: 'scheduled',
+  staticTimetableIdentity: 'fixture-static-fingerprint', streetIdentity: 'fixture-street-fingerprint',
+  serviceDate: '2025-12-08', timeZone: 'America/New_York', realtimeApplied: false,
+}
+const researchPlan = { ...exactStopPlan, diagnostics: {
+  ...exactStopPlan.diagnostics, routingDataMode: 'scheduled', routingDataProvenance: provenance,
+} }
+assert.equal(routingDataModeLabel(researchPlan), 'Scheduled · Research')
+assert.equal(routingRealtimeDetail(researchPlan), 'Scheduled · Research · Published timetable',
+  'Choosing research is deliberate and must not be described as missing realtime')
+assert.deepEqual(normalizeReceivedRoutingPlan(researchPlan).diagnostics.routingDataProvenance, provenance,
+  'Journey presentation must preserve the research result provenance')
+assert.equal(routingDataModeLabel({ ...researchPlan, diagnostics: { routingDataProvenance: provenance } }), 'Scheduled · Research')
+assert.equal(routingRealtimeDetail({ ...exactStopPlan, diagnostics: {
+  ...exactStopPlan.diagnostics, routingDataMode: 'realtime',
+} }), 'Realtime · Scheduled times; no realtime updates applied', 'Realtime mode without applied predictions must clearly retain scheduled timing')
 assert.equal(normalizedExactStopPlan.legs.length, 5, 'Exact-stop zero-length access and egress cards must be removed.')
 assert.equal(normalizedExactStopPlan.legs[0].type, 'ride')
 assert.equal(normalizedExactStopPlan.legs.at(-1).type, 'ride')

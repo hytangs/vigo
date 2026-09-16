@@ -29,11 +29,14 @@ window.checkNavigation=async()=>{
  const buttons=[...nav.querySelectorAll('button')],names=buttons.map(b=>b.getAttribute('aria-label'));
  if(names.join(',')!=='Network,Route,Analyze,City') throw Error('Unexpected destinations');
  for(const button of buttons){
+  const name=button.getAttribute('aria-label');
+  if(button.textContent.trim()||!button.querySelector('svg')) throw Error('Primary navigation must stay icon-only');
+  if(button.title!==name+' ('+button.getAttribute('aria-keyshortcuts')+')') throw Error('Icon navigation must retain its destination tooltip and shortcut');
   button.click(); await new Promise(resolve=>requestAnimationFrame(resolve));
   if(button.getAttribute('aria-current')!=='page'||nav.querySelectorAll('[aria-current=page]').length!==1) throw Error('Active destination is not exposed');
   if(innerWidth<=760){
    const r=nav.getBoundingClientRect(),boxes=buttons.map(b=>b.getBoundingClientRect()),centers=boxes.map(b=>b.x+b.width/2),gaps=centers.slice(1).map((c,i)=>c-centers[i]);
-   if(Math.abs(r.bottom-innerHeight)>1) throw Error('Bottom navigation moved in '+button.textContent);
+   if(Math.abs(r.bottom-innerHeight)>1) throw Error('Bottom navigation moved in '+name);
    if(Math.max(...gaps)-Math.min(...gaps)>1) throw Error('Empty navigation slot');
    for(let i=0;i<boxes.length;i++){
     const b=boxes[i];
@@ -41,15 +44,15 @@ window.checkNavigation=async()=>{
     if(!buttons[i].contains(document.elementFromPoint(b.x+b.width/2,b.y+b.height/2))) throw Error('Navigation obscured');
    }
    const frame=document.querySelector('.app-frame').getBoundingClientRect();
-   if(frame.bottom>r.top+1) throw Error('Navigation overlaps workspace '+JSON.stringify({width:innerWidth,height:innerHeight,view:button.textContent,frame:frame.toJSON(),nav:r.toJSON()}));
-  }else if(nav.getBoundingClientRect().width>60) throw Error('Desktop rail expanded');
+   if(frame.bottom>r.top+1) throw Error('Navigation overlaps workspace '+JSON.stringify({width:innerWidth,height:innerHeight,view:name,frame:frame.toJSON(),nav:r.toJSON()}));
+  }else if(nav.getBoundingClientRect().width>48) throw Error('Desktop rail expanded');
  }
  const scroll=document.documentElement.scrollWidth;
  if(scroll>innerWidth+1) throw Error('Horizontal overflow');
  buttons[0].click();
- return {width:innerWidth,height:innerHeight,equalSpacing:true,allViews:true,visible:true};
+ return {width:innerWidth,height:innerHeight,equalSpacing:true,allViews:true,visible:true,iconOnly:true};
 };`
-const server = await createServer({ root, configFile: false, plugins: [react(), {
+const server = await createServer({ root, cacheDir: path.join(directory, 'vite-cache'), configFile: false, plugins: [react(), {
   name: 'navigation-fixture',
   resolveId(id) { if (id === '/navigation-fixture.js') return id },
   load(id) { if (id === '/navigation-fixture.js') return fixture },
