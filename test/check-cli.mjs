@@ -15,7 +15,6 @@ const run = (args) => execFileSync(executable, [...prefix, ...args], { encoding:
 const invoke = (args) => spawnSync(executable, [...prefix, ...args], { encoding: 'utf8' })
 
 assert(fs.existsSync(cliPath), 'Built CLI is missing.')
-assert(!fs.existsSync(path.join(root, 'public', 'vigo-runtime.mjs')), 'VIGO must ship as one CLI file.')
 
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-cli-'))
 try {

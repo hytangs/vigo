@@ -8,12 +8,11 @@ const execFileAsync = promisify(execFile)
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const outputRoot = join(repoRoot, 'public')
 const outputFile = join(outputRoot, 'vigo.mjs')
-const retiredSplitRuntime = join(outputRoot, 'vigo-runtime.mjs')
 const rolldownCli = join(repoRoot, 'node_modules', 'rolldown', 'bin', 'cli.mjs')
 
 await readFile(rolldownCli)
 await mkdir(outputRoot, { recursive: true })
-await Promise.all([rm(outputFile, { force: true }), rm(retiredSplitRuntime, { force: true })])
+await rm(outputFile, { force: true })
 await execFileAsync(process.execPath, [
   rolldownCli,
   join(repoRoot, 'src', 'cli', 'vigo.ts'),

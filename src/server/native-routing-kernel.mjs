@@ -1582,15 +1582,6 @@ export function routeNativeCoordinateFrontiers(storePath, request) {
   }
 }
 
-export function clearNativeCoordinateEndpointCaches(storePath) {
-  const record = kernelRecord(storePath)
-  record.kernel.clearEndpointCaches()
-  return {
-    cleared: true,
-    profileKey: record.profileKey || null,
-  }
-}
-
 export function buildNativeStopTransferGraph(storePath, request = {}) {
   const record = kernelRecord(storePath)
   if (!record.profileMembers || !record.profileKey) {
