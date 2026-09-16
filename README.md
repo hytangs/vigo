@@ -87,7 +87,7 @@ npm run check:packaged
 node scripts/render-agency-example.mjs
 ```
 
-The desktop package is named **VIGO Agency** and uses its own application identity. It communicates with its engine in memory. The upstream VIGO checkout and native routing implementation were left unchanged. The [inherited foundation documentation](docs/foundation.md) records the pre-existing platform and its interfaces.
+The desktop package is named **VIGO Agency** and uses its own application identity. Desktop entrypoints (`main.mjs`, `preload.cjs`), icons (`icons/`), web assets, and the built CLI share the `public/` distribution folder. It communicates with its engine in memory. The upstream VIGO checkout and native routing implementation were left unchanged. The [inherited foundation documentation](docs/foundation.md) records the pre-existing platform and its interfaces.
 
 ## Data and resources
 

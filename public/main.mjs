@@ -32,7 +32,7 @@ const nativeKernelPath = app.isPackaged
   ? path.join(serverRoot, 'vigo-routing-kernel.node')
   : path.join(applicationRoot, 'native', 'vigo-routing-kernel', 'vigo-routing-kernel.node')
 const preloadPath = path.join(moduleDirectory, 'preload.cjs')
-const studioIconPath = path.join(applicationRoot, 'desktop', 'assets', 'VIGOIcon.png')
+const studioIconPath = path.join(publicRoot, 'icons', 'VIGOIcon.png')
 
 let mainWindow = null
 let engine = null

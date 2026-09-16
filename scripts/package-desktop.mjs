@@ -26,17 +26,13 @@ await assertFile(
   path.join(repositoryRoot, 'native', 'vigo-routing-kernel', 'vigo-routing-kernel.node'),
   'Missing VIGO routing kernel. Run npm run build first.',
 )
-await assertFile(path.join(repositoryRoot, 'desktop', 'main.mjs'), 'Missing Electron main process.')
-await assertFile(path.join(repositoryRoot, 'desktop', 'preload.cjs'), 'Missing Electron preload.')
+await assertFile(path.join(repositoryRoot, 'public', 'main.mjs'), 'Missing Electron main process.')
+await assertFile(path.join(repositoryRoot, 'public', 'preload.cjs'), 'Missing Electron preload.')
 
 await rm(stagingRoot, { force: true, recursive: true })
 await mkdir(applicationRoot, { recursive: true })
 await Promise.all([
   cp(path.join(repositoryRoot, 'public'), path.join(applicationRoot, 'public'), {
-    mode: constants.COPYFILE_FICLONE,
-    recursive: true,
-  }),
-  cp(path.join(repositoryRoot, 'desktop'), path.join(applicationRoot, 'desktop'), {
     mode: constants.COPYFILE_FICLONE,
     recursive: true,
   }),
@@ -51,7 +47,7 @@ await writeFile(path.join(applicationRoot, 'package.json'), `${JSON.stringify({
   version: packageJson.version,
   private: true,
   type: 'module',
-  main: 'desktop/main.mjs',
+  main: packageJson.main,
 }, null, 2)}\n`)
 
 await bundleEngine()
@@ -66,7 +62,7 @@ const applicationPaths = await packager({
   prune: false,
   asar: false,
   electronVersion,
-  icon: path.join(repositoryRoot, 'desktop', 'assets', process.platform === 'darwin' ? 'VIGO.icns' : process.platform === 'win32' ? 'VIGO.ico' : 'VIGOIcon.png'),
+  icon: path.join(repositoryRoot, 'public', 'icons', process.platform === 'darwin' ? 'VIGO.icns' : process.platform === 'win32' ? 'VIGO.ico' : 'VIGOIcon.png'),
   appBundleId: 'app.vigo.agency',
   appCategoryType: 'public.app-category.productivity',
   appVersion: packageJson.version,

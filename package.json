@@ -17,7 +17,7 @@
   },
   "packageManager": "npm@11.6.2",
   "type": "module",
-  "main": "desktop/main.mjs",
+  "main": "public/main.mjs",
   "bin": {
     "vigo": "public/vigo.mjs"
   },
