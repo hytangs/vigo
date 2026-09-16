@@ -1,3 +1,4 @@
+import { journeyTimeFacts } from './journeyTimeContract.mjs'
 export const journeyModeNames = { transit: 'Transit', drive: 'Drive' }
 
 export function isJourneyReady(plan, mode) {
@@ -47,8 +48,11 @@ export function describeJourneys(data) {
   const journeys = data.journeys ?? [{ mode: data.plan?.travelMode || 'transit', status: data.plan?.legs?.length ? 'ready' : 'unavailable', plan: data.plan, reason: data.plan?.detail }]
   const ready = item => item.status === 'ready' && isJourneyReady(item.plan, item.mode)
   const lines = [journeys.map(item => `**${journeyModeNames[item.mode] || item.mode}: ${ready(item) ? journeyDuration(item.plan.durationMinutes) : 'unavailable'}**`).join(' · ')]
+  if (data.request?.departTime || data.request?.arriveBy) lines.push(`Requested ${data.request.arriveBy ? `arrival by ${data.request.arriveBy}` : `departure at ${data.request.departTime}`} · ${[data.request.serviceDate, data.request.timezone].filter(Boolean).join(' · ')}`)
   const transit = journeys.find(item => item.mode === 'transit' && ready(item))
   if (transit) {
+    const warning = journeyTimeFacts(transit.plan, data.request || {}).warning
+    if (warning) lines.push(warning)
     const { longestWait } = journeyBreakdown(transit.plan)
     lines.push(`Transit time includes walking, waiting, and riding.${longestWait ? ` The longest wait is about ${journeyDuration(longestWait.minutes)}${longestWait.route ? ` before ${longestWait.route}` : ''}${longestWait.stop ? ` at ${longestWait.stop}` : ''}.` : ''}`)
   }

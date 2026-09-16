@@ -1,3 +1,4 @@
+import { journeyTimeIssue, journeyTimeFacts } from './journeyTimeContract.mjs'
 import { alertInScope, alertStopIds } from './alertApplicability.mjs'
 import { networkNarrative } from './networkNarrative.mjs'
 import { diagnoseNetwork, compactDiagnosis } from './networkDiagnosis.mjs'
@@ -288,11 +289,13 @@ export function createToolRegistry({ context, state, snapshot, adapters, noteboo
           const result = await adapters.route({ ...routeArgs, departMinutes, origin, destination, ...(waypoints.length ? { waypoints } : {}), ...(arriveBy ? { timePreference: 'arrive', arriveMinutes: departMinutes } : {}),
             mode, ...(mode === 'transit' ? { maxTransfers, ...(args.routingDataMode === 'realtime' ? { realtimeSnapshot } : {}) } : {}), allowServiceDateFallback: false }, signal)
           const plan = result.plan ?? result
+          const timeIssue = journeyTimeIssue(plan, { departTime, arriveBy })
+          if (timeIssue) throw new Error(timeIssue)
           const plans = result.plans ?? result.choices ?? [plan]
           const diagnostics = mode === 'transit' ? plans.map(item => item?.diagnostics?.realtimeRouting).filter(Boolean) : []
           const realtime = mode === 'transit' ? journeyRealtimeResult(diagnostics, inputCoverage, args.routingDataMode) : { routingDataMode: args.routingDataMode, suppliedTripUpdates: 0, applied: false, diagnostics: [] }
           const ready = isJourneyReady(plan, mode)
-          return { mode, status: ready ? 'ready' : 'unavailable', ...(ready ? { plan } : { ...(plan.status === 'blocked' ? { plan } : {}), reason: plan.travelMode && plan.travelMode !== mode ? 'The routing result did not match the requested mode.' : plan.detail || 'No journey was found for these locations and time.' }), realtime }
+          return { mode, status: ready ? 'ready' : 'unavailable', ...(ready ? { plan, timing: journeyTimeFacts(plan, { departTime, arriveBy }) } : { ...(plan.status === 'blocked' ? { plan } : {}), reason: plan.travelMode && plan.travelMode !== mode ? 'The routing result did not match the requested mode.' : plan.detail || 'No journey was found for these locations and time.' }), realtime }
         } catch (error) {
           signal?.throwIfAborted()
           return { mode, status: 'unavailable', reason: error.message || 'This mode could not be calculated.', ...(mode === 'transit' ? { realtime: journeyRealtimeResult([], inputCoverage, args.routingDataMode) } : {}) }

@@ -1,3 +1,4 @@
+import { journeyTimeIssue, journeyTimeFacts } from '../agency/journeyTimeContract.mjs'
 import { useState } from 'react'
 import { ArrowRight, Car, Footprints } from 'lucide-react'
 import { RoutingFare } from './RoutingFare'
@@ -54,7 +55,7 @@ export function AgencyJourneys({ result, onResult }: { result: ToolResult; onRes
   const [selectedMode, setSelectedMode] = useState(journeys?.find(item => item.status === 'ready')?.mode || journeys?.[0]?.mode)
   const selected = journeys?.find(item => item.mode === selectedMode) || journeys?.[0]
   const candidate = selected?.status === 'ready' ? selected.plan : journeys ? undefined : data.plan
-  const issue = journeyContinuityIssue(candidate)
+  const issue = journeyContinuityIssue(candidate) || journeyTimeIssue(candidate, data.request)
   const plan = issue ? undefined : candidate
   const show = (journey: Journey) => {
     setSelectedMode(journey.mode)
@@ -64,7 +65,9 @@ export function AgencyJourneys({ result, onResult }: { result: ToolResult; onRes
     {journeys && journeys.length > 1 ? <div className="agency-journey-options" role="group" aria-label="Travel modes">{journeys.map(item => <button type="button" className="agency-button" key={item.mode} aria-pressed={selected?.mode === item.mode} onClick={() => show(item)}><strong>{journeyModeNames[item.mode]}</strong><span>{item.status === 'ready' && item.plan && !journeyContinuityIssue(item.plan) ? journeyDuration(item.plan.durationMinutes) : 'Unavailable'}</span></button>)}</div> : null}
     {issue ? <p className="agency-error" role="alert">{issue}</p> : null}
     {plan ? <>
+      {data.request?.departTime || data.request?.arriveBy ? <p className="agency-caption">Requested {data.request.arriveBy ? `arrival by ${data.request.arriveBy}` : `departure at ${data.request.departTime}`} · {data.request.serviceDate} · {data.request.timezone}</p> : null}
       <AgencyJourney plan={plan} endpoints={data.resolved} />
+      {journeyTimeFacts(plan, data.request || {}).warning ? <p className="agency-error" role="status">{journeyTimeFacts(plan, data.request || {}).warning}</p> : null}
       {plan.travelMode !== 'walk' ? <p className="agency-caption">{data.request?.serviceDate ? `${data.request.serviceDate} · ` : ''}{plan.travelMode === 'drive' ? 'Road estimate · live traffic, parking and access walks excluded' : routingRealtimeDetail(plan)}</p> : null}
       <RoutingFare plan={plan} />
     </> : !issue ? <p className="agency-caption">{selected?.reason || 'No journey was established.'}</p> : null}

@@ -18,6 +18,7 @@ import { normalizeArguments } from './toolArguments.mjs'
 import { inspectUnverifiedReply } from './replyInspection.mjs'
 import { placeEvidenceText } from './placeResults.mjs'
 import { chooseSourceAddress, publicPlaceSources } from './placeRecovery.mjs'
+import { assertRequestedClock } from './journeyTimeContract.mjs'
 import { assessmentChoices, renderAssessment, serviceChecks } from './serviceAssessment.mjs'
 
 const workspaceTool = { name: 'workspace_selection', description: 'Read the verified route/station currently selected in the workspace, including names, IDs and coordinates. Use when the question asks which station/route is selected, or needs its coordinates. Operational checks can use assess_service selected_route/selected_stop directly without this lookup. No trip or vehicle is selected.',
@@ -63,7 +64,7 @@ export function compactResult(result, tool) {
     limits: 'These are configuration limits, not evidence that everything is local or secure. Do not claim local inference or no external model API.',
   })
   if (tool === 'route_plan' && data.journeys) return envelope({ resolved: data.resolved, request: data.request, completion: data.completion,
-    journeys: data.journeys.map(item => ({ ...journeyPlanEvidence(item.plan), mode: item.mode, status: item.status, reason: item.reason,
+    journeys: data.journeys.map(item => ({ ...journeyPlanEvidence(item.plan), mode: item.mode, status: item.status, reason: item.reason, timing: item.timing,
       realtime: journeyRealtimeEvidence(item.realtime) })) })
   if (tool === 'recall_notebook') return envelope({ entries: data.entries.map((entry) => ({ id: entry.id, title: entry.title, observedAt: entry.observedAt, shortened: entry.shortened || entry.excerpt.length > 800, excerpt: entry.excerpt.slice(0, 800) })) })
   if (tool === 'resolve_entities') return envelope({ total: data.total, method: data.method, ambiguous: data.ambiguous,
@@ -375,6 +376,7 @@ export async function queryAgency({ question, context, state, callTool, provider
     const execute = async (call, index) => {
       if (signal?.aborted) return null
       let args = {}, result
+      const modelArguments = call.function.arguments
       const phase = `tool-${offset + index}`
       if (call.function.name === 'prepare_tools') {
         try { result = discovery.prepare(JSON.parse(call.function.arguments)) }
@@ -437,6 +439,7 @@ export async function queryAgency({ question, context, state, callTool, provider
           args = journeyChoices.continue(args)
           call.function.arguments = JSON.stringify(args)
         } else if (call.function.name === 'route_plan') args = journeyChoices.arguments(args)
+        if (call.function.name === 'route_plan') assertRequestedClock(question, args)
         if (reusableLookups.has(call.function.name)) {
           const source = trace.findIndex(item => item.tool === call.function.name && item.result.ok && isDeepStrictEqual(lookupArguments(item.arguments), lookupArguments(args)))
           if (source >= 0) {
@@ -472,7 +475,7 @@ export async function queryAgency({ question, context, state, callTool, provider
         result = failedToolResult(error, state.generatedAt)
       }
       onProgress({ phase, progress: 1, detail: result.ok ? describeToolResult(call.function.name, result) : result.warnings[0] || 'This check could not be completed.' })
-      return { call, args, result }
+      return { call, args, result, modelArguments }
     }
     // Independent reads can overlap. Preserve order for communication drafting
     // and place lookups that may populate the routing location cache.
@@ -482,7 +485,7 @@ export async function queryAgency({ question, context, state, callTool, provider
     } else completed.push(...await Promise.all(calls.map(execute)))
     timing.toolMs += performance.now() - toolStartedAt
     for (const item of completed.filter(Boolean)) {
-      const { call, args, result, prepared, reusedSource, stopClarification } = item
+      const { call, args, result, prepared, reusedSource, stopClarification, modelArguments } = item
       if (stopClarification) {
         answer = `${stopClarification} [${trace.length}]`; renderedFromEvidence = true; pendingStopChoice = null
         continue
@@ -497,7 +500,7 @@ export async function queryAgency({ question, context, state, callTool, provider
         messages.push({ role: 'tool', tool_call_id: call.id, content: `Tool availability (not evidence)\n${JSON.stringify(prepared)}` })
         continue
       }
-      trace.push({ tool: call.function.name, arguments: args, result })
+      trace.push({ tool: call.function.name, arguments: args, ...(call.function.name === 'route_plan' ? { modelArguments } : {}), result })
       if (replacingAssessment && call.function.name === 'assess_service') pendingAssessment = null
       if (call.function.name === 'assess_service') {
         assessmentMode = true

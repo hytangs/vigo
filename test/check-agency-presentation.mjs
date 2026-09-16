@@ -81,9 +81,16 @@ try {
       { type: 'ride', routeShortName: '450', routeColor: 'FFC72C', fromName: 'Station A', toName: 'Station B', fromStopId: 'A', toStopId: 'B', startMinutes: 490, endMinutes: 510, durationMinutes: 20 },
     ],
   }
-  const renderJourney = plan => renderToStaticMarkup(createElement(AgencyToolOutput, {
-    result: { ok: true, data: { plan }, warnings: [], provenance: [] }, onResult: () => {},
+  const renderJourney = (plan, request) => renderToStaticMarkup(createElement(AgencyToolOutput, {
+    result: { ok: true, data: { plan, request }, warnings: [], provenance: [] }, onResult: () => {},
   }))
+  const requestedJourney = renderJourney(journey, { departTime: '08:00', serviceDate: '2026-09-16', timezone: 'America/New_York' })
+  assert.match(requestedJourney, /Requested departure at 08:00/)
+  assert.match(requestedJourney, /America\/New_York/)
+  const wrongTime = renderJourney(journey, { departTime: '10:00' })
+  assert.match(wrongTime, /before the requested departure/)
+  assert.doesNotMatch(wrongTime, /Step-by-step directions|Show on map/)
+  assert.match(renderJourney({ ...journey, legs: journey.legs.map(leg => leg.type === 'ride' ? { ...leg, startMinutes: 600, endMinutes: 620 } : leg) }), /Unusually long initial wait/)
   const validJourney = renderJourney(journey)
   assert.match(validJourney, /Direct transit/)
   assert.match(validJourney, /5 min walking · 5 min waiting · 20 min riding/)
