@@ -177,7 +177,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
       if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.action !== 'string') throw Object.assign(new Error('Choose an Agency action.'), { statusCode: 400 })
       // Principal comes from the trusted host, never from request JSON or a model tool.
       const principal = await access(projectId)
-      authorize(principal, ['briefing-settings', 'web-connect', 'provider-models', 'provider-connect', 'provider-disconnect', 'skill-install', 'skill-enabled'].includes(body.action) ? 'configure' : body.action === 'notebook-note' ? 'finding' : 'read')
+      authorize(principal, ['notebook-clear-ask', 'briefing-settings', 'web-connect', 'provider-models', 'provider-connect', 'provider-disconnect', 'skill-install', 'skill-enabled'].includes(body.action) ? 'configure' : body.action === 'notebook-note' ? 'finding' : 'read')
       if (body.action === 'web-status') return web.status()
       if (body.action === 'web-connect') return web.connect(body.connection, signal)
       if (body.action === 'provider-status') return provider.status()
@@ -210,6 +210,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
           case 'connection': return { request: session.request }
           case 'notebook': return { entries: session.notebook.list(body.query ?? {}) }
           case 'notebook-entry': { const entries = []; let id = body.id; while (id && entries.length < 30) { const entry = session.notebook.read(id); entries.unshift(entry); id = entry.parentId } return { entries } }
+          case 'notebook-clear-ask': return session.notebook.clearAskHistory()
           case 'notebook-note': return session.notebook.annotate(body.id, body.notes, body.previousNotes)
           case 'briefing-settings': { const preferences = briefingPreferences(body.preferences); session.notebook.set('briefing-preferences', preferences); return { preferences } }
           case 'briefing-latest': {
@@ -225,7 +226,10 @@ export function createAgencyService(adapters, { provider = createProvider(), web
         const inference = provider.forRequest?.() ?? provider
         const research = web.forRequest()
         const progress = (item) => { if (item.preliminary) { onProgress?.(item); return }; const previous = activities.findIndex((entry) => entry.phase === item.phase); if (previous < 0) activities.push(item); else activities[previous] = item; onProgress?.(item) }
-        const retain = (title, answer, kind = 'ask') => { const entry = session.notebook.save({ title, answer, activities, kind, parentId: body.parentId ?? null }); return { ...answer, entryId: entry.id } }
+        const askHistoryRevision = session.notebook.get('ask-history-revision') ?? 0
+        const retain = (title, answer, kind = 'ask') => {
+          if (kind === 'ask' && askHistoryRevision !== (session.notebook.get('ask-history-revision') ?? 0)) throw Object.assign(new Error('Ask history was cleared while this answer was running. Start a new chat.'), { statusCode: 409 })
+          const entry = session.notebook.save({ title, answer, activities, kind, parentId: body.parentId ?? null }); return { ...answer, entryId: entry.id } }
         const callTool = createToolRegistry({ context: session.context, state, snapshot: session.snapshot, notebook: session.notebook, operations: session.operations, scheduleIdentity: session.scheduleIdentity, places: session.places, web: research, signal, now: clock,
           adapters: { compareHolding: (caseId, abort) => { session.replay ??= createReplayService(path.join(session.notebook.directory, 'replay'), projectId); return session.replay.compare(caseId, abort) }, runtimeStudy: adapters.runtimeStudy, streetMatrix: adapters.streetMatrix ? (request, abort) => adapters.streetMatrix(projectId, request, abort) : undefined, matrix: (request, abort) => adapters.matrix(projectId, request, abort), route: (request, abort) => adapters.route(projectId, request, abort), reach: (request, abort) => adapters.reach(projectId, request, abort) } })
         switch (body.action) {

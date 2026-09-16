@@ -32,7 +32,7 @@ import { routeGeometryLabel } from './app/routePresentation'
 import { cityPublicRouteKey } from './app/cityPreview'
 import { buildNetworkPerformanceProfile, type NetworkPerformanceProfile } from './networkPerformance'
 import { serviceKeyForRoute, serviceVehicleIsVisible, type ServiceVehicleFrame } from './serviceVehicles'
-import { VehicleOperationalWarnings, AgencyVehicleDetails, type VehicleNavigation } from './components/AgencyVehicleDetails'
+import { VehicleOperationalWarnings, AgencyVehicleDetails } from './components/AgencyVehicleDetails'
 import { StopArrivalBoard, type TripNavigation } from './components/StopArrivalBoard'
 import type { RoutingPlan, RoutingPoint } from './routingModel'
 import { routingPinLabel } from './routingPointSequence'
@@ -106,7 +106,6 @@ export type VigoMapProps = {
   performanceProfile?: NetworkPerformanceProfile
   focusMode?: 'network' | 'route' | 'routing' | 'scenario'
   onOpenTrip?: TripNavigation
-  onNavigateVehicle?: VehicleNavigation
   onSelectRoute: (id: string, options?: { inspect?: boolean }) => void
   onSelectStop: (id: string, options?: { inspect?: boolean }) => void
   onRoutingPoint?: (point: RoutingPoint) => void
@@ -2347,7 +2346,6 @@ export function VigoMap({
   performanceProfile: providedPerformanceProfile,
   focusMode = 'network',
   onSelectRoute,
-  onNavigateVehicle,
   onOpenTrip,
   onSelectStop,
   onRoutingPoint,
@@ -3462,7 +3460,7 @@ export function VigoMap({
             <X size={13} strokeWidth={2.6} aria-hidden="true" />
           </button>
           {liveSelection.vehicleId ? <VehicleOperationalWarnings vehicle={vehicleFrame.vehicles.find(vehicle => vehicle.id === liveSelection.vehicleId && vehicle.sourceUrl === liveSelection.vehicleSourceUrl)} /> : null}
-          {liveSelection.stopId && projectId ? <StopArrivalBoard onOpenTrip={onOpenTrip} key={`${projectId}/${liveSelection.stopId}`} projectId={projectId} stopId={liveSelection.stopId} /> : liveSelection.vehicleId && projectId ? <AgencyVehicleDetails key={`${projectId}/${liveSelection.vehicleSourceUrl}/${liveSelection.vehicleId}`} projectId={projectId} vehicleId={liveSelection.vehicleId} sourceUrl={liveSelection.vehicleSourceUrl} onNavigate={onNavigateVehicle} /> : <><span>{liveSelection.eyebrow}</span>
+          {liveSelection.stopId && projectId ? <StopArrivalBoard onOpenTrip={onOpenTrip} key={`${projectId}/${liveSelection.stopId}`} projectId={projectId} stopId={liveSelection.stopId} /> : liveSelection.vehicleId && projectId ? <AgencyVehicleDetails key={`${projectId}/${liveSelection.vehicleSourceUrl}/${liveSelection.vehicleId}`} projectId={projectId} vehicleId={liveSelection.vehicleId} sourceUrl={liveSelection.vehicleSourceUrl} onOpenTrip={onOpenTrip} /> : <><span>{liveSelection.eyebrow}</span>
           <strong>{liveSelection.title}</strong>
           <small>{liveSelection.subtitle}</small>
           {liveSelection.journey ? (

@@ -32,8 +32,8 @@ try {
     arrival: { scheduled: epoch + 120, current: epoch + 840 }, departure: { scheduled: epoch + 180, current: null },
     delayKind: 'arrival', delaySeconds: 720,
   }
-  const navigation = patch => renderToStaticMarkup(createElement(VehicleDetailsView, { vehicle: { ...vehicle, routeId: 'R', ...patch }, onNavigate() {} }))
-  assert.match(navigation({}), /Open line/)
+  const navigation = patch => renderToStaticMarkup(createElement(VehicleDetailsView, { vehicle: { ...vehicle, routeId: 'R', ...patch }, onOpenTrip() {} }))
+  assert.doesNotMatch(navigation({}), /Open line/)
   assert.match(navigation({}), /Open trip/)
   assert.doesNotMatch(navigation({ tripId: null }), /Open trip/)
   assert.doesNotMatch(navigation({ serviceDate: null }), /Open trip/)

@@ -1,3 +1,4 @@
+import type { TripNavigation } from './StopArrivalBoard'
 import type { ServiceVehicle } from '../serviceVehicles'
 import { Armchair } from 'lucide-react'
 import { occupancyIndicator, vehicleOccupancyIndicator } from '../agency/vehicleIndicators'
@@ -25,9 +26,7 @@ function clock(timestamp: number | null, vehicle: VehicleTiming, seconds = false
   return vehicle.serviceDate && calendarDate !== vehicle.serviceDate ? `${date.toLocaleDateString([], { timeZone: vehicle.timezone, month: 'short', day: 'numeric' })} · ${time}` : time
 }
 
-export type VehicleNavigation = (vehicle: VehicleTiming, destination: 'line' | 'trip') => void
-
-export function VehicleDetailsView({ vehicle, onNavigate }: { vehicle: VehicleTiming; onNavigate?: VehicleNavigation }) {
+export function VehicleDetailsView({ vehicle, onOpenTrip }: { vehicle: VehicleTiming; onOpenTrip?: TripNavigation }) {
   const occupancy = occupancyIndicator(vehicle.occupancy || undefined)
   const occupancyKnown = vehicle.fresh && occupancy.label !== 'Occupancy unknown'
   const occupancyLevel = occupancy.crowded ? 3 : ['FEW_SEATS_AVAILABLE', 'STANDING_ROOM_ONLY'].includes(vehicle.occupancy || '') ? 2 : vehicle.occupancy === 'EMPTY' ? 0 : 1
@@ -36,7 +35,7 @@ export function VehicleDetailsView({ vehicle, onNavigate }: { vehicle: VehicleTi
   const timing = next ?? vehicle
   return <section className="agency-vehicle-detail" aria-label={`Vehicle ${vehicle.label} schedule and current timing`}>
     <header><span>Live vehicle</span><h3>{vehicle.label} <small>Route {vehicle.routeName}</small></h3><p>{vehicle.destination ? `To ${vehicle.destination}` : 'Destination unavailable'}</p></header>
-    {onNavigate && vehicle.routeId ? <div className="agency-vehicle-actions"><button className="agency-button" onClick={() => onNavigate(vehicle, 'line')}>Open line</button>{vehicle.tripId && vehicle.serviceDate ? <button className="agency-button" onClick={() => onNavigate(vehicle, 'trip')}>Open trip</button> : null}</div> : null}
+    {onOpenTrip && vehicle.routeId && vehicle.tripId && vehicle.serviceDate ? <div className="agency-vehicle-actions"><button className="agency-button" onClick={() => onOpenTrip({ routeId: vehicle.routeId!, tripId: vehicle.tripId!, serviceDate: vehicle.serviceDate! })}>Open trip</button></div> : null}
     <p className="agency-vehicle-position">{vehicleStopLabel(vehicle)}</p>
     {vehicle.warnings.map(warning => <p className="agency-vehicle-warning" key={warning}>{warning}</p>)}
     {next ? <p className="agency-vehicle-next"><span>Next prediction</span><strong>{next.stop.name}</strong></p> : null}
@@ -48,7 +47,7 @@ export function VehicleDetailsView({ vehicle, onNavigate }: { vehicle: VehicleTi
   </section>
 }
 
-export function AgencyVehicleDetails({ projectId, vehicleId, sourceUrl, onNavigate }: { projectId: string; vehicleId: string; sourceUrl?: string; onNavigate?: VehicleNavigation }) {
+export function AgencyVehicleDetails({ projectId, vehicleId, sourceUrl, onOpenTrip }: { projectId: string; vehicleId: string; sourceUrl?: string; onOpenTrip?: TripNavigation }) {
   const [vehicle, setVehicle] = useState<VehicleTiming | null>(null)
   const [error, setError] = useState('')
   useEffect(() => {
@@ -68,7 +67,7 @@ export function AgencyVehicleDetails({ projectId, vehicleId, sourceUrl, onNaviga
     const timer = window.setInterval(() => void refresh(), 10_000)
     return () => { controller.abort(); clearInterval(timer) }
   }, [projectId, vehicleId, sourceUrl])
-  return vehicle ? <VehicleDetailsView vehicle={vehicle} onNavigate={onNavigate} /> : <p className="agency-caption" role="status">{error || 'Reading the vehicle’s timetable and current predictions…'}</p>
+  return vehicle ? <VehicleDetailsView vehicle={vehicle} onOpenTrip={onOpenTrip} /> : <p className="agency-caption" role="status">{error || 'Reading the vehicle’s timetable and current predictions…'}</p>
 }
 
 export function VehicleOperationalWarnings({ vehicle }: { vehicle?: ServiceVehicle }) {

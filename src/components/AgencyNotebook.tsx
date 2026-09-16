@@ -12,7 +12,11 @@ function exportEntry(entry: NotebookEntry) {
   const report = answer.report
   downloadText(`agency-note-${entry.id}.md`, `# ${entry.title}\n\nSaved ${entry.createdAt}. Evidence as of ${answer.generatedAt}.\n\n${answer.aiGenerated ? `AI response (${answer.model || 'configured provider'}). ${answer.responseBasis === 'model_only' ? 'No evidence was checked in this turn.' : 'Citations identify sources, but do not verify model-written claims.'}\n\n` : ''}${publicReply(answer.answer)}\n\n${report ? `${report.method}\n\nInputs: ${JSON.stringify(report.inputs)}\n\n` : ''}## Researcher notes\n\n${entry.notes || 'No notes added.'}\n\n## Sources\n\n${answer.evidenceRefs.map((ref) => `- ${ref}`).join('\n')}\n\n## Limits\n\n${answer.warnings.map((warning) => `- ${warning}`).join('\n')}\n\n## Reproduction\n\n${answer.trace.map((call, i) => `### ${i + 1}. ${call.tool}\n\n\`\`\`json\n${JSON.stringify(call.arguments, null, 2)}\n\`\`\`\n`).join('\n')}`)
 }
-export function AgencyNotebook({ endpoint, onOpen, onBack }: { endpoint: string; onOpen: (id: number) => void; onBack: () => void }) {
+export function AgencyNotebook({ endpoint, onOpen, onBack, onCleared }: { endpoint: string; onOpen: (id: number) => void; onBack: () => void; onCleared?: () => void }) {
+  const [revision, setRevision] = useState(0)
+  const [clearing, setClearing] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
+  useEffect(() => { setClearing(false); setConfirmClear(false) }, [endpoint])
   const [entries, setEntries] = useState<EntrySummary[]>([])
   const [search, setSearch] = useState('')
   const [error, setError] = useState('')
@@ -27,7 +31,17 @@ export function AgencyNotebook({ endpoint, onOpen, onBack }: { endpoint: string;
       .catch((error) => { if (!controller.signal.aborted) setError(error.message) })
       .finally(() => { if (request.current === controller) { request.current = null; setLoading(false) } })
     return () => { controller.abort(); request.current?.abort(); request.current = null }
-  }, [endpoint, search])
+  }, [endpoint, search, revision])
+  async function clearHistory() {
+    if (request.current || clearing) return
+    const controller = new AbortController(); request.current = controller
+    setClearing(true); setError('')
+    try {
+      await apiJson(endpoint, { method: 'POST', body: JSON.stringify({ action: 'notebook-clear-ask' }), signal: controller.signal })
+      if (!controller.signal.aborted) { onCleared?.(); setConfirmClear(false); setRevision(value => value + 1) }
+    } catch (reason) { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Could not clear Ask history.') }
+    finally { if (request.current === controller) { request.current = null; setClearing(false) } }
+  }
   async function older() {
     if (request.current || loading) return
     const controller = new AbortController(); request.current = controller
@@ -38,7 +52,7 @@ export function AgencyNotebook({ endpoint, onOpen, onBack }: { endpoint: string;
     } catch (error) { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'Could not load older notes.') }
     finally { if (request.current === controller) { request.current = null; setLoading(false) } }
   }
-  return <section className="agency-notebook"><button className="agency-text-button" onClick={onBack}><ArrowLeft size={14} /> Back to Ask</button><div className="agency-section-heading"><div><h2>City notebook</h2><span>Saved conversations, briefings, and research</span></div></div><label className="agency-notebook-search"><Search size={15} /><input aria-label="Search saved work" placeholder="Search questions and notes" maxLength={200} value={search} onChange={(event) => setSearch(event.target.value)} /></label>{error ? <p role="alert" className="agency-error">{error}</p> : null}<div className="agency-notebook-list" aria-busy={loading}>{entries.map((entry) => <button key={entry.id} onClick={() => onOpen(entry.id)}><span><small>{entry.kind === 'research' ? 'Research' : entry.kind === 'briefing' ? 'Briefing' : 'Ask'} · {new Date(entry.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</small><strong>{entry.title}</strong>{entry.notePreview ? <small>{entry.notePreview}</small> : null}</span><ArrowUpRight size={16} /></button>)}</div>{loading ? <p className="agency-caption" role="status">Loading saved work…</p> : null}{!loading && !error && !entries.length ? <p className="agency-caption" role="status">{search ? 'No saved work matches your search. Try a route, question, or note.' : 'Your questions and completed research will be saved here, with their evidence.'}</p> : null}{more ? <button className="agency-text-button" disabled={loading} onClick={() => void older()}>Load older work</button> : null}</section>
+  return <section className="agency-notebook"><button className="agency-text-button" onClick={onBack} disabled={clearing}><ArrowLeft size={14} /> Back to Ask</button><div className="agency-section-heading"><div><h2>City notebook</h2><span>Saved conversations, briefings, and research</span></div></div>{confirmClear ? <div className="agency-notice"><p>Delete all Ask history and its notes in this City? Briefings and research are kept.</p><button className="agency-button" disabled={loading || clearing} onClick={() => void clearHistory()}>{clearing ? 'Deleting…' : 'Delete Ask history'}</button> <button className="agency-text-button" disabled={clearing} onClick={() => setConfirmClear(false)}>Cancel</button></div> : <button className="agency-text-button" disabled={loading} onClick={() => setConfirmClear(true)}>Clear Ask history</button>}<label className="agency-notebook-search"><Search size={15} /><input disabled={clearing} aria-label="Search saved work" placeholder="Search questions and notes" maxLength={200} value={search} onChange={(event) => setSearch(event.target.value)} /></label>{error ? <p role="alert" className="agency-error">{error}</p> : null}<div className="agency-notebook-list" aria-busy={loading}>{entries.map((entry) => <button key={entry.id} disabled={clearing} onClick={() => onOpen(entry.id)}><span><small>{entry.kind === 'research' ? 'Research' : entry.kind === 'briefing' ? 'Briefing' : 'Ask'} · {new Date(entry.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</small><strong>{entry.title}</strong>{entry.notePreview ? <small>{entry.notePreview}</small> : null}</span><ArrowUpRight size={16} /></button>)}</div>{loading ? <p className="agency-caption" role="status">Loading saved work…</p> : null}{!loading && !error && !entries.length ? <p className="agency-caption" role="status">{search ? 'No saved work matches your search. Try a route, question, or note.' : 'Your questions and completed research will be saved here, with their evidence.'}</p> : null}{more ? <button className="agency-text-button" disabled={loading} onClick={() => void older()}>Load older work</button> : null}</section>
 }
 export function AgencyNoteEditor({ endpoint, entry, onSave }: { endpoint: string; entry: NotebookEntry; onSave?: (notes: string) => void }) {
   const [notes, setNotes] = useState(entry.notes)

@@ -48,6 +48,16 @@ export function createNotebook(directory) {
       const { lastInsertRowid } = db.prepare('INSERT INTO entries(parent_id,kind,title,created_at,answer,activities) VALUES(?,?,?,?,?,?)').run(parentId, kind, title, createdAt, JSON.stringify(answer), JSON.stringify(activities))
       return this.read(Number(lastInsertRowid))
     },
+    clearAskHistory() {
+      db.exec('BEGIN IMMEDIATE')
+      try {
+        db.prepare("UPDATE entries SET parent_id=NULL WHERE kind!='ask' AND parent_id IN (SELECT id FROM entries WHERE kind='ask')").run()
+        const { changes } = db.prepare("DELETE FROM entries WHERE kind='ask'").run()
+        this.set('ask-history-revision', (this.get('ask-history-revision') ?? 0) + 1)
+        db.exec('COMMIT')
+        return { deleted: Number(changes) }
+      } catch (error) { db.exec('ROLLBACK'); throw error }
+    },
     annotate(id, notes, previousNotes) {
       this.read(id)
       if (typeof notes !== 'string' || notes.length > 20_000) throw new Error('Notes must be at most 20,000 characters.')

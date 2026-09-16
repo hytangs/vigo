@@ -125,6 +125,11 @@ function engineEnvironment() {
   ]) {
     delete environment[name]
   }
+  // Packaged desktop settings come from this user's UI/configuration, never
+  // inherited developer model credentials, worker paths or fixture overrides.
+  if (app.isPackaged) {
+    for (const name of Object.keys(environment)) if (name.startsWith('VIGO_')) delete environment[name]
+  }
   environment.VIGO_API_TRANSPORT = 'memory'
   environment.VIGO_NATIVE_ROUTING_KERNEL = nativeKernelPath
   return environment

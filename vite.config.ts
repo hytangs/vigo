@@ -1,10 +1,18 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { rmSync } from 'node:fs'
 
 const apiPort = Number(process.env.VIGO_PORT ?? process.env.VIGO_API_PORT ?? 5179) || 5179
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), {
+    name: 'clean-generated-assets',
+    apply: 'build',
+    buildStart() {
+      // public also contains authored desktop files; only assets is generated.
+      rmSync(new URL('./public/assets', import.meta.url), { recursive: true, force: true })
+    },
+  }],
   publicDir: 'public',
   build: {
     outDir: 'public',

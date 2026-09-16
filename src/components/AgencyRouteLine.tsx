@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, ChevronRight, Route, X } from 'lucide-react'
 import type { MapPreview } from '../domain'
 import { apiJson } from '../app/api'
 import type { RouteOperations, RoutePattern, VehicleTiming } from '../agency/routeOperationsTypes'
-import { AgencyVehicleDetails, VehicleOperationalWarnings, VehicleDetailsView, type VehicleNavigation, vehicleDelayLabel, vehicleStopLabel } from './AgencyVehicleDetails'
+import { AgencyVehicleDetails, VehicleOperationalWarnings, VehicleDetailsView, vehicleDelayLabel, vehicleStopLabel } from './AgencyVehicleDetails'
 import { StopArrivalBoard, type TripNavigation } from './StopArrivalBoard'
 
 function patternLabel(pattern: RoutePattern) {
@@ -12,7 +12,7 @@ function patternLabel(pattern: RoutePattern) {
 }
 const atReportedStop = (vehicle: VehicleTiming) => vehicle.status === 'STOPPED_AT' || vehicle.status === 'STOP_REPORTED'
 
-export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showStopDetails = true, preview, onSelectStop, onNavigateVehicle, onOpenTrip, vehicleFrame }: { vehicleFrame?: ServiceVehicleFrame; projectId: string; routeId: string; preview?: MapPreview; selectedStopId?: string; showStopDetails?: boolean; onSelectStop?: (id: string) => void; onNavigateVehicle?: VehicleNavigation; onOpenTrip?: TripNavigation }) {
+export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showStopDetails = true, preview, onSelectStop, onOpenTrip, vehicleFrame }: { vehicleFrame?: ServiceVehicleFrame; projectId: string; routeId: string; preview?: MapPreview; selectedStopId?: string; showStopDetails?: boolean; onSelectStop?: (id: string) => void; onOpenTrip?: TripNavigation }) {
   const fallback = useMemo<RouteOperations | null>(() => {
     if (!routeId || !preview?.routes.length) return null
     const stops = new Map(preview.stops.map(stop => [stop.id, stop]))
@@ -131,5 +131,5 @@ export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showS
       {unplaced.length ? <details className="agency-line-unplaced"><summary>{unplaced.length} vehicles without a current stop position</summary>{unplaced.map(vehicle => <button className="agency-text-button" key={vehicle.key} onClick={() => setSelected(vehicle.key)}>{vehicle.label} · {vehicle.warnings[0] || 'Trip pattern unavailable'}</button>)}</details> : null}
       <p className="agency-caption">Timetable dates: {data.serviceDates?.join(', ') || data.serviceDate} · Times in {data.timezone}. Arrival and departure predictions are kept separate.</p>
     </>}
-  </section>{(showStopDetails && selectedStop) || selectedVehicle ? <aside className={`map-live-card is-vehicle ${selectedVehicle ? 'has-vehicle-timing' : 'has-stop-arrivals'}`}><button className="agency-icon-button" aria-label="Close details" onClick={() => { setSelected(null); setSelectedStop(null); onSelectStop?.('') }}><X size={13} strokeWidth={2.6} /></button><VehicleOperationalWarnings vehicle={selectedMapVehicle} />{showStopDetails && selectedStop ? <StopArrivalBoard onOpenTrip={onOpenTrip} key={`${projectId}/${selectedStop}`} projectId={projectId} stopId={selectedStop} /> : selectedVehicle ? selectedMapVehicle ? <AgencyVehicleDetails key={selectedVehicle.key} projectId={projectId} vehicleId={selectedMapVehicle.id} sourceUrl={selectedMapVehicle.sourceUrl} onNavigate={onNavigateVehicle} /> : <VehicleDetailsView vehicle={selectedVehicle} onNavigate={onNavigateVehicle} /> : null}</aside> : null}</>
+  </section>{(showStopDetails && selectedStop) || selectedVehicle ? <aside className={`map-live-card is-vehicle ${selectedVehicle ? 'has-vehicle-timing' : 'has-stop-arrivals'}`}><button className="agency-icon-button" aria-label="Close details" onClick={() => { setSelected(null); setSelectedStop(null); onSelectStop?.('') }}><X size={13} strokeWidth={2.6} /></button><VehicleOperationalWarnings vehicle={selectedMapVehicle} />{showStopDetails && selectedStop ? <StopArrivalBoard onOpenTrip={onOpenTrip} key={`${projectId}/${selectedStop}`} projectId={projectId} stopId={selectedStop} /> : selectedVehicle ? selectedMapVehicle ? <AgencyVehicleDetails key={selectedVehicle.key} projectId={projectId} vehicleId={selectedMapVehicle.id} sourceUrl={selectedMapVehicle.sourceUrl} onOpenTrip={onOpenTrip} /> : <VehicleDetailsView vehicle={selectedVehicle} onOpenTrip={onOpenTrip} /> : null}</aside> : null}</>
 }

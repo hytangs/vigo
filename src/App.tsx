@@ -1,5 +1,4 @@
 import type { TripTarget } from './components/StopArrivalBoard'
-import type { VehicleTiming } from './agency/routeOperationsTypes'
 import { startPolling } from './app/polling'
 import { journeyContinuityIssue } from './journeyIntegrity.mjs'
 import { PrimaryNav, type RouteToolKey } from './components/PrimaryNav'
@@ -1912,13 +1911,6 @@ function RouteSurface({
   }
   const [agencyView, setAgencyView] = useState<'map' | 'line'>('map')
   useEffect(() => { if (agencyLocation || isNetworkMap) setAgencyView('map') }, [agencyLocation, isNetworkMap])
-  function navigateVehicle(vehicle: VehicleTiming, destination: 'line' | 'trip') {
-    if (!vehicle.routeId) return
-    if (destination === 'trip') {
-      if (vehicle.tripId && vehicle.serviceDate) onOpenTrip?.({ routeId: vehicle.routeId, tripId: vehicle.tripId, serviceDate: vehicle.serviceDate })
-    }
-    else { onSelectRoute(vehicle.routeId, { inspect: false }); setAgencyView('line') }
-  }
   const showAgencyLine = agencyFocus && agencyView === 'line' && !routingFocus && !analysisFocus
   const [servicePlaybackStep, setServicePlaybackStep] = useState(1)
   const playbackTimeRef = useRef(scheduleTimeMinutes)
@@ -1965,9 +1957,8 @@ function RouteSurface({
         ) : null}
       </div>
       <div className="surface-panel route-map-shell">
-        {showAgencyLine ? <AgencyRouteLine vehicleFrame={vehicleFrame} onOpenTrip={onOpenTrip} key={`${projectId}/${selectedRouteId}`} projectId={projectId} preview={focusedPreview} routeId={isNetworkMap ? '' : selectedRoute ? networkRouteId(selectedRoute) : selectedRouteId} selectedStopId={selectedStopId} showStopDetails={false} onSelectStop={onSelectStop} onNavigateVehicle={navigateVehicle} /> : <LazyVigoMap
+        {showAgencyLine ? <AgencyRouteLine vehicleFrame={vehicleFrame} onOpenTrip={onOpenTrip} key={`${projectId}/${selectedRouteId}`} projectId={projectId} preview={focusedPreview} routeId={isNetworkMap ? '' : selectedRoute ? networkRouteId(selectedRoute) : selectedRouteId} selectedStopId={selectedStopId} showStopDetails={false} onSelectStop={onSelectStop} /> : <LazyVigoMap
           onOpenTrip={agencyFocus ? onOpenTrip : undefined}
-          onNavigateVehicle={agencyFocus ? navigateVehicle : undefined}
           showStopDetails={!agencyFocus}
           focusLocation={agencyFocus ? agencyLocation : undefined}
           projectId={projectId}

@@ -34,6 +34,7 @@ async function type(selector, value) {
 const saveButton = () => document.querySelector('.agency-note-editor .agency-button')
 const status = () => document.querySelector('.agency-note-editor [role]').textContent
 window.runTests = async () => {
+  let cleared = 0
   await editor()
   check(saveButton().disabled, 'Unchanged notes do not create duplicate writes')
   await type('textarea', 'First saved draft')
@@ -70,7 +71,7 @@ window.runTests = async () => {
   await type('textarea', 'Unmounted draft')
   saveButton().click()
   await wait(() => requests.length === 5)
-  root.render(<AgencyNotebook endpoint={endpoint} onOpen={() => {}} onBack={() => {}} />)
+  root.render(<AgencyNotebook endpoint={endpoint} onOpen={() => {}} onBack={() => {}} onCleared={() => { cleared++ }} />)
   await wait(() => requests.length === 6)
   check(requests[4].signal.aborted, 'Closing the editor releases a pending save')
   requests[4].resolve(response({ notes: 'Unmounted draft' }))
@@ -87,7 +88,24 @@ window.runTests = async () => {
   await wait(() => document.body.textContent.includes('Notebook unavailable'))
   check(!document.body.textContent.includes('No saved work matches') && !document.body.textContent.includes('will be saved here'), 'Failed searches do not claim the notebook is empty')
   check(saved.length === 2, 'Unmounted requests cannot invoke the saved callback')
+  const click = async label => { [...document.querySelectorAll('button')].find(button => button.textContent.trim() === label).click(); await settle() }
+  await click('Clear Ask history')
+  check(document.body.textContent.includes('Briefings and research are kept'), 'Clearing explains the deletion scope')
+  await click('Cancel')
+  check(requests.length === 8, 'Cancelling confirmation does not delete history')
+  await click('Clear Ask history'); await click('Delete Ask history')
+  await wait(() => requests.length === 9)
+  check(requests[8].body.action === 'notebook-clear-ask', 'The destructive action uses the dedicated endpoint')
+  requests[8].reject(new Error('Clear failed'))
+  await wait(() => document.body.textContent.includes('Clear failed'))
+  check(cleared === 0, 'Failed deletion does not clear the active conversation')
+  await click('Delete Ask history')
+  await wait(() => requests.length === 10)
+  requests[9].resolve(response({ deleted: 1 }))
+  await wait(() => requests.length === 11)
+  requests[10].resolve(response({ entries: [] }))
+  await wait(() => cleared === 1 && document.body.textContent.includes('No saved work matches'))
   root.unmount()
   window.fetch = originalFetch
-  return { checks: 'note save serialization, dirty state, retry, City isolation, unmount, notebook search and failed-state truth' }
+  return { checks: 'note save serialization, dirty state, retry, City isolation, unmount, notebook search, failed-state truth and confirmed history clearing' }
 }

@@ -24,7 +24,7 @@ Use a location, route or vehicle number when it matters. For example:
 - “When is the next departure from [station], for each route?”
 - “Draft an apologetic rider update using the confirmed facts.”
 
-Ask chooses reusable checks, can correct scope or request a missing check, and keeps the evidence with the answer. Its assessment forms preserve computed values. Network interpretation and general replies use the model. Activity and sources are inspectable; private model reasoning is not displayed. **History** reopens saved conversations. An old answer remains an old observation even when the feeds have advanced.
+Ask chooses reusable checks, can correct scope or request a missing check, and keeps the evidence with the answer. Its assessment forms preserve computed values. Network interpretation and general replies use the model. Activity and sources are inspectable; private model reasoning is not displayed. **History** reopens saved conversations. **Clear Ask history** deletes this City’s Ask conversations and attached notes after confirmation, and resets the active conversation. Briefings, research, feed observations, and settings are retained. Clearing history requires configuration permission; answers already running cannot recreate the deleted records. An old answer remains an old observation even when the feeds have advanced.
 
 ## Connect a model and web search
 

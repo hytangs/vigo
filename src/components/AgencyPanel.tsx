@@ -122,6 +122,12 @@ export function AgencyPanel({ onOperationalEvents, projectId, snapshot, realtime
     if (container && item) container.scrollTo({ top: container.scrollTop + item.getBoundingClientRect().top - container.getBoundingClientRect().top })
   }
 
+  function resetConversation() {
+    entryAbortRef.current?.abort()
+    setTurns([]); setParentId(null); setAnswer(null); setAsked(''); setActivities([]); setError('')
+    sessionStorage.removeItem(`agency-entry-${projectId}`)
+  }
+
   async function openEntry(id: number, navigate = true) {
     if (busy || abortRef.current) return
     entryAbortRef.current?.abort()
@@ -297,10 +303,10 @@ export function AgencyPanel({ onOperationalEvents, projectId, snapshot, realtime
           <AgencyServiceEvents defaultOpen={false} state={state} ready={eventsReady} filter={eventFilter} onFilter={setEventFilter} onSelect={event => selectEvent(event, false)} />
           {state.warnings.length ? <details className="agency-source-details"><summary>Coverage notes</summary><AgencyCoverageNotes warnings={state.warnings} /></details> : null}
         </div> : mode === 'ask' ? <div id="agency-ask" role="tabpanel" aria-labelledby="agency-tab-ask">
-          {notebookOpen ? <AgencyNotebook endpoint={endpoint} onOpen={(id) => void openEntry(id)} onBack={() => setNotebookOpen(false)} /> : <>
+          {notebookOpen ? <AgencyNotebook endpoint={endpoint} onOpen={(id) => void openEntry(id)} onBack={() => setNotebookOpen(false)} onCleared={resetConversation} /> : <>
           <header className="agency-page-heading"><h1>Ask</h1>{!turns.length && !answer && !busy ? <p>Ask about routes, journeys, or service changes.</p> : null}</header>
           <AgencyProviderSettings endpoint={endpoint} provider={state.provider} onChange={() => void observationPolling.current?.refresh()} actions={
-            <div className="agency-conversation-toolbar"><button className="agency-text-button" onClick={() => setNotebookOpen(true)} disabled={busy}><History size={14} /> History</button><button className="agency-text-button" disabled={busy} onClick={() => { entryAbortRef.current?.abort(); setTurns([]); setParentId(null); setAnswer(null); setAsked(''); setActivities([]); sessionStorage.removeItem(`agency-entry-${projectId}`) }}><Plus size={14} /> New chat</button></div>
+            <div className="agency-conversation-toolbar"><button className="agency-text-button" onClick={() => setNotebookOpen(true)} disabled={busy}><History size={14} /> History</button><button className="agency-text-button" disabled={busy} onClick={resetConversation}><Plus size={14} /> New chat</button></div>
           } />
           {hasSelection ? <NetworkSelection selection={selectionReady ? state.selection : undefined} loading={!selectionReady && !observationError} onClear={clearSelection} onAsk={() => {}} asking /> : null}
           {!turns.length && !answer && !busy ? <div className="agency-ask-start">{!state.provider.available ? <div className="agency-ask-setup"><strong>Connect AI to ask a question.</strong><p>Routes and live evidence are ready to explore.</p><button className="agency-text-button" onClick={() => { setMode('briefing'); scrollRef.current?.scrollTo({ top: 0 }) }}>Explore the network <ArrowRight size={13} /></button></div> : null}<div className="agency-suggestions" aria-label="Suggested investigations">{(hasSelection ? ['Summarize service here.', 'Which alerts apply here?', stopId ? 'When are the next departures?' : 'Draft a rider update for this route.'] : ['Which routes need attention now?', 'Summarize current service alerts.', 'What service runs after 22:00 today?']).map(suggestion => <button key={suggestion} onClick={() => { setQuestion(suggestion); document.getElementById('agency-question')?.focus() }}><span>{suggestion}</span><ArrowRight size={15} /></button>)}</div></div> : null}
