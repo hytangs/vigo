@@ -57,7 +57,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
   const routes = new Map(context.routes.map((route) => [route.route_id, {
     id: route.route_id, name: route.short_name || route.long_name || rawId(route.route_id), longName: route.long_name || '',
     color: /^[0-9a-f]{6}$/i.test(route.color) ? `#${route.color}` : 'var(--text-muted)', mode: route.route_type,
-    trips: 0, reportingTrips: 0, maxDelaySeconds: null, events: 0, alerts: 0, headway: 'unknown', widestInterval: null,
+    trips: 0, reportingTrips: 0, maxDelaySeconds: null, events: 0, alerts: 0, serviceChanges: 0, headway: 'unknown', widestInterval: null,
   }]))
   const active = coverage.serviceDate ? context.activeServices(coverage.serviceDate) : new Set()
   for (const trip of context.trips) if (active.has(trip.service_id)) routes.get(trip.route_id).trips++
@@ -206,7 +206,12 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
     title: finite(vehicle.timestamp) ? 'Vehicle observation is stale' : 'Vehicle observation time is unknown', vehicleId: vehicle.id,
     evidence: { ...(finite(vehicle.timestamp) ? { feedAgeSeconds: nowSeconds - vehicle.timestamp } : {}), reason: 'VehiclePosition timestamp is evaluated independently of the feed header.' }, sourceRefs: [`${vehicle.sourceUrl}#vehicle=${encodeURIComponent(vehicle.id)}`],
   })
-  for (const event of events) for (const routeId of event.routeIds ?? (event.routeId ? [event.routeId] : [])) if (routes.has(routeId)) routes.get(routeId).events++
+  for (const event of events) for (const routeId of event.routeIds ?? (event.routeId ? [event.routeId] : [])) if (routes.has(routeId)) {
+    const route = routes.get(routeId)
+    route.events++
+    // Keep route-wide review counts independent of API event filtering/paging.
+    if (['cancellation', 'skipped-stop', 'headway-review'].includes(event.type)) route.serviceChanges++
+  }
   for (const event of events) { const stop = context.stopIndex.get(event.stopId); event.routeName = routes.get(event.routeId)?.name; event.stopName = stop?.name; if (stop) event.stopCoordinate = [stop.lon, stop.lat] }
   events.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || (b.evidence.delaySeconds ?? 0) - (a.evidence.delaySeconds ?? 0) || a.id.localeCompare(b.id))
   return { generatedAt, observedAt: snapshot?.fetchedAt ?? null, cityName: context.cityName, connected: Boolean(snapshot), coverage,

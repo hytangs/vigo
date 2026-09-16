@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
-import { Download, Map, MessageSquare, MoreHorizontal, Radio, RefreshCw, Route } from 'lucide-react'
+import { Download, FileText, Map, MessageSquare, MoreHorizontal, Radio, RefreshCw, Route } from 'lucide-react'
 
 export type AgencyMode = 'briefing' | 'live' | 'ask'
 const views = [
@@ -8,7 +8,7 @@ const views = [
   { id: 'ask', label: 'Ask', icon: MessageSquare },
 ] as const
 
-export function AgencyNavigation({ mode, onChange, health, mapOpen, onToggleMap, onRefresh, onFeeds, onExport }: {
+export function AgencyNavigation({ mode, onChange, health, mapOpen, onToggleMap, onRefresh, onFeeds, onExport, onExportReport }: {
   mode: AgencyMode
   onChange: (mode: AgencyMode) => void
   health: ReactNode
@@ -17,6 +17,7 @@ export function AgencyNavigation({ mode, onChange, health, mapOpen, onToggleMap,
   onRefresh: () => void
   onFeeds: () => void
   onExport?: () => void
+  onExportReport?: () => void
 }) {
   const more = useRef<HTMLDetailsElement>(null)
   useEffect(() => {
@@ -27,6 +28,10 @@ export function AgencyNavigation({ mode, onChange, health, mapOpen, onToggleMap,
   function choose(next: AgencyMode) {
     if (more.current) more.current.open = false
     onChange(next)
+  }
+  function runTool(action: () => void) {
+    if (more.current) { more.current.open = false; more.current.querySelector('summary')?.focus() }
+    action()
   }
   return <nav className="agency-navigation" aria-label="Network navigation">
     <div className="agency-tabs" role="tablist" aria-label="Network views">{views.map(({ id, label, icon: Icon }, index) => <button
@@ -45,9 +50,10 @@ export function AgencyNavigation({ mode, onChange, health, mapOpen, onToggleMap,
       <details className="agency-more" ref={more} onKeyDown={event => { if (event.key === 'Escape' && more.current) { more.current.open = false; more.current.querySelector('summary')?.focus() } }}>
         <summary className="agency-icon-button" aria-label="Network tools" title="Network tools"><MoreHorizontal size={18} /></summary>
         <div className="agency-more-options">
-          <button onClick={() => { if (more.current) more.current.open = false; onFeeds() }}><Radio size={15} />Feed settings</button>
-          <button onClick={() => { if (more.current) more.current.open = false; onRefresh() }}><RefreshCw size={15} />Refresh observations</button>
-          {onExport ? <button onClick={() => { if (more.current) more.current.open = false; onExport() }}><Download size={15} />Export observations</button> : null}
+          <button onClick={() => runTool(onFeeds)}><Radio size={15} />Feed settings</button>
+          <button onClick={() => runTool(onRefresh)}><RefreshCw size={15} />Refresh observations</button>
+          {onExportReport ? <button onClick={() => runTool(onExportReport)}><FileText size={15} />Export report</button> : null}
+          {onExport ? <button onClick={() => runTool(onExport)}><Download size={15} />Export observations</button> : null}
         </div>
       </details>
     </div>

@@ -22,6 +22,8 @@ import { AgencyNavigation, type AgencyMode } from './AgencyNavigation'
 import { AgencyRouteBrowser } from './AgencyRouteBrowser'
 import { AgencyServiceEvents } from './AgencyServiceEvents'
 import { StopArrivalBoard } from './StopArrivalBoard'
+import { AgencyOverview } from './AgencyOverview'
+import { observationReportMarkdown } from '../agency/observationExport'
 
 function exportObservation(state: AgencyState) {
   downloadText('agency-observation.json', JSON.stringify(state, null, 2), 'application/json')
@@ -60,8 +62,12 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   const selectionReady = loadedSelection === selectionKey
   const hasSelection = Boolean(routeId || stopId)
   const [eventFilter, setEventFilter] = useState('all')
+  const [loadedEventFilter, setLoadedEventFilter] = useState('')
+  const eventsReady = selectionReady && loadedEventFilter === eventFilter
+  const [routeFilter, setRouteFilter] = useState<'all' | 'attention' | 'reporting'>('all')
   const [historicalEvent, setHistoricalEvent] = useState(false)
   const [selectedEvent, setSelectedEvent] = useState<OperationalEvent | null>(null)
+  const eventReturnMode = useRef<AgencyMode>('briefing')
   const [question, setQuestion] = useState(() => sessionStorage.getItem(`agency-question-${projectId}`) || '')
   const [activities, setActivities] = useState<ApiProgress[]>([])
   const [asked, setAsked] = useState('')
@@ -74,12 +80,13 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   const observationPolling = useRef<ReturnType<typeof startPolling> | null>(null)
   const hasSnapshot = Boolean(snapshot)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const routeReturn = useRef<{ id: string; top: number } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const entryAbortRef = useRef<AbortController | null>(null)
   const endpoint = `/api/projects/${encodeURIComponent(projectId)}/agency`
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const generation = ++refreshGeneration.current
-    try { const next = await apiJson<AgencyState>(`${endpoint}?${new URLSearchParams({ routeId, stopId, eventType: eventFilter })}`, { signal }); if (generation === refreshGeneration.current && !signal?.aborted) { setState(next); setLoadedSelection(selectionKey); setObservationError('') } }
+    try { const next = await apiJson<AgencyState>(`${endpoint}?${new URLSearchParams({ routeId, stopId, eventType: eventFilter })}`, { signal }); if (generation === refreshGeneration.current && !signal?.aborted) { setState(next); setLoadedSelection(selectionKey); setLoadedEventFilter(eventFilter); setObservationError('') } }
     catch (reason) { if (generation === refreshGeneration.current && !signal?.aborted) setObservationError(reason instanceof Error ? reason.message : 'Observation unavailable.') }
     finally { if (generation === refreshGeneration.current && !signal?.aborted) setLoading(false) }
   }, [endpoint, routeId, stopId, selectionKey, eventFilter])
@@ -159,8 +166,13 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   }
 
   async function ask(nextQuestion = question) {
-    if (busy || abortRef.current || !nextQuestion.trim()) return
-    if (!state?.provider.available) { document.querySelector<HTMLButtonElement>('.agency-ai-connection button[aria-expanded="false"]')?.click(); return }
+    if (busy || abortRef.current) return
+    if (!state?.provider.available) {
+      document.querySelector<HTMLButtonElement>('.agency-ai-connection button[aria-expanded="false"]')?.click()
+      requestAnimationFrame(() => { scrollToContent('.agency-ai-form'); document.querySelector<HTMLInputElement>('.agency-ai-form input[type="url"]')?.focus() })
+      return
+    }
+    if (!nextQuestion.trim()) return
     entryAbortRef.current?.abort()
     setAsked(nextQuestion); setQuestion(''); setBusy(true); setAnswer(null); setActivities([]); setError('')
     requestAnimationFrame(() => scrollToContent('.agency-pending-question'))
@@ -174,7 +186,10 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
       if (!result.aiGenerated && !result.trace.some((call) => call.result.ok)) setQuestion(nextQuestion)
       // Results remain available through their explicit Show on map action.
       // A background answer must not move the staff member's current view.
-    } catch (reason) { if (controller.signal.aborted) setQuestion(nextQuestion); else setError(reason instanceof Error ? reason.message : 'Question failed.') }
+    } catch (reason) {
+      setQuestion(current => current.trim() ? current : nextQuestion)
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Question failed. Your question is ready to retry.')
+    }
     finally { setBusy(false); abortRef.current = null }
   }
 
@@ -184,28 +199,76 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
   }
 
   function selectEvent(event: OperationalEvent, historical = true) {
+    eventReturnMode.current = mode
     setSelectedEvent(event); setHistoricalEvent(historical)
     setMode('live')
     if (!historical) setEventFilter(event.type)
-    requestAnimationFrame(() => document.querySelector('.agency-scroll')?.scrollTo({ top: 0 }))
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ top: 0 })
+      scrollRef.current?.querySelector<HTMLButtonElement>('.agency-evidence > button')?.focus({ preventScroll: true })
+    })
     locate(event.routeIds ?? (event.routeId ? [event.routeId] : []), event.stopId ? [event.stopId] : event.stopIds ?? [], event.stopCoordinate ? { coordinate: event.stopCoordinate, label: event.stopName || 'Reference stop' } : undefined)
+  }
+
+  function browseRoutes(filter: 'all' | 'attention' | 'reporting') {
+    routeReturn.current = null
+    setRouteFilter(filter); setMode('live'); setSelectedEvent(null); onClearSelection()
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ top: 0 })
+      scrollRef.current?.querySelector<HTMLInputElement>('.agency-route-search input')?.focus({ preventScroll: true })
+    })
+  }
+
+  function returnFromEvent() {
+    setSelectedEvent(null)
+    setMode(historicalEvent ? 'ask' : eventReturnMode.current)
+    requestAnimationFrame(() => {
+      scrollToContent(historicalEvent ? '.agency-turn:last-of-type' : '.agency-service-events')
+      if (!historicalEvent) scrollRef.current?.querySelector<HTMLElement>('.agency-service-events > summary')?.focus({ preventScroll: true })
+    })
+  }
+
+  function openRoute(id: string, rememberList = false) {
+    routeReturn.current = rememberList ? { id, top: scrollRef.current?.scrollTop ?? 0 } : null
+    setMode('live'); setSelectedEvent(null); onBrowseRoute(id)
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ top: 0 })
+      scrollRef.current?.querySelector<HTMLButtonElement>('.network-selection > button')?.focus({ preventScroll: true })
+    })
+  }
+
+  function openFeeds() {
+    setFeedsOpen(true)
+    requestAnimationFrame(() => { scrollRef.current?.scrollTo({ top: 0 }); document.querySelector<HTMLButtonElement>('.agency-connect-close')?.focus() })
+  }
+
+  function clearSelection() {
+    setSelectedEvent(null); onClearSelection()
+    if (mode !== 'live') return
+    requestAnimationFrame(() => {
+      const previous = routeReturn.current
+      scrollRef.current?.scrollTo({ top: previous?.top ?? 0 })
+      const row = previous ? Array.from(scrollRef.current?.querySelectorAll<HTMLButtonElement>('[data-route-id]') ?? []).find(button => button.dataset.routeId === previous.id) : undefined
+      const target = row ?? scrollRef.current?.querySelector<HTMLInputElement>('.agency-route-search input')
+      target?.focus({ preventScroll: true })
+    })
   }
 
   return <section className={`agency-panel ${state && mode === 'ask' && !notebookOpen ? 'has-composer' : ''}`} aria-label="Network workspace">
     <AgencyNavigation mode={mode} onChange={next => {
       setMode(next); setSelectedEvent(null)
       requestAnimationFrame(() => { if (next === 'ask' && turns.length) scrollToContent('.agency-turn:last-of-type'); else scrollRef.current?.scrollTo({ top: 0 }) })
-    }} health={<AgencyFeedHealth feeds={state?.feeds ?? []} refreshFailed={Boolean(observationError)} />} mapOpen={mapOpen} onToggleMap={onToggleMap} onRefresh={() => void observationPolling.current?.refresh()} onFeeds={() => setFeedsOpen(open => !open)} onExport={state ? () => exportObservation(state) : undefined} />
+    }} health={<AgencyFeedHealth feeds={state?.feeds ?? []} refreshFailed={Boolean(observationError)} />} mapOpen={mapOpen} onToggleMap={onToggleMap} onRefresh={() => void observationPolling.current?.refresh()} onFeeds={openFeeds} onExport={state && eventsReady ? () => exportObservation(state) : undefined} onExportReport={state && eventsReady ? () => downloadText('agency-observation.md', observationReportMarkdown(state, { eventFilter, refreshFailed: Boolean(observationError) })) : undefined} />
     <div className="agency-scroll" ref={scrollRef}>
-      {error || observationError ? <div className="agency-error" role="alert">{error || observationError}{!state || !state.coverage.valid ? <button className="agency-text-button" onClick={onOpenData}>Open City data <ArrowRight size={13} /></button> : null}</div> : null}
+      {error || observationError ? <div className="agency-error" role="alert"><strong>{observationError ? 'Could not refresh observations' : 'Could not complete the request'}</strong><p>{observationError || error}</p>{observationError ? <button className="agency-text-button" onClick={() => void observationPolling.current?.refresh()}>Retry refresh <ArrowRight size={13} /></button> : null}{!state || !state.coverage.valid ? <button className="agency-text-button" onClick={onOpenData}>Open City data <ArrowRight size={13} /></button> : null}</div> : null}
       {loading && !state ? <div className="agency-empty"><Activity size={24} /><h2>Reading the City</h2><p>Checking the indexed timetable and service calendar.</p></div> : null}
       {state ? <>
-        {feedsOpen ? <div className="agency-connect"><button className="agency-icon-button agency-connect-close" aria-label="Close feed settings" onClick={() => setFeedsOpen(false)}><X size={15} /></button><RealtimePanel snapshot={snapshot} request={realtimeRequest} message={realtimeMessage} loading={realtimeLoading} onConnect={onConnect} onDisconnect={onDisconnect} /></div> : null}
-        {hasSelection && (mode === 'live' || mode === 'ask') ? <NetworkSelection selection={selectionReady ? state.selection : undefined} loading={!selectionReady && !observationError} onClear={() => { setSelectedEvent(null); onClearSelection() }} onAsk={() => { setMode('ask'); requestAnimationFrame(() => document.getElementById('agency-question')?.focus()) }} asking={mode === 'ask'} /> : null}
+        {feedsOpen ? <div className="agency-connect"><button className="agency-icon-button agency-connect-close" aria-label="Close feed settings" onClick={() => { setFeedsOpen(false); document.querySelector<HTMLElement>('.agency-more > summary')?.focus() }}><X size={15} /></button><RealtimePanel snapshot={snapshot} request={realtimeRequest} message={realtimeMessage} loading={realtimeLoading} onConnect={onConnect} onDisconnect={onDisconnect} /></div> : null}
+        {hasSelection && (mode === 'live' || mode === 'ask') ? <NetworkSelection selection={selectionReady ? state.selection : undefined} loading={!selectionReady && !observationError} onClear={clearSelection} onAsk={() => { setMode('ask'); requestAnimationFrame(() => document.getElementById('agency-question')?.focus()) }} asking={mode === 'ask'} /> : null}
         {!state.coverage.valid ? <div className="agency-notice"><strong>Timetable needs attention</strong><p>{state.coverage.message}</p><button className="agency-text-button" onClick={onOpenData}>Update City data <ArrowRight size={13} /></button></div> : null}
         {mode === 'live' ? <div id="agency-live" role="tabpanel" aria-labelledby="agency-tab-live">
-          <div hidden={Boolean(selectedEvent) || hasSelection}><AgencyRouteBrowser state={state} onSelect={id => { onBrowseRoute(id); scrollRef.current?.scrollTo({ top: 0 }) }} /></div>
-          {selectedEvent ? <AgencyEvidence key={`${selectedEvent.id}/${selectedEvent.observedAt}`} historical={historicalEvent} event={selectedEvent} onUpdate={setSelectedEvent} state={state} projectId={projectId} onBack={() => { setSelectedEvent(null); if (historicalEvent) { setMode('ask'); requestAnimationFrame(() => scrollToContent('.agency-turn:last-of-type')) } }} onLocate={() => locate(selectedEvent.routeIds ?? (selectedEvent.routeId ? [selectedEvent.routeId] : []), selectedEvent.stopId ? [selectedEvent.stopId] : [], selectedEvent.stopCoordinate ? { coordinate: selectedEvent.stopCoordinate, label: selectedEvent.stopName || 'Reference stop' } : undefined)} /> : hasSelection ? <>
+          <div hidden={Boolean(selectedEvent) || hasSelection}><AgencyRouteBrowser state={state} initialFilter={routeFilter} onFilterChange={setRouteFilter} refreshFailed={Boolean(observationError)} onSelect={id => openRoute(id, true)} /></div>
+          {selectedEvent ? <AgencyEvidence key={`${selectedEvent.id}/${selectedEvent.observedAt}`} historical={historicalEvent} event={selectedEvent} onUpdate={setSelectedEvent} state={state} projectId={projectId} onBack={returnFromEvent} onLocate={() => locate(selectedEvent.routeIds ?? (selectedEvent.routeId ? [selectedEvent.routeId] : []), selectedEvent.stopId ? [selectedEvent.stopId] : [], selectedEvent.stopCoordinate ? { coordinate: selectedEvent.stopCoordinate, label: selectedEvent.stopName || 'Reference stop' } : undefined)} /> : hasSelection ? <>
             {focusedRoute && !stopId ? <div className="agency-route-summary">
               <span>{state.connected ? `${focusedRoute.reportingTrips} trip reports` : 'Timetable only'}</span>
               {focusedRoute.maxDelaySeconds != null ? <span>Max delay {minutes(Math.max(0, focusedRoute.maxDelaySeconds))}</span> : null}
@@ -213,19 +276,20 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
             </div> : null}
             {stopId ? <StopArrivalBoard key={`${projectId}/${stopId}`} projectId={projectId} stopId={stopId} showHeading={!selectionReady} /> : null}
             {selectionReady && timetable ? <div className="network-timetable">{timetable}</div> : null}
-            <AgencyServiceEvents state={state} ready={selectionReady} filter={eventFilter} onFilter={setEventFilter} onSelect={event => selectEvent(event, false)} />
+            <AgencyServiceEvents state={state} ready={eventsReady} filter={eventFilter} onFilter={setEventFilter} onSelect={event => selectEvent(event, false)} />
           </> : null}
         </div> : mode === 'briefing' ? <div id="agency-briefing" role="tabpanel" aria-labelledby="agency-tab-briefing">
+          <AgencyOverview state={state} refreshFailed={Boolean(observationError)} onBrowse={browseRoutes} onRoute={id => openRoute(id)} onFeeds={openFeeds} />
           <AgencyBriefing endpoint={endpoint} state={state} onOpen={id => void openEntry(id)} />
           {hasSelection ? <p className="agency-caption">Service updates for the selected route or stop. <button className="agency-text-button" onClick={onClearSelection}>Show all updates</button></p> : null}
-          <AgencyServiceEvents state={state} ready={selectionReady} filter={eventFilter} onFilter={setEventFilter} onSelect={event => selectEvent(event, false)} />
+          <AgencyServiceEvents state={state} ready={eventsReady} filter={eventFilter} onFilter={setEventFilter} onSelect={event => selectEvent(event, false)} />
           {state.warnings.length ? <details className="agency-source-details"><summary>Coverage notes</summary>{state.warnings.map(warning => <p className="agency-caption" key={warning}>{warning}</p>)}</details> : null}
         </div> : mode === 'ask' ? <div id="agency-ask" role="tabpanel" aria-labelledby="agency-tab-ask">
           {notebookOpen ? <AgencyNotebook endpoint={endpoint} onOpen={(id) => void openEntry(id)} onBack={() => setNotebookOpen(false)} /> : <>
           <AgencyProviderSettings endpoint={endpoint} provider={state.provider} onChange={() => void observationPolling.current?.refresh()} actions={
             <div className="agency-conversation-toolbar"><button className="agency-text-button" onClick={() => setNotebookOpen(true)} disabled={busy}><History size={14} /> History</button><button className="agency-text-button" disabled={busy} onClick={() => { entryAbortRef.current?.abort(); setTurns([]); setParentId(null); setAnswer(null); setAsked(''); setActivities([]); sessionStorage.removeItem(`agency-entry-${projectId}`) }}><Plus size={14} /> New chat</button></div>
           } />
-          {!turns.length && !answer && !busy ? <div className="agency-suggestions">{(hasSelection ? ['Summarize service here.', 'Which alerts apply here?', stopId ? 'When are the next departures?' : 'Draft a rider update for this route.'] : ['Which routes need attention now?', 'Summarize current service alerts.', 'What service runs after 22:00 today?']).map((suggestion) => <button key={suggestion} onClick={() => { setQuestion(suggestion); document.getElementById('agency-question')?.focus() }}>{suggestion}<ArrowRight size={14} /></button>)}</div> : null}
+          {!turns.length && !answer && !busy ? <div className="agency-ask-start"><div className="agency-page-heading"><h1>Ask your network.</h1><p>Schedules, service changes, and the evidence behind them.</p></div>{!state.provider.available ? <div className="agency-ask-setup"><strong>Connect AI to ask a question.</strong><p>Routes and live evidence are ready to explore.</p><button className="agency-text-button" onClick={() => { setMode('briefing'); scrollRef.current?.scrollTo({ top: 0 }) }}>Explore the network <ArrowRight size={13} /></button></div> : null}<div className="agency-suggestions" aria-label="Suggested investigations">{(hasSelection ? ['Summarize service here.', 'Which alerts apply here?', stopId ? 'When are the next departures?' : 'Draft a rider update for this route.'] : ['Which routes need attention now?', 'Summarize current service alerts.', 'What service runs after 22:00 today?']).map(suggestion => <button key={suggestion} onClick={() => { setQuestion(suggestion); document.getElementById('agency-question')?.focus() }}><span>{suggestion}</span><ArrowRight size={15} /></button>)}</div></div> : null}
           {turns.map((entry) => <article className="agency-turn" key={entry.id}><div className="agency-question-echo">{entry.title}</div><AgencyActivity activities={entry.activities} busy={false} trace={entry.answer.trace} /><AgencyAnswer answer={entry.answer} onResult={onResult} onSelectEvent={selectEvent} onOpenEntry={(id) => void openEntry(id)} /><>{entry.notes ? <p className="agency-saved-note"><strong>Note</strong>{entry.notes.length > 300 ? `${entry.notes.slice(0, 300)}…` : entry.notes}</p> : null}<AgencyNoteEditor endpoint={endpoint} entry={entry} onSave={(notes) => setTurns((items) => items.map((item) => item.id === entry.id ? { ...item, notes } : item))} /></></article>)}
           {busy || answer ? <div className="agency-question-echo agency-pending-question">{asked}</div> : null}
           <AgencyActivity activities={activities} busy={busy} trace={answer?.trace ?? []} />
@@ -235,6 +299,6 @@ export function AgencyPanel({ projectId, snapshot, realtimeRequest, realtimeMess
         </div> : null}
       </> : null}
     </div>
-    {state && mode === 'ask' && !notebookOpen ? <div className="agency-composer-dock"><AgencyComposer question={question} busy={busy} onChange={setQuestion} onSubmit={() => void ask()} onStop={stopInvestigation} /></div> : null}
+    {state && mode === 'ask' && !notebookOpen ? <div className="agency-composer-dock"><AgencyComposer question={question} busy={busy} providerAvailable={state.provider.available} onChange={setQuestion} onSubmit={() => void ask()} onStop={stopInvestigation} /></div> : null}
   </section>
 }

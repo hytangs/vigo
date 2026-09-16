@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { ArrowRight, LoaderCircle, RefreshCw, Radio } from 'lucide-react'
 import { apiJson, apiProgressJson } from '../app/api'
 import type { AgencyState, QueryAnswer } from '../agency/types'
@@ -10,9 +10,11 @@ import { NetworkAssessment } from './NetworkAssessment'
 const defaults: BriefingPreferences = { intervalMinutes: 15, automatic: true }
 
 export function AgencyBriefing({ endpoint, state, onOpen }: { endpoint: string; state: AgencyState; onOpen: (id: number) => void }) {
+  const generateLabelId = useId()
   const [briefing, setBriefing] = useState<QueryAnswer | null>(null)
   const [preferences, setPreferences] = useState<BriefingPreferences>(defaults)
   const [ready, setReady] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -56,7 +58,7 @@ export function AgencyBriefing({ endpoint, state, onOpen }: { endpoint: string; 
         setPreferences(preferences); setBriefing(entry ? { ...entry.answer, entryId: entry.id, ...(!current ? { diagnosis: undefined } : {}) } : null); setReady(true)
       }).catch(error => { if (!controller.signal.aborted) setError(error.message) })
     return () => { controller.abort(); request.current?.abort() }
-  }, [endpoint])
+  }, [endpoint, loadAttempt])
   // The existing live state clock drives this check. Refresh only at the chosen
   // interval while visible; the server shares its cached assessment across tabs.
   useEffect(() => {
@@ -74,18 +76,26 @@ export function AgencyBriefing({ endpoint, state, onOpen }: { endpoint: string; 
   }
   const time = (date: number) => new Date(date).toLocaleString([], { hour: 'numeric', minute: '2-digit', timeZone: state.coverage.timezone || undefined })
   return <section className="agency-briefing" aria-label="Network briefing">
-    <header><span><Radio size={15} />Network service briefing</span><div className="network-assessment-controls">
-      <select aria-label="Briefing refresh interval" value={preferences.automatic ? String(preferences.intervalMinutes) : 'manual'} disabled={!ready || saving} onChange={event => void savePreferences(event.target.value)}>
-        <option value="15">Every 15 min</option><option value="30">Every 30 min</option><option value="60">Every hour</option><option value="manual">Manual</option>
-      </select>
-      <button className="agency-icon-button" aria-label="Update network briefing" disabled={busy} onClick={() => void generate(true)}><RefreshCw size={14} /></button>
+    <header><span><Radio size={15} />Service briefing</span><div className="network-assessment-controls">
+      <details className="agency-briefing-settings">
+        <summary>Settings</summary>
+        <label>Refresh
+          <select aria-label="Briefing refresh interval" value={preferences.automatic ? String(preferences.intervalMinutes) : 'manual'} disabled={!ready || saving} onChange={event => void savePreferences(event.target.value)}>
+            <option value="15">Every 15 min</option><option value="30">Every 30 min</option><option value="60">Every hour</option><option value="manual">Manual</option>
+          </select>
+        </label>
+      </details>
+      {current && briefing.narrative ? <button className="agency-icon-button" aria-label="Update network briefing" disabled={!ready || busy} onClick={() => void generate(true)}><RefreshCw size={14} /></button> : null}
     </div></header>
     {busy ? <p className="agency-briefing-progress" role="status"><LoaderCircle size={16} className="agency-spinner" />{activity}</p> : null}
     {current && briefing.narrative ? <>
       <p className="agency-briefing-scope">Assessment at {time(assessed)} · next {briefing.diagnosis!.window.minutes} minutes · {preferences.automatic ? `next update ${time(refreshAt!)}` : `manual update · expires ${time(refreshAt!)}`}</p>
       <NetworkAssessment narrative={briefing.narrative} diagnosis={briefing.diagnosis!} investigation={briefing.investigation} aiNarrative={briefing.aiGenerated} />
-    </> : !busy ? <p>{briefing ? sourceUnavailable ? 'Live predictions are no longer current. The previous briefing is saved in the notebook.' : 'The previous briefing has expired. Update it for a current assessment.' : 'Assess network conditions from the timetable and currently reporting service.'}</p> : null}
+    </> : <>
+      {briefing && !busy ? <p>{sourceUnavailable ? 'Service data is no longer current.' : 'Briefing expired.'}</p> : null}
+      <button className="agency-button" aria-label="Update network briefing" aria-labelledby={generateLabelId} disabled={!ready || busy} onClick={() => void generate(true)}><span id={generateLabelId}>{briefing ? 'Update briefing' : 'Generate briefing'}</span> <RefreshCw size={14} /></button>
+    </>}
     {briefing?.entryId ? <footer><span>{current ? briefing.aiGenerated ? `AI briefing · ${briefing.model || 'connected model'}` : 'Computed snapshot · AI briefing unavailable' : 'Previous assessment retained'}</span><button className="agency-text-button" onClick={() => onOpen(briefing.entryId!)}>Open evidence <ArrowRight size={13} /></button></footer> : null}
-    {error ? <p className="agency-error" role="alert">{error}</p> : null}
+    {error ? <div className="agency-error" role="alert"><p>{error}</p>{!ready ? <button className="agency-text-button" onClick={() => setLoadAttempt(value => value + 1)}>Retry briefing <RefreshCw size={13} /></button> : null}</div> : null}
   </section>
 }

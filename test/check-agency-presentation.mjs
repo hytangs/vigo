@@ -42,7 +42,15 @@ try {
   assert.match(html, /Recorded prediction/)
   assert.doesNotMatch(html, /<strong>15 min<\/strong>|<strong>Due<\/strong>|<strong>At stop<\/strong>/, 'A retained response is not a current countdown or vehicle position')
   assert.match(html, /12:05/, 'A failed refresh preserves the last known absolute time')
-  const { AgencyToolOutput } = await server.ssrLoadModule('/src/components/AgencyAnswer.tsx')
+  const { AgencyToolOutput, AgencyAnswerText } = await server.ssrLoadModule('/src/components/AgencyAnswer.tsx')
+  const structuredAnswer = renderToStaticMarkup(createElement(AgencyAnswerText, { text: '### Service to check\n\nStart with these reports.\n\n- **C** — 23.3 min predicted, 9 min scheduled.\n- **23** — 25.9 min predicted, 14 min scheduled.\n\n93 scheduled trips remain unknown. [1]' }))
+  assert.equal((structuredAnswer.match(/<li>/g) || []).length, 2, 'Route priorities render as separate semantic list items')
+  assert.equal((structuredAnswer.match(/<p(?: |>)/g) || []).length, 3, 'Headings, findings and missing coverage remain separate blocks')
+  assert.match(structuredAnswer, /<strong>C<\/strong>/)
+  assert.doesNotMatch(structuredAnswer, /###|\*\*|<p[^>]*>[^<]*<ul/)
+  const untrustedAnswer = renderToStaticMarkup(createElement(AgencyAnswerText, { text: '<script>bad()</script>\n\n1. **First**\n2. Second' }))
+  assert.doesNotMatch(untrustedAnswer, /<script>/, 'Answer formatting never inserts source text as HTML')
+  assert.match(untrustedAnswer, /<ol>/)
   const journey = {
     status: 'ready', travelMode: 'transit', departMinutes: 480, arriveMinutes: 510, durationMinutes: 30,
     origin: { label: 'Museum' }, destination: { label: 'Restaurant' },
@@ -59,6 +67,36 @@ try {
   assert.match(validJourney, /5 min walking · 5 min waiting · 20 min riding/)
   assert.match(validJourney, /Step-by-step directions/)
   assert.doesNotMatch(validJourney, /<details[^>]* open/)
+  const scheduledJourney = renderJourney({ ...journey, diagnostics: { routingDataMode: 'scheduled' } })
+  assert.match(scheduledJourney, /Scheduled · Research/)
+  assert.match(scheduledJourney, /Published timetable/)
+  assert.doesNotMatch(scheduledJourney, /no realtime updates|snapshot stale|unavailable live/,
+    'Deliberate research mode must not appear as a failed realtime journey')
+  const realtimeJourney = renderJourney({ ...journey, diagnostics: { routingDataMode: 'realtime' } })
+  assert.match(realtimeJourney, /Realtime/)
+  assert.match(realtimeJourney, /Scheduled times; no realtime updates applied/)
+
+  const { SidebarPathfinderBox } = await server.ssrLoadModule('/src/components/PathfinderPanel.tsx')
+  const pathfinderProps = {
+    routingEnabled: false, routingOrigin: null, routingWaypoints: [], routingDestination: null,
+    routingPlan: null, routingChoices: [], routingScopeStatus: 'ready', routingStoreReady: true,
+    routingTimePreference: 'depart', routingMode: 'transit', routingDataMode: 'scheduled',
+    routingDepartureWindowMinutes: 0, routingMaxWalkKm: 1.6, routingAllowLongWalk: false,
+    routingActivity: { kind: 'idle', title: '', detail: '' }, routingAlternativesLoading: false,
+    routingServiceDate: '2026-09-15', routingServiceCoverage: null,
+    routingServiceDateAvailability: 'inside', routingServiceDateOptions: [],
+    storeBackedRouting: true, scheduleTimeMinutes: 480, routingPickIndex: null,
+  }
+  const renderPathfinder = patch => renderToStaticMarkup(createElement(SidebarPathfinderBox, { ...pathfinderProps, ...patch }))
+  const researchControls = renderPathfinder()
+  assert.match(researchControls, /aria-label="Transit data mode"/)
+  assert.match(researchControls, /aria-pressed="true"[^>]*>Scheduled · Research/)
+  assert.match(researchControls, /Live feed refreshes do not change the result/)
+  assert.match(researchControls, /aria-label="Routing service date"[^>]*value="2026-09-15"/)
+  const liveControls = renderPathfinder({ routingDataMode: 'realtime' })
+  assert.match(liveControls, /aria-pressed="true"[^>]*>Realtime/)
+  assert.match(liveControls, /Fresh predictions and cancellations/)
+  assert.doesNotMatch(renderPathfinder({ routingMode: 'walk' }), /Transit data mode/)
   const disconnected = renderJourney({ ...journey, legs: [journey.legs[0], { ...journey.legs[1], fromStopId: 'Unrelated stop' }] })
   assert.match(disconnected, /disconnected stops/)
   assert.doesNotMatch(disconnected, /Show on map|Journey directions/)

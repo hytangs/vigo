@@ -55,7 +55,7 @@ export function AgencyEvidence({ historical = false, event, state, projectId, on
     finally { setBusy(false) }
   }
   return <section className="agency-evidence" aria-label="Operational evidence">
-    <button className="agency-text-button" onClick={onBack}><ArrowLeft size={15} /> {historical ? 'Back to conversation' : 'All observations'}</button>
+    <button className="agency-text-button" onClick={onBack}><ArrowLeft size={15} /> {historical ? 'Back to conversation' : 'Back to service updates'}</button>
     <div className="agency-section-label"><Radio size={13} /> Operational evidence <span>{event.severity}</span></div>
     <h2>{event.title}</h2>
     <div className="agency-evidence-context">{route ? <span className="agency-route-label" style={{ '--line-color': route.color } as React.CSSProperties}>{route.name}</span> : null}<span>{event.stopId ? event.stopName || state.stopNames?.[event.stopId] || shortId(event.stopId) : 'Network observation'}</span>{event.directionId != null ? <span>Direction {event.directionId}</span> : null}</div>

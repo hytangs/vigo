@@ -2,7 +2,7 @@
 
 A transit operations workspace for checking what is happening, where it is happening, and what the available data can actually support.
 
-Agency adds **Live**, **Ask**, and **Skills** to VIGO’s existing map and routing interface. Open a City, connect its realtime feeds, and investigate a departure, a route, or a journey. Boston supplies the live example; the implementation reads the selected City’s GTFS identities, service calendar, timezone, and street network.
+Agency adds a **Network** workspace with **Overview**, **Routes**, and **Ask** to VIGO’s map and routing interface. Open a City, connect its realtime feeds, and investigate a departure, a route, or a journey. Overview brings current observations and routes to review together; Routes supports search, reporting filters, and predicted-delay sorting. Boston supplies the live example; the implementation reads the selected City’s GTFS identities, service calendar, timezone, and street network.
 
 ## The problem
 
@@ -61,7 +61,7 @@ npm run build:rust-routing-kernel
 npm run dev
 ```
 
-Open the local URL printed by the development command. Create a City and import its GTFS ZIP in **City**. Import an OSM PBF to use walking-network Reach. In **Agency → Live → Connect feeds**, enter the agency’s feed URLs; MBTA is a convenience preset. In **Ask → Connect**, choose a provider, enter its credentials if needed, find a model, and connect. Local Ollama and LM Studio endpoints are supported alongside remote OpenAI-compatible APIs. A model must support function calling.
+Open the local URL printed by the development command. Create a City and import its GTFS ZIP in **City**. Import an OSM PBF to use walking-network Reach. In **Network → Network tools (⋯) → Feed settings**, enter the agency’s feed URLs; MBTA is a convenience preset. In **Network → Ask → Connect AI**, choose a provider, enter its credentials if needed, find a model, and connect. Local Ollama and LM Studio endpoints are supported alongside remote OpenAI-compatible APIs. A model must support function calling. Overview, route browsing, and source evidence remain available without a model.
 
 Keys entered in the interface remain in server memory for the app session. They are not written into the City, repository, or browser storage. Restarting the app requires reconnecting. Server-managed configuration is also available:
 
