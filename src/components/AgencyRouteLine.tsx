@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { ArrowDown, ArrowUp, ChevronRight, Route, X } from 'lucide-react'
+import type { MapPreview } from '../domain'
 import { apiJson } from '../app/api'
 import type { RouteOperations, RoutePattern, VehicleTiming } from '../agency/routeOperationsTypes'
 import { VehicleDetailsView, vehicleDelayLabel, vehicleStopLabel } from './AgencyVehicleDetails'
@@ -10,8 +11,23 @@ function patternLabel(pattern: RoutePattern) {
 }
 const atReportedStop = (vehicle: VehicleTiming) => vehicle.status === 'STOPPED_AT' || vehicle.status === 'STOP_REPORTED'
 
-export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showStopDetails = true, onSelectStop }: { projectId: string; routeId: string; selectedStopId?: string; showStopDetails?: boolean; onSelectStop?: (id: string) => void }) {
-  const [data, setData] = useState<RouteOperations | null>(null)
+export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showStopDetails = true, preview, onSelectStop }: { projectId: string; routeId: string; preview?: MapPreview; selectedStopId?: string; showStopDetails?: boolean; onSelectStop?: (id: string) => void }) {
+  const fallback = useMemo<RouteOperations | null>(() => {
+    if (!routeId || !preview?.routes.length) return null
+    const stops = new Map(preview.stops.map(stop => [stop.id, stop]))
+    const patterns = preview.routes.map(route => ({
+      id: route.patternId || route.id,
+      directionId: route.directionId ?? null,
+      stops: route.stopIds.map(id => ({ id, name: stops.get(id)?.name || id })),
+      trips: route.tripCount,
+    })).filter(pattern => pattern.stops.length > 1)
+    if (!patterns.length) return null
+    return { routeId, name: preview.routes[0].shortName, color: preview.routes[0].color,
+      serviceDate: null, timezone: null, generatedAt: '', observedAt: null,
+      patterns, vehicles: [], warnings: ['Loading live positions…'] }
+  }, [preview, routeId])
+  const [loadedData, setData] = useState<RouteOperations | null>(null)
+  const data = loadedData ?? fallback
   const [error, setError] = useState('')
   const [choices, setChoices] = useState<Record<string, string>>({})
   const [selected, setSelected] = useState<string | null>(null)
@@ -28,11 +44,11 @@ export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showS
       try {
         const result = await apiJson<RouteOperations>(`/api/projects/${encodeURIComponent(projectId)}/agency`, { method: 'POST', body: JSON.stringify({ action: 'route-line', routeId }), signal: controller.signal })
         if (!controller.signal.aborted) { setData(result); setError('') }
-      } catch (error) { if (!controller.signal.aborted) { setData(null); setError(error instanceof Error ? error.message : 'Line view is unavailable.') } }
+      } catch (error) { if (!controller.signal.aborted) { setError(error instanceof Error ? error.message : 'Line view is unavailable.') } }
       finally { pending = false }
     }
     void refresh()
-    const timer = window.setInterval(() => void refresh(), 10_000)
+    const timer = window.setInterval(() => void refresh(), 60_000)
     return () => { controller.abort(); clearInterval(timer) }
   }, [projectId, routeId])
 
@@ -67,9 +83,10 @@ export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showS
   }
 
   return <><section className="agency-line-view" aria-label="Bidirectional route line view" style={{ '--line-color': data?.color || 'var(--vigo-lime-strong)' } as CSSProperties}>
-    {!routeId ? <div className="agency-empty"><Route size={25} /><h2>See a route in both directions</h2><p>Choose a route in Live to see its stops and reported vehicles.</p></div> : error ? <p className="agency-error" role="alert">{error}</p> : !data ? <p className="agency-caption" role="status">Reading the route’s stop patterns…</p> : <>
+    {!routeId ? <div className="agency-empty"><Route size={25} /><h2>See a route in both directions</h2><p>Choose a route in Live to see its stops and reported vehicles.</p></div> : !data && error ? <p className="agency-error" role="alert">{error}</p> : !data ? <p className="agency-caption" role="status">Reading the route’s stop patterns…</p> : <>
       <div className="agency-line-intro"><strong>Stops & arrivals</strong><p>Select a station for upcoming vehicles. Select a vehicle for its schedule.</p><span>Both directions · Reported positions on a schematic line.</span></div>
-      {data.warnings.map(warning => <p key={warning} className="agency-vehicle-warning">{warning}</p>)}
+      {error ? <p className="agency-error" role="alert">{error}</p> : null}
+      {(error && !loadedData ? [] : data.warnings).map(warning => <p key={warning} className="agency-vehicle-warning">{warning}</p>)}
       {!data.patterns.length ? <p className="agency-caption">No continuous stop pattern is indexed for this service day.</p> : <div className="agency-line-directions" style={{ gridTemplateColumns: `repeat(${visiblePatterns.length}, minmax(0, 1fr))` }}>{visiblePatterns.map((pattern, directionIndex) => {
         const up = directionIndex % 2 === 1
         const Arrow = up ? ArrowUp : ArrowDown
@@ -79,7 +96,7 @@ export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showS
         const stops = pattern.stops.map((stop, index) => ({ ...stop, index }))
         if (up) stops.reverse()
         return <section className={`agency-line-direction ${up ? 'is-up' : ''}`} key={pattern.directionId ?? 'unknown'} aria-label={`Toward ${pattern.stops.at(-1)?.name}`}>
-          <header><Arrow size={18} /><div><strong>To {pattern.stops.at(-1)?.name}</strong><small>{vehicles.length} reported {vehicles.length === 1 ? 'vehicle' : 'vehicles'}{otherVehicles.length ? ` · ${otherVehicles.length} on other stop patterns` : ''}</small></div></header>
+          <header><Arrow size={18} /><div><strong>To {pattern.stops.at(-1)?.name}</strong><small>{!loadedData ? 'Live positions pending' : `${vehicles.length} reported ${vehicles.length === 1 ? 'vehicle' : 'vehicles'}`}{otherVehicles.length ? ` · ${otherVehicles.length} on other stop patterns` : ''}</small></div></header>
           {patterns.length > 1 ? <select aria-label={`Stop pattern toward ${pattern.stops.at(-1)?.name}`} value={pattern.id} onChange={event => { const next = patterns.find(item => item.id === event.target.value); if (next) choosePattern(next) }}>{patterns.map(item => <option key={item.id} value={item.id}>{patternLabel(item)} · {data.vehicles.filter(vehicle => vehicle.patternId === item.id && vehicle.callIndex !== null).length} vehicles</option>)}</select> : <p className="agency-line-origin">From {pattern.stops[0]?.name}</p>}
           {!paired ? <ol>{stops.map(stop => {
             const at = vehicles.filter(vehicle => vehicle.callIndex === stop.index && atReportedStop(vehicle))

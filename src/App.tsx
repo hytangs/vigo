@@ -1939,7 +1939,7 @@ function RouteSurface({
         ) : null}
       </div>
       <div className="surface-panel route-map-shell">
-        {showAgencyLine ? <AgencyRouteLine key={`${projectId}/${selectedRouteId}`} projectId={projectId} routeId={isNetworkMap ? '' : selectedRoute ? networkRouteId(selectedRoute) : selectedRouteId} selectedStopId={selectedStopId} showStopDetails={false} onSelectStop={onSelectStop} /> : <LazyVigoMap
+        {showAgencyLine ? <AgencyRouteLine key={`${projectId}/${selectedRouteId}`} projectId={projectId} preview={focusedPreview} routeId={isNetworkMap ? '' : selectedRoute ? networkRouteId(selectedRoute) : selectedRouteId} selectedStopId={selectedStopId} showStopDetails={false} onSelectStop={onSelectStop} /> : <LazyVigoMap
           showStopDetails={!agencyFocus}
           focusLocation={agencyFocus ? agencyLocation : undefined}
           projectId={projectId}

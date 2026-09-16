@@ -21,6 +21,15 @@ assert.equal(scheduleDeviation(1000, null), null)
 
 const server = await createServer({ configFile: false, plugins: [react()], server: { middlewareMode: true }, appType: 'custom' })
 try {
+  const { AgencyRouteLine } = await server.ssrLoadModule('/src/components/AgencyRouteLine.tsx')
+  const initialLine = renderToStaticMarkup(createElement(AgencyRouteLine, { projectId: 'city', routeId: 'R', preview: {
+    routes: [{ id: 'R', directionId: '0', shortName: 'R', color: '#abcdef', stopIds: ['A', 'B'], tripCount: 2 }],
+    stops: [{ id: 'A', name: 'Alpha station' }, { id: 'B', name: 'Beta station' }],
+  } }))
+  assert.match(initialLine, /Alpha station/)
+  assert.match(initialLine, /Beta station/)
+  assert.match(initialLine, /Live positions pending/)
+  assert.doesNotMatch(initialLine, /Reading the route|0 reported vehicles/, 'Render known stops before any API response without implying zero live vehicles')
   const { AgencyServiceEvents } = await server.ssrLoadModule('/src/components/AgencyServiceEvents.tsx')
   const alertHtml = renderToStaticMarkup(createElement(AgencyServiceEvents, { state: { routes: [], events: [{ id: 'delay', type: 'delay', severity: 'warning', title: 'Departure later than scheduled', evidence: { delaySeconds: 600, alertReason: 'Predicted departure is at least 5 minutes late.' } }] }, ready: true, filter: 'all', onFilter() {}, onSelect() {} }))
   assert.match(alertHtml, /Warning · Departure later than scheduled/)
