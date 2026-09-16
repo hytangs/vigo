@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { apiJson } from '../app/api'
 import type { VehicleTiming } from '../agency/routeOperationsTypes'
 import { vehicleDelayLabel } from './AgencyVehicleDetails'
 
 type Trip = { id: string; directionId: string | null; destination: string; departure: number; arrival: number }
-type Timetable = { timezone: string; trips: Trip[]; trip: (Trip & { serviceDate: string; status: string; predictionAt: number | null; calls: Array<{ stop: { id: string; name: string }; index: number; status: string; arrival: VehicleTiming['arrival']; departure: VehicleTiming['departure'] }> }) | null }
+type Timetable = { timezone: string; trips: Trip[]; trip: (Trip & { serviceDate: string; status: string; predictionAt: number | null; sourceUrl?: string | null; calls: Array<{ stop: { id: string; name: string }; index: number; status: string; progress?: string | null; lastPrediction?: Partial<Record<'arrival' | 'departure', { time: number; observedAt: number | null }>>; arrival: VehicleTiming['arrival']; departure: VehicleTiming['departure'] }> }) | null }
 
 export function AgencyTripTimetable({ projectId, routeId }: { projectId: string; routeId: string }) {
+  const retained = useRef<{ key: string; source?: string | null; calls: Map<number, NonNullable<NonNullable<Timetable['trip']>['calls'][number]['lastPrediction']>> }>({ key: '', calls: new Map() })
   const [selection, setSelection] = useState('')
   const [date, setDate] = useState('')
   const [data, setData] = useState<Timetable | null>(null)
@@ -23,6 +24,23 @@ export function AgencyTripTimetable({ projectId, routeId }: { projectId: string;
         const result = await apiJson<Timetable>(`/api/projects/${encodeURIComponent(projectId)}/agency`, { method: 'POST', body: JSON.stringify({ action: 'route-line', routeId, includeTrips: true, tripId: selection || undefined, serviceDate: date || undefined }), signal: controller.signal })
         if (!result || !Array.isArray(result.trips) || !('trip' in result) || (result.trip !== null && !Array.isArray(result.trip?.calls))) {
           throw new Error('Trip timetable is unavailable from this API version. Restart the local API server to load the updated timetable. This view will retry automatically.')
+        }
+        if (!controller.signal.aborted && result.trip) {
+          const trip = result.trip
+          const key = JSON.stringify([projectId, routeId, trip.id, trip.serviceDate])
+          if (retained.current.key !== key || (trip.sourceUrl && retained.current.source && trip.sourceUrl !== retained.current.source)) retained.current = { key, calls: new Map() }
+          if (trip.sourceUrl) retained.current.source = trip.sourceUrl
+          if (!['Predictions available', 'Scheduled only', 'Stale report'].includes(trip.status)) retained.current.calls.clear()
+          for (const call of trip.calls) {
+            if (call.status) { retained.current.calls.delete(call.index); continue }
+            const previous = retained.current.calls.get(call.index) || {}
+            for (const event of ['arrival', 'departure'] as const) {
+              const time = call[event].current
+              if (time !== null) previous[event] = { time, observedAt: trip.predictionAt }
+            }
+            retained.current.calls.set(call.index, previous)
+            call.lastPrediction = { ...previous }
+          }
         }
         if (!controller.signal.aborted) { setData(result); setError(''); if (!selection && result.trip) setSelection(result.trip.id) }
       } catch (reason) { if (!controller.signal.aborted) { setData(null); setError(reason instanceof Error ? reason.message : 'Trip timing unavailable.') } }
@@ -47,11 +65,14 @@ export function AgencyTripTimetable({ projectId, routeId }: { projectId: string;
     {error ? <p role="alert">{error}</p> : !data ? <p role="status">Loading timetable…</p> : !data.trip ? <p>No indexed fixed-schedule trips for this service date.</p> : <>
       <h2>To {data.trip.destination}</h2><p>{data.trip.status} · {data.trip.serviceDate} · {data.timezone}</p>
       <p>Predictions only · actual times unavailable.</p>
-      <div className="agency-trip-table-scroll"><table aria-label={`Scheduled and predicted ${kind} times`}><thead><tr><th scope="col">Stop</th><th scope="col">Scheduled</th><th scope="col">Predicted</th></tr></thead><tbody>{data.trip.calls.map(call => {
+      <div className="agency-trip-table-scroll"><table aria-label={`Scheduled and predicted ${kind} times`}><thead><tr><th scope="col">Stop</th><th scope="col">Scheduled</th><th scope="col">Live / last prediction</th></tr></thead><tbody>{data.trip.calls.map(call => {
         const event = call[kind]
-        return <tr key={call.index}><th scope="row"><span className="agency-trip-stop">{call.stop.name}</span>{call.status ? <small>{call.status}</small> : null}</th><td>{clock(event.scheduled)}</td><td>{clock(event.current)}{event.current !== null && event.scheduled !== null ? <small>{vehicleDelayLabel(event.current - event.scheduled)}</small> : null}</td></tr>
+        const last = event.current === null ? call.lastPrediction?.[kind] : undefined
+        const value = event.current ?? last?.time ?? null
+        const label = last ? 'Last prediction' : event.current !== null ? call.progress === 'Passed' ? 'Reported prediction' : call.progress === 'Upcoming' || call.progress === 'Next stop' ? 'Upcoming prediction' : 'Prediction' : 'No data'
+        return <tr key={call.index}><th scope="row"><span className="agency-trip-stop">{call.stop.name}</span>{call.status || call.progress ? <small>{call.status || call.progress}</small> : null}</th><td>{clock(event.scheduled)}</td><td>{clock(value)}<small>{label}{last?.observedAt ? ` · updated ${clock(last.observedAt)}` : ''}</small>{value !== null && event.scheduled !== null ? <small>{vehicleDelayLabel(value - event.scheduled)}</small> : null}</td></tr>
       })}</tbody></table></div>
-      <details className="agency-trip-source"><summary>Timing &amp; source</summary><p className="agency-caption">{data.trip.predictionAt ? `Trip update ${clock(data.trip.predictionAt)}. ` : ''}— means unavailable. Predictions do not confirm arrival or departure. Frequency-based trips require a trip-instance timetable.</p></details>
+      <details className="agency-trip-source"><summary>Timing &amp; source</summary><p className="agency-caption">{data.trip.predictionAt ? `Trip update ${clock(data.trip.predictionAt)}. ` : ''}Passed and current-stop labels use a fresh vehicle-position report. Last predictions are retained while viewing this trip; they are not actual times. — means unavailable. Predictions do not confirm arrival or departure. Frequency-based trips require a trip-instance timetable.</p></details>
     </>}
   </section>
 }

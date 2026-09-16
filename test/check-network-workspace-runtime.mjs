@@ -34,7 +34,10 @@ const noop = () => {};
 const root = createRoot(document.getElementById('root'));
 let appearance='light', renderKey=0, failLatestBriefing=true;
 const shell = child => React.createElement('div',{className:'app-shell appearance-'+appearance+' page-project view-agency',style:{display:'block',height:'100vh',maxWidth:'480px'}},child);
-let observationReads = 0, legacyTimetable = false;
+let observationReads = 0, legacyTimetable = false, omitTimetablePredictions = false;
+const timetablePolls = new Map(), originalInterval = window.setInterval, originalClearInterval = window.clearInterval;
+window.setInterval = (callback, ms, ...args) => {const id=originalInterval(callback,ms,...args);if(ms===15000)timetablePolls.set(id,callback);return id};
+window.clearInterval = id => {timetablePolls.delete(id);originalClearInterval(id)};
 let selectedScope = {}, activeSnapshot = null, browseRequest = 0, holdObservation = false, providerAvailable = true, failNextObservation = false;
 const pendingObservations = [], pendingQuestions = [], downloads = [], blobs = new Map();
 const originalFetch = window.fetch;
@@ -49,6 +52,11 @@ window.fetch = (url, init) => {
   return originalFetch(url, init).then(async response=>{
     if(legacyTimetable && init?.method === 'POST' && JSON.parse(init.body).includeTrips && response.ok) {
       const result=await response.json(); delete result.trips; delete result.trip; return Response.json(result);
+    }
+    if(omitTimetablePredictions && init?.method === 'POST' && JSON.parse(init.body).includeTrips && response.ok) {
+      const result=await response.json();
+      result.trip?.calls.forEach(call=>{call.arrival.current=null;call.departure.current=null});
+      return Response.json(result);
     }
     if(!providerAvailable && String(url).includes('/agency?') && response.ok) {
       const state=await response.json();
@@ -316,6 +324,15 @@ window.routeCheck = async () => {
   await wait(()=>document.querySelector('.agency-trip-timetable select').value==='T2' && document.querySelector('.agency-trip-timetable tbody tr'));
   await wait(()=>document.querySelector('.agency-trip-timetable tbody')?.textContent.includes('12:28'));
   check(document.querySelector('.agency-trip-timetable select').value==='T2','Changing the trip updates its predictions');
+  omitTimetablePredictions=true;
+  for(const poll of timetablePolls.values()) poll();
+  await wait(()=>document.querySelector('.agency-trip-timetable tbody')?.textContent.includes('Last prediction'));
+  check(document.querySelector('.agency-trip-timetable tbody').textContent.includes('12:28'),'Dropped feed predictions retain their earlier value with an explicit historical label');
+  chooser.value='T1';chooser.dispatchEvent(new Event('change',{bubbles:true}));
+  await wait(()=>document.querySelector('.agency-trip-timetable tbody')?.textContent.includes('No data') && !document.querySelector('.agency-trip-timetable tbody').textContent.includes('Last prediction') && document.querySelector('.agency-trip-timetable select').value==='T1');
+  check(!document.querySelector('.agency-trip-timetable tbody').textContent.includes('Last prediction'),'Retained predictions cannot leak between trips');
+  omitTimetablePredictions=false;
+
 };
 window.layoutCheck = async () => {
   const panel=document.querySelector('.agency-panel'); panel.style.height=innerHeight<=400?'176px':'100vh';

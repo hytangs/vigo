@@ -49,6 +49,16 @@ try {
 
   const timetable = (tripId = 'T1') => routeOperations(context, snapshot, { routeId: 'R', includeTrips: true, tripId }, observationTime)
   let table = timetable()
+  assert.equal(table.trip.calls[0].progress, 'Passed')
+  assert.ok(['At stop', 'Next stop'].includes(table.trip.calls[1].progress))
+  assert.equal(table.trip.calls[2].progress, 'Upcoming')
+  const originalStamp = snapshot.vehicles[0].timestamp
+  snapshot.vehicles[0].timestamp = observationTime - 181
+  assert.ok(timetable().trip.calls.every(call => call.progress === null), 'Stale vehicle positions cannot establish passed stops')
+  snapshot.vehicles[0].timestamp = originalStamp
+  snapshot.vehicles.push({ ...snapshot.vehicles[0], id: 'ambiguous-position' })
+  assert.ok(timetable().trip.calls.every(call => call.progress === null), 'Ambiguous vehicle positions cannot establish progress')
+  snapshot.vehicles.pop()
   assert.equal(table.trips.length, 7, 'All fixed timetable trips are available, including trips without vehicles')
   assert.deepEqual(table.trip.calls[1].arrival, { scheduled: epoch + 43740, current: epoch + 43860 })
   assert.deepEqual(table.trip.calls[1].departure, { scheduled: epoch + 43800, current: epoch + 43980 })

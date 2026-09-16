@@ -277,12 +277,20 @@ function routeTripTimetable(context, snapshot, routeId, serviceDate, tripId, now
     : update.scheduleRelationship && update.scheduleRelationship !== 'SCHEDULED' ? update.scheduleRelationship : 'Predictions available'
   const usable = status === 'Predictions available'
   const { calls } = tripCalls(context, selected.id)
+  const vehicles = (snapshot?.vehicles ?? []).filter(vehicle => {
+    const identity = context.matchTripIdentity(vehicle, serviceDate)
+    return identity.trip?.trip_id === selected.id && identity.serviceDate === serviceDate
+  })
+  const vehicle = vehicles.length === 1 && fresh(vehicles[0], feeds, now, policy, true)
+    && (!vehicles[0].scheduleRelationship || vehicles[0].scheduleRelationship === 'SCHEDULED') ? vehicles[0] : null
+  const position = vehicle && ['STOPPED_AT', 'INCOMING_AT', 'IN_TRANSIT_TO'].includes(vehicle.currentStatus)
+    ? matchCall(calls, vehicle.stopId, vehicle.currentStopSequence) : null
   const reports = new Map()
   for (const report of usable ? update.stopTimeUpdates ?? [] : []) {
     const call = matchCall(calls, report.stopId, report.stopSequence)
     if (call) reports.set(call.index, [...(reports.get(call.index) ?? []), report])
   }
-  return { trips, trip: { ...selected, serviceDate, status,
+  return { trips, trip: { ...selected, serviceDate, status, sourceUrl: update?.sourceUrl ?? null,
     predictionAt: update?.timestamp ?? (update ? feeds.get(update.sourceUrl)?.feedTimestamp : null) ?? null,
     calls: calls.map((call, index) => {
       const arrival = finite(call.arrival) ? epoch + call.arrival : null
@@ -292,6 +300,7 @@ function routeTripTimetable(context, snapshot, routeId, serviceDate, tripId, now
       const relationship = report?.scheduleRelationship
       const timing = report && (!relationship || relationship === 'SCHEDULED') ? stopPrediction(report, arrival, departure) : null
       return { stop: station(context, call.stopId), index,
+        progress: position ? index < position.index ? 'Passed' : index === position.index ? vehicle.currentStatus === 'STOPPED_AT' ? 'At stop' : 'Next stop' : 'Upcoming' : null,
         status: candidates.length > 1 ? 'Unresolved' : relationship && relationship !== 'SCHEDULED' ? relationship : timing?.issue || '',
         arrival: { scheduled: arrival, current: timing?.arrival ?? null }, departure: { scheduled: departure, current: timing?.departure ?? null } }
     }) } }
