@@ -12,16 +12,20 @@ export function AgencyActivity({ activities, busy, trace }: {
   if (!busy && !trace.length && !stopped && !interrupted) return null
   const current = busy ? activities.filter((item) => item.progress < 1).at(-1) : undefined
   const progress = activities.filter((item) => item.phase !== 'planning' || !trace.length && activities.length === 1)
-  const visible = (progress.length ? progress : trace.map((call, index) => ({
+  const tools = trace.map((call, index) => ({
     phase: `tool-${index}`, progress: call.result.ok ? 1 : 0,
     detail: `${toolNames[call.tool] || humanField(call.tool)}: ${call.result.ok ? 'Complete' : call.result.warnings[0] || 'Could not complete'}`,
-  }))).filter((item) => item !== current)
+  }))
+  const visible = (!busy && tools.length ? tools : progress.length ? progress : tools).filter((item) => item !== current)
   const completed = trace.filter((call) => call.result.ok).length
-  const count = completed === trace.length ? `${completed} ${completed === 1 ? 'check' : 'checks'} completed` : `${completed} of ${trace.length} checks completed`
+  const failed = completed < trace.length
+  const count = trace.length === 1
+    ? `${toolNames[trace[0].tool] || humanField(trace[0].tool)} · ${completed ? 'complete' : 'failed'}`
+    : failed ? `${completed} of ${trace.length} tools completed` : `${completed} tools used`
 
   return <details className="agency-activity" open={busy}>
     <summary>
-      {busy ? <LoaderCircle size={14} className="agency-spinner" /> : interrupted ? <CircleAlert size={14} /> : <Check size={14} />}
+      {busy ? <LoaderCircle size={14} className="agency-spinner" /> : interrupted || failed ? <CircleAlert size={14} /> : <Check size={14} />}
       <span aria-live="polite">{busy ? current?.detail || 'Checking your request…' : stopped ? 'Stopped · saved for later' : interrupted ? 'Response interrupted' : count}</span>
       {visible.length || trace.length ? <ChevronRight size={14} /> : null}
     </summary>

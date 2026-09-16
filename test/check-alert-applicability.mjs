@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { alertSelectors, alertInScope } from '../src/agency/alertApplicability.mjs'
+import { alertSelectors, alertInScope, describeAlertScope } from '../src/agency/alertApplicability.mjs'
 import { eventInSelection, selectedStopIds } from '../src/agency/workspaceSelection.mjs'
 
 const routes = [{ route_id: 'R1', route_type: 3, agency_id: 'A' }, { route_id: 'R2', route_type: 2, agency_id: 'B' }]
@@ -14,6 +14,8 @@ assert.equal(match(pairs, 'R2', 'S2'), true)
 assert.equal(match(pairs, 'R1', 'S2'), false)
 assert.equal(match(pairs, 'R2', 'S1'), false)
 assert.equal(match(pairs, 'R1'), true, 'A route overview can show a stop-specific notice with its selector retained')
+assert.equal(describeAlertScope([...pairs.selectors, ...pairs.selectors], context), describeAlertScope(pairs.selectors, context), 'Repeated selectors must not repeat their displayed route and stop names')
+assert.equal(describeAlertScope([{ unresolved: ['route'] }, { unresolved: ['agency'] }], context), 'Part of this notice has an unresolved scope.', 'Unresolved scope stays visible once without changing selector applicability')
 const selection = { route: { id: 'R1' }, stop: { id: 'P' } }
 assert.equal(eventInSelection(pairs, selection, selectedStopIds(context, selection)), true)
 assert.equal(eventInSelection(pairs, { ...selection, route: { id: 'R2' } }, selectedStopIds(context, selection)), false)

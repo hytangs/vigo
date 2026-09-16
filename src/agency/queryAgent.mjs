@@ -16,7 +16,7 @@ import { boardingFareEvidence } from '../fares.mjs'
 import { publicReply as replyText } from './publicReply.mjs'
 import { normalizeArguments } from './toolArguments.mjs'
 import { inspectUnverifiedReply } from './replyInspection.mjs'
-import { assessmentChoices, renderAssessment } from './serviceAssessment.mjs'
+import { assessmentChoices, renderAssessment, serviceChecks } from './serviceAssessment.mjs'
 
 const workspaceTool = { name: 'workspace_selection', description: 'Read the verified route/station currently selected in the workspace, including names, IDs and coordinates. Use when the question asks which station/route is selected, or needs its coordinates. Operational checks can use assess_service selected_route/selected_stop directly without this lookup. No trip or vehicle is selected.',
   parameters: { type: 'object', properties: {}, additionalProperties: false } }
@@ -549,6 +549,7 @@ export async function queryAgency({ question, context, state, callTool, provider
 }
 
 function describeTool(name, args, context) {
+  if (name === 'assess_service') return `Checking ${args.targets?.every(target => target.kind === 'network') ? 'network ' : ''}service evidence…`
   if (name === 'service_timing') return args.view === 'vehicles' ? 'Checking reported vehicles…' : args.view === 'prediction_history' ? 'Comparing retained vehicle predictions…' : args.view === 'cycle' ? 'Comparing terminal-to-terminal running times…' : 'Checking the vehicle’s terminal times…'
   if (name === 'route_plan' && args.modes?.length > 1) return 'Comparing transit and driving for the same journey…'
   if (name === 'current_time') return 'Checking the current clock…'
@@ -564,6 +565,7 @@ function describeTool(name, args, context) {
 }
 
 function describeToolResult(name, { data }) {
+  if (name === 'assess_service') return `Checked: ${[...new Set((data.sections || []).map(section => serviceChecks[section.check]).filter(Boolean))].join('; ') || 'the requested service evidence'}.`
   if (data.status === 'needs_location_choice') return name === 'place_search' ? 'Found choices for the search starting point.' : 'Found location choices for the journey.'
   if (name === 'route_plan' && data.journeys?.length) return data.journeys.map(item => `${item.mode === 'drive' ? 'Driving' : 'Transit'} ${item.status === 'ready' ? 'calculated' : 'unavailable'}`).join(' · ')
   if (name === 'current_time') return 'Checked the current time and timezone.'

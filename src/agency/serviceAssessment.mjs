@@ -1,6 +1,7 @@
 import { inspectOperationalService } from './serviceInspection.mjs'
 import { diagnoseNetwork } from './networkDiagnosis.mjs'
 import { networkNarrative } from './networkNarrative.mjs'
+import { networkPriorityRoutes, networkPriorityText, noticeSummary } from './serviceAssessmentText.mjs'
 
 // The model chooses the questions and exact entities. Computation supplies the
 // statements and their limits; composition can order them, not rewrite values.
@@ -45,7 +46,7 @@ export async function assessService(environment, args) {
     if (!cache.has(key)) cache.set(key, inspectOperationalService(environment, inputs))
     return cache.get(key)
   }
-  const checks = args.period === 'historical' ? ['history'] : [...new Set(args.checks)].filter(check => !(check === 'causes' && args.checks.includes('alert_coverage')) && !(check === 'coverage' && args.checks.includes('outlook')))
+  const checks = args.period === 'historical' ? ['history'] : [...new Set(args.checks)].filter(check => !(check === 'causes' && args.checks.includes('alert_coverage')) && !(check === 'coverage' && args.checks.includes('outlook')) && !(check === 'spacing' && args.checks.includes('conditions') && args.targets.every(target => target.kind === 'network')))
   const sections = [], inspections = []
   const add = (target, check, text) => sections.push({ id: `s${sections.length + 1}`, target, check, title: serviceChecks[check], text })
   let preface = ''
@@ -55,7 +56,10 @@ export async function assessService(environment, args) {
     if (target.kind !== 'network' && !target.name) throw new Error('A named target needs its route, station, vehicle or trip identity.')
     const scope = target.kind === 'network' ? {} : { [({ route: 'routeNames', stop: 'stopIds', vehicle: 'vehicleId', trip: 'tripId' })[target.kind]]: ['route', 'stop'].includes(target.kind) ? [target.name] : target.name }
     const d = await inspect(scope)
-    inspections.push({ target, data: d })
+    inspections.push({ target, data: d, ...(target.kind === 'network' && checks.includes('conditions') ? {
+      priorityEvidence: networkPriorityRoutes(diagnosis).map(route => ({ routeId: route.id, route: route.name, cancelledTrips: route.cancelledTrips,
+        measuredTrips: route.measuredTrips, laterTrips: route.laterTrips, earlierTrips: route.earlierTrips, maxDelaySeconds: route.maxDelaySeconds, widest: route.widest })),
+    } : {}) })
     if (['vehicle', 'trip'].includes(target.kind) && !d.matchedTripReports && !d.freshVehicleReports) {
       add(target.name, 'conditions', `No matching ${target.kind} report was found for “${target.name}”. Confirm its ${target.kind === 'vehicle' ? 'fleet number' : 'trip ID and service date'}. No report does not establish that it is out of service.${checks.includes('resources') ? ' Maintenance clearance, fault logs and crew/block assignments are not connected; identifying the vehicle does not supply those records.' : ''}`)
       continue
@@ -65,31 +69,28 @@ export async function assessService(environment, args) {
     const scopeNote = target.kind === 'network' || target.kind === 'route' ? 'These are predictions for reporting trips, not actual passages or all service.' : 'Route totals describe the whole route; the selected vehicle or stop is assessed separately.'
     const changedPairs = d.intervals.filter(row => row.predictedMinutes !== row.scheduledMinutes)
     const pairText = changedPairs.map(row => `${row.route} at ${row.stop}: ${n(row.predictedMinutes)} min between predicted departures versus ${n(row.scheduledMinutes)} min scheduled`).join('; ')
-    const notices = d.notices.filter(row => !['ACCESSIBILITY_ISSUE', 'NO_EFFECT'].includes(row.effect))
-    const noticeText = notices.map(row => `${row.scopeDescription || list(row.routes.map(r => r.name))}: ${row.title}${row.cause && row.cause !== 'UNKNOWN_CAUSE' ? ` (agency-reported cause: ${row.cause.toLowerCase().replaceAll('_', ' ')})` : ''}`).join('; ')
+    const noticeText = noticeSummary(d, target.kind === 'network' && checks.includes('conditions') ? { priorityRouteIds: networkPriorityRoutes(diagnosis).map(route => route.id) } : {})
     let history, occupancy, agreement
     for (const check of checks) {
       let text
       if (check === 'conditions') {
         if (target.kind === 'network') {
-          const narrative = networkNarrative(diagnosis)
-          const matching = diagnosis.routes.filter(row => row.measuredTrips > 0 && row.matchingTrips === row.measuredTrips)
-          text = `${narrative.overview} ${narrative.sections.filter(row => !checks.includes('spacing') || row.id !== 'spacing').map(row => `${row.title}: ${row.text}`).join(' ')}${matching.length ? ` Reporting trips on ${list(matching.map(row => row.name))} match their next scheduled departures.` : ''} ${diagnosis.coverage.unknownTrips} scheduled ${diagnosis.coverage.unknownTrips === 1 ? 'trip has' : 'trips have'} no usable report.`
+          text = networkPriorityText(diagnosis, networkNarrative(diagnosis).overview)
         } else if (target.kind === 'route') text = `${label} — ${routeText || 'No comparable predictions are available'}. ${pairText && !checks.includes('spacing') ? `Spacing also needs attention: ${pairText}. ` : ''}${scopeNote}`
         else text = `${label}: ${d.trips.length ? d.trips.map(row => `${row.route}, next compared departure at ${row.stop}, scheduled ${row.scheduled}, predicted ${row.predicted} (${n(row.delayMinutes)} min deviation)`).join('; ') : 'no matching upcoming departure predictions'}. ${scopeNote}`
-        if (noticeText && !checks.includes('causes') && !checks.includes('alert_coverage')) text += ` Agency notice: ${noticeText}. Its cause applies only to the stated scope.`
+        if (noticeText && !checks.includes('causes') && !checks.includes('alert_coverage')) text += `\n\n${noticeText}`
         if (!checks.includes('occupancy')) {
           occupancy ??= await inspect({ ...scope, aspect: 'vehicle_reports' })
           const full = occupancy.vehicles.filter(row => row.occupancy === 'FULL')
           if (full.length) text += ` Full occupancy is reported by ${full.map(row => `${row.route} vehicle ${row.vehicle}`).join(', ')}; this is not a passenger count or a demand diagnosis.`
         }
         const access = d.notices.filter(row => row.effect === 'ACCESSIBILITY_ISSUE')
-        if (access.length) text += ` Separate access notice: ${access.map(row => row.title).join('; ')}.`
+        if (access.length) text += `\n\n${access.length} accessibility ${access.length === 1 ? 'notice is' : 'notices are'} included in the checked evidence; these do not establish running delays.`
       } else if (check === 'spacing') {
         const close = d.routes.reduce((sum, row) => sum + row.closerPairs, 0), wide = d.routes.reduce((sum, row) => sum + row.widerPairs, 0)
         text = `${label}: ${target.kind === 'network' || target.kind === 'route' ? `the returned route comparisons contain ${close} closer and ${wide} wider distinct departure pairs. ` : ''}${pairText || (d.totalIntervalPairs ? 'Available departure pairs match their scheduled spacing' : 'No comparable departure pair is available')}. Predictions alone do not establish measured bunching or persistence.`
       } else if (check === 'causes' || check === 'alert_coverage') {
-        text = `${label}: ${noticeText ? `the agency reports ${noticeText}. This applies only to the notice's stated services and location.` : 'no matching current operational notice establishes a cause.'} ${d.concentrations.length ? `Late predictions overlap at ${list(d.concentrations.map(row => row.place))}; compare the same trips before and after that area to test a shared disruption.` : 'Check upstream and terminal departure records to distinguish carried-in delay from a local problem.'} Neither a shared delay pattern nor the absence of a notice establishes a common or separate cause.`
+        text = `${noticeText || `${label}: no matching current operational notice establishes a cause.`}\n\n${d.concentrations.length ? `Late predictions overlap around ${d.concentrations[0].place}; compare those trips upstream and downstream to test a shared disruption.` : 'Compare upstream and terminal departures to distinguish carried-in delay from a local problem.'} A shared delay pattern does not establish a common cause.`
         if (check === 'alert_coverage') text += ` ${d.routes.filter(row => row.laterTrips || row.cancelledTrips).map(row => row.route).join(', ') || 'No returned route'} has reported timing or cancellation issues; these need a selector-by-selector check against notice direction, stop and accessibility scope. Do not extend a notice's cause to uncovered services.`
       } else if (check === 'history') {
         history ??= await inspect({ ...scope, aspect: 'prediction_progression' })
@@ -120,7 +121,7 @@ export async function assessService(environment, args) {
       if (text) add(label, check, text)
     }
   }
-  return { kind: 'service_assessment', asOf: state.generatedAt, requested: args, preface, sections, inspections,
+  return { kind: 'service_assessment', presentationVersion: 2, asOf: state.generatedAt, requested: args, preface, sections, inspections,
     meaning: 'Verified checks and explicit capability limits. The model may prioritize these sections; it must not rewrite facts, add a cause, or omit a requested check.' }
 }
 
@@ -136,5 +137,6 @@ export function renderAssessment(data, ids = data.sections.map(row => row.id)) {
   const byId = new Map(data.sections.map(row => [row.id, row]))
   const selected = ids.map(id => byId.get(id))
   if (new Set(selected.map(row => row.target)).size !== new Set(data.sections.map(row => row.target)).size) throw new Error('Include each completed check target; do not omit a requested entity.')
-  return [data.preface, ...selected.map(row => row.text)].filter(Boolean).join('\n\n')
+  const titles = { conditions: 'Service to check', spacing: 'Departure spacing', causes: 'Agency notices and causes', alert_coverage: 'Notice coverage', history: 'Retained history', occupancy: 'Reported occupancy', coverage: 'Coverage', outlook: 'Scheduled exposure', interventions: 'Operational options', resources: 'Fleet and crew', rider_impact: 'Rider impact', data_quality: 'Data quality', communications: 'Rider message drafts', alternatives: 'Alternative journeys' }
+  return [data.preface, ...selected.map(row => selected.length > 1 ? `### ${titles[row.check] || row.title}${row.target !== 'Network' ? ` · ${row.target}` : ''}\n\n${row.text}` : row.text)].filter(Boolean).join('\n\n')
 }

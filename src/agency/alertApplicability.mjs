@@ -89,12 +89,12 @@ export function alertInScope(event, { routeId, stopIds, tripId, directionId, ser
 
 // Human-readable scope follows the same selectors used by the matcher.
 export function describeAlertScope(selectors, context) {
-  return selectors.map(selector => {
+  return [...new Set(selectors.map(selector => {
     if (selector.unresolved.length) return 'Part of this notice has an unresolved scope.'
     const routes = selector.routeIds.map(id => context.routeIndex.get(id)?.short_name || context.routeIndex.get(id)?.long_name || rawId(id))
     return [routes.length ? `Route ${routes.join(', ')}` : '', selector.stopId ? `at ${context.stopIndex.get(selector.stopId)?.name || rawId(selector.stopId)}` : '',
       selector.directionId != null ? `direction ${selector.directionId}` : '', selector.tripId ? `trip ${rawId(selector.tripId)}` : '', selector.serviceDate || ''].filter(Boolean).join(' · ')
-  }).filter(Boolean).join('; ')
+  }).filter(Boolean))].join('; ')
 }
 
 export function alertStopIds(context, ids) {

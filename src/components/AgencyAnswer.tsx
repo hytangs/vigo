@@ -13,12 +13,30 @@ import { StopArrivalBoardView } from './StopArrivalBoard'
 import type { StopBoard } from '../agency/routeOperationsTypes'
 import { publicReply } from '../agency/publicReply.mjs'
 import { journeyContinuityIssue } from '../journeyIntegrity.mjs'
+import { retainedNetworkAssessmentText } from '../agency/serviceAssessmentText.mjs'
 
 function answerText(text: string) {
   return publicReply(text).split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/g).map((part: string, index: number) => (
     part.startsWith('**') && part.endsWith('**') ? <strong key={index}>{part.slice(2, -2)}</strong>
       : part.startsWith('`') && part.endsWith('`') ? <code key={index}>{part.slice(1, -1)}</code> : part
   ))
+}
+export function AgencyAnswerText({ text }: { text: string }) {
+  const blocks: Array<{ kind: 'paragraph' | 'heading' | 'list' | 'ordered'; lines: string[] }> = []
+  for (const line of publicReply(text).split('\n')) {
+    if (!line.trim()) { blocks.push({ kind: 'paragraph', lines: [] }); continue }
+    const heading = line.match(/^#{1,6}\s+(.+)/)
+    const item = line.match(/^\s*(?:[-*]\s+|\d+[.)]\s+)(.+)/)
+    const kind = heading ? 'heading' : item ? /^\s*\d/.test(line) ? 'ordered' : 'list' : 'paragraph'
+    const last = blocks.at(-1)
+    const value = heading?.[1] || item?.[1] || line
+    if (kind !== 'heading' && last?.kind === kind && last.lines.length) last.lines.push(value)
+    else blocks.push({ kind, lines: [value] })
+  }
+  return <div className="agency-answer-text">{blocks.filter(block => block.lines.length).map((block, index) => block.kind === 'list' || block.kind === 'ordered'
+    ? block.kind === 'ordered' ? <ol key={index}>{block.lines.map((line, i) => <li key={i}>{answerText(line)}</li>)}</ol> : <ul key={index}>{block.lines.map((line, i) => <li key={i}>{answerText(line)}</li>)}</ul>
+    : block.kind === 'heading' ? <p className="agency-answer-heading" key={index}><strong>{answerText(block.lines.join(' '))}</strong></p>
+      : <p key={index}>{answerText(block.lines.join('\n'))}</p>)}</div>
 }
 function ServiceProfileChart({ rows }: { rows: Record<string, unknown>[] }) {
   if (!rows.every((row) => typeof row.service_hour === 'number' && typeof row.scheduled_trip_starts === 'number')) return null
@@ -59,6 +77,7 @@ export function AgencyToolOutput({ result, onSelectEvent, onOpenEntry, onResult 
 }
 
 export function AgencyAnswer({ answer, onResult, onSelectEvent, onOpenEntry }: { answer: QueryAnswer; onResult: (result: ToolResult) => void; onSelectEvent: (event: OperationalEvent) => void; onOpenEntry?: (id: number) => void }) {
+  const displayText = retainedNetworkAssessmentText(answer) || answer.answer
   const citedComparison = answer.aiGenerated ? answer.trace.find((call, index) => answer.citations?.includes(index + 1) && (call.result.data as { events?: OperationalEvent[] }).events?.some((event) => event.evidence.observedHeadwaySeconds != null)) : null
   const result = citedComparison?.result ?? answer.trace.filter((call) => call.result.ok).at(-1)?.result
   const lampResult = answer.trace.find(call => call.result.ok && (call.result.data as LampStudyData)?.dataset === 'MBTA LAMP subway performance')?.result
@@ -69,7 +88,7 @@ export function AgencyAnswer({ answer, onResult, onSelectEvent, onOpenEntry }: {
   })
   return <section className="agency-answer" aria-label="Answer">
     {answer.responseBasis && answer.responseBasis !== 'computed' ? <p className="agency-caption" title="Tool results and citations record the checks performed. They do not verify every claim written by the model.">{answer.responseBasis === 'model_only' ? 'AI response · no evidence checked in this turn' : 'AI interpretation · verify against the sources'}</p> : null}
-    {invalidJourney ? <p className="agency-caption">This saved journey failed a consistency check. Request a new journey.</p> : answer.diagnosis && answer.narrative ? <><p className="agency-caption">Saved assessment · {new Date(answer.generatedAt).toLocaleString([], { timeZone: answer.timezone || undefined })}</p><NetworkAssessment diagnosis={answer.diagnosis} narrative={answer.narrative} investigation={answer.investigation} /></> : !lampReport ? <p className="agency-answer-text">{answerText(answer.answer)}</p> : null}
+    {invalidJourney ? <p className="agency-caption">This saved journey failed a consistency check. Request a new journey.</p> : answer.diagnosis && answer.narrative ? <><p className="agency-caption">Saved assessment · {new Date(answer.generatedAt).toLocaleString([], { timeZone: answer.timezone || undefined })}</p><NetworkAssessment diagnosis={answer.diagnosis} narrative={answer.narrative} investigation={answer.investigation} /></> : !lampReport ? <AgencyAnswerText text={displayText} /> : null}
     {answer.scopeNote ? <p className="agency-caption">{answer.scopeNote}</p> : null}
     {answer.report?.rows.length && !lampResult ? <div className="agency-research-output"><div className="agency-section-heading"><div><h2>Evidence table</h2><span>{answer.report.rows.length} rows · retained with this note</span></div>{answer.report.rows.length ? <button className="agency-text-button" onClick={() => { const rows = answer.report!.rows; const columns = Object.keys(rows[0]); const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`; downloadText('agency-evidence.csv', [columns.map(cell).join(','), ...rows.map((row) => columns.map((key) => cell(row[key])).join(','))].join('\n'), 'text/csv') }}>Export CSV</button> : null}</div><AgencyToolOutput result={{ ok: true, data: { rows: answer.report.rows }, provenance: [], generatedAt: answer.generatedAt, warnings: [] }} /></div> : null}
     {lampResult ? <AgencyToolOutput result={lampResult} /> : null}
