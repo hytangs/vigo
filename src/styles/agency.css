@@ -300,7 +300,6 @@
 .network-assessment-controls select { background: var(--surface-bg); color: var(--text-muted); border: 1px solid var(--border); border-radius: 6px; padding: 5px; font: inherit; font-size: 12px; max-width: 120px; }
 .network-assessment-coverage { margin: 16px 0; color: var(--text-muted); font-size: 12px; }
 .network-assessment-coverage summary { cursor: pointer; }
-.network-assessment-coverage .agency-table-wrap { overflow-x: auto; max-height: 300px; }
 .network-assessment-coverage caption { text-align: left; padding: 8px 0; }
 .network-assessment-meter { height: 5px; border-radius: 3px; overflow: hidden; background: var(--border); }
 .network-assessment-meter > span { display: block; height: 100%; background: var(--vigo-lime-strong); }
@@ -477,3 +476,34 @@
 .agency-route-coverage { margin-top: 20px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 12px; }
 .agency-route-coverage summary { min-height: 44px; padding: 12px 0; cursor: pointer; }
 .agency-route-coverage p { margin: 8px 0; line-height: 1.6; }
+
+.network-route-conditions { container-type: inline-size; margin-top: 20px; color: var(--text); }
+.network-route-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+.network-route-heading h4 { margin: 0; font-size: 15px; color: var(--text-strong); }
+.network-route-heading > span { color: var(--text-muted); }
+.network-route-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.network-route-table caption { text-align: left; color: var(--text-muted); font-size: 12px; padding: 0 0 8px; }
+.network-route-table th, .network-route-table td { padding: 10px 8px; text-align: right; border-bottom: 1px solid var(--border); }
+.network-route-table thead th { font-size: 12px; color: var(--text-muted); font-weight: 500; white-space: nowrap; }
+.network-route-table th:first-child { text-align: left; }
+.network-route-table tbody th { font-weight: 600; color: var(--text-strong); }
+.network-route-table tbody tr:hover { background: var(--surface-bg); }
+.network-route-table .has-deviation { font-weight: 650; color: var(--text-strong); }
+.network-route-total, .network-route-basis { color: var(--text-muted); }
+.network-route-basis { display: block; font-size: 11px; }
+.network-route-pagination { display: flex; align-items: center; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.network-route-pagination > span { margin-right: auto; color: var(--text-muted); }
+.network-route-pagination button { padding: 6px 10px; min-height: 34px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-bg); color: var(--text); font: inherit; cursor: pointer; }
+.network-route-pagination button:disabled { opacity: .4; cursor: default; }
+.network-route-note { font-size: 12px; color: var(--text-muted); margin: 12px 0; }
+.network-assessment-method { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 16px; }
+@container (max-width: 560px) {
+  .network-route-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .network-route-table, .network-route-table tbody { display: block; }
+  .network-route-table tr { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 12px 0; border-bottom: 1px solid var(--border); gap: 12px 4px; }
+  .network-route-table th, .network-route-table td { border: 0; padding: 0; text-align: left; }
+  .network-route-table tbody th { grid-column: span 2; align-self: center; font-size: 14px; }
+  .network-route-table td[data-label="Reported"] { grid-column: span 2; text-align: right; }
+  .network-route-table td::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 400; color: var(--text-muted); }
+  .network-route-basis { display: inline; margin-left: 4px; }
+}

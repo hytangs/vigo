@@ -325,6 +325,12 @@ window.layoutCheck = async () => {
   for(const id of ['briefing','live','ask']) {
     document.getElementById('agency-tab-'+id).click();
     await wait(()=>document.getElementById('agency-'+id));
+    if(id==='briefing') {
+      document.querySelectorAll('.agency-secondary-section,.network-assessment-coverage').forEach(item=>item.open=true);
+      await settle();
+      const table=document.querySelector('.network-route-table');
+      if(table && table.scrollWidth>table.clientWidth+2) throw Error('Route conditions table overflows at '+innerWidth);
+    }
     const nav=document.querySelector('.agency-navigation').getBoundingClientRect();
     if(nav.top < 0 || nav.height > 90) throw Error('Navigation must remain compact and visible');
     const content=document.querySelector('.agency-scroll');
