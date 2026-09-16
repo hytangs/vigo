@@ -11,6 +11,7 @@ Vigo Projects/
 release/
 
 # Build and tool caches
+.vite/
 temp/
 tsconfig.tsbuildinfo
 native/*/target/
@@ -31,3 +32,6 @@ logs/
 tmp/
 # Optional LAMP research runtime bytecode
 __pycache__/
+
+# Generated replay evaluation reports
+artifacts/replay/evaluations/

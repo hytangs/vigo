@@ -14,8 +14,6 @@ The implementation reuses the operations ledger, finding transitions, knowledge 
 
 The replay clock pauses between actions. The 90-second decision lifetime uses that clock, not the operator's wall-clock reading time. Restart restores the active run and audit. New runs preserve previous records in the replay ledger; export a run before switching to retain its complete portable review package.
 
-![Synthetic holding comparisons](figures/operational-replay.png)
-
 | Synthetic case | No hold: modeled passenger-minutes | Baseline | Optimizer | Decision |
 | --- | ---: | --- | --- | --- |
 | Even service | 400 | 0 seconds | 0 seconds | No extra hold |
@@ -77,16 +75,6 @@ node test/check-operational-replay.mjs
 npm run evaluate:replay -- --ai
 ```
 
-Each evaluation writes a dated result under `artifacts/replay/evaluations`, retaining failures alongside successes. The [final two-call run](../artifacts/replay/evaluations/2026-09-14T06-34-25.693Z/results.json) completed all five scenarios in both modes. Deterministic assessment median was about 2 ms; AI assessment median was 9.8 seconds, with end-to-end maximum 12.2 seconds. The [earlier three-call run](../artifacts/replay/evaluations/2026-09-14T06-29-55.885Z/results.json) is retained too. Model cache state was uncontrolled; these small development measurements do not establish latency under operational load or a matched performance improvement.
+Each evaluation writes results under `artifacts/replay/evaluations/`. These generated reports are local outputs. The cases use synthetic inputs and developer-authored expectations; they do not establish staff decisions or observed service impact.
 
-Both modes selected acceptable **hold durations**, including zero under different candidate labels. Automated identities exercise approval/delivery; they are not human reviewers. Manual task time, staff corrections, message editing, actual inference price and observed service impact remain `null`. The deterministic interface already solves these cases. No incremental decision-quality benefit from AI has been demonstrated.
-
-Tests cover procedure scope/expiry/conflicts/supersession, malformed service identity, missing inputs, exhaustive integer verification of the optimizer, denied approvals, outdated revisions, atomic rollback, cancellation/deadlines, duplicate delivery, withdrawal and restart. Moving the package preserves computed evidence; the bundled server asset path was checked. This is portability verification on one machine, not independent agency replication.
-
-Development/evaluation used macOS ARM64, Node 26.7.0, and the existing `qwen3.5:4b` through Ollama. No larger model was loaded. Token counts are retained; subscription tier and monetary inference cost were not established. Coding, tests and this document are AI-assisted through Codex. The plot uses Python and Matplotlib 3.10.7:
-
-```sh
-python3 scripts/plot-operational-replay.py artifacts/replay/evaluations/2026-09-14T06-34-25.693Z/results.json
-```
-
-Operational use still requires an authorized agency package and named reviewer. Manual, deterministic and AI-assisted work must be compared with recorded corrections and independent outcomes. The named headway/RL/RSA/IPR/sentiment research assets remain unverified dependencies; no maintainer, weights, license or executable integration was invented. Hosted identity, background ingestion, real dispatch and accessibility-constrained routing remain outside this demonstration.
+Tests cover procedure scope, expiry, conflicts, optimizer calculations, denied approvals, outdated revisions, atomic rollback, cancellation, duplicate delivery, withdrawal and restart.
