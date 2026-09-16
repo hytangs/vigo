@@ -44,7 +44,7 @@ export function BackgroundTasks({ tasks, open, onOpenChange, onOpenData, onRecon
               return <li key={task.id} className={`background-task ${task.status === 'failed' ? 'is-failed' : task.status === 'complete' ? 'is-complete' : ''}`}>
                 <div className="background-task-heading">
                   {task.statusError || task.status === 'failed' ? <AlertCircle size={16} /> : task.status === 'complete' ? <CheckCircle2 size={16} /> : working ? <LoaderCircle size={16} className="task-spinner" /> : <Clock3 size={16} />}
-                  <strong>{task.kind === 'street-runtime-prepare' ? 'Walking and driving' : task.kind === 'city-data-load' ? 'Loading City' : task.kind === 'national-osm-import' ? 'OSM street networks' : task.kind === 'national-gtfs-merge' ? 'Combining transit feeds' : 'GTFS schedules'}</strong>
+                  <strong>{task.kind === 'vehicle-schedules' ? 'Static vehicle schedules' : task.kind === 'street-runtime-prepare' ? 'Walking and driving' : task.kind === 'city-data-load' ? 'Loading City' : task.kind === 'national-osm-import' ? 'OSM street networks' : task.kind === 'national-gtfs-merge' ? 'Combining transit feeds' : 'GTFS schedules'}</strong>
                   <span>{status}{working && !task.statusError && percent !== undefined ? ` · ${percent}%` : ''}</span>
                 </div>
                 <small className="background-task-source">{task.label}</small>
@@ -52,7 +52,7 @@ export function BackgroundTasks({ tasks, open, onOpenChange, onOpenData, onRecon
                 {working && !task.statusError ? <progress max={100} value={percent} aria-label={`${task.label} preparation progress`} /> : null}
                 {task.detail && task.detail !== task.error ? <small>{task.detail}</small> : null}
                 {task.statusError ? <button type="button" onClick={() => onReconnect(task)}>Reconnect to task</button> : null}
-                {!task.statusError && task.kind === 'street-runtime-prepare' && task.status === 'failed' ? <button type="button" onClick={() => onReconnect(task)}>Retry preparation</button> : null}
+                {!task.statusError && ['street-runtime-prepare', 'vehicle-schedules'].includes(task.kind) && task.status === 'failed' ? <button type="button" onClick={() => onReconnect(task)}>Retry preparation</button> : null}
               </li>
             })}</ul>
           )}

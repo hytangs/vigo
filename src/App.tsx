@@ -2,7 +2,7 @@ import { startPolling } from './app/polling'
 import { journeyContinuityIssue } from './journeyIntegrity.mjs'
 import { PrimaryNav, type RouteToolKey } from './components/PrimaryNav'
 import { findNetworkRoute, findNetworkStop, networkRouteId } from './app/networkSelection'
-import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, type DragEvent, type ReactNode, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
   type LucideIcon,
   Activity,
@@ -48,7 +48,7 @@ import { useNationalRouting } from './app/useNationalRouting'
 import { readRoutingDataModePreference, saveRoutingDataModePreference } from './app/routingDataMode'
 import { useStreetPreparation } from './app/useStreetPreparation'
 import { mergeGtfsRouteAnalysis, routeHasCompleteGtfsAnalysis, type GtfsRouteAnalysis } from './app/gtfsAnalysis'
-import { loadNetworkSchedules } from './app/networkSchedule'
+import type { NetworkScheduleResult } from './app/networkScheduleCollection'
 import { buildCityPreviewLod } from './app/cityPreview'
 import { filterPreviewByStatus, previewForSelectedRoute } from './app/mapPresentation'
 import { formatBytes } from './app/presentation'
@@ -2531,22 +2531,58 @@ export default function App() {
     const routeId = route.routeId || route.id
     return [`${feedId}/${routeId}`, { feedId, routeId }] as const
   })).values()].sort((a, b) => `${a.feedId}/${a.routeId}`.localeCompare(`${b.feedId}/${b.routeId}`)))
+  const [scheduleLoadRequest, setScheduleLoadRequest] = useState<{ key: string; projectId: string; label: string; serviceDate: string; requests: Array<{ feedId: string; routeId: string }> } | null>(null)
+  const scheduleLoadRequestsRef = useRef(new Map<string, NonNullable<typeof scheduleLoadRequest>>())
+  const [scheduleLoadRetry, setScheduleLoadRetry] = useState(0)
   useEffect(() => {
     if (page !== 'project' || activeRouteTool !== 'agency' || vehicleMode !== 'schedule') return
-    const controller = new AbortController()
     const requests = (JSON.parse(scheduleRequestsKey) as Array<{ feedId: string; routeId: string }>).filter(request => request.feedId)
-    setScheduleLoadStatus(requests.length ? `Loading schedules · 0/${requests.length} routes` : '')
-    void loadNetworkSchedules(requests, request => apiJson<{ feedId: string; analysis: GtfsRouteAnalysis }>(
-      `/api/projects/${encodeURIComponent(selectedProject.id)}/gtfs-route-analysis`,
-      { method: 'POST', signal: controller.signal, body: JSON.stringify({ ...request, serviceDate: routingServiceDate }) },
-    ), (results, completed, failures) => {
-      setProjects(current => current.map(project => project.id === selectedProject.id
-        ? results.reduce((next, result) => mergeGtfsRouteAnalysis(next, result.feedId, result.analysis), project) : project))
-      setScheduleLoadStatus(completed < requests.length ? `Loading schedules · ${completed}/${requests.length} routes`
-        : failures ? `${failures} route schedules unavailable` : 'Schedule loading complete')
-    }, controller.signal)
-    return () => controller.abort()
-  }, [page, activeRouteTool, vehicleMode, selectedProject.id, routingServiceDate, scheduleRequestsKey])
+    if (!requests.length) return
+    const key = JSON.stringify([selectedProject.id, routingServiceDate, scheduleRequestsKey])
+    setScheduleLoadRequest(current => current?.key === key ? current : { key, projectId: selectedProject.id, label: selectedProject.name, serviceDate: routingServiceDate, requests })
+  }, [page, activeRouteTool, vehicleMode, selectedProject.id, selectedProject.name, routingServiceDate, scheduleRequestsKey])
+  useEffect(() => {
+    if (!scheduleLoadRequest || scheduleLoadRequest.projectId !== selectedProject.id) return
+    const { projectId, label, serviceDate, requests } = scheduleLoadRequest
+    const controller = new AbortController()
+    const taskKey = `${projectId}:vehicle-schedules`
+    scheduleLoadRequestsRef.current.set(taskKey, scheduleLoadRequest)
+    const task: PreparationTask = { id: taskKey, kind: 'vehicle-schedules', label: `${label} · ${serviceDate}`, status: 'running', progress: 0, phase: `Loading full-day schedules · 0/${requests.length} routes`, createdAt: new Date().toISOString() }
+    setPendingPreparations(current => ({ ...current, [taskKey]: task }))
+    setScheduleLoadStatus(task.phase || '')
+    const worker = new Worker(new URL('./app/networkSchedules.worker.ts', import.meta.url), { type: 'module' })
+    const fail = (error: string) => {
+      if (controller.signal.aborted) return
+      worker.terminate()
+      setScheduleLoadStatus('Schedule loading failed')
+      setPendingPreparations(current => ({ ...current, [taskKey]: { ...task, status: 'failed', error } }))
+    }
+    worker.onerror = () => fail('The background schedule worker could not finish. Retry loading.')
+    worker.onmessage = (event: MessageEvent<{ type: string; completed: number; failures: number; results?: NetworkScheduleResult[]; error?: string }>) => {
+      if (controller.signal.aborted) return
+      const { type, completed, failures, results } = event.data
+      if (type === 'error') { fail(event.data.error || 'Could not load vehicle schedules.'); return }
+      const done = type === 'complete'
+      const phase = !done ? `Loading full-day schedules · ${completed}/${requests.length} routes`
+        : failures ? `${failures} route schedules unavailable; ${completed - failures} loaded` : `Full-day schedule ready · ${completed} routes`
+      // No partial timetable enters project/map state. Publish the entire day once.
+      if (done && results) {
+        startTransition(() => setProjects(current => controller.signal.aborted ? current : current.map(project => project.id === projectId
+          ? results.reduce((next, result) => mergeGtfsRouteAnalysis(next, result.feedId, result.analysis), project) : project)))
+        worker.terminate()
+      }
+      setScheduleLoadStatus(phase)
+      setPendingPreparations(current => ({ ...current, [taskKey]: { ...task, phase, progress: completed / requests.length,
+        status: !done ? 'running' : failures ? 'failed' : 'complete' } }))
+    }
+    worker.postMessage({ endpoint: new URL(`/api/projects/${encodeURIComponent(projectId)}/gtfs-route-analysis`, window.location.href).href, requests, serviceDate })
+    return () => {
+      controller.abort()
+      worker.terminate()
+      setPendingPreparations(current => current[taskKey]?.createdAt === task.createdAt && current[taskKey]?.status === 'running'
+        ? { ...current, [taskKey]: { ...current[taskKey], status: 'cancelled', phase: 'Schedule loading cancelled' } } : current)
+    }
+  }, [scheduleLoadRequest, selectedProject.id, scheduleLoadRetry])
   const searchResults = useMemo(() => {
     return buildSearchResults({
       query: deferredQuery,
@@ -4230,6 +4266,11 @@ export default function App() {
   }
 
   async function reconnectPreparation(task: PreparationTask) {
+    if (task.kind === 'vehicle-schedules') {
+      const request = scheduleLoadRequestsRef.current.get(task.id)
+      if (request) { setScheduleLoadRequest(request); setScheduleLoadRetry(value => value + 1) }
+      return
+    }
     if (task.kind === 'street-runtime-prepare') { streetPreparation.retry(); return }
     const projectId = selectedProject.id
     try {
