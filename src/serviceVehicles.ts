@@ -51,6 +51,9 @@ export type ServiceVehicleFrame = {
 
 type PreviewVehicleIndex = {
   routes: Map<string, RouteMetric>
+  selectableRoutes: Map<string, RouteMetric>
+  patternCounts: Map<string, number>
+  directions: Map<string, RouteMetric | null>
   routeCandidates: Map<string, Map<string, RouteMetric>>
   stops: Map<string, StopMetric>
   trips: Map<string, Map<string, { trip: ScheduledTrip; route: RouteMetric }>>
@@ -91,12 +94,23 @@ function previewVehicleIndex(preview: MapPreview) {
   if (cached) return cached
 
   const routes = new Map<string, RouteMetric>()
+  const selectableRoutes = new Map<string, RouteMetric>()
+  const patternCounts = new Map<string, number>()
+  const directions = new Map<string, RouteMetric | null>()
   const routeCandidates: PreviewVehicleIndex['routeCandidates'] = new Map()
   const stops = new Map<string, StopMetric>()
   const trips: PreviewVehicleIndex['trips'] = new Map()
 
   for (const route of preview.routes) {
+    for (const key of [route.id, route.patternId]) {
+      if (key && !selectableRoutes.has(key)) selectableRoutes.set(key, route)
+    }
     const serviceKey = serviceKeyForRoute(route)
+    patternCounts.set(serviceKey, (patternCounts.get(serviceKey) ?? 0) + 1)
+    if (route.directionId !== undefined) {
+      const directionKey = JSON.stringify([serviceKey, String(route.directionId)])
+      directions.set(directionKey, directions.has(directionKey) ? null : route)
+    }
     indexValue(routes, [route.id, route.patternId, route.routeId, route.shortName], route)
     for (const alias of [route.id, route.patternId, route.routeId, route.shortName]) {
       if (!alias) continue
@@ -115,7 +129,7 @@ function previewVehicleIndex(preview: MapPreview) {
   }
   for (const stop of preview.stops) indexValue(stops, [stop.id], stop)
 
-  const index = { routes, routeCandidates, stops, trips }
+  const index = { routes, routeCandidates, stops, trips, patternCounts, directions, selectableRoutes }
   previewIndexCache.set(preview, index)
   return index
 }
@@ -221,10 +235,9 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
       : undefined
     const route = exactPattern ?? assignment?.route ?? serviceRoute
     const directionId = scheduledTrip?.directionId ?? vehicle.directionId ?? tripUpdate?.directionId
-    const directionPatterns = serviceRoute ? preview.routes.filter(candidate =>
-      serviceKeyForRoute(candidate) === serviceKeyForRoute(serviceRoute)
-      && directionId !== undefined && String(candidate.directionId) === String(directionId)) : []
-    const directionRoute = exactPattern ?? (directionPatterns.length === 1 ? directionPatterns[0] : undefined)
+    const directionRoute = exactPattern ?? (serviceRoute && directionId !== undefined
+      ? index.directions.get(JSON.stringify([serviceKeyForRoute(serviceRoute), String(directionId)])) ?? undefined
+      : undefined)
     const nextStopId = vehicle.stopId || tripUpdate?.nextStopId
     const nextStopUpdate = tripUpdate?.stopTimeUpdates?.find((update) => (
       Boolean(update.stopId && nextStopId && unscopedId(update.stopId) === unscopedId(nextStopId))
@@ -369,18 +382,21 @@ export function buildServiceVehicleFrame({
 
 export function serviceVehicleIsVisible(vehicle: ServiceVehicle, preview: MapPreview, selectedRouteId = '') {
   if (!selectedRouteId) return true
-  const selectedRoute = preview.routes.find((route) => route.id === selectedRouteId || route.patternId === selectedRouteId)
-  if (!selectedRoute) return false
+  const index = previewVehicleIndex(preview)
+  const selectedRoute = index.selectableRoutes.get(selectedRouteId)
+  if (!selectedRoute || (selectedRoute.id !== selectedRouteId && selectedRoute.patternId !== selectedRouteId)) return false
   const serviceKey = serviceKeyForRoute(selectedRoute)
   if (vehicle.serviceKey !== serviceKey) return false
-  const selectedPatterns = preview.routes.filter((route) => serviceKeyForRoute(route) === serviceKey)
-  const patternOnly = selectedPatterns.length === 1 && (selectedRoute.serviceVariantCount ?? 1) > 1
+  const patternOnly = index.patternCounts.get(serviceKey) === 1 && (selectedRoute.serviceVariantCount ?? 1) > 1
   return !patternOnly || vehicle.routeFeatureId === selectedRoute.id
 }
 
 export function serviceVehicleCount(frame: ServiceVehicleFrame, route?: RouteMetric, preview?: MapPreview) {
   if (!route) return frame.vehicles.length
-  if (preview) return frame.vehicles.filter((vehicle) => serviceVehicleIsVisible(vehicle, preview, route.id)).length
   const serviceKey = serviceKeyForRoute(route)
-  return frame.vehicles.filter((vehicle) => vehicle.serviceKey === serviceKey).length
+  let count = 0
+  for (const vehicle of frame.vehicles) {
+    if (preview ? serviceVehicleIsVisible(vehicle, preview, route.id) : vehicle.serviceKey === serviceKey) count++
+  }
+  return count
 }

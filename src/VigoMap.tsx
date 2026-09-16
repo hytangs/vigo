@@ -531,43 +531,44 @@ function serviceVehicleFeatures(frame: ServiceVehicleFrame, preview: MapPreview,
   const selectedServiceKey = selectedRoute ? serviceKeyForRoute(selectedRoute) : ''
   const occurrences = new Map<string, number>()
 
-  return {
-    type: 'FeatureCollection',
-    features: frame.vehicles.flatMap<FeatureCollection['features'][number]>((vehicle, vehicleIndex) => {
-      if (!isFiniteLngLat(vehicle.coordinate)) return []
-      const selectedRouteMatch = Boolean(selectedServiceKey && vehicle.serviceKey === selectedServiceKey)
-      if (!serviceVehicleIsVisible(vehicle, preview, selectedRouteId)) return []
-      const hasBearing = vehicle.bearing !== undefined && Number.isFinite(vehicle.bearing)
-      return [{
-        type: 'Feature' as const,
-        id: uniqueVehicleFeatureId(vehicle.source, vehicle.id, occurrences),
-        geometry: {
-          type: 'Point' as const,
-          coordinates: vehicle.coordinate,
-        },
-        properties: {
-          delaySeverity: vehicle.delaySeverity || '',
-          gapSeverity: vehicle.gapSeverity || '',
-          crowded: vehicle.crowded || false,
-          indicatorLabel: vehicle.indicatorLabel || '',
-          vehicleIndex,
-          vehicleId: vehicle.id,
-          label: vehicle.card.title,
-          routeId: vehicle.routeId,
-          routeShortName: vehicle.routeShortName,
-          routeColor: vehicle.routeColor,
-          selectedRoute: selectedRouteMatch,
-          bearing: hasBearing ? vehicle.bearing : 0,
-          hasBearing,
-          source: vehicle.source,
-        },
-      }, ...(vehicle.pairedCoordinate ? [{
-        type: 'Feature' as const, id: `pair:${vehicle.sourceUrl || ''}:${vehicle.id}`,
-        geometry: { type: 'LineString' as const, coordinates: [vehicle.pairedCoordinate, vehicle.coordinate] },
-        properties: { pair: true, gapSeverity: vehicle.gapSeverity, vehicleIndex },
-      }] : [])]
-    }),
+  const features: FeatureCollection['features'] = []
+  for (let vehicleIndex = 0; vehicleIndex < frame.vehicles.length; vehicleIndex++) {
+    const vehicle = frame.vehicles[vehicleIndex]
+    if (!isFiniteLngLat(vehicle.coordinate)) continue
+    const selectedRouteMatch = Boolean(selectedServiceKey && vehicle.serviceKey === selectedServiceKey)
+    if (!serviceVehicleIsVisible(vehicle, preview, selectedRouteId)) continue
+    const hasBearing = vehicle.bearing !== undefined && Number.isFinite(vehicle.bearing)
+    features.push({
+      type: 'Feature' as const,
+      id: uniqueVehicleFeatureId(vehicle.source, vehicle.id, occurrences),
+      geometry: {
+        type: 'Point' as const,
+        coordinates: vehicle.coordinate,
+      },
+      properties: {
+        delaySeverity: vehicle.delaySeverity || '',
+        gapSeverity: vehicle.gapSeverity || '',
+        crowded: vehicle.crowded || false,
+        indicatorLabel: vehicle.indicatorLabel || '',
+        vehicleIndex,
+        vehicleId: vehicle.id,
+        label: vehicle.card.title,
+        routeId: vehicle.routeId,
+        routeShortName: vehicle.routeShortName,
+        routeColor: vehicle.routeColor,
+        selectedRoute: selectedRouteMatch,
+        bearing: hasBearing ? vehicle.bearing : 0,
+        hasBearing,
+        source: vehicle.source,
+      },
+    })
+    if (vehicle.pairedCoordinate) features.push({
+      type: 'Feature' as const, id: `pair:${vehicle.sourceUrl || ''}:${vehicle.id}`,
+      geometry: { type: 'LineString' as const, coordinates: [vehicle.pairedCoordinate, vehicle.coordinate] },
+      properties: { pair: true, gapSeverity: vehicle.gapSeverity, vehicleIndex },
+    })
   }
+  return { type: 'FeatureCollection', features }
 }
 
 function routingLineFeatures(plan: RoutingPlan | null | undefined): FeatureCollection {
