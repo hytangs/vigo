@@ -27,3 +27,11 @@ export function vehicleAlert(vehicle: RealtimeVehicle, snapshot: RealtimeSnapsho
 export function vehicleGap(vehicle: RealtimeVehicle, snapshot: RealtimeSnapshot, events: OperationalEvent[], now = Date.now() / 1000) {
   return vehicleAlert(vehicle, snapshot, events, 'spacing', now)
 }
+
+export function bunchingPartner(vehicle: RealtimeVehicle, snapshot: RealtimeSnapshot, event?: OperationalEvent, now = Date.now() / 1000) {
+  if (event?.type !== 'bunching' || event.severity === 'info' || !event.evidence.leadingVehicleId || !event.evidence.tripIds?.[0]) return undefined
+  const candidates = snapshot.vehicles.filter(item => item.id === event.evidence.leadingVehicleId && raw(item.tripId) === raw(event.evidence.tripIds?.[0])
+    && raw(item.routeId) === raw(vehicle.routeId) && item.startDate?.replaceAll('-', '') === event.serviceDate?.replaceAll('-', '')
+    && item.startTime === event.evidence.leadingTripStartTime && vehicleReportFresh(item, snapshot, now))
+  return candidates.length === 1 ? candidates[0] : undefined
+}

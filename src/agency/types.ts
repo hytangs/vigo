@@ -7,6 +7,8 @@ export type WorkspaceSelection = {
 }
 
 export type Evidence = {
+  leadingVehicleId?: string
+  leadingTripStartTime?: string
   alertReason?: string
   tripStartTime?: string
   scheduledTime?: number

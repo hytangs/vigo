@@ -1,4 +1,4 @@
-import { occupancyIndicator, vehicleGap, vehicleAlert, vehicleReportFresh } from './agency/vehicleIndicators'
+import { occupancyIndicator, bunchingPartner, vehicleGap, vehicleAlert, vehicleReportFresh } from './agency/vehicleIndicators'
 import type { OperationalEvent } from './agency/types'
 import type { LngLat, MapPreview, RealtimeSnapshot, RouteMetric, ScheduledTrip, StopMetric } from './domain'
 import { scopedRouteServiceKey } from './routeServices'
@@ -32,6 +32,7 @@ export type ServiceVehicle = {
   routeColor: string
   tripId: string
   nextStopFeatureId?: string
+  pairedCoordinate?: LngLat
   delaySeverity?: string
   gapSeverity?: string
   indicatorLabel?: string
@@ -213,6 +214,7 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
     const stop = stopFor(index, nextStopId)
     const gap = vehicleGap(vehicle, snapshot, events)
     const delay = vehicleAlert(vehicle, snapshot, events, 'delay')
+    const partner = bunchingPartner(vehicle, snapshot, gap)
     const occupancy = occupancyIndicator(vehicle.occupancyStatus)
     const fresh = vehicleReportFresh(vehicle, snapshot)
     const gapLabel = gap ? `${Math.round((gap.evidence.observedHeadwaySeconds || 0) / 60)} min ${gap.type === 'bunching' ? 'spacing' : 'gap'} · scheduled ${Math.round((gap.evidence.scheduledHeadwaySeconds || 0) / 60)} min` : ''
@@ -232,10 +234,11 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
       routeShortName,
       routeColor: route?.color ?? '#6af3ee',
       tripId,
+      pairedCoordinate: partner && Number.isFinite(partner.lon) && Number.isFinite(partner.lat) && Math.abs(partner.lon!) <= 180 && Math.abs(partner.lat!) <= 90 ? [partner.lon!, partner.lat!] : undefined,
       delaySeverity: delay?.severity,
       gapSeverity: gap?.severity,
       crowded: fresh && occupancy.crowded,
-      indicatorLabel: [gapLabel, delay && delay.severity !== 'info' ? `${Math.round((delay.evidence.delaySeconds || 0) / 60)} min late` : '', fresh && occupancy.label !== 'Occupancy unknown' ? occupancy.label : ''].filter(Boolean).join(' · '),
+      indicatorLabel: [gap && gap.severity !== 'info' ? gap.type === 'bunching' ? '↔' : '↔ !' : '', delay && delay.severity !== 'info' ? '!' : ''].filter(Boolean).join(' '),
       nextStopFeatureId: stop?.id,
       card: {
         eyebrow: 'Live vehicle',
@@ -250,7 +253,7 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
         metrics: [
           { value: `${occupancy.label}${fresh ? '' : ' (not current)'}`, label: 'reported occupancy' },
           ...(delay && delay.severity !== 'info' ? [{ value: `${Math.round((delay.evidence.delaySeconds || 0) / 60)} min late`, label: `Predicted at ${delay.stopName || delay.stopId}; ${delay.evidence.alertReason}` }] : []),
-          ...(gap ? [{ value: gapLabel, label: `Predicted at ${gap.stopName || gap.stopId}; direction ${gap.directionId ?? 'unknown'}${gap.evidence.alertReason ? `; ${gap.evidence.alertReason}` : ''}` }] : []),
+          ...(gap ? [{ value: gapLabel, label: `Predicted at ${gap.stopName || gap.stopId}${partner ? ` · vehicles ${partner.label || partner.id} ↔ ${vehicle.label || vehicle.id}` : ''}; direction ${gap.directionId ?? 'unknown'}${gap.evidence.alertReason ? `; ${gap.evidence.alertReason}` : ''}` }] : []),
           { value: delayLabel(delaySeconds), label: 'delay' },
           { value: realtimeClock(vehicle.timestamp), label: 'seen' },
         ],

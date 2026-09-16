@@ -353,7 +353,7 @@
 
 .route-surface {
   display: grid;
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .route-map-shell {
@@ -1198,3 +1198,11 @@
 .service-indicator-legend { grid-column: 1 / -1; order: 10; font-size: 11px; }
 .service-indicator-legend summary { cursor: pointer; }
 .service-indicator-legend p { margin: 6px 0; line-height: 1.4; }
+
+.route-surface > .service-toolbar:empty { display: none; }
+.route-surface > .service-toolbar { min-width: 0; background: var(--panel); }
+.route-surface > .service-toolbar > .service-state-panel { position: static; width: 100%; max-width: none; transform: none; border-radius: 0; box-shadow: none; box-sizing: border-box; }
+.occupancy-glyph { display: inline-flex; align-items: center; gap: 4px; padding: 4px 7px; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text-muted); }
+.occupancy-glyph.is-crowded { color: #b45309; }
+
+.route-surface:has(> .service-toolbar:empty) { grid-template-rows: minmax(0, 1fr); }

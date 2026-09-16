@@ -179,9 +179,9 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       add(compressed ? 'bunching' : 'service-gap', [key, before.tripId, after.tripId], {
         severity: spacingAlert(scheduledHeadwaySeconds, observedHeadwaySeconds).severity,
         vehicleId: after.vehicleId,
-        title: compressed ? 'Compressed departure interval' : 'Wider departure interval', routeId: trip.route_id, directionId: trip.direction_id ?? undefined,
+        title: compressed ? spacingAlert(scheduledHeadwaySeconds, observedHeadwaySeconds).severity === 'info' ? 'Closer predicted headway' : 'Predicted bunching · compressed headway' : 'Predicted headway gap', routeId: trip.route_id, directionId: trip.direction_id ?? undefined,
         tripId: after.tripId, stopId, serviceDate, observedAt: before.observedAt < after.observedAt ? before.observedAt : after.observedAt,
-        evidence: { alertReason: spacingAlert(scheduledHeadwaySeconds, observedHeadwaySeconds).alertReason, ...(after.tripStartTime ? { tripStartTime: after.tripStartTime } : {}), scheduledHeadwaySeconds, observedHeadwaySeconds, headwayRatio: observedHeadwaySeconds / scheduledHeadwaySeconds,
+        evidence: { ...(before.vehicleId ? { leadingVehicleId: before.vehicleId } : {}), ...(before.tripStartTime ? { leadingTripStartTime: before.tripStartTime } : {}), alertReason: spacingAlert(scheduledHeadwaySeconds, observedHeadwaySeconds).alertReason, ...(after.tripStartTime ? { tripStartTime: after.tripStartTime } : {}), scheduledHeadwaySeconds, observedHeadwaySeconds, headwayRatio: observedHeadwaySeconds / scheduledHeadwaySeconds,
           referenceStopId: stopId, comparisonWindow: [before.scheduledTime, after.scheduledTime], expectedDepartures: expected.length, reportingTrips: expected.filter((row) => reporting.has(`${row.trip_id}/${row.stop_sequence}`)).length,
           tripIds: [before.tripId, after.tripId], reason: 'Two consecutive scheduled departures, both reporting at this stop. This is a predicted interval, not an observed passage or route-wide regularity claim.' },
         sourceRefs: [before.sourceRef, after.sourceRef, `gtfs:connections/${encodeURIComponent(stopId)}?date=${serviceDate}`],

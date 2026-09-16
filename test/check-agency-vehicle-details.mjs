@@ -25,6 +25,7 @@ try {
     delayKind: 'arrival', delaySeconds: 720,
   }
   const render = patch => renderToStaticMarkup(createElement(VehicleDetailsView, { vehicle: { ...vehicle, ...patch } }))
+  assert.doesNotMatch(render({ occupancy: 'FULL' }).replace(/<[^>]*>/g, ''), /Reported occupancy|Full/, 'Occupancy is a compact glyph; its description stays accessible and in the tooltip')
   assert.match(render({ occupancy: 'FULL' }), /Reported occupancy · Full/)
   assert.match(render({ occupancy: null }), /Occupancy unknown/)
   assert.match(render({ occupancy: 'FULL', fresh: false }), /Not current/)

@@ -1917,6 +1917,27 @@ function RouteSurface({
 
   return (
     <section className="route-surface" aria-label="GTFS map and service state" style={routeStyle}>
+      <div className="service-toolbar">
+        {!showAgencyLine && !routingFocus && !analysisFocus ? (
+          <ServiceStateControl
+            onNow={() => void scheduleNow()}
+            mode={vehicleMode}
+            frame={vehicleFrame}
+            vehicleCount={visibleVehicleCount}
+            diagnostics={serviceDiagnostics}
+            scheduleTimeMinutes={scheduleTimeMinutes}
+            scheduleServiceDate={scheduleServiceDate}
+            scheduleEndMinutes={scheduleEndMinutes}
+            playbackRunning={servicePlaybackRunning}
+            playbackStep={servicePlaybackStep}
+            onModeChange={onVehicleModeChange}
+            onTogglePlayback={() => setServicePlaybackRunning((current) => !current)}
+            onPlaybackStepChange={setServicePlaybackStep}
+            onScheduleTimeChange={onScheduleTimeChange}
+            onScheduleServiceDateChange={onScheduleServiceDateChange}
+          />
+        ) : null}
+      </div>
       <div className="surface-panel route-map-shell">
         {showAgencyLine ? <AgencyRouteLine key={`${projectId}/${selectedRouteId}`} projectId={projectId} routeId={isNetworkMap ? '' : selectedRoute ? networkRouteId(selectedRoute) : selectedRouteId} selectedStopId={selectedStopId} showStopDetails={false} onSelectStop={onSelectStop} /> : <LazyVigoMap
           showStopDetails={!agencyFocus}
@@ -1962,7 +1983,7 @@ function RouteSurface({
             onMapScopeChange={onMapScopeChange}
           />
         ) : null}
-        {agencyFocus ? (
+        {agencyFocus && (!isNetworkMap || routingFocus || analysisFocus) ? (
           <div className="agency-map-context">
             <div>
               <span>{routingFocus ? 'Journey' : analysisFocus ? 'Reachable area' : isNetworkMap ? vehicleMode === 'live' ? 'Live network' : 'Scheduled network' : `Route ${selectedRoute?.shortName || selectedRoute?.longName || ''}`}</span>
@@ -1989,25 +2010,7 @@ function RouteSurface({
             <strong>Loading City…</strong>
           </div>
         ) : null}
-        {!showAgencyLine && !routingFocus && !analysisFocus ? (
-          <ServiceStateControl
-            onNow={() => void scheduleNow()}
-            mode={vehicleMode}
-            frame={vehicleFrame}
-            vehicleCount={visibleVehicleCount}
-            diagnostics={serviceDiagnostics}
-            scheduleTimeMinutes={scheduleTimeMinutes}
-            scheduleServiceDate={scheduleServiceDate}
-            scheduleEndMinutes={scheduleEndMinutes}
-            playbackRunning={servicePlaybackRunning}
-            playbackStep={servicePlaybackStep}
-            onModeChange={onVehicleModeChange}
-            onTogglePlayback={() => setServicePlaybackRunning((current) => !current)}
-            onPlaybackStepChange={setServicePlaybackStep}
-            onScheduleTimeChange={onScheduleTimeChange}
-            onScheduleServiceDateChange={onScheduleServiceDateChange}
-          />
-        ) : null}
+
         {!showAgencyLine && !routingFocus && !analysisFocus && !cityPreviewLoading && !mapPreview.routes.length ? (
           <div className="route-geometry-empty">
             <strong>No spatial alignment in this scope</strong>
