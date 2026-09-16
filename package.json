@@ -33,8 +33,6 @@
     "rebuild:project:raw": "node scripts/rebuild-vigo-project-from-raw.mjs",
     "rebuild:project:street": "node scripts/rebuild-project-street-store.mjs",
     "rebuild:project:cch": "node scripts/rebuild-project-street-cch.mjs",
-    "clean:caches": "node scripts/clean-generated-caches.mjs --apply",
-    "check:caches": "node scripts/clean-generated-caches.mjs --check",
     "batch:routing": "npm run build:cli --silent && node public/vigo.mjs route",
     "check:icons": "node test/check-desktop-icons.mjs",
     "typecheck": "tsc --noEmit",
