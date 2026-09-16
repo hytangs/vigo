@@ -16,6 +16,15 @@ try {
   notebook.close(); notebook = createNotebook(directory)
   assert.equal(notebook.read(next.id).parentId, first.id)
   assert.equal(notebook.read(first.id).notes, 'A researcher note with an explicit limit.')
+  const competing = createNotebook(directory)
+  try {
+    const original = notebook.read(first.id).notes
+    competing.annotate(first.id, 'A newer annotation from another window.', original)
+    assert.throws(() => notebook.annotate(first.id, 'An outdated draft.', original), error => error.statusCode === 409)
+    assert.equal(notebook.read(first.id).notes, 'A newer annotation from another window.', 'Conflicting saves cannot overwrite a newer annotation')
+    notebook.annotate(first.id, original, 'A newer annotation from another window.')
+    assert.throws(() => notebook.annotate(first.id, 'Invalid baseline.', null), /Invalid previous/)
+  } finally { competing.close() }
   assert.equal(notebook.list({ search: 'researcher' })[0].id, first.id)
   assert.equal(notebook.list({ search: 'checked departures' }).length, 2, 'Search includes the saved answer, not only its title')
   assert.equal(notebook.recall({ search: 'researcher' }).length, 0, 'Model retrieval never searches private annotations')
@@ -47,5 +56,5 @@ try {
   assert.equal(summary.aiGenerated, true)
   assert.doesNotMatch(JSON.stringify(summary), /private text|90 cancelled/)
   await assert.rejects(synthesizeEvidence({ trace, provider: { ...provider, complete: async () => ({ tool_calls: [{ function: { name: 'write_briefing', arguments: '{"factIds":[90]}' } }] }) } }), /unavailable fact/)
-  console.log('Agency notebook: restart persistence, linked follow-ups, notes, search, pagination, retained observations, cited AI summary and private reasoning exclusion passed.')
+  console.log('Agency notebook: restart persistence, linked follow-ups, annotation conflicts, search, pagination, retained observations, cited AI summary and private reasoning exclusion passed.')
 } finally { notebook?.close(); fs.rmSync(directory, { recursive: true, force: true }) }

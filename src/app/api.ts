@@ -32,8 +32,13 @@ async function throwApiError(response: Response): Promise<never> {
     routing?: { status?: ApiRoutingStatus; code?: string; retryable?: boolean; remediation?: string }
   } | null
   const routing = body?.routing
+  const fallback = response.status === 502 || response.status === 503
+    ? 'The local VIGO service is unavailable. Restart the service, then try again.'
+    : response.status === 504
+      ? 'The request timed out. Try again when the local service is ready.'
+      : `Request failed with ${response.status}`
   throw new ApiRequestError(
-    body?.error ?? `Request failed with ${response.status}`,
+    body?.error ?? fallback,
     response,
     {
       status: routing?.status ?? body?.status,

@@ -93,8 +93,8 @@ export function createAgencyService(adapters, { provider = createProvider(), web
     const request = session.request
     session.inFlight = (async () => {
       let snapshot
-      try { snapshot = await adapters.inspectRealtime(request); session.refreshError = null }
-      catch (error) { session.refreshError = `Realtime refresh failed: ${error.message}`; throw error }
+      try { snapshot = await adapters.inspectRealtime(request); if (generation === session.generation) session.refreshError = null }
+      catch (error) { if (generation === session.generation) session.refreshError = `Realtime refresh failed: ${error.message}`; throw error }
       if (generation === session.generation) { session.snapshot = snapshot; const { history, tripHistory } = current(session); session.notebook.set('observation', { request: session.request, snapshot, history, tripHistory }) }
       return session.snapshot
     })().finally(() => { session.inFlight = null })
@@ -106,8 +106,27 @@ export function createAgencyService(adapters, { provider = createProvider(), web
       const coverage = session.context.coverage(clock() / 1000)
       if (!coverage.valid) throw Object.assign(new Error(coverage.message), { statusCode: 409 })
       const sameRequest = JSON.stringify(session.request) === JSON.stringify(request)
-      if (!sameRequest) { session.generation++; session.request = request; if (session.inFlight) await session.inFlight }
-      if (!sameRequest || !session.snapshot || clock() - Date.parse(session.snapshot.fetchedAt) >= refreshMs - 1000) await refresh(session)
+      if (!sameRequest) {
+        session.generation++; session.request = request; session.snapshot = null; session.refreshError = null
+        session.history = createObservationHistory(policy)
+        // Commit the new source before its fetch. A failed replacement must never
+        // present or restore an observation from the previously connected feed.
+        session.notebook.set('observation', { request, snapshot: null, history: [], tripHistory: {} })
+      }
+      const generation = session.generation
+      const assertCurrent = () => {
+        if (session.retired || generation !== session.generation) throw Object.assign(new Error('This realtime connection was superseded or closed.'), { statusCode: 409 })
+      }
+      if (session.inFlight) {
+        try { await session.inFlight }
+        catch (error) { assertCurrent(); if (sameRequest) throw error }
+        assertCurrent()
+      }
+      if (!sameRequest || !session.snapshot || clock() - Date.parse(session.snapshot.fetchedAt) >= refreshMs - 1000) {
+        try { await refresh(session) }
+        catch (error) { assertCurrent(); throw error }
+      }
+      assertCurrent()
       if (!session.timer) {
         session.timer = setInterval(() => {
           if (clock() - session.lastRead > 5 * 60_000) { clearInterval(session.timer); session.timer = null; return }
@@ -124,7 +143,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
     async disconnect(projectId) {
       authorize(await access(projectId), 'configure')
       return withSession(projectId, async session => {
-        session.generation++; clearInterval(session.timer); session.timer = null; session.request = null; session.snapshot = null
+        session.generation++; clearInterval(session.timer); session.timer = null; session.request = null; session.snapshot = null; session.refreshError = null
         session.history = createObservationHistory(policy)
         session.notebook.set('observation', null)
         return { ok: true }
@@ -184,7 +203,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
           case 'connection': return { request: session.request }
           case 'notebook': return { entries: session.notebook.list(body.query ?? {}) }
           case 'notebook-entry': { const entries = []; let id = body.id; while (id && entries.length < 30) { const entry = session.notebook.read(id); entries.unshift(entry); id = entry.parentId } return { entries } }
-          case 'notebook-note': return session.notebook.annotate(body.id, body.notes)
+          case 'notebook-note': return session.notebook.annotate(body.id, body.notes, body.previousNotes)
           case 'briefing-settings': { const preferences = briefingPreferences(body.preferences); session.notebook.set('briefing-preferences', preferences); return { preferences } }
           case 'briefing-latest': {
             const entry = session.notebook.latest('briefing'), preferences = session.notebook.get('briefing-preferences') ?? defaultBriefingPreferences

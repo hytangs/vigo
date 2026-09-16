@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { apiProgressJson } from '../src/app/api.ts'
+import { apiJson, apiProgressJson } from '../src/app/api.ts'
 
 const originalFetch = globalThis.fetch
 const encoder = new TextEncoder()
@@ -44,5 +44,10 @@ try {
   response([bytes('{"type":"progress","progress":{"detail":"Interrupted"}}\n')])
   await assert.rejects(apiProgressJson('/test', {}, () => {}), /ended before returning/)
   assert.equal(body.locked, false)
+
+  globalThis.fetch = async () => new Response('Bad gateway', { status: 502 })
+  await assert.rejects(apiJson('/test'), error => error.statusCode === 502 && /local VIGO service is unavailable/.test(error.message))
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: 'The selected City is still opening.' }), { status: 503 })
+  await assert.rejects(apiJson('/test'), /selected City is still opening/, 'Server remediation takes precedence over generic availability text')
 } finally { globalThis.fetch = originalFetch }
 console.log('API streaming: chunk boundaries, terminal completion, interrupted results and upstream cleanup passed.')

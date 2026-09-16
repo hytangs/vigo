@@ -21,7 +21,7 @@ export function AgencyNotebook({ endpoint, onOpen, onBack }: { endpoint: string;
   const request = useRef<AbortController | null>(null)
   useEffect(() => {
     const controller = new AbortController(); request.current = controller
-    setLoading(true); setError(''); setMore(false)
+    setEntries([]); setLoading(true); setError(''); setMore(false)
     void apiJson<{ entries: EntrySummary[] }>(endpoint, { method: 'POST', body: JSON.stringify({ action: 'notebook', query: { search } }), signal: controller.signal })
       .then(({ entries }) => { if (!controller.signal.aborted) { setEntries(entries); setMore(entries.length === 30) } })
       .catch((error) => { if (!controller.signal.aborted) setError(error.message) })
@@ -38,11 +38,32 @@ export function AgencyNotebook({ endpoint, onOpen, onBack }: { endpoint: string;
     } catch (error) { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'Could not load older notes.') }
     finally { if (request.current === controller) { request.current = null; setLoading(false) } }
   }
-  return <section className="agency-notebook"><button className="agency-text-button" onClick={onBack}><ArrowLeft size={14} /> Back to Ask</button><div className="agency-section-heading"><div><h2>City notebook</h2><span>Saved conversations, briefings, and research</span></div></div><label className="agency-notebook-search"><Search size={15} /><input aria-label="Search saved work" placeholder="Search questions and notes" value={search} onChange={(event) => setSearch(event.target.value)} /></label>{error ? <p role="alert" className="agency-error">{error}</p> : null}<div className="agency-notebook-list">{entries.map((entry) => <button key={entry.id} onClick={() => onOpen(entry.id)}><span><small>{entry.kind === 'research' ? 'Research' : entry.kind === 'briefing' ? 'Briefing' : 'Ask'} · {new Date(entry.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</small><strong>{entry.title}</strong>{entry.notePreview ? <small>{entry.notePreview}</small> : null}</span><ArrowUpRight size={16} /></button>)}</div>{loading ? <p className="agency-caption" role="status">Loading saved work…</p> : null}{!loading && !entries.length ? <p className="agency-caption">Your questions and completed research will be saved here, with their evidence.</p> : null}{more ? <button className="agency-text-button" disabled={loading} onClick={() => void older()}>Load older work</button> : null}</section>
+  return <section className="agency-notebook"><button className="agency-text-button" onClick={onBack}><ArrowLeft size={14} /> Back to Ask</button><div className="agency-section-heading"><div><h2>City notebook</h2><span>Saved conversations, briefings, and research</span></div></div><label className="agency-notebook-search"><Search size={15} /><input aria-label="Search saved work" placeholder="Search questions and notes" maxLength={200} value={search} onChange={(event) => setSearch(event.target.value)} /></label>{error ? <p role="alert" className="agency-error">{error}</p> : null}<div className="agency-notebook-list" aria-busy={loading}>{entries.map((entry) => <button key={entry.id} onClick={() => onOpen(entry.id)}><span><small>{entry.kind === 'research' ? 'Research' : entry.kind === 'briefing' ? 'Briefing' : 'Ask'} · {new Date(entry.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</small><strong>{entry.title}</strong>{entry.notePreview ? <small>{entry.notePreview}</small> : null}</span><ArrowUpRight size={16} /></button>)}</div>{loading ? <p className="agency-caption" role="status">Loading saved work…</p> : null}{!loading && !error && !entries.length ? <p className="agency-caption" role="status">{search ? 'No saved work matches your search. Try a route, question, or note.' : 'Your questions and completed research will be saved here, with their evidence.'}</p> : null}{more ? <button className="agency-text-button" disabled={loading} onClick={() => void older()}>Load older work</button> : null}</section>
 }
 export function AgencyNoteEditor({ endpoint, entry, onSave }: { endpoint: string; entry: NotebookEntry; onSave?: (notes: string) => void }) {
   const [notes, setNotes] = useState(entry.notes)
-  const [status, setStatus] = useState('')
-  async function save() { try { await apiJson(endpoint, { method: 'POST', body: JSON.stringify({ action: 'notebook-note', id: entry.id, notes }) }); setStatus('Saved'); onSave?.(notes) } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not save.') } }
-  return <details className="agency-source-details agency-note-editor"><summary>Notes & export</summary><textarea aria-label="Researcher notes" placeholder="Add your interpretation, limitations, or next question…" maxLength={20000} value={notes} onChange={(event) => { setNotes(event.target.value); setStatus('Unsaved changes') }} rows={3} /><div><button className="agency-button" onClick={() => void save()}>Save notes</button><button className="agency-text-button" onClick={() => exportEntry({ ...entry, notes })}><Download size={13} /> Export note</button><span role="status">{status}</span></div></details>
+  const [savedNotes, setSavedNotes] = useState(entry.notes)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
+  const request = useRef<AbortController | null>(null)
+  useEffect(() => {
+    setNotes(entry.notes); setSavedNotes(entry.notes); setSaved(false); setSaving(false); setError('')
+    return () => { request.current?.abort(); request.current = null }
+  }, [endpoint, entry.id])
+  const dirty = notes !== savedNotes
+  async function save() {
+    if (request.current || !dirty) return
+    const controller = new AbortController(); request.current = controller
+    const submitted = notes
+    setSaving(true); setError('')
+    try {
+      await apiJson(endpoint, { method: 'POST', body: JSON.stringify({ action: 'notebook-note', id: entry.id, notes: submitted, previousNotes: savedNotes }), signal: controller.signal })
+      if (controller.signal.aborted || request.current !== controller) return
+      setSavedNotes(submitted); setSaved(true); onSave?.(submitted)
+    } catch (reason) { if (!controller.signal.aborted && request.current === controller) setError(reason instanceof Error ? reason.message : 'Could not save your notes. Try again.') }
+    finally { if (request.current === controller) { request.current = null; setSaving(false) } }
+  }
+  const status = error || (saving ? 'Saving…' : dirty ? 'Unsaved changes' : saved ? 'Saved' : '')
+  return <details className="agency-source-details agency-note-editor"><summary>Notes & export</summary><textarea aria-label="Researcher notes" placeholder="Add your interpretation, limitations, or next question…" maxLength={20000} value={notes} onChange={(event) => { setNotes(event.target.value); setError('') }} rows={3} /><div><button className="agency-button" disabled={saving || !dirty} onClick={() => void save()}>{saving ? 'Saving…' : 'Save notes'}</button><button className="agency-text-button" onClick={() => exportEntry({ ...entry, notes })}><Download size={13} /> Export note</button><span role={error ? 'alert' : 'status'}>{status}</span></div></details>
 }

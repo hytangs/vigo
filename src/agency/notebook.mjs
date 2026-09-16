@@ -48,10 +48,14 @@ export function createNotebook(directory) {
       const { lastInsertRowid } = db.prepare('INSERT INTO entries(parent_id,kind,title,created_at,answer,activities) VALUES(?,?,?,?,?,?)').run(parentId, kind, title, createdAt, JSON.stringify(answer), JSON.stringify(activities))
       return this.read(Number(lastInsertRowid))
     },
-    annotate(id, notes) {
+    annotate(id, notes, previousNotes) {
       this.read(id)
       if (typeof notes !== 'string' || notes.length > 20_000) throw new Error('Notes must be at most 20,000 characters.')
-      db.prepare('UPDATE entries SET notes=? WHERE id=?').run(notes, id)
+      if (previousNotes !== undefined && typeof previousNotes !== 'string') throw new Error('Invalid previous notes.')
+      const update = previousNotes === undefined
+        ? db.prepare('UPDATE entries SET notes=? WHERE id=?').run(notes, id)
+        : db.prepare('UPDATE entries SET notes=? WHERE id=? AND notes=?').run(notes, id, previousNotes)
+      if (!update.changes) throw Object.assign(new Error('These notes changed in another window. Your draft is still here; export it, then reopen the saved work to review the latest notes.'), { statusCode: 409 })
       return this.read(id)
     },
     get(key) { const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key); return row ? JSON.parse(row.value) : null },
