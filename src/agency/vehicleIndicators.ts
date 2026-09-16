@@ -35,3 +35,13 @@ export function bunchingPartner(vehicle: RealtimeVehicle, snapshot: RealtimeSnap
     && item.startTime === event.evidence.leadingTripStartTime && vehicleReportFresh(item, snapshot, now))
   return candidates.length === 1 ? candidates[0] : undefined
 }
+
+// Carriage reports are not a whole-train occupancy estimate.
+export function vehicleOccupancyIndicator(status?: string, carriages: NonNullable<RealtimeVehicle['carriages']> = []) {
+  const overall = occupancyIndicator(status)
+  if (overall.label !== 'Occupancy unknown') return overall
+  const reported = carriages.filter(car => occupancyIndicator(car.occupancyStatus).label !== 'Occupancy unknown')
+  if (!reported.length) return overall
+  const crowded = reported.filter(car => occupancyIndicator(car.occupancyStatus).crowded).length
+  return { label: `${reported.length}/${carriages.length} cars reporting${crowded ? ` · ${crowded} crowded` : ''}`, crowded: crowded > 0 }
+}

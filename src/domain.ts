@@ -259,6 +259,7 @@ export type RealtimeVehicle = {
   stopId?: string
   currentStatus?: string
   congestionLevel?: string
+  carriages?: RealtimeCarriage[]
   occupancyStatus?: string
   occupancyPercentage?: number
   timestamp?: number
@@ -540,4 +541,12 @@ export function formatNumber(value: number) {
 
 export function classNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(' ')
+}
+
+export type RealtimeCarriage = {
+  id?: string
+  label?: string
+  carriageSequence: number
+  occupancyStatus?: string
+  occupancyPercentage?: number
 }

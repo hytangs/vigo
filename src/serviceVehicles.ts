@@ -1,4 +1,4 @@
-import { occupancyIndicator, bunchingPartner, vehicleGap, vehicleAlert, vehicleReportFresh } from './agency/vehicleIndicators'
+import { vehicleOccupancyIndicator, bunchingPartner, vehicleGap, vehicleAlert, vehicleReportFresh } from './agency/vehicleIndicators'
 import type { OperationalEvent } from './agency/types'
 import type { LngLat, MapPreview, RealtimeSnapshot, RouteMetric, ScheduledTrip, StopMetric } from './domain'
 import { scopedRouteServiceKey } from './routeServices'
@@ -262,7 +262,7 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
     const gap = vehicleGap(vehicle, snapshot, events)
     const delay = vehicleAlert(vehicle, snapshot, events, 'delay')
     const partner = bunchingPartner(vehicle, snapshot, gap)
-    const occupancy = occupancyIndicator(vehicle.occupancyStatus)
+    const occupancy = vehicleOccupancyIndicator(vehicle.occupancyStatus, vehicle.carriages)
     const fresh = vehicleReportFresh(vehicle, snapshot)
     const gapLabel = gap ? `${Math.round((gap.evidence.observedHeadwaySeconds || 0) / 60)} min ${gap.type === 'bunching' ? 'spacing' : 'gap'} · scheduled ${Math.round((gap.evidence.scheduledHeadwaySeconds || 0) / 60)} min` : ''
     const routeShortName = route?.shortName || routeId || 'Unassigned'

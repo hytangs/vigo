@@ -1,3 +1,4 @@
+import type { RealtimeCarriage } from '../domain'
 import type { FeedState } from './types'
 
 export type VehicleTiming = {
@@ -31,6 +32,7 @@ export type VehicleTiming = {
     delaySeconds: number | null
   }
   occupancy: string | null
+  carriages?: RealtimeCarriage[]
   warnings: string[]
 }
 

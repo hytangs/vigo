@@ -97,7 +97,7 @@ export async function inspectService({ context, state, snapshot, directory }, { 
       const route = context.routeIndex.get(match.trip.route_id)
       vehicles.push({ vehicle: vehicle.label || vehicle.id, route: route.short_name || route.long_name,
         stop: context.stopIndex.get(vehicle.stopId)?.name ?? null, at: agencyClock(new Date(vehicle.timestamp * 1000).toISOString(), context.timezone),
-        occupancy: vehicle.occupancyStatus ?? null })
+        occupancy: vehicle.occupancyStatus ?? null, carriages: vehicle.carriages ?? [] })
     }
     const keys = new Set(selected.map(tripInstance))
     return { freshPositionSource: freshSources.size > 0, timedTripReports: keys.size, reportsWithFreshPosition: [...keys].filter(key => positions.has(key)).length,

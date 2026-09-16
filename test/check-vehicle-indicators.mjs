@@ -28,3 +28,8 @@ assert.equal(bunchingPartner(vehicle, pairSnapshot, pairEvent, now), leading)
 assert.equal(bunchingPartner(vehicle, { vehicles: [vehicle, leading, { ...leading, sourceUrl: 'other' }] }, pairEvent, now), undefined)
 assert.equal(bunchingPartner(vehicle, { vehicles: [vehicle, { ...leading, timestamp: now - 181 }] }, pairEvent, now), undefined)
 assert.equal(bunchingPartner(vehicle, { vehicles: [vehicle, { ...leading, startDate: '20260915' }] }, pairEvent, now), undefined)
+
+const { vehicleOccupancyIndicator } = await import('../src/agency/vehicleIndicators.ts')
+assert.deepEqual(vehicleOccupancyIndicator(undefined, [{ occupancyStatus: 'FULL' }, { occupancyStatus: 'NO_DATA_AVAILABLE' }]), { label: '1/2 cars reporting · 1 crowded', crowded: true })
+assert.equal(vehicleOccupancyIndicator(undefined, [{}]).label, 'Occupancy unknown')
+assert.equal(vehicleOccupancyIndicator('MANY_SEATS_AVAILABLE', [{ occupancyStatus: 'FULL' }]).label, 'Seats available')

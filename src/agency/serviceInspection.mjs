@@ -87,7 +87,7 @@ export async function inspectOperationalService({ context, state, snapshot, dire
     const match = context.matchTripIdentity(vehicle, state.coverage.serviceDate)
     if (!match.trip || !tripSelected({ routeId: match.trip.route_id, tripId: match.trip.trip_id, vehicleId: vehicle.id }) || stopSet.size && !stopSet.has(vehicle.stopId)) return []
     return [{ vehicle: vehicle.label || vehicle.id, vehicleId: vehicle.id, route: names([match.trip.route_id])[0].name, tripId: match.trip.trip_id, at: clock(vehicle.timestamp), stop: context.stopIndex.get(vehicle.stopId)?.name,
-      occupancy: vehicle.occupancyStatus ?? null }]
+      occupancy: vehicle.occupancyStatus ?? null, carriages: vehicle.carriages ?? [] }]
   })
   const selectedStopIds = scope.stopIds.length ? scope.stopIds : [...new Set(uniqueTrips.slice(0, 6).map(row => row.stopId))]
   const noticeStops = alertStopIds(context, stopSet)

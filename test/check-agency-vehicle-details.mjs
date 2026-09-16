@@ -29,6 +29,13 @@ try {
   assert.match(render({ occupancy: 'FULL' }), /Reported occupancy · Full/)
   assert.match(render({ occupancy: null }), /Occupancy unknown/)
   assert.match(render({ occupancy: 'FULL', fresh: false }), /Not current/)
+  const carriages = [{ label: '1462', carriageSequence: 1, occupancyStatus: 'FEW_SEATS_AVAILABLE' }, { label: '1463', carriageSequence: 2 }]
+  const trainHtml = render({ carriages })
+  assert.match(trainHtml, /Reported crowding by car/)
+  assert.match(trainHtml, /1\/2 cars reporting/)
+  assert.match(trainHtml, /1462.*Few seats/)
+  assert.match(trainHtml, /1463.*Occupancy unknown/)
+  assert.match(render({ carriages, fresh: false }), /Crowding · Not current/)
   let html = render({})
   assert.match(html, /1826 <small>Route 1<\/small>/, 'Copied vehicle and route identifiers stay distinct')
   assert.match(html, /Trip update/)

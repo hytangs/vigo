@@ -134,3 +134,9 @@ try {
   assert.equal(calls, 1, 'Timetable coverage is checked before any realtime network call')
   console.log('Agency snapshots: decoder identity, independent source clocks, partial errors, one server observation, calendar checks before fetch, shared tools/skills, aging, and disconnect passed.')
 } finally { agency.close(); await fs.rm(directory, { recursive: true, force: true }) }
+
+const cars = [{ label: '1462', carriageSequence: 1, occupancyStatus: 2, occupancyPercentage: 0 }, { carriageSequence: 2, occupancyPercentage: -1 }]
+const train = normalize([{ id: 'train', vehicle: { multiCarriageDetails: cars } }]).vehicles[0]
+assert.equal(train.occupancyStatus, undefined)
+assert.deepEqual(train.carriages, [{ label: '1462', carriageSequence: 1, occupancyStatus: 'FEW_SEATS_AVAILABLE', occupancyPercentage: 0 }, { carriageSequence: 2 }])
+assert.equal(normalize([{ id: 'train', vehicle: { multiCarriageDetails: [cars[1]] } }]).vehicles[0].carriages, undefined, 'Invalid carriage sequences must be discarded')

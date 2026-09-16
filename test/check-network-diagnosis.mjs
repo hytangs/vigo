@@ -60,7 +60,7 @@ try {
   assert.equal(late.routes.find(row => row.id === 'R').maxDelaySeconds, 1200, 'A scheduled departure delayed beyond the prediction horizon still counts')
   assert.equal(late.network.leadingDelayRoute.id, 'R')
   assert.equal(late.network.leadingDelayRoute.share, 1500 / 1800, 'Delay exposure is trip-weighted, not one vote per route')
-  assert.match(networkNarrative(late).overview, /widespread among reporting routes/)
+  assert.match(networkNarrative(late).overview, /Delays affect 2 of 2 routes with usable predictions/)
 
   const subminute = structuredClone(late)
   for (const route of subminute.routes) route.widest = { predictedSeconds: 1741, scheduledSeconds: 1740, maxIncreaseSeconds: 1, stopName: 'Reference stop' }

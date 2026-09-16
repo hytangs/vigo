@@ -1,4 +1,5 @@
 const minutes = seconds => seconds < 60 ? 'less than a minute' : `about ${Math.round(seconds / 60)} minutes`
+const routeList = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' })
 const count = (n, singular, plural = `${singular}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? singular : plural}`
 
 export function serviceContextNarrative(diagnosis) {
@@ -32,10 +33,7 @@ export function networkNarrative(diagnosis) {
   else {
     const spread = routes.filter(row => row.laterTrips).length
     overview = n.laterTrips
-      ? spread > c.measuredRoutes / 2
-        ? 'Delays are widespread among reporting routes.'
-        : spread > 1 ? 'Delays affect several reporting routes.'
-          : `The reported lateness is concentrated on ${routes.find(route => route.laterTrips).name}. Other reporting routes have no late next-departure predictions.`
+      ? `Delays affect ${spread} of ${count(c.measuredRoutes, 'route')} with usable predictions.`
       : n.earlierTrips ? 'No late next departures are predicted among reporting trips, but some may leave ahead of their published times.'
         : 'Reporting trips currently match the timetable at their next departures. Unreported service remains unknown.'
 
@@ -45,12 +43,12 @@ export function networkNarrative(diagnosis) {
     overview = !n.measuredTrips && !c.scheduledTrips ? serviceContext
       : `${serviceContext} ${n.measuredTrips && !c.scheduledTrips ? 'Live predictions still show service outside its scheduled window. ' : ''}${overview}`
   }
-  if (n.cancelledTrips) overview += ` ${count(n.cancelledTrips, 'scheduled trip')} in this window ${n.cancelledTrips === 1 ? 'is' : 'are'} reported cancelled.`
+  if (n.cancelledTrips) overview += ` ${count(n.cancelledTrips, 'scheduled trip')} ${n.cancelledTrips === 1 ? 'is' : 'are'} reported cancelled in the next ${diagnosis.window.minutes} minutes.`
   const byId = new Map(routes.map(route => [route.id, route]))
   for (const area of diagnosis.concentrations.slice(0, 2)) {
     const names = area.routeIds.map(id => byId.get(id)?.name || id)
-    sections.push({ id: area.id, title: `${sections.length ? 'Also affected' : 'Main shared-area delay'} · ${area.name}`, routeIds: area.routeIds,
-      text: `Routes ${names.join(' and ')} have ${count(area.tripCount, 'trip')} with departures predicted up to ${minutes(area.maxDelaySeconds)} late through the same area.` })
+    sections.push({ id: area.id, title: `${sections.length ? 'Other concentration' : 'Leading delay concentration'} · ${area.name}`, routeIds: area.routeIds,
+      text: `${count(area.tripCount, 'delayed trip')} on routes ${routeList.format(names)} pass through this area. Predicted departure delays reach ${minutes(area.maxDelaySeconds)}.` })
   }
   // A whole-minute briefing must not announce a longer wait while displaying
   // the same interval twice. Exact sub-minute comparisons remain in diagnosis.
@@ -60,7 +58,7 @@ export function networkNarrative(diagnosis) {
   if (widest) {
     const interval = widest.widest
     sections.push({ id: 'spacing', title: `${widest.name} · Longer rider wait`, routeIds: [widest.id],
-      text: `Riders at ${interval.stopName} may wait through a gap of about ${Math.round(interval.predictedSeconds / 60)} minutes between departures, compared with ${Math.round(interval.scheduledSeconds / 60)} minutes in the timetable. Following-service recovery has not been established.` })
+      text: `At ${interval.stopName}, the predicted gap between departures is about ${Math.round(interval.predictedSeconds / 60)} minutes, compared with ${Math.round(interval.scheduledSeconds / 60)} minutes in the timetable. Whether following service will close this gap is unknown.` })
   }
   const leading = routes.filter(row => row.laterTrips && row.id !== widest?.id && !sections.some(section => section.routeIds.includes(row.id)))
     .sort((a, b) => b.delaySeconds - a.delaySeconds)[0]
@@ -68,6 +66,6 @@ export function networkNarrative(diagnosis) {
     sections.push({ id: 'delay', title: `${leading.name} · ${leading.laterTrips === 1 ? 'One late trip' : 'Delays across trips'}`, routeIds: [leading.id],
       text: `${leading.laterTrips} of ${count(leading.measuredTrips, 'reporting trip')} ${leading.laterTrips === 1 ? 'has its' : 'have their'} next departure predicted late, by up to ${minutes(leading.maxDelaySeconds)}.${leading.continued.length ? ` Repeated reports still show lateness for ${count(leading.continued.length, 'trip')} at the same stop.` : ''}${leading.laterTrips === 1 ? ' Other trips need to be checked before treating this as a route-wide problem.' : ''}` })
   }
-  const coverage = `${c.scheduledTrips ? `${c.reportingScheduledTrips} of ${count(c.scheduledTrips, 'scheduled trip')} have a usable prediction or cancellation report for this window.` : 'There are no timed trips to assess in this scheduled window.'}${c.reportingShare !== null ? ` They represent ${Math.round(c.reportingShare * 100)}% of scheduled vehicle-minutes, not passenger coverage.` : ''}${c.unknownTrips ? ` Conditions on ${count(c.unknownTrips, 'unreported trip')} remain unknown.` : ''}${diagnosis.serviceContext?.complete ? ' Routes without scheduled work in this window are not counted as missing service.' : ''}`
+  const coverage = `${c.scheduledTrips ? `${c.reportingScheduledTrips} of ${count(c.scheduledTrips, 'scheduled trip')} have a usable prediction or cancellation report for this window.` : 'There are no timed trips to assess in this scheduled window.'}${c.reportingShare !== null ? ` They represent ${Math.round(c.reportingShare * 100)}% of scheduled vehicle-minutes, not passenger coverage.` : ''}${c.unknownTrips ? ` ${count(c.unknownTrips, 'scheduled trip')} ${c.unknownTrips === 1 ? 'has' : 'have'} no usable prediction or cancellation report. Their current conditions are unknown.` : ''}${diagnosis.serviceContext?.complete ? ' Routes without scheduled work in this window are not counted as missing service.' : ''}`
   return { overview, sections, elsewhere: '', coverage }
 }

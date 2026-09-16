@@ -136,7 +136,7 @@ function describe(context, vehicle, now, policy, feeds, coverage, updates) {
     observedAt: vehicle.timestamp ?? null, predictionAt: null, fresh: vehicleFresh,
     destination: null, stop: null, callIndex: null, patternId: null,
     status: null, arrival: { scheduled: null, current: null }, departure: { scheduled: null, current: null },
-    delaySeconds: null, delayKind: null, occupancy: vehicle.occupancyStatus ?? null, warnings: [],
+    delaySeconds: null, delayKind: null, occupancy: vehicle.occupancyStatus ?? null, carriages: vehicle.carriages ?? [], warnings: [],
   }
   const route = context.routeIndex.get(detail.routeId)
   detail.routeName = route?.short_name || route?.long_name || rawId(detail.routeId)

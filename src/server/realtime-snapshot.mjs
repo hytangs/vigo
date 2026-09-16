@@ -42,6 +42,17 @@ function tripFields(trip) {
   })
 }
 
+function carriageRecords(details) {
+  if (!details?.length) return undefined
+  const ordered = [...details].sort((a, b) => a.carriageSequence - b.carriageSequence)
+  if (ordered.some((car, index) => car.carriageSequence !== index + 1)) return undefined
+  return ordered.map(car => compactObject({
+    id: car.id, label: car.label, carriageSequence: car.carriageSequence,
+    occupancyStatus: enumLabel(gtfsRealtime.VehiclePosition.OccupancyStatus, car.occupancyStatus),
+    occupancyPercentage: numeric(car.occupancyPercentage) >= 0 ? car.occupancyPercentage : undefined,
+  }))
+}
+
 function vehiclePositionToRecord(entity) {
   const vehicle = entity.vehicle
   const position = vehicle?.position
@@ -57,6 +68,7 @@ function vehiclePositionToRecord(entity) {
     congestionLevel: enumLabel(gtfsRealtime.VehiclePosition.CongestionLevel, vehicle?.congestionLevel),
     occupancyStatus: enumLabel(gtfsRealtime.VehiclePosition.OccupancyStatus, vehicle?.occupancyStatus),
     occupancyPercentage: vehicle?.occupancyPercentage,
+    carriages: carriageRecords(vehicle?.multiCarriageDetails),
     timestamp: numeric(vehicle?.timestamp),
     lat: position?.latitude,
     lon: position?.longitude,
