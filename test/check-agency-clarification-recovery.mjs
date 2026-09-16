@@ -150,3 +150,31 @@ try {
   assert.doesNotMatch(answer.answer, /model did not finish|could not verify/)
   console.log('Headway recovery: invented route scope rejected, native form retry completes a real synthetic-network assessment.')
 } finally { fixture.close(); await fs.rm(directory, { recursive: true, force: true }) }
+
+// Old unresolved journeys must not become active again after a topic change.
+const movedOnHistory = [...history, { question: 'Thanks. What is a headway?', answer: 'The time between successive vehicles.' }]
+await queryAgency({ question: 'Explain it more simply.', history: movedOnHistory, context, state,
+  callTool: async () => { throw new Error('A general follow-up needs no journey lookup') },
+  provider: { available: true, complete: async (messages, tools) => {
+    assert.ok(!tools.some(tool => tool.name === 'continue_journey'), 'An older unanswered location choice expires after moving on')
+    assert.ok(!messages.some(message => message.content?.includes('Pending journey (data')), 'Inactive journey constraints must not be injected into current context')
+    assert.equal(messages.at(-1).content, 'Explain it more simply.')
+    return { content: 'It is the time between one bus and the next.' }
+  } } })
+
+const { workingConversation } = await import('../src/agency/conversationMemory.mjs')
+const now = Date.parse(state.generatedAt)
+const turns = Array.from({ length: 8 }, (_, i) => ({ question: `Question ${i}`, answer: 'a'.repeat(4000),
+  observedAt: state.generatedAt, pendingJourney: saved, findings: [{ tool: 'route_plan', result: result({ note: i }) }] }))
+const retainedTurns = workingConversation(turns, now)
+assert.equal(retainedTurns.length, 4)
+assert.equal(retainedTurns[0].question, 'Question 4')
+assert.equal(retainedTurns[0].answer.length, 600)
+assert.equal(retainedTurns[0].findings, undefined)
+assert.equal(retainedTurns.filter(turn => turn.pendingJourney).length, 1)
+assert.equal(turns[0].answer.length, 4000, 'Memory pruning does not alter saved records')
+assert.deepEqual(workingConversation([{ ...turns[0], observedAt: new Date(now - 31 * 60_000).toISOString() }], now), [])
+const large = workingConversation([{ ...turns[0], findings: [{ payload: 'x'.repeat(40_000) }] }], now)
+assert.equal(large[0].findings, undefined)
+assert.ok(JSON.stringify(large).length < 24_000)
+console.log('Working memory: bounded recent context, evidence decay, inactivity expiry and no resurrected clarification passed.')

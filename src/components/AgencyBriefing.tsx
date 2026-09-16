@@ -9,7 +9,7 @@ import { NetworkAssessment } from './NetworkAssessment'
 
 const defaults: BriefingPreferences = { intervalMinutes: 15, automatic: true }
 
-export function AgencyBriefing({ endpoint, state, onOpen }: { endpoint: string; state: AgencyState; onOpen: (id: number) => void }) {
+export function AgencyBriefing({ endpoint, state, onOpen, onLocateStop }: { endpoint: string; state: AgencyState; onOpen: (id: number) => void; onLocateStop?: (stopId: string) => void }) {
   const generateLabelId = useId()
   const [briefing, setBriefing] = useState<QueryAnswer | null>(null)
   const [preferences, setPreferences] = useState<BriefingPreferences>(defaults)
@@ -90,7 +90,7 @@ export function AgencyBriefing({ endpoint, state, onOpen }: { endpoint: string; 
     {busy ? <p className="agency-briefing-progress" role="status"><LoaderCircle size={16} className="agency-spinner" />{activity}</p> : null}
     {current && briefing.narrative ? <>
       <p className="agency-briefing-scope">Assessment at {time(assessed)} · next {briefing.diagnosis!.window.minutes} minutes · {preferences.automatic ? `next update ${time(refreshAt!)}` : `manual update · expires ${time(refreshAt!)}`}</p>
-      <NetworkAssessment narrative={briefing.narrative} diagnosis={briefing.diagnosis!} investigation={briefing.investigation} aiNarrative={briefing.aiGenerated} />
+      <NetworkAssessment onLocateStop={onLocateStop} narrative={briefing.narrative} diagnosis={briefing.diagnosis!} investigation={briefing.investigation} aiNarrative={briefing.aiGenerated} />
     </> : <>
       {briefing && !busy ? <p>{sourceUnavailable ? 'Service data is no longer current.' : 'Briefing expired.'}</p> : null}
       <button className="agency-button" aria-label="Update network briefing" aria-labelledby={generateLabelId} disabled={!ready || busy} onClick={() => void generate(true)}><span id={generateLabelId}>{briefing ? 'Update briefing' : 'Generate briefing'}</span> <RefreshCw size={14} /></button>

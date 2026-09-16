@@ -55,3 +55,7 @@
   .stop-board-list li { column-gap: 7px; }
   .stop-arrival-board .stop-board-time strong { font-size: 15px; }
 }
+
+.stop-board-trip { all: unset; cursor: pointer; color: inherit; font: inherit; }
+.stop-board-trip:hover { text-decoration: underline; text-underline-offset: 3px; }
+.stop-board-trip:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 2px; }

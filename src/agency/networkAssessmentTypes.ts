@@ -18,15 +18,18 @@ export type NetworkDiagnosis = {
     additionalReportingTrips: number; excludedFrequencyTemplates: number
     feeds: Array<{ kind: string; sourceUrl: string; status: string }>
   }
+  concentrations?: Array<{ id: string; name: string; stopIds: string[] }>
   routes: Array<{
     id: string; name: string; scheduledTrips: number; reportingScheduledTrips: number; measuredTrips: number
     laterTrips: number; earlierTrips: number; matchingTrips: number; cancelledTrips: number
+    widest?: { stopId: string; stopName: string; maxIncreaseSeconds: number; predictedSeconds: number; scheduledSeconds: number } | null
     medianDeviationSeconds: number | null; measuredPairs: number; widerPairs: number; closerPairs: number
   }>
   limits: string[]
 }
 export type BriefingPreferences = { intervalMinutes: 15 | 30 | 60; automatic: boolean }
 export type BriefingInvestigation = {
+  plan?: { focusId: string }
   focusTitle?: string
   explanation?: { hypothesis: string; status: string; text: string; evidenceIds: number[] }
   watchNext?: string; assessment?: string; incomplete?: boolean

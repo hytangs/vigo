@@ -5,6 +5,9 @@ import type { StopBoard, StopBoardRow } from '../agency/routeOperationsTypes'
 import { scheduleDeviation } from '../agency/presentation'
 import { AgencyFeedHealth } from './AgencyFeedHealth'
 
+export type TripTarget = Pick<StopBoardRow, 'routeId' | 'tripId' | 'serviceDate'>
+export type TripNavigation = (trip: TripTarget) => void
+
 function clock(time: number | null, timezone: string | null, reference: number, precise = false) {
   if (time === null || !timezone) return '—'
   const sameDay = new Date(time * 1000).toLocaleDateString('en-CA', { timeZone: timezone }) === new Date(reference * 1000).toLocaleDateString('en-CA', { timeZone: timezone })
@@ -21,7 +24,7 @@ function arrivalLabel(row: StopBoardRow, now: number, timezone: string | null) {
   return minutes <= 0 ? 'Due' : `${minutes} min`
 }
 
-export function StopArrivalBoardView({ data, refreshError = '', showHeading = true, recorded = false }: { data: StopBoard; refreshError?: string; showHeading?: boolean; recorded?: boolean }) {
+export function StopArrivalBoardView({ data, refreshError = '', showHeading = true, recorded = false, onOpenTrip }: { onOpenTrip?: TripNavigation; data: StopBoard; refreshError?: string; showHeading?: boolean; recorded?: boolean }) {
   const [routeId, setRouteId] = useState('')
   const [expanded, setExpanded] = useState(false)
   const routes = [...new Map(data.rows.map(row => [row.routeId, { name: row.routeName, color: row.color }])).entries()]
@@ -41,7 +44,7 @@ export function StopArrivalBoardView({ data, refreshError = '', showHeading = tr
       const notRunning = row.status === 'cancelled' || row.status === 'skipped'
       return <li key={row.key} className={notRunning ? 'is-not-running' : ''}>
         <span className="stop-board-route" style={{ '--arrival-color': row.color } as CSSProperties}>{row.routeName}</span>
-        <div className="stop-board-service"><strong>To {row.destination}</strong><small>{[row.vehicleLabel ? `Vehicle ${row.vehicleLabel}` : 'Vehicle not reported', row.platform ? `Platform ${row.platform}` : row.stopName !== data.stop.name ? row.stopName : ''].filter(Boolean).join(' · ')}</small></div>
+        <div className="stop-board-service"><strong>{onOpenTrip && row.routeId && row.tripId && row.serviceDate ? <button className="stop-board-trip" onClick={() => onOpenTrip({ routeId: row.routeId, tripId: row.tripId, serviceDate: row.serviceDate })} aria-label={`Open trip ${row.tripId} to ${row.destination}`}>To {row.destination}</button> : <>To {row.destination}</>}</strong><small>{[row.vehicleLabel ? `Vehicle ${row.vehicleLabel}` : 'Vehicle not reported', row.platform ? `Platform ${row.platform}` : row.stopName !== data.stop.name ? row.stopName : ''].filter(Boolean).join(' · ')}</small></div>
         <div className="stop-board-time"><strong>{snapshot && !notRunning ? time(row.expected) : arrivalLabel(row, now, data.timezone)}</strong><small>{row.kind === 'departure' && !notRunning ? 'Departs · ' : ''}{row.status === 'live' ? <><Radio size={10} aria-hidden="true" /> {snapshot ? 'Recorded prediction' : `Prediction ${time(timing.current)}`}</> : row.atStop && !snapshot ? 'Reported at this stop' : notRunning ? time(timing.scheduled) : 'Schedule only'}</small></div>
         <details className="stop-board-baseline"><summary>{row.status === 'live' ? <>Scheduled {time(timing.scheduled)}{scheduleDeviation(timing.scheduled, timing.current) ? <b> · {scheduleDeviation(timing.scheduled, timing.current)}</b> : null}</> : row.status === 'stale' ? 'Prediction out of date' : row.status === 'unresolved' ? 'Conflicting reports · schedule shown' : 'Timing details'}</summary>
           {row.timingIssue ? <p>{row.timingIssue}</p> : null}
@@ -64,7 +67,7 @@ export function StopArrivalBoardView({ data, refreshError = '', showHeading = tr
   </section>
 }
 
-export function StopArrivalBoard({ projectId, stopId, showHeading = true }: { projectId: string; stopId: string; showHeading?: boolean }) {
+export function StopArrivalBoard({ projectId, stopId, showHeading = true, onOpenTrip }: { onOpenTrip?: TripNavigation; projectId: string; stopId: string; showHeading?: boolean }) {
   const [data, setData] = useState<StopBoard | null>(null)
   const [error, setError] = useState('')
   useEffect(() => {
@@ -87,5 +90,5 @@ export function StopArrivalBoard({ projectId, stopId, showHeading = true }: { pr
     document.addEventListener('visibilitychange', onVisible)
     return () => { controller.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
   }, [projectId, stopId])
-  return data ? <StopArrivalBoardView key={`${projectId}/${stopId}`} data={data} refreshError={error} showHeading={showHeading} /> : <p className="stop-board-empty" role={error ? 'alert' : 'status'}>{error || 'Loading stop arrivals…'}</p>
+  return data ? <StopArrivalBoardView key={`${projectId}/${stopId}`} data={data} onOpenTrip={onOpenTrip} refreshError={error} showHeading={showHeading} /> : <p className="stop-board-empty" role={error ? 'alert' : 'status'}>{error || 'Loading stop arrivals…'}</p>
 }

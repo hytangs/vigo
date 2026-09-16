@@ -32,8 +32,8 @@ import { routeGeometryLabel } from './app/routePresentation'
 import { cityPublicRouteKey } from './app/cityPreview'
 import { buildNetworkPerformanceProfile, type NetworkPerformanceProfile } from './networkPerformance'
 import { serviceKeyForRoute, serviceVehicleIsVisible, type ServiceVehicleFrame } from './serviceVehicles'
-import { AgencyVehicleDetails } from './components/AgencyVehicleDetails'
-import { StopArrivalBoard } from './components/StopArrivalBoard'
+import { VehicleOperationalWarnings, AgencyVehicleDetails, type VehicleNavigation } from './components/AgencyVehicleDetails'
+import { StopArrivalBoard, type TripNavigation } from './components/StopArrivalBoard'
 import type { RoutingPlan, RoutingPoint } from './routingModel'
 import { routingPinLabel } from './routingPointSequence'
 import {
@@ -105,6 +105,8 @@ export type VigoMapProps = {
   onMoveScenarioStop?: (index: number, coordinate: LngLat) => void
   performanceProfile?: NetworkPerformanceProfile
   focusMode?: 'network' | 'route' | 'routing' | 'scenario'
+  onOpenTrip?: TripNavigation
+  onNavigateVehicle?: VehicleNavigation
   onSelectRoute: (id: string, options?: { inspect?: boolean }) => void
   onSelectStop: (id: string, options?: { inspect?: boolean }) => void
   onRoutingPoint?: (point: RoutingPoint) => void
@@ -2345,6 +2347,8 @@ export function VigoMap({
   performanceProfile: providedPerformanceProfile,
   focusMode = 'network',
   onSelectRoute,
+  onNavigateVehicle,
+  onOpenTrip,
   onSelectStop,
   onRoutingPoint,
 }: VigoMapProps) {
@@ -2556,7 +2560,7 @@ export function VigoMap({
     const previousScope = selectionScopeRef.current
     if (previousScope.fitSignature === fitSignature && previousScope.selectedRouteId === selectedRouteId) return
     selectionScopeRef.current = { fitSignature, selectedRouteId }
-    // Clicking a vehicle also selects its route. Keep that vehicle's card while
+    // Keep a selected vehicle's card while
     // the route preview reloads, provided it still belongs to the visible scope.
     setLiveSelection(previous => previous?.stopId && previous.stopId === selectedStopId ? previous : previous?.vehicleId && vehicleFrame.vehicles.some(vehicle =>
       vehicle.id === previous.vehicleId && vehicle.sourceUrl === previous.vehicleSourceUrl
@@ -2564,15 +2568,12 @@ export function VigoMap({
   }, [fitSignature, selectedRouteId, selectedStopId, vehicleFrame, preview])
 
   const stopSelectionRef = useRef({ projectId, selectedRouteId, selectedStopId })
-  const vehicleStopSelectionRef = useRef<string | null>(null)
   useEffect(() => {
     const previous = stopSelectionRef.current
     stopSelectionRef.current = { projectId, selectedRouteId, selectedStopId }
-    const selectedByVehicle = vehicleStopSelectionRef.current === selectedStopId
-    vehicleStopSelectionRef.current = null
     // Search and Agency evidence share map selection. A route's automatically
     // selected first stop should not open a board over a vehicle or route card.
-    if (selectedByVehicle || previous.projectId !== projectId || previous.selectedRouteId !== selectedRouteId || previous.selectedStopId === selectedStopId || routingEnabled || scenarioFocus) return
+    if (previous.projectId !== projectId || previous.selectedRouteId !== selectedRouteId || previous.selectedStopId === selectedStopId || routingEnabled || scenarioFocus) return
     const stop = findNetworkStop(preview.stops, selectedStopId)
     if (stop) {
       setLiveSelection({ tone: 'stop', stopId: stop.id, eyebrow: 'Stop arrivals', title: stop.name, subtitle: '', metrics: [] })
@@ -3252,15 +3253,11 @@ export function VigoMap({
       }
 
       const selectServiceVehicle = (vehicle: ServiceVehicleFrame['vehicles'][number]) => {
-        const matchedRoute = preview.routes.find((route) => route.id === vehicle.routeFeatureId)
-          ?? preview.routes.find((route) => serviceKeyForRoute(route) === vehicle.serviceKey)
-        if (matchedRoute) onSelectRoute(matchedRoute.id, { inspect: false })
-        if (vehicle.nextStopFeatureId) { vehicleStopSelectionRef.current = vehicle.nextStopFeatureId; onSelectStop(vehicle.nextStopFeatureId, { inspect: false }) }
         setLiveSelection({ tone: 'vehicle', ...vehicle.card, ...(vehicle.source === 'live' ? { vehicleId: vehicle.id, vehicleSourceUrl: vehicle.sourceUrl } : {}) })
       }
       let clickedVehicle: ServiceVehicleFrame['vehicles'][number] | undefined
       if (effectiveLayers.routes && map.getLayer('vigo-vehicles')) {
-        const vehicleHit = map.queryRenderedFeatures(event.point, { layers: ['vigo-vehicle-headings', 'vigo-vehicles'] })[0]
+        const vehicleHit = map.queryRenderedFeatures(event.point, { layers: ['vigo-vehicle-headings', 'vigo-vehicles'] }).find(feature => textProperty(feature.properties, 'vehicleId'))
         if (vehicleHit?.properties) {
           const vehicleIndex = Math.round(numberProperty(vehicleHit.properties, 'vehicleIndex'))
           const vehicleId = textProperty(vehicleHit.properties, 'vehicleId')
@@ -3351,50 +3348,68 @@ export function VigoMap({
         }
       }
     }
-    const stopTooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: 'map-stop-tooltip' })
-    let hoveredStopId = ''
-    const clearStopTooltip = () => { hoveredStopId = ''; stopTooltip.remove() }
+    const hoverTooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: 'map-stop-tooltip' })
+    let hoveredFeatureId = ''
+    const clearHoverTooltip = () => { hoveredFeatureId = ''; hoverTooltip.remove() }
     const handleMove = (event: maplibregl.MapMouseEvent) => {
       if (scenarioDragRef.current) {
+        clearHoverTooltip()
         map.getCanvas().style.cursor = 'grabbing'
         return
       }
       if (routingEnabled || (scenarioFocus && scenarioPointPicking)) {
+        clearHoverTooltip()
         map.getCanvas().style.cursor = 'crosshair'
         return
       }
       const scenarioHit = map.getLayer('vigo-scenario-sketch-hit')
         && map.queryRenderedFeatures(event.point, { layers: ['vigo-scenario-sketch-hit'] }).length > 0
       if (scenarioHit) {
+        clearHoverTooltip()
         map.getCanvas().style.cursor = 'grab'
         return
       }
       const layersToQuery = ['vigo-vehicle-headings', 'vigo-vehicles', 'vigo-selected-route', 'vigo-routes', 'vigo-selected-segments', 'vigo-segments'].filter((layerId) => map.getLayer(layerId))
       const features = layersToQuery.length ? map.queryRenderedFeatures(event.point, { layers: layersToQuery }) : []
-      const vehicleHit = features.some(feature => feature.layer.id === 'vigo-vehicles' || feature.layer.id === 'vigo-vehicle-headings')
+      const vehicleHit = features.find(feature => (feature.layer.id === 'vigo-vehicles' || feature.layer.id === 'vigo-vehicle-headings') && textProperty(feature.properties, 'vehicleId'))
       const stop = vehicleHit ? undefined : renderedStopAtPoint(map, event.point)
       map.getCanvas().style.cursor = stop || features.length ? 'pointer' : ''
-      if (stop?.geometry.type === 'Point') {
-        const id = textProperty(stop.properties, 'stopId')
-        if (id !== hoveredStopId) {
-          hoveredStopId = id
-          const [lon, lat] = stop.geometry.coordinates
-          stopTooltip.setLngLat([lon, lat]).setText(`${textProperty(stop.properties, 'name', id)} · Arrivals`).addTo(map)
+      if (vehicleHit) {
+        const index = Math.round(numberProperty(vehicleHit.properties, 'vehicleIndex'))
+        const vehicle = vehicleFrame.vehicles[index]
+        if (!vehicle || vehicle.id !== textProperty(vehicleHit.properties, 'vehicleId')) { clearHoverTooltip(); return }
+        const id = `vehicle:${index}`
+        if (id !== hoveredFeatureId) {
+          hoveredFeatureId = id
+          const lines = [
+            vehicle.source === 'live' ? `Vehicle ${vehicle.card.title}` : 'Scheduled vehicle',
+            `Route ${vehicle.routeShortName || vehicle.routeId}`,
+            vehicle.card.journey?.destination ? `To ${vehicle.card.journey.destination}` : '',
+            vehicle.tripId ? `Trip ${vehicle.tripId.split(/::|\u001f/).at(-1)}` : '',
+          ].filter(Boolean)
+          hoverTooltip.setLngLat(vehicle.coordinate).setText(lines.join('\n')).addTo(map)
         }
-      } else clearStopTooltip()
+      } else if (stop?.geometry.type === 'Point') {
+        const id = textProperty(stop.properties, 'stopId')
+        if (`stop:${id}` !== hoveredFeatureId) {
+          hoveredFeatureId = `stop:${id}`
+          const [lon, lat] = stop.geometry.coordinates
+          hoverTooltip.setLngLat([lon, lat]).setText(textProperty(stop.properties, 'name', id)).addTo(map)
+        }
+      } else clearHoverTooltip()
     }
     map.getCanvas().style.cursor = routingEnabled || (scenarioFocus && scenarioPointPicking) ? 'crosshair' : ''
     map.on('click', handleClick)
     map.on('mousemove', handleMove)
-    map.on('movestart', clearStopTooltip)
-    map.getCanvas().addEventListener('mouseleave', clearStopTooltip)
+    map.on('movestart', clearHoverTooltip)
+    map.getCanvas().addEventListener('mouseleave', clearHoverTooltip)
     return () => {
-      clearStopTooltip()
+      clearHoverTooltip()
       if (mapRemovedRef.current) return
       map.off('click', handleClick)
       map.off('mousemove', handleMove)
-      map.off('movestart', clearStopTooltip)
-      map.getCanvas().removeEventListener('mouseleave', clearStopTooltip)
+      map.off('movestart', clearHoverTooltip)
+      map.getCanvas().removeEventListener('mouseleave', clearHoverTooltip)
       map.getCanvas().style.cursor = ''
     }
   }, [effectiveLayers.routes, effectiveLayers.segments, onRoutingPoint, onSelectRoute, onSelectStop, preview, routingEnabled, scenarioFocus, scenarioPointPicking, selectedRouteId, vehicleFrame])
@@ -3446,8 +3461,8 @@ export function VigoMap({
           <button type="button" aria-label="Clear map selection" onClick={() => setLiveSelection(null)}>
             <X size={13} strokeWidth={2.6} aria-hidden="true" />
           </button>
-          {liveSelection.vehicleId ? vehicleFrame.vehicles.find(vehicle => vehicle.id === liveSelection.vehicleId && vehicle.sourceUrl === liveSelection.vehicleSourceUrl)?.card.metrics.filter(metric => metric.label.startsWith('Predicted at ')).map(metric => <p className="agency-vehicle-warning" key={metric.label}><strong>{metric.value}</strong><br />{metric.label}</p>) : null}
-          {liveSelection.stopId && projectId ? <StopArrivalBoard key={`${projectId}/${liveSelection.stopId}`} projectId={projectId} stopId={liveSelection.stopId} /> : liveSelection.vehicleId && projectId ? <AgencyVehicleDetails key={`${projectId}/${liveSelection.vehicleSourceUrl}/${liveSelection.vehicleId}`} projectId={projectId} vehicleId={liveSelection.vehicleId} sourceUrl={liveSelection.vehicleSourceUrl} /> : <><span>{liveSelection.eyebrow}</span>
+          {liveSelection.vehicleId ? <VehicleOperationalWarnings vehicle={vehicleFrame.vehicles.find(vehicle => vehicle.id === liveSelection.vehicleId && vehicle.sourceUrl === liveSelection.vehicleSourceUrl)} /> : null}
+          {liveSelection.stopId && projectId ? <StopArrivalBoard onOpenTrip={onOpenTrip} key={`${projectId}/${liveSelection.stopId}`} projectId={projectId} stopId={liveSelection.stopId} /> : liveSelection.vehicleId && projectId ? <AgencyVehicleDetails key={`${projectId}/${liveSelection.vehicleSourceUrl}/${liveSelection.vehicleId}`} projectId={projectId} vehicleId={liveSelection.vehicleId} sourceUrl={liveSelection.vehicleSourceUrl} onNavigate={onNavigateVehicle} /> : <><span>{liveSelection.eyebrow}</span>
           <strong>{liveSelection.title}</strong>
           <small>{liveSelection.subtitle}</small>
           {liveSelection.journey ? (

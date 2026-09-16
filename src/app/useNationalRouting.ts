@@ -11,7 +11,6 @@ import {
   type RoutingServiceDateSuggestion,
 } from './routingPlan'
 import type { RoutingDepartureWindowMinutes } from './uiOptions'
-import { routingObservationKey, routingObservationValidity } from './routingDataMode'
 
 type EarliestTransitEvidence = {
   status: 'ready' | 'none' | 'unavailable'
@@ -100,8 +99,10 @@ export function useNationalRouting({
   const [serviceDateSuggestions, setServiceDateSuggestions] = useState<RoutingServiceDateSuggestion[] | undefined>()
   const [error, setError] = useState('')
   const [errorStatus, setErrorStatus] = useState<ApiRoutingStatus | undefined>()
-  const [observationValidityRevision, setObservationValidityRevision] = useState(0)
-  const checkedObservation = useRef<{ observationKey: string; validityKey: string } | null>(null)
+  const [runRevision, setRunRevision] = useState(0)
+  // Feed polling updates the next run's input, never the current journey.
+  const latestSnapshot = useRef(realtimeSnapshot)
+  latestSnapshot.current = realtimeSnapshot
   const routeRequestGate = useRef(new LatestRequestGate())
   const streetMode = mode !== 'transit'
   const departNow = !streetMode && routingDataMode === 'realtime'
@@ -111,10 +112,6 @@ export function useNationalRouting({
   const requestTimePreference = departNow ? 'depart' : timePreference
   const requestServiceDate = departNow ? undefined : serviceDate
   const requestServiceDay = departNow ? undefined : serviceDay
-  const observationKey = useMemo(
-    () => routingObservationKey(mode, routingDataMode, realtimeSnapshot),
-    [mode, routingDataMode, realtimeSnapshot],
-  )
   const readinessKey = storeKey ? `${storeKey}:${departNow ? 'depart-now' : `${serviceDate}:${serviceDay}`}` : ''
   const ready = streetMode
     ? Boolean(feedId && storeKey && routeAllowed)
@@ -126,28 +123,6 @@ export function useNationalRouting({
     () => streetMode || departNow ? [] : routingServiceDateOptions(serviceCoverage, serviceDate, serviceDateSuggestions),
     [departNow, serviceCoverage, serviceDate, serviceDateSuggestions, streetMode],
   )
-
-  const observeRealtimeExpiry = active && ready && routeAllowed && Boolean(origin && destination && observationKey)
-    && serviceDateAvailability !== 'outside'
-  useEffect(() => {
-    if (!observeRealtimeExpiry) return
-    const snapshot = JSON.parse(observationKey) as RealtimeSnapshot
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const checkValidity = () => {
-      const nowMs = Date.now()
-      const validity = routingObservationValidity(snapshot, nowMs)
-      const previous = checkedObservation.current
-      if (previous?.observationKey === observationKey && previous.validityKey !== validity.key) {
-        setObservationValidityRevision(revision => revision + 1)
-      }
-      checkedObservation.current = { observationKey, validityKey: validity.key }
-      if (validity.nextChangeAt !== null) {
-        timer = setTimeout(checkValidity, Math.min(2_147_483_647, Math.max(1, validity.nextChangeAt - nowMs)))
-      }
-    }
-    checkValidity()
-    return () => clearTimeout(timer)
-  }, [observationKey, observeRealtimeExpiry])
 
   const request = useMemo(() => ({ projectId, storeKey, streetKey, body: {
     feedId,
@@ -171,13 +146,13 @@ export function useNationalRouting({
     maxStreetKm: mode === 'drive' ? 750 : 50,
     departureWindowMinutes: streetMode ? 0 : departureWindowMinutes,
     departureWindowDirection: !streetMode && departureWindowMinutes > 0 ? 'forward' : undefined,
-    realtimeSnapshot: observationKey ? JSON.parse(observationKey) : undefined,
-  } }), [allowLongWalk, departNow, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, observationKey, observationValidityRevision, origin, projectId, requestDepartMinutes, requestServiceDate, requestServiceDay, requestTimePreference, routingDataMode, storeKey, streetKey, streetMode, waypoints])
+  } }), [allowLongWalk, departNow, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, runRevision, origin, projectId, requestDepartMinutes, requestServiceDate, requestServiceDay, requestTimePreference, routingDataMode, storeKey, streetKey, streetMode, waypoints])
   const completedRequest = useRef<typeof request | null>(null)
 
   const reset = useCallback(() => {
     routeRequestGate.current.cancel()
     completedRequest.current = null
+    setRunRevision(revision => revision + 1)
     setChoices([])
     setLoading(false)
     setAlternativesLoading(false)
@@ -256,7 +231,14 @@ export function useNationalRouting({
       {
         method: 'POST',
         signal: controller.signal,
-        body: JSON.stringify(request.body),
+        // Capture the newest observation only when dispatching a new request.
+        // The server validates its freshness against this run's departure.
+        body: JSON.stringify({
+          ...request.body,
+          realtimeSnapshot: request.body.mode === 'transit' && request.body.routingDataMode === 'realtime'
+            ? latestSnapshot.current ?? undefined
+            : undefined,
+        }),
       },
     ).then((response) => {
       if (!ownsCommit()) return

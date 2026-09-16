@@ -1,3 +1,5 @@
+import type { TripTarget } from './components/StopArrivalBoard'
+import type { VehicleTiming } from './agency/routeOperationsTypes'
 import { startPolling } from './app/polling'
 import { journeyContinuityIssue } from './journeyIntegrity.mjs'
 import { PrimaryNav, type RouteToolKey } from './components/PrimaryNav'
@@ -1727,6 +1729,7 @@ const emptyCoordinates: [number, number][] = []
 const emptyVehicleFrame: ServiceVehicleFrame = { mode: 'schedule', vehicles: [], tripUpdateCount: 0, alertCount: 0 }
 
 function RouteSurface({
+  onOpenVehicleTrip,
   operationalEvents,
   agencyFocus,
   scheduleLoadStatus,
@@ -1822,6 +1825,7 @@ function RouteSurface({
   onScheduleTimeChange: (minutes: number) => void
   onScheduleServiceDateChange: (serviceDate: string) => void
   onRoutingPoint?: (point: RoutingPoint) => void
+  onOpenVehicleTrip?: (trip: TripTarget) => void
   onSelectRoute: (id: string, options?: { inspect?: boolean }) => void
   onSelectStop: (id: string, options?: { inspect?: boolean }) => void
 }) {
@@ -1908,6 +1912,13 @@ function RouteSurface({
   }
   const [agencyView, setAgencyView] = useState<'map' | 'line'>('map')
   useEffect(() => { if (agencyLocation || isNetworkMap) setAgencyView('map') }, [agencyLocation, isNetworkMap])
+  function navigateVehicle(vehicle: VehicleTiming, destination: 'line' | 'trip') {
+    if (!vehicle.routeId) return
+    if (destination === 'trip') {
+      if (vehicle.tripId && vehicle.serviceDate) onOpenVehicleTrip?.({ routeId: vehicle.routeId, tripId: vehicle.tripId, serviceDate: vehicle.serviceDate })
+    }
+    else { onSelectRoute(vehicle.routeId, { inspect: false }); setAgencyView('line') }
+  }
   const showAgencyLine = agencyFocus && agencyView === 'line' && !routingFocus && !analysisFocus
   const [servicePlaybackStep, setServicePlaybackStep] = useState(1)
   const playbackTimeRef = useRef(scheduleTimeMinutes)
@@ -1954,7 +1965,9 @@ function RouteSurface({
         ) : null}
       </div>
       <div className="surface-panel route-map-shell">
-        {showAgencyLine ? <AgencyRouteLine key={`${projectId}/${selectedRouteId}`} projectId={projectId} preview={focusedPreview} routeId={isNetworkMap ? '' : selectedRoute ? networkRouteId(selectedRoute) : selectedRouteId} selectedStopId={selectedStopId} showStopDetails={false} onSelectStop={onSelectStop} /> : <LazyVigoMap
+        {showAgencyLine ? <AgencyRouteLine vehicleFrame={vehicleFrame} onOpenTrip={onOpenVehicleTrip} key={`${projectId}/${selectedRouteId}`} projectId={projectId} preview={focusedPreview} routeId={isNetworkMap ? '' : selectedRoute ? networkRouteId(selectedRoute) : selectedRouteId} selectedStopId={selectedStopId} showStopDetails={false} onSelectStop={onSelectStop} onNavigateVehicle={navigateVehicle} /> : <LazyVigoMap
+          onOpenTrip={agencyFocus ? onOpenVehicleTrip : undefined}
+          onNavigateVehicle={agencyFocus ? navigateVehicle : undefined}
           showStopDetails={!agencyFocus}
           focusLocation={agencyFocus ? agencyLocation : undefined}
           projectId={projectId}
@@ -2211,6 +2224,7 @@ export default function App() {
   const [dataSection, setDataSection] = useState<DataSection>('feeds')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [agencyMapOpen, setAgencyMapOpen] = useState(false)
+  const [agencyTripTarget, setAgencyTripTarget] = useState<{ routeId: string; tripId: string; serviceDate: string } | undefined>()
   const [agencyBrowseRequest, setAgencyBrowseRequest] = useState(0)
   const [projectDialog, setProjectDialog] = useState<ProjectDialogState | null>(null)
   const [projectDialogBusy, setProjectDialogBusy] = useState(false)
@@ -4707,6 +4721,10 @@ export default function App() {
   }
 
   function locateAgencyEntities(routeIds: string[], stopIds: string[], location?: { id: string; label: string; coordinate: [number, number] }, revealMap = true) {
+    if (!location && stopIds.length === 1) {
+      const stop = findNetworkStop(preview.stops, stopIds[0])
+      if (stop && typeof stop.lon === 'number' && typeof stop.lat === 'number' && Number.isFinite(stop.lon) && Number.isFinite(stop.lat)) location = { id: stop.id, label: stop.name, coordinate: [stop.lon, stop.lat] }
+    }
     setAgencyPlan(null); setAgencyReach(null); setAgencyLocation(location ? { ...location, stopId: stopIds.length === 1 ? stopIds[0] : undefined } : undefined)
     if (!routeIds.length && !stopIds.length) { setSelectedRouteId(''); setMapScope('network') }
     const route = routeIds.length === 1 ? findNetworkRoute(preview.routes, routeIds[0]) : undefined
@@ -4715,7 +4733,15 @@ export default function App() {
     if (revealMap && window.innerWidth <= 760) setAgencyMapOpen(true)
   }
 
+  function openAgencyTrip(trip: TripTarget) {
+    if (!trip.routeId || !trip.tripId || !trip.serviceDate) return
+    browseAgencyEntities([trip.routeId], [])
+    const route = findNetworkRoute(preview.routes, trip.routeId)
+    setAgencyTripTarget({ routeId: route ? networkRouteId(route) : trip.routeId, tripId: trip.tripId, serviceDate: trip.serviceDate })
+  }
+
   function browseAgencyEntities(routeIds: string[], stopIds: string[], location?: { id: string; label: string; coordinate: [number, number] }) {
+    setAgencyTripTarget(undefined)
     locateAgencyEntities(routeIds, stopIds, location, false)
     if (!routeIds.some(Boolean) && !stopIds.some(Boolean)) return
     setAgencyBrowseRequest(request => request + 1)
@@ -5168,6 +5194,7 @@ export default function App() {
       ) : (
       <div className="workbench project-workbench route-investigation-shell">
         <RouteSurface
+          onOpenVehicleTrip={openAgencyTrip}
           operationalEvents={activeRouteTool === 'agency' ? operationalEvents : undefined}
           agencyFocus={activeRouteTool === 'agency'}
           scheduleLoadStatus={scheduleLoadStatus}
@@ -5253,6 +5280,8 @@ export default function App() {
           onResult={presentAgencyResult}
           onOpenData={openDataView}
           mapOpen={agencyMapOpen}
+          tripTarget={agencyTripTarget}
+          onOpenTrip={openAgencyTrip}
           browseRequest={agencyBrowseRequest}
           onToggleMap={() => setAgencyMapOpen(open => !open)}
         /> : null}

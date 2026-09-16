@@ -1,18 +1,29 @@
 import { useState } from 'react'
 import type { NetworkDiagnosis, NetworkNarrative, BriefingInvestigation } from '../agency/networkAssessmentTypes'
 
-export function NetworkAssessment({ narrative, diagnosis, investigation, aiNarrative = false }: { narrative: NetworkNarrative; diagnosis: NetworkDiagnosis; investigation?: BriefingInvestigation; aiNarrative?: boolean }) {
+export function NetworkAssessment({ narrative, diagnosis, investigation, aiNarrative = false, onLocateStop }: { narrative: NetworkNarrative; diagnosis: NetworkDiagnosis; investigation?: BriefingInvestigation; aiNarrative?: boolean; onLocateStop?: (stopId: string) => void }) {
   const [page, setPage] = useState(0)
   const { coverage } = diagnosis
   const assessedRoutes = diagnosis.routes.filter(route => route.scheduledTrips || route.measuredTrips)
   const pageCount = Math.max(1, Math.ceil(assessedRoutes.length / 10))
   const currentPage = Math.min(page, pageCount - 1)
   const visibleRoutes = assessedRoutes.slice(currentPage * 10, (currentPage + 1) * 10)
+  function sectionStop(id: string) {
+    const area = diagnosis.concentrations?.find(area => area.id === id)
+    if (area) return area.stopIds[0]
+    if (id === 'spacing') return diagnosis.routes.filter(route => route.widest
+      && Math.round(route.widest.maxIncreaseSeconds / 60) > 0
+      && Math.round(route.widest.predictedSeconds / 60) > Math.round(route.widest.scheduledSeconds / 60))
+      .sort((a, b) => b.widest!.maxIncreaseSeconds - a.widest!.maxIncreaseSeconds)[0]?.widest?.stopId
+  }
+  function heading(title: string, stopId?: string) {
+    return stopId && onLocateStop ? <button type="button" className="network-assessment-location" title="Show station on map" onClick={() => onLocateStop(stopId)}>{title}</button> : title
+  }
   return <div className="network-assessment">
     <p className="network-assessment-overview">{narrative.overview}</p>
-    {narrative.sections.map(section => <section key={section.id} className="network-assessment-focus"><h4>{section.title}</h4><p>{section.text}</p></section>)}
+    {narrative.sections.map(section => <section key={section.id} className="network-assessment-focus"><h4>{heading(section.title, sectionStop(section.id))}</h4><p>{section.text}</p></section>)}
     {narrative.elsewhere ? <p>{narrative.elsewhere}</p> : null}
-    {!aiNarrative && investigation?.assessment ? <section className="network-assessment-focus"><h4>Working explanation{investigation.focusTitle ? ` · ${investigation.focusTitle}` : ''}</h4><p>{investigation.assessment}</p></section> : null}
+    {!aiNarrative && investigation?.assessment ? <section className="network-assessment-focus"><h4>{heading(`Working explanation${investigation.focusTitle ? ` · ${investigation.focusTitle}` : ''}`, sectionStop(investigation.plan?.focusId || ''))}</h4><p>{investigation.assessment}</p></section> : null}
     {!aiNarrative && investigation?.watchNext ? <p><strong>Watch next · </strong>{investigation.watchNext}</p> : null}
     {investigation?.incomplete ? <p className="agency-caption">The investigation is incomplete. The computed assessment and completed evidence checks are retained.</p> : null}
     {investigation?.explanation ? <details className="network-assessment-coverage"><summary>Investigation · {investigation.checks.filter(check => check.completed).length} checks</summary><p>{investigation.explanation.text}</p><p>Assessment: {investigation.explanation.status}. {investigation.checks.map(check => `${check.aspect.replaceAll('_', ' ')}${check.completed ? '' : ' unavailable'}`).join(' · ')}</p></details> : null}

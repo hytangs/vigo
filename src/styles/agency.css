@@ -360,7 +360,7 @@
 .gtfs-stop-name { display: grid; gap: 3px; min-width: 0; }
 .network-stop-button svg { flex-shrink: 0; color: var(--text-muted); }
 .map-stop-tooltip { pointer-events: none; }
-.map-stop-tooltip .maplibregl-popup-content { padding: 8px 12px; border-radius: 6px; background: var(--panel); color: var(--text-strong); font-family: inherit; font-size: 12px; box-shadow: 0 2px 12px var(--shadow-color); }
+.map-stop-tooltip .maplibregl-popup-content { white-space: pre-line; padding: 8px 12px; border-radius: 6px; background: var(--panel); color: var(--text-strong); font-family: inherit; font-size: 12px; box-shadow: 0 2px 12px var(--shadow-color); }
 .map-stop-tooltip .maplibregl-popup-tip { border-top-color: var(--panel); border-bottom-color: var(--panel); }
 
 .agency-panel.has-composer { grid-template-rows: auto minmax(0, 1fr) auto; }
@@ -517,3 +517,7 @@
 .network-import-example small { display: block; font-size: 12px; color: var(--text-muted); }
 .network-import-example > small { margin-top: 12px; }
 .network-import-example > small a { color: inherit; }
+
+.network-assessment-location { border: 0; padding: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+.network-assessment-location:hover { text-decoration-color: currentColor; }
+.network-assessment-location:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }

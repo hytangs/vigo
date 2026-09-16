@@ -6,10 +6,10 @@ import { vehicleDelayLabel } from './AgencyVehicleDetails'
 type Trip = { id: string; directionId: string | null; destination: string; departure: number; arrival: number }
 type Timetable = { timezone: string; trips: Trip[]; trip: (Trip & { serviceDate: string; status: string; predictionAt: number | null; sourceUrl?: string | null; calls: Array<{ stop: { id: string; name: string }; index: number; status: string; progress?: string | null; lastPrediction?: Partial<Record<'arrival' | 'departure', { time: number; observedAt: number | null }>>; arrival: VehicleTiming['arrival']; departure: VehicleTiming['departure'] }> }) | null }
 
-export function AgencyTripTimetable({ projectId, routeId }: { projectId: string; routeId: string }) {
+export function AgencyTripTimetable({ projectId, routeId, initialTripId = '', initialServiceDate = '' }: { projectId: string; routeId: string; initialTripId?: string; initialServiceDate?: string }) {
   const retained = useRef<{ key: string; source?: string | null; calls: Map<number, NonNullable<NonNullable<Timetable['trip']>['calls'][number]['lastPrediction']>> }>({ key: '', calls: new Map() })
-  const [selection, setSelection] = useState('')
-  const [date, setDate] = useState('')
+  const [selection, setSelection] = useState(initialTripId)
+  const [date, setDate] = useState(initialServiceDate)
   const [data, setData] = useState<Timetable | null>(null)
   const [error, setError] = useState('')
   const [kind, setKind] = useState<'arrival' | 'departure'>('departure')

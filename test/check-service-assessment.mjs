@@ -125,8 +125,8 @@ try {
   assert.equal(repaired.trace[0].tool, 'assess_service')
   const clarification = await inspectUnverifiedReply({ question: 'Which relief does this trip affect?', draft: 'Give me an ID and I can check the crew.', context: {}, assessmentTool: serviceAssessmentTool,
     provider: { complete: async () => ({ tool_calls: [{ function: { name: 'inspect_reply', arguments: JSON.stringify({ action: 'clarify', entity: 'trip', missingData: 'assignments' }) } }] }) } })
-  assert.match(clarification.choice.text, /Which trip/)
-  assert.match(clarification.choice.text, /does not supply those records/)
+  assert.doesNotMatch(clarification.choice.text, /Which trip/)
+  assert.match(clarification.choice.text, /dispatch roster/)
   const inactive = await inspectUnverifiedReply({ question: 'Hello', draft: 'Hello.', context: {}, assessmentTool: serviceAssessmentTool,
     provider: { complete: async () => ({ tool_calls: [{ function: { name: 'inspect_reply', arguments: JSON.stringify({ action: 'reply', text: 'Hello.', inputs: null, period: 'current' }) } }] }) } })
   assert.deepEqual(inactive.choice, { action: 'reply', text: 'Hello.' }, 'Inactive model fields cannot execute or invalidate the chosen reply')

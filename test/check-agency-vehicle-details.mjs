@@ -10,7 +10,15 @@ import react from '@vitejs/plugin-react'
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-vehicle-details-'))
 const server = await createServer({ configFile: false, plugins: [react()], cacheDir: path.join(directory, 'cache'), server: { middlewareMode: true }, appType: 'custom' })
 try {
-  const { VehicleDetailsView } = await server.ssrLoadModule('/src/components/AgencyVehicleDetails.tsx')
+  const { VehicleDetailsView, VehicleOperationalWarnings } = await server.ssrLoadModule('/src/components/AgencyVehicleDetails.tsx')
+  const warnings = renderToStaticMarkup(createElement(VehicleOperationalWarnings, { vehicle: { card: { metrics: [
+    { value: '0 min spacing · scheduled 7 min', label: 'Predicted at Central · vehicles 1823 ↔ 1889' },
+    { value: 'Seats available', label: 'reported occupancy' },
+  ] } } }))
+  assert.match(warnings, /0 min spacing · scheduled 7 min/)
+  assert.match(warnings, /vehicles 1823 ↔ 1889/)
+  assert.doesNotMatch(warnings, /Seats available/, 'Shared warnings do not duplicate vehicle details')
+  assert.equal(renderToStaticMarkup(createElement(VehicleOperationalWarnings, {})), '', 'No matched live vehicle means no operational warning')
   const epoch = Date.parse('2026-09-16T02:45:00Z') / 1000
   const vehicle = {
     id: 'y1826', label: '1826', routeName: '1', tripId: 'trip-1', serviceDate: '2026-09-15', timezone: 'America/New_York',
@@ -24,6 +32,12 @@ try {
     arrival: { scheduled: epoch + 120, current: epoch + 840 }, departure: { scheduled: epoch + 180, current: null },
     delayKind: 'arrival', delaySeconds: 720,
   }
+  const navigation = patch => renderToStaticMarkup(createElement(VehicleDetailsView, { vehicle: { ...vehicle, routeId: 'R', ...patch }, onNavigate() {} }))
+  assert.match(navigation({}), /Open line/)
+  assert.match(navigation({}), /Open trip/)
+  assert.doesNotMatch(navigation({ tripId: null }), /Open trip/)
+  assert.doesNotMatch(navigation({ serviceDate: null }), /Open trip/)
+  assert.doesNotMatch(navigation({ routeId: null }), /Open line|Open trip/)
   const render = patch => renderToStaticMarkup(createElement(VehicleDetailsView, { vehicle: { ...vehicle, ...patch } }))
   assert.doesNotMatch(render({ occupancy: 'FULL' }).replace(/<[^>]*>/g, ''), /Reported occupancy|Full/, 'Occupancy is a compact glyph; its description stays accessible and in the tooltip')
   assert.match(render({ occupancy: 'FULL' }), /Reported occupancy · Full/)
@@ -38,7 +52,7 @@ try {
   assert.match(render({ carriages, fresh: false }), /Crowding · Not current/)
   let html = render({})
   assert.match(html, /1826 <small>Route 1<\/small>/, 'Copied vehicle and route identifiers stay distinct')
-  assert.match(html, /Trip update/)
+  assert.match(html, /Updated/)
   assert.doesNotMatch(html, /Prediction updated|Next prediction/)
   assert.match(html, /No prediction is supplied for this reported stop/)
   assert.equal((html.match(/<td>—<\/td>/g) ?? []).length, 2, 'A fresh trip update cannot invent current-stop times')
@@ -62,7 +76,7 @@ try {
 
   html = render({ fresh: false, predictionAt: null, warnings: ['The vehicle position is stale.'] })
   assert.match(html, /Not current/)
-  assert.doesNotMatch(html, /Trip update|Next prediction/)
+  assert.doesNotMatch(html, /Updated|Next prediction/)
 } finally {
   await server.close()
   await fs.rm(directory, { recursive: true, force: true })

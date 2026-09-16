@@ -33,7 +33,7 @@ export function AgencyProviderSettings({ endpoint, provider, onChange, actions }
         if (available.length === 1 && !model.trim()) setModel(available[0])
         setMessage(available.length === 1 ? `Found ${available[0]}. Connect to test function calling.` : available.length ? `${available.length} models available in the Model field. Connect to test your selection.` : 'No models were listed. You can enter a model name directly.')
       }
-      else { setApiKey(''); onChange(); setMessage(action === 'connect' ? 'Connected. The model successfully called the test tool.' : 'Disconnected. The session key has been cleared.'); if (action === 'disconnect') { setModel(''); setBaseUrl(''); setModels([]) } }
+      else { setApiKey(''); onChange(); setMessage(action === 'connect' ? 'Connected. The model successfully called the test tool.' : 'Disconnected. The session key has been cleared.'); if (action === 'connect') setOpen(false); if (action === 'disconnect') { setModel(''); setBaseUrl(''); setModels([]) } }
     } catch (reason) { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Connection failed.') }
     finally { setBusy(''); abort.current = null }
   }

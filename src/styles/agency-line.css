@@ -57,8 +57,6 @@
 .agency-line-unplaced { padding: 18px 0; margin-top: 18px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
 .agency-line-unplaced summary { cursor: pointer; }
 .agency-line-unplaced button { display: block; margin-top: 10px; text-align: left; }
-.agency-line-details { position: absolute; bottom: 16px; left: 16px; right: 16px; z-index: 6; max-height: min(60%, 410px); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; padding: 18px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 28px var(--shadow-color); }
-.agency-line-details > button { position: absolute; top: 8px; right: 8px; }
 .agency-vehicle-detail { color: var(--text); font-size: 11px; line-height: 1.5; }
 .agency-vehicle-detail header > span { color: var(--text-muted); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }
 .agency-vehicle-detail h3 { display: flex; align-items: baseline; gap: 10px; margin: 4px 25px 0 0; color: var(--text-strong); font-size: 23px; font-weight: 620; letter-spacing: -.035em; }
@@ -77,17 +75,13 @@
 .agency-vehicle-deviation { margin: 12px 0; color: var(--text-muted); font-size: 11px; }
 .agency-vehicle-detail .agency-vehicle-deviation strong { display: inline; font-size: 11px; font-weight: 550; color: var(--text-strong); line-height: inherit; }
 .agency-vehicle-warning { color: var(--text-muted); font-size: 10px; line-height: 1.6; margin: 10px 0; padding-left: 8px; border-left: 2px solid var(--warn); }
-.agency-vehicle-detail footer { display: grid; gap: 3px; color: var(--text-muted); font-size: 9px; margin-top: 13px; }
-.agency-vehicle-source { color: var(--text-muted); margin-top: 10px; font-size: 9px; }
-.agency-vehicle-source summary { cursor: pointer; }
-.agency-vehicle-source p { margin-bottom: 0; overflow-wrap: anywhere; }
+.agency-vehicle-detail footer { overflow-wrap: anywhere; color: var(--text-muted); font-size: 9px; margin-top: 13px; }
 .view-agency .route-map-shell .map-live-card.has-vehicle-timing { width: min(345px, calc(100% - 30px)); max-height: min(70%, 430px); }
 @media (max-width: 760px) {
   .agency-line-view { inset: 62px 0 0; padding: 8px 14px 20px; }
   .agency-line-directions { column-gap: 16px; }
   .agency-map-actions { gap: 5px; }
   .agency-view-switch button { padding: 4px 6px; font-size: 10px; }
-  .agency-line-details { max-height: 75%; }
   .view-agency .route-map-shell .map-live-card.has-vehicle-timing { max-height: 85%; }
 }
 .agency-trip-controls { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -106,3 +100,8 @@
 
 .agency-trip-source { margin-top: 16px; color: var(--text-muted); font-size: 12px; }
 .agency-trip-source summary { min-height: 36px; padding: 8px 0; cursor: pointer; }
+
+.agency-vehicle-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+
+.agency-line-vehicle.has-alert { border-color: var(--warn); }
+.agency-line-indicator { color: var(--warn); font-weight: 700; }

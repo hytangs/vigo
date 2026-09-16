@@ -1,3 +1,4 @@
+import type { ServiceVehicle } from '../serviceVehicles'
 import { Armchair } from 'lucide-react'
 import { occupancyIndicator, vehicleOccupancyIndicator } from '../agency/vehicleIndicators'
 import { useEffect, useState } from 'react'
@@ -24,7 +25,9 @@ function clock(timestamp: number | null, vehicle: VehicleTiming, seconds = false
   return vehicle.serviceDate && calendarDate !== vehicle.serviceDate ? `${date.toLocaleDateString([], { timeZone: vehicle.timezone, month: 'short', day: 'numeric' })} · ${time}` : time
 }
 
-export function VehicleDetailsView({ vehicle }: { vehicle: VehicleTiming }) {
+export type VehicleNavigation = (vehicle: VehicleTiming, destination: 'line' | 'trip') => void
+
+export function VehicleDetailsView({ vehicle, onNavigate }: { vehicle: VehicleTiming; onNavigate?: VehicleNavigation }) {
   const occupancy = occupancyIndicator(vehicle.occupancy || undefined)
   const occupancyKnown = vehicle.fresh && occupancy.label !== 'Occupancy unknown'
   const occupancyLevel = occupancy.crowded ? 3 : ['FEW_SEATS_AVAILABLE', 'STANDING_ROOM_ONLY'].includes(vehicle.occupancy || '') ? 2 : vehicle.occupancy === 'EMPTY' ? 0 : 1
@@ -33,6 +36,7 @@ export function VehicleDetailsView({ vehicle }: { vehicle: VehicleTiming }) {
   const timing = next ?? vehicle
   return <section className="agency-vehicle-detail" aria-label={`Vehicle ${vehicle.label} schedule and current timing`}>
     <header><span>Live vehicle</span><h3>{vehicle.label} <small>Route {vehicle.routeName}</small></h3><p>{vehicle.destination ? `To ${vehicle.destination}` : 'Destination unavailable'}</p></header>
+    {onNavigate && vehicle.routeId ? <div className="agency-vehicle-actions"><button className="agency-button" onClick={() => onNavigate(vehicle, 'line')}>Open line</button>{vehicle.tripId && vehicle.serviceDate ? <button className="agency-button" onClick={() => onNavigate(vehicle, 'trip')}>Open trip</button> : null}</div> : null}
     <p className="agency-vehicle-position">{vehicleStopLabel(vehicle)}</p>
     {vehicle.warnings.map(warning => <p className="agency-vehicle-warning" key={warning}>{warning}</p>)}
     {next ? <p className="agency-vehicle-next"><span>Next prediction</span><strong>{next.stop.name}</strong></p> : null}
@@ -40,12 +44,11 @@ export function VehicleDetailsView({ vehicle }: { vehicle: VehicleTiming }) {
     {timing.delayKind ? <p className="agency-vehicle-deviation">{timing.delayKind === 'arrival' ? 'Arrival' : 'Departure'} · <strong>{vehicleDelayLabel(timing.delaySeconds)}</strong></p> : null}
     {vehicle.carriages?.length && !occupancyKnown ? <p>{vehicleOccupancyIndicator(vehicle.occupancy || undefined, vehicle.carriages).label}{vehicle.fresh ? '' : ' · Not current'}</p> : <span className={`occupancy-glyph${vehicle.fresh && occupancy.crowded ? ' is-crowded' : ''}`} role="img" aria-label={occupancyLabel} title={occupancyLabel}><Armchair size={15} aria-hidden="true" />{occupancyKnown ? <svg width="20" height="14" aria-hidden="true">{[0, 1, 2].map(index => <rect key={index} x={index * 7} y={8 - index * 3} width="4" height={6 + index * 3} fill="currentColor" opacity={index < occupancyLevel ? 1 : .2} />)}</svg> : <span aria-hidden="true">?</span>}</span>}
     {vehicle.carriages?.length ? <table aria-label="Reported crowding by car"><thead><tr><th scope="col">Car</th><th scope="col">Crowding{vehicle.fresh ? '' : ' · Not current'}</th></tr></thead><tbody>{vehicle.carriages.map(car => <tr key={car.carriageSequence}><th scope="row">{car.label || car.id || car.carriageSequence}</th><td>{occupancyIndicator(car.occupancyStatus).label}</td></tr>)}</tbody></table> : null}
-    <footer><span>Vehicle seen {clock(vehicle.observedAt, vehicle, true)}{!vehicle.fresh ? ' · Not current' : ''}</span>{vehicle.predictionAt ? <span>Trip update {clock(vehicle.predictionAt, vehicle, true)}</span> : null}<span>— means timing unavailable.</span></footer>
-    <details className="agency-vehicle-source"><summary>Trip & service day</summary><p>Trip {vehicle.tripId?.split('\u001f').at(-1) || 'unassigned'} · {vehicle.serviceDate || 'unknown date'} · {vehicle.timezone || 'unknown timezone'}</p></details>
+    <footer title={`Times in ${vehicle.timezone || 'unknown timezone'}. — means timing unavailable.`}>Trip {vehicle.tripId?.split('\u001f').at(-1) || 'unassigned'} · {vehicle.serviceDate || 'unknown date'} · Seen {clock(vehicle.observedAt, vehicle, true)}{vehicle.predictionAt ? ` · Updated ${clock(vehicle.predictionAt, vehicle, true)}` : ''}{!vehicle.fresh ? ' · Not current' : ''}</footer>
   </section>
 }
 
-export function AgencyVehicleDetails({ projectId, vehicleId, sourceUrl }: { projectId: string; vehicleId: string; sourceUrl?: string }) {
+export function AgencyVehicleDetails({ projectId, vehicleId, sourceUrl, onNavigate }: { projectId: string; vehicleId: string; sourceUrl?: string; onNavigate?: VehicleNavigation }) {
   const [vehicle, setVehicle] = useState<VehicleTiming | null>(null)
   const [error, setError] = useState('')
   useEffect(() => {
@@ -65,5 +68,9 @@ export function AgencyVehicleDetails({ projectId, vehicleId, sourceUrl }: { proj
     const timer = window.setInterval(() => void refresh(), 10_000)
     return () => { controller.abort(); clearInterval(timer) }
   }, [projectId, vehicleId, sourceUrl])
-  return vehicle ? <VehicleDetailsView vehicle={vehicle} /> : <p className="agency-caption" role="status">{error || 'Reading the vehicle’s timetable and current predictions…'}</p>
+  return vehicle ? <VehicleDetailsView vehicle={vehicle} onNavigate={onNavigate} /> : <p className="agency-caption" role="status">{error || 'Reading the vehicle’s timetable and current predictions…'}</p>
+}
+
+export function VehicleOperationalWarnings({ vehicle }: { vehicle?: ServiceVehicle }) {
+  return <>{vehicle?.card.metrics.filter(metric => metric.label.startsWith('Predicted at ')).map(metric => <p className="agency-vehicle-warning" key={metric.label}><strong>{metric.value}</strong><br />{metric.label}</p>)}</>
 }

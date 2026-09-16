@@ -182,7 +182,7 @@
     flex: 0 0 clamp(300px, 52dvh, 520px);
     min-height: clamp(300px, 52dvh, 520px);
     display: grid;
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
     gap: 0;
   }
 

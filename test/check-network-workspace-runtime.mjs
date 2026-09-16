@@ -27,6 +27,7 @@ await service.handle('fixture', { action: 'briefing-settings', preferences: { au
 const harness = `import React from 'react';
 import {createRoot} from 'react-dom/client';
 import {AgencyPanel} from '/src/components/AgencyPanel.tsx';
+import {NetworkAssessment} from '/src/components/NetworkAssessment.tsx';
 import '/src/App.css';
 import '/src/index.css';
 Date.now = () => ${observationTime * 1000};
@@ -98,6 +99,23 @@ window.runTests = async () => {
   await click('Retry briefing');
   await wait(()=>!button('Retry briefing') && !document.querySelector('[aria-label="Briefing refresh interval"]').disabled);
   check(!document.querySelector('[aria-label="Update network briefing"]').disabled,'Retrying the initial briefing read restores its controls');
+  const briefingScroll=document.querySelector('.agency-scroll');
+  const previousHeight=briefingScroll.style.height;
+  briefingScroll.style.height='180px';
+  briefingScroll.scrollTop=100;
+  const readingPosition=briefingScroll.scrollTop;
+  check(readingPosition>0,'Briefing scroll regression requires a scrolled panel');
+  locate([],['A']);
+  await settle(); await settle();
+  check(document.getElementById('agency-briefing') && document.querySelector('.agency-secondary-section').open,'Map location preserves the briefing and its disclosure');
+  check(Math.abs(briefingScroll.scrollTop-readingPosition)<2,'Locating a briefing stop must not jump the left panel to the top');
+  locate([],['B']);
+  await settle(); await settle();
+  check(Math.abs(briefingScroll.scrollTop-readingPosition)<2,'Repeated map locations preserve the reading position');
+  clearSelection();
+  briefingScroll.style.height=previousHeight;
+  await settle();
+
   await wait(()=>metric('Routes')?.querySelector('strong').textContent==='4');
   check(metric('Reporting routes').querySelector('strong').textContent==='3','The overview must distinguish current reporting routes from indexed routes');
   check(metric('To review').querySelector('strong').textContent==='2','The overview review count must match reported issues');
@@ -296,6 +314,19 @@ window.runTests = async () => {
   document.querySelector('[aria-label="Close feed settings"]').click();
   await click('Routes');
   await wait(()=>document.querySelector('.agency-route-browser'));
+  const locationHost = document.createElement('div'); document.body.appendChild(locationHost);
+  const locationRoot = createRoot(locationHost), locatedStops = [];
+  locationRoot.render(React.createElement(NetworkAssessment, {
+    narrative: {overview:'Fixture',sections:[{id:'area',title:'Around Station A',text:'Delay concentration',routeIds:[]},{id:'spacing',title:'Longer wait',text:'At Station B',routeIds:[]}],coverage:''},
+    diagnosis: {coverage:{},window:{minutes:30},limits:[],concentrations:[{id:'area',stopIds:['A','C']}],routes:[{id:'R',widest:{stopId:'B',maxIncreaseSeconds:600,predictedSeconds:1200,scheduledSeconds:600}}]},
+    investigation: {plan:{focusId:'area'},focusTitle:'Station A',assessment:'Working explanation',checks:[]},
+    onLocateStop:id=>locatedStops.push(id)
+  }));
+  await wait(()=>locationHost.querySelectorAll('.network-assessment-location').length===3);
+  for(const target of locationHost.querySelectorAll('.network-assessment-location')) target.click();
+  locationHost.querySelector('.network-assessment-location').click();
+  check(JSON.stringify(locatedStops)===JSON.stringify(['A','B','A','A']),'Briefing positions use exact concentration and spacing stop IDs, including repeated clicks');
+  locationRoot.unmount(); locationHost.remove();
   return {snapshotRefreshIsolation:true,focusedWorkspace:true,legacyModeRecovery:true,keyboardTabs:true,overviewFilters:true,priorityRouteNavigation:true,eventReturnNavigation:true,routeSearchSortReset:true,eventPagination:true,pendingFilterTruth:true,scopedExports:true,questionRetry:true,questionDraftPreserved:true,imeAndBusyGuard:true,modelSetupPreservesDraft:true,feedSettingsFocus:true,disclosureEscape:true,observationRetry:true,briefingReadRetry:true};
 };
 window.visualCheck = async theme => {

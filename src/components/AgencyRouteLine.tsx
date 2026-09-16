@@ -1,17 +1,18 @@
+import type { ServiceVehicleFrame } from '../serviceVehicles'
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { ArrowDown, ArrowUp, ChevronRight, Route, X } from 'lucide-react'
 import type { MapPreview } from '../domain'
 import { apiJson } from '../app/api'
 import type { RouteOperations, RoutePattern, VehicleTiming } from '../agency/routeOperationsTypes'
-import { VehicleDetailsView, vehicleDelayLabel, vehicleStopLabel } from './AgencyVehicleDetails'
-import { StopArrivalBoard } from './StopArrivalBoard'
+import { AgencyVehicleDetails, VehicleOperationalWarnings, VehicleDetailsView, type VehicleNavigation, vehicleDelayLabel, vehicleStopLabel } from './AgencyVehicleDetails'
+import { StopArrivalBoard, type TripNavigation } from './StopArrivalBoard'
 
 function patternLabel(pattern: RoutePattern) {
   return `${pattern.stops[0]?.name} → ${pattern.stops.at(-1)?.name} · ${pattern.stops.length} stops`
 }
 const atReportedStop = (vehicle: VehicleTiming) => vehicle.status === 'STOPPED_AT' || vehicle.status === 'STOP_REPORTED'
 
-export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showStopDetails = true, preview, onSelectStop }: { projectId: string; routeId: string; preview?: MapPreview; selectedStopId?: string; showStopDetails?: boolean; onSelectStop?: (id: string) => void }) {
+export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showStopDetails = true, preview, onSelectStop, onNavigateVehicle, onOpenTrip, vehicleFrame }: { vehicleFrame?: ServiceVehicleFrame; projectId: string; routeId: string; preview?: MapPreview; selectedStopId?: string; showStopDetails?: boolean; onSelectStop?: (id: string) => void; onNavigateVehicle?: VehicleNavigation; onOpenTrip?: TripNavigation }) {
   const fallback = useMemo<RouteOperations | null>(() => {
     if (!routeId || !preview?.routes.length) return null
     const stops = new Map(preview.stops.map(stop => [stop.id, stop]))
@@ -48,16 +49,27 @@ export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showS
       finally { pending = false }
     }
     void refresh()
-    const timer = window.setInterval(() => void refresh(), 60_000)
+    const timer = window.setInterval(() => void refresh(), 15_000)
     return () => { controller.abort(); clearInterval(timer) }
   }, [projectId, routeId])
 
+  const patternVehicleCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const vehicle of data?.vehicles ?? []) {
+      if (vehicle.patternId !== null && vehicle.callIndex !== null) counts.set(vehicle.patternId, (counts.get(vehicle.patternId) ?? 0) + 1)
+    }
+    return counts
+  }, [data])
+  const rankedPatterns = useMemo(() => [...(data?.patterns ?? [])].sort((a, b) =>
+    (patternVehicleCounts.get(b.id) ?? 0) - (patternVehicleCounts.get(a.id) ?? 0)), [data, patternVehicleCounts])
   const directions = useMemo(() => [...new Set(data?.patterns.map(pattern => pattern.directionId ?? 'unknown') ?? [])].sort(), [data])
   const visiblePatterns = directions.map(direction => {
-    const patterns = data?.patterns.filter(pattern => (pattern.directionId ?? 'unknown') === direction) ?? []
+    const patterns = rankedPatterns.filter(pattern => (pattern.directionId ?? 'unknown') === direction)
     return patterns.find(pattern => pattern.id === choices[direction]) ?? patterns[0]
   }).filter(Boolean)
+  const mapVehicles = useMemo(() => new Map((vehicleFrame?.mode === 'live' ? vehicleFrame.vehicles : []).map(vehicle => [JSON.stringify([vehicle.sourceUrl, vehicle.id]), vehicle])), [vehicleFrame])
   const selectedVehicle = data?.vehicles.find(vehicle => vehicle.key === selected)
+  const selectedMapVehicle = selectedVehicle ? mapVehicles.get(selectedVehicle.key) : undefined
   const unplaced = data?.vehicles.filter(vehicle => vehicle.callIndex === null || vehicle.patternId === null) ?? []
   const paired = visiblePatterns.length === 2 && visiblePatterns[0].stops.length === visiblePatterns[1].stops.length
     && visiblePatterns[0].stops.every((stop, index) => stop.id === visiblePatterns[1].stops.at(-index - 1)?.id)
@@ -72,10 +84,11 @@ export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showS
     onSelectStop?.('')
   }
   function vehicleChip(vehicle: VehicleTiming, up: boolean) {
+    const indicator = mapVehicles.get(vehicle.key)?.indicatorLabel
     const Arrow = up ? ArrowUp : ArrowDown
     const estimate = vehicle.arrival.current ?? vehicle.departure.current
     const time = estimate !== null && vehicle.timezone ? new Date(estimate * 1000).toLocaleTimeString([], { timeZone: vehicle.timezone, hour: 'numeric', minute: '2-digit' }) : null
-    return <button key={vehicle.key} className="agency-line-vehicle" aria-pressed={selected === vehicle.key} aria-label={`Vehicle ${vehicle.label}, ${vehicleStopLabel(vehicle)}, ${vehicleDelayLabel(vehicle.delaySeconds)}${time ? `, ${vehicle.arrival.current !== null ? 'arrival' : 'departure'} ${time}` : ''}`} title={`${vehicleStopLabel(vehicle)} · ${vehicleDelayLabel(vehicle.delaySeconds)}`} onClick={() => { setSelected(vehicle.key); setSelectedStop(null) }}><Arrow size={12} /><strong>{vehicle.label}</strong>{time ? <span>{vehicle.arrival.current !== null ? '' : 'Dep. '}{time}</span> : null}</button>
+    return <button key={vehicle.key} className={`agency-line-vehicle${indicator ? ' has-alert' : ''}`} aria-pressed={selected === vehicle.key} aria-label={`Vehicle ${vehicle.label}${indicator ? ', spacing or delay alert' : ''}, ${vehicleStopLabel(vehicle)}, ${vehicleDelayLabel(vehicle.delaySeconds)}${time ? `, ${vehicle.arrival.current !== null ? 'arrival' : 'departure'} ${time}` : ''}`} title={`${vehicleStopLabel(vehicle)} · ${vehicleDelayLabel(vehicle.delaySeconds)}`} onClick={() => { setSelected(vehicle.key); setSelectedStop(null) }}><Arrow size={12} /><strong>{vehicle.label}</strong>{indicator ? <span className="agency-line-indicator" aria-hidden="true">{indicator}</span> : null}{time ? <span>{vehicle.arrival.current !== null ? '' : 'Dep. '}{time}</span> : null}</button>
   }
   function selectStop(id: string) { setSelectedStop(id); setSelected(null); onSelectStop?.(id) }
   function stopButton(stop: RoutePattern['stops'][number], marker = false) {
@@ -90,14 +103,14 @@ export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showS
       {!data.patterns.length ? <p className="agency-caption">No continuous stop pattern is indexed for this service day.</p> : <div className="agency-line-directions" style={{ gridTemplateColumns: `repeat(${visiblePatterns.length}, minmax(0, 1fr))` }}>{visiblePatterns.map((pattern, directionIndex) => {
         const up = directionIndex % 2 === 1
         const Arrow = up ? ArrowUp : ArrowDown
-        const patterns = data.patterns.filter(other => other.directionId === pattern.directionId)
+        const patterns = rankedPatterns.filter(other => other.directionId === pattern.directionId)
         const vehicles = data.vehicles.filter(vehicle => vehicle.patternId === pattern.id && vehicle.callIndex !== null)
         const otherVehicles = data.vehicles.filter(vehicle => vehicle.patternId !== pattern.id && vehicle.callIndex !== null && patterns.some(other => other.id === vehicle.patternId))
         const stops = pattern.stops.map((stop, index) => ({ ...stop, index }))
         if (up) stops.reverse()
         return <section className={`agency-line-direction ${up ? 'is-up' : ''}`} key={pattern.directionId ?? 'unknown'} aria-label={`Toward ${pattern.stops.at(-1)?.name}`}>
           <header><Arrow size={18} /><div><strong>To {pattern.stops.at(-1)?.name}</strong><small>{!loadedData ? 'Live positions pending' : `${vehicles.length} reported ${vehicles.length === 1 ? 'vehicle' : 'vehicles'}`}{otherVehicles.length ? ` · ${otherVehicles.length} on other stop patterns` : ''}</small></div></header>
-          {patterns.length > 1 ? <select aria-label={`Stop pattern toward ${pattern.stops.at(-1)?.name}`} value={pattern.id} onChange={event => { const next = patterns.find(item => item.id === event.target.value); if (next) choosePattern(next) }}>{patterns.map(item => <option key={item.id} value={item.id}>{patternLabel(item)} · {data.vehicles.filter(vehicle => vehicle.patternId === item.id && vehicle.callIndex !== null).length} vehicles</option>)}</select> : <p className="agency-line-origin">From {pattern.stops[0]?.name}</p>}
+          {patterns.length > 1 ? <select aria-label={`Stop pattern toward ${pattern.stops.at(-1)?.name}`} value={pattern.id} onChange={event => { const next = patterns.find(item => item.id === event.target.value); if (next) choosePattern(next) }}>{patterns.map(item => <option key={item.id} value={item.id}>{patternLabel(item)} · {patternVehicleCounts.get(item.id) ?? 0} vehicles</option>)}</select> : <p className="agency-line-origin">From {pattern.stops[0]?.name}</p>}
           {!paired ? <ol>{stops.map(stop => {
             const at = vehicles.filter(vehicle => vehicle.callIndex === stop.index && atReportedStop(vehicle))
             const approaching = vehicles.filter(vehicle => vehicle.callIndex === stop.index && !atReportedStop(vehicle))
@@ -118,5 +131,5 @@ export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showS
       {unplaced.length ? <details className="agency-line-unplaced"><summary>{unplaced.length} vehicles without a current stop position</summary>{unplaced.map(vehicle => <button className="agency-text-button" key={vehicle.key} onClick={() => setSelected(vehicle.key)}>{vehicle.label} · {vehicle.warnings[0] || 'Trip pattern unavailable'}</button>)}</details> : null}
       <p className="agency-caption">Timetable dates: {data.serviceDates?.join(', ') || data.serviceDate} · Times in {data.timezone}. Arrival and departure predictions are kept separate.</p>
     </>}
-  </section>{(showStopDetails && selectedStop) || selectedVehicle ? <aside className="agency-line-details"><button className="agency-icon-button" aria-label="Close details" onClick={() => { setSelected(null); setSelectedStop(null); onSelectStop?.('') }}><X size={15} /></button>{showStopDetails && selectedStop ? <StopArrivalBoard key={`${projectId}/${selectedStop}`} projectId={projectId} stopId={selectedStop} /> : selectedVehicle ? <VehicleDetailsView vehicle={selectedVehicle} /> : null}</aside> : null}</>
+  </section>{(showStopDetails && selectedStop) || selectedVehicle ? <aside className={`map-live-card is-vehicle ${selectedVehicle ? 'has-vehicle-timing' : 'has-stop-arrivals'}`}><button className="agency-icon-button" aria-label="Close details" onClick={() => { setSelected(null); setSelectedStop(null); onSelectStop?.('') }}><X size={13} strokeWidth={2.6} /></button><VehicleOperationalWarnings vehicle={selectedMapVehicle} />{showStopDetails && selectedStop ? <StopArrivalBoard onOpenTrip={onOpenTrip} key={`${projectId}/${selectedStop}`} projectId={projectId} stopId={selectedStop} /> : selectedVehicle ? selectedMapVehicle ? <AgencyVehicleDetails key={selectedVehicle.key} projectId={projectId} vehicleId={selectedMapVehicle.id} sourceUrl={selectedMapVehicle.sourceUrl} onNavigate={onNavigateVehicle} /> : <VehicleDetailsView vehicle={selectedVehicle} onNavigate={onNavigateVehicle} /> : null}</aside> : null}</>
 }
