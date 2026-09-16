@@ -117,7 +117,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
         finishReason: result.done_reason, usage: { prompt_tokens: result.prompt_eval_count, completion_tokens: result.eval_count },
         metrics: { loadMs: result.load_duration / 1e6, promptMs: result.prompt_eval_duration / 1e6, generationMs: result.eval_duration / 1e6 } }
     }
-    const requiredForm = options.structuredTools && options.toolChoice?.type === 'function' && modelStudioEndpoint(connection)
+    const requiredForm = !options.nativeFormRetry && options.structuredTools && options.toolChoice?.type === 'function' && modelStudioEndpoint(connection)
       ? tools?.find(tool => tool.name === options.toolChoice.function.name) : null
     // For a single mandatory form, JSON mode avoids this endpoint's observed
     // malformed nested tool-argument strings. It guarantees syntax only;
@@ -130,7 +130,22 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
     if (!message || typeof message !== 'object') throw new Error('AI provider returned no response message.')
     if (requiredForm) {
       let argumentsValue
-      try { argumentsValue = JSON.parse(message.content) } catch { throw new Error('The model did not finish the requested JSON form.') }
+      try {
+        argumentsValue = JSON.parse(message.content)
+        if (!argumentsValue || typeof argumentsValue !== 'object' || Array.isArray(argumentsValue)) throw new Error('Expected a form object.')
+      } catch {
+        // Some compatible endpoints accept JSON mode but return prose or an
+        // empty content field. Retry once through the native tool channel
+        // already used by normal decisions; never execute a partial form.
+        const retry = await completeWith(connection, messages, tools, signal, { ...options, nativeFormRetry: true })
+        const call = retry.tool_calls?.length === 1 && retry.tool_calls[0]
+        let parsed
+        try { parsed = JSON.parse(call?.function?.arguments) } catch {}
+        if (call?.function?.name !== requiredForm.name || !parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error(`The model returned an invalid ${requiredForm.name} form in both JSON and tool modes${retry.finishReason === 'length' ? ' (response limit reached)' : ''}.`)
+        }
+        return { ...retry, usage: { prompt_tokens: (result.usage?.prompt_tokens || 0) + (retry.usage?.prompt_tokens || 0), completion_tokens: (result.usage?.completion_tokens || 0) + (retry.usage?.completion_tokens || 0) } }
+      }
       return { content: '', tool_calls: [{ id: `form-${++callSequence}`, type: 'function', function: { name: requiredForm.name, arguments: JSON.stringify(argumentsValue) } }], finishReason: result.choices[0].finish_reason, usage: result.usage }
     }
     return { ...message, finishReason: result.choices[0].finish_reason, usage: result.usage }

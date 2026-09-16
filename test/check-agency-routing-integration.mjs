@@ -105,6 +105,15 @@ try {
       const delayed = await registry(updates(120))('route_plan', rawArgs)
       assert.equal(firstRide(delayed.data.plan).toStopId, 'fixture\u001fX', 'An updated bus can still use the preceding stop to reach the train')
       assert.equal(delayed.data.plan.arriveMinutes, 510)
+      const research = await registry(updates(120))('route_plan', { ...rawArgs, routingDataMode: 'scheduled' })
+      assert.equal(research.data.request.routingDataMode, 'scheduled')
+      assert.equal(research.data.realtime.applied, false)
+      assert.equal(research.data.realtime.suppliedTripUpdates, 0)
+      assert.equal(firstRide(research.data.plan).scheduleMode, 'exact', 'Schedule-based research excludes the fresh bus delay')
+      assert.equal(firstRide(research.data.plan).toStopId, `fixture\u001f${minimum === 180 ? 'H' : 'X'}`)
+      const researchEvidence = JSON.parse(compactResult(research, 'route_plan')).data
+      assert.equal(researchEvidence.request.routingDataMode, 'scheduled')
+      assert.equal(researchEvidence.journeys[0].realtime.routingDataMode, 'scheduled', 'Follow-up explanations retain the selected research basis')
       const stale = await registry(updates(120), { ...state, feeds: [{ ...state.feeds[0], status: 'stale' }] })('route_plan', rawArgs)
       assert.equal(stale.data.realtime.suppliedTripUpdates, 0)
       assert.equal(firstRide(stale.data.plan).scheduleMode, 'exact')
@@ -147,6 +156,39 @@ try {
         assert.equal(apiRoutes, 1, 'Retained native evidence survives an intervening explanation without rerouting')
         assert.equal(apiModels, 3)
       } finally { service.close() }
+
+      // Retain an unresolved journey through the real notebook boundary. A
+      // user's clarification must not ask the model to reconstruct destination
+      // coordinates or silently change a zero-transfer/date constraint.
+      let clarificationModels = 0, clarificationRoutes = 0
+      const clarificationService = createAgencyService({
+        context: async () => ({ storePath: store, cityName: 'City X', agencyDirectory: path.join(folder, `clarification-${minimum}`) }),
+        route: async (_project, request) => {
+          clarificationRoutes++
+          assert.equal(request.destination.stopId, 'fixture\u001fD')
+          assert.equal(request.maxTransfers, 0)
+          assert.equal(request.serviceDate, serviceDate)
+          return { plan: routeNationalGtfsStore(store, { ...request, maxWalkKm: .2 }) }
+        },
+      }, { clock: () => Date.parse(generatedAt), provider: { available: true, model: 'scripted-provider', complete: async (_messages, tools) => {
+        if (++clarificationModels === 1) return toolCall({ origin: { stopName: 'Interchange' }, destination: names.D, serviceDate, departTime: '08:00', maxTransfers: 0 })
+        if (clarificationModels === 2) return toolCall({ origin: 'unclear' })
+        const resume = tools.find(tool => tool.name === 'continue_journey')
+        if (resume) {
+          assert.equal(resume.parameters.properties.destination, undefined)
+          return { tool_calls: [{ id: 'clarified', function: { name: 'continue_journey', arguments: '{"origin":"1"}' } }] }
+        }
+        return { content: 'The journey is calculated.' }
+      } } })
+      try {
+        const pending = await clarificationService.handle('fixture', { action: 'ask', question: 'Interchange to Civic Hospital with no transfers' })
+        assert.ok(pending.pendingJourney, 'Unresolved locations are saved independently of free-form prose')
+        assert.equal(clarificationRoutes, 0)
+        const continued = await clarificationService.handle('fixture', { action: 'ask', parentId: pending.entryId, question: 'The first Interchange location' })
+        assert.equal(clarificationRoutes, 1)
+        assert.equal(continued.trace[0].tool, 'route_plan')
+        assert.equal(continued.trace[0].arguments.destination.stopId, 'fixture\u001fD')
+      } finally { clarificationService.close() }
 
       // Opt in explicitly; ordinary regression checks never load a model or
       // use a network provider. This uses the real native fixture above.

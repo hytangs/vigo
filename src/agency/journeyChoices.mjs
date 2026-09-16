@@ -39,6 +39,32 @@ export function createJourneyChoices(definition) {
     return { type: 'object', properties, required: Object.keys(properties), additionalProperties: false }
   }
   return {
+    snapshot: () => pending && structuredClone({ ...pending, slots: pending.slots.map(slot => ({ ...slot, excluded: [...(slot.excluded ?? [])] })), finishWithJourney, requestedModes }),
+    restore(saved) {
+      if (!saved?.slots?.length) return
+      const { finishWithJourney: finish, requestedModes: modes, ...rest } = structuredClone(saved)
+      pending = { ...rest, slots: rest.slots.map(slot => ({ ...slot, excluded: new Set(slot.excluded ?? []) })) }
+      finishWithJourney = Boolean(finish); requestedModes = modes ?? ['transit']
+    },
+    continuationDefinition() {
+      if (!pending) return null
+      const parameters = schema()
+      for (const slot of pending.slots.filter(slot => !slot.fixed)) parameters.properties[slot.key] = { anyOf: [
+        parameters.properties[slot.key],
+        { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 200 } }, required: ['query'], additionalProperties: false },
+      ] }
+      return { name: 'continue_journey', description: 'Continue the pending journey when the user chooses or clarifies its locations. Use a candidate number from the pending journey context, or {query: the refined place name} for an unresolved endpoint. Fixed locations and constraints cannot be changed here. For an unrelated request ignore this tool.', parameters }
+    },
+    continue(input) {
+      validateArguments(input, this.continuationDefinition().parameters)
+      for (const slot of pending.slots.filter(slot => !slot.fixed)) {
+        if (typeof input[slot.key]?.query === 'string') {
+          slot.original = input[slot.key].query; slot.choices = []; slot.excluded = new Set()
+          input = { ...input, [slot.key]: slot.original }
+        }
+      }
+      return this.arguments(input)
+    },
     finishWithJourney: () => finishWithJourney,
     requestedModes: () => [...requestedModes],
     selectionOnly: () => Boolean(pending && pending.slots.every(slot => slot.fixed || slot.choices.length)),
@@ -111,7 +137,7 @@ export function createJourneyChoices(definition) {
     clarification() {
       if (!pending) return null
       const choices = pending.slots.filter(slot => !slot.fixed && slot.choices.length)
-      return choices.length ? `The journey still needs a location choice. ${choices.map(slot => `For ${slot.key}, which do you mean: ${slot.choices.filter((_, i) => !slot.excluded?.has(i)).map(item => item.label || item.name).join('; ')}?`).join(' ')}` : null
+      return choices.length ? `The journey still needs a location choice. ${choices.map(slot => `For ${slot.key}, which do you mean: ${slot.choices.flatMap((item, i) => slot.excluded?.has(i) ? [] : [`${i + 1}. ${item.label || item.name}${slot.choices.filter(other => (other.label || other.name) === (item.label || item.name)).length > 1 ? ` (${item.category?.value || item.kind || 'location'}; ${item.lat.toFixed(5)}, ${item.lon.toFixed(5)})` : ''}`]).join('; ')}?`).join(' ')}` : null
     },
   }
 }

@@ -241,13 +241,20 @@ export function createAgencyService(adapters, { provider = createProvider(), web
               // explanations. Older plans must not overwrite a later revision.
               const categories = [['route_plan', 'walk_route', 'walk_compare', 'find_walk', 'reach'], ['place_search'], ['inspect_service', 'service_timing', 'stop_arrivals', 'realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message']]
               const retained = categories.flatMap(tools => history.some(item => item.requests?.some(call => tools.includes(call.tool))) ? [] : (previous.answer.trace ?? []).filter(call => call.result.ok && tools.includes(call.tool)).slice(-2))
+              if (!history.some(item => item.pendingJourney || item.requests?.some(call => call.tool === 'route_plan'))) {
+                for (const slot of previous.answer.pendingJourney?.slots ?? []) {
+                  session.places.restore(slot.choices)
+                  if (slot.fixed?.placeId) session.places.restore([{ ...slot.fixed, id: slot.fixed.placeId, name: slot.fixed.label, sourceUrl: `https://www.openstreetmap.org/${slot.fixed.placeId.slice(4)}` }])
+                }
+              }
               for (const call of retained) {
                 if (call.tool === 'place_search') session.places.restore(call.result.data.matches)
                 if (call.tool === 'find_walk') session.places.restore(call.result.data.visits)
+                if (call.tool === 'route_plan') for (const endpoint of call.result.data?.clarification?.endpoints ?? []) session.places.restore(endpoint.matches)
               }
               const requests = retained.map(call => ({ tool: call.tool, arguments: call.arguments }))
               const findings = retained.filter(call => ['route_plan', 'walk_route', 'place_search', 'find_walk', 'walk_compare', 'inspect_service', 'service_timing', 'stop_arrivals', 'realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message'].includes(call.tool)).slice(-3)
-              history.unshift({ selection: previous.answer.selection, question: previous.title, answer: previous.answer.answer, privateContext: previous.answer.dataPolicyVersion !== 1 && (previous.answer.trace ?? []).some(call => ['operational_context', 'recall_notebook'].includes(call.tool)), observedAt: previous.answer.generatedAt, requests, findings })
+              history.unshift({ pendingJourney: previous.answer.pendingJourney, selection: previous.answer.selection, question: previous.title, answer: previous.answer.answer, privateContext: previous.answer.dataPolicyVersion !== 1 && (previous.answer.trace ?? []).some(call => ['operational_context', 'recall_notebook'].includes(call.tool)), observedAt: previous.answer.generatedAt, requests, findings })
               parentId = previous.parentId
             }
             return retain(body.question, await queryAgency({ question: body.question, selection, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled, placeEndpoint: session.places.endpoint, placeDetailsEndpoint: session.places.detailsEndpoint, webStatus: research }))

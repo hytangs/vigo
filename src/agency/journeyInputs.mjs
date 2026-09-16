@@ -58,9 +58,13 @@ export async function resolveJourneyPoints(context, places, args, signal) {
     }
     if (value.placeId && !place) throw new Error('Search for the place before routing.')
     if (place?.category?.key === 'aeroway' && place.category.value === 'aerodrome') {
-      const candidates = await places.search({ query: place.name }, signal)
+      const candidates = await places.search({ query: place.name, osmTag: 'aeroway:terminal' }, signal)
+      const passengerPoints = candidates.matches.filter(item => item.category?.key === 'aeroway' && item.category.value === 'terminal'
+        || item.category?.key === 'highway' && item.category.value === 'bus_stop'
+        || item.category?.key === 'public_transport' && ['platform', 'station'].includes(item.category.value)
+        || item.category?.key === 'railway' && ['station', 'halt', 'tram_stop'].includes(item.category.value))
       throw Object.assign(new Error(`${place.name} identifies the airport area, not a passenger arrival point. Choose a terminal or public transit stop.`), { details: { endpoint: index, query: place.name,
-        matches: candidates.matches.filter(item => !(item.category?.key === 'aeroway' && item.category.value === 'aerodrome')),
+        matches: passengerPoints,
         nextStep: 'Select the passenger terminal or transit stop from the returned coordinates. Ask which terminal if multiple passenger destinations remain plausible.' } })
     }
     const location = stop || place || value
