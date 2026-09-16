@@ -101,7 +101,7 @@ try {
   assert.match(validJourney, /Step-by-step directions/)
   assert.doesNotMatch(validJourney, /<details[^>]* open/)
   const scheduledJourney = renderJourney({ ...journey, diagnostics: { routingDataMode: 'scheduled' } })
-  assert.match(scheduledJourney, /Scheduled · Research/)
+  assert.match(scheduledJourney, /Scheduled/)
   assert.match(scheduledJourney, /Published timetable/)
   assert.doesNotMatch(scheduledJourney, /no realtime updates|snapshot stale|unavailable live/,
     'Deliberate research mode must not appear as a failed realtime journey')
@@ -123,7 +123,7 @@ try {
   const renderPathfinder = patch => renderToStaticMarkup(createElement(SidebarPathfinderBox, { ...pathfinderProps, ...patch }))
   const researchControls = renderPathfinder()
   assert.match(researchControls, /aria-label="Transit data mode"/)
-  assert.match(researchControls, /aria-pressed="true"[^>]*>Scheduled · Research/)
+  assert.match(researchControls, /aria-pressed="true"[^>]*>Scheduled/)
   assert.match(researchControls, /Live feed refreshes do not change the result/)
   assert.match(researchControls, /aria-label="Routing service date"[^>]*value="2026-09-15"/)
   const liveControls = renderPathfinder({ routingDataMode: 'realtime' })

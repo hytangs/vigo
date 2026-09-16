@@ -91,12 +91,12 @@ const provenance = {
 const researchPlan = { ...exactStopPlan, diagnostics: {
   ...exactStopPlan.diagnostics, routingDataMode: 'scheduled', routingDataProvenance: provenance,
 } }
-assert.equal(routingDataModeLabel(researchPlan), 'Scheduled · Research')
-assert.equal(routingRealtimeDetail(researchPlan), 'Scheduled · Research · Published timetable',
+assert.equal(routingDataModeLabel(researchPlan), 'Scheduled')
+assert.equal(routingRealtimeDetail(researchPlan), 'Scheduled · Published timetable',
   'Choosing research is deliberate and must not be described as missing realtime')
 assert.deepEqual(normalizeReceivedRoutingPlan(researchPlan).diagnostics.routingDataProvenance, provenance,
   'Journey presentation must preserve the research result provenance')
-assert.equal(routingDataModeLabel({ ...researchPlan, diagnostics: { routingDataProvenance: provenance } }), 'Scheduled · Research')
+assert.equal(routingDataModeLabel({ ...researchPlan, diagnostics: { routingDataProvenance: provenance } }), 'Scheduled')
 assert.equal(routingRealtimeDetail({ ...exactStopPlan, diagnostics: {
   ...exactStopPlan.diagnostics, routingDataMode: 'realtime',
 } }), 'Realtime · Scheduled times; no realtime updates applied', 'Realtime mode without applied predictions must clearly retain scheduled timing')

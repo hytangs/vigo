@@ -115,12 +115,12 @@ export function routingPlanRouteSequence(plan: RoutingPlan) {
 
 export function routingDataModeLabel(plan: RoutingPlan) {
   const mode = plan.diagnostics?.routingDataMode ?? plan.diagnostics?.routingDataProvenance?.mode
-  return mode === 'scheduled' ? 'Scheduled · Research' : mode === 'realtime' ? 'Realtime' : ''
+  return mode === 'scheduled' ? 'Scheduled' : mode === 'realtime' ? 'Realtime' : ''
 }
 
 export function routingRealtimeDetail(plan: RoutingPlan) {
   const modeLabel = routingDataModeLabel(plan)
-  if (modeLabel === 'Scheduled · Research') return `${modeLabel} · Published timetable`
+  if (modeLabel === 'Scheduled') return `${modeLabel} · Published timetable`
   const realtime = plan.diagnostics?.realtimeRouting
   const rides = plan.legs.filter(leg => leg.type === 'ride')
   const predicted = rides.filter(leg => leg.scheduleMode === 'realtime-adjusted').length

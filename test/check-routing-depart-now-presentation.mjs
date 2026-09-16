@@ -35,7 +35,7 @@ try {
   assert.match(research, /aria-pressed="true"[^>]*>Arrive<\/button>/, 'Research retains the original arrive-by selection')
   const unavailable = render({ routingPlan: { status: 'blocked', title: 'No timetable service', detail: 'No complete timetable for this service date.' } })
   assert.match(unavailable, /Timetable unavailable for now/)
-  assert.match(unavailable, /Use Scheduled · Research/)
+  assert.match(unavailable, /Use Scheduled/)
   assert.doesNotMatch(unavailable, /September 16|type="date"/, 'A missing current timetable cannot silently redirect realtime to historical service')
   for (const routingMode of ['walk', 'drive']) {
     const street = render({ routingMode })

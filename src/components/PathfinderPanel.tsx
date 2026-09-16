@@ -623,7 +623,7 @@ export function SidebarPathfinderBox({
         {routingMode === 'transit' ? <div className="pathfinder-stage pathfinder-data-mode">
           <div className="pathfinder-segmented" role="group" aria-label="Transit data mode" aria-describedby="pathfinder-data-mode-help">
             <button type="button" className={classNames(routingDataMode === 'realtime' && 'is-active')} aria-pressed={routingDataMode === 'realtime'} onClick={() => onRoutingDataModeChange('realtime')}>Realtime</button>
-            <button type="button" className={classNames(routingDataMode === 'scheduled' && 'is-active')} aria-pressed={routingDataMode === 'scheduled'} onClick={() => onRoutingDataModeChange('scheduled')}>Scheduled · Research</button>
+            <button type="button" className={classNames(routingDataMode === 'scheduled' && 'is-active')} aria-pressed={routingDataMode === 'scheduled'} onClick={() => onRoutingDataModeChange('scheduled')}>Scheduled</button>
           </div>
           <p className="pathfinder-points-hint" id="pathfinder-data-mode-help">{routingDataMode === 'scheduled'
             ? 'Published timetable for your selected date and time. Live feed refreshes do not change the result.'
@@ -776,7 +776,7 @@ export function SidebarPathfinderBox({
                 </button>
               ))}
             </div>
-          ) : departNow ? <button type="button" onClick={() => onRoutingDataModeChange('scheduled')}>Use Scheduled · Research</button> : null}
+          ) : departNow ? <button type="button" onClick={() => onRoutingDataModeChange('scheduled')}>Use Scheduled</button> : null}
         </div>
       ) : showRoutingActivity ? (
         <div className="pathfinder-notice is-loading" role="status" aria-live="polite">
