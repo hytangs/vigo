@@ -1,6 +1,6 @@
 # Agency operations prototype
 
-This backend prototype is outside the main Overview / Routes / Ask workspace. Its API, records and service tests remain available for research. The disconnected Service desk UI has been removed.
+This backend prototype is outside the main Network / Routes / Ask workspace. Its API, records and service tests remain available for research. The disconnected Service desk UI has been removed.
 
 The [operational replay](operational-replay.md) adds a synthetic holding decision through procedure selection, alternative comparison, approval, sandbox receipt and evidence-driven withdrawal. It reuses this ledger in separate replay storage. Internal knowledge and staff annotations are excluded from model context by default; approval alone does not authorize model disclosure.
 

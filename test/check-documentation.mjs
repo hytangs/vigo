@@ -58,7 +58,7 @@ for (const relativePath of removedFiles) {
 }
 
 const readme = read('README.md')
-for (const statement of ['VIGO Agency', 'Overview', 'Routes', 'Ask', 'Route', 'Matrix', 'Reach']) {
+for (const statement of ['VIGO Agency', 'Network', 'Routes', 'Ask', 'Route', 'Matrix', 'Reach']) {
   assert(readme.includes(statement), `README is missing: ${statement}`)
 }
 

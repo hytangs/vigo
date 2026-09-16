@@ -19,7 +19,7 @@ export function AgencyOverview({ state, refreshFailed, onBrowse, onRoute, onFeed
   const count = (value: number) => value.toLocaleString()
   return <section className="agency-overview" aria-label="Network overview">
     <header className="agency-page-heading">
-      <h1>Service overview</h1>
+      <h1>Network</h1>
       <p>{refreshFailed ? 'Last updated' : 'Updated'} {shortTime}</p>
     </header>
     <div className="agency-overview-metrics" aria-label="Network snapshot measures">
@@ -28,7 +28,7 @@ export function AgencyOverview({ state, refreshFailed, onBrowse, onRoute, onFeed
       <button className={attention.length ? 'has-attention' : ''} onClick={() => onBrowse('attention')}><span>To review</span><strong>{freshness.predictions || freshness.alerts ? count(attention.length) : '—'}</strong></button>
     </div>
     {!freshness.predictions ? <p className="agency-overview-basis">{freshness.label}. Unreported service is unknown.</p> : null}
-    <details className="agency-overview-details"><summary>Data &amp; coverage</summary><p>{refreshFailed ? 'Last successful snapshot' : 'Snapshot'} {time} · {state.coverage.timezone || 'UTC · agency timezone unknown'}</p><p>Service date {state.coverage.serviceDate || 'unknown'} · {state.cityName}</p><p>{freshness.detail}</p><p>Reporting counts routes with current trip reports. Review includes alerts and predicted service changes, ordered by alerts, service changes, then delay.</p></details>
+
     {attention.length ? <section className="agency-priority" aria-label="Routes to review">
       <header><h2>Routes to review</h2><button className="agency-text-button" onClick={() => onBrowse('attention')}>View all <ArrowRight size={18} /></button></header>
       <div>{attention.slice(0, 3).map(route => <button className="agency-priority-route" key={route.id} onClick={() => onRoute(route.id)}>
@@ -41,5 +41,6 @@ export function AgencyOverview({ state, refreshFailed, onBrowse, onRoute, onFeed
         <ArrowRight size={18} aria-hidden="true" />
       </button>)}</div>
     </section> : null}
+    <details className="agency-overview-details"><summary>Data &amp; coverage</summary><p>{refreshFailed ? 'Last successful snapshot' : 'Snapshot'} {time} · {state.coverage.timezone || 'UTC · agency timezone unknown'}</p><p>Service date {state.coverage.serviceDate || 'unknown'} · {state.cityName}</p><p>{freshness.detail}</p><p>Reporting counts routes with current trip reports. Review includes alerts and predicted service changes, ordered by alerts, service changes, then delay.</p></details>
   </section>
 }

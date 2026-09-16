@@ -114,7 +114,12 @@ try {
   Date.now = () => now
   const { AgencyRouteBrowser } = await server.ssrLoadModule('/src/components/AgencyRouteBrowser.tsx')
   const render = (changes = {}, props = {}) => renderToStaticMarkup(createElement(AgencyRouteBrowser, { state: { ...state, ...changes }, onSelect: () => {}, ...props }))
-  const gapHtml = render({ routes: [route('R', { reportingTrips: 2, comparedPairs: 4, widestInterval: { predictedSeconds: 1800, scheduledSeconds: 600, stopName: 'River', directionId: '0' } })] })
+  const gapRoute = route('R', { reportingTrips: 2, comparedPairs: 4, widestInterval: { predictedSeconds: 1800, scheduledSeconds: 600, stopName: 'River', directionId: '0' } })
+  assert.doesNotMatch(render({ routes: [gapRoute] }), /Worst predicted gap|Headway coverage unknown/, 'Route browsing stays compact; detailed comparisons belong to route coverage')
+  const { AgencyRouteCoverage } = await server.ssrLoadModule('/src/components/AgencyRouteCoverage.tsx')
+  const renderCoverage = refreshFailed => renderToStaticMarkup(createElement(AgencyRouteCoverage, { state, route: gapRoute, refreshFailed }))
+  const gapHtml = renderCoverage(false)
+  assert.doesNotMatch(renderCoverage(true), /Worst predicted gap/, 'Unavailable feeds cannot retain a current-looking gap in route coverage')
   assert.match(gapHtml, /Worst predicted gap: 30 min \/ 10 min scheduled/)
   assert.match(gapHtml, /River · direction 0 · 4 stop-pair comparisons/)
   const html = render()

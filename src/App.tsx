@@ -1999,8 +1999,8 @@ function RouteSurface({
               </small>
             </div>
             <div className="agency-map-actions">
-              {!isNetworkMap && !routingFocus && !analysisFocus ? <div className="agency-view-switch" role="group" aria-label="Route display"><button aria-pressed={!showAgencyLine} onClick={() => setAgencyView('map')}>Map</button><button aria-pressed={showAgencyLine} onClick={() => setAgencyView('line')}>Line & trips</button></div> : null}
-              {!isNetworkMap || routingFocus || analysisFocus ? <button className="agency-button" onClick={() => { setAgencyView('map'); onMapScopeChange('network') }}>All routes</button> : null}
+              {!isNetworkMap && !routingFocus && !analysisFocus ? <div className="agency-view-switch" role="group" aria-label="Route display"><button aria-pressed={!showAgencyLine} onClick={() => setAgencyView('map')}>Map</button><button aria-pressed={showAgencyLine} onClick={() => setAgencyView('line')}>Line view</button></div> : null}
+              {!isNetworkMap || routingFocus || analysisFocus ? <button className="agency-button" onClick={() => { setAgencyView('map'); onMapScopeChange('network') }}>Network map</button> : null}
             </div>
           </div>
         ) : null}

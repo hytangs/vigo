@@ -51,8 +51,8 @@
 .agency-question-form textarea::placeholder { color: var(--text-muted); opacity: .8; }
 .agency-question-form footer { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; gap: 10px; border-top: 1px solid var(--border); }
 .agency-question-form footer > span { color: var(--text-muted); font-size: 12px; }
-.agency-suggestions { display: grid; gap: 10px; margin: 24px 0 16px; }
-.agency-suggestions button { display: flex; justify-content: space-between; align-items: center; text-align: left; gap: 15px; padding: 16px; background: var(--panel-strong); color: var(--text-strong); border: 1px solid var(--border); border-radius: 10px; font-size: 14px; cursor: pointer; }
+.agency-suggestions { display: grid; gap: 0; margin: 24px 0 16px; }
+.agency-suggestions button { display: flex; justify-content: space-between; align-items: center; text-align: left; gap: 15px; padding: 16px 0; background: transparent; color: var(--text-strong); border: 0; border-bottom: 1px solid var(--border); border-radius: 0; font-size: 14px; cursor: pointer; }
 .agency-suggestions button:hover { border-color: var(--border-strong); background: var(--hover-surface); }
 .agency-answer { margin-top: 14px; }
 .agency-question-echo { padding: 10px 14px; border-radius: 8px; background: var(--surface-bg); border: 1px solid var(--border); font-size: 12px; margin: 0 0 10px; overflow-wrap: anywhere; }
@@ -203,7 +203,7 @@
 
 .agency-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 
-.agency-briefing { margin: 0 0 24px; padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel-strong); }
+.agency-briefing { margin: 0 0 16px; padding: 12px 0; }
 .agency-briefing > header, .agency-briefing > footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .agency-briefing > header > span { display: flex; align-items: center; gap: 8px; color: var(--text-strong); font-size: 14px; font-weight: 600; }
 .agency-briefing > header svg { color: var(--vigo-lime-strong); }
@@ -241,7 +241,6 @@
   .agency-map-context { top: 8px; left: 8px; padding: 8px 10px; }
   .agency-map-context small { display: none; }
   .view-agency .route-map-shell .map-live-card { bottom: 25px; padding: 9px; max-height: 55%; }
-  .agency-briefing { padding: 14px; }
 }
 
 .agency-profile-chart { margin: 20px 0; padding: 14px; background: var(--surface-bg); border: 1px solid var(--border); border-radius: 9px; }
@@ -266,7 +265,7 @@
 .network-selection { display: grid; gap: 10px; padding: 0 0 14px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
 .network-selection > button { justify-self: start; }
 .network-selection-name { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.network-selection-name > strong { font-size: 18px; letter-spacing: -.025em; }
+.network-selection-name > h1 { margin: 0; font-size: 28px; line-height: 1.2; letter-spacing: -.035em; color: var(--text-strong); }
 .network-selection p { color: var(--text-muted); margin: 6px 0 0; font-size: 14px; line-height: 1.55; }
 .network-timetable { padding: 0; }
 .network-timetable .object-detail { padding: 8px 0 0; border: 0; }
@@ -339,7 +338,6 @@
 .agency-route-list .agency-route-label { overflow-wrap: anywhere; }
 .agency-route-list-detail > span { display: block; color: var(--text); font-size: 14px; }
 .agency-route-list-detail small { display: block; margin-top: 5px; font-size: 12px; color: var(--text-muted); }
-.agency-route-summary { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--text-muted); margin-bottom: 12px; }
 .agency-service-events { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
 .agency-service-events > summary { min-height: 48px; padding: 10px 0; font-size: 18px; font-weight: 700; cursor: pointer; color: var(--text-strong); }
 .agency-service-events > summary > span { color: var(--text-muted); margin-left: 6px; font-size: 12px; }
@@ -391,7 +389,7 @@
 
 /* Snapshot context and the route-to-evidence workflow. */
 .agency-page-heading { margin: 0 0 24px; }
-.agency-page-heading h1 { margin: 9px 0 8px; color: var(--text-strong); font-size: 26px; line-height: 1.2; font-weight: 680; letter-spacing: -.04em; }
+.agency-page-heading h1 { margin: 0 0 8px; color: var(--text-strong); font-size: 30px; line-height: 1.2; font-weight: 680; letter-spacing: -.04em; }
 .agency-page-heading p { display: flex; align-items: flex-start; gap: 6px; margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 .agency-overview { margin-bottom: 26px; }
 .agency-overview-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel-strong); }
@@ -411,7 +409,6 @@
 .agency-priority-description strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 12px; font-weight: 550; }
 .agency-priority-description small { display: block; margin-top: 4px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 .agency-ask-start { margin-top: 30px; }
-.agency-ask-start .agency-page-heading p { max-width: 47ch; font-size: 14px; }
 .agency-ask-setup { padding: 16px; border-left: 2px solid var(--accent-2); background: var(--surface-bg); border-radius: 0 8px 8px 0; }
 .agency-ask-setup strong { color: var(--text-strong); font-size: 12px; font-weight: 600; }
 .agency-ask-setup p { margin: 6px 0; color: var(--text-soft); font-size: 12px; line-height: 1.6; }
@@ -421,8 +418,6 @@
 .agency-error > strong { color: var(--text-strong); }
 .agency-error > p { margin: 5px 0; }
 .agency-error > button + button { margin-left: 16px; }
-.agency-route-browser-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
-.agency-route-browser-heading h2 { margin: 7px 0 0; font-size: 30px; line-height: 1.1; font-weight: 650; letter-spacing: -.035em; color: var(--text-strong); }
 .agency-route-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0; }
 .agency-route-filters > button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 7px; background: transparent; color: var(--text-soft); font: inherit; font-size: 12px; cursor: pointer; }
 .agency-route-filters > button:hover { background: var(--hover-surface); }
@@ -466,6 +461,19 @@
 .agency-priority-description > small:only-child { color: var(--text-strong); font-size: 14px; font-weight: 600; }
 .agency-overview-metrics .has-attention strong { color: var(--warn); }
 @media (max-width: 480px) {
-  .agency-tabs > button > svg { display: none; }
   .agency-priority h2 { font-size: 18px; }
 }
+
+.agency-route-sections { display: flex; gap: 20px; margin: 8px 0 24px; border-bottom: 1px solid var(--border); }
+.agency-route-sections button { min-height: 44px; padding: 8px 0; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-muted); font: inherit; font-size: 14px; cursor: pointer; }
+.agency-route-sections button[aria-pressed="true"] { color: var(--text-strong); border-bottom-color: var(--vigo-lime-strong); font-weight: 650; }
+.agency-secondary-section { margin: 16px 0 0; border-top: 1px solid var(--border); }
+.agency-secondary-section > summary { min-height: 48px; padding: 14px 0; color: var(--text-strong); font-size: 18px; font-weight: 650; cursor: pointer; }
+.agency-panel .agency-trip-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.agency-panel .agency-trip-controls label:nth-child(2) { grid-column: 1 / -1; grid-row: 1; }
+.agency-panel .agency-trip-timetable h2 { font-size: 20px; }
+.agency-panel .agency-trip-table-scroll { max-width: 100%; }
+
+.agency-route-coverage { margin-top: 20px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 12px; }
+.agency-route-coverage summary { min-height: 44px; padding: 12px 0; cursor: pointer; }
+.agency-route-coverage p { margin: 8px 0; line-height: 1.6; }

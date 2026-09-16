@@ -90,7 +90,6 @@
   .agency-line-details { max-height: 75%; }
   .view-agency .route-map-shell .map-live-card.has-vehicle-timing { max-height: 85%; }
 }
-.agency-line-intro .agency-view-switch { width: fit-content; margin-top: 12px; }
 .agency-trip-controls { display: flex; flex-wrap: wrap; gap: 12px; }
 .agency-trip-controls label { display: grid; gap: 6px; min-width: 0; font-size: 12px; }
 .agency-trip-controls label:nth-child(2) { flex: 1; }
@@ -103,4 +102,7 @@
 .agency-trip-timetable td { white-space: nowrap; }
 .agency-trip-timetable thead th { color: var(--text-muted); font-weight: 500; }
 .agency-trip-timetable tbody th { border-left: 3px solid var(--line-color); color: var(--text-strong); }
-.agency-trip-timetable small { display: block; color: var(--text-muted); font-weight: 400; }
+.agency-trip-timetable small { display: block; white-space: normal; color: var(--text-muted); font-weight: 400; }
+
+.agency-trip-source { margin-top: 16px; color: var(--text-muted); font-size: 12px; }
+.agency-trip-source summary { min-height: 36px; padding: 8px 0; cursor: pointer; }

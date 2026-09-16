@@ -1,11 +1,12 @@
 # One network workspace
 
-Network owns one route and station selection across **Overview**, **Routes**, and **Ask**. The map, line diagram, arrivals board and conversation use that shared context.
+Network owns one route and station selection across **Network**, **Routes**, and **Ask**. The map, line diagram, arrivals board and conversation use that shared context.
 
-Select a route in the catalog or search, inspect its reports, and expand **Timetable & patterns** for the existing direction browser and dated service bands. Select a station on the line or map to open the shared arrivals board. **Ask about this** keeps that selection; **All network** returns to the catalog. Route totals are labeled separately when a station is selected. Station events include its platforms, while a platform selection excludes another platform's departure deviations.
+Select a route in **Routes** to open **Trip times** directly. Use **Stops** for direction patterns and dated service bands, or **Updates** for service evidence. Select a station on the line or map to open its arrivals board. **Ask** keeps that selection; **All routes** returns to the catalog. The map’s **Network map** action clears the route and stop selection and restores the network map. Route totals are labeled separately when a station is selected. Station events include its platforms, while a platform selection excludes another platform's departure deviations.
 
 | View | Reused implementation |
 | --- | --- |
+| Trip times | `AgencyTripTimetable` |
 | Timetable, directions and patterns | `NetworkTimetable`, moved from `ExploreObjectPanel` |
 | Map and bidirectional line | `VigoMap`, `AgencyRouteLine` |
 | Scheduled and predicted arrivals | `StopArrivalBoard` |
@@ -22,6 +23,8 @@ During testing after midnight, fresh vehicles serving the previous service day w
 Development previews preserve the browser's Host through the Vite proxy. This allows a second local checkout to pass the existing same-origin check. A foreign browser origin remains rejected.
 
 Operations uses explicit serialized source revisions and evidence contents for equality comparisons. It does not generate cryptographic identifiers. Older ledger records remain readable; work using an earlier opaque timetable identity must be tracked against the current revision before new rider guidance is reviewed. Historical comparisons stay within a matching timetable revision.
+
+The Network page puts counts and routes to review first. Service briefing, updates, and coverage are expandable. Ask puts the question and answer ahead of model settings and completed tool records.
 
 ## Verification
 

@@ -5,7 +5,7 @@ Every use case starts from a City and ends in a Result or a Network view.
 | Question | VIGO home |
 | --- | --- |
 | What routes, stops, stations, patterns, and schedules are present? | Network > Routes |
-| What service is scheduled or live at this moment? | Network > Overview / Routes |
+| What service is scheduled or live at this moment? | Network / Routes |
 | How do I travel between points? | Route |
 | How do travel times vary across many points? | Command line > Matrix |
 | Where can the network reach within a time limit? | Analyze > Reach |

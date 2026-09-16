@@ -1,16 +1,16 @@
 # Use VIGO Agency
 
-VIGO Agency brings the selected City's timetable, live reports and saved investigations into one workspace. Its everyday views are **Overview**, **Routes** and **Ask**. Route, Matrix and Reach use the existing routing platform.
+VIGO Agency brings the selected City's timetable, live reports and saved investigations into one workspace. Its everyday views are **Network**, **Routes** and **Ask**. Route, Matrix and Reach use the existing routing platform.
 
 ## See what needs attention
 
-Open **Overview** for reporting coverage, route comparisons and the network briefing. A scheduled departure, a feed prediction and an observed vehicle location are different evidence. Missing reports remain unknown. Overnight service is assessed against the timetable's active service window, not daytime expectations.
+Open **Network** for reporting coverage, route comparisons and the network briefing. A scheduled departure, a feed prediction and an observed vehicle location are different evidence. Missing reports remain unknown. Overnight service is assessed against the timetable's active service window, not daytime expectations.
 
 With a connected model, the briefing can interpret the pattern, propose an explanation and suggest a next check. Hypotheses are not confirmed incidents. The briefing checks extracted route-condition claims against computed evidence and performs a model review, but neither guarantees that all prose is correct. A computed fallback is labeled separately. The timestamp and coverage tell you which observation the briefing describes; the refresh setting is separate from feed polling.
 
 ## Inspect a route or station
 
-Open **Routes**, choose a route, then use the map or bidirectional line diagram. Select a stop to see its arrivals board, with scheduled and predicted times kept separate. Expand the timetable for directions and patterns. **All routes** returns to the catalog.
+Open **Routes** and choose a route to see **Trip times**. Select a trip and service date to compare its scheduled and predicted arrivals or departures. **Stops** opens directions and patterns; **Updates** opens service evidence. The map and **Line view** show the same selected route. Select a stop to see its arrivals board. **All routes** returns to the catalog. Actual stop-event times are unavailable in the current prediction source.
 
 The route and station selection are shared with Ask. “Here” can refer to that station; a named route or vehicle keeps its own identity. Selecting a route does not select a particular bus. Saved answers retain the selection and evidence from the original question.
 

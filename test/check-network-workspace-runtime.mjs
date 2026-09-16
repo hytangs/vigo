@@ -33,7 +33,7 @@ Date.now = () => ${observationTime * 1000};
 const noop = () => {};
 const root = createRoot(document.getElementById('root'));
 let appearance='light', renderKey=0, failLatestBriefing=true;
-const shell = child => React.createElement('div',{className:'app-shell appearance-'+appearance+' page-project view-agency',style:{display:'block',height:'100vh'}},child);
+const shell = child => React.createElement('div',{className:'app-shell appearance-'+appearance+' page-project view-agency',style:{display:'block',height:'100vh',maxWidth:'480px'}},child);
 let observationReads = 0;
 let selectedScope = {}, activeSnapshot = null, browseRequest = 0, holdObservation = false, providerAvailable = true, failNextObservation = false;
 const pendingObservations = [], pendingQuestions = [], downloads = [], blobs = new Map();
@@ -61,7 +61,7 @@ HTMLAnchorElement.prototype.click=function(){if(this.download){downloads.push({n
 const browseRoute = id => {selectedScope={routeId:id};renderWorkspace(activeSnapshot)};
 const locate = (routeIds,stopIds) => {selectedScope={routeId:routeIds[0],stopId:stopIds[0]};renderWorkspace(activeSnapshot)};
 const clearSelection = () => {selectedScope={};renderWorkspace(activeSnapshot)};
-const renderWorkspace = (snapshot = null) => {activeSnapshot=snapshot;root.render(shell(React.createElement(AgencyPanel,{key:renderKey,projectId:'fixture',snapshot,selection:selectedScope,browseRequest,realtimeRequest:null,realtimeMessage:'',realtimeLoading:false,onConnect:noop,onDisconnect:noop,onLocate:locate,onBrowseRoute:browseRoute,onClearSelection:clearSelection,onResult:noop,onOpenData:noop,mapOpen:false,onToggleMap:noop})))};
+const renderWorkspace = (snapshot = null) => {activeSnapshot=snapshot;root.render(shell(React.createElement(AgencyPanel,{key:renderKey,projectId:'fixture',snapshot,selection:selectedScope,timetable:React.createElement('div',{'data-testid':'stop-patterns'},'Stop patterns'),browseRequest,realtimeRequest:null,realtimeMessage:'',realtimeLoading:false,onConnect:noop,onDisconnect:noop,onLocate:locate,onBrowseRoute:browseRoute,onClearSelection:clearSelection,onResult:noop,onOpenData:noop,mapOpen:false,onToggleMap:noop})))};
 // Old prototype selections must recover to the focused workspace.
 sessionStorage.setItem('agency-mode-fixture','operations');
 renderWorkspace();
@@ -80,6 +80,8 @@ const openTools = () => {if(!document.querySelector('.agency-more').open)documen
 const completeObservation = async () => {holdObservation=false;const pending=pendingObservations.shift();pending.resolve(await originalFetch(pending.url,pending.init))};
 window.runTests = async () => {
   await wait(()=>document.getElementById('agency-briefing'));
+  check(!document.querySelector('.agency-secondary-section').open && !document.querySelector('.agency-service-events').open,'Network starts with summary and review routes; secondary sections stay collapsed');
+  document.querySelector('.agency-secondary-section > summary').click();
   await wait(()=>button('Retry briefing'));
   check(document.querySelector('[aria-label="Update network briefing"]').disabled && document.querySelector('[aria-label="Briefing refresh interval"]').disabled,'A failed initial briefing read cannot start a conflicting assessment or preference write');
   await click('Retry briefing');
@@ -89,20 +91,33 @@ window.runTests = async () => {
   check(metric('Reporting routes').querySelector('strong').textContent==='3','The overview must distinguish current reporting routes from indexed routes');
   check(metric('To review').querySelector('strong').textContent==='2','The overview review count must match reported issues');
   document.querySelector('.agency-priority-route').click();
-  await wait(()=>document.getElementById('agency-tab-live').getAttribute('aria-selected')==='true' && document.querySelector('.network-selection strong')?.textContent==='R');
+  await wait(()=>document.getElementById('agency-tab-live').getAttribute('aria-selected')==='true' && document.querySelector('.network-selection h1')?.textContent==='R');
   await wait(()=>document.activeElement===document.querySelector('.network-selection > button'));
+  await wait(()=>document.querySelector('.agency-trip-timetable tbody tr'));
+  check(!document.querySelector('.network-timetable') && !document.querySelector('.agency-service-events'),'A route opens just its trip timetable, without competing stop lists and updates');
+  check(document.querySelector('.agency-trip-timetable select').value==='T1','The initial trip is selected without a vehicle click');
+  await click('Stops');
+  await wait(()=>document.querySelector('[data-testid="stop-patterns"]'));
+  check(!document.querySelector('.agency-trip-timetable') && document.querySelector('[data-testid="stop-patterns"]'),'Stops is a distinct route section');
+  await click('Updates');
+  await wait(()=>document.querySelector('.agency-service-events'));
+  check(!document.querySelector('.network-timetable') && !document.querySelector('.agency-trip-timetable'),'Updates is a distinct route section');
+  await click('Trip times');
+  await wait(()=>document.querySelector('.agency-trip-timetable tbody tr'));
+
   document.querySelector('.network-selection button').click();
   await wait(()=>!document.querySelector('.network-selection'));
   await wait(()=>document.activeElement===document.querySelector('[aria-label="Find a route"]'));
-  await click('Overview');
+  await click('Network');
   await wait(()=>document.querySelectorAll('.agency-event').length===40);
+  document.querySelector('.agency-service-events > summary').click();
   document.querySelector('.agency-event').click();
-  await wait(()=>document.querySelector('.agency-evidence') && document.querySelector('.network-selection strong')?.textContent==='River');
+  await wait(()=>document.querySelector('.agency-evidence') && !document.querySelector('.network-selection'));
   await wait(()=>document.activeElement===document.querySelector('.agency-evidence > button'));
   await click('Back to service updates');
   await wait(()=>document.getElementById('agency-briefing') && document.querySelector('.agency-service-events'));
   await wait(()=>document.activeElement===document.querySelector('.agency-service-events > summary'));
-  check(document.getElementById('agency-tab-briefing').getAttribute('aria-selected')==='true','Returning from an Overview event must restore Overview, not the route browser');
+  check(document.getElementById('agency-tab-briefing').getAttribute('aria-selected')==='true','Returning from a Network event must restore Network, not the route browser');
   await click('Show all updates');
   await wait(()=>!button('Show all updates') && document.querySelectorAll('.agency-event').length===40);
   const initialEvents=[...document.querySelectorAll('.agency-event strong')].map(item=>item.textContent);
@@ -150,12 +165,12 @@ window.runTests = async () => {
   await wait(()=>document.querySelector('.agency-route-browser') && filterButton('Reporting')?.getAttribute('aria-pressed')==='true');
   await wait(()=>document.activeElement===document.querySelector('[aria-label="Find a route"]'));
   check(routes().join(',')==='2,10,R','Reporting routes must exclude unreported service and use numeric route order');
-  await click('Overview');
+  await click('Network');
   await wait(()=>metric('To review'));
   metric('To review').click();
   await wait(()=>filterButton('Needs attention')?.getAttribute('aria-pressed')==='true');
-  check(routes().join(',')==='R,10','Overview review action must open the scoped review list');
-  await click('Overview');
+  check(routes().join(',')==='R,10','Network review action must open the scoped review list');
+  await click('Network');
   await wait(()=>metric('Routes'));
   metric('Routes').click();
   await wait(()=>document.querySelector('.agency-route-browser'));
@@ -194,7 +209,7 @@ window.runTests = async () => {
   openTools();
   check(!button('Export report') && !button('Export observations'),'A pending route selection must not export the old network scope');
   await completeObservation();
-  await wait(()=>button('Export report') && document.querySelector('.network-selection strong').textContent==='10');
+  await wait(()=>button('Export report') && document.querySelector('.network-selection h1').textContent==='10');
   await click('Export report');
   await wait(()=>downloads.length===3);
   check((await downloads[2].blob.text()).includes('Route selection: 10 (R10)'),'A route report must retain the completed exact route identity');
@@ -203,6 +218,7 @@ window.runTests = async () => {
   document.getElementById('agency-tab-live').dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}));
   await wait(()=>document.getElementById('agency-tab-ask').getAttribute('aria-selected')==='true');
   await wait(()=>document.querySelector('.agency-conversation-toolbar'));
+  check(document.querySelector('#agency-ask h1')?.textContent==='Ask','Ask keeps a single clear page heading ahead of settings');
   fill(document.getElementById('agency-question'),'Check River service.');
   await settle();
   shortcut({isComposing:true});
@@ -223,6 +239,12 @@ window.runTests = async () => {
   pendingQuestions[1].reject(Error('Fixture retry unavailable'));
   await wait(()=>document.querySelector('.agency-question-form button[type="submit"]') && !document.querySelector('.agency-question-form button[type="submit"]').disabled);
   check(document.getElementById('agency-question').value==='Keep this new question.','A failed earlier request cannot overwrite a newly typed draft');
+  await click('Routes');
+  await wait(()=>document.getElementById('agency-live'));
+  check(!document.querySelector('.agency-scroll > .agency-error'),'An Ask failure must not appear as a Routes page error');
+  document.getElementById('agency-tab-ask').click();
+  await wait(()=>document.getElementById('agency-question'));
+  check(document.getElementById('agency-question').value==='Keep this new question.','Page navigation preserves the Ask draft');
   fill(document.getElementById('agency-question'),'');
   failNextObservation=true;
   openTools();
@@ -265,6 +287,25 @@ window.visualCheck = async theme => {
   const panel=document.querySelector('.agency-panel');
   check(![panel,document.querySelector('.agency-scroll'),document.querySelector('.agency-tabs')].some(item=>item.scrollWidth>item.clientWidth+2),'The '+theme+' theme must fit the viewport at '+innerWidth);
   return {theme,width:innerWidth,background:getComputedStyle(document.querySelector('.app-shell')).backgroundColor,text:getComputedStyle(document.querySelector('.agency-page-heading h1')).color,overflow:false};
+};
+window.pageCheck = async id => {
+  selectedScope={};renderWorkspace(activeSnapshot);
+  document.getElementById('agency-tab-'+id).click();
+  await wait(()=>document.getElementById('agency-'+id));
+  if(id==='live') await wait(()=>routes().length===4);
+  await settle();
+};
+window.routeCheck = async () => {
+  await window.pageCheck('live');
+  [...document.querySelectorAll('.agency-route-list button')].find(item=>item.querySelector('.agency-route-label').textContent==='R').click();
+  await wait(()=>document.querySelector('.agency-trip-timetable tbody tr'));
+  const content=document.querySelector('.agency-scroll');
+  check(content.scrollWidth<=content.clientWidth+2,'Route timetable controls must fit the panel');
+  const chooser=document.querySelector('.agency-trip-timetable select');
+  chooser.value='T2';chooser.dispatchEvent(new Event('change',{bubbles:true}));
+  await wait(()=>document.querySelector('.agency-trip-timetable select').value==='T2' && document.querySelector('.agency-trip-timetable tbody tr'));
+  await wait(()=>document.querySelector('.agency-trip-timetable tbody')?.textContent.includes('12:28'));
+  check(document.querySelector('.agency-trip-timetable select').value==='T2','Changing the trip updates its predictions');
 };
 window.layoutCheck = async () => {
   const panel=document.querySelector('.agency-panel'); panel.style.height=innerHeight<=400?'176px':'100vh';
@@ -323,6 +364,11 @@ app.whenReady().then(async()=>{ try {
   for(const [width,height] of [[1280,1000],[760,1000],[390,1000],[320,1000],[760,400]]) { window.setContentSize(width,height); await new Promise(resolve=>setTimeout(resolve,200)); result[width+'x'+height]=await window.webContents.executeJavaScript('window.layoutCheck()'); if(width===1280||width===320) fs.writeFileSync(${JSON.stringify(directory)}+'/network-workspace-'+width+'.png',(await window.webContents.capturePage()).toPNG()); }
   result.themes=[];
   for(const theme of ['light','dark']) for(const width of [1280,320]) {window.setContentSize(width,1000);await new Promise(resolve=>setTimeout(resolve,100));result.themes.push(await window.webContents.executeJavaScript('window.visualCheck('+JSON.stringify(theme)+')'));fs.writeFileSync(${JSON.stringify(directory)}+'/network-overview-'+theme+'-'+width+'.png',(await window.webContents.capturePage()).toPNG())}
+  for(const width of [480,320]) {
+    window.setContentSize(width,1000);
+    for(const id of ['briefing','live','ask']) { await window.webContents.executeJavaScript('window.pageCheck('+JSON.stringify(id)+')'); fs.writeFileSync(${JSON.stringify(directory)}+'/page-'+id+'-'+width+'.png',(await window.webContents.capturePage()).toPNG()); }
+    await window.webContents.executeJavaScript('window.routeCheck()'); fs.writeFileSync(${JSON.stringify(directory)}+'/route-trips-'+width+'.png',(await window.webContents.capturePage()).toPNG());
+  }
   if(result.themes[0].background===result.themes[2].background) throw Error('Light and dark screenshot fixtures must use distinct actual theme variants');
   console.log(JSON.stringify({passed:true,...result,screenshots:${JSON.stringify(directory)}})); app.exit(0);
 }catch(error){console.error(error);app.exit(1)}});`)

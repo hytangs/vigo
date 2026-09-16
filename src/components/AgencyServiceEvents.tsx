@@ -5,7 +5,8 @@ import { minutes, shortId } from './AgencyEvidence'
 
 const labels: Record<OperationalEvent['type'], string> = { delay: 'Delays', bunching: 'Short gaps', 'service-gap': 'Long gaps', cancellation: 'Cancellations', 'skipped-stop': 'Skipped stops', 'stale-data': 'Data freshness', 'service-alert': 'Alerts', 'headway-review': 'Departure spacing' }
 
-export function AgencyServiceEvents({ state, ready, filter, onFilter, onSelect }: {
+export function AgencyServiceEvents({ state, ready, filter, onFilter, onSelect, defaultOpen = true }: {
+  defaultOpen?: boolean
   state: AgencyState
   ready: boolean
   filter: string
@@ -16,7 +17,7 @@ export function AgencyServiceEvents({ state, ready, filter, onFilter, onSelect }
   useEffect(() => setLimit(40), [filter, state.selection?.route?.id, state.selection?.stop?.id])
   const events = ready ? state.events : []
   const total = state.filteredEventCount ?? events.length
-  return <details className="agency-service-events" open>
+  return <details className="agency-service-events" open={defaultOpen}>
     <summary>Service updates <span>{ready ? total.toLocaleString() : '…'}</span></summary>
     <div className="agency-section-heading"><select aria-label="Filter event type" value={filter} onChange={event => onFilter(event.target.value)}><option value="all">All updates</option>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
     <div className="agency-event-list">{events.slice(0, limit).map(event => <button key={event.id} className={`agency-event is-${event.severity}`} data-severity={event.severity} onClick={() => onSelect(event)}>

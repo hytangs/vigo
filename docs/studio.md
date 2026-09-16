@@ -1,6 +1,6 @@
 # VIGO Agency desktop guide
 
-VIGO Agency provides Network, Route, Analyze and City views over the VIGO routing engine. See the [Agency guide](agency.md) for Overview, Routes and Ask.
+VIGO Agency provides Network, Route, Analyze and City views over the VIGO routing engine. See the [Agency guide](agency.md) for Network, Routes and Ask.
 
 ## Open a City
 

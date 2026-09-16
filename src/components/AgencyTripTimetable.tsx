@@ -43,12 +43,12 @@ export function AgencyTripTimetable({ projectId, routeId }: { projectId: string;
       <label>Times<select value={kind} onChange={event => setKind(event.target.value as typeof kind)}><option value="departure">Departures</option><option value="arrival">Arrivals</option></select></label></div>
     {error ? <p role="alert">{error}</p> : !data ? <p role="status">Loading timetable…</p> : !data.trip ? <p>No indexed fixed-schedule trips for this service date.</p> : <>
       <h2>To {data.trip.destination}</h2><p>{data.trip.status} · {data.trip.serviceDate} · {data.timezone}</p>
-      <p>Actual times are unavailable in this source. Predictions do not confirm arrival or departure.</p>
-      <div className="agency-trip-table-scroll"><table><caption >Scheduled, predicted and actual {kind} times</caption><thead><tr><th scope="col">Stop</th><th scope="col">Scheduled</th><th scope="col">Predicted</th><th scope="col">Actual</th><th scope="col">Difference</th></tr></thead><tbody>{data.trip.calls.map(call => {
+      <p>Predictions only · actual times unavailable.</p>
+      <div className="agency-trip-table-scroll"><table aria-label={`Scheduled and predicted ${kind} times`}><thead><tr><th scope="col">Stop</th><th scope="col">Scheduled</th><th scope="col">Predicted</th></tr></thead><tbody>{data.trip.calls.map(call => {
         const event = call[kind]
-        return <tr key={call.index}><th scope="row"><span className="agency-trip-stop">{call.stop.name}</span>{call.status ? <small>{call.status}</small> : null}</th><td>{clock(event.scheduled)}</td><td>{clock(event.current)}</td><td aria-label="Actual time unavailable">—</td><td>{event.current !== null && event.scheduled !== null ? vehicleDelayLabel(event.current - event.scheduled) : '—'}</td></tr>
+        return <tr key={call.index}><th scope="row"><span className="agency-trip-stop">{call.stop.name}</span>{call.status ? <small>{call.status}</small> : null}</th><td>{clock(event.scheduled)}</td><td>{clock(event.current)}{event.current !== null && event.scheduled !== null ? <small>{vehicleDelayLabel(event.current - event.scheduled)}</small> : null}</td></tr>
       })}</tbody></table></div>
-      <p className="agency-caption">{data.trip.predictionAt ? `Trip update ${clock(data.trip.predictionAt)}. ` : ''}— means unavailable. Frequency-based trips require a trip-instance timetable.</p>
+      <details className="agency-trip-source"><summary>Timing &amp; source</summary><p className="agency-caption">{data.trip.predictionAt ? `Trip update ${clock(data.trip.predictionAt)}. ` : ''}— means unavailable. Predictions do not confirm arrival or departure. Frequency-based trips require a trip-instance timetable.</p></details>
     </>}
   </section>
 }

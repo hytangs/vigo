@@ -1,6 +1,6 @@
 # VIGO Agency documentation
 
-Start with the [Agency guide](agency.md) for the current **Overview → Routes → Ask** workspace. Agency reuses VIGO's routing platform; the inherited platform guides below describe its City, Scenario and Result model.
+Start with the [Agency guide](agency.md) for the current **Network → Routes → Ask** workspace. Agency reuses VIGO's routing platform; the inherited platform guides below describe its City, Scenario and Result model.
 
 ```text
 City -> Scenario -> Route | Matrix | Reach -> Result
@@ -8,7 +8,7 @@ City -> Scenario -> Route | Matrix | Reach -> Result
 
 ## Agency
 
-- [Use Overview, Routes and Ask](agency.md)
+- [Use Network, Routes and Ask](agency.md)
 - [Shared network workspace and selection](network-workspace.md)
 - [Line diagrams and station boards](ROUTE-LINE.md)
 - [LAMP historical running-time study](lamp-runtime-study.md)
