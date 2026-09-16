@@ -42,7 +42,7 @@ const state = { generatedAt: '2026-09-13T12:00:00Z' }, context = { overview: () 
 let turn = 0
 const answer = await queryAgency({ question: 'Is everything local and secure?', context, state, webStatus: web, placesAvailable: places.enabled, placeEndpoint: places.endpoint,
   history: [{ question: 'What model?', answer: 'Everything is local and secure.' }],
-  provider: { ...inference, complete: async messages => {
+  provider: { ...inference, reviewUnverifiedReplies: false, complete: async messages => {
     assert.match(messages[0].content, /Never infer architecture/)
     assert.match(messages[1].content, /neither local nor remote inference/, 'Trusted runtime context distinguishes unknown hosting from both local and remote claims')
     assert.doesNotMatch(JSON.stringify(messages), /private-model-key|private-search-key/)
@@ -59,7 +59,7 @@ assert.deepEqual(offline.runtime.networkToolCalls, [])
 assert.equal(offline.runtime.modelConnection.externalModelApi, 'unknown', 'Missing metadata must not become a local deployment claim')
 let runtimeTurn = 0
 const factual = await queryAgency({ question: 'Is inference local?', context, state, webStatus: web, placesAvailable: places.enabled, placeEndpoint: places.endpoint,
-  provider: { ...inference, complete: async messages => {
+  provider: { ...inference, reviewUnverifiedReplies: false, complete: async messages => {
     if (++runtimeTurn === 1) return { content: 'Everything is local and secure.', tool_calls: [{ id: 'runtime', function: { name: 'runtime_status', arguments: '{}' } }] }
     const result = JSON.parse(messages.at(-1).content.split('\n').slice(1).join('\n'))
     assert.equal(result.data.inferenceHosting, 'Not verified')
@@ -76,7 +76,7 @@ assert.deepEqual(factual.runtime.networkToolCalls, [])
 
 let countTurn = 0
 const count = await queryAgency({ question: 'How many routes are there?', context: { ...context, overview: () => ({ cityName: 'City X', counts: { routes: 37 } }) }, state,
-  provider: { ...inference, complete: async (messages, tools) => {
+  provider: { ...inference, reviewUnverifiedReplies: false, complete: async (messages, tools) => {
     if (++countTurn === 1) {
       assert.ok(tools.some(tool => tool.name === 'runtime_status'), 'Privacy questions can request the server record without a discovery round')
       assert.match(messages[1].content, /privacyAndSecurity.*not verified/, 'Hosting and privacy limits are server-supplied context even before a tool call')

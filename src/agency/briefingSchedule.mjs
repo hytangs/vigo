@@ -20,7 +20,7 @@ export function briefingStatus(entry, preferences, now, scheduleIdentity) {
   const answer = entry?.answer
   const assessed = Date.parse(answer?.generatedAt)
   const refreshAt = briefingRefreshAt(answer, preferences)
-  const compatible = answer?.diagnosis?.version === 2 && answer.scheduleIdentity === scheduleIdentity
+  const compatible = answer?.diagnosis?.version === 2 && answer.scheduleIdentity === scheduleIdentity && (!answer.aiGenerated || Boolean(answer.synthesis?.method))
   return { preferences, refreshAt: refreshAt === null ? null : new Date(refreshAt).toISOString(),
     current: Boolean(compatible && refreshAt > now && assessed <= now),
     due: !compatible || refreshAt === null || refreshAt <= now || assessed > now }

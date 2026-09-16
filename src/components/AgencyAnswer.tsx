@@ -12,6 +12,7 @@ import { AgencyWalkingAssessment, AgencyWalkingComparisons, type WalkingOutput }
 import { StopArrivalBoardView } from './StopArrivalBoard'
 import type { StopBoard } from '../agency/routeOperationsTypes'
 import { publicReply } from '../agency/publicReply.mjs'
+import { journeyContinuityIssue } from '../journeyIntegrity.mjs'
 
 function answerText(text: string) {
   return publicReply(text).split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/g).map((part: string, index: number) => (
@@ -62,9 +63,13 @@ export function AgencyAnswer({ answer, onResult, onSelectEvent, onOpenEntry }: {
   const result = citedComparison?.result ?? answer.trace.filter((call) => call.result.ok).at(-1)?.result
   const lampResult = answer.trace.find(call => call.result.ok && (call.result.data as LampStudyData)?.dataset === 'MBTA LAMP subway performance')?.result
   const lampReport = Boolean(lampResult && answer.report)
+  const invalidJourney = answer.trace.some(call => {
+    const data = call.result.data as { plan?: RoutingPlan; journeys?: Array<{ plan?: RoutingPlan }> }
+    return journeyContinuityIssue(data?.plan) || data?.journeys?.some(item => journeyContinuityIssue(item.plan))
+  })
   return <section className="agency-answer" aria-label="Answer">
     {answer.responseBasis && answer.responseBasis !== 'computed' ? <p className="agency-caption" title="Tool results and citations record the checks performed. They do not verify every claim written by the model.">{answer.responseBasis === 'model_only' ? 'AI response · no evidence checked in this turn' : 'AI interpretation · verify against the sources'}</p> : null}
-    {answer.diagnosis && answer.narrative ? <><p className="agency-caption">Saved assessment · {new Date(answer.generatedAt).toLocaleString([], { timeZone: answer.timezone || undefined })}</p><NetworkAssessment diagnosis={answer.diagnosis} narrative={answer.narrative} investigation={answer.investigation} /></> : !lampReport ? <p className="agency-answer-text">{answerText(answer.answer)}</p> : null}
+    {invalidJourney ? <p className="agency-caption">This saved journey failed a consistency check. Request a new journey.</p> : answer.diagnosis && answer.narrative ? <><p className="agency-caption">Saved assessment · {new Date(answer.generatedAt).toLocaleString([], { timeZone: answer.timezone || undefined })}</p><NetworkAssessment diagnosis={answer.diagnosis} narrative={answer.narrative} investigation={answer.investigation} /></> : !lampReport ? <p className="agency-answer-text">{answerText(answer.answer)}</p> : null}
     {answer.scopeNote ? <p className="agency-caption">{answer.scopeNote}</p> : null}
     {answer.report?.rows.length && !lampResult ? <div className="agency-research-output"><div className="agency-section-heading"><div><h2>Evidence table</h2><span>{answer.report.rows.length} rows · retained with this note</span></div>{answer.report.rows.length ? <button className="agency-text-button" onClick={() => { const rows = answer.report!.rows; const columns = Object.keys(rows[0]); const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`; downloadText('agency-evidence.csv', [columns.map(cell).join(','), ...rows.map((row) => columns.map((key) => cell(row[key])).join(','))].join('\n'), 'text/csv') }}>Export CSV</button> : null}</div><AgencyToolOutput result={{ ok: true, data: { rows: answer.report.rows }, provenance: [], generatedAt: answer.generatedAt, warnings: [] }} /></div> : null}
     {lampResult ? <AgencyToolOutput result={lampResult} /> : null}

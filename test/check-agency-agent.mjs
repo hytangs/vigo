@@ -37,7 +37,7 @@ const event = { id: 'delay/T1', type: 'delay', title: 'Departure later than sche
 const catalog = discoverableTools(toolDefinitions)
 for (const name of ['network_overview', 'realtime_status', 'walk_compare', 'run_runtime_study', 'compare_holding']) assert.ok(!catalog.definitions().some(tool => tool.name === name), 'Specialist schemas load only when needed')
 assert.throws(() => catalog.prepare({ names: ['invented_tool'] }), /available catalogue/)
-for (const name of ['gtfs_query', 'route_plan', 'inspect_service', 'service_timing']) assert.ok(catalog.definitions().some(tool => tool.name === name), 'Common transit tools are ready without a discovery round')
+for (const name of ['gtfs_query', 'route_plan', 'assess_service', 'service_timing']) assert.ok(catalog.definitions().some(tool => tool.name === name), 'Common transit tools are ready without a discovery round')
 assert.ok(discoverableTools(toolDefinitions, ['walk_compare']).definitions().some(tool => tool.name === 'walk_compare'), 'Follow-ups retain tools used in their saved context')
 let discoveryTurn = 0, discoveryExecutions = 0
 const discovered = await queryAgency({ question: 'Check current service', context, state, placesAvailable: false,
@@ -45,9 +45,9 @@ const discovered = await queryAgency({ question: 'Check current service', contex
     if (++discoveryTurn === 1) {
       assert.ok(!tools.some(tool => tool.name === 'anomaly_scan'))
       assert.ok(!JSON.stringify(tools.find(tool => tool.name === 'prepare_tools').parameters).includes('place_search'))
-      return { tool_calls: [{ id: 'prepare', function: { name: 'prepare_tools', arguments: '{"names":["anomaly_scan"]}' } }] }
+      return { tool_calls: [{ id: 'prepare', function: { name: 'prepare_tools', arguments: '{"names":["service_alerts"]}' } }] }
     }
-    assert.deepEqual(tools.find(tool => tool.name === 'anomaly_scan'), toolDefinitions.find(tool => tool.name === 'anomaly_scan'), 'Loaded tools retain their complete typed schema')
+    assert.deepEqual(tools.find(tool => tool.name === 'service_alerts'), toolDefinitions.find(tool => tool.name === 'service_alerts'), 'Loaded tools retain their complete typed schema')
     if (discoveryTurn === 2) return { tool_calls: [{ id: 'status', function: { name: 'realtime_status', arguments: '{}' } }] }
     assert.match(messages.at(-1).content, /Source \[1\]/, 'Preparing tools must not count as checked evidence')
     return { content: 'No reports are available. [1]' }
@@ -423,6 +423,9 @@ assert.deepEqual(reusedLookup.citations, [1])
 let repairRounds = 0, repairedLookups = 0
 const repairingProvider = createProvider({ VIGO_AGENCY_LLM_BASE_URL: 'http://localhost:11434', VIGO_AGENCY_LLM_PROTOCOL: 'ollama', VIGO_AGENCY_LLM_MODEL: 'fixture' }, async (_url, options) => {
   const body = JSON.parse(options.body)
+  if (body.messages[0].content.startsWith('Check this proposed reply before publication.')) {
+    return Response.json({ message: { content: JSON.stringify({ action: 'inspect_reply', arguments: { action: 'reply', text: 'The cafe lookup completed. [2]' } }) } })
+  }
   repairRounds++
   const framing = body.format.anyOf[0].properties.task ? { task: 'Find the cafe' } : {}
   const reply = repairRounds < 3 ? { ...framing, action: 'place_search', arguments: { query: 'River Cafe', ...(repairRounds === 1 ? { osmTag: '' } : {}) } } : { action: 'answer', text: 'The cafe lookup completed. [2]' }

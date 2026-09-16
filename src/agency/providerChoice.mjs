@@ -35,7 +35,7 @@ export function providerChoice(messages, tools, initialTools = tools, selectionO
   const choices = tools.filter(tool => !requiredTool || tool.name === requiredTool).map(action)
   const format = { anyOf: [...choices, ...(restricted ? [] : [answer])] }
   const updates = tools.filter(tool => JSON.stringify(tool) !== JSON.stringify(initialTools.find(initial => initial.name === tool.name)))
-  const instructions = `For a tool fill action and arguments. Only when no further work is needed select action=answer and fill text with the complete user-facing response. Match the latest request's scope, not the map selection, and deliver all parts. If work remains, select a tool; do not announce a check without doing it. Fill the exact fields below; ? means optional. Return only that JSON object. This form stays internal.\n${initialTools.map(toolForm).join('\n\n')}`
+  const instructions = `For a tool return exactly {"action":"tool_name","arguments":{...tool input fields...}}. Keep every tool input inside arguments; no other top-level keys. For a reply return exactly {"action":"answer","text":"..."}. Only when no further work is needed select action=answer and fill text with the complete user-facing response. Match the latest request's scope, not the map selection, and deliver all parts. If work remains, select a tool; do not announce a check without doing it. Fill the exact fields below; ? means optional. Return only that JSON object. This form stays internal.\n${initialTools.map(toolForm).join('\n\n')}`
   const names = new Map(messages.flatMap(message => (message.tool_calls ?? []).map(call => [call.id, call.function.name])))
   return {
     format: samplerSchema(format),
@@ -57,6 +57,14 @@ export function providerChoice(messages, tools, initialTools = tools, selectionO
       }
       const choice = choices.find(choice => choice.properties.action.enum.includes(result?.action))
       if (!choice) throw new Error('The model selected an unavailable tool.')
+      // Some JSON-mode providers flatten tool fields into the action envelope.
+      // Restore that structure only when it is unambiguous. The actual tool
+      // schema below still rejects unknown fields, missing values and bad types.
+      const misplaced = Object.fromEntries(Object.entries(result).filter(([key]) => !['action', 'arguments'].includes(key)))
+      if (Object.keys(misplaced).length && (result.arguments === undefined || result.arguments && typeof result.arguments === 'object' && !Array.isArray(result.arguments))
+        && !Object.keys(misplaced).some(key => Object.hasOwn(result.arguments || {}, key))) {
+        result = { action: result.action, arguments: { ...misplaced, ...result.arguments } }
+      }
       const { arguments: inputs, ...envelope } = result
       const { arguments: inputSchema, ...properties } = choice.properties
       validateArguments(envelope, { ...choice, properties, required: choice.required.filter(key => key !== 'arguments') })

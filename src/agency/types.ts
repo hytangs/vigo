@@ -118,6 +118,7 @@ export type ToolResult = {
 }
 
 export type QueryAnswer = {
+  synthesis?: { method?: string; unavailable?: boolean }
   investigation?: BriefingInvestigation
   briefingPreferences?: BriefingPreferences
   diagnosis?: NetworkDiagnosis

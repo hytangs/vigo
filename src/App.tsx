@@ -1,4 +1,5 @@
 import { startPolling } from './app/polling'
+import { journeyContinuityIssue } from './journeyIntegrity.mjs'
 import { PrimaryNav, type RouteToolKey } from './components/PrimaryNav'
 import { findNetworkRoute, findNetworkStop, networkRouteId } from './app/networkSelection'
 import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
@@ -4590,6 +4591,7 @@ export default function App() {
 
   function presentAgencyResult(result: ToolResult) {
     const data = result.data as { plan?: RoutingPlan; surface?: unknown }
+    if (data?.plan && journeyContinuityIssue(data.plan)) { setAgencyPlan(null); return }
     if (data?.plan) { setAgencyLocation(undefined); setAgencyPlan(data.plan); setAgencyReach(null); setMapScope('route') }
     else if (data?.surface) { setAgencyLocation(undefined); setAgencyReach(result.data as ReachResult); setAgencyPlan(null); setMapScope('network') }
     else if (result.presentation?.routeIds?.length === 1 || result.presentation?.stopIds?.length === 1) locateAgencyEntities(result.presentation.routeIds ?? [], result.presentation.stopIds ?? [])

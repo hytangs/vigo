@@ -2,6 +2,8 @@ import { summarizeEvidence } from './evidenceSummary.mjs'
 import { diagnoseNetwork, compactDiagnosis } from './networkDiagnosis.mjs'
 import { networkNarrative } from './networkNarrative.mjs'
 import { investigateBriefing } from './briefingInvestigation.mjs'
+import { synthesizeNetwork } from './networkSynthesis.mjs'
+import { investigationFacts } from './briefingInterpretation.mjs'
 
 const number = (value) => value > 0 && value < 0.1 ? 'less than 0.1' : Number(value.toFixed(1)).toLocaleString('en-US')
 export function briefingFacts(trace) {
@@ -87,10 +89,6 @@ export async function networkBriefing({ context, state, provider, callTool, sign
       answer.trace.push(...investigation.trace)
       answer.investigation = { plan: investigation.plan, focusTitle: investigation.focusTitle, explanation: investigation.explanation, watchNext: investigation.watchNext, assessment: investigation.assessment, rankedHypotheses: investigation.rankedHypotheses, facts: investigation.facts, incomplete: investigation.incomplete,
         checks: investigation.trace.map(call => ({ aspect: call.arguments.aspect, completed: call.result.ok })) }
-      if (investigation.narrative) {
-        answer.narrative = investigation.narrative; answer.aiGenerated = true; answer.model = provider.model
-        answer.answer = [answer.narrative.overview, ...answer.narrative.sections.map(section => `${section.title}\n${section.text}`), `Working explanation · ${investigation.focusTitle}: ${investigation.explanation.text}`, `Watch next: ${investigation.watchNext}`].join('\n\n')
-      }
       answer.evidenceRefs = [...new Set(answer.trace.flatMap(call => call.result.provenance))]
     }
   } catch (error) {
@@ -98,10 +96,22 @@ export async function networkBriefing({ context, state, provider, callTool, sign
     answer.investigation = { incomplete: true, checks: [] }
     if (error.completedTrace) {
       answer.trace.push(...error.completedTrace)
-      answer.investigation = { plan: error.investigationPlan, incomplete: true, checks: error.completedTrace.map(call => ({ aspect: call.arguments.aspect, completed: call.result.ok })) }
+      answer.investigation = { plan: error.investigationPlan, facts: investigationFacts(error.completedTrace, diagnosis), incomplete: true, checks: error.completedTrace.map(call => ({ aspect: call.arguments.aspect, completed: call.result.ok })) }
       answer.evidenceRefs = [...new Set(answer.trace.flatMap(call => call.result.provenance))]
     }
     answer.warnings.push(`The AI investigation could not finish. The computed assessment is retained. ${error.message}`)
+  }
+  try {
+    const synthesis = await synthesizeNetwork({ diagnosis, investigation: answer.investigation, narrative, provider, signal, onProgress })
+    if (synthesis) {
+      answer.narrative = synthesis.narrative; answer.synthesis = synthesis.review
+      answer.aiGenerated = true; answer.model = provider.model
+      answer.answer = [answer.narrative.overview, ...answer.narrative.sections.map(section => `${section.title}\n${section.text}`), answer.narrative.coverage].join('\n\n')
+    }
+  } catch (error) {
+    if (signal?.aborted) throw error
+    answer.synthesis = { unavailable: true, review: error.briefingReview }
+    answer.warnings.push(`AI briefing unavailable. ${error.message}`)
   }
   return answer
 }

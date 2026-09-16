@@ -1,6 +1,35 @@
 import assert from 'node:assert/strict'
 import { createProvider } from '../src/agency/provider.mjs'
 
+for (const [host, effort, forced, expected] of [
+  ['workspace.ap-southeast-1.maas.aliyuncs.com', 'none', false, { enable_thinking: false }],
+  ['dashscope-intl.aliyuncs.com', 'high', false, { enable_thinking: true }],
+  ['dashscope-intl.aliyuncs.com', 'high', true, { enable_thinking: false }],
+  ['models.example', 'none', false, { reasoning_effort: 'none' }],
+  ['dashscope-intl.aliyuncs.com.example', 'high', false, { reasoning_effort: 'high' }],
+]) {
+  let sent
+  const connection = createProvider({ VIGO_AGENCY_LLM_BASE_URL: `https://${host}/v1`, VIGO_AGENCY_LLM_MODEL: 'configured-model', VIGO_AGENCY_LLM_REASONING_EFFORT: effort }, async (_url, options) => {
+    sent = JSON.parse(options.body)
+    return Response.json({ choices: [{ message: { content: 'Ready' } }] })
+  })
+  await connection.complete([], [], undefined, forced ? { toolChoice: { type: 'function', function: { name: 'form' } } } : {})
+  assert.deepEqual(Object.fromEntries(Object.entries(sent).filter(([key]) => ['enable_thinking', 'reasoning_effort'].includes(key))), expected)
+  assert.equal(connection.status().reasoningEffort, effort, 'A required form does not change the connection preference')
+}
+let formRequest
+const studioForm = createProvider({ VIGO_AGENCY_LLM_BASE_URL: 'https://workspace.ap-southeast-1.maas.aliyuncs.com/v1', VIGO_AGENCY_LLM_MODEL: 'configured-model' }, async (_url, options) => {
+  formRequest = JSON.parse(options.body)
+  return Response.json({ choices: [{ message: { content: '{"choices":[1,2]}' } }] })
+})
+const filled = await studioForm.complete([], [{ name: 'select', parameters: { type: 'object', properties: { choices: { type: 'array', items: { type: 'integer' } } } } }], undefined,
+  { structuredTools: true, toolChoice: { type: 'function', function: { name: 'select' } } })
+assert.deepEqual(formRequest.response_format, { type: 'json_object' })
+assert.equal(formRequest.tools, undefined)
+assert.equal(formRequest.enable_thinking, false)
+assert.equal(filled.tool_calls[0].function.name, 'select')
+assert.deepEqual(JSON.parse(filled.tool_calls[0].function.arguments), { choices: [1, 2] })
+
 const requests = []
 let mode = 'ok'
 const provider = createProvider({}, async (url, options) => {
@@ -161,6 +190,8 @@ assert.equal(normalizeArguments(literal, { anyOf: [{ type: 'object', properties:
 const form = providerChoice([{ role: 'user', content: 'Find a bus from the museum to the airport.' }], [route])
 assert.deepEqual(form.parse('{"action":"answer","text":"There are 37 indexed routes."}'), { content: 'There are 37 indexed routes.' })
 assert.equal(form.parse('{"action":"route_plan","arguments":{"origin":"Museum","destination":"Airport"}}').tool_calls[0].function.name, 'route_plan')
+assert.deepEqual(JSON.parse(form.parse('{"action":"route_plan","origin":"Museum","destination":"Airport"}').tool_calls[0].function.arguments), { origin: 'Museum', destination: 'Airport' }, 'Flattened JSON fields are structurally repaired, then checked against the same schema')
+assert.throws(() => form.parse('{"action":"route_plan","origin":"Museum","arguments":{"origin":"Other","destination":"Airport"}}'), /Unknown/, 'Conflicting envelope and nested fields must not silently choose an origin')
 for (const bad of ['{"action":"route_plan","arguments":{"names":["Museum","Airport"]}}', '{"action":"route_plan","arguments":{"query":"Museum to airport"}}', '{"action":"invented","arguments":{}}', '{"answer":"Done","action":"route_plan"}', '{"answer":']) {
   assert.throws(() => form.parse(bad), /Unknown|unavailable|did not finish/)
 }

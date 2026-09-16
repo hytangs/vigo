@@ -2,6 +2,7 @@
 // every journey/SQL parameter for ordinary conversation. Selection is the
 // model's decision, never a keyword classifier over the user's question.
 const descriptions = {
+  assess_service: 'Complete operational checks with verified answers: conditions, causes, vehicle history, occupancy, coverage and decisions',
   inspect_service: 'Test hypotheses using surrounding service, prediction progression, vehicle agreement, alerts and historical evidence',
   historical_runtime: 'LAMP running-time study and chronological prediction accuracy',
   run_runtime_study: 'Run an explicitly requested LAMP historical study for past dates',
@@ -28,7 +29,7 @@ const descriptions = {
 }
 
 // Common requests must not spend a model round loading their own schema.
-const readyTools = new Set(['inspect_service', 'service_timing', 'gtfs_query', 'resolve_entities', 'place_search', 'nearby_stops', 'route_plan', 'runtime_status', 'service_profile', 'stop_arrivals'])
+const readyTools = new Set(['assess_service', 'service_timing', 'gtfs_query', 'resolve_entities', 'place_search', 'nearby_stops', 'route_plan', 'runtime_status', 'service_profile', 'stop_arrivals'])
 
 export function discoverableTools(available, retainedNames = []) {
   const index = available.filter(tool => descriptions[tool.name] && !readyTools.has(tool.name))

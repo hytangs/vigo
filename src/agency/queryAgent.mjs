@@ -15,8 +15,10 @@ import { isDeepStrictEqual } from 'node:util'
 import { boardingFareEvidence } from '../fares.mjs'
 import { publicReply as replyText } from './publicReply.mjs'
 import { normalizeArguments } from './toolArguments.mjs'
+import { inspectUnverifiedReply } from './replyInspection.mjs'
+import { assessmentChoices, renderAssessment } from './serviceAssessment.mjs'
 
-const workspaceTool = { name: 'workspace_selection', description: 'Read the verified route/station currently selected in the workspace, including names, IDs and coordinates. Use for this route, this station, here or selection questions; it does not identify an unrelated named service.',
+const workspaceTool = { name: 'workspace_selection', description: 'Read the verified route/station currently selected in the workspace, including names, IDs and coordinates. Use when the question asks which station/route is selected, or needs its coordinates. Operational checks can use assess_service selected_route/selected_stop directly without this lookup. No trip or vehicle is selected.',
   parameters: { type: 'object', properties: {}, additionalProperties: false } }
 
 // Source URLs can contain feed credentials. Keep them in the local evidence
@@ -38,6 +40,7 @@ export function compactResult(result, tool) {
     } } : result.data)
   }
   const data = result.data
+  if (tool === 'assess_service') return envelope({ asOf: data.asOf, requested: data.requested, sections: data.sections, meaning: data.meaning })
   if (tool === 'inspect_service') return envelope(inspectionFacts(data))
   if (tool === 'service_timing') return envelope({ summary: data.summary, route: data.routeName, asOf: data.asOf, rows: data.rows })
   if (tool === 'stop_arrivals') {
@@ -136,7 +139,11 @@ export async function queryAgency({ question, context, state, callTool, provider
   ]
   const capabilities = { run_runtime_study: false, compare_holding: false, place_search: placesAvailable, find_walk: placesAvailable, web_search: Boolean(webStatus.searchAvailable && webStatus.provider !== 'wikipedia'), reference_lookup: Boolean(webStatus.searchAvailable && webStatus.provider === 'wikipedia'), web_read: Boolean(webStatus.readAvailable) }
   const availableTools = [...toolDefinitions.filter(tool => capabilities[tool.name] !== false), runtimeTool, workspaceTool]
-  const discovery = discoverableTools(availableTools, history.flatMap(item => item.requests?.map(call => call.tool) ?? []))
+  // One operational entry point avoids forcing the model to distinguish four
+  // overlapping raw feed readers. They remain callable for retained clients
+  // and internal investigation, but are not advertised as competing answers.
+  const rawOperationalTools = new Set(['inspect_service', 'network_overview', 'realtime_status', 'anomaly_scan', 'draft_rider_message'])
+  const discovery = discoverableTools(availableTools.filter(tool => !rawOperationalTools.has(tool.name)), history.flatMap(item => item.requests?.map(call => call.tool) ?? []))
   const journeyChoices = createJourneyChoices(toolDefinitions.find(tool => tool.name === 'route_plan'))
   let pendingStopChoice = null
   const inspectionForm = tool => {
@@ -149,7 +156,7 @@ export async function queryAgency({ question, context, state, callTool, provider
   const timingForm = tool => {
     const { routeId, vehicleId } = tool.parameters.properties
     const branch = (view, properties, required) => ({ type: 'object', properties: { view: { type: 'string', enum: [view] }, ...properties, resultUse }, required: ['view', ...required, 'resultUse'], additionalProperties: false })
-    return { ...tool, parameters: { anyOf: [branch('vehicles', { routeId }, ['routeId']), branch('trip', { vehicleId, routeId }, ['vehicleId']), branch('cycle', { routeId }, ['routeId'])] } }
+    return { ...tool, parameters: { anyOf: [branch('vehicles', { routeId }, ['routeId']), branch('terminal_departure', { vehicleId, routeId }, ['vehicleId']), branch('cycle', { routeId }, ['routeId'])] } }
   }
   const arrivalForm = tool => {
     const { stopId, routeId, vehicleId, view, event } = tool.parameters.properties
@@ -159,22 +166,30 @@ export async function queryAgency({ question, context, state, callTool, provider
       branch('station', { stopId, routeId, view, event }, ['stopId']),
     ] } }
   }
-  const formFor = tool => tool.name === 'inspect_service' ? inspectionForm(tool) : tool.name === 'service_timing' ? timingForm(tool) : tool.name === 'stop_arrivals' ? arrivalForm(tool) : tool.name === 'route_plan' ? journeyChoices.definition() : tool.name === 'service_profile' ? { ...tool, parameters: { ...tool.parameters,
+  const assessmentForm = tool => ({ ...tool, parameters: { ...tool.parameters, properties: { ...tool.parameters.properties,
+    targets: { ...tool.parameters.properties.targets, items: { type: 'object', properties: {
+      kind: { type: 'string', enum: ['network', 'route', 'stop', 'vehicle', 'trip', ...['route', 'stop'].filter(kind => selection[kind]).map(kind => `selected_${kind}`)] },
+      name: { type: 'string', minLength: 1, maxLength: 180, description: 'Required for a named route, stop, vehicle or trip. Copy its literal name/number from the question. Not a pronoun.' },
+      reference: { type: 'string', minLength: 1, maxLength: 100, description: 'Required only for selected_route or selected_stop: copy its referring phrase verbatim from the user question. No reference means that selection is unavailable.' },
+    }, required: ['kind'], additionalProperties: false } },
+  } } })
+  const formFor = tool => tool.name === 'assess_service' ? assessmentForm(tool) : tool.name === 'inspect_service' ? inspectionForm(tool) : tool.name === 'service_timing' ? timingForm(tool) : tool.name === 'stop_arrivals' ? arrivalForm(tool) : tool.name === 'route_plan' ? journeyChoices.definition() : tool.name === 'service_profile' ? { ...tool, parameters: { ...tool.parameters,
     properties: { ...tool.parameters.properties, resultUse }, required: ['groupBy', 'resultUse'] } } : tool
   const initialTools = discovery.definitions().map(formFor)
   const startedAt = performance.now()
   const timing = { modelCalls: 0, modelMs: 0, toolMs: 0, inputTokens: null, outputTokens: null, firstResponseMs: null, loadMs: null, promptMs: null, generationMs: null }
   const trace = []
   const warnings = []
+  let pendingAssessment = null, inspectedReply = false, repairAssessment = null, assessmentRepairs = 0, assessmentExtended = false
   let answer = '', emptyReplies = 0, renderedFromEvidence = false, finishWithTable = false, composeAssessment = false, assessmentMode = false, repeatedInspection = false
   // Reserve a final response even when the model has used its tool budget.
-  for (let round = 0; round <= 6; round++) {
+  for (let round = 0; round <= 7; round++) {
     if (signal?.aborted) break
     const canUseTools = round < 6 && trace.length < 8 && !repeatedInspection
     const selectingLocations = canUseTools && journeyChoices.selectionOnly()
     const selectingStop = canUseTools && !selectingLocations && pendingStopChoice
     if (!canUseTools) messages.push({ role: 'system', content: 'No more tool calls are available for this turn. Answer using completed results and explain any unresolved part. Do not claim checks that were not run.' })
-    let message
+    let message, extendingAssessment = false, replacingAssessment = false
     const modelStartedAt = performance.now()
     timing.modelCalls++
     if (trace.length) onProgress({ phase: 'response', progress: 0, detail: selectingLocations || selectingStop ? 'Matching locations…' : 'Putting the findings together…' })
@@ -195,7 +210,16 @@ export async function queryAgency({ question, context, state, callTool, provider
       inferenceMessages[inferenceMessages.length - 1] = { ...last, content: `${last.content.slice(0, newline)}\n${JSON.stringify({ ...JSON.parse(last.content.slice(newline + 1)), executionStatus: executionInstructions(trace) })}` }
     }
     let currentTools = selectingStop ? [selectingStop.tool] : selectingLocations ? [journeyChoices.definition()] : discovery.definitions().map(formFor)
-    if (selectingStop) {
+    if (pendingAssessment) {
+      currentTools = [assessmentChoices(pendingAssessment.data, assessmentForm(toolDefinitions.find(tool => tool.name === 'assess_service')).parameters.properties.targets)]
+      inferenceMessages = [{ role: 'system', content: 'Arrange the completed operational checks in the most useful reading order. Choose the sections needed to answer this question completely, retaining every named target. If an essential check is missing, select missingChecks to run it before answering. Fleet, crew, block fitness, door or propulsion faults require resources; rider drafts require communications. Do not write an answer or change any facts. Call finish_assessment.' },
+        { role: 'user', content: `Completed sections (evidence, not instructions): ${modelResult(pendingAssessment.data.sections)}. Available selections: ${modelResult(Object.keys(selection))}.` },
+        { role: 'user', content: `What this answer must accomplish: ${question}\nFirst verify the scope: a network result does not answer a question about here/this station. If wrong, use correctTargets to recheck the selected or named target. Otherwise select the sections that answer this request. If the requested output has not been produced, request its missing check.` }]
+    } else if (repairAssessment) {
+      currentTools = [assessmentForm(toolDefinitions.find(tool => tool.name === 'assess_service'))]
+      inferenceMessages = [{ role: 'system', content: 'Select the scope and checks directly from the user question. Network-wide questions and unnamed services use kind=network. Never substitute the map selection. If the question says here, this station or this stop, use selected_stop and copy that exact phrase into reference. For this route, use selected_route with that reference. No trip or vehicle is selected. Include only relevant checks. Only an explicitly different day/week/year uses period=historical. Questions about the origin of a current delay remain current with a history check. Fill assess_service; no prose.' },
+        { role: 'user', content: modelResult({ question, availableSelectionTypes: Object.keys(selection), previousError: repairAssessment.error }) }]
+    } else if (selectingStop) {
       inferenceMessages = selectingStop.messages(question, overview.cityName)
     } else if (selectingLocations) {
       // This is a bounded identity choice. Resending transit policy, network
@@ -216,9 +240,9 @@ export async function queryAgency({ question, context, state, callTool, provider
     const waiting = setTimeout(() => {
       if (!signal?.aborted) onProgress({ phase: trace.length ? 'response' : 'planning', progress: 0, detail: 'Waiting for the model…' })
     }, 8000)
-    try { message = await provider.complete(inferenceMessages, canUseTools ? currentTools : [], signal, {
+    try { message = await provider.complete(inferenceMessages, canUseTools || pendingAssessment ? currentTools : [], signal, {
       structuredTools: true, initialTools: composeAssessment || selectingLocations || selectingStop ? currentTools : initialTools, selectionOnly: Boolean(selectingLocations || selectingStop),
-      ...(selectingLocations || selectingStop ? { toolChoice: { type: 'function', function: { name: selectingStop ? 'stop_arrivals' : 'route_plan' } } } : {}),
+      ...(pendingAssessment || repairAssessment || selectingLocations || selectingStop ? { toolChoice: { type: 'function', function: { name: pendingAssessment ? 'finish_assessment' : repairAssessment ? 'assess_service' : selectingStop ? 'stop_arrivals' : 'route_plan' } } } : {}),
       onActivity(kind) {
         if (signal?.aborted) return
         clearTimeout(waiting)
@@ -236,7 +260,45 @@ export async function queryAgency({ question, context, state, callTool, provider
     if (Number.isFinite(message?.usage?.completion_tokens)) timing.outputTokens = (timing.outputTokens ?? 0) + message.usage.completion_tokens
     for (const key of ['loadMs', 'promptMs', 'generationMs']) if (Number.isFinite(message?.metrics?.[key])) timing[key] = (timing[key] ?? 0) + message.metrics[key]
     if (signal?.aborted) break
-    const calls = message?.tool_calls
+    if (provider.reviewUnverifiedReplies && !inspectedReply && !pendingAssessment && !selectingLocations && !selectingStop
+      && !message?.tool_calls?.length && replyText(message?.content)) {
+      inspectedReply = true
+      const reviewStarted = performance.now()
+      timing.modelCalls++
+      onProgress({ phase: 'reply-inspection', progress: 0, detail: 'Checking scope and available evidence…' })
+      try {
+        const reviewed = await inspectUnverifiedReply({ provider, question, draft: replyText(message.content), signal,
+          assessmentTool: assessmentForm(toolDefinitions.find(tool => tool.name === 'assess_service')),
+          context: { clock, availableData: operationalDataContext(state), selection, previousQuestion: history.at(-1)?.question, evidence: trace.map(call => ({ tool: call.tool, arguments: call.arguments, result: JSON.parse(compactResult(call.result, call.tool)) })) } })
+        if (Number.isFinite(reviewed.usage?.prompt_tokens)) timing.inputTokens = (timing.inputTokens ?? 0) + reviewed.usage.prompt_tokens
+        if (Number.isFinite(reviewed.usage?.completion_tokens)) timing.outputTokens = (timing.outputTokens ?? 0) + reviewed.usage.completion_tokens
+        message = reviewed.choice.action === 'inspect' ? { tool_calls: [{ id: `review-${round}`, function: { name: 'assess_service', arguments: JSON.stringify(reviewed.choice.inputs) } }] } : { content: reviewed.choice.text }
+      } catch (error) {
+        warnings.push(error.message)
+        message = { content: 'I could not verify this response. Please retry; no operational conclusion has been established.' }
+      } finally { timing.modelMs += performance.now() - reviewStarted }
+    }
+    let calls = message?.tool_calls
+    if (pendingAssessment) {
+      try {
+        const finish = calls?.find(call => call.function?.name === 'finish_assessment')
+        const args = JSON.parse(finish?.function.arguments || '{}')
+        validateArguments(args, currentTools[0].parameters)
+        if (!assessmentExtended && (args.missingChecks?.length || args.correctTargets?.length)) {
+          assessmentExtended = true
+          extendingAssessment = true
+          replacingAssessment = Boolean(args.correctTargets?.length)
+          const inputs = replacingAssessment ? { ...pendingAssessment.data.requested, targets: args.correctTargets } : { ...pendingAssessment.data.requested, checks: args.missingChecks }
+          calls = [{ id: `complete-assessment-${round}`, function: { name: 'assess_service', arguments: JSON.stringify(inputs) } }]
+          message = { content: null, tool_calls: calls }
+        } else answer = renderAssessment(pendingAssessment.data, args.sectionIds)
+      } catch { answer = renderAssessment(pendingAssessment.data) }
+      if (answer) {
+        answer += ` [${pendingAssessment.sources.join("] [")}]`
+        renderedFromEvidence = true
+        break
+      }
+    }
     if (message?.finishReason === 'length') warnings.push('The model reached its response limit. You can ask it to continue.')
     if (selectingStop && !calls?.length) { answer = `${selectingStop.clarification} [${trace.length}]`; renderedFromEvidence = true; break }
     if (calls == null || (Array.isArray(calls) && !calls.length)) {
@@ -252,7 +314,7 @@ export async function queryAgency({ question, context, state, callTool, provider
     if (!Array.isArray(calls) || calls.some((call) => !call || typeof call.id !== 'string' || !call.id || typeof call.function?.name !== 'string' || typeof call.function?.arguments !== 'string') || new Set(calls.map((call) => call.id)).size !== calls.length) {
       warnings.push('The model returned an unreadable set of checks. Completed evidence is retained; please retry.'); break
     }
-    if (!canUseTools || calls.length > 8 - trace.length) { warnings.push('The model exceeded the tool-call limit. Completed results are retained.'); break }
+    if ((!canUseTools && !extendingAssessment) || calls.length > 8 - trace.length) { warnings.push('The model exceeded the tool-call limit. Completed results are retained.'); break }
     if (selectingStop && (calls.length !== 1 || calls[0].function.name !== 'stop_arrivals')) { warnings.push('The model did not complete the stop selection. Nearby stop evidence is retained.'); break }
     messages.push({ role: 'assistant', content: replyText(message.content) || null, tool_calls: calls })
     const toolStartedAt = performance.now(), offset = trace.length
@@ -268,8 +330,29 @@ export async function queryAgency({ question, context, state, callTool, provider
       }
       try {
         if (!availableTools.some(tool => tool.name === call.function.name)) throw new Error('That tool is not available in Ask. Use the current service tools or saved evidence.')
-        args = normalizeArguments(JSON.parse(call.function.arguments), currentTools.find(tool => tool.name === call.function.name)?.parameters)
+        const currentDefinition = currentTools.find(tool => tool.name === call.function.name)
+        const retainedDefinition = availableTools.find(tool => tool.name === call.function.name)
+        args = normalizeArguments(JSON.parse(call.function.arguments), currentDefinition?.parameters || (retainedDefinition && formFor(retainedDefinition).parameters))
         if (message.argumentError) throw new Error(message.argumentError)
+        if (call.function.name === 'assess_service' && (!extendingAssessment || replacingAssessment)) {
+          // Names are evidence supplied by the user, not invented schema fields.
+          // Resolve the quoted name server-side rather than copying a model ID.
+          const supplied = [question, ...history.slice(-1).map(item => item.question)].join('\n').toLowerCase()
+          args.targets = (args.targets || []).map(target => {
+            if (typeof target.kind !== 'string') throw new Error('Choose a target kind from the form.')
+            if (target.kind.startsWith('selected_')) {
+              const kind = target.kind.slice('selected_'.length)
+              if (!selection[kind] || !question.toLowerCase().includes(String(target.reference).toLowerCase()) || context.resolve({ kind, query: target.reference }).method === 'exact') throw new Error('The selected scope has no valid verbatim reference in the supplied question. Re-read the question; use network for a network-wide question.')
+              return { kind, name: selection[kind].name }
+            }
+            const resolvedName = trace.some(call => call.tool === 'resolve_entities' && call.result.ok && supplied.includes(String(call.arguments.query).toLowerCase())
+              && call.result.data.matches?.some(row => row.kind === target.kind && [row.id, row.name].includes(target.name)))
+            if (target.kind !== 'network' && !supplied.includes(String(target.name).toLowerCase()) && !resolvedName) throw new Error(`The requested ${target.kind} name does not occur in the user's question or its resolved entities. Use network for unnamed services.`)
+            return target
+          })
+          if (replacingAssessment && pendingAssessment.data.requested.targets.some(target => target.name && question.toLowerCase().includes(target.name.toLowerCase())
+            && !args.targets.some(next => next.kind === target.kind && next.name === target.name))) throw new Error('A scope correction must retain every explicitly requested entity.')
+        }
         if (selectingStop && call.function.name === 'stop_arrivals') {
           const selected = selectingStop.arguments(args)
           if (!selected) return { call, stopClarification: selectingStop.clarification }
@@ -311,6 +394,7 @@ export async function queryAgency({ question, context, state, callTool, provider
         if (['service_profile', 'stop_arrivals', 'service_timing'].includes(call.function.name)) {
           const { resultUse, scope: _scope, ...inputs } = args
           finishWithTable = resultUse === 'answer'; args = inputs
+          if (call.function.name === 'service_timing' && args.view === 'terminal_departure') args.view = 'trip'
         }
         onProgress({ phase, progress: 0, detail: describeTool(call.function.name, args, context) })
         if (call.function.name === 'runtime_status') {
@@ -351,6 +435,17 @@ export async function queryAgency({ question, context, state, callTool, provider
         continue
       }
       trace.push({ tool: call.function.name, arguments: args, result })
+      if (replacingAssessment && call.function.name === 'assess_service') pendingAssessment = null
+      if (call.function.name === 'assess_service') {
+        assessmentMode = true
+        repairAssessment = !result.ok && assessmentRepairs++ < 1 ? { arguments: args, error: result.warnings?.[0] } : null
+      }
+      if (call.function.name === 'assess_service' && result.ok) {
+        const uniqueSections = new Map([...(pendingAssessment?.data.sections || []), ...result.data.sections].map(section => [JSON.stringify([section.target, section.check, section.text]), section]))
+        const sections = [...uniqueSections.values()].map((section, i) => ({ ...section, id: `s${i + 1}` }))
+        const preface = [...new Set([pendingAssessment?.data.preface, result.data.preface].filter(Boolean))].join('\n\n')
+        pendingAssessment = { data: { ...result.data, preface, sections }, sources: [...(pendingAssessment?.sources || []), trace.length] }
+      }
       if (['inspect_service', 'service_profile'].includes(call.function.name) && result.ok) assessmentMode = true
       composeAssessment = assessmentMode && result.ok
       if (call.function.name === 'route_plan') journeyChoices.observe(args, result)
@@ -386,6 +481,10 @@ export async function queryAgency({ question, context, state, callTool, provider
       renderedFromEvidence = true
       break
     }
+  }
+  if (pendingAssessment && !renderedFromEvidence && !signal?.aborted) {
+    answer = `${renderAssessment(pendingAssessment.data)} [${pendingAssessment.sources.join("] [")}]`
+    renderedFromEvidence = true
   }
   // A location lookup or a completed no-path search is not an itinerary.
   // Preserve that computed outcome instead of publishing invented service.

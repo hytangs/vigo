@@ -1,4 +1,4 @@
-import { validateArguments } from './toolArguments.mjs'
+import { validateArguments, normalizeArguments } from './toolArguments.mjs'
 import { investigationFacts, realizeInvestigation, nextChecks } from './briefingInterpretation.mjs'
 
 const hypotheses = ['localized_corridor_disruption', 'independent_late_trips', 'terminal_or_dispatch_issue', 'realtime_data_inconsistency']
@@ -12,7 +12,7 @@ async function form(provider, name, description, schema, messages, signal, maxTo
     { structuredTools: true, toolChoice: { type: 'function', function: { name } }, maxTokens })
   const call = result.tool_calls?.find(call => call?.function?.name === name)
   if (!call) throw new Error('The model did not complete the investigation form.')
-  const value = JSON.parse(call.function.arguments)
+  const value = normalizeArguments(JSON.parse(call.function.arguments), schema)
   validateArguments(value, schema)
   return value
 }
@@ -56,7 +56,7 @@ export async function investigateBriefing({ diagnosis, narrative, provider, call
   const ids = facts.filter(fact => fact.usableForAssessment).map(fact => fact.id)
   if (!ids.length) return { trace, plan, incomplete: true }
   const schema = object({ rankedHypotheses: list(object({ hypothesis: choice(plan.hypotheses), status: choice(['plausible', 'weakened', 'unresolved']),
-    supportingEvidenceIds: list({ type: 'integer', enum: ids }, 3, 0), conflictingEvidenceIds: list({ type: 'integer', enum: ids }, 3, 0) }), 3),
+    supportingEvidenceIds: list({ type: 'integer', enum: ids }, ids.length, 0), conflictingEvidenceIds: list({ type: 'integer', enum: ids }, ids.length, 0) }), 3),
     watchNext: choice(Object.keys(nextChecks)) })
   onProgress({ phase: 'interpretation', progress: 0, detail: 'Weighing explanations against the completed checks…' })
   const draft = await form(provider, 'assess_hypotheses', 'Rank the proposed explanations using the checked facts, including evidence against the leading explanation. Choose the next useful observation.', schema,

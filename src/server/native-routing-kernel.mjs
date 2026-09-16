@@ -896,6 +896,7 @@ export function routeNativeTimetableOverlayMany(kernel, request) {
     ...result.timetable,
     overlayConnections: result.overlayConnections,
     overlayRuns: result.overlayRuns,
+    overlayRunDirections: result.overlayRunDirections,
     supplementalTransferEdges: result.supplementalTransferEdges,
     compileMs: normalizeNativeMilliseconds(result.compileNs),
     scanMs: normalizeNativeMilliseconds(result.scanNs),

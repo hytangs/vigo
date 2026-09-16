@@ -2396,7 +2396,7 @@ export function VigoMap({
     // Keep transit stops available while a Reach case is being
     // configured. Once a surface is ready, the result itself is represented
     // only by its area or street-path layer; settled OSM nodes stay internal.
-    stops: scenarioFocus ? !reachResult : layers.stops,
+    stops: routingFocus ? false : scenarioFocus ? !reachResult : layers.stops,
     transfers: routingFocus || scenarioFocus ? false : layers.transfers,
     coverage: routingFocus || scenarioFocus ? false : layers.coverage,
     scenario: routingFocus || scenarioFocus ? false : layers.scenario,

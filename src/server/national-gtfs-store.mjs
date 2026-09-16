@@ -4,6 +4,7 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { performance as nodePerformance } from 'node:perf_hooks'
+import { journeyContinuityIssue } from '../journeyIntegrity.mjs'
 import { decodeRoutingSnapshot, encodeRoutingSnapshot } from './routing-snapshot.mjs'
 import {
   loadPreparedAccessContext,
@@ -8381,7 +8382,11 @@ function nativeRealtimeOverlayChain(kernel, raw, overlay) {
         duration: raw.chainDurations[index],
       }
     }
-    const overlayTripIndex = tripOrCandidate < -1 ? -tripOrCandidate - 2 : undefined
+    const overlayRunIndex = tripOrCandidate < -1 ? -tripOrCandidate - 2 : undefined
+    const overlayTripIndex = overlayRunIndex === undefined ? undefined : raw.overlayRunDirections?.[overlayRunIndex]
+    if (overlayRunIndex !== undefined && !Number.isInteger(overlayTripIndex)) {
+      throw new Error('The routing engine could not identify a live trip. Rebuild the native routing kernel and calculate the journey again.')
+    }
     const realtimeTrip = overlayTripIndex === undefined ? undefined : overlay.trips[overlayTripIndex]
     return {
       kind: 'ride',
@@ -9195,6 +9200,9 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
     const first = connections[0]
     const last = connections.at(-1)
     if (!first || !last) return null
+    if (first.from_stop_id !== step.fromStopId || last.to_stop_id !== step.toStopId) {
+      throw new Error('The routing engine returned mismatched trip stops. Calculate the journey again.')
+    }
     if (step.realtimeAdjusted) realtimeAdjustedRideCount += 1
     const from = stopLookup.get(first.from_stop_id)
     const to = stopLookup.get(last.to_stop_id)
@@ -9274,6 +9282,8 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
   const originStreetPathVerified = exactStationAccess || legs[0].streetPathVerified === true
   const destinationStreetPathVerified = exactStationEgress || legs.at(-1).streetPathVerified === true
   legs = normalizeNationalLegs(legs)
+  const continuityIssue = journeyContinuityIssue({ legs, departMinutes: departureMinutes })
+  if (continuityIssue) throw new Error(continuityIssue)
   legNormalizationMs = performance.now() - legNormalizationStartedAt
   const rideLegs = legs.filter((leg) => leg.type === 'ride')
   if (!rideLegs.length) return null

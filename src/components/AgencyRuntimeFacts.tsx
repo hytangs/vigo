@@ -8,9 +8,7 @@ export function AgencyRuntimeFacts({ runtime, expanded = false }: { runtime: Non
     <summary>Model & data</summary>
     <dl className="agency-facts">
       <div><dt>Model</dt><dd>{connection.model || 'Not recorded'}</dd></div>
-      <div><dt>Inference hosting</dt><dd>Not independently verified</dd></div>
       <div><dt>Model endpoint</dt><dd>{connection.endpoint || 'Not recorded'}{connection.transport ? ` · ${connection.transport.toUpperCase()}` : ''}{connection.endpointLocation === 'loopback' ? ' · loopback' : ''}</dd></div>
-      <div><dt>External model API</dt><dd>{connection.externalModelApi === 'not-configured-directly' ? 'None configured directly; forwarding is unverified' : connection.externalModelApi === 'unverified' ? 'Not verified; the endpoint may forward requests' : 'Not recorded'}</dd></div>
       <div><dt>Network-capable tools</dt><dd>{runtime.networkTools.length ? runtime.networkTools.map(tool => <div key={tool.tool}>{tool.label}{tool.endpoint ? ` · ${tool.endpoint}` : ''}</div>) : 'None enabled for this answer'}</dd></div>
       <div><dt>Called in this answer</dt><dd>{called.length ? called.join(', ') : 'No network-capable tool calls recorded'}</dd></div>
     </dl>

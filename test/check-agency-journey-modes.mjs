@@ -3,6 +3,15 @@ import { createToolRegistry, toolDefinitions } from '../src/agency/toolRegistry.
 import { createJourneyChoices } from '../src/agency/journeyChoices.mjs'
 import { describeJourneys, journeyBreakdown, journeyDuration, verifyJourneyModes } from '../src/agency/journeyResults.mjs'
 import { queryAgency } from '../src/agency/queryAgent.mjs'
+import { journeyPlanEvidence } from '../src/agency/journeyEvidence.mjs'
+
+const corruptEvidence = journeyPlanEvidence({ departMinutes: 0, durationMinutes: 20, legs: [
+  { type: 'walk', toStopId: 'Salem', startMinutes: 0, endMinutes: 5 },
+  { type: 'ride', fromStopId: 'Boston', startMinutes: 10, endMinutes: 20 },
+] })
+assert.equal(corruptEvidence.status, 'blocked')
+assert.equal(corruptEvidence.legs, undefined, 'Invalid saved trips must not become evidence in follow-up answers')
+assert.equal(corruptEvidence.durationMinutes, undefined)
 
 const leg = (type, startMinutes, endMinutes, routeShortName) => ({ type, startMinutes, endMinutes, durationMinutes: endMinutes - startMinutes, fromName: 'Boarding stop', toName: 'Next stop', routeShortName, distanceKm: 1 })
 const transit = { travelMode: 'transit', status: 'ready', durationMinutes: 121.5, departMinutes: 220, arriveMinutes: 341.5, legs: [

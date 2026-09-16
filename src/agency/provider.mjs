@@ -36,6 +36,20 @@ function timeoutDetail(activity, protocol) {
   return `No response activity was received.${protocol === 'ollama' ? ' Ollama may be loading the model or handling another request.' : ''}`
 }
 
+function modelStudioEndpoint(connection) {
+  const host = new URL(normalizeBaseUrl(connection.baseUrl)).hostname
+  return host === 'dashscope.aliyuncs.com' || host === 'dashscope-intl.aliyuncs.com' || host === 'dashscope-us.aliyuncs.com' || host.endsWith('.maas.aliyuncs.com')
+}
+
+function compatibleReasoning(connection, options) {
+  // Model Studio uses enable_thinking, not OpenAI's reasoning_effort.
+  // Its named tool choice requires non-thinking mode. This is an API dialect
+  // adaptation for documented endpoints, not a claim about model hosting.
+  if (modelStudioEndpoint(connection)) return connection.reasoningEffort === 'none' || options.toolChoice?.type === 'function'
+    ? { enable_thinking: false } : connection.reasoningEffort ? { enable_thinking: true } : {}
+  return connection.reasoningEffort ? { reasoning_effort: connection.reasoningEffort } : {}
+}
+
 export function createProvider(environment = process.env, fetcher = globalThis.fetch) {
   let config = { baseUrl: String(environment.VIGO_AGENCY_LLM_BASE_URL ?? '').replace(/\/$/, ''), model: String(environment.VIGO_AGENCY_LLM_MODEL ?? ''), key: String(environment.VIGO_AGENCY_LLM_API_KEY ?? ''), reasoningEffort: environment.VIGO_AGENCY_LLM_REASONING_EFFORT, temperature: temperature(environment.VIGO_AGENCY_LLM_TEMPERATURE) }
   config.protocol = environment.VIGO_AGENCY_LLM_PROTOCOL || 'openai'
@@ -77,6 +91,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
     }
   }
   async function completeWith(connection, messages, tools, signal, options = {}) {
+    if (options.networkReasoning && connection.protocol === 'openai' && modelStudioEndpoint(connection)) connection = { ...connection, reasoningEffort: 'low' }
     if (!connection.baseUrl || !connection.model) throw new Error('Connect an AI provider in Ask to use natural-language queries.')
     if (connection.protocol === 'ollama') {
       const requiredTool = options.toolChoice?.type === 'function' ? options.toolChoice.function?.name : null
@@ -102,13 +117,27 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
         finishReason: result.done_reason, usage: { prompt_tokens: result.prompt_eval_count, completion_tokens: result.eval_count },
         metrics: { loadMs: result.load_duration / 1e6, promptMs: result.prompt_eval_duration / 1e6, generationMs: result.eval_duration / 1e6 } }
     }
-    const result = await request(connection, '/chat/completions', { model: connection.model, messages, ...(tools?.length ? { tools: tools.map((tool) => ({ type: 'function', function: tool })), tool_choice: options.toolChoice || 'auto' } : { tool_choice: 'none' }), max_completion_tokens: options.maxTokens || 1800, ...(connection.reasoningEffort ? { reasoning_effort: connection.reasoningEffort } : {}), ...(connection.temperature !== undefined ? { temperature: connection.temperature } : {}) }, signal)
+    const requiredForm = options.structuredTools && options.toolChoice?.type === 'function' && modelStudioEndpoint(connection)
+      ? tools?.find(tool => tool.name === options.toolChoice.function.name) : null
+    // For a single mandatory form, JSON mode avoids this endpoint's observed
+    // malformed nested tool-argument strings. It guarantees syntax only;
+    // normal argument validation still decides whether the form is usable.
+    const requestMessages = requiredForm ? [...messages, { role: 'system', content: `Return only one JSON object containing the arguments for ${requiredForm.name}. Follow this schema; arrays and objects must be real JSON values, never encoded strings. ${JSON.stringify(requiredForm.parameters)}` }] : messages
+    const result = await request(connection, '/chat/completions', { model: connection.model, messages: requestMessages,
+      ...(requiredForm ? { response_format: { type: 'json_object' } } : tools?.length ? { tools: tools.map((tool) => ({ type: 'function', function: tool })), tool_choice: options.toolChoice || 'auto' } : { tool_choice: 'none' }),
+      max_completion_tokens: options.maxTokens || 1800, ...compatibleReasoning(connection, options), ...(modelStudioEndpoint(connection) && options.thinkingBudget && !requiredForm ? { thinking_budget: options.thinkingBudget } : {}), ...(connection.temperature !== undefined ? { temperature: connection.temperature } : {}) }, signal)
     const message = result.choices?.[0]?.message
     if (!message || typeof message !== 'object') throw new Error('AI provider returned no response message.')
+    if (requiredForm) {
+      let argumentsValue
+      try { argumentsValue = JSON.parse(message.content) } catch { throw new Error('The model did not finish the requested JSON form.') }
+      return { content: '', tool_calls: [{ id: `form-${++callSequence}`, type: 'function', function: { name: requiredForm.name, arguments: JSON.stringify(argumentsValue) } }], finishReason: result.choices[0].finish_reason, usage: result.usage }
+    }
     return { ...message, finishReason: result.choices[0].finish_reason, usage: result.usage }
   }
   return {
     get available() { return Boolean(config.baseUrl && config.model) },
+    reviewUnverifiedReplies: true,
     get model() { return this.available ? config.model : null },
     status() { return { available: this.available, model: this.model, baseUrl: config.baseUrl, protocol: config.protocol, contextTokens: config.protocol === 'ollama' ? config.contextTokens : undefined, hasKey: Boolean(config.key), reasoningEffort: config.reasoningEffort || '', temperature: config.temperature, source, testedAt } },
     async models(input, signal) {
@@ -141,7 +170,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
     disconnect() { connectionAttempt++; config = { baseUrl: '', model: '', key: '' }; revision++; source = 'session'; testedAt = null; return this.status() },
     forRequest() {
       const connection = { ...config }, startedAtRevision = revision
-      return { available: this.available, model: this.model, runtime: modelRuntimeFacts(connection), complete(messages, tools, signal, options) {
+      return { available: this.available, reviewUnverifiedReplies: true, model: this.model, runtime: modelRuntimeFacts(connection), complete(messages, tools, signal, options) {
         if (revision !== startedAtRevision) throw new Error('The model connection changed. Ask again to use the new connection.')
         return completeWith(connection, messages, tools, signal, options)
       } }

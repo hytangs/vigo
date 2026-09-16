@@ -350,6 +350,9 @@ pub struct TimetableOverlayManyQueryResult {
     pub timetable: TimetableManyQueryResult,
     pub overlay_connections: u32,
     pub overlay_runs: u32,
+    /// Input direction for each query-local run. Expired directions may emit
+    /// no runs and frequency directions may emit several.
+    pub overlay_run_directions: Vec<u32>,
     pub supplemental_transfer_edges: u32,
     pub compile_ns: f64,
     pub scan_ns: f64,
@@ -694,11 +697,13 @@ struct OverlayScanEvent {
 struct CompiledTimetableOverlay {
     events: Vec<OverlayScanEvent>,
     run_count: usize,
+    run_directions: Vec<u32>,
 }
 
 impl CompiledTimetableOverlay {
     fn byte_length(&self) -> usize {
         self.events.capacity() * std::mem::size_of::<OverlayScanEvent>()
+            + self.run_directions.capacity() * std::mem::size_of::<u32>()
     }
 }
 
@@ -752,6 +757,7 @@ fn compile_timetable_overlay(
     let query_horizon = finite_u32_time(input.horizon, "query horizon")?;
     let mut events = Vec::<OverlayScanEvent>::new();
     let mut run_count = 0_usize;
+    let mut run_directions = Vec::new();
     for direction in 0..direction_count {
         let direction_start = input.direction_offsets[direction] as usize;
         let direction_end = input.direction_offsets[direction + 1] as usize;
@@ -863,6 +869,7 @@ fn compile_timetable_overlay(
                 }
             }
             if emitted {
+                run_directions.push(direction as u32);
                 run_count = run_count.checked_add(1).ok_or_else(|| {
                     Error::from_reason("Rust timetable overlay run count overflowed.")
                 })?;
@@ -873,7 +880,11 @@ fn compile_timetable_overlay(
         }
     }
     events.sort_unstable_by_key(|event| (event.departure, event.run, event.sequence));
-    Ok(CompiledTimetableOverlay { events, run_count })
+    Ok(CompiledTimetableOverlay {
+        events,
+        run_count,
+        run_directions,
+    })
 }
 
 struct ProfileLabel {
@@ -5431,6 +5442,7 @@ impl TimetableKernel {
                 },
                 overlay_connections: compiled.events.len() as u32,
                 overlay_runs: compiled.run_count as u32,
+                overlay_run_directions: compiled.run_directions,
                 supplemental_transfer_edges: supplemental_transfer_edges.len() as u32,
                 compile_ns,
                 scan_ns: scan_started.elapsed().as_nanos() as f64,
@@ -5902,6 +5914,7 @@ impl TimetableKernel {
             },
             overlay_connections: compiled.events.len() as u32,
             overlay_runs: compiled.run_count as u32,
+            overlay_run_directions: compiled.run_directions,
             supplemental_transfer_edges: input.supplemental_transfer_to.len() as u32,
             compile_ns,
             scan_ns,

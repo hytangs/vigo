@@ -117,6 +117,26 @@ function check(trips, updates, replaced, canceled, walks, cap, minimum = [0, 0, 
 }
 
 const sameTrain = [{ stop: 0, time: 100 }, { stop: 1, time: 200 }, { stop: 3, time: 300 }]
+// Run IDs are query-local. They cannot index the input direction/trip array
+// after time clipping, nor when one direction produces multiple instances.
+const laterTrain = sameTrain.map(call => ({ ...call, time: call.time + 400 }))
+const clippedKernel = kernelFor([sameTrain, laterTrain], 4)
+for (const certifyJourney of [false, true]) {
+  const clipped = clippedKernel.routeOverlayManyCsa({
+    ...overlayRequest([sameTrain, laterTrain], [0, 2000, 2000], [0, 1], 3),
+    departure: 400, certifyJourney,
+  })
+  assert.deepEqual(clipped.overlayRunDirections, [1])
+  assert.equal(clipped.timetable.bestArrivals[0], 700)
+  for (const [i, kind] of clipped.timetable.chainKinds.entries()) {
+    if (kind === 2) assert.equal(clipped.overlayRunDirections[-clipped.timetable.chainTripOrCandidate[i] - 2], 1)
+  }
+}
+const frequency = clippedKernel.routeOverlayManyCsa({
+  ...overlayRequest([sameTrain], [0, 2000, 2000], [0, 1], 3),
+  departure: 400, serviceEndSeconds: [500], serviceHeadwaySeconds: [100],
+})
+assert.deepEqual(frequency.overlayRunDirections, [0, 0, 0], 'Repeated runs retain their one input direction')
 check([sameTrain], [], [], [], [80, 20, 2000])
 check([sameTrain], [sameTrain], [0], [], [80, 20, 2000])
 check([sameTrain], [sameTrain.map(call => ({ ...call, board: call.stop !== 1 }))], [0], [], [80, 20, 2000])

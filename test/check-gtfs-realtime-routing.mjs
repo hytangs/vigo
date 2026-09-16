@@ -76,6 +76,19 @@ assert.equal(scheduled.scheduleMode, 'exact')
 assert.equal(firstRide(scheduled).tripId, 'fixture\u001fT1')
 assert.equal(scheduled.arriveMinutes, 620)
 
+// An expired update has no compiled run. The later ride must still resolve
+// against its original input trip, not the compacted run's array position.
+const afterExpiredUpdate = routeNationalGtfsStore(storePath, {
+  ...request, departMinutes: 630, maxWalkKm: .1,
+  realtimeSnapshot: realtime(['T1', 'T2'].map(tripId => ({
+    tripId, startDate: '20260821', delaySeconds: 0,
+  }))),
+})
+assert.equal(afterExpiredUpdate.arriveMinutes, 640)
+assert.equal(firstRide(afterExpiredUpdate).tripId, 'fixture\u001fT2', 'Expired overlay trips must not shift journey identities')
+assert.equal(firstRide(afterExpiredUpdate).startMinutes, 630)
+assert.equal(firstRide(afterExpiredUpdate).endMinutes, 640)
+
 const delayed = routeNationalGtfsStore(storePath, {
   ...request,
   realtimeSnapshot: realtime([{

@@ -24,7 +24,7 @@ export function AgencyBriefing({ endpoint, state, onOpen }: { endpoint: string; 
   const now = Math.max(Date.parse(state.generatedAt), wallClock)
   const assessed = Date.parse(briefing?.generatedAt ?? '')
   const refreshAt = briefingRefreshAt(briefing, preferences)
-  const due = briefing?.diagnosis?.version !== 2 || Boolean(state.scheduleIdentity && briefing.scheduleIdentity !== state.scheduleIdentity) || refreshAt === null || now >= refreshAt
+  const due = briefing?.diagnosis?.version !== 2 || Boolean(briefing.aiGenerated && !briefing.synthesis?.method) || Boolean(state.scheduleIdentity && briefing.scheduleIdentity !== state.scheduleIdentity) || refreshAt === null || now >= refreshAt
   const sourceUnavailable = briefing?.diagnosis?.coverage.feeds.some(feed => feed.kind === 'tripUpdates' && feed.status === 'fresh'
     && !state.feeds.some(current => current.sourceUrl === feed.sourceUrl && current.status === 'fresh')) || !state.coverage.valid
   const current = briefing?.diagnosis && !due && !sourceUnavailable
@@ -83,9 +83,9 @@ export function AgencyBriefing({ endpoint, state, onOpen }: { endpoint: string; 
     {busy ? <p className="agency-briefing-progress" role="status"><LoaderCircle size={16} className="agency-spinner" />{activity}</p> : null}
     {current && briefing.narrative ? <>
       <p className="agency-briefing-scope">Assessment at {time(assessed)} · next {briefing.diagnosis!.window.minutes} minutes · {preferences.automatic ? `next update ${time(refreshAt!)}` : `manual update · expires ${time(refreshAt!)}`}</p>
-      <NetworkAssessment narrative={briefing.narrative} diagnosis={briefing.diagnosis!} investigation={briefing.investigation} />
+      <NetworkAssessment narrative={briefing.narrative} diagnosis={briefing.diagnosis!} investigation={briefing.investigation} aiNarrative={briefing.aiGenerated} />
     </> : !busy ? <p>{briefing ? sourceUnavailable ? 'Live predictions are no longer current. The previous briefing is saved in the notebook.' : 'The previous briefing has expired. Update it for a current assessment.' : 'Assess network conditions from the timetable and currently reporting service.'}</p> : null}
-    {briefing?.entryId ? <footer><span>{current ? briefing.aiGenerated ? 'AI assessment · evidence checked' : 'Computed from the shared service observation' : 'Previous assessment retained'}</span><button className="agency-text-button" onClick={() => onOpen(briefing.entryId!)}>Open evidence <ArrowRight size={13} /></button></footer> : null}
+    {briefing?.entryId ? <footer><span>{current ? briefing.aiGenerated ? `AI briefing · ${briefing.model || 'connected model'}` : 'Computed snapshot · AI briefing unavailable' : 'Previous assessment retained'}</span><button className="agency-text-button" onClick={() => onOpen(briefing.entryId!)}>Open evidence <ArrowRight size={13} /></button></footer> : null}
     {error ? <p className="agency-error" role="alert">{error}</p> : null}
   </section>
 }

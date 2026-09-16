@@ -43,6 +43,28 @@ try {
   assert.doesNotMatch(html, /<strong>15 min<\/strong>|<strong>Due<\/strong>|<strong>At stop<\/strong>/, 'A retained response is not a current countdown or vehicle position')
   assert.match(html, /12:05/, 'A failed refresh preserves the last known absolute time')
   const { AgencyToolOutput } = await server.ssrLoadModule('/src/components/AgencyAnswer.tsx')
+  const journey = {
+    status: 'ready', travelMode: 'transit', departMinutes: 480, arriveMinutes: 510, durationMinutes: 30,
+    origin: { label: 'Museum' }, destination: { label: 'Restaurant' },
+    legs: [
+      { type: 'walk', fromName: 'Museum', toName: 'Station A', toStopId: 'A', startMinutes: 480, endMinutes: 485, durationMinutes: 5 },
+      { type: 'ride', routeShortName: '450', routeColor: 'FFC72C', fromName: 'Station A', toName: 'Station B', fromStopId: 'A', toStopId: 'B', startMinutes: 490, endMinutes: 510, durationMinutes: 20 },
+    ],
+  }
+  const renderJourney = plan => renderToStaticMarkup(createElement(AgencyToolOutput, {
+    result: { ok: true, data: { plan }, warnings: [], provenance: [] }, onResult: () => {},
+  }))
+  const validJourney = renderJourney(journey)
+  assert.match(validJourney, /Direct transit/)
+  assert.match(validJourney, /5 min walking · 5 min waiting · 20 min riding/)
+  assert.match(validJourney, /Step-by-step directions/)
+  assert.doesNotMatch(validJourney, /<details[^>]* open/)
+  const disconnected = renderJourney({ ...journey, legs: [journey.legs[0], { ...journey.legs[1], fromStopId: 'Unrelated stop' }] })
+  assert.match(disconnected, /disconnected stops/)
+  assert.doesNotMatch(disconnected, /Show on map|Journey directions/)
+  const conflicting = renderJourney({ ...journey, legs: [journey.legs[0], { ...journey.legs[1], startMinutes: 482 }] })
+  assert.match(conflicting, /conflicting times/)
+  assert.doesNotMatch(conflicting, /Show on map|Journey directions/)
   html = renderToStaticMarkup(createElement(AgencyToolOutput, { result: { ok: true, data: { board: data }, provenance: [], warnings: [] } }))
   assert.match(html, /Recorded arrivals/)
   assert.match(html, /Saved with this answer/)

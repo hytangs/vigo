@@ -8,6 +8,7 @@ import { AgencyContext, serviceEpoch } from '../src/agency/agencyContext.mjs'
 import { deriveOperationalState, createObservationHistory } from '../src/agency/realtimeIntelligence.mjs'
 import { diagnoseNetwork, compactDiagnosis } from '../src/agency/networkDiagnosis.mjs'
 import { networkNarrative } from '../src/agency/networkNarrative.mjs'
+import { networkSynthesisFacts } from '../src/agency/networkSynthesis.mjs'
 import { serviceConcentrations } from '../src/agency/serviceConcentrations.mjs'
 import { scheduledServiceWindow } from '../src/agency/serviceWindow.mjs'
 import { briefingStatus, briefingPreferences, defaultBriefingPreferences } from '../src/agency/briefingSchedule.mjs'
@@ -36,6 +37,21 @@ try {
   assert.equal(healthy.coverage.unknownTrips, 1)
   assert.match(networkNarrative(healthy).overview, /Unreported service.*unknown/)
   assert.equal(healthy.network.totalDelaySeconds, 0)
+
+  // Equal timetable offsets can preserve spacing. Give the briefing both
+  // denominators so it need not mistake universal lateness for frequency loss.
+  const uniformLate = assess(realtimeFixture(['T1', 'T2', 'T3'].map(id => tripUpdate(id, 600))))
+  const uniformFact = networkSynthesisFacts(uniformLate).find(row => row.kind === 'route' && row.routeId === 'R')
+  assert.equal(uniformFact.later, uniformFact.reportingTrips)
+  assert.ok(uniformFact.comparedDeparturePairs > 0)
+  assert.equal(uniformFact.widerPairs, 0)
+  assert.equal(uniformFact.closerPairs, 0)
+  assert.equal(uniformFact.retainedLateness.longestWindowMinutes, null, 'No history must not imply zero-duration disruption')
+  const noSpacing = structuredClone(uniformLate)
+  Object.assign(noSpacing.routes.find(route => route.id === 'R'), { measuredPairs: 0, widerPairs: 0, closerPairs: 0, widest: null })
+  const unknownSpacing = networkSynthesisFacts(noSpacing).find(row => row.kind === 'route' && row.routeId === 'R')
+  assert.equal(unknownSpacing.comparedDeparturePairs, 0, 'Unknown spacing stays distinguishable from measured equal spacing')
+  assert.deepEqual(uniformFact.predictionExtent.stopNames, [...new Set(uniformLate.routes.find(route => route.id === 'R').trips.map(row => row.stopName))])
 
   const updates = [tripUpdate('T1', 0), tripUpdate('T2', 300), tripUpdate('T3', 1200), tripUpdate('L1', 300, { routeId: 'L' })]
   const late = assess(realtimeFixture(updates))

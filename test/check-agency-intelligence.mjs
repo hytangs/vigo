@@ -80,7 +80,8 @@ try {
   await assert.rejects(call('inspect_service', { stopIds: ['Harvard'] }), /exact stop/)
   await assert.rejects(call('inspect_service', { horizonMinutes: 121 }), /Out-of-range/)
   const local = (await call('inspect_service', { stopIds: ['Harvard Square'] })).data
-  assert.ok(local.trips.every(row => row.stop === 'Harvard Square' || row.stop === 'Huntington Avenue'))
+  assert.ok(local.trips.length > 0)
+  assert.ok(local.trips.every(row => row.stop === 'Harvard Square'), 'A station departure cannot use the upstream connection departure')
   assert.equal(local.notices.some(row => row.effect === 'SIGNIFICANT_DELAYS'), false, 'A delay notice at another stop does not apply to the selected station')
   const progression = (await call('inspect_service', { routeIds: ['39'], aspect: 'prediction_progression' })).data
   assert.ok(progression.totalTrips > 0, 'Route-wide progression does not require a separately selected stop')
@@ -143,7 +144,7 @@ try {
   let modelCalls = 0
   const response = await queryAgency({ ...f, question: 'Explain the condition of the whole network.', callTool: call, placesAvailable: false,
     provider: { available: true, complete: async (_messages, tools) => ++modelCalls === 1
-      ? (assert.ok(tools.some(tool => tool.name === 'inspect_service')), { tool_calls: [{ id: 'diagnosis', function: { name: 'inspect_service', arguments: '{}' } }] })
+      ? (assert.ok(tools.some(tool => tool.name === 'assess_service')), { tool_calls: [{ id: 'diagnosis', function: { name: 'inspect_service', arguments: '{}' } }] })
       : { content: 'The selected route is not the full network; Route 66 has a reported cancellation. [1]' } } })
   assert.equal(response.trace[0].result.data.scope.allNetwork, true)
   assert.deepEqual(response.citations, [1])
@@ -162,7 +163,7 @@ try {
   let framedCalls = 0
   const framed = await queryAgency({ ...f, question: 'What needs attention across the network?', callTool: call, placesAvailable: false,
     provider: { available: true, complete: async (_messages, tools) => ++framedCalls === 1
-      ? (assert.ok(tools.find(tool => tool.name === 'inspect_service').parameters.anyOf.some(branch => branch.properties.scope.enum[0] === 'vehicle' && !branch.properties.routeNames)),
+      ? (assert.ok(tools.find(tool => tool.name === 'assess_service').parameters.properties.targets.items.properties.kind.enum.includes('vehicle')),
         { tool_calls: [{ id: 'scope', function: { name: 'inspect_service', arguments: '{"scope":"network"}' } }] })
       : (assert.deepEqual(tools.map(tool => tool.name), ['prepare_tools']), { content: 'Four routes have late predictions; Route 66 also has a reported cancellation. [1]' }) } })
   assert.equal(framed.trace[0].result.data.scope.allNetwork, true, 'A network choice does not inherit the selected route')

@@ -1,5 +1,6 @@
 import { boardingFareEvidence } from '../fares.mjs'
 import { journeyBreakdown } from './journeyResults.mjs'
+import { journeyContinuityIssue } from '../journeyIntegrity.mjs'
 
 // Keep the selected itinerary, including transfer provenance, available to
 // follow-up questions. Geometry and network-wide overlay IDs stay in the
@@ -20,6 +21,9 @@ export function journeyRealtimeEvidence(realtime) {
 
 export function journeyPlanEvidence(plan) {
   if (!plan) return plan
+  const issue = journeyContinuityIssue(plan)
+  if (issue) return { status: 'blocked', travelMode: plan.travelMode, detail: issue,
+    coverage: 'The saved itinerary failed a consistency check and cannot support directions or travel-time claims. Calculate a new journey.' }
   let previousEnd = seconds(plan.departMinutes)
   const legs = plan.legs?.map(leg => {
     const start = seconds(leg.startMinutes), end = seconds(leg.endMinutes)

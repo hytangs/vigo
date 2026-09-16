@@ -37,12 +37,14 @@ export function inspectionScope(context, snapshot, args) {
   return { routeIds, stopIds, vehicleIds, tripId: args.tripId }
 }
 
-export async function inspectOperationalService({ context, state, snapshot, directory }, args) {
+export async function inspectOperationalService({ context, state, snapshot, directory, diagnosis: preparedDiagnosis }, args) {
   const scope = inspectionScope(context, snapshot, args)
   const allNetwork = !scope.routeIds.length && !scope.stopIds.length && !scope.tripId && !scope.vehicleIds.length
   const routeSet = new Set(scope.routeIds), stopSet = new Set(scope.stopIds)
   const tripSelected = row => (!routeSet.size || routeSet.has(row.routeId)) && (!scope.tripId || row.tripId === scope.tripId) && (!scope.vehicleIds.length || scope.vehicleIds.includes(row.vehicleId))
-  const atStop = row => !stopSet.size || stopSet.has(row.stopId) || stopSet.has(row.toStopId)
+  // Departure measurements belong to their origin stop. The connection's
+  // destination is not a departure prediction for that downstream station.
+  const atStop = row => !stopSet.size || stopSet.has(row.stopId)
   const selected = (state.measurements?.departures ?? []).filter(row => tripSelected(row) && atStop(row))
   const reports = state.trips.filter(tripSelected)
   const selectedRoutes = scope.routeIds.length ? scope.routeIds : [...new Set([...selected, ...reports.filter(row => !stopSet.size)].map(row => row.routeId).filter(Boolean))]
@@ -55,7 +57,7 @@ export async function inspectOperationalService({ context, state, snapshot, dire
     const value = Number.isFinite(seconds) ? agencyClock(new Date(seconds * 1000).toISOString(), context.timezone) : null
     return value ? `${value.date} ${value.time} ${value.zoneLabel}` : null
   }
-  const diagnosis = diagnoseNetwork(context, state)
+  const diagnosis = preparedDiagnosis || diagnoseNetwork(context, state)
   const names = ids => ids.map(id => ({ id, name: context.routeIndex.get(id)?.short_name || context.routeIndex.get(id)?.long_name || id }))
   const areaRoutes = new Set(selectedRoutes)
   const relevant = diagnosis.routes.filter(route => (!routeSet.size || routeSet.has(route.id)) && (!stopSet.size && !scope.tripId && !scope.vehicleIds.length || areaRoutes.has(route.id)))
