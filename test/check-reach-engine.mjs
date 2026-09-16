@@ -8,6 +8,7 @@ import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import {
   buildNationalGtfsStore,
+  buildNationalGtfsCityStore,
   disposeNationalGtfsStore,
   routeNationalGtfsReach,
 } from '../src/server/national-gtfs-store.mjs'
@@ -18,12 +19,19 @@ import {
   prepareNationalOsmNativeStore,
 } from '../src/server/national-osm-store.mjs'
 import { finalizeCurrentStreetFixture } from './helpers/street-fixture.mjs'
+import { normalizeRoutingPointIdentities } from '../src/server/routing-point-identity.mjs'
+import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 
 const repositoryRoot = path.resolve(import.meta.dirname, '..')
 const folder = await fsp.mkdtemp(path.join(os.tmpdir(), 'vigo-reach-'))
 const zipPath = path.join(folder, 'fixture.zip')
-const storePath = path.join(folder, 'fixture.sqlite')
-const streetStorePath = path.join(folder, 'street.sqlite')
+const projectsRoot = path.join(folder, 'projects')
+const projectId = 'identity-fixture'
+const metaRoot = path.join(projectsRoot, projectId, '.vigo')
+const storePath = path.join(metaRoot, 'routing', 'fixture.sqlite')
+const streetStorePath = path.join(metaRoot, 'osm', 'street-index.sqlite')
+const mergedStorePath = path.join(folder, 'merged.sqlite')
+let apiRuntime
 
 async function createRoutingFixture() {
   const zip = new JSZip()
@@ -71,6 +79,7 @@ async function createRoutingFixture() {
   )
   await buildNationalGtfsStore({ zipPath, outputPath: storePath })
 
+  await fsp.mkdir(path.dirname(streetStorePath), { recursive: true })
   const street = new DatabaseSync(streetStorePath)
   street.exec(`
     CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -185,6 +194,70 @@ try {
   for (let index = 1; index < progress.length; index += 1) {
     assert(progress[index].progress >= progress[index - 1].progress)
   }
+
+  const selectedOrigin = { coordinate: [8, 47], label: 'Imported origin', source: 'stop', stopId: 'feed-local::O' }
+  const selectedDestination = { coordinate: [8, 47.005], label: 'Imported destination', source: 'stop', stopId: 'feed-local::D' }
+  const selectedRequest = request({ origin: selectedOrigin })
+  const normalized = normalizeRoutingPointIdentities(storePath, selectedRequest, 'feed-local')
+  assert.equal(normalized.origin.stopId, 'O')
+  assert.equal(selectedRequest.origin.stopId, 'feed-local::O', 'Resolving an endpoint must not mutate a shared comparison request.')
+  const importedReach = routeNationalGtfsReach(storePath, normalized, { streetStorePath })
+  assert(importedReach.stops.some(stop => stop.stopId === 'D'), 'Desktop imported-stop IDs must reach scheduled destinations through the actual native engine.')
+  for (const stopId of ['foreign-feed::O', 'feed-local::missing']) {
+    const resolved = normalizeRoutingPointIdentities(storePath, request({ origin: { ...request().origin, source: 'stop', stopId } }), 'feed-local')
+    assert.equal(resolved.origin.stopId, undefined)
+    assert.equal(resolved.origin.source, 'map')
+    assert.deepEqual(routeNationalGtfsReach(storePath, resolved, { streetStorePath }).stops, first.stops,
+      'A foreign or missing selected stop must use its coordinates without borrowing a same-named local stop.')
+  }
+  assert.equal(normalizeRoutingPointIdentities(storePath, request({ origin: { ...request().origin, stopId: 'feed-local::O' } }), 'feed-local').origin.stopId, undefined,
+    'Free coordinates remain authoritative even with stale stop metadata.')
+  await buildNationalGtfsCityStore({ feeds: [{ scope: 'feed-local', path: zipPath }, { scope: 'foreign-feed', path: zipPath }], outputPath: mergedStorePath })
+  const mergedRequest = normalizeRoutingPointIdentities(mergedStorePath, selectedRequest)
+  assert.equal(mergedRequest.origin.stopId, 'feed-local\u001fO')
+  assert(routeNationalGtfsReach(mergedStorePath, mergedRequest, { streetStorePath }).stops.some(stop => stop.stopId === 'feed-local\u001fD'),
+    'Merged stores must preserve the source feed while resolving desktop IDs.')
+  const opaqueStorePath = path.join(folder, 'opaque-stop-ids.sqlite')
+  const opaqueStore = new DatabaseSync(opaqueStorePath)
+  opaqueStore.exec('CREATE TABLE stops(stop_id TEXT PRIMARY KEY); CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT)')
+  opaqueStore.prepare('INSERT INTO metadata VALUES(?,?)').run('sourceStores', JSON.stringify([{ scope: 'feed-local' }]))
+  for (const stopId of ['station::platform', 'feed-local\u001fstation::platform']) opaqueStore.prepare('INSERT INTO stops VALUES(?)').run(stopId)
+  opaqueStore.close()
+  for (const stopId of ['station::platform', 'feed-local\u001fstation::platform']) {
+    assert.equal(normalizeRoutingPointIdentities(opaqueStorePath, { origin: { ...selectedOrigin, stopId } }, 'feed-local').origin.stopId, stopId,
+      'An exact opaque GTFS ID must survive delimiter characters without being mistaken for a desktop namespace.')
+  }
+  assert.equal(normalizeRoutingPointIdentities(opaqueStorePath, { origin: { ...selectedOrigin, stopId: 'feed-local::station::platform' } }, 'feed-local').origin.stopId,
+    'feed-local\u001fstation::platform')
+
+  await fsp.writeFile(path.join(metaRoot, 'project.json'), JSON.stringify({
+    schemaVersion: 'vigo.project.v1', id: projectId, name: 'Endpoint identity fixture',
+    storagePath: path.join(projectsRoot, projectId), createdAt: '2026-07-20T00:00:00Z', updatedAt: '2026-07-20T00:00:00Z',
+    summary: { feeds: 1, routes: 4, stops: 6 }, jobs: [], artifacts: [],
+    feeds: [{ id: 'feed-local', name: 'Fixture', routeCount: 4, stopCount: 6, routingStore: { status: 'ready', fileName: 'fixture.sqlite' } }],
+    osmStreetIndex: { status: 'ready', fileName: 'street-index.sqlite', cch: { ready: true } },
+  }))
+  apiRuntime = await startInMemoryVigoApi({ repositoryRoot, environment: {
+    VIGO_PROJECTS_DIR: projectsRoot, VIGO_CONFIG_DIR: path.join(folder, 'config'),
+  } })
+  const boundaryRequest = { feedId: 'feed-local', ...selectedRequest, destination: selectedDestination }
+  async function endpoint(action, body) {
+    const response = await apiRuntime.requestJson(`/api/projects/${projectId}/${action}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    })
+    assert.equal(response.status, 200, `${action}: ${JSON.stringify(response.body)}`)
+    return response.body
+  }
+  const apiReach = await endpoint('reach', { ...boundaryRequest, cutoffsMinutes: [20], rasterSize: 48, includePreliminary: false, includeStreetEdges: false })
+  assert(apiReach.result.summary.transitStopSeeds > 0, 'Reach API must resolve imported-stop identity before dispatch.')
+  const apiRoute = await endpoint('national-route', boundaryRequest)
+  assert.equal(apiRoute.plan.status, 'ready', 'Route API must resolve both imported-stop endpoints.')
+  assert(apiRoute.plan.legs.some(leg => leg.type === 'ride'))
+  const apiMatrix = await endpoint('national-matrix', { ...boundaryRequest, origins: [selectedOrigin], destinations: [selectedDestination], includeJourneys: true })
+  assert.equal(apiMatrix.matrix.rows[0].status, 'ready', 'Matrix API must resolve every imported-stop endpoint.')
+  assert(apiMatrix.matrix.rows[0].journey.legs.some(leg => leg.type === 'ride'))
+  await apiRuntime.stop()
+  apiRuntime = null
 
   const fullGeometry = routeNationalGtfsReach(
     storePath,
@@ -349,7 +422,9 @@ try {
     fusedNodeApiCalls: replay.diagnostics.access.nodeApiCalls,
   }, null, 2))
 } finally {
+  await apiRuntime?.stop()
   disposeNationalGtfsStore(storePath)
+  disposeNationalGtfsStore(mergedStorePath)
   disposeNationalOsmStore(streetStorePath)
   await fsp.rm(folder, { recursive: true, force: true })
 }

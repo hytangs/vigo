@@ -333,4 +333,16 @@ assert.deepEqual(reversed[0].coordinate, b.coordinate)
 assert.equal(reversed[1], a)
 assert.deepEqual(reversed[1].coordinate, a.coordinate)
 
+const withSource = (plan, overrides = {}) => ({ ...plan, diagnostics: { ...plan.diagnostics,
+  routingDataProvenance: { mode: 'realtime', staticTimetableIdentity: 'gtfs-one', streetIdentity: 'osm-one',
+    serviceDate: '2026-08-21', timeZone: 'UTC', snapshotId: 'rt-one', reproducibilityKey: plan.id, ...overrides },
+} })
+const componentA = withSource(transitPlan('source-a', a, b, 480, 490, [throughRide(a, b, 480, 490)]))
+const componentB = withSource(transitPlan('source-b', b, c, 490, 505, [throughRide(b, c, 490, 505)]))
+const coherent = composeOrderedRoutingPlans([componentA, componentB], [a,b,c], { mode: 'transit', departMinutes: 480 })
+assert.deepEqual(coherent.diagnostics.routingDataProvenance.componentReproducibilityKeys, ['source-a', 'source-b'])
+for (const change of [{ snapshotId: 'rt-two' }, { staticTimetableIdentity: 'gtfs-two' }, { mode: 'scheduled' }]) {
+  assert.throws(() => composeOrderedRoutingPlans([componentA, withSource(componentB, change)], [a,b,c], { mode: 'transit' }),
+    { code: 'routing_snapshot_changed' })
+}
 console.log('Ordered waypoint routing behavior passed.')

@@ -18,6 +18,7 @@ import { nearbyStops } from './nearbyStops.mjs'
 import { historicalComparison } from './operations.mjs'
 import { currentTime, currentTimeTool } from './currentTime.mjs'
 import { isJourneyReady, verifyJourneyModes } from './journeyResults.mjs'
+import { prepareJourneyRealtime, journeyRealtimeResult } from './journeyRealtime.mjs'
 
 export function failedToolResult(error, generatedAt) {
   const message = error instanceof Error ? error.message : 'This check could not be completed.'
@@ -59,7 +60,7 @@ export const toolDefinitions = [
   { name: 'find_walk', description: 'Complete a time-limited outing in one call: find places for one or two ordered visits, measure all candidate walks, and return the shortest with remaining activity time. Use for food pickup followed by a park, or other visits. Each visit requires an exact osmTag category (for example amenity:fast_food or leisure:park). This is category discovery; use walk_route for already chosen named destinations. Omit query for a category-only visit; the server uses the current City and origin. Query narrows results to a business or place name. Categories do not verify opening hours or access.', parameters: object({ origin: { type: 'string', maxLength: 200, description: 'Starting station name, business name or address.' }, visits: { type: 'array', minItems: 1, maxItems: 2, items: object({ query: { type: 'string', maxLength: 200, description: 'Optional business or place name. Omit for a category-only visit.' }, osmTag: { type: 'string', pattern: '^[a-z_]+:[a-z_]+$' } }, ['osmTag']) }, timeBudgetMinutes: walkingConstraints.timeBudgetMinutes, activityMinutes: walkingConstraints.activityMinutes }, ['origin', 'visits', 'timeBudgetMinutes']) },
   { name: 'service_profile', description: 'Check scheduled service on a date; omit serviceDate for today in the agency timezone. Choose groupBy=route to list which routes have departures at or after afterTime, or hour for trip starts by hour. Times are GTFS service-day hours; hours above 24 continue overnight. Calendar exceptions applied; frequency templates excluded.', parameters: object({ serviceDate: journey.serviceDate, routeId: string, groupBy: { type: 'string', enum: ['hour', 'route'] }, afterTime: journey.departTime }) },
   { name: 'gtfs_query', description: 'Read VIGO SQLite. Tables: routes(route_id,short_name,long_name,route_type), stops(stop_id,name,lat,lon), trips(trip_id,route_id,service_id,direction_id), connections(departure,arrival,trip_id,route_id,service_id,direction_id,from_stop_id,to_stop_id,stop_sequence), transfers(from_stop_id,to_stop_id,transfer_type,min_transfer_time), calendar, calendar_dates, frequencies, route_services. Times and min_transfer_time are seconds. Transfers are directed; type 3 prohibits the connection. Connections are NOT original stop_times; do not invent terminal calls. One SELECT/WITH, approved functions, 200 rows maximum, 1.5s execution limit. Apply calendar exceptions for date-specific questions.', parameters: object({ sql: string, limit: { type: 'integer', minimum: 1, maximum: 200 } }, ['sql']) },
-  { name: 'route_plan', description: 'Compute every requested transit/driving journey using the same locations and time. Select all requested modes together; report each result or its unavailability. Pass stopName/placeQuery directly; no separate lookup. Omit date and time to depart now in the City timezone. Otherwise use serviceDate and departTime or arriveBy (HH:MM). Waypoints preserve visit order, with no activity time; maxTransfers only without waypoints. Never drop constraints.', parameters: object({ ...journey, modes: { type: 'array', items: { type: 'string', enum: ['transit', 'drive'] }, minItems: 1, maxItems: 2, description: 'Every requested mode. For transit versus driving select both. Default transit for programmatic callers.' }, destination: transitPoint, arriveBy: journey.departTime, maxTransfers: { type: 'integer', minimum: 0, maximum: 31 }, waypoints: { type: 'array', items: transitPoint, minItems: 0, maxItems: 6 } }, ['origin', 'destination']) },
+  { name: 'route_plan', description: 'Compute every requested transit/driving journey using the same locations and time. Select all requested modes together; report each result or its unavailability. Pass stopName/placeQuery directly; no separate lookup. routingDataMode defaults to realtime, using current usable transit predictions and disclosing scheduled fallback. For schedule-based research choose scheduled: live updates are disabled and an explicit serviceDate plus departTime or arriveBy (HH:MM) are required. Only realtime mode may omit date/time to depart now in the City timezone. Preserve the chosen data mode for follow-up comparisons. Waypoints preserve visit order, with no activity time; maxTransfers only without waypoints. Never drop constraints.', parameters: object({ ...journey, routingDataMode: { type: 'string', enum: ['realtime', 'scheduled'], description: 'realtime for live journey planning (default); scheduled for timetable-only research with explicit date and time. Never silently substitute one mode for the other.' }, modes: { type: 'array', items: { type: 'string', enum: ['transit', 'drive'] }, minItems: 1, maxItems: 2, description: 'Every requested mode. For transit versus driving select both. Default transit for programmatic callers.' }, destination: transitPoint, arriveBy: journey.departTime, maxTransfers: { type: 'integer', minimum: 0, maximum: 31 }, waypoints: { type: 'array', items: transitPoint, minItems: 0, maxItems: 6 } }, ['origin', 'destination']) },
   { name: 'reach', description: 'Use VIGO scheduled Reach. Requires an indexed pedestrian street network. Realtime alerts are not applied to Reach.', parameters: object({ ...journey, cutoffMinutes: { type: 'integer', minimum: 5, maximum: 60 } }, ['origin', 'serviceDate', 'departTime', 'cutoffMinutes']) },
   { name: 'realtime_status', description: 'Check current service. Optional routeNames compares up to eight literal route names/numbers without separate lookups. Returns coverage, delays, intervals and feed ages.', parameters: object({ ...routeScope.properties, tripId: string, stopId: string, vehicleId: string }) },
   { name: 'anomaly_scan', description: 'Compare predicted departures with the timetable. routeNames accepts literal names/numbers. Rank intervals, delays or agency alerts; groupBy=route compares routes. Predictions are not measured past passage.', parameters: object({ ...routeScope.properties, eventType: { type: 'string', enum: ['delay', 'bunching', 'service-gap', 'cancellation', 'skipped-stop', 'stale-data', 'service-alert'] }, sortBy: { type: 'string', enum: ['severity', 'headway', 'headwayChange', 'delay'] }, groupBy: { type: 'string', enum: ['event', 'route'] } }) },
@@ -264,6 +265,12 @@ export function createToolRegistry({ context, state, snapshot, adapters, noteboo
       return envelope(await adapters.matrix({ origins: points(args.origins), destinations: points(args.destinations), serviceDate: args.serviceDate, departMinutes: args.departMinutes, allowServiceDateFallback: false }, signal), ['VIGO Matrix', 'GTFS Static'], ['Matrix uses scheduled service. Realtime observations and alerts are not applied.'])
     }
     if (name === 'route_plan' || name === 'reach') {
+      if (name === 'route_plan') {
+        args.routingDataMode ??= 'realtime'
+        if (args.routingDataMode === 'scheduled' && (!args.serviceDate || !args.departTime && !args.arriveBy)) {
+          throw new Error('Schedule-based research requires an explicit serviceDate and either departTime or arriveBy; the current date or time is not assumed.')
+        }
+      }
       const defaultedTime = name === 'route_plan' && !args.serviceDate
       if (name === 'route_plan') Object.assign(args, journeyTime(args, generatedAt, context.timezone))
       if (!args.departTime && !args.arriveBy) throw new Error('Supply a departure time or an arrival deadline.')
@@ -273,43 +280,33 @@ export function createToolRegistry({ context, state, snapshot, adapters, noteboo
       const departMinutes = hours * 60 + minutes
       const { origin, destination, waypoints, resolved, sources } = await resolveJourneyPoints(context, places, args, signal)
       if (name === 'reach') return envelope(await adapters.reach({ origin: { ...origin, id: args.origin.stopId || args.origin.placeId || 'origin' }, serviceDate: args.serviceDate, departMinutes, cutoffsMinutes: [args.cutoffMinutes] }, signal), ['VIGO Reach', 'GTFS Static', 'OpenStreetMap', ...sources], ['Reach uses scheduled service. Realtime observations and alerts are not applied.'])
-      const freshSources = new Set(state.feeds.filter((feed) => feed.status === 'fresh').map((feed) => feed.sourceUrl))
-      const candidates = (snapshot?.tripUpdates ?? []).flatMap((update) => {
-        if (!freshSources.has(update.sourceUrl)) return []
-        const match = context.matchTripIdentity(update, args.serviceDate)
-        if (!match.trip || match.serviceDate !== args.serviceDate) return []
-        if (typeof update.timestamp === 'number' && Math.abs(Date.parse(generatedAt) / 1000 - update.timestamp) > state.policy.freshnessSeconds) return []
-        return [{ ...update, tripId: match.trip.trip_id }]
-      })
-      const identities = new Map()
-      for (const trip of candidates) identities.set(trip.tripId, (identities.get(trip.tripId) ?? 0) + 1)
-      const eligible = candidates.filter((trip) => identities.get(trip.tripId) === 1)
-      const timestamps = state.feeds.filter((feed) => freshSources.has(feed.sourceUrl) && eligible.some((trip) => trip.sourceUrl === feed.sourceUrl)).map((feed) => feed.feedTimestamp)
-      const realtimeSnapshot = eligible.length ? { ...snapshot, tripUpdates: eligible, feedTimestamp: Math.min(...timestamps) } : undefined
+      const { realtimeSnapshot, inputCoverage } = prepareJourneyRealtime({ context, state, snapshot, serviceDate: args.serviceDate, routingDataMode: args.routingDataMode })
       const { departTime, arriveBy, waypoints: _waypoints, modes: requestedModes, maxTransfers, ...routeArgs } = args
       const modes = [...new Set(requestedModes ?? ['transit'])]
       const journeys = await Promise.all(modes.map(async mode => {
         try {
           const result = await adapters.route({ ...routeArgs, departMinutes, origin, destination, ...(waypoints.length ? { waypoints } : {}), ...(arriveBy ? { timePreference: 'arrive', arriveMinutes: departMinutes } : {}),
-            mode, ...(mode === 'transit' ? { maxTransfers, realtimeSnapshot } : {}), allowServiceDateFallback: false }, signal)
+            mode, ...(mode === 'transit' ? { maxTransfers, ...(args.routingDataMode === 'realtime' ? { realtimeSnapshot } : {}) } : {}), allowServiceDateFallback: false }, signal)
           const plan = result.plan ?? result
           const plans = result.plans ?? result.choices ?? [plan]
           const diagnostics = mode === 'transit' ? plans.map(item => item?.diagnostics?.realtimeRouting).filter(Boolean) : []
-          const realtime = { suppliedTripUpdates: mode === 'transit' ? eligible.length : 0, applied: diagnostics.some(item => item.status === 'applied' || item.status === 'cancellations_only'), diagnostics }
+          const realtime = mode === 'transit' ? journeyRealtimeResult(diagnostics, inputCoverage, args.routingDataMode) : { routingDataMode: args.routingDataMode, suppliedTripUpdates: 0, applied: false, diagnostics: [] }
           const ready = isJourneyReady(plan, mode)
           return { mode, status: ready ? 'ready' : 'unavailable', ...(ready ? { plan } : { ...(plan.status === 'blocked' ? { plan } : {}), reason: plan.travelMode && plan.travelMode !== mode ? 'The routing result did not match the requested mode.' : plan.detail || 'No journey was found for these locations and time.' }), realtime }
         } catch (error) {
           signal?.throwIfAborted()
-          return { mode, status: 'unavailable', reason: error.message || 'This mode could not be calculated.' }
+          return { mode, status: 'unavailable', reason: error.message || 'This mode could not be calculated.', ...(mode === 'transit' ? { realtime: journeyRealtimeResult([], inputCoverage, args.routingDataMode) } : {}) }
         }
       }))
       signal?.throwIfAborted()
       const primary = journeys.find(item => item.status === 'ready') ?? journeys.find(item => item.plan)
-      const realtime = journeys.find(item => item.mode === 'transit')?.realtime ?? { suppliedTripUpdates: 0, applied: false, diagnostics: [] }
-      const data = { ...(primary ? { plan: primary.plan } : {}), ...(requestedModes ? { journeys } : {}), resolved, request: { serviceDate: args.serviceDate, departTime, arriveBy, timezone: context.timezone, ...(requestedModes ? { modes } : {}), ...(defaultedTime ? { timeAssumption: 'Current City date; current local time when no time was supplied.' } : {}), maxTransfers, via: waypoints.map(point => point.label) }, realtime }
+      const realtime = journeys.find(item => item.mode === 'transit')?.realtime ?? { routingDataMode: args.routingDataMode, suppliedTripUpdates: 0, applied: false, diagnostics: [] }
+      const data = { ...(primary ? { plan: primary.plan } : {}), ...(requestedModes ? { journeys } : {}), resolved, request: { routingDataMode: args.routingDataMode, serviceDate: args.serviceDate, departTime, arriveBy, timezone: context.timezone, ...(requestedModes ? { modes } : {}), ...(defaultedTime ? { timeAssumption: 'Current City date; current local time when no time was supplied.' } : {}), maxTransfers, via: waypoints.map(point => point.label) }, realtime }
       if (requestedModes) data.completion = verifyJourneyModes(modes, data)
       return envelope(data, ['VIGO Route', ...(modes.includes('transit') ? ['GTFS Static'] : []), ...(modes.includes('drive') ? ['OpenStreetMap · saved road network'] : []), ...sources, ...(realtime.suppliedTripUpdates ? ['GTFS-Realtime TripUpdates'] : [])], [
-        ...(modes.includes('transit') ? [realtime.applied ? 'The engine applied a bounded TripUpdate overlay; inspect its diagnostics for excluded or pruned observations.' : 'Scheduled fallback: the engine did not report an applied realtime overlay.', 'Service alerts are shown as context; alert text does not automatically close routes or stops.'] : []),
+        ...(modes.includes('transit') ? [args.routingDataMode === 'scheduled' ? 'Schedule-based research: live updates are disabled. Times come from the loaded timetable for the requested service date.' : realtime.applied ? 'The engine applied realtime updates; inspect coverage diagnostics for rejected observations. Trips without usable updates retain scheduled times.' : 'Scheduled fallback within realtime mode: the engine did not report applied realtime updates.',
+          ...(inputCoverage.rejected ? [`${inputCoverage.rejected} of ${inputCoverage.received} supplied TripUpdates were rejected before routing: ${Object.entries(inputCoverage.rejectionReasons).map(([reason, count]) => `${reason} (${count})`).join('; ')}.`] : []),
+          'Service alerts are shown as context; alert text does not automatically close routes or stops.'] : []),
         ...(modes.includes('drive') ? ['Driving estimates do not include live traffic, parking, or access walks.'] : []),
       ], { stopIds: [args.origin.stopId, args.destination.stopId].filter(Boolean) })
     }

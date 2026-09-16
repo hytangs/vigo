@@ -4,6 +4,7 @@ import { RoutingFare } from './RoutingFare'
 import type { RoutingLeg, RoutingPlan } from '../routingModel'
 import type { ToolResult } from '../agency/types'
 import { journeyContinuityIssue } from '../journeyIntegrity.mjs'
+import { routingDataModeLabel, routingRealtimeDetail } from '../app/presentation'
 import { journeyBreakdown, journeyDuration, journeyModeNames, type Journey, type JourneyData } from '../agency/journeyResults.mjs'
 
 const clockMinutes = (value: number) => `${String(Math.floor(value / 60) % 24).padStart(2, '0')}:${String(Math.floor(value % 60)).padStart(2, '0')}${value >= 1440 ? ` (+${Math.floor(value / 1440)} day)` : ''}`
@@ -24,6 +25,7 @@ function AgencyJourney({ plan, endpoints }: { plan: RoutingPlan; endpoints?: Arr
     <header className="agency-journey-heading">
       <strong>{journeyDuration(plan.durationMinutes)}</strong>
       <span>{drive ? 'Driving' : walk ? 'Walking' : transfers ? `${transfers} ${transfers === 1 ? 'transfer' : 'transfers'}` : 'Direct transit'}</span>
+      {!drive && !walk && routingDataModeLabel(plan) ? <span>{routingDataModeLabel(plan)}</span> : null}
       {(walk || drive) && distanceKm !== null ? <span>{distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${Number(distanceKm.toFixed(1))} km`}</span> : null}
     </header>
     <p className="agency-journey-endpoints">{points.filter(Boolean).map((point, index) => <span key={index}>{index ? <ArrowRight size={13} aria-hidden="true" /> : null}{point.label}</span>)}</p>
@@ -63,7 +65,7 @@ export function AgencyJourneys({ result, onResult }: { result: ToolResult; onRes
     {issue ? <p className="agency-error" role="alert">{issue}</p> : null}
     {plan ? <>
       <AgencyJourney plan={plan} endpoints={data.resolved} />
-      {plan.travelMode !== 'walk' ? <p className="agency-caption">{data.request?.serviceDate ? `${data.request.serviceDate} · ` : ''}{plan.travelMode === 'drive' ? 'Road estimate · live traffic, parking and access walks excluded' : (selected?.realtime?.applied ?? data.realtime?.applied) ? 'Live predictions where applied' : 'Scheduled service · live predictions not applied'}</p> : null}
+      {plan.travelMode !== 'walk' ? <p className="agency-caption">{data.request?.serviceDate ? `${data.request.serviceDate} · ` : ''}{plan.travelMode === 'drive' ? 'Road estimate · live traffic, parking and access walks excluded' : routingRealtimeDetail(plan)}</p> : null}
       <RoutingFare plan={plan} />
     </> : !issue ? <p className="agency-caption">{selected?.reason || 'No journey was established.'}</p> : null}
     {onResult && plan ? <button className="agency-text-button" onClick={() => onResult({ ...result, data: { ...data, plan, ...(selected ? { realtime: selected.realtime } : {}) } })}>Show on map <ArrowRight size={13} /></button> : null}

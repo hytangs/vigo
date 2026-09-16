@@ -1,3 +1,6 @@
+import { normalizeRoutingDataRequest } from './routing-data-mode.mjs'
+import { normalizeRoutingPointIdentities } from './routing-point-identity.mjs'
+import { resolveDepartNowRequest } from './routing-depart-now.mjs'
 import { createAgencyService } from './agency-api.mjs'
 import { runLampStudy } from './lamp-study-runner.mjs'
 import crypto from 'node:crypto'
@@ -4020,13 +4023,16 @@ async function earliestTransitEvidence(
 }
 
 async function runSingleNationalRoute(projectId, body, signal, options = {}) {
+  body = normalizeRoutingDataRequest(body)
   const project = await readProjectMetadata(projectId)
-  const serviceContext = nationalRequestServiceContext(body)
   const mode = ['walk', 'drive'].includes(body?.mode) ? body.mode : 'transit'
   const feedId = String(body?.feedId ?? '')
-  const storePath = mode === 'transit'
-    ? (await requireRoutingStore(projectId, project, feedId)).storePath
-    : await streetWorkerStore(projectId, project, feedId)
+  const selection = mode === 'transit' ? await requireRoutingStore(projectId, project, feedId) : null
+  const storePath = selection?.storePath ?? await streetWorkerStore(projectId, project, feedId)
+  body = resolveStoreDepartNow(storePath, body)
+  const serviceContext = nationalRequestServiceContext(body)
+  if (selection) body = normalizeRoutingPointIdentities(storePath, body,
+    selection.feed?.id ?? (project.feeds.length === 1 ? project.feeds[0].id : ''))
   const streetPath = project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))
     ? streetStoreFile(projectId)
     : undefined
@@ -4178,7 +4184,13 @@ function nationalRequestServiceContext(body, defaultContext = currentNationalRou
   }
 }
 
+function resolveStoreDepartNow(storePath, body) {
+  if (body?.departNow === undefined || body.departNow === false) return body
+  return resolveDepartNowRequest(body, readNationalGtfsStoreMetadata(storePath).agencyTimezones)
+}
+
 async function runNationalRoute(projectId, body, signal) {
+  body = normalizeRoutingDataRequest(body)
   if (
     Object.prototype.hasOwnProperty.call(body ?? {}, 'waypoints')
     && !Array.isArray(body.waypoints)
@@ -4189,6 +4201,12 @@ async function runNationalRoute(projectId, body, signal) {
   }
   const waypoints = Array.isArray(body?.waypoints) ? body.waypoints : []
   if (!waypoints.length) return runSingleNationalRoute(projectId, body, signal)
+
+  if (body?.departNow !== undefined && body.departNow !== false) {
+    const project = await readProjectMetadata(projectId)
+    const { storePath } = await requireRoutingStore(projectId, project, String(body?.feedId ?? ''))
+    body = resolveStoreDepartNow(storePath, body)
+  }
 
   const points = validateOrderedRoutingPoints(body?.origin, waypoints, body?.destination)
   const { waypoints: _waypoints, ...baseRequest } = body
@@ -4572,11 +4590,19 @@ async function prepareNationalRouting(projectId, body, signal) {
     error.statusCode = 409
     throw error
   }
+  const departingNow = body?.departNow === true
+  body = resolveStoreDepartNow(storePath, body)
   const defaultContext = currentNationalRoutingServiceContext()
   const projectStreetStorePath = project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))
     ? streetStoreFile(projectId)
     : undefined
   const serviceCoverage = await cachedNationalRoutingServiceCoverage(storePath)
+  const routingContext = {
+    ...nationalRequestServiceContext(body, defaultContext),
+    ...(departingNow ? { departMinutes: body.departMinutes, timePreference: 'depart', timeZone: body.timeZone } : {}),
+    allowServiceDateFallback: body?.allowServiceDateFallback === true,
+    requireCompleteServiceCoverage: true,
+  }
   if (routingDateOutsideCompleteCoverage(serviceCoverage, body?.serviceDate)) {
     return {
       ready: true,
@@ -4584,12 +4610,8 @@ async function prepareNationalRouting(projectId, body, signal) {
       serviceModel: 'complete-coverage-gate',
       dateOutsideCoverage: true,
       serviceCoverage,
+      requestedRoutingContext: routingContext,
     }
-  }
-  const routingContext = {
-    ...nationalRequestServiceContext(body, defaultContext),
-    allowServiceDateFallback: body?.allowServiceDateFallback === true,
-    requireCompleteServiceCoverage: true,
   }
   const routing = await nationalRouteWorkerPool.prepare(storePath, {
     reason: 'routing-readiness',
@@ -4635,7 +4657,9 @@ async function prepareNationalRouting(projectId, body, signal) {
 async function runNationalMatrix(projectId, body, signal) {
   const project = await readProjectMetadata(projectId)
   const feedId = String(body?.feedId ?? '')
-  const { storePath } = await requireRoutingStore(projectId, project, feedId)
+  const { storePath, feed } = await requireRoutingStore(projectId, project, feedId)
+  body = normalizeRoutingPointIdentities(storePath, body,
+    feed?.id ?? (project.feeds.length === 1 ? project.feeds[0].id : ''))
   const streetStorePath = project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))
     ? streetStoreFile(projectId)
     : undefined
@@ -4696,7 +4720,9 @@ async function runReach(projectId, body, signal, onProgress, onPreliminary) {
   const project = await readProjectMetadata(projectId)
   const serviceContext = nationalRequestServiceContext(body)
   const feedId = String(body?.feedId ?? '')
-  const { storePath } = await requireRoutingStore(projectId, project, feedId)
+  const { storePath, feed } = await requireRoutingStore(projectId, project, feedId)
+  body = normalizeRoutingPointIdentities(storePath, body,
+    feed?.id ?? (project.feeds.length === 1 ? project.feeds[0].id : ''))
   const streetPath = project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))
     ? streetStoreFile(projectId)
     : null

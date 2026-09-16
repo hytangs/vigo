@@ -42,6 +42,7 @@ try {
     assert(help.stdout.includes(`vigo ${command}`))
     if (command !== 'build') assert(!help.stdout.includes('--gtfs PATH'))
     if (command !== 'reach') assert(!help.stdout.includes('--raster-size'))
+    assert.equal(help.stdout.includes('--data-mode'), command === 'route', 'Only Route advertises realtime routing.')
   }
   assert(invoke(['--city', 'unused', '-h']).stdout.includes('vigo route'))
   const parsed = parseArguments(['build', '--replace', '--gtfs', 'east.zip', '--gtfs=west.zip', '--osm=map.pbf', '--output', 'city with spaces'])
@@ -51,6 +52,7 @@ try {
   assert.equal(enabled(parseArguments(['build', '--replace=false']).args, 'replace'), false)
   assert.equal(parseArguments(['route', '--max-walk', '-1']).args.get('max-walk')[0], '-1')
   assert.equal(parseArguments(['route', '--request', '-']).args.get('request')[0], '-')
+  assert.equal(parseArguments(['route', '--data-mode=realtime']).args.get('data-mode')[0], 'realtime')
   assert.equal(parseArguments(['inspect', '--city=-leading-path']).args.get('city')[0], '-leading-path')
 
   for (const [args, expected] of [
@@ -72,6 +74,8 @@ try {
     [['route', '--routing-preference=fastest'], /--objective=earliest_arrival/u],
     [['reach', '--radius=2'], /--extent-radius/u],
     [['reach', '--horizon=30'], /not an option for reach/u],
+    [['reach', '--data-mode=realtime'], /not an option for reach/u],
+    [['matrix', '--data-mode=realtime'], /not an option for matrix/u],
     [['build', '--gtfs=x', '--osm=x', '--output=-'], /City output directory/u],
     [['help', 'route', 'extra'], /Unexpected argument/u],
     [['route', '--', '--help'], /Unexpected argument/u],

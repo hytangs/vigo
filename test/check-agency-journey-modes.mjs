@@ -87,10 +87,16 @@ choices.arguments({ ...input, when: 'now', explain: true })
 assert.equal(choices.finishWithJourney(), false, 'Explicit analysis returns the computed evidence to the model')
 assert.throws(() => choices.arguments({ ...input, when: 'now', explain: false, resultUse: 'continue' }), /one journey completion/)
 assert.ok(choices.definition().parameters.required.includes('modes'), 'The model must enumerate modes rather than inherit transit')
-const request = choices.arguments({ ...input, when: 'now', resultUse: 'answer' })
+assert.deepEqual(choices.definition().parameters.properties.routingDataMode.enum, ['realtime', 'scheduled'])
+assert.match(choices.definition().description, /never use now for research/)
+const request = choices.arguments({ ...input, routingDataMode: 'scheduled', when: { serviceDate: '2026-09-13', departTime: '12:00' }, resultUse: 'answer' })
 choices.observe(request, { ok: true, data: { status: 'needs_location_choice', clarification: { endpoints: [{ endpoint: 1, matches: [{ id: 'destination', name: 'Destination', lat: 40, lon: -71 }] }], resolved: [{ endpoint: 0, label: 'Origin', lat: 40, lon: -70 }] } } })
 assert.deepEqual(choices.arguments({ destination: '1' }).modes, input.modes, 'A coordinate choice cannot narrow the retained mode set')
+assert.equal(choices.arguments({ destination: '1' }).routingDataMode, 'scheduled', 'Location clarification preserves the research data mode')
+assert.equal(choices.arguments({ destination: '1' }).serviceDate, '2026-09-13')
+assert.equal(choices.arguments({ destination: '1' }).departTime, '12:00')
 assert.throws(() => choices.arguments({ destination: '1', modes: ['transit'] }), /Unknown/)
+assert.throws(() => choices.arguments({ destination: '1', routingDataMode: 'realtime' }), /Unknown/, 'A location selection cannot silently change the retained research basis')
 
 let modelCalls = 0
 const answer = await queryAgency({ question: 'How long from Origin to Destination by transit and by drive?', context, state, callTool,

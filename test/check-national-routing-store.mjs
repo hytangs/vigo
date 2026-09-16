@@ -1859,12 +1859,15 @@ try {
   assert.equal(disconnectedShortWalk.status, 'blocked')
   assert.equal(disconnectedShortWalk.travelMode, 'transit', 'Disconnected OSM points must fall through without a straight-line walk estimate.')
 
-  const wholeLegWalkBeyondTransitAccess = routeNationalGtfsStore(storePath, {
+  const wholeLegWalkRequest = {
     ...shortWalkRequest,
+    routingDataMode: 'scheduled',
+    mode: 'transit',
     origin: { coordinate: [0, 0.03], label: 'Whole-leg walk origin', source: 'map' },
     destination: { coordinate: [0.00225, 0.03], label: 'Whole-leg walk destination', source: 'map' },
     maxStreetKm: 0.3,
-  })
+  }
+  const wholeLegWalkBeyondTransitAccess = routeNationalGtfsStore(storePath, wholeLegWalkRequest)
   assert.equal(wholeLegWalkBeyondTransitAccess.status, 'ready')
   assert.equal(
     wholeLegWalkBeyondTransitAccess.travelMode,
@@ -1907,15 +1910,33 @@ try {
   )
 
   const wholeLegWalkOutsideStreetEnvelope = routeNationalGtfsStore(storePath, {
-    ...shortWalkRequest,
-    origin: { coordinate: [0, 0.03], label: 'Capped whole-leg walk origin', source: 'map' },
-    destination: { coordinate: [0.00225, 0.03], label: 'Capped whole-leg walk destination', source: 'map' },
+    ...wholeLegWalkRequest,
     maxStreetKm: 0.24,
   })
   assert.equal(
     wholeLegWalkOutsideStreetEnvelope.status,
     'blocked',
     'The independent whole-leg street envelope must remain an enforced bound.',
+  )
+  const wholeLegWalkPolicies = [
+    [wholeLegWalkBeyondTransitAccess, 0.3, false],
+    [wholeLegWalkOutsideStreetEnvelope, 0.24, false],
+    [routeNationalGtfsStore(storePath, { ...wholeLegWalkRequest, allowLongWalk: false }), 0.2, false],
+    [routeNationalGtfsStore(storePath, { ...wholeLegWalkRequest, requireTransitRide: true }), 0.3, true],
+  ]
+  for (const [plan, directWalkLimitKm, requireTransitRide] of wholeLegWalkPolicies) {
+    const provenance = plan.diagnostics.routingDataProvenance
+    assert.equal(plan.status, plan === wholeLegWalkBeyondTransitAccess ? 'ready' : 'blocked')
+    assert.equal(provenance.searchParameters.travelMode, 'transit')
+    assert.equal(provenance.searchParameters.directWalkLimitKm, directWalkLimitKm)
+    assert.equal(provenance.searchParameters.requireTransitRide, requireTransitRide)
+    assert.equal(provenance.staticTimetableIdentity, wholeLegWalkBeyondTransitAccess.diagnostics.routingDataProvenance.staticTimetableIdentity)
+    assert.equal(provenance.streetIdentity, wholeLegWalkBeyondTransitAccess.diagnostics.routingDataProvenance.streetIdentity)
+  }
+  assert.equal(
+    new Set(wholeLegWalkPolicies.map(([plan]) => plan.diagnostics.routingDataProvenance.reproducibilityKey)).size,
+    wholeLegWalkPolicies.length,
+    'The same dated endpoints must have distinct provenance for different enforced whole-leg walking policies and transit requirements.',
   )
 
   const justOverThresholdWalk = routeNationalGtfsStore(storePath, {

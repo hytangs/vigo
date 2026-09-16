@@ -103,7 +103,8 @@ assert.equal(delayed.status, 'ready')
 assert.equal(delayed.scheduleMode, 'realtime-adjusted')
 assert.equal(delayed.arriveMinutes, 625)
 assert.equal(firstRide(delayed).scheduleMode, 'realtime-adjusted')
-assert.equal(delayed.diagnostics.algorithm, 'rust_resident_query_overlay_connection_scan_one_to_many')
+assert.equal(delayed.diagnostics.realtimeRouting.mode, 'full-snapshot')
+assert.equal(delayed.diagnostics.realtimeRouting.coverage.complete, true)
 assert.equal(delayed.diagnostics.realtimeRouting.appliedTrips, 1)
 assert.equal(delayed.diagnostics.realtimeRouting.replacedTrips, 1)
 
@@ -263,7 +264,7 @@ for (const tripId of ['T1', 'T2']) {
   assert.equal(live.arriveMinutes, downstreamScheduled.arriveMinutes)
   assert.equal(live.walkMinutes, downstreamScheduled.walkMinutes)
   assert.equal(live.diagnostics.searchStats.activeServiceKernel.lexicographicCertified, true)
-  assert.equal(live.diagnostics.searchStats.nativeTimetableKernel.scalar.journeyQuality.certified, true)
+  assert.equal(live.diagnostics.realtimeRouting.mode, 'full-snapshot')
 }
 
 disposeNationalGtfsStore(storePath)

@@ -11,6 +11,7 @@ import { CliUsageError, parseArguments, validateInvocation, value, values, enabl
 import { commands, usage } from './commands.mjs'
 import { handleOutputErrors, readJsonObject, writeJsonResult, writeOutputFile } from './io.mjs'
 import { assertMatrixSize } from '../server/matrix-size.mjs'
+import { normalizeRoutingDataRequest, normalizeScheduledAnalysisRequest } from '../server/routing-data-mode.mjs'
 import {
   apiVersion,
   cityFormatVersion,
@@ -334,7 +335,13 @@ function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {
   if (timePreference === 'arrive' && departureWindowMinutes > 0) {
     throw new Error('--departure-window is a centered departure profile; omit it for arrive-by search')
   }
+  const { routingDataMode } = normalizeRoutingDataRequest({
+    routingDataMode: args.has('data-mode') ? value(args, 'data-mode')
+      : request.routingDataMode === undefined ? 'scheduled' : request.routingDataMode,
+    serviceDate, timePreference, departMinutes: timeMinutes, arriveMinutes: timeMinutes,
+  })
   return {
+    routingDataMode,
     serviceDay,
     timePreference,
     objective,
@@ -386,7 +393,7 @@ async function runRouteRequest(args: CliArguments) {
   if (!['transit', 'walk', 'drive'].includes(mode)) {
     throw new Error('route mode must be transit, walk, or drive')
   }
-  if (request.traffic && mode !== 'drive') throw new Error('Supplied traffic requires Drive Route.')
+  if (options.routingDataMode === 'realtime' && request.traffic && mode !== 'drive') throw new Error('Supplied traffic requires Drive Route.')
   const stopLookup = openStopLookup(storePath)
   const origin = analyticalPoint(request.origin, 'Origin', stopLookup)
   const destination = analyticalPoint(request.destination, 'Destination', stopLookup)
@@ -406,7 +413,8 @@ async function runRouteRequest(args: CliArguments) {
   )
   const queryStarted = performance.now()
   try {
-    const baseRequest = {
+    const baseRequest = normalizeRoutingDataRequest({
+      routingDataMode: options.routingDataMode,
       mode,
       origin,
       destination,
@@ -426,8 +434,11 @@ async function runRouteRequest(args: CliArguments) {
       allowLongWalk: request.allowLongWalk !== false,
       departureWindowMinutes: options.departureWindowMinutes,
       walkingSpeedKph: request.walkSpeedKph,
-      ...(mode === 'drive' && request.traffic ? { trafficSnapshot: request.traffic } : {}),
-    }
+      ...(options.routingDataMode === 'realtime' && mode === 'transit' && request.realtimeSnapshot
+        ? { realtimeSnapshot: request.realtimeSnapshot } : {}),
+      ...(options.routingDataMode === 'realtime' && mode === 'drive' && request.traffic
+        ? { trafficSnapshot: request.traffic } : {}),
+    })
     const routeSegment = async (segmentRequest: Record<string, any>) => (
       mode === 'transit'
         ? routeOne(
@@ -467,6 +478,7 @@ async function runRouteRequest(args: CliArguments) {
         waypoints,
         destination,
         mode,
+        routingDataMode: options.routingDataMode,
         timeMinutes: options.timeMinutes,
         timePreference: options.timePreference,
         objective: options.objective,
@@ -504,6 +516,7 @@ async function runRoute(args: CliArguments) {
     if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`)
   }
   const {
+    routingDataMode,
     serviceDay,
     timePreference,
     objective,
@@ -539,6 +552,7 @@ async function runRoute(args: CliArguments) {
       }
       requireStreetStoreForCoordinateEndpoints(streetStorePath, origin, destination, `OD ${id}`)
       const request = {
+        routingDataMode,
         origin,
         destination,
         departMinutes: timeMinutes,
@@ -587,6 +601,7 @@ async function runRoute(args: CliArguments) {
   const routingElapsedMs = performance.now() - routingStarted
   const outputStarted = performance.now()
   const queryMetadata = {
+    routingDataMode,
     semantics: querySemantics,
     timeMinutes,
     timePreference,
@@ -704,6 +719,11 @@ async function runRouteStream(args: CliArguments) {
           throw new Error('objective must be earliest_arrival')
         }
         const routingPreference = 'fastest'
+        const { routingDataMode } = normalizeRoutingDataRequest({
+          routingDataMode: input.routingDataMode === undefined ? defaults.routingDataMode : input.routingDataMode,
+          serviceDate: defaults.serviceDate, timePreference,
+          departMinutes: defaults.timeMinutes, arriveMinutes: defaults.timeMinutes,
+        })
         const timeMinutes = input.time !== undefined
           ? parseNdjsonTime(input.time, 'time')
           : input.timeMinutes === undefined
@@ -727,7 +747,7 @@ async function runRouteStream(args: CliArguments) {
         if (input.kind === 'matrix') {
           if (departureWindowMinutes !== 0) throw new Error('Matrix does not support departure windows')
           const matrix = computePreparedMatrix(new Map(), input, paths, {
-            ...defaults, timePreference, objective, routingPreference, timeMinutes, maxWalkKm, maxTransfers,
+            ...defaults, routingDataMode, timePreference, objective, routingPreference, timeMinutes, maxWalkKm, maxTransfers,
           }, stopLookup)
           await writeNdjson({ ...matrix, sequence, id, timing: {
             ...matrix.timing,
@@ -740,6 +760,8 @@ async function runRouteStream(args: CliArguments) {
         const destination = ndjsonPoint(input.destination, 'Destination', stopLookup)
         requireStreetStoreForCoordinateEndpoints(streetStorePath, origin, destination, `Request ${id}`)
         const routed = routeOne(storePath, {
+          routingDataMode,
+          ...(routingDataMode === 'realtime' && input.realtimeSnapshot ? { realtimeSnapshot: input.realtimeSnapshot } : {}),
           origin,
           destination,
           departMinutes: timeMinutes,
@@ -767,6 +789,10 @@ async function runRouteStream(args: CliArguments) {
           id,
           status: 'ok',
           routingStatus: routed.plan?.diagnostics?.routingStatus ?? (routed.plan?.status === 'ready' ? 'ready' : 'blocked'),
+          query: {
+            routingDataMode, serviceDate: defaults.serviceDate, timeMinutes, timePreference,
+            objective, maxWalkKm, maxTransfers, departureWindowMinutes,
+          },
           engine,
           timing: {
             openMs: sequence === 1 ? preparation.elapsedMs : 0,
@@ -866,6 +892,7 @@ function boundedAnalyticalNumber(
 
 function analyticalRuntimeOptions(args: CliArguments, command: string, request: Record<string, unknown>) {
   const options = runtimeOptions(args, request)
+  normalizeScheduledAnalysisRequest({ ...options, departMinutes: options.timeMinutes }, command)
   if (options.timePreference !== 'depart' && command !== 'matrix') {
     throw new Error(`${command} supports fixed-departure routing only`)
   }
@@ -906,6 +933,7 @@ function computePreparedMatrix(
   options: ReturnType<typeof runtimeOptions>,
   stopLookup: ReturnType<typeof openStopLookup>,
 ) {
+  normalizeScheduledAnalysisRequest({ ...options, departMinutes: options.timeMinutes }, 'Matrix')
   const { storePath, streetStorePath, city } = paths
   assertMatrixSize(Array.isArray(request.origins) ? request.origins.length : 0,
     Array.isArray(request.destinations) ? request.destinations.length : 0)
@@ -914,7 +942,6 @@ function computePreparedMatrix(
   if (!['transit', 'walk', 'drive'].includes(mode)) {
     throw new Error('matrix mode must be transit, walk, or drive')
   }
-  if (request.traffic && mode !== 'drive') throw new Error('Supplied traffic requires Drive Matrix.')
   for (const option of ['includeJourneys', 'includeGeometry']) {
     if (request[option] != null && typeof request[option] !== 'boolean') throw new Error(`Matrix ${option} must be a boolean.`)
   }
@@ -952,6 +979,7 @@ function computePreparedMatrix(
   }
   const matrix = mode === 'transit'
     ? routeNationalGtfsMatrix(storePath, {
+        routingDataMode: options.routingDataMode,
         origins: origins.map((origin) => origin.point),
         destinations: destinations.map((destination) => destination.point),
         departMinutes: options.timeMinutes,
@@ -976,7 +1004,6 @@ function computePreparedMatrix(
         destinations: destinations.map((destination) => destination.point),
         walkingSpeedKph: request.walkSpeedKph,
         maxDistanceKm: request.maxDistanceKm,
-        ...(mode === 'drive' && request.traffic ? { trafficSnapshot: request.traffic } : {}),
       })
   const queryWallMs = performance.now() - queryStarted
   const rows = matrix.rows.map((row: Record<string, unknown>) => ({
@@ -995,6 +1022,7 @@ function computePreparedMatrix(
       origins,
       destinations,
       mode,
+      routingDataMode: options.routingDataMode,
       timePreference: options.timePreference,
       objective: options.objective,
       timeMinutes: options.timeMinutes,
@@ -1095,6 +1123,7 @@ async function runReach(args: CliArguments) {
   const bounds = rasterBounds(origin, radiusKm)
   const queryStarted = performance.now()
   const range = routeNationalGtfsReach(storePath, {
+    routingDataMode: options.routingDataMode,
     origin,
     departMinutes: options.timeMinutes,
     serviceDate: options.serviceDate,
@@ -1140,6 +1169,7 @@ async function runReach(args: CliArguments) {
     city,
     warnings: [],
     query: {
+      routingDataMode: options.routingDataMode,
       origin,
       timeMinutes: options.timeMinutes,
       serviceDate: options.serviceDate,

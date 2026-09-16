@@ -7,6 +7,8 @@ import { gtfsQuery } from '../src/agency/gtfsQuery.mjs'
 import { AgencyContext } from '../src/agency/agencyContext.mjs'
 import { deriveOperationalState } from '../src/agency/realtimeIntelligence.mjs'
 import { createToolRegistry, toolDefinitions, validateArguments } from '../src/agency/toolRegistry.mjs'
+import { prepareJourneyRealtime, journeyRealtimeResult } from '../src/agency/journeyRealtime.mjs'
+import { journeyRealtimeEvidence } from '../src/agency/journeyEvidence.mjs'
 import { createAgencyFixture, realtimeFixture, observationTime } from './fixtures/agency.mjs'
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agency-tools-'))
@@ -101,16 +103,83 @@ try {
   const route = await call('route_plan', journey)
   assert.equal(requested.origin.coordinate[1], 42.36, 'Coordinates come from the exact indexed stop')
   assert.equal(requested.realtimeSnapshot.tripUpdates.length, 3)
+  assert.equal(requested.routingDataMode, 'realtime', 'Agency journeys default explicitly to realtime routing')
+  assert.equal(route.data.request.routingDataMode, 'realtime')
   assert.equal(route.data.realtime.applied, true)
+  assert.deepEqual(route.data.realtime.inputCoverage, { received: 3, eligible: 3, rejected: 0, rejectionReasons: {}, complete: true })
   assert.match(route.warnings.join(' '), /alerts/)
+  const noSnapshotRead = { get tripUpdates() { assert.fail('Schedule-based research must not read the live snapshot') } }
+  const researchCall = createToolRegistry({ context, state, snapshot: noSnapshotRead, adapters: { route: async input => {
+    requested = input
+    assert.equal(input.routingDataMode, 'scheduled')
+    assert.equal(Object.hasOwn(input, 'realtimeSnapshot'), false, 'Research requests never forward a live snapshot, even as an undefined field')
+    return { plan: { status: 'ok', diagnostics: {} } }
+  } } })
+  const research = await researchCall('route_plan', { ...journey, routingDataMode: 'scheduled' })
+  assert.equal(research.data.request.routingDataMode, 'scheduled')
+  assert.equal(research.data.request.timeAssumption, undefined)
+  assert.equal(research.data.realtime.applied, false)
+  assert.equal(research.data.realtime.suppliedTripUpdates, 0)
+  assert.deepEqual(research.data.realtime.inputCoverage, { received: 0, eligible: 0, rejected: 0, rejectionReasons: {}, complete: true })
+  assert.equal(journeyRealtimeEvidence(research.data.realtime).routingDataMode, 'scheduled')
+  assert.match(research.warnings.join(' '), /Schedule-based research: live updates are disabled/)
+  assert.doesNotMatch(research.warnings.join(' '), /fallback|stale|missing feed/i)
+  assert(!research.provenance.includes('GTFS-Realtime TripUpdates'))
+  await researchCall('route_plan', { origin: journey.origin, destination: { stopId: 'C' }, waypoints: [journey.destination],
+    serviceDate: journey.serviceDate, arriveBy: '13:00', routingDataMode: 'scheduled' })
+  assert.equal(requested.timePreference, 'arrive')
+  assert.equal(requested.waypoints[0].stopId, 'B', 'Waypoints retain the selected research mode at the route adapter')
+  for (const missing of [{}, { serviceDate: journey.serviceDate }, { departTime: '12:00' }, { arriveBy: '13:00' }]) {
+    await assert.rejects(researchCall('route_plan', { origin: journey.origin, destination: journey.destination, routingDataMode: 'scheduled', ...missing }), /Schedule-based research requires an explicit/)
+  }
+  await assert.rejects(call('route_plan', { ...journey, routingDataMode: 'guess' }), /Invalid arguments.routingDataMode/)
   await call('route_plan', { origin: { stopId: 'A' }, destination: { stopId: 'B' }, serviceDate: journey.serviceDate, departTime: '08:00' })
   assert.equal(requested.departMinutes, 480, '08:00 stays eight in the morning at the native adapter')
   assert.equal(requested.origin.label, 'River')
   await assert.rejects(call('route_plan', { ...journey, departTime: '08:00' }), /one departure/)
   snapshot.tripUpdates.push({ ...snapshot.tripUpdates[0] })
-  await call('route_plan', journey)
+  const duplicate = await call('route_plan', journey)
   assert.equal(requested.realtimeSnapshot.tripUpdates.length, 2, 'Duplicate trip identities are excluded from the realtime routing overlay')
+  assert.deepEqual(duplicate.data.realtime.inputCoverage, { received: 4, eligible: 2, rejected: 2, rejectionReasons: { duplicate_identity: 2 }, complete: false })
+  assert.match(duplicate.warnings.join(' '), /2 of 4 supplied TripUpdates were rejected/)
   snapshot.tripUpdates.pop()
+  const largeSnapshot = { ...snapshot, tripUpdates: Array.from({ length: 1100 }, (_, i) => ({ ...snapshot.tripUpdates[0], tripId: `large-${i}`, startDate: undefined })) }
+  const largeCall = createToolRegistry({ context, state, snapshot: largeSnapshot, adapters: { route: async input => {
+    requested = input
+    return { plan: { diagnostics: { realtimeRouting: { status: 'partial', appliedTrips: 1099, coverage: { inputUpdates: 1100, appliedUpdates: 1099, rejectedUpdates: 1, prunedUpdates: 0, complete: false } } } } }
+  } } })
+  const largeRoute = await largeCall('route_plan', { origin: journey.origin, destination: journey.destination, serviceDate: journey.serviceDate, arriveBy: '13:00' })
+  assert.equal(requested.timePreference, 'arrive')
+  assert.equal(requested.realtimeSnapshot.tripUpdates.length, 1100, 'Every eligible update crosses the Ask/worker boundary for arrive-by, including beyond the old 256 and 1024 limits')
+  assert.equal(requested.realtimeSnapshot.tripUpdates.at(-1).tripId, 'large-1099')
+  assert.equal(requested.realtimeSnapshot.tripUpdates.at(-1).startDate, '20260913', 'A resolved service date stays explicit at the engine boundary')
+  assert.equal(requested.realtimeSnapshot.tripUpdates.at(-1).sourceFeedTimestamp, observationTime)
+  assert.equal(largeRoute.data.realtime.applied, true, 'Partial coverage still records the valid updates applied by the engine')
+  const retained = journeyRealtimeEvidence(largeRoute.data.realtime)
+  assert.deepEqual(retained.inputCoverage, { received: 1100, eligible: 1100, rejected: 0, rejectionReasons: {}, complete: true })
+  assert.equal(retained.coverage[0].complete, false, 'Model evidence preserves engine rejections after successful input admission')
+  assert.deepEqual(retained.statuses, ['partial'])
+  assert.equal(largeSnapshot.tripUpdates[0].startDate, undefined, 'Admission must not mutate the shared observation snapshot')
+  assert.equal(journeyRealtimeResult([{ status: 'partial', appliedTrips: 0, canceledTrips: 0 }], retained.inputCoverage).applied, false)
+  assert.equal(journeyRealtimeResult([{ status: 'cancellations_only', appliedTrips: 0, canceledTrips: 1 }], retained.inputCoverage).applied, true)
+
+  const rejectedSnapshot = { ...snapshot, tripUpdates: [
+    { ...snapshot.tripUpdates[0], sourceUrl: 'https://example.org/unreported.pb' },
+    { ...snapshot.tripUpdates[0], timestamp: observationTime - 181 },
+    { ...snapshot.tripUpdates[0], timestamp: observationTime + 181 },
+    { ...snapshot.tripUpdates[0], timestamp: NaN },
+    { ...snapshot.tripUpdates[0], sourceFeedTimestamp: observationTime - 181 },
+    { ...snapshot.tripUpdates[0], tripId: 'missing' },
+    { ...snapshot.tripUpdates[0], startDate: '20260915' },
+  ] }
+  const rejected = prepareJourneyRealtime({ context, state, snapshot: rejectedSnapshot, serviceDate: journey.serviceDate })
+  assert.equal(rejected.realtimeSnapshot.tripUpdates.length, 0, 'An empty admitted snapshot retains the complete rejection record')
+  assert.deepEqual(rejected.inputCoverage, { received: 7, eligible: 0, rejected: 7,
+    rejectionReasons: { unfresh_feed: 2, stale_record: 2, invalid_record_timestamp: 1, 'Trip is absent from active scheduled service.': 1, service_date_mismatch: 1 }, complete: false })
+  assert.deepEqual(rejected.realtimeSnapshot.inputCoverage, rejected.inputCoverage)
+  const failedCall = createToolRegistry({ context, state, snapshot: rejectedSnapshot, adapters: { route: async () => { throw new Error('No route available') } } })
+  const failedRoute = await failedCall('route_plan', journey)
+  assert.deepEqual(failedRoute.data.realtime.inputCoverage, rejected.inputCoverage, 'Routing failures must retain discarded input coverage')
   await assert.rejects(call('route_plan', { ...journey, arbitraryScript: 'x' }), /Unknown/)
   await assert.rejects(call('shell', {}), /Unknown tool/)
   await assert.rejects(call('anomaly_scan', { routeId: 'invented' }), /exact indexed/)

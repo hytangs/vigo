@@ -16,6 +16,9 @@ export function journeyClock(minutes) {
 export function journeyRealtimeEvidence(realtime) {
   if (!realtime) return realtime
   return { suppliedTripUpdates: realtime.suppliedTripUpdates, applied: realtime.applied,
+    ...(realtime.routingDataMode ? { routingDataMode: realtime.routingDataMode } : {}),
+    ...(realtime.inputCoverage ? { inputCoverage: realtime.inputCoverage } : {}),
+    ...((realtime.diagnostics ?? []).some(item => item.coverage) ? { coverage: [...new Map(realtime.diagnostics.filter(item => item.coverage).map(item => [JSON.stringify(item.coverage), item.coverage])).values()] } : {}),
     statuses: [...new Set((realtime.diagnostics ?? []).map(item => item.status).filter(Boolean))] }
 }
 

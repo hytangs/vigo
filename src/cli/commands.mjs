@@ -12,6 +12,7 @@ export const options = {
   input: ['PATH', 'Route CSV with origin/destination coordinates or stop IDs'],
   request: ['PATH', 'JSON request file; - reads standard input'],
   mode: ['VALUE', 'transit (default), walk, or drive; Reach supports transit only'],
+  'data-mode': ['VALUE', 'scheduled (default, research) or realtime with a supplied snapshot'],
   time: ['HH:MM', 'Local service time, 00:00–29:59 (default: 08:00)'],
   'time-preference': ['VALUE', 'depart (default) or arrive; Reach supports depart only'],
   objective: ['VALUE', 'earliest_arrival'],
@@ -58,10 +59,12 @@ export const commands = {
     summary: 'Find a journey or run a batch of transit journeys.',
     usage: ['--city ./city --request route.json --service-date YYYY-MM-DD [options]',
       '--city ./city --input trips.csv --output routes.csv --service-date YYYY-MM-DD [options]'],
-    options: [...queryOptions, 'input'],
+    options: [...queryOptions, 'data-mode', 'input'],
     notes: ['Request: {"origin":"STOP_A","destination":"STOP_B"}',
       'Points: exact stop ID, {"stopId":"..."}, or {"coordinate":[longitude,latitude]}.',
       'Optional ordered stops: {"origin":"A","waypoints":["X"],"destination":"B"}.',
+      'Realtime: set routingDataMode to "realtime" and include realtimeSnapshot in the JSON request.',
+      'The --data-mode option overrides the request. Scheduled mode ignores live observations.',
       'CSV columns: id, origin_lon, origin_lat, destination_lon, destination_lat.',
       'Or use origin_stop_id and destination_stop_id. Names: origin_name, destination_name.',
       'CSV batches support transit and require an output file; their JSON summary goes to stdout.'],
@@ -71,14 +74,14 @@ export const commands = {
     usage: ['--city ./city --request matrix.json --service-date YYYY-MM-DD [options]'],
     options: queryOptions,
     notes: ['Request: {"origins":[{"id":"a","point":"A"}],"destinations":[{"id":"b","point":"B"}]}',
-      'Points can also use {"coordinate":[longitude,latitude]}. Departure windows are unsupported.'],
+      'Points can also use {"coordinate":[longitude,latitude]}. Uses scheduled service; departure windows are unsupported.'],
   },
   reach: {
     summary: 'Compute a transit travel-time surface and contours.',
     usage: ['--city ./city --request reach.json --service-date YYYY-MM-DD [options]'],
     options: [...queryOptions.filter(name => name !== 'horizon'), 'cutoffs', 'extent-radius', 'raster-size', 'walk-speed'],
     notes: ['Request: {"origin":"STOP_A","cutoffsMinutes":[15,30,45]}',
-      'Uses fixed departures and transit with walking access. Departure windows are unsupported.'],
+      'Uses scheduled service, fixed departures, and transit with walking access. Departure windows are unsupported.'],
   },
   compare: {
     summary: 'Compare two saved results without rerunning the engine.',
@@ -89,7 +92,7 @@ export const commands = {
   '_build-city': { options: ['gtfs', 'gtfs-scope', 'osm', 'private-access', 'output', 'city-name'] },
   '_build-osm-store': { options: ['osm-pbf', 'output-store'] },
   '_prepare-osm-drive': { options: ['street-store'] },
-  '_route-stream': { options: queryOptions },
+  '_route-stream': { options: [...queryOptions, 'data-mode'] },
 }
 
 export function usage(version, command = '') {

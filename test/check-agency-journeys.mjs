@@ -30,7 +30,7 @@ assert.equal(request.arriveMinutes, 960)
 assert.equal(request.maxTransfers, 0, 'No-transfer requests must not be lost as falsy values')
 assert.equal(request.origin.stopId, 'S0')
 assert.equal(request.destination.stopId, 'S2')
-assert.deepEqual(result.data.request, { serviceDate: '2026-09-13', departTime: undefined, arriveBy: '16:00', timezone: undefined, maxTransfers: 0, via: [] })
+assert.deepEqual(result.data.request, { routingDataMode: 'realtime', serviceDate: '2026-09-13', departTime: undefined, arriveBy: '16:00', timezone: undefined, maxTransfers: 0, via: [] })
 const ordered = { origin: input.origin, destination: input.destination, serviceDate: input.serviceDate, departTime: '09:15', waypoints: [{ stopName: 'Depot' }] }
 await callTool('route_plan', ordered)
 assert.equal(request.departMinutes, 555)

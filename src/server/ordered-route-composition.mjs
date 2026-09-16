@@ -1,3 +1,4 @@
+import { stablePlanId } from './routing-plan-identity.mjs'
 import { numeric as finiteNumber } from './number-utils.mjs'
 
 const maximumOrderedRoutingPoints = 8
@@ -296,6 +297,27 @@ export function composeOrderedRoutingPlans(plans, points, request = {}) {
     )
   }
 
+  const dataSources = plans.map(plan => plan.diagnostics?.routingDataProvenance)
+  if (dataSources.some(Boolean)) {
+    const identities = dataSources.map(data => JSON.stringify(data && [
+      data.mode, data.staticTimetableIdentity, data.streetIdentity,
+      data.serviceDate, data.timeZone, data.snapshotId ?? null,
+    ]))
+    if (identities.some(identity => identity !== identities[0])) {
+      const error = new Error('Routing data changed between journey legs. Calculate the complete journey again.')
+      error.code = 'routing_snapshot_changed'
+      error.statusCode = 409
+      throw error
+    }
+  }
+  const combinedData = dataSources[0] ? {
+    ...dataSources[0],
+    requestedTimeMinutes: request.timePreference === 'arrive'
+      ? request.arriveMinutes ?? request.timeMinutes ?? request.departMinutes : request.departMinutes,
+    componentReproducibilityKeys: dataSources.map(data => data.reproducibilityKey),
+    reproducibilityKey: stablePlanId('ordered-data', { points,
+      components: dataSources.map(data => data.reproducibilityKey) }),
+  } : null
   const legs = combinedLegs(plans)
   const first = plans[0]
   const last = plans.at(-1)
@@ -342,6 +364,7 @@ export function composeOrderedRoutingPlans(plans, points, request = {}) {
     legs,
     diagnostics: {
       ...last.diagnostics,
+      ...(combinedData ? { routingDataProvenance: combinedData } : {}),
       originWalkKm: first.diagnostics?.originWalkKm,
       destinationWalkKm: last.diagnostics?.destinationWalkKm,
       timingPrecision: timingPrecision(plans),
