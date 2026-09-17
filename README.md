@@ -184,6 +184,18 @@ The results are not the performance ceiling of the architecture. There are oppor
 
 Feel free to play around the platform, and contact me if you encounter any issues or need help testing Ask and LLM configuration.
 
+## Thoughts
+
+Software/Platform Level
+
+1. The utility of GTFS-RT is significantly enhanced when integrated with static GTFS.
+2. Through orchestration, small LLMs can achieve performance comparable to large LLMs. This offers a more ideal approach for organizations reluctant to adopt complex frontier LLMs.
+3. Compared to the organizational management tools used in the pre-AI era, VIGO Agency features a much more modern UI. This looks beautiful and more user oriented.
+4. VIGO's "AI-native" nature enables large-scale development at an astonishing pace.
+5. Seamless integration with tools such as routing engine showcases the way for future expansion of tools/skills and use cases.
+
+On MBTA: The amount of delay and service irregularity visible even in one day was striking and much more extensive than I had expected. This is a much bigger problem VIGO Agency can solve.
+
 ## Data and resources
 
 VIGO Agency is designed as a largely self-guided platform with public data usage only.
