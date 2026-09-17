@@ -27,6 +27,12 @@ window.checkNavigation=async()=>{
   const r=element.getBoundingClientRect();
   if(r.width<=0||r.height<=0||!element.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)))throw Error('Control clipped: '+selector);
  }
+ const outer=document.querySelector('.surface-source-intake').getBoundingClientRect();
+ const panel=document.querySelector('.import-panel').getBoundingClientRect();
+ const examples=document.querySelector('.network-import-example').getBoundingClientRect();
+ if(panel.bottom>outer.bottom+1||examples.bottom>panel.bottom+1)throw Error('Import content escapes panel borders');
+ const scroller=document.querySelector('.empty-intake');
+ if(scroller.scrollWidth>scroller.clientWidth+1)throw Error('Intake overflows horizontally');
  if(document.body.textContent.includes('Manifest'))throw Error('Manifest remains');
  const preset=document.querySelector('.realtime-preset button');preset.click();await wait();
  document.querySelector('.realtime-actions button').click();await wait();
