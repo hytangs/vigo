@@ -181,7 +181,7 @@ function delayLabel(delaySeconds: number | undefined) {
   return `${minutes > 0 ? '+' : ''}${minutes}m`
 }
 
-/** Follow the matched GTFS shape, never the vehicle's compass reading. */
+/** Follow the matched GTFS shape when its direction is available. */
 export function routeDirectionBearing(coordinate: LngLat, route: RouteMetric | undefined, trip?: ScheduledTrip, sequence?: number, stopped = false) {
   const points = route?.coordinates
   if (!points || points.length < 2) return undefined
@@ -194,7 +194,11 @@ export function routeDirectionBearing(coordinate: LngLat, route: RouteMetric | u
   const scale = Math.cos(coordinate[1] * Math.PI / 180)
   let best = Infinity
   let bearing: number | undefined
-  for (let i = Math.max(0, Math.min(start, end)); i < Math.min(points.length - 1, Math.max(start, end)); i++) {
+  // Adjacent stops can project onto the same vertex in a simplified shape.
+  // Keep a real segment at that vertex, including the arriving terminal leg.
+  const firstSegment = Math.max(0, Math.min(points.length - 2, Math.min(start, end)))
+  const segmentEnd = Math.min(points.length - 1, Math.max(firstSegment + 1, Math.max(start, end)))
+  for (let i = firstSegment; i < segmentEnd; i++) {
     const a = points[i], b = points[i + 1]
     const dx = (b[0] - a[0]) * scale, dy = b[1] - a[1]
     const length = dx * dx + dy * dy
@@ -273,7 +277,9 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
       source: 'live' as const,
       coordinate: [vehicle.lon, vehicle.lat] as LngLat,
       bearing: routeDirectionBearing([vehicle.lon, vehicle.lat], directionRoute, scheduledTrip,
-        vehicle.currentStopSequence ?? scheduledStopTime?.sequence ?? tripUpdate?.nextStopSequence, vehicle.currentStatus === 'STOPPED_AT'),
+        vehicle.currentStopSequence ?? scheduledStopTime?.sequence ?? tripUpdate?.nextStopSequence, vehicle.currentStatus === 'STOPPED_AT')
+        ?? (typeof vehicle.bearing === 'number' && Number.isFinite(vehicle.bearing) && vehicle.bearing >= 0 && vehicle.bearing <= 360
+          ? vehicle.bearing % 360 : undefined),
       serviceKey: route ? serviceKeyForRoute(route) : routeId,
       // A route_id identifies the whole service. Without trip membership,
       // selecting the first indexed pattern would invent a branch match.

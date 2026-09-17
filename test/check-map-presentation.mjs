@@ -130,6 +130,11 @@ const serviceVehicles = await import(`data:text/javascript;base64,${Buffer.from(
   const trip = { stopTimes: [{ sequence: 1, shapeIndex: 2, progress: 0.5 }, { sequence: 2, shapeIndex: 3, progress: 0.75 }] }
   assert.equal(serviceVehicles.routeDirectionBearing([0.5, 0], route, trip, 2), 270, 'Stop sequence selects the correct leg rather than the nearest opposing leg')
   assert.equal(serviceVehicles.routeDirectionBearing([0.5, 1], route, trip, 1, true), 270, 'Stopped vehicles point along their onward leg')
+  const sparse = { coordinates: [[0, 0], [1, 0], [2, 0]] }
+  const sharedVertex = { stopTimes: [{ sequence: 1, shapeIndex: 1 }, { sequence: 2, shapeIndex: 1 }] }
+  assert.equal(serviceVehicles.routeDirectionBearing([1, 0], sparse, sharedVertex, 2), 90, 'Stops sharing a shape vertex still have a heading')
+  const terminal = { stopTimes: [{ sequence: 1, shapeIndex: 2 }, { sequence: 2, shapeIndex: 2 }] }
+  assert.equal(serviceVehicles.routeDirectionBearing([2, 0], sparse, terminal, 2), 90, 'The final vertex retains its arriving segment')
   assert.equal(serviceVehicles.routeDirectionBearing([0, 0], undefined), undefined, 'No invented heading without a matched route')
   assert.equal(serviceVehicles.routeDirectionBearing([0, 0], { coordinates: [[0, 0], [0, 0]] }), undefined)
 }
@@ -431,6 +436,11 @@ const joinedVehiclePreview = {
     { ...stops[0], id: 'feed::stop-b', name: 'Stop B' },
     { ...stops[0], id: 'feed::stop-c', name: 'Stop C' },
   ],
+}
+for (const [bearing, expected] of [[0, 0], [135, 135], [360, 0], [undefined, undefined], [NaN, undefined], [-1, undefined], [361, undefined]]) {
+  const frame = serviceVehicles.buildServiceVehicleFrame({ mode: 'live', preview: { routes: [], stops: [] }, scheduledVehicles: [],
+    realtimeSnapshot: { vehicles: [{ id: 'unmatched', lat: 42, lon: -71, bearing }], tripUpdates: [], alerts: [], counts: {} } })
+  assert.equal(frame.vehicles[0].bearing, expected, 'Unmatched patterns retain valid reported RT headings only')
 }
 const liveFrame = serviceVehicles.buildServiceVehicleFrame({
   mode: 'live',
