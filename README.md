@@ -1,59 +1,55 @@
 # VIGO Agency
 
-A transit operations workspace for checking what is happening, where it is happening, and what the available data can actually support.
+VIGO Agency is an experimental dashboard for **real-time transit network intelligence**: understanding what is happening across a transit system, where it is happening, and how operational data can be turned into useful information for transit agencies.
 
-Agency adds **Network**, **Routes**, and **Ask** views to VIGO’s map and routing interface. Open a City, connect its realtime feeds, and investigate a departure, a route, or a journey. Network brings current observations and routes to review together; Routes supports search, reporting filters, and predicted-delay sorting. Boston supplies the live example; the implementation reads the selected City’s GTFS identities, service calendar, timezone, and street network.
+## The transit agency problem
 
-## The problem
+**1. Underuse of GTFS-RT**:
+Transit agencies generate and broadcast large volumes of schedule and real-time data, but these data remain fragmented, difficult to explore, and underused for network-level intelligence support in daily operations. 
 
-A long gap between vehicle reports is not enough to diagnose a service gap. A vehicle may have stopped reporting, the timetable may already specify infrequent service, or the wrong service date may be in use. An operations screen that hides these distinctions gives a confident answer to the wrong question.
+**2. Fear of AI complexity**:
+Prior projects like TransitGPT have demonstrated the potential of LLMs by using models such as GPT-4o or Claude Sonnet to generate and execute Python codes for GTFS analysis. However, many agencies remain cautious about this approach because frontier models can be expensive, operationally complex, and black-box like. This limits accountability and makes deployment harder in daily use. VIGO Agency tests whether a small 4B model (Like QWen 4B), a model running on a laptop, can still provide useful and grounded operational intelligence through **deterministic tools and skills** for natural language requests, rather than relying on the model itself to generate (or ...hallucinate) operational facts.
 
-This prototype makes the comparison inspectable. Each departure finding identifies the same stop and scheduled trips, records the prediction and schedule side by side, and links back to its sources. It is worthwhile because the same evidence supports three everyday tasks: checking service, investigating a question, and preparing information for riders.
 
-## The artifact
+## My Solution and Development Background
 
-**Live** combines route summaries, independently aged feeds, service alerts, departure comparisons, and a short observation history. Select a finding to see its location, timetable comparison, and source records.
+Over summer 2026, I developed **VIGO** (**V**isual **I**ntelligence for **G**TFS **O**perations), a high-performance public-transit routing and network analysis engine built for fast, exact, and reproducible analysis of scheduled transit systems. Using GTFS and OSM geographic data, it supports itinerary routing, OD matrices, accessibility analysis, isochrones, and network scenario generation and comparison.
 
-**Ask** lets a model choose bounded transit tools. Its activity trail appears while the checks run. The answer uses readable route and stop names, minutes, and computed results; exact queries remain in expandable details. Journey and Reach results use the existing map. Model setup is in the panel: choose a provider, discover or enter a model, and connect. The connection test checks function calling, not just whether a server responds.
+VIGO was initially built primarily as a **research and planning tool**. Thus, its visualization capabilities focused on scheduled service, while real-time operations remained largely outside its scope. **VIGO Agency** explores the next layer of the VIGO architecture: integrating GTFS-RT data with network visualization, operational diagnostics, routing, and an experimental agentic interface.
 
-**Skills** provides network health, route triage, and rider-information workflows. These are small built-in compositions, with visible inputs and an enable switch. A reserved headway-control integration is explicitly unavailable. Rider messages are drafts; copying one does not publish it.
+**VIGO 0.3.2 was developed before this technical evaluation and is used here as an unchanged foundation.** The work completed for this evaluation is contained in the VIGO Agency application and integration layer.
 
-![A live departure comparison beside the existing VIGO map](docs/images/live-evidence.png)
+### Pre-existing foundation: VIGO 0.3.2
 
-*Boston during the development session. The evidence view names the stop and compares predicted departure spacing with the timetable. Map data © OpenStreetMap contributors. Live values change between screenshots and the retained observation below.*
+* High-performance scheduled-transit, walking, and driving routing by CCH and CSA
+* GTFS schedule processing and static network visualization
+* One-to-many routing, Network scenario generation and accessibility comparison
+* Academic paper and routing performance benchmarking
 
-## What the example established
+### Progress: VIGO Agency (VIGO 0.4.0)
 
-The current MBTA import contains **399 route records**, **10,311 stop records**, and **146,341 scheduled trip records**. Those are feed-wide records, including shuttle routes and station elements; they are not counts of routes or physical stations operating at one moment.
+**Network and route intelligence**
 
-At **05:20:19 EDT on September 13, 2026**, the retained observation contained **75 recent vehicle locations**, **642 matched trip reports**, **7 unmatched reports**, and **74 active alerts**. The three feed clocks were evaluated separately. One route 116 comparison at Broadway @ Cabot St had a **21.75-minute predicted interval versus 14 minutes scheduled**. Both adjacent departures reported at that stop. This is evidence about those predictions, not proof of actual vehicle passages, their cause, or the reliability of the whole route. See the [retained Boston observation](docs/examples/boston-observation.json).
+* System-wide network visualization
+* Station departure boards and trip-progress
+* Network service briefings and abnormal-service detection
 
-Two useful distinctions emerged during development:
+**Experimental agentic layer**
 
-- A retained Boston timetable ended on September 5. Agency required a current import before connecting observations. Importing the current feed was necessary before any live comparison was meaningful.
-- The largest absolute interval is not necessarily the largest departure from the schedule. An early Ask result showed 25.1 minutes against 25 scheduled. The interface preserves both numbers instead of labeling the difference a major disruption. Network-wide comparisons can group by route and retain the largest measured interval on each route.
+* Ask interface for interactive transit-system queries
+* Tool integration with VIGO routing, network data, and web search
 
-The native adapters also completed an **08:00 scheduled journey from Alewife to Park Street in 22 minutes**, a Matrix query for those endpoints, and a **15-minute Reach from Park Street reaching 114 transit stop records**. These are example outputs, not performance benchmarks. The Route result used scheduled service in that run; Reach and Matrix are explicitly scheduled analyses.
+**Application development**
 
-## A small, reproducible City X example
+* Preliminary GTFS-Realtime processing and routing capabilities
+* Agency-oriented interface and workflow integration
+* UI and backend enhancements
 
-![Three computed departure-comparison cases](docs/images/departure-comparison.svg)
+Like VIGO, VIGO Agency is open source and licensed under the [Apache License 2.0](LICENSE).
 
-The fixture has three trips, one route, and three stops. In the middle case, the same two scheduled departures are predicted 20 minutes apart rather than 10. In the last case, the middle trip does not report. Agency leaves the comparison unknown instead of treating the gap between reports as a measured service gap. The [computed fixture output](docs/examples/city-x.json) and [figure script](scripts/render-agency-example.mjs) use the production comparison code.
+## Run the platform
 
-## Methods and limits
-
-The server shares one observation per City across Live, Ask, and Skills. Scheduled-trip alignment uses exact identities, source scope where available, direction, service date, timezone, and calendar exceptions. Ambiguous identities remain unresolved. Headway comparisons require departure predictions at the same stop for adjacent scheduled departures, with both reporting. Arrival predictions and GPS proximity do not substitute for departure times.
-
-Feed freshness is a declared **180-second monitoring policy**. The comparison window and in-memory history are **30 minutes**. Every positive departure delay and unequal measured interval remains numerically visible; no learned anomaly score or arbitrary disruption cutoff is added. These settings describe the prototype’s observation scope, not a transit industry standard.
-
-Ask uses an OpenAI-compatible provider over native fetch. It can select typed helpers and a read-only SQLite query when needed. SQL is limited to approved tables and functions, one statement, at most 200 rows and 256 KB, and a 1.5-second process deadline. Route, Matrix, and Reach call existing VIGO server adapters. A model can choose the wrong investigation, so the executed query and its evidence remain inspectable. Free model prose does not replace computed operational facts.
-
-The scope excludes reconstructed terminal stop calls, frequency-trip instance alignment, multiple agency timezones in one City, translation beyond English, automatic dispatch advice, and automatic publication. There is no learned prediction model or persistent realtime warehouse. Further details are in [ASSUMPTIONS.md](ASSUMPTIONS.md).
-
-## Run it
-
-Requires Node.js **24.18 or later**, npm, and the existing Rust/native build toolchain.
+VIGO Agency requires Node.js **24.18 or later**, npm, and a local environment capable of building the Rust routing kernel, which shall work in the development environment of **macOS 26**.
 
 ```bash
 npm ci
@@ -61,52 +57,159 @@ npm run build:rust-routing-kernel
 npm run dev
 ```
 
-Open the local URL printed by the development command. Create a City and import its GTFS ZIP in **City**. Import an OSM PBF to use walking-network Reach. In **Network → Network tools (⋯) → Feed settings**, enter the agency’s feed URLs; MBTA is a convenience preset. In **Network → Ask → Connect AI**, choose a provider, enter its credentials if needed, find a model, and connect. Local Ollama and LM Studio endpoints are supported alongside remote OpenAI-compatible APIs. A model must support function calling. Network, route browsing, and source evidence remain available without a model.
+This starts the required local development services and prints their localhost addresses in the terminal. Open the **displayed application URL** in a browser to access VIGO Agency.
 
-Keys entered in the interface remain in server memory for the app session. They are not written into the City, repository, or browser storage. Restarting the app requires reconnecting. Server-managed configuration is also available:
+VIGO Agency is also designed to support a native desktop application through Electron and, in principle, multiple operating systems beyond macOS. These deployment paths were not fully tested within the limited timeframe of this technical evaluation.
 
-```bash
-export VIGO_AGENCY_LLM_BASE_URL="https://your-provider.example/v1"
-export VIGO_AGENCY_LLM_MODEL="your-model"
-export VIGO_AGENCY_LLM_API_KEY="your-key"
-npm run dev
-```
+### Loading Boston / MBTA City
 
-`VIGO_AGENCY_LLM_REASONING_EFFORT` optionally selects `none`, `low`, `medium`, or `high` where supported. Live and built-in workflows work without a model. Default City storage is `~/Documents/VIGO Agency Cities`; Agency uses its own application configuration directory. `VIGO_PROJECTS_DIR` and `VIGO_CONFIG_DIR` can select an isolated workspace.
+![Open a city](docs/images/01-startup.png)
 
-```bash
-npm run check:agency
-npm run typecheck
-npm run check:ui
-npm run check:security
-npm run check:map
-npm run check:gtfs
-npm run build
-npm run package:studio
-npm run check:packaged
-node scripts/render-agency-example.mjs
-```
+When VIGO Agency starts for the first time, you will be prompted to create or open a city. For the Boston / MBTA example, three data sources are required:
 
-The desktop package is named **VIGO Agency** and uses its own application identity. Desktop entrypoints (`main.mjs`, `preload.cjs`), icons (`icons/`), web assets, and the built CLI share the `public/` distribution folder. It communicates with its engine in memory. The upstream VIGO checkout and native routing implementation were left unchanged.
+* **GTFS Schedule**: an up-to-date MBTA GTFS feed
+* **OpenStreetMap**: a `.osm.pbf` extract covering the Boston region
+* **GTFS-Realtime**: MBTA real-time feed (As API endpoints. Select MBTA-Boston in the demo)
+
+Links to the required datasets are provided directly in the application interface.
+
+The first load requires substantial preprocessing. VIGO Agency builds the routing engine, prepares the street network, and indexes the scheduled GTFS data before the city is ready for viewing. For Boston, this typically takes approximately **~5 minutes**, depending on available resources and system workload.
+
+### Network and routes
+
+When a city is opened, VIGO Agency starts on the **Network** page. It combines the static GTFS network with the latest available GTFS-Realtime observations to address **problem 1**.
+
+![Network page](docs/images/02-network.png)
+
+The left panel provides a network summary, including the number of routes with usable real-time information and routes that currently need review, through computed conditions such as delays, cancellations, spacing irregularities, and active alerts.
+
+The map provides the spatial view of the entire network. Static GTFS supplies route geometry and stops; GTFS-RT displays active vehicles. Clicking on a route, vehicle, or stop opens the relevant detail.
+
+#### Service briefing
+
+Further down the Network panel, VIGO Agency generates a **service briefing** from the current GTFS and GTFS-RT state.
+
+![Service briefing](docs/images/03-briefing.png)
+
+The briefing is based on computed evidence. It can be generated with or without AI automatically every 15 or 30 minutes. Depending on the available feeds, it can report:
+
+- the number of routes and trips with GTFS-RT predictions;
+- reported cancellations and alerts;
+- geographic concentrations of delayed trips;
+- unusual headway irregularity between predicted departures;
+- or in the unlikely case, the system performing perfectly (such as late night).
+
+The briefing is purposed as a compact network summary. In a large system such as the MBTA, the raw number of warnings can be high, so individual route and trip views provide the more useful diagnostic layer for operational staff.
+
+#### Delay and spacing diagnostics
+
+The map also exposes individual vehicles and computed service irregularities.
+
+![Delay and spacing diagnostics](docs/images/04-bunching.png)
+
+VIGO Agency prototypes two classes of real-time diagnostics through GTFS-RT feeds:
+
+- **Delay (`!`)**: compares GTFS-RT departure predictions against the corresponding static GTFS stop time for the same trip, stop, direction, and service date. **Amber** for warning conditions and **red** for severe conditions.
+- **Spacing / Bunching (`↔`)**: compares predicted separation between consecutive vehicles or trips with the scheduled separation. Dashed links identify a chained pair of trips.
+
+#### Stations
+
+Selecting a stop or station opens its departure board.
+
+![Station departure board](docs/images/05-stationboard.png)
+
+The board joins scheduled GTFS departures with available GTFS-RT predictions and shows the resulting service irregularity, like the departure board in the MBTA station platform. 
+
+#### Route and line views
+
+The **Routes** page provides route-level inspection. A route can be viewed geographically on the map or as a linear stop sequence.
+
+![Route line view](docs/images/06-lineview.png)
+
+Selecting line view places active vehicles against the corresponding stop sequence in a schematic map, which would be useful for operational staff when the geographic map becomes visually dense. It also suports displaying irregularities as the map.
+
+You may also view individual trips and compare scheduled times against predicted times, stop by stop. It would be helpful for understanding individual delays. A limitation is that current GTFS-RT data only retains predictions for upcoming stops.
+
+![Trip status](docs/images/07-status.png)
+
+### Ask (Experimental)
+
+To address **problem 2**, VIGO Agency experiments with an agentic interface for querying transit data and computation, similar to **TransitGPT** but with a different philosophy.
+
+**Ask** design deliberately separates **language reasoning from transit computation**. The LLM acts primarily as a **semantic interface and tool orchestrator**. It interprets the request, selects from a bounded set of tools, and supplies structured arguments. Detailed computation are still in deterministic tools and skills outside the model. The rationale is simple: with a smaller model, we make the task closer to multiple-choice than free-response, which reduces opportunities for hallucination.
+
+![LLM-assisted query](docs/images/08-llm-attention.png)
+
+For example, a question “Which routes need attention now?” invokes the real-time network-analysis tools and return computed network status results. The model then organizes that evidence into a natural language response instead of analyzing itself.
+
+#### Configure an LLM
+
+The Ask panel supports configurable model providers or API. On connection, VIGO Agency would verify **tool-calling support**.
+
+![Model and data configuration](docs/images/09-llm-quickquestions.png)
+
+The current execution flow mimics a chain-of-thought query in frontier models:
+
+1. A user submits a natural-language query.
+2. The model receives the available tool schemas and current application context.
+3. The model selects a tool and generates structured arguments.
+4. VIGO validates and executes the corresponding deterministic computation.
+5. The tool returns structured results such as routes, stops, and service states.
+6. The model may make additional tool calls if necessary.
+7. A final response is generated from the completed tool results.
+
+The activity trail exposes intermediate tool execution so that failures are also visible. For example, if a place cannot be resolved from OpenStreetMap, the model would then use a  public-search tool to locate the place online.
+
+![Tool fallback](docs/images/10-llm-routing-help.png)
+
+#### VIGO routing and accessibility
+
+Ask is also integrated with the pre-existing capabilities of **VIGO 0.3.2**.
+
+A journey request can resolve locations from online search, call the routing engine, and return the resulting itinerary through the existing map renderer.
+
+![VIGO journey](docs/images/11-llm-routing.png)
+
+Similarly, Reach requests can call VIGO's one-to-many routing and accessibility engine to compute travel-time surfaces from a selected origin.
+
+![VIGO reachability](docs/images/12-isochrones.png)
+
+#### Model limitations
+
+**Ask remains experimental.** Tool selection, multi-step reasoning, and final wording depend on the underlying model, so different providers and model sizes may produce materially different behavior or **FAIL** even with the same deterministic tools.
+
+For this evaluation, the primary model is **Qwen3.5:4b running locally through Ollama**. No paid frontier-model API was provisioned for the application, which made a small local model the practical deployment target. You may plug in an OpenAI Compatiable API to test the modeling, which should work to some extent while not guaranteed.
+
+The results are not the performance ceiling of the architecture. There are opportunities since it is working **even when the orchestration model is extremely small (4B)**.
+
+Feel free to play around the platform, and contact me if you encounter any issues or need help testing Ask and LLM configuration.
 
 ## Data and resources
 
-| Resource | Use and provenance |
+VIGO Agency is designed as a largely self-guided platform with public data usage only.
+
+| Resource | Usage |
 | --- | --- |
-| [MBTA GTFS ZIP](https://cdn.mbta.com/MBTA_GTFS.zip) | Downloaded September 13, 2026. Publisher MBTA; advertised period September 4–December 12, 2026; feed version “Fall 2026, 2026-09-11T20:42:05+00:00, version D.” Imported through VIGO. The full ZIP and generated City are not committed. |
-| [Vehicle positions](https://cdn.mbta.com/realtime/VehiclePositions.pb), [trip updates](https://cdn.mbta.com/realtime/TripUpdates.pb), [alerts](https://cdn.mbta.com/realtime/Alerts.pb) | Public MBTA observations fetched during this session. The retained JSON records timestamps and source URLs. They are observations, not a frozen future replay feed. |
-| [GTFS Schedule reference](https://gtfs.org/documentation/schedule/reference/) and [GTFS Realtime reference](https://gtfs.org/documentation/realtime/reference/) | Service clocks, calendar exceptions, trip descriptors, departure predictions, and alert semantics. |
-| [OpenStreetMap](https://www.openstreetmap.org/copyright) | Basemap and retained Boston pedestrian street index, copied into the isolated demo City without changing the original. The index was built September 10 from a 65,540,060-byte Boston PBF. Its original extract download URL was not retained here, so an independently downloaded extract may give different Reach results. OSM data is available under ODbL. |
-| [VIGO](https://github.com/hytangs/vigo/tree/v0.3.2) | Pre-existing application shell, CSS, map, GTFS import, native routing, and Route/Matrix/Reach capabilities. Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE). |
-| [Ollama OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility) | Provider setup and reasoning controls. Local Chat and VEXTA source were inspected locally for connection and status patterns; their implementations were not copied. |
-| [City X fixture](test/fixtures/agency.mjs) | Synthetic test data created for this task. It is not a real agency dataset. |
+| [MBTA GTFS ZIP](https://cdn.mbta.com/MBTA_GTFS.zip) | MBTA Static GTFS: Feed version “Fall 2026, 2026-09-11T20:42:05+00:00, version D.” Transit timetable.|
+| [Vehicle positions](https://cdn.mbta.com/realtime/VehiclePositions.pb), [trip updates](https://cdn.mbta.com/realtime/TripUpdates.pb), [alerts](https://cdn.mbta.com/realtime/Alerts.pb) | Public MBTA observations fetched during this session for GTFS-RT. |
+| [OpenStreetMap](https://www.openstreetmap.org) | Basemap and street index built into a PBF format downloaded from BBBike. |
+| [VIGO](https://github.com/hytangs/vigo/tree/v0.3.2) | Pre-existing VIGO 0.3.2 platform, and full documentation for the routing engine and untouched features. |
 
-## Compute
+## Compute Resources
 
-Development and verification ran in Codex on **macOS 26.5.1, Apple M2, 8 CPU cores, 16 GiB unified memory**. The development runtime was Node.js **26.7.0** with npm **11.19.0**; the packaged desktop runtime was Electron **44.2.0**. Native VIGO routing used the local Rust build. No remote compute cluster was used.
+Development and primary verification were conducted with OpenAI Codex on **macOS 26.5.1, Apple M2, 8 CPU cores, and 16 GiB unified memory**. The development runtime used Node.js **26.7.0**, npm **11.19.0**, and Electron **44.2.0**.
 
-The coding assistant was **Codex, identified in the session as GPT-6**. Its subscription/access tier and exact deployment identifier were not exposed, so neither is inferred. Runtime AI was tested with the already-installed **Qwen3.5:4b** model through local Ollama; model discovery, a real function call, a transit question, and a rider draft were exercised. No paid remote inference provider was configured for these tests. These checks establish prototype functionality, not comparative accuracy or superiority to another transit assistant.
+Runtime AI functionality was tested locally through Ollama using the pre-installed **Qwen3.5:4b** model. No remote compute cluster was used, and no paid remote LLM API was configured for the application, apart from limited API testing through Alibaba-Cloud free tier.
 
-This writeup was drafted with AI from the work and retained outputs. [AI-USE.md](AI-USE.md) records authorship, assistance, and the limits of verification.
+Development used a **ChatGPT Pro 20x** subscription, primarily with **GPT-6 Astra** through Codex for implementation, debugging, code review, and technical assessment.
 
-Time spent: pending final verification.
+## Hours Worked
+
+Approximately **18 human-attention hours** were spent on the technical evaluation:
+
+* **3 hours** on system design, problem framing, and implementation planning
+* **3 hours** on early stage prompting and goal-based automatic development
+* **6 hours** on AI-assisted implementation, debugging, and verification
+* **6 hours** on final review and writing documentation
+
+In the AI-Native era, it is commonly understood that model execution time, which may continue unattended for hours or overnight, is excluded.
