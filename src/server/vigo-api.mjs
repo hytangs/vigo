@@ -1564,7 +1564,18 @@ function routingStoreSelection(projectId, project, requestedFeedId) {
 async function requireRoutingStore(projectId, project, requestedFeedId) {
   const selection = routingStoreSelection(projectId, project, requestedFeedId)
   if (!selection.storePath) {
-    const error = new Error('The selected feed does not have a ready routing store.')
+    const timetableJobs = (project.jobs ?? []).filter(job => (
+      ['national-gtfs-import', 'national-gtfs-merge'].includes(job.kind)
+      && (!requestedFeedId || !job.feedId || job.feedId === requestedFeedId)
+    ))
+    const preparing = timetableJobs.find(job => ['queued', 'running'].includes(job.status))
+    const latest = [...timetableJobs].sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')))[0]
+    const message = preparing
+      ? `Timetable still preparing${preparing.phase ? `: ${preparing.phase}` : ''}. Wait for GTFS preparation to finish, then try again.`
+      : latest?.status === 'failed' || latest?.status === 'cancelled'
+        ? 'Timetable preparation did not finish. Retry the GTFS import in City data.'
+        : 'No ready timetable is available. Add a GTFS ZIP in City data and wait for preparation to finish.'
+    const error = new Error(message)
     error.statusCode = 409
     throw error
   }
