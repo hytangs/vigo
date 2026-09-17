@@ -1234,72 +1234,6 @@
   box-shadow: none;
 }
 
-.reach-data-setup {
-  margin: 10px 0 0;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel);
-}
-
-.reach-data-setup header {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.reach-data-setup button {
-  padding: 4px 6px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--panel-strong);
-  color: var(--text-strong);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.reach-data-setup ul {
-  display: grid;
-  gap: 10px;
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.reach-data-setup li {
-  display: grid;
-  grid-template-columns: 15px minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 7px;
-  font-size: 13px;
-}
-
-.reach-data-setup li strong {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.reach-data-setup li small {
-  display: block;
-  margin-top: 3px;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-.reach-data-setup li > span {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.reach-data-setup .is-ready > svg { color: var(--accent); }
-.reach-data-setup .is-failed > svg { color: var(--danger, #c24135); }
-.reach-data-setup .reach-setup-action { margin-top: 10px; }
-
 .reach-origin-row {
   min-width: 0;
   display: grid;
@@ -1612,10 +1546,6 @@
     width: 100%;
   }
 }
-
-.reach-data-setup > summary { min-height: 36px; color: var(--text); font-size: 13px; font-weight: 650; cursor: pointer; }
-.reach-data-setup:not([open]) { padding: 0; border: 0; background: transparent; }
-.reach-data-setup:not([open]) > summary { color: var(--accent); }
 .reach-supporting-metrics, .reach-status-details { min-width: 0; color: var(--text-soft); font-size: 12px; line-height: 1.5; }
 .reach-supporting-metrics > summary, .reach-status-details > summary { min-height: 34px; line-height: 34px; cursor: pointer; font-weight: 600; }
 .reach-supporting-metrics .result-metric { margin-top: 8px; }

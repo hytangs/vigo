@@ -1,7 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRight,
-  CheckCircle2,
   CircleDot,
   Database,
   Eraser,
@@ -95,7 +94,6 @@ type AnalyzePanelProps = {
   preparationTasks: PreparationTask[]
   streetGraphBuilding: boolean
   routingStoreBuilding: boolean
-  onOpenTasks: () => void
   onServiceDateChange: (value: string) => void
   onDepartMinutesChange: (value: number) => void
   onMaxWalkKmChange: (value: number) => void
@@ -612,7 +610,6 @@ export function AnalyzePanel({
   preparationTasks,
   streetGraphBuilding,
   routingStoreBuilding,
-  onOpenTasks,
   comparison,
   serviceDecomposition,
   serviceDecompositionLoading,
@@ -798,21 +795,6 @@ export function AnalyzePanel({
           </div>
         </div>
 
-        <details className="reach-data-setup" aria-label="Reach data setup" open={transitSetup.status !== 'ready' || streetSetup.status !== 'ready'}>
-          <summary>{transitSetup.status === 'ready' && streetSetup.status === 'ready' ? 'Data ready' : 'Data setup'}</summary>
-          <header><button type="button" onClick={onOpenTasks}>View tasks</button></header>
-          <ul>
-            {[
-              { title: mode === 'compare' ? 'GTFS feeds to compare' : 'Transit schedules', state: transitSetup, missing: mode === 'compare' ? 'Add at least two GTFS ZIPs in City.' : 'Add a GTFS ZIP in City.' },
-              { title: 'OSM walking network', state: streetSetup, missing: 'Add an OSM .pbf covering this City.' },
-            ].map(({ title, state, missing }) => <li key={title} className={state.status === 'failed' ? 'is-failed' : state.status === 'ready' ? 'is-ready' : undefined}>
-              {state.status === 'ready' ? <CheckCircle2 size={15} /> : state.status === 'working' ? <LoaderCircle size={15} className="task-spinner" /> : <Database size={15} />}
-              <div><strong>{title}</strong>{state.detail || state.status === 'missing' ? <small>{state.detail || missing}</small> : null}</div>
-              <span>{state.label}</span>
-            </li>)}
-          </ul>
-          {[transitSetup, streetSetup].some((state) => state.status === 'missing' || state.status === 'failed') ? <button className="reach-setup-action" type="button" onClick={onOpenData}>Open City data</button> : null}
-        </details>
 
         {mode === 'compare' ? (
           <div className="reach-comparison-picker">

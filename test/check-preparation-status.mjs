@@ -62,10 +62,10 @@ try {
   }
   const render = (patch) => renderToStaticMarkup(createElement(AnalyzePanel, { ...props, ...patch }))
   const missing = render({})
-  assert.match(missing, /Add an OSM .pbf covering this City/)
+  assert.doesNotMatch(missing, /reach-data-setup|View tasks/)
   assert.match(missing, /class="reach-run" disabled/)
   const working = render({ preparationTasks: [job('running')] })
-  assert.match(working, /Building street indexes/)
+  assert.doesNotMatch(working, /reach-data-setup|View tasks/)
   assert.match(working, /Data is being prepared/)
   assert.doesNotMatch(working, /Import needed|Import OSM|Add an OSM/)
   assert.match(working, /class="reach-run" disabled/)

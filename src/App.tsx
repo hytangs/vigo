@@ -778,7 +778,7 @@ function SidebarNetworkStatusBox({
 
       <div className="sidebox-finding-list">
         <div className={classNames('sidebox-finding', osmStreetIndex ? 'tone-good' : 'tone-watch')}>
-          <strong>{osmStreetIndex ? 'OSM indexed locally' : 'OSM optional'}</strong>
+          <strong>{osmStreetIndex ? 'OSM indexed locally' : 'OSM required for full functionality'}</strong>
           <span>{osmStreetMessage || osmText}</span>
         </div>
         {missingRequiredTables.length ? (
@@ -1430,7 +1430,7 @@ function DataReadinessRail({
     },
     {
       label: 'Streets',
-      value: streetStore?.status === 'ready' ? 'OSM ready' : streetStore?.status === 'building' ? 'Indexing' : 'Optional',
+      value: streetStore?.status === 'ready' ? 'OSM ready' : streetStore?.status === 'building' ? 'Indexing' : 'Required',
       detail: streetStore?.status === 'ready'
         ? `${formatNumber(streetStore.edgeCount)} directed edges`
         : streetStore?.status === 'building'
@@ -1646,13 +1646,13 @@ function EmptyOperationsStart({
             detail={osmDetail}
             ready={osmStreetReady}
             working={isOsmImporting}
-            missingLabel="Optional"
+            missingLabel="Required"
             status={statusFromJobStatus(osmJob?.status ?? (osmStreetReady ? 'complete' : isOsmImporting ? 'running' : 'idle'))}
           />
         </div>
 
         <p className="surface-source-hint">
-          GTFS supplies scheduled transit. OSM supplies walking and driving streets.
+          GTFS supplies scheduled transit. OSM is required for full functionality, including walking and driving routes.
         </p>
 
         <button type="button" className="button button-primary" disabled={!gtfsReady || isImporting || isOsmImporting} onClick={onOpenNetwork}>Open network</button>
@@ -4932,7 +4932,6 @@ export default function App() {
             preparationTasks={visiblePreparationTasks}
             streetGraphBuilding={selectedProject.osmStreetIndex?.status === 'building'}
             routingStoreBuilding={selectedProject.routingStore?.status === 'building'}
-            onOpenTasks={() => setBackgroundTasksOpen(true)}
             onServiceDateChange={(value) => {
               changeRoutingServiceDate(value)
               invalidateAnalyzeResult()
