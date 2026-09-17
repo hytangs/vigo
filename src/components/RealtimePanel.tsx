@@ -48,12 +48,12 @@ export function RealtimePanel({ snapshot, request, message, loading, onConnect, 
   return (
     <section className="realtime-panel" aria-label="Live data">
       <header className="realtime-heading">
-        <div><Radio size={16} /><strong>Live data</strong></div>
+        <div><Radio size={16} /><strong>GTFS-RT live feeds</strong></div>
         <span className={classNames('realtime-status', snapshot && !error && !stale && 'is-connected', (error || stale) && 'needs-attention')} role="status">
           <i aria-hidden="true" />{status}
         </span>
       </header>
-      <p className="realtime-description">Vehicle locations, trip updates, and service alerts.</p>
+      <p className="realtime-description">Paste your agency’s GTFS-RT URLs below to connect vehicle locations, trip updates, and alerts.</p>
 
       {snapshot ? (
         <div className="realtime-connection">

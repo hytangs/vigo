@@ -1224,7 +1224,6 @@ function ImportPanel({
   onOsmFiles,
   onConnectRealtime,
   onDisconnectRealtime,
-  onExportReproducibility,
   onCancelGtfs,
   onRetryGtfs,
   onCancelOsm,
@@ -1247,7 +1246,6 @@ function ImportPanel({
   onOsmFiles: (files: FileList | File[]) => void
   onConnectRealtime: (request: RealtimeInspectRequest) => void
   onDisconnectRealtime: () => void
-  onExportReproducibility: () => void
   onCancelGtfs: () => void
   onRetryGtfs: () => void
   onCancelOsm: () => void
@@ -1264,7 +1262,7 @@ function ImportPanel({
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault()
-    if (event.dataTransfer.files.length) onFiles(event.dataTransfer.files)
+    if (!isImporting && event.dataTransfer.files.length) onFiles(event.dataTransfer.files)
   }
 
   return (
@@ -1274,21 +1272,7 @@ function ImportPanel({
           <span className="eyebrow">Import</span>
           <h2>Add data</h2>
         </div>
-        <button type="button" className="panel-heading-action" onClick={onExportReproducibility} title="Download reproducibility manifest">
-          <Download size={14} />
-          <span>Manifest</span>
-        </button>
       </div>
-
-      <section className="network-import-example" aria-label="Boston example files">
-        <h3>Try Boston</h3>
-        <p>Download these example files, then choose or drop them below.</p>
-        <div>
-          <a href="https://cdn.mbta.com/MBTA_GTFS.zip" target="_blank" rel="noopener noreferrer" download="MBTA_GTFS.zip"><Download size={16} aria-hidden="true" /><span>MBTA timetable <small>GTFS ZIP · routes, stops and schedules</small></span></a>
-          <a href="https://drive.google.com/uc?export=download&amp;id=1EiCPazDU8PNi2-swpe9poI2C5tOuJ-q7" target="_blank" rel="noopener noreferrer"><Download size={16} aria-hidden="true" /><span>Boston streets <small>boston.pbf · walking and driving network</small></span></a>
-        </div>
-        <small>Google Drive may ask you to confirm the PBF download. <a href="https://drive.google.com/file/d/1EiCPazDU8PNi2-swpe9poI2C5tOuJ-q7/view?usp=share_link" target="_blank" rel="noopener noreferrer">View source file</a></small>
-      </section>
 
       <div
         className={classNames('drop-zone', isImporting && 'is-working')}
@@ -1308,6 +1292,7 @@ function ImportPanel({
       >
         <input
           ref={fileRef}
+          onClick={(event) => event.stopPropagation()}
           hidden
           type="file"
           accept=".zip,application/zip"
@@ -1319,7 +1304,7 @@ function ImportPanel({
         <FileArchive size={22} />
         <div>
           <strong>{isImporting ? 'Importing GTFS…' : 'Add GTFS'}</strong>
-          <span>{importMessage || 'Choose or drop a GTFS ZIP'}</span>
+          <span>{importMessage || 'Choose or drop a GTFS ZIP from any city'}</span>
         </div>
         {isImporting ? (
           <button type="button" className="import-job-action" onClick={(event) => { event.stopPropagation(); onCancelGtfs() }}>
@@ -1373,6 +1358,16 @@ function ImportPanel({
         onConnect={onConnectRealtime}
         onDisconnect={onDisconnectRealtime}
       />
+
+      <section className="network-import-example" aria-label="Boston example files">
+        <h3>Try Boston</h3>
+        <p>Download these example files, then add them above.</p>
+        <div>
+          <a href="https://cdn.mbta.com/MBTA_GTFS.zip" target="_blank" rel="noopener noreferrer" download="MBTA_GTFS.zip"><Download size={16} aria-hidden="true" /><span>MBTA timetable <small>GTFS ZIP · routes, stops and schedules</small></span></a>
+          <a href="https://drive.google.com/uc?export=download&amp;id=1EiCPazDU8PNi2-swpe9poI2C5tOuJ-q7" target="_blank" rel="noopener noreferrer"><Download size={16} aria-hidden="true" /><span>Boston streets <small>boston.pbf · walking and driving network</small></span></a>
+        </div>
+        <small>Google Drive may ask you to confirm the PBF download. <a href="https://drive.google.com/file/d/1EiCPazDU8PNi2-swpe9poI2C5tOuJ-q7/view?usp=share_link" target="_blank" rel="noopener noreferrer">View source file</a></small>
+      </section>
     </section>
   )
 }
@@ -1541,6 +1536,7 @@ function CitySourceStatus({
   working,
   missingLabel,
   status,
+  onChoose,
 }: {
   icon: ReactNode
   title: string
@@ -1549,16 +1545,17 @@ function CitySourceStatus({
   working: boolean
   missingLabel: string
   status: ActivityStatus
+  onChoose: () => void
 }) {
   return (
-    <div className={classNames('surface-source-status', ready && 'is-ready', working && 'is-working')}>
+    <button type="button" onClick={onChoose} disabled={working} className={classNames('surface-source-status', ready && 'is-ready', working && 'is-working')}>
       <span className="surface-source-status-icon">{icon}</span>
       <span className="surface-source-status-copy">
         <strong>{title}</strong>
         <small>{detail}</small>
       </span>
       <StatusBadge status={status} label={ready ? 'Ready' : working ? 'Preparing' : missingLabel} />
-    </div>
+    </button>
   )
 }
 
@@ -1582,7 +1579,6 @@ function EmptyOperationsStart({
   onOsmFiles,
   onConnectRealtime,
   onDisconnectRealtime,
-  onExportReproducibility,
   onCancelGtfs,
   onRetryGtfs,
   onCancelOsm,
@@ -1607,12 +1603,12 @@ function EmptyOperationsStart({
   onOsmFiles: (files: FileList | File[]) => void
   onConnectRealtime: (request: RealtimeInspectRequest) => void
   onDisconnectRealtime: () => void
-  onExportReproducibility: () => void
   onCancelGtfs: () => void
   onRetryGtfs: () => void
   onCancelOsm: () => void
   onRetryOsm: () => void
 }) {
+  const intakeRef = useRef<HTMLDivElement | null>(null)
   const gtfsReady = hasOperationsData(project)
   const gtfsDetail = isImporting
     ? importMessage || 'Building the local timetable index…'
@@ -1624,17 +1620,18 @@ function EmptyOperationsStart({
       : 'Add an OSM PBF to enable street access'
 
   return (
-    <div className="workbench empty-workbench empty-intake">
+    <div ref={intakeRef} className="workbench empty-workbench empty-intake">
       <section className="surface-source-intake" aria-labelledby="surface-source-intake-title">
         <div className="surface-source-intake-copy">
           <span className="eyebrow">City data</span>
           <h1 id="surface-source-intake-title">Build {quietMapLabel(project.name)}</h1>
-          <p>Add a timetable and optional street data. Open the network when you’re ready.</p>
+          <p>Import a GTFS timetable from any city. Add streets and live feeds below.</p>
         </div>
 
         <div className="surface-source-statuses" aria-label="City sources">
           <CitySourceStatus
             icon={<FileArchive size={18} />}
+            onChoose={() => intakeRef.current?.querySelector<HTMLElement>('.drop-zone')?.click()}
             title="GTFS timetable"
             detail={gtfsDetail}
             ready={gtfsReady}
@@ -1644,6 +1641,7 @@ function EmptyOperationsStart({
           />
           <CitySourceStatus
             icon={<Navigation2 size={18} />}
+            onChoose={() => intakeRef.current?.querySelector<HTMLButtonElement>('.osm-import-strip button')?.click()}
             title="OSM street network"
             detail={osmDetail}
             ready={osmStreetReady}
@@ -1677,7 +1675,6 @@ function EmptyOperationsStart({
           onOsmFiles={onOsmFiles}
           onConnectRealtime={onConnectRealtime}
           onDisconnectRealtime={onDisconnectRealtime}
-          onExportReproducibility={onExportReproducibility}
           onCancelGtfs={onCancelGtfs}
           onRetryGtfs={onRetryGtfs}
           onCancelOsm={onCancelOsm}
@@ -4314,22 +4311,6 @@ export default function App() {
     return projectResult.project
   }
 
-  async function exportReproducibilityManifest() {
-    try {
-      const result = await apiJson<{ manifest: Record<string, unknown> }>(`/api/projects/${encodeURIComponent(selectedProject.id)}/reproducibility`)
-      const blob = new Blob([`${JSON.stringify(result.manifest, null, 2)}\n`], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `${selectedProject.id}-reproducibility.json`
-      anchor.click()
-      URL.revokeObjectURL(url)
-      setImportMessage('Reproducibility manifest downloaded')
-    } catch (error) {
-      setImportMessage(error instanceof Error ? error.message : 'Reproducibility manifest could not be downloaded.')
-    }
-  }
-
   async function cancelImportJob(kind: 'gtfs' | 'osm') {
     const job = kind === 'gtfs' ? gtfsImportJob : osmImportJob
     if (!job?.id) return
@@ -4841,7 +4822,6 @@ export default function App() {
     onOsmFiles: handleOsmFiles,
     onConnectRealtime: connectRealtime,
     onDisconnectRealtime: disconnectRealtime,
-    onExportReproducibility: () => { void exportReproducibilityManifest() },
     onCancelGtfs: () => { void cancelImportJob('gtfs') },
     onRetryGtfs: () => { void retryImportJob('gtfs') },
     onCancelOsm: () => { void cancelImportJob('osm') },

@@ -480,7 +480,8 @@
   width: min(820px, 100%);
   min-height: 100%;
   display: grid;
-  align-content: center;
+  align-content: start;
+  grid-auto-rows: max-content;
   gap: 18px;
   justify-self: center;
   padding: clamp(28px, 6vw, 72px);
@@ -1183,26 +1184,6 @@
   min-width: 0;
 }
 
-.panel-heading-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 27px;
-  padding: 0 7px;
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--panel-strong) 70%, transparent);
-  font-size: 0.62rem;
-  font-weight: 850;
-  cursor: pointer;
-}
-
-.panel-heading-action:hover {
-  color: var(--text-strong);
-  border-color: var(--accent);
-}
-
 .eyebrow {
   display: block;
   margin-bottom: 3px;
@@ -1344,7 +1325,9 @@
 }
 
 .import-panel {
-  grid-template-rows: auto auto auto auto auto;
+  grid-template-rows: none;
+  grid-auto-rows: max-content;
+  overflow: visible;
 }
 
 .drop-zone {
@@ -1668,4 +1651,15 @@
 .realtime-actions .button {
   min-height: 32px;
   font-size: 0.7rem;
+}
+
+.surface-source-status {
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.surface-source-status:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
