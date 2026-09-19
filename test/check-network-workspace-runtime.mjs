@@ -188,7 +188,7 @@ window.runTests = async () => {
   openTools();
   await click('Feed settings');
   await wait(()=>document.querySelector('.agency-connect'));
-  await settle();
+  await wait(()=>document.activeElement===document.querySelector('[aria-label="Close feed settings"]'));
   const feedSettings=document.querySelector('.agency-connect').getBoundingClientRect();
   check(feedSettings.top>=document.querySelector('.agency-navigation').getBoundingClientRect().bottom && feedSettings.top<innerHeight,'Feed settings must open within view from a scrolled service list');
   check(document.activeElement===document.querySelector('[aria-label="Close feed settings"]'),'Opening feed settings must move keyboard focus into the revealed content');
@@ -343,7 +343,9 @@ window.runTests = async () => {
   return {snapshotRefreshIsolation:true,focusedWorkspace:true,legacyModeRecovery:true,keyboardTabs:true,overviewFilters:true,priorityRouteNavigation:true,eventReturnNavigation:true,routeSearchSortReset:true,eventPagination:true,pendingFilterTruth:true,scopedExports:true,questionRetry:true,questionDraftPreserved:true,imeAndBusyGuard:true,modelSetupPreservesDraft:true,feedSettingsFocus:true,disclosureEscape:true,observationRetry:true,briefingReadRetry:true};
 };
 window.visualCheck = async theme => {
+  const previousPanel=document.querySelector('.agency-panel');
   appearance=theme;selectedScope={};renderKey++;sessionStorage.setItem('agency-mode-fixture','briefing');renderWorkspace(activeSnapshot);
+  await wait(()=>document.querySelector('.agency-panel')!==previousPanel);
   await wait(()=>document.getElementById('agency-briefing') && metric('Routes')?.querySelector('strong').textContent==='4' && !document.querySelector('[aria-label="Briefing refresh interval"]').disabled);
   await settle();
   const panel=document.querySelector('.agency-panel');
@@ -446,7 +448,7 @@ const main = path.join(directory, 'main.cjs')
 await fs.writeFile(main, `const {app,BrowserWindow}=require('electron'); const fs=require('node:fs');
 app.setPath('userData',${JSON.stringify(path.join(directory, 'profile'))});
 app.whenReady().then(async()=>{ try {
-  const window=new BrowserWindow({show:false,width:1280,height:1000,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
+  const window=new BrowserWindow({show:false,width:1280,height:1000,webPreferences:{backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
   window.webContents.on('console-message', event=>{if(event.level==='error') console.error(event.message)});
   await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/network-workspace-fixture.html`)});
   await window.webContents.executeJavaScript('new Promise((resolve,reject)=>{const start=Date.now();const timer=setInterval(()=>{if(window.runTests){clearInterval(timer);resolve()}else if(Date.now()-start>20000){clearInterval(timer);reject(Error("Fixture did not load"))}},50)})');

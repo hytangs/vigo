@@ -9,7 +9,7 @@ import { parseFareAmount } from '../src/farePresentation.mjs'
 import { fareEventDay } from '../src/fareTime.mjs'
 import { compactResult } from '../src/agency/queryAgent.mjs'
 import { addGtfsFares, writeGtfsFareCatalog } from '../src/server/gtfs-fare-store.mjs'
-import { buildNationalGtfsStore, buildNationalGtfsCityStore, mergeNationalGtfsStores, addNationalGtfsFares, routeNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
+import { buildNationalGtfsStore, buildNationalGtfsCityStore, mergeNationalGtfsStores, addNationalGtfsFares, routeNationalGtfsStore, disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
 
 const catalog = () => ({ version: 1, source: 'fixture.zip', tables: {
   agency: [{ agency_id: 'A', agency_timezone: 'America/New_York', agency_fare_url: 'https://example.com/fares' }],
@@ -222,5 +222,8 @@ try {
   assert.equal(farePriceLabel(addGtfsFares(isolated, plan).legs.find(leg => leg.type === 'ride').fare.options), '$4.00', 'Replacing a catalog invalidates plan and quote caches.')
   assert.equal(farePriceLabel(initial.legs.find(leg => leg.type === 'ride').fare.options), '$2.40', 'An earlier answer retains its own fare evidence.')
   isolated.close()
-} finally { await fs.rm(root, { recursive: true, force: true }) }
+} finally {
+  disposeAllNationalGtfsStores()
+  await fs.rm(root, { recursive: true, force: true })
+}
 console.log('GTFS fare matching, import, merged-feed scoping and routing annotation passed.')

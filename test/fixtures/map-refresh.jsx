@@ -13,7 +13,9 @@ export async function runMapStartupChecks() {
   const check = (value, message) => { if (!value) throw Error(message) }
   const pause = () => new Promise(resolve => setTimeout(resolve, 30))
   const wait = async (predicate, message) => {
-    const until = performance.now() + 4000
+    // This checks rendering correctness, not GPU speed. Shared CI machines
+    // use SwiftShader and may need longer to create each fresh WebGL context.
+    const until = performance.now() + 15000
     while (!predicate()) { if (performance.now() > until) throw Error(message); await pause() }
   }
   const addSource = Map.prototype.addSource, remove = Map.prototype.remove
