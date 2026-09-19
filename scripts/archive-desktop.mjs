@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, rm } from 'node:fs/promises'
+import { access, appendFile, mkdir, readFile, rm, stat } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -35,4 +35,8 @@ else if (process.platform === 'linux') await execFileAsync('tar', [
 else await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
   'Compress-Archive -LiteralPath $env:VIGO_ARCHIVE_SOURCE -DestinationPath $env:VIGO_ARCHIVE_DESTINATION -CompressionLevel Optimal',
 ], { env: { ...process.env, VIGO_ARCHIVE_SOURCE: appBundle, VIGO_ARCHIVE_DESTINATION: archivePath } })
+const archive = await stat(archivePath)
+if (!archive.isFile() || archive.size === 0) throw new Error('Studio archiving did not produce a nonempty file.')
+// Give CI the actual output instead of repeating filename patterns in YAML.
+if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `archive-path=${archivePath}\n`)
 console.log(archivePath)

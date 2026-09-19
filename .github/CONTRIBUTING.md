@@ -37,6 +37,12 @@ Run `npm test` while working. Before proposing a release-affecting change, run
 `npm run release:studio` builds, packages, checks the bundled runtime, and archives VIGO Studio; macOS bundles receive an ad-hoc signature.
 Report which checks ran and which platform-specific checks did not.
 
+For packaging changes, `npm run check:public` creates and inspects a small archive
+with the host OS archiver before any full build. `npm run release:studio` remains
+the complete local build, package, runtime-check, and archive command. Archive
+names belong to `scripts/lib/studio-paths.mjs`; the archiver passes the produced
+file directly to the release uploader. Do not duplicate filename patterns in CI.
+
 ## Claims and limitations
 
 Tests establish agreement with VIGO's declared timetable and street-network

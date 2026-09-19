@@ -59,7 +59,7 @@
     "build:cli": "node scripts/build-cli.mjs",
     "cli": "node public/vigo.mjs",
     "check:cli": "npm run build:cli --silent && node test/check-cli-interface.mjs && node test/check-capabilities.mjs && node test/check-city.mjs && node test/check-city-build-equivalence.mjs && node test/check-service-day.mjs && node test/check-cli.mjs && node test/check-result-comparison.mjs && node test/check-routing-interface-parity.mjs && npm run check:portability --silent",
-    "check:public": "node test/check-node-runtime.mjs && node test/check-public-release.mjs && npm run check:docs --silent",
+    "check:public": "node test/check-node-runtime.mjs && node test/check-public-release.mjs && node test/check-studio-archive.mjs && npm run check:docs --silent",
     "docs:developer-guide": "node scripts/build-developer-guide.mjs",
     "check:engine": "npm run check:rust-routing-targets --silent && npm run check:rust-routing-kernel --silent && npm run typecheck --silent && npm run check:studio --silent && npm run check:security --silent && npm run check:ui --silent && npm run check:map --silent && npm run check:gtfs --silent && npm run check:routing --silent && npm run check:cli --silent && npm run check:agency --silent",
     "check:release": "npm run check:public --silent && npm run check:engine --silent && npm run check:national-runtime --silent && npm run check:atlas --silent",
