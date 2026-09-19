@@ -20,6 +20,7 @@ import '/src/index.css';
 const stops=${JSON.stringify(stops)};
 const root=createRoot(document.getElementById('root'));
 window.selected=[]; window.analysisRuns=0; window.disabled=false;
+window.keyUps=0; document.addEventListener('keyup',()=>window.keyUps++,true);
 window.scenario={id:'protected-case',interventions:[{id:'existing-change',name:'Keep this change'}]};
 function Harness(){ const [origin,setOrigin]=React.useState(null); return React.createElement('form',{onSubmit:event=>{event.preventDefault();window.analysisRuns++}},React.createElement(AnalysisOriginPicker,{origin,stops,disabled:window.disabled,onSetOrigin:point=>{window.selected.push(point);setOrigin(point)}}),React.createElement('button',{type:'submit',id:'run-analysis'},'Run analysis')); }
 window.mount=()=>root.render(React.createElement(Harness)); window.mount();
@@ -34,7 +35,7 @@ const server = await createServer({ root, configFile: false, cacheDir: path.join
   }) },
   resolveId(id) { if (id === 'virtual:origin-test') return id },
   load(id) { if (id === 'virtual:origin-test') return harness },
-}], server: { host: '127.0.0.1', port: 0 }, optimizeDeps: { include: ['react', 'react-dom', 'react-dom/client'] } })
+}], server: { host: '127.0.0.1', port: 0 }, optimizeDeps: { noDiscovery: true, include: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react-dom', 'react-dom/client', 'lucide-react'] } })
 try {
   await server.listen()
   const { analysisStopOrigin, analysisStopDisplayId, searchAnalysisStops, analysisCoordinateOrigin, AnalysisOriginPicker } = await server.ssrLoadModule('/src/components/AnalysisOriginPicker.tsx')
@@ -61,14 +62,16 @@ const assert=require('node:assert/strict');
 app.setPath('userData',${JSON.stringify(path.join(directory, 'profile'))});
 app.whenReady().then(async()=>{try{
  const window=new BrowserWindow({show:true,width:390,height:800,webPreferences:{backgroundThrottling:false,nodeIntegration:false,contextIsolation:true,sandbox:true}});
+ window.webContents.on('console-message',event=>{if(event.level==='error')console.error(event.message)});
  const evaluate=code=>window.webContents.executeJavaScript(code);
- const wait=async(code)=>{for(let i=0;i<100;i++){if(await evaluate(code))return;await new Promise(resolve=>setTimeout(resolve,30));}throw Error('Condition timed out: '+code+'; '+await evaluate('document.body.innerText'))};
- const key=async(keyCode)=>{window.webContents.focus();window.webContents.sendInputEvent({type:'keyDown',keyCode});if(keyCode==='Enter')window.webContents.sendInputEvent({type:'char',keyCode:'\\r'});window.webContents.sendInputEvent({type:'keyUp',keyCode});};
+ const wait=async(code)=>{const until=Date.now()+10000;while(Date.now()<until){if(await evaluate(code))return;await new Promise(resolve=>setTimeout(resolve,30));}throw Error('Condition timed out: '+code+'; '+await evaluate('JSON.stringify({focused:document.hasFocus(),active:document.activeElement?.outerHTML,text:document.body.innerText})'))};
+ const key=async(keyCode)=>{const before=await evaluate('window.keyUps');window.webContents.sendInputEvent({type:'keyDown',keyCode});if(keyCode==='Enter')window.webContents.sendInputEvent({type:'char',keyCode:'\\r'});window.webContents.sendInputEvent({type:'keyUp',keyCode});await wait('window.keyUps > '+before);};
  await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/origin-test.html`)});
- window.focus();
+ app.focus({steal:true});window.focus();window.webContents.focus();
+ await wait('document.hasFocus()');
  await wait("!!document.querySelector('.analysis-origin-toggle')");
  await evaluate("document.querySelector('.analysis-origin-toggle').focus()"); await key('Enter');
- await wait("document.activeElement === document.querySelector('input[type=search]')");
+ await wait("!!document.querySelector('input[type=search]') && document.activeElement === document.querySelector('input[type=search]')");
  assert.equal(await evaluate("document.querySelectorAll('.analysis-origin-results li').length"),20);
  assert.equal(await evaluate("getComputedStyle(document.querySelector('.analysis-origin-search input')).fontSize"),'13px','Primary origin input uses readable body size');
  assert.equal(await evaluate("getComputedStyle(document.querySelector('.analysis-origin-results strong')).fontSize"),'13px','Stop choices use readable primary labels');
