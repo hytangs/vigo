@@ -23,7 +23,7 @@ export const options = {
   'max-transfers': ['N', 'Maximum transit changes, 0–31 (default: unrestricted)'],
   horizon: ['MIN', 'Transit search horizon, 1–2880 (default: 480)'],
   cutoffs: ['MINUTES', 'Reach limits, comma-separated, 5–240 (default: 15,30,45,60)'],
-  'extent-radius': ['KM', 'Reach computation radius, 1–40 (default: 8)'],
+  'extent-radius': ['KM', 'Requested Reach raster radius, 1–40 (default: 8)'],
   'raster-size': ['N', `Reach grid: ${supportedReachRasterSizes.join(', ')} (default: 96)`],
   'walk-speed': ['KPH', 'Reach walking speed, 1–8 (default: 4.8)'],
   before: ['PATH', 'Saved result before a change'],

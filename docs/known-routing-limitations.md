@@ -30,9 +30,9 @@ VIGO models the City revision and Query it is given. It does not certify real-wo
 ## Realtime
 
 - Realtime transit Route is available in the desktop and CLI. CLI Route requires a supplied `realtimeSnapshot` and `--data-mode realtime`; it does not fetch feeds. Matrix and Reach reject realtime requests. Vehicle Positions and Alerts do not change route costs or close services.
-- Only FULL_DATASET feeds are decoded. Routing updates modify matched scheduled trips, remove CANCELED/DELETED trips, and omit SKIPPED calls. Added, duplicated, replacement, and unscheduled trips without a supported scheduled instance remain unsupported for routing. Studio can still [display reported added service](ROUTE-LINE.md#added-service) in line views and the trip selector.
+- Only FULL_DATASET feeds are decoded. Routing updates modify matched scheduled trips, remove CANCELED/DELETED trips, and omit SKIPPED calls. Added, duplicated, replacement, and unscheduled trips without a supported scheduled instance remain unsupported for routing. Studio can still [display reported added service](network.md#added-service) in line views and the trip selector.
 - Feed and record timestamps must pass freshness checks. Engine admission accepts observations up to 180 seconds old and 60 seconds ahead of its captured clock; the Network workspace may apply its own admission policy. Missing timestamps do not establish freshness. Inspect diagnostics for exclusions and scheduled fallback.
-- The complete supplied snapshot is processed without the former trip/update caps. Unreported trips retain scheduled times; rejected updates do not establish coverage or actual operations. See [realtime routing](REALTIME-ROUTING.md) for admission rules, diagnostics and verification.
+- The complete supplied snapshot is processed without the former trip/update caps. Unreported trips retain scheduled times; rejected updates do not establish coverage or actual operations. See [realtime routing](realtime-routing.md) for admission rules, diagnostics and verification.
 
 ## City reuse and platforms
 

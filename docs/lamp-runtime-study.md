@@ -50,11 +50,11 @@ The model does not include time of day, weekday, holidays, dwell, crowding, disr
 
 A useful next experiment is rolling evaluation over many complete service weeks, freezing both event and timetable versions as they were available at prediction time. Compare against a matched time-of-day baseline, report route/direction coverage and errors by trip and date, and separately validate targets against observed vehicle passages. The current study supplies the matching, abstention and evaluation path for that work.
 
-## Use in Agency
+## Use in VIGO
 
-Open **Skills → Running-time prediction review** to inspect the prepared result, daily error chart and route comparison. **Build a LAMP running-time study** accepts training start/end and evaluation end dates, plus an optional route. The same functions are reusable Ask tools: `historical_runtime` and `run_runtime_study`. An expensive study is an explicit action, not part of a routine briefing refresh.
+The internal research registry provides **Running-time prediction review** and **Build a LAMP running-time study**. These are backend methods; Studio has no Skills panel. Ask can inspect an existing study through `historical_runtime`. Creating a study uses the explicit research API or the standalone command below; `run_runtime_study` is excluded from ordinary Ask tool discovery. A study is not part of a routine briefing refresh.
 
-The adapter is explicitly for MBTA's LAMP schema; the rest of Agency remains City-configured. Results belong to the selected City's research directory and identify their source as MBTA. They must not be applied to another agency just because its route names happen to match. The historical predictor supplies segment-time estimates, not current departure delay, an incident cause or a recovery forecast.
+The adapter is explicitly for MBTA's LAMP schema; the rest of VIGO remains City-configured. Results belong to the selected City's research directory and identify their source as MBTA. They must not be applied to another agency just because its route names happen to match. The historical predictor supplies segment-time estimates, not current departure delay, an incident cause or a recovery forecast.
 
 ## Reproduce
 

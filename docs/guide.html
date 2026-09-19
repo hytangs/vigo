@@ -129,7 +129,7 @@ node public/vigo.mjs inspect --city=./city</code></pre>
   "rasterSize": 48
 }</code></pre>
 <pre><code>node public/vigo.mjs reach --city=./city --request=./reach.json --service-date=YYYY-MM-DD --time=08:00 --output=./reach-result.json</code></pre>
-  <p>Cutoffs range from 5 to 240 minutes, extent from 1 to 40 km, and walking speed from 1 to 8 kph. Supported grid sizes are 48, 64, 96, 128, 192, 256, 384, 512, and 1024. Extent limits computation, not just display. Reach has no Walk-only, Drive, arrive-by, or realtime mode. It does not count jobs, people, or other opportunities.</p>
+  <p>Cutoffs range from 5 to 240 minutes, extent from 1 to 40 km, and walking speed from 1 to 8 kph. Supported grid sizes are 48, 64, 96, 128, 192, 256, 384, 512, and 1024. Extent defines the requested CLI raster bounds, not a maximum trip distance; cutoffs and walking budgets govern network reachability. Studio expands its display to the complete reached-network envelope. Reach has no Walk-only, Drive, arrive-by, or realtime mode. It does not count jobs, people, or other opportunities.</p>
   <details><summary>Planned transit service and comparison</summary>
     <p>A Reach request can add a <code>scenario</code> with a name and a service change, for example:</p>
 <pre><code>"scenario": {
@@ -157,7 +157,7 @@ node public/vigo.mjs inspect --city=./city</code></pre>
   "delayFactor": 2
 }</code></pre>
     <p>Each observation chooses exactly one of <code>delayFactor</code> (1–100), <code>speedKph</code> (1–200), positive <code>travelTimeSeconds</code> (at most 86400), or <code>closed:true</code>. Coordinates must match the intended directed edge. Supplied times cannot beat base free flow. Check matching counts and <code>diagnostics.traffic.status</code>; expired data falls back to free flow. Freshness uses the current clock, not the service date.</p>
-    <p>Realtime Route processes supported Trip Updates in the desktop and CLI. CLI callers supply <code>realtimeSnapshot</code> and select <code>--data-mode realtime</code>. Unreported trips retain scheduled times. Vehicle Positions and Alerts are display data; Matrix and Reach remain scheduled. See <a href="REALTIME-ROUTING.md">realtime modes and limits</a>.</p>
+    <p>Realtime Route processes supported Trip Updates in the desktop and CLI. CLI callers supply <code>realtimeSnapshot</code> and select <code>--data-mode realtime</code>. Unreported trips retain scheduled times. Vehicle Positions and Alerts are display data; Matrix and Reach remain scheduled. See <a href="realtime-routing.md">realtime modes and limits</a>.</p>
   </details>
 </section>
 <section id="app">

@@ -29,16 +29,14 @@ for secondary objectives. Depart-at minimizes arrival, then boardings and
 walking. Arrive-by maximizes departure, then minimizes boardings, walking, and
 actual arrival within the deadline. Equal-objective paths can differ from
 Route's stable traversal order and therefore have different ride/wait splits.
-Balanced alternatives remain a Route operation; Matrix rejects a balanced
-journey request instead of silently changing its objective.
+The public objective is `earliest_arrival`; Matrix does not return Route's departure-window alternatives.
 
 Coordinate Transit Matrix requires a vehicle boarding by default. With `requireTransitRide: false`, it compares scheduled transit with a direct OSM walk, using the same independent end-to-end walking limit as Route. For depart-at, the horizon bounds the timetable search and the direct walk; a final transit egress walk can extend beyond the timetable horizon. For arrive-by, egress must finish by the deadline. Walking distances are computed in one native batch.
 
 A request accepts up to 100,000 pairs, with no separate origin or destination
 limit. Both 1 × 100,000 and 100,000 × 1 fit in one call. Results remain in
 origin-major order, including repeated endpoints.
-HTTP also applies its JSON body limit: 8 MB by default, configurable up to
-64 MB with `VIGO_MAX_JSON_BODY_BYTES` for larger endpoint descriptions.
+The public CLI also applies its [16 MiB request limit](programmatic.md); pair count and encoded request size are separate limits.
 
 | Scalar query | Shared Rust timetable work |
 | --- | --- |
@@ -57,10 +55,10 @@ departure share a forward scan.
 
 ```sh
 vigo matrix --city=/path/to/city --request=matrix.json \
-  --time-preference=arrive --time=08:30 --service-date=2026-07-15
+  --time-preference=arrive --time=08:30 --service-date=YYYY-MM-DD
 ```
 
-The server request uses `timePreference: "arrive"` and `arriveMinutes: 510`.
+Use a service date covered by the feed. The CLI also accepts `timePreference: "arrive"` in the request JSON; the clock belongs in `--time`.
 In arrive-by rows, `departMinutes` is the latest feasible departure,
 `arriveMinutes` is the requested deadline, and `durationMinutes` is deadline
 minus departure, including any waiting after early arrival. The diagnostic

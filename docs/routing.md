@@ -45,19 +45,10 @@ boardings than that journey. Duplicate and dominated choices are removed;
 the list is never padded to five. The earliest-arrival result stays first.
 Studio's supported realtime Route queries retain their departure-window choices without applying the
 scheduled alternative search to an adjusted timetable.
-The window shares endpoint-access preparation and reuses a walking result only
-through departures where the timetable proves it still wins. The proof respects
-the original search horizon, so newly admitted services can trigger a fresh search.
-The native search reuses reverse bounds across transfer rounds with a shared
-forward envelope. When reusing an earliest-arrival scan, it resumes at the
-actual scan boundary, including departures skipped because of final egress.
-It prunes prefixes whose best possible completion is strictly
-dominated by an existing journey. A verified walk that already beats the exact
-earliest transit arrival bypasses the bounded transit pass.
 
-Depart-at transit, arrive-by transit, walking, driving, waypoints, and batch requests remain Route variants. Desktop and CLI Route support realtime transit. CLI callers supply `realtimeSnapshot` and select `--data-mode realtime`; scheduled mode remains the CLI default. See [data modes and provenance](REALTIME-ROUTING.md). See the [realtime limits](known-routing-limitations.md#realtime).
+Depart-at transit, arrive-by transit, walking, driving, waypoints, and batch requests remain Route variants. Desktop and CLI Route support realtime transit. CLI callers supply `realtimeSnapshot` and select `--data-mode realtime`; scheduled mode remains the CLI default. See [data modes and provenance](realtime-routing.md). See the [realtime limits](known-routing-limitations.md#realtime).
 
-## Maximum transfers
+## Transfer and access rules
 
 Use `maxTransfers` in a JSON request or `--max-transfers=N` in the CLI. Studio exposes Maximum transfers under Route options.
 `0` permits at most one boarding; `1` permits at most two. Values must be

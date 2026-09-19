@@ -3,7 +3,7 @@
 A new VIGO user needs four nouns and three Query names.
 
 ```text
-City -> Scenario -> Route | Matrix | Reach -> Result
+City -> optional Scenario -> Route | Matrix | Reach -> Result
 ```
 
 ## City
@@ -32,7 +32,7 @@ underlying GTFS or OSM data requires a new City build.
 
 A Scenario is an immutable set of changes applied to one City revision.
 
-It may change planned transit service, add one live transit state, or add one supplied traffic state. Walking limits, departure times, and time cutoffs remain Query options. A complete alternative GTFS source creates a new City revision.
+In 0.4.0, planned changes apply to Reach. Supplied traffic applies to Drive Route and Matrix, while a supplied realtime snapshot applies to transit Route. The CLI carries these as `scenario`, `traffic`, and `realtimeSnapshot` respectively; see [Scenario support](scenarios.md). Walking limits, departure times, and time cutoffs remain Query options. A complete alternative GTFS source creates a new City revision.
 
 VIGO rejects unsupported combinations before computation. It does not silently drop changes or move a Scenario to a newer City revision.
 

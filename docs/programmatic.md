@@ -16,7 +16,7 @@ This is the public VIGO Engine interface. Studio uses the same core through an i
 
 ```bash
 vigo route --city ./city --request ./route.json \
-  --time 08:00 --service-date 2026-09-04 --output ./result.json
+  --time 08:00 --service-date YYYY-MM-DD --output ./result.json
 ```
 
 Use `vigo` for a short command overview, then `vigo help route` or `vigo route -h` for that command’s options and request examples. `--version` and `-V` print the version. Both `--name value` and `--name=value` are accepted. Unknown options, extra positional arguments, and repeated single-value options are rejected. Only `--gtfs` and `--gtfs-scope` repeat.
@@ -29,7 +29,7 @@ Route, Matrix, and Reach accept a single JSON object from stdin:
 
 ```bash
 cat route.json | vigo route --city ./city --request - \
-  --time 08:00 --service-date 2026-09-04 > result.json
+  --time 08:00 --service-date YYYY-MM-DD > result.json
 ```
 
 Request files and stdin share the 16 MiB limit. A UTF-8 byte-order mark is accepted. `--request -` reads until the producer closes stdin; in an interactive terminal, provide a file or pipe instead. It does not infer the service date or read questions in natural language.

@@ -1,6 +1,6 @@
 # Agency operations prototype
 
-This backend prototype is outside the main Network / Routes / Ask workspace. Its API, records and service tests remain available for research. The disconnected Service desk UI has been removed.
+This backend prototype is outside the main Network / Routes / Ask workspace. Its API, records and service tests remain available for research.
 
 The [operational replay](operational-replay.md) adds a synthetic holding decision through procedure selection, alternative comparison, approval, sandbox receipt and evidence-driven withdrawal. It reuses this ledger in separate replay storage. Internal knowledge and staff annotations are excluded from model context by default; approval alone does not authorize model disclosure.
 
@@ -56,7 +56,7 @@ Each City owns `agency/operations.sqlite`, separate from the read-only timetable
 
 The quality summary exposes source freshness failures, unresolved trip reports, timetable coverage and missing comparable departure pairs. Its alignment fraction uses **received reports** as its denominator. It does not claim the percentage of scheduled trips observed. `operations-health` reports database integrity, schema, counts, sample policy, last retained time, refresh activity and refresh/storage errors. History write failures are visible in Agency warnings; previous records are preserved. Live feed failures retain the previous observation while its source clocks continue aging.
 
-For a consistent backup, stop Agency and copy the entire City `agency` directory, including SQLite sidecar files if present. Retain the timetable with it to preserve evidence identity. Restore to the same City identity and verify `operations-health` before resuming. Moving or replacing the timetable invalidates comparisons that depended on its previous local identity. This feature does not add replication, continuous background hosting or a recovery-time guarantee.
+For a consistent backup, stop Studio and copy the entire City `agency` directory, including SQLite sidecar files if present. Retain the timetable with it to preserve evidence identity. Restore to the same City identity and verify `operations-health` before resuming. Moving or replacing the timetable invalidates comparisons that depended on its previous local identity. This feature does not add replication, continuous background hosting or a recovery-time guarantee.
 
 ## API and verification
 
@@ -72,5 +72,3 @@ Use the existing `POST /api/projects/:projectId/agency` endpoint. Every mutation
 Lists return 50 records by default, up to 100, and accept `query.before` as the last returned ID (ascending IDs). Audit pages return 50 newest revisions and accept `before` as the last sequence. Observation pages return 100 newest samples and accept `before` as the last bucket. No external publication credentials are required or stored.
 
 `npm run check:agency` includes the operations service fixture, covering workflow notes, message revision, approval, local release, recorded receipt, audit and insufficient history. `node test/check-network-workspace-runtime.mjs` checks the active Network workspace, keyboard tabs and responsive widths. All observations and receipts in these tests are synthetic. Runtime data remain in ignored `temp/` storage.
-
-No dependencies or native routing algorithms change. The existing root assessment, assumptions and AI-use documents are preserved; this page describes the added behavior and its present limits.

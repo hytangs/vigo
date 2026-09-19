@@ -1,6 +1,6 @@
 # VIGO Studio desktop guide
 
-VIGO Studio provides Network, Route, Analyze and City views over the VIGO routing engine. See the [Network guide](agency.md) for Network, Routes and Ask.
+VIGO Studio provides Network, Route, Analyze and City views over the VIGO routing engine. See the [Network guide](network.md) for Network, Routes and Ask.
 
 ## Open a City
 
@@ -8,15 +8,7 @@ Select a project from the Studio library and import GTFS and OSM. Rebuild when t
 
 ## Network
 
-### Routes
-
-Open **Network → Routes** to view transit lines, stops, stations, and streets together. Select a service to inspect its directions, patterns, stop sequence, service span, and exact-date trip count.
-
-### Playback
-
-Choose a service date and local time. Scheduled playback uses trip-level stop times active on that date; it does not animate the route-wide trip total. Live state, when available, stays separate from the baseline schedule.
-
-Vehicle Positions and Alerts are displayed for inspection. In **Realtime** mode, Route processes the supplied Trip Updates into a separate timetable; unreported trips retain scheduled times. **Scheduled · Research** uses an explicit service date/time without live observations. See [realtime routing](REALTIME-ROUTING.md) and its [limits](known-routing-limitations.md#realtime).
+Use **Network** for reporting coverage and briefings, **Routes** for trip times, station boards and line views, and **Ask** for evidence-backed questions. Route and station selection is shared across the tabs. The [Network guide](network.md) explains playback, live timing, added service, and model connections.
 
 ## Route
 
@@ -34,7 +26,7 @@ Reopen recent Route Results for the current City revision. A Result keeps its no
 
 ### Reach
 
-Run a Reach Query and display its travel-time surface as contours or reached streets. The origin is a map point, not a zero-minute text label. Reach measures modeled network reach; it does not add jobs, population, or other opportunities.
+Choose an origin on the map or use **Choose origin** to search imported stops by name/ID or enter coordinates. Run Reach, then switch between **Reachable area**, **Reached streets**, and time cutoffs. Displayed cutoffs reuse the retained result. See [Reach](reach.md) for query limits and surface bounds. Reach measures modeled travel time; it does not add jobs, population, or other opportunities.
 
 ### Compare
 

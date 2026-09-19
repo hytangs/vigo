@@ -1,40 +1,38 @@
 # VIGO documentation
 
-VIGO Engine, Studio, and the [separate Python interface](https://github.com/hytangs/vigo-py/tree/main/docs) share the **City → Scenario → Query → Result** model. Start with the interface you use.
+VIGO 0.4.0 combines a reusable routing engine with Studio network inspection and scenario analysis. Begin with the workflow you need; the reference pages describe the supported data and query contracts.
 
-| Task | Start here |
+## Start here
+
+| Goal | Guide |
 | --- | --- |
-| Build a City and run your first queries | [CLI quickstart](quickstart.md) |
-| Import data and work on the map | [Studio guide](studio.md) |
-| Inspect live service or ask about a route | [Network, Routes, and Ask](agency.md) |
-| Learn the model | [Core concepts](concepts.md) |
-| Inspect an exported Result offline | [Interactive guide and Result viewer](guide.html) |
-| Review this release | [VIGO 0.4.0](releases/0.4.0.md) · [Version history](../CHANGELOG.md) |
+| Install, build a City, and run the first query | [Quickstart](quickstart.md) |
+| Use the desktop and manage City sources | [Studio](studio.md) |
+| Inspect trips, live reports, and Ask evidence | [Network, Routes, and Ask](network.md) |
+| Understand City, Scenario, Query, and Result | [Core concepts](concepts.md) |
+| Automate VIGO | [CLI reference](programmatic.md) · [Python package](https://github.com/hytangs/vigo-py) |
+| Read offline and inspect an exported Result | [Offline guide](guide.html) |
 
-## Queries and data
+## Query and data reference
 
-- [Command-line reference](programmatic.md)
-- [Route](routing.md), [Matrix](matrix.md), and [Reach](reach.md)
-- [Scenarios and comparison](scenarios.md)
-- [Realtime and scheduled routing](REALTIME-ROUTING.md)
-- [GTFS support](gtfs-support-matrix.md), [street routing](street-routing.md), and [fares](fares.md)
-- [Known limits](known-routing-limitations.md), [routing accuracy checks](routing-accuracy.md), and [performance](performance.md)
+| Topic | Reference |
+| --- | --- |
+| Journeys, travel-time tables, and reachable places | [Route](routing.md) · [Matrix](matrix.md) · [Reach](reach.md) |
+| Planned changes and comparing results | [Scenario and Compare](scenarios.md) |
+| Scheduled and supplied realtime state | [Realtime routing](realtime-routing.md) |
+| Source semantics and prices | [GTFS support](gtfs-support-matrix.md) · [Streets](street-routing.md) · [Fares](fares.md) |
+| Interpreting an answer | [Known limits](known-routing-limitations.md) · [Accuracy checks](routing-accuracy.md) · [Performance measurement](performance.md) |
 
-## Studio
+## Development
 
-- [Manage City sources](studio.md#data-sources)
-- [Inspect GTFS services and playback](gtfs-visualizer.md)
-- [Line diagrams and vehicle timing](ROUTE-LINE.md)
-- [Shared network selection](network-workspace.md)
+[Contributing and checks](../.github/CONTRIBUTING.md) · [Architecture](development/architecture.md) · [Security](../SECURITY.md)
 
-## Development and research
+The [Developer Guide](developer-guide/VIGO-0.4.0-Developer-Guide.tex) is the printable engine reference. Build it with `npm run docs:developer-guide`; the PDF is also a release artifact. Current behavior belongs in the guides above. [Release notes](releases/0.4.0.md) and the [changelog](../CHANGELOG.md) preserve version history.
 
-- [Contributing and verification](../.github/CONTRIBUTING.md)
-- [Developer Guide source](developer-guide/VIGO-0.4.0-Developer-Guide.tex) — build the PDF with `npm run docs:developer-guide`
-- [Architecture](development/architecture.md) and [algorithms](guides/algorithms.md)
-- [Use cases](guides/use-cases.md)
-- [Network service assessment](network-service-assessment.md)
-- [Operations ledger](agency-operations.md) and [synthetic replay](operational-replay.md)
-- [LAMP historical running-time study](lamp-runtime-study.md)
+## Research interfaces and retained evidence
 
-The research APIs and studies have their own evidence limits; they do not establish field prediction accuracy or operational suitability.
+These pages describe bounded methods and prototypes, not additional everyday Studio panels or validated operational outcomes:
+
+- [Network service assessment](network-service-assessment.md): measurements, reporting denominators, and model investigation.
+- [LAMP running-time study](lamp-runtime-study.md): a retrospective holdout against reconstructed events, with retained sources and exclusions.
+- [Operations ledger](agency-operations.md) and [synthetic holding replay](operational-replay.md): internal research APIs, approval records, and sandbox delivery.

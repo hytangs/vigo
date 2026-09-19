@@ -7,31 +7,12 @@ import {
   buildNationalOsmWalkStore,
   compactNationalOsmRuntimeStore,
   disposeNationalOsmStore,
-  streetNetworkTimedConnectors,
   streetNetworkTravelTimeRaster,
 } from '../src/server/national-osm-store.mjs'
-import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
+import { buildNativeStreetCchIndex, routeNativeTimedConnectors } from '../src/server/native-routing-kernel.mjs'
 
 const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-street-surface-'))
 const storePath = path.join(folder, 'street.sqlite')
-const osmStoreSource = await fs.readFile(
-  new URL('../src/server/national-osm-store.mjs', import.meta.url),
-  'utf8',
-)
-for (const removedExecutor of [
-  'class StreetSurfaceQueue',
-  'function surfaceLabel',
-  'function connectorLabel',
-  'runTimedConnectorSearch',
-  'state.edges.iterate(current.node)',
-]) {
-  assert.equal(
-    osmStoreSource.includes(removedExecutor),
-    false,
-    `JavaScript street executor must stay removed: ${removedExecutor}`,
-  )
-}
-
 function buildFixture() {
   const db = new DatabaseSync(storePath)
   db.exec(`
@@ -295,7 +276,7 @@ try {
     'Independent terminal-walk edges must retain both the supporting transit arrival and actual walk-inclusive duration.',
   )
 
-  const connectors = streetNetworkTimedConnectors(storePath, {
+  const connectors = routeNativeTimedConnectors(storePath, {
     seeds: [{
       coordinate: [-70.999, 42.001],
       durationMinutes: 2,
@@ -328,7 +309,7 @@ try {
 
   const cchBuild = buildNativeStreetCchIndex(storePath)
   assert.equal(cchBuild.loaded?.nodeCount, 6)
-  const cchConnectors = streetNetworkTimedConnectors(storePath, {
+  const cchConnectors = routeNativeTimedConnectors(storePath, {
     seeds: [{
       coordinate: [-70.999, 42.001],
       durationMinutes: 2,
@@ -363,7 +344,7 @@ try {
     else assert(Math.abs(accelerated - exact) < 1e-5)
   }
   const duplicateCoordinate = [-70.9991, 42.001]
-  const duplicateConnectors = streetNetworkTimedConnectors(storePath, {
+  const duplicateConnectors = routeNativeTimedConnectors(storePath, {
     seeds: [{
       coordinate: duplicateCoordinate,
       durationMinutes: 4,
@@ -385,7 +366,7 @@ try {
   )
   assert.deepEqual(duplicateConnectors.matrix.durationsMinutes, [0, 0, 0, 0])
 
-  const multiSeedConnectors = streetNetworkTimedConnectors(storePath, {
+  const multiSeedConnectors = routeNativeTimedConnectors(storePath, {
     seeds: [
       { coordinate: [-71, 42], durationMinutes: 0, maxWalkKm: 0.09 },
       { coordinate: [-70.999, 42], durationMinutes: 2, maxWalkKm: 0.2 },
@@ -407,7 +388,7 @@ try {
     id: `extended-route-${index + 1}`,
     coordinate: index % 2 === 0 ? [-71, 42] : [-70.999, 42],
   }))
-  const extendedRouteConnectors = streetNetworkTimedConnectors(storePath, {
+  const extendedRouteConnectors = routeNativeTimedConnectors(storePath, {
     seeds: [{
       coordinate: [-71, 42],
       durationMinutes: 0,
@@ -425,7 +406,7 @@ try {
     'A route with more than 24 stops must retain its complete directed connector matrix.',
   )
   assert.throws(
-    () => streetNetworkTimedConnectors(storePath, {
+    () => routeNativeTimedConnectors(storePath, {
       seeds: [{
         coordinate: [-71, 42],
         durationMinutes: 0,
@@ -442,7 +423,7 @@ try {
     /limited to 256 targets/i,
   )
 
-  const disconnectedShortChord = streetNetworkTimedConnectors(storePath, {
+  const disconnectedShortChord = routeNativeTimedConnectors(storePath, {
     seeds: [{
       coordinate: [-70.999, 42.002],
       durationMinutes: 0,
@@ -456,7 +437,7 @@ try {
   assert.equal(disconnectedShortChord.arrivals[0].status, 'blocked')
   assert.equal(disconnectedShortChord.arrivals[0].durationMinutes, null)
 
-  const perSeedBudgets = streetNetworkTimedConnectors(storePath, {
+  const perSeedBudgets = routeNativeTimedConnectors(storePath, {
     seeds: [
       {
         coordinate: [-71, 42],
@@ -481,28 +462,14 @@ try {
     'A later seed with a fresh per-seed walking budget must survive an earlier exhausted seed.',
   )
 
-  assert.throws(
-    () => streetNetworkTimedConnectors(storePath, {
-      seeds: [{
-        coordinate: [-71, 42],
-        durationMinutes: 0,
-        maxWalkKm: 0.2,
-      }],
-      targets: [{ id: 'target', coordinate: [-70.999, 42.001] }],
-      maxWalkKm: 0.2,
-      maximumDurationMinutes: 15,
-    }, { isCancelled: () => true }),
-    (error) => error?.name === 'AbortError' && error?.code === 'ABORT_ERR',
-  )
-
   console.log(JSON.stringify({
     ok: true,
     schemaVersion: forward.schemaVersion,
     forward: forward.diagnostics,
     reverse: reverse.diagnostics,
     shortBudget: shortBudget.diagnostics,
-      multiLabelBudget: laterBudgetAvailable.diagnostics,
-      connectors: cchConnectors.diagnostics,
+    multiLabelBudget: laterBudgetAvailable.diagnostics,
+    connectors: cchConnectors.diagnostics,
     disconnectedShortChord: disconnectedShortChord.diagnostics,
   }, null, 2))
 } finally {

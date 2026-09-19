@@ -1,16 +1,16 @@
 # One bus, one control point
 
-VIGO Studio's replay API demonstrates a decision from source evidence to a withdrawn rider message. Run `npm run evaluate:replay` to exercise it; the disconnected Operations and Replay panels have been removed. This uses a synthetic City X, separate storage, a fixed timetable and a controllable clock. It does not connect to dispatch or publish to riders.
+VIGO Studio's replay API demonstrates a decision from source evidence to a withdrawn rider message. Run `npm run evaluate:replay` to exercise the backend sequence. There is no Replay panel in Studio. This uses a synthetic City X, separate storage, a fixed timetable and a controllable clock. It does not connect to dispatch or publish to riders.
 
 The implementation reuses the operations ledger, finding transitions, knowledge approvals, message revisions and outbox. New modules supply replayable inputs, applicable procedure selection, holding comparisons and a sandbox transport. VIGO's routing engine and live network assessment are unchanged.
 
-## Replay sequence
+## Replay sequence in the evaluation harness
 
-1. Open the uneven-spacing scenario. Successive departures are predicted 3 and 17 minutes apart, against a 10-minute timetable. The selected bus is reported stopped at River control point.
-2. Inspect **Applicable procedure**. The synthetic SOP limits holding to 180 seconds, requires a clear berth and completed boarding, protects the following headway and caps downstream delay. An expired section and another stop's procedure are excluded.
+1. Load the uneven-spacing scenario. Successive departures are predicted 3 and 17 minutes apart, against a 10-minute timetable. The selected bus is reported stopped at River control point.
+2. Inspect the selected applicable procedure. The synthetic SOP limits holding to 180 seconds, requires a clear berth and completed boarding, protects the following headway and caps downstream delay. An expired section and another stop's procedure are excluded.
 3. Compare no intervention, a target-headway baseline and the passenger-time optimizer. Prepare an option and review its rider message.
 4. Approve the exact option and message. Send to the sandbox: the first attempt deliberately simulates a temporary transport failure. Retry records one receipt; repeated delivery requests cannot duplicate it.
-5. Select **Next observation**. The bus is now reported in transit. The approved hold is no longer feasible, and its delivered sandbox message is withdrawn. **Expire evidence** exercises a separate stale-clock case.
+5. Advance to the next observation. The bus is now reported in transit. The approved hold is no longer feasible, and its delivered sandbox message is withdrawn. Advancing the clock past expiry exercises a separate stale-clock case.
 
 The replay clock pauses between actions. The 90-second decision lifetime uses that clock, not the operator's wall-clock reading time. Restart restores the active run and audit. New runs preserve previous records in the replay ledger; export a run before switching to retain its complete portable review package.
 
@@ -39,7 +39,7 @@ Replay records live in the City's `agency/replay/operations.sqlite`, separate fr
 
 Knowledge records optionally carry structured `procedure` metadata. `knowledge-select` accepts exact route/stop IDs, query text and confirmed prerequisite identifiers; the server supplies the current clock. Selection removes unapproved, future, expired, out-of-scope, superseded and prerequisite-incomplete sections **before** SQLite FTS5/BM25 ranking. Conflicting limits or authority remain a conflict regardless of text rank. Results include the supporting passage and applicability explanation.
 
-`knowledge-save` accepts the structured metadata; the existing editor preserves it and displays revision/section information. Replay imports its versioned example directly. PDF ingestion, semantic retrieval and an expert-labelled retrieval study are not implemented. A lexical miss returns no matching section rather than substituting an unrelated procedure.
+`knowledge-save` accepts and preserves structured metadata with revision/section information. Replay imports its versioned example directly. PDF ingestion, semantic retrieval and an expert-labelled retrieval study are not implemented. A lexical miss returns no matching section rather than substituting an unrelated procedure.
 
 ## Method and assumptions
 

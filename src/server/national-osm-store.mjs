@@ -12,7 +12,6 @@ import {
   rasterNativeStreetSurface,
   routeNativeDriveExact,
   routeNativeDriveMatrix,
-  routeNativeTimedConnectors,
   routeNativeWalkMatrix,
   routeNativeStreetPath,
   normalizeNativeMilliseconds,
@@ -3543,29 +3542,6 @@ export function streetNetworkTravelTimeRaster(storePath, value, options = {}) {
     phase: 'street-surface',
     progress: 0.98,
     detail: `${result.diagnostics.settledLabels.toLocaleString()} pedestrian labels settled`,
-  })
-  return result
-}
-
-/**
- * Resolve timed scenario-stop arrivals and the optional exact directed matrix
- * in the Rust mmap kernel. No SQLite or JavaScript graph-search fallback is
- * retained.
- */
-export function streetNetworkTimedConnectors(storePath, value, options = {}) {
-  openRuntimeStreetStore(storePath)
-  if (options.isCancelled?.()) throw streetAnalysisAbort('connector')
-  options.onProgress?.({
-    phase: 'reach-connectors',
-    progress: 0.01,
-    detail: 'Rust timed connector search',
-  })
-  const result = routeNativeTimedConnectors(storePath, value)
-  if (options.isCancelled?.()) throw streetAnalysisAbort('connector')
-  options.onProgress?.({
-    phase: 'reach-connectors',
-    progress: 0.98,
-    detail: `${result.diagnostics.reachedTargets.toLocaleString()} scenario stops connected`,
   })
   return result
 }

@@ -7,7 +7,7 @@
 
 \section{Quickstart}
 
-This page takes one GTFS feed and one OSM extract through Build and the first Route. The example uses Boston coordinates and an explicit local service date.
+This printable reference takes one GTFS feed and one OSM extract through Build and the first Route. The example uses Boston coordinates. Replace \code{YYYY-MM-DD} with an exact local service date covered by your feed.
 
 \subsection{Install VIGO}
 
@@ -49,7 +49,7 @@ vigo route \
   --city ./boston \
   --request ./route.json \
   --time 11:04 \
-  --service-date 2026-09-04 \
+  --service-date YYYY-MM-DD \
   --output ./route-result.json
 \end{lstlisting}
 
@@ -207,7 +207,7 @@ Route finds and explains one journey through ordered points. Depart-at, arrive-b
 
 \begin{lstlisting}[language=bash]
 vigo route --city ./boston --request ./route.json \
-  --time 11:04 --service-date 2026-09-04
+  --time 11:04 --service-date YYYY-MM-DD
 \end{lstlisting}
 
 \newpage
@@ -218,8 +218,8 @@ vigo route --city ./boston --request ./route.json \
 \textbf{Input or option} & \textbf{Default} & \textbf{Meaning} \\
 \midrule
 \endhead
-\field{origin} & required & Stop ID, coordinate pair, or point object. \\
-\field{destination} & required & Stop ID, coordinate pair, or point object. \\
+\field{origin} & required & Exact stop ID or point object with \field{coordinate}. \\
+\field{destination} & required & Exact stop ID or point object with \field{coordinate}. \\
 \field{waypoints} & empty & Ordered intermediate points. \\
 \field{--mode} & transit & \code{transit}, \code{walk}, or \code{drive}. \\
 \field{--time} & 08:00 & Local departure or arrival time. \\
@@ -246,7 +246,7 @@ Arrive-by uses directed OSM access and egress, an exact reverse timetable scan f
 \begin{lstlisting}[language=bash]
 vigo route --city ./boston --request ./route.json \
   --time 09:00 --time-preference arrive \
-  --service-date 2026-09-04
+  --service-date YYYY-MM-DD
 \end{lstlisting}
 
 Transit Route requires a vehicle boarding by default. Set \field{requireTransitRide: false} in JSON to compare transit with walking, or use Walk mode for a walking journey. A valid request with no journey returns \code{blocked}.
@@ -262,7 +262,7 @@ For batch work, pass CSV through \field{--input} and write the returned rows thr
 \begin{lstlisting}[language=bash]
 vigo route --city ./boston \
   --input ./routes.csv --output ./route-results.csv \
-  --time 08:00 --service-date 2026-09-04
+  --time 08:00 --service-date YYYY-MM-DD
 \end{lstlisting}
 
 \section{Matrix}
@@ -291,7 +291,7 @@ Save \code{matrix.json}:
 
 \begin{lstlisting}[language=bash]
 vigo matrix --city ./boston --request ./matrix.json \
-  --time 08:00 --service-date 2026-09-04 \
+  --time 08:00 --service-date YYYY-MM-DD \
   --horizon 180 --output ./matrix-result.json
 \end{lstlisting}
 
@@ -348,7 +348,7 @@ Save \code{reach.json}:
 
 \begin{lstlisting}[language=bash]
 vigo reach --city ./boston --request ./reach.json \
-  --time 08:00 --service-date 2026-09-04 \
+  --time 08:00 --service-date YYYY-MM-DD \
   --output ./reach-result.json
 \end{lstlisting}
 
@@ -361,20 +361,20 @@ vigo reach --city ./boston --request ./reach.json \
 \textbf{Input or option} & \textbf{Default} & \textbf{Meaning} \\
 \midrule
 \endhead
-\field{origin} & required & Stop ID, coordinate pair, or point object. \\
+\field{origin} & required & Exact stop ID or point object with \field{coordinate}. \\
 \field{--time} & 08:00 & Fixed departure time. \\
 \field{--service-date} & required & Exact timetable date. \\
 \field{--cutoffs} & 15,30,45,60 & Increasing limits from 5 to 240 minutes. \\
 \field{--max-walk} & 1.2 & Transit access and terminal walking distance in km. \\
 \field{--walk-speed} & 4.8 & Walking speed from 1 to 8 kph. \\
-\field{--extent-radius} & 8 & Computation radius from 1 to 40 km. \\
+\field{--extent-radius} & 8 & Requested raster radius from 1 to 40 km. \\
 \field{--raster-size} & 96 & Grid size: 48, 64, 96, 128, 192, 256, 384, 512, or 1024. \\
 \bottomrule
 \end{longtable}
 
 \subsection{Result}
 
-Reach returns a bounded travel-time surface and drawable contours. The surface retains its coordinate bounds. The extent radius changes the computation domain, not merely the map view. The raster size controls grid resolution. Retain both with the Result.
+Reach returns a bounded travel-time surface and drawable contours. The surface retains its coordinate bounds. The extent radius defines the requested CLI raster, not a maximum trip distance. Cutoffs and walking budgets govern network reachability. Studio expands its displayed surface to the complete reached-network envelope. The raster size controls grid resolution. Retain both with the Result.
 
 A 48 by 48 grid contains 2,304 cells. Surface coverage and contour availability are separate facts.
 
@@ -452,7 +452,7 @@ vigo compare \
 \field{--departure-window MIN} & Route depart-at profile from 0 to 30 minutes. \\
 \field{--horizon MIN} & Route and Matrix timetable horizon, default 480. \\
 \field{--cutoffs MINUTES} & Reach limits separated by commas. \\
-\field{--extent-radius KM} & Reach computation radius, default 8. \\
+\field{--extent-radius KM} & Reach requested raster radius, default 8. \\
 \field{--raster-size N} & Reach grid size from the supported set. \\
 \field{--walk-speed KPH} & Reach walking speed, default 4.8. \\
 \bottomrule
