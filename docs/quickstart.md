@@ -1,8 +1,8 @@
-# VIGO Studio routing quickstart
-
-For live network inspection, start with the [Network, Routes, and Ask guide](agency.md). The commands below use the same VIGO Engine as Studio.
+# VIGO CLI quickstart
 
 Build one City, then reuse it for Route, Matrix, and Reach. Build and first-query time depend on the size of the supplied network.
+
+For the desktop workflow, use the [Studio guide](studio.md). Studio imports data into its own project library; it does not open the CLI City directory created below.
 
 ## 1. Install
 
@@ -19,7 +19,7 @@ npm link
 
 ## 2. Build a City
 
-You need a static GTFS ZIP and an OSM PBF covering the same area.
+You need a static GTFS ZIP and an OSM PBF covering the same area. The examples below use Boston; replace the filenames and coordinates for your own network.
 
 ```bash
 vigo build \
@@ -37,7 +37,7 @@ first answer. Reopening `./boston` measures a different operation; see
 
 ## 3. Run a Route
 
-Save `route.json`:
+Save `route.json`. Coordinates are **[longitude, latitude]**:
 
 ```json
 {
@@ -46,14 +46,14 @@ Save `route.json`:
 }
 ```
 
-Run the request with an exact local service date:
+Replace `YYYY-MM-DD` in every command below with an exact local service date covered by your GTFS feed. Then run:
 
 ```bash
 vigo route \
   --city ./boston \
   --request ./route.json \
   --time 11:04 \
-  --service-date 2026-09-04 \
+  --service-date YYYY-MM-DD \
   --output ./route-result.json
 ```
 
@@ -76,7 +76,7 @@ Every computation returns a Result with the answer and its meaning:
 }
 ```
 
-This abbreviated example illustrates the Result fields. Values depend on the supplied City and request.
+This abbreviated example illustrates the Result fields, not a measured journey or benchmark. Values depend on the supplied City and request. Inspect `status` and `warnings` before using the answer; a blocked Result is not a successful journey. The [offline Result viewer](guide.html#viewer) can open the exported JSON.
 
 ## 5. Run Matrix
 
@@ -94,7 +94,7 @@ vigo matrix \
   --city ./boston \
   --request ./matrix.json \
   --time 08:00 \
-  --service-date 2026-09-04
+  --service-date YYYY-MM-DD
 ```
 
 ## 6. Run Reach
@@ -115,7 +115,7 @@ vigo reach \
   --city ./boston \
   --request ./reach.json \
   --time 08:00 \
-  --service-date 2026-09-04 \
+  --service-date YYYY-MM-DD \
   --output ./reach-result.json
 ```
 

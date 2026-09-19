@@ -48,11 +48,18 @@ Matrix is available through the CLI in 0.4.0. Studio does not add a separate Mat
 
 ## City
 
-### Data
+### Data sources
 
-Review GTFS and OSM sources, coverage, counts, and warnings. City files are generated together and should move together.
+Open **City → Data sources** to review GTFS feeds, OSM coverage, counts, and warnings.
 
-### Settings
+To remove one source, select the trash button beside its row, check the source name, and confirm **Delete source**. You can import it again later.
+
+- **GTFS:** removes that feed's timetable and refreshes the combined timetable from the remaining feeds. Deleting the last feed leaves the City available for a new import.
+- **OSM:** removes street routing and the walking transfers derived from OSM. GTFS timetables remain, but queries that need the street network require another OSM import.
+
+The City, other sources, saved notebooks, and your original input files are retained. Deletion is unavailable during import or preparation. If Studio reports that a source is busy, let the active work finish and retry.
+
+### Preferences
 
 Choose appearance, storage location, and map preferences. Runtime detail appears only when it helps diagnose a problem.
 

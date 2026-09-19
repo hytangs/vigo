@@ -1,6 +1,6 @@
-# Use VIGO Studio
+# Network, Routes, and Ask
 
-VIGO Studio brings the selected City's timetable, live reports and saved investigations into one workspace. Its everyday views are **Network**, **Routes** and **Ask**. Route, Matrix and Reach use the existing routing platform.
+Open **Network** in VIGO Studio to inspect the selected City's timetable, live reports, and saved investigations. The workspace has **Network**, **Routes**, and **Ask** tabs. Use the separate **Route** view for journey planning and **Analyze** for Reach; Matrix is available through the CLI and Python.
 
 ## See what needs attention
 
@@ -13,6 +13,8 @@ With a connected model, the briefing can interpret the pattern, propose an expla
 Open **Routes** and choose a route to see **Trip times**. Select a trip and service date to compare its scheduled and predicted arrivals or departures. **Stops** opens directions and patterns; **Updates** opens service evidence. The map and **Line view** show the same selected route. Select a stop to see its arrivals board. **All routes** returns to the catalog. Actual stop-event times are unavailable in the current prediction source.
 
 The route and station selection are shared with Ask. “Here” can refer to that station; a named route or vehicle keeps its own identity. Selecting a route does not select a particular bus. Saved answers retain the selection and evidence from the original question.
+
+Trips reported as added service appear in the trip selector and line view even when absent from the static timetable. Their display contains only reported stops and absolute predictions; scheduled times and delay comparisons are unavailable. This display support does not make added trips available to the routing engine. See [vehicle timing](ROUTE-LINE.md) and [realtime routing limits](known-routing-limitations.md#realtime).
 
 ## Ask a complete question
 
