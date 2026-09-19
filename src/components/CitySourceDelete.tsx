@@ -35,7 +35,7 @@ export function CitySourceDelete({ projectId, kind, name, feedId, disabled, onDe
   return <>
     <button type="button" className="city-source-delete" aria-label={`Delete ${kind.toUpperCase()} source ${name}`} title={`Delete ${name}`} disabled={disabled || busy}
       onClick={() => { setError(''); dialog.current?.showModal() }}><Trash2 size={16} aria-hidden="true" /></button>
-    <dialog ref={dialog} className="city-source-dialog" aria-labelledby={titleId} onCancel={(event) => { if (busy) event.preventDefault() }}>
+    <dialog ref={dialog} className="city-source-dialog" aria-labelledby={titleId} onKeyDown={(event) => event.stopPropagation()} onCancel={(event) => { if (busy) event.preventDefault() }}>
       <h2 id={titleId}>Delete {kind === 'gtfs' ? 'GTFS feed' : 'OSM streets'}?</h2>
       <p><strong>{name}</strong></p>
       <p>{kind === 'gtfs' ? 'This removes its timetable from this City. Remaining feeds will be kept.' : 'This removes street routing and OSM walking transfers. Your GTFS timetables will be kept.'} You can import the source again.</p>
