@@ -18,6 +18,7 @@ import { runMapRefreshChecks, runMapStartupChecks } from '../../test/fixtures/ma
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { ensureVehicleDirectionSprite, vehicleHeadingLayer, vehicleMarkerLayer } from '../../src/app/mapDirections.ts';
 window.checkMap = async () => {
+  console.log('Map fixture: starting GeoJSON render');
   window.attributionExecuted = false;
   const data = {type:'FeatureCollection',features:[{type:'Feature',properties:{selectedPattern:true},geometry:{type:'LineString',coordinates:[[-0.001,0],[0.001,0]]}}]};
   const map = new Map({container:'map',center:[0,0],zoom:16,attributionControl:false,
@@ -30,6 +31,7 @@ window.checkMap = async () => {
     map.once('idle',()=>{clearTimeout(timer);resolve();});
   });
   await waitForRender();
+  console.log('Map fixture: initial GeoJSON rendered');
   if (!map.queryRenderedFeatures({layers:['fixture']}).length) throw Error('GeoJSON worker did not render the fixture');
   ensureVehicleDirectionSprite(map);
   map.addSource('vigo-service-vehicles',{type:'geojson',data:{type:'FeatureCollection',features:[
@@ -39,20 +41,27 @@ window.checkMap = async () => {
   map.addLayer(vehicleMarkerLayer);
   map.addLayer(vehicleHeadingLayer);
   await waitForRender();
+  console.log('Map fixture: vehicle markers rendered');
   if (map.queryRenderedFeatures({layers:['vigo-vehicle-headings']}).length !== 1) throw Error('Network vehicles need a heading only when the bearing is known');
   if (map.queryRenderedFeatures({layers:['vigo-vehicles']}).length !== 2) throw Error('Colored discs must remain visible with and without a heading');
   map.setBearing(90);
   await waitForRender();
+  console.log('Map fixture: map rotation rendered');
   if (map.getLayoutProperty('vigo-vehicle-headings','icon-rotation-alignment') !== 'map') throw Error('Vehicle compass bearings must rotate with the map');
   const next = waitForRender();
   map.getSource('fixture').setData({...data,features:[{...data.features[0],geometry:{type:'LineString',coordinates:[[0,-0.001],[0,0.001]]}}]});
   await next;
+  console.log('Map fixture: source update rendered');
   if (!map.queryRenderedFeatures({layers:['fixture']}).length) throw Error('GeoJSON source update did not render');
   const details = document.querySelector('.maplibregl-ctrl-attrib details');
   if (!details || details.hasAttribute('onload') || details.hasAttribute('ontoggle') || window.attributionExecuted) throw Error('Unsafe attribution survived sanitization');
   map.remove();
   document.getElementById('map').remove();
-  return {rendered:true,sourceUpdate:true,sanitizedAttribution:true,offlineDirections:true,networkHeadings:true,mapRotation:true,startupIsolation:await runMapStartupChecks(),refreshIsolation:await runMapRefreshChecks()};
+  console.log('Map fixture: checking City startup');
+  const startupIsolation = await runMapStartupChecks();
+  console.log('Map fixture: checking refresh isolation');
+  const refreshIsolation = await runMapRefreshChecks();
+  return {rendered:true,sourceUpdate:true,sanitizedAttribution:true,offlineDirections:true,networkHeadings:true,mapRotation:true,startupIsolation,refreshIsolation};
 };
 `)
   const sourceOverride = process.env.VIGO_TEST_MAP_SOURCE
@@ -70,11 +79,12 @@ protocol.registerSchemesAsPrivileged([{scheme:'vigo',privileges:{standard:true,s
 app.whenReady().then(async()=>{
  try {
   protocol.handle('vigo', request=>net.fetch(pathToFileURL(path.join(${JSON.stringify(dist)},new URL(request.url).pathname === '/' ? 'index.html' : decodeURIComponent(new URL(request.url).pathname))).href));
-  const window=new BrowserWindow({show:false,webPreferences:{backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
+  const window=new BrowserWindow({show:true,webPreferences:{backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
   const externalRequests=[];
   window.webContents.session.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},(details,callback)=>{externalRequests.push(details.url);callback({cancel:true})});
   window.webContents.on('console-message', event => console.log(event.message));
   await window.loadURL('vigo://studio/');
+  console.log('Map fixture: Studio protocol loaded');
   console.log(JSON.stringify(await window.webContents.executeJavaScript('window.checkMap()')));
   if(externalRequests.length) throw Error('Offline map fixture attempted external requests: '+externalRequests.join(', '));
   app.exit(0);
@@ -105,7 +115,9 @@ app.whenReady().then(async()=>{
   const child = spawn(electronPath, [...ciFlags, ...graphicsFlags, path.join(temporary, 'main.cjs')], {
     stdio: 'inherit', env,
   })
-  const timeout = setTimeout(() => child.kill(), 60_000)
+  // Each rendering assertion has its own bounded wait. Allow the complete
+  // sequence of fresh software-rendered maps to finish on shared CI hardware.
+  const timeout = setTimeout(() => child.kill(), 180_000)
   try {
     const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('exit', resolve) })
     assert.equal(code, 0, 'Built map must render through the Studio protocol and sanitize attribution')
