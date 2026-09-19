@@ -1,4 +1,4 @@
-import { createServer } from 'vite'
+import { createViteTestServer as createServer } from './helpers/vite-test-server.mjs'
 import electronPath from 'electron'
 import { spawn } from 'node:child_process'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
@@ -91,7 +91,7 @@ await writeFile(path.join(temporary,'main.cjs'), `const { app, BrowserWindow } =
 app.setPath('userData', ${JSON.stringify(path.join(temporary,'profile'))});
 app.whenReady().then(async () => {
   try {
-    const window = new BrowserWindow({show:false,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}});
+    const window = new BrowserWindow({show:false,webPreferences:{backgroundThrottling:false,nodeIntegration:false,contextIsolation:true,sandbox:true}});
     await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/draft-lifecycle.html`)});
     const result = await window.webContents.executeJavaScript('(() => { try { return window.runTests() } catch(e) { return {failed:e.stack}; } })()');
     if (result.failed) throw Error(result.failed);

@@ -1,4 +1,4 @@
-import { createServer } from 'vite'
+import { createViteTestServer as createServer } from './vite-test-server.mjs'
 
 // These tests only use ssrLoadModule. React's plugin otherwise adds client
 // dependencies that keep the optimizer writing after the temporary cache closes.

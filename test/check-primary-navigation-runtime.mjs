@@ -1,4 +1,4 @@
-import { createServer } from 'vite'
+import { createViteTestServer as createServer } from './helpers/vite-test-server.mjs'
 import react from '@vitejs/plugin-react'
 import electronPath from 'electron'
 import { spawn } from 'node:child_process'
@@ -67,7 +67,7 @@ const main = path.join(directory, 'main.cjs')
 await fs.writeFile(main, `const {app,BrowserWindow}=require('electron');const fs=require('node:fs');
 app.setPath('userData',${JSON.stringify(path.join(directory, 'profile'))});
 app.whenReady().then(async()=>{try{
- const window=new BrowserWindow({show:false,width:1280,height:900,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
+ const window=new BrowserWindow({show:false,width:1280,height:900,webPreferences:{backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
  await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/navigation-fixture.html`)});
  await window.webContents.executeJavaScript('new Promise((resolve,reject)=>{const timer=setInterval(()=>{if(window.checkNavigation){clearInterval(timer);resolve()}},20);setTimeout(()=>{clearInterval(timer);reject(Error("Fixture timed out"))},15000)})');
  const results=[];

@@ -1,4 +1,4 @@
-import { createServer } from 'vite'
+import { createViteTestServer as createServer } from './helpers/vite-test-server.mjs'
 import react from '@vitejs/plugin-react'
 import electronPath from 'electron'
 import { spawn } from 'node:child_process'

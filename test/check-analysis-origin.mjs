@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createServer } from 'vite'
+import { createViteTestServer as createServer } from './helpers/vite-test-server.mjs'
 import electronPath from 'electron'
 import { spawn } from 'node:child_process'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'

@@ -539,17 +539,19 @@ if (worker) {
   } finally { await backgroundWorker.terminate() }
 
   const worker = new Worker(new URL('../src/server/national-route-worker.mjs', import.meta.url))
-  const workerResult = await new Promise((resolve, reject) => {
+  const requestStreetWorker = (id) => new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Street-route worker timed out.')), 5_000)
     worker.once('error', reject)
-    worker.on('message', (message) => {
-      if (message?.id !== 'street-route-fixture') return
+    const receive = (message) => {
+      if (message?.id !== id || message.type === 'progress') return
       clearTimeout(timeout)
+      worker.off('message', receive)
       if (message.type === 'failed') reject(new Error(message.error))
       else if (message.type === 'complete') resolve(message)
-    })
+    }
+    worker.on('message', receive)
     worker.postMessage({
-      id: 'street-route-fixture',
+      id,
       operation: 'street-route',
       storePath: currentStore,
       request: {
@@ -559,7 +561,16 @@ if (worker) {
         trafficSnapshot,
       },
     })
-  }).finally(() => worker.terminate())
+  })
+  let coldWorkerResult, workerResult
+  try {
+    // The first call opens snapshots and initializes native routing. The
+    // resident responsiveness guard applies only after that setup has finished.
+    coldWorkerResult = await requestStreetWorker('street-route-cold')
+    assert.equal(coldWorkerResult.result.status, 'ready')
+    workerResult = await requestStreetWorker('street-route-fixture')
+    assert.equal(workerResult.workerInstance, coldWorkerResult.workerInstance)
+  } finally { await worker.terminate() }
   assert.equal(workerResult.result.status, 'ready')
   assert.equal(workerResult.result.travelMode, 'drive')
   assert.equal(workerResult.result.diagnostics.traffic.status, 'applied')
@@ -780,6 +791,8 @@ if (worker) {
   assert.equal(runtimeDriveRoute.diagnostics.searchStats.cchAccelerated, true)
 
   console.log(JSON.stringify({
+    streetRouteColdOperationMs: coldWorkerResult.metrics.operationMs,
+    streetRouteResidentOperationMs: workerResult.metrics.operationMs,
     status: 'passed',
     walk: {
       distanceKm: walk.legs[0].distanceKm,
