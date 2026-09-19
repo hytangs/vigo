@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { createServer } from 'vite'
+import { createSsrTestServer as createServer } from './helpers/ssr-test-server.mjs'
 import react from '@vitejs/plugin-react'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'

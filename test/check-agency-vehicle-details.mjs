@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { createServer } from 'vite'
+import { createSsrTestServer as createServer } from './helpers/ssr-test-server.mjs'
 import react from '@vitejs/plugin-react'
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-vehicle-details-'))

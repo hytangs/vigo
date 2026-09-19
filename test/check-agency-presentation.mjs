@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { feedHealth, feedAgeLabel, scheduleDeviation } from '../src/agency/presentation.ts'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { createServer } from 'vite'
+import { createSsrTestServer as createServer } from './helpers/ssr-test-server.mjs'
 import react from '@vitejs/plugin-react'
 
 assert.equal(feedHealth([]).label, 'Timetable only')

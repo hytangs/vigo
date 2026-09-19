@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { createServer } from 'vite'
+import { createSsrTestServer as createServer } from './helpers/ssr-test-server.mjs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -9,7 +9,6 @@ import path from 'node:path'
 const directory = await mkdtemp(path.join(tmpdir(), 'vigo-depart-now-ui-'))
 const server = await createServer({ configFile: false, cacheDir: path.join(directory, 'vite-cache'), server: { host: '127.0.0.1', port: 0 } })
 try {
-  await server.listen()
   const { SidebarPathfinderBox } = await server.ssrLoadModule('/src/components/PathfinderPanel.tsx')
   const props = {
     routingEnabled: false, routingOrigin: null, routingWaypoints: [], routingDestination: null,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { createServer } from 'vite'
+import { createSsrTestServer as createServer } from './helpers/ssr-test-server.mjs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -10,7 +10,6 @@ const directory = await mkdtemp(path.join(tmpdir(), 'vigo-cutoff-presentation-')
 const server = await createServer({ configFile: false, cacheDir: path.join(directory, 'vite-cache'), server: { host: '127.0.0.1', port: 0 } })
 try {
   // Initializing Vite also prepares component-imported CSS for SSR.
-  await server.listen()
   const { ReachMetricCards, ReachTransitStatusNotice } = await server.ssrLoadModule('/src/components/AnalyzePanel.tsx')
   const area = { bounds: [-72, 41, -70, 43], width: 1, height: 1, pixelAreaKm2: 1, byCutoff: [{ cutoffMinutes: 45, reachablePixels: 1, areaKm2: 1234.56 }, { cutoffMinutes: 46, reachablePixels: 1, areaKm2: 1250 }, { cutoffMinutes: 90, reachablePixels: 1, areaKm2: 2345.67 }] }
   const result = {

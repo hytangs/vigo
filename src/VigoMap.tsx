@@ -170,17 +170,30 @@ function scheduleMapFrameUpdate(
     if (!cancelled) update()
   }
   const schedule = () => {
+    map.off('styledata', scheduleWhenReady)
+    map.off('load', schedule)
     if (frame) window.cancelAnimationFrame(frame)
     frame = window.requestAnimationFrame(run)
   }
+  const scheduleWhenReady = () => {
+    if (map.isStyleLoaded()) schedule()
+  }
 
-  if (ready || map.loaded()) schedule()
-  else map.once('load', schedule)
+  if (ready || map.loaded() || map.isStyleLoaded()) schedule()
+  else {
+    // Source loading can postpone `load`; local updates and raster startup only
+    // require a style. Subscribe before that transition so neither waits on data.
+    map.on('styledata', scheduleWhenReady)
+    map.once('load', schedule)
+  }
 
   return () => {
     cancelled = true
     if (frame) window.cancelAnimationFrame(frame)
-    if (!removed()) map.off('load', schedule)
+    if (!removed()) {
+      map.off('load', schedule)
+      map.off('styledata', scheduleWhenReady)
+    }
   }
 }
 

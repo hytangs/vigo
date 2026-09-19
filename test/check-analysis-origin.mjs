@@ -60,11 +60,12 @@ try {
 const assert=require('node:assert/strict');
 app.setPath('userData',${JSON.stringify(path.join(directory, 'profile'))});
 app.whenReady().then(async()=>{try{
- const window=new BrowserWindow({show:false,width:390,height:800,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}});
+ const window=new BrowserWindow({show:true,width:390,height:800,webPreferences:{backgroundThrottling:false,nodeIntegration:false,contextIsolation:true,sandbox:true}});
  const evaluate=code=>window.webContents.executeJavaScript(code);
  const wait=async(code)=>{for(let i=0;i<100;i++){if(await evaluate(code))return;await new Promise(resolve=>setTimeout(resolve,30));}throw Error('Condition timed out: '+code+'; '+await evaluate('document.body.innerText'))};
  const key=async(keyCode)=>{window.webContents.focus();window.webContents.sendInputEvent({type:'keyDown',keyCode});if(keyCode==='Enter')window.webContents.sendInputEvent({type:'char',keyCode:'\\r'});window.webContents.sendInputEvent({type:'keyUp',keyCode});};
  await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/origin-test.html`)});
+ window.focus();
  await wait("!!document.querySelector('.analysis-origin-toggle')");
  await evaluate("document.querySelector('.analysis-origin-toggle').focus()"); await key('Enter');
  await wait("document.activeElement === document.querySelector('input[type=search]')");
