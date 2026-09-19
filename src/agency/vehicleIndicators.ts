@@ -11,15 +11,22 @@ export function vehicleReportFresh(vehicle: RealtimeVehicle, snapshot: RealtimeS
   return Boolean(vehicle.timestamp && Math.abs(now - vehicle.timestamp) <= 180 && timestamp && Math.abs(now - timestamp) <= 180 && !feed?.error)
 }
 const raw = (id?: string) => id?.split('\u001f').at(-1)
+function matchesPairMember(vehicle: RealtimeVehicle, event: OperationalEvent, leading = false) {
+  const tripId = leading ? event.evidence.tripIds?.[0] : event.tripId
+  return Boolean(tripId && vehicle.tripId && vehicle.startDate && vehicle.routeId
+    && vehicle.id === (leading ? event.evidence.leadingVehicleId : event.vehicleId)
+    && raw(vehicle.tripId) === raw(tripId) && raw(vehicle.routeId) === raw(event.routeId)
+    && vehicle.startDate.replaceAll('-', '') === event.serviceDate?.replaceAll('-', '')
+    && vehicle.startTime === (leading ? event.evidence.leadingTripStartTime : event.evidence.tripStartTime))
+}
 // Match the reported vehicle AND trip instance, never a route number alone.
 export function vehicleAlert(vehicle: RealtimeVehicle, snapshot: RealtimeSnapshot, events: OperationalEvent[], kind: 'spacing' | 'delay' = 'spacing', now = Date.now() / 1000) {
   if (!vehicleReportFresh(vehicle, snapshot, now)) return undefined
   if (!vehicle.tripId || !vehicle.startDate || !vehicle.routeId) return undefined
   const peers = snapshot.vehicles.filter(item => raw(item.tripId) === raw(vehicle.tripId) && item.startDate === vehicle.startDate && item.startTime === vehicle.startTime)
   if (peers.length !== 1) return undefined
-  return events.filter(event => (kind === 'delay' ? event.type === 'delay' : ['service-gap', 'bunching'].includes(event.type)) && event.vehicleId === vehicle.id && raw(event.tripId) === raw(vehicle.tripId)
-    && raw(event.routeId) === raw(vehicle.routeId) && event.serviceDate?.replaceAll('-', '') === vehicle.startDate?.replaceAll('-', '')
-    && event.evidence.tripStartTime === vehicle.startTime
+  return events.filter(event => (kind === 'delay' ? event.type === 'delay' : ['service-gap', 'bunching'].includes(event.type))
+    && (matchesPairMember(vehicle, event) || event.type === 'bunching' && matchesPairMember(vehicle, event, true))
     && Number.isFinite(Date.parse(event.observedAt)) && Math.abs(now - Date.parse(event.observedAt) / 1000) <= 180)
     .sort((a, b) => ({ critical: 2, warning: 1, info: 0 }[b.severity] - { critical: 2, warning: 1, info: 0 }[a.severity]) || Math.abs((b.evidence.observedHeadwaySeconds ?? 0) - (b.evidence.scheduledHeadwaySeconds ?? 0) || b.evidence.delaySeconds || 0) - Math.abs((a.evidence.observedHeadwaySeconds ?? 0) - (a.evidence.scheduledHeadwaySeconds ?? 0) || a.evidence.delaySeconds || 0))[0]
 }
@@ -30,9 +37,9 @@ export function vehicleGap(vehicle: RealtimeVehicle, snapshot: RealtimeSnapshot,
 
 export function bunchingPartner(vehicle: RealtimeVehicle, snapshot: RealtimeSnapshot, event?: OperationalEvent, now = Date.now() / 1000) {
   if (event?.type !== 'bunching' || event.severity === 'info' || !event.evidence.leadingVehicleId || !event.evidence.tripIds?.[0]) return undefined
-  const candidates = snapshot.vehicles.filter(item => item.id === event.evidence.leadingVehicleId && raw(item.tripId) === raw(event.evidence.tripIds?.[0])
-    && raw(item.routeId) === raw(vehicle.routeId) && item.startDate?.replaceAll('-', '') === event.serviceDate?.replaceAll('-', '')
-    && item.startTime === event.evidence.leadingTripStartTime && vehicleReportFresh(item, snapshot, now))
+  const following = matchesPairMember(vehicle, event)
+  if (!following && !matchesPairMember(vehicle, event, true)) return undefined
+  const candidates = snapshot.vehicles.filter(item => matchesPairMember(item, event, following) && vehicleReportFresh(item, snapshot, now))
   return candidates.length === 1 ? candidates[0] : undefined
 }
 

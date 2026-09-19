@@ -288,7 +288,7 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
       routeShortName,
       routeColor: route?.color ?? '#6af3ee',
       tripId,
-      pairedCoordinate: partner && Number.isFinite(partner.lon) && Number.isFinite(partner.lat) && Math.abs(partner.lon!) <= 180 && Math.abs(partner.lat!) <= 90 ? [partner.lon!, partner.lat!] : undefined,
+      pairedCoordinate: gap?.vehicleId === vehicle.id && partner && Number.isFinite(partner.lon) && Number.isFinite(partner.lat) && Math.abs(partner.lon!) <= 180 && Math.abs(partner.lat!) <= 90 ? [partner.lon!, partner.lat!] : undefined,
       delaySeverity: delay?.severity,
       gapSeverity: gap?.severity,
       crowded: fresh && occupancy.crowded,
@@ -307,7 +307,7 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
         metrics: [
           { value: `${occupancy.label}${fresh ? '' : ' (not current)'}`, label: 'reported occupancy' },
           ...(delay && delay.severity !== 'info' ? [{ value: `${Math.round((delay.evidence.delaySeconds || 0) / 60)} min late`, label: `Predicted at ${delay.stopName || delay.stopId}; ${delay.evidence.alertReason}` }] : []),
-          ...(gap ? [{ value: gapLabel, label: `Predicted at ${gap.stopName || gap.stopId}${partner ? ` · vehicles ${partner.label || partner.id} ↔ ${vehicle.label || vehicle.id}` : ''}; direction ${gap.directionId ?? 'unknown'}${gap.evidence.alertReason ? `; ${gap.evidence.alertReason}` : ''}` }] : []),
+          ...(gap ? [{ value: gapLabel, label: `Predicted at ${gap.stopName || gap.stopId}${partner ? ` · vehicles ${partner.label || partner.id} ↔ ${vehicle.label || vehicle.id}` : ''}; direction ${gap.directionId ?? 'unknown'}${gap.evidence.predictedOrderReversed ? '; predicted trip order reversed' : ''}${gap.evidence.alertReason ? `; ${gap.evidence.alertReason}` : ''}` }] : []),
           { value: delayLabel(delaySeconds), label: 'delay' },
           { value: realtimeClock(vehicle.timestamp), label: 'seen' },
         ],

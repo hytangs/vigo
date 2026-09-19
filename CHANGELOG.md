@@ -6,6 +6,7 @@ API 1.0, City format 1, and Result schema 1 are unchanged. See the [release note
 
 - Add live network inspection, trip times, station boards, line diagrams, and experimental Ask to VIGO Studio.
 - Show reported added service in line views and the trip selector without inventing scheduled times or delays.
+- Detect compressed spacing across prediction-order changes and mark both vehicles in a bunching pair.
 - Separate scheduled and realtime Route modes, disable unsupported transfer caps for via-point routes, and clear recovered routing errors.
 - Delete individual GTFS feeds or OSM data from City sources while preserving the remaining data and notebooks.
 - Fix map startup readiness and cross-platform UI test cleanup and keyboard focus.

@@ -22,6 +22,8 @@ Both views use the same per-City timetable, realtime snapshot, identity resoluti
 
 Spacing is schematic: it represents stop order, not distance, elapsed time or headway. Current times are feed predictions, not verified actual arrivals. Vehicle and prediction observation times are shown separately in the agency timezone. This is a live line diagram, not a historical time-distance chart.
 
+The **↔** warning marks both matched vehicles in a compressed departure pair. The comparison uses their predictions at the same stop against their scheduled interval, including when predicted trip order reverses. The vehicle card names the pair and reference stop. Wider-gap warnings require consecutive predictions in scheduled order; missing intermediate reports remain unknown.
+
 ## Verification
 
 The City X fixture in `test/check-agency-route-line.mjs` covers both directions, branches, repeated and terminal stops, conflicting sequences, independent arrival/departure times, stale and future positions, skipped/no-data predictions, and duplicate identities. `test/check-added-service-display.mjs` covers added trips absent from the static timetable. Both run with `npm run check:agency`; they verify fixture behavior, not field prediction accuracy.

@@ -25,6 +25,14 @@ const leading = { ...vehicle, id: 'P', tripId: 'P-trip', lon: -71, lat: 42 }
 const pairEvent = { ...compressed, evidence: { ...compressed.evidence, leadingVehicleId: 'P', tripIds: ['P-trip', 'T'] } }
 const pairSnapshot = { vehicles: [vehicle, leading] }
 assert.equal(bunchingPartner(vehicle, pairSnapshot, pairEvent, now), leading)
+assert.equal(vehicleGap(leading, pairSnapshot, [pairEvent], now), pairEvent, 'Both members of a bunching pair need the spacing warning')
+assert.equal(bunchingPartner(leading, pairSnapshot, pairEvent, now), vehicle, 'The leading member can inspect the same pair')
+assert.equal(vehicleAlert(leading, pairSnapshot, [delay], 'delay', now), undefined, 'Do not copy the other vehicle delay')
+assert.equal(vehicleGap(leading, pairSnapshot, [{ ...pairEvent, type: 'service-gap' }], now), undefined, 'A wider gap belongs to the following trip')
+for (const patch of [{ tripId: 'next-trip' }, { startDate: '20260915' }, { startTime: 'later' }, { timestamp: now - 181 }]) {
+  const other = { ...leading, ...patch }
+  assert.equal(vehicleGap(other, { vehicles: [vehicle, other] }, [pairEvent], now), undefined, 'Pair markers keep exact trip instance and freshness checks')
+}
 assert.equal(bunchingPartner(vehicle, { vehicles: [vehicle, leading, { ...leading, sourceUrl: 'other' }] }, pairEvent, now), undefined)
 assert.equal(bunchingPartner(vehicle, { vehicles: [vehicle, { ...leading, timestamp: now - 181 }] }, pairEvent, now), undefined)
 assert.equal(bunchingPartner(vehicle, { vehicles: [vehicle, { ...leading, startDate: '20260915' }] }, pairEvent, now), undefined)

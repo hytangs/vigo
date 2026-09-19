@@ -206,6 +206,18 @@ try {
     },
   })
   assert.equal(realtime.vehicles[0].card.journey.arrival, new Date(nextArrival * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), 'Absent sequence fields must not match the wrong realtime stop update')
+  const clock = Date.now() / 1000
+  const pairVehicles = ['1816', '1867'].map((id, index) => ({ id, label: id, tripId: `trip-${id}`, routeId: 'SPARSE', startDate: '20260918', timestamp: clock, sourceFeedTimestamp: clock, lon: -71 + index / 1000, lat: 42 }))
+  const bunchingFrame = buildServiceVehicleFrame({
+    mode: 'live', preview: sparse, scheduledVehicles: [],
+    realtimeSnapshot: { vehicles: pairVehicles, tripUpdates: [], alerts: [], counts: { vehicles: 2, tripUpdates: 0, alerts: 0, other: 0 } },
+    operationalEvents: [{ type: 'bunching', severity: 'warning', vehicleId: '1867', tripId: 'trip-1867', routeId: 'SPARSE', serviceDate: '2026-09-18', observedAt: new Date(clock * 1000).toISOString(), stopId: 'A', evidence: { leadingVehicleId: '1816', tripIds: ['trip-1816', 'trip-1867'], observedHeadwaySeconds: 90, scheduledHeadwaySeconds: 600, predictedOrderReversed: true } }],
+  })
+  assert.deepEqual(bunchingFrame.vehicles.map(vehicle => vehicle.indicatorLabel), ['↔', '↔'], 'The shared map and line frame marks both bunching members')
+  assert.equal(bunchingFrame.vehicles.filter(vehicle => vehicle.pairedCoordinate).length, 1, 'Draw each pair link once')
+  for (const vehicle of bunchingFrame.vehicles) {
+    assert.match(vehicle.card.metrics.find(metric => metric.label.startsWith('Predicted at ')).label, /vehicles (1816 ↔ 1867|1867 ↔ 1816).*predicted trip order reversed/, 'Each vehicle card explains the same pair and its reversed prediction order')
+  }
   console.log('Scheduled vehicle audit passed (shape variants, sparse shapes, dwell, loops, service dates, extended hours, malformed schedules, and realtime stop matching).')
 } finally {
   await fs.rm(directory, { recursive: true, force: true })

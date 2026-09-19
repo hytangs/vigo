@@ -143,10 +143,14 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
 
   let incompleteIntervals = 0
   let reorderedIntervals = 0
+  let simultaneousIntervals = 0
   let measuredIntervals = 0
   for (const [key, group] of groups) {
     const { trip, stopId, serviceDate, epoch } = group
-    const ordered = group.predictions.sort((a, b) => a.predictedTime - b.predictedTime || a.tripId.localeCompare(b.tripId))
+    // Compare consecutive scheduled trips even when their predictions cross.
+    // Sorting by prediction first used to discard the overtaking member of a bunch.
+    const ordered = group.predictions.sort((a, b) => a.scheduledTime - b.scheduledTime || a.tripId.localeCompare(b.tripId))
+    const predictedOrder = new Map([...ordered].sort((a, b) => a.predictedTime - b.predictedTime || a.tripId.localeCompare(b.tripId)).map((row, index) => [row, index]))
     const firstScheduled = ordered.reduce((time, row) => Math.min(time, row.scheduledTime), nowSeconds)
     const lastScheduled = ordered.reduce((time, row) => Math.max(time, row.scheduledTime), nowSeconds + policy.windowMinutes * 60)
     const allExpected = context.expectedDepartures(trip, stopId, serviceDate, firstScheduled - epoch, lastScheduled - epoch)
@@ -156,14 +160,18 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       const before = ordered[index - 1]
       const after = ordered[index]
       const scheduledHeadwaySeconds = after.scheduledTime - before.scheduledTime
-      if (scheduledHeadwaySeconds <= 0) { reorderedIntervals++; continue }
+      if (scheduledHeadwaySeconds <= 0) { simultaneousIntervals++; continue }
       const expected = allExpected.filter((row) => row.departure + epoch >= before.scheduledTime && row.departure + epoch <= after.scheduledTime)
       if (expected.length !== 2 || !expected.every((row) => reporting.has(`${row.trip_id}/${row.stop_sequence}`))) { incompleteIntervals++; continue }
+      const observedHeadwaySeconds = Math.abs(after.predictedTime - before.predictedTime)
+      const predictedOrderReversed = after.predictedTime < before.predictedTime
+      // Wider-gap claims need consecutive predictions in the same order. A
+      // compressed pair remains close even with another bunched vehicle between it.
+      if (observedHeadwaySeconds >= scheduledHeadwaySeconds && predictedOrder.get(after) !== predictedOrder.get(before) + 1) { reorderedIntervals++; continue }
       measuredIntervals++
-      const observedHeadwaySeconds = after.predictedTime - before.predictedTime
       measurements.intervals.push({ routeId: trip.route_id, directionId: trip.direction_id, serviceDate, stopId,
         tripIds: [before.tripId, after.tripId], scheduledSeconds: scheduledHeadwaySeconds, predictedSeconds: observedHeadwaySeconds,
-        fromTime: before.predictedTime, toTime: after.predictedTime,
+        fromTime: Math.min(before.predictedTime, after.predictedTime), toTime: Math.max(before.predictedTime, after.predictedTime), predictedOrderReversed,
         observedAt: before.observedAt < after.observedAt ? before.observedAt : after.observedAt, sourceRefs: [before.sourceRef, after.sourceRef] })
       const route = routes.get(trip.route_id)
       route.comparedPairs++
@@ -184,13 +192,15 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
         tripId: after.tripId, stopId, serviceDate, observedAt: before.observedAt < after.observedAt ? before.observedAt : after.observedAt,
         evidence: { ...(before.vehicleId ? { leadingVehicleId: before.vehicleId } : {}), ...(before.tripStartTime ? { leadingTripStartTime: before.tripStartTime } : {}), alertReason: spacingAlert(scheduledHeadwaySeconds, observedHeadwaySeconds).alertReason, ...(after.tripStartTime ? { tripStartTime: after.tripStartTime } : {}), scheduledHeadwaySeconds, observedHeadwaySeconds, headwayRatio: observedHeadwaySeconds / scheduledHeadwaySeconds,
           referenceStopId: stopId, comparisonWindow: [before.scheduledTime, after.scheduledTime], expectedDepartures: expected.length, reportingTrips: expected.filter((row) => reporting.has(`${row.trip_id}/${row.stop_sequence}`)).length,
-          tripIds: [before.tripId, after.tripId], reason: 'Two consecutive scheduled departures, both reporting at this stop. This is a predicted interval, not an observed passage or route-wide regularity claim.' },
+          tripIds: [before.tripId, after.tripId], predictedOrderReversed,
+          reason: `Two consecutive scheduled departures, both reporting at this stop.${predictedOrderReversed ? ' Their predicted order is reversed.' : ''} This is a predicted interval, not an observed passage or route-wide regularity claim.` },
         sourceRefs: [before.sourceRef, after.sourceRef, `gtfs:connections/${encodeURIComponent(stopId)}?date=${serviceDate}`],
       })
     }
   }
   if (incompleteIntervals) warnings.push(`${incompleteIntervals} stop-level headway comparisons skipped: the pair does not contain exactly two consecutive scheduled departures with usable reports.`)
-  if (reorderedIntervals) warnings.push(`${reorderedIntervals} stop-level headway comparisons skipped: predicted departure order differs from the timetable or scheduled departure times are equal.`)
+  if (reorderedIntervals) warnings.push(`${reorderedIntervals} wider-interval comparisons skipped: the trips are not consecutive predictions in scheduled order.`)
+  if (simultaneousIntervals) warnings.push(`${simultaneousIntervals} stop-level headway comparisons skipped: scheduled departure times are equal.`)
   if (!measuredIntervals && snapshot) warnings.push('No fully reporting departure pair is available in the comparison window. Headway health is unknown.')
 
   let activeAlerts = 0

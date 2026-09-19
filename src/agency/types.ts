@@ -7,8 +7,10 @@ export type WorkspaceSelection = {
 }
 
 export type Evidence = {
+  // Earlier scheduled member; predictions can reverse the pair's order.
   leadingVehicleId?: string
   leadingTripStartTime?: string
+  predictedOrderReversed?: boolean
   alertReason?: string
   tripStartTime?: string
   scheduledTime?: number
