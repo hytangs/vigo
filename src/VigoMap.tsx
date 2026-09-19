@@ -1,5 +1,5 @@
 import { findNetworkStop } from './app/networkSelection'
-import { setMapSourceData } from './app/mapSourceUpdates'
+import { setMapSourceData, setStreetMapSourceData } from './app/mapSourceUpdates'
 import { renderedStopAtPoint } from './app/mapStopSelection'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection as GeoJsonFeatureCollection, GeoJsonProperties, Geometry } from 'geojson'
@@ -755,6 +755,8 @@ type DecodedStreetEdgeBundle = {
   endpoints: Uint32Array
   edgeIds: Uint32Array
   durations: Float64Array
+  points: LngLat[]
+  segments: Array<[LngLat, LngLat]>
 }
 
 type StreetEdgeCallback = (
@@ -784,6 +786,8 @@ function decodeStreetEdgeBundle(bundle: ScenarioStreetEdgeBundle): DecodedStreet
     endpoints: new Uint32Array(decodeBase64Bytes(bundle.endpoints)),
     edgeIds: new Uint32Array(decodeBase64Bytes(bundle.edgeIds)),
     durations: new Float64Array(decodeBase64Bytes(bundle.durationMinutes)),
+    points: new Array<LngLat>(bundle.nodeCount),
+    segments: new Array<[LngLat, LngLat]>(bundle.count),
   }
   if (
     decoded.nodes.length !== bundle.nodeCount * 2
@@ -810,6 +814,7 @@ function resolveStreetEdgeSource(source: ScenarioStreetEdgeSource, sources?: Sce
 
 function forEachStreetEdge(
   source: ScenarioStreetEdgeSource,
+  cutoffMinutes: number,
   callback: StreetEdgeCallback,
   sources?: ScenarioEdgeSources,
 ) {
@@ -819,18 +824,8 @@ function forEachStreetEdge(
   }
   const decoded = decodeStreetEdgeBundle(resolved)
   for (let index = 0; index < resolved.count; index += 1) {
-    const fromNode = decoded.endpoints[index * 2] * 2
-    const toNode = decoded.endpoints[index * 2 + 1] * 2
-    if (fromNode + 1 >= decoded.nodes.length || toNode + 1 >= decoded.nodes.length) {
-      throw new Error('Reach street-edge bundle references an invalid node.')
-    }
-    callback(
-      [
-        [decoded.nodes[fromNode], decoded.nodes[fromNode + 1]],
-        [decoded.nodes[toNode], decoded.nodes[toNode + 1]],
-      ],
-      decoded.durations[index],
-    )
+    if (decoded.durations[index] > cutoffMinutes) continue
+    callback(indexedEdgeCoordinates(decoded, index), decoded.durations[index])
   }
 }
 
@@ -853,14 +848,18 @@ function indexedEdgeArrival(decoded: DecodedStreetEdgeBundle, index: number) {
 }
 
 function indexedEdgeCoordinates(decoded: DecodedStreetEdgeBundle, index: number): [LngLat, LngLat] {
+  const cached = decoded.segments[index]
+  if (cached) return cached
   const fromNode = decoded.endpoints[index * 2] * 2
   const toNode = decoded.endpoints[index * 2 + 1] * 2
   if (fromNode + 1 >= decoded.nodes.length || toNode + 1 >= decoded.nodes.length) {
     throw new Error('Reach street-edge bundle references an invalid node.')
   }
-  return [
-    [decoded.nodes[fromNode], decoded.nodes[fromNode + 1]],
-    [decoded.nodes[toNode], decoded.nodes[toNode + 1]],
+  // Cutoffs change inclusion and color, not geometry. Share immutable points
+  // and segments across views instead of reallocating millions on every edit.
+  return decoded.segments[index] = [
+    decoded.points[fromNode / 2] ??= [decoded.nodes[fromNode], decoded.nodes[fromNode + 1]],
+    decoded.points[toNode / 2] ??= [decoded.nodes[toNode], decoded.nodes[toNode + 1]],
   ]
 }
 
@@ -949,7 +948,7 @@ function scenarioEdgeFeatures(
   }
   if (view !== 'comparison') {
     const groups = new Map<string, { color: string; coordinates: Array<[LngLat, LngLat]>; count: number }>()
-    forEachStreetEdge(edges[view], (coordinates, durationMinutes) => {
+    forEachStreetEdge(edges[view], cutoffMinutes, (coordinates, durationMinutes) => {
       const arrival = durationMinutes
       if (arrival > cutoffMinutes) return
       const color = colorForDuration(arrival)
@@ -1002,7 +1001,7 @@ function reachComparisonEdgeFeatures(
   const source = analysis.surface.edges?.baseline
   if (!source) return emptyCollection
   const coordinates: Array<[LngLat, LngLat]> = []
-  forEachStreetEdge(source, (edgeCoordinates, durationMinutes) => {
+  forEachStreetEdge(source, cutoffMinutes, (edgeCoordinates, durationMinutes) => {
     if (durationMinutes <= cutoffMinutes) coordinates.push(edgeCoordinates)
   }, analysis.surface.edges)
   return coordinates.length
@@ -2879,7 +2878,7 @@ export function VigoMap({
     const update = () => {
       ensureLayers(map, comparisonEntries.length)
       setMapSourceData(source(map, 'vigo-scenario-area'), scenarioAreaGeoJson)
-      setMapSourceData(source(map, 'vigo-scenario-access-edges'), scenarioAccessEdgesGeoJson)
+      setStreetMapSourceData(source(map, 'vigo-scenario-access-edges'), scenarioAccessEdgesGeoJson)
       setMapSourceData(source(map, 'vigo-service-edges'), serviceDecomposition?.featureCollection ?? emptyCollection)
       setMapSourceData(source(map, 'vigo-scenario-contours'), scenarioContoursGeoJson)
       setMapSourceData(source(map, 'vigo-reach-route'),
@@ -2888,7 +2887,7 @@ export function VigoMap({
       setMapSourceData(source(map, 'vigo-scenario-sketch'), scenarioSketchGeoJson)
       comparisonEntries.forEach((_entry, index) => {
         setMapSourceData(source(map, `vigo-scenario-comparison-${index}-area`), comparisonAreasGeoJson[index] ?? emptyCollection)
-        setMapSourceData(source(map, `vigo-scenario-comparison-${index}-access-edges`), comparisonAccessEdgesGeoJson[index] ?? emptyCollection)
+        setStreetMapSourceData(source(map, `vigo-scenario-comparison-${index}-access-edges`), comparisonAccessEdgesGeoJson[index] ?? emptyCollection)
         setMapSourceData(source(map, `vigo-scenario-comparison-${index}-contours`), comparisonContoursGeoJson[index] ?? emptyCollection)
       })
       setVisibility(map, reachResultLayerIds, scenarioFocus)

@@ -150,6 +150,17 @@ export async function runMapRefreshChecks() {
     surface: { displayBounds: [-0.02,-0.02,0.02,0.02], contours: { baseline: empty, scenario: empty }, areas: { baseline: area, scenario: area } },
     scenario: { routes: empty },
   }
+  const encode = values => btoa(String.fromCharCode(...new Uint8Array(values.buffer)))
+  analysis.surface.edges = {
+    baseline: {
+      schemaVersion: 'vigo.street.edge-bundle.v1', count: 3, nodeCount: 3,
+      nodes: encode(new Float64Array([-0.01, 0, 0, 0.002, 0.01, 0])),
+      endpoints: encode(new Uint32Array([0, 1, 1, 2, 1, 0])),
+      edgeIds: encode(new Uint32Array([1, 2, 3])),
+      durationMinutes: encode(new Float64Array([30, 45, 60])),
+    },
+    scenario: { schemaVersion: 'vigo.street.edge-ref.v1', source: 'baseline' },
+  }
   let props = {
     preview: { routes: [], stops: [], stopPairs: [] }, feedName: 'City X',
     layers: { routes: false, stops: true }, basemap: 'none', appearance: 'light', networkLens: 'network',
@@ -191,6 +202,18 @@ export async function runMapRefreshChecks() {
     for (const patch of [{ scenarioCutoffMinutes: 30 }, { scenarioView: 'comparison' }, { scenarioRenderMode: 'streets' }]) await render(patch)
     check(fits === beforeReach.fits, 'Changing display controls must not reset the camera')
     check(JSON.stringify(map.getCenter().toArray()) === JSON.stringify(beforeReach.center) && map.getZoom() === beforeReach.zoom, 'Accessibility pan/zoom must stay put')
+    const streetSegments = () => map.getSource('vigo-scenario-access-edges').serialize().data.features.flatMap(feature => feature.geometry.coordinates)
+    await render({ scenarioView: 'baseline', scenarioCutoffMinutes: 45 })
+    const streets45 = streetSegments()
+    check(streets45.length === 2, 'Only edges reached by the selected cutoff are drawn')
+    await render({ scenarioCutoffMinutes: 60 })
+    const streets60 = streetSegments()
+    check(streets60.length === 3 && streets45.every(segment => streets60.includes(segment)), 'Cutoff changes reuse existing segments instead of reallocating city-wide coordinates')
+    check(streets60[0][1] === streets60[1][0] && streets60[0][0] === streets60[2][1], 'Connected and reverse-directed edges share the exact same node coordinates')
+    await render({ scenarioCutoffMinutes: 30 })
+    check(streetSegments().length === 1 && streetSegments()[0] === streets45[0], 'Shrinking the cutoff removes later streets while retaining exact geometry')
+    await render({ scenarioView: 'comparison' })
+    check(streetSegments().length === 1 && streetSegments()[0] === streets45[0], 'Scenario references reuse geometry and obey the selected cutoff')
     await render({ reachResult: { ...analysis, surface: { ...analysis.surface, displayBounds: [-0.01,-0.01,0.01,0.01] } } })
     check(fits === beforeReach.fits + 1, 'A newly computed accessibility result must still fit once')
     const resultCamera = { fits, center: map.getCenter().toArray(), zoom: map.getZoom() }
