@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react'
 import { classNames } from '../domain'
+import { RoutingFare } from './RoutingFare'
 import { formatScheduleClock } from '../scheduledVehicles'
 import type {
   RoutingPlan,
@@ -24,6 +25,7 @@ import type {
   RoutingPoint,
   RoutingTimePreference,
   RoutingTravelMode,
+  RoutingDataMode,
 } from '../routingModel'
 import {
   formatRoutingLegDuration,
@@ -32,6 +34,8 @@ import {
   routingLegDetail,
   routingLegPrimaryLabel,
   routingPlanRouteSequence,
+  routingRealtimeDetail,
+  routingDataModeLabel,
 } from '../app/presentation'
 import {
   routingPlanStartWaitMinutes,
@@ -189,6 +193,7 @@ function RoutingItinerary({
       ) : null}
 
       <RoutingPointSequence plan={plan} />
+      <RoutingFare plan={plan} />
 
       <ol>
         {plan.legs.map((leg, index) => {
@@ -267,12 +272,6 @@ export function RoutingDetailPanel({
   const runtime = routingPlanRuntime(plan)
   const limitations = plan.diagnostics.dataSemantics?.limitations ?? []
   const serviceDate = plan.diagnostics.serviceDate
-  const realtimeRouting = plan.diagnostics.realtimeRouting
-  const realtimeApplied = plan.diagnostics.scheduleMode === 'realtime-adjusted'
-    || (typeof realtimeRouting === 'object'
-      && realtimeRouting !== null
-      && 'status' in realtimeRouting
-      && realtimeRouting.status === 'applied')
   const trafficRouting = plan.diagnostics.traffic
   const trafficApplied = plan.diagnostics.roadMetricMode === 'traffic-adjusted'
     && trafficRouting?.status === 'applied'
@@ -282,15 +281,14 @@ export function RoutingDetailPanel({
       : trafficRouting?.status === 'stale_fallback'
         ? 'OSM free-flow · traffic snapshot stale'
         : 'OSM free-flow · live traffic not supplied'
-    : realtimeApplied
-      ? 'GTFS-RT trip updates applied'
-      : 'Scheduled times; realtime delay not modeled'
+    : routingRealtimeDetail(plan)
 
   return (
     <aside className="routing-detail-panel" aria-label="Routing details" aria-describedby="routing-choice-explanation">
       <header className="routing-detail-head">
         <span>
           <small>Selected journey</small>
+          {plan.travelMode === 'transit' && routingDataModeLabel(plan) ? <small>{routingDataModeLabel(plan)}</small> : null}
           <strong>{routeSequence}</strong>
           <b>{formatScheduleClock(plan.departMinutes)} – {formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</b>
         </span>
@@ -323,6 +321,7 @@ export function RoutingDetailPanel({
             <div><dt>Search profile</dt><dd>{routingProfileLabel(plan)}</dd></div>
             <div><dt>Certification</dt><dd>{routingCertificationLabel(plan)}</dd></div>
             {serviceDate ? <div><dt>Service date</dt><dd>{serviceDate}</dd></div> : null}
+            {plan.diagnostics.routingDataProvenance?.timeZone ? <div><dt>Time zone</dt><dd>{plan.diagnostics.routingDataProvenance.timeZone}</dd></div> : null}
             <div><dt>Access limit</dt><dd>{plan.maxWalkKm.toFixed(1)} km</dd></div>
             <div><dt>{plan.travelMode === 'drive' ? 'Road metric' : 'Schedule'}</dt><dd>{timingDetail}</dd></div>
             {limitations.length ? <div><dt>Declared limits</dt><dd>{limitations.length} attached to this result</dd></div> : null}
@@ -423,6 +422,7 @@ function PathfinderRouteList({
                 </span>
                 <span className="pathfinder-route-rationale">
                   <em>{plan.recommended ? 'Top result' : 'Alternative route'}</em>
+                  {plan.travelMode === 'transit' && routingDataModeLabel(plan) ? <span title={routingRealtimeDetail(plan)}>{routingDataModeLabel(plan)}</span> : null}
                   <strong>{plan.choiceLabel || 'Distinct journey'}</strong>
                   {tradeoff ? <span>{tradeoff}</span> : null}
                   {startWaitMinutes > 0 ? (
@@ -467,6 +467,7 @@ export type SidebarPathfinderBoxProps = {
   routingStoreReady: boolean
   routingTimePreference: RoutingTimePreference
   routingMode: RoutingTravelMode
+  routingDataMode: RoutingDataMode
   routingDepartureWindowMinutes: RoutingDepartureWindowMinutes
   routingMaxWalkKm: number
   routingMaxTransfers?: number
@@ -488,6 +489,7 @@ export type SidebarPathfinderBoxProps = {
   onScheduleTimeChange: (minutes: number) => void
   onRoutingTimePreferenceChange: (preference: RoutingTimePreference) => void
   onRoutingModeChange: (mode: RoutingTravelMode) => void
+  onRoutingDataModeChange: (mode: RoutingDataMode) => void
   onRoutingDepartureWindowChange: (minutes: RoutingDepartureWindowMinutes) => void
   onRoutingMaxWalkKmChange: (km: number) => void
   onRoutingMaxTransfersChange: (count: number | undefined) => void
@@ -509,6 +511,7 @@ export function SidebarPathfinderBox({
   routingStoreReady,
   routingTimePreference,
   routingMode,
+  routingDataMode,
   routingDepartureWindowMinutes,
   routingMaxWalkKm,
   routingMaxTransfers,
@@ -530,6 +533,7 @@ export function SidebarPathfinderBox({
   onScheduleTimeChange,
   onRoutingTimePreferenceChange,
   onRoutingModeChange,
+  onRoutingDataModeChange,
   onRoutingDepartureWindowChange,
   onRoutingMaxWalkKmChange,
   onRoutingMaxTransfersChange,
@@ -540,6 +544,8 @@ export function SidebarPathfinderBox({
   onClearRouting,
 }: SidebarPathfinderBoxProps) {
   const points = [...(routingOrigin ? [routingOrigin] : []), ...routingWaypoints, ...(routingDestination ? [routingDestination] : [])]
+  const transferLimitUnavailable = routingMode === 'transit' && routingWaypoints.length > 0
+  const effectiveMaxTransfers = transferLimitUnavailable ? undefined : routingMaxTransfers
   const pointRows = points.length < 2 ? [routingOrigin, null] : points
   const mapPointLimitReached = points.length >= maxRoutingPointCount
   const busy = routingActivity.kind === 'loading' || routingActivity.kind === 'preparing'
@@ -557,9 +563,10 @@ export function SidebarPathfinderBox({
   }
 
   const clockValue = formatScheduleClock(scheduleTimeMinutes)
+  const departNow = routingMode === 'transit' && routingDataMode === 'realtime'
   const noServiceDatePlan = routingPlan?.status === 'blocked'
     && /service|timetable/i.test(`${routingPlan.title} ${routingPlan.detail}`)
-  const outsideServiceCoverage = routingServiceDateAvailability === 'outside'
+  const outsideServiceCoverage = !departNow && routingServiceDateAvailability === 'outside'
   const showServiceDateCorrection = routingMode === 'transit' && storeBackedRouting
     && (outsideServiceCoverage || noServiceDatePlan)
   const buildingCombinedSchedule = routingScopeStatus === 'building'
@@ -568,7 +575,7 @@ export function SidebarPathfinderBox({
   const preparingExactSchedule = routingScopeStatus === 'ready'
     && routingActivity.kind === 'preparing'
     && routingActivity.title === 'Opening SQLite timetable'
-  const canResolveServiceDate = routingMode === 'transit' && routingStoreReady && routingServiceDateOptions.length > 0
+  const canResolveServiceDate = routingMode === 'transit' && !departNow && routingStoreReady && routingServiceDateOptions.length > 0
   const serviceCoverageLabel = routingServiceCoverage?.completeStartDate && routingServiceCoverage.completeEndDate
     ? `${routingServiceCoverage.completeStartDate} – ${routingServiceCoverage.completeEndDate}`
     : 'No complete local dates are indexed.'
@@ -615,6 +622,15 @@ export function SidebarPathfinderBox({
             ))}
           </div>
         </div>
+        {routingMode === 'transit' ? <div className="pathfinder-stage pathfinder-data-mode">
+          <div className="pathfinder-segmented" role="group" aria-label="Transit data mode" aria-describedby="pathfinder-data-mode-help">
+            <button type="button" className={classNames(routingDataMode === 'realtime' && 'is-active')} aria-pressed={routingDataMode === 'realtime'} onClick={() => onRoutingDataModeChange('realtime')}>Realtime</button>
+            <button type="button" className={classNames(routingDataMode === 'scheduled' && 'is-active')} aria-pressed={routingDataMode === 'scheduled'} onClick={() => onRoutingDataModeChange('scheduled')}>Scheduled</button>
+          </div>
+          <p className="pathfinder-points-hint" id="pathfinder-data-mode-help">{routingDataMode === 'scheduled'
+            ? 'Published timetable for your selected date and time. Live feed refreshes do not change the result.'
+            : 'Fresh predictions and cancellations. Trips without an applied update use scheduled times.'}</p>
+        </div> : null}
         <div className="pathfinder-stage pathfinder-stage-points">
           <div className="pathfinder-stage-actions">
             <button type="button" className="pathfinder-swap" onClick={() => onReorderRoutingPoints([...points].reverse())} disabled={points.length < 2} aria-label="Reverse route sequence">
@@ -652,6 +668,10 @@ export function SidebarPathfinderBox({
 
         <div className="pathfinder-stage pathfinder-stage-time">
           <div className="pathfinder-when" aria-label="Journey time and date">
+            {departNow ? <div className="pathfinder-time-field pathfinder-depart-now" title="Each run departs at the current time in the transit agency’s timezone.">
+              <Clock3 size={14} aria-hidden="true" />
+              <strong>Depart now</strong>
+            </div> : <>
             <div className="pathfinder-when-row">
               {routingMode === 'transit' ? <div className="pathfinder-time-preference" role="group" aria-label="Time preference">
                 {routingTimeOptions.map((option) => (
@@ -685,6 +705,7 @@ export function SidebarPathfinderBox({
                 />
               </span>
             </label> : null}
+            </>}
           </div>
         </div>
 
@@ -741,7 +762,7 @@ export function SidebarPathfinderBox({
         <div className="pathfinder-notice is-warning" role="status" aria-live="polite">
           <AlertTriangle size={16} />
           <span>
-            <strong>{outsideServiceCoverage ? 'Date outside timetable' : 'Timetable incomplete for this date'}</strong>
+            <strong>{departNow ? 'Timetable unavailable for now' : outsideServiceCoverage ? 'Date outside timetable' : 'Timetable incomplete for this date'}</strong>
             <small>{outsideServiceCoverage ? `Complete local coverage: ${serviceCoverageLabel}` : routingPlan?.detail}</small>
           </span>
           {canResolveServiceDate ? (
@@ -757,7 +778,7 @@ export function SidebarPathfinderBox({
                 </button>
               ))}
             </div>
-          ) : null}
+          ) : departNow ? <button type="button" onClick={() => onRoutingDataModeChange('scheduled')}>Use Scheduled</button> : null}
         </div>
       ) : showRoutingActivity ? (
         <div className="pathfinder-notice is-loading" role="status" aria-live="polite">
@@ -799,10 +820,10 @@ export function SidebarPathfinderBox({
       {routingMode === 'transit' ? <details className="pathfinder-options">
         <summary>
           <span><SlidersHorizontal size={15} /> Route options</span>
-          <b>{routingMaxTransfers === undefined ? '' : `≤${routingMaxTransfers} transfers · `}{routingDepartureWindowMinutes ? 'Later departures' : 'Exact time'} · {routingMaxWalkKm.toFixed(1)} km access</b>
+          <b>{effectiveMaxTransfers === undefined ? '' : `≤${effectiveMaxTransfers} transfers · `}{routingDepartureWindowMinutes ? 'Later departures' : 'Exact time'} · {routingMaxWalkKm.toFixed(1)} km access</b>
         </summary>
         <div className="pathfinder-options-body">
-          {routingTimePreference === 'depart' ? (
+          {departNow || routingTimePreference === 'depart' ? (
             <div className="pathfinder-option-group">
               <label>Departure search</label>
               <div className="pathfinder-segmented" role="group" aria-label="Departure search window">
@@ -816,7 +837,9 @@ export function SidebarPathfinderBox({
             <label htmlFor="pathfinder-max-transfers">Maximum transfers</label>
             <select
               id="pathfinder-max-transfers"
-              value={routingMaxTransfers ?? ''}
+              value={effectiveMaxTransfers ?? ''}
+              disabled={transferLimitUnavailable}
+              aria-describedby={transferLimitUnavailable ? 'pathfinder-transfer-limit-note' : undefined}
               onChange={(event) => onRoutingMaxTransfersChange(event.currentTarget.value === '' ? undefined : Number(event.currentTarget.value))}
             >
               <option value="">Unlimited</option>
@@ -824,6 +847,7 @@ export function SidebarPathfinderBox({
                 <option key={count} value={count}>{count === 0 ? '0 — Direct services only' : count}</option>
               ))}
             </select>
+            {transferLimitUnavailable ? <p id="pathfinder-transfer-limit-note">Transfer limits are available for routes without via points.</p> : null}
           </div>
 
           <div className="pathfinder-option-group pathfinder-walk-limit">

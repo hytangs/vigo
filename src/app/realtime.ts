@@ -8,7 +8,8 @@ export type RealtimeInspectRequest =
       }
     }
 
-export const realtimeRefreshMs = 10_000
+// Keep automatic feed-driven route recalculation and workspace refreshes unobtrusive.
+export const realtimeRefreshMs = 60_000
 export type RealtimeFeedFields = { vehicles: string; tripUpdates: string; alerts: string }
 
 export const mbtaRealtimeFeeds: RealtimeFeedFields = {

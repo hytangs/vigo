@@ -3,6 +3,7 @@ use napi_derive::napi;
 use std::time::Instant;
 
 mod journeys;
+mod overlay_quality;
 pub use journeys::TimetableMatrixJourney;
 
 const STATE_STRIDE: usize = 8;
@@ -318,9 +319,15 @@ pub struct TimetableOverlayManyQueryInput {
     pub horizon: f64,
     pub allow_pre_ride_transfers: bool,
     pub overlay_stop_count: u32,
+    /// Resident identity for each overlay stop, or -1 for a new scenario stop.
+    /// Realtime replacements inherit the original station's transfer rules.
+    pub overlay_base_stops: Option<Vec<i32>>,
     pub direction_offsets: Vec<u32>,
     pub direction_stops: Vec<u32>,
     pub direction_stop_offsets_seconds: Vec<f64>,
+    /// Optional arrival offsets preserve dwell time in realtime replacements.
+    /// Frequency scenarios without this field retain their existing offsets.
+    pub direction_arrival_offsets_seconds: Option<Vec<f64>>,
     pub service_start_seconds: Vec<f64>,
     pub service_end_seconds: Vec<f64>,
     pub service_headway_seconds: Vec<f64>,
@@ -333,6 +340,9 @@ pub struct TimetableOverlayManyQueryInput {
     pub direction_can_alight: Option<Vec<u8>>,
     pub allow_post_ride_transfers: Option<Vec<bool>>,
     pub maximum_boardings: Option<u32>,
+    /// Certify secondary objectives for a single journey, without charging
+    /// matrix/scenario callers for itinerary ranking.
+    pub certify_journey: Option<bool>,
 }
 
 #[napi(object)]
@@ -340,11 +350,18 @@ pub struct TimetableOverlayManyQueryResult {
     pub timetable: TimetableManyQueryResult,
     pub overlay_connections: u32,
     pub overlay_runs: u32,
+    /// Input direction for each query-local run. Expired directions may emit
+    /// no runs and frequency directions may emit several.
+    pub overlay_run_directions: Vec<u32>,
     pub supplemental_transfer_edges: u32,
     pub compile_ns: f64,
     pub scan_ns: f64,
     pub transient_bytes: f64,
     pub workspace_bytes: f64,
+    pub lexicographic_certified: bool,
+    pub quality_query_ns: f64,
+    pub quality_bytes: f64,
+    pub quality_reason: Option<String>,
 }
 
 #[napi(object)]
@@ -680,11 +697,13 @@ struct OverlayScanEvent {
 struct CompiledTimetableOverlay {
     events: Vec<OverlayScanEvent>,
     run_count: usize,
+    run_directions: Vec<u32>,
 }
 
 impl CompiledTimetableOverlay {
     fn byte_length(&self) -> usize {
         self.events.capacity() * std::mem::size_of::<OverlayScanEvent>()
+            + self.run_directions.capacity() * std::mem::size_of::<u32>()
     }
 }
 
@@ -706,6 +725,10 @@ fn compile_timetable_overlay(
         || input.direction_offsets.first().copied() != Some(0)
         || input.direction_offsets[direction_count] as usize != input.direction_stops.len()
         || input.direction_stops.len() != input.direction_stop_offsets_seconds.len()
+        || input
+            .direction_arrival_offsets_seconds
+            .as_ref()
+            .is_some_and(|times| times.len() != input.direction_stops.len())
         || input.service_end_seconds.len() != direction_count
         || input.service_headway_seconds.len() != direction_count
         || input
@@ -734,6 +757,7 @@ fn compile_timetable_overlay(
     let query_horizon = finite_u32_time(input.horizon, "query horizon")?;
     let mut events = Vec::<OverlayScanEvent>::new();
     let mut run_count = 0_usize;
+    let mut run_directions = Vec::new();
     for direction in 0..direction_count {
         let direction_start = input.direction_offsets[direction] as usize;
         let direction_end = input.direction_offsets[direction + 1] as usize;
@@ -743,6 +767,11 @@ fn compile_timetable_overlay(
             ));
         }
         let offsets = &input.direction_stop_offsets_seconds[direction_start..direction_end];
+        let arrivals = input
+            .direction_arrival_offsets_seconds
+            .as_ref()
+            .map(|times| &times[direction_start..direction_end])
+            .unwrap_or(offsets);
         if offsets
             .iter()
             .any(|seconds| !seconds.is_finite() || *seconds < 0.0)
@@ -751,6 +780,16 @@ fn compile_timetable_overlay(
         {
             return Err(Error::from_reason(
                 "Rust timetable overlay stop offsets must start at zero and be finite and nondecreasing.",
+            ));
+        }
+        if arrivals.iter().enumerate().any(|(index, arrival)| {
+            !arrival.is_finite()
+                || *arrival < 0.0
+                || *arrival > offsets[index]
+                || (index > 0 && *arrival < offsets[index - 1])
+        }) {
+            return Err(Error::from_reason(
+                "Rust timetable overlay arrivals must fall between adjacent departures.",
             ));
         }
         let service_start = input.service_start_seconds[direction];
@@ -803,7 +842,7 @@ fn compile_timetable_overlay(
                 if departure > f64::from(query_horizon) {
                     break;
                 }
-                let arrival = trip_start + offsets[offset_index + 1];
+                let arrival = trip_start + arrivals[offset_index + 1];
                 events.push(OverlayScanEvent {
                     departure: finite_u32_time(departure, "connection departure")?,
                     arrival: finite_u32_time(arrival, "connection arrival")?,
@@ -830,6 +869,7 @@ fn compile_timetable_overlay(
                 }
             }
             if emitted {
+                run_directions.push(direction as u32);
                 run_count = run_count.checked_add(1).ok_or_else(|| {
                     Error::from_reason("Rust timetable overlay run count overflowed.")
                 })?;
@@ -840,7 +880,11 @@ fn compile_timetable_overlay(
         }
     }
     events.sort_unstable_by_key(|event| (event.departure, event.run, event.sequence));
-    Ok(CompiledTimetableOverlay { events, run_count })
+    Ok(CompiledTimetableOverlay {
+        events,
+        run_count,
+        run_directions,
+    })
 }
 
 struct ProfileLabel {
@@ -867,6 +911,9 @@ struct ProfileWorkspace {
     run_generation: Vec<u32>,
     labels: Vec<ProfileLabel>,
     overflowed: bool,
+    // Query-local overlay identity edges preserve a same-stop interchange
+    // minimum. Ordinary explicit walk edges already include their duration.
+    identity_transfer_edges: Vec<bool>,
 }
 
 impl ProfileWorkspace {
@@ -880,6 +927,7 @@ impl ProfileWorkspace {
             run_generation: vec![0; run_count],
             labels: Vec::with_capacity(32_768),
             overflowed: false,
+            identity_transfer_edges: Vec::new(),
         }
     }
 
@@ -914,6 +962,7 @@ impl ProfileWorkspace {
             + self.frontier_head.len() * std::mem::size_of::<i32>()
             + self.run_generation.len() * std::mem::size_of::<u32>()
             + self.labels.capacity() * std::mem::size_of::<ProfileLabel>()
+            + self.identity_transfer_edges.capacity() * std::mem::size_of::<bool>()
     }
 }
 
@@ -1423,6 +1472,35 @@ fn expand_many_transfer_edges(
     }
 }
 
+// Zero duration does not itself establish identity: a published transfer
+// between two different stops may also have a zero minimum. Realtime supplies
+// explicit physical stop IDs; legacy scenario overlays retain their policy.
+fn overlay_identity_transfer(
+    input: &TimetableOverlayManyQueryInput,
+    base_stop_count: usize,
+    from: usize,
+    edge: usize,
+) -> bool {
+    if input.supplemental_transfer_duration[edge] != 0 {
+        return false;
+    }
+    let Some(identities) = &input.overlay_base_stops else {
+        return true;
+    };
+    let physical_stop = |stop: usize| {
+        if stop < base_stop_count {
+            Some(stop as i32)
+        } else {
+            identities
+                .get(stop - base_stop_count)
+                .copied()
+                .filter(|id| *id >= 0)
+        }
+    };
+    let source = physical_stop(from);
+    source.is_some() && source == physical_stop(input.supplemental_transfer_to[edge] as usize)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn expand_many_combined_transfer_edges_chain(
     workspace: &mut ManyWorkspace,
@@ -1433,6 +1511,7 @@ fn expand_many_combined_transfer_edges_chain(
     base_transfer_edges: &[TransferEdge],
     supplemental_transfer_offset: &[u32],
     supplemental_transfer_edges: &[TransferEdge],
+    supplemental_identity_edges: &[bool],
     stop: usize,
     arrival: f64,
     has_ride: bool,
@@ -1475,13 +1554,11 @@ fn expand_many_combined_transfer_edges_chain(
     stats.explicit_transfer_checks = stats
         .explicit_transfer_checks
         .saturating_add((end - start) as u32);
-    for edge in &supplemental_transfer_edges[start..end] {
+    for (offset, edge) in supplemental_transfer_edges[start..end].iter().enumerate() {
         let duration = edge.duration();
-        // Positive explicit edges already carry their interchange duration.
-        // A zero-second supplemental edge is an identity bridge between the
-        // resident and overlay domains, so retain generic post-ride boarding
-        // slack and keep the equal-departure scan order independent.
-        let needs_board_slack = has_ride && duration == 0;
+        // Physical edges carry their interchange duration, even when zero.
+        // Only identity bridges retain generic post-ride boarding slack.
+        let needs_board_slack = has_ride && supplemental_identity_edges[start + offset];
         relax_many_record(
             workspace,
             epoch,
@@ -1833,13 +1910,19 @@ fn expand_round_transfers(
     stats.explicit_transfer_checks = stats
         .explicit_transfer_checks
         .saturating_add((end - start) as u32);
-    for edge in &transfer_edges[start..end] {
+    for (offset, edge) in transfer_edges[start..end].iter().enumerate() {
         let target = edge.stop();
         let duration = edge.duration();
         let target_arrival = arrival + f64::from(duration);
         if !deadline_allows(stop_deadlines[target], target_arrival) {
             continue;
         }
+        let needs_board_slack = !has_ride
+            || workspace
+                .identity_transfer_edges
+                .get(start + offset)
+                .copied()
+                .unwrap_or(false);
         add_round_label(
             workspace,
             epoch,
@@ -1851,7 +1934,7 @@ fn expand_round_transfers(
             target_arrival,
             has_ride,
             has_ride,
-            !has_ride,
+            needs_board_slack,
             source_label,
             1,
             NO_STATE,
@@ -5106,6 +5189,16 @@ impl TimetableKernel {
             .stop_count
             .checked_add(overlay_stop_count)
             .ok_or_else(|| Error::from_reason("Rust timetable overlay stop count overflowed."))?;
+        if input.overlay_base_stops.as_ref().is_some_and(|stops| {
+            stops.len() != overlay_stop_count
+                || stops
+                    .iter()
+                    .any(|stop| *stop < -1 || *stop >= self.stop_count as i32)
+        }) {
+            return Err(Error::from_reason(
+                "Rust timetable overlay stop identities are inconsistent.",
+            ));
+        }
         let compiled = compile_timetable_overlay(&input, self.stop_count)?;
         let combined_run_count = self
             .run_count
@@ -5136,9 +5229,23 @@ impl TimetableKernel {
             .zip(input.supplemental_transfer_duration.iter().copied())
             .map(|(stop, duration)| TransferEdge::new(stop, duration))
             .collect::<Vec<_>>();
+        let mut supplemental_identity_edges = Vec::with_capacity(supplemental_transfer_edges.len());
+        for stop in 0..combined_stop_count {
+            for edge in input.supplemental_transfer_offsets[stop] as usize
+                ..input.supplemental_transfer_offsets[stop + 1] as usize
+            {
+                supplemental_identity_edges.push(overlay_identity_transfer(
+                    &input,
+                    self.stop_count,
+                    stop,
+                    edge,
+                ));
+            }
+        }
         let compile_ns = compile_started.elapsed().as_nanos() as f64;
         let transient_bytes = compiled.byte_length()
-            + supplemental_transfer_edges.capacity() * std::mem::size_of::<TransferEdge>();
+            + supplemental_transfer_edges.capacity() * std::mem::size_of::<TransferEdge>()
+            + supplemental_identity_edges.capacity() * std::mem::size_of::<bool>();
 
         let destination_count = input.destination_offsets.len().saturating_sub(1);
         if input
@@ -5296,6 +5403,7 @@ impl TimetableKernel {
                     transfer_edges,
                     &input.supplemental_transfer_offsets,
                     &supplemental_transfer_edges,
+                    &supplemental_identity_edges,
                     stop,
                     arrival,
                     false,
@@ -5334,11 +5442,16 @@ impl TimetableKernel {
                 },
                 overlay_connections: compiled.events.len() as u32,
                 overlay_runs: compiled.run_count as u32,
+                overlay_run_directions: compiled.run_directions,
                 supplemental_transfer_edges: supplemental_transfer_edges.len() as u32,
                 compile_ns,
                 scan_ns: scan_started.elapsed().as_nanos() as f64,
                 transient_bytes: transient_bytes as f64,
                 workspace_bytes,
+                lexicographic_certified: false,
+                quality_query_ns: 0.0,
+                quality_bytes: 0.0,
+                quality_reason: None,
             });
         }
 
@@ -5472,6 +5585,7 @@ impl TimetableKernel {
                                         transfer_edges,
                                         &input.supplemental_transfer_offsets,
                                         &supplemental_transfer_edges,
+                                        &supplemental_identity_edges,
                                         bridge_stop,
                                         f64::from(connection_departure),
                                         true,
@@ -5515,6 +5629,7 @@ impl TimetableKernel {
                                     transfer_edges,
                                     &input.supplemental_transfer_offsets,
                                     &supplemental_transfer_edges,
+                                    &supplemental_identity_edges,
                                     alight_stop,
                                     f64::from(arrival.arrival),
                                     true,
@@ -5531,6 +5646,13 @@ impl TimetableKernel {
                     && compiled.events[overlay_index].departure == connection_departure
                 {
                     let event = compiled.events[overlay_index];
+                    let rule_stop = input
+                        .overlay_base_stops
+                        .as_ref()
+                        .and_then(|stops| stops.get(event.from - base_stop_count))
+                        .copied()
+                        .filter(|stop| *stop >= 0)
+                        .map(|stop| stop as usize);
                     for layer in first_layer..=maximum_layer {
                         let input_stop = layer.saturating_sub(1) * combined_stop_count + event.from;
                         let output_stop = layer * combined_stop_count + event.to;
@@ -5547,14 +5669,16 @@ impl TimetableKernel {
                                 active_states &= active_states - 1;
                                 let has_ride = state_flags & 4 != 0;
                                 let state = input_stop * STATE_STRIDE + state_flags;
+                                if has_ride
+                                    && rule_stop.is_some_and(|stop| forbidden_same_stop[stop] == 1)
+                                {
+                                    continue;
+                                }
                                 if boarding_ready_time(
                                     many_workspace.labels[state],
                                     has_ride,
                                     state_flags & 1 != 0,
-                                    same_stop_transfer_minimum
-                                        .get(event.from)
-                                        .copied()
-                                        .unwrap_or(0),
+                                    rule_stop.map_or(0, |stop| same_stop_transfer_minimum[stop]),
                                 ) <= f64::from(event.departure)
                                 {
                                     boarding_state = state as i32;
@@ -5614,6 +5738,7 @@ impl TimetableKernel {
                                     transfer_edges,
                                     &input.supplemental_transfer_offsets,
                                     &supplemental_transfer_edges,
+                                    &supplemental_identity_edges,
                                     output_stop,
                                     f64::from(event.arrival),
                                     true,
@@ -5719,6 +5844,49 @@ impl TimetableKernel {
         let workspace_bytes = many_workspace.byte_length() as f64;
         many_workspace.predecessors = Vec::new();
         many_workspace.run_boarding_state = Vec::new();
+        let scan_ns = scan_started.elapsed().as_nanos() as f64;
+        let mut lexicographic_certified = false;
+        let mut quality_query_ns = 0.0;
+        let mut quality_bytes = 0.0;
+        let mut quality_reason = None;
+        if input.certify_journey == Some(true) && destination_count == 1 && best_state >= 0 {
+            let quality_started = Instant::now();
+            match overlay_quality::certify(
+                self,
+                &input,
+                &compiled,
+                &chain,
+                best_overall_arrival,
+                best_destination_index as u32,
+            ) {
+                Ok(quality) => {
+                    let result = quality.result;
+                    if result.improved_candidate {
+                        chain = (0..result.chain_kinds.len())
+                            .map(|index| {
+                                (
+                                    result.chain_kinds[index],
+                                    result.chain_from_stops[index],
+                                    result.chain_to_stops[index],
+                                    result.chain_trip_or_candidate[index],
+                                    result.chain_board_sequences[index],
+                                    result.chain_alight_sequences[index],
+                                    result.chain_durations[index],
+                                    result.chain_arrivals[index],
+                                )
+                            })
+                            .collect();
+                        best_destination_index = result.best_destination_index.unwrap() as i32;
+                    }
+                    quality_bytes = quality.bytes;
+                    lexicographic_certified = true;
+                }
+                // Retain the live earliest-arrival witness on a resource or
+                // certification failure, never silently restore cancelled trips.
+                Err(error) => quality_reason = Some(error.reason),
+            }
+            quality_query_ns = quality_started.elapsed().as_nanos() as f64;
+        }
         Ok(TimetableOverlayManyQueryResult {
             timetable: TimetableManyQueryResult {
                 supported: true,
@@ -5746,11 +5914,16 @@ impl TimetableKernel {
             },
             overlay_connections: compiled.events.len() as u32,
             overlay_runs: compiled.run_count as u32,
-            supplemental_transfer_edges: supplemental_transfer_edges.len() as u32,
+            overlay_run_directions: compiled.run_directions,
+            supplemental_transfer_edges: input.supplemental_transfer_to.len() as u32,
             compile_ns,
-            scan_ns: scan_started.elapsed().as_nanos() as f64,
+            scan_ns,
             transient_bytes: transient_bytes as f64,
             workspace_bytes,
+            lexicographic_certified,
+            quality_query_ns,
+            quality_bytes,
+            quality_reason,
         })
     }
 

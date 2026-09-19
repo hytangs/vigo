@@ -1,0 +1,21 @@
+.sidebar-rail { min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 5px; border-right: 1px solid var(--border); background: var(--rail-surface); }
+.sidebar-rail-button { position: relative; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 4px; flex: 0 0 auto; width: 36px; height: 42px; padding: 0; border: 0; border-radius: 8px; color: var(--text-muted); background: transparent; cursor: pointer; }
+.sidebar-rail-button:last-child { margin-top: auto; }
+.sidebar-rail-icon { display: grid; place-items: center; border-radius: 12px; }
+.sidebar-rail-icon svg { width: 19px; height: 19px; stroke-width: 1.75; }
+.sidebar-rail-button:hover:not(:disabled) { color: var(--text-strong); background: var(--hover-surface); }
+.sidebar-rail-button[aria-current="page"] { color: var(--text-strong); background: var(--active-surface); }
+.sidebar-rail-button:disabled { color: var(--text-faint); cursor: default; opacity: .42; }
+.sidebar-rail-button:focus-visible { outline: 2px solid var(--vigo-lime-strong); outline-offset: -2px; }
+
+@media (max-width: 760px) {
+  .app-shell { --mobile-nav-height: calc(60px + env(safe-area-inset-bottom, 0px)); }
+  .app-shell.page-project .shell-body { padding-bottom: var(--mobile-nav-height); }
+  .app-shell.page-project .app-sidebar { backdrop-filter: none; }
+  .sidebar-rail { position: fixed; z-index: 85; left: 0; right: 0; bottom: 0; height: var(--mobile-nav-height, 60px); display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); align-items: start; gap: 0; padding: 4px max(8px, env(safe-area-inset-right, 0px)) calc(4px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px)); border: 0; border-top: 1px solid var(--border); background: var(--panel); }
+  .sidebar-rail-button { width: 100%; height: 51px; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 2px; border-radius: 6px; font: inherit; }
+  .sidebar-rail-button:last-child { margin-top: 0; }
+  .sidebar-rail-button[aria-current="page"], .sidebar-rail-button:hover:not(:disabled) { background: transparent; }
+  .sidebar-rail-icon { width: 48px; height: 27px; }
+  .sidebar-rail-button[aria-current="page"] .sidebar-rail-icon { background: var(--active-surface); }
+}

@@ -1,5 +1,9 @@
 # Version history
 
+## 0.4.0
+
+Integrates live network inspection and experimental Ask into VIGO Studio; fixes added-service display and waypoint transfer-limit handling. See [release notes](docs/releases/0.4.0.md).
+
 ## 0.3.2 — 2026-09-12
 
 API 1.0, City format 1, and Result schema 1 are unchanged. See the [release notes](docs/releases/0.3.2.md).

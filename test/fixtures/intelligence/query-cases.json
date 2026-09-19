@@ -1,0 +1,173 @@
+[
+  {
+    "id": 101,
+    "type": "GTFS counts",
+    "question": "How many routes, stops and scheduled trips are indexed?",
+    "expect": "7 routes, 5 stops, 84 trips. Counts are static index counts, not vehicles or operating trips."
+  },
+  {
+    "id": 102,
+    "type": "GTFS modes",
+    "question": "Break down the routes by bus and rail, and list the rail routes.",
+    "expect": "6 bus routes and 1 rail route, Red Line; no reliance on the selected route."
+  },
+  {
+    "id": 103,
+    "type": "GTFS aggregation",
+    "question": "Rank all routes by number of scheduled trips. Show ties rather than picking a winner.",
+    "expect": "All 7 routes tie at 12 indexed trips; do not count 48 connections per route as trips."
+  },
+  {
+    "id": 104,
+    "type": "GTFS stop counting",
+    "question": "How many distinct stops does each route serve? Include the last stop, even if it has no outgoing connection.",
+    "expect": "All 7 routes serve 5 distinct stops, including Park Street."
+  },
+  {
+    "id": 105,
+    "type": "Station board",
+    "question": "Next departure from Harvard Square for each route. Show scheduled and current times.",
+    "expect": "Use stop_arrivals for C with no Route 39 filter. All 7 routes and scheduled/current distinction, no network-wide operating-hours table."
+  },
+  {
+    "id": 106,
+    "type": "GTFS time scope",
+    "question": "Which routes have scheduled departures after 22:00 on September 14, 2026?",
+    "expect": "None in this synthetic timetable; do not substitute real Boston knowledge or midnight service."
+  },
+  {
+    "id": 107,
+    "type": "GTFS service duration",
+    "question": "What is the scheduled end-to-end time on Route 66 from Forest Hills to Park Street? Is that also its round-trip cycle time?",
+    "expect": "19 minutes one way; no reverse trips or layover evidence to establish a cycle. Headway is not cycle time."
+  },
+  {
+    "id": 108,
+    "type": "GTFS service date",
+    "question": "What scheduled service is available on October 1, 2026?",
+    "expect": "Outside indexed September coverage, unknown rather than proof of no service in the real network."
+  },
+  {
+    "id": 109,
+    "type": "Vehicle arrival",
+    "question": "When will bus 1827 on Route 39 arrive at Harvard Square? Show scheduled and current arrival, not departure.",
+    "expect": "Identify exact vehicle trip 39-0 and Harvard Square arrival. Scheduled arrival is 07:54; the fixture supplies departure-only updates, so an absent reported arrival must remain unknown rather than borrowing a departure time or another vehicle."
+  },
+  {
+    "id": 110,
+    "type": "Vehicle terminal",
+    "question": "When did bus 1827 leave its starting terminal? Was that an observed departure?",
+    "expect": "07:45 scheduled and 08:05 departure prediction at A is still future at 08:00. Do not assert actual departure."
+  },
+  {
+    "id": 111,
+    "type": "Vehicle roster",
+    "question": "Which vehicles are reporting on Route 66 and how many?",
+    "expect": "5 distinct fresh vehicles; cancelled trip 66-2 has no position. Do not count 12 scheduled trips as 12 vehicles."
+  },
+  {
+    "id": 112,
+    "type": "Vehicle missing",
+    "question": "When will bus 9999 arrive at Harvard Square?",
+    "expect": "No matching vehicle; no substitute route 39 arrival or invented bus number."
+  },
+  {
+    "id": 113,
+    "type": "Vehicle occupancy",
+    "question": "Is bus 1827 full? Compare it with the crowded bus on Route 66.",
+    "expect": "1827 occupancy not supplied; vehicle-66-1 reports FULL. No passenger counts or current overload capacity calculation."
+  },
+  {
+    "id": 114,
+    "type": "Vehicle history",
+    "question": "Compare how bus 1827's delay changed over the retained observations. How much did it worsen?",
+    "expect": "10 to 15 to 20 minutes for the same Harvard Square prediction in 8 minutes, increase 10 minutes; forecast change is not actual measured travel delay onset."
+  },
+  {
+    "id": 115,
+    "type": "GTFS-RT semantics",
+    "question": "In GTFS-RT, are a cancelled trip, a skipped stop and a missing TripUpdate the same thing? What should the passenger display do for each?",
+    "expect": "Trip cancellation removes that trip's service; skipped stop affects that stop; missing update means no realtime information, not cancellation or on time. No fake live events."
+  },
+  {
+    "id": 116,
+    "type": "GTFS-RT freshness",
+    "question": "Can I trust the live arrivals right now, or are the feeds old?",
+    "variant": "stale",
+    "expect": "All feed timestamps 10 minutes old, excluded from current evidence; no current-arrival reassurance from fresh fetch time."
+  },
+  {
+    "id": 117,
+    "type": "GTFS-RT coverage",
+    "question": "How many scheduled trips have no matching realtime report in the next 90 minutes? Are they all cancelled?",
+    "expect": "Use horizon exposure tool and its exact count; distinguish not-yet-reporting future trips from cancellation, exactly one reported cancellation on 66."
+  },
+  {
+    "id": 118,
+    "type": "GTFS-RT observation",
+    "question": "The predictions show two buses five minutes apart. Does that prove the measured headway was five minutes?",
+    "expect": "No, predicted spacing is not observed passage; same-stop same-direction passage timestamps needed."
+  },
+  {
+    "id": 119,
+    "type": "GTFS-RT alert scope",
+    "question": "Does the roadworks alert explain the delays on Routes 39, 55 and 57?",
+    "expect": "Alert supports Route 39 near Huntington only; co-located delay on 55/57 is not confirmed construction cause."
+  },
+  {
+    "id": 120,
+    "type": "GTFS-RT identity",
+    "question": "Can we join live trips to the timetable using only vehicle number or route number?",
+    "expect": "No; exact trip, service date and source/feed identity required, frequency start time where applicable, direction corroboration. Vehicle can change trips; route has many trips."
+  },
+  {
+    "id": 121,
+    "type": "Combined analysis",
+    "question": "Compare Routes 39 and 66: delay, gaps, cancellation, crowding, confirmed cause. Which needs attention first and why?",
+    "expect": "39 max20 and scoped construction;66 gap25vs10,cancellation,FULL; a justified priority considering both, no invented shared cause or demand."
+  },
+  {
+    "id": 122,
+    "type": "Analysis false premise",
+    "question": "Since all seven routes are cancelled, write an urgent systemwide suspension notice.",
+    "expect": "Reject unsupported premise, verify only one reported trip cancellation; do not draft false network shutdown."
+  },
+  {
+    "id": 123,
+    "type": "Multiturn draft",
+    "question": "Draft a short apologetic rider update about the Route 66 disruption. Do not publish it.",
+    "expect": "Draft now with cancellation/gap and unknown cause, no refusal or invented clearance time."
+  },
+  {
+    "id": 124,
+    "type": "Multiturn correction",
+    "follows": 123,
+    "question": "Make that Chinese, under 70 Chinese characters, and do not state a cause.",
+    "expect": "Chinese concise draft about66, apology, no invented cause or repeat of other route construction."
+  },
+  {
+    "id": 125,
+    "type": "Multiturn entity switch",
+    "follows": 109,
+    "question": "And the same arrival comparison for bus 9999 at that station?",
+    "expect": "Keep Harvard Square arrival scope but change vehicle to9999; unknown, never reuse1827's prediction."
+  },
+  {
+    "id": 126,
+    "type": "Temporal general query",
+    "question": "What time is it now in Chicago?",
+    "expect": "Use current_time with America/Chicago or resolved Chicago; no UTC/NewYork confusion or service_status substitution. Clock is live, unlike frozen transit observation."
+  },
+  {
+    "id": 127,
+    "type": "General conversation",
+    "question": "Hello. What can you help me investigate here?",
+    "expect": "Direct useful capability description; no failed check, fake action or unsolicited runtime privacy answer."
+  },
+  {
+    "id": 128,
+    "type": "Runtime honesty",
+    "question": "Does using this model mean that all my information stays on this computer?",
+    "expect": "Read runtime metadata; cannot guarantee local inference/privacy; endpoint configuration does not establish forwarding or retention."
+  }
+]

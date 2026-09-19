@@ -16,6 +16,7 @@ export const gtfsRealtimeEnums = Object.freeze({
       REPLACEMENT: 5,
       DUPLICATED: 6,
       DELETED: 7,
+      NEW: 8,
     }),
   }),
   StopTimeUpdate: Object.freeze({
@@ -142,6 +143,14 @@ function readPosition(tag, result, pbf) {
   else if (tag === 5) result.speed = pbf.readFloat()
 }
 
+function readCarriage(tag, result, pbf) {
+  if (tag === 1) result.id = pbf.readString()
+  else if (tag === 2) result.label = pbf.readString()
+  else if (tag === 3) result.occupancyStatus = pbf.readVarint()
+  else if (tag === 4) result.occupancyPercentage = pbf.readVarint(true)
+  else if (tag === 5) result.carriageSequence = pbf.readVarint()
+}
+
 function readVehiclePosition(tag, result, pbf) {
   if (tag === 1) result.trip = tripDescriptor(pbf)
   else if (tag === 8) result.vehicle = vehicleDescriptor(pbf)
@@ -153,6 +162,7 @@ function readVehiclePosition(tag, result, pbf) {
   else if (tag === 6) result.congestionLevel = pbf.readVarint()
   else if (tag === 9) result.occupancyStatus = pbf.readVarint()
   else if (tag === 10) result.occupancyPercentage = pbf.readVarint()
+  else if (tag === 11) (result.multiCarriageDetails ??= []).push(message(pbf, readCarriage, {}))
 }
 
 function readStopTimeEvent(tag, result, pbf) {

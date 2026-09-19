@@ -1,0 +1,8 @@
+{
+  "id": "running-time-prediction",
+  "name": "Running-time prediction review",
+  "description": "Compare historical segment predictions with the matched timetable on later service dates. Inspect accuracy, coverage and where predictions fail.",
+  "version": "1.0",
+  "inputs": [{"key": "routeId", "label": "Route", "type": "route", "required": false}],
+  "steps": [{"tool": "historical_runtime", "label": "Read the chronological evaluation", "arguments": {"routeId": "$input.routeId"}}]
+}

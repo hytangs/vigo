@@ -1,7 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRight,
-  CheckCircle2,
   CircleDot,
   Database,
   Eraser,
@@ -17,11 +16,13 @@ import {
   X,
 } from 'lucide-react'
 import type { ApiProgress } from '../app/api'
+import { preparationState, type PreparationTask } from '../app/preparation'
 import { classNames, formatNumber, type RouteMetric, type StopMetric } from '../domain'
 import { gtfsDirectionLabel, gtfsPatternStops, gtfsPatternTimetable } from '../app/gtfsPresentation'
 import { scopedRouteServiceKey } from '../routeServices'
 import type { RoutingPoint } from '../routingModel'
 import { ResultMetric } from './UiPrimitives'
+import { AnalysisOriginPicker } from './AnalysisOriginPicker'
 import {
   reachDifferenceCapMinutes,
   reachDifferenceGradient,
@@ -90,6 +91,9 @@ type AnalyzePanelProps = {
   serviceDecompositionError: string
   routingStoreAvailable: boolean
   streetGraphAvailable: boolean
+  preparationTasks: PreparationTask[]
+  streetGraphBuilding: boolean
+  routingStoreBuilding: boolean
   onServiceDateChange: (value: string) => void
   onDepartMinutesChange: (value: number) => void
   onMaxWalkKmChange: (value: number) => void
@@ -121,6 +125,7 @@ type AnalyzePanelProps = {
   onClearInterventionSketch: (interventionId: string) => void
   onViewChange: (view: ScenarioView) => void
   onClearOrigin: () => void
+  onSetOrigin?: (point: RoutingPoint) => void
   onRun: () => void
   onRunComparison: () => void
   onRunServiceDecomposition: () => void
@@ -215,7 +220,7 @@ function ReachSurfaceLegend({
     >
       <div className="reach-surface-legend-head">
         <strong>{difference ? 'Time difference' : view === 'baseline' ? 'Baseline' : 'Scenario'}</strong>
-        <small>{difference ? 'Green is faster · red is slower' : `Total elapsed time · final walk uses remaining time, up to ${terminalWalkKm} km`}</small>
+        <small>{difference ? 'Green is faster · red is slower' : `Elapsed time · final walk ≤ ${terminalWalkKm} km`}</small>
       </div>
       <div
         className="reach-surface-legend-bar"
@@ -267,7 +272,20 @@ function ReachRenderModePicker({
   )
 }
 
-function ReachMetricCards({
+function transitStopsForSelectedCutoff(analysis: ReachResult, surface: 'baseline' | 'scenario', cutoffMinutes: number): number | null {
+  if (analysis.diagnostics.preliminary) return null
+  const entries = surface === 'scenario'
+    ? analysis.summary.scenarioTransitStopsByCutoff ?? analysis.summary.transitStopsByCutoff
+    : analysis.summary.transitStopsByCutoff
+  const exact = entries?.find(entry => entry.cutoffMinutes === cutoffMinutes)
+  // The shared helper can fall back to an earlier cutoff or full-window seeds.
+  // Those are useful elsewhere, but cannot establish this exact UI measure.
+  return exact && Number.isFinite(exact.stops) ? scenarioTransitStopsAtCutoff(analysis, surface, cutoffMinutes) : null
+}
+
+const reachDecimal = (value: number, digits: number) => value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+
+export function ReachMetricCards({
   analysis,
   surface,
   cutoffMinutes,
@@ -279,51 +297,65 @@ function ReachMetricCards({
   walkBudgetKm: number
 }) {
   const areaKm2 = scenarioReachedAreaKm2(analysis, surface, cutoffMinutes)
-  const stops = scenarioTransitStopsAtCutoff(analysis, surface, cutoffMinutes)
+  const stops = transitStopsForSelectedCutoff(analysis, surface, cutoffMinutes)
   const network = surface === 'scenario'
     ? analysis.diagnostics.raster.scenarioNetwork
     : analysis.diagnostics.raster.baselineNetwork
   return (
     <div className="reach-metric-grid" aria-label={`${surface === 'baseline' ? 'Baseline' : 'Scenario'} network reach metrics`}>
-      <ResultMetric value={`${areaKm2.toFixed(2)} km²`} label="reachable area" />
-      <ResultMetric value={`${(network?.reachedEdgeLengthKm ?? 0).toFixed(1)} km`} label="OSM street network reached" />
-      <ResultMetric value={formatNumber(stops)} label={`stops reached by ${cutoffMinutes} min`} />
-      <ResultMetric value={`${walkBudgetKm.toFixed(1)} km`} label="final-walk budget" />
+      <ResultMetric value={`${reachDecimal(areaKm2, 2)} km²`} label={`area reached by ${cutoffMinutes} min`} />
+      <ResultMetric value={stops === null ? 'Unavailable' : formatNumber(stops)} label={`stops reached by ${cutoffMinutes} min`} detail={stops === null ? 'Update Reach to compute this cutoff.' : undefined} />
+      <details className="reach-supporting-metrics"><summary>Network details</summary>
+        <ResultMetric value={typeof network?.reachedEdgeLengthKm === 'number' && Number.isFinite(network.reachedEdgeLengthKm) ? `${reachDecimal(network.reachedEdgeLengthKm, 1)} km` : 'Unavailable'} label={`OSM streets · full ${analysis.summary.maximumCutoffMinutes} min window`} />
+        <ResultMetric value={`${walkBudgetKm.toFixed(1)} km`} label="final-walk budget" />
+      </details>
     </div>
   )
 }
 
-function ReachTransitStatusNotice({
+export function ReachTransitStatusNotice({
   analysis,
   surface,
+  cutoffMinutes,
 }: {
   analysis: ReachResult
   surface: 'baseline' | 'scenario'
+  cutoffMinutes: number
 }) {
   const status: ReachTransitStatus | null | undefined = surface === 'scenario'
     ? analysis.summary.scenarioTransitStatus ?? analysis.summary.transitStatus
     : analysis.summary.transitStatus
   if (!status) return null
+  const stops = transitStopsForSelectedCutoff(analysis, surface, cutoffMinutes)
+  const fullWindow = analysis.summary.maximumCutoffMinutes
+  const fullStops = transitStopsForSelectedCutoff(analysis, surface, fullWindow)
   const earliest = status.earliestScheduledDepartureMinutes
   const timing = typeof earliest === 'number' && Number.isFinite(earliest)
     ? ` First scheduled service is at ${serviceTimeLabel(Number(earliest))}${typeof status.waitMinutes === 'number' && Number.isFinite(status.waitMinutes) ? ` (${Math.round(status.waitMinutes)} min after departure)` : ''}.`
     : ''
   if (status.status === 'reached') {
+    const selected = stops === null
+      ? `Transit-stop counts are unavailable for the selected ${cutoffMinutes}-minute cutoff. Update Reach to compute this cutoff.`
+      : `${formatNumber(stops)} transit ${stops === 1 ? 'stop is' : 'stops are'} reachable within the selected ${cutoffMinutes}-minute cutoff.`
+    const laterReach = stops === 0 && fullWindow > cutoffMinutes && fullStops !== null && fullStops > 0
+      ? ` Transit reaches ${formatNumber(fullStops)} ${fullStops === 1 ? 'stop' : 'stops'} within the full ${fullWindow}-minute computed window.`
+      : ''
+    if (stops !== null && stops > 0) return <details className="reach-status-details"><summary>Transit timing</summary><p>{selected}{timing}</p></details>
     return (
       <p className="reach-inline-note" role="status" aria-live="polite">
-        {status.detail}{timing}
+        {selected}{laterReach}{timing}
       </p>
     )
   }
   if (status.status === 'preliminary') {
     return <p className="reach-inline-note" role="status" aria-live="polite">{status.detail}</p>
   }
-  const window = status.windowEndMinutes !== undefined && status.requestedDepartureMinutes !== undefined
-    ? `${Math.round(status.windowEndMinutes - status.requestedDepartureMinutes)}-minute`
-    : 'selected'
+  const scope = stops === null
+    ? ` Transit-stop counts are unavailable for the selected ${cutoffMinutes}-minute cutoff. Update Reach to compute this cutoff.`
+    : ` ${formatNumber(stops)} transit ${stops === 1 ? 'stop is' : 'stops are'} counted within the selected ${cutoffMinutes}-minute cutoff.`
   return (
     <p className="reach-inline-note is-error" role="status" aria-live="polite">
-      {status.detail}{timing} No transit stop is counted for this exact date, departure, and {window} window; the map retains only the origin walking context.
+      {status.detail.replace('selected window', `full ${fullWindow}-minute computed window`)}{timing}{scope}
     </p>
   )
 }
@@ -575,6 +607,9 @@ export function AnalyzePanel({
   analysis,
   routingStoreAvailable,
   streetGraphAvailable,
+  preparationTasks,
+  streetGraphBuilding,
+  routingStoreBuilding,
   comparison,
   serviceDecomposition,
   serviceDecompositionLoading,
@@ -603,6 +638,7 @@ export function AnalyzePanel({
   onClearInterventionSketch,
   onViewChange,
   onClearOrigin,
+  onSetOrigin,
   onRun,
   onRunComparison,
   onRunServiceDecomposition,
@@ -649,6 +685,19 @@ export function AnalyzePanel({
     && !roadInferencePending
     && (mode === 'compare' ? comparisonReady : routingStoreAvailable),
   )
+  const transitSetup = preparationState(mode === 'compare' ? feeds.length >= 2 : routingStoreAvailable,
+    preparationTasks, mode === 'compare' ? ['national-gtfs-import'] : ['national-gtfs-import', 'national-gtfs-merge'], routingStoreBuilding)
+  const streetSetup = preparationState(streetGraphAvailable, preparationTasks, ['national-osm-import'], streetGraphBuilding)
+  const dataPreparing = [transitSetup, streetSetup].some((state) => state.status === 'working')
+  const setupHint = !streetGraphAvailable || !(mode === 'compare' ? comparisonReady : routingStoreAvailable)
+    ? [transitSetup, streetSetup].some((state) => state.status === 'paused')
+      ? 'Task updates are paused. Open background tasks to reconnect.'
+      : dataPreparing ? 'Data is being prepared. You can choose the origin while it runs.'
+        : mode === 'compare' && feeds.length >= 2 && !comparisonReady ? 'Select at least two GTFS feeds above.'
+          : 'Finish the data setup above, then run the analysis.'
+    : !origin ? onSetOrigin ? 'Choose an origin below or click the map.' : 'Click the map to choose an origin.'
+      : routeAnalysisLoading ? 'Loading the selected route’s timetable…'
+        : roadInferencePending ? 'Finish the scenario road trace before running Reach.' : ''
   const routeOptions = useMemo(() => {
     const query = routeQuery.trim().toLocaleLowerCase()
     const matching = routes.filter((route) => (
@@ -746,12 +795,12 @@ export function AnalyzePanel({
           </div>
         </div>
 
+
         {mode === 'compare' ? (
           <div className="reach-comparison-picker">
             <div className="reach-panel-heading">
               <span>
                 <strong>Choose feeds</strong>
-                <small>Each timetable runs independently with the same origin, departure, and walking rules. Feeds are never joined.</small>
               </span>
               <span className="reach-selection-count"><Database size={13} aria-hidden="true" /> {comparisonFeedIds.length} selected</span>
             </div>
@@ -771,7 +820,7 @@ export function AnalyzePanel({
                   </label>
                 ))}
                 <small className="reach-comparison-selection-note">
-                  {comparisonFeedIds.length} selected · choose at least two; exactly two enables street-service comparison
+                  Choose at least two feeds. Two feeds also enable street-service comparison.
                 </small>
               </div>
             ) : (
@@ -785,17 +834,17 @@ export function AnalyzePanel({
         ) : null}
 
         <div className="reach-query-card">
-          <div className="reach-origin-row">
+          {origin || !onSetOrigin ? <div className="reach-origin-row">
             <span className="reach-origin-icon"><MapPin size={16} aria-hidden="true" /></span>
             <div>
               <span className="reach-section-kicker">Origin</span>
               <strong>{origin ? origin.label : 'Choose a point on the map'}</strong>
-              <small>{origin ? 'Free coordinate · ready to measure' : 'Click the map to place the origin'}</small>
             </div>
             {origin ? (
               <button type="button" className="reach-mini-action" onClick={onClearOrigin}>Clear</button>
             ) : null}
-          </div>
+          </div> : null}
+          {onSetOrigin ? <AnalysisOriginPicker origin={origin} stops={stops} onSetOrigin={onSetOrigin} disabled={loading} /> : null}
 
           <div className="reach-query-fields">
             <label className="reach-field">
@@ -860,8 +909,7 @@ export function AnalyzePanel({
             <div className="reach-scenario-content">
               <div className="reach-scenario-heading">
                 <span>
-                  <strong>Model service changes</strong>
-                  <small>Keep the City unchanged as the baseline, then add precise service changes.</small>
+                  <strong>Service changes</strong>
                 </span>
                 <button
                   type="button"
@@ -1260,7 +1308,7 @@ export function AnalyzePanel({
           </div>
         ) : mode === 'single' ? (
           <p className="reach-empty-case">
-            No changes yet. Run this case to map baseline travel time.
+            This case uses the baseline network.
           </p>
         ) : null}
 
@@ -1284,7 +1332,7 @@ export function AnalyzePanel({
           </button>
           {loading || !canRun ? (
             <small className="reach-run-hint">
-              {loading ? 'Computing the complete reached-street surface…' : 'Choose an origin and finish the required data setup'}
+              {loading ? 'Computing the complete reached-street surface…' : setupHint}
             </small>
           ) : null}
           {loading && progress ? (
@@ -1299,10 +1347,6 @@ export function AnalyzePanel({
           ) : null}
         </div>
 
-        {mode === 'single' && !routingStoreAvailable ? <p className="reach-inline-note is-error">A persisted transit routing store is required.</p> : null}
-        {mode === 'compare' && feeds.length < 2 ? <p className="reach-inline-note is-error">At least two independently indexed GTFS feeds are required for comparison.</p> : null}
-        {mode === 'compare' && feeds.length >= 2 && comparisonFeedIds.length < 2 ? <p className="reach-inline-note is-error">Select at least two GTFS feeds to compare.</p> : null}
-        {!streetGraphAvailable ? <p className="reach-inline-note is-error">Import OSM to compute Reach on the pedestrian street network.</p> : null}
         {roadInferencePending && streetGraphAvailable ? <p className="reach-inline-note">Road inference is still building. Finish the road trace before running the analysis.</p> : null}
         {error ? <p className="reach-inline-note is-error" role="alert">{error}</p> : null}
       </form>
@@ -1312,7 +1356,7 @@ export function AnalyzePanel({
           <div className="reach-results-heading">
             <div>
               <strong>City comparison</strong>
-              <small>Same origin, departure, cutoff, and final-walk budget; no joined timetable or cross-feed transfers.</small>
+              <small>Same origin and departure · independent timetables</small>
             </div>
           </div>
           <ReachRenderModePicker renderMode={renderMode} onRenderModeChange={onRenderModeChange} terminalWalkKm={maxWalkKm} />
@@ -1327,8 +1371,8 @@ export function AnalyzePanel({
             {comparison.map((entry, index) => {
               const pixels = scenarioReachablePixels(entry.result, 'baseline', cutoffMinutes)
               const areaKm2 = scenarioReachedAreaKm2(entry.result, 'baseline', cutoffMinutes)
-              const stops = scenarioTransitStopsAtCutoff(entry.result, 'baseline', cutoffMinutes)
-              const networkKm = entry.result.diagnostics.raster.baselineNetwork?.reachedEdgeLengthKm ?? 0
+              const stops = transitStopsForSelectedCutoff(entry.result, 'baseline', cutoffMinutes)
+              const networkKm = entry.result.diagnostics.raster.baselineNetwork?.reachedEdgeLengthKm
               const color = reachComparisonColor(index)
               const feed = feeds.find((candidate) => candidate.id === entry.feedId)
               return (
@@ -1336,15 +1380,14 @@ export function AnalyzePanel({
                   <span className="reach-comparison-swatch" style={{ background: color }} aria-hidden="true" />
                   <div>
                     <strong>GTFS {index + 1} · {entry.feedName}</strong>
-                    <small>{formatNumber(feed?.routeCount ?? 0)} routes · {formatNumber(feed?.stopCount ?? 0)} stops · {formatNumber(feed?.tripCount ?? 0)} trips · {formatNumber(stops)} reached by cutoff</small>
+                    <small>{formatNumber(feed?.routeCount ?? 0)} routes · {formatNumber(feed?.stopCount ?? 0)} stops · {formatNumber(feed?.tripCount ?? 0)} trips · {stops === null ? 'Update Reach for this cutoff' : `${formatNumber(stops)} stops reached by ${cutoffMinutes} min`}</small>
                   </div>
                   <b>{areaKm2.toFixed(2)} km²</b>
-                  <small>{networkKm.toFixed(1)} km OSM network · {formatNumber(pixels)} cells</small>
+                  <small>{typeof networkKm === 'number' && Number.isFinite(networkKm) ? `${reachDecimal(networkKm, 1)} km OSM streets · full ${entry.result.summary.maximumCutoffMinutes} min window` : 'Street length unavailable'} · {formatNumber(pixels)} cells</small>
                 </article>
               )
             })}
           </div>
-          <p><CheckCircle2 size={13} /> All selected Reach results are overlaid on the map; colors match the feeds above.</p>
           {comparisonFeedIds.length === 2 ? (
             <div className="reach-service-edges">
               <div>
@@ -1393,7 +1436,7 @@ export function AnalyzePanel({
           <div className="reach-results-heading">
             <div>
               <strong>{view === 'baseline' ? 'Baseline reach' : view === 'scenario' ? 'Scenario reach' : 'Travel-time change'}</strong>
-              <small>{analysis.request.serviceDate} · {serviceTimeLabel(analysis.request.departMinutes)} · complete reached-street extent</small>
+              <small>{analysis.request.serviceDate} · {serviceTimeLabel(analysis.request.departMinutes)}</small>
             </div>
           </div>
           <div className="reach-result-toolbar">
@@ -1401,10 +1444,8 @@ export function AnalyzePanel({
             {hasScenarioChanges ? <div className="reach-result-view">
               <div className="reach-render-mode-head">
                 <div>
-                  <span className="reach-section-kicker">Compare</span>
                   <strong>Network view</strong>
                 </div>
-                <small>Switch the map and metrics together.</small>
               </div>
               <div className="reach-segmented is-view" role="group" aria-label="Network comparison view">
                 {scenarioViewOptions.map(([value, label]) => (
@@ -1439,6 +1480,7 @@ export function AnalyzePanel({
           <ReachTransitStatusNotice
             analysis={analysis}
             surface={view === 'scenario' ? 'scenario' : 'baseline'}
+            cutoffMinutes={cutoffMinutes}
           />
           {hasScenarioChanges ? <div className="reach-result-flow">
             <span><b>{scenarioReachedAreaKm2(analysis, 'baseline', cutoffMinutes).toFixed(2)} km²</b><small>baseline area</small></span>

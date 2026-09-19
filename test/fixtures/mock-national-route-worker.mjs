@@ -84,6 +84,16 @@ parentPort.on('message', (message) => {
   try {
     let result
     if (operation === 'prepare-street') {
+      if (request.prepareDrive) {
+        parentPort.postMessage({ type: 'progress', id, workerInstance, progress: {
+          phase: 'Opening walking street snapshot', detail: 'Fixture walking preparation', modes: { walk: false, drive: false },
+        } })
+        wait(Number(process.env.VIGO_MOCK_STREET_PREPARE_DELAY_MS ?? 0) / 2)
+        parentPort.postMessage({ type: 'progress', id, workerInstance, progress: {
+          phase: 'Opening driving street snapshot', detail: 'Fixture driving preparation', modes: { walk: true, drive: false },
+        } })
+        wait(Number(process.env.VIGO_MOCK_STREET_PREPARE_DELAY_MS ?? 0) / 2)
+      }
       result = {
         ready: true,
         workerInstance,
@@ -94,6 +104,7 @@ parentPort.on('message', (message) => {
               reason: 'ready',
               prepareMs: 1,
               buildMs: 0,
+              ...(request.prepareDrive ? { drive: { ready: true, accelerated: true } } : {}),
             }
           : {
               ready: true,
@@ -149,7 +160,7 @@ parentPort.on('message', (message) => {
         prepareRequest: request,
         accessMaterialization: { ready: true, reason: 'ready' },
         streetStore: request.streetStorePath
-          ? { ready: true, accelerated: true, reason: 'ready', prepareMs: 1, buildMs: 1 }
+          ? { ready: true, accelerated: true, reason: 'ready', prepareMs: 1, buildMs: 1, drive: { ready: true, deferred: true } }
           : { ready: true, accelerated: false, reason: 'not_configured', prepareMs: 0, buildMs: 0 },
         osmStopTransfers: request.streetStorePath
           ? { ready: true, built: false, edgeCount: 1 }
@@ -201,7 +212,7 @@ parentPort.on('message', (message) => {
           plans: [plan],
         },
       }
-    } else if (operation === 'matrix') {
+    } else if (operation === 'matrix' || operation === 'street-matrix') {
       const origins = Array.isArray(request.origins) ? request.origins : []
       const destinations = Array.isArray(request.destinations) ? request.destinations : []
       result = {
@@ -222,6 +233,8 @@ parentPort.on('message', (message) => {
           pairs: origins.length * destinations.length,
         },
       }
+    } else if (operation === 'street-route') {
+      result = { ...routePlan(request), travelMode: request.mode }
     } else if (operation === 'route') {
       if (staleDerivedArtifactFixture && !derivedArtifactsReady) {
         const error = new Error(

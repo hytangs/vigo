@@ -1,4 +1,9 @@
-import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import type { TripTarget } from './components/StopArrivalBoard'
+import { startPolling } from './app/polling'
+import { journeyContinuityIssue } from './journeyIntegrity.mjs'
+import { PrimaryNav, type RouteToolKey } from './components/PrimaryNav'
+import { findNetworkRoute, findNetworkStop, networkRouteId } from './app/networkSelection'
+import { type CSSProperties, type DragEvent, type ReactNode, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
   type LucideIcon,
   Activity,
@@ -14,9 +19,7 @@ import {
   Navigation2,
   Pencil,
   Radio,
-  Radar,
   RefreshCw,
-  Route,
   Server,
   Settings,
   TableProperties,
@@ -24,6 +27,10 @@ import {
   XCircle,
 } from 'lucide-react'
 import './App.css'
+import type { ToolResult, OperationalEvent } from './agency/types'
+import { AgencyPanel } from './components/AgencyPanel'
+import { BackgroundTasks } from './components/BackgroundTasks'
+import { isActiveTask, isPreparationJob, preparationTasks, updateProjectJob, type PreparationTask } from './app/preparation'
 import { apiJson, apiProgressJson, type ApiProgress } from './app/api'
 import { statusFromJobStatus, statusFromStoreStatus, type ActivityStatus } from './app/status'
 import {
@@ -39,8 +46,10 @@ import { scenarioStorageKey } from './app/scenarioDraftStorage'
 import { createScenarioRoadGeometryRequest } from './app/scenarioRoadGeometryRequest'
 import { useScenarioDrafts } from './app/useScenarioDrafts'
 import { useNationalRouting } from './app/useNationalRouting'
+import { readRoutingDataModePreference, saveRoutingDataModePreference } from './app/routingDataMode'
+import { useStreetPreparation } from './app/useStreetPreparation'
 import { mergeGtfsRouteAnalysis, routeHasCompleteGtfsAnalysis, type GtfsRouteAnalysis } from './app/gtfsAnalysis'
-import { routeListLabels } from './app/routePresentation'
+import type { NetworkScheduleResult } from './app/networkScheduleCollection'
 import { buildCityPreviewLod } from './app/cityPreview'
 import { filterPreviewByStatus, previewForSelectedRoute } from './app/mapPresentation'
 import { formatBytes } from './app/presentation'
@@ -94,7 +103,7 @@ import {
 } from './components/AnalyzePanel'
 import { FirstRunSetupDialog, ProjectEditorDialog } from './components/ProjectDialogs'
 import { CityPanel, type DataSection } from './components/CityPanel'
-import { ExploreObjectPanel } from './components/ExploreObjectPanel'
+import { NetworkTimetable } from './components/NetworkTimetable'
 import { ServiceStateControl } from './components/ServiceStateControl'
 import { RealtimePanel } from './components/RealtimePanel'
 import { realtimeRefreshMs, type RealtimeInspectRequest } from './app/realtime'
@@ -123,9 +132,11 @@ import { entityFeedScope } from './networkTruth'
 import { buildNetworkPerformanceProfile } from './networkPerformance'
 import { scopedRouteServiceKey, type RouteRenderMode } from './routeServices'
 import { formatServiceTime, scheduledServiceEndMinutes, scheduledVehicleDiagnostics, scheduledVehiclesAtTime } from './scheduledVehicles'
-import { buildServiceVehicleFrame, serviceKeyForRoute, serviceVehicleCount, type ServiceVehicleMode } from './serviceVehicles'
+import { buildServiceVehicleFrame, serviceKeyForRoute, serviceVehicleCount, type ServiceVehicleMode, type ServiceVehicleFrame } from './serviceVehicles'
+import { AgencyRouteLine } from './components/AgencyRouteLine'
 import {
   type RoutingPlan,
+  type RoutingDataMode,
   type RoutingPoint,
   type RoutingTimePreference,
   type RoutingTravelMode,
@@ -172,7 +183,7 @@ import {
   type ServiceEdgeDecomposition,
 } from './reach'
 
-type RouteToolKey = 'explore' | 'data' | 'pathfinder' | 'analyze'
+
 type MapScope = 'network' | 'route'
 const desktopReachRasterSize = 128
 
@@ -241,47 +252,6 @@ function latestMidweekCoverageDate(completeEndDate: string) {
   return latestCoverageDateForWeekday(completeEndDate, 3)
 }
 
-type PublicRouteEntry = {
-  key: string
-  representative: RouteMetric
-  variants: RouteMetric[]
-  tripCount: number
-  detailLabel: string
-}
-
-function publicRouteEntries(routes: RouteMetric[]): PublicRouteEntry[] {
-  const groups = new Map<string, RouteMetric[]>()
-  for (const route of routes) {
-    const key = scopedRouteServiceKey(route)
-    const group = groups.get(key)
-    if (group) group.push(route)
-    else groups.set(key, [route])
-  }
-
-  const entries = Array.from(groups.entries())
-    .map(([key, group]) => {
-      const variants = [...group].sort((left, right) => {
-      const rankDelta = (left.patternRank ?? Number.MAX_SAFE_INTEGER) - (right.patternRank ?? Number.MAX_SAFE_INTEGER)
-      if (rankDelta) return rankDelta
-      return right.tripCount - left.tripCount
-    })
-      return {
-        key,
-        representative: variants[0],
-        variants,
-        tripCount: variants.reduce((sum, route) => sum + route.tripCount, 0),
-        detailLabel: '',
-      }
-    })
-    .filter((entry) => Boolean(entry.representative))
-    .sort((left, right) => right.tripCount - left.tripCount)
-  const labels = routeListLabels(entries.map((entry) => entry.representative))
-  return entries.map((entry) => ({
-    ...entry,
-    detailLabel: labels.get(entry.representative.id) ?? entry.representative.longName,
-  }))
-}
-
 function quietMapLabel(value: string) {
   return value
     .replace(/\bGTFS[-\s]*/gi, '')
@@ -334,103 +304,6 @@ function scrollWorkbenchToTop() {
   })
 }
 
-function PrimaryNavButton({
-  title,
-  label = title,
-  shortcut,
-  icon,
-  active,
-  disabled,
-  onClick,
-}: {
-  title: string
-  label?: string
-  shortcut?: string
-  icon: ReactNode
-  active: boolean
-  disabled: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      className={classNames('sidebar-rail-button', active && 'is-active')}
-      onClick={onClick}
-      disabled={disabled}
-      title={shortcut ? `${title} (${shortcut})` : title}
-      aria-label={title}
-      aria-keyshortcuts={shortcut}
-      aria-current={active ? 'page' : undefined}
-    >
-      {icon}
-      <span className="sidebar-rail-label">{label}</span>
-    </button>
-  )
-}
-
-function PrimaryNav({
-  page,
-  activeRouteTool,
-  hasActiveData,
-  onOpenExplore,
-  onOpenRouting,
-  onOpenAnalyze,
-  onOpenSettings,
-}: {
-  page: 'projects' | 'project'
-  activeRouteTool: RouteToolKey
-  hasActiveData: boolean
-  onOpenExplore: () => void
-  onOpenRouting: () => void
-  onOpenAnalyze: () => void
-  onOpenSettings: () => void
-}) {
-  return (
-    <nav className="sidebar-rail" aria-label="VIGO Studio">
-      <div className="sidebar-rail-main">
-        <PrimaryNavButton
-          title="Explore"
-          label="Explore"
-          shortcut="1"
-          icon={<Route size={19} aria-hidden="true" />}
-          active={page === 'project' && activeRouteTool === 'explore'}
-          disabled={page !== 'project' || !hasActiveData}
-          onClick={onOpenExplore}
-        />
-        <PrimaryNavButton
-          title="Route"
-          label="Route"
-          shortcut="2"
-          icon={<Navigation2 size={19} aria-hidden="true" />}
-          active={page === 'project' && activeRouteTool === 'pathfinder'}
-          disabled={page !== 'project' || !hasActiveData}
-          onClick={onOpenRouting}
-        />
-        <PrimaryNavButton
-          title="Analyze"
-          label="Analyze"
-          shortcut="3"
-          icon={<Radar size={19} aria-hidden="true" />}
-          active={page === 'project' && activeRouteTool === 'analyze'}
-          disabled={page !== 'project' || !hasActiveData}
-          onClick={onOpenAnalyze}
-        />
-      </div>
-      <div className="sidebar-rail-bottom">
-        <PrimaryNavButton
-          title="City"
-          label="City"
-          shortcut="4"
-          icon={<Settings size={19} aria-hidden="true" />}
-          active={page === 'project' && activeRouteTool === 'data'}
-          disabled={false}
-          onClick={onOpenSettings}
-        />
-      </div>
-    </nav>
-  )
-}
-
 function VigoSidebar({
   page,
   projects,
@@ -439,8 +312,6 @@ function VigoSidebar({
   activeFeedId,
   activeRouteTool,
   analysisPanel,
-  objectPanel,
-  preview,
   visiblePreview,
   selectedRoute,
   mapScope,
@@ -463,6 +334,7 @@ function VigoSidebar({
   routingStoreConnectionCount,
   routingTimePreference,
   routingMode,
+  routingDataMode,
   routingDepartureWindowMinutes,
   routingMaxWalkKm,
   routingMaxTransfers,
@@ -481,9 +353,8 @@ function VigoSidebar({
   hasActiveData,
   onOpenProject,
   onSelectFeed,
-  onSelectRoute,
   onOpenFeed,
-  onOpenExplore,
+  onOpenNetwork,
   onOpenRouting,
   onOpenAnalyze,
   onOpenSettings,
@@ -499,6 +370,7 @@ function VigoSidebar({
   onReorderRoutingPoints,
   onRoutingTimePreferenceChange,
   onRoutingModeChange,
+  onRoutingDataModeChange,
   onRoutingDepartureWindowChange,
   onRoutingMaxWalkKmChange,
   onRoutingMaxTransfersChange,
@@ -515,8 +387,6 @@ function VigoSidebar({
   activeFeedId: string
   activeRouteTool: RouteToolKey
   analysisPanel?: ReactNode
-  objectPanel?: ReactNode
-  preview: MapPreview
   visiblePreview: MapPreview
   selectedRoute?: RouteMetric
   mapScope: MapScope
@@ -534,9 +404,8 @@ function VigoSidebar({
   hasActiveData: boolean
   onOpenProject: (id: string) => void
   onSelectFeed: (id: string) => void
-  onSelectRoute: (id: string) => void
   onOpenFeed: () => void
-  onOpenExplore: () => void
+  onOpenNetwork: () => void
   onOpenRouting: () => void
   onOpenAnalyze: () => void
   onOpenSettings: () => void
@@ -556,6 +425,7 @@ function VigoSidebar({
   | 'routingStoreReady'
   | 'routingTimePreference'
   | 'routingMode'
+  | 'routingDataMode'
   | 'routingDepartureWindowMinutes'
   | 'routingMaxWalkKm'
   | 'routingMaxTransfers'
@@ -577,6 +447,7 @@ function VigoSidebar({
   | 'onScheduleTimeChange'
   | 'onRoutingTimePreferenceChange'
   | 'onRoutingModeChange'
+  | 'onRoutingDataModeChange'
   | 'onRoutingDepartureWindowChange'
   | 'onRoutingMaxWalkKmChange'
   | 'onRoutingMaxTransfersChange'
@@ -587,7 +458,6 @@ function VigoSidebar({
   | 'onClearRouting'
 >) {
   const isDataPanel = page === 'project' && activeRouteTool === 'data'
-  const isExplorePanel = page === 'project' && activeRouteTool === 'explore'
   const isPathfinderPanel = page === 'project' && activeRouteTool === 'pathfinder'
   const isAnalyzePanel = page === 'project' && activeRouteTool === 'analyze'
   const panelTitle = page === 'projects'
@@ -598,14 +468,12 @@ function VigoSidebar({
         ? 'Analyze'
         : isPathfinderPanel
           ? 'Route'
-          : 'Explore'
+          : 'Network'
   const panelSubtitle = page === 'projects'
     ? `${projects.length} Cities`
     : isPathfinderPanel
       ? ''
     : isAnalyzePanel
-      ? 'Reach and compare'
-    : isExplorePanel
       ? ''
     : hasActiveData
       ? activeFeedId === bundleFeedId
@@ -615,7 +483,6 @@ function VigoSidebar({
   const routeFocusActive = mapScope === 'route' && Boolean(selectedRoute)
   const networkPreview = useMemo(() => buildCityPreviewLod(visiblePreview), [visiblePreview])
   const scopedMapPreview = routeFocusActive ? previewForSelectedRoute(visiblePreview, selectedRoute) : networkPreview
-  const performanceProfile = useMemo(() => buildNetworkPerformanceProfile(preview), [preview])
   const scopedPerformanceProfile = useMemo(
     () => buildNetworkPerformanceProfile(scopedMapPreview, { precise: routeFocusActive }),
     [routeFocusActive, scopedMapPreview],
@@ -638,26 +505,6 @@ function VigoSidebar({
     [liveVehicleCount, realtimeSnapshot, renderingLive, scheduleProjectionEnabled, scopedMapPreview, scheduleServiceDate, scheduleTimeMinutes, scheduledVehicles],
   )
   const lensInsight = buildNetworkLensInsight(activeFeed, visiblePreview, networkLens)
-  const [routeScrollTop, setRouteScrollTop] = useState(0)
-  const [routeViewportHeight, setRouteViewportHeight] = useState(560)
-  const routeListRef = useRef<HTMLDivElement>(null)
-  const publicRoutes = useMemo(() => publicRouteEntries(visiblePreview.routes), [visiblePreview.routes])
-  const sortedRouteList = useMemo(
-    () => [...publicRoutes].sort((left, right) => left.representative.shortName.localeCompare(right.representative.shortName, undefined, { numeric: true })),
-    [publicRoutes],
-  )
-  const publicRouteCount = publicRoutes.length
-  const routeRowHeight = 50
-  const routeOverscan = 8
-  const routeWindowSize = Math.max(
-    performanceProfile.routeListWindowSize,
-    Math.ceil(routeViewportHeight / routeRowHeight) + routeOverscan * 2,
-  )
-  const routeWindowStart = Math.max(0, Math.floor(routeScrollTop / routeRowHeight) - routeOverscan)
-  const routeWindowEnd = Math.min(publicRouteCount, routeWindowStart + routeWindowSize)
-  const routeList = sortedRouteList.slice(routeWindowStart, routeWindowEnd)
-  const routeTopSpacer = routeWindowStart * routeRowHeight
-  const routeBottomSpacer = Math.max(0, (publicRouteCount - routeWindowEnd) * routeRowHeight)
   const networkIndexState = routingStoreReady
     ? 'SQLite service model open'
     : routingStoreStored
@@ -671,49 +518,13 @@ function VigoSidebar({
         ? networkIndexState
         : ''
 
-  useEffect(() => {
-    setRouteScrollTop(0)
-  }, [activeFeedId, preview])
-
-  useEffect(() => {
-    const viewport = routeListRef.current
-    if (!isExplorePanel || !viewport) return undefined
-
-    const syncViewport = () => {
-      const nextHeight = viewport.clientHeight
-      setRouteViewportHeight(nextHeight)
-      const maxScrollTop = Math.max(0, sortedRouteList.length * routeRowHeight - nextHeight)
-      if (viewport.scrollTop > maxScrollTop) viewport.scrollTop = maxScrollTop
-      setRouteScrollTop(viewport.scrollTop)
-    }
-
-    syncViewport()
-    const observer = new ResizeObserver(syncViewport)
-    observer.observe(viewport)
-    return () => observer.disconnect()
-  }, [isExplorePanel, routeRowHeight, sortedRouteList.length])
-
-  useEffect(() => {
-    if (!isExplorePanel || !selectedRoute || !routeListRef.current) return
-    const selectedIndex = sortedRouteList.findIndex((entry) => entry.key === scopedRouteServiceKey(selectedRoute))
-    if (selectedIndex < 0) return
-    const rowTop = selectedIndex * routeRowHeight
-    const rowBottom = rowTop + routeRowHeight
-    const viewport = routeListRef.current
-    if (rowTop < viewport.scrollTop || rowBottom > viewport.scrollTop + viewport.clientHeight) {
-      const nextScrollTop = Math.max(0, rowTop - Math.max(0, viewport.clientHeight - routeRowHeight) / 2)
-      viewport.scrollTop = nextScrollTop
-      setRouteScrollTop(viewport.scrollTop)
-    }
-  }, [isExplorePanel, selectedRoute, sortedRouteList])
-
   return (
     <aside className="app-sidebar" aria-label="City navigation">
       <PrimaryNav
         page={page}
         activeRouteTool={activeRouteTool}
         hasActiveData={hasActiveData}
-        onOpenExplore={onOpenExplore}
+        onOpenNetwork={onOpenNetwork}
         onOpenRouting={onOpenRouting}
         onOpenAnalyze={onOpenAnalyze}
         onOpenSettings={onOpenSettings}
@@ -829,55 +640,6 @@ function VigoSidebar({
               />
             ) : null}
 
-            {hasActiveData && isExplorePanel ? (
-              <div className={classNames('sidebar-section route-browser-section', selectedRoute && 'has-object-detail')}>
-                {selectedRoute ? objectPanel : (
-                  <>
-                    <div className="sidebar-section-title route-browser-heading">
-                      <div>
-                        <strong>Routes</strong>
-                      </div>
-                      <span>{formatNumber(publicRouteCount)} service{publicRouteCount === 1 ? '' : 's'}</span>
-                    </div>
-                    <div
-                      ref={routeListRef}
-                      className="sidebar-list compact route-browser-list is-virtual"
-                      onScroll={(event) => {
-                        setRouteScrollTop(event.currentTarget.scrollTop)
-                        setRouteViewportHeight(event.currentTarget.clientHeight)
-                      }}
-                    >
-                      {routeTopSpacer > 0 ? <div className="route-list-spacer" style={{ height: routeTopSpacer }} /> : null}
-                      {routeList.map((entry) => {
-                        const route = entry.representative
-
-                        return (
-                          <div
-                            key={entry.key}
-                            className="route-tree-item"
-                            style={{ '--route-color': route.color } as CSSProperties}
-                          >
-                            <button
-                              type="button"
-                              className="sidebar-list-row route-row"
-                              onClick={() => onSelectRoute(route.id)}
-                              title={entry.detailLabel}
-                              aria-label={`${route.shortName}, ${entry.detailLabel}`}
-                            >
-                              <b style={{ background: route.color }} />
-                              <strong>{route.shortName}</strong>
-                              <span>{entry.detailLabel}</span>
-                            </button>
-                          </div>
-                        )
-                      })}
-                      {routeBottomSpacer > 0 ? <div className="route-list-spacer" style={{ height: routeBottomSpacer }} /> : null}
-                    </div>
-                  </>
-                )}
-              </div>
-            ) : null}
-
             {hasActiveData && isPathfinderPanel ? (
               <SidebarPathfinderBox
                 routingEnabled={routingEnabled}
@@ -890,6 +652,7 @@ function VigoSidebar({
                 routingStoreReady={routingStoreReady}
                 routingTimePreference={routingTimePreference}
                 routingMode={routingMode}
+                routingDataMode={routingDataMode}
                 routingDepartureWindowMinutes={routingDepartureWindowMinutes}
                 routingMaxWalkKm={routingMaxWalkKm}
                 routingMaxTransfers={routingMaxTransfers}
@@ -911,6 +674,7 @@ function VigoSidebar({
                 onScheduleTimeChange={onScheduleTimeChange}
                 onRoutingTimePreferenceChange={onRoutingTimePreferenceChange}
                 onRoutingModeChange={onRoutingModeChange}
+                onRoutingDataModeChange={onRoutingDataModeChange}
                 onRoutingDepartureWindowChange={onRoutingDepartureWindowChange}
                 onRoutingMaxWalkKmChange={onRoutingMaxWalkKmChange}
                 onRoutingMaxTransfersChange={onRoutingMaxTransfersChange}
@@ -1014,7 +778,7 @@ function SidebarNetworkStatusBox({
 
       <div className="sidebox-finding-list">
         <div className={classNames('sidebox-finding', osmStreetIndex ? 'tone-good' : 'tone-watch')}>
-          <strong>{osmStreetIndex ? 'OSM indexed locally' : 'OSM optional'}</strong>
+          <strong>{osmStreetIndex ? 'OSM indexed locally' : 'OSM required for full functionality'}</strong>
           <span>{osmStreetMessage || osmText}</span>
         </div>
         {missingRequiredTables.length ? (
@@ -1360,7 +1124,7 @@ function ProjectsPage({
                   type="button"
                   className="surface-switcher-open"
                   onClick={() => onOpenProject(project.id)}
-                  aria-label={`Open ${project.name} Routes`}
+                  aria-label={hasData ? `Open ${project.name} network` : `Set up ${project.name}`}
                   aria-current={isSelected ? 'page' : undefined}
                 >
                   <span className={classNames('surface-readiness-dot', hasData && 'is-ready')} aria-hidden="true" />
@@ -1460,7 +1224,6 @@ function ImportPanel({
   onOsmFiles,
   onConnectRealtime,
   onDisconnectRealtime,
-  onExportReproducibility,
   onCancelGtfs,
   onRetryGtfs,
   onCancelOsm,
@@ -1483,7 +1246,6 @@ function ImportPanel({
   onOsmFiles: (files: FileList | File[]) => void
   onConnectRealtime: (request: RealtimeInspectRequest) => void
   onDisconnectRealtime: () => void
-  onExportReproducibility: () => void
   onCancelGtfs: () => void
   onRetryGtfs: () => void
   onCancelOsm: () => void
@@ -1500,7 +1262,7 @@ function ImportPanel({
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault()
-    if (event.dataTransfer.files.length) onFiles(event.dataTransfer.files)
+    if (!isImporting && event.dataTransfer.files.length) onFiles(event.dataTransfer.files)
   }
 
   return (
@@ -1510,10 +1272,6 @@ function ImportPanel({
           <span className="eyebrow">Import</span>
           <h2>Add data</h2>
         </div>
-        <button type="button" className="panel-heading-action" onClick={onExportReproducibility} title="Download reproducibility manifest">
-          <Download size={14} />
-          <span>Manifest</span>
-        </button>
       </div>
 
       <div
@@ -1534,6 +1292,7 @@ function ImportPanel({
       >
         <input
           ref={fileRef}
+          onClick={(event) => event.stopPropagation()}
           hidden
           type="file"
           accept=".zip,application/zip"
@@ -1545,7 +1304,7 @@ function ImportPanel({
         <FileArchive size={22} />
         <div>
           <strong>{isImporting ? 'Importing GTFS…' : 'Add GTFS'}</strong>
-          <span>{importMessage || 'Choose or drop a GTFS ZIP'}</span>
+          <span>{importMessage || 'Choose or drop a GTFS ZIP from any city'}</span>
         </div>
         {isImporting ? (
           <button type="button" className="import-job-action" onClick={(event) => { event.stopPropagation(); onCancelGtfs() }}>
@@ -1599,6 +1358,16 @@ function ImportPanel({
         onConnect={onConnectRealtime}
         onDisconnect={onDisconnectRealtime}
       />
+
+      <section className="network-import-example" aria-label="Boston example files">
+        <h3>Try Boston</h3>
+        <p>Download these example files, then add them above.</p>
+        <div>
+          <a href="https://cdn.mbta.com/MBTA_GTFS.zip" target="_blank" rel="noopener noreferrer" download="MBTA_GTFS.zip"><Download size={16} aria-hidden="true" /><span>MBTA timetable <small>GTFS ZIP · routes, stops and schedules</small></span></a>
+          <a href="https://drive.google.com/uc?export=download&amp;id=1EiCPazDU8PNi2-swpe9poI2C5tOuJ-q7" target="_blank" rel="noopener noreferrer"><Download size={16} aria-hidden="true" /><span>Boston streets <small>boston.pbf · walking and driving network</small></span></a>
+        </div>
+        <small>Google Drive may ask you to confirm the PBF download. <a href="https://drive.google.com/file/d/1EiCPazDU8PNi2-swpe9poI2C5tOuJ-q7/view?usp=share_link" target="_blank" rel="noopener noreferrer">View source file</a></small>
+      </section>
     </section>
   )
 }
@@ -1661,7 +1430,7 @@ function DataReadinessRail({
     },
     {
       label: 'Streets',
-      value: streetStore?.status === 'ready' ? 'OSM ready' : streetStore?.status === 'building' ? 'Indexing' : 'Optional',
+      value: streetStore?.status === 'ready' ? 'OSM ready' : streetStore?.status === 'building' ? 'Indexing' : 'Required',
       detail: streetStore?.status === 'ready'
         ? `${formatNumber(streetStore.edgeCount)} directed edges`
         : streetStore?.status === 'building'
@@ -1767,6 +1536,7 @@ function CitySourceStatus({
   working,
   missingLabel,
   status,
+  onChoose,
 }: {
   icon: ReactNode
   title: string
@@ -1775,21 +1545,23 @@ function CitySourceStatus({
   working: boolean
   missingLabel: string
   status: ActivityStatus
+  onChoose: () => void
 }) {
   return (
-    <div className={classNames('surface-source-status', ready && 'is-ready', working && 'is-working')}>
+    <button type="button" onClick={onChoose} disabled={working} className={classNames('surface-source-status', ready && 'is-ready', working && 'is-working')}>
       <span className="surface-source-status-icon">{icon}</span>
       <span className="surface-source-status-copy">
         <strong>{title}</strong>
         <small>{detail}</small>
       </span>
       <StatusBadge status={status} label={ready ? 'Ready' : working ? 'Preparing' : missingLabel} />
-    </div>
+    </button>
   )
 }
 
 function EmptyOperationsStart({
   project,
+  onOpenNetwork,
   osmStreetReady,
   isImporting,
   isOsmImporting,
@@ -1807,13 +1579,13 @@ function EmptyOperationsStart({
   onOsmFiles,
   onConnectRealtime,
   onDisconnectRealtime,
-  onExportReproducibility,
   onCancelGtfs,
   onRetryGtfs,
   onCancelOsm,
   onRetryOsm,
 }: {
   project: VigoProject
+  onOpenNetwork: () => void
   osmStreetReady: boolean
   isImporting: boolean
   isOsmImporting: boolean
@@ -1831,15 +1603,16 @@ function EmptyOperationsStart({
   onOsmFiles: (files: FileList | File[]) => void
   onConnectRealtime: (request: RealtimeInspectRequest) => void
   onDisconnectRealtime: () => void
-  onExportReproducibility: () => void
   onCancelGtfs: () => void
   onRetryGtfs: () => void
   onCancelOsm: () => void
   onRetryOsm: () => void
 }) {
+  const intakeRef = useRef<HTMLDivElement | null>(null)
+  const gtfsReady = hasOperationsData(project)
   const gtfsDetail = isImporting
     ? importMessage || 'Building the local timetable index…'
-    : 'Add a GTFS ZIP to load routes and schedules'
+    : gtfsReady ? 'Timetable indexed and ready' : 'Add a GTFS ZIP to load routes and schedules'
   const osmDetail = osmStreetReady
     ? `${formatNumber(project.osmStreetIndex?.edgeCount ?? 0)} walk edges indexed locally`
     : isOsmImporting
@@ -1847,38 +1620,42 @@ function EmptyOperationsStart({
       : 'Add an OSM PBF to enable street access'
 
   return (
-    <div className="workbench empty-workbench empty-intake">
+    <div ref={intakeRef} className="workbench empty-workbench empty-intake">
       <section className="surface-source-intake" aria-labelledby="surface-source-intake-title">
         <div className="surface-source-intake-copy">
           <span className="eyebrow">City data</span>
           <h1 id="surface-source-intake-title">Build {quietMapLabel(project.name)}</h1>
-          <p>Add GTFS and OSM to open Explore, Route, and Analyze.</p>
+          <p>Import a GTFS timetable from any city. Add streets and live feeds below.</p>
         </div>
 
         <div className="surface-source-statuses" aria-label="City sources">
           <CitySourceStatus
             icon={<FileArchive size={18} />}
+            onChoose={() => intakeRef.current?.querySelector<HTMLElement>('.drop-zone')?.click()}
             title="GTFS timetable"
             detail={gtfsDetail}
-            ready={false}
+            ready={gtfsReady}
             working={isImporting}
             missingLabel="Required"
-            status={statusFromJobStatus(gtfsJob?.status ?? (isImporting ? 'running' : 'missing'))}
+            status={statusFromJobStatus(gtfsJob?.status ?? (isImporting ? 'running' : gtfsReady ? 'complete' : 'missing'))}
           />
           <CitySourceStatus
             icon={<Navigation2 size={18} />}
+            onChoose={() => intakeRef.current?.querySelector<HTMLButtonElement>('.osm-import-strip button')?.click()}
             title="OSM street network"
             detail={osmDetail}
             ready={osmStreetReady}
             working={isOsmImporting}
-            missingLabel="Optional"
+            missingLabel="Required"
             status={statusFromJobStatus(osmJob?.status ?? (osmStreetReady ? 'complete' : isOsmImporting ? 'running' : 'idle'))}
           />
         </div>
 
         <p className="surface-source-hint">
-          GTFS supplies scheduled transit. OSM supplies walking and driving streets.
+          GTFS supplies scheduled transit. OSM is required for full functionality, including walking and driving routes.
         </p>
+
+        <button type="button" className="button button-primary" disabled={!gtfsReady || isImporting || isOsmImporting} onClick={onOpenNetwork}>Open network</button>
 
         <ImportPanel
           isImporting={isImporting}
@@ -1898,7 +1675,6 @@ function EmptyOperationsStart({
           onOsmFiles={onOsmFiles}
           onConnectRealtime={onConnectRealtime}
           onDisconnectRealtime={onDisconnectRealtime}
-          onExportReproducibility={onExportReproducibility}
           onCancelGtfs={onCancelGtfs}
           onRetryGtfs={onRetryGtfs}
           onCancelOsm={onCancelOsm}
@@ -1943,7 +1719,18 @@ function MapScopeControl({
   )
 }
 
+const emptyRoutingPoints: RoutingPoint[] = []
+const emptyScenarioStops: ScenarioStopDraft[] = []
+const emptyCoordinates: [number, number][] = []
+const emptyVehicleFrame: ServiceVehicleFrame = { mode: 'schedule', vehicles: [], tripUpdateCount: 0, alertCount: 0 }
+
 function RouteSurface({
+  onOpenTrip,
+  operationalEvents,
+  agencyFocus,
+  scheduleLoadStatus,
+  agencyLocation,
+  routeDetailStatus,
   projectId,
   feed,
   focusedPreview,
@@ -1988,6 +1775,11 @@ function RouteSurface({
   onSelectRoute,
   onSelectStop,
 }: {
+  agencyLocation?: { id: string; label: string; coordinate: [number, number]; stopId?: string }
+  operationalEvents?: OperationalEvent[]
+  agencyFocus: boolean
+  scheduleLoadStatus?: string
+  routeDetailStatus?: string
   projectId: string
   feed: FeedSummary
   focusedPreview: MapPreview
@@ -2029,16 +1821,18 @@ function RouteSurface({
   onScheduleTimeChange: (minutes: number) => void
   onScheduleServiceDateChange: (serviceDate: string) => void
   onRoutingPoint?: (point: RoutingPoint) => void
-  onSelectRoute: (id: string) => void
-  onSelectStop: (id: string) => void
+  onOpenTrip?: (trip: TripTarget) => void
+  onSelectRoute: (id: string, options?: { inspect?: boolean }) => void
+  onSelectStop: (id: string, options?: { inspect?: boolean }) => void
 }) {
   const isNetworkMap = mapScope === 'network' || !selectedRoute
+  const scheduledNetwork = isNetworkMap && agencyFocus && vehicleMode === 'schedule' && !routingFocus && !analysisFocus
   const routingCanvasPreview = useMemo<MapPreview>(() => ({ routes: [], stops: visiblePreview.stops, stopPairs: [] }), [visiblePreview.stops])
   const cityMapPreview = useMemo(
-    () => buildCityPreviewLod(visiblePreview, selectedRouteId),
-    [selectedRouteId, visiblePreview],
+    () => buildCityPreviewLod(visiblePreview, selectedRouteId, undefined, selectedStopId),
+    [selectedRouteId, selectedStopId, visiblePreview],
   )
-  const mapPreview = routingFocus || analysisFocus ? routingCanvasPreview : isNetworkMap ? cityMapPreview : focusedPreview
+  const mapPreview = routingFocus || analysisFocus ? routingCanvasPreview : isNetworkMap || scheduledNetwork ? cityMapPreview : focusedPreview
   const mapLayers = useMemo<LayerState>(() => (
     routingFocus || analysisFocus
       ? {
@@ -2053,7 +1847,7 @@ function RouteSurface({
       }
       : layers
   ), [analysisFocus, layers, routingFocus])
-  const selectedMapRouteId = routingFocus || analysisFocus || isNetworkMap ? '' : selectedRouteId
+  const selectedMapRouteId = routingFocus || analysisFocus || isNetworkMap || scheduledNetwork ? '' : selectedRouteId
   const performanceProfile = useMemo(
     () => buildNetworkPerformanceProfile(routingFocus || analysisFocus ? visiblePreview : mapPreview, { precise: !isNetworkMap && !routingFocus && !analysisFocus }),
     [analysisFocus, isNetworkMap, mapPreview, routingFocus, visiblePreview],
@@ -2065,15 +1859,16 @@ function RouteSurface({
     [analysisFocus, mapPreview, routingFocus, scheduleServiceDate, scheduleTimeMinutes, vehicleMode],
   )
   const vehicleFrame = useMemo(
-    () => buildServiceVehicleFrame({
+    () => routingFocus || analysisFocus ? emptyVehicleFrame : buildServiceVehicleFrame({
       mode: vehicleMode,
       preview: vehicleMode === 'live' ? visiblePreview : mapPreview,
       realtimeSnapshot,
+      operationalEvents,
       scheduledVehicles,
     }),
-    [mapPreview, realtimeSnapshot, scheduledVehicles, vehicleMode, visiblePreview],
+    [analysisFocus, mapPreview, realtimeSnapshot, operationalEvents, routingFocus, scheduledVehicles, vehicleMode, visiblePreview],
   )
-  const visibleVehicleCount = serviceVehicleCount(vehicleFrame, isNetworkMap ? undefined : selectedRoute, mapPreview)
+  const visibleVehicleCount = serviceVehicleCount(vehicleFrame, isNetworkMap || scheduledNetwork ? undefined : selectedRoute, mapPreview)
   const selectedPatternOnly = !isNetworkMap && mapPreview.routes.length === 1 && (selectedRoute?.serviceVariantCount ?? 1) > 1
   const unknownBranchVehicles = vehicleMode === 'live' && selectedPatternOnly && selectedRoute
     ? vehicleFrame.vehicles.filter((vehicle) => vehicle.serviceKey === serviceKeyForRoute(selectedRoute) && !vehicle.routeFeatureId).length
@@ -2098,6 +1893,22 @@ function RouteSurface({
     [mapPreview, scheduleServiceDate],
   )
   const [servicePlaybackRunning, setServicePlaybackRunning] = useState(false)
+  const [scheduleClockError, setScheduleClockError] = useState('')
+  async function scheduleNow() {
+    setServicePlaybackRunning(false)
+    setScheduleClockError('')
+    try {
+      const result = await apiJson<{ data: { instant: string; clocks: Array<{ timezone: string }> } }>(`/api/projects/${encodeURIComponent(projectId)}/agency`, {
+        method: 'POST', body: JSON.stringify({ action: 'tool', name: 'current_time', arguments: { resultUse: 'continue' } }),
+      })
+      const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: result.data.clocks[0].timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(result.data.instant)).map(part => [part.type, part.value]))
+      onScheduleServiceDateChange(`${parts.year}-${parts.month}-${parts.day}`)
+      onScheduleTimeChange(Number(parts.hour) * 60 + Number(parts.minute))
+    } catch (error) { setScheduleClockError(error instanceof Error ? error.message : 'Current City time is unavailable.') }
+  }
+  const [agencyView, setAgencyView] = useState<'map' | 'line'>('map')
+  useEffect(() => { if (agencyLocation || isNetworkMap) setAgencyView('map') }, [agencyLocation, isNetworkMap])
+  const showAgencyLine = agencyFocus && agencyView === 'line' && !routingFocus && !analysisFocus
   const [servicePlaybackStep, setServicePlaybackStep] = useState(1)
   const playbackTimeRef = useRef(scheduleTimeMinutes)
 
@@ -2121,8 +1932,32 @@ function RouteSurface({
 
   return (
     <section className="route-surface" aria-label="GTFS map and service state" style={routeStyle}>
+      <div className="service-toolbar">
+        {!showAgencyLine && !routingFocus && !analysisFocus ? (
+          <ServiceStateControl
+            onNow={() => void scheduleNow()}
+            mode={vehicleMode}
+            frame={vehicleFrame}
+            vehicleCount={visibleVehicleCount}
+            diagnostics={serviceDiagnostics}
+            scheduleTimeMinutes={scheduleTimeMinutes}
+            scheduleServiceDate={scheduleServiceDate}
+            scheduleEndMinutes={scheduleEndMinutes}
+            playbackRunning={servicePlaybackRunning}
+            playbackStep={servicePlaybackStep}
+            onModeChange={onVehicleModeChange}
+            onTogglePlayback={() => setServicePlaybackRunning((current) => !current)}
+            onPlaybackStepChange={setServicePlaybackStep}
+            onScheduleTimeChange={onScheduleTimeChange}
+            onScheduleServiceDateChange={onScheduleServiceDateChange}
+          />
+        ) : null}
+      </div>
       <div className="surface-panel route-map-shell">
-        <LazyVigoMap
+        {showAgencyLine ? <AgencyRouteLine vehicleFrame={vehicleFrame} onOpenTrip={onOpenTrip} key={`${projectId}/${selectedRouteId}`} projectId={projectId} preview={focusedPreview} routeId={isNetworkMap ? '' : selectedRoute ? networkRouteId(selectedRoute) : selectedRouteId} selectedStopId={selectedStopId} showStopDetails={false} onSelectStop={onSelectStop} /> : <LazyVigoMap
+          onOpenTrip={agencyFocus ? onOpenTrip : undefined}
+          showStopDetails={!agencyFocus}
+          focusLocation={agencyFocus ? agencyLocation : undefined}
           projectId={projectId}
           localStreetGraphAvailable={localStreetGraphAvailable}
           preview={mapPreview}
@@ -2132,7 +1967,7 @@ function RouteSurface({
           basemap={basemap}
           appearance={appearance}
           performanceProfile={performanceProfile}
-          focusMode={analysisFocus ? 'scenario' : routingFocus ? 'routing' : isNetworkMap ? 'network' : 'route'}
+          focusMode={analysisFocus ? 'scenario' : routingFocus ? 'routing' : isNetworkMap || scheduledNetwork ? 'network' : 'route'}
           selectedRouteId={selectedMapRouteId}
           selectedStopId={selectedStopId}
           vehicleFrame={vehicleFrame}
@@ -2153,20 +1988,37 @@ function RouteSurface({
           onMoveScenarioStop={onMoveScenarioStop}
           routingStatusTitle={!routingOrigin && !routingDestination ? 'Choose origin and destination' : routingActivity.title}
           routingStatusDetail={!routingOrigin && !routingDestination ? 'Search for two places or pick them on the map.' : routingActivity.detail}
-          onSelectRoute={(id) => {
-            onSelectRoute(id)
-          }}
-          onSelectStop={(id) => {
-            onSelectStop(id)
-          }}
+          onSelectRoute={onSelectRoute}
+          onSelectStop={onSelectStop}
           onRoutingPoint={onRoutingPoint}
-        />
-        {!routingFocus && !analysisFocus ? (
+        />}
+        {!agencyFocus && !routingFocus && !analysisFocus ? (
           <MapScopeControl
             mapScope={isNetworkMap ? 'network' : 'route'}
             routeFocusAvailable={Boolean(selectedRoute)}
             onMapScopeChange={onMapScopeChange}
           />
+        ) : null}
+        {agencyFocus && (!isNetworkMap || routingFocus || analysisFocus) ? (
+          <div className="agency-map-context">
+            <div>
+              <span>{routingFocus ? 'Journey' : analysisFocus ? 'Reachable area' : isNetworkMap ? vehicleMode === 'live' ? 'Live network' : 'Scheduled network' : `Route ${selectedRoute?.shortName || selectedRoute?.longName || ''}`}</span>
+              <small aria-live="polite">
+                {routingFocus || analysisFocus ? 'From your investigation' : (
+                  <>
+                    {vehicleMode === 'schedule' ? `Estimated positions · ${formatServiceTime(scheduleTimeMinutes)}` : realtimeSnapshot ? `Latest feed · ${visibleVehicleCount} vehicle ${visibleVehicleCount === 1 ? 'location' : 'locations'}` : 'Connect feeds to see vehicle reports'}
+                    {vehicleMode === 'schedule' && scheduleLoadStatus ? ` · ${scheduleLoadStatus}` : ''}
+                    {scheduleClockError ? ` · ${scheduleClockError}` : ''}
+                    {!isNetworkMap && routeDetailStatus ? ` · ${routeDetailStatus}` : ''}
+                  </>
+                )}
+              </small>
+            </div>
+            <div className="agency-map-actions">
+              {!isNetworkMap && !routingFocus && !analysisFocus ? <div className="agency-view-switch" role="group" aria-label="Route display"><button aria-pressed={!showAgencyLine} onClick={() => setAgencyView('map')}>Map</button><button aria-pressed={showAgencyLine} onClick={() => setAgencyView('line')}>Line view</button></div> : null}
+              {!isNetworkMap || routingFocus || analysisFocus ? <button className="agency-button" onClick={() => { setAgencyView('map'); onMapScopeChange('network') }}>Network map</button> : null}
+            </div>
+          </div>
         ) : null}
         {cityPreviewLoading ? (
           <div className="surface-loading-overlay" role="status" aria-live="polite">
@@ -2174,25 +2026,8 @@ function RouteSurface({
             <strong>Loading City…</strong>
           </div>
         ) : null}
-        {!routingFocus && !analysisFocus ? (
-          <ServiceStateControl
-            mode={vehicleMode}
-            frame={vehicleFrame}
-            vehicleCount={visibleVehicleCount}
-            diagnostics={serviceDiagnostics}
-            scheduleTimeMinutes={scheduleTimeMinutes}
-            scheduleServiceDate={scheduleServiceDate}
-            scheduleEndMinutes={scheduleEndMinutes}
-            playbackRunning={servicePlaybackRunning}
-            playbackStep={servicePlaybackStep}
-            onModeChange={onVehicleModeChange}
-            onTogglePlayback={() => setServicePlaybackRunning((current) => !current)}
-            onPlaybackStepChange={setServicePlaybackStep}
-            onScheduleTimeChange={onScheduleTimeChange}
-            onScheduleServiceDateChange={onScheduleServiceDateChange}
-          />
-        ) : null}
-        {!routingFocus && !analysisFocus && !cityPreviewLoading && !mapPreview.routes.length ? (
+
+        {!showAgencyLine && !routingFocus && !analysisFocus && !cityPreviewLoading && !mapPreview.routes.length ? (
           <div className="route-geometry-empty">
             <strong>No spatial alignment in this scope</strong>
             <span>The service remains indexed. Inspect stop coordinates, stop sequences, and shapes.txt to establish defensible map geometry.</span>
@@ -2261,6 +2096,7 @@ export default function App() {
   const [basemap, setBasemap] = useState<Basemap>('streets')
   const [projects, setProjects] = useState<VigoProject[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState('')
+  const [openedNetworkProjectId, setOpenedNetworkProjectId] = useState('')
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [runtimeConfig, setRuntimeConfig] = useState<VigoRuntimeConfig | null>(null)
   const [setupOpen, setSetupOpen] = useState(false)
@@ -2268,10 +2104,12 @@ export default function App() {
   const [setupError, setSetupError] = useState('')
   const [apiError, setApiError] = useState('')
   const [layers, setLayers] = useState<LayerState>(initialLayers)
+  const [operationalEvents, setOperationalEvents] = useState<OperationalEvent[]>([])
   const [vehicleMode, setVehicleMode] = useState<ServiceVehicleMode>('schedule')
   const [selectedRouteId, setSelectedRouteId] = useState('')
   const [selectedStopId, setSelectedStopId] = useState('')
   const routeAnalysisAbortRef = useRef<AbortController | null>(null)
+  const routeAnalysisKeyRef = useRef('')
   const routeAnalysisRequestIdRef = useRef(0)
   const [routeAnalysisRouteId, setRouteAnalysisRouteId] = useState('')
   const [routeAnalysisError, setRouteAnalysisError] = useState('')
@@ -2283,6 +2121,8 @@ export default function App() {
   const [routingResidencyCoverage, setRoutingResidencyCoverage] = useState<RoutingServiceCoverage | null>(null)
   const [routingTimePreference, setRoutingTimePreference] = useState<RoutingTimePreference>('depart')
   const [routingMode, setRoutingMode] = useState<RoutingTravelMode>('transit')
+  const [routingDataMode, setRoutingDataMode] = useState<RoutingDataMode>(readRoutingDataModePreference)
+  useEffect(() => { saveRoutingDataModePreference(routingDataMode) }, [routingDataMode])
   const [routingDepartureWindowMinutes, setRoutingDepartureWindowMinutes] = useState<RoutingDepartureWindowMinutes>(20)
   const [routingMaxWalkKm, setRoutingMaxWalkKm] = useState(1.2)
   const [routingMaxTransfers, setRoutingMaxTransfers] = useState<number | undefined>()
@@ -2295,6 +2135,9 @@ export default function App() {
   const [routingDestination, setRoutingDestination] = useState<RoutingPoint | null>(null)
   const [analysisOrigin, setAnalysisOrigin] = useState<RoutingPoint | null>(null)
   const [analyzeMode, setAnalyzeMode] = useState<AnalyzeMode>('single')
+  const [agencyPlan, setAgencyPlan] = useState<RoutingPlan | null>(null)
+  const [agencyLocation, setAgencyLocation] = useState<{ id: string; label: string; coordinate: [number, number]; stopId?: string } | undefined>()
+  const [agencyReach, setAgencyReach] = useState<ReachResult | null>(null)
   const [reachResult, setReachResult] = useState<ReachResult | null>(null)
   const [reachComparison, setReachComparison] = useState<ReachComparisonResult[] | null>(null)
   const [serviceDecomposition, setServiceDecomposition] = useState<ServiceEdgeDecomposition | null>(null)
@@ -2344,6 +2187,10 @@ export default function App() {
   const [osmImportJobId, setOsmImportJobId] = useState('')
   const [importMessage, setImportMessage] = useState('')
   const importPollingPromisesRef = useRef(new Map<string, Promise<JobRecord>>())
+  const [pendingPreparations, setPendingPreparations] = useState<Record<string, PreparationTask>>({})
+  const [preparationErrors, setPreparationErrors] = useState<Record<string, string>>({})
+  const [preparationJobUpdates, setPreparationJobUpdates] = useState<Record<string, JobRecord>>({})
+  const [backgroundTasksOpen, setBackgroundTasksOpen] = useState(false)
   const routingMergeRequestRef = useRef('')
   const [routingMergeRetryNonce, setRoutingMergeRetryNonce] = useState(0)
   const [realtimeSnapshot, setRealtimeSnapshot] = useState<RealtimeSnapshot | null>(null)
@@ -2351,6 +2198,7 @@ export default function App() {
   const [isRealtimeLoading, setIsRealtimeLoading] = useState(false)
   const [realtimeRequest, setRealtimeRequest] = useState<RealtimeInspectRequest | null>(null)
   const realtimeInFlightRef = useRef(false)
+  const realtimeAbortRef = useRef<AbortController | null>(null)
   const realtimeRequestIdRef = useRef(0)
   const [query, setQuery] = useState('')
   const navigationMemoryRef = useRef(readNavigationMemory())
@@ -2359,9 +2207,13 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState<GtfsRouteStatusFilter>('all')
   const [page, setPage] = useState<'projects' | 'project'>('projects')
   const [activeFeedId, setActiveFeedId] = useState(bundleFeedId)
-  const [activeRouteTool, setActiveRouteTool] = useState<RouteToolKey>('explore')
+  const [activeRouteTool, setActiveRouteTool] = useState<RouteToolKey>(() => { const saved = sessionStorage.getItem('vigo-agency-view'); return ['data', 'pathfinder', 'analyze', 'agency'].includes(saved || '') ? saved as RouteToolKey : 'agency' })
+  useEffect(() => { sessionStorage.setItem('vigo-agency-view', activeRouteTool) }, [activeRouteTool])
   const [dataSection, setDataSection] = useState<DataSection>('feeds')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [agencyMapOpen, setAgencyMapOpen] = useState(false)
+  const [agencyTripTarget, setAgencyTripTarget] = useState<{ routeId: string; tripId: string; serviceDate: string } | undefined>()
+  const [agencyBrowseRequest, setAgencyBrowseRequest] = useState(0)
   const [projectDialog, setProjectDialog] = useState<ProjectDialogState | null>(null)
   const [projectDialogBusy, setProjectDialogBusy] = useState(false)
   const [projectDialogError, setProjectDialogError] = useState('')
@@ -2391,18 +2243,34 @@ export default function App() {
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? emptyCityProject(health?.storageRoot),
     [projects, selectedProjectId, health?.storageRoot],
   )
-  const latestGtfsJob = [...selectedProject.jobs]
+  const preparationJobs = selectedProject.jobs.map((job) => preparationJobUpdates[job.id] ?? job)
+  const streetPreparation = useStreetPreparation({
+    active: page === 'project' && selectedProject.osmStreetIndex?.status === 'ready' && !isOsmImporting,
+    projectId: selectedProject.id,
+    identity: `${selectedProject.osmStreetIndex?.builtAt ?? ''}:${selectedProject.osmStreetIndex?.bytes ?? ''}`,
+    refreshKey: activeRouteTool === 'pathfinder' ? routingMode : '',
+  })
+  const latestGtfsJob = [...preparationJobs]
     .filter((job) => job.kind === 'national-gtfs-import')
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
-  const latestOsmJob = [...selectedProject.jobs]
+  const visiblePreparationTasks = preparationTasks(preparationJobs,
+    [
+      ...Object.entries(pendingPreparations).filter(([key]) => key.startsWith(`${selectedProject.id}:`)).map(([, task]) => task),
+      ...(cityPreviewLoadingProjectId === selectedProject.id ? [{ id: `${selectedProject.id}:loading`, kind: 'city-data-load', label: selectedProject.name, status: 'running' as const, phase: 'Loading transit feeds and map data', createdAt: selectedProject.updatedAt }] : []),
+      ...(streetPreparation.task ? [streetPreparation.task] : []),
+    ],
+    preparationErrors)
+  const selectedPreparationProjectRef = useRef(selectedProject.id)
+  selectedPreparationProjectRef.current = selectedProject.id
+  const latestOsmJob = [...preparationJobs]
     .filter((job) => job.kind === 'national-osm-import')
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
-  const gtfsImportJob = selectedProject.jobs.find((job) => job.id === gtfsImportJobId) ?? latestGtfsJob
-  const osmImportJob = selectedProject.jobs.find((job) => job.id === osmImportJobId) ?? latestOsmJob
-  const latestActiveGtfsJob = selectedProject.jobs.find((job) => (
+  const gtfsImportJob = preparationJobs.find((job) => job.id === gtfsImportJobId) ?? latestGtfsJob
+  const osmImportJob = preparationJobs.find((job) => job.id === osmImportJobId) ?? latestOsmJob
+  const latestActiveGtfsJob = preparationJobs.find((job) => (
     job.kind === 'national-gtfs-import' && ['queued', 'running'].includes(job.status)
   ))
-  const latestActiveOsmJob = selectedProject.jobs.find((job) => (
+  const latestActiveOsmJob = preparationJobs.find((job) => (
     job.kind === 'national-osm-import' && ['queued', 'running'].includes(job.status)
   ))
   useEffect(() => {
@@ -2479,7 +2347,11 @@ export default function App() {
     routingOrigin && routingDestination &&
     [routingOrigin, ...routingWaypoints, routingDestination].some((point) => point.source === 'map'),
   )
-  const routingStreetState: 'ready' | 'loading' | 'missing' = !mapPointRoutingNeedsStreetGraph ||
+  const routingStreetState: 'ready' | 'loading' | 'missing' = routingMode !== 'transit'
+    ? selectedProject.osmStreetIndex?.status === 'ready'
+      ? streetPreparation.ready ? 'ready' : 'loading'
+      : selectedProject.osmStreetIndex?.status === 'building' || isOsmImporting ? 'loading' : 'missing'
+    : !mapPointRoutingNeedsStreetGraph ||
     Boolean(nationalRoutingFeed && selectedProject.osmStreetIndex?.status === 'ready')
     ? 'ready'
     : selectedProject.osmStreetIndex?.status === 'building'
@@ -2487,16 +2359,18 @@ export default function App() {
       : 'missing'
   const nationalRouting = useNationalRouting({
     active: Boolean(
-      nationalRoutingFeed
+      page === 'project' && nationalRoutingFeed
       && activeRouteTool === 'pathfinder',
     ),
     projectId: selectedProject.id,
     feedId: nationalRoutingFeed?.id ?? '',
     storeKey: nationalRoutingStoreKey,
-    origin: activeRouteTool === 'pathfinder' ? routingOrigin : null,
+    streetKey: `${selectedProject.osmStreetIndex?.builtAt ?? ''}:${selectedProject.osmStreetIndex?.bytes ?? ''}`,
+    origin: routingOrigin,
     waypoints: routingWaypoints,
-    destination: activeRouteTool === 'pathfinder' ? routingDestination : null,
+    destination: routingDestination,
     mode: routingMode,
+    routingDataMode,
     departMinutes: scheduleTimeMinutes,
     timePreference: routingTimePreference,
     serviceDay: routingServiceDay,
@@ -2507,7 +2381,6 @@ export default function App() {
     departureWindowMinutes: routingDepartureWindowMinutes,
     realtimeSnapshot,
     routeAllowed: routingStreetState === 'ready',
-    onError: setApiError,
   })
   const routingMergeSourceIdentity = selectedProject.feeds
     .filter((feed) => feed.routingStore?.status === 'ready')
@@ -2666,10 +2539,68 @@ export default function App() {
     projectRoutingFeed?.routingStore?.connectionCount
       ?? scopedRoutingFeeds.reduce((sum, feed) => sum + Number(feed.routingStore?.connectionCount ?? 0), 0),
   )
-  const hasActiveOperationsData = hasOperationsData(selectedProject) && (activeFeed.routeCount > 0 || preview.routes.length > 0)
+  const hasActiveOperationsData = openedNetworkProjectId === selectedProject.id && hasOperationsData(selectedProject) && (activeFeed.routeCount > 0 || preview.routes.length > 0)
   const networkSearchIndex = useMemo(() => buildNetworkSearchIndex(preview), [preview])
   const visiblePreview = useMemo(() => filterPreviewByStatus(preview, statusFilter), [preview, statusFilter])
-  const workbenchMapPreview = visiblePreview
+  const workbenchMapPreview = activeRouteTool === 'agency' && vehicleMode === 'schedule' ? preview : visiblePreview
+  const [scheduleLoadStatus, setScheduleLoadStatus] = useState('')
+  const scheduleRequestsKey = JSON.stringify([...new Map(preview.routes.map(route => {
+    const feedId = activeFeedId === bundleFeedId ? entityFeedScope(route.id) : activeFeedId
+    const routeId = route.routeId || route.id
+    return [`${feedId}/${routeId}`, { feedId, routeId }] as const
+  })).values()].sort((a, b) => `${a.feedId}/${a.routeId}`.localeCompare(`${b.feedId}/${b.routeId}`)))
+  const [scheduleLoadRequest, setScheduleLoadRequest] = useState<{ key: string; projectId: string; label: string; serviceDate: string; requests: Array<{ feedId: string; routeId: string }> } | null>(null)
+  const scheduleLoadRequestsRef = useRef(new Map<string, NonNullable<typeof scheduleLoadRequest>>())
+  const [scheduleLoadRetry, setScheduleLoadRetry] = useState(0)
+  useEffect(() => {
+    if (page !== 'project' || activeRouteTool !== 'agency' || vehicleMode !== 'schedule') return
+    const requests = (JSON.parse(scheduleRequestsKey) as Array<{ feedId: string; routeId: string }>).filter(request => request.feedId)
+    if (!requests.length) return
+    const key = JSON.stringify([selectedProject.id, routingServiceDate, scheduleRequestsKey])
+    setScheduleLoadRequest(current => current?.key === key ? current : { key, projectId: selectedProject.id, label: selectedProject.name, serviceDate: routingServiceDate, requests })
+  }, [page, activeRouteTool, vehicleMode, selectedProject.id, selectedProject.name, routingServiceDate, scheduleRequestsKey])
+  useEffect(() => {
+    if (!scheduleLoadRequest || scheduleLoadRequest.projectId !== selectedProject.id) return
+    const { projectId, label, serviceDate, requests } = scheduleLoadRequest
+    const controller = new AbortController()
+    const taskKey = `${projectId}:vehicle-schedules`
+    scheduleLoadRequestsRef.current.set(taskKey, scheduleLoadRequest)
+    const task: PreparationTask = { id: taskKey, kind: 'vehicle-schedules', label: `${label} · ${serviceDate}`, status: 'running', progress: 0, phase: `Loading full-day schedules · 0/${requests.length} routes`, createdAt: new Date().toISOString() }
+    setPendingPreparations(current => ({ ...current, [taskKey]: task }))
+    setScheduleLoadStatus(task.phase || '')
+    const worker = new Worker(new URL('./app/networkSchedules.worker.ts', import.meta.url), { type: 'module' })
+    const fail = (error: string) => {
+      if (controller.signal.aborted) return
+      worker.terminate()
+      setScheduleLoadStatus('Schedule loading failed')
+      setPendingPreparations(current => ({ ...current, [taskKey]: { ...task, status: 'failed', error } }))
+    }
+    worker.onerror = () => fail('The background schedule worker could not finish. Retry loading.')
+    worker.onmessage = (event: MessageEvent<{ type: string; completed: number; failures: number; results?: NetworkScheduleResult[]; error?: string }>) => {
+      if (controller.signal.aborted) return
+      const { type, completed, failures, results } = event.data
+      if (type === 'error') { fail(event.data.error || 'Could not load vehicle schedules.'); return }
+      const done = type === 'complete'
+      const phase = !done ? `Loading full-day schedules · ${completed}/${requests.length} routes`
+        : failures ? `${failures} route schedules unavailable; ${completed - failures} loaded` : `Full-day schedule ready · ${completed} routes`
+      // No partial timetable enters project/map state. Publish the entire day once.
+      if (done && results) {
+        startTransition(() => setProjects(current => controller.signal.aborted ? current : current.map(project => project.id === projectId
+          ? results.reduce((next, result) => mergeGtfsRouteAnalysis(next, result.feedId, result.analysis), project) : project)))
+        worker.terminate()
+      }
+      setScheduleLoadStatus(phase)
+      setPendingPreparations(current => ({ ...current, [taskKey]: { ...task, phase, progress: completed / requests.length,
+        status: !done ? 'running' : failures ? 'failed' : 'complete' } }))
+    }
+    worker.postMessage({ endpoint: new URL(`/api/projects/${encodeURIComponent(projectId)}/gtfs-route-analysis`, window.location.href).href, requests, serviceDate })
+    return () => {
+      controller.abort()
+      worker.terminate()
+      setPendingPreparations(current => current[taskKey]?.createdAt === task.createdAt && current[taskKey]?.status === 'running'
+        ? { ...current, [taskKey]: { ...current[taskKey], status: 'cancelled', phase: 'Schedule loading cancelled' } } : current)
+    }
+  }, [scheduleLoadRequest, selectedProject.id, scheduleLoadRetry])
   const searchResults = useMemo(() => {
     return buildSearchResults({
       query: deferredQuery,
@@ -2680,7 +2611,7 @@ export default function App() {
     })
   }, [deferredQuery, networkSearchIndex, preview, projects, recentSearchIds])
   const selectedRoute = selectedRouteId
-    ? preview.routes.find((route) => route.id === selectedRouteId || route.patternId === selectedRouteId)
+    ? findNetworkRoute(preview.routes, selectedRouteId)
     : undefined
   const activeScenario = scenarioDrafts.find(
     (entry) => entry.id === activeScenarioId,
@@ -2696,9 +2627,9 @@ export default function App() {
     : undefined
   const scenarioSketchStops = ['add-line', 'change-line'].includes(activeScenarioChange?.kind ?? '')
     ? activeScenarioChange.stops
-    : []
+    : emptyScenarioStops
   const scenarioSketchGeometry = useMemo<[number, number][]>(() => {
-    if (!activeScenarioChange || scenarioSketchStops.length < 2) return []
+    if (!activeScenarioChange || scenarioSketchStops.length < 2) return emptyCoordinates
     const geometryMode = activeScenarioChange.geometryMode
       ?? (activeScenarioChange.timeModel === 'infer-road'
         ? 'auto-road'
@@ -2717,7 +2648,7 @@ export default function App() {
     // Do not draw an invented chord while the hybrid OSM/shape path is still
     // being prepared. Existing route shape remains useful context; a new
     // line stays point-only until its road geometry is certified.
-    if (geometryMode === 'auto-road') return publishedGeometry ?? []
+    if (geometryMode === 'auto-road') return publishedGeometry ?? emptyCoordinates
     return scenarioSketchStops.map((stop) => stop.coordinate)
   }, [activeScenarioChange, activeScenarioRoute, scenarioSketchStops])
   const activeScenarioStopPlacement = scenarioStopPlacement?.interventionId === activeScenarioChange?.id
@@ -2728,11 +2659,11 @@ export default function App() {
     || analyzeMode === 'single' && activeScenarioStopPlacement,
   )
   const selectedStop = selectedStopId
-    ? preview.stops.find((stop) => stop.id === selectedStopId)
+    ? findNetworkStop(preview.stops, selectedStopId)
     : undefined
   const focusedMapPreview = useMemo(
-    () => previewForSelectedRoute(workbenchMapPreview, selectedRoute, routeRenderMode),
-    [routeRenderMode, selectedRoute, workbenchMapPreview],
+    () => previewForSelectedRoute(preview, selectedRoute, routeRenderMode),
+    [routeRenderMode, selectedRoute, preview],
   )
   const routingChoices = nationalRouting.choices
   const routingPlan = routingChoices.find((plan) => plan.id === selectedRoutingPlanId)
@@ -2740,7 +2671,7 @@ export default function App() {
     ?? routingChoices[0]
     ?? null
   const routingActivity = buildRoutingActivity({
-    routingError: nationalRouting.error,
+    routingError: nationalRouting.error || (routingMode !== 'transit' ? streetPreparation.error : ''),
     routingErrorStatus: nationalRouting.errorStatus,
     routingPlan,
     storeBackedRouting,
@@ -2762,7 +2693,7 @@ export default function App() {
   }, [routingChoices, selectedRoutingPlanId])
   const isProjectEmpty = page === 'project'
     && activeRouteTool !== 'data'
-    && !hasOperationsData(selectedProject)
+    && (!hasOperationsData(selectedProject) || openedNetworkProjectId !== selectedProject.id)
 
   function clearAnalysisState() {
     invalidateAnalyzeResult()
@@ -2785,6 +2716,7 @@ export default function App() {
     if (selectedProjectId !== projectId) {
       clearRouting()
       clearAnalysisState()
+      clearAgencyMap()
     }
     setSelectedProjectId(projectId)
     setSelectedRouteId(navigationMemoryRef.current.lastRouteByProject[projectId] ?? '')
@@ -2831,13 +2763,11 @@ export default function App() {
           : ''
       const nextSelectedId = preferredProjectId(nextProjects, currentSelectedId)
       setProjects(nextProjects)
-      setActiveRouteTool('explore')
       applyNetworkMapDefaults()
       setApiError('')
       if (nextSelectedId) {
         setSelectedProjectId(nextSelectedId)
-        setPage('project')
-        beginCitySelection(nextSelectedId, nextProjects)
+        setPage('projects')
       } else {
         setPage('projects')
       }
@@ -2919,10 +2849,11 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (page !== 'project' || activeRouteTool !== 'explore' || !selectedRoute) return
+    const needsRouteDetail = activeRouteTool === 'agency' && mapScope === 'route'
+    if (page !== 'project' || !needsRouteDetail || !selectedRoute) return
     if (routeHasCompleteGtfsAnalysis(selectedRoute, preview, routingServiceDate)) return
     void loadGtfsRouteAnalysis(selectedRoute, selectedRoute.id)
-  }, [activeFeedId, activeRouteTool, page, preview, routingServiceDate, selectedProject.id, selectedRoute])
+  }, [activeFeedId, activeRouteTool, mapScope, page, preview, routingServiceDate, selectedProject.id, selectedRoute])
 
   useEffect(() => {
     if (page !== 'project' || activeRouteTool !== 'analyze') return
@@ -2988,12 +2919,12 @@ export default function App() {
 
   useEffect(() => {
     if (cityPreviewLoading || selectedProject.id === '__empty_city__') return
-    if (selectedRouteId && !preview.routes.some((route) => route.id === selectedRouteId || route.patternId === selectedRouteId)) {
+    if (selectedRouteId && !findNetworkRoute(preview.routes, selectedRouteId)) {
       setSelectedRouteId('')
       navigationMemoryRef.current = rememberRoute(selectedProject.id, '')
     }
-    if (selectedStopId && !preview.stops.some((stop) => stop.id === selectedStopId)) setSelectedStopId('')
-  }, [preview, selectedProject.id, selectedRouteId, selectedStopId, cityPreviewLoading])
+    if (activeRouteTool !== 'agency' && selectedStopId && !findNetworkStop(preview.stops, selectedStopId)) setSelectedStopId('')
+  }, [preview, selectedProject.id, selectedRouteId, selectedStopId, cityPreviewLoading, activeRouteTool])
 
   useEffect(() => {
     if (activeFeedId !== bundleFeedId && !selectedProject.feeds.some((feed) => feed.id === activeFeedId)) {
@@ -3017,6 +2948,7 @@ export default function App() {
       project.id === cleanedProject.id ? cleanedProject : project
     )))
     if (selectedProjectId !== cleanedProject.id) return
+    setOpenedNetworkProjectId('')
 
     cancelRouteAnalysis()
     invalidateAnalyzeResult()
@@ -3032,6 +2964,8 @@ export default function App() {
   }
 
   function clearRealtimeConnection() {
+    realtimeAbortRef.current?.abort()
+    realtimeAbortRef.current = null
     realtimeRequestIdRef.current += 1
     realtimeInFlightRef.current = false
     setRealtimeRequest(null)
@@ -3087,6 +3021,7 @@ export default function App() {
     cancelRouteAnalysis()
     clearAnalysisState()
     clearRouting()
+    clearAgencyMap()
     routingDateAutoAlignedStoreRef.current = ''
     routingMergeRequestRef.current = ''
     setSelectedRouteId('')
@@ -3098,16 +3033,18 @@ export default function App() {
     setOsmStreetMessage('')
     setQuery('')
     setStatusFilter('all')
-    setActiveRouteTool('explore')
+    setActiveRouteTool('agency')
     setSidebarCollapsed(false)
     applyNetworkMapDefaults()
   }
 
   function openProject(projectId: string) {
+    const project = projects.find(item => item.id === projectId)
+    setOpenedNetworkProjectId(project && hasOperationsData(project) ? projectId : '')
     if (selectedProjectId && selectedProjectId !== projectId) clearRealtimeConnection()
     beginCitySelection(projectId)
     setPage('project')
-    setActiveRouteTool('explore')
+    setActiveRouteTool('agency')
     applyNetworkMapDefaults()
   }
 
@@ -3143,9 +3080,12 @@ export default function App() {
     const routeId = route.routeId || route.id
     if (!feedId || !routeId) return
 
+    const requestKey = JSON.stringify([selectedProject.id, feedId, routeId, routingServiceDate])
+    if (routeAnalysisAbortRef.current && routeAnalysisKeyRef.current === requestKey) return
     routeAnalysisAbortRef.current?.abort()
     const controller = new AbortController()
     routeAnalysisAbortRef.current = controller
+    routeAnalysisKeyRef.current = requestKey
     const requestId = routeAnalysisRequestIdRef.current + 1
     routeAnalysisRequestIdRef.current = requestId
     setRouteAnalysisRouteId(selectedId)
@@ -3182,16 +3122,16 @@ export default function App() {
     setSelectedRouteId(nextRouteId)
     setRouteRenderMode(renderMode)
     navigationMemoryRef.current = rememberRoute(selectedProject.id, nextRouteId)
-    if (route?.stopIds.length) {
-      setSelectedStopId((current) => route.stopIds.includes(current) ? current : route.stopIds[0])
-    }
-    setActiveRouteTool('explore')
+    setSelectedStopId('')
+    clearAgencyMap()
+    setActiveRouteTool('agency')
     applyRouteMapDefaults()
+    if (route) void loadGtfsRouteAnalysis(route, nextRouteId)
   }
 
   function selectStop(stopId: string) {
     setSelectedStopId(stopId)
-    setActiveRouteTool('explore')
+    setActiveRouteTool('agency')
   }
 
   function activateSearchResult(result: SearchResult) {
@@ -3211,7 +3151,10 @@ export default function App() {
     }
     if (result.kind === 'stop') {
       setPage('project')
-      selectStop(result.id.slice('stop:'.length))
+      const stopId = result.id.slice('stop:'.length)
+      const stop = preview.stops.find(item => item.id === stopId)
+      if (activeRouteTool === 'agency') browseAgencyEntities([], [stopId], stop && typeof stop.lon === 'number' && typeof stop.lat === 'number' ? { id: stopId, label: stop.name, coordinate: [stop.lon, stop.lat] } : undefined)
+      else selectStop(stopId)
       setMapScope('network')
       setLayers((current) => ({ ...current, routes: true, stops: true, transfers: true }))
       return
@@ -3233,7 +3176,7 @@ export default function App() {
       openSettingsView()
     } else {
       setPage('project')
-      openRoutesView()
+      openNetworkView()
     }
   }
 
@@ -3263,6 +3206,13 @@ export default function App() {
   function changeRoutingMode(mode: RoutingTravelMode) {
     setRoutingMode(mode)
     if (mode !== 'transit') setRoutingTimePreference('depart')
+    setSelectedRoutingPlanId('')
+    nationalRouting.reset()
+  }
+
+  function changeRoutingDataMode(mode: RoutingDataMode) {
+    if (mode === routingDataMode) return
+    setRoutingDataMode(mode)
     setSelectedRoutingPlanId('')
     nationalRouting.reset()
   }
@@ -4289,9 +4239,20 @@ export default function App() {
         firstPoll = false
         const result = await apiJson<{ job: JobRecord }>(
           `/api/projects/${encodeURIComponent(projectId)}/national-gtfs-job?jobId=${encodeURIComponent(jobId)}`,
-        )
+        ).catch((error) => {
+          setPreparationErrors((current) => ({ ...current, [jobId]: error instanceof Error ? error.message : 'Task status is unavailable.' }))
+          throw error
+        })
+        // Keep frequent job ticks separate from the feeds used to build the map.
+        setPreparationJobUpdates((current) => ({ ...current, [jobId]: result.job }))
+        setProjects((current) => current.find((project) => project.id === projectId)?.jobs.some((job) => job.id === jobId)
+          ? current : updateProjectJob(current, projectId, result.job))
+        setPreparationErrors((current) => {
+          if (!current[jobId]) return current
+          const next = { ...current }; delete next[jobId]; return next
+        })
         const progress = Math.round(Number(result.job.progress ?? 0) * 100)
-        onProgress([result.job.phase, progress ? `${progress}%` : '', result.job.detail].filter(Boolean).join(' / '))
+        if (selectedPreparationProjectRef.current === projectId) onProgress([result.job.phase, progress ? `${progress}%` : '', result.job.detail].filter(Boolean).join(' / '))
         if (result.job.status === 'failed' || result.job.status === 'cancelled') {
           await refreshImportedProject(projectId, false).catch(() => {})
           throw new Error(result.job.error || (result.job.status === 'cancelled' ? 'Preparation cancelled.' : failureLabel))
@@ -4309,27 +4270,44 @@ export default function App() {
     }
   }
 
+  async function startPreparation(kind: string, label: string, submit: () => Promise<{ id: string }>) {
+    const projectId = selectedProject.id
+    const key = `${projectId}:${kind}`
+    const task: PreparationTask = { id: key, kind, label, status: 'running', phase: 'Loading source data', createdAt: new Date().toISOString() }
+    setPendingPreparations((current) => ({ ...current, [key]: task }))
+    setBackgroundTasksOpen(true)
+    try {
+      const result = await submit()
+      setProjects((current) => updateProjectJob(current, projectId, {
+        ...task, status: 'queued', progress: 0, phase: 'Waiting for processing status', ...result,
+      }))
+      setPendingPreparations((current) => { const next = { ...current }; delete next[key]; return next })
+      return result
+    } catch (error) {
+      setPendingPreparations((current) => ({ ...current, [key]: { ...task, status: 'failed', error: error instanceof Error ? error.message : 'Could not load source data.' } }))
+      throw error
+    }
+  }
+
+  async function reconnectPreparation(task: PreparationTask) {
+    if (task.kind === 'vehicle-schedules') {
+      const request = scheduleLoadRequestsRef.current.get(task.id)
+      if (request) { setScheduleLoadRequest(request); setScheduleLoadRetry(value => value + 1) }
+      return
+    }
+    if (task.kind === 'street-runtime-prepare') { streetPreparation.retry(); return }
+    const projectId = selectedProject.id
+    try {
+      await waitForImportJob(projectId, task.id, () => {}, 'Data preparation failed')
+      await refreshImportedProject(projectId, true)
+    } catch { /* The task panel retains the last status and connection error. */ }
+  }
+
   async function refreshImportedProject(projectId: string, hydrate = true) {
     const detail = hydrate ? '' : '?detail=metadata'
     const projectResult = await apiJson<{ project: VigoProject }>(`/api/projects/${encodeURIComponent(projectId)}${detail}`)
     replaceProject(projectResult.project)
     return projectResult.project
-  }
-
-  async function exportReproducibilityManifest() {
-    try {
-      const result = await apiJson<{ manifest: Record<string, unknown> }>(`/api/projects/${encodeURIComponent(selectedProject.id)}/reproducibility`)
-      const blob = new Blob([`${JSON.stringify(result.manifest, null, 2)}\n`], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `${selectedProject.id}-reproducibility.json`
-      anchor.click()
-      URL.revokeObjectURL(url)
-      setImportMessage('Reproducibility manifest downloaded')
-    } catch (error) {
-      setImportMessage(error instanceof Error ? error.message : 'Reproducibility manifest could not be downloaded.')
-    }
   }
 
   async function cancelImportJob(kind: 'gtfs' | 'osm') {
@@ -4361,15 +4339,15 @@ export default function App() {
       setOsmStreetMessage('Retrying OSM preparation…')
     }
     try {
-      const result = await apiJson<{ job: JobRecord }>(`/api/projects/${encodeURIComponent(selectedProject.id)}/national-job-retry`, {
+      const nextJob = await startPreparation(job.kind, job.label, async () => (await apiJson<{ job: JobRecord }>(`/api/projects/${encodeURIComponent(selectedProject.id)}/national-job-retry`, {
         method: 'POST',
         body: JSON.stringify({ jobId: job.id }),
-      })
-      if (kind === 'gtfs') setGtfsImportJobId(result.job.id)
-      else setOsmImportJobId(result.job.id)
+      })).job)
+      if (kind === 'gtfs') setGtfsImportJobId(nextJob.id)
+      else setOsmImportJobId(nextJob.id)
       const completed = await waitForImportJob(
         selectedProject.id,
-        result.job.id,
+        nextJob.id,
         kind === 'gtfs' ? setImportMessage : setOsmStreetMessage,
         kind === 'gtfs' ? 'GTFS indexing failed' : 'Street indexing failed',
       )
@@ -4391,29 +4369,30 @@ export default function App() {
   }
 
   useEffect(() => {
-    const activeJobs: Array<{ job: JobRecord; kind: 'gtfs' | 'osm' }> = [
-      ...(latestActiveGtfsJob ? [{ job: latestActiveGtfsJob, kind: 'gtfs' as const }] : []),
-      ...(latestActiveOsmJob ? [{ job: latestActiveOsmJob, kind: 'osm' as const }] : []),
-    ]
-    for (const { job, kind } of activeJobs) {
+    const projectId = selectedProject.id
+    for (const job of preparationJobs.filter((entry) => isPreparationJob(entry) && isActiveTask(entry))) {
+      if (importPollingPromisesRef.current.has(job.id)) continue
+      const kind = job.kind === 'national-osm-import' ? 'osm' : 'gtfs'
       void waitForImportJob(
-        selectedProject.id,
+        projectId,
         job.id,
         kind === 'gtfs' ? setImportMessage : setOsmStreetMessage,
         kind === 'gtfs' ? 'GTFS indexing failed' : 'Street indexing failed',
       ).then(async (completed) => {
-        await refreshImportedProject(selectedProject.id, true)
-        if (kind === 'gtfs' && completed.result?.feedId) setActiveFeedId(completed.result.feedId)
+        await refreshImportedProject(projectId, true)
+        if (selectedPreparationProjectRef.current === projectId && kind === 'gtfs' && completed.result?.feedId) setActiveFeedId(completed.result.feedId)
       }).catch((error) => {
+        if (selectedPreparationProjectRef.current !== projectId) return
         const message = error instanceof Error ? error.message : 'Preparation failed.'
         if (kind === 'gtfs') setImportMessage(message)
         else setOsmStreetMessage(message)
       }).finally(() => {
+        if (selectedPreparationProjectRef.current !== projectId) return
         if (kind === 'gtfs') setIsImporting(false)
         else setIsOsmImporting(false)
       })
     }
-  }, [latestActiveGtfsJob?.id, latestActiveOsmJob?.id, selectedProject.id])
+  }, [preparationJobs.filter((job) => isPreparationJob(job) && isActiveTask(job)).map((job) => job.id).sort().join('|'), selectedProject.id])
 
   function replaceExistingSchedule(fileName: string) {
     if (!selectedProject.feeds.length) return false
@@ -4461,11 +4440,11 @@ export default function App() {
     setIsImporting(true)
     try {
       setImportMessage(`Staging ${file.name} for SQLite indexing...`)
-      const job = await uploadProjectSourceFile(
+      const job = await startPreparation('national-gtfs-import', file.name, () => uploadProjectSourceFile(
         file,
         'national-gtfs-upload',
         replaceExistingSchedule(file.name),
-      )
+      ))
       setGtfsImportJobId(job.id)
       const completed = await waitForImportJob(selectedProject.id, job.id, setImportMessage, 'GTFS indexing failed')
       await refreshImportedProject(selectedProject.id, true)
@@ -4486,7 +4465,7 @@ export default function App() {
     setIsImporting(true)
     setImportMessage('Starting local GTFS index')
     try {
-      const { job } = await apiJson<{ job: { id: string } }>(`/api/projects/${encodeURIComponent(selectedProject.id)}/national-gtfs-import`, {
+      const job = await startPreparation('national-gtfs-import', sourcePath.split(/[\\/]/).pop() || 'GTFS feed', async () => (await apiJson<{ job: JobRecord }>(`/api/projects/${encodeURIComponent(selectedProject.id)}/national-gtfs-import`, {
         method: 'POST',
         body: JSON.stringify({
           sourcePath,
@@ -4494,7 +4473,7 @@ export default function App() {
           preloadServiceDate: routingServiceDate,
           preloadServiceDay: routingServiceDay,
         }),
-      })
+      })).job)
       setGtfsImportJobId(job.id)
       const completed = await waitForImportJob(selectedProject.id, job.id, setImportMessage, 'GTFS indexing failed')
       await refreshImportedProject(selectedProject.id, true)
@@ -4512,10 +4491,10 @@ export default function App() {
     setIsOsmImporting(true)
     setOsmStreetMessage('Starting local street index')
     try {
-      const { job } = await apiJson<{ job: { id: string } }>(`/api/projects/${encodeURIComponent(selectedProject.id)}/national-osm-import`, {
+      const job = await startPreparation('national-osm-import', sourcePath.split(/[\\/]/).pop() || 'OSM streets', async () => (await apiJson<{ job: JobRecord }>(`/api/projects/${encodeURIComponent(selectedProject.id)}/national-osm-import`, {
         method: 'POST',
         body: JSON.stringify({ sourcePath }),
-      })
+      })).job)
       setOsmImportJobId(job.id)
       await waitForImportJob(selectedProject.id, job.id, setOsmStreetMessage, 'Street indexing failed')
       await refreshImportedProject(selectedProject.id, true)
@@ -4533,7 +4512,7 @@ export default function App() {
     setIsOsmImporting(true)
     try {
       setOsmStreetMessage(`Staging ${file.name} for SQLite street indexing...`)
-      const job = await uploadProjectSourceFile(file, 'national-osm-upload')
+      const job = await startPreparation('national-osm-import', file.name, () => uploadProjectSourceFile(file, 'national-osm-upload'))
       setOsmImportJobId(job.id)
       await waitForImportJob(selectedProject.id, job.id, setOsmStreetMessage, 'Street indexing failed')
       await refreshImportedProject(selectedProject.id, true)
@@ -4547,11 +4526,13 @@ export default function App() {
 
   const refreshRealtimeRequest = useCallback(async (
     request: RealtimeInspectRequest,
-    options: { background?: boolean; openPanel?: boolean } = {},
+    options: { background?: boolean; openPanel?: boolean; signal?: AbortSignal } = {},
   ) => {
-    if (realtimeInFlightRef.current) {
-      return
-    }
+    if (realtimeInFlightRef.current && options.background) return
+    realtimeAbortRef.current?.abort()
+    const controller = new AbortController()
+    realtimeAbortRef.current = controller
+    const signal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal
 
     const requestId = realtimeRequestIdRef.current + 1
     realtimeRequestIdRef.current = requestId
@@ -4564,9 +4545,10 @@ export default function App() {
     try {
       const result = await apiJson<{ snapshot: RealtimeSnapshot }>('/api/realtime/inspect', {
         method: 'POST',
-        body: JSON.stringify(request),
+        signal,
+        body: JSON.stringify({ ...request, projectId: selectedProjectId }),
       })
-      if (requestId !== realtimeRequestIdRef.current) return
+      if (requestId !== realtimeRequestIdRef.current || signal.aborted) return
       setRealtimeSnapshot(result.snapshot)
       setRealtimeRequest(request)
       setRealtimeMessage('')
@@ -4575,34 +4557,38 @@ export default function App() {
         setSelectedRouteId('')
         setSelectedStopId('')
         setMapScope('network')
-        setActiveRouteTool('explore')
+        setActiveRouteTool('agency')
       }
     } catch (error) {
-      if (requestId !== realtimeRequestIdRef.current) return
+      if (requestId !== realtimeRequestIdRef.current || signal.aborted) return
       const message = error instanceof Error ? error.message : 'GTFS-RT decode failed.'
       setRealtimeMessage(message)
     } finally {
       if (requestId === realtimeRequestIdRef.current) {
         realtimeInFlightRef.current = false
+        realtimeAbortRef.current = null
         if (!options.background) setIsRealtimeLoading(false)
       }
     }
-  }, [])
+  }, [selectedProjectId])
 
   useEffect(() => {
-    if (!realtimeRequest) return
-    const interval = window.setInterval(() => {
-      void refreshRealtimeRequest(realtimeRequest, { background: true })
-    }, realtimeRefreshMs)
-
-    return () => window.clearInterval(interval)
-  }, [realtimeRequest, refreshRealtimeRequest])
+    if (!realtimeRequest || page !== 'project') return
+    const polling = startPolling(
+      signal => refreshRealtimeRequest(realtimeRequest, { background: true, signal }),
+      realtimeRefreshMs,
+      { immediate: false },
+    )
+    return polling.stop
+  }, [page, realtimeRequest, refreshRealtimeRequest])
+  useEffect(() => () => realtimeAbortRef.current?.abort(), [])
 
   function connectRealtime(request: RealtimeInspectRequest) {
     void refreshRealtimeRequest(request, { openPanel: true })
   }
 
   function disconnectRealtime() {
+    void apiJson(`/api/projects/${encodeURIComponent(selectedProjectId)}/agency`, { method: 'POST', body: JSON.stringify({ action: 'disconnect' }) }).catch(() => {})
     clearRealtimeConnection()
     setVehicleMode('schedule')
   }
@@ -4685,15 +4671,62 @@ export default function App() {
     if (!openedDesktop) setSetupError('Folder selection is available in VIGO Studio.')
   }
 
-  function openRoutesView() {
-    setActiveRouteTool('explore')
-    returnToNetworkOverview()
+  function openNetworkView() {
+    if (!hasOperationsData(selectedProject)) return
+    setOpenedNetworkProjectId(selectedProject.id)
+    setActiveRouteTool('agency')
+    setRoutingEnabled(false)
+    setSidebarCollapsed(false)
   }
 
   function openPathfinderView() {
     setActiveRouteTool('pathfinder')
     setMapScope('route')
     setRoutingEnabled(false)
+  }
+
+  function clearAgencyMap() {
+    setAgencyPlan(null)
+    setAgencyReach(null)
+    setAgencyLocation(undefined)
+  }
+
+  function locateAgencyEntities(routeIds: string[], stopIds: string[], location?: { id: string; label: string; coordinate: [number, number] }, revealMap = true) {
+    if (!location && stopIds.length === 1) {
+      const stop = findNetworkStop(preview.stops, stopIds[0])
+      if (stop && typeof stop.lon === 'number' && typeof stop.lat === 'number' && Number.isFinite(stop.lon) && Number.isFinite(stop.lat)) location = { id: stop.id, label: stop.name, coordinate: [stop.lon, stop.lat] }
+    }
+    setAgencyPlan(null); setAgencyReach(null); setAgencyLocation(location ? { ...location, stopId: stopIds.length === 1 ? stopIds[0] : undefined } : undefined)
+    if (!routeIds.length && !stopIds.length) { setSelectedRouteId(''); setMapScope('network') }
+    const route = routeIds.length === 1 ? findNetworkRoute(preview.routes, routeIds[0]) : undefined
+    if (route || routeIds[0]) { setSelectedRouteId(route?.id ?? routeIds[0]); setMapScope('route'); setRouteRenderMode('service') }
+    setSelectedStopId(stopIds[0] || '')
+    if (revealMap && window.innerWidth <= 760) setAgencyMapOpen(true)
+  }
+
+  function openAgencyTrip(trip: TripTarget) {
+    if (!trip.routeId || !trip.tripId || !trip.serviceDate) return
+    browseAgencyEntities([trip.routeId], [])
+    const route = findNetworkRoute(preview.routes, trip.routeId)
+    setAgencyTripTarget({ routeId: route ? networkRouteId(route) : trip.routeId, tripId: trip.tripId, serviceDate: trip.serviceDate })
+  }
+
+  function browseAgencyEntities(routeIds: string[], stopIds: string[], location?: { id: string; label: string; coordinate: [number, number] }) {
+    setAgencyTripTarget(undefined)
+    locateAgencyEntities(routeIds, stopIds, location, false)
+    if (!routeIds.some(Boolean) && !stopIds.some(Boolean)) return
+    setAgencyBrowseRequest(request => request + 1)
+    setAgencyMapOpen(false)
+  }
+
+  function presentAgencyResult(result: ToolResult) {
+    const data = result.data as { plan?: RoutingPlan; surface?: unknown }
+    if (data?.plan && journeyContinuityIssue(data.plan)) { setAgencyPlan(null); return }
+    if (data?.plan) { setAgencyLocation(undefined); setAgencyPlan(data.plan); setAgencyReach(null); setMapScope('route') }
+    else if (data?.surface) { setAgencyLocation(undefined); setAgencyReach(result.data as ReachResult); setAgencyPlan(null); setMapScope('network') }
+    else if (result.presentation?.location) locateAgencyEntities([], [], result.presentation.location)
+    else if (result.presentation?.routeIds?.length === 1 || result.presentation?.stopIds?.length === 1) locateAgencyEntities(result.presentation.routeIds ?? [], result.presentation.stopIds ?? [])
+    if (window.innerWidth <= 760 && (data?.plan || data?.surface)) setAgencyMapOpen(true)
   }
 
   function openAnalyzeView() {
@@ -4727,7 +4760,7 @@ export default function App() {
   useEffect(() => {
     function handleCityShortcut(event: KeyboardEvent) {
       if (event.repeat || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
-      if (page !== 'project' && event.code !== 'Digit4') return
+      if (page !== 'project' && event.code !== 'Digit5') return
       const target = event.target
       if (
         target instanceof HTMLInputElement
@@ -4739,7 +4772,7 @@ export default function App() {
       let action: (() => void) | null = null
       switch (event.code) {
         case 'Digit1':
-          action = hasActiveOperationsData ? openRoutesView : null
+          action = hasActiveOperationsData ? openNetworkView : null
           break
         case 'Digit2':
           action = hasActiveOperationsData ? openPathfinderView : null
@@ -4748,6 +4781,9 @@ export default function App() {
           action = hasActiveOperationsData ? openAnalyzeView : null
           break
         case 'Digit4':
+          action = hasActiveOperationsData ? openNetworkView : null
+          break
+        case 'Digit5':
           action = openSettingsView
           break
         default:
@@ -4785,7 +4821,6 @@ export default function App() {
     onOsmFiles: handleOsmFiles,
     onConnectRealtime: connectRealtime,
     onDisconnectRealtime: disconnectRealtime,
-    onExportReproducibility: () => { void exportReproducibilityManifest() },
     onCancelGtfs: () => { void cancelImportJob('gtfs') },
     onRetryGtfs: () => { void retryImportJob('gtfs') },
     onCancelOsm: () => { void cancelImportJob('osm') },
@@ -4793,7 +4828,7 @@ export default function App() {
   }
 
   return (
-    <main className={classNames('app-shell', `appearance-${appearance}`, `accent-${accent}`, `page-${page}`, isProjectEmpty && 'project-empty', page === 'project' && activeRouteTool === 'data' && 'view-data', routingDetailOpen && 'routing-detail-open', sidebarCollapsed && 'desktop-sidebar-collapsed')}>
+    <main className={classNames('app-shell', `appearance-${appearance}`, `accent-${accent}`, `page-${page}`, isProjectEmpty && 'project-empty', page === 'project' && activeRouteTool === 'data' && 'view-data', activeRouteTool === 'agency' && 'view-agency', agencyMapOpen && 'agency-map-open', routingDetailOpen && 'routing-detail-open', sidebarCollapsed && 'desktop-sidebar-collapsed')}>
       <header className="topbar">
         <div className="topbar-brand" aria-label="City header">
           <button type="button" className="topbar-mark-button" onClick={showProjects} title="Open Cities" aria-label="Open Cities">
@@ -4813,6 +4848,10 @@ export default function App() {
         />
 
         <div className="topbar-actions">
+          {page === 'project' ? <BackgroundTasks key={selectedProject.id}
+            tasks={visiblePreparationTasks} open={backgroundTasksOpen} onOpenChange={setBackgroundTasksOpen}
+            onOpenData={openDataView} onReconnect={(task) => { void reconnectPreparation(task) }}
+          /> : null}
           {page === 'project' ? (
             <button
               type="button"
@@ -4838,13 +4877,13 @@ export default function App() {
       ) : null}
 
       <div className="shell-body">
-      {page === 'projects' ? null : activeRouteTool === 'data' ? (
+      {page === 'projects' ? null : activeRouteTool === 'data' || activeRouteTool === 'agency' ? (
         <aside className="app-sidebar" aria-label="City navigation">
           <PrimaryNav
             page={page}
             activeRouteTool={activeRouteTool}
             hasActiveData={hasActiveOperationsData}
-            onOpenExplore={openRoutesView}
+            onOpenNetwork={openNetworkView}
             onOpenRouting={openPathfinderView}
             onOpenAnalyze={openAnalyzeView}
             onOpenSettings={openSettingsView}
@@ -4889,6 +4928,9 @@ export default function App() {
             serviceDecompositionError={serviceDecompositionError}
             routingStoreAvailable={storeBackedRouting}
             streetGraphAvailable={selectedProject.osmStreetIndex?.status === 'ready'}
+            preparationTasks={visiblePreparationTasks}
+            streetGraphBuilding={selectedProject.osmStreetIndex?.status === 'building'}
+            routingStoreBuilding={selectedProject.routingStore?.status === 'building'}
             onServiceDateChange={(value) => {
               changeRoutingServiceDate(value)
               invalidateAnalyzeResult()
@@ -4907,7 +4949,8 @@ export default function App() {
             }}
             onCutoffChange={(value) => {
               setScenarioCutoffMinutes(value)
-              if (value > (reachResult?.request.cutoffsMinutes.at(-1) ?? 0)) {
+              const results = reachComparison?.map(entry => entry.result) ?? (reachResult ? [reachResult] : [])
+              if (!results.length || results.some(result => !result.request.cutoffsMinutes.includes(value))) {
                 invalidateAnalyzeResult()
               }
             }}
@@ -4954,6 +4997,11 @@ export default function App() {
               updateScenarioChange(interventionId, { stops: [] })
             }}
             onViewChange={setScenarioView}
+            onSetOrigin={(point) => {
+              invalidateAnalyzeResult()
+              setScenarioStopPlacement(null)
+              setAnalysisOrigin(point)
+            }}
             onClearOrigin={() => {
               invalidateAnalyzeResult()
               setScenarioStopPlacement(null)
@@ -4966,22 +5014,6 @@ export default function App() {
             onCancel={cancelSurfaceAnalysis}
           />
         ) : undefined}
-        objectPanel={(
-          <ExploreObjectPanel
-            feed={activeFeed}
-            preview={visiblePreview}
-            selectedRoute={selectedRoute}
-            selectedStop={selectedStop}
-            analysisLoading={Boolean(selectedRoute && routeAnalysisRouteId === selectedRoute.id)}
-            analysisError={routeAnalysisError}
-            routeRenderMode={routeRenderMode}
-            onRouteRenderModeChange={setRouteRenderMode}
-            onSelectPattern={(routeId) => selectRoute(routeId, 'pattern')}
-            onOpenSources={openDataView}
-            onClearSelection={returnToNetworkOverview}
-          />
-        )}
-        preview={preview}
         visiblePreview={visiblePreview}
         selectedRoute={selectedRoute}
         mapScope={mapScope}
@@ -5004,6 +5036,7 @@ export default function App() {
         routingStoreConnectionCount={routingStoreConnectionCount}
         routingTimePreference={routingTimePreference}
         routingMode={routingMode}
+        routingDataMode={routingDataMode}
         routingDepartureWindowMinutes={routingDepartureWindowMinutes}
         routingMaxWalkKm={routingMaxWalkKm}
         routingMaxTransfers={routingMaxTransfers}
@@ -5022,9 +5055,8 @@ export default function App() {
         hasActiveData={hasActiveOperationsData}
         onOpenProject={openProject}
         onSelectFeed={selectFeed}
-        onSelectRoute={selectRoute}
         onOpenFeed={openDataView}
-        onOpenExplore={openRoutesView}
+        onOpenNetwork={openNetworkView}
         onOpenRouting={openPathfinderView}
         onOpenAnalyze={openAnalyzeView}
         onOpenSettings={openSettingsView}
@@ -5034,7 +5066,7 @@ export default function App() {
             return
           }
           setMapScope('network')
-          setActiveRouteTool('explore')
+          setActiveRouteTool('agency')
           setVehicleMode('live')
         }}
         onMapScopeChange={setMapScope}
@@ -5048,6 +5080,7 @@ export default function App() {
         onReorderRoutingPoints={reorderRoutingPoints}
         onRoutingTimePreferenceChange={changeRoutingTimePreference}
         onRoutingModeChange={changeRoutingMode}
+        onRoutingDataModeChange={changeRoutingDataMode}
         onRoutingDepartureWindowChange={changeRoutingDepartureWindow}
         onRoutingMaxWalkKmChange={changeRoutingMaxWalkKm}
         onRoutingMaxTransfersChange={setRoutingMaxTransfers}
@@ -5121,14 +5154,24 @@ export default function App() {
           )}
         />
       ) : (
-      !hasOperationsData(selectedProject) ? (
+      !hasOperationsData(selectedProject) || openedNetworkProjectId !== selectedProject.id ? (
         <EmptyOperationsStart
+          onOpenNetwork={openNetworkView}
           project={selectedProject}
           {...importPanelProps}
         />
       ) : (
       <div className="workbench project-workbench route-investigation-shell">
         <RouteSurface
+          onOpenTrip={openAgencyTrip}
+          operationalEvents={activeRouteTool === 'agency' ? operationalEvents : undefined}
+          agencyFocus={activeRouteTool === 'agency'}
+          scheduleLoadStatus={scheduleLoadStatus}
+          agencyLocation={agencyLocation}
+          routeDetailStatus={selectedRoute && routeHasCompleteGtfsAnalysis(selectedRoute, preview, routingServiceDate)
+            ? 'All route patterns'
+            : routeAnalysisError ? 'Route detail unavailable · overview only' : 'Loading full route…'}
+          key={activeRouteTool === 'agency' ? 'network-map' : 'studio-map'}
           projectId={selectedProject.id}
           feed={activeFeed}
           focusedPreview={focusedMapPreview}
@@ -5141,38 +5184,76 @@ export default function App() {
           basemap={basemap}
           localStreetGraphAvailable={selectedProject.osmStreetIndex?.status === 'ready'}
           selectedRouteId={selectedRoute?.id ?? ''}
-          selectedStopId={selectedStop?.id ?? ''}
+          selectedStopId={activeRouteTool === 'agency' ? selectedStopId : selectedStop?.id ?? ''}
           realtimeSnapshot={realtimeSnapshot}
           vehicleMode={vehicleMode}
           scheduleTimeMinutes={scheduleTimeMinutes}
           scheduleServiceDate={routingServiceDate}
-          routingEnabled={routingEnabled}
-          routingOrigin={activeRouteTool === 'analyze' ? analysisOrigin : routingOrigin}
-          routingWaypoints={activeRouteTool === 'analyze' ? [] : routingWaypoints}
-          routingDestination={activeRouteTool === 'analyze' ? null : routingDestination}
-          routingPlan={activeRouteTool === 'analyze' ? null : routingPlan}
-          routingFocus={activeRouteTool === 'pathfinder'}
-          analysisFocus={activeRouteTool === 'analyze'}
-          reachResult={activeRouteTool === 'analyze' ? reachResult : null}
+          routingEnabled={activeRouteTool === 'agency' ? false : routingEnabled}
+          routingOrigin={activeRouteTool === 'agency' ? agencyPlan?.origin ?? null : activeRouteTool === 'analyze' ? analysisOrigin : routingOrigin}
+          routingWaypoints={activeRouteTool === 'agency' ? agencyPlan?.waypoints ?? emptyRoutingPoints : activeRouteTool === 'analyze' ? emptyRoutingPoints : routingWaypoints}
+          routingDestination={activeRouteTool === 'agency' ? agencyPlan?.destination ?? null : activeRouteTool === 'analyze' ? null : routingDestination}
+          routingPlan={activeRouteTool === 'agency' ? agencyPlan : activeRouteTool === 'analyze' ? null : routingPlan}
+          routingFocus={activeRouteTool === 'pathfinder' || activeRouteTool === 'agency' && Boolean(agencyPlan)}
+          analysisFocus={activeRouteTool === 'analyze' || activeRouteTool === 'agency' && Boolean(agencyReach)}
+          reachResult={activeRouteTool === 'agency' ? agencyReach : activeRouteTool === 'analyze' ? reachResult : null}
           reachComparison={activeRouteTool === 'analyze' ? reachComparison : null}
           serviceDecomposition={activeRouteTool === 'analyze' ? serviceDecomposition : null}
           scenarioView={scenarioView}
           scenarioRenderMode={scenarioRenderMode}
           scenarioCutoffMinutes={scenarioCutoffMinutes}
-          scenarioSketchStops={activeRouteTool === 'analyze' ? scenarioSketchStops : []}
-          scenarioSketchGeometry={activeRouteTool === 'analyze' ? scenarioSketchGeometry : []}
+          scenarioSketchStops={activeRouteTool === 'analyze' ? scenarioSketchStops : emptyScenarioStops}
+          scenarioSketchGeometry={activeRouteTool === 'analyze' ? scenarioSketchGeometry : emptyCoordinates}
           scenarioPointPicking={scenarioPointPicking}
           onMoveScenarioStop={activeRouteTool === 'analyze' ? moveScenarioStopFromMap : undefined}
           routingActivity={routingActivity}
           cityPreviewLoading={cityPreviewLoading}
-          onMapScopeChange={setMapScope}
+          onMapScopeChange={(scope) => { if (activeRouteTool === 'agency' && scope === 'network') { clearAgencyMap(); returnToNetworkOverview() } setMapScope(scope) }}
           onVehicleModeChange={changeVehicleMode}
           onScheduleTimeChange={setScheduleTimeMinutes}
           onScheduleServiceDateChange={changeRoutingServiceDate}
-          onRoutingPoint={activeRouteTool === 'analyze' ? analysisPointFromMap : routingPointFromMap}
-          onSelectRoute={selectRoute}
-          onSelectStop={selectStop}
+          onRoutingPoint={activeRouteTool === 'agency' ? undefined : activeRouteTool === 'analyze' ? analysisPointFromMap : routingPointFromMap}
+          onSelectRoute={activeRouteTool === 'agency' ? (id, options) => options?.inspect === false ? locateAgencyEntities([id], []) : browseAgencyEntities([id], []) : id => selectRoute(id)}
+          onSelectStop={activeRouteTool === 'agency' ? (id, options) => options?.inspect === false ? locateAgencyEntities([], [id]) : browseAgencyEntities([], [id]) : selectStop}
         />
+        {activeRouteTool === 'agency' ? <AgencyPanel
+          onOperationalEvents={setOperationalEvents}
+          key={selectedProjectId}
+          projectId={selectedProjectId}
+          selection={{ routeId: mapScope === 'route' && selectedRoute ? networkRouteId(selectedRoute) : undefined, stopId: selectedStopId || undefined }}
+          onClearSelection={() => { returnToNetworkOverview(); clearAgencyMap() }}
+          onBrowseRoute={id => selectRoute(findNetworkRoute(preview.routes, id)?.id ?? id)}
+          timetable={<NetworkTimetable
+            feed={activeFeed}
+            preview={visiblePreview}
+            selectedRoute={mapScope === 'route' ? selectedRoute : undefined}
+            selectedStop={selectedStop}
+            analysisLoading={Boolean(selectedRoute && routeAnalysisRouteId === selectedRoute.id)}
+            analysisError={routeAnalysisError}
+            serviceDate={routingServiceDate}
+            onServiceDateChange={changeRoutingServiceDate}
+            routeRenderMode={routeRenderMode}
+            onRouteRenderModeChange={setRouteRenderMode}
+            onSelectPattern={(routeId) => selectRoute(routeId, 'pattern')}
+            onSelectStop={id => browseAgencyEntities([], [id])}
+            onOpenSources={openDataView}
+            onClearSelection={returnToNetworkOverview}
+          />}
+          snapshot={realtimeSnapshot}
+          realtimeRequest={realtimeRequest}
+          realtimeMessage={realtimeMessage}
+          realtimeLoading={isRealtimeLoading}
+          onConnect={(request) => void refreshRealtimeRequest(request)}
+          onDisconnect={disconnectRealtime}
+          onLocate={locateAgencyEntities}
+          onResult={presentAgencyResult}
+          onOpenData={openDataView}
+          mapOpen={agencyMapOpen}
+          tripTarget={agencyTripTarget}
+          onOpenTrip={openAgencyTrip}
+          browseRequest={agencyBrowseRequest}
+          onToggleMap={() => setAgencyMapOpen(open => !open)}
+        /> : null}
       </div>
       )
       )}

@@ -36,6 +36,12 @@ function writeVehicle(value, pbf) {
   pbf.writeMessage(8, writeVehicleDescriptor, value.vehicle)
   pbf.writeVarintField(9, value.occupancyStatus)
   pbf.writeVarintField(10, value.occupancyPercentage)
+  pbf.writeMessage(11, (_, car) => {
+    car.writeStringField(2, '1462')
+    car.writeVarintField(3, 2)
+    car.writeVarintField(4, -1)
+    car.writeVarintField(5, 1)
+  }, {})
 }
 
 function writeStopTimeEvent(value, pbf) {
@@ -183,3 +189,5 @@ assert.throws(
 )
 
 console.log('GTFS-Realtime decoder check passed (full-dataset vehicle, trip update, alert, signed delay, required header, and differential rejection).')
+
+assert.deepEqual(feed.entity.find(entity => entity.vehicle).vehicle.multiCarriageDetails, [{ label: '1462', occupancyStatus: 2, occupancyPercentage: -1, carriageSequence: 1 }])

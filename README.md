@@ -26,11 +26,15 @@ City → Scenario → Query → Result
                    └─ Reach
 ```
 
-0.3.2 is a stabilization release. API 1.0, City format 1, and Result schema 1 remain unchanged.
+0.4.0 brings live network inspection, route line views, trip predictions, and experimental Ask into VIGO Studio. API 1.0, City format 1, and Result schema 1 remain unchanged.
 
-> VIGO 0.3 is pre-release software. Do not use it for safety-critical, operational, or passenger-information systems without independent validation.
+> VIGO 0.4 is pre-release software. Do not use it for safety-critical, operational, or passenger-information systems without independent validation.
 
 ## What VIGO does
+
+### Vision
+
+Bring network inspection, journey planning, and service-change analysis into one reproducible city model. VIGO connects each answer to its data, time, and computation so people can investigate a result and compare changes. Natural-language tools are an optional interface to those computations; their model-generated interpretations remain experimental.
 
 ### Build a City
 
@@ -42,7 +46,7 @@ VIGO compiles one or more static GTFS sources and an OSM extract into one portab
 - **Matrix** computes travel times between sets of origins and destinations.
 - **Reach** maps where the network can travel within stated time limits.
 
-Depart-at, arrive-by, departure windows, transport modes, waypoints, and batch work are Query options. Scenario support is limited by interface: planned service changes apply to Reach, supplied traffic to Drive Route/Matrix, and live transit to Studio Route. See the [support boundaries](docs/known-routing-limitations.md).
+Depart-at, arrive-by, departure windows, transport modes, waypoints, and batch work are Query options. Scenario support is limited by interface: planned service changes apply to Reach, supplied traffic to Drive Route/Matrix, and supplied realtime snapshots to Transit Route in Studio and the CLI. Matrix and Reach remain scheduled. See the [support boundaries](docs/known-routing-limitations.md).
 
 ### Compare change
 
@@ -54,8 +58,10 @@ Reach describes modeled network reach. VIGO reserves the word Accessibility for 
 
 VIGO Studio is the visual application:
 
-- **Explore** — map the City and inspect services, stops, stations, schedules, and live state.
-- **Route** — plan and explain point-to-point journeys.
+- **Network** — inspect reporting coverage, service briefings, routes, stops, vehicle positions, and alerts.
+- **Routes** — compare scheduled and predicted trip times, inspect station boards, and follow vehicles on geographic or schematic line views. Added service remains visible with its reported stops and times.
+- **Ask (experimental)** — use a configured model to query tools for network evidence, journeys, and Reach. Review the returned sources and activity trail; model wording can be wrong.
+- **Route** — plan ordered journeys using an explicit scheduled date/time or a frozen realtime snapshot. Transfer limits are available for journeys without via points.
 - **Analyze** — run Reach and compare service sources or planned changes.
 - **City** — manage data and settings.
 
@@ -93,7 +99,7 @@ VIGO opens the selected City and manages query readiness automatically.
 
 The source build requires Node.js 24.18 or newer, npm 11.6 or newer, and the Rust toolchain selected by `rust-toolchain.toml`.
 
-Build and packaged runtime targets are macOS 13.5+ (Apple Silicon and Intel), Linux (ARM64 and x64, glibc; release builds use Ubuntu 24.04), and Windows (x64). Download the matching [0.3.2 Studio archive](https://github.com/hytangs/vigo/releases/tag/v0.3.2), or build on the target machine. Linux builds do not target musl/Alpine; 32-bit and native Windows ARM64 builds are not provided.
+Build and packaged runtime targets are macOS 13.5+ (Apple Silicon and Intel), Linux (ARM64 and x64, glibc; release builds use Ubuntu 24.04), and Windows (x64). Build 0.4.0 from this checkout on the target machine. Published binaries are listed on the [releases page](https://github.com/hytangs/vigo/releases). Linux builds do not target musl/Alpine; 32-bit and native Windows ARM64 builds are not provided.
 
 The runtime binary must match the OS and CPU. A complete City directory can move between these targets without importing its raw inputs again. Retained street, station-access, and timetable preparation is reusable after copying or extraction. New service patterns, changed policies, or incompatible/evicted timetable snapshots can require preparation. Reopening still takes disk reads and memory allocation; see [loading and timing](docs/performance.md).
 
@@ -131,10 +137,12 @@ Repeated Route calls may reuse one open process. VIGO does not present reuse as 
 
 ## Documentation
 
-- [VIGO 0.3.2 Quickstart](docs/quickstart.md)
-- [VIGO 0.3.2 Developer Guide source](docs/developer-guide/VIGO-0.3.2-Developer-Guide.tex) — build the PDF with `npm run docs:developer-guide`
+- [VIGO 0.4.0 Quickstart](docs/quickstart.md)
+- [VIGO 0.4.0 Developer Guide source](docs/developer-guide/VIGO-0.4.0-Developer-Guide.tex) — build the PDF with `npm run docs:developer-guide`
 - [Interactive guide and Result viewer](docs/guide.html)
 - [Core concepts](docs/concepts.md)
+- [Network, Routes, and Ask](docs/agency.md)
+- [Realtime and scheduled routing](docs/REALTIME-ROUTING.md)
 - [VIGO Studio Guide](docs/studio.md)
 - [Command line](docs/programmatic.md)
 - [Data support](docs/gtfs-support-matrix.md)

@@ -1,14 +1,16 @@
-# VIGO 0.3.2 Quickstart
+# VIGO Studio routing quickstart
+
+For live network inspection, start with the [Network, Routes, and Ask guide](agency.md). The commands below use the same VIGO Engine as Studio.
 
 Build one City, then reuse it for Route, Matrix, and Reach. Build and first-query time depend on the size of the supplied network.
 
 ## 1. Install
 
-VIGO 0.3.2 requires Node.js 24.18 or newer and npm 11.6 or newer.
+VIGO 0.4.0 requires Node.js 24.18 or newer and npm 11.6 or newer.
 Source builds also require the pinned Rust toolchain. Supported targets are macOS Apple Silicon/Intel, Linux ARM64/x64 with glibc, and Windows x64. Use a native build for the target OS and CPU; City data moves between them. See the [platform and City limits](known-routing-limitations.md).
 
 ```bash
-git clone --branch v0.3.2 https://github.com/hytangs/vigo.git
+git clone https://github.com/hytangs/vigo.git
 cd vigo
 npm ci
 npm run build
@@ -119,6 +121,6 @@ vigo reach \
 
 ## Where next
 
-- [Developer Guide](developer-guide/VIGO-0.3.2-Developer-Guide.tex): CLI, Results, Scenario, compatibility, and full Query reference.
+- [Developer Guide](developer-guide/VIGO-0.4.0-Developer-Guide.tex): CLI, Results, Scenario, compatibility, and full Query reference.
 - [VIGO Studio Guide](studio.md): visual exploration, routing, playback, and analysis.
 - [Core concepts](concepts.md): City, Scenario, Query, and Result.

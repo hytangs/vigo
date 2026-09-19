@@ -1,0 +1,25 @@
+{
+  "id": "network-health-summary",
+  "name": "Network briefing",
+  "description": "A cited account of current service, reporting coverage, the largest measured intervals, and published alerts.",
+  "inputs": [],
+  "steps": [
+    {
+      "tool": "network_overview",
+      "label": "Check network coverage and source clocks"
+    },
+    {
+      "tool": "anomaly_scan",
+      "label": "Compare departure intervals by route",
+      "arguments": {
+        "eventType": "service-gap",
+        "sortBy": "headwayChange",
+        "groupBy": "route"
+      }
+    },
+    {
+      "tool": "service_alerts",
+      "label": "Read active agency alerts"
+    }
+  ]
+}

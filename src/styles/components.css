@@ -300,11 +300,6 @@
   grid-template-columns: var(--pq-sidebar-width) minmax(0, 1fr);
 }
 
-.sidebar-rail-bottom {
-  padding-top: 7px;
-  border-top-color: var(--border);
-}
-
 .sidebar-panel-head {
   border: 0;
   border-bottom: 1px solid var(--border);
@@ -321,41 +316,6 @@
   color: var(--text-muted);
   font-size: 0.6rem;
   font-weight: 520;
-}
-
-.route-browser-list.is-virtual {
-  gap: 0;
-  padding: 0;
-  scrollbar-gutter: stable;
-}
-
-.route-tree-item {
-  min-width: 0;
-  box-sizing: border-box;
-}
-
-.route-tree-item .route-row {
-  width: 100%;
-  grid-template-areas: "marker code meta";
-  align-items: center;
-  border-color: transparent;
-  background: transparent;
-}
-
-.route-tree-item .route-row > b {
-  grid-area: marker;
-  border-radius: 999px;
-}
-
-.route-tree-item .route-row > strong {
-  grid-area: code;
-  color: var(--text-strong);
-}
-
-.route-tree-item .route-row > span {
-  grid-area: meta;
-  color: var(--text-muted);
-  text-align: left;
 }
 
 /* Quiet map framing. The map stage and its renderer remain untouched. */
@@ -640,8 +600,7 @@
 }
 
 /* Loading is intentionally local to the affected surface; navigation stays live. */
-.surface-loading-overlay,
-.loading-overlay {
+.surface-loading-overlay {
   position: absolute;
   inset: 0;
   z-index: 30;
@@ -655,8 +614,7 @@
   backdrop-filter: blur(2px);
 }
 
-.surface-loading-overlay > div,
-.loading-overlay > div {
+.surface-loading-overlay > div {
   min-height: 44px;
   display: flex;
   align-items: center;
@@ -703,7 +661,6 @@
   padding: 17px;
   overflow: auto;
   border-radius: 10px;
-  background: var(--pq-surface-raised);
   overscroll-behavior: contain;
 }
 
@@ -1336,10 +1293,6 @@
     grid-template-rows: auto minmax(0, 1fr);
   }
 
-  .sidebar-panel.is-explore .route-browser-section {
-    min-height: 180px;
-  }
-
   .app-frame {
     grid-column: 1;
     min-height: 0;
@@ -1466,8 +1419,6 @@
 }
 
 @media (forced-colors: active) {
-  .sidebar-rail-button.is-active,
-  .route-tree-item .route-row.is-selected,
   .surface-switcher-row.is-current {
     border: 2px solid Highlight;
   }

@@ -20,12 +20,16 @@ if (!platformBuild) {
 }
 
 const inheritedRustFlags = String(process.env.RUSTFLAGS ?? '').trim()
-const rustFlags = [inheritedRustFlags, ...platformBuild.rustFlags].filter(Boolean).join(' ')
+const inheritedFlags = process.env.CARGO_ENCODED_RUSTFLAGS?.split('\u001f') ?? inheritedRustFlags.split(/\s+/u).filter(Boolean)
+const rustFlags = [...inheritedFlags, ...platformBuild.rustFlags,
+  '--remap-path-prefix', `${os.homedir()}=/build-home`,
+  '--remap-path-prefix', `${repositoryRoot}=/vigo-source`,
+]
 await execFileAsync(cargo, ['build', '--release', '--target', platformBuild.targetTriple], {
   cwd: crateRoot,
   env: {
     ...process.env,
-    RUSTFLAGS: rustFlags,
+    CARGO_ENCODED_RUSTFLAGS: rustFlags.join('\u001f'),
   },
   maxBuffer: 16 * 1024 * 1024,
 })
@@ -42,6 +46,8 @@ const staging = `${destination}.${process.pid}.tmp`
 try {
   await fs.copyFile(source, staging)
   if (platformBuild.sign) {
+    // Mach-O's library ID otherwise retains Cargo's absolute output path.
+    await execFileAsync('/usr/bin/install_name_tool', ['-id', '@rpath/vigo-routing-kernel.node', staging])
     // Sign the copied bytes that Node will map, rather than relying on the
     // intermediate linker's signature after the library changes paths.
     await execFileAsync('/usr/bin/codesign', ['--force', '--sign', '-', staging])

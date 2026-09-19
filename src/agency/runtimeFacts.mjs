@@ -1,0 +1,45 @@
+// Configuration facts, not a privacy attestation. Never derive hosting or
+// retention policy from a model name, response, or loopback connection.
+export function endpointFacts(value) {
+  try {
+    const url = new URL(value)
+    if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Unsupported endpoint')
+    return Object.freeze({ endpoint: url.host, transport: url.protocol.slice(0, -1),
+      endpointLocation: (['localhost', '[::1]'].includes(url.hostname) || /^127\.\d+\.\d+\.\d+$/.test(url.hostname)) ? 'loopback' : 'other' })
+  } catch { return Object.freeze({ endpoint: null, transport: null, endpointLocation: 'unknown' }) }
+}
+
+export function modelRuntimeFacts({ baseUrl, model, protocol }) {
+  const endpoint = endpointFacts(baseUrl)
+  return Object.freeze({ model: model || null, protocol: protocol || null, ...endpoint,
+    inferenceLocation: 'unverified',
+    externalModelApi: endpoint.endpoint ? 'unverified' : 'unknown' })
+}
+
+export const runtimeTool = { name: 'runtime_status', description: 'Read server-recorded model connection, request workflow and privacy limits. Use for questions about the AI setup, harness or what VIGO sends; not transit network facts. This is evidence for the answer, not a command to end the conversation.',
+  parameters: { type: 'object', properties: {}, required: [], additionalProperties: false } }
+
+export function queryRuntimeFacts({ provider, webStatus, placesAvailable, placeEndpoint, placeDetailsEndpoint, runtimeStudyAvailable = false, generatedAt }) {
+  const networkTools = []
+  if (webStatus.searchAvailable) networkTools.push({ tool: webStatus.provider === 'wikipedia' ? 'reference_lookup' : 'web_search',
+    label: webStatus.provider === 'wikipedia' ? 'Public references' : 'Web search', endpoint: webStatus.endpoint ?? null })
+  if (webStatus.readAvailable) networkTools.push({ tool: 'web_read', label: 'Public page reading', endpoint: 'Requested public website' })
+  if (placesAvailable) networkTools.push({ tool: 'place_search', label: 'Place search', endpoint: placeEndpoint ?? null })
+  if (placesAvailable && placeDetailsEndpoint) networkTools.push({ tool: 'find_walk', label: 'Map place details', endpoint: placeDetailsEndpoint })
+  if (runtimeStudyAvailable) networkTools.push({ tool: 'run_runtime_study', label: 'LAMP public data and archived timetables', endpoint: 'performancedata.mbta.com, cdn.mbta.com, cdn.mbtace.com' })
+  return { capturedAt: generatedAt, modelConnection: provider.runtime ?? modelRuntimeFacts({ model: provider.model }), networkTools,
+    requestWorkflow: {
+      sentToModel: ['The current question and application instructions', 'City clock, indexed network summary and available capabilities', 'Supplied conversation history and selected tool schemas', 'Compact results of completed tools, with source references'],
+      execution: 'The model selects tools and arguments. VIGO validates arguments, runs the selected tools, and returns evidence. Journey location choices use retrieved coordinates. Completed journeys and station boards can render directly; other replies may include model interpretation.',
+      diagnosis: 'Tool calls, results and timings are retained in the answer record. These show the executed workflow, not private model reasoning. A hypothetical routing question does not require live service inspection.',
+    },
+    limits: 'Endpoint configuration does not verify inference hosting, downstream forwarding, retention, training use, or security. Tools listed here can access a network; calls are not a traffic audit. Journey tools may use place search. Feed refresh and other application traffic are outside this answer record.' }
+}
+
+export function withRuntimeActivity(runtime, trace) {
+  const names = new Set(runtime.networkTools.map(item => item.tool))
+  // Journey tools share the place resolver; record indirect use as a capability,
+  // without pretending a cache hit or failed validation made an HTTP request.
+  if (names.has('place_search')) for (const name of ['route_plan', 'walk_route', 'walk_compare', 'find_walk', 'reach']) names.add(name)
+  return { ...runtime, networkToolCalls: trace.filter(call => names.has(call.tool)).map(call => ({ tool: call.tool, completed: call.result.ok })) }
+}

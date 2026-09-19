@@ -24,6 +24,10 @@ const recognizedGtfsTables = new Set([
   'frequencies.txt',
   'shapes.txt',
   'pathways.txt',
+  'fare_attributes.txt', 'fare_rules.txt', 'fare_products.txt', 'fare_media.txt',
+  'rider_categories.txt', 'fare_leg_rules.txt', 'fare_leg_join_rules.txt',
+  'fare_transfer_rules.txt', 'timeframes.txt', 'areas.txt', 'stop_areas.txt',
+  'networks.txt', 'route_networks.txt',
 ])
 
 export const gtfsZipSafetyLimits = Object.freeze({

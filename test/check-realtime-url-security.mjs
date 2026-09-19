@@ -51,10 +51,21 @@ await assert.rejects(
   /embedded credentials/,
 )
 
+// A resolver that never settles must not retain a feed request indefinitely.
+const hangingLookup = () => new Promise(() => {})
+await assert.rejects(fetchSafeRealtimeBody('https://example.test/feed.pb', { maximumBytes: 16, timeoutMs: 20, lookup: hangingLookup }), error => error.code === 'request_timeout')
+const controller = new AbortController()
+const pending = fetchSafeRealtimeBody('https://example.test/feed.pb', { maximumBytes: 16, timeoutMs: 10_000, lookup: hangingLookup, signal: controller.signal })
+controller.abort()
+await assert.rejects(pending, error => error.name === 'AbortError')
 const server = http.createServer((request, response) => {
   if (request.url === '/redirect') {
     response.writeHead(302, { location: '/feed.pb' })
     response.end()
+    return
+  }
+  if (request.url === '/slow-redirect') {
+    setTimeout(() => { response.writeHead(302, { location: '/slow-redirect' }); response.end() }, 30)
     return
   }
   response.writeHead(200, { 'content-type': 'application/x-protobuf' })
@@ -77,7 +88,7 @@ try {
         options.lookup(hostname, lookupOptions, (error, address, family) => {
           assert.ifError(error)
           if (lookupOptions.all) {
-            assert.deepEqual(address, [{ address: '8.8.8.8', family: 4 }])
+            assert.deepEqual(address, [{ address: '8.8.8.8', family: 4 }, { address: '2606:4700:4700::1111', family: 6 }], 'Connection fallback uses only the addresses already validated')
             done(null, [{ address: '127.0.0.1', family: 4 }])
           } else {
             assert.equal(address, '8.8.8.8')
@@ -97,7 +108,7 @@ try {
       headers: { connection: 'close' },
       lookup: async () => {
         resolutions += 1
-        return [{ address: '8.8.8.8' }]
+        return [{ address: '8.8.8.8' }, { address: '2606:4700:4700::1111' }]
       },
     })
     assert.equal(new TextDecoder().decode(fetched.body), 'fixture')
@@ -126,6 +137,9 @@ try {
     }),
     (error) => error.code === 'response_status',
   )
+  await assert.rejects(fetchSafeRealtimeBody(`http://127.0.0.1:${port}/slow-redirect`, {
+    maximumBytes: 16, allowPrivate: true, timeoutMs: 50, maximumRedirects: 5,
+  }), error => error.code === 'request_timeout', 'Redirects share one operation deadline')
 } finally {
   mock.restoreAll()
   net.setDefaultAutoSelectFamily(originalAutoSelectFamily)

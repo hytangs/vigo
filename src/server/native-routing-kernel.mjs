@@ -115,7 +115,7 @@ export function publishCchManifest({ kind, format, sourcePath, manifestPath, str
     schemaVersion: nativeCchManifestSchema,
     kind,
     format,
-    builderVersion: '0.3.2',
+    builderVersion: '0.4.0',
     source: fileIdentity(sourcePath),
     sourceSnapshot: snapshotIdentity(sourcePath),
     structure: fileIdentity(structurePath),
@@ -863,6 +863,7 @@ export function routeNativeTimetableOverlayMany(kernel, request) {
   }
   const overlay = request.overlay ?? {}
   const result = record.kernel.routeOverlayManyCsa({
+    certifyJourney: request.certifyJourney === true,
     originStops: request.originSeeds.map((seed) => seed.stop),
     originWalkSeconds: request.originSeeds.map((seed) => seed.walkSeconds),
     originCandidateIndices: request.originSeeds.map((seed, index) => seed.candidateIndex ?? index),
@@ -877,9 +878,11 @@ export function routeNativeTimetableOverlayMany(kernel, request) {
     allowPreRideTransfers: request.allowPreRideTransfers === true,
     allowPostRideTransfers: request.allowPostRideTransfers,
     overlayStopCount: overlay.stopCount ?? 0,
+    overlayBaseStops: overlay.baseStops,
     directionOffsets: overlay.directionOffsets ?? [0],
     directionStops: overlay.directionStops ?? [],
     directionStopOffsetsSeconds: overlay.directionStopOffsetsSeconds ?? [],
+    directionArrivalOffsetsSeconds: overlay.directionArrivalOffsetsSeconds,
     serviceStartSeconds: overlay.serviceStartSeconds ?? [],
     serviceEndSeconds: overlay.serviceEndSeconds ?? [],
     serviceHeadwaySeconds: overlay.serviceHeadwaySeconds ?? [],
@@ -893,11 +896,16 @@ export function routeNativeTimetableOverlayMany(kernel, request) {
     ...result.timetable,
     overlayConnections: result.overlayConnections,
     overlayRuns: result.overlayRuns,
+    overlayRunDirections: result.overlayRunDirections,
     supplementalTransferEdges: result.supplementalTransferEdges,
     compileMs: normalizeNativeMilliseconds(result.compileNs),
     scanMs: normalizeNativeMilliseconds(result.scanNs),
     transientBytes: result.transientBytes,
     workspaceBytes: result.workspaceBytes,
+    lexicographicCertified: result.lexicographicCertified === true,
+    qualityQueryMs: normalizeNativeMilliseconds(result.qualityQueryNs),
+    qualityBytes: result.qualityBytes,
+    qualityReason: result.qualityReason,
     queryMs: normalizeNativeMilliseconds(result.timetable.queryNs),
     configureMs: record.configureMs,
     kernelDiagnostics: record.diagnostics,
@@ -1571,15 +1579,6 @@ export function routeNativeCoordinateFrontiers(storePath, request) {
     origin,
     destination,
     diagnostics,
-  }
-}
-
-export function clearNativeCoordinateEndpointCaches(storePath) {
-  const record = kernelRecord(storePath)
-  record.kernel.clearEndpointCaches()
-  return {
-    cleared: true,
-    profileKey: record.profileKey || null,
   }
 }
 

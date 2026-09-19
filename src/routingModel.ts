@@ -8,6 +8,7 @@ export type RoutingPoint = {
 }
 
 export type RoutingTravelMode = 'transit' | 'walk' | 'drive'
+export type RoutingDataMode = 'realtime' | 'scheduled'
 export type RoutingTimePreference = 'depart' | 'arrive'
 export type RoutingSearchProfile = 'balanced' | 'fastest' | 'pareto'
 export type RoutingSearchStrategy =
@@ -20,6 +21,36 @@ export type RoutingScheduleMode = 'exact' | 'interpolated-stop-time-gap' | 'real
 export type RoutingWalkSource = 'osm' | 'direct' | 'transfer' | 'estimated' | 'station-selection'
 export type RoutingTimingPrecision = 'exact' | 'degraded' | 'source-equal-time'
 export type RoutingExecutionStatus = 'ready' | 'blocked' | 'unsupported' | 'stale' | 'cancelled' | 'error'
+
+export type RoutingRealtimeDiagnostics = {
+  mode?: 'full-snapshot' | 'trip-update-overlay'
+  status?: 'applied' | 'cancellations_only' | 'partial' | 'stale_fallback' | 'no_matches' | 'scheduled_fallback'
+  snapshotId?: string
+  feedTimestamp?: number
+  appliedTrips?: number
+  canceledTrips?: number
+  coverage?: { inputUpdates: number; appliedUpdates: number; rejectedUpdates: number; prunedUpdates: number; complete: boolean }
+  inputCoverage?: { received: number; eligible: number; rejected: number; rejectionReasons: Record<string, number>; complete: boolean }
+}
+
+export type RoutingDataProvenance = {
+  schemaVersion: 'vigo.routing.data-provenance.v1'
+  mode: RoutingDataMode
+  staticTimetableIdentity: string | null
+  streetIdentity: string | null
+  serviceDate: string | null
+  timeZone: string
+  snapshotId?: string | null
+  feedTimestamp?: number | null
+  realtimeApplied: boolean
+  serviceDay?: ServiceDay
+  timePreference?: RoutingTimePreference
+  requestedTimeMinutes?: number
+  walkingPolicy?: unknown
+  searchParameters?: Record<string, unknown>
+  engineVersion?: string
+  reproducibilityKey?: string
+}
 
 export type RoutingAccessAvailabilityHint = {
   role: 'origin' | 'destination'
@@ -40,6 +71,15 @@ export type RoutingAccessAvailabilityHint = {
 }
 
 export type RoutingLeg = {
+  fare?: {
+    status: 'published' | 'unavailable'
+    code?: string
+    reason?: string
+    source?: string
+    standard?: string
+    agencyUrl?: string
+    options?: Array<{ productId: string; name: string; amount: number; currency: string; media?: string; riderCategory?: string }>
+  }
   type: 'walk' | 'ride' | 'drive'
   travelMode?: RoutingTravelMode
   scheduleMode?: Exclude<RoutingScheduleMode, 'none'>
@@ -145,6 +185,9 @@ export type RoutingPlan = {
       transferGeneration?: Record<string, unknown> | null
     }
     paretoCertification?: Record<string, unknown>
+    routingDataMode?: RoutingDataMode
+    routingDataProvenance?: RoutingDataProvenance
+    realtimeRouting?: RoutingRealtimeDiagnostics
     traffic?: {
       status?: 'applied' | 'stale_fallback' | 'no_matches' | 'free_flow_equivalent' | 'native_fallback'
       source?: string

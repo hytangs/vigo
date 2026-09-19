@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict'
+import { mkdtemp, rm, writeFile, readFile, symlink } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import vm from 'node:vm'
+import { auditPackageFiles } from '../scripts/lib/package-audit.mjs'
+
+const root = await mkdtemp(path.join(os.tmpdir(), 'vigo-package-audit-'))
+try {
+  await writeFile(path.join(root, 'app.js'), 'const optionalLocalProvider = "http://localhost:11434";')
+  assert.equal((await auditPackageFiles(root)).files, 1, 'Optional provider presets are not active configuration')
+  for (const [name, content, reason] of [
+    ['.env', 'not-a-real-secret', /credential file/],
+    ['app.js', ['', 'Users', 'build-owner', 'project', 'source'].join('/'), /developer path/],
+    ['app.js', 'sk-' + 'x'.repeat(32), /possible embedded credential/],
+    ['old.sqlite', '', /development data/],
+  ]) {
+    await writeFile(path.join(root, name), content)
+    await assert.rejects(auditPackageFiles(root), reason)
+    await rm(path.join(root, name))
+  }
+  await symlink(path.join(root, 'absent'), path.join(root, 'outside'))
+  await assert.rejects(auditPackageFiles(root), /symlink/)
+} finally { await rm(root, { recursive: true, force: true }) }
+const main = await readFile(new URL('../public/main.mjs', import.meta.url), 'utf8')
+const source = main.slice(main.indexOf('function engineEnvironment()'), main.indexOf('\nfunction startEngine()'))
+const original = { PATH: '/usr/bin:/bin', VIGO_AGENCY_LLM_BASE_URL: 'http://localhost:1234', VIGO_AGENCY_LLM_API_KEY: 'fixture', VIGO_ROUTE_WORKER_URL: '/private/worker', NODE_OPTIONS: '--require=/private/file' }
+for (const isPackaged of [true, false]) {
+  const environment = vm.runInNewContext(`${source}; engineEnvironment()`, { process: { env: original }, app: { isPackaged }, nativeKernelPath: '/bundle/server/kernel.node' })
+  assert.equal(environment.VIGO_AGENCY_LLM_BASE_URL, isPackaged ? undefined : original.VIGO_AGENCY_LLM_BASE_URL)
+  assert.equal(environment.VIGO_AGENCY_LLM_API_KEY, isPackaged ? undefined : 'fixture')
+  assert.equal(environment.VIGO_ROUTE_WORKER_URL, isPackaged ? undefined : '/private/worker')
+  assert.equal(environment.NODE_OPTIONS, undefined)
+  assert.equal(environment.VIGO_NATIVE_ROUTING_KERNEL, '/bundle/server/kernel.node')
+  assert.equal(environment.VIGO_API_TRANSPORT, 'memory')
+}
+assert.equal(original.VIGO_AGENCY_LLM_API_KEY, 'fixture', 'Do not mutate the launching shell')
+console.log('Package audit and desktop environment isolation passed.')

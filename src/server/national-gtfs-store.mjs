@@ -4,6 +4,9 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { performance as nodePerformance } from 'node:perf_hooks'
+import { compileRealtimeTimetableKernel } from './realtime-timetable-kernel.mjs'
+import { normalizeRoutingDataRequest, normalizeScheduledAnalysisRequest, routingDataModeForRequest } from './routing-data-mode.mjs'
+import { journeyContinuityIssue } from '../journeyIntegrity.mjs'
 import { decodeRoutingSnapshot, encodeRoutingSnapshot } from './routing-snapshot.mjs'
 import {
   loadPreparedAccessContext,
@@ -112,6 +115,8 @@ export {
   selectNationalDepartureWindowChoices,
 } from './national-route-choices.mjs'
 export { WeightedLruCache } from './weighted-lru-cache.mjs'
+import { readGtfsFareCatalog, writeGtfsFareCatalog, copyGtfsFareCatalogs, addGtfsFares } from './gtfs-fare-store.mjs'
+import { resolveRealtimeTripTimes } from './realtime-trip-timing.mjs'
 
 const storeSchemaVersion = 'vigo.routing.store.v1'
 const transferSemanticsVersion = 'vigo.routing.transfers.v3'
@@ -143,8 +148,8 @@ const routingStoreIndexTables = Object.freeze({
 const staticTopologySchemaVersion = 'vigo.routing.static-topology.v4'
 const staticTopologySourceIdentityVersion = 'vigo.routing.static-topology-source.v3'
 const monotonicNow = nodePerformance.now.bind(nodePerformance)
-const realtimeRoutingMaxTripUpdates = 256
-const realtimeRoutingMaxStops = 4_096
+const realtimeQueryContext = Symbol('vigo.internal.realtime-query-context')
+const realtimeTimetableCache = new WeakMap()
 const realtimeTripLookupCache = new WeakMap()
 const realtimeTimezoneFormatterCache = new Map()
 // Internal controls must not be representable in HTTP, CLI, worker, or JSON
@@ -2034,6 +2039,8 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
   }
 
   try {
+    const fareCatalog = await readGtfsFareCatalog(archive, { budget: zipImportBudget })
+    writeGtfsFareCatalog(db, fareCatalog, scope)
     const agencyEntry = gtfsTableEntry(archive, 'agency.txt')
     if (agencyEntry) {
       const agencyProfile = await streamTable(agencyEntry, (row) => {
@@ -2430,6 +2437,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       sourceFingerprint,
       sourceFile: path.basename(zipPath),
       sourceBytes: archive.compressedBytes,
+      fareData: fareCatalog ? { standard: fareCatalog.tables.fare_products ? 'GTFS Fares v2' : fareCatalog.tables.fare_attributes ? 'GTFS Fares v1' : null, boardingPrices: !fareCatalog.unavailableReason, transferTotals: false } : null,
       builtAt: new Date().toISOString(),
       routeCount: counts['routes.txt'] ?? 0,
       stopCount: counts['stops.txt'] ?? 0,
@@ -2673,6 +2681,7 @@ export async function mergeNationalGtfsStores({ stores, outputPath, onProgress, 
       report(onProgress, 'Merging exact GTFS stores', index / descriptors.length * 0.72, path.basename(descriptor.storePath))
       db.exec(`ATTACH DATABASE ${sqlLiteral(descriptor.storePath)} AS ${alias}`)
       runTransaction(db, () => {
+        copyGtfsFareCatalogs(db, alias, descriptor.scope)
         db.exec(`
           INSERT INTO stops
             SELECT ${prefixSql} || stop_id, name, lat, lon,
@@ -4307,6 +4316,7 @@ function incompleteServiceCoveragePlan(request, departureMinutes, maxWalkKm, res
 }
 
 function timetableDetail(durationMinutes, resolution) {
+  if (resolution?.scheduleMode === 'realtime-adjusted') return `${Math.round(durationMinutes)} min / live predictions and scheduled times`
   if (resolution?.serviceDateTemplateApplied) return `${Math.round(durationMinutes)} min / representative timetable template`
   if (!resolution?.serviceDateFallbackApplied) return `${Math.round(durationMinutes)} min / exact local timetable`
   return `${Math.round(durationMinutes)} min / timetable for ${resolution.resolvedServiceDate} (fallback from ${resolution.requestedServiceDate})`
@@ -5301,6 +5311,7 @@ function directWalkAfterBlockedTransitPlan(
     ...walkPlan,
     diagnostics: {
       ...walkPlan.diagnostics,
+      ...(transitPlan?.diagnostics?.realtimeRouting ? { realtimeRouting: transitPlan.diagnostics.realtimeRouting } : {}),
       scannedDepartures: numeric(transitPlan?.diagnostics?.scannedDepartures, 0),
       relaxedStops: numeric(transitPlan?.diagnostics?.relaxedStops, 0),
       serviceDay: transitPlan?.diagnostics?.serviceDay ?? walkPlan.diagnostics.serviceDay,
@@ -5473,6 +5484,7 @@ function transitDominatingDirectWalkPlan(
     ...materializedWalkPlan,
     diagnostics: {
       ...materializedWalkPlan.diagnostics,
+      ...(transitPlan.diagnostics?.realtimeRouting ? { realtimeRouting: transitPlan.diagnostics.realtimeRouting } : {}),
       directWalkStreetSearchMs: streetSearchMs,
       directWalkStreetPathReused: streetPathReused,
       directWalkComparison: { ...comparisonDiagnostics, outcome: 'direct_walk' },
@@ -7834,7 +7846,7 @@ function activeServiceKernelAccessSeeds(kernel, accessStops) {
 function normalizeRealtimeSnapshotForRouting(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const tripUpdates = Array.isArray(value.tripUpdates) ? value.tripUpdates : []
-  if (!tripUpdates.length) return null
+  if (!tripUpdates.length && !value.inputCoverage?.received) return null
   return {
     sourceUrl: String(value.sourceUrl ?? '').trim() || undefined,
     sourceUrls: Array.isArray(value.sourceUrls)
@@ -7843,6 +7855,7 @@ function normalizeRealtimeSnapshotForRouting(value) {
     fetchedAt: String(value.fetchedAt ?? '').trim() || undefined,
     feedTimestamp: numeric(value.feedTimestamp, undefined),
     tripUpdates,
+    inputCoverage: value.inputCoverage,
     counts: value.counts && typeof value.counts === 'object' ? value.counts : undefined,
   }
 }
@@ -7865,27 +7878,24 @@ function realtimeTripLookup(kernel) {
   return lookup
 }
 
-function resolveRealtimeTripIndex(kernel, tripId) {
+function resolveRealtimeTripIndex(kernel, tripId, sourceScope) {
   const normalizedTripId = String(tripId ?? '').trim()
   if (!normalizedTripId) return undefined
   const lookup = realtimeTripLookup(kernel)
-  const exact = lookup.exact.get(normalizedTripId)
-  if (exact !== undefined) return exact
-  const matches = lookup.suffix.get(normalizedTripId)
-  return matches?.length === 1 ? matches[0] : undefined
+  const matches = normalizedTripId.includes('\u001f')
+    ? [lookup.exact.get(normalizedTripId)].filter(index => index !== undefined)
+    : lookup.suffix.get(normalizedTripId) ?? []
+  const scoped = sourceScope == null ? matches : matches.filter(index => (
+    String(kernel.tripIds[index]).split('\u001f')[0] === String(sourceScope)
+  ))
+  return scoped.length === 1 ? scoped[0] : undefined
 }
 
 function realtimeTripRelationship(value) {
   if (value === undefined || value === null || value === '') return 'SCHEDULED'
   if (typeof value === 'number') {
-    return ['SCHEDULED', 'ADDED', 'UNSCHEDULED', 'CANCELED', 'REPLACEMENT', 'DUPLICATED', 'DELETED'][value] ?? 'UNKNOWN'
+    return { 0: 'SCHEDULED', 1: 'ADDED', 2: 'UNSCHEDULED', 3: 'CANCELED', 5: 'REPLACEMENT', 6: 'DUPLICATED', 7: 'DELETED' }[value] ?? 'UNKNOWN'
   }
-  return String(value).trim().toUpperCase()
-}
-
-function realtimeStopTimeRelationship(value) {
-  if (value === undefined || value === null || value === '') return 'SCHEDULED'
-  if (typeof value === 'number') return ['SCHEDULED', 'SKIPPED', 'NO_DATA', 'UNSCHEDULED'][value] ?? 'UNKNOWN'
   return String(value).trim().toUpperCase()
 }
 
@@ -7942,33 +7952,6 @@ function realtimeEpochToServiceSeconds(epochSeconds, serviceDate, timezone) {
   return dayOffset * 86_400 + parts.hour * 3_600 + parts.minute * 60 + parts.second
 }
 
-function realtimeAdjustedStopTime(staticSeconds, event, fallbackDelay, serviceDate, timezone) {
-  const explicit = realtimeEpochToServiceSeconds(event?.time, serviceDate, timezone)
-  if (explicit !== undefined) return explicit
-  const baseline = numeric(staticSeconds, Number.NaN)
-  if (!Number.isFinite(baseline)) return undefined
-  const delay = numeric(event?.delay, numeric(fallbackDelay, 0))
-  return baseline + delay
-}
-
-function realtimeStopUpdateIndex(updates) {
-  const bySequence = new Map()
-  const byStopId = new Map()
-  let unsupported = false
-  for (const update of updates) {
-    const relationship = realtimeStopTimeRelationship(update?.scheduleRelationship)
-    if (relationship === 'SKIPPED' || relationship === 'UNSCHEDULED' || relationship === 'UNKNOWN') {
-      unsupported = true
-      continue
-    }
-    if (relationship === 'NO_DATA') continue
-    const sequence = numeric(update?.stopSequence, Number.NaN)
-    if (Number.isInteger(sequence)) bySequence.set(sequence, update)
-    if (String(update?.stopId ?? '').trim()) byStopId.set(String(update.stopId), update)
-  }
-  return { bySequence, byStopId, unsupported }
-}
-
 function realtimeStaticTripStopTimes(store, tripId) {
   if (store.realtimeTripStopTimesLookup) {
     return store.realtimeTripStopTimesLookup.all(tripId)
@@ -7988,6 +7971,7 @@ function realtimeStaticTripStopTimes(store, tripId) {
     const next = connections[index + 1]
     stopTimes.push({
       stop_sequence: next?.stop_sequence ?? Number(connection.stop_sequence) + 1,
+      stop_sequence_inferred: !next,
       stop_id: connection.to_stop_id,
       arrival: connection.arrival,
       departure: next && next.from_stop_id === connection.to_stop_id
@@ -8000,285 +7984,186 @@ function realtimeStaticTripStopTimes(store, tripId) {
   return stopTimes
 }
 
-function realtimeOverlaySeeds(kernel, accessStops, overlay) {
-  const seeds = activeServiceKernelAccessSeeds(kernel, accessStops)
-  if (!overlay?.overlayStopIndexById?.size) return seeds
-  const augmented = [...seeds]
-  for (const seed of seeds) {
-    const stopId = kernel.stopIds[seed.stop]
-    const localStop = overlay.overlayStopIndexById.get(stopId)
-    if (localStop === undefined) continue
-    augmented.push({
-      stop: kernel.stopIds.length + localStop,
-      walkSeconds: seed.walkSeconds,
-      candidateIndex: seed.candidateIndex,
-    })
+function withRealtimeQueryContext(request) {
+  const mode = routingDataModeForRequest(request)
+  if (request[realtimeQueryContext]?.mode === mode) return request
+  // Preserve the non-enumerable prepared access controls on local requests.
+  const descriptors = Object.getOwnPropertyDescriptors(request)
+  delete descriptors[realtimeQueryContext]
+  descriptors[realtimeQueryContext] = { enumerable: true, value: {
+    mode,
+    snapshot: mode === 'realtime' ? normalizeRealtimeSnapshotForRouting(request.realtimeSnapshot) : null,
+    nowSeconds: mode === 'realtime' ? Date.now() / 1000 : null,
+    resolutions: new WeakMap(),
+  } }
+  return Object.create(Object.getPrototypeOf(request), descriptors)
+}
+
+function attachRoutingDataProvenance(plan, store, request) {
+  if (!plan) return plan
+  const mode = request[realtimeQueryContext]?.mode ?? routingDataModeForRequest(request)
+  const diagnostics = plan.diagnostics ??= {}
+  if (mode === 'scheduled') {
+    delete diagnostics.realtimeRouting
+    if (diagnostics.searchStats) delete diagnostics.searchStats.realtimeRouting
+  } else if (!diagnostics.realtimeRouting && plan.travelMode === 'transit') {
+    diagnostics.realtimeRouting = {
+      mode: 'full-snapshot', status: 'scheduled_fallback',
+      fallbackReason: request[realtimeQueryContext]?.snapshot ? 'realtime_search_not_run' : 'realtime_snapshot_unavailable',
+      appliedTrips: 0, canceledTrips: 0,
+      coverage: { inputUpdates: 0, appliedUpdates: 0, rejectedUpdates: 0, prunedUpdates: 0, complete: false },
+    }
   }
-  return augmented
+  const realtime = diagnostics.realtimeRouting
+  const provenance = {
+    schemaVersion: 'vigo.routing.data-provenance.v1', mode,
+    engineVersion: 'vigo.routing.timetable.v1',
+    staticTimetableIdentity: String(store.sourceFingerprint || store.sourceArtifactIdentity),
+    streetIdentity: currentStreetStoreStorageIdentity(request.streetStorePath) ?? null,
+    serviceDate: diagnostics.resolvedServiceDate ?? diagnostics.serviceDate ?? request.serviceDate ?? null,
+    timeZone: store.agencyTimezones[0] || 'UTC',
+    serviceDay: request.serviceDay,
+    timePreference: request.timePreference === 'arrive' ? 'arrive' : 'depart',
+    requestedTimeMinutes: request.timePreference === 'arrive'
+      ? request.arriveMinutes ?? request.timeMinutes ?? request.departMinutes
+      : request.departMinutes,
+    walkingPolicy: { ...nationalRoutingAccessPolicy },
+    searchParameters: {
+      travelMode: request.mode ?? 'transit',
+      objective: request.routingPreference === 'balanced' ? 'balanced' : 'earliest_arrival',
+      maxWalkKm: plan.maxWalkKm,
+      directWalkLimitKm: directWalkEndToEndLimitKm(request),
+      requireTransitRide: transitRideRequired(request),
+      maxTransfers: request.maxTransfers ?? null,
+      horizonMinutes: routingHorizonMinutes(request),
+      serviceDateFallbackAllowed: request.allowServiceDateFallback === true,
+      requireCompleteServiceCoverage: request.requireCompleteServiceCoverage === true,
+      transferSemanticsVersion: store.transferSemanticsVersion ?? null,
+    },
+    realtimeApplied: mode === 'realtime' && ((realtime?.appliedTrips ?? 0) + (realtime?.canceledTrips ?? 0) > 0),
+    ...(mode === 'realtime' ? { snapshotId: realtime?.snapshotId ?? null, feedTimestamp: realtime?.feedTimestamp ?? null } : {}),
+  }
+  provenance.reproducibilityKey = crypto.createHash('sha256').update(stableJson({
+    provenance, origin: request.origin, destination: request.destination,
+  })).digest('hex')
+  diagnostics.routingDataMode = mode
+  diagnostics.routingDataProvenance = provenance
+  return plan
 }
 
-function realtimeOverlayDestinationSeeds(kernel, destinationStops, overlay) {
-  return realtimeOverlaySeeds(kernel, destinationStops, overlay)
-}
-
-function buildRealtimeTimetableOverlay(store, kernel, snapshot, context) {
-  if (!snapshot?.tripUpdates?.length) return null
-  const serviceDate = context.serviceDateResolution?.resolvedServiceDate
+// Freeze one observation time across reverse search, forward materialization,
+// and preference verification. A refreshed snapshot creates a new kernel; it
+// never edits the resident scheduled timetable or a search already in flight.
+function realtimeTimetableForRequest(store, kernel, request, serviceDateResolution) {
+  const context = request[realtimeQueryContext]
+  const snapshot = context?.snapshot
+  if (!snapshot) return null
+  const serviceDate = serviceDateResolution.resolvedServiceDate
   const serviceDateToken = realtimeServiceDateToken(serviceDate)
-  const timezone = store.agencyTimezones[0] || 'UTC'
-  const originStopIds = new Set(context.originStops.map((stop) => String(stop.stop_id)))
-  const destinationStopIds = new Set(context.destinationStops.map((stop) => String(stop.stop_id)))
-  const candidateStopIds = new Set([...originStopIds, ...destinationStopIds])
+  const previous = context.resolutions.get(kernel)
+  if (previous?.serviceDate === serviceDate) return previous.result
+  const now = context.nowSeconds
+  const fresh = timestamp => typeof timestamp === 'number' && Number.isFinite(timestamp)
+    && timestamp > 0 && now - timestamp <= 180 && timestamp - now <= 60
+  // Timestamp validity is part of the cache identity, so cached predictions
+  // expire even when the same snapshot is repeatedly submitted.
+  const validity = snapshot.tripUpdates.map(update => [
+    fresh(update?.sourceFeedTimestamp ?? snapshot.feedTimestamp),
+    update?.timestamp == null || fresh(update.timestamp),
+    (update?.sourceFeedTimestamp ?? snapshot.feedTimestamp) <= now
+      && (update?.timestamp == null || update.timestamp <= now),
+  ])
+  const cacheKey = crypto.createHash('sha256').update(stableJson({
+    snapshot, serviceDate, timetableIdentity: kernel.sourceArtifactIdentity ?? kernel.sourceStorageIdentity,
+    serviceKey: kernel.serviceKey, feedFresh: fresh(snapshot.feedTimestamp), validity,
+  })).digest('hex')
+  const cached = realtimeTimetableCache.get(kernel)
+  if (cached?.key === cacheKey) {
+    context.resolutions.set(kernel, { serviceDate, result: cached.result })
+    return cached.result
+  }
   const diagnostics = {
-    feedTimestamp: snapshot.feedTimestamp,
-    fetchedAt: snapshot.fetchedAt,
+    mode: 'full-snapshot', snapshotId: cacheKey,
+    feedTimestamp: snapshot.feedTimestamp, fetchedAt: snapshot.fetchedAt,
     feedTripUpdates: snapshot.tripUpdates.length,
-    matchedTripUpdates: 0,
-    appliedTrips: 0,
-    replacedTrips: 0,
-    canceledTrips: 0,
-    unsupportedTrips: 0,
-    dateMismatches: 0,
-    unmatchedTrips: 0,
-    invalidTrips: 0,
-    prunedTrips: 0,
-    stale: Number.isFinite(snapshot.feedTimestamp)
-      ? Math.max(0, Date.now() / 1000 - snapshot.feedTimestamp) > 180
-      : undefined,
+    inputCoverage: snapshot.inputCoverage,
+    matchedTripUpdates: 0, appliedTrips: 0, replacedTrips: 0, canceledTrips: 0,
+    unsupportedTrips: 0, dateMismatches: 0, unmatchedTrips: 0,
+    invalidTrips: 0, staleTrips: 0, duplicateTrips: 0, prunedTrips: 0,
+    pastPrefixTrips: 0, omittedPastPrefixStops: 0,
+    stale: !fresh(snapshot.feedTimestamp),
   }
-  if (diagnostics.stale === true) {
-    return {
-      ready: false,
-      status: 'stale_fallback',
-      diagnostics: {
-        ...diagnostics,
-        fallbackReason: 'feed_timestamp_stale',
-      },
-      excludedTrips: [],
-      trips: [],
+  const replacements = new Map(), canceledTrips = new Set(), trips = []
+  const resolved = snapshot.tripUpdates.map(update => resolveRealtimeTripIndex(kernel, update?.tripId, update?.sourceScope))
+  const identities = new Map()
+  for (let index = 0; index < resolved.length; index++) {
+    const trip = resolved[index], update = snapshot.tripUpdates[index]
+    if (trip !== undefined && validity[index][0] && validity[index][1]
+      && (!update.startDate || realtimeServiceDateToken(update.startDate) === serviceDateToken)) {
+      identities.set(trip, (identities.get(trip) ?? 0) + 1)
     }
   }
-  const excludedTripIndices = new Set()
-  const candidates = []
-  const sortedUpdates = [...snapshot.tripUpdates]
-    .sort((left, right) => {
-      const leftMatched = resolveRealtimeTripIndex(kernel, left?.tripId) !== undefined
-      const rightMatched = resolveRealtimeTripIndex(kernel, right?.tripId) !== undefined
-      return Number(rightMatched) - Number(leftMatched)
-        || String(left.tripId ?? '').localeCompare(String(right.tripId ?? ''))
-    })
-    .slice(0, Math.max(realtimeRoutingMaxTripUpdates * 4, realtimeRoutingMaxTripUpdates))
-  for (const update of sortedUpdates) {
-    const tripIndex = resolveRealtimeTripIndex(kernel, update?.tripId)
-    if (tripIndex === undefined) {
-      diagnostics.unmatchedTrips += 1
-      continue
+  const timezone = store.agencyTimezones[0] || 'UTC'
+  for (let index = 0; index < snapshot.tripUpdates.length; index++) {
+    const update = snapshot.tripUpdates[index], tripIndex = resolved[index]
+    if (!validity[index][0] || !validity[index][1]) { diagnostics.staleTrips++; continue }
+    if (tripIndex === undefined) { diagnostics.unmatchedTrips++; continue }
+    diagnostics.matchedTripUpdates++
+    if (update.startDate && realtimeServiceDateToken(update.startDate) !== serviceDateToken) {
+      diagnostics.dateMismatches++; continue
     }
-    diagnostics.matchedTripUpdates += 1
-    const relationship = realtimeTripRelationship(update?.scheduleRelationship)
-    if (update?.startDate && String(update.startDate) !== serviceDateToken) {
-      diagnostics.dateMismatches += 1
-      continue
+    if (identities.get(tripIndex) !== 1) { diagnostics.duplicateTrips++; continue }
+    const tripId = kernel.tripIds[tripIndex]
+    const sameId = (left, right) => String(left).includes('\u001f')
+      ? String(left) === String(right) : String(left) === String(right).split('\u001f').at(-1)
+    if ((update.routeId && !sameId(update.routeId, kernel.routeIds[tripIndex]))
+      || (update.directionId != null && String(update.directionId) !== String(kernel.directionIds[tripIndex]))) {
+      diagnostics.invalidTrips++; continue
     }
+    const relationship = realtimeTripRelationship(update.scheduleRelationship)
     if (relationship === 'CANCELED' || relationship === 'DELETED') {
-      excludedTripIndices.add(tripIndex)
-      diagnostics.canceledTrips += 1
+      canceledTrips.add(tripIndex); diagnostics.canceledTrips++
+      trips.push({ tripId, feedTripId: String(update.tripId) })
       continue
     }
-    if (relationship !== 'SCHEDULED') {
-      diagnostics.unsupportedTrips += 1
+    if (relationship !== 'SCHEDULED') { diagnostics.unsupportedTrips++; continue }
+    const rows = realtimeStaticTripStopTimes(store, tripId)
+    if (rows.length < 2) { diagnostics.invalidTrips++; continue }
+    const timing = resolveRealtimeTripTimes(rows, update,
+      epoch => realtimeEpochToServiceSeconds(epoch, serviceDate, timezone),
+      { nowSeconds: now, feedTimestamp: update.sourceFeedTimestamp ?? snapshot.feedTimestamp })
+    if (timing.status !== 'ready') {
+      diagnostics[timing.status === 'unsupported' ? 'unsupportedTrips' : 'invalidTrips']++
       continue
     }
-    const staticTripId = kernel.tripIds[tripIndex]
-    const rows = realtimeStaticTripStopTimes(store, staticTripId)
-    if (rows.length < 2) {
-      diagnostics.invalidTrips += 1
-      continue
+    if (timing.omittedPastPrefixStops > 0) {
+      diagnostics.pastPrefixTrips++
+      diagnostics.omittedPastPrefixStops += timing.omittedPastPrefixStops
     }
-    const updateIndex = realtimeStopUpdateIndex(update.stopTimeUpdates)
-    if (updateIndex.unsupported) {
-      diagnostics.unsupportedTrips += 1
-      continue
-    }
-    const stopTimes = []
-    let previousArrival = Number.NEGATIVE_INFINITY
-    let previousDeparture = Number.NEGATIVE_INFINITY
-    let valid = true
-    let intersectsCandidate = false
-    for (const row of rows) {
-      const sequence = numeric(row.stop_sequence, Number.NaN)
-      const stopId = String(row.stop_id)
-      const stopUpdate = updateIndex.bySequence.get(sequence) ?? updateIndex.byStopId.get(stopId)
-      const arrival = realtimeAdjustedStopTime(
-        row.arrival,
-        stopUpdate?.arrival,
-        update.delaySeconds,
-        serviceDate,
-        timezone,
-      )
-      const departure = realtimeAdjustedStopTime(
-        row.departure,
-        stopUpdate?.departure,
-        update.delaySeconds,
-        serviceDate,
-        timezone,
-      )
-      if (!Number.isFinite(arrival) || !Number.isFinite(departure) || departure < arrival || arrival < previousArrival || departure < previousDeparture) {
-        valid = false
-        break
-      }
-      if (candidateStopIds.has(stopId)) intersectsCandidate = true
-      stopTimes.push({
-        stopId,
-        sequence,
-        arrival,
-        departure,
-        canBoard: row.can_board === undefined || Number(row.can_board) === 1,
-        canAlight: row.can_alight === undefined || Number(row.can_alight) === 1,
-      })
-      previousArrival = arrival
-      previousDeparture = departure
-    }
-    if (!valid || stopTimes.length < 2) {
-      diagnostics.invalidTrips += 1
-      continue
-    }
-    candidates.push({
-      tripIndex,
-      tripId: staticTripId,
-      feedTripId: String(update.tripId),
-      routeId: kernel.routeIds[tripIndex],
-      serviceId: kernel.serviceIds[tripIndex],
-      directionId: kernel.directionIds[tripIndex],
-      stopTimes,
-      intersectsCandidate,
-    })
+    replacements.set(tripIndex, { stopTimes: timing.stopTimes })
+    trips.push({ tripId, feedTripId: String(update.tripId) })
   }
-  candidates.sort((left, right) => (
-    Number(right.intersectsCandidate) - Number(left.intersectsCandidate)
-    || left.stopTimes[0].departure - right.stopTimes[0].departure
-    || left.tripId.localeCompare(right.tripId)
-  ))
-  const selected = candidates.slice(0, realtimeRoutingMaxTripUpdates)
-  diagnostics.prunedTrips = Math.max(0, candidates.length - selected.length)
-  if (!selected.length && !excludedTripIndices.size) {
-    return {
-      ready: false,
-      status: 'no_matches',
-      diagnostics,
-      excludedTrips: [],
-      trips: [],
-    }
+  diagnostics.appliedTrips = replacements.size
+  diagnostics.replacedTrips = replacements.size
+  const applied = replacements.size + canceledTrips.size
+  const upstreamRejected = Math.max(0, numeric(snapshot.inputCoverage?.rejected, 0))
+  const rejected = snapshot.tripUpdates.length - applied + upstreamRejected
+  diagnostics.coverage = {
+    inputUpdates: snapshot.tripUpdates.length + upstreamRejected,
+    appliedUpdates: applied, rejectedUpdates: rejected, prunedUpdates: 0,
+    complete: rejected === 0 && (snapshot.tripUpdates.length > 0 || snapshot.inputCoverage?.complete === true),
   }
-
-  const overlayStopIds = []
-  const overlayStopIndexById = new Map()
-  for (const trip of selected) {
-    for (const stopTime of trip.stopTimes) {
-      if (overlayStopIndexById.has(stopTime.stopId)) continue
-      if (overlayStopIds.length >= realtimeRoutingMaxStops) {
-        diagnostics.prunedTrips += 1
-        break
-      }
-      overlayStopIndexById.set(stopTime.stopId, overlayStopIds.length)
-      overlayStopIds.push(stopTime.stopId)
-    }
-  }
-  const selectedTrips = selected.filter((trip) => trip.stopTimes.every((stopTime) => overlayStopIndexById.has(stopTime.stopId)))
-  diagnostics.appliedTrips = selectedTrips.length
-  for (const trip of selectedTrips) excludedTripIndices.add(trip.tripIndex)
-  const directionOffsets = [0]
-  const directionStops = []
-  const directionStopOffsetsSeconds = []
-  const directionCanBoard = []
-  const directionCanAlight = []
-  const serviceStartSeconds = []
-  const serviceEndSeconds = []
-  const serviceHeadwaySeconds = []
-  const realtimeTrips = []
-  for (const trip of selectedTrips) {
-    const firstDeparture = trip.stopTimes[0].departure
-    const directionStart = directionStops.length
-    for (let index = 0; index < trip.stopTimes.length; index += 1) {
-      const stopTime = trip.stopTimes[index]
-      directionStops.push(overlayStopIndexById.get(stopTime.stopId))
-      directionCanBoard.push(stopTime.canBoard !== false ? 1 : 0)
-      directionCanAlight.push(stopTime.canAlight !== false ? 1 : 0)
-      const eventTime = index + 1 < trip.stopTimes.length ? stopTime.departure : stopTime.arrival
-      directionStopOffsetsSeconds.push(eventTime - firstDeparture)
-    }
-    if (directionStopOffsetsSeconds.slice(directionStart).some((offset, index, offsets) => !Number.isFinite(offset) || offset < 0 || (index > 0 && offset < offsets[index - 1]))) {
-      diagnostics.invalidTrips += 1
-      directionStops.length = directionStart
-      directionStopOffsetsSeconds.length = directionStart
-      directionCanBoard.length = directionStart
-      directionCanAlight.length = directionStart
-      excludedTripIndices.delete(trip.tripIndex)
-      continue
-    }
-    directionOffsets.push(directionStops.length)
-    serviceStartSeconds.push(firstDeparture)
-    serviceEndSeconds.push(firstDeparture)
-    serviceHeadwaySeconds.push(1)
-    realtimeTrips.push({
-      tripId: trip.tripId,
-      feedTripId: trip.feedTripId,
-      routeId: trip.routeId,
-      serviceId: trip.serviceId,
-      directionId: trip.directionId,
-      connections: trip.stopTimes.slice(0, -1).map((from, index) => {
-        const to = trip.stopTimes[index + 1]
-        return {
-          departure: from.departure,
-          arrival: to.arrival,
-          trip_id: trip.tripId,
-          route_id: trip.routeId,
-          service_id: trip.serviceId,
-          direction_id: trip.directionId,
-          from_stop_id: from.stopId,
-          to_stop_id: to.stopId,
-          stop_sequence: from.sequence,
-        }
-      }),
-    })
-  }
-  diagnostics.appliedTrips = realtimeTrips.length
-  diagnostics.replacedTrips = realtimeTrips.length
-  const overlayStopBaseStopIds = overlayStopIds.map((stopId) => kernel.stopIndex.get(stopId))
-  const outgoing = Array.from(
-    { length: kernel.stopIds.length + overlayStopIds.length },
-    () => new Map(),
-  )
-  for (let localStop = 0; localStop < overlayStopIds.length; localStop += 1) {
-    const baseStop = overlayStopBaseStopIds[localStop]
-    if (baseStop === undefined) continue
-    const combinedStop = kernel.stopIds.length + localStop
-    retainOverlayTransfer(outgoing, combinedStop, baseStop, 0)
-    retainOverlayTransfer(outgoing, baseStop, combinedStop, 0)
-  }
-  const transfer = overlayTransferCsr(outgoing)
-  const ready = realtimeTrips.length > 0 || excludedTripIndices.size > 0
-  return {
-    ready,
-    status: realtimeTrips.length ? 'applied' : 'cancellations_only',
-    diagnostics,
-    excludedTrips: [...excludedTripIndices],
-    trips: realtimeTrips,
-    overlayStopIds,
-    overlayStopBaseStopIds,
-    overlayStopIndexById,
-    directionOffsets,
-    directionStops,
-    directionStopOffsetsSeconds,
-    directionCanBoard,
-    directionCanAlight,
-    serviceStartSeconds,
-    serviceEndSeconds,
-    serviceHeadwaySeconds,
-    supplementalTransferOffsets: transfer.offsets,
-    supplementalTransferTo: transfer.to,
-    supplementalTransferDuration: transfer.duration,
-  }
+  const status = applied ? rejected ? 'partial' : replacements.size ? 'applied' : 'cancellations_only'
+    : diagnostics.staleTrips > 0 || diagnostics.stale ? 'stale_fallback' : 'no_matches'
+  diagnostics.status = status
+  if (status === 'stale_fallback') diagnostics.fallbackReason = 'feed_or_record_timestamp_missing_invalid_or_stale'
+  const result = { ready: applied > 0, status, diagnostics, trips,
+    kernel: applied ? compileRealtimeTimetableKernel(kernel, { replacements, canceledTrips, diagnostics }) : kernel }
+  diagnostics.activeSegments = result.kernel.activeSegmentCount
+  diagnostics.activeRuns = result.kernel.runCount
+  context.resolutions.set(kernel, { serviceDate, result })
+  realtimeTimetableCache.set(kernel, { key: cacheKey, result })
+  return result
 }
 
 function activeServiceKernelArriveByRecoveryCandidates(
@@ -8367,157 +8252,12 @@ function nativeTimetableChain(kernel, raw) {
       fromStopId: kernel.stopIds[fromStop],
       toStopId: kernel.stopIds[toStop],
       kernelTripIndex: tripOrCandidate,
+      realtimeAdjusted: kernel.realtimeTripIndices?.has(tripOrCandidate) === true,
       tripId: kernel.tripIds[tripOrCandidate],
       boardingStopSequence: raw.chainBoardSequences[index],
       alightingStopSequence: raw.chainAlightSequences[index],
     }
   })
-}
-
-function realtimeOverlayStopId(kernel, overlay, combinedStop) {
-  if (combinedStop < kernel.stopIds.length) return kernel.stopIds[combinedStop]
-  const localStop = combinedStop - kernel.stopIds.length
-  return overlay.overlayStopBaseStopIds?.[localStop] !== undefined
-    ? kernel.stopIds[overlay.overlayStopBaseStopIds[localStop]]
-    : overlay.overlayStopIds?.[localStop]
-}
-
-function nativeRealtimeOverlayChain(kernel, raw, overlay) {
-  return raw.chainKinds.map((kind, index) => {
-    const fromStop = raw.chainFromStops[index]
-    const toStop = raw.chainToStops[index]
-    const tripOrCandidate = raw.chainTripOrCandidate[index]
-    if (kind === 3) {
-      return {
-        kind: 'access',
-        candidateIndex: tripOrCandidate,
-        arrival: raw.chainArrivals[index],
-        toStopId: realtimeOverlayStopId(kernel, overlay, toStop),
-      }
-    }
-    if (kind === 1) {
-      return {
-        kind: 'transfer',
-        fromStopId: realtimeOverlayStopId(kernel, overlay, fromStop),
-        toStopId: realtimeOverlayStopId(kernel, overlay, toStop),
-        arrival: raw.chainArrivals[index],
-        duration: raw.chainDurations[index],
-      }
-    }
-    const overlayTripIndex = tripOrCandidate < -1 ? -tripOrCandidate - 2 : undefined
-    const realtimeTrip = overlayTripIndex === undefined ? undefined : overlay.trips[overlayTripIndex]
-    return {
-      kind: 'ride',
-      fromStopId: realtimeOverlayStopId(kernel, overlay, fromStop),
-      toStopId: realtimeOverlayStopId(kernel, overlay, toStop),
-      ...(overlayTripIndex === undefined
-        ? {
-            kernelTripIndex: tripOrCandidate,
-            tripId: kernel.tripIds[tripOrCandidate],
-          }
-        : {
-            realtimeTripIndex: overlayTripIndex,
-            tripId: realtimeTrip?.tripId,
-          }),
-      boardingStopSequence: raw.chainBoardSequences[index],
-      alightingStopSequence: raw.chainAlightSequences[index],
-      ...(overlayTripIndex !== undefined
-        ? {
-            boardingSegmentIndex: raw.chainBoardSequences[index],
-            alightingSegmentIndex: raw.chainAlightSequences[index],
-          }
-        : {}),
-      realtimeAdjusted: overlayTripIndex !== undefined,
-    }
-  })
-}
-
-function realtimeTripConnectionsForStep(trip, step) {
-  const connections = trip?.connections ?? []
-  if (!connections.length) return []
-  const first = Math.max(0, Math.floor(numeric(step.boardingSegmentIndex, 0)))
-  const last = Math.min(
-    connections.length - 1,
-    Math.floor(numeric(step.alightingSegmentIndex, connections.length - 1)),
-  )
-  return last >= first ? connections.slice(first, last + 1) : []
-}
-
-function searchActiveServiceKernelNativeRealtime(
-  kernel,
-  originStops,
-  destinationStops,
-  departure,
-  horizon,
-  allowPreRideTransfers,
-  overlay,
-  maxTransfers,
-) {
-  const raw = routeNativeTimetableOverlayMany(kernel, {
-    originSeeds: realtimeOverlaySeeds(kernel, originStops, overlay),
-    destinationSeedSets: [realtimeOverlayDestinationSeeds(kernel, destinationStops, overlay)],
-    excludedTrips: overlay.excludedTrips,
-    departure,
-    horizon,
-    allowPreRideTransfers,
-    maxTransfers,
-    allowPostRideTransfers: [allowsTerminalTransfers(destinationStops)],
-    overlay: {
-      stopCount: overlay.overlayStopIds?.length ?? 0,
-      directionOffsets: overlay.directionOffsets,
-      directionStops: overlay.directionStops,
-      directionStopOffsetsSeconds: overlay.directionStopOffsetsSeconds,
-      serviceStartSeconds: overlay.serviceStartSeconds,
-      serviceEndSeconds: overlay.serviceEndSeconds,
-      serviceHeadwaySeconds: overlay.serviceHeadwaySeconds,
-      supplementalTransferOffsets: overlay.supplementalTransferOffsets,
-      supplementalTransferTo: overlay.supplementalTransferTo,
-      supplementalTransferDuration: overlay.supplementalTransferDuration,
-      directionCanBoard: overlay.directionCanBoard,
-      directionCanAlight: overlay.directionCanAlight,
-    },
-  })
-  const bestArrival = raw.bestArrivals?.reduce(
-    (best, arrival) => Math.min(best, numeric(arrival, Number.POSITIVE_INFINITY)),
-    Number.POSITIVE_INFINITY,
-  ) ?? Number.POSITIVE_INFINITY
-  const chain = nativeRealtimeOverlayChain(kernel, raw, overlay)
-  const status = raw.supported !== true
-    ? raw.status
-    : Number.isFinite(bestArrival) ? 'ready' : 'blocked'
-  const queryMs = timingMilliseconds(raw.queryMs)
-  return {
-    supported: raw.supported,
-    status,
-    reason: raw.reason,
-    bestArrival: Number.isFinite(bestArrival) ? bestArrival : undefined,
-    bestBoardings: chain.reduce((count, step) => count + (step.kind === 'ride' ? 1 : 0), 0),
-    bestDestinationIndex: raw.bestDestinationIndex,
-    chain,
-    realtimeOverlay: true,
-    realtimeOverlayDiagnostics: overlay.diagnostics,
-    overlayConnections: raw.overlayConnections,
-    overlayRuns: raw.overlayRuns,
-    supplementalTransferEdges: raw.supplementalTransferEdges,
-    queryMs: Number(queryMs.toFixed(3)),
-    scannedDepartures: raw.scannedDepartures,
-    relaxedStops: raw.relaxedStops,
-    expandedTripRuns: raw.expandedTripRuns,
-    dominatedTripBoardings: raw.dominatedTripBoardings,
-    explicitTransferChecks: raw.explicitTransferChecks,
-    scalarPhases: {
-        compileMs: timingMilliseconds(raw.compileMs),
-        scanMs: timingMilliseconds(raw.scanMs),
-      chainMs: 0,
-    },
-    heuristicMode: 'none',
-    nativeTimetableKernel: {
-      source: 'rust_node_api_query_scoped_gtfs_rt_trip_update_overlay',
-      configureMs: timingMilliseconds(raw.configureMs),
-      queryMs: Number(queryMs.toFixed(3)),
-      diagnostics: raw.kernelDiagnostics,
-    },
-  }
 }
 
 function searchActiveServiceKernelNativeScalar(
@@ -8807,7 +8547,6 @@ function activeKernelTripConnections(kernel, step) {
 }
 
 function activeServiceKernelAlgorithm(search) {
-  if (search.realtimeOverlay === true) return 'rust_resident_query_overlay_connection_scan_one_to_many'
   return search.paretoFrontier
     ? 'rust_exact_connection_scan_bounded_pareto_no_heuristic'
     : 'rust_exact_connection_scan_scalar_no_heuristic'
@@ -8847,7 +8586,7 @@ function materializeActiveServiceKernelBlockedPlan(store, search, context) {
   const {
     request, departureMinutes, horizon, maxWalkKm, serviceDateResolution, services,
     startedAt, accessPreparationMs, serviceActivationMs, serviceKernelPreparationMs = 0,
-    realtimeOverlay = null,
+    realtimeTimetable = null,
   } = context
   const noPathDetail = serviceDateResolution.serviceDateFallbackApplied
     ? `No scheduled path was found on fallback service date ${serviceDateResolution.resolvedServiceDate} within the routing horizon (requested ${serviceDateResolution.requestedServiceDate}).`
@@ -8876,15 +8615,12 @@ function materializeActiveServiceKernelBlockedPlan(store, search, context) {
       methodState: 'complete',
       methodRequested: activeServiceKernelMethod(search),
       methodUsed: activeServiceKernelMethod(search),
-      ...(realtimeOverlay ? {
+      ...(realtimeTimetable ? {
         realtimeRouting: {
-          ...realtimeOverlay.diagnostics,
-          mode: 'trip-update-overlay',
-          status: realtimeOverlay.status,
-          overlayConnections: search.overlayConnections,
-          overlayRuns: search.overlayRuns,
-          supplementalTransferEdges: search.supplementalTransferEdges,
-          appliedTripIds: realtimeOverlay.trips.map((trip) => trip.feedTripId ?? trip.tripId),
+          ...realtimeTimetable.diagnostics,
+          mode: 'full-snapshot',
+          status: realtimeTimetable.status,
+          appliedTripIds: realtimeTimetable.trips.map((trip) => trip.feedTripId ?? trip.tripId),
         },
       } : {}),
       searchStats: {
@@ -8898,10 +8634,10 @@ function materializeActiveServiceKernelBlockedPlan(store, search, context) {
         materializationMs: 0,
         heuristicMode: 'none',
         activeServices: services.size,
-        ...(realtimeOverlay ? {
+        ...(realtimeTimetable ? {
           realtimeRouting: {
-            ...realtimeOverlay.diagnostics,
-            status: realtimeOverlay.status,
+            ...realtimeTimetable.diagnostics,
+            status: realtimeTimetable.status,
           },
         } : {}),
         engineInvocationsThisPass: { rustTimetable: 1, sqlite: 0 },
@@ -8927,8 +8663,8 @@ function activeServiceKernelUnmaterializedSearchStats(store, search, context) {
     nativeCoordinateAccess = null,
   } = context
   const paretoCertifier = search.paretoFrontier === true
-  const lexicographicCertifier = paretoCertifier
-    || (request.maxTransfers !== undefined && search.realtimeOverlay !== true)
+  const lexicographicCertifier = paretoCertifier || search.lexicographicCertified === true
+    || request.maxTransfers !== undefined
   const transferWork = paretoCertifier
     ? activeServiceKernelTransferWorkPhases(null, search)
     : activeServiceKernelTransferWorkPhases(search)
@@ -9087,14 +8823,14 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
     request, origin, destination, departureMinutes, departure, horizon, maxWalkKm,
     serviceDateResolution, services, startedAt, accessPreparationMs, serviceActivationMs,
     serviceKernelPreparationMs = 0, nativeTimetableKernel = null, streetStorageIdentity,
-    nativeCoordinateAccess = null, realtimeOverlay = null,
+    nativeCoordinateAccess = null, realtimeTimetable = null,
   } = context
   const stopLookup = store.stopLookup
   const routeLookup = store.routeLookup
   const chain = search.chain
   const paretoCertifier = search.paretoFrontier === true
-  const lexicographicCertifier = paretoCertifier
-    || (request.maxTransfers !== undefined && search.realtimeOverlay !== true)
+  const lexicographicCertifier = paretoCertifier || search.lexicographicCertified === true
+    || request.maxTransfers !== undefined
   const transferWork = paretoCertifier
     ? activeServiceKernelTransferWorkPhases(null, search)
     : activeServiceKernelTransferWorkPhases(search)
@@ -9200,13 +8936,14 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
       continue
     }
     const tripConnectionStartedAt = performance.now()
-    const connections = step.realtimeAdjusted && realtimeOverlay
-      ? realtimeTripConnectionsForStep(realtimeOverlay.trips[step.realtimeTripIndex], step)
-      : activeKernelTripConnections(kernel, step)
+    const connections = activeKernelTripConnections(kernel, step)
     tripConnectionMaterializationMs += performance.now() - tripConnectionStartedAt
     const first = connections[0]
     const last = connections.at(-1)
     if (!first || !last) return null
+    if (first.from_stop_id !== step.fromStopId || last.to_stop_id !== step.toStopId) {
+      throw new Error('The routing engine returned mismatched trip stops. Calculate the journey again.')
+    }
     if (step.realtimeAdjusted) realtimeAdjustedRideCount += 1
     const from = stopLookup.get(first.from_stop_id)
     const to = stopLookup.get(last.to_stop_id)
@@ -9286,6 +9023,8 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
   const originStreetPathVerified = exactStationAccess || legs[0].streetPathVerified === true
   const destinationStreetPathVerified = exactStationEgress || legs.at(-1).streetPathVerified === true
   legs = normalizeNationalLegs(legs)
+  const continuityIssue = journeyContinuityIssue({ legs, departMinutes: departureMinutes })
+  if (continuityIssue) throw new Error(continuityIssue)
   legNormalizationMs = performance.now() - legNormalizationStartedAt
   const rideLegs = legs.filter((leg) => leg.type === 'ride')
   if (!rideLegs.length) return null
@@ -9320,9 +9059,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
   const planIdentityMs = performance.now() - planIdentityStartedAt
   return {
     id: planId, status: 'ready', travelMode: 'transit', timePreference: 'depart', maxWalkKm, scheduleMode,
-    choiceLabel: realtimeAdjustedRideCount
-      ? 'Live · earliest arrival'
-      : balancedRequest
+    choiceLabel: balancedRequest
       ? search.balancedGeneralizedSelection
         ? 'Best balance'
         : balancedSelectedRole === 'earliest_arrival'
@@ -9332,7 +9069,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
     recommended: true, title: routeTitle || 'Transit',
     detail: routeTimingDetail(
       durationMinutes,
-      { ...serviceDateResolution, ...stationAccess },
+      { ...serviceDateResolution, ...stationAccess, scheduleMode },
       bridgedUntimedGapCount,
       sourceEqualTimeRideCount,
     ),
@@ -9361,9 +9098,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
       destinationStreetPathVerified,
       searchProfile: balancedRequest ? 'balanced' : 'fastest', searchStrategy: 'exact',
       algorithm: activeServiceKernelAlgorithm(search),
-      optimality: realtimeAdjustedRideCount
-        ? 'earliest_arrival_within_scheduled_plus_gtfs_rt_trip_update_overlay'
-        : bridgedUntimedGapCount
+      optimality: bridgedUntimedGapCount
         ? 'earliest_arrival_within_interpolated_stop_time_gap_model'
         : search.balancedGeneralizedSelection
           ? 'balanced_generalized_selection_over_exact_nondominated_frontier'
@@ -9378,15 +9113,12 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
       methodRequested: activeServiceKernelMethod(search),
       methodUsed: activeServiceKernelMethod(search),
       walkingPolicyId: nationalRoutingAccessPolicy.id, bridgedUntimedGapCount,
-      ...(realtimeOverlay ? {
+      ...(realtimeTimetable ? {
         realtimeRouting: {
-          ...realtimeOverlay.diagnostics,
-          mode: 'trip-update-overlay',
-          status: realtimeAdjustedRideCount ? 'applied' : realtimeOverlay.status,
-          overlayConnections: search.overlayConnections,
-          overlayRuns: search.overlayRuns,
-          supplementalTransferEdges: search.supplementalTransferEdges,
-          appliedTripIds: realtimeOverlay.trips.map((trip) => trip.feedTripId ?? trip.tripId),
+          ...realtimeTimetable.diagnostics,
+          mode: 'full-snapshot',
+          status: realtimeTimetable.status,
+          appliedTripIds: realtimeTimetable.trips.map((trip) => trip.feedTripId ?? trip.tripId),
         },
       } : {}),
       originStopCandidates: context.originStops.length, destinationStopCandidates: context.destinationStops.length,
@@ -9412,7 +9144,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
         nativeStreetPathCacheDisabled: nativeStreetPathDiagnostics.disableCache,
         selectedArrivalSeconds: bestArrival,
         scalarPhases: search.scalarPhases,
-        ...(realtimeOverlay ? { realtimeRouting: { ...realtimeOverlay.diagnostics, status: realtimeOverlay.status } } : {}),
+        ...(realtimeTimetable ? { realtimeRouting: { ...realtimeTimetable.diagnostics, status: realtimeTimetable.status } } : {}),
         materializationMs: Number((performance.now() - materializationStartedAt).toFixed(3)),
         tripConnectionMaterializationMs: Number(tripConnectionMaterializationMs.toFixed(3)),
         routeMetadataLookupMs: Number(routeMetadataLookupMs.toFixed(3)),
@@ -9705,6 +9437,7 @@ function reachTransitStatus({
  * operator with zero-cost station access.
  */
 export function routeNationalGtfsReach(storePath, request, options = {}) {
+  request = normalizeScheduledAnalysisRequest(request, 'Reach')
   request = withResolvedServiceDay(request)
   const started = performance.now()
   const onProgress = options.onProgress
@@ -10364,6 +10097,7 @@ function validateTransitRideRequirement(request) {
 }
 
 export function routeNationalGtfsMatrix(storePath, request) {
+  request = normalizeScheduledAnalysisRequest(request, 'Matrix')
   validateTransitRideRequirement(request)
   validateMaximumTransfers(request.maxTransfers)
   if (request.includeJourneys != null && typeof request.includeJourneys !== 'boolean') {
@@ -10775,7 +10509,14 @@ function routeNationalGtfsArriveByStore(
     error.activeServiceKernel = activeServiceKernelSnapshot(store)
     throw error
   }
-  const kernel = activeKernel
+  const realtimeTimetable = realtimeTimetableForRequest(store, activeKernel, request, serviceDateResolution)
+  const kernel = realtimeTimetable?.kernel ?? activeKernel
+  if (kernel.activeSegmentCount === 0) {
+    const blocked = blockedPlan(request, earliest / 60, maxWalkKm, 'No available service',
+      'No trips remain available in the realtime timetable.', { originStops: 0, destinationStops: 0 }, serviceDateResolution)
+    return { ...blocked, timePreference: 'arrive', choiceLabel: 'No arrive-by itinerary',
+      diagnostics: { ...blocked.diagnostics, realtimeRouting: realtimeTimetable?.diagnostics } }
+  }
   const fusedCoordinateEligible = Boolean(
     request.routingPreference !== 'balanced'
     && request.streetStorePath
@@ -10903,6 +10644,7 @@ function routeNationalGtfsArriveByStore(
   const arriveByCoordinateAccessReuseStart =
     preparedArriveByCoordinateAccess?.reuseCount ?? 0
   const fallbackRetryWithPreparedCoordinateAccess = () => {
+    if (realtimeTimetable?.ready) return null
     if (!preparedArriveByCoordinateAccess && fusedCoordinateTimetable) {
       ensureRecoverySeeds()
     }
@@ -11065,6 +10807,7 @@ function routeNationalGtfsArriveByStore(
       nativeTimetableKernel,
       streetStorageIdentity,
       nativeCoordinateAccess,
+      realtimeTimetable,
     })
     if (!candidatePlan) return null
     candidatePlan = decorateActiveServiceKernelParetoPlan(
@@ -11095,6 +10838,7 @@ function routeNationalGtfsArriveByStore(
     recommended: true,
     diagnostics: {
       ...plan.diagnostics,
+      ...(realtimeTimetable ? { realtimeRouting: realtimeTimetable.diagnostics } : {}),
       algorithm: recoveredByDirectWalk
         ? 'rust_arrive_by_reverse_upper_bound_plus_osm_direct_walk_certificate'
         : forwardParityRecovery
@@ -11459,12 +11203,19 @@ function routeNationalGtfsArriveByStore(
     diagnostics: {
       ...blocked.diagnostics,
       searchStats: arriveBySearchStats,
+      ...(realtimeTimetable ? { realtimeRouting: realtimeTimetable.diagnostics } : {}),
     },
   }
 }
 
 
+export function addNationalGtfsFares(storePath, plan) {
+  if (plan?.status !== 'ready' || !plan.legs?.some(leg => leg.type === 'ride')) return plan
+  return addGtfsFares(openNationalStore(storePath).db, plan)
+}
+
 export function routeNationalGtfsStore(storePath, request) {
+  request = normalizeRoutingDataRequest(request)
   validateTransitRideRequirement(request)
   validateMaximumTransfers(request.maxTransfers)
   request = withResolvedServiceDay(request)
@@ -11478,10 +11229,9 @@ export function routeNationalGtfsStore(storePath, request) {
   }
   const routeStartedAt = performance.now()
   const maxWalkKm = Math.max(0.2, Math.min(5, numeric(request.maxWalkKm, 1.6)))
-  const realtimeSnapshot = normalizeRealtimeSnapshotForRouting(request.realtimeSnapshot)
-  const realtimeRoutingRequested = Boolean(realtimeSnapshot?.tripUpdates?.length)
+  request = withRealtimeQueryContext(request)
   const resolvedStorePath = path.resolve(storePath)
-  if (!nationalStoreCache.has(resolvedStorePath)) {
+  if (!request.routingDataMode && !nationalStoreCache.has(resolvedStorePath)) {
     const lightweightDirectWalk = lightweightServiceAnchorDirectWalkProbe(
       resolvedStorePath,
       request,
@@ -11501,16 +11251,19 @@ export function routeNationalGtfsStore(storePath, request) {
   }
   const routingCoverage = store.routingCoverage
   const decorateResult = (plan) => {
+    plan = attachRoutingDataProvenance(plan, store, request)
     const resultStatus = routingResultStatus(plan)
     const transitResult = plan?.travelMode === 'transit'
       || plan?.legs?.some((leg) => leg.type === 'ride')
       || plan?.status === 'blocked'
+    const coreScope = plan?.diagnostics?.realtimeRouting?.coverage?.appliedUpdates > 0
+      ? 'supported_realtime_timetable' : 'supported_scheduled_core'
     const coreOptimality = !routingCoverage.complete && transitResult
       ? plan?.status === 'ready'
-        ? 'earliest_arrival_within_supported_scheduled_core'
+        ? `${request.timePreference === 'arrive' ? 'latest_departure' : 'earliest_arrival'}_within_${coreScope}`
         : plan?.diagnostics?.failureCode === 'no_path'
-          ? 'no_path_within_supported_scheduled_core'
-          : 'search_limited_to_supported_scheduled_core'
+          ? `no_path_within_${coreScope}`
+          : `search_limited_to_${coreScope}`
       : plan?.diagnostics?.optimality
     if (plan?.diagnostics?.searchStats) {
       Object.assign(plan.diagnostics, {
@@ -11627,9 +11380,11 @@ export function routeNationalGtfsStore(storePath, request) {
     const residentFusedKernel = store.activeServiceCalendarKey === requestedServiceCalendarKey
       ? currentActiveServiceKernel(store)
       : null
+    const residentRealtimeTimetable = residentFusedKernel
+      ? realtimeTimetableForRequest(store, residentFusedKernel, request, serviceDateResolution) : null
+    const residentQueryKernel = residentRealtimeTimetable?.kernel ?? residentFusedKernel
     const fusedCoordinateEligible = Boolean(
-      residentFusedKernel
-      && !realtimeRoutingRequested
+      residentQueryKernel?.activeSegmentCount > 0
       && request.streetStorePath
       && !request?.[preparedNativeCoordinateAccessPair]
       && !explicitRoutingStopId(origin)
@@ -11658,7 +11413,7 @@ export function routeNationalGtfsStore(storePath, request) {
       const profileReadinessMs = performance.now() - profileReadinessStartedAt
       const routed = routeNativeCoordinateTimetableScalar(
         request.streetStorePath,
-        residentFusedKernel,
+        residentQueryKernel,
         {
           origin: origin.coordinate,
           destination: destination.coordinate,
@@ -11674,7 +11429,8 @@ export function routeNationalGtfsStore(storePath, request) {
       )
       fusedCoordinateTimetable = {
         ...routed,
-        activeKernel: residentFusedKernel,
+        activeKernel: residentQueryKernel,
+        realtimeTimetable: residentRealtimeTimetable,
       }
       const fusedAccessWallMs = Math.max(
         routed.accessMs,
@@ -11841,69 +11597,25 @@ export function routeNationalGtfsStore(storePath, request) {
       serviceKernelPreparationMs = prepared.preparationMs
     }
     if (activeKernel) {
-      let realtimeOverlay = null
+      let realtimeTimetable = null
       try {
         const allowPreRideTransfers = (
           !request.streetStorePath || Boolean(explicitRoutingStopId(origin))
         )
-        realtimeOverlay = realtimeRoutingRequested
-          ? buildRealtimeTimetableOverlay(store, activeKernel, realtimeSnapshot, {
-              originStops,
-              destinationStops,
-              serviceDateResolution,
-            })
-          : null
-        let realtimeSearch = null
-        if (realtimeOverlay?.ready) {
-          try {
-            realtimeSearch = searchActiveServiceKernelNativeRealtime(
-              activeKernel,
-              originStops,
-              destinationStops,
-              departure,
-              horizon,
-              allowPreRideTransfers,
-              realtimeOverlay,
-              request.maxTransfers,
-            )
-          } catch (error) {
-            const fallbackError = error instanceof Error ? error.message : String(error)
-            realtimeOverlay.ready = false
-            realtimeOverlay.status = 'scheduled_fallback'
-            realtimeOverlay.diagnostics.fallbackReason = 'realtime_overlay_query_failed'
-            realtimeOverlay.diagnostics.fallbackError = fallbackError
-          }
-        }
-        if (
-          realtimeSearch
-          && (
-            realtimeSearch.supported !== true
-            || !['ready', 'blocked'].includes(realtimeSearch.status)
-          )
-        ) {
-          realtimeOverlay.ready = false
-          realtimeOverlay.status = 'scheduled_fallback'
-          realtimeOverlay.diagnostics.fallbackReason = 'realtime_overlay_query_unsupported'
-          realtimeOverlay.diagnostics.fallbackError = realtimeSearch.reason
-          realtimeSearch = null
-        }
-        const kernelSearch = realtimeSearch ?? (
-          fusedCoordinateTimetable
+        realtimeTimetable = fusedCoordinateTimetable?.realtimeTimetable
+          ?? realtimeTimetableForRequest(store, activeKernel, request, serviceDateResolution)
+        if (realtimeTimetable) activeKernel = realtimeTimetable.kernel
+        const kernelSearch = activeKernel.activeSegmentCount === 0
+          ? { supported: true, status: 'blocked', chain: [], queryMs: 0,
+              scannedDepartures: 0, relaxedStops: 0, explicitTransferChecks: 0 }
+          : fusedCoordinateTimetable
             ? activeServiceKernelSearchFromNativeScalar(
-                activeKernel,
-                fusedCoordinateTimetable.timetable,
-                fusedCoordinateTimetable,
+                activeKernel, fusedCoordinateTimetable.timetable, fusedCoordinateTimetable,
               )
             : searchActiveServiceKernelNativeScalar(
-                activeKernel,
-                originStops,
-                destinationStops,
-                departure,
-                horizon,
-                allowPreRideTransfers,
-                request.maxTransfers,
+                activeKernel, originStops, destinationStops, departure, horizon,
+                allowPreRideTransfers, request.maxTransfers,
               )
-        )
         if (
           kernelSearch.supported !== true
           || !['ready', 'blocked'].includes(kernelSearch.status)
@@ -11917,10 +11629,8 @@ export function routeNationalGtfsStore(storePath, request) {
           (count, step) => count + (step.kind === 'ride' ? 1 : 0),
           0,
         ) ?? 0
-        const realtimeSearchApplied = kernelSearch.realtimeOverlay === true
         const collectAlternatives = Array.isArray(request[departureWindowAlternativePlans])
-          && !realtimeSearchApplied
-        const balancedTransferPreference = request.routingPreference === 'balanced' && !realtimeSearchApplied
+        const balancedTransferPreference = request.routingPreference === 'balanced'
         const paretoOptions = {
           allowPreRideTransfers,
           collectAlternatives,
@@ -11943,8 +11653,7 @@ export function routeNationalGtfsStore(storePath, request) {
         // Scalar arrival dominance can discard a later stop label with less
         // walking that still catches the same vehicle. Exact Pareto rounds
         // certify secondary objectives even for one- and two-boarding paths.
-        const requiresParetoCertification = !realtimeSearchApplied
-          && kernelSearch.status === 'ready' && kernelCandidateBoardings > 0
+        const requiresParetoCertification = kernelSearch.status === 'ready' && kernelCandidateBoardings > 0
           && (request.maxTransfers === undefined || collectAlternatives || balancedTransferPreference)
         // The scalar scan already proves the earliest transit arrival. A
         // graph-verified walk that wins that comparison needs no bounded
@@ -11957,6 +11666,7 @@ export function routeNationalGtfsStore(storePath, request) {
               {
                 status: 'ready', travelMode: 'transit', departMinutes: departureMinutes,
                 durationMinutes: secondsToMinutes(kernelSearch.bestArrival - departure),
+                diagnostics: realtimeTimetable ? { realtimeRouting: realtimeTimetable.diagnostics } : {},
               },
               accessFrontierDirectWalk.path,
               accessFrontierDirectWalk.streetSearchMs,
@@ -12105,6 +11815,7 @@ export function routeNationalGtfsStore(storePath, request) {
             departMinutes: departureMinutes,
             durationMinutes: selectedTransitDurationMinutes,
             diagnostics: {
+              ...(realtimeTimetable ? { realtimeRouting: realtimeTimetable.diagnostics } : {}),
               searchStats: unmaterializedSearchStats,
             },
           }
@@ -12178,10 +11889,10 @@ export function routeNationalGtfsStore(storePath, request) {
           nativeTimetableKernel,
           streetStorageIdentity,
           nativeCoordinateAccess,
-          realtimeOverlay,
+          realtimeTimetable,
         }
         if (selectedKernelSearch.status === 'blocked') {
-          const serviceDateRetry = fallbackRetryRequest(store, request)
+          const serviceDateRetry = realtimeTimetable?.ready ? null : fallbackRetryRequest(store, request)
           if (serviceDateRetry) return routeNationalGtfsStore(storePath, serviceDateRetry)
           let transitBlockedPlan = materializeActiveServiceKernelBlockedPlan(
             store,
@@ -12862,9 +12573,11 @@ function routeNationalGtfsParetoAlternatives(storePath, request, centerMinutes, 
 }
 
 export function routeNationalGtfsDepartureWindow(storePath, request) {
+  request = normalizeRoutingDataRequest(request)
   validateTransitRideRequirement(request)
   validateMaximumTransfers(request.maxTransfers)
   request = withResolvedServiceDay(request)
+  request = withRealtimeQueryContext(request)
   const windowStartedAt = performance.now()
   const centerMinutes = integralRoutingMinute(request.departMinutes, 'departMinutes')
   const windowMinutes = integralRoutingMinute(
@@ -12940,6 +12653,7 @@ export function routeNationalGtfsDepartureWindow(storePath, request) {
   }
   const directWalk = dominantDirectWalkPlan({ ...request, timePreference: 'depart', departMinutes: centerMinutes }, maxWalkKm)
   if (directWalk) {
+    attachRoutingDataProvenance(directWalk, store, request)
     const plans = sampleMinutes.map((sampleMinute) => materializeDirectWalkPlan(directWalk, sampleMinute))
     const departureWindow = {
       centerMinutes,

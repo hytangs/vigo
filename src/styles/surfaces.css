@@ -7,6 +7,8 @@
 }
 
 .reach-surface {
+  font-size: 13px;
+  line-height: 1.5;
   min-height: 0;
   align-content: start;
   overflow-x: hidden;
@@ -30,7 +32,7 @@
 .reach-sketch-state small,
 .reach-check small {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
@@ -55,7 +57,7 @@
   color: var(--text-muted);
   background: transparent;
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 750;
 }
 
@@ -70,7 +72,7 @@
 
 .reach-mode-tabs button small {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 560;
 }
 
@@ -114,13 +116,13 @@
 
 .reach-comparison-feed-option strong {
   color: var(--text-strong);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .reach-comparison-feed-option small,
 .reach-comparison-selection-note {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .reach-empty-case span,
@@ -139,7 +141,7 @@
   color: var(--accent);
   background: transparent;
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 750;
   text-align: left;
 }
@@ -171,13 +173,13 @@
   align-items: center;
   gap: 6px;
   color: var(--text-strong);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 660;
 }
 
 .reach-advanced > summary > b {
   overflow: hidden;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 560;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -190,11 +192,11 @@
 .reach-field {
   display: grid;
   gap: 5px;
-  color: var(--text-muted);
-  font-size: 10px;
+  color: var(--text);
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .reach-route-picker {
@@ -204,14 +206,14 @@
 
 .reach-route-picker > small {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.35;
 }
 
 .reach-scope-note {
   display: block;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
@@ -225,7 +227,7 @@
   color: var(--text);
   background: var(--panel-strong);
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: normal;
   text-transform: none;
   color-scheme: inherit;
@@ -236,7 +238,7 @@
 .reach-danger-action,
 .reach-intervention-add > button {
   display: inline-flex;
-  min-height: 32px;
+  min-height: 36px;
   align-items: center;
   justify-content: center;
   gap: 5px;
@@ -245,7 +247,7 @@
   color: var(--accent);
   background: transparent;
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 750;
 }
 
@@ -264,7 +266,7 @@
 
 .reach-case-tabs button {
   display: inline-flex;
-  min-height: 34px;
+  min-height: 36px;
   align-items: center;
   justify-content: space-between;
   gap: 4px;
@@ -274,7 +276,7 @@
   color: var(--text-muted);
   background: var(--panel-strong);
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 750;
 }
 
@@ -285,7 +287,7 @@
   place-items: center;
   border-radius: 50%;
   background: color-mix(in srgb, var(--text-muted) 14%, transparent);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .reach-case-tabs button.is-active {
@@ -376,18 +378,18 @@
   border-radius: 50%;
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
 }
 
 .reach-intervention-head strong {
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .reach-intervention-head small {
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -427,7 +429,7 @@
 
 .reach-placement-status {
   display: grid;
-  min-height: 44px;
+  min-height: 36px;
   grid-template-columns: 18px minmax(0, 1fr) 32px;
   align-items: center;
   gap: 7px;
@@ -492,7 +494,7 @@
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 8%, var(--panel));
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 750;
 }
 
@@ -545,7 +547,7 @@
   border-radius: 50%;
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 13%, transparent);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -564,18 +566,18 @@
 
 .reach-stop-name strong {
   color: var(--text-strong);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .reach-stop-name small,
 .reach-stop-method-note {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.35;
 }
 
 .reach-stop-change {
-  min-height: 32px;
+  min-height: 36px;
   padding-inline: 7px;
 }
 
@@ -615,12 +617,12 @@
 
 .reach-road-inference strong {
   color: var(--text-strong);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .reach-road-inference small {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .reach-road-inference > button {
@@ -655,7 +657,7 @@
   border: 1px dashed var(--border);
   border-radius: 8px;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -667,7 +669,7 @@
   border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--border));
   color: var(--text);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -696,7 +698,7 @@
   justify-content: space-between;
   gap: 10px;
   color: var(--text);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .reach-analysis-progress progress {
@@ -708,7 +710,7 @@
 .reach-analysis-progress small {
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -721,7 +723,7 @@
 .reach-results > p {
   margin: 0;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -752,13 +754,13 @@
 
 .reach-comparison-result-head strong {
   color: var(--text-strong);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .reach-comparison-result-head small,
 .reach-comparison-result-head > span {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .reach-comparison-result-list {
@@ -767,7 +769,7 @@
 }
 
 .reach-comparison-result {
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   column-gap: 8px;
   padding: 9px;
@@ -790,28 +792,28 @@
 
 .reach-comparison-result strong,
 .reach-comparison-result small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  white-space: normal;
 }
 
 .reach-comparison-result strong {
   color: var(--text-strong);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .reach-comparison-result small {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .reach-comparison-result > b {
-  grid-column: 3;
-  font-size: 16px;
+  grid-column: 2;
+  font-size: 26px;
 }
 
 .reach-comparison-result > small:last-child {
-  grid-column: 3;
+  grid-column: 2;
 }
 
 .reach-service-edges {
@@ -833,7 +835,7 @@
   flex-wrap: wrap;
   gap: 8px;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .reach-service-edge-legend span {
@@ -850,19 +852,19 @@
 
 .reach-service-edges strong {
   color: var(--text-strong);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .reach-service-edges small,
 .reach-service-edge-summary {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
 .reach-service-edges .reach-run {
-  min-height: 34px;
-  font-size: 10px;
+  min-height: 36px;
+  font-size: 12px;
 }
 
 .reach-segmented {
@@ -875,13 +877,13 @@
 }
 
 .reach-segmented button {
-  min-height: 32px;
+  min-height: 36px;
   border: 0;
   border-radius: 6px;
   color: var(--text-muted);
   background: transparent;
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -906,7 +908,7 @@
 
 .reach-render-mode-head small {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.35;
 }
 
@@ -924,22 +926,22 @@
 }
 
 .reach-surface-legend-head {
-  display: flex;
+  display: grid;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
+  gap: 4px;
 }
 
 .reach-surface-legend-head strong {
   color: var(--text-strong);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .reach-surface-legend-head small {
   min-width: 0;
   color: var(--text-muted);
-  font-size: 9px;
-  text-align: right;
+  font-size: 12px;
+  text-align: left;
 }
 
 .reach-surface-legend-bar {
@@ -953,7 +955,7 @@
   justify-content: space-between;
   gap: 8px;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .reach-surface-legend-scale span:last-child {
@@ -962,32 +964,32 @@
 
 .reach-metric-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-1);
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
 }
 
 .reach-metric-grid .result-metric {
   display: grid;
-  gap: var(--space-1);
+  gap: 6px;
   min-width: 0;
-  padding: var(--space-2);
+  padding: 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--panel-strong) 78%, transparent);
 }
 
 .reach-metric-grid .result-metric strong {
-  overflow: hidden;
+  overflow-wrap: anywhere;
   color: var(--text-strong);
-  font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 26px;
+  line-height: 1.15;
+  font-weight: 750;
 }
 
 .reach-metric-grid .result-metric span {
-  color: var(--text-muted);
-  font-size: 9px;
-  line-height: 1.3;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .reach-result-flow {
@@ -1027,7 +1029,7 @@
 
 .reach-results details {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .reach-results summary {
@@ -1075,7 +1077,7 @@
 
 .reach-method-record code {
   color: var(--accent);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .reach-method-interventions {
@@ -1109,9 +1111,9 @@
   line-height: 1.45;
 }
 
-/* Reach is one compact query editor followed by its result. */
+/* Reach query and result hierarchy. */
 .reach-surface {
-  gap: 12px;
+  gap: 20px;
   padding-right: 4px;
   padding-bottom: 24px;
 }
@@ -1123,11 +1125,11 @@
 
 .reach-section-kicker {
   color: var(--accent);
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: normal;
   line-height: 1.2;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .reach-analysis-switch {
@@ -1147,7 +1149,7 @@
 .reach-panel-heading strong,
 .reach-scenario-heading strong {
   color: var(--text-strong);
-  font-size: 11px;
+  font-size: 19px;
   line-height: 1.3;
 }
 
@@ -1160,7 +1162,7 @@
 }
 
 .reach-mode-tabs button {
-  min-height: 32px;
+  min-height: 36px;
   justify-items: center;
   padding: 0 9px;
   border-radius: 6px;
@@ -1173,7 +1175,7 @@
 }
 
 .reach-mode-tabs button span {
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .reach-panel-heading {
@@ -1186,7 +1188,7 @@
 .reach-panel-heading small,
 .reach-scenario-heading small {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.35;
 }
 
@@ -1196,7 +1198,7 @@
   align-items: center;
   gap: 4px;
   color: var(--accent);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -1209,7 +1211,7 @@
 }
 
 .reach-comparison-feed-option {
-  min-height: 48px;
+  min-height: 40px;
   align-items: center;
   padding: 8px 9px;
   border-radius: 9px;
@@ -1223,8 +1225,8 @@
 
 .reach-query-card {
   display: grid;
-  gap: 10px;
-  padding: 10px 0 11px;
+  gap: 16px;
+  padding: 16px 0;
   border: 0;
   border-bottom: 1px solid var(--border);
   border-radius: 0;
@@ -1260,17 +1262,17 @@
 }
 
 .reach-origin-row strong {
-  overflow: hidden;
+  overflow-wrap: anywhere;
   color: var(--text-strong);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 14px;
+  line-height: 1.3;
+  font-weight: 700;
 }
 
 .reach-origin-row small {
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 8.5px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1334,14 +1336,14 @@
   align-items: center;
   gap: 6px;
   color: var(--text-strong);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
 }
 
 .reach-scenario-builder > summary > b {
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1368,7 +1370,7 @@
 .reach-scenario-heading .reach-icon-action {
   width: 30px;
   height: 30px;
-  min-height: 30px;
+  min-height: 36px;
 }
 
 .reach-run-block {
@@ -1387,7 +1389,7 @@
 
 .reach-run-hint {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
   text-align: center;
 }
 
@@ -1404,13 +1406,13 @@
 
 .reach-results-heading strong {
   color: var(--text-strong);
-  font-size: 13px;
+  font-size: 19px;
   letter-spacing: -0.01em;
 }
 
 .reach-results-heading small {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.35;
 }
 
@@ -1438,7 +1440,7 @@
 
 .reach-render-mode-label {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 760;
 }
 
@@ -1447,8 +1449,8 @@
 }
 
 .reach-render-mode .reach-segmented button {
-  min-height: 30px;
-  font-size: 9.5px;
+  min-height: 36px;
+  font-size: 12px;
 }
 
 .reach-advanced > .reach-field-grid {
@@ -1480,7 +1482,7 @@
 }
 
 .reach-render-mode-head strong {
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .reach-result-view .reach-render-mode-head {
@@ -1493,18 +1495,18 @@
 }
 
 .reach-segmented.is-view button {
-  min-height: 34px;
-  font-size: 10px;
+  min-height: 36px;
+  font-size: 12px;
 }
 
 .reach-metric-grid .result-metric:first-child {
-  grid-column: span 2;
-  padding: 12px;
+  grid-column: 1 / -1;
+  padding: 14px;
   background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 10%, var(--panel-strong)), var(--panel-strong));
 }
 
 .reach-metric-grid .result-metric:first-child strong {
-  font-size: 20px;
+  font-size: 28px;
 }
 
 .reach-result-flow {
@@ -1544,6 +1546,11 @@
     width: 100%;
   }
 }
+.reach-supporting-metrics, .reach-status-details { min-width: 0; color: var(--text-soft); font-size: 12px; line-height: 1.5; }
+.reach-supporting-metrics > summary, .reach-status-details > summary { min-height: 34px; line-height: 34px; cursor: pointer; font-weight: 600; }
+.reach-supporting-metrics .result-metric { margin-top: 8px; }
+.reach-status-details > p { margin: 8px 0; }
+.reach-metric-grid .result-metric small { font-size: 12px; line-height: 1.5; }
 
 /* Data surface */
 /* Dedicated map-free data and preference surface. */
@@ -1558,8 +1565,7 @@
   border-right: 1px solid var(--border);
 }
 
-.app-shell.view-data .sidebar-panel,
-.app-shell.view-data .sidebar-rail-bottom {
+.app-shell.view-data .sidebar-panel {
   display: none;
 }
 
@@ -2271,24 +2277,13 @@
     bottom: 0;
     left: 0;
     width: auto;
-    height: 54px;
+    height: var(--mobile-nav-height, 60px);
     display: block;
     border: 0;
     border-top: 1px solid var(--border);
     border-radius: 0;
     overflow: hidden;
     box-shadow: none;
-  }
-
-  .app-shell.view-data .sidebar-rail {
-    height: 100%;
-    display: grid;
-    padding: 4px 7px;
-    border: 0;
-  }
-
-  .app-shell.view-data .sidebar-rail-bottom {
-    display: grid;
   }
 }
 
@@ -2434,57 +2429,6 @@
 
 .sidebar-panel.is-explore {
   grid-template-rows: auto minmax(0, 1fr);
-}
-
-.sidebar-panel.is-explore .route-browser-section {
-  grid-template-rows: auto minmax(160px, 1fr) auto;
-}
-
-.sidebar-panel.is-explore .route-browser-heading {
-  align-items: start;
-}
-
-.route-browser-heading > div {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.sidebar-panel.is-explore .route-browser-heading strong {
-  color: var(--text-strong);
-  font-size: 0.78rem;
-  font-weight: 720;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.route-browser-heading small {
-  color: var(--text-muted);
-  font-size: 0.62rem;
-  font-weight: 520;
-  line-height: 1.35;
-}
-
-.route-browser-heading > span {
-  color: var(--text-muted);
-  font-size: 0.62rem;
-  font-weight: 650;
-}
-
-.sidebar-panel.is-explore .sidebar-list-row.route-row span {
-  font-size: 0.68rem;
-  font-weight: 560;
-}
-
-.sidebar-panel.is-explore .route-browser-section.has-object-detail {
-  grid-template-rows: minmax(0, 1fr);
-  gap: 0;
-}
-
-.route-browser-section.has-object-detail .object-detail {
-  min-height: 0;
-  height: 100%;
-  animation: vigo-surface-in 220ms var(--ease-standard) both;
 }
 
 .route-map-shell .map-live-card {
@@ -3068,8 +3012,8 @@
 
 @media (max-width: 760px) {
   .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar:has(.sidebar-panel.is-pathfinder) {
-    height: 59svh;
-    max-height: 59svh;
+    height: 100%;
+    max-height: none;
   }
 
   .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar:has(.sidebar-panel.is-pathfinder) .sidebar-panel.is-pathfinder {
@@ -3077,18 +3021,9 @@
     max-height: none;
   }
 
-  .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar:has(.sidebar-panel.is-explore .route-browser-section.has-object-detail) {
-    height: 62svh;
-    max-height: 62svh;
-  }
-
-  .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar:has(.route-browser-section.has-object-detail) .sidebar-panel.is-explore {
-    height: 100%;
-    max-height: none;
-  }
-
   .app-shell.page-project:not(.project-empty):not(.view-data) .shell-body {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1.15fr) minmax(0, 1fr);
   }
 
   .app-shell.page-project.routing-detail-open:not(.project-empty):not(.view-data) .shell-body {
@@ -3097,10 +3032,11 @@
 
   .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar {
     width: 100%;
-    min-height: 300px;
-    max-height: 46svh;
+    min-height: 0;
+    height: 100%;
+    max-height: none;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) 48px;
+    grid-template-rows: minmax(0, 1fr);
     border-right: 0;
     border-bottom: 1px solid var(--border);
     overflow: hidden;
@@ -3108,10 +3044,6 @@
 
   .sidebar-panel {
     min-width: 0;
-  }
-
-  .sidebar-panel.is-explore .route-browser-section.has-object-detail {
-    grid-template-rows: minmax(0, 1fr);
   }
 
   .routing-detail-panel {

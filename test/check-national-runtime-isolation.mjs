@@ -37,7 +37,7 @@ async function writeFixtureProject(projectId) {
   await fs.writeFile(path.join(metaPath, 'project.json'), `${JSON.stringify(fixtureProject(projectId))}\n`)
   const database = new DatabaseSync(storePath)
   try {
-    database.exec('CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    database.exec("CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE stops(stop_id TEXT PRIMARY KEY); INSERT INTO stops VALUES('fixture-origin'),('fixture-destination');")
     const insert = database.prepare('INSERT INTO metadata(key,value) VALUES(?,?)')
     insert.run('schemaVersion', JSON.stringify('vigo.routing.store.v1'))
     insert.run(
@@ -230,6 +230,32 @@ try {
   const resumedHealth = await health(apiUrl)
   assert.equal(resumedHealth.body.routingRuntime.responseCache, undefined)
   assert.equal(resumedHealth.body.routingRuntime.workerCount, 1)
+
+  // Both slots are pinned by open Cities. Walking must reuse the City's worker
+  // instead of waiting for an impossible third street-keyed slot.
+  for (const projectId of projectIds.slice(0, 2)) {
+    const metaPath = path.join(projectsPath, projectId, '.vigo')
+    const project = fixtureProject(projectId)
+    project.osmStreetIndex = { status: 'ready', cch: { ready: true } }
+    await fs.mkdir(path.join(metaPath, 'osm'), { recursive: true })
+    const street = new DatabaseSync(path.join(metaPath, 'osm', 'street-index.sqlite'))
+    street.exec(`CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT); INSERT INTO metadata VALUES ('schemaVersion','"vigo.street.store.v4"'), ('sourceModel','"pbf"');`)
+    street.close()
+    await fs.writeFile(path.join(metaPath, 'project.json'), JSON.stringify(project))
+    const leased = await apiRuntime.fetch(new URL(`api/projects/${projectId}/routing-residency`, apiUrl), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ resident: true, leaseId: 'walking-test' }) })
+    assert.equal(leased.status, 200)
+    await postRoute(apiUrl, projectId)
+  }
+  const leasedHealth = (await health(apiUrl)).body.routingRuntime
+  assert.equal(leasedHealth.residentRoutingStores, 2)
+  assert.equal(leasedHealth.workerCount, 2, 'Both leased slots must actually be occupied before testing walking')
+  const walk = await postRoute(apiUrl, projectIds[0], { mode: 'walk' }, AbortSignal.timeout(3000))
+  assert.equal(walk.plan.travelMode, 'walk')
+  assert.equal(walk.plan.diagnostics.workerInstance, resumedRoute.plan.diagnostics.workerInstance)
+  const matrix = await apiRuntime.fetch(new URL(`api/projects/${projectIds[0]}/national-street-matrix`, apiUrl), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'walk', origins: [[6.1, 46.2]], destinations: [[6.2, 46.3]] }), signal: AbortSignal.timeout(3000) })
+  assert.equal(matrix.status, 200)
+  assert.equal((await matrix.json()).matrix.diagnostics.workerInstance, walk.plan.diagnostics.workerInstance)
+  assert.equal((await health(apiUrl)).body.routingRuntime.workerCount, 2)
 
   console.log(JSON.stringify({
     check: 'national-runtime-isolation',

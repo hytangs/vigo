@@ -15,6 +15,6 @@ export function studioPaths(releaseRoot, version, platform = process.platform, a
     directory, application, executable,
     program: path.join(resources, 'app', 'public', 'vigo.mjs'),
     nativeKernel: path.join(resources, 'app', 'server', 'vigo-routing-kernel.node'),
-    archive: path.join(releaseRoot, `VIGO-Studio-${version}-${label}-${architecture}.${extension}`),
+    archive: path.join(releaseRoot, `VIGO-Agency-${version}-${label}-${architecture}.${extension}`),
   }
 }

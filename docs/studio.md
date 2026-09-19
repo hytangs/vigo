@@ -1,22 +1,22 @@
-# VIGO Studio Guide
+# VIGO Studio desktop guide
 
-VIGO Studio provides network exploration, Route planning, and Reach analysis over the VIGO routing engine.
+VIGO Studio provides Network, Route, Analyze and City views over the VIGO routing engine. See the [Network guide](agency.md) for Network, Routes and Ask.
 
 ## Open a City
 
 Select a project from the Studio library and import GTFS and OSM. Rebuild when the source feed or street extract changes. Studio currently stores its projects in a library format; it cannot directly open the movable City directories built by the CLI.
 
-## Explore
+## Network
 
-### Network
+### Routes
 
-View transit lines, stops, stations, and streets together. Select a service to inspect its directions, patterns, stop sequence, service span, and exact-date trip count.
+Open **Network → Routes** to view transit lines, stops, stations, and streets together. Select a service to inspect its directions, patterns, stop sequence, service span, and exact-date trip count.
 
 ### Playback
 
 Choose a service date and local time. Scheduled playback uses trip-level stop times active on that date; it does not animate the route-wide trip total. Live state, when available, stays separate from the baseline schedule.
 
-Live Vehicle Positions and Alerts are displayed for inspection. Only supported, matched Trip Updates affect Studio Route; this is a bounded overlay over static service, not complete realtime network routing. See the [realtime limits](known-routing-limitations.md#realtime), including freshness fallback and unsupported trip/stop changes.
+Vehicle Positions and Alerts are displayed for inspection. In **Realtime** mode, Route processes the supplied Trip Updates into a separate timetable; unreported trips retain scheduled times. **Scheduled · Research** uses an explicit service date/time without live observations. See [realtime routing](REALTIME-ROUTING.md) and its [limits](known-routing-limitations.md#realtime).
 
 ## Route
 
@@ -24,7 +24,7 @@ Live Vehicle Positions and Alerts are displayed for inspection. Only supported, 
 
 Pick an origin and destination on the map. **Add point** inserts a via point before the destination; a route supports up to eight points total. Each row shows latitude and longitude. Click the row to repick its location, use the arrows to reorder it, or remove it. **Reverse** reverses the complete sequence. The route form does not search place or station names.
 
-Choose mode, date, time, and depart-at or arrive-by. Point and option changes update the route; **Rerun route** submits the same coordinates again, and **New route** clears them. Coordinate access and egress follow the OSM street graph. Inspect every returned leg before using its geometry.
+Choose a travel mode. Realtime transit departs now; Scheduled exposes the service date, time, and depart-at or arrive-by controls. Transfer caps are disabled while via points are present. Point and option changes update the route; **Rerun route** submits the same coordinates again, and **New route** clears them. Coordinate access and egress follow the OSM street graph. Inspect every returned leg before using its geometry.
 
 ### Recent
 
@@ -44,7 +44,7 @@ Scenario drafts and the selected case are saved in Studio's local profile when e
 
 For a stop inserted on an A → B edge shared by several branches, the road path is applied to each affected branch. Each branch retains its untouched published shape and its own A → B runtime, with dwell added at the inserted stop. Load complete branch shapes before building the path.
 
-Matrix is available through the CLI in 0.3.2. Studio does not add a separate Matrix screen.
+Matrix is available through the CLI in 0.4.0. Studio does not add a separate Matrix screen.
 
 ## City
 

@@ -35,7 +35,7 @@ A Route Result contains status, chronological legs, departure and arrival, durat
 
 The engine adds no implicit boarding buffer. Same-stop vehicle changes honor published GTFS minimum transfer times and forbidden transfers; staying aboard does not incur a transfer minimum. Explicit transfer edges retain their durations without an added boarding margin or a 60-second floor. Native diagnostics report `transferBoardSlackSeconds: 0`. A published platform-to-platform transfer rule takes precedence over the station walking fallback.
 
-VIGO 0.3.2 exposes `earliest_arrival`. Equal-arrival journeys prefer fewer boardings, then less walking, then a stable final order. VIGO does not expose an undefined “balanced” preference. Arrive-by first maximizes departure time; among journeys leaving at that boundary and arriving by the deadline, it minimizes boardings, then walking, then actual arrival. A slightly later on-time arrival can therefore avoid unnecessary transfers.
+VIGO 0.4.0 exposes `earliest_arrival`. Equal-arrival journeys prefer fewer boardings, then less walking, then a stable final order. VIGO does not expose an undefined “balanced” preference. Arrive-by first maximizes departure time; among journeys leaving at that boundary and arriving by the deadline, it minimizes boardings, then walking, then actual arrival. A slightly later on-time arrival can therefore avoid unnecessary transfers.
 
 Departure-window queries also return up to five distinct journey choices in
 `choices`, including slower services that reduce transfers or walking. For each
@@ -55,7 +55,7 @@ It prunes prefixes whose best possible completion is strictly
 dominated by an existing journey. A verified walk that already beats the exact
 earliest transit arrival bypasses the bounded transit pass.
 
-Depart-at transit, arrive-by transit, walking, driving, waypoints, and batch requests remain Route variants. Studio also offers bounded realtime-adjusted transit Route; this is unavailable through the public CLI. See the [realtime limits](known-routing-limitations.md#realtime).
+Depart-at transit, arrive-by transit, walking, driving, waypoints, and batch requests remain Route variants. Desktop and CLI Route support realtime transit. CLI callers supply `realtimeSnapshot` and select `--data-mode realtime`; scheduled mode remains the CLI default. See [data modes and provenance](REALTIME-ROUTING.md). See the [realtime limits](known-routing-limitations.md#realtime).
 
 ## Maximum transfers
 

@@ -32,8 +32,13 @@ async function throwApiError(response: Response): Promise<never> {
     routing?: { status?: ApiRoutingStatus; code?: string; retryable?: boolean; remediation?: string }
   } | null
   const routing = body?.routing
+  const fallback = response.status === 502 || response.status === 503
+    ? 'The local VIGO service is unavailable. Restart the service, then try again.'
+    : response.status === 504
+      ? 'The request timed out. Try again when the local service is ready.'
+      : `Request failed with ${response.status}`
   throw new ApiRequestError(
-    body?.error ?? `Request failed with ${response.status}`,
+    body?.error ?? fallback,
     response,
     {
       status: routing?.status ?? body?.status,
@@ -111,18 +116,26 @@ export async function apiProgressJson<T>(
       lineParts.push(chunk.slice(start, newline))
       consume(lineParts.join(''))
       lineParts = []
+      if (result) return
       start = newline + 1
       newline = chunk.indexOf('\n', start)
     }
     if (start < chunk.length) lineParts.push(chunk.slice(start))
   }
 
-  while (true) {
-    const next = await reader.read()
-    consumeChunk(decoder.decode(next.value, { stream: !next.done }))
-    if (next.done) break
+  try {
+    while (!result) {
+      const next = await reader.read()
+      consumeChunk(decoder.decode(next.value, { stream: !next.done }))
+      if (next.done) break
+    }
+    if (!result) consume(lineParts.join(''))
+    if (!result) throw new Error('The analysis stream ended before returning a surface.')
+    return result
+  } finally {
+    // A terminal event finishes the request. Parse or callback failures must
+    // also close the response so the server can cancel its remaining work.
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
   }
-  consume(lineParts.join(''))
-  if (!result) throw new Error('The analysis stream ended before returning a surface.')
-  return result
 }

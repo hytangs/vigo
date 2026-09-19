@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { studioPaths } from './lib/studio-paths.mjs'
+import { auditPackageFiles } from './lib/package-audit.mjs'
 
 const execFileAsync = promisify(execFile)
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -26,83 +27,91 @@ await assertFile(
   path.join(repositoryRoot, 'native', 'vigo-routing-kernel', 'vigo-routing-kernel.node'),
   'Missing VIGO routing kernel. Run npm run build first.',
 )
-await assertFile(path.join(repositoryRoot, 'desktop', 'main.mjs'), 'Missing Electron main process.')
-await assertFile(path.join(repositoryRoot, 'desktop', 'preload.cjs'), 'Missing Electron preload.')
+await assertFile(path.join(repositoryRoot, 'public', 'main.mjs'), 'Missing Electron main process.')
+await assertFile(path.join(repositoryRoot, 'public', 'preload.cjs'), 'Missing Electron preload.')
 
 await rm(stagingRoot, { force: true, recursive: true })
-await mkdir(applicationRoot, { recursive: true })
-await Promise.all([
-  cp(path.join(repositoryRoot, 'public'), path.join(applicationRoot, 'public'), {
-    mode: constants.COPYFILE_FICLONE,
-    recursive: true,
-  }),
-  cp(path.join(repositoryRoot, 'desktop'), path.join(applicationRoot, 'desktop'), {
-    mode: constants.COPYFILE_FICLONE,
-    recursive: true,
-  }),
-  copyFile(path.join(repositoryRoot, 'LICENSE'), path.join(applicationRoot, 'LICENSE')),
-  copyFile(path.join(repositoryRoot, 'NOTICE'), path.join(applicationRoot, 'NOTICE')),
-])
+try {
+  await mkdir(applicationRoot, { recursive: true })
+  const publicFiles = ['index.html', 'main.mjs', 'preload.cjs', 'vigo.mjs', 'assets', 'agency-skills',
+    'favicon.png', 'vigo-mark-dark.png', 'vigo-mark-transparent.png', 'icons/VIGOIcon.png']
+  const copies = await Promise.allSettled([
+    ...publicFiles.map(async name => {
+      const destination = path.join(applicationRoot, 'public', name)
+      await mkdir(path.dirname(destination), { recursive: true })
+      await cp(path.join(repositoryRoot, 'public', name), destination, { mode: constants.COPYFILE_FICLONE, recursive: true })
+    }),
+    copyFile(path.join(repositoryRoot, 'LICENSE'), path.join(applicationRoot, 'LICENSE')),
+    copyFile(path.join(repositoryRoot, 'NOTICE'), path.join(applicationRoot, 'NOTICE')),
+  ])
+  // Wait for every copy before cleanup, including when one source is missing.
+  const failedCopy = copies.find(result => result.status === 'rejected')
+  if (failedCopy) throw failedCopy.reason
 
-await writeFile(path.join(applicationRoot, 'package.json'), `${JSON.stringify({
-  name: 'vigo-studio',
-  productName: 'VIGO Studio',
-  author: 'VIGO contributors',
-  version: packageJson.version,
-  private: true,
-  type: 'module',
-  main: 'desktop/main.mjs',
-}, null, 2)}\n`)
+  await writeFile(path.join(applicationRoot, 'package.json'), `${JSON.stringify({
+    name: 'vigo-studio',
+    productName: 'VIGO Studio',
+    author: 'VIGO contributors',
+    version: packageJson.version,
+    private: true,
+    type: 'module',
+    main: packageJson.main,
+  }, null, 2)}\n`)
 
-await bundleEngine()
-await mkdir(releaseRoot, { recursive: true })
-const applicationPaths = await packager({
-  dir: applicationRoot,
-  name: 'VIGO Studio',
-  platform: process.platform,
-  arch: process.arch,
-  out: releaseRoot,
-  overwrite: true,
-  prune: false,
-  asar: false,
-  electronVersion,
-  icon: path.join(repositoryRoot, 'desktop', 'assets', process.platform === 'darwin' ? 'VIGO.icns' : process.platform === 'win32' ? 'VIGO.ico' : 'VIGOIcon.png'),
-  appBundleId: 'app.vigo.studio',
-  appCategoryType: 'public.app-category.productivity',
-  appVersion: packageJson.version,
-  buildVersion: packageJson.version,
-  extendInfo: {
-    CFBundleDisplayName: 'VIGO Studio',
-    LSMinimumSystemVersion: '13.5',
-    NSDocumentsFolderUsageDescription: 'VIGO Studio reads and updates the City folders you choose.',
-  },
-})
+  await bundleEngine()
+  await auditPackageFiles(applicationRoot, { forbiddenRoots: [repositoryRoot] })
+  await mkdir(releaseRoot, { recursive: true })
+  const applicationPaths = await packager({
+    dir: applicationRoot,
+    name: 'VIGO Studio',
+    platform: process.platform,
+    arch: process.arch,
+    out: releaseRoot,
+    overwrite: true,
+    prune: false,
+    asar: false,
+    electronVersion,
+    icon: path.join(repositoryRoot, 'public', 'icons', process.platform === 'darwin' ? 'VIGO.icns' : process.platform === 'win32' ? 'VIGO.ico' : 'VIGOIcon.png'),
+    appBundleId: 'app.vigo.studio',
+    appCategoryType: 'public.app-category.productivity',
+    appVersion: packageJson.version,
+    buildVersion: packageJson.version,
+    extendInfo: {
+      CFBundleDisplayName: 'VIGO Studio',
+      LSMinimumSystemVersion: '13.5',
+      NSDocumentsFolderUsageDescription: 'VIGO Studio reads and updates the City folders you choose.',
+    },
+  })
 
-if (applicationPaths.length !== 1) {
-  throw new Error(`Electron packaging returned ${applicationPaths.length} application paths.`)
+  if (applicationPaths.length !== 1) {
+    throw new Error(`Electron packaging returned ${applicationPaths.length} application paths.`)
+  }
+  await assertFile(packaged.executable, 'Packaged Studio executable is missing.')
+  if (process.platform === 'darwin') {
+    await execFileAsync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', packaged.application])
+    await execFileAsync('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', packaged.application])
+  }
+
+  const bytes = await directoryBytes(packaged.application)
+  console.log(JSON.stringify({
+    status: 'packaged',
+    product: 'VIGO Studio',
+    version: packageJson.version,
+    electron: electronVersion,
+    architecture: process.arch,
+    transport: 'memory',
+    localPort: false,
+    bytes,
+    platform: process.platform,
+    application: packaged.application,
+  }, null, 2))
+} finally {
+  await rm(stagingRoot, { force: true, recursive: true })
 }
-await assertFile(packaged.executable, 'Packaged Studio executable is missing.')
-if (process.platform === 'darwin') {
-  await execFileAsync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', packaged.application])
-  await execFileAsync('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', packaged.application])
-}
-
-const bytes = await directoryBytes(packaged.application)
-console.log(JSON.stringify({
-  status: 'packaged',
-  product: 'VIGO Studio',
-  version: packageJson.version,
-  electron: electronVersion,
-  architecture: process.arch,
-  transport: 'memory',
-  localPort: false,
-  bytes,
-  platform: process.platform,
-  application: packaged.application,
-}, null, 2))
 
 async function bundleEngine() {
   await mkdir(serverRoot, { recursive: true })
+  await cp(path.join(repositoryRoot, 'artifacts', 'replay', 'holding-v1'), path.join(serverRoot, 'replay', 'holding-v1'), { recursive: true })
   const rolldown = path.join(repositoryRoot, 'node_modules', 'rolldown', 'bin', 'cli.mjs')
   await assertFile(rolldown, 'Missing Rolldown. Run npm install first.')
   const bundle = (input, args) => execFileAsync(process.execPath, [rolldown, input, ...args, '--format', 'esm', '--platform', 'node'], {
@@ -111,7 +120,12 @@ async function bundleEngine() {
   })
 
   await bundle(path.join(repositoryRoot, 'src', 'server', 'vigo-api.mjs'), [
-    '--file', path.join(serverRoot, 'vigo-api.mjs'),
+    '--dir', serverRoot,
+    '--entryFileNames', 'vigo-api.mjs',
+    '--chunkFileNames', 'api-[name].mjs',
+  ])
+  await bundle(path.join(repositoryRoot, 'src', 'server', 'agency-sql-worker.mjs'), [
+    '--file', path.join(serverRoot, 'agency-sql-worker.mjs'),
   ])
   await bundle(path.join(repositoryRoot, 'src', 'server', 'national-gtfs-worker.mjs'), [
     '--file', path.join(serverRoot, 'national-gtfs-worker.mjs'),
@@ -144,7 +158,8 @@ async function assertFile(filePath, message) {
 
 async function directoryBytes(root) {
   let total = 0
-  for (const entry of await fsEntries(root)) {
+  for (const name of await readdir(root)) {
+    const entry = path.join(root, name)
     const entryStats = await lstat(entry)
     if (entryStats.isSymbolicLink()) {
       total += entryStats.size
@@ -154,9 +169,4 @@ async function directoryBytes(root) {
     else if (entryStats.isFile()) total += entryStats.size
   }
   return total
-}
-
-async function fsEntries(root) {
-  const entries = await readdir(root)
-  return entries.map((entry) => path.join(root, entry))
 }

@@ -1,4 +1,6 @@
+import { findNetworkStop } from './app/networkSelection'
 import { setMapSourceData } from './app/mapSourceUpdates'
+import { renderedStopAtPoint } from './app/mapStopSelection'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection as GeoJsonFeatureCollection, GeoJsonProperties, Geometry } from 'geojson'
 import { X } from 'lucide-react'
@@ -22,6 +24,7 @@ import {
   type MapFirstRenderTracker,
 } from './app/mapFirstRenderTelemetry'
 import { inferredRouteJumpThresholdKm, routeStopPairCoordinates, routingLabelAnchor } from './app/mapPresentation'
+import { mapFitPadding, previewStopBounds } from './app/mapViewport'
 import { ensureVehicleDirectionSprite, vehicleHeadingLayer, vehicleMarkerLayer } from './app/mapDirections'
 import { coordinateDistanceKm } from './app/geometry'
 import { reportDesktopMapFailed, reportDesktopMapPhase, reportDesktopMapReady } from './app/desktopBridge'
@@ -29,6 +32,8 @@ import { routeGeometryLabel } from './app/routePresentation'
 import { cityPublicRouteKey } from './app/cityPreview'
 import { buildNetworkPerformanceProfile, type NetworkPerformanceProfile } from './networkPerformance'
 import { serviceKeyForRoute, serviceVehicleIsVisible, type ServiceVehicleFrame } from './serviceVehicles'
+import { VehicleOperationalWarnings, AgencyVehicleDetails } from './components/AgencyVehicleDetails'
+import { StopArrivalBoard, type TripNavigation } from './components/StopArrivalBoard'
 import type { RoutingPlan, RoutingPoint } from './routingModel'
 import { routingPinLabel } from './routingPointSequence'
 import {
@@ -46,8 +51,14 @@ import {
 } from './reach'
 
 type FeatureCollection = GeoJsonFeatureCollection<Geometry, GeoJsonProperties>
+const emptyRoutingPoints: RoutingPoint[] = []
+const emptyScenarioStops: ScenarioStopDraft[] = []
+const emptyCoordinates: [number, number][] = []
 
 type MapLiveSelection = {
+  stopId?: string
+  vehicleId?: string
+  vehicleSourceUrl?: string
   tone: 'route' | 'segment' | 'stop' | 'vehicle'
   eyebrow: string
   title: string
@@ -62,6 +73,7 @@ type MapLiveSelection = {
 }
 
 export type VigoMapProps = {
+  showStopDetails?: boolean
   projectId?: string
   localStreetGraphAvailable?: boolean
   preview: MapPreview
@@ -72,6 +84,7 @@ export type VigoMapProps = {
   appearance: Appearance
   selectedRouteId: string
   selectedStopId: string
+  focusLocation?: { id: string; label: string; coordinate: LngLat; stopId?: string }
   vehicleFrame: ServiceVehicleFrame
   routingEnabled?: boolean
   routingOrigin?: RoutingPoint | null
@@ -92,8 +105,9 @@ export type VigoMapProps = {
   onMoveScenarioStop?: (index: number, coordinate: LngLat) => void
   performanceProfile?: NetworkPerformanceProfile
   focusMode?: 'network' | 'route' | 'routing' | 'scenario'
-  onSelectRoute: (id: string) => void
-  onSelectStop: (id: string) => void
+  onOpenTrip?: TripNavigation
+  onSelectRoute: (id: string, options?: { inspect?: boolean }) => void
+  onSelectStop: (id: string, options?: { inspect?: boolean }) => void
   onRoutingPoint?: (point: RoutingPoint) => void
 }
 
@@ -110,12 +124,12 @@ const emptyCollection: FeatureCollection = {
 }
 const routeLayerIds = ['vigo-route-casing', 'vigo-routes', 'vigo-selected-route']
 const segmentLayerIds = ['vigo-segments-casing', 'vigo-segments', 'vigo-selected-segments']
-const stopLayerIds = ['vigo-overview-stops', 'vigo-network-stops', 'vigo-stops']
+const stopLayerIds = ['vigo-overview-stops', 'vigo-network-stops', 'vigo-stops', 'vigo-selected-stop']
 const transferLayerIds = ['vigo-transfer-stops']
 const coverageLayerIds = ['vigo-coverage']
 const scenarioLayerIds = ['vigo-scenario-routes']
 const accessLayerIds = ['vigo-access-outer', 'vigo-access-middle', 'vigo-access-inner']
-const vehicleLayerIds = ['vigo-vehicle-halo', 'vigo-vehicles', 'vigo-vehicle-headings', 'vigo-vehicle-labels']
+const vehicleLayerIds = ['vigo-vehicle-pairs', 'vigo-vehicle-indicator-label', 'vigo-vehicle-halo', 'vigo-vehicles', 'vigo-vehicle-headings', 'vigo-vehicle-labels']
 const routingLayerIds = ['vigo-routing-walk-casing', 'vigo-routing-walk', 'vigo-routing-drive-casing', 'vigo-routing-drive', 'vigo-routing-ride-casing', 'vigo-routing-ride', 'vigo-routing-labels', 'vigo-routing-pin-halo', 'vigo-routing-pins']
 const reachResultLayerIds = [
   'vigo-scenario-area',
@@ -434,8 +448,9 @@ function stopFeatures(
 ): FeatureCollection {
   const selectedRoute = preview.routes.find((route) => route.id === selectedRouteId)
   const selectedStopIds = new Set(selectedRoute?.stopIds ?? [])
+  const resolvedStopId = findNetworkStop(preview.stops, selectedStopId)?.id
   const hasSelectedPattern = selectedStopIds.size > 0
-  const selectedStops = new Set([...selectedStopIds, selectedStopId].filter(Boolean))
+  const selectedStops = new Set([...selectedStopIds, resolvedStopId].filter(Boolean))
   let stops = preview.stops
 
   if (Number.isFinite(performanceProfile.stopBudget) && preview.stops.length > performanceProfile.stopBudget) {
@@ -479,7 +494,7 @@ function stopFeatures(
         transferScore: stop.transferScore,
         routes: stop.routes.join(', '),
         selectedPatternStop: hasSelectedPattern && selectedStopIds.has(stop.id),
-        selectedStop: stop.id === selectedStopId,
+        selectedStop: stop.id === resolvedStopId,
       },
     })),
   }
@@ -517,35 +532,44 @@ function serviceVehicleFeatures(frame: ServiceVehicleFrame, preview: MapPreview,
   const selectedServiceKey = selectedRoute ? serviceKeyForRoute(selectedRoute) : ''
   const occurrences = new Map<string, number>()
 
-  return {
-    type: 'FeatureCollection',
-    features: frame.vehicles.flatMap((vehicle, vehicleIndex) => {
-      if (!isFiniteLngLat(vehicle.coordinate)) return []
-      const selectedRouteMatch = Boolean(selectedServiceKey && vehicle.serviceKey === selectedServiceKey)
-      if (!serviceVehicleIsVisible(vehicle, preview, selectedRouteId)) return []
-      const hasBearing = vehicle.bearing !== undefined && Number.isFinite(vehicle.bearing)
-      return [{
-        type: 'Feature' as const,
-        id: uniqueVehicleFeatureId(vehicle.source, vehicle.id, occurrences),
-        geometry: {
-          type: 'Point' as const,
-          coordinates: vehicle.coordinate,
-        },
-        properties: {
-          vehicleIndex,
-          vehicleId: vehicle.id,
-          label: vehicle.card.title,
-          routeId: vehicle.routeId,
-          routeShortName: vehicle.routeShortName,
-          routeColor: vehicle.routeColor,
-          selectedRoute: selectedRouteMatch,
-          bearing: hasBearing ? vehicle.bearing : 0,
-          hasBearing,
-          source: vehicle.source,
-        },
-      }]
-    }),
+  const features: FeatureCollection['features'] = []
+  for (let vehicleIndex = 0; vehicleIndex < frame.vehicles.length; vehicleIndex++) {
+    const vehicle = frame.vehicles[vehicleIndex]
+    if (!isFiniteLngLat(vehicle.coordinate)) continue
+    const selectedRouteMatch = Boolean(selectedServiceKey && vehicle.serviceKey === selectedServiceKey)
+    if (!serviceVehicleIsVisible(vehicle, preview, selectedRouteId)) continue
+    const hasBearing = vehicle.bearing !== undefined && Number.isFinite(vehicle.bearing)
+    features.push({
+      type: 'Feature' as const,
+      id: uniqueVehicleFeatureId(vehicle.source, vehicle.id, occurrences),
+      geometry: {
+        type: 'Point' as const,
+        coordinates: vehicle.coordinate,
+      },
+      properties: {
+        delaySeverity: vehicle.delaySeverity || '',
+        gapSeverity: vehicle.gapSeverity || '',
+        crowded: vehicle.crowded || false,
+        indicatorLabel: vehicle.indicatorLabel || '',
+        vehicleIndex,
+        vehicleId: vehicle.id,
+        label: vehicle.card.title,
+        routeId: vehicle.routeId,
+        routeShortName: vehicle.routeShortName,
+        routeColor: vehicle.routeColor,
+        selectedRoute: selectedRouteMatch,
+        bearing: hasBearing ? vehicle.bearing : 0,
+        hasBearing,
+        source: vehicle.source,
+      },
+    })
+    if (vehicle.pairedCoordinate) features.push({
+      type: 'Feature' as const, id: `pair:${vehicle.sourceUrl || ''}:${vehicle.id}`,
+      geometry: { type: 'LineString' as const, coordinates: [vehicle.pairedCoordinate, vehicle.coordinate] },
+      properties: { pair: true, gapSeverity: vehicle.gapSeverity, vehicleIndex },
+    })
   }
+  return { type: 'FeatureCollection', features }
 }
 
 function routingLineFeatures(plan: RoutingPlan | null | undefined): FeatureCollection {
@@ -1122,13 +1146,7 @@ function updateDynamicPointSource(
 
 function routeFitPadding(map: MapLibreMap) {
   const { clientWidth, clientHeight } = map.getContainer()
-  if (clientWidth >= 900 && clientHeight >= 640) {
-    return { top: 56, right: 58, bottom: 118, left: 58 }
-  }
-  if (clientWidth >= 640) {
-    return { top: 72, right: 72, bottom: 138, left: 72 }
-  }
-  return { top: 86, right: 54, bottom: 142, left: 54 }
+  return mapFitPadding(clientWidth, clientHeight)
 }
 
 function setVisibility(map: MapLibreMap, layerIds: string[], visible: boolean) {
@@ -1787,10 +1805,10 @@ function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
       minzoom: 10.5,
       paint: {
         'circle-color': '#dbe8f4',
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 10.5, 0.25, 14, 0.9],
-        'circle-opacity': ['interpolate', ['linear'], ['zoom'], 10.5, 0.06, 13.5, 0.22],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 10.5, 1.5, 14, 4, 17, 6],
+        'circle-opacity': ['interpolate', ['linear'], ['zoom'], 10.5, 0.45, 14, 0.95],
         'circle-stroke-color': '#071017',
-        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 11, 0, 14, 0.35],
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10.5, 0.5, 14, 1.5],
       },
     })
   }
@@ -1821,11 +1839,19 @@ function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
       minzoom: 9,
       paint: {
         'circle-color': ['step', ['get', 'routeCount'], '#f4f7fb', 2, '#dfe8f3', 4, '#f6c85f'],
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 0.4, 11.5, 1.05, 14, 2.2],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 1.5, 11.5, 3, 14, 5, 17, 7],
         'circle-opacity': ['interpolate', ['linear'], ['zoom'], 9, 0.16, 11.5, 0.44, 14, 0.72],
         'circle-stroke-color': '#071017',
-        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 9, 0.25, 14, 0.7],
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 9, 0.5, 14, 1.5],
       },
+    })
+  }
+
+  if (!map.getLayer('vigo-selected-stop')) {
+    map.addLayer({
+      id: 'vigo-selected-stop', type: 'circle', source: 'vigo-stops',
+      filter: ['==', ['get', 'selectedStop'], true],
+      paint: { 'circle-radius': 8, 'circle-color': '#ffffff', 'circle-stroke-color': '#2f80ed', 'circle-stroke-width': 3 },
     })
   }
 
@@ -1899,8 +1925,20 @@ function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
     })
   }
 
+  if (!map.getLayer('vigo-vehicle-pairs')) map.addLayer({
+    id: 'vigo-vehicle-pairs', type: 'line', source: 'vigo-service-vehicles', minzoom: 11,
+    filter: ['==', ['get', 'pair'], true],
+    paint: { 'line-color': ['case', ['==', ['get', 'gapSeverity'], 'critical'], '#dc2626', '#d97706'], 'line-width': 1.5, 'line-dasharray': [2, 3], 'line-opacity': .75 },
+  })
   if (!map.getLayer(vehicleMarkerLayer.id)) map.addLayer(vehicleMarkerLayer)
   if (!map.getLayer(vehicleHeadingLayer.id)) map.addLayer(vehicleHeadingLayer)
+
+  if (!map.getLayer('vigo-vehicle-indicator-label')) map.addLayer({
+    id: 'vigo-vehicle-indicator-label', type: 'symbol', source: 'vigo-service-vehicles', minzoom: 12,
+    filter: ['!=', ['get', 'indicatorLabel'], ''],
+    layout: { 'text-field': ['get', 'indicatorLabel'], 'text-size': 11, 'text-offset': [0, -1.8], 'text-anchor': 'bottom', 'text-allow-overlap': false },
+    paint: { 'text-color': '#ffffff', 'text-halo-color': '#111827', 'text-halo-width': 2 },
+  })
 
   if (!map.getLayer('vigo-vehicle-labels')) {
     map.addLayer({
@@ -2246,10 +2284,10 @@ function applyNetworkLensPaint(map: MapLibreMap, networkLens: NetworkLens) {
   const lineColor = routeLensColor(networkLens)
   const lineOpacity = routeLensOpacity(networkLens)
   const transferOpacity = networkLens === 'transfer' ? 0.78 : networkLens === 'risk' ? 0.28 : 0.46
-  const stopOpacity = networkLens === 'transfer' ? ['interpolate', ['linear'], ['zoom'], 9, 0.24, 12, 0.58, 14, 0.82] : ['interpolate', ['linear'], ['zoom'], 9, 0.14, 11.5, 0.38, 14, 0.68]
-  const routeFilter: FilterSpecification | null = networkLens === 'shape' || networkLens === 'risk'
-    ? null
-    : ['any', ['==', ['get', 'geometrySource'], 'shape'], ['==', ['get', 'selectedPattern'], true]] as FilterSpecification
+  const stopOpacity = ['interpolate', ['linear'], ['zoom'], 9, 0.5, 12, 0.85, 14, 1]
+  // Schematic stop-to-stop geometry is still a route. Keep it visible in
+  // every lens instead of silently dropping services without shapes.txt.
+  const routeFilter: FilterSpecification | null = null
 
   if (map.getLayer('vigo-routes')) {
     map.setFilter('vigo-routes', routeFilter)
@@ -2275,6 +2313,7 @@ function applyNetworkLensPaint(map: MapLibreMap, networkLens: NetworkLens) {
 }
 
 export function VigoMap({
+  showStopDetails = true,
   projectId,
   localStreetGraphAvailable = false,
   preview,
@@ -2285,10 +2324,11 @@ export function VigoMap({
   appearance,
   selectedRouteId,
   selectedStopId,
+  focusLocation,
   vehicleFrame,
   routingEnabled = false,
   routingOrigin,
-  routingWaypoints = [],
+  routingWaypoints: suppliedWaypoints = emptyRoutingPoints,
   routingDestination,
   routingPlan,
   routingStatusTitle,
@@ -2299,16 +2339,21 @@ export function VigoMap({
   scenarioView = 'baseline',
   scenarioRenderMode = 'area',
   scenarioCutoffMinutes = 45,
-  scenarioSketchStops = [],
-  scenarioSketchGeometry = [],
+  scenarioSketchStops: suppliedSketchStops = emptyScenarioStops,
+  scenarioSketchGeometry: suppliedSketchGeometry = emptyCoordinates,
   scenarioPointPicking = false,
   onMoveScenarioStop,
   performanceProfile: providedPerformanceProfile,
   focusMode = 'network',
   onSelectRoute,
+  onOpenTrip,
   onSelectStop,
   onRoutingPoint,
 }: VigoMapProps) {
+  // An absent overlay stays the same input across unrelated parent renders.
+  const routingWaypoints = suppliedWaypoints.length ? suppliedWaypoints : emptyRoutingPoints
+  const scenarioSketchStops = suppliedSketchStops.length ? suppliedSketchStops : emptyScenarioStops
+  const scenarioSketchGeometry = suppliedSketchGeometry.length ? suppliedSketchGeometry : emptyCoordinates
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const mapRemovedRef = useRef(false)
@@ -2331,7 +2376,11 @@ export function VigoMap({
   const suppressScenarioClickRef = useRef(false)
   const vehicleSourceStateRef = useRef<DynamicPointSourceState | null>(null)
   const onMoveScenarioStopRef = useRef(onMoveScenarioStop)
-  const [liveSelection, setLiveSelection] = useState<MapLiveSelection | null>(null)
+  const [liveSelection, setLiveSelection] = useState<MapLiveSelection | null>(() => {
+    if (!selectedStopId || routingEnabled || focusMode === 'scenario') return null
+    const stop = findNetworkStop(preview.stops, selectedStopId)
+    return { tone: 'stop', stopId: selectedStopId, eyebrow: 'Stop arrivals', title: stop?.name || 'Station', subtitle: '', metrics: [] }
+  })
   const [mapFailure, setMapFailure] = useState('')
   const [localStreetStatus, setLocalStreetStatus] = useState<{
     phase: 'idle' | 'loading' | 'ready' | 'empty' | 'error'
@@ -2365,7 +2414,7 @@ export function VigoMap({
     // Keep transit stops available while a Reach case is being
     // configured. Once a surface is ready, the result itself is represented
     // only by its area or street-path layer; settled OSM nodes stay internal.
-    stops: scenarioFocus ? !reachResult : layers.stops,
+    stops: routingFocus ? false : scenarioFocus ? !reachResult : layers.stops,
     transfers: routingFocus || scenarioFocus ? false : layers.transfers,
     coverage: routingFocus || scenarioFocus ? false : layers.coverage,
     scenario: routingFocus || scenarioFocus ? false : layers.scenario,
@@ -2423,6 +2472,8 @@ export function VigoMap({
     () => reachComparison ?? [],
     [reachComparison],
   )
+  const focusedAnalysis = reachResult ?? comparisonEntries[0]?.result
+  const cityBounds = useMemo(() => previewStopBounds(preview), [preview.stops])
   const comparisonContoursGeoJson = useMemo(
     () => scenarioRenderMode === 'area'
       ? comparisonEntries.map((entry) => reachComparisonContourFeatures(entry.result, scenarioCutoffMinutes))
@@ -2502,9 +2553,41 @@ export function VigoMap({
     })
   }, [feedName, mapTelemetryKey, routesGeoJson.features.length, stopsGeoJson.features.length])
 
+  const selectionScopeRef = useRef({ fitSignature, selectedRouteId })
   useEffect(() => {
-    setLiveSelection(null)
-  }, [fitSignature, selectedRouteId])
+    const previousScope = selectionScopeRef.current
+    if (previousScope.fitSignature === fitSignature && previousScope.selectedRouteId === selectedRouteId) return
+    selectionScopeRef.current = { fitSignature, selectedRouteId }
+    // Keep a selected vehicle's card while
+    // the route preview reloads, provided it still belongs to the visible scope.
+    setLiveSelection(previous => previous?.stopId && previous.stopId === selectedStopId ? previous : previous?.vehicleId && vehicleFrame.vehicles.some(vehicle =>
+      vehicle.id === previous.vehicleId && vehicle.sourceUrl === previous.vehicleSourceUrl
+      && serviceVehicleIsVisible(vehicle, preview, selectedRouteId)) ? previous : null)
+  }, [fitSignature, selectedRouteId, selectedStopId, vehicleFrame, preview])
+
+  const stopSelectionRef = useRef({ projectId, selectedRouteId, selectedStopId })
+  useEffect(() => {
+    const previous = stopSelectionRef.current
+    stopSelectionRef.current = { projectId, selectedRouteId, selectedStopId }
+    // Search and Agency evidence share map selection. A route's automatically
+    // selected first stop should not open a board over a vehicle or route card.
+    if (previous.projectId !== projectId || previous.selectedRouteId !== selectedRouteId || previous.selectedStopId === selectedStopId || routingEnabled || scenarioFocus) return
+    const stop = findNetworkStop(preview.stops, selectedStopId)
+    if (stop) {
+      setLiveSelection({ tone: 'stop', stopId: stop.id, eyebrow: 'Stop arrivals', title: stop.name, subtitle: '', metrics: [] })
+      mapRef.current?.easeTo({ center: stopLngLat(stop), zoom: Math.max(mapRef.current.getZoom(), 14), duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450 })
+    }
+  }, [projectId, selectedRouteId, selectedStopId, preview, routingEnabled, scenarioFocus])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const observer = new ResizeObserver(entries => {
+      if (entries.some(entry => entry.contentRect.width > 0 && entry.contentRect.height > 0)) mapRef.current?.resize()
+    })
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -2523,8 +2606,17 @@ export function VigoMap({
       ],
     }
 
-    const initialBounds = mapContentBounds(routesGeoJson, stopsGeoJson)
+    const analysisBounds = scenarioFocus && focusedAnalysis
+      ? focusedAnalysis.surface.displayBounds ?? focusedAnalysis.surface.raster.bounds
+      : null
+    const initialRoutingBounds = routingEnabled || Boolean(routingPlan) || scenarioFocus
+      ? mapContentBounds(routingGeoJson, routingPinsGeoJson)
+      : null
+    const initialBounds: LngLatBoundsLike | null = analysisBounds
+      ? [[analysisBounds[0], analysisBounds[1]], [analysisBounds[2], analysisBounds[3]]]
+      : initialRoutingBounds ?? mapContentBounds(routesGeoJson, stopsGeoJson) ?? cityBounds
     if (initialBounds) lastFitSignatureRef.current = fitSignature
+    if (initialRoutingBounds) lastRoutingFitSignatureRef.current = routingFitSignature
     let map: MapLibreMap
     let mapReadyFallbackTimer: number | null = null
     let mapReadyFallbackAttempts = 0
@@ -2539,7 +2631,7 @@ export function VigoMap({
         zoom: initialBounds ? undefined : 1.7,
         bounds: initialBounds ?? undefined,
         fitBoundsOptions: initialBounds
-          ? { padding: 48, duration: 0, maxZoom: 13.2 }
+          ? { padding: mapFitPadding(containerRef.current.clientWidth, containerRef.current.clientHeight), duration: 0, maxZoom: initialRoutingBounds ? 14.6 : 13.2 }
           : undefined,
         attributionControl: false,
       })
@@ -2604,11 +2696,6 @@ export function VigoMap({
         applyNetworkLensPaint(map, networkLens)
         const tracker = mapTelemetryRef.current
         if (tracker && markMapLoaded(tracker, performance.now())) reportPhase('map-load')
-        if (basemapRef.current === 'none' || basemapRef.current === 'offline') {
-          if (tracker) markBasemapRequested(tracker, basemapRef.current, performance.now())
-          syncBasemap(map, basemapRef.current, appearanceRef.current)
-          reportBasemapReadiness()
-        }
       } catch (error) {
         reportMapFailure('render', error)
       }
@@ -2691,14 +2778,6 @@ export function VigoMap({
       if (tracker && tracker.key === mapTelemetryKey && markLocalSourceRendered(tracker, performance.now())) {
         reportPhase('local-source-render')
       }
-      const currentBasemap = basemapRef.current
-      if (tracker && currentBasemap !== 'none' && currentBasemap !== 'offline') {
-        markBasemapRequested(tracker, currentBasemap, performance.now())
-        syncBasemap(map, currentBasemap, appearanceRef.current)
-        if (map.getSource('osm') && map.isSourceLoaded('osm') && markBasemapReady(tracker, performance.now())) {
-          reportPhase('basemap-ready')
-        }
-      }
       reportDesktopMapReady({
         feedName,
         state,
@@ -2734,7 +2813,12 @@ export function VigoMap({
         setMapSourceData(source(map, 'vigo-routing'), showRoutingPlan ? routingGeoJson : emptyCollection)
         setMapSourceData(source(map, 'vigo-routing-pins'), showRoutingPlan ? routingPinsGeoJson : emptyCollection)
         const shouldFit = fitSignature !== lastFitSignatureRef.current
-        const bounds = shouldFit ? mapContentBounds(routesGeoJson, stopsGeoJson) : null
+        const hasFocusedCamera = (scenarioFocus && Boolean(focusedAnalysis))
+          || (showRoutingPlan && (routingGeoJson.features.length > 0 || routingPinsGeoJson.features.length > 0))
+        // Late city data supplies an initial context, but must not replace the
+        // camera already owned by route points, a Reach result, or the user.
+        if (shouldFit && hasFocusedCamera) lastFitSignatureRef.current = fitSignature
+        const bounds = shouldFit && !hasFocusedCamera ? mapContentBounds(routesGeoJson, stopsGeoJson) ?? cityBounds : null
         if (bounds) {
           const isFirstFit = lastFitSignatureRef.current === ''
           lastFitSignatureRef.current = fitSignature
@@ -2744,7 +2828,7 @@ export function VigoMap({
             maxZoom: 13.2,
           })
         }
-        if (showRoutingPlan && routingFitSignature !== lastRoutingFitSignatureRef.current) {
+        if (showRoutingPlan && !(scenarioFocus && focusedAnalysis) && routingFitSignature !== lastRoutingFitSignatureRef.current) {
           const routingBounds = mapContentBounds(routingGeoJson, routingPinsGeoJson)
           if (routingBounds) {
             lastRoutingFitSignatureRef.current = routingFitSignature
@@ -2774,7 +2858,7 @@ export function VigoMap({
       if (mapRemovedRef.current) return
       map.off('render', reportReadyIfRendered)
     }
-  }, [accessGeoJson, feedName, fitSignature, mapTelemetryKey, mapVisualState, routesGeoJson, routingEnabled, routingFitSignature, routingGeoJson, routingPinsGeoJson, routingPlan, scenarioFocus, segmentsGeoJson, stopsGeoJson])
+  }, [accessGeoJson, cityBounds, feedName, fitSignature, focusedAnalysis, mapTelemetryKey, mapVisualState, routesGeoJson, routingEnabled, routingFitSignature, routingGeoJson, routingPinsGeoJson, routingPlan, scenarioFocus, segmentsGeoJson, stopsGeoJson])
 
   useEffect(() => {
     const map = mapRef.current
@@ -2801,16 +2885,6 @@ export function VigoMap({
       setVisibility(map, reachComparisonLayerIds(comparisonEntries.length), scenarioFocus)
       setVisibility(map, reachComparisonLayerIds(comparisonEntries.length).filter((layerId) => layerId.endsWith('-area') || layerId.endsWith('-contours')), scenarioFocus && scenarioRenderMode === 'area')
       setVisibility(map, reachComparisonLayerIds(comparisonEntries.length).filter((layerId) => layerId.endsWith('-access-edges')), scenarioFocus && scenarioRenderMode === 'streets')
-      const focusedAnalysis = reachResult ?? comparisonEntries[0]?.result
-      if (scenarioFocus && focusedAnalysis) {
-        const [west, south, east, north] = focusedAnalysis.surface.displayBounds
-          ?? focusedAnalysis.surface.raster.bounds
-        map.fitBounds([[west, south], [east, north]], {
-          padding: routeFitPadding(map),
-          duration: 360,
-          maxZoom: 14,
-        })
-      }
     }
     if (mapReadyRef.current || map.loaded()) update()
     else map.once('load', update)
@@ -2819,6 +2893,28 @@ export function VigoMap({
       map.off('load', update)
     }
   }, [comparisonAccessEdgesGeoJson, comparisonAreasGeoJson, comparisonContoursGeoJson, comparisonEntries, scenarioAccessEdgesGeoJson, reachResult, scenarioAreaGeoJson, scenarioContoursGeoJson, scenarioFocus, scenarioRenderMode, scenarioSketchGeoJson, serviceDecomposition])
+
+  // Editing overlays or refreshing unrelated state must not reset a user's
+  // pan/zoom. Only a newly selected accessibility result changes the viewport.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !scenarioFocus || !focusedAnalysis) return
+    const fit = () => {
+      const [west, south, east, north] = focusedAnalysis.surface.displayBounds
+        ?? focusedAnalysis.surface.raster.bounds
+      map.fitBounds([[west, south], [east, north]], {
+        padding: routeFitPadding(map),
+        duration: 360,
+        maxZoom: 14,
+      })
+    }
+    if (mapReadyRef.current || map.loaded()) fit()
+    else map.once('load', fit)
+    return () => {
+      if (mapRemovedRef.current) return
+      map.off('load', fit)
+    }
+  }, [focusedAnalysis, scenarioFocus])
 
   useEffect(() => {
     const map = mapRef.current
@@ -2837,29 +2933,28 @@ export function VigoMap({
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !mapReadyRef.current) return
-    basemapRef.current = basemap
-    appearanceRef.current = appearance
-    const tracker = mapTelemetryRef.current
-    const remoteBasemapDeferred = basemap !== 'none'
-      && basemap !== 'offline'
-      && hasDrawableNetwork
-      && tracker?.localSourceRenderedAt === undefined
-    if (remoteBasemapDeferred) return
-    if (tracker) markBasemapRequested(tracker, basemap, performance.now())
-    syncBasemap(map, basemap, appearance)
-    if (!tracker) return
-    const ready = basemap === 'none'
-      || (basemap === 'offline' && !localStreetGraphAvailable)
-      || (basemap === 'offline' && Boolean(map.getSource('vigo-local-streets') && map.isSourceLoaded('vigo-local-streets')))
-      || (basemap !== 'offline' && Boolean(map.getSource('osm') && map.isSourceLoaded('osm')))
-    if (ready && markBasemapReady(tracker, performance.now())) {
-      reportDesktopMapPhase({
-        phase: 'basemap-ready',
-        ...desktopMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
-      })
+    if (!map) return
+    const update = () => {
+      const tracker = mapTelemetryRef.current
+      if (tracker) markBasemapRequested(tracker, basemap, performance.now())
+      syncBasemap(map, basemap, appearance)
+      if (!tracker) return
+      const ready = basemap === 'none'
+        || (basemap === 'offline' && !localStreetGraphAvailable)
+        || (basemap === 'offline' && Boolean(map.getSource('vigo-local-streets') && map.isSourceLoaded('vigo-local-streets')))
+        || (basemap !== 'offline' && Boolean(map.getSource('osm') && map.isSourceLoaded('osm')))
+      if (ready && markBasemapReady(tracker, performance.now())) {
+        reportDesktopMapPhase({
+          phase: 'basemap-ready',
+          ...desktopMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
+        })
+      }
     }
-  }, [appearance, basemap, hasDrawableNetwork, routesGeoJson.features.length, stopsGeoJson.features.length])
+    // Start tiles once the style is ready, after local source updates have been
+    // queued. Route and Analyze intentionally hide GTFS layers, so waiting for
+    // a rendered route or stop can prevent the basemap from ever starting.
+    return scheduleMapFrameUpdate(map, mapReadyRef.current, update, () => mapRemovedRef.current)
+  }, [appearance, basemap, localStreetGraphAvailable, routesGeoJson.features.length, stopsGeoJson.features.length])
 
   useEffect(() => {
     const map = mapRef.current
@@ -3156,15 +3251,11 @@ export function VigoMap({
       }
 
       const selectServiceVehicle = (vehicle: ServiceVehicleFrame['vehicles'][number]) => {
-        const matchedRoute = preview.routes.find((route) => route.id === vehicle.routeFeatureId)
-          ?? preview.routes.find((route) => serviceKeyForRoute(route) === vehicle.serviceKey)
-        if (matchedRoute) onSelectRoute(matchedRoute.id)
-        if (vehicle.nextStopFeatureId) onSelectStop(vehicle.nextStopFeatureId)
-        setLiveSelection({ tone: 'vehicle', ...vehicle.card })
+        setLiveSelection({ tone: 'vehicle', ...vehicle.card, ...(vehicle.source === 'live' ? { vehicleId: vehicle.id, vehicleSourceUrl: vehicle.sourceUrl } : {}) })
       }
       let clickedVehicle: ServiceVehicleFrame['vehicles'][number] | undefined
       if (effectiveLayers.routes && map.getLayer('vigo-vehicles')) {
-        const vehicleHit = map.queryRenderedFeatures(event.point, { layers: ['vigo-vehicle-headings', 'vigo-vehicles'] })[0]
+        const vehicleHit = map.queryRenderedFeatures(event.point, { layers: ['vigo-vehicle-headings', 'vigo-vehicles'] }).find(feature => textProperty(feature.properties, 'vehicleId'))
         if (vehicleHit?.properties) {
           const vehicleIndex = Math.round(numberProperty(vehicleHit.properties, 'vehicleIndex'))
           const vehicleId = textProperty(vehicleHit.properties, 'vehicleId')
@@ -3173,31 +3264,20 @@ export function VigoMap({
             ? indexedVehicle
             : vehicleFrame.vehicles.find((candidate) => candidate.id === vehicleId)
         }
-        clickedVehicle ??= vehicleFrame.vehicles.reduce<{
-          vehicle: ServiceVehicleFrame['vehicles'][number]
-          distance: number
-        } | null>((nearest, vehicle) => {
-          if (!isFiniteLngLat(vehicle.coordinate)) return nearest
-          if (!serviceVehicleIsVisible(vehicle, preview, selectedRouteId)) return nearest
-          const point = map.project(vehicle.coordinate)
-          const distance = Math.hypot(point.x - event.point.x, point.y - event.point.y)
-          if (distance > 18 || (nearest && nearest.distance <= distance)) return nearest
-          return { vehicle, distance }
-        }, null)?.vehicle
       }
       if (clickedVehicle) {
         selectServiceVehicle(clickedVehicle)
         return
       }
-      const stopLayersToQuery = ['vigo-overview-stops', 'vigo-network-stops', 'vigo-transfer-stops', 'vigo-stops'].filter((layerId) => map.getLayer(layerId))
-      if (stopLayersToQuery.length) {
-        const stopHit = map.queryRenderedFeatures(event.point, { layers: stopLayersToQuery })[0]
+      const stopHit = renderedStopAtPoint(map, event.point)
+      if (stopHit) {
         const stopId = textProperty(stopHit?.properties, 'stopId')
         if (typeof stopId === 'string' && stopId) {
           onSelectStop(stopId)
           setLiveSelection({
             tone: 'stop',
             eyebrow: 'GTFS stop',
+            stopId,
             title: textProperty(stopHit.properties, 'name', stopId),
             subtitle: textProperty(stopHit.properties, 'routes') || `Stop ${stopId}`,
             metrics: [
@@ -3208,6 +3288,20 @@ export function VigoMap({
           })
           return
         }
+      }
+      // A nearby vehicle must not steal a tap intended for a visible stop.
+      if (effectiveLayers.routes && map.getLayer('vigo-vehicles')) {
+        const nearbyVehicle = vehicleFrame.vehicles.reduce<{
+          vehicle: ServiceVehicleFrame['vehicles'][number]
+          distance: number
+        } | null>((nearest, vehicle) => {
+          if (!isFiniteLngLat(vehicle.coordinate) || !serviceVehicleIsVisible(vehicle, preview, selectedRouteId)) return nearest
+          const point = map.project(vehicle.coordinate)
+          const distance = Math.hypot(point.x - event.point.x, point.y - event.point.y)
+          if (distance > 18 || (nearest && nearest.distance <= distance)) return nearest
+          return { vehicle, distance }
+        }, null)?.vehicle
+        if (nearbyVehicle) { selectServiceVehicle(nearbyVehicle); return }
       }
       if (map.getLayer('vigo-segments') && effectiveLayers.segments) {
         const segmentHit = map.queryRenderedFeatures(event.point, { layers: ['vigo-selected-segments', 'vigo-segments'] })[0]
@@ -3252,35 +3346,84 @@ export function VigoMap({
         }
       }
     }
+    const hoverTooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: 'map-stop-tooltip' })
+    let hoveredFeatureId = ''
+    const clearHoverTooltip = () => { hoveredFeatureId = ''; hoverTooltip.remove() }
     const handleMove = (event: maplibregl.MapMouseEvent) => {
       if (scenarioDragRef.current) {
+        clearHoverTooltip()
         map.getCanvas().style.cursor = 'grabbing'
         return
       }
       if (routingEnabled || (scenarioFocus && scenarioPointPicking)) {
+        clearHoverTooltip()
         map.getCanvas().style.cursor = 'crosshair'
         return
       }
       const scenarioHit = map.getLayer('vigo-scenario-sketch-hit')
         && map.queryRenderedFeatures(event.point, { layers: ['vigo-scenario-sketch-hit'] }).length > 0
       if (scenarioHit) {
+        clearHoverTooltip()
         map.getCanvas().style.cursor = 'grab'
         return
       }
-      const layersToQuery = ['vigo-vehicle-headings', 'vigo-vehicles', 'vigo-selected-route', 'vigo-routes', 'vigo-selected-segments', 'vigo-segments', 'vigo-overview-stops', 'vigo-network-stops', 'vigo-transfer-stops', 'vigo-stops'].filter((layerId) => map.getLayer(layerId))
+      const layersToQuery = ['vigo-vehicle-headings', 'vigo-vehicles', 'vigo-selected-route', 'vigo-routes', 'vigo-selected-segments', 'vigo-segments'].filter((layerId) => map.getLayer(layerId))
       const features = layersToQuery.length ? map.queryRenderedFeatures(event.point, { layers: layersToQuery }) : []
-      map.getCanvas().style.cursor = features.length ? 'pointer' : ''
+      const vehicleHit = features.find(feature => (feature.layer.id === 'vigo-vehicles' || feature.layer.id === 'vigo-vehicle-headings') && textProperty(feature.properties, 'vehicleId'))
+      const stop = vehicleHit ? undefined : renderedStopAtPoint(map, event.point)
+      map.getCanvas().style.cursor = stop || features.length ? 'pointer' : ''
+      if (vehicleHit) {
+        const index = Math.round(numberProperty(vehicleHit.properties, 'vehicleIndex'))
+        const vehicle = vehicleFrame.vehicles[index]
+        if (!vehicle || vehicle.id !== textProperty(vehicleHit.properties, 'vehicleId')) { clearHoverTooltip(); return }
+        const id = `vehicle:${index}`
+        if (id !== hoveredFeatureId) {
+          hoveredFeatureId = id
+          const lines = [
+            vehicle.source === 'live' ? `Vehicle ${vehicle.card.title}` : 'Scheduled vehicle',
+            `Route ${vehicle.routeShortName || vehicle.routeId}`,
+            vehicle.card.journey?.destination ? `To ${vehicle.card.journey.destination}` : '',
+            vehicle.tripId ? `Trip ${vehicle.tripId.split(/::|\u001f/).at(-1)}` : '',
+          ].filter(Boolean)
+          hoverTooltip.setLngLat(vehicle.coordinate).setText(lines.join('\n')).addTo(map)
+        }
+      } else if (stop?.geometry.type === 'Point') {
+        const id = textProperty(stop.properties, 'stopId')
+        if (`stop:${id}` !== hoveredFeatureId) {
+          hoveredFeatureId = `stop:${id}`
+          const [lon, lat] = stop.geometry.coordinates
+          hoverTooltip.setLngLat([lon, lat]).setText(textProperty(stop.properties, 'name', id)).addTo(map)
+        }
+      } else clearHoverTooltip()
     }
     map.getCanvas().style.cursor = routingEnabled || (scenarioFocus && scenarioPointPicking) ? 'crosshair' : ''
     map.on('click', handleClick)
     map.on('mousemove', handleMove)
+    map.on('movestart', clearHoverTooltip)
+    map.getCanvas().addEventListener('mouseleave', clearHoverTooltip)
     return () => {
+      clearHoverTooltip()
       if (mapRemovedRef.current) return
       map.off('click', handleClick)
       map.off('mousemove', handleMove)
+      map.off('movestart', clearHoverTooltip)
+      map.getCanvas().removeEventListener('mouseleave', clearHoverTooltip)
       map.getCanvas().style.cursor = ''
     }
   }, [effectiveLayers.routes, effectiveLayers.segments, onRoutingPoint, onSelectRoute, onSelectStop, preview, routingEnabled, scenarioFocus, scenarioPointPicking, selectedRouteId, vehicleFrame])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !focusLocation) return
+    const focus = () => {
+      if (mapRemovedRef.current) return
+      map.easeTo({ center: focusLocation.coordinate, zoom: Math.max(map.getZoom(), 14), duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450 })
+      setLiveSelection({ tone: 'stop', stopId: focusLocation.stopId, eyebrow: 'Reference stop', title: focusLocation.label, subtitle: 'Selected from Agency evidence', metrics: [] })
+    }
+    if (map.isStyleLoaded()) focus()
+    else map.once('idle', focus)
+    return () => { map.off('idle', focus) }
+  }, [focusLocation])
 
   return (
     <div className={classNames('map-stage', `basemap-${basemap}`)} data-map-state={mapVisualState}>
@@ -3311,12 +3454,13 @@ export function VigoMap({
           </small>
         </div>
       ) : null}
-      {liveSelection ? (
-        <div className={classNames('map-live-card', `is-${liveSelection.tone}`)}>
+      {liveSelection && (showStopDetails || !liveSelection.stopId) ? (
+        <div className={classNames('map-live-card', `is-${liveSelection.tone}`, Boolean(liveSelection.vehicleId && projectId) && 'has-vehicle-timing', Boolean(liveSelection.stopId && projectId) && 'has-stop-arrivals')}>
           <button type="button" aria-label="Clear map selection" onClick={() => setLiveSelection(null)}>
             <X size={13} strokeWidth={2.6} aria-hidden="true" />
           </button>
-          <span>{liveSelection.eyebrow}</span>
+          {liveSelection.vehicleId ? <VehicleOperationalWarnings vehicle={vehicleFrame.vehicles.find(vehicle => vehicle.id === liveSelection.vehicleId && vehicle.sourceUrl === liveSelection.vehicleSourceUrl)} /> : null}
+          {liveSelection.stopId && projectId ? <StopArrivalBoard onOpenTrip={onOpenTrip} key={`${projectId}/${liveSelection.stopId}`} projectId={projectId} stopId={liveSelection.stopId} /> : liveSelection.vehicleId && projectId ? <AgencyVehicleDetails key={`${projectId}/${liveSelection.vehicleSourceUrl}/${liveSelection.vehicleId}`} projectId={projectId} vehicleId={liveSelection.vehicleId} sourceUrl={liveSelection.vehicleSourceUrl} onOpenTrip={onOpenTrip} /> : <><span>{liveSelection.eyebrow}</span>
           <strong>{liveSelection.title}</strong>
           <small>{liveSelection.subtitle}</small>
           {liveSelection.journey ? (
@@ -3345,6 +3489,7 @@ export function VigoMap({
               </b>
             ))}
           </div>
+          </>}
         </div>
       ) : null}
       {mapFailure ? (

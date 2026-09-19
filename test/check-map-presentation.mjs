@@ -2,6 +2,34 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import ts from 'typescript'
+import { renderedStopAtPoint, selectableStopLayers } from '../src/app/mapStopSelection.ts'
+
+{
+  const stop = (id, x, y) => ({ properties: { stopId: id }, geometry: { type: 'Point', coordinates: [x, y] } })
+  let hits = [stop('other-feed::S', 12, 0), stop('agency::S', 4, 0), stop('agency::S', 4, 0)]
+  let queried = false
+  const map = {
+    getLayer: id => id === 'vigo-network-stops',
+    queryRenderedFeatures: (box, options) => {
+      queried = true
+      assert.deepEqual(box, [[-18, -18], [18, 18]])
+      assert.deepEqual(options.layers, ['vigo-network-stops'])
+      return hits
+    },
+    project: ([x, y]) => ({ x, y }),
+  }
+  assert.equal(renderedStopAtPoint(map, { x: 0, y: 0 }).properties.stopId, 'agency::S', 'Nearest visible stop wins, not layer order or an unscoped ID')
+  hits = [stop('outside-circle', 17, 17), stop('invalid', NaN, 0), { properties: { stopId: 'line' }, geometry: { type: 'LineString', coordinates: [] } }]
+  assert.equal(renderedStopAtPoint(map, { x: 0, y: 0 }), undefined, 'A bounding-box corner or invalid geometry is not a nearby stop')
+  hits = [stop('edge', 18, 0)]
+  assert.equal(renderedStopAtPoint(map, { x: 0, y: 0 }).properties.stopId, 'edge', 'A tap need not land on the small visual dot')
+  hits = []
+  assert.equal(renderedStopAtPoint(map, { x: 0, y: 0 }), undefined, 'Hidden and offscreen stops are not selected from source data')
+  queried = false
+  assert.equal(renderedStopAtPoint({ ...map, getLayer: () => undefined }, { x: 0, y: 0 }), undefined)
+  assert.equal(queried, false, 'Do not query absent layers while the map loads')
+  assert.ok(selectableStopLayers.includes('vigo-selected-stop'), 'The selection ring remains an interactive stop')
+}
 
 const root = resolve(import.meta.dirname, '..')
 const source = readFileSync(resolve(root, 'src/app/mapPresentation.ts'), 'utf8')
@@ -82,6 +110,7 @@ const scheduledVehiclesCompiled = ts.transpileModule(scheduledVehiclesSource, {
 }).outputText.replace("from './app/geometry'", `from '${geometryUrl}'`)
 const scheduledVehicles = await import(`data:text/javascript;base64,${Buffer.from(scheduledVehiclesCompiled).toString('base64')}`)
 const scheduledVehiclesUrl = `data:text/javascript;base64,${Buffer.from(scheduledVehiclesCompiled).toString('base64')}`
+const vehicleIndicatorsUrl = `data:text/javascript;base64,${Buffer.from(ts.transpileModule(readFileSync(resolve('src/agency/vehicleIndicators.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText).toString('base64')}`
 const serviceVehiclesCompiled = ts.transpileModule(serviceVehiclesSource, {
   compilerOptions: {
     module: ts.ModuleKind.ES2022,
@@ -89,9 +118,26 @@ const serviceVehiclesCompiled = ts.transpileModule(serviceVehiclesSource, {
   },
   fileName: 'serviceVehicles.ts',
 }).outputText
+  .replace("from './agency/vehicleIndicators'", `from '${vehicleIndicatorsUrl}'`)
   .replace("from './scheduledVehicles'", `from '${scheduledVehiclesUrl}'`)
   .replace("from './routeServices'", `from '${routeServicesUrl}'`)
 const serviceVehicles = await import(`data:text/javascript;base64,${Buffer.from(serviceVehiclesCompiled).toString('base64')}`)
+// Route arrows follow trip geometry, including overlapping outbound/return segments.
+{
+  const route = { coordinates: [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]] }
+  assert.equal(serviceVehicles.routeDirectionBearing([0.5, 0], route), 90)
+  assert.equal(serviceVehicles.routeDirectionBearing([0.5, 1], route), 270)
+  const trip = { stopTimes: [{ sequence: 1, shapeIndex: 2, progress: 0.5 }, { sequence: 2, shapeIndex: 3, progress: 0.75 }] }
+  assert.equal(serviceVehicles.routeDirectionBearing([0.5, 0], route, trip, 2), 270, 'Stop sequence selects the correct leg rather than the nearest opposing leg')
+  assert.equal(serviceVehicles.routeDirectionBearing([0.5, 1], route, trip, 1, true), 270, 'Stopped vehicles point along their onward leg')
+  const sparse = { coordinates: [[0, 0], [1, 0], [2, 0]] }
+  const sharedVertex = { stopTimes: [{ sequence: 1, shapeIndex: 1 }, { sequence: 2, shapeIndex: 1 }] }
+  assert.equal(serviceVehicles.routeDirectionBearing([1, 0], sparse, sharedVertex, 2), 90, 'Stops sharing a shape vertex still have a heading')
+  const terminal = { stopTimes: [{ sequence: 1, shapeIndex: 2 }, { sequence: 2, shapeIndex: 2 }] }
+  assert.equal(serviceVehicles.routeDirectionBearing([2, 0], sparse, terminal, 2), 90, 'The final vertex retains its arriving segment')
+  assert.equal(serviceVehicles.routeDirectionBearing([0, 0], undefined), undefined, 'No invented heading without a matched route')
+  assert.equal(serviceVehicles.routeDirectionBearing([0, 0], { coordinates: [[0, 0], [0, 0]] }), undefined)
+}
 const firstRenderTelemetryCompiled = ts.transpileModule(firstRenderTelemetrySource, {
   compilerOptions: {
     module: ts.ModuleKind.ES2022,
@@ -147,6 +193,7 @@ assert.equal(
   'Patterns from one GTFS route_id must remain grouped in the inspector.',
 )
 const secondServicePreview = { routes: sameNameBranches, stops: [], stopPairs: [] }
+assert.deepEqual(presentation.previewForSelectedRoute({ routes: [], stops: [], stopPairs: [] }, sameNameBranches[1]).routes, [sameNameBranches[1]], 'Keep the explicitly selected line visible when the network preview excludes it')
 assert.equal(presentation.previewForSelectedRoute(secondServicePreview, sameNameBranches[1], 'pattern').routes[0].id,
   sameNameBranches[1].id, 'Missing pattern IDs must not select the first unrelated route.')
 assert.deepEqual(presentation.previewForSelectedRoute(secondServicePreview, sameNameBranches[1]).routes.map(route => route.id),
@@ -218,6 +265,9 @@ assert.equal(workspaceShapePoints, denseRoutes.length * 250, 'Published route po
 assert.ok(cityLod.routes.some((route) => route.id === selectedPatternId))
 assert.equal(new Set(cityLod.routes.map(cityPreview.cityPublicRouteKey)).size, cityLod.routes.length)
 assert.ok(cityLod.routes.some((route) => route.routeId === 'route-0' && route.tripCount === 3))
+const stopFocusedLod = cityPreview.buildCityPreviewLod({ routes: [], stops: denseStops, stopPairs: [] }, '', { maxStops: 16 }, 'feed::stop-2999')
+assert.ok(stopFocusedLod.stops.some(stop => stop.id === 'feed::stop-2999'), 'A searched stop remains available for its arrival board even in a sampled network.')
+assert.ok(stopFocusedLod.stops.length <= 16)
 const sameNameServiceLod = cityPreview.buildCityPreviewLod({
   routes: [
     { ...emptyRouteShells[0], id: 'feed::shuttle-a', routeId: 'shuttle-a', routeType: 3, shortName: 'Orange Line Shuttle', tripCount: 20, coordinates: [[-71.1, 42.3], [-71.0, 42.4]] },
@@ -386,6 +436,11 @@ const joinedVehiclePreview = {
     { ...stops[0], id: 'feed::stop-b', name: 'Stop B' },
     { ...stops[0], id: 'feed::stop-c', name: 'Stop C' },
   ],
+}
+for (const [bearing, expected] of [[0, 0], [135, 135], [360, 0], [undefined, undefined], [NaN, undefined], [-1, undefined], [361, undefined]]) {
+  const frame = serviceVehicles.buildServiceVehicleFrame({ mode: 'live', preview: { routes: [], stops: [] }, scheduledVehicles: [],
+    realtimeSnapshot: { vehicles: [{ id: 'unmatched', lat: 42, lon: -71, bearing }], tripUpdates: [], alerts: [], counts: {} } })
+  assert.equal(frame.vehicles[0].bearing, expected, 'Unmatched patterns retain valid reported RT headings only')
 }
 const liveFrame = serviceVehicles.buildServiceVehicleFrame({
   mode: 'live',

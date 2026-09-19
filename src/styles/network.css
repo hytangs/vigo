@@ -353,11 +353,12 @@
 
 .route-surface {
   display: grid;
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .route-map-shell {
   position: relative;
+  grid-row: 2;
   height: 100%;
   overflow: hidden;
 }
@@ -497,6 +498,28 @@
   font-variant-numeric: tabular-nums;
 }
 
+.service-clock-input {
+  width: 5.5em;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: inherit;
+  background: var(--panel);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.service-now-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .service-state-readout small {
   color: var(--text-muted);
   font-size: 0.64rem;
@@ -576,6 +599,8 @@
 
 .service-playback-date {
   width: 142px;
+  max-width: 100%;
+  box-sizing: border-box;
   min-width: 0;
   height: 34px;
   padding: 0 6px;
@@ -588,7 +613,7 @@
   font-weight: 590;
 }
 
-@container route-map (max-width: 760px) {
+@container route-map (max-width: 900px) {
   .service-state-panel.is-schedule {
     grid-template-columns: auto minmax(120px, 1fr) 34px 78px;
   }
@@ -1172,3 +1197,13 @@
   font-size: 0.54rem;
   font-weight: 740;
 }
+
+.service-indicator-legend { grid-column: 1 / -1; order: 10; font-size: 11px; }
+.service-indicator-legend summary { cursor: pointer; }
+.service-indicator-legend p { margin: 6px 0; line-height: 1.4; }
+
+.route-surface > .service-toolbar:empty { display: none; }
+.route-surface > .service-toolbar { min-width: 0; background: var(--panel); container: route-map / inline-size; }
+.route-surface > .service-toolbar > .service-state-panel { position: static; width: 100%; max-width: none; transform: none; border-radius: 0; box-shadow: none; box-sizing: border-box; }
+.occupancy-glyph { display: inline-flex; align-items: center; gap: 4px; padding: 4px 7px; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text-muted); }
+.occupancy-glyph.is-crowded { color: #b45309; }

@@ -29,17 +29,17 @@ VIGO models the City revision and Query it is given. It does not certify real-wo
 
 ## Realtime
 
-- Live transit routing is available only through Studio Route. Public CLI/Python live Scenarios, realtime Matrix, and realtime Reach are unsupported. Vehicle Positions and Alerts are inspection/display data; they do not change route costs or close services.
-- Only FULL_DATASET feeds are decoded. Routing matches existing scheduled trips and the supplied service date, applies supported trip/stop delays or times, and removes matched CANCELED/DELETED trips. Added, duplicated, replacement, unscheduled trips and skipped-stop changes are unsupported.
-- A feed timestamp older than 180 seconds falls back to the static schedule. A missing timestamp cannot establish freshness; there is no guarantee of feed completeness, delivery latency, or observed operations. Inspect the Result's realtime diagnostics and schedule mode.
-- The overlay considers at most 1,024 updates and retains at most 256 adjusted trips, subject to an additional stop limit. Unmatched, unsupported, invalid, and pruned records do not provide network-wide realtime coverage. A route is computed against this bounded overlay and the remaining static schedule.
+- Realtime transit Route is available in the desktop and CLI. CLI Route requires a supplied `realtimeSnapshot` and `--data-mode realtime`; it does not fetch feeds. Matrix and Reach reject realtime requests. Vehicle Positions and Alerts do not change route costs or close services.
+- Only FULL_DATASET feeds are decoded. Supported updates modify matched scheduled trips, remove CANCELED/DELETED trips, and omit SKIPPED calls. Added, duplicated, replacement and unscheduled trips without a supported scheduled instance remain unsupported.
+- Feed and record timestamps must pass freshness checks. Engine admission accepts observations up to 180 seconds old and 60 seconds ahead of its captured clock; Agency may apply its own admission policy. Missing timestamps do not establish freshness. Inspect diagnostics for exclusions and scheduled fallback.
+- The complete supplied snapshot is processed without the former trip/update caps. Unreported trips retain scheduled times; rejected updates do not establish coverage or actual operations. See [realtime routing](REALTIME-ROUTING.md) for admission rules, diagnostics and verification.
 
 ## City reuse and platforms
 
 - Studio maps require WebGL 2. Engine and Python queries do not require a graphics device.
 - Copy the entire City directory; street indexes and prepared files are part of it. The native runtime executable is specific to OS/CPU, while City data is portable across the supported 64-bit targets.
-- An older timetable cache may require one preparation in 0.3.2. New active-service patterns, changed walking policy, or evicted snapshots also require preparation. Missing/corrupt required street indexes are errors, not permission to query a different graph; restore the complete City or rebuild it from source.
-- Studio project-library settings, drafts, and live connections are local application state and do not travel inside a CLI City. Studio cannot directly open CLI City directories in 0.3.2.
+- An older timetable cache may require one preparation in 0.4.0. New active-service patterns, changed walking policy, or evicted snapshots also require preparation. Missing/corrupt required street indexes are errors, not permission to query a different graph; restore the complete City or rebuild it from source.
+- Studio project-library settings, drafts, and live connections are local application state and do not travel inside a CLI City. Studio cannot directly open CLI City directories in 0.4.0.
 
 ## Scenario
 

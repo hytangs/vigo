@@ -1,0 +1,29 @@
+{
+  "id": "disruption-triage",
+  "name": "Route evidence review",
+  "description": "Assemble current reports and published alerts for a route into a source-linked research note.",
+  "inputs": [
+    {
+      "key": "routeId",
+      "label": "Route to review",
+      "type": "route",
+      "required": true
+    }
+  ],
+  "steps": [
+    {
+      "tool": "realtime_status",
+      "label": "Read current reports for the route",
+      "arguments": {
+        "routeId": "$input.routeId"
+      }
+    },
+    {
+      "tool": "service_alerts",
+      "label": "Read published alerts for the route",
+      "arguments": {
+        "routeId": "$input.routeId"
+      }
+    }
+  ]
+}

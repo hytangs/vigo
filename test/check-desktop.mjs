@@ -4,8 +4,8 @@ import path from 'node:path'
 
 const repositoryRoot = path.resolve(import.meta.dirname, '..')
 const [main, preload, server, bridge, desktopStyles, packageJson] = await Promise.all([
-  readFile(path.join(repositoryRoot, 'desktop', 'main.mjs'), 'utf8'),
-  readFile(path.join(repositoryRoot, 'desktop', 'preload.cjs'), 'utf8'),
+  readFile(path.join(repositoryRoot, 'public', 'main.mjs'), 'utf8'),
+  readFile(path.join(repositoryRoot, 'public', 'preload.cjs'), 'utf8'),
   readFile(path.join(repositoryRoot, 'src', 'server', 'vigo-api.mjs'), 'utf8'),
   readFile(path.join(repositoryRoot, 'src', 'app', 'desktopBridge.ts'), 'utf8'),
   readFile(path.join(repositoryRoot, 'src', 'styles', 'theme.css'), 'utf8'),
@@ -34,7 +34,7 @@ assert.match(bridge, /globalThis as \{ vigoDesktop\?: DesktopBridge \}/u)
 assert.match(desktopStyles, /\[data-vigo-desktop="macos"\] \.topbar[\s\S]*app-region: drag/u)
 assert.match(desktopStyles, /\[data-vigo-desktop="macos"\] \.topbar-brand \{[\s\S]*padding-left: 82px/u)
 assert.match(desktopStyles, /\[data-vigo-desktop="macos"\] \.topbar-mark-button,[\s\S]*app-region: no-drag/u)
-assert.equal(packageJson.main, 'desktop/main.mjs')
+assert.equal(packageJson.main, 'public/main.mjs')
 assert.equal(packageJson.scripts.studio, 'electron .')
 
 console.log(JSON.stringify({

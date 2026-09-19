@@ -25,7 +25,7 @@ function walk(directory) {
 
 const packageJson = JSON.parse(read('package.json'))
 const packageLock = JSON.parse(read('package-lock.json'))
-assert.equal(packageJson.version, '0.3.2')
+assert.equal(packageJson.version, '0.4.0')
 assert.equal(packageLock.version, packageJson.version)
 assert.equal(packageLock.packages?.['']?.version, packageJson.version)
 assert.equal(packageJson.license, 'Apache-2.0')
@@ -39,7 +39,7 @@ const requiredFiles = [
   'docs/gtfs-support-matrix.md', 'docs/known-routing-limitations.md',
   'docs/guides/use-cases.md', 'docs/guides/algorithms.md',
   'docs/development/architecture.md',
-  'docs/developer-guide/VIGO-0.3.2-Developer-Guide.tex',
+  'docs/developer-guide/VIGO-0.4.0-Developer-Guide.tex',
   'docs/developer-guide/vigo-developer-guide.sty',
   'scripts/build-developer-guide.mjs',
 ]
@@ -58,18 +58,18 @@ for (const relativePath of removedFiles) {
 }
 
 const readme = read('README.md')
-for (const statement of ['Turn city transport data into answers.', 'City → Scenario → Query → Result', 'Route', 'Matrix', 'Reach']) {
+for (const statement of ['VIGO Studio', 'Network', 'Routes', 'Ask', 'Route', 'Matrix', 'Reach']) {
   assert(readme.includes(statement), `README is missing: ${statement}`)
 }
 
 assert.equal(packageJson.scripts?.['docs:developer-guide'], 'node scripts/build-developer-guide.mjs')
 assert.equal(packageJson.scripts?.['docs:api-guide'], undefined)
 
-const developerGuide = read('docs/developer-guide/VIGO-0.3.2-Developer-Guide.tex')
+const developerGuide = read('docs/developer-guide/VIGO-0.4.0-Developer-Guide.tex')
 const programmaticGuide = read('docs/programmatic.md')
 const developerGuideSource = `${developerGuide}\n${read('docs/developer-guide/vigo-developer-guide.sty')}`
 for (const statement of [
-  'VIGO 0.3.2 Developer Guide',
+  'VIGO 0.4.0 Developer Guide',
   'City $\\longrightarrow$ Scenario?',
   'Every computation returns a Result, not a naked travel time.',
   'Compare is not a fourth Query.',

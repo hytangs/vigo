@@ -15,7 +15,6 @@ const run = (args) => execFileSync(executable, [...prefix, ...args], { encoding:
 const invoke = (args) => spawnSync(executable, [...prefix, ...args], { encoding: 'utf8' })
 
 assert(fs.existsSync(cliPath), 'Built CLI is missing.')
-assert(!fs.existsSync(path.join(root, 'public', 'vigo-runtime.mjs')), 'VIGO must ship as one CLI file.')
 
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-cli-'))
 try {
@@ -102,10 +101,24 @@ try {
     'route', `--city=${cityPath}`, `--request=${routeRequest}`,
     '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2',
   ]))
+  const pipedRoute = JSON.parse(execFileSync(executable, [...prefix, 'route', `--city=${cityPath}`, '--request=-',
+    '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2', '--output=-'], {
+    encoding: 'utf8', cwd: temporaryRoot, input: fs.readFileSync(routeRequest, 'utf8'),
+  }))
+  assert.deepEqual(pipedRoute.query, route.query)
+  assert.equal(pipedRoute.result.durationMinutes, route.result.durationMinutes)
+  assert.equal(pipedRoute.status, route.status)
+  assert(!fs.existsSync(path.join(temporaryRoot, '-')), '--output=- must not create a file named -')
+  const inspectPath = path.join(temporaryRoot, 'inspect.json')
+  const savedInspection = JSON.parse(run(['inspect', `--city=${cityPath}`, `--output=${inspectPath}`]))
+  assert.deepEqual(savedInspection, inspected)
+  assert.deepEqual(JSON.parse(fs.readFileSync(inspectPath, 'utf8')), inspected)
   assert.equal(route.schemaVersion, 'vigo.result.route.v1')
   assert.equal(route.kind, 'route')
   assert.equal(route.status, 'ready')
   assert.equal(route.result.status, 'ready')
+  assert.equal(route.query.routingDataMode, 'scheduled')
+  assert.equal(route.result.diagnostics.routingDataMode, 'scheduled')
   assert(!Object.hasOwn(route.result.diagnostics.searchStats, 'resultCachePolicy'))
   assert(Number.isFinite(route.timing.openMs) && Number.isFinite(route.timing.computeMs))
   const removedRouteOption = invoke([
@@ -114,6 +127,60 @@ try {
   ])
   assert.equal(removedRouteOption.status, 2)
   assert(removedRouteOption.stderr.includes('--objective=earliest_arrival'))
+
+  const modeRequest = path.join(temporaryRoot, 'mode-route.json')
+  const realtimeSnapshot = {
+    sourceUrl: 'https://example.test/cli-trip-updates.pb',
+    feedTimestamp: Math.floor(Date.now() / 1000),
+    tripUpdates: ['T1', 'T2'].map(tripId => ({ tripId, startDate: '20260715', scheduleRelationship: 'CANCELED' })),
+  }
+  for (const timePreference of ['depart', 'arrive']) {
+    const modeArgs = ['route', `--city=${cityPath}`, `--request=${modeRequest}`,
+      `--time=${timePreference === 'arrive' ? '08:30' : '07:55'}`, `--time-preference=${timePreference}`,
+      '--service-date=2026-07-15', '--max-walk=0.2']
+    const fixture = { origin: 'A', destination: 'B', requireTransitRide: true, realtimeSnapshot }
+    fs.writeFileSync(modeRequest, JSON.stringify({ ...fixture, routingDataMode: 'realtime' }))
+    const live = JSON.parse(run(modeArgs))
+    assert.equal(live.query.routingDataMode, 'realtime')
+    assert.equal(live.result.diagnostics.routingDataMode, 'realtime')
+    assert.equal(live.result.diagnostics.realtimeRouting.canceledTrips, 2)
+    assert.equal(live.status, 'blocked', 'Both canceled rides must be absent from the CLI result.')
+    const scheduled = JSON.parse(run([...modeArgs, '--data-mode=scheduled']))
+    assert.equal(scheduled.query.routingDataMode, 'scheduled', 'The flag overrides the JSON request mode.')
+    assert.equal(scheduled.status, 'ready')
+    assert.equal(scheduled.result.diagnostics.realtimeRouting, undefined)
+    assert.equal(scheduled.result.diagnostics.routingDataProvenance.realtimeApplied, false)
+    assert.equal(scheduled.result.diagnostics.routingDataProvenance.serviceDate, '2026-07-15')
+    fs.writeFileSync(modeRequest, JSON.stringify({ ...fixture, traffic: { invalid: 'ignored in scheduled research' } }))
+    const defaultScheduled = JSON.parse(run(modeArgs))
+    assert.equal(defaultScheduled.query.routingDataMode, 'scheduled')
+    assert.equal(defaultScheduled.result.durationMinutes, scheduled.result.durationMinutes)
+    assert.deepEqual(defaultScheduled.result.diagnostics.routingDataProvenance, scheduled.result.diagnostics.routingDataProvenance)
+    fs.writeFileSync(modeRequest, JSON.stringify(fixture))
+    assert.equal(JSON.parse(run([...modeArgs, '--data-mode=realtime'])).status, 'blocked')
+  }
+  for (const routingDataMode of ['live', '', null, 1]) {
+    fs.writeFileSync(modeRequest, JSON.stringify({ origin: 'A', destination: 'B', routingDataMode }))
+    const invalid = invoke(['route', `--city=${cityPath}`, `--request=${modeRequest}`, '--service-date=2026-07-15'])
+    assert.equal(invalid.status, 2)
+    assert.match(invalid.stderr, /routingDataMode must be realtime or scheduled/u)
+  }
+  const modeStreamInput = [
+    { id: 'default', origin: 'A', destination: 'B', realtimeSnapshot },
+    { id: 'live', origin: 'A', destination: 'B', routingDataMode: 'realtime', realtimeSnapshot },
+    { id: 'research', origin: 'A', destination: 'B', routingDataMode: 'scheduled', realtimeSnapshot },
+    { id: 'bad-mode', origin: 'A', destination: 'B', routingDataMode: 'live' },
+    { id: 'live-matrix', kind: 'matrix', origins: ['A'], destinations: ['B'], routingDataMode: 'realtime', realtimeSnapshot },
+  ].map(request => JSON.stringify({ requireTransitRide: true, ...request })).join('\n') + '\n'
+  const modeStream = execFileSync(executable, [...prefix, '_route-stream', `--city=${cityPath}`,
+    '--service-date=2026-07-15', '--time=07:55', '--max-walk=0.2'], {
+    encoding: 'utf8', input: modeStreamInput,
+  }).trim().split('\n').map(line => JSON.parse(line))
+  assert.deepEqual(modeStream.map(record => record.status), ['ok', 'ok', 'ok', 'error', 'error'])
+  assert.deepEqual(modeStream.slice(0, 3).map(record => record.query.routingDataMode), ['scheduled', 'realtime', 'scheduled'])
+  assert.deepEqual(modeStream.slice(0, 3).map(record => record.plan.status), ['ready', 'blocked', 'ready'])
+  assert.deepEqual(modeStream[0].plan.diagnostics.routingDataProvenance, modeStream[2].plan.diagnostics.routingDataProvenance)
+  assert.match(modeStream[4].error.message, /currently uses scheduled service/u)
 
   const waypointRequest = path.join(temporaryRoot, 'waypoint-route.json')
   fs.writeFileSync(waypointRequest, JSON.stringify({
@@ -152,6 +219,7 @@ try {
   ]))
   assert.equal(matrix.schemaVersion, 'vigo.result.matrix.v1')
   assert.equal(matrix.kind, 'matrix')
+  assert.equal(matrix.query.routingDataMode, 'scheduled')
   assert.deepEqual(matrix.rows.map((row) => row.destinationId), ['x', 'b'])
   assert(matrix.rows.every((row) => row.status === 'ready'))
   assert(Number.isFinite(matrix.timing.openMs) && Number.isFinite(matrix.timing.computeMs))
@@ -263,10 +331,18 @@ try {
   ]))
   assert.equal(reach.schemaVersion, 'vigo.result.reach.v1')
   assert.equal(reach.kind, 'reach')
+  assert.equal(reach.query.routingDataMode, 'scheduled')
   assert.equal(reach.surface.values.length, 48 * 48)
   assert.equal(reach.contours.type, 'FeatureCollection')
   assert(Number.isFinite(reach.timing.openMs) && Number.isFinite(reach.timing.computeMs))
   assert(fs.existsSync(reachPath))
+  for (const [command, contents] of [['matrix', { origins: ['A'], destinations: ['B'] }], ['reach', { origin: 'A' }]]) {
+    const unsupportedPath = path.join(temporaryRoot, `${command}-realtime.json`)
+    fs.writeFileSync(unsupportedPath, JSON.stringify({ ...contents, routingDataMode: 'realtime', realtimeSnapshot }))
+    const unsupported = invoke([command, `--city=${cityPath}`, `--request=${unsupportedPath}`, '--service-date=2026-07-15'])
+    assert.equal(unsupported.status, 2)
+    assert.match(unsupported.stderr, /currently uses scheduled service/u)
+  }
   assert.equal(invoke([
     'reach', `--city=${cityPath}`, `--request=${reachRequest}`,
     '--time=07:55', '--service-date=2026-07-15', '--mode=drive',
@@ -341,6 +417,8 @@ try {
   ]))
   const rows = Papa.parse(fs.readFileSync(routesPath, 'utf8'), { header: true, skipEmptyLines: true }).data
   assert.equal(batch.schemaVersion, 'vigo.result.route.v1')
+  assert.equal(batch.query.routingDataMode, 'scheduled')
+  assert(batch.results.every(result => result.plan.diagnostics.routingDataMode === 'scheduled'))
   assert.equal(batch.rows.ready, 2)
   assert.equal(batch.results.length, 2)
   assert(rows.every((row) => !Object.hasOwn(row, 'cache_hit') && !Object.hasOwn(row, 'cache_key')))

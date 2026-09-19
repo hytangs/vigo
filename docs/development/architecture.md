@@ -5,7 +5,7 @@ VIGO presents one product model while keeping computation, application state, an
 ```text
 +---------------- VIGO Studio ----------------+
 | Electron main | isolated renderer            |
-| Explore | Route | Analyze | City              |
+| Network | Route | Analyze | City              |
 +----------------------+-----------------------+
                        | memory messages
 +---------------- VIGO Engine ----------------+
@@ -49,7 +49,9 @@ Rust owns timetable propagation, street search, Matrix work, and Reach surfaces.
 
 Electron owns the window, native dialogs, menus, and the `vigo://studio` resource
 scheme. The renderer is isolated and has no Node access. A preload exposes only the
-small set of desktop actions Studio needs.
+small set of desktop actions Studio needs. The launcher and preload live at
+`public/main.mjs` and `public/preload.cjs`; application icons live in `public/icons/`.
+Packaging copies this shared distribution folder once.
 
 VIGO Engine runs in a utility process. Studio sends requests through memory messages;
 the packaged application does not bind a TCP port. Browser development may still use

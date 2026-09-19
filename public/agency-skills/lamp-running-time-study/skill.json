@@ -1,0 +1,13 @@
+{
+  "id": "lamp-running-time-study",
+  "name": "Build a LAMP running-time study",
+  "description": "Download public subway performance and applicable archived GTFS for a focused chronological prediction study. Up to 31 past service dates; runs locally and saves its evidence.",
+  "version": "1.0",
+  "inputs": [
+    {"key": "startDate", "label": "First training date", "type": "date", "required": true},
+    {"key": "trainingEndDate", "label": "Last training date", "type": "date", "required": true},
+    {"key": "endDate", "label": "Last evaluation date", "type": "date", "required": true},
+    {"key": "routeId", "label": "Route (optional)", "type": "route", "required": false}
+  ],
+  "steps": [{"tool": "run_runtime_study", "label": "Match LAMP events, fit on earlier dates, and evaluate later dates", "arguments": {"startDate": "$input.startDate", "trainingEndDate": "$input.trainingEndDate", "endDate": "$input.endDate", "routeId": "$input.routeId"}}]
+}

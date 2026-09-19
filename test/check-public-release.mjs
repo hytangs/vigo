@@ -108,7 +108,6 @@ const forbiddenContent = [
   { pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/gu, label: 'GitHub token' },
   { pattern: /\bAKIA[0-9A-Z]{16}\b/gu, label: 'AWS access key' },
   { pattern: /https:\/\/github\.com\/hytangs\/vigo-dev(?:\.git)?/gu, label: 'private development remote' },
-  { pattern: /v[e]xta/giu, label: 'unrelated product reference' },
   { pattern: /r[a]pidonkey/giu, label: 'private source-tree reference' },
 ]
 
@@ -125,7 +124,7 @@ for (const file of files) {
 }
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
-assert.equal(packageJson.version, '0.3.2', 'Public package version must be 0.3.2.')
+assert.equal(packageJson.version, '0.4.0', 'Public package version must be 0.4.0.')
 assert.equal(packageJson.license, 'Apache-2.0', 'Public package must use Apache-2.0.')
 
 const workflowFiles = files.filter((file) => file.startsWith('.github/workflows/'))

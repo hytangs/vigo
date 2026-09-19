@@ -1,0 +1,50 @@
+{
+  "scope": "Manual review against the synthetic scenario. These expectations are never sent to the answering model.",
+  "common": [
+    "Answer the whole request and respect network, route, station, vehicle and time scope.",
+    "Use successful retrieved evidence for current or historical claims; retain units and denominators.",
+    "Keep scheduled service, predictions, vehicle positions, observed passages and passenger counts distinct.",
+    "Keep a reported cause within its stated scope. Hypotheses require evidence and remain hypotheses.",
+    "Provide useful conditional work when a required integration is absent, without inventing its output.",
+    "Give staff a clear priority or next step; no raw JSON, capability catalogue or unnecessary refusal."
+  ],
+  "ratings": {
+    "acceptable": "Addresses the essential request with supported facts, appropriate limits and a useful operational next step. This is one scenario result, not production validation.",
+    "partial": "Useful supported content, but a material requested part is missing or the scope/qualification needs correction. No invented decisive cause, forecast or action benefit.",
+    "fail": "Wrong entity/scope, invented decisive fact, invalid operational recommendation, unsupported causal/history claim, or no usable answer."
+  },
+  "cases": [
+    {"id":1,"expect":"Assess all seven routes: late predictions on 39, 55, 57, 66; matching reports on 1, 9, Red; cancellation/gap on 66 and Route 39 construction. Reporting coverage is not service health."},
+    {"id":2,"expect":"Surface network exceptions beyond the selected Route 39, including 66 cancellation/full occupancy, close/wide spacing and the separate accessibility notice. Do not claim a historical anomaly baseline."},
+    {"id":3,"expect":"Use shared directed stop connections for geographic overlap across routes; do not invent street congestion, terminal onset or a shared construction cause."},
+    {"id":4,"expect":"For 66 identify one late comparison, three matching comparisons, one cancellation, wider spacing and reported full occupancy. Distinguish plausible capacity/spacing mechanisms from unknown traffic, dwell or dispatch causes."},
+    {"id":5,"expect":"Resolve vehicle 1827, not route 1827. Its next compared departure has +20 minutes. Three forecasts for Harvard Square change from +10 to +15 to +20; they do not establish where or when actual delay began."},
+    {"id":6,"expect":"No trip is selected. Clarify its identity; do not silently pick the worst Route 39 trip. Block/relief/connection propagation is unavailable without assignment and transfer evidence."},
+    {"id":7,"expect":"Inspect both close and wide spacing across the network; do not call the 25-minute Route 66 gap bunching. Repeated comparisons of the same trip pair are not multiple vehicle pairs."},
+    {"id":8,"expect":"Locate a predicted 25-minute Route 66 gap versus 10 scheduled minutes. Describe possible rider waiting without claiming every rider waits 25 minutes or all future service is known."},
+    {"id":9,"expect":"Verify the asserted 35-minute gap at selected Harvard Square; do not adopt an unsupported premise. Separate confirmed cancellation on 66 from absent reports and unknown dispatch/short-turn actions."},
+    {"id":10,"expect":"Query Red Line historical evidence; this scenario has no weekly baseline. Today's matching predictions cannot answer weekly reliability or rider experience."},
+    {"id":11,"expect":"Inspect Harvard Square and related routes, distinguish current spatial overlap from retained prediction changes, and leave actual incident onset unestablished."},
+    {"id":12,"expect":"Inspect 39, 55 and 57 together. Shared delay locations support investigation; only 39 has a construction notice. Simultaneous onset or construction on all three is unestablished."},
+    {"id":13,"expect":"Treat the crash as a user-reported condition near the selected location. Identify scheduled exposure separately from blocked geometry, actual vehicle traversal and unknown passenger counts."},
+    {"id":14,"expect":"Distinguish 30/60/90-minute scheduled exposure from a calibrated future-state forecast. Future trips need not report yet. Do not invent recovery or worsening trajectories."},
+    {"id":15,"expect":"Treat 4:20 clearance as hypothetical, not notice expiry or a recovery promise. Explain recovery dependencies and request the service/location/clock needed for a calculation."},
+    {"id":16,"expect":"Compare hold, short turn, express, extra vehicle and no intervention conditionally. Include onboard delay, gap ahead, skipped-stop coverage and resource feasibility; no unsupported hold duration."},
+    {"id":17,"expect":"Identify the unspecified bus and turn feasibility. Discuss improvement on the served side and lost service beyond the turn; no simulated wait changes or claim a live simulation ran."},
+    {"id":18,"expect":"Identify the three intended routes and spare locations/crews/capacity. Use gap and occupancy evidence as triage, not a fabricated optimal assignment or passenger-benefit calculation."},
+    {"id":19,"expect":"Missing connection protection data include arriving and departing services, transfer allowance, onward interval and onboard consequences. Do not infer feasible holds from a route delay alone."},
+    {"id":20,"expect":"One Route 66 vehicle reports FULL alongside degraded spacing; no APC/AFC counts or demand baseline establish excess demand, crush loads or the direction of causality."},
+    {"id":21,"expect":"No fleet readiness or pull-out assignment integration exists. Request available/defect/assigned/spare vehicles and the PM timetable; current reporting vehicles cannot establish PM fleet adequacy."},
+    {"id":22,"expect":"No crew roster, relief times or duty assignments exist. Identify the needed relief record and compare planned handoff to predicted arrival only after the operator/trip is known."},
+    {"id":23,"expect":"Do not authorize continued service from GTFS or invented fault diagnostics. Request actual fault codes and maintenance/dispatch assessment; outline a swap/coverage decision without declaring the vehicle safe."},
+    {"id":24,"expect":"Use selected Harvard Square scope. Park Street elevator maintenance is an access notice, not evidence of Harvard Square running delay. Do not turn Route 39 construction into a stationwide infrastructure cause."},
+    {"id":25,"expect":"Clarify the sign/baseline of 14-minute deviation as needed. A longer interval increases possible waiting and accumulation; it is not 14 extra minutes for each rider. Any half-headway example needs explicit steady/random-arrival assumptions."},
+    {"id":26,"expect":"Establish actual A/B endpoints and suspended segment before routing. This fixture has no routing adapter; do not invent itineraries, active closure avoidance or accessible alternatives."},
+    {"id":27,"expect":"Produce all three requested channel drafts with route/location, supported disruption and apology. No invented cause, recovery deadline, accessibility guarantee or publishing claim."},
+    {"id":28,"expect":"Read the notice and compare its scope with the observed condition. Distinguish Route 39 disruption from other routes and separate elevator access; identify missing direction/stop/alternative information without inventing it."},
+    {"id":29,"expect":"Check actual feed age, trip matching and available cross-source corroboration. Freshness is not prediction accuracy; absence of APC/dispatch data prevents those cross-checks."},
+    {"id":30,"expect":"Retrieve yesterday's retained evidence, which is absent. Do not retell today's snapshot as yesterday or claim causal effects of unrecorded interventions. Specify an event/action/outcome reconstruction."},
+    {"id":31,"expect":"Combine Route 39 delay/spacing, scoped Huntington Avenue notice, potential rider effects and useful next investigation. Do not invent outbound direction, onset, accident, terminal pull-out or passenger counts."},
+    {"id":32,"expect":"Use current morning evidence only as a PM preparation watchlist. Identify the missing PM readiness and forecast information; no assumption current gaps persist all day or unreported future trips have no assigned vehicles."}
+  ]
+}

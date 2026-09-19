@@ -1,10 +1,18 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { rmSync } from 'node:fs'
 
 const apiPort = Number(process.env.VIGO_PORT ?? process.env.VIGO_API_PORT ?? 5179) || 5179
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), {
+    name: 'clean-generated-assets',
+    apply: 'build',
+    buildStart() {
+      // public also contains authored desktop files; only assets is generated.
+      rmSync(new URL('./public/assets', import.meta.url), { recursive: true, force: true })
+    },
+  }],
   publicDir: 'public',
   build: {
     outDir: 'public',
@@ -26,8 +34,11 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 5178,
+    watch: { ignored: ['**/temp/**', '**/release/**', '**/public/assets/**', '**/public/index.html', '**/public/vigo.mjs', '**/public/_engine/**'] },
     proxy: {
-      '/api': `http://127.0.0.1:${apiPort}`,
+      // Preserve the browser's Host so the API can verify the same local
+      // origin even when a second development checkout uses another port.
+      '/api': { target: `http://127.0.0.1:${apiPort}`, changeOrigin: false },
     },
   },
   preview: {

@@ -1,21 +1,28 @@
-# VIGO 0.3.2 documentation
+# VIGO Studio documentation
 
-VIGO has one model across Studio and the command line:
+Start with the [quickstart](quickstart.md) to build and run VIGO, then the [Network, Routes, and Ask guide](agency.md) for live inspection. All interfaces share the City, Scenario, Query, and Result model.
 
 ```text
 City -> Scenario -> Route | Matrix | Reach -> Result
 ```
 
-## Getting started
+## Network inspection
 
-- [VIGO 0.3.2 Quickstart](quickstart.md)
+- [Use Network, Routes and Ask](agency.md)
+- [Shared network workspace and selection](network-workspace.md)
+- [Line diagrams and station boards](ROUTE-LINE.md)
+- [LAMP historical running-time study](lamp-runtime-study.md)
+
+## Routing platform
+
+- [VIGO quickstart](quickstart.md)
 - [Interactive guide and Result viewer](guide.html)
 - [Core concepts](concepts.md)
-- [VIGO 0.3.2 Developer Guide source](developer-guide/VIGO-0.3.2-Developer-Guide.tex) — build the PDF with `npm run docs:developer-guide`
+- [VIGO 0.4.0 Developer Guide source](developer-guide/VIGO-0.4.0-Developer-Guide.tex) — build the PDF with `npm run docs:developer-guide`
 
-## VIGO Studio
+## Studio
 
-- [VIGO Studio Guide](studio.md)
+- [Studio guide](studio.md)
 - [Inspect GTFS services](gtfs-visualizer.md)
 
 ## Programmatic use
@@ -23,6 +30,7 @@ City -> Scenario -> Route | Matrix | Reach -> Result
 - [Command line](programmatic.md)
 - [Route](routing.md)
 - [Routing accuracy checks](routing-accuracy.md)
+- [Realtime and scheduled modes](REALTIME-ROUTING.md)
 - [Matrix](matrix.md)
 - [Reach](reach.md)
 
@@ -37,5 +45,3 @@ City -> Scenario -> Route | Matrix | Reach -> Result
 - [Scenario semantics](scenarios.md)
 - [Performance](performance.md)
 - [Internal architecture](development/architecture.md)
-
-Product documentation does not require knowledge of internal storage or routing algorithms. Those details belong in the internal architecture pages.

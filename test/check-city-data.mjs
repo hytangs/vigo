@@ -35,6 +35,24 @@ try {
   const projectRoot = path.join(projectsRoot, projectId)
   const metaRoot = path.join(projectRoot, '.vigo')
   const projectFile = path.join(metaRoot, 'project.json')
+  // The Network API must explain intake state before any timetable is ready.
+  const emptyProject = JSON.parse(await fs.readFile(projectFile, 'utf8'))
+  for (const [status, expected] of [
+    ['missing', /Add a GTFS ZIP in City data/],
+    ['queued', /Timetable still preparing/],
+    ['running', /Timetable still preparing: Building routing indexes/],
+    ['failed', /Retry the GTFS import/],
+    ['cancelled', /Retry the GTFS import/],
+    ['complete', /Add a GTFS ZIP in City data/],
+  ]) {
+    await fs.writeFile(projectFile, JSON.stringify({ ...emptyProject, jobs: status === 'missing' ? [] : [{
+      id: 'intake-status', kind: 'national-gtfs-import', status,
+      phase: 'Building routing indexes', createdAt: new Date().toISOString(),
+    }] }))
+    const result = await jsonResponse(await apiRuntime.fetch(`/api/projects/${projectId}/agency`), 409, `intake ${status}`)
+    assert.match(result.error, expected)
+  }
+  await fs.writeFile(projectFile, JSON.stringify(emptyProject))
   const routingStore = {
     schemaVersion: 'vigo.routing.store.v1',
     status: 'ready',

@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict'
+import { delayAlert, spacingAlert } from '../src/agency/alertPolicy.mjs'
+assert.equal(delayAlert(299).severity, 'info')
+assert.equal(delayAlert(300).severity, 'warning')
+assert.equal(delayAlert(899).severity, 'warning')
+assert.equal(delayAlert(900).severity, 'critical')
+assert.equal(spacingAlert(600, 601).severity, 'info')
+assert.equal(spacingAlert(600, 900).severity, 'warning')
+assert.equal(spacingAlert(600, 1800).severity, 'critical')
+assert.equal(spacingAlert(600, 300).severity, 'warning')
+assert.equal(spacingAlert(600, 120).severity, 'critical')
+assert.equal(spacingAlert(120, 30).severity, 'info', 'Short scheduled intervals do not escalate on ratio alone')
+assert.equal(spacingAlert(3600, 3900).severity, 'info', 'Long scheduled intervals do not escalate on absolute difference alone')
+assert.equal(spacingAlert(0, 100).severity, 'info')
+console.log('Alert thresholds: delay boundaries, long gaps, compression and small-change suppression passed.')

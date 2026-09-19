@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RealtimeSnapshot, ServiceDay } from '../domain'
-import type { RoutingPlan, RoutingPoint, RoutingTimePreference, RoutingTravelMode } from '../routingModel'
+import type { RoutingDataMode, RoutingPlan, RoutingPoint, RoutingTimePreference, RoutingTravelMode } from '../routingModel'
 import { apiJson, ApiRequestError, type ApiRoutingStatus } from './api'
 import { LatestRequestGate } from './latestRequestGate'
 import {
@@ -27,16 +27,19 @@ type NationalRouteResponse = {
   choices?: RoutingPlan[]
   earliestTransit?: EarliestTransitEvidence
 }
+const noRoutingChoices: RoutingPlan[] = []
 
 type UseNationalRoutingOptions = {
   active: boolean
   projectId: string
   feedId: string
   storeKey: string
+  streetKey?: string
   origin: RoutingPoint | null
   waypoints: RoutingPoint[]
   destination: RoutingPoint | null
   mode: RoutingTravelMode
+  routingDataMode: RoutingDataMode
   departMinutes: number
   timePreference: RoutingTimePreference
   serviceDay: ServiceDay
@@ -47,7 +50,6 @@ type UseNationalRoutingOptions = {
   departureWindowMinutes: RoutingDepartureWindowMinutes
   realtimeSnapshot: RealtimeSnapshot | null
   routeAllowed: boolean
-  onError: (message: string) => void
 }
 
 function normalizeChoices({ plan, choices, earliestTransit }: NationalRouteResponse) {
@@ -70,10 +72,12 @@ export function useNationalRouting({
   projectId,
   feedId,
   storeKey,
+  streetKey = '',
   origin,
   waypoints,
   destination,
   mode,
+  routingDataMode,
   departMinutes,
   timePreference,
   serviceDay,
@@ -84,7 +88,6 @@ export function useNationalRouting({
   departureWindowMinutes,
   realtimeSnapshot,
   routeAllowed,
-  onError,
 }: UseNationalRoutingOptions) {
   const [readyKey, setReadyKey] = useState('')
   const [choices, setChoices] = useState<RoutingPlan[]>([])
@@ -94,22 +97,60 @@ export function useNationalRouting({
   const [serviceDateSuggestions, setServiceDateSuggestions] = useState<RoutingServiceDateSuggestion[] | undefined>()
   const [error, setError] = useState('')
   const [errorStatus, setErrorStatus] = useState<ApiRoutingStatus | undefined>()
+  const [runRevision, setRunRevision] = useState(0)
+  // Feed polling updates the next run's input, never the current journey.
+  const latestSnapshot = useRef(realtimeSnapshot)
+  latestSnapshot.current = realtimeSnapshot
   const routeRequestGate = useRef(new LatestRequestGate())
   const streetMode = mode !== 'transit'
-  const readinessKey = storeKey ? `${storeKey}:${serviceDate}:${serviceDay}` : ''
+  const departNow = !streetMode && routingDataMode === 'realtime'
+  // The server resolves Depart now in the selected timetable's timezone at
+  // dispatch. Retain the research controls without letting them alter live work.
+  const requestDepartMinutes = departNow ? undefined : departMinutes
+  const requestTimePreference = departNow ? 'depart' : timePreference
+  const requestServiceDate = departNow ? undefined : serviceDate
+  const requestServiceDay = departNow ? undefined : serviceDay
+  const readinessKey = storeKey ? `${storeKey}:${departNow ? 'depart-now' : `${serviceDate}:${serviceDay}`}` : ''
   const ready = streetMode
-    ? Boolean(active && feedId && storeKey && routeAllowed)
+    ? Boolean(feedId && storeKey && routeAllowed)
     : Boolean(readinessKey && readyKey === readinessKey)
-  const serviceDateAvailability = streetMode
+  const serviceDateAvailability = streetMode || departNow
     ? 'unknown'
     : routingServiceDateAvailability(serviceCoverage, serviceDate)
   const serviceDateOptions = useMemo(
-    () => streetMode ? [] : routingServiceDateOptions(serviceCoverage, serviceDate, serviceDateSuggestions),
-    [serviceCoverage, serviceDate, serviceDateSuggestions, streetMode],
+    () => streetMode || departNow ? [] : routingServiceDateOptions(serviceCoverage, serviceDate, serviceDateSuggestions),
+    [departNow, serviceCoverage, serviceDate, serviceDateSuggestions, streetMode],
   )
+
+  const request = useMemo(() => ({ projectId, storeKey, streetKey, body: {
+    feedId,
+    mode,
+    routingDataMode,
+    origin,
+    waypoints,
+    destination,
+    departNow: departNow || undefined,
+    departMinutes: requestDepartMinutes,
+    arriveMinutes: requestDepartMinutes,
+    timePreference: requestTimePreference,
+    serviceDay: requestServiceDay,
+    serviceDate: requestServiceDate,
+    allowServiceDateFallback: false,
+    maxWalkKm,
+    maxTransfers: mode === 'transit' && waypoints.length ? undefined : maxTransfers,
+    allowLongWalk,
+    includeEarliestTransit: mode === 'transit',
+    objective: 'earliest_arrival',
+    maxStreetKm: mode === 'drive' ? 750 : 50,
+    departureWindowMinutes: streetMode ? 0 : departureWindowMinutes,
+    departureWindowDirection: !streetMode && departureWindowMinutes > 0 ? 'forward' : undefined,
+  } }), [allowLongWalk, departNow, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, runRevision, origin, projectId, requestDepartMinutes, requestServiceDate, requestServiceDay, requestTimePreference, routingDataMode, storeKey, streetKey, streetMode, waypoints])
+  const completedRequest = useRef<typeof request | null>(null)
 
   const reset = useCallback(() => {
     routeRequestGate.current.cancel()
+    completedRequest.current = null
+    setRunRevision(revision => revision + 1)
     setChoices([])
     setLoading(false)
     setAlternativesLoading(false)
@@ -137,7 +178,7 @@ export function useNationalRouting({
     } }>(`/api/projects/${encodeURIComponent(projectId)}/national-ready`, {
       method: 'POST',
       signal: controller.signal,
-      body: JSON.stringify({ feedId, serviceDate, serviceDay, allowServiceDateFallback: false }),
+      body: JSON.stringify({ feedId, mode, routingDataMode, departNow: departNow || undefined, serviceDate: requestServiceDate, serviceDay: requestServiceDay, allowServiceDateFallback: false }),
     }).then(({ routing }) => {
       if (controller.signal.aborted) return
       setServiceCoverage(routing.serviceCoverage ?? null)
@@ -148,13 +189,14 @@ export function useNationalRouting({
       const message = reason instanceof Error ? reason.message : 'Routing database unavailable'
       setError(message)
       setErrorStatus(reason instanceof ApiRequestError ? reason.routingStatus : 'error')
-      onError(message)
     })
     return () => controller.abort()
-  }, [active, feedId, onError, projectId, readinessKey, ready, serviceDate, serviceDay, streetMode])
+  }, [active, departNow, feedId, mode, projectId, readinessKey, ready, requestServiceDate, requestServiceDay, routingDataMode, streetMode])
 
   useEffect(() => {
-    if (!active || !feedId || !origin || !destination || !routeAllowed || !ready || (!streetMode && serviceDateAvailability === 'outside')) {
+    if (completedRequest.current !== request) setChoices(current => current.length ? [] : current)
+    if (!feedId || !origin || !destination || (!streetMode && serviceDateAvailability === 'outside')) {
+      completedRequest.current = null
       routeRequestGate.current.cancel()
       setChoices((current) => current.length ? [] : current)
       setLoading(false)
@@ -163,6 +205,15 @@ export function useNationalRouting({
       return
     }
 
+    if (!active || !routeAllowed || !ready) {
+      routeRequestGate.current.cancel()
+      setLoading(false)
+      setAlternativesLoading(false)
+      return
+    }
+    // Navigation and readiness checks do not invalidate a completed journey.
+    if (completedRequest.current === request) return
+
     const requestToken = routeRequestGate.current.begin()
     const controller = requestToken.controller
     const ownsCommit = () => routeRequestGate.current.owns(requestToken)
@@ -170,47 +221,27 @@ export function useNationalRouting({
     setError('')
     setErrorStatus(undefined)
     setLoading(true)
-    setAlternativesLoading(!streetMode && timePreference === 'depart' && departureWindowMinutes > 0)
+    setAlternativesLoading(!streetMode && requestTimePreference === 'depart' && departureWindowMinutes > 0)
 
     void apiJson<NationalRouteResponse>(
       `/api/projects/${encodeURIComponent(projectId)}/national-route`,
       {
         method: 'POST',
         signal: controller.signal,
+        // Capture the newest observation only when dispatching a new request.
+        // The server validates its freshness against this run's departure.
         body: JSON.stringify({
-          feedId,
-          mode,
-          origin,
-          waypoints,
-          destination,
-          departMinutes,
-          arriveMinutes: departMinutes,
-          timePreference,
-          serviceDay,
-          serviceDate,
-          allowServiceDateFallback: false,
-          maxWalkKm,
-          maxTransfers,
-          allowLongWalk,
-          includeEarliestTransit: mode === 'transit',
-          objective: 'earliest_arrival',
-          maxStreetKm: mode === 'drive' ? 750 : 50,
-          departureWindowMinutes: streetMode ? 0 : departureWindowMinutes,
-          departureWindowDirection: !streetMode && departureWindowMinutes > 0 ? 'forward' : undefined,
-          realtimeSnapshot: !streetMode && realtimeSnapshot
-            ? {
-                sourceUrl: realtimeSnapshot.sourceUrl,
-                sourceUrls: realtimeSnapshot.sourceUrls,
-                fetchedAt: realtimeSnapshot.fetchedAt,
-                feedTimestamp: realtimeSnapshot.feedTimestamp,
-                tripUpdates: realtimeSnapshot.tripUpdates,
-              }
+          ...request.body,
+          realtimeSnapshot: request.body.mode === 'transit' && request.body.routingDataMode === 'realtime'
+            ? latestSnapshot.current ?? undefined
             : undefined,
         }),
       },
     ).then((response) => {
       if (!ownsCommit()) return
-      setChoices(normalizeChoices(response))
+      const normalized = normalizeChoices(response)
+      completedRequest.current = request
+      setChoices(normalized)
       setLoading(false)
       setAlternativesLoading(false)
     }).catch((reason) => {
@@ -221,7 +252,6 @@ export function useNationalRouting({
       setErrorStatus(reason instanceof ApiRequestError ? reason.routingStatus : 'error')
       setLoading(false)
       setAlternativesLoading(false)
-      onError(message)
     }).finally(() => {
       routeRequestGate.current.finish(requestToken)
     })
@@ -229,11 +259,11 @@ export function useNationalRouting({
     return () => {
       routeRequestGate.current.cancel(requestToken)
     }
-  }, [active, allowLongWalk, departMinutes, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, onError, origin, projectId, ready, realtimeSnapshot, routeAllowed, serviceDate, serviceDateAvailability, serviceDay, streetMode, timePreference, waypoints])
+  }, [active, departureWindowMinutes, destination, feedId, origin, projectId, ready, request, requestTimePreference, routeAllowed, serviceDateAvailability, streetMode])
 
   return {
     alternativesLoading,
-    choices,
+    choices: completedRequest.current === request ? choices : noRoutingChoices,
     error,
     errorStatus,
     loading,

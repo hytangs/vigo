@@ -1,6 +1,6 @@
-# Contributing to VIGO
+# Contributing to VIGO Studio
 
-VIGO is pre-release software. This repository contains VIGO Studio, the command
+VIGO Studio is pre-release software. This repository contains VIGO Studio, the command
 line, and their shared computation code. Keep language bindings, notebooks,
 generated data, release archives, private datasets, and local files outside it.
 

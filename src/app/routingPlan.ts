@@ -523,9 +523,9 @@ export function buildRoutingActivity({
       ? routingPlanServiceDateDetail(routingPlan, routingServiceDate)
       : routingPlan.detail,
   )
-  if (storeBackedRouting && !routingStoreReady) return routingMode === 'transit'
-    ? activity('preparing', 'Opening SQLite timetable', `Opening the local routing database for ${routingServiceDate}. You can pick A and B now.`)
-    : activity('preparing', 'Opening OSM street snapshot', `Opening the local sealed ${routingMode} street snapshot. You can pick A and B now.`)
+  if (routingMode !== 'transit' && routingStreetState === 'missing') return activity('blocked', 'OSM streets required', 'Add an OSM file in City. Walking and driving will be prepared automatically.')
+  if (routingMode !== 'transit' && routingStreetState === 'loading') return activity('preparing', 'Preparing walking and driving', 'OSM preparation is running in Background tasks. You can pick A and B now.')
+  if (routingMode === 'transit' && storeBackedRouting && !routingStoreReady) return activity('preparing', 'Opening SQLite timetable', `Opening the local routing database for ${routingServiceDate}. You can pick A and B now.`)
   if (hasOrigin && hasDestination && routingStreetState === 'loading') return activity('preparing', 'Preparing street snapshot', 'Opening the sealed OSM street snapshot for A/B access. Your points are saved.')
   if (hasOrigin && hasDestination && routingStreetState === 'missing') return activity('blocked', 'Street snapshot required', 'Load or rebuild the OSM street snapshot to calculate a route between map points.')
   if (hasOrigin && hasDestination && (routingLoading || (storeBackedRouting && routingInputReady))) return routingMode === 'transit'

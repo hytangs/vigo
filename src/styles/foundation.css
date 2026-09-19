@@ -9,7 +9,7 @@ body,
 
 /* Accent palettes and shared focus treatment. */
 .app-shell {
-  height: 100svh;
+  height: 100dvh;
   min-width: 320px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);

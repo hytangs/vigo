@@ -164,13 +164,3 @@ export function splicePolylineIntervals(
   joined.push(...coordinates.slice(Math.floor(previous) + 1))
   return joined.filter((point, index) => index === 0 || point[0] !== joined[index - 1][0] || point[1] !== joined[index - 1][1])
 }
-
-/** Splice one ordered stop interval while retaining the branch's other shape vertices. */
-export function splicePolylineInterval(
-  coordinates: LngLat[], points: LngLat[], fromIndex: number, toIndex: number, replacement: LngLat[],
-) {
-  if (replacement.length < 2) return undefined
-  const anchors = orderedPolylineAnchors(coordinates, points)
-  if (!anchors) return undefined
-  return splicePolylineIntervals(coordinates, anchors, [{ fromIndex, toIndex, coordinates: replacement }])
-}
