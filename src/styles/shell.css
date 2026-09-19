@@ -1401,7 +1401,7 @@
   margin: 0 8px 8px;
 }
 
-.osm-import-strip button {
+.osm-import-strip > button {
   min-width: 0;
   min-height: 40px;
   display: flex;
@@ -1415,17 +1415,17 @@
   cursor: pointer;
 }
 
-.osm-import-strip button:first-child {
+.osm-import-strip > button:first-child {
   justify-content: flex-start;
 }
 
-.osm-import-strip button:first-child span {
+.osm-import-strip > button:first-child span {
   min-width: 0;
   text-align: left;
 }
 
-.osm-import-strip strong,
-.osm-import-strip small {
+.osm-import-strip > button strong,
+.osm-import-strip > button small {
   display: block;
   min-width: 0;
   overflow: hidden;
@@ -1433,20 +1433,20 @@
   white-space: nowrap;
 }
 
-.osm-import-strip strong {
+.osm-import-strip > button strong {
   color: var(--text-strong);
   font-size: 0.76rem;
   font-weight: 880;
 }
 
-.osm-import-strip small {
+.osm-import-strip > button small {
   margin-top: 2px;
   color: var(--text-muted);
   font-size: 0.64rem;
   font-weight: 760;
 }
 
-.osm-import-strip.has-osm button {
+.osm-import-strip.has-osm > button {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
   background: color-mix(in srgb, var(--accent) 8%, var(--panel-strong));

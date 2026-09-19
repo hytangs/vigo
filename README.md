@@ -63,7 +63,7 @@ VIGO Studio is the visual application:
 - **Ask (experimental)** — use a configured model to query tools for network evidence, journeys, and Reach. Review the returned sources and activity trail; model wording can be wrong.
 - **Route** — plan ordered journeys using an explicit scheduled date/time or a frozen realtime snapshot. Transfer limits are available for journeys without via points.
 - **Analyze** — run Reach and compare service sources or planned changes.
-- **City** — manage data and settings.
+- **City** — manage data and settings, including deleting an individual GTFS feed or the OSM source while keeping the City.
 
 Matrix is available through Engine and Python. Studio uses the same computation core but does not directly open CLI City directories or provide a Matrix screen.
 

@@ -24,6 +24,7 @@ import { briefingPreferences, defaultBriefingPreferences, briefingStatus } from 
 export function createAgencyService(adapters, { provider = createProvider(), web = createWebResearch({ readPage: readPublicPage }), clock = () => Date.now(), policy = defaultPolicy, refreshMs = 10_000,
   access = async () => ({ id: 'local-owner', role: 'admin' }) } = {}) {
   const sessions = new Map()
+  const revisions = new Map()
   let closed = false
   function retire(session) {
     clearInterval(session.timer)
@@ -44,9 +45,11 @@ export function createAgencyService(adapters, { provider = createProvider(), web
     finally { session.active--; if (session.retired) retire(session) }
   }
   async function sessionFor(projectId) {
+    const revision = revisions.get(projectId)
     const { storePath, cityName, agencyDirectory, feedIds = [] } = await adapters.context(projectId)
     const stat = await fs.stat(storePath)
     if (closed) throw new Error('Agency service is closed.')
+    if (revision !== revisions.get(projectId)) throw Object.assign(new Error('City data changed. Please retry.'), { statusCode: 409 })
     let session = sessions.get(projectId)
     if (session && (session.storePath !== storePath || session.modified !== stat.mtimeMs)) {
       retire(session)
@@ -291,6 +294,13 @@ export function createAgencyService(adapters, { provider = createProvider(), web
         }
       })
     },
-    close() { closed = true; for (const session of sessions.values()) retire(session); sessions.clear() },
+    invalidate(projectId) {
+      const session = sessions.get(projectId)
+      if (session?.active) throw Object.assign(new Error('Wait for the active Network request to finish before deleting a source.'), { statusCode: 409 })
+      revisions.set(projectId, (revisions.get(projectId) ?? 0) + 1)
+      if (session) retire(session)
+      sessions.delete(projectId)
+    },
+    close() { closed = true; for (const session of sessions.values()) retire(session); sessions.clear(); revisions.clear() },
   }
 }

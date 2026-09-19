@@ -103,6 +103,7 @@ import {
 } from './components/AnalyzePanel'
 import { FirstRunSetupDialog, ProjectEditorDialog } from './components/ProjectDialogs'
 import { CityPanel, type DataSection } from './components/CityPanel'
+import { CitySourceDelete } from './components/CitySourceDelete'
 import { NetworkTimetable } from './components/NetworkTimetable'
 import { ServiceStateControl } from './components/ServiceStateControl'
 import { RealtimePanel } from './components/RealtimePanel'
@@ -1207,6 +1208,7 @@ function StorageRecovery({
 }
 
 function ImportPanel({
+  osmDelete,
   isImporting,
   isOsmImporting,
   gtfsJob,
@@ -1229,6 +1231,7 @@ function ImportPanel({
   onCancelOsm,
   onRetryOsm,
 }: {
+  osmDelete?: ReactNode
   isImporting: boolean
   isOsmImporting: boolean
   gtfsJob?: JobRecord
@@ -1338,6 +1341,7 @@ function ImportPanel({
             Retry
           </button>
         ) : null}
+        {osmDelete}
         <input
           ref={osmFileRef}
           hidden
@@ -1462,11 +1466,15 @@ function DataReadinessRail({
 }
 
 function BundlePanel({
+  deletingDisabled,
+  onSourceDeleted,
   project,
   activeFeedId,
   activeFeed,
   onSelectFeed,
 }: {
+  deletingDisabled: boolean
+  onSourceDeleted: (city: VigoProject) => void
   project: VigoProject
   activeFeedId: string
   activeFeed: FeedSummary
@@ -1504,18 +1512,20 @@ function BundlePanel({
         </button>
         {project.feeds.map((feed) => {
           return (
-            <button
-              key={feed.id}
-              type="button"
-              className={classNames('bundle-feed-row', activeFeedId === feed.id && 'is-selected')}
-              onClick={() => onSelectFeed(feed.id)}
-            >
-              <span>
-                <strong>{feed.name}</strong>
-                <small>{feed.routingStore?.status === 'ready' ? 'SQLite ready' : feedIdentity(project.feeds, feed).detail}</small>
-              </span>
-              <b title={`${feed.warnings.length} recorded findings`}>{formatNumber(feed.warnings.length)}</b>
-            </button>
+            <div key={feed.id} className="bundle-source-row">
+              <button
+                type="button"
+                className={classNames('bundle-feed-row', activeFeedId === feed.id && 'is-selected')}
+                onClick={() => onSelectFeed(feed.id)}
+              >
+                <span>
+                  <strong>{feed.name}</strong>
+                  <small>{feed.routingStore?.status === 'ready' ? 'SQLite ready' : feedIdentity(project.feeds, feed).detail}</small>
+                </span>
+                <b title={`${feed.warnings.length} recorded findings`}>{formatNumber(feed.warnings.length)}</b>
+              </button>
+              <CitySourceDelete projectId={project.id} kind="gtfs" feedId={feed.id} name={feed.name} disabled={deletingDisabled} onDeleted={onSourceDeleted} />
+            </div>
           )
         })}
       </div>
@@ -2949,6 +2959,8 @@ export default function App() {
     )))
     if (selectedProjectId !== cleanedProject.id) return
     setOpenedNetworkProjectId('')
+    setAgencyPlan(null)
+    setAgencyReach(null)
 
     cancelRouteAnalysis()
     invalidateAnalyzeResult()
@@ -4803,7 +4815,9 @@ export default function App() {
     && activeRouteTool === 'pathfinder'
     && Boolean(selectedRoutingPlanId)
     && routingPlan?.status === 'ready'
+  const sourceDeletionDisabled = isImporting || isOsmImporting || preparationJobs.some((job) => isPreparationJob(job) && isActiveTask(job))
   const importPanelProps = {
+    osmDelete: selectedProject.osmStreetIndex ? <CitySourceDelete key={`${selectedProject.id}:${selectedProject.osmStreetIndex.fileName}`} projectId={selectedProject.id} kind="osm" name={selectedProject.osmStreetIndex.fileName} disabled={sourceDeletionDisabled} onDeleted={applyCityReset} /> : undefined,
     isImporting,
     isOsmImporting,
     gtfsJob: gtfsImportJob,
@@ -5144,6 +5158,8 @@ export default function App() {
               <DataReadinessRail project={selectedProject} activeFeed={activeFeed} />
               <ImportPanel {...importPanelProps} />
               <BundlePanel
+                deletingDisabled={sourceDeletionDisabled}
+                onSourceDeleted={applyCityReset}
                 project={selectedProject}
                 activeFeedId={activeFeedId}
                 activeFeed={activeFeed}

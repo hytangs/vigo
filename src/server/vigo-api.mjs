@@ -18,6 +18,8 @@ import {
   readNationalGtfsPreview,
   readNationalGtfsRouteCatalog,
   readNationalGtfsStoreMetadata,
+  disposeNationalGtfsStore,
+  removeNationalGtfsOsmStopTransfers,
 } from './national-gtfs-store.mjs'
 import { readNationalOsmStreetGeometry, readNationalOsmStoreMetadata } from './national-osm-store.mjs'
 import { createStreetPreparationManager } from './street-preparation.mjs'
@@ -2722,6 +2724,126 @@ async function removeRoutingStoreFamily(storePath) {
     .map((entry) => fs.rm(path.join(directory, entry.name), { force: true })))
 }
 
+async function removeCitySource(projectId, body = {}) {
+  if (!['gtfs', 'osm'].includes(body.kind)) throw Object.assign(new Error('Choose a GTFS or OSM source.'), { statusCode: 400 })
+  if (cityMaintenance.has(projectId) || nationalImportProjects.has(projectId)) {
+    throw Object.assign(new Error('Wait for City preparation to finish before deleting a source.'), { statusCode: 409 })
+  }
+  cityMaintenance.add(projectId)
+  const metaRoot = projectMetaDir(projectId)
+  const quarantine = path.join(metaRoot, `source-cleanup-${makeId('delete')}`)
+  const moved = []
+  let original
+  let committed = false
+  try {
+    await projectWriteQueues.get(projectId)
+    original = await readJson(path.join(metaRoot, 'project.json'))
+    const project = await readProjectMetadata(projectId)
+    const feed = project.feeds.find((entry) => entry.id === body.feedId)
+    const source = body.kind === 'gtfs' ? feed : project.osmStreetIndex
+    if (!source) throw Object.assign(new Error('This source is no longer in the City.'), { statusCode: 404 })
+    if (body.confirmation !== (body.kind === 'gtfs' ? feed.id : source.fileName)) {
+      throw Object.assign(new Error('Confirm the selected source before deleting it.'), { statusCode: 400 })
+    }
+    const remaining = body.kind === 'gtfs' ? project.feeds.filter((entry) => entry.id !== feed.id) : project.feeds
+    const retainedPaths = new Set(remaining.map((entry) => feedRoutingStoreFile(projectId, entry)))
+    const sourcePath = body.kind === 'gtfs' ? feedRoutingStoreFile(projectId, feed) : streetStoreFile(projectId)
+    if (body.kind === 'gtfs' && retainedPaths.has(sourcePath)) {
+      throw Object.assign(new Error('This timetable is shared by another feed. Import separate GTFS files before deleting this source.'), { statusCode: 409 })
+    }
+    agency.invalidate(projectId)
+    streetPreparationManager.invalidate(streetStoreFile(projectId))
+    const storePaths = new Set([projectRoutingStoreFile(projectId, project), ...project.feeds.map((entry) => feedRoutingStoreFile(projectId, entry))])
+    await Promise.all([streetStoreFile(projectId), ...storePaths].map((storePath) => nationalRouteWorkerPool.retire(storePath)))
+    for (const storePath of storePaths) disposeNationalGtfsStore(storePath)
+    invalidateProjectRuntimeCaches(projectId)
+
+    if (body.kind === 'osm') {
+      // Corrupt stores are already unavailable; every admitted timetable must
+      // lose its street-derived edges, including the merged City timetable.
+      for (const storePath of new Set(projectNationalRoutingStorePaths(projectId, project))) {
+        await removeNationalGtfsOsmStopTransfers(storePath)
+      }
+    }
+
+    const targets = new Set([path.join(metaRoot, 'rebuild-manifest.json')])
+    if (body.kind === 'osm') {
+      targets.add(path.join(metaRoot, 'osm'))
+      const entries = await fs.readdir(path.join(metaRoot, 'routing'))
+      for (const storePath of storePaths) {
+        const prefix = `${path.basename(storePath)}.native-access-profile.`
+        for (const name of entries) if (name.startsWith(prefix)) targets.add(path.join(metaRoot, 'routing', name))
+      }
+    }
+    else {
+      const obsolete = new Set([sourcePath, routingStoreFile(projectId, feed.id), projectRoutingStorePath(projectId)])
+      const currentStore = projectRoutingStoreFile(projectId, project)
+      if (!retainedPaths.has(currentStore)) obsolete.add(currentStore)
+      const entries = await fs.readdir(path.join(metaRoot, 'routing'))
+      for (const storePath of obsolete) {
+        if (retainedPaths.has(storePath)) continue
+        const base = path.basename(storePath)
+        for (const name of entries) {
+          if (name === base || name.startsWith(`${base}.`) || name === `${base}-wal` || name === `${base}-shm`) targets.add(path.join(metaRoot, 'routing', name))
+        }
+      }
+    }
+    const matchesFeed = (record) => record.feedId === feed?.id || record.result?.feedId === feed?.id || (record.sourceFeedIds ?? []).includes(feed?.id)
+    const removeJob = (record) => body.kind === 'osm'
+      ? record.kind === 'national-osm-import'
+      : matchesFeed(record) || record.kind === 'national-gtfs-merge'
+    const removeArtifact = (record) => body.kind === 'gtfs' && (record.sourceFeedIds ?? []).includes(feed.id)
+    for (const [directory, predicate] of [['jobs', removeJob], ['artifacts', removeArtifact]]) {
+      const entries = await fs.readdir(path.join(metaRoot, directory))
+      for (const name of entries) {
+        if (!name.endsWith('.json')) continue
+        const recordPath = path.join(metaRoot, directory, name)
+        const record = await readJson(recordPath).catch(() => null)
+        if (!record || !predicate(record)) continue
+        targets.add(recordPath)
+        if (directory === 'jobs' && record.stagedUpload && record.retrySourcePath
+          && path.dirname(path.resolve(record.retrySourcePath)) === path.join(metaRoot, 'staging')) targets.add(record.retrySourcePath)
+      }
+    }
+    await fs.mkdir(quarantine)
+    for (const target of targets) {
+      const retained = path.join(quarantine, String(moved.length))
+      try { await fs.rename(target, retained); moved.push([target, retained]) }
+      catch (error) { if (error.code !== 'ENOENT') throw error }
+    }
+    await fs.mkdir(path.join(metaRoot, 'osm'), { recursive: true })
+    const readyFeeds = remaining.filter((entry) => entry.routingStore?.status === 'ready')
+    await writeProject({
+      ...original,
+      feeds: remaining,
+      summary: summaryFromFeeds(remaining, { feeds: 0, routes: 0, stops: 0, transferCandidates: 0, qualityScore: 0 }),
+      routingStore: body.kind === 'osm' ? original.routingStore : readyFeeds.length === 1 ? readyFeeds[0].routingStore : null,
+      osmStreetIndex: body.kind === 'osm' ? null : original.osmStreetIndex,
+      jobs: (original.jobs ?? []).filter((record) => !removeJob(record)),
+      artifacts: (original.artifacts ?? []).filter((record) => !removeArtifact(record)),
+    })
+    committed = true
+    for (const [jobId, job] of nationalImportJobs) if (job.projectId === projectId && removeJob(job)) nationalImportJobs.delete(jobId)
+    await fs.rm(quarantine, { recursive: true, force: true })
+    invalidateProjectRuntimeCaches(projectId)
+    if (body.kind === 'gtfs' && readyFeeds.length > 1) await startNationalGtfsMerge(projectId, {}, { duringMaintenance: true })
+    return { ok: true, city: await readProject(projectId) }
+  } catch (error) {
+    if (!committed && moved.length) {
+      for (const [target, retained] of moved.reverse()) {
+        await fs.rm(target, { recursive: true, force: true })
+        await fs.rename(retained, target)
+      }
+      await writeProject(original)
+    }
+    throw error
+  } finally {
+    if (!committed) await fs.rmdir(quarantine).catch(() => {})
+    invalidateProjectRuntimeCaches(projectId)
+    cityMaintenance.delete(projectId)
+  }
+}
+
 async function removeFeedArtifactRecords(projectId, feedIds) {
   if (!feedIds.size) return
   const directory = path.join(projectMetaDir(projectId), 'artifacts')
@@ -3208,7 +3330,8 @@ function activeNationalProjectJob(projectId, kind) {
   ))
 }
 
-function reserveNationalImportProject(projectId, kind) {
+function reserveNationalImportProject(projectId, kind, { duringMaintenance = false } = {}) {
+  if (cityMaintenance.has(projectId) && !duringMaintenance) throw Object.assign(new Error('City cleanup is in progress. Retry the import when it finishes.'), { statusCode: 409 })
   const activeKinds = nationalImportProjects.get(projectId) ?? new Set()
   if (activeKinds.has(kind)) {
     const label = kind === 'osm' ? 'OSM' : 'GTFS'
@@ -3522,7 +3645,7 @@ async function startNationalGtfsImport(projectId, body) {
   return job
 }
 
-async function startNationalGtfsMerge(projectId, body = {}) {
+async function startNationalGtfsMerge(projectId, body = {}, options = {}) {
   const projectFile = path.join(projectMetaDir(projectId), 'project.json')
   const project = await readJson(projectFile)
   const inputs = await readyProjectRoutingInputs(projectId, project)
@@ -3554,7 +3677,7 @@ async function startNationalGtfsMerge(projectId, body = {}) {
   }
   const activeMerge = activeNationalProjectJob(projectId, 'national-gtfs-merge')
   if (activeMerge) return activeMerge
-  reserveNationalImportProject(projectId, 'gtfs')
+  reserveNationalImportProject(projectId, 'gtfs', options)
   const job = {
     schemaVersion: jobSchemaVersion,
     id: makeId('national_gtfs_merge'),
@@ -5389,6 +5512,11 @@ async function route(request, response) {
       return true
     }
 
+    if (request.method === 'DELETE' && action === 'city-source') {
+      sendJson(response, 200, await removeCitySource(projectId, await readBody(request)))
+      return true
+    }
+
     if (request.method === 'POST' && action === 'national-gtfs-import') {
       sendJson(response, 202, { job: await startNationalGtfsImport(projectId, await readBody(request)) })
       return true
@@ -5588,6 +5716,7 @@ const agency = createAgencyService({
   async context(projectId) {
     const project = await readProjectMetadata(projectId)
     const { storePath } = await requireRoutingStore(projectId, project)
+    if (cityMaintenance.has(projectId)) throw Object.assign(new Error('City data is being updated. Please retry.'), { statusCode: 409 })
     return { storePath, cityName: project.name, agencyDirectory: path.join(path.dirname(storePath), '..', 'agency'), feedIds: project.feeds.filter(feed => feed.routingStore?.status === 'ready').map(feed => feed.id) }
   },
   inspectRealtime: inspectRealtimeFeed,

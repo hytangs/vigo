@@ -1,0 +1,68 @@
+.bundle-source-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bundle-source-row > .bundle-feed-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.city-source-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.city-source-delete:hover:not(:disabled),
+.city-source-confirm {
+  color: var(--danger);
+}
+
+.city-source-dialog {
+  width: min(440px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  color: var(--text);
+  background: var(--panel-strong);
+}
+
+.city-source-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+.city-source-dialog h2 {
+  margin: 0 0 16px;
+  font-size: 22px;
+}
+
+.city-source-dialog p {
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.city-source-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.city-source-dialog-actions button {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  cursor: pointer;
+}

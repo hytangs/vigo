@@ -6187,6 +6187,42 @@ function osmStopTransferGraphIdentity(metadata, streetMetadata, options) {
 
 
 
+export async function removeNationalGtfsOsmStopTransfers(storePath) {
+  const resolvedPath = path.resolve(storePath)
+  const metadata = readNationalGtfsStoreMetadata(resolvedPath)
+  invalidateNationalStore(resolvedPath)
+  const database = new DatabaseSync(resolvedPath)
+  let removed = 0
+  try {
+    database.exec('PRAGMA busy_timeout=5000; BEGIN IMMEDIATE;')
+    removed = Number(database.prepare(`
+      DELETE FROM transfers WHERE EXISTS (
+        SELECT 1 FROM transfer_provenance AS p
+        WHERE p.from_stop_id=transfers.from_stop_id AND p.to_stop_id=transfers.to_stop_id
+          AND p.provenance='osm_certified_radial'
+      )
+    `).run().changes)
+    database.exec("DELETE FROM transfer_provenance WHERE provenance='osm_certified_radial'; DELETE FROM metadata WHERE key='osmStopTransferGraph';")
+    const generation = { ...metadata.transferGeneration }
+    for (const key of Object.keys(generation)) if (key.startsWith('osm')) delete generation[key]
+    generation.strategy = 'source_literal_only'
+    const setMetadata = database.prepare('INSERT OR REPLACE INTO metadata(key,value) VALUES(?,?)')
+    setMetadata.run('transferGeneration', JSON.stringify(generation))
+    setMetadata.run('transferCount', JSON.stringify(Number(database.prepare('SELECT COUNT(*) AS count FROM transfers').get().count)))
+    database.exec('COMMIT; PRAGMA wal_checkpoint(TRUNCATE);')
+  } catch (error) {
+    try { database.exec('ROLLBACK;') } catch {}
+    throw error
+  } finally {
+    database.close()
+    invalidateNationalStore(resolvedPath)
+  }
+  // Rebuild both topology and active-service artifacts before any query can
+  // reuse transfers whose street evidence the user has removed.
+  await refreshNationalGtfsDerivedArtifacts(resolvedPath)
+  return { removed }
+}
+
 export async function ensureNationalGtfsOsmStopTransfers(
   storePath,
   streetStorePath,
