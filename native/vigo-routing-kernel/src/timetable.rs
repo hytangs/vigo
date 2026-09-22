@@ -1003,7 +1003,7 @@ struct ParetoBest {
     collect_alternatives: bool,
     minimum_arrival: f64,
     prune_dominated_alternatives: bool,
-    departure_upper_bound: f64,
+    ride_horizon: f64,
 }
 
 impl ParetoBest {
@@ -2001,6 +2001,10 @@ fn execute_marked_run_round(
     transfer_penalty_seconds: f64,
     walk_reluctance: f64,
 ) -> Vec<i32> {
+    // The final arrival bound can include terminal walking beyond the ride
+    // horizon. Boarding, bridge exits and ride alighting retain the scalar
+    // scan's horizon; transfers and final egress keep the arrival bound.
+    let ride_upper_bound = arrival_upper_bound.min(best.ride_horizon);
     let mut touched_stops = Vec::with_capacity(previous_labels.len());
     let mut global_minimum_walking = f64::INFINITY;
     for label in previous_labels.drain(..) {
@@ -2045,7 +2049,7 @@ fn execute_marked_run_round(
                 label = current.next;
             }
         }
-        if !earliest_ready.is_finite() || earliest_ready > arrival_upper_bound {
+        if !earliest_ready.is_finite() || earliest_ready > ride_upper_bound {
             continue;
         }
         let mut cursor = departure_event_lower_bound(
@@ -2061,11 +2065,7 @@ fn execute_marked_run_round(
         while cursor < end {
             let event = departure_events[cursor];
             cursor += 1;
-            if event.departure as f64
-                > arrival_upper_bound
-                    .min(latest_objective_departure)
-                    .min(best.departure_upper_bound)
-            {
+            if event.departure as f64 > ride_upper_bound.min(latest_objective_departure) {
                 break;
             }
             let run = event.run as usize;
@@ -2090,11 +2090,7 @@ fn execute_marked_run_round(
             let latest_objective_departure = best.pruning_bound()
                 - f64::from(round.saturating_sub(1)) * transfer_penalty_seconds
                 - global_minimum_walking * walk_reluctance;
-            if connection_departure
-                > arrival_upper_bound
-                    .min(latest_objective_departure)
-                    .min(best.departure_upper_bound)
-            {
+            if connection_departure > ride_upper_bound.min(latest_objective_departure) {
                 break;
             }
             stats.scanned_departures += 1;
@@ -2173,8 +2169,7 @@ fn execute_marked_run_round(
                     );
                 }
             }
-            if can_alight[connection] == 1
-                && arrival_seconds[connection] as f64 <= arrival_upper_bound
+            if can_alight[connection] == 1 && arrival_seconds[connection] as f64 <= ride_upper_bound
             {
                 let alight_stop = to_stop[connection] as usize;
                 if deadline_allows(
@@ -6051,10 +6046,9 @@ impl TimetableKernel {
         }
         let boarding_upper_bound = input.boarding_upper_bound as u16;
         let origin_epoch = profile_workspace.begin_query();
-        // The horizon bounds connection departures, not the final arrival after
-        // an in-vehicle segment or destination egress. The scalar witness may
-        // therefore arrive beyond the horizon and must remain inside the exact
-        // Pareto corridor.
+        // The horizon bounds ride departures and alightings. The scalar
+        // witness may finish terminal walking after that horizon, so its final
+        // arrival must remain inside the Pareto corridor.
         let arrival_upper_bound = input.earliest_arrival + input.arrival_slack_seconds.max(0.0);
         let transfer_penalty_seconds = input.transfer_penalty_seconds.max(0.0);
         let walk_reluctance = input.walk_reluctance.max(0.0);
@@ -6192,13 +6186,9 @@ impl TimetableKernel {
             // both corridor and target-dominance pruning.
             prune_dominated_alternatives: collect_alternatives
                 && restriction_mode != ParetoRestrictionMode::Only,
-            // Extra arrival slack permits longer final rides or egress, not
-            // boarding connections outside the original query horizon.
-            departure_upper_bound: if collect_alternatives {
-                input.horizon
-            } else {
-                f64::INFINITY
-            },
+            // Arrival slack never extends the admitted timetable, including
+            // when searching only for the primary journey.
+            ride_horizon: input.horizon,
         };
         let mut stats = ParetoStats {
             terminal_candidates_evaluated: 1,

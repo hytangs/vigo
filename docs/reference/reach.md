@@ -28,3 +28,5 @@ The Result includes reached stops, a travel-time raster, and GeoJSON contours. T
 Studio's **Analyze** view displays **Reachable area** or **Reached streets**. Its surface expands to the complete reached-network envelope. Choose an origin on the map, search imported stops, or enter coordinates. Switching a displayed cutoff filters the retained result; changing query inputs requires a new computation.
 
 Reach does not count people, jobs, schools, or other opportunities. An accessibility measure needs those data and an explicit method. A reachable street in the model does not establish safe access, observed travel time, demand, or operational feasibility. See [known limits](known-routing-limitations.md).
+
+For a complete baseline and proposed-service experiment, follow [Test a planned service change](../guides/workflows.md#test-a-planned-service-change). Compare numerical surfaces on the same grid, preserve missing cells, and read the [comparison rules](results.md#compare-saved-results) alongside the resulting contours.

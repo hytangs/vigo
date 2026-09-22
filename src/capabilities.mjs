@@ -31,6 +31,8 @@ const unavailable = 'unavailable'
 const queryFamilies = Object.freeze([
   Object.freeze({
     id: 'route',
+    suppliedTraffic: true,
+    resident: true,
     transitStreetCacheControl: true,
     requireTransitRide: Object.freeze({ default: true }),
     horizonMinutes: Object.freeze({ min: 1, max: 2_880, default: 480 }),
@@ -55,6 +57,7 @@ const queryFamilies = Object.freeze([
   }),
   Object.freeze({
     id: 'matrix',
+    suppliedTraffic: true,
     transitStreetCacheControl: true,
     requireTransitRide: Object.freeze({ default: true }),
     label: 'Matrix',
@@ -74,6 +77,7 @@ const queryFamilies = Object.freeze([
   }),
   Object.freeze({
     id: 'reach',
+    resident: true,
     label: 'Reach',
     purpose: 'Map where the network can reach within one or more time limits.',
     interfaces: Object.freeze({ studio: supported, python: supported, cli: supported }),

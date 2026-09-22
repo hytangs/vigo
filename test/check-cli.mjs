@@ -176,6 +176,26 @@ try {
     '--service-date=2026-07-15', '--time=07:55', '--max-walk=0.2'], {
     encoding: 'utf8', input: modeStreamInput,
   }).trim().split('\n').map(line => JSON.parse(line))
+  const residentRequests = [
+    ...['walk', 'drive', 'transit'].flatMap(mode => [
+      { kind: 'route', mode, origin: 'A', destination: 'B', time: '07:55', maxWalkKm: 0.2 },
+      { kind: 'route', mode, origin: 'A', destination: 'B', time: '07:55', maxWalkKm: 0.2 },
+    ]),
+    { kind: 'route', mode: 'walk', origin: 'A', destination: 'B', waypoints: ['X'], time: '08:30', timePreference: 'arrive' },
+    { kind: 'reach', origin: 'A', time: '07:55', maxWalkKm: 0.2, rasterSize: 48, extentRadiusKm: 2 },
+    { kind: 'reach', origin: 'A', time: '07:55', maxWalkKm: 0.2, rasterSize: 48, extentRadiusKm: 2 },
+    { kind: 'unknown' },
+    { kind: 'route', mode: 'walk', origin: 'A', destination: 'B' },
+  ]
+  const resident = execFileSync(executable, [...prefix, '_route-stream', `--city=${cityPath}`,
+    '--service-date=2026-07-15'], {
+    encoding: 'utf8', input: residentRequests.map(input => JSON.stringify(input)).join('\n') + '\n',
+  }).trim().split('\n').map(line => JSON.parse(line))
+  assert.deepEqual(resident.map(row => row.status), [...Array(9).fill('ready'), 'error', 'ready'])
+  for (const index of [1, 3, 5, 6, 7, 8, 10]) assert.equal(resident[index].timing.openMs, 0)
+  for (const index of [0, 2, 4]) assert.equal(resident[index].result.durationMinutes, resident[index + 1].result.durationMinutes)
+  assert.equal(resident[6].result.arriveMinutes, 510)
+  assert.deepEqual(resident[7].surface.values, resident[8].surface.values)
   assert.deepEqual(modeStream.map(record => record.status), ['ok', 'ok', 'ok', 'error', 'error'])
   assert.deepEqual(modeStream.slice(0, 3).map(record => record.query.routingDataMode), ['scheduled', 'realtime', 'scheduled'])
   assert.deepEqual(modeStream.slice(0, 3).map(record => record.plan.status), ['ready', 'blocked', 'ready'])

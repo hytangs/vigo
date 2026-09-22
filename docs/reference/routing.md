@@ -24,8 +24,10 @@ Matrix uses the same default. `maxWalkKm` limits each access and egress walk;
 it is not a limit on an explicitly requested complete walking journey.
 `--horizon` / `horizonMinutes` sets the timetable
 search horizon in minutes (default 480, range 1–2880).
-For depart-at transit this bounds the timetable scan; final walking can finish
-after that boundary. It is not a hard limit on door-to-door journey duration.
+For depart-at transit, boarding and alighting must occur at or before this
+boundary, including in alternative journeys. Final walking can finish after
+it. Arrival slack for alternatives does not extend the timetable horizon.
+The horizon is not a hard limit on door-to-door journey duration.
 Comparisons using a total-duration cap must check the final arrival separately.
 
 Transit JSON requests accept `disableCache: true` to disable street-access

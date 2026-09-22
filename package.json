@@ -50,7 +50,7 @@
     "check:security": "node test/check-local-http-security.mjs && node test/check-realtime-url-security.mjs && node test/check-cch-manifest.mjs",
     "check:national": "node test/check-national-routing-store.mjs",
     "check:accuracy": "node test/check-native-materialization.mjs && node test/check-national-route-geometry.mjs && node test/check-routing-accuracy.mjs",
-    "check:national-choices": "node test/check-national-route-choices.mjs && node test/check-route-alternatives.mjs && node test/check-bounded-search.mjs",
+    "check:national-choices": "node test/check-national-route-choices.mjs && node test/check-route-alternatives.mjs && node test/check-route-horizon.mjs && node test/check-bounded-search.mjs",
     "check:reach-scenarios": "node test/check-reach-scenarios.mjs && node test/check-scenario-timing.mjs && node test/check-scenario-drafts.mjs && node test/check-scenario-branches.mjs && node test/check-street-network-surface.mjs && node test/check-service-edge-decomposition.mjs && node test/check-analysis-cutoff-presentation.mjs",
     "check:reach-engine": "node test/check-reach-engine.mjs",
     "check:national-focused": "node test/check-station-access.mjs && node test/check-national-stop-access-index.mjs && node test/check-national-parent-transfer-routing.mjs",

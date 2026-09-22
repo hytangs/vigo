@@ -40,7 +40,7 @@ The goal is a reproducible workflow from source data to a reviewable answer. Nat
 GTFS + OSM → City → optional Scenario → Route | Matrix | Reach → Result
 ```
 
-Compare operates on compatible Results. Planned transit changes apply to Reach; supplied traffic applies to Drive Route and Matrix. Realtime transit Route processes supported, matched Trip Updates. Matrix and Reach remain scheduled. See [query support](docs/guides/concepts.md) and [routing limits](docs/reference/known-routing-limitations.md).
+Compare operates on compatible Results. Planned transit changes apply to Reach; supplied traffic applies to Drive Route and Matrix. Realtime transit Route processes supported, matched Trip Updates. Transit Matrix and Reach remain scheduled. See [query support](docs/guides/concepts.md#choose-a-supported-combination) and [routing limits](docs/reference/known-routing-limitations.md).
 
 ## Get started
 
@@ -72,6 +72,11 @@ Ask sends questions and selected evidence to the configured inference endpoint. 
 
 ## Documentation
 
-Start with the [documentation index](docs/README.md), [Studio guide](docs/guides/studio.md), or [CLI reference](docs/reference/programmatic.md). The [offline guide](docs/guide.html) includes a local Result viewer; the [Developer Guide source](docs/developer-guide/VIGO-0.4.2-Developer-Guide.tex) builds the release PDF. Contributors should read the [architecture](docs/development/architecture.md) and [verification guide](.github/CONTRIBUTING.md).
+| Start | Understand | Go deeper |
+| --- | --- | --- |
+| [CLI quickstart](docs/guides/quickstart.md) · [Studio](docs/guides/studio.md) | [Practical workflows](docs/guides/workflows.md) · [Read a Result](docs/reference/results.md) | [CLI reference](docs/reference/programmatic.md) · [Architecture](docs/development/architecture.md) |
+| [Documentation index](docs/README.md) | [Network evidence](docs/guides/network.md) · [Troubleshooting](docs/guides/troubleshooting.md) | [Contributing and checks](.github/CONTRIBUTING.md) |
+
+The [offline guide](docs/guide.html) includes a local Result viewer; the [Developer Guide source](docs/developer-guide/VIGO-0.4.2-Developer-Guide.tex) builds the release PDF.
 
 API 1.0, City format 1, and Result schema 1 are unchanged in 0.4.2. VIGO is licensed under [Apache-2.0](LICENSE); see [NOTICE](NOTICE) for attribution.

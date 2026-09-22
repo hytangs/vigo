@@ -6,7 +6,7 @@ Route exposes `routingDataMode: "realtime" | "scheduled"`. The desktop calls the
 
 Scheduled research requires an explicit service date and departure/arrival time. The server removes realtime and traffic observations before processing the request, enforces the exact date, and disables date substitution. The UI retains the selected date/time and ignores feed polling in this mode. Live refreshes, expiry checks, and mode changes cancel obsolete realtime requests; switching modes never shows the other mode's old result.
 
-Both modes use the same native algorithms, stop identities, walking/transfer policies, and optimized coordinate search. The only difference is the timetable presented to that engine. Matrix and Reach remain scheduled analyses and explicitly reject realtime requests rather than returning scheduled results under a realtime label.
+Both transit modes use the same native algorithms, stop identities, walking/transfer policies, and optimized coordinate search. The only difference is the timetable presented to that engine. Transit Matrix and Reach remain scheduled analyses and explicitly reject realtime requests. Drive Matrix has a separate supplied-traffic path; see the [support table](../guides/concepts.md#choose-a-supported-combination).
 
 Engine results for an explicit mode include `diagnostics.routingDataMode` and `routingDataProvenance`: source timetable identity, street identity, service date/timezone, query time, walking/search settings, engine contract version, and a reproducibility key. Realtime results also identify the prediction snapshot. Ordered journeys retain component keys and reject changed data identities between legs. To reproduce a research result, retain the same City, VIGO build, and request; the manifest identifies inputs but does not archive them automatically. Retain the returned diagnostics when exporting results so provenance and admission counts remain available. Timing telemetry is not a reproducibility claim.
 
@@ -27,6 +27,21 @@ An unreported scheduled prefix may conflict with the first explicit prediction o
 Full snapshot processing is not a claim that every trip has a prediction. The UI distinguishes predicted and scheduled journey times, live cancellations, and excluded records. Added/unscheduled/replacement/duplicated trips without a supported scheduled instance remain unsupported and disclosed. Frequency instances and cross-timezone stores retain the existing routing-contract limits. Vehicle positions and text alerts do not invent stop-time predictions.
 
 Studio's [added-service display](../guides/network.md#added-service) is separate from routing admission. A reported trip can appear in the line view and trip selector without being available to Route.
+
+## Read the realtime status
+
+For CLI transit Route, inspect `result.diagnostics.realtimeRouting.status` together with its counts. `routingDataMode: "realtime"` records the requested mode; it does not by itself mean that predictions changed the timetable.
+
+| Status | Meaning |
+| --- | --- |
+| `applied` | Matched trip replacements were applied, possibly with cancellations, with no rejected supplied updates |
+| `cancellations_only` | Only trip removals were applied, with no rejected supplied updates |
+| `partial` | At least one replacement or cancellation was applied and at least one supplied update was rejected |
+| `stale_fallback` | No update was applied and feed or record timestamp checks failed |
+| `no_matches` | No update was applied for other reasons; check unmatched, wrong-date, duplicate, invalid, and unsupported counts |
+| `scheduled_fallback` | No realtime search diagnostics were available; read `fallbackReason`, such as a missing snapshot or a realtime search that did not run |
+
+`coverage.complete` concerns admission of the **supplied updates**, including upstream exclusions. It does not measure the share of all scheduled trips reporting. A fully admitted cancellation snapshot can legitimately return a blocked journey. `routingDataProvenance.realtimeApplied` includes both replacements and cancellations. Retain these fields with the answer; see [Result interpretation](results.md#keep-uncertainty-with-the-answer).
 
 ## Verification
 

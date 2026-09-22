@@ -20,7 +20,7 @@ const clock = (minute) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:$
 
 // Enumerate complete raw rides independently of the native scan and its
 // pruning. All fixture transfers are same-stop and all endpoints are exact.
-function expectedFrontier(trips, maximumArrival, departureUpperBound = Infinity) {
+function expectedFrontier(trips, maximumArrival, rideHorizon = Infinity) {
   const terminal = []
   const visit = (stop, time, boardings) => {
     if (stop === 'D') {
@@ -29,7 +29,8 @@ function expectedFrontier(trips, maximumArrival, departureUpperBound = Infinity)
     }
     if (boardings === 3) return
     for (const trip of trips) {
-      if (trip.from === stop && trip.depart >= time && trip.depart <= departureUpperBound && trip.arrive <= maximumArrival) {
+      if (trip.from === stop && trip.depart >= time && trip.depart <= rideHorizon
+        && trip.arrive <= rideHorizon && trip.arrive <= maximumArrival) {
         visit(trip.to, trip.arrive, boardings + 1)
       }
     }
@@ -41,7 +42,7 @@ function expectedFrontier(trips, maximumArrival, departureUpperBound = Infinity)
 }
 
 try {
-  for (const [directArrival, horizonMinutes] of [[514], [525], [526], [525, 40]]) {
+  for (const [directArrival, horizonMinutes] of [[514], [525], [526], [520, 40], [525, 40]]) {
     const trips = [
       { id: 'R1', from: 'O', to: 'A', depart: 480, arrive: 490 },
       { id: 'R2', from: 'A', to: 'B', depart: 491, arrive: 500 },
@@ -87,6 +88,11 @@ try {
           assert.equal(plan.departMinutes, request.departMinutes)
           assert.equal(plan.walkMinutes, 0)
           assert.equal(plan.transfers, plan.legs.filter((leg) => leg.type === 'ride').length - 1)
+          if (horizonMinutes) {
+            assert(plan.legs.filter((leg) => leg.type === 'ride')
+              .every((leg) => leg.endMinutes <= request.departMinutes + horizonMinutes),
+            'Alternative slack must not extend the admitted ride horizon; equality is admitted.')
+          }
           assert(!plan.legs.some((leg) => leg.routeShortName === 'DUPLICATE'))
         }
       }

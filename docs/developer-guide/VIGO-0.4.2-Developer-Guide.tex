@@ -68,7 +68,7 @@ An abbreviated Result has this shape (illustrative values):
 }
 \end{lstlisting}
 
-Values depend on the supplied City and request. You have built a City and run a Route. Continue with Matrix and Reach below, or use the shorter Markdown Quickstart and the separate Studio Guide linked from \code{docs/README.md}.
+Values depend on the supplied City and request. Continue with Matrix and Reach below. The documentation index at \path{docs/README.md} links worked baseline/alternative workflows, Result interpretation, and Studio network investigations.
 
 \section{Core model}
 
@@ -168,14 +168,16 @@ Points are either GTFS stop IDs or coordinates. Coordinates always use \textbf{[
 \midrule
 \field{kind} & \code{route}, \code{matrix}, \code{reach}, or \code{comparison}. \\
 \field{status} & \code{ready} or \code{blocked}. \\
-\field{query} & Normalized input used for computation. \\
+\field{query} & Normalized request summary; retain the original JSON and command for complete inputs. \\
 Query output & Route uses \field{result}; Matrix uses \field{rows}; Reach uses \field{surface} and \field{contours}; Compare uses \field{change}. \\
-\field{warnings} & Conditions that matter for interpretation but did not stop execution. \\
+\field{warnings} & Reported qualifications; also inspect diagnostics and individual legs. \\
 \field{timing} & Separate available durations such as open, compute, contour, and end to end. \\
-\field{city} & City name and revision identity in command-line Results. \\
+\field{city} & Query City identity; Compare instead records both inputs under \field{cities}. \\
 \bottomrule
 \end{tabularx}
 \end{center}
+
+Fields vary by Result family. Compare returns its own envelope, not copies of both inputs. An empty \field{warnings} array does not establish complete source coverage. In Transit Route, inspect \field{result.diagnostics} for admitted realtime updates, scheduled fallback, and access qualifications; a requested realtime mode alone does not prove that predictions were applied.
 
 \subsection{Status and exceptions}
 
@@ -184,8 +186,8 @@ Query output & Route uses \field{result}; Matrix uses \field{rows}; Reach uses \
 \toprule
 \textbf{Name} & \textbf{Meaning} \\
 \midrule
-\code{ready} & A supported Query produced an answer. \\
-\code{blocked} & The Query is valid, but no journey or usable surface was available. \\
+\code{ready} & Computation completed; Matrix may still contain blocked rows, and Reach may contain unreachable cells. \\
+\code{blocked} & No usable Route journey was returned under the supplied inputs and constraints. \\
 Invalid input & The command exits nonzero with an explanation on standard error. \\
 Unsupported request & The selected City or Scenario cannot execute the request; the command exits nonzero. \\
 Execution failure & Build or Query execution failed; the command exits nonzero. \\
@@ -193,9 +195,15 @@ Execution failure & Build or Query execution failed; the command exits nonzero. 
 \end{tabularx}
 \end{center}
 
-A blocked transit Result exits zero. Keep blocked rows separate from execution failures when summarizing batch work.
+A blocked Route Result exits zero. Invalid input and execution failures exit 2. Count Matrix and CSV Route rows by their own status; missing durations are not zero-minute journeys.
 
-Each query command prints the complete Result as JSON. \field{--output PATH} writes that payload to a file. Route batch writes CSV rows and an adjacent summary.
+JSON query commands print the complete Result to stdout; \field{--output PATH} also saves it to a file. A CSV Route batch writes rows to \field{--output} and prints its JSON summary, including detailed plans, to stdout. Redirect stdout separately to retain that summary.
+
+\subsection{Keep a reproducible run}
+
+Retain the complete City, \code{vigo inspect} output, runtime version and capabilities, original request, exact command, full Result, and stderr together. Keep supplied realtime or traffic snapshots and any comparison inputs. Preserve source archives and acquisition notes when a rebuild must be reproducible. A normalized \field{query} or provenance key does not archive all these inputs.
+
+Live admission checks a captured current clock. A saved snapshot can expire before a later query; the public CLI provides no historical replay clock. Preserve the original Result for incident review. See \path{docs/reference/results.md} for the retention checklist.
 
 \section{Route}
 
@@ -210,7 +218,6 @@ vigo route --city ./boston --request ./route.json \
   --time 11:04 --service-date YYYY-MM-DD
 \end{lstlisting}
 
-\newpage
 \subsection{Inputs and options}
 
 \begin{longtable}{P{1.72in} P{1.04in} P{3.54in}}
@@ -255,7 +262,7 @@ Transit Route requires a vehicle boarding by default. Set \field{requireTransitR
 
 Departure windows sample each integral minute from the requested departure minus $N$ through the requested departure plus $N$. They are depart-at only.
 
-Walking and driving require coordinates. Drive uses free-flow street weights unless a supported traffic Scenario is supplied. Waypoints are visited in listed order; VIGO does not reorder them.
+Walking and driving require coordinates. Drive uses free-flow street weights unless fresh supplied traffic is applied in realtime mode. Waypoints are visited in listed order; VIGO does not reorder them.
 
 For batch work, pass CSV through \field{--input} and write the returned rows through \field{--output}:
 
@@ -326,7 +333,7 @@ Matrix returns scalar rows by default. Set \field{includeJourneys: true} to incl
 
 \subsection{Limits and important behavior}
 
-One request accepts at most 100,000 pairs, including a single origin with 100,000 destinations or 100,000 origins with one destination. Transit Matrix supports depart-at and arrive-by. Rust shares a forward scan per unique origin for depart-at, or a reverse scan per unique destination for arrive-by. Arrive-by duration is the deadline minus the latest departure, including destination waiting. Walk and Drive Matrix use the street graph. A supplied traffic Scenario applies only to Drive Matrix.
+One request accepts at most 100,000 pairs and 16 MiB of JSON. Transit Matrix supports depart-at and arrive-by. Scalar searches share a forward scan per unique origin for depart-at, or a reverse scan per unique destination for arrive-by; requested journeys add shared journey rounds. Arrive-by scalar duration is the deadline minus latest departure, including destination waiting; a nested journey reports actual modeled arrival. Walk and Drive Matrix use the street graph. Supplied traffic applies only to Drive Matrix.
 
 \section{Reach}
 
@@ -401,13 +408,13 @@ Live transit & \yes & \no & \no & Studio; CLI with supplied snapshot \\
 \end{tabularx}
 \end{center}
 
-Planned service can add scheduled service or exclude selected routes for Reach. Traffic carries time-bounded directed road observations for Drive Route and Drive Matrix. Live transit Route processes supported Trip Updates against matched scheduled trips in Studio and the CLI. CLI callers supply \field{realtimeSnapshot} and select \code{--data-mode realtime}. The complete supplied snapshot is processed without trip-count caps; unreported trips retain scheduled times. Cancellations and skipped calls are supported; added trips without a scheduled instance remain unsupported. Vehicle Positions and Alerts do not change routing. Inspect realtime diagnostics for freshness exclusions and scheduled fallback. Matrix and Reach remain scheduled.
+Planned service can add scheduled service or exclude selected routes for Reach. Traffic carries time-bounded directed road observations for Drive Route and Drive Matrix. Live transit Route processes supported Trip Updates against matched scheduled trips in Studio and the CLI. CLI callers supply \field{realtimeSnapshot} and select \code{--data-mode realtime}. The complete supplied snapshot is processed without trip-count caps; unreported trips retain scheduled times. Cancellations and skipped calls are supported; added trips without a scheduled instance remain unsupported. Vehicle Positions and Alerts do not change routing. Inspect realtime diagnostics for freshness exclusions and scheduled fallback. Transit Matrix and Reach remain scheduled.
 
-Use \code{vigo capabilities} to inspect support. Supply planned changes in the Reach request\textquotesingle s \field{scenario} object, or supplied traffic in a Drive request\textquotesingle s \field{traffic} object. Unsupported combinations exit nonzero; changes are never silently ignored.
+Use \code{vigo capabilities} to inspect support. Supply planned changes in Reach's \field{scenario} object. Drive traffic uses a top-level \field{traffic} object and explicit realtime selection: Route accepts \code{--data-mode realtime}; Matrix requires \code{"routingDataMode": "realtime"} in JSON and has no \field{--data-mode} flag. Scheduled mode ignores supplied observations. Unsupported planned-service combinations are rejected.
 
 \subsection{Compare saved Results}
 
-Compare accepts two Results from the same Query family. Route comparison reports status, duration change, and transfer change. Matrix comparison matches pairs and reports time changes. Reach comparison requires the same grid and reports cell changes.
+Compare accepts two Results from the same Query family. Route comparison reads one journey from each input, not an entire CSV batch. Matrix joins origin/destination IDs, falling back to indexes when IDs are absent; unmatched rows are omitted. Reach requires identical bounds, dimensions, and value-array length.
 
 \begin{lstlisting}[language=bash]
 vigo compare \
@@ -415,6 +422,10 @@ vigo compare \
   --after ./proposal-result.json \
   --output ./comparison.json
 \end{lstlisting}
+
+Changes are after minus before. Negative values mean faster modeled travel. Matrix and Reach means include only pairs or cells with finite values in both inputs; newly and no-longer reachable counts remain separate. A mean with no comparable values is \code{null}.
+
+Compare does not verify every City, date, endpoint, or option identity. Align these explicitly, and keep Matrix IDs unique and stable. Use one City revision to isolate a planned Scenario; comparing source revisions studies a different change. The worked example is in \path{docs/guides/workflows.md}.
 
 \section{Command-line reference}
 
@@ -443,12 +454,12 @@ vigo compare \
 \midrule
 \endhead
 \field{--city PATH} & Complete City directory. \\
-\field{--request PATH} & JSON request for Route, Matrix, or Reach. \\
+\field{--request PATH} & One JSON request for Route, Matrix, or Reach; \code{-} reads stdin. \\
 \field{--output PATH} & Save the complete Result. \\
 \field{--mode VALUE} & \code{transit}, \code{walk}, or \code{drive}. \\
 \field{--time HH:MM} & Local time, default 08:00. \\
 \field{--time-preference} & \code{depart} or \code{arrive} for Route and Matrix. \\
-\field{--service-date} & Exact \code{YYYY-MM-DD} date for transit. \\
+\field{--service-date} & Required exact \code{YYYY-MM-DD} date, including CLI Walk and Drive. \\
 \field{--max-walk KM} & Transit access and egress distance, default 1.2. \\
 \field{--objective} & \code{earliest\_arrival} in 0.4.2. \\
 \field{--departure-window MIN} & Route depart-at profile from 0 to 30 minutes. \\
@@ -461,6 +472,8 @@ vigo compare \
 \end{longtable}
 
 Successful commands exit zero and write JSON to standard output. Invalid input, an incomplete City, or execution failure exits nonzero and writes an explanation to standard error. A blocked Query remains a successful computation with a blocked Result.
+
+JSON requests are limited to 16 MiB. Date and clock come from \field{--service-date} and \field{--time}; keep these flags with the request file. If a command fails, an existing output file may still contain an older Result.
 
 \newpage
 \section{Capability and compatibility}

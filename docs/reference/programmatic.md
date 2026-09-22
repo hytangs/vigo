@@ -46,4 +46,10 @@ Route uses `result`, Matrix uses `rows`, Reach uses `surface` and `contours`, an
 
 A `blocked` Result is a valid computation without a usable journey or surface and exits zero. Invalid input, unsupported combinations, incomplete Cities, and execution failures exit 2 with a short explanation and a command-help hint on stderr. Failed commands do not print a JSON result. Keep these failures separate from blocked Results in batch analysis.
 
-See [Route](routing.md), [Matrix](matrix.md), [Reach](reach.md), and [Scenario semantics](scenarios.md) for request fields and interpretation.
+See [Route](routing.md), [Matrix](matrix.md), [Reach](reach.md), and [Scenario semantics](scenarios.md) for request fields. [Read and retain a Result](results.md) covers per-row outcomes, diagnostics, reproducibility, and the exact limits of `compare`. [Practical workflows](../guides/workflows.md) shows complete request files and commands.
+
+## Headless Python distribution
+
+VIGO-py platform wheels can package Node, the CLI bundle, and the shared Rust kernel without Studio. The resident protocol advertises support per query family. Explicit `kind: "route"` and `kind: "reach"` messages call the same validation and computation functions as their one-shot commands; Matrix retains its shared executor. Processes prepare each requested mode lazily for one City and service date. `openMs` is zero after that mode has been prepared. The legacy transit stream response remains compatible with older clients.
+
+Supplied traffic for Drive Route and Drive Matrix requires explicit realtime mode and the advertised `suppliedTraffic` capability. Scheduled analysis continues to ignore observation state. The Python interface selects realtime mode when a traffic Scenario is supplied. This distribution still uses Node for orchestration and itinerary object assembly; it is not a direct Python/Rust binding.

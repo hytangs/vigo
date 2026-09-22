@@ -379,9 +379,12 @@ async function prepareRuntime(
   return { elapsedMs: Number((performance.now() - started).toFixed(3)) }
 }
 
-async function runRouteRequest(args: CliArguments) {
-  const request = await readStructuredRequest(args, 'route')
-  const { storePath, streetStorePath, city } = resolveRuntimePaths(args)
+async function computeRouteRequest(
+  args: CliArguments, request: Record<string, any>,
+  paths: ReturnType<typeof resolveRuntimePaths>,
+  prepare: typeof prepareRuntime = prepareRuntime,
+) {
+  const { storePath, streetStorePath, city } = paths
   if (request.scenario) throw new Error('Planned transit Scenarios are supported by Reach, not Route.')
   const options = runtimeOptions(args, request)
   const mode = String(value(args, 'mode', String(request.mode ?? 'transit')))
@@ -400,7 +403,7 @@ async function runRouteRequest(args: CliArguments) {
   if (mode !== 'transit' && [origin, ...waypoints, destination].some((point) => !point.coordinate)) {
     throw new Error(`${mode} routes require coordinate points`)
   }
-  const preparation = await prepareRuntime(
+  const preparation = await prepare(
     storePath,
     streetStorePath,
     options.serviceDate,
@@ -408,93 +411,99 @@ async function runRouteRequest(args: CliArguments) {
     mode,
   )
   const queryStarted = performance.now()
-  try {
-    const baseRequest = normalizeRoutingDataRequest({
-      routingDataMode: options.routingDataMode,
-      mode,
+  const baseRequest = normalizeRoutingDataRequest({
+    routingDataMode: options.routingDataMode,
+    mode,
+    origin,
+    destination,
+    departMinutes: options.timeMinutes,
+    arriveMinutes: options.timeMinutes,
+    timePreference: options.timePreference,
+    routingPreference: options.routingPreference,
+    serviceDay: options.serviceDay,
+    serviceDate: options.serviceDate,
+    allowServiceDateFallback: false,
+    maxWalkKm: options.maxWalkKm,
+    maxTransfers: options.maxTransfers,
+    streetStorePath,
+    requireTransitRide: request.requireTransitRide,
+    __disableNativeStreetPathCache: request.disableCache === true,
+    horizonMinutes: options.horizonMinutes,
+    allowLongWalk: request.allowLongWalk !== false,
+    departureWindowMinutes: options.departureWindowMinutes,
+    walkingSpeedKph: request.walkSpeedKph,
+    ...(options.routingDataMode === 'realtime' && mode === 'transit' && request.realtimeSnapshot
+      ? { realtimeSnapshot: request.realtimeSnapshot } : {}),
+    ...(options.routingDataMode === 'realtime' && mode === 'drive' && request.traffic
+      ? { trafficSnapshot: request.traffic } : {}),
+  })
+  const routeSegment = async (segmentRequest: Record<string, any>) => (
+    mode === 'transit'
+      ? routeOne(
+          storePath,
+          segmentRequest,
+          Number(segmentRequest.departureWindowMinutes ?? 0),
+        ).plan
+      : routeNationalStreetStore(streetStorePath!, segmentRequest) as RoutingPlan
+  )
+  let routed: RouteResult
+  if (waypoints.length) {
+    const points = validateOrderedRoutingPoints(origin, waypoints, destination)
+    const components = await routeOrderedRoutingSegments(points, baseRequest, routeSegment)
+    routed = {
+      plan: composeOrderedRoutingPlans(components.componentPlans, points, baseRequest),
+      profileSampleCount: components.componentPlans.length,
+      elapsedMs: performance.now() - queryStarted,
+    }
+  } else {
+    routed = mode === 'transit'
+      ? routeOne(storePath, baseRequest, options.departureWindowMinutes)
+      : {
+          plan: routeNationalStreetStore(streetStorePath!, baseRequest) as RoutingPlan,
+          profileSampleCount: 1,
+          elapsedMs: 0,
+        }
+  }
+  const queryMs = performance.now() - queryStarted
+  return {
+    schemaVersion: 'vigo.result.route.v1',
+    ...publicResultMetadata,
+    kind: 'route',
+    status: routed.plan?.status ?? 'blocked',
+    city,
+    query: {
       origin,
+      waypoints,
       destination,
-      departMinutes: options.timeMinutes,
-      arriveMinutes: options.timeMinutes,
+      mode,
+      routingDataMode: options.routingDataMode,
+      timeMinutes: options.timeMinutes,
       timePreference: options.timePreference,
-      routingPreference: options.routingPreference,
-      serviceDay: options.serviceDay,
+      objective: options.objective,
       serviceDate: options.serviceDate,
-      allowServiceDateFallback: false,
       maxWalkKm: options.maxWalkKm,
       maxTransfers: options.maxTransfers,
-      streetStorePath,
-      requireTransitRide: request.requireTransitRide,
-      __disableNativeStreetPathCache: request.disableCache === true,
-      horizonMinutes: options.horizonMinutes,
-      allowLongWalk: request.allowLongWalk !== false,
       departureWindowMinutes: options.departureWindowMinutes,
-      walkingSpeedKph: request.walkSpeedKph,
-      ...(options.routingDataMode === 'realtime' && mode === 'transit' && request.realtimeSnapshot
-        ? { realtimeSnapshot: request.realtimeSnapshot } : {}),
-      ...(options.routingDataMode === 'realtime' && mode === 'drive' && request.traffic
-        ? { trafficSnapshot: request.traffic } : {}),
-    })
-    const routeSegment = async (segmentRequest: Record<string, any>) => (
-      mode === 'transit'
-        ? routeOne(
-            storePath,
-            segmentRequest,
-            Number(segmentRequest.departureWindowMinutes ?? 0),
-          ).plan
-        : routeNationalStreetStore(streetStorePath!, segmentRequest) as RoutingPlan
-    )
-    let routed: RouteResult
-    if (waypoints.length) {
-      const points = validateOrderedRoutingPoints(origin, waypoints, destination)
-      const components = await routeOrderedRoutingSegments(points, baseRequest, routeSegment)
-      routed = {
-        plan: composeOrderedRoutingPlans(components.componentPlans, points, baseRequest),
-        profileSampleCount: components.componentPlans.length,
-        elapsedMs: performance.now() - queryStarted,
-      }
-    } else {
-      routed = mode === 'transit'
-        ? routeOne(storePath, baseRequest, options.departureWindowMinutes)
-        : {
-            plan: routeNationalStreetStore(streetStorePath!, baseRequest) as RoutingPlan,
-            profileSampleCount: 1,
-            elapsedMs: 0,
-          }
-    }
-    const queryMs = performance.now() - queryStarted
-    writeJsonResult({
-      schemaVersion: 'vigo.result.route.v1',
-      ...publicResultMetadata,
-      kind: 'route',
-      status: routed.plan?.status ?? 'blocked',
-      city,
-      query: {
-        origin,
-        waypoints,
-        destination,
-        mode,
-        routingDataMode: options.routingDataMode,
-        timeMinutes: options.timeMinutes,
-        timePreference: options.timePreference,
-        objective: options.objective,
-        serviceDate: options.serviceDate,
-        maxWalkKm: options.maxWalkKm,
-        maxTransfers: options.maxTransfers,
-        departureWindowMinutes: options.departureWindowMinutes,
-      },
-      result: routed.plan ?? null,
-      ...(routed.choices ? { choices: routed.choices } : {}),
-      warnings: [],
-      timing: {
-        buildMs: null,
-        openMs: preparation.elapsedMs,
-        computeMs: Number(queryMs.toFixed(3)),
-        endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)),
-      },
-    }, value(args, 'output'))
+    },
+    result: routed.plan ?? null,
+    ...(routed.choices ? { choices: routed.choices } : {}),
+    warnings: [],
+    timing: {
+      buildMs: null,
+      openMs: preparation.elapsedMs,
+      computeMs: Number(queryMs.toFixed(3)),
+      endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)),
+    },
+  }
+}
+
+async function runRouteRequest(args: CliArguments) {
+  const request = await readStructuredRequest(args, 'route')
+  const paths = resolveRuntimePaths(args)
+  try {
+    writeJsonResult(await computeRouteRequest(args, request, paths), value(args, 'output'))
   } finally {
-    disposeNationalGtfsStore(storePath)
+    disposeNationalGtfsStore(paths.storePath)
   }
 }
 
@@ -714,6 +723,29 @@ async function runRouteStream(args: CliArguments) {
         const input = JSON.parse(line) as Record<string, unknown>
         if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Each line must be a JSON object')
         if (typeof input.id === 'string' && input.id.trim()) id = input.id.trim()
+        if (input.kind === 'route' || input.kind === 'reach') {
+          // Share validation and materialization with one-shot commands. The
+          // service date belongs to this process; only preparation is reused.
+          const requestArgs = new Map(args)
+          for (const [field, option] of [
+            ['time', 'time'], ['maxWalkKm', 'max-walk'],
+            ['departureWindowMinutes', 'departure-window'],
+          ]) {
+            if (input[field] !== undefined) requestArgs.set(option, [String(input[field])])
+          }
+          const prepare: typeof prepareRuntime = async (_store, _street, _date, _day, mode = 'transit') => ({
+            elapsedMs: await prepareMode(mode),
+          })
+          const result = input.kind === 'route'
+            ? await computeRouteRequest(requestArgs, input, paths, prepare)
+            : await computeReachRequest(requestArgs, input, paths, prepare)
+          await writeNdjson({ ...result, sequence, id, timing: {
+            ...result.timing,
+            endToEndMs: Number((performance.now() - (sequence === 1 ? cliStartedAt : requestStarted)).toFixed(3)),
+          } })
+          continue
+        }
+        if (input.kind !== undefined && input.kind !== 'matrix') throw new Error('Unknown resident query kind')
         const timePreference = (input.timePreference ?? defaults.timePreference) as RoutingTimePreference
         if (!['depart', 'arrive'].includes(timePreference)) throw new Error('timePreference must be depart or arrive')
         const objective = String(input.objective ?? defaults.objective)
@@ -897,9 +929,17 @@ function boundedAnalyticalNumber(
   return parsed
 }
 
+function validateAnalysisDataMode(options: ReturnType<typeof runtimeOptions>, command: string, mode: string, request: Record<string, unknown>) {
+  if (command.toLowerCase() === 'matrix' && mode === 'drive' && options.routingDataMode === 'realtime' && request.traffic) {
+    if (request.realtimeSnapshot || request.live) throw new Error('Drive Matrix accepts supplied traffic only.')
+    return
+  }
+  normalizeScheduledAnalysisRequest({ ...options, departMinutes: options.timeMinutes }, command)
+}
+
 function analyticalRuntimeOptions(args: CliArguments, command: string, request: Record<string, unknown>) {
   const options = runtimeOptions(args, request)
-  normalizeScheduledAnalysisRequest({ ...options, departMinutes: options.timeMinutes }, command)
+  validateAnalysisDataMode(options, command, value(args, 'mode', String(request.mode ?? 'transit')), request)
   if (options.timePreference !== 'depart' && command !== 'matrix') {
     throw new Error(`${command} supports fixed-departure routing only`)
   }
@@ -941,7 +981,7 @@ function computePreparedMatrix(
   stopLookup: ReturnType<typeof openStopLookup>,
 ) {
   const preparationStarted = performance.now()
-  normalizeScheduledAnalysisRequest({ ...options, departMinutes: options.timeMinutes }, 'Matrix')
+  validateAnalysisDataMode(options, 'matrix', value(args, 'mode', String(request.mode ?? 'transit')), request)
   const { storePath, streetStorePath, city } = paths
   assertMatrixSize(Array.isArray(request.origins) ? request.origins.length : 0,
     Array.isArray(request.destinations) ? request.destinations.length : 0)
@@ -1008,6 +1048,7 @@ function computePreparedMatrix(
       })
     : routeNationalStreetMatrix(streetStorePath!, {
         mode,
+        ...(options.routingDataMode === 'realtime' && mode === 'drive' ? { trafficSnapshot: request.traffic } : {}),
         disableCache: request.disableCache === true,
         origins: origins.map((origin) => origin.point),
         destinations: destinations.map((destination) => destination.point),
@@ -1087,9 +1128,12 @@ function reachCutoffs(args: CliArguments, request: Record<string, unknown>) {
   return cutoffs
 }
 
-async function runReach(args: CliArguments) {
-  const request = await readStructuredRequest(args, 'reach')
-  const { storePath, streetStorePath, city } = resolveRuntimePaths(args)
+async function computeReachRequest(
+  args: CliArguments, request: Record<string, any>,
+  paths: ReturnType<typeof resolveRuntimePaths>,
+  prepare: typeof prepareRuntime = prepareRuntime,
+) {
+  const { storePath, streetStorePath, city } = paths
   if (!streetStorePath) throw new Error('reach requires a City with streets')
   const scenarioState = request.scenario as Record<string, unknown> | undefined
   if (request.traffic || request.live || scenarioState?.traffic || scenarioState?.live) {
@@ -1126,7 +1170,7 @@ async function runReach(args: CliArguments) {
   )
   const hydrated = hydrateScenarioRouteServices(storePath, { storageGeneration: city.revisionId }, request)
   const { scenario, overlay } = compileReachScenario(hydrated.scenario)
-  const preparation = await prepareRuntime(
+  const preparation = await prepare(
     storePath,
     streetStorePath,
     options.serviceDate,
@@ -1175,7 +1219,7 @@ async function runReach(args: CliArguments) {
     'reach',
   )
   const contourMs = performance.now() - contourStarted
-  const payload = {
+  return {
     schemaVersion: 'vigo.result.reach.v1',
     ...publicResultMetadata,
     kind: 'reach',
@@ -1210,7 +1254,16 @@ async function runReach(args: CliArguments) {
       endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)),
     },
   }
-  writeJsonResult(payload, value(args, 'output'))
+}
+
+async function runReach(args: CliArguments) {
+  const request = await readStructuredRequest(args, 'reach')
+  const paths = resolveRuntimePaths(args)
+  try {
+    writeJsonResult(await computeReachRequest(args, request, paths), value(args, 'output'))
+  } finally {
+    disposeNationalGtfsStore(paths.storePath)
+  }
 }
 
 function requiredRawInput(input: string, label: string, pattern: RegExp) {

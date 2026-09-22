@@ -2,6 +2,8 @@
 
 Build one City, then reuse it for Route, Matrix, and Reach. Build and first-query time depend on the size of the supplied network.
 
+You will finish with a compiled City and saved Route, Matrix, and Reach Results. You supply the GTFS ZIP and OSM PBF; the commands do not download the example data.
+
 For the desktop workflow, use the [Studio guide](studio.md). Studio imports data into its own project library; it does not open the CLI City directory created below.
 
 ## 1. Install
@@ -17,9 +19,20 @@ npm run build
 npm link
 ```
 
+Check the installed command before importing data:
+
+```bash
+vigo --version
+vigo capabilities
+```
+
+To avoid a global command link, omit `npm link` and replace `vigo` with `node public/vigo.mjs` from the source checkout in the examples below.
+
 ## 2. Build a City
 
 You need a static GTFS ZIP and an OSM PBF covering the same area. The examples below use Boston; replace the filenames and coordinates for your own network.
+
+Choose a service date covered by the feed's `calendar.txt` and `calendar_dates.txt`. Keep the original files and their acquisition dates if you intend to reproduce the build. Check the [GTFS support](../reference/gtfs-support-matrix.md) and [street assumptions](../reference/street-routing.md) for source features that affect your analysis.
 
 ```bash
 vigo build \
@@ -34,6 +47,14 @@ Time this command from invocation through successful return to measure Build
 from GTFS and OSM. Include the first Route as well when measuring time to the
 first answer. Reopening `./boston` measures a different operation; see
 [Performance](../development/performance.md) for the exact boundaries.
+
+Inspect the finished City before querying it:
+
+```bash
+vigo inspect --city ./boston --output ./city-inspect.json
+```
+
+Confirm the expected sources and counts. Keep the entire City directory; the inspection JSON identifies it but does not contain the routing data.
 
 ## 3. Run a Route
 
@@ -76,7 +97,7 @@ Every computation returns a Result with the answer and its meaning:
 }
 ```
 
-This abbreviated example illustrates the Result fields, not a measured journey or benchmark. Values depend on the supplied City and request. Inspect `status` and `warnings` before using the answer; a blocked Result is not a successful journey. The [offline Result viewer](../guide.html#viewer) can open the exported JSON.
+This abbreviated example illustrates the Result fields, not a measured journey or benchmark. Values depend on the supplied City and request. Inspect `status`, `warnings`, and leg/diagnostic qualifications before using the answer; a blocked Result is not a successful journey. The [offline Result viewer](../guide.html#viewer) can open the exported JSON. [Read and retain a Result](../reference/results.md) explains the fields and reproducibility record.
 
 ## 5. Run Matrix
 
@@ -94,8 +115,11 @@ vigo matrix \
   --city ./boston \
   --request ./matrix.json \
   --time 08:00 \
-  --service-date YYYY-MM-DD
+  --service-date YYYY-MM-DD \
+  --output ./matrix-result.json
 ```
+
+Inspect every row's `status`. A ready Matrix can contain blocked pairs; missing travel times are not zero. Add more unique origins or destinations to expand the same request.
 
 ## 6. Run Reach
 
@@ -121,6 +145,8 @@ vigo reach \
 
 ## Where next
 
+- [Practical workflows](workflows.md): arrival deadlines, pairwise journeys, and a complete baseline/Scenario comparison.
+- [Troubleshooting](troubleshooting.md): build failures, blocked routes, time semantics, and stale observations.
 - [Developer Guide](../developer-guide/VIGO-0.4.2-Developer-Guide.tex): CLI, Results, Scenario, compatibility, and full Query reference.
 - [VIGO Studio Guide](studio.md): visual exploration, routing, playback, and analysis.
 - [Core concepts](concepts.md): City, Scenario, Query, and Result.

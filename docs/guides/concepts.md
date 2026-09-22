@@ -60,6 +60,22 @@ A Result is the immutable answer to one Query. It contains status, values, warni
 
 Compare is an action on compatible Results. It is not a fourth Query.
 
+Keep the original request and full Result together. The normalized `query` is useful for inspection but is not a complete archive of every option or supplied observation. See [Read and retain a Result](../reference/results.md).
+
+## Choose a supported combination
+
+| Query | Travel mode | Time constraint | Supplied changes or observations |
+| --- | --- | --- | --- |
+| Route | Transit | Depart-at or arrive-by; ordered waypoints and departure windows have their own limits | Matched GTFS-RT Trip Updates when realtime is explicitly selected |
+| Route | Walk or Drive | Street routing with the chosen time direction | Supplied traffic for Drive in realtime mode |
+| Matrix | Transit | Fixed departure or arrival deadline | Scheduled timetable; no planned-service or live-transit overlay |
+| Matrix | Walk or Drive | Static street metric; an arrive-by flag does not introduce time-varying traffic | Supplied traffic for Drive in realtime mode |
+| Reach | Transit with walking | Fixed departure and time cutoffs | Planned service Scenario; scheduled analysis |
+
+Use `vigo capabilities` for the running build and the [query references](../README.md#query-and-data-reference) for request-specific limits. The capability catalog's `scenario.support.liveTransit` describes the live Scenario interface; CLI `realtimeSnapshot` admission is a separate [Route contract](../reference/realtime-routing.md). A visible vehicle, alert, or added trip is not itself a routing update.
+
+CLI queries default to scheduled mode. Drive traffic requires explicit realtime selection as well as the supplied `traffic` object; for Matrix, set `routingDataMode: "realtime"` in the request JSON. The public Matrix command does not accept a `--data-mode` flag. No traffic provider is fetched automatically.
+
 ## Outcomes
 
 - A Result is `ready` or `blocked`.
@@ -71,4 +87,8 @@ Use `vigo capabilities` to inspect support before execution.
 
 ## Time
 
+Service dates use the City's timetable timezone. A GTFS event at `25:10` belongs to that service date even though it occurs after calendar midnight. CLI clocks accept `00:00` through `29:59`; supply the exact service date with the clock. Realtime observation timestamps are a separate clock used to admit or reject predictions.
+
 VIGO keeps Build, Open, Compute, and End-to-end durations separate. Reusing an open process is useful runtime behavior, but it does not replace or hide Query computation.
+
+Continue with [practical workflows](workflows.md), [Result semantics](../reference/results.md), or [troubleshooting](troubleshooting.md).

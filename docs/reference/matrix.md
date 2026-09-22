@@ -12,6 +12,10 @@ Matrix computes scalar travel time between origin and destination sets.
 
 Transit Matrix supports fixed departure and arrive-by deadlines. Walk and Drive Matrix require coordinate points. Results contain one row per requested pair with status, duration, and distance where applicable.
 
+Start with the [arrival-deadline workflow](../guides/workflows.md#reach-one-destination-by-a-deadline) for a complete request and command. Top-level `ready` means the Matrix completed; inspect every row's status. [Result semantics](results.md) covers missing values, retained evidence, and comparison matching.
+
+Transit Matrix remains scheduled. Drive Matrix can apply a supplied `traffic` object with `routingDataMode: "realtime"` in the request JSON; it does not fetch a provider. The public Matrix command has no `--data-mode` flag. A static traffic snapshot does not model traffic evolving along a journey.
+
 For transit, `includeJourneys: true` adds a `journey` to each ready row, with
 actual departure and arrival, `transfers`, `walkMinutes`, `rideMinutes`,
 `waitMinutes`, and timed legs with trip and stop IDs. Blocked rows have a null

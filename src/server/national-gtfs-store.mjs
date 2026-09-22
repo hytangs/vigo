@@ -8909,8 +8909,19 @@ export function routeNationalGtfsDepartureWindow(storePath, request) {
       .slice(0, firstRideIndex)
       .reduce((sum, leg) => sum + leg.durationMinutes, 0)
     const latestCatchMinutes = plan.legs[firstRideIndex].startMinutes - preRideMinutes
+    // Moving the departure also moves the ride horizon. Reuse is sound only
+    // when the whole arrival envelope was already inside the original horizon:
+    // a newly admitted ride could otherwise improve this plan or add a tradeoff.
+    // Include one display-precision unit because plan arrival is rounded.
+    const reuseArrivalBound = (plan.arriveMinutes + 0.001) * 60 + alternativeArrivalSlackSeconds
+    const sampleRideHorizon = Math.round(sampleMinute * 60) + routingHorizonMinutes(request) * 60
+    // A generalized-cost winner need not retain its scalar anchor when the
+    // departure moves, so its catchability alone cannot certify reuse.
+    const canReuseLaterSamples = request.routingPreference !== 'balanced'
+      && reuseArrivalBound <= sampleRideHorizon
     let filled = 0
-    while (index < sampleMinutes.length && sampleMinutes[index] <= latestCatchMinutes + 1e-9) {
+    while (index < sampleMinutes.length && sampleMinutes[index] <= latestCatchMinutes + 1e-9
+      && (filled === 0 || canReuseLaterSamples)) {
       plans.push(materializeWindowPlan(
         plan,
         sampleMinutes[index],

@@ -4,7 +4,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VIGO 0.4.2 — from source to routing</title>
 <style>
-  :root { color-scheme: light; --ink: #18352e; --muted: #536c63; --line: #d4dfd9; --paper: #f7f9f6; --accent: #006b51; }
+  :root { color-scheme: light dark; --ink: #18352e; --muted: #536c63; --line: #d4dfd9; --paper: #f7f9f6; --panel: #fff; --accent: #006b51; }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.65 system-ui, sans-serif; }
   header, main, footer { max-width: 980px; margin: auto; padding: 2rem 1.5rem; }
@@ -14,10 +14,13 @@
   h3 { margin-top: 1.5rem; font-size: 1.05rem; }
   p { max-width: 80ch; }
   a { color: var(--accent); text-underline-offset: 3px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+  .skip { position: absolute; top: .5rem; left: 1rem; transform: translateY(-200%); }
+  .skip:focus { transform: none; }
   nav { display: flex; gap: .5rem 1.25rem; flex-wrap: wrap; margin: 1.5rem 0; }
   section { margin-bottom: 2.5rem; padding-top: 1.75rem; border-top: 1px solid var(--line); scroll-margin-top: 1rem; }
   code { font-size: .88em; }
-  pre { overflow-x: auto; padding: 1rem 1.2rem; border: 1px solid var(--line); border-radius: 6px; background: white; line-height: 1.5; }
+  pre { overflow-x: auto; padding: 1rem 1.2rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); line-height: 1.5; }
   pre code { font-size: 13px; }
   table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .94rem; }
   th, td { padding: .65rem .75rem; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -30,19 +33,22 @@
   #answer { padding: 1rem 0; }
   #answer p { margin: .4rem 0; }
   #raw { max-height: 32rem; white-space: pre-wrap; overflow-wrap: anywhere; }
-  @media print { body { background: white; } header, main, footer { max-width: none; padding: 1rem; } nav, #viewer { display: none; } pre { white-space: pre-wrap; overflow-wrap: anywhere; } }
+  @media (prefers-color-scheme: dark) { :root { --ink: #e1eee7; --muted: #a3b9ad; --line: #314d40; --paper: #13261e; --panel: #192f25; --accent: #79dbb4; } }
+  @media print { :root { color-scheme: light; --ink: #18352e; --muted: #536c63; --line: #d4dfd9; --paper: #fff; --panel: #fff; --accent: #006b51; } body { background: white; } header, main, footer { max-width: none; padding: 1rem; } nav, #viewer, .skip { display: none; } pre { white-space: pre-wrap; overflow-wrap: anywhere; } }
 </style>
+<a class="skip" href="#content">Skip to guide</a>
 <header>
   <p class="note">VIGO · Engine / Studio / Python</p>
   <h1>From source to routing.</h1>
   <p>Install VIGO, build a reusable city, run the supported queries, and use the results in an application. This guide is one file: no server, installation, or network connection is needed to read it or inspect an exported Result.</p>
+  <p class="note">Build a City → choose a query → read the answer → retain the evidence.</p>
   <nav aria-label="Contents">
     <a href="#install">Install</a><a href="#city">Build a city</a><a href="#route">Route</a>
     <a href="#matrix">Matrix</a><a href="#reach">Reach &amp; change</a><a href="#app">Build an app</a>
-    <a href="#results">Understand JSON</a><a href="#viewer">Open a Result</a>
+    <a href="#results">Read a Result</a><a href="#troubleshoot">Troubleshoot</a><a href="#viewer">Open a Result</a>
   </nav>
 </header>
-<main>
+<main id="content" tabindex="-1">
 <section id="install">
   <h2>1. Download and build</h2>
   <div class="table"><table>
@@ -94,7 +100,7 @@ node public/vigo.mjs inspect --city=./city</code></pre>
     <tr><td>At most one transfer</td><td>Add <code>--max-transfers=1</code>. Zero means at most one boarding. A finite cap with transit waypoints is unsupported.</td></tr>
     <tr><td>Transit or walking</td><td>Add <code>"requireTransitRide":false</code> to JSON. Transit otherwise requires at least one vehicle boarding.</td></tr>
     <tr><td>Access/egress limit</td><td><code>--max-walk=1.2</code> limits each continuous transit access and egress walk; it does not limit a complete Walk-mode journey.</td></tr>
-    <tr><td>Search horizon</td><td><code>--horizon=480</code>, range 1–2880 minutes. The only objective is <code>earliest_arrival</code>.</td></tr>
+    <tr><td>Search horizon</td><td><code>--horizon=480</code>, range 1–2880 minutes. For depart-at transit, boarding and alighting must fit within it; final walking can finish later. It is not a door-to-door duration cap. The only objective is <code>earliest_arrival</code>.</td></tr>
   </table></div>
   <p class="note">For the public JSON command, date, clock, walking budget, and departure window belong in CLI flags. They are not read from identically named JSON fields. Mode, time direction, transfer cap, and horizon also have JSON forms: <code>mode</code>, <code>timePreference</code>, <code>maxTransfers</code>, and <code>horizonMinutes</code>. CLI flags take precedence.</p>
   <details><summary>Batch transit queries with CSV</summary>
@@ -147,17 +153,17 @@ node public/vigo.mjs inspect --city=./city</code></pre>
     <p>This is a member to insert into the Reach object, not a complete standalone JSON document. Planned service applies to Reach only. See the <a href="reference/scenarios.md">Scenario reference</a> for augment, replace, branch selection, route removal, and travel-time assumptions.</p>
     <p>Save baseline and alternative Results, then compare them without rerunning either query:</p>
 <pre><code>node public/vigo.mjs compare --before=./reach-result.json --after=./reach-alternative.json --output=./comparison.json</code></pre>
-    <p>Compare accepts compatible Route, Matrix, or Reach Results of the same family. Match endpoints/rows and, for Reach, grid bounds and resolution. Keep date/time and walking assumptions aligned when attributing a difference to the Scenario.</p>
+    <p>Compare requires the same query family and checks Reach grid bounds and dimensions. It does not check every endpoint, date, City, or option identity. Matrix matches stable origin/destination IDs and omits unmatched pairs. Changes are after minus before; the mean includes only pairs or cells reachable in both Results. Newly reachable and no-longer-reachable counts are separate. See the <a href="reference/results.md#compare-saved-results">comparison rules</a> and <a href="guides/workflows.md#test-a-planned-service-change">complete service-change workflow</a>.</p>
   </details>
   <details><summary>Traffic and live transit: actual support</summary>
-    <p>Drive Route/Matrix accepts a top-level <code>traffic</code> snapshot. VIGO does not fetch a traffic provider. Use <code>source</code>, a current ISO <code>observedAt</code>, positive <code>ttlSeconds</code> up to 1800, and directed <code>observations</code>:</p>
+    <p>Drive Route/Matrix accepts a top-level <code>traffic</code> snapshot with explicit realtime mode. Set <code>routingDataMode: "realtime"</code> in the request; Route also accepts <code>--data-mode realtime</code>, while the public Matrix command has no such flag. VIGO does not fetch a traffic provider. Use <code>source</code>, a current ISO <code>observedAt</code>, positive <code>ttlSeconds</code> up to 1800, and directed <code>observations</code>:</p>
 <pre><code>{
   "fromCoordinate": [-71.11902,42.37334],
   "toCoordinate": [-71.118,42.374],
   "delayFactor": 2
 }</code></pre>
     <p>Each observation chooses exactly one of <code>delayFactor</code> (1–100), <code>speedKph</code> (1–200), positive <code>travelTimeSeconds</code> (at most 86400), or <code>closed:true</code>. Coordinates must match the intended directed edge. Supplied times cannot beat base free flow. Check matching counts and <code>diagnostics.traffic.status</code>; expired data falls back to free flow. Freshness uses the current clock, not the service date.</p>
-    <p>Realtime Route processes supported Trip Updates in the desktop and CLI. CLI callers supply <code>realtimeSnapshot</code> and select <code>--data-mode realtime</code>. Unreported trips retain scheduled times. Vehicle Positions and Alerts are display data; Matrix and Reach remain scheduled. See <a href="reference/realtime-routing.md">realtime modes and limits</a>.</p>
+    <p>Realtime Route processes supported Trip Updates in the desktop and CLI. CLI callers supply <code>realtimeSnapshot</code> and select <code>--data-mode realtime</code>. Unreported trips retain scheduled times. Vehicle Positions and Alerts are display data; Transit Matrix and Reach remain scheduled. See <a href="reference/realtime-routing.md">realtime modes and limits</a>.</p>
   </details>
 </section>
 <section id="app">
@@ -191,7 +197,21 @@ npm run archive:studio</code></pre>
     <tr><td>How did the engine execute it?</td><td><code>diagnostics</code>, <code>searchStats</code>, cache counters, candidate lists, and detailed timing. These usually belong in an expanded technical view.</td></tr>
   </table></div>
   <p>Keep meaningful uncertainty visible. Station-access status and schedule fallback can currently live inside diagnostics; do not discard that entire object blindly. A path to a platform coordinate does not establish an entrance connection. Read the <a href="reference/known-routing-limitations.md">routing limits</a> for unsupported GTFS features, station assumptions, street coverage, driving turns, and realtime boundaries.</p>
-  <p class="note">Smaller JSON and simpler JSON are different. Removing indentation reduces bytes; separating the user answer from search and cache internals reduces the application's burden. The current API is unchanged.</p>
+  <details><summary>What to retain for a reproducible analysis</summary>
+    <p>Keep the complete City, runtime version and capabilities, original request, exact command, full Result, and stderr together. Save both inputs to a comparison. Preserve supplied observations and original GTFS/OSM where permitted. A normalized <code>query</code> or provenance key does not archive every input; a saved realtime snapshot can expire before a later query. See <a href="reference/results.md#keep-a-reproducible-run">retaining a run</a>.</p>
+  </details>
+</section>
+<section id="troubleshoot">
+  <h2>When the answer is unexpected</h2>
+  <div class="table"><table>
+    <tr><th>Symptom</th><th>First check</th></tr>
+    <tr><td>No Result; command exits nonzero</td><td>Read stderr, runtime version, City inspection, and command help. A previous output file can remain after failure.</td></tr>
+    <tr><td>Blocked Route</td><td>Read the plan's detail and access diagnostics. Confirm date, time, walking budget, horizon, and transit-ride requirement.</td></tr>
+    <tr><td>Ready Matrix with missing times</td><td>Check each row's status. Blocked pairs remain missing, never zero-minute journeys.</td></tr>
+    <tr><td>Live reports disagree with routing</td><td>Inspect admitted Trip Updates and fallback. Vehicle positions, alerts, playback, and added-service display have different meanings.</td></tr>
+    <tr><td>A comparison looks too favorable</td><td>Align requests and IDs; inspect newly/lost reachable counts alongside the mean for comparable pairs or cells.</td></tr>
+  </table></div>
+  <p>Continue with the <a href="guides/troubleshooting.md">troubleshooting guide</a>, <a href="guides/network.md">Network evidence guide</a>, or <a href="guides/workflows.md">practical workflows</a>.</p>
 </section>
 <section id="viewer">
   <h2>Open an exported Result</h2>

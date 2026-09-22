@@ -2,6 +2,31 @@
 
 Open **Network** in VIGO Studio to inspect the selected City's timetable, live reports, and saved investigations. The workspace has **Network**, **Routes**, and **Ask** tabs. Use the separate **Route** view for journey planning and **Analyze** for Reach; Matrix is available through the CLI and Python.
 
+## Read the evidence
+
+The same map can show several kinds of evidence. Read the source and observation time before interpreting a change.
+
+| What you see | What it represents | How to use it |
+| --- | --- | --- |
+| Scheduled time | An indexed GTFS arrival or departure on the selected service date | Establish the published plan; check the date and pattern. |
+| Predicted time | A matched, admitted TripUpdate for that trip and stop | Compare the corresponding arrival or departure with its schedule. |
+| Vehicle position | A reported location and stop status at its own observation time | Locate the reported vehicle; check its age separately from the prediction. |
+| **Estimated** playback | A position interpolated along the scheduled trip | Explore the timetable and geometry. |
+| Network assessment | Computed conditions among reporting service during its stated window | Read coverage alongside delay and spacing. |
+| Model explanation | An interpretation of the supplied evidence | Inspect sources, uncertainty, and the proposed next check. |
+
+None of these supplies a verified history of actual stop arrivals. A missing prediction remains unknown. A vehicle marker or an added trip in **Trip times** also does not establish that Route can use that trip; routing has its own [admission rules](../reference/realtime-routing.md).
+
+## Investigate a condition
+
+1. **Start with coverage.** Check the assessment time, service window, and reporting coverage in **Network**. Coverage weights the scheduled vehicle-minutes with usable predictions or cancellation reports; it is not the percentage of passengers covered or service running on time.
+2. **Follow the route.** Open **Routes**, select the route, and inspect **Trip times** on the relevant service date. Use **Stops** to confirm direction and pattern, then **Updates** to inspect the service evidence.
+3. **Inspect the same event.** Open the station board or select a vehicle in **Line view**. Compare arrival with arrival or departure with departure at the same stop. Keep the vehicle observation time and prediction time visible.
+4. **Ask within that scope.** Ask for the selected route or station, the time window, and the comparison you need. Open the answer's activity and sources to check which tools ran and which observations support it.
+5. **Keep the observation attached.** Reopen the answer through **History** when reviewing the finding later. Its original selection and evidence remain attached; a fresh answer may describe a different feed state.
+
+For a journey, use **Route** and read its [Result and diagnostics](../reference/results.md). For an empty board, unresolved vehicle, or missing live timing, use [Troubleshooting](troubleshooting.md). The [service assessment method](../research/network-service-assessment.md) defines the reporting denominator and spacing comparisons in detail.
+
 ## See what needs attention
 
 Open **Network** for reporting coverage, route comparisons and the network briefing. A scheduled departure, a feed prediction and an observed vehicle location are different evidence. Missing reports remain unknown. Overnight service is assessed against the timetable's active service window, not daytime expectations.
@@ -29,6 +54,8 @@ Live positions remain separate from playback. Route-colored vehicle circles show
 In VIGO Studio, open **Network → Routes**, select a route, and choose **Line view**. The two tracks show each direction's stops and reported vehicles. Select a vehicle on the map or line to compare scheduled and predicted arrival and departure at its reported stop. Branch selectors retain the actual trip patterns.
 
 Vehicle timing comes from the City's full connection store. The selected vehicle card stays open when its route loads, while the vehicle remains in scope.
+
+If the reported stop has no usable timing, its prediction remains unavailable. **Next prediction** names a later stop with a usable prediction; it does not substitute that time for the vehicle's reported stop.
 
 ### Added service
 

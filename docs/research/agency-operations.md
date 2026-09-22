@@ -1,6 +1,6 @@
 # Agency operations prototype
 
-This backend prototype is outside the main Network / Routes / Ask workspace. Its API, records and service tests remain available for research.
+This backend prototype is outside the main Network / Routes / Ask workspace. Its API, records and service tests remain available for research. The workflow below describes internal API actions, not additional Studio buttons or a supported public integration API.
 
 The [operational replay](operational-replay.md) adds a synthetic holding decision through procedure selection, alternative comparison, approval, sandbox receipt and evidence-driven withdrawal. It reuses this ledger in separate replay storage. Internal knowledge and staff annotations are excluded from model context by default; approval alone does not authorize model disclosure.
 
@@ -9,9 +9,9 @@ The City operations ledger keeps findings, source evidence, staff decisions and 
 ## Handle a finding
 
 1. Call `operations-track` for a current finding. The selected evidence, timetable identity, source references and quality summary are retained. Tracking the same event twice returns the existing record.
-2. **Acknowledge**, **Investigate**, then **Record action**. Each transition requires a note. Link approved, unexpired context relevant to the finding's route or stop when useful.
-3. Prepare rider guidance, or continue to **Monitor**. A missing event or stale feed leaves current availability **unknown**; it never resolves the case automatically.
-4. **Resolve** with an explicit outcome and evidence reference: staff-confirmed recovery, false positive, or unable to confirm. Resolved cases can be reopened for investigation. These labels are staff assessments, not independently verified ground truth.
+2. Use `operations-transition` to acknowledge the finding, investigate, and record action. Each transition requires a note. Link approved, unexpired context relevant to the finding's route or stop when useful.
+3. Prepare rider guidance, or transition to monitoring. A missing event or stale feed leaves current availability **unknown**; it never resolves the case automatically.
+4. Resolve with an explicit outcome and evidence reference: staff-confirmed recovery, false positive, or unable to confirm. Resolved cases can be reopened for investigation. These labels are staff assessments, not independently verified ground truth.
 
 Evidence remains as captured until `operations-refresh` is used. A changed timetable requires a new finding against the new import. Every edit requires the current version; a stale client must reload before saving. Revision history preserves the preceding evidence and decisions.
 
@@ -23,13 +23,13 @@ Keep source excerpts concise and identify their document revision or page. The A
 
 ## Prepare and deliver rider guidance
 
-Choose a finding's **channel** and **audience** to create an English template from its evidence. Channels have declared product limits: app and service alert, 2,000 characters; social, 280; signage, 160. These are editable starting templates, not assertions about every downstream platform's limits. Oversized templates require editing before approval; text is never silently truncated.
+Call `message-draft` with the finding, channel, and audience to create an English template from its evidence. Channels have declared product limits: app and service alert, 2,000 characters; social, 280; signage, 160. These are editable starting templates, not assertions about every downstream platform's limits. Oversized templates require editing before approval; text is never silently truncated.
 
 Audience choices are all riders, riders at a stop and accessible travel. Guidance asks riders to check departures or contact agency staff. It does not invent a disruption cause, recovery time, alternate route or guaranteed accessible connection.
 
 Saving a revision clears approval. A reviewer checks the wording and evidence, approves the saved version, then **releases it to the local outbox**. Approval and release require current unchanged evidence, an action or monitoring state, and unchanged approved knowledge. Drafts initially expire after 15 minutes; the API permits an explicit expiry within 24 hours. A new draft is required when its source evidence changes.
 
-Release is a durable local handoff. **Export approved handoff** includes the text, audience, channel, version, expiry, source evidence and approval attribution. It does not transmit a message. After using the agency's own channel, staff can record its confirmation or public URL. That receipt is explicitly staff-recorded. **Withdraw local handoff** preserves the prior revisions; staff must also remove an external copy in its channel. A repeated release request returns the same handoff rather than creating a duplicate.
+`message-release` creates a durable local handoff containing the text, audience, channel, version, expiry, source evidence, and approval attribution. It does not transmit a message. After using the agency's own channel, staff can record its confirmation or public URL through `message-delivery`. That receipt is explicitly staff-recorded. `message-withdraw` preserves the prior revisions; staff must also remove an external copy in its channel. A repeated release request returns the same handoff rather than creating a duplicate.
 
 ## Retain and compare history
 

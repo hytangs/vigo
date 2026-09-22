@@ -432,3 +432,133 @@ for (const deadlineObjective of [false, true]) {
     [[300, 2, 200], [340, 2, 150]])
 }
 console.log('Bounded envelope resumption preserves departures before earliest arrival but after the scalar egress cutoff.')
+
+// Scalar and bounded operators must admit the same ride events. The horizon
+// bounds boardings and ride exits, while a final transfer and egress may finish
+// later. Comparing only bounded and anchor-only searches cannot detect a shared
+// mistake in that event domain, so these small networks have explicit answers.
+function horizonTestKernel(runs, transfers = []) {
+  const rows = runs.flatMap((run, trip) => run.map(([from, to, departure, arrival], i) => ({
+    from, to, departure, arrival, trip, sequence: i + 1, first: i === 0,
+  })))
+  const stopCount = 6
+  const order = rows.map((_, i) => i).sort((a, b) => rows[a].from - rows[b].from
+    || rows[a].departure - rows[b].departure || a - b)
+  const offsets = [0], transferOffset = [0], transferTo = [], transferDuration = []
+  for (let stop = 0; stop < stopCount; stop += 1) {
+    offsets.push(offsets.at(-1) + rows.filter((row) => row.from === stop).length)
+    for (const [from, to, duration] of transfers) if (from === stop) {
+      transferTo.push(to)
+      transferDuration.push(duration)
+    }
+    transferOffset.push(transferTo.length)
+  }
+  const column = (key) => new Uint32Array(rows.map((row) => row[key]))
+  return new TimetableKernel({
+    stopCount, runCount: runs.length,
+    departureSeconds: column('departure'), arrivalSeconds: column('arrival'),
+    fromStop: column('from'), toStop: column('to'), sequence: column('sequence'),
+    segmentTrip: column('trip'), segmentRun: column('trip'),
+    continuityBreak: new Uint8Array(rows.map((row) => Number(row.first))),
+    canBoard: new Uint8Array(rows.length).fill(1), canAlight: new Uint8Array(rows.length).fill(1),
+    tripStart: new Uint32Array(runs.reduce((starts, run) => [...starts, starts.at(-1) + run.length], [0])),
+    departureOffset: new Uint32Array(offsets), departureOrder: new Uint32Array(order),
+    transferOffset: new Uint32Array(transferOffset), transferTo: new Uint32Array(transferTo),
+    transferDuration: new Uint32Array(transferDuration), forbiddenSameStop: new Uint8Array(stopCount),
+  })
+}
+const horizonBaseRuns = [[[0, 1, 100, 150]], [[1, 2, 160, 290]]]
+const horizonCases = [
+  ...[350, 390].map((arrival) => ({
+    name: `ride alights after horizon at ${arrival}`,
+    runs: [...horizonBaseRuns, [[0, 3, 100, arrival]]],
+    destinations: [[2, 100], [3, 0]], primary: [390, 2, 100],
+  })),
+  {
+    name: 'boarding after horizon',
+    runs: [...horizonBaseRuns, [[0, 3, 310, 350]]],
+    destinations: [[2, 100], [3, 0]], primary: [390, 2, 100],
+  },
+  {
+    name: 'bridge exit after horizon',
+    runs: [...horizonBaseRuns, [[0, 4, 100, 150], [3, 5, 310, 400]]],
+    destinations: [[2, 100], [3, 0]], primary: [390, 2, 100],
+  },
+  {
+    name: 'bridge exit at horizon before a later segment arrival',
+    runs: [[[0, 1, 100, 150], [2, 3, 300, 400]]],
+    destinations: [[2, 90]], primary: [390, 1, 90],
+  },
+  {
+    name: 'terminal transfer and egress after horizon',
+    runs: [[[0, 1, 100, 300]]], transfers: [[1, 2, 50]],
+    destinations: [[2, 40]], allowPostRideTransfers: true, primary: [390, 1, 90],
+  },
+  {
+    name: 'slack admits later terminal egress with fewer boardings',
+    runs: [...horizonBaseRuns, [[0, 3, 100, 290]]],
+    destinations: [[2, 100], [3, 140]], primary: [390, 2, 100],
+    slackAlternative: [430, 1, 140],
+  },
+]
+let horizonComparisons = 0
+for (const example of horizonCases) {
+  const makeKernel = () => horizonTestKernel(example.runs, example.transfers)
+  const query = {
+    originStops: [0], originWalkSeconds: [0], originCandidateIndices: [0],
+    destinationStops: example.destinations.map(([stop]) => stop),
+    destinationWalkSeconds: example.destinations.map(([, walk]) => walk),
+    destinationCandidateIndices: example.destinations.map((_, i) => i),
+    departure: 0, horizon: 300, allowPreRideTransfers: false,
+    allowPostRideTransfers: example.allowPostRideTransfers === true,
+  }
+  const anchor = makeKernel().routeScalarCsa(query)
+  assert.deepEqual([anchor.bestArrival, anchor.bestBoardings], example.primary.slice(0, 2), example.name)
+  const matrix = makeKernel().routeMatrixCsa({ ...query,
+    originOffsets: [0, 1], destinationOffsets: [0, query.destinationStops.length],
+    allowPreRideTransfers: [false], allowPostRideTransfers: [query.allowPostRideTransfers],
+    arriveBy: false, includeJourneys: true,
+  })
+  assert.equal(matrix.times[0], example.primary[0], example.name)
+  assert.deepEqual([matrix.journeys[0].arrival, matrix.journeys[0].boardings,
+    matrix.journeys[0].walkingSeconds], example.primary, example.name)
+  for (const options of [
+    { arrivalSlackSeconds: 0 },
+    { arrivalSlackSeconds: 60 },
+    { arrivalSlackSeconds: 60, collectAlternatives: true },
+    { arrivalSlackSeconds: 60, deadlineObjective: true },
+  ]) for (const restrictionMode of ['anchor-only', 'anchor+forward', 'anchor+reverse', 'anchor+both']) {
+    for (const reuseScalar of [false, true]) {
+      const kernel = makeKernel()
+      if (reuseScalar) kernel.routeScalarCsa(query)
+      const actual = kernel.routeParetoRoundCsa({ ...query, ...options, restrictionMode,
+        earliestArrival: anchor.bestArrival, boardingUpperBound: anchor.bestBoardings,
+        candidateDestinationIndex: anchor.bestDestinationIndex, candidateWalkingSeconds: example.primary[2],
+        transferPenaltySeconds: 0, walkReluctance: 0,
+      })
+      const context = `${example.name}, ${JSON.stringify(options)}, ${restrictionMode}, reuse=${reuseScalar}`
+      assert.equal(actual.status, 'ready', context)
+      const expected = options.deadlineObjective && example.slackAlternative
+        ? example.slackAlternative : example.primary
+      assert.deepEqual([actual.bestArrival, actual.bestBoardings, actual.bestWalkingSeconds], expected, context)
+      const usesForward = ['anchor+forward', 'anchor+both'].includes(restrictionMode)
+      assert.equal(actual.scalarEnvelopeReused, reuseScalar && usesForward, context)
+      assert.equal(actual.forwardEnvelopeBuilt, !reuseScalar && usesForward, context)
+      for (const result of [actual, ...(actual.alternatives ?? [])]) {
+        result.chainKinds.forEach((kind, i) => {
+          if (kind === 2) assert(result.chainArrivals[i] <= query.horizon, context)
+        })
+      }
+      if (options.collectAlternatives) {
+        assert.deepEqual(actual.alternatives.map((plan) =>
+          [plan.bestArrival, plan.bestBoardings, plan.bestWalkingSeconds]),
+        [example.primary, ...(example.slackAlternative ? [example.slackAlternative] : [])], context)
+      }
+      horizonComparisons += 1
+    }
+  }
+  // Capped scalar routing internally reconstructs through bounded rounds too.
+  const capped = makeKernel().routeScalarCsa({ ...query, maximumBoardings: 2 })
+  assert.deepEqual([capped.bestArrival, capped.bestBoardings], example.primary.slice(0, 2), example.name)
+}
+console.log(`Ride horizons and legal terminal walks matched explicit fixtures (${horizonComparisons} bounded comparisons).`)
