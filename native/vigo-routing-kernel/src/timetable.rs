@@ -1,5 +1,7 @@
+mod source;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+pub use source::*;
 use std::time::Instant;
 
 mod station_access_validation;
@@ -3731,21 +3733,22 @@ impl TimetableKernel {
             loop {
                 let previous_changes = (stats.relaxed_stops, stats.expanded_trip_runs);
                 stats.scanned_departures += (end - start) as u32;
-                for (offset, ((&event, &arrival), &journey)) in bucket_events
-                    .iter()
-                    .zip(bucket_arrivals)
-                    .zip(bucket_journeys)
-                    .enumerate()
-                {
+                for (offset, &event) in bucket_events.iter().enumerate() {
                     let connection = start + offset;
                     let scan_flags = event.flags();
                     let stop = event.source_stop();
                     let run = event.run();
-                    let mut boarding_state = NO_STATE;
-                    if scan_flags & SCAN_CAN_BOARD != 0
+                    let can_reach_boarding = scan_flags & SCAN_CAN_BOARD != 0
                         && workspace.active_stop_generation[stop] == epoch
-                        && workspace.active_state_mask[stop] != 0
-                    {
+                        && workspace.active_state_mask[stop] != 0;
+                    // Most departures are unreachable. Do not load their cold
+                    // arrival and journey columns or inspect boarding states.
+                    if !can_reach_boarding && workspace.run_generation[run] != epoch {
+                        continue;
+                    }
+                    let journey = bucket_journeys[offset];
+                    let mut boarding_state = NO_STATE;
+                    if can_reach_boarding {
                         let mut active_states = workspace.active_state_mask[stop];
                         while active_states != 0 {
                             let flags = active_states.trailing_zeros() as usize;
@@ -3877,6 +3880,7 @@ impl TimetableKernel {
                             }
                         }
                     }
+                    let arrival = bucket_arrivals[offset];
                     let connection_arrival = arrival.arrival as f64;
                     if scan_flags & SCAN_CAN_ALIGHT == 0
                         || connection_arrival > input.horizon

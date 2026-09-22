@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
+import { DatabaseSync } from 'node:sqlite'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { prepareNativeTimetableIndexes } from '../src/server/native-routing-kernel.mjs'
+import { prepareNativeTimetableIndexes, readNativeServiceTimetable } from '../src/server/native-routing-kernel.mjs'
 import { prepareTimetableIndexes } from '../src/server/gtfs/timetable-preparation.mjs'
 import { stationFallbackSeconds } from '../src/server/station-access.mjs'
 
@@ -93,9 +94,41 @@ assert.deepEqual(plain(prepareTimetableIndexes(store, ids, index, base.retainedS
 // implementation or silently substitute another installed native binding.
 const fixture = mkdtempSync(path.join(tmpdir(), 'vigo-required-preparation-'))
 try {
+  const storePath = path.join(fixture, 'source.sqlite')
+  const db = new DatabaseSync(storePath)
+  db.exec(`CREATE TABLE connections(departure INTEGER,arrival INTEGER,trip_id TEXT,route_id TEXT,service_id TEXT,direction_id TEXT,from_stop_id TEXT,to_stop_id TEXT,stop_sequence INTEGER,PRIMARY KEY(trip_id,stop_sequence)) WITHOUT ROWID;
+    CREATE TABLE connection_permissions(trip_id TEXT,stop_sequence INTEGER,can_board INTEGER,can_alight INTEGER,PRIMARY KEY(trip_id,stop_sequence)) WITHOUT ROWID;`)
+  const insert = db.prepare('INSERT INTO connections VALUES(?,?,?,?,?,?,?,?,?)')
+  for (const row of [
+    [10,20,'a','r','s',null,'A','B',1],
+    [20,30,'a','r','s',null,'B','C',2],
+    [40,50,'a','r','s',null,'D','E',4], // admitted untimed gap
+    [50,60,'a','r','s',null,'A','B',5], // unsafe discontinuity
+    [70,80,'b','r','s','1','B','A',1],
+    [90,100,'inactive','r','off','0','A','B',1],
+  ]) insert.run(...row)
+  db.exec("INSERT INTO connection_permissions VALUES('a',2,0,1)")
+  db.close()
+  const sourceInput = { storePath, stopIds: ['A','B'], serviceIds: ['s'], hasConnectionPermissions: true, segmentCount: 5 }
+  const compiled = readNativeServiceTimetable(sourceInput)
+  assert.deepEqual(compiled.stopIds, ['A','B','C','D','E'])
+  for (const [name, expected] of Object.entries({
+    departureSeconds: [10,20,40,50,70], arrivalSeconds: [20,30,50,60,80],
+    fromStop: [0,1,3,0,1], toStop: [1,2,4,1,0], sequence: [1,2,4,5,1],
+    segmentTrip: [0,0,0,0,1], segmentRun: [0,0,0,1,2], continuityBreak: [0,0,0,1,0],
+    canBoard: [1,0,1,1,1], canAlight: [1,1,1,1,1], tripStart: [0,4,5],
+  })) assert.deepEqual([...compiled[name]], expected, name)
+  assert.deepEqual(readNativeServiceTimetable({ ...sourceInput, segmentCount: undefined }), compiled)
+  assert.equal(compiled.runCount, 3)
+  assert.deepEqual(compiled.directionIds, ['', '1'])
+  assert.deepEqual([...readNativeServiceTimetable({ ...sourceInput, hasConnectionPermissions: false }).canBoard], [1,1,1,1,1])
+  assert.throws(() => readNativeServiceTimetable({ ...sourceInput, segmentCount: 4 }), /slice changed/)
+  assert.throws(() => readNativeServiceTimetable({ ...sourceInput, segmentCount: 6 }), /slice changed/)
+  assert.equal(readNativeServiceTimetable({ ...sourceInput, serviceIds: [], segmentCount: 0 }).runCount, 0)
   const binding = path.join(fixture, 'binding.cjs')
   for (const [source, message, operator = 'prepareNativeTimetableIndexes'] of [
     ['module.exports = {}', 'lacks timetable preparation'],
+    ['module.exports = {}', 'lacks service timetable compilation', 'readNativeServiceTimetable'],
     ['module.exports = {}', 'lacks realtime compilation', 'compileNativeRealtimeTimetable'],
     ['module.exports = {}', 'lacks station path compilation', 'compileNativeStationPaths'],
     ['module.exports = {}', 'lacks station path validation', 'validateNativeStationPaths'],

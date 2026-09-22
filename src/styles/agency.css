@@ -318,7 +318,7 @@
 .lamp-model-key { background: var(--vigo-lime-strong); }
 
 .agency-navigation { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
-.agency-navigation-tools { display: flex; align-items: center; gap: 4px; }
+.agency-navigation-tools { display: flex; align-items: center; flex-shrink: 0; gap: 4px; }
 .agency-more { position: relative; }
 .agency-more > summary { list-style: none; }
 .agency-more > summary::-webkit-details-marker { display: none; }
@@ -341,7 +341,7 @@
 .network-selection.is-asking .network-selection-name > strong { font-size: 12px; letter-spacing: 0; }
 .network-selection.is-asking p { font-size: 12px; margin-top: 2px; }
 @media (max-width: 480px) {
-  .agency-navigation { flex-wrap: wrap; padding: 4px 8px; gap: 0; }
+  .agency-navigation { --studio-tab-padding: 8px; padding: 4px 8px; gap: 0; }
   .agency-navigation-tools { margin-left: auto; }
   .agency-navigation .agency-live-indicator { display: none; }
 }

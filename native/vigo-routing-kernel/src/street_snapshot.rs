@@ -7,7 +7,7 @@ use std::mem::{align_of, size_of};
 use std::ops::Range;
 
 use crate::snapshot_validation::{
-    checked_array_byte_range, csr_offsets_are_valid, validate_array_layouts,
+    all_values, checked_array_byte_range, csr_offsets_are_valid, validate_array_layouts,
 };
 
 pub(crate) const HEADER_BYTES: usize = 4096;
@@ -154,23 +154,25 @@ impl Snapshot {
             || !csr_offsets_are_valid(edge_offsets, self.header.edge_count)
             || !csr_offsets_are_valid(spatial_offsets, self.header.node_count)
             || !csr_offsets_are_valid(reverse_offsets, self.header.edge_count)
-            || edge_targets
-                .iter()
-                .chain(reverse_sources.iter())
-                .any(|node| *node as usize >= self.header.node_count)
-            || reverse_edge_indices
-                .iter()
-                .any(|edge| *edge as usize >= self.header.edge_count)
-            || edge_distances
-                .iter()
-                .any(|distance| !distance.is_finite() || *distance < 0.0)
-            || reciprocal_edge_flags.iter().any(|flag| *flag > 1)
-            || node_lats
-                .iter()
-                .any(|value| !value.is_finite() || !(-90.0..=90.0).contains(value))
-            || node_lons
-                .iter()
-                .any(|value| !value.is_finite() || !(-180.0..=180.0).contains(value))
+            || !all_values(edge_targets, |node| {
+                (*node as usize) < self.header.node_count
+            })
+            || !all_values(reverse_sources, |node| {
+                (*node as usize) < self.header.node_count
+            })
+            || !all_values(reverse_edge_indices, |edge| {
+                (*edge as usize) < self.header.edge_count
+            })
+            || !all_values(edge_distances, |distance| {
+                distance.is_finite() & (*distance >= 0.0)
+            })
+            || !all_values(reciprocal_edge_flags, |flag| *flag <= 1)
+            || !all_values(node_lats, |value| {
+                value.is_finite() & (-90.0..=90.0).contains(value)
+            })
+            || !all_values(node_lons, |value| {
+                value.is_finite() & (-180.0..=180.0).contains(value)
+            })
             || self.header.spatial_node_order != "cell_then_source_node_id"
         {
             return Err(Error::from_reason(

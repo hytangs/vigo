@@ -152,14 +152,8 @@ function alignPreparedShapeStopIndices(preparedShape, stopCoordinates, stopKeys)
         const excessiveDetourKm = Math.max(0, shapeSectionKm - Math.max(0.2, directStopKm * 3))
         const collapsedProgressPenalty = candidate.index === previous.index && directStopKm > 0.05 ? 2 : 0
         const cost = previous.cost + candidate.distanceKm + excessiveDetourKm * 0.05 + collapsedProgressPenalty
-        const state = {
-          index: candidate.index,
-          firstIndex: previous.firstIndex,
-          cost,
-          previous: previousIndex,
-        }
-        if (!best || cost < best.cost || (cost === best.cost && state.firstIndex > best.firstIndex)) {
-          best = state
+        if (!best || cost < best.cost || (cost === best.cost && previous.firstIndex > best.firstIndex)) {
+          best = { index: candidate.index, firstIndex: previous.firstIndex, cost, previous: previousIndex }
         }
       }
       if (best) nextStates.push(best)
@@ -240,44 +234,11 @@ function selectedTripShapeAlignment(store, connection) {
 function clipPreparedShapeCoordinatesThroughStops(preparedShape, stopCoordinates, stopKeys = []) {
   const shapeCoordinates = preparedShape?.coordinates
   if (!shapeCoordinates?.length || !stopCoordinates?.length || stopCoordinates.length < 2) return null
-  const candidatesByStop = stopCoordinates.map((coordinate, index) => (
-    cachedShapeCandidates(preparedShape, coordinate, stopKeys[index])
-  ))
-  if (candidatesByStop.some((candidates) => !candidates.length)) return null
-  const shapePrefixKm = preparedShape.prefixKm
-  let states = candidatesByStop[0].map((candidate) => ({
-    index: candidate.index,
-    firstIndex: candidate.index,
-    cost: candidate.distanceKm,
-  }))
-
-  for (let stopIndex = 1; stopIndex < candidatesByStop.length; stopIndex += 1) {
-    const directStopKm = haversineKm(stopCoordinates[stopIndex - 1], stopCoordinates[stopIndex])
-    const nextStates = []
-    for (const candidate of candidatesByStop[stopIndex]) {
-      let best = null
-      for (const previous of states) {
-        if (candidate.index < previous.index) continue
-        const shapeSectionKm = shapePrefixKm[candidate.index] - shapePrefixKm[previous.index]
-        const excessiveDetourKm = Math.max(0, shapeSectionKm - Math.max(0.2, directStopKm * 3))
-        const collapsedProgressPenalty = candidate.index === previous.index && directStopKm > 0.05 ? 2 : 0
-        const cost = previous.cost + candidate.distanceKm + excessiveDetourKm * 0.05 + collapsedProgressPenalty
-        const state = { index: candidate.index, firstIndex: previous.firstIndex, cost }
-        if (!best || cost < best.cost || (cost === best.cost && state.firstIndex > best.firstIndex)) best = state
-      }
-      if (best) nextStates.push(best)
-    }
-    if (!nextStates.length) return null
-    states = nextStates
-  }
-
-  const best = states
-    .filter((state) => state.index > state.firstIndex)
-    .sort((left, right) => left.cost - right.cost || (left.index - left.firstIndex) - (right.index - right.firstIndex))[0]
-  if (!best) return null
+  const indices = alignPreparedShapeStopIndices(preparedShape, stopCoordinates, stopKeys)
+  if (!indices) return null
   return boundedLineCoordinates(appendDistinctCoordinates(
     [stopCoordinates[0]],
-    [...shapeCoordinates.slice(best.firstIndex, best.index + 1), stopCoordinates.at(-1)],
+    [...shapeCoordinates.slice(indices[0], indices.at(-1) + 1), stopCoordinates.at(-1)],
   ))
 }
 

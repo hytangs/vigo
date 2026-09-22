@@ -45,7 +45,9 @@ impl Hasher for IntegerHasher {
 type IntegerHashSet<T> = HashSet<T, BuildHasherDefault<IntegerHasher>>;
 
 mod snapshot_validation;
+mod street_kernel;
 mod street_snapshot;
+use street_kernel::open_street_cch_bundles;
 mod timetable;
 mod timetable_validation;
 pub use timetable::*;
@@ -2559,6 +2561,7 @@ pub struct StreetCchLoadInput {
 }
 
 #[napi(object)]
+#[derive(Clone)]
 pub struct StreetCchLoadResult {
     pub node_count: u32,
     pub cch_arc_count: u32,
@@ -2834,6 +2837,7 @@ impl SnapWorkspace {
 
 #[napi]
 pub struct CoordinateKernel {
+    street_cch_load: Option<StreetCchLoadResult>,
     snapshot: Snapshot,
     origin_workspace: TileWorkspace,
     destination_workspace: TileWorkspace,
@@ -2865,33 +2869,40 @@ impl CoordinateKernel {
         let snapshot = Snapshot::open(&snapshot_path)?;
         #[cfg(unix)]
         prefetch_street_snapshot(snapshot_path);
-        let origin_workspace = TileWorkspace::new();
-        let destination_workspace = TileWorkspace::new();
-        let path_workspace = TileWorkspace::new();
-        let reverse_path_workspace = TileWorkspace::new();
-        Ok(Self {
-            snapshot,
-            origin_workspace,
-            destination_workspace,
-            origin_snap_workspace: SnapWorkspace::default(),
-            destination_snap_workspace: SnapWorkspace::default(),
-            origin_access_reduction_workspace: AccessReductionWorkspace::new(),
-            destination_access_reduction_workspace: AccessReductionWorkspace::new(),
-            path_workspace,
-            reverse_path_workspace,
-            street_cch: None,
-            terminal_access: None,
-            profile: None,
-            query_token: 0,
-            last_origin_frontier: None,
-            last_destination_frontier: None,
-            origin_cache: HashMap::new(),
-            origin_cache_order: VecDeque::new(),
-            origin_cache_bytes: 0,
-            destination_cache: HashMap::new(),
-            destination_cache_order: VecDeque::new(),
-            destination_cache_bytes: 0,
-        })
+        Ok(Self::from_snapshot(snapshot))
+    }
+
+    #[napi(factory)]
+    pub fn open_prepared(snapshot_path: String, input: StreetCchLoadInput) -> napi::Result<Self> {
+        let started = Instant::now();
+        let (snapshot, bundles) = join_endpoint_access(
+            || Snapshot::open(&snapshot_path),
+            || open_street_cch_bundles(&input),
+        );
+        let mut kernel = Self::from_snapshot(snapshot?);
+        let (structure, metric) = bundles?;
+        let mut loaded = kernel.install_street_cch(structure, metric)?;
+        loaded.load_ns = started.elapsed().as_nanos() as f64;
+        kernel.street_cch_load = Some(loaded);
+        Ok(kernel)
+    }
+
+    #[napi]
+    pub fn street_cch_load_diagnostics(&self) -> Option<StreetCchLoadResult> {
+        self.street_cch_load.clone()
+    }
+
+    #[napi]
+    pub fn load_street_cch_index(
+        &mut self,
+        input: StreetCchLoadInput,
+    ) -> napi::Result<StreetCchLoadResult> {
+        let started = Instant::now();
+        let (structure, metric) = open_street_cch_bundles(&input)?;
+        let mut result = self.install_street_cch(structure, metric)?;
+        result.load_ns = started.elapsed().as_nanos() as f64;
+        self.street_cch_load = Some(result.clone());
+        Ok(result)
     }
 
     #[napi]
@@ -4479,70 +4490,6 @@ impl CoordinateKernel {
             total_ns: total_started.elapsed().as_nanos() as f64,
             structure_bytes: structure_bytes as f64,
             metric_bytes: metric_bytes as f64,
-        })
-    }
-
-    #[napi]
-    pub fn load_street_cch_index(
-        &mut self,
-        input: StreetCchLoadInput,
-    ) -> napi::Result<StreetCchLoadResult> {
-        let started = Instant::now();
-        let structure =
-            cch::CchBundle::open(Path::new(&input.structure_path)).map_err(|error| {
-                Error::from_reason(format!("Unable to mmap street CCH structure: {error}"))
-            })?;
-        let metric = cch::MetricBundle::open(Path::new(&input.metric_path)).map_err(|error| {
-            Error::from_reason(format!("Unable to mmap street CCH metric: {error}"))
-        })?;
-        let structure_view = structure.view();
-        let metric_view = metric.view();
-        let node_count = structure_view.node_count() as usize;
-        let cch_arc_count = structure_view.cch_arc_count() as usize;
-        if node_count != self.snapshot.header.node_count
-            || metric_view.forward.len() != cch_arc_count
-            || metric_view.backward.len() != cch_arc_count
-        {
-            return Err(Error::from_reason(
-                "Street CCH index does not match the active street snapshot.",
-            ));
-        }
-        let forward_query = DynamicCchQuery::new(node_count);
-        let reverse_query = DynamicCchQuery::new(node_count);
-        let origin_member_workspace = CchMemberWorkspace::new();
-        let destination_member_workspace = CchMemberWorkspace::new();
-        let workspace_bytes = forward_query.byte_length()
-            + reverse_query.byte_length()
-            // PathQuery owns four u32 arrays plus a bit-packed membership
-            // vector. Touched lists grow only with the elimination-tree search
-            // space and are reported through process RSS by runtime diagnostics.
-            + node_count * size_of::<u32>() * 4
-            + node_count.div_ceil(8);
-        self.street_cch = Some(StreetCchIndex {
-            path_query: None,
-            path_view: None,
-            structure,
-            metric,
-            forward_query,
-            reverse_query,
-            origin_member_workspace,
-            destination_member_workspace,
-            origin_buckets: None,
-            destination_buckets: None,
-            bucket_build_ns: 0.0,
-        });
-        if let (Some(profile), Some(index)) = (&self.profile, &mut self.street_cch) {
-            prepare_street_cch_target_buckets(profile, index)?;
-        }
-        // A cached exact-graph frontier and a CCH frontier have different path
-        // witnesses. Never let one acceleration mode reuse the other's entry.
-        self.clear_endpoint_caches();
-        Ok(StreetCchLoadResult {
-            node_count: node_count as u32,
-            cch_arc_count: cch_arc_count as u32,
-            distance_units_per_meter: CCH_DISTANCE_UNITS_PER_METER,
-            workspace_bytes: workspace_bytes as f64,
-            load_ns: started.elapsed().as_nanos() as f64,
         })
     }
 

@@ -39,3 +39,54 @@ Measure input marshalling and native preparation together when comparing the mig
 Record exact date/time, coordinates or stop IDs, walking speed and limits, boarding requirement, transfer cap, horizon, realtime snapshot, and output detail. Allowing a walk-only answer changes the workload. Separate ready, blocked, and error counts; a faster blocked result or a different journey is not an equivalent successful query.
 
 For Build comparisons, hold raw inputs and compiler options fixed and compare compiled content; fresh revision IDs and build timestamps are expected. Performance checks complement [accuracy checks](routing-accuracy.md), not replace them.
+
+### Cold service and street preparation
+
+The native service reader opens the admitted SQLite source read-only and packs
+active connections directly into column buffers. JavaScript retains source
+admission and memory guards; Rust retains connection permissions, trip ordering,
+and discontinuity rules. A missing native reader is an error, not a JavaScript
+fallback. `VIGO_ACTIVE_KERNEL_PERSIST=0` disables both reading and writing the
+active timetable snapshot when measuring compilation from source.
+
+Prepared street graphs and CCH structures are validated concurrently during
+native construction. Validation still scans every required array. Path-query
+scratch distances use zero-filled storage with an encoded unreachable value,
+so the first path does not need to fill city-wide distance and predecessor
+arrays. These changes do not reuse previous route results.
+
+For drive hierarchies built in memory, ordering uses one 33-percent balanced
+four-axis flow cut per component, instead of evaluating three balance ratios.
+Persisted hierarchy builds retain the three-ratio ordering. Both retain every
+node and edge and use the same exact CCH search and distance certification;
+ordering can change the chosen witness between equal-cost paths. Arc ordering
+uses a shared stable counting sort. Native kernel diagnostics expose the hierarchy's
+arc count so preparation time can be evaluated alongside its size.
+
+For a cold comparison, alternate baseline and candidate in separate fresh
+processes, include imports, graph opening, timetable compilation and result
+serialization, and compare route contents as well as latency. Keep immutable
+City inputs and hierarchy preparation policy identical. In particular, an
+in-memory drive hierarchy must be rebuilt on both sides; loading a saved
+hierarchy only on the candidate is not a cold code speedup. Report operating
+system page-cache control separately from application cache isolation.
+
+### Resident routing and realtime updates
+
+For warm routing, retain the prepared City but disable access and path result
+caches. Verify the per-request cache diagnostics, rotate endpoints and departure
+times, and report native search separately from geometry materialization and
+whole-request time. Shared immutable indexes are preparation, not query answers.
+
+Realtime measurements need two workloads: queries against an already prepared
+snapshot, and changed snapshots that force reconstruction and native indexing.
+Keep freshness, service date, applied update counts and fallback status in the
+retained evidence. Controlled updates on a real timetable measure computation;
+they do not establish live prediction accuracy. Compare reconstructed columns
+and route results, including cancellation and skipped-stop behavior.
+
+Drive constrained-search buffers and traffic weights are allocated on demand.
+Report reserved bytes separately from resident memory: operating systems can
+back zero-filled allocations lazily, and allocator retention can obscure RSS
+changes after buffers are released. A normal CCH query should not allocate the
+constrained-search workspace merely to keep a kernel resident.

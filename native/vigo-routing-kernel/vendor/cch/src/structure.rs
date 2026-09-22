@@ -375,14 +375,7 @@ fn compute_sort_perm_by_tail_then_head(
     tail: &mut [u32],
     head: &[u32],
 ) -> Vec<u32> {
-    // p: stable sort by head (C++: compute_stable_sort_permutation_using_key(b)).
-    let p = stable_sort_perm_by_key(head, node_count);
-    // a' = apply_permutation(p, a) (the tail reordered by p).
-    let tail_by_p: Vec<u32> = p.iter().map(|&i| tail[i as usize]).collect();
-    // q: stable sort of a' by key (C++: compute_stable_sort_permutation_using_key).
-    let q = stable_sort_perm_by_key(&tail_by_p, node_count);
-    // result = chain_permutation_first_left_then_right(p, q) → r[i] = p[q[i]].
-    let r: Vec<u32> = q.iter().map(|&qi| p[qi as usize]).collect();
+    let r = crate::internal::arc_order::arc_order(node_count, tail, head);
     // Sort `tail` in place using the resulting permutation.
     let sorted_tail: Vec<u32> = r.iter().map(|&i| tail[i as usize]).collect();
     tail.copy_from_slice(&sorted_tail);
@@ -399,30 +392,6 @@ fn sort_by_tail_then_head(node_count: usize, tail: &mut Vec<u32>, head: &mut Vec
     let sorted_head: Vec<u32> = p.iter().map(|&i| head[i as usize]).collect();
     *tail = t;
     *head = sorted_head;
-}
-
-/// Stable sort permutation by a single key in `[0, key_count)`: returns `p`
-/// such that `v[p[0]] <= v[p[1]] <= …` with ties broken by original index.
-///
-/// Reproduces `compute_stable_sort_permutation_using_key` (counting/bucket
-/// sort, always stable).
-fn stable_sort_perm_by_key(v: &[u32], key_count: usize) -> Vec<u32> {
-    // Counting sort: prefix sums give each bucket's start; ascending iteration
-    // preserves the original relative order within a bucket (stable).
-    let mut bucket_pos = vec![0u32; key_count + 1];
-    for &k in v {
-        bucket_pos[k as usize + 1] += 1;
-    }
-    for i in 0..key_count {
-        bucket_pos[i + 1] += bucket_pos[i];
-    }
-    let mut p = vec![0u32; v.len()];
-    for (i, &k) in v.iter().enumerate() {
-        let pos = bucket_pos[k as usize] as usize;
-        p[pos] = u32::try_from(i).expect("arc index fits u32");
-        bucket_pos[k as usize] += 1;
-    }
-    p
 }
 
 /// Symmetrize the (already tail/head-sorted) input arcs by appending the
@@ -735,13 +704,6 @@ mod tests {
         assert_eq!(merge_unique(&[], &[1, 2]), vec![1, 2]);
         assert_eq!(merge_unique(&[1, 2], &[]), vec![1, 2]);
         assert_eq!(merge_unique(&[], &[] as &[u32]), Vec::<u32>::new());
-    }
-
-    #[test]
-    fn stable_sort_perm_by_key_basic() {
-        // keys: [2,0,1,0] over key_count 3 → stable order of indices:
-        // bucket0: indices 1,3 ; bucket1: index 2 ; bucket2: index 0.
-        assert_eq!(stable_sort_perm_by_key(&[2, 0, 1, 0], 3), vec![1, 3, 2, 0]);
     }
 
     #[test]

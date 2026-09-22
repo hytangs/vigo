@@ -70,13 +70,8 @@ pub(crate) struct SourceTargetResult {
 /// `p[new_position] = old_arc_index`.  The caller must apply `p` to all
 /// arc-indexed vectors.
 fn arc_sort_permutation(tail: &[u32], head: &[u32]) -> Vec<u32> {
-    let mut indices: Vec<u32> = (0..u32::try_from(tail.len()).expect("fits u32")).collect();
-    indices.sort_by(|&a, &b| {
-        tail[a as usize]
-            .cmp(&tail[b as usize])
-            .then(head[a as usize].cmp(&head[b as usize]))
-    });
-    indices
+    let node_count = tail.iter().chain(head).copied().max().map_or(0, |node| node as usize + 1);
+    crate::internal::arc_order::arc_order(node_count, tail, head)
 }
 
 /// Apply permutation `p` (as `result[i] = v[p[i]]`) to a `u32` slice.

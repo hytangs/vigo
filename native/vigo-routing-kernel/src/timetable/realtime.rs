@@ -185,6 +185,15 @@ pub fn compile_realtime_timetable(
         } else {
             let start = input.trip_start[trip] as usize;
             let end = input.trip_start[trip + 1] as usize;
+            departure.extend_from_slice(&input.departure_seconds[start..end]);
+            arrival.extend_from_slice(&input.arrival_seconds[start..end]);
+            from.extend_from_slice(&input.from_stop[start..end]);
+            to.extend_from_slice(&input.to_stop[start..end]);
+            sequence.extend_from_slice(&input.sequence[start..end]);
+            segment_trip.resize(segment_trip.len() + end - start, trip as u32);
+            breaks.extend_from_slice(&input.continuity_break[start..end]);
+            board.extend_from_slice(&input.can_board[start..end]);
+            alight.extend_from_slice(&input.can_alight[start..end]);
             for i in start..end {
                 if i == start
                     || input.segment_run[i] != input.segment_run[i - 1]
@@ -192,16 +201,7 @@ pub fn compile_realtime_timetable(
                 {
                     run_count += 1;
                 }
-                departure.push(input.departure_seconds[i]);
-                arrival.push(input.arrival_seconds[i]);
-                from.push(input.from_stop[i]);
-                to.push(input.to_stop[i]);
-                sequence.push(input.sequence[i]);
-                segment_trip.push(trip as u32);
                 segment_run.push(run_count - 1);
-                breaks.push(input.continuity_break[i]);
-                board.push(input.can_board[i]);
-                alight.push(input.can_alight[i]);
             }
         }
         if run_count > (1 << 29) - 1 {

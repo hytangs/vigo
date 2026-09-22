@@ -7,3 +7,5 @@
 pub(crate) mod bitvec;
 pub(crate) mod id_map;
 pub(crate) mod permutation;
+
+pub(crate) mod arc_order;

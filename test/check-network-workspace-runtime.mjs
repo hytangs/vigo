@@ -408,7 +408,7 @@ window.layoutCheck = async () => {
       if(table && table.scrollWidth>table.clientWidth+2) throw Error('Route conditions table overflows at '+innerWidth);
     }
     const nav=document.querySelector('.agency-navigation').getBoundingClientRect();
-    if(nav.top < 0 || nav.height > 90) throw Error('Navigation must remain compact and visible');
+    if(nav.top < 0 || nav.height > 90) throw Error('Navigation must remain compact and visible: '+JSON.stringify({width:innerWidth,top:nav.top,height:nav.height}));
     const content=document.querySelector('.agency-scroll');
     if(content.scrollWidth>content.clientWidth+2) throw Error('Network content overflows at '+innerWidth);
     if(id==='ask') {

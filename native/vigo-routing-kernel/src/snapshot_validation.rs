@@ -51,7 +51,17 @@ pub(crate) fn csr_offsets_are_valid(offsets: &[u32], entry_count: usize) -> bool
     };
     offsets.first() == Some(&0)
         && offsets.last().copied() == Some(entry_count)
-        && offsets.windows(2).all(|range| range[0] <= range[1])
+        && offsets
+            .windows(2)
+            .fold(true, |valid, range| valid & (range[0] <= range[1]))
+}
+
+// Non-short-circuit reduction lets LLVM vectorize validation of large immutable
+// arrays. Every entry is still checked, including malformed values at the tail.
+pub(crate) fn all_values<T>(values: &[T], valid: impl Fn(&T) -> bool) -> bool {
+    values
+        .iter()
+        .fold(true, |result, value| result & valid(value))
 }
 
 #[cfg(test)]

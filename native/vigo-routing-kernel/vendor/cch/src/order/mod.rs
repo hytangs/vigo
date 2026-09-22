@@ -76,6 +76,23 @@ pub fn inertial_order(
     )
 }
 
+/// Construct an exact hierarchy for a query that cannot amortize preparation.
+/// Uses a 33-percent balanced four-axis cut instead of evaluating three balance
+/// ratios. All nodes and edges remain in the CCH; shortest-path costs are exact.
+#[must_use]
+pub fn balanced_inertial_order(
+    node_count: u32,
+    tail: &[u32],
+    head: &[u32],
+    latitude: &[f32],
+    longitude: &[f32],
+) -> Vec<u32> {
+    assert_eq!(tail.len(), head.len());
+    assert_eq!(latitude.len(), node_count as usize);
+    assert_eq!(longitude.len(), node_count as usize);
+    nd::inertial::balanced_order(node_count, tail, head, latitude, longitude)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

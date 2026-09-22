@@ -20,6 +20,7 @@ use crate::order::nd::fragment::{
 use rayon::prelude::*;
 
 const PARALLEL_COMPONENT_NODE_LIMIT: usize = 2_000_000;
+const PARALLEL_MIN_NODES: usize = 4096;
 
 // ──────────────────────────────────────────────────────────────────────────
 // inertial_flow  (nested_dissection.cpp:528)
@@ -131,15 +132,25 @@ pub(crate) fn inertial_flow_default(
     // The three balance candidates are independent and the deterministic
     // cross-multiplication below selects exactly the same winner as the
     // sequential implementation.
-    let ((c25, c33), c40) = rayon::join(
-        || {
-            rayon::join(
-                || inertial_flow(fragment, 25, latitude, longitude),
-                || inertial_flow(fragment, 33, latitude, longitude),
-            )
-        },
-        || inertial_flow(fragment, 40, latitude, longitude),
-    );
+    let ((c25, c33), c40) = if fragment.node_count() as usize >= PARALLEL_MIN_NODES {
+        rayon::join(
+            || {
+                rayon::join(
+                    || inertial_flow(fragment, 25, latitude, longitude),
+                    || inertial_flow(fragment, 33, latitude, longitude),
+                )
+            },
+            || inertial_flow(fragment, 40, latitude, longitude),
+        )
+    } else {
+        (
+            (
+                inertial_flow(fragment, 25, latitude, longitude),
+                inertial_flow(fragment, 33, latitude, longitude),
+            ),
+            inertial_flow(fragment, 40, latitude, longitude),
+        )
+    };
 
     // ratio(a) < ratio(b)  ⇔  a.cut_size * b.node_on_side_count < b.cut_size * a.node_on_side_count
     let cross = |a: &CutSide, b: &CutSide| -> bool {
@@ -229,7 +240,9 @@ fn compute_separator_decomposition_order(
     // cuts. Once fragments are smaller, process disconnected child components
     // concurrently as well. Indexed collection retains the original component
     // order, so the resulting permutation is byte-for-byte deterministic.
-    let sub_orders = if node_count <= PARALLEL_COMPONENT_NODE_LIMIT && non_single_parts.len() > 1 {
+    let sub_orders = if (PARALLEL_MIN_NODES..=PARALLEL_COMPONENT_NODE_LIMIT).contains(&node_count)
+        && non_single_parts.len() > 1
+    {
         non_single_parts
             .into_par_iter()
             .map(process_part)
@@ -302,6 +315,24 @@ pub(crate) fn compute_nested_node_dissection_order_using_inertial_flow(
     };
 
     compute_separator_decomposition_order(fragment, &compute_separator)
+}
+
+/// Single balanced four-axis flow cut for hierarchies built for a cold query.
+/// The CCH remains exact; only its metric-independent contraction order differs.
+pub(crate) fn balanced_order(
+    node_count: u32,
+    tail: &[u32],
+    head: &[u32],
+    latitude: &[f32],
+    longitude: &[f32],
+) -> Vec<u32> {
+    let fragment = make_graph_fragment(node_count, tail, head);
+    let separator = |frag: &GraphFragment| {
+        let mut cut = inertial_flow(frag, 33, latitude, longitude);
+        pick_smaller_side(&mut cut);
+        derive_separator_from_cut(frag, &cut.is_node_on_side)
+    };
+    compute_separator_decomposition_order(fragment, &separator)
 }
 
 // ──────────────────────────────────────────────────────────────────────────

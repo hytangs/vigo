@@ -25,6 +25,7 @@ const INVALID_ID: u32 = u32::MAX;
 pub(crate) struct BlockingFlow<'a> {
     fragment: &'a GraphFragment,
     is_source: BitVector,
+    source_nodes: Vec<u32>,
     is_target: BitVector,
 
     flow_intensity: u32,
@@ -59,17 +60,22 @@ impl<'a> BlockingFlow<'a> {
         assert_eq!(is_target.len(), node_count, "is_target size mismatch");
         assert!(is_source.population_count() > 0, "source set is empty");
         assert!(is_target.population_count() > 0, "target set is empty");
-        for x in 0..node_count {
-            assert!(
-                !(is_source.is_set(x) && is_target.is_set(x)),
-                "a source node can not also be a target node"
-            );
+        assert!(is_source.words().iter().zip(is_target.words()).all(|(a,b)| a & b == 0),
+            "a source node can not also be a target node");
+        let mut source_nodes = Vec::with_capacity(is_source.population_count() as usize);
+        for (word_index, &word) in is_source.words().iter().enumerate() {
+            let mut remaining = word;
+            while remaining != 0 {
+                source_nodes.push((word_index * 64 + remaining.trailing_zeros() as usize) as u32);
+                remaining &= remaining - 1;
+            }
         }
 
         let arc_count = u64::from(fragment.arc_count());
         Self {
             fragment,
             is_source,
+            source_nodes,
             is_target,
             flow_intensity: 0,
             is_arc_saturated: BitVector::new(arc_count),
@@ -123,11 +129,7 @@ impl<'a> BlockingFlow<'a> {
         self.is_arc_blocked = BitVector::new(u64::from(fragment.arc_count()));
 
         let mut queue: Vec<u32> = Vec::with_capacity(node_count as usize);
-        for x in 0..node_count {
-            if self.is_source.is_set(u64::from(x)) {
-                queue.push(x);
-            }
-        }
+        queue.extend_from_slice(&self.source_nodes);
         let mut queue_begin = 0usize;
         let mut queue_current_level_end = queue.len();
 
@@ -180,10 +182,7 @@ impl<'a> BlockingFlow<'a> {
 
         let mut augmented_path_count = 0u32;
 
-        for s in 0..fragment.node_count() {
-            if !self.is_source.is_set(u64::from(s)) {
-                continue;
-            }
+        for &s in &self.source_nodes {
             current_path_node[0] = s;
             current_path_arc[0] = s;
             let mut current_path_arc_count = 0usize;

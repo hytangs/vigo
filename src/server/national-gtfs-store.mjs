@@ -1,3 +1,4 @@
+import { readServiceTimetable } from './gtfs/service-timetable.mjs'
 import {
   nativeCoordinateAccessProfile,
   nativeStopTransferProfile,
@@ -4424,14 +4425,21 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
   ensureNationalStoreAccessMaterialization(store)
   let builder = null
   try {
-    builder = new DatabaseSync(store.storePath, { readOnly: true })
-    builder.exec('PRAGMA mmap_size=0; PRAGMA cache_size=-8192; PRAGMA temp_store=MEMORY; CREATE TEMP TABLE active_kernel_services(service_id TEXT PRIMARY KEY) WITHOUT ROWID;')
-    const insertService = builder.prepare('INSERT INTO active_kernel_services VALUES(?)')
-    runTemporaryTransaction(builder, () => { for (const serviceId of services) insertService.run(serviceId) })
-    const activeSegmentCount = Number(builder.prepare(`
-      SELECT COUNT(*) AS count
-      FROM connections c JOIN active_kernel_services a ON a.service_id=c.service_id
-    `).get().count)
+    let activeSegmentCount = null
+    // Only configured admission guards require a count before allocating.
+    // Otherwise Rust streams the service slice once and reports its length.
+    if (activeServiceKernelMaxSegments > 0 || activeServiceKernelMaxEstimatedBytes > 0) {
+      builder = new DatabaseSync(store.storePath, { readOnly: true })
+      builder.exec('PRAGMA mmap_size=0; PRAGMA cache_size=-8192; PRAGMA temp_store=MEMORY; CREATE TEMP TABLE active_kernel_services(service_id TEXT PRIMARY KEY) WITHOUT ROWID;')
+      const insertService = builder.prepare('INSERT INTO active_kernel_services VALUES(?)')
+      runTemporaryTransaction(builder, () => { for (const serviceId of services) insertService.run(serviceId) })
+      activeSegmentCount = Number(builder.prepare(`
+        SELECT COUNT(*) AS count
+        FROM connections c JOIN active_kernel_services a ON a.service_id=c.service_id
+      `).get().count)
+      builder.close()
+      builder = null
+    }
     if (
       activeServiceKernelMaxSegments > 0
       && activeSegmentCount > activeServiceKernelMaxSegments
@@ -4442,7 +4450,7 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
         { activeSegments: activeSegmentCount, sourceConnections: store.connectionCount },
       )
     }
-    if (!activeSegmentCount) return skipped('no_active_segments', 'The active services contain no routable connections.')
+    if (activeSegmentCount === 0) return skipped('no_active_segments', 'The active services contain no routable connections.')
     const preliminaryEstimatedBytes = activeSegmentCount * 96
       + store.stopRecords.size * 256
     if (
@@ -4456,87 +4464,13 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
       )
     }
 
-    const stopIds = [...store.stopRecords.keys()]
-    const stopIndex = new Map(stopIds.map((stopId, index) => [stopId, index]))
-    const ensureStop = (stopId) => {
-      let index = stopIndex.get(stopId)
-      if (index !== undefined) return index
-      index = stopIds.length
-      stopIds.push(stopId)
-      stopIndex.set(stopId, index)
-      return index
-    }
-    const departureSeconds = new Uint32Array(activeSegmentCount)
-    const arrivalSeconds = new Uint32Array(activeSegmentCount)
-    const fromStop = new Uint32Array(activeSegmentCount)
-    const toStop = new Uint32Array(activeSegmentCount)
-    const sequence = new Uint32Array(activeSegmentCount)
-    const segmentTrip = new Uint32Array(activeSegmentCount)
-    const segmentRun = new Uint32Array(activeSegmentCount)
-    const continuityBreak = new Uint8Array(activeSegmentCount)
-    const canBoard = new Uint8Array(activeSegmentCount)
-    const canAlight = new Uint8Array(activeSegmentCount)
-    const tripStarts = []
-    const tripIds = []
-    const routeIds = []
-    const serviceIds = []
-    const directionIds = []
-    let segment = 0
-    let trip = -1
-    let run = -1
-    let previous = null
-    const permissionJoin = store.hasConnectionPermissions
-      ? 'LEFT JOIN connection_permissions permission ON permission.trip_id=c.trip_id AND permission.stop_sequence=c.stop_sequence'
-      : ''
-    const canBoardExpression = store.hasConnectionPermissions ? 'COALESCE(permission.can_board, 1)' : '1'
-    const canAlightExpression = store.hasConnectionPermissions ? 'COALESCE(permission.can_alight, 1)' : '1'
-    const tripRows = builder.prepare(`
-      SELECT c.departure, c.arrival, c.trip_id, c.route_id, c.service_id, c.direction_id,
-             c.from_stop_id, c.to_stop_id, c.stop_sequence,
-             ${canBoardExpression} AS can_board,
-             ${canAlightExpression} AS can_alight
-      FROM connections c JOIN active_kernel_services a ON a.service_id=c.service_id
-      ${permissionJoin}
-      ORDER BY c.trip_id, c.stop_sequence
-    `)
-    for (const row of tripRows.iterate()) {
-      const newTrip = !previous || row.trip_id !== previous.trip_id
-      if (newTrip) {
-        trip += 1
-        run += 1
-        tripStarts.push(segment)
-        tripIds.push(row.trip_id)
-        routeIds.push(row.route_id)
-        serviceIds.push(row.service_id)
-        directionIds.push(row.direction_id ?? '')
-      }
-      const unsafeGap = !newTrip
-        && previous.to_stop_id !== row.from_stop_id
-        && !(
-          numeric(row.stop_sequence) - numeric(previous.stop_sequence) > 1
-          && row.route_id === previous.route_id
-          && row.service_id === previous.service_id
-          && numeric(row.departure, -1) >= numeric(previous.arrival, Number.POSITIVE_INFINITY)
-        )
-      if (unsafeGap) run += 1
-      departureSeconds[segment] = numeric(row.departure)
-      arrivalSeconds[segment] = numeric(row.arrival)
-      fromStop[segment] = ensureStop(row.from_stop_id)
-      toStop[segment] = ensureStop(row.to_stop_id)
-      sequence[segment] = numeric(row.stop_sequence)
-      segmentTrip[segment] = trip
-      segmentRun[segment] = run
-      continuityBreak[segment] = unsafeGap ? 1 : 0
-      canBoard[segment] = numeric(row.can_board, 1) === 1 ? 1 : 0
-      canAlight[segment] = numeric(row.can_alight, 1) === 1 ? 1 : 0
-      previous = row
-      segment += 1
-    }
-    tripStarts.push(segment)
-    if (segment !== activeSegmentCount) throw new Error(`Compact kernel read ${segment} of ${activeSegmentCount} active segments.`)
-    const tripStart = Uint32Array.from(tripStarts)
-    const runCount = run + 1
-    const stopCount = stopIds.length
+    const {
+      stopIds, stopIndex, departureSeconds, arrivalSeconds, fromStop, toStop, sequence,
+      segmentTrip, segmentRun, continuityBreak, canBoard, canAlight, tripStart,
+      tripIds, routeIds, serviceIds, directionIds, runCount, stopCount,
+    } = readServiceTimetable(store, services, activeSegmentCount)
+    activeSegmentCount = departureSeconds.length
+    if (activeSegmentCount === 0) return skipped('no_active_segments', 'The active services contain no routable connections.')
     const routableTransferStopMask = new Uint8Array(stopCount)
     for (let stop = 0; stop < stopCount; stop += 1) {
       if (stopParticipatesInScheduledService(store, stopIds[stop])) {
@@ -4562,9 +4496,6 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
       if (rule) sameStopTransferMinimum[stop] = transferDurationSeconds(rule)
     }
 
-    try { builder.exec('PRAGMA shrink_memory') } catch {}
-    try { builder.close() } catch {}
-    builder = null
     const compileMs = Number((performance.now() - startedAt).toFixed(3))
     const kernel = {
       schemaVersion: activeServiceKernelSchemaVersion,

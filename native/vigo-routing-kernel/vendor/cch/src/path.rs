@@ -25,12 +25,18 @@ enum Dir {
 }
 
 /// Find the up-arc id from `tail` to `head`, or `None` if no such arc exists.
-/// Heads within a node's up-range are sorted, but a linear scan is correct
-/// and the ranges are tiny in practice.
+/// Keep the short adjacency case linear; high-degree separator nodes use
+/// their sorted heads to avoid scanning the whole range during unpacking.
 fn find_up_arc(cch: &CchView, tail: u32, head: u32) -> Option<u32> {
     let from = cch.up_first_out[tail as usize];
     let to = cch.up_first_out[tail as usize + 1];
-    (from..to).find(|&i| cch.up_head[i as usize] == head)
+    let heads = &cch.up_head[from as usize..to as usize];
+    let offset = if heads.len() <= 16 {
+        heads.iter().position(|&value| value == head)
+    } else {
+        heads.binary_search(&head).ok()
+    };
+    offset.map(|index| from + index as u32)
 }
 
 /// Recursively unpack CCH arc (`x` → `y`) with id `xy`, emitting the ORIGINAL
@@ -203,20 +209,18 @@ struct PathQueryState {
     /// Inverse rank: `order[rank[v]] = v`. Computed once in [`Self::new`] and
     /// never mutated thereafter (invariant; not part of the touched reset).
     order: Vec<u32>,
-    /// Forward sweep tentative distances; `node_count`-sized, all [`INF_WEIGHT`]
-    /// between queries.
+    /// Distances XOR-encoded with INF_WEIGHT: zero means unreachable.
+    /// Zero-filled allocation avoids touching every graph page on a cold query.
     fwd_dist: Vec<u32>,
-    /// Forward sweep predecessors; `node_count`-sized, all [`INVALID_ID`]
-    /// between queries.
+    /// Forward predecessors, read only for reached nodes. The source is
+    /// explicitly marked INVALID_ID when each query starts.
     fwd_pred: Vec<u32>,
     /// Forward search-space membership; `node_count`-sized, all `false` between
     /// queries.
     in_forward_search_space: Vec<bool>,
-    /// Backward sweep tentative distances; `node_count`-sized, all
-    /// [`INF_WEIGHT`] between queries.
+    /// Backward distances use the same zero-as-unreachable encoding.
     bwd_dist: Vec<u32>,
-    /// Backward sweep predecessors; `node_count`-sized, all [`INVALID_ID`]
-    /// between queries.
+    /// Backward predecessors; the target is explicitly marked INVALID_ID.
     bwd_pred: Vec<u32>,
     /// Nodes whose `fwd_*` entries were dirtied by the last query — exactly the
     /// set the next reset must restore. Cleared each query.
@@ -252,7 +256,7 @@ impl PathQueryState {
         // amortized to ~0 over many queries) so the unchecked accesses are sound
         // for any `CchView`, however it was constructed.
         assert!(
-            cch.up_head.iter().all(|&h| (h as usize) < n),
+            cch.up_head.iter().fold(true, |valid, &h| valid & ((h as usize) < n)),
             "malformed CchView: up_head contains a node id >= node_count"
         );
 
@@ -264,11 +268,11 @@ impl PathQueryState {
 
         Self {
             order,
-            fwd_dist: vec![INF_WEIGHT; n],
-            fwd_pred: vec![INVALID_ID; n],
+            fwd_dist: vec![0; n],
+            fwd_pred: vec![0; n],
             in_forward_search_space: vec![false; n],
-            bwd_dist: vec![INF_WEIGHT; n],
-            bwd_pred: vec![INVALID_ID; n],
+            bwd_dist: vec![0; n],
+            bwd_pred: vec![0; n],
             fwd_touched: Vec::new(),
             bwd_touched: Vec::new(),
             up_path: Vec::new(),
@@ -304,14 +308,14 @@ impl PathQueryState {
         // invariant and never reset.
         for &nd in &self.fwd_touched {
             let i = nd as usize;
-            self.fwd_dist[i] = INF_WEIGHT;
+            self.fwd_dist[i] = 0;
             self.fwd_pred[i] = INVALID_ID;
             self.in_forward_search_space[i] = false;
         }
         self.fwd_touched.clear();
         for &nd in &self.bwd_touched {
             let i = nd as usize;
-            self.bwd_dist[i] = INF_WEIGHT;
+            self.bwd_dist[i] = 0;
             self.bwd_pred[i] = INVALID_ID;
         }
         self.bwd_touched.clear();
@@ -331,7 +335,8 @@ impl PathQueryState {
         // Forward sweep from s (up-arcs, forward weights). Relax along the
         // elimination-tree ancestor chain of s, recording predecessors and
         // marking the forward search space. Mirrors routingkit's `run()`.
-        self.fwd_dist[s as usize] = 0;
+        self.fwd_dist[s as usize] = INF_WEIGHT;
+        self.fwd_pred[s as usize] = INVALID_ID;
         self.fwd_touched.push(s);
         {
             let fwd_dist = &mut self.fwd_dist;
@@ -340,7 +345,7 @@ impl PathQueryState {
             let mut x = s;
             loop {
                 self.in_forward_search_space[x as usize] = true;
-                let dx = fwd_dist[x as usize];
+                let dx = fwd_dist[x as usize] ^ INF_WEIGHT;
                 if dx != INF_WEIGHT {
                     let from = up_first_out[x as usize] as usize;
                     let to = up_first_out[x as usize + 1] as usize;
@@ -354,8 +359,8 @@ impl PathQueryState {
                         // established once by the structural validation in
                         // `PathQuery::new`.
                         let slot = unsafe { fwd_dist.get_unchecked_mut(y) };
-                        if cand < *slot {
-                            *slot = cand;
+                        if cand < (*slot ^ INF_WEIGHT) {
+                            *slot = cand ^ INF_WEIGHT;
                             // SAFETY: same as above — `y < node_count`.
                             unsafe { *fwd_pred.get_unchecked_mut(y) = x };
                             touched.push(yv);
@@ -377,7 +382,8 @@ impl PathQueryState {
         // meeting node with a STRICT `<` test. This reproduces routingkit's
         // tie-break (first equal-cost ancestor wins) so node paths are
         // byte-identical to `get_node_path`.
-        self.bwd_dist[t as usize] = 0;
+        self.bwd_dist[t as usize] = INF_WEIGHT;
+        self.bwd_pred[t as usize] = INVALID_ID;
         self.bwd_touched.push(t);
         let mut meeting = INVALID_ID;
         let mut best = INF_WEIGHT;
@@ -387,7 +393,7 @@ impl PathQueryState {
             let touched = &mut self.bwd_touched;
             let mut x = t;
             loop {
-                let dx = bwd_dist[x as usize];
+                let dx = bwd_dist[x as usize] ^ INF_WEIGHT;
                 if dx != INF_WEIGHT {
                     let from = up_first_out[x as usize] as usize;
                     let to = up_first_out[x as usize + 1] as usize;
@@ -401,8 +407,8 @@ impl PathQueryState {
                         // established once by the structural validation in
                         // `PathQuery::new`.
                         let slot = unsafe { bwd_dist.get_unchecked_mut(y) };
-                        if cand < *slot {
-                            *slot = cand;
+                        if cand < (*slot ^ INF_WEIGHT) {
+                            *slot = cand ^ INF_WEIGHT;
                             // SAFETY: same as above — `y < node_count`.
                             unsafe { *bwd_pred.get_unchecked_mut(y) = x };
                             touched.push(yv);
@@ -410,8 +416,8 @@ impl PathQueryState {
                     }
                 }
                 if self.in_forward_search_space[x as usize] {
-                    let fd = self.fwd_dist[x as usize];
-                    let bd = bwd_dist[x as usize];
+                    let fd = self.fwd_dist[x as usize] ^ INF_WEIGHT;
+                    let bd = bwd_dist[x as usize] ^ INF_WEIGHT;
                     if fd != INF_WEIGHT && bd != INF_WEIGHT {
                         let l = fd.saturating_add(bd);
                         if l < best {

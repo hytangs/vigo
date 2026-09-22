@@ -1,8 +1,8 @@
 # Version history
 
-## 0.4.1 — Unreleased
+## 0.4.1 — 2026-09-21
 
-Move active-timetable indexing, transfer preparation, realtime reconstruction, and directed station-path compilation into Rust without JavaScript execution fallbacks; preserve transfer precedence and snapshot layout, fix supported reordered bunching membership and multiple map links, and modularize Engine and Studio. Organize documentation by topic and consolidate test scaffolding. API 1.0, City format 1, and Result schema 1 are unchanged. See the [release notes](docs/releases/0.4.1.md).
+Move active-timetable indexing, transfer preparation, realtime reconstruction, and directed station-path compilation into Rust without JavaScript execution fallbacks; preserve transfer precedence and snapshot layout, fix supported reordered bunching membership and multiple map links, and modularize Engine and Studio. Reduce cold preparation, unreachable-departure scan work, realtime reconstruction, and unused drive allocations. Unify shape alignment, fix compact Network navigation, organize documentation by topic, and consolidate test scaffolding. API 1.0, City format 1, and Result schema 1 are unchanged. See the [release notes](docs/releases/0.4.1.md).
 
 ## 0.4.0 — 2026-09-18
 

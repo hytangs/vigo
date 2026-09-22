@@ -380,7 +380,12 @@ fn initialize_drive_cch(
         .iter()
         .map(|value| *value as f32)
         .collect::<Vec<_>>();
-    let order = cch::inertial_order(
+    let order_builder = if persisted_paths.is_none() {
+        cch::order::balanced_inertial_order
+    } else {
+        cch::inertial_order
+    };
+    let order = order_builder(
         node_count as u32,
         &tails,
         edge_targets,
@@ -572,6 +577,7 @@ struct DriveMatrixCandidate {
 
 #[napi(object)]
 pub struct DriveKernelDiagnostics {
+    pub cch_arc_count: u32,
     pub node_count: u32,
     pub edge_count: u32,
     pub cch_accelerated: bool,
@@ -663,6 +669,17 @@ impl DriveKernel {
     }
 
     fn next_generation(&mut self) -> u32 {
+        // The CCH certifies ordinary queries without a constrained search.
+        // Allocate its dense workspace only when that search is required.
+        if self.node_generation.is_empty() {
+            self.node_head.resize(self.node_count, NO_INDEX);
+            self.node_generation.resize(self.node_count, 0);
+            self.target_snap_distance_units
+                .resize(self.node_count, f64::INFINITY);
+            self.target_snap_time_units
+                .resize(self.node_count, f64::INFINITY);
+            self.target_generation.resize(self.node_count, 0);
+        }
         self.generation = self.generation.wrapping_add(1);
         if self.generation == 0 {
             self.node_generation.fill(0);
@@ -1096,7 +1113,8 @@ impl DriveKernel {
             input.cch_time_metric_path,
             input.cch_distance_metric_path,
         )?;
-        let traffic_edge_time_units = edge_time_units.clone();
+        // Static routing does not need a second copy of every edge weight.
+        let traffic_edge_time_units = Vec::new();
         Ok(Self {
             node_count,
             edge_offsets,
@@ -1107,20 +1125,24 @@ impl DriveKernel {
             traffic_snapshot_key: None,
             traffic_updated_edges: 0,
             cch,
-            node_head: vec![NO_INDEX; node_count],
-            node_generation: vec![0; node_count],
-            target_snap_distance_units: vec![f64::INFINITY; node_count],
-            target_snap_time_units: vec![f64::INFINITY; node_count],
-            target_generation: vec![0; node_count],
+            node_head: Vec::new(),
+            node_generation: Vec::new(),
+            target_snap_distance_units: Vec::new(),
+            target_snap_time_units: Vec::new(),
+            target_generation: Vec::new(),
             generation: 0,
-            labels: Vec::with_capacity(65_536),
-            queue: BinaryHeap::with_capacity(65_536),
+            labels: Vec::new(),
+            queue: BinaryHeap::new(),
         })
     }
 
     #[napi]
     pub fn diagnostics(&self) -> DriveKernelDiagnostics {
         DriveKernelDiagnostics {
+            cch_arc_count: match &self.cch {
+                DriveCch::InMemory(index) => index.path_query.structure().up_head.len() as u32,
+                DriveCch::Persisted(index) => index.structure.cch_arc_count() as u32,
+            },
             node_count: self.node_count as u32,
             edge_count: self.edge_targets.len() as u32,
             cch_accelerated: true,

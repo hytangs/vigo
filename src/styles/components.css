@@ -1474,7 +1474,7 @@
   gap: 7px;
   min-width: 0;
   min-height: 44px;
-  padding: 0 12px;
+  padding: 0 var(--studio-tab-padding, 12px);
   border: 0;
   border-radius: 0;
   color: var(--text-muted);

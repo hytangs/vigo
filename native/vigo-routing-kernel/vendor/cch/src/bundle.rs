@@ -317,15 +317,15 @@ impl CchBundle {
         ] {
             if offsets.first() != Some(&0)
                 || offsets.last().copied() != Some(arc_count_u32)
-                || offsets.windows(2).any(|range| range[0] > range[1])
-                || heads.iter().any(|head| *head >= node_count_u32)
+                || !offsets.windows(2).fold(true, |valid, range| valid & (range[0] <= range[1]))
+                || !heads.iter().fold(true, |valid, head| valid & (*head < node_count_u32))
             {
                 return Err(invalid_data(format!(
                     "CCH {label} adjacency is inconsistent"
                 )));
             }
         }
-        if view.down_to_up.iter().any(|arc| *arc >= arc_count_u32) {
+        if !view.down_to_up.iter().fold(true, |valid, arc| valid & (*arc < arc_count_u32)) {
             return Err(invalid_data(
                 "CCH down_to_up references an out-of-range arc",
             ));

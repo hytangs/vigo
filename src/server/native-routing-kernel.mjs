@@ -278,12 +278,6 @@ function kernelRecord(storePath) {
   if (cached?.identity === identity) return cached
   const { CoordinateKernel } = loadNativeBinding()
   const startedAt = performance.now()
-  const kernel = new CoordinateKernel(snapshotPath)
-  if (terminalStat) {
-    if (typeof kernel.configureTerminalAccess !== 'function') throw new Error('This City requires a native kernel with authorized endpoint access support; rebuild the runtime.')
-    kernel.configureTerminalAccess(terminalAccessPath)
-  }
-  const diagnostics = kernel.diagnostics()
   const cchPaths = streetCchPaths(snapshotPath)
   const structureExists = fs.existsSync(cchPaths.structurePath)
   const metricExists = fs.existsSync(cchPaths.metricPath)
@@ -296,6 +290,17 @@ function kernelRecord(storePath) {
     error.code = 'VIGO_NATIVE_STREET_CCH_INCOMPLETE'
     throw error
   }
+  const kernel = structureExists
+    ? CoordinateKernel.openPrepared(snapshotPath, {
+        structurePath: cchPaths.structurePath,
+        metricPath: cchPaths.metricPath,
+      })
+    : new CoordinateKernel(snapshotPath)
+  if (terminalStat) {
+    if (typeof kernel.configureTerminalAccess !== 'function') throw new Error('This City requires a native kernel with authorized endpoint access support; rebuild the runtime.')
+    kernel.configureTerminalAccess(terminalAccessPath)
+  }
+  const diagnostics = kernel.diagnostics()
   if (manifestExists) {
     validateCchManifest({
       kind: 'street',
@@ -307,10 +312,7 @@ function kernelRecord(storePath) {
       edgeCount: diagnostics.edgeCount,
     })
   }
-  const streetCch = structureExists ? kernel.loadStreetCchIndex({
-    structurePath: cchPaths.structurePath,
-    metricPath: cchPaths.metricPath,
-  }) : null
+  const streetCch = kernel.streetCchLoadDiagnostics()
   const record = {
     kernel,
     identity,
@@ -370,6 +372,12 @@ export function compileNativeRealtimeTimetable(input) {
   const binding = loadNativeBinding()
   if (typeof binding.compileRealtimeTimetable !== 'function') throw new Error('Rust routing binding lacks realtime compilation. Rebuild the native kernel.')
   return binding.compileRealtimeTimetable(input)
+}
+
+export function readNativeServiceTimetable(input) {
+  const binding = loadNativeBinding()
+  if (typeof binding.readServiceTimetable !== 'function') throw new Error('Rust routing binding lacks service timetable compilation. Rebuild the native kernel.')
+  return binding.readServiceTimetable(input)
 }
 
 export function prepareNativeTimetableIndexes(input) {
