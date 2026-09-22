@@ -5,7 +5,6 @@
 }
 
 .surface-panel,
-.sidebar-panel-head,
 .project-dialog {
   border-color: color-mix(in srgb, var(--accent-2) 13%, var(--border));
 }
@@ -137,7 +136,6 @@
 }
 
 .surface-panel,
-.sidebar-panel-head,
 .project-dialog {
   border-radius: 8px;
 }
@@ -160,15 +158,8 @@
   box-shadow: none;
 }
 
-.sidebox,
-.sidebox-itinerary li {
+.sidebox {
   border-radius: 6px;
-  box-shadow: none;
-}
-
-.sidebox-itinerary li {
-  border-color: var(--border);
-  background: var(--panel-soft);
 }
 
 .route-investigation-shell,
@@ -300,14 +291,6 @@
   grid-template-columns: var(--pq-sidebar-width) minmax(0, 1fr);
 }
 
-.sidebar-panel-head {
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  background: transparent;
-}
-
-.sidebar-panel-head p,
 .sidebar-context-line {
   line-height: 1.35;
 }
@@ -758,16 +741,6 @@
   box-shadow: none;
 }
 
-.pathfinder-mode-selector {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.pathfinder-mode-selector button {
-  min-width: 0;
-  cursor: pointer;
-}
-
 .pathfinder-location-field {
   cursor: default;
 }
@@ -823,8 +796,7 @@
 }
 
 .pathfinder-time-preference,
-.pathfinder-time-field,
-.pathfinder-segmented {
+.pathfinder-time-field {
   display: grid;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -836,8 +808,7 @@
   overflow: hidden;
 }
 
-.pathfinder-time-preference button,
-.pathfinder-segmented button {
+.pathfinder-time-preference button {
   min-width: 0;
   padding: 0 8px;
   cursor: pointer;
@@ -1044,38 +1015,6 @@
   font-weight: 620;
 }
 
-.pathfinder-options > summary {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  list-style: none;
-}
-
-.pathfinder-options > summary::-webkit-details-marker {
-  display: none;
-}
-
-.pathfinder-options > summary > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--text-strong);
-  font-size: 0.69rem;
-  font-weight: 690;
-}
-
-.pathfinder-options > summary > b {
-  max-width: 180px;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 0.61rem;
-  font-weight: 590;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .pathfinder-options-body {
   display: grid;
   gap: 12px;
@@ -1109,12 +1048,6 @@
   color: var(--text-strong);
   background: var(--control-surface);
   font: inherit;
-}
-
-.pathfinder-segmented {
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  overflow: hidden;
 }
 
 .pathfinder-walk-limit > input {
@@ -1513,3 +1446,122 @@
 .result-metric small {
   white-space: normal;
 }
+
+/* Shared Network, Route and Analyze surface primitives. */
+.studio-page-title {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 30px;
+  line-height: 1.2;
+  font-weight: 680;
+  letter-spacing: -.04em;
+}
+.sidebar-panel-head { min-width: 0; display: grid; gap: 8px; }
+.agency-page-heading .studio-page-title { margin-bottom: 8px; }
+.studio-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+}
+.studio-tabs > button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 0;
+  color: var(--text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.studio-tabs > button:is([aria-selected="true"], [aria-pressed="true"]) { color: var(--text-strong); }
+.studio-tabs > button:is([aria-selected="true"], [aria-pressed="true"])::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 12px;
+  right: 12px;
+  height: 2px;
+  background: var(--vigo-lime-strong);
+  border-radius: 2px;
+}
+.studio-tabs > button:hover:not(:disabled) { color: var(--text-strong); background: var(--hover-surface); }
+.studio-tabs > button:focus-visible { outline: 2px solid var(--vigo-lime-strong); outline-offset: -2px; }
+.studio-tabs > button:disabled { opacity: .45; cursor: default; }
+.studio-disclosure { border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; }
+.studio-disclosure > summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-height: 48px;
+  padding: 14px 0;
+  color: var(--text-strong);
+  font-size: 18px;
+  font-weight: 650;
+  cursor: pointer;
+  list-style: none;
+}
+.studio-disclosure > summary::-webkit-details-marker { display: none; }
+.studio-disclosure > summary::before { content: '›'; font-size: 20px; line-height: 1; transition: transform 120ms ease; }
+.studio-disclosure[open] > summary::before { transform: rotate(90deg); }
+.studio-disclosure > summary > span { display: inline-flex; align-items: center; gap: 7px; }
+.studio-disclosure > summary > b {
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) { .studio-disclosure > summary::before { transition: none; } }
+
+.sidebar-panel-head p, .sidebar-context-line { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+
+/* The journey is one timeline; route color identifies a leg, never its text. */
+.routing-detail-head { display: grid; grid-template-columns: minmax(0, 1fr) 36px; gap: 16px; padding: 24px 22px 20px; border-bottom: 1px solid var(--border); }
+.routing-detail-head h2 { margin: 10px 0 8px; color: var(--text-strong); font-size: 34px; font-weight: 650; letter-spacing: -.045em; line-height: 1.1; }
+.routing-detail-head button { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: var(--control-surface); color: var(--text-muted); cursor: pointer; }
+.routing-detail-head button:hover { color: var(--text-strong); background: var(--hover-surface); }
+.journey-eyebrow { margin: 0; color: var(--text-muted); font-size: 12px; font-weight: 600; }
+.journey-time-range { display: flex; gap: 10px; align-items: center; margin: 0; color: var(--text-strong); font-size: 18px; font-weight: 550; font-variant-numeric: tabular-nums; }
+.journey-time-range > span { color: var(--text-muted); }
+.journey-overview { margin: 10px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.journey-itinerary { min-width: 0; }
+.journey-start-wait { margin: 0 0 22px; color: var(--text-soft); font-size: 12px; line-height: 1.6; }
+.journey-timeline { margin: 0; padding: 0; list-style: none; }
+.journey-leg, .journey-finish { position: relative; display: grid; grid-template-columns: 40px minmax(0, 1fr); column-gap: 20px; min-width: 0; }
+.journey-clock { padding-top: 3px; color: var(--text-muted); font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.journey-leg-body { position: relative; min-width: 0; padding: 0 0 28px 14px; border-left: 2px dotted var(--border-strong); }
+.journey-leg.is-ride .journey-leg-body { border-left: 3px solid var(--journey-line, var(--text-muted)); padding-left: 13px; }
+.journey-leg-body::before, .journey-finish > strong::before { content: ''; position: absolute; top: 6px; left: -5px; width: 8px; height: 8px; border: 2px solid var(--journey-line, var(--text-muted)); border-radius: 50%; background: var(--panel-strong); }
+.journey-leg-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.journey-leg-heading strong { color: var(--text-strong); font-size: 15px; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; }
+.journey-leg-heading > span { flex-shrink: 0; color: var(--text-muted); font-size: 12px; }
+.journey-stop { margin: 7px 0 0; color: var(--text); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.journey-leg-meta { margin: 5px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.journey-arrival { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 14px; color: var(--text); font-size: 14px; line-height: 1.5; }
+.journey-arrival > span { min-width: 0; overflow-wrap: anywhere; }
+.journey-arrival time { flex-shrink: 0; color: var(--text-muted); font-size: 12px; }
+.journey-wait { display: flex; align-items: baseline; gap: 5px; margin: 0 0 8px; color: var(--text-soft); font-size: 12px; line-height: 1.5; }
+.journey-wait svg { flex-shrink: 0; align-self: center; }
+.journey-caution { margin: 8px 0 0; color: var(--warn); font-size: 12px; line-height: 1.5; }
+.journey-leg-evidence { margin-top: 8px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.journey-leg-evidence > summary { cursor: pointer; }
+.journey-leg-evidence p { margin: 6px 0 0; }
+.journey-finish > strong { position: relative; min-width: 0; padding-left: 16px; color: var(--text-strong); font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+.journey-finish { margin-bottom: 24px; }
+.journey-finish > strong::before { left: -3px; background: var(--text-strong); border-color: var(--text-strong); }

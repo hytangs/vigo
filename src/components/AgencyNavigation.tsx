@@ -34,7 +34,7 @@ export function AgencyNavigation({ mode, onChange, health, mapOpen, onToggleMap,
     action()
   }
   return <nav className="agency-navigation" aria-label="Network navigation">
-    <div className="agency-tabs" role="tablist" aria-label="Network views">{views.map(({ id, label }, index) => <button
+    <div className="studio-tabs agency-tabs" role="tablist" aria-label="Network views">{views.map(({ id, label }, index) => <button
       key={id} role="tab" id={`agency-tab-${id}`} aria-selected={mode === id} aria-controls={`agency-${id}`}
       tabIndex={mode === id || (!views.some(view => view.id === mode) && index === 0) ? 0 : -1}
       onClick={() => choose(id)} onKeyDown={event => {

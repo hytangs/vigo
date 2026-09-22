@@ -7,7 +7,7 @@ const braveUrl = 'https://api.search.brave.com/res/v1/web/search'
 const duckUrl = 'https://html.duckduckgo.com/html/'
 const clean = (value, limit) => typeof value === 'string' ? value.trim().slice(0, limit) : ''
 
-export function publicUrl(value) {
+function publicUrl(value) {
   const url = new URL(value)
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Use a public HTTP(S) URL without embedded credentials.')
   return url.href

@@ -1,19 +1,8 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import ts from 'typescript'
+import { importTestModules } from './helpers/import-test-modules.mjs'
 import { compileReachScenario } from '../src/server/reach.mjs'
 
-function compile(relative, replacements = []) {
-  let output = ts.transpileModule(readFileSync(new URL(relative, import.meta.url), 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
-  }).outputText
-  for (const [from, to] of replacements) output = output.replace(`from '${from}'`, `from '${to}'`)
-  return `data:text/javascript;base64,${Buffer.from(output).toString('base64')}`
-}
-const { scenarioSegmentRuntimeMinutes, scenarioEdgeGeometryForBranch, joinScenarioSegmentGeometry } = await import(compile('../src/reach.ts', [
-  ['./app/geometry', compile('../src/app/geometry.ts')],
-  ['./networkTruth', compile('../src/networkTruth.ts')],
-]))
+const [{ scenarioSegmentRuntimeMinutes, scenarioEdgeGeometryForBranch, joinScenarioSegmentGeometry }] = await importTestModules('reach.ts')
 assert.deepEqual(joinScenarioSegmentGeometry([
   [[0, 0], [0.001, 0]],
   [[0.001, 0], [0.002, 0]],

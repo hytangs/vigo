@@ -3,24 +3,10 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import ts from 'typescript'
+import { importTestModules } from './helpers/import-test-modules.mjs'
 import { readGtfsRouteAnalysis } from '../src/server/gtfs-analysis-store.mjs'
 
-const moduleUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
-const compile = async (relativePath) => ts.transpileModule(
-  await fs.readFile(new URL(relativePath, import.meta.url), 'utf8'),
-  { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } },
-).outputText
-const geometryUrl = moduleUrl(await compile('../src/app/geometry.ts'))
-const scheduleUrl = moduleUrl((await compile('../src/scheduledVehicles.ts'))
-  .replace("from './app/geometry'", `from '${geometryUrl}'`))
-const { scheduledVehiclesAtTime, scheduledVehicleDiagnostics } = await import(scheduleUrl)
-const indicatorsUrl = moduleUrl(await compile('../src/agency/vehicleIndicators.ts'))
-const routesUrl = moduleUrl(await compile('../src/routeServices.ts'))
-const { buildServiceVehicleFrame, serviceVehicleCount, serviceVehicleIsVisible } = await import(moduleUrl((await compile('../src/serviceVehicles.ts'))
-  .replace("from './agency/vehicleIndicators'", `from '${indicatorsUrl}'`)
-  .replace("from './scheduledVehicles'", `from '${scheduleUrl}'`)
-  .replace("from './routeServices'", `from '${routesUrl}'`)))
+const [{ scheduledVehiclesAtTime, scheduledVehicleDiagnostics }, { buildServiceVehicleFrame, serviceVehicleCount, serviceVehicleIsVisible }] = await importTestModules('scheduledVehicles.ts', 'serviceVehicles.ts')
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-schedule-projection-'))
 const storePath = path.join(directory, 'schedule.sqlite')
 const serviceDate = '2026-09-12'
@@ -214,7 +200,7 @@ try {
     operationalEvents: [{ type: 'bunching', severity: 'warning', vehicleId: '1867', tripId: 'trip-1867', routeId: 'SPARSE', serviceDate: '2026-09-18', observedAt: new Date(clock * 1000).toISOString(), stopId: 'A', evidence: { leadingVehicleId: '1816', tripIds: ['trip-1816', 'trip-1867'], observedHeadwaySeconds: 90, scheduledHeadwaySeconds: 600, predictedOrderReversed: true } }],
   })
   assert.deepEqual(bunchingFrame.vehicles.map(vehicle => vehicle.indicatorLabel), ['↔', '↔'], 'The shared map and line frame marks both bunching members')
-  assert.equal(bunchingFrame.vehicles.filter(vehicle => vehicle.pairedCoordinate).length, 1, 'Draw each pair link once')
+  assert.equal(bunchingFrame.vehicles.flatMap(vehicle => vehicle.bunchingLinks).length, 1, 'Draw each pair link once')
   for (const vehicle of bunchingFrame.vehicles) {
     assert.match(vehicle.card.metrics.find(metric => metric.label.startsWith('Predicted at ')).label, /vehicles (1816 ↔ 1867|1867 ↔ 1816).*predicted trip order reversed/, 'Each vehicle card explains the same pair and its reversed prediction order')
   }

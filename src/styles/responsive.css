@@ -108,24 +108,18 @@
 }
 
 .app-shell.appearance-light .sidebox-time-readout,
-.app-shell.appearance-light .sidebox-health-grid div,
-.app-shell.appearance-light .sidebox-itinerary li {
+.app-shell.appearance-light .sidebox-health-grid div {
   border-color: rgba(47, 117, 214, 0.12);
   background: rgba(255, 255, 255, 0.62);
 }
 
 .app-shell.appearance-light .sidebox-time-readout strong,
-.app-shell.appearance-light .sidebox-insight strong,
-.app-shell.appearance-light .itinerary-step-main strong,
-.app-shell.appearance-light .sidebox-itinerary-summary b {
+.app-shell.appearance-light .sidebox-insight strong {
   color: #0f172a;
 }
 
 .app-shell.appearance-light .sidebox-time-readout small,
-.app-shell.appearance-light .sidebox-insight small,
-.app-shell.appearance-light .itinerary-step-main small,
-.app-shell.appearance-light .itinerary-step-path,
-.app-shell.appearance-light .sidebox-itinerary p {
+.app-shell.appearance-light .sidebox-insight small {
   color: #617186;
 }
 

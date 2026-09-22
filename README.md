@@ -10,7 +10,7 @@
 
 VIGO turns GTFS timetables and OpenStreetMap streets into a reusable city model. Inspect live service, plan journeys, calculate travel-time matrices, and compare the reach of proposed service changes. Each computed Result retains its request, City identity, warnings, and timing.
 
-**VIGO 0.4.0** brings Network, Routes, and experimental Ask into the same Studio as routing and Reach analysis. See the [release notes](docs/releases/0.4.0.md).
+**VIGO 0.4.1** moves timetable indexing into Rust, improves live bunching indicators, and reorganizes Engine and Studio internals. See the [release notes](docs/releases/0.4.1.md).
 
 ## Why VIGO
 
@@ -30,7 +30,7 @@ The goal is a reproducible workflow from source data to a reviewable answer. Nat
 | Map travel time from an origin and test planned service | Studio **Analyze** or `vigo reach` |
 | Import or remove GTFS and OSM sources | Studio **City → Data sources** |
 
-![Route 1 in Boston: reported vehicles arranged by stop and direction](docs/images/06-lineview.png)
+![Route 1 in Boston: reported vehicles arranged by stop and direction](docs/guides/images/06-lineview.png)
 
 *An example line view. Positions and times describe the captured feed; they are not current service information or verified actual arrivals.*
 
@@ -44,7 +44,7 @@ The goal is a reproducible workflow from source data to a reviewable answer. Nat
 GTFS + OSM → City → optional Scenario → Route | Matrix | Reach → Result
 ```
 
-Compare operates on compatible Results. Planned transit changes apply to Reach; supplied traffic applies to Drive Route and Matrix. Realtime transit Route processes supported, matched Trip Updates. Matrix and Reach remain scheduled. See [query support](docs/concepts.md) and [routing limits](docs/known-routing-limitations.md).
+Compare operates on compatible Results. Planned transit changes apply to Reach; supplied traffic applies to Drive Route and Matrix. Realtime transit Route processes supported, matched Trip Updates. Matrix and Reach remain scheduled. See [query support](docs/guides/concepts.md) and [routing limits](docs/reference/known-routing-limitations.md).
 
 ## Get started
 
@@ -58,7 +58,7 @@ npm run build
 npm run studio
 ```
 
-In Studio, create a City and import a static GTFS ZIP and an overlapping OSM PBF. Add GTFS-Realtime connections for live inspection. A model connection is optional. For a complete command-line example, follow the [quickstart](docs/quickstart.md).
+In Studio, create a City and import a static GTFS ZIP and an overlapping OSM PBF. Add GTFS-Realtime connections for live inspection. A model connection is optional. For a complete command-line example, follow the [quickstart](docs/guides/quickstart.md).
 
 | Command | Purpose |
 | --- | --- |
@@ -72,10 +72,10 @@ Native targets are macOS 13.5+ on ARM64/x64, Linux glibc on ARM64/x64, and Windo
 
 VIGO is pre-release software. A computed journey is a result within the supplied timetable and street model; a prediction is not an observed passage. Missing reports remain unknown. Reach measures travel time; measuring access to jobs or people requires opportunity data and a stated measure.
 
-Ask sends questions and selected evidence to the configured inference endpoint. Model and web connections are separate. Inspect the answer's sources and **Model & data** record. Ask does not authorize dispatch or publish rider messages. See the [Network guide](docs/network.md) and [security policy](SECURITY.md).
+Ask sends questions and selected evidence to the configured inference endpoint. Model and web connections are separate. Inspect the answer's sources and **Model & data** record. Ask does not authorize dispatch or publish rider messages. See the [Network guide](docs/guides/network.md) and [security policy](SECURITY.md).
 
 ## Documentation
 
-Start with the [documentation index](docs/README.md), [Studio guide](docs/studio.md), or [CLI reference](docs/programmatic.md). The [offline guide](docs/guide.html) includes a local Result viewer; the [Developer Guide source](docs/developer-guide/VIGO-0.4.0-Developer-Guide.tex) builds the release PDF. Contributors should read the [architecture](docs/development/architecture.md) and [verification guide](.github/CONTRIBUTING.md).
+Start with the [documentation index](docs/README.md), [Studio guide](docs/guides/studio.md), or [CLI reference](docs/reference/programmatic.md). The [offline guide](docs/guide.html) includes a local Result viewer; the [Developer Guide source](docs/developer-guide/VIGO-0.4.1-Developer-Guide.tex) builds the release PDF. Contributors should read the [architecture](docs/development/architecture.md) and [verification guide](.github/CONTRIBUTING.md).
 
-API 1.0, City format 1, and Result schema 1 are unchanged in 0.4.0. VIGO is licensed under [Apache-2.0](LICENSE); see [NOTICE](NOTICE) for attribution.
+API 1.0, City format 1, and Result schema 1 are unchanged in 0.4.1. VIGO is licensed under [Apache-2.0](LICENSE); see [NOTICE](NOTICE) for attribution.

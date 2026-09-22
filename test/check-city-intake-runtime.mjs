@@ -10,7 +10,7 @@ await fs.mkdir(path.join(root, 'temp'), { recursive: true })
 const directory = await fs.mkdtemp(path.join(root, 'temp', 'city-intake-runtime-'))
 const fixture = `import React from 'react';
 import {createRoot} from 'react-dom/client';
-import {EmptyOperationsStart} from '/src/App.tsx';
+import {EmptyOperationsStart} from '/src/components/studio/CitySources.tsx';
 import '/src/App.css'; import '/src/index.css';
 let gtfs=0,osm=0,connected=0;
 HTMLInputElement.prototype.click=function(){if(this.accept.includes('zip'))gtfs++;else osm++};
@@ -41,7 +41,6 @@ window.checkNavigation=async()=>{
 };`
 const server = await createServer({ root, cacheDir: path.join(directory, 'vite-cache'), configFile: false, plugins: [react(), {
   name: 'navigation-fixture',
-  transform(code, id) { if (id.endsWith('/src/App.tsx')) return code + '\nexport { EmptyOperationsStart };' },
   resolveId(id) { if (id === '/navigation-fixture.js') return id },
   load(id) { if (id === '/navigation-fixture.js') return fixture },
   configureServer(vite) { vite.middlewares.use(async (req, res, next) => {

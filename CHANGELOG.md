@@ -1,5 +1,9 @@
 # Version history
 
+## 0.4.1 — Unreleased
+
+Move active-timetable indexing, transfer preparation, realtime reconstruction, and directed station-path compilation into Rust without JavaScript execution fallbacks; preserve transfer precedence and snapshot layout, fix supported reordered bunching membership and multiple map links, and modularize Engine and Studio. Organize documentation by topic and consolidate test scaffolding. API 1.0, City format 1, and Result schema 1 are unchanged. See the [release notes](docs/releases/0.4.1.md).
+
 ## 0.4.0 — 2026-09-18
 
 API 1.0, City format 1, and Result schema 1 are unchanged. See the [release notes](docs/releases/0.4.0.md).
@@ -62,7 +66,7 @@ GTFS + OSM -> City -> Scenario -> Route | Matrix | Reach -> Result
 
 VIGO 0.3 intentionally removes the provisional commands, maintenance controls, and duplicate analysis surfaces that preceded this model. There is no compatibility layer.
 
-The final 0.3.0 fixes preserve Studio Scenario drafts between sessions and apply edited road gaps to every affected branch while retaining each branch's published geometry and runtime. Derived routing snapshots use the current content identity; older snapshots rebuild automatically. Transit Matrix uses the same native one-to-many computation for every matrix size, without an implicit transfer-time buffer. See the [GTFS support matrix](docs/gtfs-support-matrix.md) and [Studio guide](docs/studio.md) for the supported source rules and interface limits.
+The final 0.3.0 fixes preserve Studio Scenario drafts between sessions and apply edited road gaps to every affected branch while retaining each branch's published geometry and runtime. Derived routing snapshots use the current content identity; older snapshots rebuild automatically. Transit Matrix uses the same native one-to-many computation for every matrix size, without an implicit transfer-time buffer. See the [GTFS support matrix](docs/reference/gtfs-support-matrix.md) and [Studio guide](docs/guides/studio.md) for the supported source rules and interface limits.
 
 ## Private development history
 

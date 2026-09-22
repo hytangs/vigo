@@ -1,4 +1,4 @@
-export const capabilitySchemaVersion = 'vigo.capabilities.v3'
+const capabilitySchemaVersion = 'vigo.capabilities.v3'
 export const apiVersion = '1.0'
 export const cityFormatVersion = 1
 export const resultSchemaVersion = 1

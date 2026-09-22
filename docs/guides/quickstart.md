@@ -6,8 +6,8 @@ For the desktop workflow, use the [Studio guide](studio.md). Studio imports data
 
 ## 1. Install
 
-VIGO 0.4.0 requires Node.js 24.18 or newer and npm 11.6 or newer.
-Source builds also require the pinned Rust toolchain. Supported targets are macOS Apple Silicon/Intel, Linux ARM64/x64 with glibc, and Windows x64. Use a native build for the target OS and CPU; City data moves between them. See the [platform and City limits](known-routing-limitations.md).
+VIGO 0.4.1 requires Node.js 24.18 or newer and npm 11.6 or newer.
+Source builds also require the pinned Rust toolchain. Supported targets are macOS Apple Silicon/Intel, Linux ARM64/x64 with glibc, and Windows x64. Use a native build for the target OS and CPU; City data moves between them. See the [platform and City limits](../reference/known-routing-limitations.md).
 
 ```bash
 git clone https://github.com/hytangs/vigo.git
@@ -33,7 +33,7 @@ VIGO writes one complete `./boston` directory. An existing output is left alone 
 Time this command from invocation through successful return to measure Build
 from GTFS and OSM. Include the first Route as well when measuring time to the
 first answer. Reopening `./boston` measures a different operation; see
-[Performance](performance.md) for the exact boundaries.
+[Performance](../development/performance.md) for the exact boundaries.
 
 ## 3. Run a Route
 
@@ -76,7 +76,7 @@ Every computation returns a Result with the answer and its meaning:
 }
 ```
 
-This abbreviated example illustrates the Result fields, not a measured journey or benchmark. Values depend on the supplied City and request. Inspect `status` and `warnings` before using the answer; a blocked Result is not a successful journey. The [offline Result viewer](guide.html#viewer) can open the exported JSON.
+This abbreviated example illustrates the Result fields, not a measured journey or benchmark. Values depend on the supplied City and request. Inspect `status` and `warnings` before using the answer; a blocked Result is not a successful journey. The [offline Result viewer](../guide.html#viewer) can open the exported JSON.
 
 ## 5. Run Matrix
 
@@ -121,6 +121,6 @@ vigo reach \
 
 ## Where next
 
-- [Developer Guide](developer-guide/VIGO-0.4.0-Developer-Guide.tex): CLI, Results, Scenario, compatibility, and full Query reference.
+- [Developer Guide](../developer-guide/VIGO-0.4.1-Developer-Guide.tex): CLI, Results, Scenario, compatibility, and full Query reference.
 - [VIGO Studio Guide](studio.md): visual exploration, routing, playback, and analysis.
 - [Core concepts](concepts.md): City, Scenario, Query, and Result.

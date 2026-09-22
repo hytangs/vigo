@@ -1,11 +1,6 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import ts from 'typescript'
+import { emptyScenarios, parseStoredScenarios, scenarioStorageKey } from '../src/app/scenarioDraftStorage.ts'
 
-const compiled = ts.transpileModule(readFileSync(new URL('../src/app/scenarioDraftStorage.ts', import.meta.url), 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
-}).outputText
-const { emptyScenarios, parseStoredScenarios, scenarioStorageKey } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
 const change = { id: 'change', kind: 'change-line', name: 'Detour', headwayMinutes: 10, averageSpeedKph: 20,
   startMinutes: 480, endMinutes: 1080, bidirectional: true, geometryStatus: 'loading',
   stops: [{ id: 'stop', label: 'New stop', source: 'map', coordinate: [-71, 42] }] }

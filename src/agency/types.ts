@@ -11,6 +11,9 @@ export type Evidence = {
   leadingVehicleId?: string
   leadingTripStartTime?: string
   predictedOrderReversed?: boolean
+  comparisonBasis?: 'reordered-predictions'
+  scheduledPairSeparationSeconds?: number
+  interveningTrips?: Array<{ tripId: string; basis: 'prediction' | 'position'; predictedTime?: number; vehicleId?: string; stopSequence?: number }>
   alertReason?: string
   tripStartTime?: string
   scheduledTime?: number

@@ -1,12 +1,6 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import ts from 'typescript'
+import { setMapSourceData, setStreetMapSourceData } from '../src/app/mapSourceUpdates.ts'
 
-const compiled = ts.transpileModule(
-  readFileSync(new URL('../src/app/mapSourceUpdates.ts', import.meta.url), 'utf8'),
-  { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } },
-).outputText
-const { setMapSourceData, setStreetMapSourceData } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
 const sent = []
 const source = { setData: (data) => sent.push(data) }
 const first = { type: 'FeatureCollection', features: [] }

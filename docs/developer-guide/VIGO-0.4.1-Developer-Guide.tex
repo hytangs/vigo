@@ -11,7 +11,7 @@ This printable reference takes one GTFS feed and one OSM extract through Build a
 
 \subsection{Install VIGO}
 
-VIGO 0.4.0 requires Node.js 24.18 or newer, npm 11.6 or newer, and the pinned Rust toolchain for source builds. Native targets are macOS Apple Silicon/Intel, Linux ARM64/x64 with glibc, and Windows x64. Install the matching runtime; complete City data can move between these targets.
+VIGO 0.4.1 requires Node.js 24.18 or newer, npm 11.6 or newer, and the pinned Rust toolchain for source builds. Native targets are macOS Apple Silicon/Intel, Linux ARM64/x64 with glibc, and Windows x64. Install the matching runtime; complete City data can move between these targets.
 
 \begin{lstlisting}[language=bash]
 git clone https://github.com/hytangs/vigo.git
@@ -380,16 +380,16 @@ A 48 by 48 grid contains 2,304 cells. Surface coverage and contour availability 
 
 \section{Scenario and Compare}
 
-\subsection{Scenario in 0.4.0}
+\subsection{Scenario in 0.4.1}
 
 A Scenario is an immutable set of supported changes tied to exactly one City revision. It does not edit the City. Time, mode, walking limits, cutoffs, and objective belong to the Query, not the Scenario.
 
-The abstraction is stable; support in 0.4.0 is deliberately narrower:
+The abstraction is stable; support in 0.4.1 is deliberately narrower:
 
 \begin{center}
 \begin{tabularx}{\linewidth}{P{1.42in} Z Z Z Y}
 \toprule
-\textbf{State} & \textbf{Route} & \textbf{Matrix} & \textbf{Reach} & \textbf{Available in 0.4.0} \\
+\textbf{State} & \textbf{Route} & \textbf{Matrix} & \textbf{Reach} & \textbf{Available in 0.4.1} \\
 \midrule
 Baseline City & \yes & \yes & \yes & CLI; Studio offers Route and Reach \\
 Planned service & \no & \no & \yes & CLI and Studio \\
@@ -448,7 +448,7 @@ vigo compare \
 \field{--time-preference} & \code{depart} or \code{arrive} for Route and Matrix. \\
 \field{--service-date} & Exact \code{YYYY-MM-DD} date for transit. \\
 \field{--max-walk KM} & Transit access and egress distance, default 1.2. \\
-\field{--objective} & \code{earliest\_arrival} in 0.4.0. \\
+\field{--objective} & \code{earliest\_arrival} in 0.4.1. \\
 \field{--departure-window MIN} & Route depart-at profile from 0 to 30 minutes. \\
 \field{--horizon MIN} & Route and Matrix timetable horizon, default 480. \\
 \field{--cutoffs MINUTES} & Reach limits separated by commas. \\
@@ -488,7 +488,7 @@ Run \code{vigo capabilities} to inspect support.
 
 \begin{lstlisting}[language=json]
 {
-  "productVersion": "0.4.0",
+  "productVersion": "0.4.1",
   "apiVersion": "1.0",
   "cityFormatVersion": 1,
   "resultSchemaVersion": 1
@@ -544,7 +544,7 @@ End to end & Caller submits work & The complete Result returns. \\
 
 A first Query may include Open work. Repeated work may use an already open City. A Result read from disk is not a new computation. Compare performance only with the same inputs, machine state, output detail, status accounting, and timing boundary.
 
-Build prepares the street indexes, transfers, and station-access state. The first Query can additionally prepare its active-service timetable and selected ride geometry. Downloads and installation are separate. In 0.4.0, \field{network.json} timing \field{totalMs} measures work inside the compiler; it excludes startup, final publication, and the first Query. Use a caller timer for complete Build and raw-to-first-answer measurements. Compiler stages can overlap and their times must not be summed.
+Build prepares the street indexes, transfers, and station-access state. The first Query can additionally prepare its active-service timetable and selected ride geometry. Downloads and installation are separate. In 0.4.1, \field{network.json} timing \field{totalMs} measures work inside the compiler; it excludes startup, final publication, and the first Query. Use a caller timer for complete Build and raw-to-first-answer measurements. Compiler stages can overlap and their times must not be summed.
 
 For arrive-by Route, the reverse timetable scan is one part of Compute. Coordinate access, forward journey reconstruction, selected geometry, and Result creation also belong to full Route computation. Report the scan alone only when diagnosing that stage.
 

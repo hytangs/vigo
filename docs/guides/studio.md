@@ -26,7 +26,7 @@ Reopen recent Route Results for the current City revision. A Result keeps its no
 
 ### Reach
 
-Choose an origin on the map or use **Choose origin** to search imported stops by name/ID or enter coordinates. Run Reach, then switch between **Reachable area**, **Reached streets**, and time cutoffs. Displayed cutoffs reuse the retained result. See [Reach](reach.md) for query limits and surface bounds. Reach measures modeled travel time; it does not add jobs, population, or other opportunities.
+Choose an origin on the map or use **Choose origin** to search imported stops by name/ID or enter coordinates. Run Reach, then switch between **Reachable area**, **Reached streets**, and time cutoffs. Displayed cutoffs reuse the retained result. See [Reach](../reference/reach.md) for query limits and surface bounds. Reach measures modeled travel time; it does not add jobs, population, or other opportunities.
 
 ### Compare
 
@@ -36,7 +36,7 @@ Scenario drafts and the selected case are saved in Studio's local profile when e
 
 For a stop inserted on an A → B edge shared by several branches, the road path is applied to each affected branch. Each branch retains its untouched published shape and its own A → B runtime, with dwell added at the inserted stop. Load complete branch shapes before building the path.
 
-Matrix is available through the CLI in 0.4.0. Studio does not add a separate Matrix screen.
+Matrix is available through the CLI in 0.4.1. Studio does not add a separate Matrix screen.
 
 ## City
 

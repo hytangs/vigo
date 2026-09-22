@@ -7,7 +7,7 @@ import { WeightedLruCache } from '../server/weighted-lru-cache.mjs'
 const separator = '\u001f'
 export const rawId = (value) => String(value ?? '').split(separator).at(-1)
 export const scopeOf = (value) => String(value ?? '').includes(separator) ? String(value).split(separator)[0] : ''
-export const dateToken = (date) => Number(String(date).replaceAll('-', ''))
+const dateToken = (date) => Number(String(date).replaceAll('-', ''))
 const isoDate = (token) => token ? String(token).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3') : null
 export class AgencyContext {
   constructor(storePath, cityName) {

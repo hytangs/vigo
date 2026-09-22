@@ -55,6 +55,8 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
   const measurements = { departures: [], intervals: [] }
   const warnings = []
   const groups = new Map()
+  const reportedTrips = new Map()
+  const vehiclesByTrip = groupRows(snapshot?.vehicles ?? [], vehicle => eventId(rawId(vehicle.tripId), vehicle.startDate?.replaceAll('-', ''), vehicle.startTime))
   const routes = new Map(context.routes.map((route) => [route.route_id, {
     id: route.route_id, name: route.short_name || route.long_name || rawId(route.route_id), longName: route.long_name || '',
     color: /^[0-9a-f]{6}$/i.test(route.color) ? `#${route.color}` : 'var(--text-muted)', mode: route.route_type,
@@ -103,6 +105,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       continue
     }
     const predictions = []
+    reportedTrips.set(eventId(trip.trip_id, serviceDate), { update, predictions })
     const sequenceCounts = new Map()
     const resolvedStops = (update.stopTimeUpdates ?? []).map((stopUpdate) => {
       const row = reportedDeparture(departures, stopUpdate)
@@ -150,7 +153,8 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
     // Compare consecutive scheduled trips even when their predictions cross.
     // Sorting by prediction first used to discard the overtaking member of a bunch.
     const ordered = group.predictions.sort((a, b) => a.scheduledTime - b.scheduledTime || a.tripId.localeCompare(b.tripId))
-    const predictedOrder = new Map([...ordered].sort((a, b) => a.predictedTime - b.predictedTime || a.tripId.localeCompare(b.tripId)).map((row, index) => [row, index]))
+    const predicted = [...ordered].sort((a, b) => a.predictedTime - b.predictedTime || a.tripId.localeCompare(b.tripId))
+    const predictedOrder = new Map(predicted.map((row, index) => [row, index]))
     const firstScheduled = ordered.reduce((time, row) => Math.min(time, row.scheduledTime), nowSeconds)
     const lastScheduled = ordered.reduce((time, row) => Math.max(time, row.scheduledTime), nowSeconds + policy.windowMinutes * 60)
     const allExpected = context.expectedDepartures(trip, stopId, serviceDate, firstScheduled - epoch, lastScheduled - epoch)
@@ -185,16 +189,80 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
       }
       route.headway = 'changed'
       const compressed = observedHeadwaySeconds < scheduledHeadwaySeconds
+      const alert = spacingAlert(scheduledHeadwaySeconds, observedHeadwaySeconds)
       add(compressed ? 'bunching' : 'service-gap', [key, before.tripId, after.tripId], {
-        severity: spacingAlert(scheduledHeadwaySeconds, observedHeadwaySeconds).severity,
+        severity: alert.severity,
         vehicleId: after.vehicleId,
-        title: compressed ? spacingAlert(scheduledHeadwaySeconds, observedHeadwaySeconds).severity === 'info' ? 'Closer predicted headway' : 'Predicted bunching · compressed headway' : 'Predicted headway gap', routeId: trip.route_id, directionId: trip.direction_id ?? undefined,
+        title: compressed ? alert.severity === 'info' ? 'Closer predicted headway' : 'Predicted bunching · compressed headway' : 'Predicted headway gap', routeId: trip.route_id, directionId: trip.direction_id ?? undefined,
         tripId: after.tripId, stopId, serviceDate, observedAt: before.observedAt < after.observedAt ? before.observedAt : after.observedAt,
-        evidence: { ...(before.vehicleId ? { leadingVehicleId: before.vehicleId } : {}), ...(before.tripStartTime ? { leadingTripStartTime: before.tripStartTime } : {}), alertReason: spacingAlert(scheduledHeadwaySeconds, observedHeadwaySeconds).alertReason, ...(after.tripStartTime ? { tripStartTime: after.tripStartTime } : {}), scheduledHeadwaySeconds, observedHeadwaySeconds, headwayRatio: observedHeadwaySeconds / scheduledHeadwaySeconds,
+        evidence: { ...(before.vehicleId ? { leadingVehicleId: before.vehicleId } : {}), ...(before.tripStartTime ? { leadingTripStartTime: before.tripStartTime } : {}), alertReason: alert.alertReason, ...(after.tripStartTime ? { tripStartTime: after.tripStartTime } : {}), scheduledHeadwaySeconds, observedHeadwaySeconds, headwayRatio: observedHeadwaySeconds / scheduledHeadwaySeconds,
           referenceStopId: stopId, comparisonWindow: [before.scheduledTime, after.scheduledTime], expectedDepartures: expected.length, reportingTrips: expected.filter((row) => reporting.has(`${row.trip_id}/${row.stop_sequence}`)).length,
           tripIds: [before.tripId, after.tripId], predictedOrderReversed,
           reason: `Two consecutive scheduled departures, both reporting at this stop.${predictedOrderReversed ? ' Their predicted order is reversed.' : ''} This is a predicted interval, not an observed passage or route-wide regularity claim.` },
         sourceRefs: [before.sourceRef, after.sourceRef, `gtfs:connections/${encodeURIComponent(stopId)}?date=${serviceDate}`],
+      })
+    }
+    // A vehicle can overtake an intervening scheduled trip and join a different
+    // pair. Keep these compression alerts separate from complete headway metrics.
+    for (let index = 1; index < predicted.length; index++) {
+      const pair = [predicted[index - 1], predicted[index]].sort((a, b) => a.scheduledTime - b.scheduledTime)
+      const [before, after] = pair
+      const expected = allExpected.filter(row => row.departure + epoch >= before.scheduledTime && row.departure + epoch <= after.scheduledTime)
+      if (expected.length <= 2 || before.scheduledTime === after.scheduledTime) continue
+      const intermediate = expected.filter(row => !pair.some(member => member.tripId === row.trip_id && member.sequence === row.stop_sequence))
+      const refs = []
+      const interveningTrips = []
+      let observedAt = before.observedAt < after.observedAt ? before.observedAt : after.observedAt
+      const accountedFor = intermediate.every(row => {
+        const reported = reportedTrips.get(eventId(row.trip_id, serviceDate))
+        if (!reported) return false
+        const prediction = reported.predictions.find(item => item.sequence === row.stop_sequence)
+        if (prediction) {
+          if (prediction.predictedTime > predicted[index - 1].predictedTime && prediction.predictedTime < predicted[index].predictedTime) return false
+          refs.push(prediction.sourceRef)
+          interveningTrips.push({ tripId: row.trip_id, basis: 'prediction', predictedTime: prediction.predictedTime })
+          if (prediction.observedAt < observedAt) observedAt = prediction.observedAt
+          return true
+        }
+        // A fresh, uniquely identified position beyond this stop also accounts
+        // for a trip whose feed no longer includes its passed-stop predictions.
+        const vehicles = vehiclesByTrip.get(eventId(rawId(row.trip_id), serviceDate.replaceAll('-', ''), reported.update.startTime)) ?? []
+        const vehicle = vehicles.length === 1 ? vehicles[0] : null
+        if (!vehicle || vehicle.id !== reported.update.vehicleId || rawId(vehicle.routeId) !== rawId(trip.route_id)
+          || context.matchTripIdentity(vehicle, serviceDate).trip?.trip_id !== row.trip_id
+          || !finite(vehicle.timestamp) || !recordFresh(vehicle) || !(vehicle.currentStopSequence > row.stop_sequence)) return false
+        const call = context.tripDepartures(row.trip_id).find(call => call.stop_sequence === vehicle.currentStopSequence)
+        if (!call || vehicle.stopId && rawId(vehicle.stopId) !== rawId(call.from_stop_id)) return false
+        refs.push(`${vehicle.sourceUrl}#entity=${encodeURIComponent(vehicle.entityId ?? vehicle.id)}`)
+        refs.push(`${reported.update.sourceUrl}#entity=${encodeURIComponent(reported.update.id)}`)
+        interveningTrips.push({ tripId: row.trip_id, basis: 'position', vehicleId: vehicle.id, stopSequence: vehicle.currentStopSequence })
+        const progressTime = new Date(Math.min(vehicle.timestamp, reported.update.timestamp ?? feedByUrl.get(reported.update.sourceUrl).feedTimestamp) * 1000).toISOString()
+        if (progressTime < observedAt) observedAt = progressTime
+        return true
+      })
+      if (!accountedFor) continue
+      const times = expected.map(row => row.departure).sort((a, b) => a - b)
+      // Use the smallest local scheduled interval, not the sum across skipped
+      // trips, so ordinary spacing cannot become bunching just through reordering.
+      const scheduledHeadwaySeconds = Math.min(...times.slice(1).map((time, i) => time - times[i]))
+      const observedHeadwaySeconds = predicted[index].predictedTime - predicted[index - 1].predictedTime
+      const alert = spacingAlert(scheduledHeadwaySeconds, observedHeadwaySeconds)
+      if (observedHeadwaySeconds >= scheduledHeadwaySeconds || alert.severity === 'info') continue
+      routes.get(trip.route_id).headway = 'changed'
+      add('bunching', [key, before.tripId, after.tripId], {
+        severity: alert.severity, title: 'Predicted bunching · reordered trips',
+        routeId: trip.route_id, directionId: trip.direction_id ?? undefined, tripId: after.tripId,
+        vehicleId: after.vehicleId, stopId, serviceDate,
+        observedAt,
+        evidence: { leadingVehicleId: before.vehicleId, leadingTripStartTime: before.tripStartTime, tripStartTime: after.tripStartTime,
+          tripIds: [before.tripId, after.tripId], predictedOrderReversed: after.predictedTime < before.predictedTime,
+          scheduledHeadwaySeconds, observedHeadwaySeconds, headwayRatio: observedHeadwaySeconds / scheduledHeadwaySeconds,
+          scheduledPairSeparationSeconds: after.scheduledTime - before.scheduledTime, interveningTrips,
+          comparisonBasis: 'reordered-predictions', referenceStopId: stopId, comparisonWindow: [before.scheduledTime, after.scheduledTime],
+          expectedDepartures: expected.length, reportingTrips: expected.filter(row => reporting.has(`${row.trip_id}/${row.stop_sequence}`)).length,
+          alertReason: `${alert.alertReason} The reference is the smallest local scheduled interval after trip reordering.`,
+          reason: 'Neighboring predictions after trip reordering, compared with the smallest scheduled interval between these trips. Intervening scheduled trips have fresh predictions outside or simultaneous with this pair, or fresh positions beyond this stop. This is not a complete scheduled headway measurement or an observed passage.' },
+        sourceRefs: [...new Set([before.sourceRef, after.sourceRef, ...refs, `gtfs:connections/${encodeURIComponent(stopId)}?date=${serviceDate}`])],
       })
     }
   }

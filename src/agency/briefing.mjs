@@ -38,7 +38,7 @@ export function briefingFacts(trace) {
       const route = event.routeName || event.routeId, stop = event.stopName || event.stopId
       if (e.observedHeadwaySeconds != null) {
         const difference = e.observedHeadwaySeconds - e.scheduledHeadwaySeconds
-        add(source, `Expect a ${number(e.observedHeadwaySeconds / 60)} minute gap on ${route} at ${stop}. That is ${number(Math.abs(difference) / 60)} minutes ${difference < 0 ? 'shorter' : 'longer'} than the scheduled ${number(e.scheduledHeadwaySeconds / 60)} minutes.`, 'interval')
+        add(source, `Expect a ${number(e.observedHeadwaySeconds / 60)} minute gap on ${route} at ${stop}. That is ${number(Math.abs(difference) / 60)} minutes ${difference < 0 ? 'shorter' : 'longer'} than ${e.comparisonBasis ? 'the smallest local scheduled interval after trip reordering:' : 'the scheduled'} ${number(e.scheduledHeadwaySeconds / 60)} minutes.`, 'interval')
       } else if (e.delaySeconds != null) add(source, `A departure on ${route} from ${stop} is expected ${number(e.delaySeconds / 60)} minutes late.`, 'delay')
       else if (event.type === 'service-alert') add(source, event.title, 'alert')
     }

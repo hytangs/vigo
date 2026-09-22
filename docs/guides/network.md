@@ -22,7 +22,7 @@ Feed totals cover the imported calendars. After trip details load, counts and ti
 
 Scheduled playback is labeled **Estimated**. Vehicles dwell at stops and follow their pattern's shape between timed calls. Missing or inconsistent geometry is omitted and reported in diagnostics. The index does not retain `shape_dist_traveled` or every untimed call, so interpolated positions are not exact locations. A timetable band spans the first departure through the last arrival, including gaps in service.
 
-Live positions remain separate from playback. Route-colored vehicle circles show a bearing arrow when available. Map layers do not change query semantics. Vehicle Positions and Alerts are display evidence; only supported Trip Updates can change [realtime Route](realtime-routing.md).
+Live positions remain separate from playback. Route-colored vehicle circles show a bearing arrow when available. Map layers do not change query semantics. Vehicle Positions and Alerts are display evidence; only supported Trip Updates can change [realtime Route](../reference/realtime-routing.md).
 
 ## Vehicle timing and line view
 
@@ -34,7 +34,7 @@ Vehicle timing comes from the City's full connection store. The selected vehicle
 
 Trips declared by GTFS-RT `ADDED` or `NEW` appear in the line view and **Trip times** selector even when absent from the static timetable. Their reported stop sequences supply line placement and timing, including vehicle-only trips with a known current stop. Partial sequences are labeled as reported stops. Scheduled times and delay comparisons remain unavailable.
 
-Ambiguous identities, unknown stops, duplicate sequences, and stale predictions are not presented as current timings. Added-service display does not imply that the trip is available to journey routing; see [realtime limits](known-routing-limitations.md#realtime).
+Ambiguous identities, unknown stops, duplicate sequences, and stale predictions are not presented as current timings. Added-service display does not imply that the trip is available to journey routing; see [realtime limits](../reference/known-routing-limitations.md#realtime).
 
 ### Data and matching
 
@@ -80,4 +80,4 @@ Web search is configured separately. Connecting an LLM does not grant online sea
 
 Predicted spacing is not measured headway; retained forecast changes are not actual vehicle progression. Reporting coverage is not service health. Ask has no connected crew roster, maintenance clearance, passenger-demand model or live intervention simulator. It can discuss conditional options and draft rider text; it does not authorize dispatch or publish messages.
 
-The [operations ledger](agency-operations.md) and [synthetic replay](operational-replay.md) are research APIs, not hidden everyday workspace panels.
+The [operations ledger](../research/agency-operations.md) and [synthetic replay](../research/operational-replay.md) are research APIs, not hidden everyday workspace panels.

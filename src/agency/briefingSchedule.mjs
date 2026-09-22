@@ -1,4 +1,4 @@
-export const briefingIntervals = [15, 30, 60]
+const briefingIntervals = [15, 30, 60]
 export function briefingPreferences(value = {}) {
   if (!briefingIntervals.includes(value.intervalMinutes) || typeof value.automatic !== 'boolean') throw Object.assign(new Error('Choose a 15, 30, or 60 minute briefing interval and whether to update automatically.'), { statusCode: 400 })
   return { intervalMinutes: value.intervalMinutes, automatic: value.automatic }

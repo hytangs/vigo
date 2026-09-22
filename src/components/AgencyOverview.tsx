@@ -19,7 +19,7 @@ export function AgencyOverview({ state, refreshFailed, onBrowse, onRoute, onFeed
   const count = (value: number) => value.toLocaleString()
   return <section className="agency-overview" aria-label="Network overview">
     <header className="agency-page-heading">
-      <h1>Network</h1>
+      <h1 className="studio-page-title">Network</h1>
       <p>{refreshFailed ? 'Last updated' : 'Updated'} {shortTime}</p>
     </header>
     <div className="agency-overview-metrics" aria-label="Network snapshot measures">

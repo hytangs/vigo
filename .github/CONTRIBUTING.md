@@ -1,6 +1,6 @@
 # Contributing to VIGO
 
-This repository contains Engine and Studio. Keep language bindings, private datasets, notebooks, generated data, release archives, and local workspaces outside it. Follow the [quickstart](../docs/quickstart.md) to install and build.
+This repository contains Engine and Studio. Keep language bindings, private datasets, notebooks, generated data, release archives, and local workspaces outside it. Follow the [quickstart](../docs/guides/quickstart.md) to install and build.
 
 ## Make a change
 
@@ -26,6 +26,8 @@ Use the relevant lane while developing, then run `npm test` before submitting. R
 
 `check:docs` validates local links, document anchors, assets, documented npm scripts, and guide/package versions across Markdown and HTML. Keep the docs index connected to current guides; preserve version history in release notes and the changelog.
 
+Place workflows in `docs/guides/`, query and data contracts in `docs/reference/`, implementation and verification guidance in `docs/development/`, and retained studies in `docs/research/`. Keep the root documentation directory for its index and offline guide; put images beside the topic that uses them.
+
 Actual-model evaluations are opt-in, never part of deterministic tests. `npm run evaluate:intelligence -- --output intelligence.jsonl` exercises the configured provider; `node scripts/evaluate-network-briefing.mjs --output briefing.json` evaluates a synthetic briefing. The latter requires a new output path and `VIGO_AGENCY_LLM_*` settings; use `--variant stale` for expired evidence. Retain provider, input, and revision provenance, and distinguish these runs from live service evidence.
 
 ## Packaging and releases
@@ -34,4 +36,4 @@ Run `npm run check:release` before a release-affecting change. On each supported
 
 `check:public` also tests the host archiver with a small fixture. Archive paths belong to `scripts/lib/studio-paths.mjs`; pass the produced file directly to the uploader instead of duplicating filename rules in CI. The release workflow verifies supported OS/CPU targets and City portability. A local pass establishes only that host's results.
 
-Tests validate the declared model and interfaces, not observed service, passenger impact, operational feasibility, or general model quality. See [accuracy](../docs/routing-accuracy.md) and [security reporting](../SECURITY.md).
+Tests validate the declared model and interfaces, not observed service, passenger impact, operational feasibility, or general model quality. See [accuracy](../docs/development/routing-accuracy.md) and [security reporting](../SECURITY.md).

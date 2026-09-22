@@ -36,6 +36,13 @@ for (const patch of [{ tripId: 'next-trip' }, { startDate: '20260915' }, { start
 assert.equal(bunchingPartner(vehicle, { vehicles: [vehicle, leading, { ...leading, sourceUrl: 'other' }] }, pairEvent, now), undefined)
 assert.equal(bunchingPartner(vehicle, { vehicles: [vehicle, { ...leading, timestamp: now - 181 }] }, pairEvent, now), undefined)
 assert.equal(bunchingPartner(vehicle, { vehicles: [vehicle, { ...leading, startDate: '20260915' }] }, pairEvent, now), undefined)
+assert.equal(bunchingPartner({ ...vehicle, timestamp: now - 181 }, pairSnapshot, pairEvent, now), undefined, 'A stale caller cannot draw a current pair')
+assert.equal(bunchingPartner(vehicle, pairSnapshot, { ...pairEvent, observedAt: new Date((now - 181) * 1000).toISOString() }, now), undefined)
+assert.equal(bunchingPartner(vehicle, { vehicles: [vehicle, leading, { ...leading, id: 'conflicting-trip-owner' }] }, pairEvent, now), undefined, 'Ambiguous trip ownership cannot draw a link even if one vehicle ID matches')
+const scoped = { ...leading, tripId: 'one\u001fP-trip', routeId: 'one\u001fR' }
+const scopedPair = { ...pairEvent, routeId: 'one\u001fR', evidence: { ...pairEvent.evidence, tripIds: ['one\u001fP-trip', 'T'] } }
+assert.equal(vehicleGap(scoped, { vehicles: [scoped, { ...scoped, id: 'other-feed', tripId: 'two\u001fP-trip', routeId: 'two\u001fR' }] }, [scopedPair], now), scopedPair, 'A different scoped trip is not a duplicate of this vehicle')
+assert.equal(vehicleGap({ ...scoped, routeId: 'two\u001fR' }, { vehicles: [{ ...scoped, routeId: 'two\u001fR' }] }, [scopedPair], now), undefined, 'Explicit source namespaces must agree')
 
 const { vehicleOccupancyIndicator } = await import('../src/agency/vehicleIndicators.ts')
 assert.deepEqual(vehicleOccupancyIndicator(undefined, [{ occupancyStatus: 'FULL' }, { occupancyStatus: 'NO_DATA_AVAILABLE' }]), { label: '1/2 cars reporting · 1 crowded', crowded: true })

@@ -43,7 +43,7 @@ function feedAtExport(feed: FeedState, exportedSeconds: number, freshnessSeconds
 function eventMeasurement(event: OperationalEvent) {
   const evidence = event.evidence
   if (finite(evidence.scheduledHeadwaySeconds) && finite(evidence.observedHeadwaySeconds)) {
-    return `Predicted ${seconds(evidence.observedHeadwaySeconds)} / scheduled ${seconds(evidence.scheduledHeadwaySeconds)}${finite(evidence.reportingTrips) && finite(evidence.expectedDepartures) ? `; ${evidence.reportingTrips}/${evidence.expectedDepartures} expected departures report at the reference stop` : ''}`
+    return `Predicted ${seconds(evidence.observedHeadwaySeconds)} / ${evidence.comparisonBasis ? 'smallest local scheduled interval' : 'scheduled'} ${seconds(evidence.scheduledHeadwaySeconds)}${evidence.comparisonBasis && finite(evidence.scheduledPairSeparationSeconds) ? `; scheduled separation of these trips ${seconds(evidence.scheduledPairSeparationSeconds)}` : ''}${finite(evidence.reportingTrips) && finite(evidence.expectedDepartures) ? `; ${evidence.reportingTrips}/${evidence.expectedDepartures} expected departures report at the reference stop` : ''}`
   }
   if (finite(evidence.delaySeconds)) return `Departure deviation ${evidence.delaySeconds > 0 ? '+' : ''}${seconds(evidence.delaySeconds)}`
   return evidence.alertDescription || evidence.reason || 'See source record'

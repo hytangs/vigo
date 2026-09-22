@@ -1,6 +1,6 @@
 # Reach
 
-Reach computes travel time from one origin through scheduled transit and walking. It supports planned service scenarios. Walk-only, Drive, arrive-by, and realtime Reach are unavailable in 0.4.0.
+Reach computes travel time from one origin through scheduled transit and walking. It supports planned service scenarios. Walk-only, Drive, arrive-by, and realtime Reach are unavailable in 0.4.1.
 
 ## Request
 

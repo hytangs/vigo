@@ -2,6 +2,18 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::time::Instant;
 
+mod station_access_validation;
+pub use station_access_validation::*;
+
+mod station_access;
+pub use station_access::*;
+
+mod realtime;
+pub use realtime::*;
+
+mod preparation;
+pub use preparation::*;
+
 mod journeys;
 mod overlay_quality;
 pub use journeys::TimetableMatrixJourney;

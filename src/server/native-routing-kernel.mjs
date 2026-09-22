@@ -115,7 +115,7 @@ export function publishCchManifest({ kind, format, sourcePath, manifestPath, str
     schemaVersion: nativeCchManifestSchema,
     kind,
     format,
-    builderVersion: '0.4.0',
+    builderVersion: '0.4.1',
     source: fileIdentity(sourcePath),
     sourceSnapshot: snapshotIdentity(sourcePath),
     structure: fileIdentity(structurePath),
@@ -352,6 +352,32 @@ function queryAccessTiming(request) {
       ? { accessOverheadSeconds: Number(request.accessOverheadSeconds) }
       : {}),
   }
+}
+
+export function validateNativeStationPaths(input) {
+  const binding = loadNativeBinding()
+  if (typeof binding.validateStationPaths !== 'function') throw new Error('Rust routing binding lacks station path validation. Rebuild the native kernel.')
+  return binding.validateStationPaths(input)
+}
+
+export function compileNativeStationPaths(input) {
+  const binding = loadNativeBinding()
+  if (typeof binding.compileStationPaths !== 'function') throw new Error('Rust routing binding lacks station path compilation. Rebuild the native kernel.')
+  return binding.compileStationPaths(input)
+}
+
+export function compileNativeRealtimeTimetable(input) {
+  const binding = loadNativeBinding()
+  if (typeof binding.compileRealtimeTimetable !== 'function') throw new Error('Rust routing binding lacks realtime compilation. Rebuild the native kernel.')
+  return binding.compileRealtimeTimetable(input)
+}
+
+export function prepareNativeTimetableIndexes(input) {
+  const binding = loadNativeBinding()
+  if (typeof binding.prepareTimetableIndexes !== 'function') {
+    throw new Error('Rust routing binding lacks timetable preparation. Rebuild the native kernel.')
+  }
+  return binding.prepareTimetableIndexes(input)
 }
 
 export function prepareNativeTimetableKernel(kernel) {

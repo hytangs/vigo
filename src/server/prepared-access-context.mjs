@@ -1,3 +1,4 @@
+import { validateNativeStationPaths } from './native-routing-kernel.mjs'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { decodeRoutingSnapshot, encodeRoutingSnapshot } from './routing-snapshot.mjs'
@@ -72,60 +73,13 @@ export function persistPreparedAccessContext(store, accessPolicyIdentity) {
   }
 }
 
-export function packStationPaths(stops, links) {
-  const count = links.length
-  const offsets = new Uint32Array(stops.length + 1)
-  const pathOffsets = new Uint32Array(count + 1)
-  const sources = [...new Set(links.flatMap(link => link.sources))]
-  const sourceIndices = new Map(sources.map((source, index) => [source, index]))
-  const pathLength = links.reduce((sum, link) => sum + link.stops.length, 0)
-  const packed = {
-    stopIds: stops.map(stop => stop.stop_id), sources, offsets, pathOffsets,
-    from: new Uint32Array(count), to: new Uint32Array(count),
-    seconds: new Float64Array(count), distanceM: new Float64Array(count),
-    pathStops: new Uint32Array(pathLength), pathSources: new Uint32Array(pathLength - count),
-  }
-  let cursor = 0
-  for (let i = 0; i < count; i += 1) {
-    const link = links[i]
-    offsets[link.from + 1] += 1
-    packed.from[i] = link.from
-    packed.to[i] = link.to
-    packed.seconds[i] = link.seconds
-    packed.distanceM[i] = link.distanceM
-    packed.pathStops.set(link.stops, cursor)
-    packed.pathSources.set(link.sources.map(source => sourceIndices.get(source)), cursor - i)
-    cursor += link.stops.length
-    pathOffsets[i + 1] = cursor
-  }
-  for (let i = 1; i < offsets.length; i += 1) offsets[i] += offsets[i - 1]
-  validateStationPaths(packed)
-  return packed
-}
-
 function validateStationPaths(paths) {
-  const { stopIds, sources, offsets, pathOffsets, from, to, seconds, distanceM, pathStops, pathSources } = paths
+  const { stopIds, sources } = paths
   if (!Array.isArray(stopIds) || !stopIds.every(id => typeof id === 'string')
-    || !Array.isArray(sources) || !sources.every(source => typeof source === 'string')
-    || ![offsets, pathOffsets, from, to, pathStops, pathSources].every(array => array instanceof Uint32Array)
-    || !(seconds instanceof Float64Array) || !(distanceM instanceof Float64Array)
-    || offsets.length !== stopIds.length + 1 || offsets[0] !== 0 || offsets.at(-1) !== from.length
-    || [to, seconds, distanceM].some(array => array.length !== from.length)
-    || pathOffsets.length !== from.length + 1 || pathOffsets[0] !== 0 || pathOffsets.at(-1) !== pathStops.length
-    || pathSources.length !== pathStops.length - from.length) throw new Error('Prepared station paths have invalid dimensions.')
-  for (let stop = 0; stop < stopIds.length; stop += 1) {
-    if (offsets[stop] > offsets[stop + 1]) throw new Error('Prepared station offsets are invalid.')
-    for (let i = offsets[stop]; i < offsets[stop + 1]; i += 1) {
-      if (from[i] !== stop || to[i] >= stopIds.length || !Number.isFinite(seconds[i]) || seconds[i] < 0
-        || !Number.isFinite(distanceM[i]) || distanceM[i] < 0 || pathOffsets[i + 1] < pathOffsets[i] + 2
-        || pathStops[pathOffsets[i]] !== stop || pathStops[pathOffsets[i + 1] - 1] !== to[i]) {
-        throw new Error('Prepared station path is invalid.')
-      }
-    }
+    || !Array.isArray(sources) || !sources.every(source => typeof source === 'string')) {
+    throw new Error('Prepared station paths have invalid identities.')
   }
-  if (pathStops.some(stop => stop >= stopIds.length) || pathSources.some(source => source >= sources.length)) {
-    throw new Error('Prepared station path references an unknown stop or source.')
-  }
+  validateNativeStationPaths({ ...paths, stopCount: stopIds.length, sourceCount: sources.length })
 }
 
 export function stationPathLookup(paths, stops) {

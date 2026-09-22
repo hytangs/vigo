@@ -1,3 +1,4 @@
+import { compileNativeStationPaths } from './native-routing-kernel.mjs'
 import { haversineKm } from './geometry-utils.mjs'
 
 const isPathway = source => source === 'gtfs_pathway' || source === 'schedule_pathway'
@@ -48,68 +49,40 @@ export function stationFallbackSeconds(from, to, walkingSpeedKph = 4.8) {
   return Math.max(120, Math.ceil(distanceKm / walkingSpeedKph * 3600))
 }
 
-// Compile the directed station walking graph once. Retain every nondominated
-// time/distance path: a faster path can exceed an endpoint's remaining budget.
-// OSM transfers already belong to the complete native street frontier.
-export function stationAccessPaths(store, stops, walkingSpeedKph = 4.8) {
+// Resolve feed identities once; Rust owns graph compilation, Pareto search and
+// packed witnesses. Declared pathways outside this stop subset still suppress
+// invented parent-station links for the entire station.
+export function prepareStationAccessPaths(store, stops, walkingSpeedKph = 4.8) {
   const indices = new Map(stops.map((stop, index) => [stop.stop_id, index]))
-  const outgoing = stops.map(() => new Map())
-  const add = (fromId, toId, seconds, source, distanceM) => {
-    const from = indices.get(fromId), to = indices.get(toId)
-    if (from === undefined || to === undefined || from === to
-      || store.forbiddenTransferPairs.has(`${fromId}\u0000${toId}`)) return
-    const current = outgoing[from].get(to)
-    if (current && current.seconds <= seconds) return
-    outgoing[from].set(to, {
-      to, seconds,
-      distanceM: distanceM ?? haversineKm([stops[from].lon, stops[from].lat], [stops[to].lon, stops[to].lat]) * 1000,
-      source,
-    })
-  }
-  for (const [fromId, transfers] of store.transfers) {
+  const sources = ['parent_station_fallback'], sourceIndices = new Map([[sources[0], 0]])
+  const edges = [], groups = [], forbiddenFrom = [], forbiddenTo = []
+  for (const [id, transfers] of store.transfers) {
+    const from = indices.get(id)
+    if (from === undefined) continue
     for (const transfer of transfers) {
-      if (transfer.provenance === 'osm_certified_radial') continue
-      add(fromId, transfer.to_stop_id, Math.max(0, Number(transfer.min_transfer_time) || 0),
-        transfer.provenance, transfer.path_distance_m)
+      const to = indices.get(transfer.to_stop_id)
+      if (to === undefined) continue
+      const source = transfer.provenance
+      if (!sourceIndices.has(source)) { sourceIndices.set(source, sources.length); sources.push(source) }
+      edges.push({ from, to, seconds: Math.max(0, Number(transfer.min_transfer_time) || 0),
+        distance: transfer.path_distance_m ?? undefined, source: sourceIndices.get(source), street: source === 'osm_certified_radial' })
     }
   }
-  for (const ids of store.stationMembers.values()) {
-    // A declared station graph owns its connectivity and direction. A generic
-    // platform shortcut must not bypass a long or one-way declared pathway.
-    if (ids.some(id => store.transfers.get(id)?.some(link => link.provenance === 'gtfs_pathway'))) continue
-    const members = ids.filter(id => indices.has(id) && Number(stops[indices.get(id)].location_type || 0) === 0)
-    for (const from of members) for (const to of members) {
-      if (!store.transfers.get(from)?.some(link => link.to_stop_id === to)) {
-        const a = stops[indices.get(from)], b = stops[indices.get(to)]
-        const distanceM = haversineKm([a.lon, a.lat], [b.lon, b.lat]) * 1000
-        add(from, to, stationFallbackSeconds(a, b, walkingSpeedKph), 'parent_station_fallback', distanceM)
-      }
-    }
+  for (const ids of store.stationMembers.values()) groups.push({
+    members: ids.filter(id => indices.has(id)).map(id => indices.get(id)),
+    declared: ids.some(id => store.transfers.get(id)?.some(link => link.provenance === 'gtfs_pathway')),
+  })
+  for (const pair of store.forbiddenTransferPairs) {
+    const [a, b] = pair.split('\u0000'), from = indices.get(a), to = indices.get(b)
+    if (from !== undefined && to !== undefined) { forbiddenFrom.push(from); forbiddenTo.push(to) }
   }
-  const paths = []
-  const dominates = (left, right) => left.seconds <= right.seconds && left.distanceM <= right.distanceM
-  for (let from = 0; from < stops.length; from += 1) {
-    if (!outgoing[from].size) continue
-    const initial = { to: from, seconds: 0, distanceM: 0, stops: [from], sources: [] }
-    const labels = new Map([[from, [initial]]]), queue = [initial]
-    for (let cursor = 0; cursor < queue.length; cursor += 1) {
-      const label = queue[cursor]
-      if (!labels.get(label.to).includes(label)) continue
-      for (const edge of outgoing[label.to].values()) {
-        const candidate = {
-          to: edge.to, seconds: label.seconds + edge.seconds,
-          distanceM: label.distanceM + edge.distanceM,
-          stops: [...label.stops, edge.to], sources: [...label.sources, edge.source],
-        }
-        const retained = labels.get(edge.to) ?? []
-        if (retained.some(current => dominates(current, candidate))) continue
-        labels.set(edge.to, [...retained.filter(current => !dominates(candidate, current)), candidate])
-        queue.push(candidate)
-      }
-    }
-    for (const [to, retained] of labels) if (to !== from) {
-      for (const label of retained) paths.push({ from, ...label })
-    }
-  }
-  return paths
+  const { sourceIds, ...packed } = compileNativeStationPaths({
+    coordinates: Float64Array.from(stops.flatMap(stop => [Number(stop.lon), Number(stop.lat)])),
+    platforms: Uint8Array.from(stops, stop => Number(stop.location_type || 0) === 0 ? 1 : 0),
+    edges, groups, forbiddenFrom: Uint32Array.from(forbiddenFrom), forbiddenTo: Uint32Array.from(forbiddenTo),
+    fallbackSource: 0, walkingSpeedKph,
+  })
+  const retainedSources = Array.from(sourceIds, index => sources[index])
+  if (retainedSources.some(source => typeof source !== 'string')) throw new Error('Prepared station paths have invalid sources.')
+  return { stopIds: stops.map(stop => stop.stop_id), sources: retainedSources, ...packed }
 }

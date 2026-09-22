@@ -2,7 +2,7 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VIGO 0.4.0 — from source to routing</title>
+<title>VIGO 0.4.1 — from source to routing</title>
 <style>
   :root { color-scheme: light; --ink: #18352e; --muted: #536c63; --line: #d4dfd9; --paper: #f7f9f6; --accent: #006b51; }
   * { box-sizing: border-box; }
@@ -60,7 +60,7 @@ npm run build
 node public/vigo.mjs capabilities
 npm test</code></pre>
   <p>These separate commands work in a terminal or PowerShell. Use <code>npm.cmd</code> if PowerShell blocks <code>npm.ps1</code>. Run the examples below from the cloned <code>vigo</code> directory. <code>node public/vigo.mjs</code> avoids a global installation; optional <code>npm link</code> exposes the shorter <code>vigo</code> command.</p>
-  <p class="note">VIGO 0.4.0 uses API 1.0, City format 1, and Result schema 1.</p>
+  <p class="note">VIGO 0.4.1 uses API 1.0, City format 1, and Result schema 1.</p>
   <p>Supported native targets: macOS 13.5+ on ARM64/x64, Linux glibc on ARM64/x64, and Windows x64. Linux release builds use Ubuntu 24.04. Alpine/musl, 32-bit, and native Windows ARM64 are not provided. Studio needs a graphical session and WebGL 2; Engine does not need a GPU.</p>
 </section>
 <section id="city">
@@ -144,7 +144,7 @@ node public/vigo.mjs inspect --city=./city</code></pre>
     "endMinutes": 1200, "averageSpeedKph": 22
   }]
 }</code></pre>
-    <p>This is a member to insert into the Reach object, not a complete standalone JSON document. Planned service applies to Reach only. See the <a href="scenarios.md">Scenario reference</a> for augment, replace, branch selection, route removal, and travel-time assumptions.</p>
+    <p>This is a member to insert into the Reach object, not a complete standalone JSON document. Planned service applies to Reach only. See the <a href="reference/scenarios.md">Scenario reference</a> for augment, replace, branch selection, route removal, and travel-time assumptions.</p>
     <p>Save baseline and alternative Results, then compare them without rerunning either query:</p>
 <pre><code>node public/vigo.mjs compare --before=./reach-result.json --after=./reach-alternative.json --output=./comparison.json</code></pre>
     <p>Compare accepts compatible Route, Matrix, or Reach Results of the same family. Match endpoints/rows and, for Reach, grid bounds and resolution. Keep date/time and walking assumptions aligned when attributing a difference to the Scenario.</p>
@@ -157,7 +157,7 @@ node public/vigo.mjs inspect --city=./city</code></pre>
   "delayFactor": 2
 }</code></pre>
     <p>Each observation chooses exactly one of <code>delayFactor</code> (1–100), <code>speedKph</code> (1–200), positive <code>travelTimeSeconds</code> (at most 86400), or <code>closed:true</code>. Coordinates must match the intended directed edge. Supplied times cannot beat base free flow. Check matching counts and <code>diagnostics.traffic.status</code>; expired data falls back to free flow. Freshness uses the current clock, not the service date.</p>
-    <p>Realtime Route processes supported Trip Updates in the desktop and CLI. CLI callers supply <code>realtimeSnapshot</code> and select <code>--data-mode realtime</code>. Unreported trips retain scheduled times. Vehicle Positions and Alerts are display data; Matrix and Reach remain scheduled. See <a href="realtime-routing.md">realtime modes and limits</a>.</p>
+    <p>Realtime Route processes supported Trip Updates in the desktop and CLI. CLI callers supply <code>realtimeSnapshot</code> and select <code>--data-mode realtime</code>. Unreported trips retain scheduled times. Vehicle Positions and Alerts are display data; Matrix and Reach remain scheduled. See <a href="reference/realtime-routing.md">realtime modes and limits</a>.</p>
   </details>
 </section>
 <section id="app">
@@ -174,7 +174,7 @@ npm run archive:studio</code></pre>
   </table></div>
   <p><code>npm run release:studio</code> combines icon checks, build, packaging, packaged checks, and archiving. Run <code>npm run check:release</code> for the full source/native suite. These commands produce local files; they do not publish Git tags or releases. macOS receives an ad-hoc signature, not Developer ID notarization. Build separately for each OS/CPU and retain the whole distribution, including resources.</p>
   <p>Studio imports GTFS and OSM into its own project library. It does not open CLI City directories and has no Matrix screen. Its packaged interface communicates with Engine internally and opens no local server port.</p>
-  <p>Use <strong>Network</strong> for live reporting, trip times, line diagrams, and experimental Ask; <strong>Route</strong> for ordered journeys; <strong>Analyze</strong> for Reach; and <strong>City</strong> to manage sources. Individual GTFS feeds and OSM can be removed under <strong>City → Data sources</strong>. See the <a href="studio.md">Studio guide</a> for the workflow and the <a href="releases/0.4.0.md">0.4.0 release notes</a> for changes.</p>
+  <p>Use <strong>Network</strong> for live reporting, trip times, line diagrams, and experimental Ask; <strong>Route</strong> for ordered journeys; <strong>Analyze</strong> for Reach; and <strong>City</strong> to manage sources. Individual GTFS feeds and OSM can be removed under <strong>City → Data sources</strong>. See the <a href="guides/studio.md">Studio guide</a> for the workflow and the <a href="releases/0.4.1.md">0.4.1 release notes</a> for changes.</p>
   <p><strong>For your own app:</strong> use the public CLI's JSON contract or the <a href="https://github.com/hytangs/vigo-py/tree/main/docs">Python API</a>. Studio's internal HTTP endpoints are not a supported external API. An HTML page can display an exported Result, as below; a static page cannot execute the native routing engine by itself. Live queries need a local native host or your application's backend.</p>
   <p>Build the City before accepting queries, reuse it, and select the matching runtime explicitly in deployment. Starting a CLI process for each query includes reopening costs. Python provides resident execution for supported query types; its lifecycle and API details remain in the Python repository.</p>
 </section>
@@ -190,7 +190,7 @@ npm run archive:studio</code></pre>
     <tr><td>How should I interpret it?</td><td><code>warnings</code>, query/date, City identity, schedule mode, and station/street-access verification fields.</td></tr>
     <tr><td>How did the engine execute it?</td><td><code>diagnostics</code>, <code>searchStats</code>, cache counters, candidate lists, and detailed timing. These usually belong in an expanded technical view.</td></tr>
   </table></div>
-  <p>Keep meaningful uncertainty visible. Station-access status and schedule fallback can currently live inside diagnostics; do not discard that entire object blindly. A path to a platform coordinate does not establish an entrance connection. Read the <a href="known-routing-limitations.md">routing limits</a> for unsupported GTFS features, station assumptions, street coverage, driving turns, and realtime boundaries.</p>
+  <p>Keep meaningful uncertainty visible. Station-access status and schedule fallback can currently live inside diagnostics; do not discard that entire object blindly. A path to a platform coordinate does not establish an entrance connection. Read the <a href="reference/known-routing-limitations.md">routing limits</a> for unsupported GTFS features, station assumptions, street coverage, driving turns, and realtime boundaries.</p>
   <p class="note">Smaller JSON and simpler JSON are different. Removing indentation reduces bytes; separating the user answer from search and cache internals reduces the application's burden. The current API is unchanged.</p>
 </section>
 <section id="viewer">

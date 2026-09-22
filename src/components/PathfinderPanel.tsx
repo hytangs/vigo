@@ -1,60 +1,43 @@
-import { type CSSProperties, type KeyboardEvent, useEffect, useRef } from 'react'
+export { RoutingDetailPanel } from './JourneyItinerary'
 import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
   CalendarDays,
-  ChevronRight,
   CheckCircle2,
+  ChevronRight,
   Clock3,
   LoaderCircle,
   MapPin,
   Navigation2,
   Plus,
-  SlidersHorizontal,
   Trash2,
-  X,
 } from 'lucide-react'
-import { classNames } from '../domain'
-import { RoutingFare } from './RoutingFare'
-import { formatScheduleClock } from '../scheduledVehicles'
-import type {
-  RoutingPlan,
-  RoutingAccessAvailabilityHint,
-  RoutingPoint,
-  RoutingTimePreference,
-  RoutingTravelMode,
-  RoutingDataMode,
-} from '../routingModel'
+import { type KeyboardEvent } from 'react'
+import { formatRoutingMinutes, routingDataModeLabel, routingPlanRouteSequence, routingRealtimeDetail } from '../app/presentation'
 import {
-  formatRoutingLegDuration,
-  formatRoutingMinutes,
-  isSameStationTransfer,
-  routingLegDetail,
-  routingLegPrimaryLabel,
-  routingPlanRouteSequence,
-  routingRealtimeDetail,
-  routingDataModeLabel,
-} from '../app/presentation'
-import {
-  routingPlanStartWaitMinutes,
   routingPlanJourneyMinutes,
-  routingPlanTotalWaitMinutes,
+  routingPlanStartWaitMinutes,
   routingPlanTotalElapsedMinutes,
-  routingPlanRuntime,
+  routingPlanTotalWaitMinutes,
   type RoutingActivity,
   type RoutingServiceCoverage,
   type RoutingServiceDateAvailability,
   type RoutingServiceDateOption,
 } from '../app/routingPlan'
-import {
-  routingMaxWalkOptions,
-  routingTimeOptions,
-  type RoutingDepartureWindowMinutes,
-} from '../app/uiOptions'
+import { routingMaxWalkOptions, routingTimeOptions, type RoutingDepartureWindowMinutes } from '../app/uiOptions'
+import { classNames } from '../domain'
+import type  {
+  RoutingAccessAvailabilityHint,
+  RoutingDataMode,
+  RoutingPlan,
+  RoutingPoint,
+  RoutingTimePreference,
+  RoutingTravelMode,
+} from '../routingModel'
 import { maxRoutingPointCount, routingPointRoleLabel } from '../routingPointSequence'
-import { ResultMetric, StatusBadge } from './UiPrimitives'
+import { formatScheduleClock } from '../scheduledVehicles'
 
 export type RoutingScopeStatus = 'ready' | 'building' | 'failed' | 'missing'
 
@@ -63,60 +46,6 @@ const travelModeChoices = [
   ['walk', 'Walk'],
   ['drive', 'Drive'],
 ] as const satisfies ReadonlyArray<readonly [RoutingTravelMode, string]>
-
-function routingChoiceExplanation(plan: RoutingPlan) {
-  if (plan.choiceLabel === 'Fastest') {
-    return 'Earliest arrival among the displayed journeys, including any wait after the requested time.'
-  }
-  if (plan.choiceLabel === 'Fewest transfers') {
-    return 'Uses the fewest transfers among the displayed journeys.'
-  }
-  if (plan.choiceLabel === 'Least walking') {
-    return 'Requires the least walking among the displayed journeys.'
-  }
-  if (plan.choiceLabel === 'Shortest journey') {
-    return 'Has the shortest leave-to-arrival journey time among the displayed options; waiting after the requested time is shown separately.'
-  }
-  if (plan.choiceLabel === 'Best balance') return 'Selected from the exact journeys retained for this departure window.'
-  if (plan.travelMode === 'walk') return 'A walk-only path on the local directed pedestrian graph.'
-  if (plan.travelMode === 'drive') {
-    return plan.diagnostics.roadMetricMode === 'traffic-adjusted'
-      ? 'The fastest path on the local directed road graph under the supplied traffic snapshot.'
-      : 'The fastest free-flow path on the local directed road graph.'
-  }
-  return 'A distinct journey retained by the displayed-choice filter.'
-}
-
-function routingProfileLabel(plan: RoutingPlan) {
-  if (plan.travelMode !== 'transit') return plan.travelMode === 'drive' ? 'OSM drive' : 'OSM walk'
-  if (plan.diagnostics.searchProfile === 'balanced') return 'Transit'
-  if (plan.diagnostics.searchProfile === 'fastest') return 'Earliest arrival'
-  if (plan.diagnostics.searchProfile === 'pareto') return 'Pareto transit'
-  return 'Transit'
-}
-
-function routingCertificationLabel(plan: RoutingPlan) {
-  const certification = plan.diagnostics.paretoCertification as { status?: string } | undefined
-  if (certification?.status === 'passed') return 'Bounded Pareto certification passed'
-  if (plan.travelMode !== 'transit') return 'Directed street path'
-  if (plan.diagnostics.searchProfile === 'balanced') return 'Timetable result'
-  return 'Scalar timetable result'
-}
-
-function RoutingPointSequence({ plan }: { plan: RoutingPlan }) {
-  const points = [plan.origin, ...(plan.waypoints ?? []), plan.destination]
-  if (points.length <= 2) return null
-  return (
-    <div className="pathfinder-point-sequence" aria-label="Ordered route points">
-      {points.map((point, index) => (
-        <span key={`${point.label}-${index}`}>
-          <b>{routingPointRoleLabel(index, points.length)}</b>
-          <small>{point.label}</small>
-        </span>
-      ))}
-    </div>
-  )
-}
 
 function routingAccessHints(plan: RoutingPlan | null) {
   const availability = plan?.diagnostics.accessAvailability
@@ -160,178 +89,6 @@ function routingAccessHintText(hint: RoutingAccessAvailabilityHint) {
     return `${role}: no indexed station was found within the ${hint.probeWalkKm.toFixed(1)} km diagnostic search.`
   }
   return `${role}: the station-access diagnostic could not complete${hint.detail ? ` (${hint.detail})` : '.'}`
-}
-
-function RoutingItinerary({
-  plan,
-  showSummary = true,
-}: {
-  plan: RoutingPlan
-  showSummary?: boolean
-}) {
-  if (plan.status !== 'ready') return null
-
-  let previousEnd = plan.departMinutes
-  const journeyMinutes = routingPlanJourneyMinutes(plan)
-  return (
-    <div className="sidebox-itinerary" aria-label="Detailed itinerary">
-      {showSummary ? (
-        <div className="sidebox-itinerary-summary">
-          <span>
-            <b>{formatScheduleClock(plan.departMinutes)}</b>
-            <small>Leave</small>
-          </span>
-          <span>
-            <b>{formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</b>
-            <small>Arrive</small>
-          </span>
-          <span>
-            <b>{formatRoutingMinutes(journeyMinutes)}</b>
-            <small>Journey</small>
-          </span>
-        </div>
-      ) : null}
-
-      <RoutingPointSequence plan={plan} />
-      <RoutingFare plan={plan} />
-
-      <ol>
-        {plan.legs.map((leg, index) => {
-          const waitMinutes = Math.max(0, Math.round(leg.startMinutes - previousEnd))
-          previousEnd = leg.endMinutes
-          return (
-            <li key={`${leg.type}-${leg.fromName}-${leg.toName}-${index}`} className={classNames(`is-${leg.type}`, leg.travelMode && `is-${leg.travelMode}`, isSameStationTransfer(leg) && 'is-platform-change')}>
-              {waitMinutes > 0 ? (
-                <div className="itinerary-wait">
-                  <Clock3 size={12} />
-                  <span>Wait {formatRoutingMinutes(waitMinutes)}</span>
-                </div>
-              ) : null}
-              <div className="itinerary-step-main">
-                <span
-                  className="itinerary-step-mark"
-                  style={leg.type === 'ride' && leg.routeColor ? { '--route-color': `#${leg.routeColor.replace(/^#/, '')}` } as CSSProperties : undefined}
-                >
-                  {leg.type === 'ride'
-                    ? routingLegPrimaryLabel(leg).slice(0, 3)
-                    : leg.type === 'drive'
-                      ? 'D'
-                    : isSameStationTransfer(leg)
-                      ? <ArrowUpDown size={11} />
-                      : index + 1}
-                </span>
-                <span>
-                  <strong>{routingLegPrimaryLabel(leg)}</strong>
-                  <small>{formatScheduleClock(leg.startMinutes)}-{formatScheduleClock(leg.endMinutes)} · {formatRoutingLegDuration(leg)}</small>
-                </span>
-              </div>
-              <div className="itinerary-step-path">
-                <MapPin size={12} />
-                <span>{leg.fromName}</span>
-                <b>to</b>
-                <span>{leg.toName}</span>
-              </div>
-              <p>{routingLegDetail(leg)}</p>
-            </li>
-          )
-        })}
-      </ol>
-    </div>
-  )
-}
-
-export function RoutingDetailPanel({
-  plan,
-  onClose,
-}: {
-  plan: RoutingPlan
-  onClose: () => void
-}) {
-  const closeButtonRef = useRef<HTMLButtonElement>(null)
-  const onCloseRef = useRef(onClose)
-  onCloseRef.current = onClose
-
-  useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null
-    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') onCloseRef.current()
-    }
-    document.addEventListener('keydown', closeOnEscape)
-    closeButtonRef.current?.focus()
-    return () => {
-      document.removeEventListener('keydown', closeOnEscape)
-      if (previousFocus?.isConnected) previousFocus.focus()
-    }
-  }, [])
-
-  if (plan.status !== 'ready') return null
-
-  const routeSequence = routingPlanRouteSequence(plan) || plan.title
-  const runtime = routingPlanRuntime(plan)
-  const limitations = plan.diagnostics.dataSemantics?.limitations ?? []
-  const serviceDate = plan.diagnostics.serviceDate
-  const trafficRouting = plan.diagnostics.traffic
-  const trafficApplied = plan.diagnostics.roadMetricMode === 'traffic-adjusted'
-    && trafficRouting?.status === 'applied'
-  const timingDetail = plan.travelMode === 'drive'
-    ? trafficApplied
-      ? `Traffic snapshot applied · ${trafficRouting.matchedEdges ?? 0} directed edges`
-      : trafficRouting?.status === 'stale_fallback'
-        ? 'OSM free-flow · traffic snapshot stale'
-        : 'OSM free-flow · live traffic not supplied'
-    : routingRealtimeDetail(plan)
-
-  return (
-    <aside className="routing-detail-panel" aria-label="Routing details" aria-describedby="routing-choice-explanation">
-      <header className="routing-detail-head">
-        <span>
-          <small>Selected journey</small>
-          {plan.travelMode === 'transit' && routingDataModeLabel(plan) ? <small>{routingDataModeLabel(plan)}</small> : null}
-          <strong>{routeSequence}</strong>
-          <b>{formatScheduleClock(plan.departMinutes)} – {formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</b>
-        </span>
-        <StatusBadge status="ready" label="Ready" />
-        <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="Close routing details" title="Close details">
-          <X size={16} aria-hidden="true" />
-        </button>
-      </header>
-      <div className="routing-detail-scroll">
-        <div className="routing-detail-context result-metric-grid">
-          {plan.travelMode === 'transit' ? <ResultMetric value={plan.transfers} label={`transfer${plan.transfers === 1 ? '' : 's'}`} /> : null}
-          <ResultMetric value={plan.travelMode === 'drive' ? 'OSM' : formatRoutingMinutes(plan.walkMinutes)} label={plan.travelMode === 'drive' ? 'drive' : 'walk'} />
-          <ResultMetric value={formatRoutingMinutes(plan.rideMinutes)} label={plan.travelMode === 'drive' ? 'drive time' : 'ride'} />
-          <ResultMetric value={formatRoutingMinutes(routingPlanTotalWaitMinutes(plan))} label="wait" detail="after requested departure or between legs" />
-        </div>
-        <section className="routing-choice-explanation" id="routing-choice-explanation">
-          <span>
-            <small>Why this journey is shown</small>
-            <strong>{plan.choiceLabel || 'Distinct journey'}</strong>
-          </span>
-          <p>{routingChoiceExplanation(plan)}</p>
-        </section>
-        <RoutingItinerary plan={plan} />
-        <details className="routing-details">
-          <summary>
-            <span>Route details</span>
-            <b>{routingProfileLabel(plan)}</b>
-          </summary>
-          <dl>
-            <div><dt>Search profile</dt><dd>{routingProfileLabel(plan)}</dd></div>
-            <div><dt>Certification</dt><dd>{routingCertificationLabel(plan)}</dd></div>
-            {serviceDate ? <div><dt>Service date</dt><dd>{serviceDate}</dd></div> : null}
-            {plan.diagnostics.routingDataProvenance?.timeZone ? <div><dt>Time zone</dt><dd>{plan.diagnostics.routingDataProvenance.timeZone}</dd></div> : null}
-            <div><dt>Access limit</dt><dd>{plan.maxWalkKm.toFixed(1)} km</dd></div>
-            <div><dt>{plan.travelMode === 'drive' ? 'Road metric' : 'Schedule'}</dt><dd>{timingDetail}</dd></div>
-            {limitations.length ? <div><dt>Declared limits</dt><dd>{limitations.length} attached to this result</dd></div> : null}
-            {runtime ? <div><dt>Query timing</dt><dd title={`${runtime.title} This describes only the current request.`}>{runtime.label}</dd></div> : null}
-          </dl>
-          <p>Timing and route-choice details describe only this request.</p>
-        </details>
-      </div>
-    </aside>
-  )
 }
 
 function PathfinderRouteList({
@@ -616,14 +373,14 @@ export function SidebarPathfinderBox({
           </button>
         </div>
         <div className="pathfinder-stage pathfinder-stage-mode">
-          <div className="pathfinder-mode-selector" role="group" aria-label="Travel mode">
+          <div className="studio-tabs pathfinder-mode-selector" role="group" aria-label="Travel mode">
             {travelModeChoices.map(([mode, label]) => (
               <button key={mode} type="button" className={classNames(routingMode === mode && 'is-active')} onClick={() => onRoutingModeChange(mode)} aria-pressed={routingMode === mode}>{label}</button>
             ))}
           </div>
         </div>
         {routingMode === 'transit' ? <div className="pathfinder-stage pathfinder-data-mode">
-          <div className="pathfinder-segmented" role="group" aria-label="Transit data mode" aria-describedby="pathfinder-data-mode-help">
+          <div className="studio-tabs pathfinder-segmented" role="group" aria-label="Transit data mode" aria-describedby="pathfinder-data-mode-help">
             <button type="button" className={classNames(routingDataMode === 'realtime' && 'is-active')} aria-pressed={routingDataMode === 'realtime'} onClick={() => onRoutingDataModeChange('realtime')}>Realtime</button>
             <button type="button" className={classNames(routingDataMode === 'scheduled' && 'is-active')} aria-pressed={routingDataMode === 'scheduled'} onClick={() => onRoutingDataModeChange('scheduled')}>Scheduled</button>
           </div>
@@ -817,16 +574,16 @@ export function SidebarPathfinderBox({
           onSelect={onSelectRoutingPlan}
       />
 
-      {routingMode === 'transit' ? <details className="pathfinder-options">
+      {routingMode === 'transit' ? <details className="studio-disclosure pathfinder-options">
         <summary>
-          <span><SlidersHorizontal size={15} /> Route options</span>
+          <span>Route options</span>
           <b>{effectiveMaxTransfers === undefined ? '' : `≤${effectiveMaxTransfers} transfers · `}{routingDepartureWindowMinutes ? 'Later departures' : 'Exact time'} · {routingMaxWalkKm.toFixed(1)} km access</b>
         </summary>
         <div className="pathfinder-options-body">
           {departNow || routingTimePreference === 'depart' ? (
             <div className="pathfinder-option-group">
               <label>Departure search</label>
-              <div className="pathfinder-segmented" role="group" aria-label="Departure search window">
+              <div className="studio-tabs pathfinder-segmented" role="group" aria-label="Departure search window">
                 <button type="button" className={classNames(routingDepartureWindowMinutes === 0 && 'is-active')} onClick={() => onRoutingDepartureWindowChange(0)} aria-pressed={routingDepartureWindowMinutes === 0}>Exact time</button>
                 <button type="button" className={classNames(routingDepartureWindowMinutes === 20 && 'is-active')} onClick={() => onRoutingDepartureWindowChange(20)} aria-pressed={routingDepartureWindowMinutes === 20}>Later departures</button>
               </div>

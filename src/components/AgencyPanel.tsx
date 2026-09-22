@@ -298,19 +298,19 @@ export function AgencyPanel({ onOperationalEvents, projectId, snapshot, realtime
               <div className="agency-route-sections" role="group" aria-label="Route details">{([['trips', 'Trip times'], ['stops', 'Stops'], ['updates', 'Updates']] as const).map(([id, label]) => <button key={id} aria-pressed={routeView === id} onClick={() => setRouteView(id)}>{label}</button>)}</div>
               {routeView === 'trips' ? <AgencyTripTimetable key={`${projectId}/${routeId}/${browseRequest}`} projectId={projectId} routeId={routeId} initialTripId={tripTarget?.routeId === routeId ? tripTarget.tripId : undefined} initialServiceDate={tripTarget?.routeId === routeId ? tripTarget.serviceDate : undefined} /> : null}
             </> : null}
-            {selectionReady && timetable ? stopId ? <details className="agency-secondary-section"><summary>Stop &amp; timetable details</summary><div className="network-timetable">{timetable}</div></details> : routeView === 'stops' ? <div className="network-timetable">{timetable}</div> : null : null}
+            {selectionReady && timetable ? stopId ? <details className="studio-disclosure agency-secondary-section"><summary>Stop &amp; timetable details</summary><div className="network-timetable">{timetable}</div></details> : routeView === 'stops' ? <div className="network-timetable">{timetable}</div> : null : null}
             {stopId || routeView === 'updates' ? <AgencyServiceEvents key={selectionKey} state={state} ready={eventsReady} filter={eventFilter} onFilter={setEventFilter} onSelect={event => selectEvent(event, false)} /> : null}
             {focusedRoute && !stopId ? <AgencyRouteCoverage state={state} route={focusedRoute} refreshFailed={Boolean(observationError)} /> : null}
           </> : null}
         </div> : mode === 'briefing' ? <div id="agency-briefing" role="tabpanel" aria-labelledby="agency-tab-briefing">
           <AgencyOverview state={state} refreshFailed={Boolean(observationError)} onBrowse={browseRoutes} onRoute={id => openRoute(id)} onFeeds={openFeeds} />
-          <details className="agency-secondary-section"><summary>Service briefing</summary><AgencyBriefing onLocateStop={stopId => locate([], [stopId])} endpoint={endpoint} state={state} onOpen={id => void openEntry(id)} /></details>
+          <details className="studio-disclosure agency-secondary-section"><summary>Service briefing</summary><AgencyBriefing onLocateStop={stopId => locate([], [stopId])} endpoint={endpoint} state={state} onOpen={id => void openEntry(id)} /></details>
           {hasSelection ? <p className="agency-caption">Service updates for the selected route or stop. <button className="agency-text-button" onClick={onClearSelection}>Show all updates</button></p> : null}
           <AgencyServiceEvents defaultOpen={false} state={state} ready={eventsReady} filter={eventFilter} onFilter={setEventFilter} onSelect={event => selectEvent(event, false)} />
           {state.warnings.length ? <details className="agency-source-details"><summary>Coverage notes</summary><AgencyCoverageNotes warnings={state.warnings} /></details> : null}
         </div> : mode === 'ask' ? <div id="agency-ask" role="tabpanel" aria-labelledby="agency-tab-ask">
           {notebookOpen ? <AgencyNotebook endpoint={endpoint} onOpen={(id) => void openEntry(id)} onBack={() => setNotebookOpen(false)} onCleared={resetConversation} /> : <>
-          <header className="agency-page-heading"><h1>Ask</h1>{!turns.length && !answer && !busy ? <p>Ask about routes, journeys, or service changes.</p> : null}</header>
+          <header className="agency-page-heading"><h1 className="studio-page-title">Ask</h1>{!turns.length && !answer && !busy ? <p>Ask about routes, journeys, or service changes.</p> : null}</header>
           <AgencyProviderSettings endpoint={endpoint} provider={state.provider} onChange={() => void observationPolling.current?.refresh()} actions={
             <div className="agency-conversation-toolbar"><button className="agency-text-button" onClick={() => setNotebookOpen(true)} disabled={busy}><History size={14} /> History</button><button className="agency-text-button" disabled={busy} onClick={resetConversation}><Plus size={14} /> New chat</button></div>
           } />

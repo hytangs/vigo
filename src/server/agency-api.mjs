@@ -163,10 +163,11 @@ export function createAgencyService(adapters, { provider = createProvider(), web
         const state = current(session)
         const { trips, measurements, ...publicState } = state
         const mapAlerts = new Map()
+        const magnitude = item => ({ critical: 2, warning: 1, info: 0 }[item.severity] * 1e9) + Math.abs((item.evidence.observedHeadwaySeconds ?? 0) - (item.evidence.scheduledHeadwaySeconds ?? 0) || item.evidence.delaySeconds || 0)
         for (const event of state.events) {
           if (!['service-gap', 'bunching', 'delay'].includes(event.type) || !event.vehicleId) continue
-          const key = JSON.stringify([event.type, event.tripId, event.vehicleId, event.serviceDate, event.evidence.tripStartTime])
-          const magnitude = item => ({ critical: 2, warning: 1, info: 0 }[item.severity] * 1e9) + Math.abs((item.evidence.observedHeadwaySeconds ?? 0) - (item.evidence.scheduledHeadwaySeconds ?? 0) || item.evidence.delaySeconds || 0)
+          const key = JSON.stringify([event.type, event.tripId, event.vehicleId, event.serviceDate, event.evidence.tripStartTime,
+            ...(event.type === 'bunching' ? [event.evidence.tripIds?.[0], event.evidence.leadingVehicleId, event.evidence.leadingTripStartTime] : [])])
           if (!mapAlerts.has(key) || magnitude(mapAlerts.get(key)) < magnitude(event)) mapAlerts.set(key, { ...event, stopName: session.context.stopIndex.get(event.stopId)?.name || event.stopId })
         }
         const selected = state.events.filter((event) => eventInSelection(event, selection, stops) && (!eventType || eventType === 'all' || event.type === eventType))

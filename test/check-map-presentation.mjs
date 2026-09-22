@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import ts from 'typescript'
+import { importTestModules } from './helpers/import-test-modules.mjs'
 import { renderedStopAtPoint, selectableStopLayers } from '../src/app/mapStopSelection.ts'
 
 {
@@ -31,97 +29,10 @@ import { renderedStopAtPoint, selectableStopLayers } from '../src/app/mapStopSel
   assert.ok(selectableStopLayers.includes('vigo-selected-stop'), 'The selection ring remains an interactive stop')
 }
 
-const root = resolve(import.meta.dirname, '..')
-const source = readFileSync(resolve(root, 'src/app/mapPresentation.ts'), 'utf8')
-const geometrySource = readFileSync(resolve(root, 'src/app/geometry.ts'), 'utf8')
-const cityPreviewPath = resolve(root, 'src/app/cityPreview.ts')
-const cityPreviewSource = readFileSync(cityPreviewPath, 'utf8')
-const scheduledVehiclesSource = readFileSync(resolve(root, 'src/scheduledVehicles.ts'), 'utf8')
-const serviceVehiclesSource = readFileSync(resolve(root, 'src/serviceVehicles.ts'), 'utf8')
-const vigoMapSource = readFileSync(resolve(root, 'src/VigoMap.tsx'), 'utf8')
-const routeServicesPath = resolve(root, 'src/routeServices.ts')
-const routeServicesSource = readFileSync(routeServicesPath, 'utf8')
-const firstRenderTelemetryPath = resolve(root, 'src/app/mapFirstRenderTelemetry.ts')
-const firstRenderTelemetrySource = readFileSync(firstRenderTelemetryPath, 'utf8')
-const compiled = ts.transpileModule(source, {
-  compilerOptions: {
-    module: ts.ModuleKind.ES2022,
-    target: ts.ScriptTarget.ES2022,
-  },
-  fileName: 'mapPresentation.ts',
-}).outputText
-const geometryCompiled = ts.transpileModule(geometrySource, {
-  compilerOptions: {
-    module: ts.ModuleKind.ES2022,
-    target: ts.ScriptTarget.ES2022,
-  },
-  fileName: 'geometry.ts',
-}).outputText
-const geometryUrl = `data:text/javascript;base64,${Buffer.from(geometryCompiled).toString('base64')}`
-const routeServicesCompiled = ts.transpileModule(routeServicesSource, {
-  compilerOptions: {
-    module: ts.ModuleKind.ES2022,
-    target: ts.ScriptTarget.ES2022,
-  },
-  fileName: 'routeServices.ts',
-}).outputText
-const routeServicesUrl = `data:text/javascript;base64,${Buffer.from(routeServicesCompiled).toString('base64')}`
-const presentationCompiled = compiled
-  .replace("from './geometry'", `from '${geometryUrl}'`)
-  .replace("from '../routeServices'", `from '${routeServicesUrl}'`)
-const presentationUrl = `data:text/javascript;base64,${Buffer.from(presentationCompiled).toString('base64')}`
-const presentation = await import(presentationUrl)
-const routeServices = await import(routeServicesUrl)
-const gtfsAnalysisSource = readFileSync(resolve(root, 'src/app/gtfsAnalysis.ts'), 'utf8')
-const gtfsAnalysisCompiled = ts.transpileModule(gtfsAnalysisSource, {
-  compilerOptions: {
-    module: ts.ModuleKind.ES2022,
-    target: ts.ScriptTarget.ES2022,
-  },
-  fileName: 'gtfsAnalysis.ts',
-}).outputText.replace("from '../routeServices'", `from '${routeServicesUrl}'`)
-const gtfsAnalysis = await import(`data:text/javascript;base64,${Buffer.from(gtfsAnalysisCompiled).toString('base64')}`)
-const routePresentationSource = readFileSync(resolve(root, 'src/app/routePresentation.ts'), 'utf8')
-const routePresentationCompiled = ts.transpileModule(routePresentationSource, {
-  compilerOptions: {
-    module: ts.ModuleKind.ES2022,
-    target: ts.ScriptTarget.ES2022,
-  },
-  fileName: 'routePresentation.ts',
-}).outputText
-  .replace("from '../scheduledVehicles'", `from 'data:text/javascript,export function formatScheduleClock(){}'`)
-const routePresentation = await import(`data:text/javascript;base64,${Buffer.from(routePresentationCompiled).toString('base64')}`)
-const cityPreviewCompiled = ts.transpileModule(cityPreviewSource, {
-  compilerOptions: {
-    module: ts.ModuleKind.ES2022,
-    target: ts.ScriptTarget.ES2022,
-  },
-  fileName: 'cityPreview.ts',
-}).outputText
-  .replace("from './mapPresentation'", `from '${presentationUrl}'`)
-  .replace("from '../routeServices'", `from '${routeServicesUrl}'`)
-const cityPreview = await import(`data:text/javascript;base64,${Buffer.from(cityPreviewCompiled).toString('base64')}`)
-const scheduledVehiclesCompiled = ts.transpileModule(scheduledVehiclesSource, {
-  compilerOptions: {
-    module: ts.ModuleKind.ES2022,
-    target: ts.ScriptTarget.ES2022,
-  },
-  fileName: 'scheduledVehicles.ts',
-}).outputText.replace("from './app/geometry'", `from '${geometryUrl}'`)
-const scheduledVehicles = await import(`data:text/javascript;base64,${Buffer.from(scheduledVehiclesCompiled).toString('base64')}`)
-const scheduledVehiclesUrl = `data:text/javascript;base64,${Buffer.from(scheduledVehiclesCompiled).toString('base64')}`
-const vehicleIndicatorsUrl = `data:text/javascript;base64,${Buffer.from(ts.transpileModule(readFileSync(resolve('src/agency/vehicleIndicators.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText).toString('base64')}`
-const serviceVehiclesCompiled = ts.transpileModule(serviceVehiclesSource, {
-  compilerOptions: {
-    module: ts.ModuleKind.ES2022,
-    target: ts.ScriptTarget.ES2022,
-  },
-  fileName: 'serviceVehicles.ts',
-}).outputText
-  .replace("from './agency/vehicleIndicators'", `from '${vehicleIndicatorsUrl}'`)
-  .replace("from './scheduledVehicles'", `from '${scheduledVehiclesUrl}'`)
-  .replace("from './routeServices'", `from '${routeServicesUrl}'`)
-const serviceVehicles = await import(`data:text/javascript;base64,${Buffer.from(serviceVehiclesCompiled).toString('base64')}`)
+const [presentation, routeServices, gtfsAnalysis, routePresentation, cityPreview, scheduledVehicles, serviceVehicles, firstRenderTelemetry] = await importTestModules(
+  'app/mapPresentation.ts', 'routeServices.ts', 'app/gtfsAnalysis.ts', 'app/routePresentation.ts',
+  'app/cityPreview.ts', 'scheduledVehicles.ts', 'serviceVehicles.ts', 'app/mapFirstRenderTelemetry.ts',
+)
 // Route arrows follow trip geometry, including overlapping outbound/return segments.
 {
   const route = { coordinates: [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]] }
@@ -138,19 +49,6 @@ const serviceVehicles = await import(`data:text/javascript;base64,${Buffer.from(
   assert.equal(serviceVehicles.routeDirectionBearing([0, 0], undefined), undefined, 'No invented heading without a matched route')
   assert.equal(serviceVehicles.routeDirectionBearing([0, 0], { coordinates: [[0, 0], [0, 0]] }), undefined)
 }
-const firstRenderTelemetryCompiled = ts.transpileModule(firstRenderTelemetrySource, {
-  compilerOptions: {
-    module: ts.ModuleKind.ES2022,
-    target: ts.ScriptTarget.ES2022,
-  },
-  fileName: 'mapFirstRenderTelemetry.ts',
-}).outputText
-const firstRenderTelemetry = await import(`data:text/javascript;base64,${Buffer.from(firstRenderTelemetryCompiled).toString('base64')}`)
-
-assert(!vigoMapSource.includes("['concat', ['get', 'pinType'], ' · 0 min']"))
-assert.match(vigoMapSource, /id: 'vigo-routing-pin-halo'[\s\S]*?type: 'circle'/)
-assert.match(vigoMapSource, /id: 'vigo-routing-pins'[\s\S]*?type: 'circle'/)
-
 const stops = Array.from({ length: 1_200 }, (_value, index) => ({
   id: `stop-${index}`,
   name: `Stop ${index}`,

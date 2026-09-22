@@ -13,6 +13,10 @@ export async function auditPackageFiles(root, { forbiddenRoots = [] } = {}) {
       const file = path.join(directory, name), relative = path.relative(root, file)
       const info = await lstat(file)
       if (info.isSymbolicLink()) { failures.push(`${relative}: symlink in application payload`); continue }
+      if (info.isDirectory() && /^(?:tests?|__tests__|fixtures|coverage)$/iu.test(name)
+        || /(?:\.(?:test|spec)\.[cm]?[jt]sx?$|^check-.*\.[cm]?[jt]sx?$)/iu.test(name)) {
+        failures.push(`${relative}: test artifact in application payload`)
+      }
       if (/^(?:\.env(?:\..*)?|\.git|\.DS_Store|node_modules|temp|\.cache|credentials(?:\.json)?)$/iu.test(name)
         || /\.(?:sqlite(?:-wal|-shm)?|db|log|pem|p12|pfx|key|map)$/iu.test(name)) {
         failures.push(`${relative}: development data or credential file`)

@@ -80,4 +80,15 @@ for (const time of [-1, 1.5, 1 << 20, Infinity]) {
     replacements: new Map([[1, { stopTimes: stopTimes.map(stop => ({ ...stop, arrival: time, departure: time })) }]]),
   }), /unsupported event time/)
 }
+for (const change of [
+  { tripStart: u32([0, 2, 1, 4]) }, { toStop: u32([9, 1, 2, 2]) },
+  { canBoard: u8([1, 2, 1, 1]) }, { sequence: u32([]) },
+]) assert.throws(() => compileRealtimeTimetableKernel({ ...base, ...change }), /Malformed base/)
+const cancellationWins = compileRealtimeTimetableKernel(base, {
+  canceledTrips: new Set([1]), replacements: new Map([[1, { stopTimes: 'invalid but canceled' }]]),
+})
+assert.equal(cancellationWins.activeSegmentCount, 2)
+const broken = compileRealtimeTimetableKernel({ ...base, continuityBreak: u8([0, 0, 1, 0]) })
+assert.deepEqual([...broken.segmentRun], [0, 1, 2, 3], 'Static discontinuities survive realtime reconstruction')
+assert.deepEqual([...broken.departureOrder], [0, 1, 3, 2])
 console.log('Realtime timetable kernel passed: immutable identities, cancellations, delayed routing, reverse parity, skipped calls, and native input bounds.')

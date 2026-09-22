@@ -3,18 +3,10 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import ts from 'typescript'
+import { importTestModules } from './helpers/import-test-modules.mjs'
 import { readGtfsNetworkOverview, readGtfsRouteAnalysis } from '../src/server/gtfs-analysis-store.mjs'
 
-const compile = async (relativePath) => ts.transpileModule(
-  await fs.readFile(new URL(relativePath, import.meta.url), 'utf8'),
-  { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } },
-).outputText
-const moduleUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
-const geometryUrl = moduleUrl(await compile('../src/app/geometry.ts'))
-const { scheduledVehiclesAtTime, scheduledVehicleDiagnostics } = await import(moduleUrl(
-  (await compile('../src/scheduledVehicles.ts')).replace("from './app/geometry'", `from '${geometryUrl}'`),
-))
+const [{ scheduledVehiclesAtTime, scheduledVehicleDiagnostics }] = await importTestModules('scheduledVehicles.ts')
 
 const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-gtfs-analysis-'))
 const storePath = path.join(temporaryDirectory, 'analysis.sqlite')

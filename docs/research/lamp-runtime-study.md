@@ -65,11 +65,11 @@ python3 -m pip install -r scripts/lamp/requirements.txt
 python3 scripts/lamp-runtime-study.py --start 2026-09-04 --train-end 2026-09-09 --end 2026-09-12 --output /path/to/city/.vigo/agency/lamp
 python3 test/check-lamp-study.py
 node test/check-lamp-reader.mjs
-python3 scripts/plot-lamp-study.py artifacts/lamp/2026-09-04--2026-09-12.json docs/figures/lamp-runtime-study.png
+python3 scripts/plot-lamp-study.py artifacts/lamp/2026-09-04--2026-09-12.json docs/research/figures/lamp-runtime-study.png
 ```
 
 The runner permits at most 31 dates, 100 MB of daily downloads, four archives, bounded file sizes and a ten-minute server deadline. Downloads are restricted to documented public source hosts, including redirects. No model-provided shell, URL or file path is executed. Cache filenames retain publication versions rather than treating an unchanged URL as immutable.
 
-The [retained result](../artifacts/lamp/2026-09-04--2026-09-12.json) contains parameters, complete segment evaluations, exclusions and source provenance. Raw Parquet and GTFS archives remain in City storage. Each completed run keeps its report and per-row evaluation CSV in a dated `runs/` directory. The current `study.json` points to that run through `studyId` and `evaluationFile`; saved notes retain those identifiers and the complete source manifest. New or failed runs do not overwrite a previous run’s evidence. A rerun against revised upstream files can differ; compare its retained source versions before comparing errors.
+The [retained result](../../artifacts/lamp/2026-09-04--2026-09-12.json) contains parameters, complete segment evaluations, exclusions and source provenance. Raw Parquet and GTFS archives remain in City storage. Each completed run keeps its report and per-row evaluation CSV in a dated `runs/` directory. The current `study.json` points to that run through `studyId` and `evaluationFile`; saved notes retain those identifiers and the complete source manifest. New or failed runs do not overwrite a previous run’s evidence. A rerun against revised upstream files can differ; compare its retained source versions before comparing errors.
 
 The run used macOS 26.5.1 on arm64, Python 3.13.5, pandas 2.3.3, NumPy 2.3.4 and PyArrow 22.0.0. Matplotlib 3.10.7 rendered the figure. No LLM fits the predictor or calculates its errors. Codex assisted with implementation, tests and this technical record; the separately tested briefing investigation uses the configured local Qwen3.5 4B endpoint.

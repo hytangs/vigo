@@ -5,9 +5,9 @@ import type { AgencyState, OperationalEvent, RiderDraft, ToolResult } from '../a
 
 export const minutes = (seconds: number) => `${Number((seconds / 60).toFixed(1))} min`
 export const shortId = (id: string) => id.split('\u001f').at(-1) || id
-export const timeLabel = (value: string | number | null | undefined, timezone?: string | null) => value == null ? 'Unknown time' : new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', ...(timezone ? { timeZone: timezone } : {}) }).format(new Date(typeof value === 'number' ? value * 1000 : value))
+const timeLabel = (value: string | number | null | undefined, timezone?: string | null) => value == null ? 'Unknown time' : new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', ...(timezone ? { timeZone: timezone } : {}) }).format(new Date(typeof value === 'number' ? value * 1000 : value))
 
-export function EvidenceComparison({ event }: { event: OperationalEvent }) {
+function EvidenceComparison({ event }: { event: OperationalEvent }) {
   const e = event.evidence
   const isHeadway = e.scheduledHeadwaySeconds !== undefined && e.observedHeadwaySeconds !== undefined
   if (!isHeadway && e.delaySeconds === undefined) return null
@@ -16,9 +16,9 @@ export function EvidenceComparison({ event }: { event: OperationalEvent }) {
   const max = Math.max(scheduled, predicted, 1)
   return <figure className="agency-comparison">
     <figcaption>{isHeadway ? 'Departure interval at the same stop' : 'Departure deviation from schedule'}</figcaption>
-    {isHeadway ? <div className="agency-measure"><span>Scheduled</span><div><i style={{ width: `${scheduled / max * 100}%` }} /></div><strong>{minutes(scheduled)}</strong></div> : null}
+    {isHeadway ? <div className="agency-measure"><span>{e.comparisonBasis ? 'Local scheduled interval' : 'Scheduled'}</span><div><i style={{ width: `${scheduled / max * 100}%` }} /></div><strong>{minutes(scheduled)}</strong></div> : null}
     <div className="agency-measure is-predicted"><span>{isHeadway ? 'Predicted' : 'Later by'}</span><div><i style={{ width: `${predicted / max * 100}%` }} /></div><strong>{minutes(predicted)}</strong></div>
-    <p>{isHeadway ? `${e.reportingTrips} of ${e.expectedDepartures} expected departures report at this stop.` : 'Computed from the stop departure prediction and its indexed scheduled departure.'}</p>
+    <p>{isHeadway ? e.comparisonBasis ? `Running order has changed. The reference is the smallest scheduled interval between these trips; their own scheduled separation is ${minutes(e.scheduledPairSeparationSeconds!)}. Intervening trips are accounted for by fresh predictions or positions beyond this stop.` : `${e.reportingTrips} of ${e.expectedDepartures} expected departures report at this stop.` : 'Computed from the stop departure prediction and its indexed scheduled departure.'}</p>
   </figure>
 }
 

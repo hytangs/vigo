@@ -220,10 +220,10 @@ export async function runMapRefreshChecks() {
     await render({ preview: { ...latePreview, stops: latePreview.stops.map(stop => ({ ...stop, lon: stop.lon + 2 })) } })
     check(fits === resultCamera.fits && JSON.stringify(map.getCenter().toArray()) === JSON.stringify(resultCamera.center)
       && map.getZoom() === resultCamera.zoom, 'Late City preview data must not override a completed Analyze result extent')
-    const indicatorFrame = { mode: 'live', tripUpdateCount: 1, alertCount: 0, vehicles: [{ id: 'V', source: 'live', coordinate: [0,0], serviceKey: 'R', routeId: 'R', routeShortName: 'R', routeColor: '#007f76', tripId: 'T', gapSeverity: 'critical', delaySeverity: 'warning', crowded: true, pairedCoordinate: [0.002,0.001], indicatorLabel: '↔ !', card: { title: 'V', metrics: [] } }] }
+    const indicatorFrame = { mode: 'live', tripUpdateCount: 1, alertCount: 0, vehicles: [{ id: 'V', source: 'live', coordinate: [0,0], serviceKey: 'R', routeId: 'R', routeShortName: 'R', routeColor: '#007f76', tripId: 'T', gapSeverity: 'critical', delaySeverity: 'warning', crowded: true, bunchingLinks: [{ id: 'ahead', coordinate: [0.002,0.001], severity: 'critical' }, { id: 'behind', coordinate: [-0.002,-0.001], severity: 'warning' }], indicatorLabel: '↔ !', card: { title: 'V', metrics: [] } }] }
     await render({ focusMode: 'network', reachResult: null, routingOrigin: null, preview: { routes: [], stops: [], stopPairs: [] }, layers: { routes: true, stops: false }, vehicleFrame: indicatorFrame })
     map.jumpTo({ center: [0,0], zoom: 14 })
-    await wait(() => map.queryRenderedFeatures({ layers: ['vigo-vehicle-pairs'] }).length > 0)
+    await wait(() => new Set(map.queryRenderedFeatures({ layers: ['vigo-vehicle-pairs'] }).map(feature => feature.properties.gapSeverity)).size === 2)
     check(map.queryRenderedFeatures({ layers: ['vigo-vehicles'] }).some(feature => feature.properties.delaySeverity === 'warning' && feature.properties.gapSeverity === 'critical'), 'Vehicle retains separate anomaly evidence')
     await wait(() => map.queryRenderedFeatures(map.project([0,0]), { layers: ['vigo-vehicles'] }).length > 0)
     map.fire('mousemove', { point: map.project([0,0]), lngLat: map.getCenter() })
@@ -233,6 +233,11 @@ export async function runMapRefreshChecks() {
     map.getCanvas().dispatchEvent(new MouseEvent('mouseleave'))
     check(!document.querySelector('.map-stop-tooltip'), 'Vehicle hover clears when the pointer leaves the map')
     check(!map.getLayer('vigo-vehicle-occupancy-ring') && !map.getLayer('vigo-vehicle-gap-ring'), 'No oversized rings remain')
+    await render({ vehicleFrame: { ...indicatorFrame, vehicles: [{ ...indicatorFrame.vehicles[0], bunchingLinks: indicatorFrame.vehicles[0].bunchingLinks.slice(1) }] } })
+    await wait(() => {
+      const pairs = map.queryRenderedFeatures({ layers: ['vigo-vehicle-pairs'] })
+      return pairs.length > 0 && pairs.every(feature => feature.properties.gapSeverity === 'warning')
+    })
     await render({ layers: { routes: false, stops: false } })
     check(map.getLayoutProperty('vigo-vehicle-pairs', 'visibility') === 'none', 'Vehicle layer toggle hides gap indicators too')
     return { routeRedrawsDuringRefresh: 0, accessibilityRedrawsDuringRefresh: 0, retainedPanZoom: true, newResultFocus: true, latePreviewPreservesFocusedCamera: true }

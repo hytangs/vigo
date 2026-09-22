@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile, readFile, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile, readFile, symlink } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
@@ -14,15 +14,30 @@ try {
     ['app.js', ['', 'Users', 'build-owner', 'project', 'source'].join('/'), /developer path/],
     ['app.js', 'sk-' + 'x'.repeat(32), /possible embedded credential/],
     ['old.sqlite', '', /development data/],
+    ['check-example.mjs', '', /test artifact/],
+    ['example.test.js', '', /test artifact/],
   ]) {
     await writeFile(path.join(root, name), content)
     await assert.rejects(auditPackageFiles(root), reason)
     await rm(path.join(root, name))
   }
+  for (const name of ['test', 'tests', '__tests__', 'fixtures', 'coverage']) {
+    await mkdir(path.join(root, name))
+    await assert.rejects(auditPackageFiles(root), /test artifact/)
+    await rm(path.join(root, name), { recursive: true })
+  }
   await symlink(path.join(root, 'absent'), path.join(root, 'outside'))
   await assert.rejects(auditPackageFiles(root), /symlink/)
 } finally { await rm(root, { recursive: true, force: true }) }
 const main = await readFile(new URL('../public/main.mjs', import.meta.url), 'utf8')
+const windowConstruction = main.slice(main.indexOf('  mainWindow = new BrowserWindow('), main.indexOf('  mainWindow.webContents.setWindowOpenHandler'))
+const options = vm.runInNewContext(windowConstruction, {
+  BrowserWindow: class { constructor(options) { return options } }, process: { platform: 'darwin' }, studioIconPath: 'icon', preloadPath: 'preload',
+})
+assert.equal(options.webPreferences.contextIsolation, true)
+assert.equal(options.webPreferences.nodeIntegration, false)
+assert.equal(options.webPreferences.sandbox, true)
+assert.equal(options.webPreferences.webSecurity, true)
 const source = main.slice(main.indexOf('function engineEnvironment()'), main.indexOf('\nfunction startEngine()'))
 const original = { PATH: '/usr/bin:/bin', VIGO_AGENCY_LLM_BASE_URL: 'http://localhost:1234', VIGO_AGENCY_LLM_API_KEY: 'fixture', VIGO_ROUTE_WORKER_URL: '/private/worker', NODE_OPTIONS: '--require=/private/file' }
 for (const isPackaged of [true, false]) {

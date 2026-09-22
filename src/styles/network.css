@@ -649,7 +649,6 @@
 .sidebox {
   padding: 9px;
   border: 1px solid color-mix(in srgb, var(--accent-2) 12%, var(--border));
-  border-radius: 8px;
 }
 
 .sidebox-network,
@@ -1011,41 +1010,6 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.sidebox-itinerary {
-  display: grid;
-  gap: 8px;
-  padding: 8px 0 2px;
-}
-
-.sidebox-itinerary-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.sidebox-itinerary-summary span {
-  min-width: 0;
-  display: grid;
-  gap: 1px;
-  padding: 7px 8px;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--panel) 54%, transparent);
-}
-
-.sidebox-itinerary-summary b {
-  color: var(--text-strong);
-  font-size: 0.64rem;
-  font-weight: 880;
-}
-
-.sidebox-itinerary-summary small {
-  color: var(--text-muted);
-  font-size: 0.5rem;
-  font-weight: 760;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
 .pathfinder-point-sequence {
   min-width: 0;
   display: grid;
@@ -1086,116 +1050,6 @@
   font-size: 0.65rem;
   font-weight: 720;
   line-height: 1.25;
-}
-
-.sidebox-itinerary ol {
-  display: grid;
-  gap: 7px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.sidebox-itinerary li {
-  position: relative;
-  min-width: 0;
-  display: grid;
-  gap: 5px;
-  padding: 8px;
-  border-radius: 8px;
-}
-
-.itinerary-wait {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  width: fit-content;
-  max-width: 100%;
-  color: var(--text-muted);
-  font-size: 0.54rem;
-  font-weight: 780;
-}
-
-.itinerary-step-main {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-}
-
-.itinerary-step-mark {
-  --route-color: var(--accent);
-  min-width: 28px;
-  height: 24px;
-  display: inline-grid;
-  place-items: center;
-  padding: 0 6px;
-  border-radius: 7px;
-  color: #061014;
-  background: color-mix(in srgb, var(--route-color) 92%, white);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #000 24%, transparent);
-  font-size: 0.54rem;
-  font-weight: 920;
-}
-
-.sidebox-itinerary li.is-walk .itinerary-step-mark,
-.sidebox-itinerary li.is-drive .itinerary-step-mark {
-  color: var(--text-strong);
-  background: color-mix(in srgb, var(--accent-2) 13%, transparent);
-}
-
-.itinerary-step-main span:last-child {
-  min-width: 0;
-  display: grid;
-  gap: 1px;
-}
-
-.itinerary-step-main strong,
-.itinerary-step-main small,
-.itinerary-step-path span,
-.sidebox-itinerary p {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.itinerary-step-main strong {
-  color: var(--text-strong);
-  font-size: 0.66rem;
-  font-weight: 880;
-}
-
-.itinerary-step-main small {
-  color: var(--text-muted);
-  font-size: 0.54rem;
-  font-weight: 760;
-}
-
-.itinerary-step-path {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: 5px;
-  color: var(--text-muted);
-  font-size: 0.55rem;
-  font-weight: 760;
-}
-
-.itinerary-step-path b {
-  color: var(--text-subtle);
-  font-size: 0.5rem;
-  font-weight: 820;
-  text-transform: uppercase;
-}
-
-.sidebox-itinerary p {
-  margin: 0;
-  color: var(--text-subtle);
-  font-size: 0.54rem;
-  font-weight: 740;
 }
 
 .service-indicator-legend { grid-column: 1 / -1; order: 10; font-size: 11px; }

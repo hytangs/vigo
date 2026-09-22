@@ -1,21 +1,14 @@
 import assert from 'node:assert/strict'
-import { copyFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import ts from 'typescript'
+import { importTestModules } from './helpers/import-test-modules.mjs'
 import { readGtfsRouteAnalysis } from '../src/server/gtfs-analysis-store.mjs'
 import { hydrateScenarioRouteServices } from '../src/server/scenario-services.mjs'
 import { compileReachScenario } from '../src/server/reach.mjs'
 
-function compile(relative, replacements = []) {
-  let output = ts.transpileModule(readFileSync(new URL(relative, import.meta.url), 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
-  }).outputText
-  for (const [from, to] of replacements) output = output.replace(`from '${from}'`, `from '${to}'`)
-  return `data:text/javascript;base64,${Buffer.from(output).toString('base64')}`
-}
-const { orderedPolylineAnchors } = await import(compile('../src/app/geometry.ts'))
+const [{ orderedPolylineAnchors }, reach] = await importTestModules('app/geometry.ts', 'reach.ts')
 assert.deepEqual(orderedPolylineAnchors([[0, 0], [0.01, 0]], [[0, 0], [0.01, 0], [0.01, 0]])
   .map((anchor) => anchor.progress), [0, 1, 1], 'Repeated terminal visits can retain the same shape measure.')
 assert.deepEqual(orderedPolylineAnchors([[0, 0], [0.01, 0]], [[0.006, 0], [0.005, 0]])
@@ -24,10 +17,7 @@ const {
   scenarioStopsForRoute, scenarioBaselineStopIndexes, scenarioInsertionAnchors,
   scenarioInsertedStopsForEdge, scenarioEdgeEditError, scenarioStopsForEdgeBranch,
   scenarioEdgeGeometryForBranch, scenarioPublishedShapeSegmentIndexes, scenarioSegmentRuntimeMinutes,
-} = await import(compile('../src/reach.ts', [
-  ['./app/geometry', compile('../src/app/geometry.ts')],
-  ['./networkTruth', compile('../src/networkTruth.ts')],
-]))
+} = reach
 const coordinates = { A: [0, 0], B: [0.01, 0], C: [0.02, 0.01], D: [0.02, -0.01] }
 const route = { id: 'loop', stopIds: ['A', 'B', 'C', 'A', 'B', 'D'], geometrySource: 'shape', scheduledSpeedKph: 25,
   coordinates: ['A', 'B', 'C', 'A', 'B', 'D'].map((id) => coordinates[id]) }

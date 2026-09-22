@@ -19,7 +19,7 @@ export function eventSentences(event, context) {
     case 'delay': fact = `${subject}: departure${where} is predicted ${duration(evidence.delaySeconds)} later than scheduled.`; break
     case 'headway-review':
     case 'bunching':
-    case 'service-gap': fact = `${subject}: the interval between two predicted departures${where} is ${duration(evidence.observedHeadwaySeconds)}, compared with ${duration(evidence.scheduledHeadwaySeconds)} scheduled.`; break
+    case 'service-gap': fact = `${subject}: the interval between two predicted departures${where} is ${duration(evidence.observedHeadwaySeconds)}, compared with ${duration(evidence.scheduledHeadwaySeconds)} ${evidence.comparisonBasis ? 'for the smallest local scheduled interval after trip reordering' : 'scheduled'}.`; break
     case 'cancellation': fact = `${subject}: a scheduled trip is reported cancelled.`; break
     case 'skipped-stop': fact = `${subject}: a trip is reported to skip ${location || 'a scheduled stop'}.`; break
     case 'service-alert': fact = evidence.alertHeader || event.title; break

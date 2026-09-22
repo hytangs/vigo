@@ -207,48 +207,10 @@
   overflow: auto;
 }
 
-.sidebar-panel-head {
-  min-width: 0;
-  display: grid;
-}
-
-.sidebar-panel.is-pathfinder .sidebar-panel-head {
-  gap: 6px;
-  padding: 2px 0 7px;
-  border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--accent-2) 16%, transparent);
-  border-radius: 0;
-  background: transparent;
-}
-
-.sidebar-panel.is-pathfinder .sidebar-panel-title strong {
-  font-size: 0.9rem;
-}
-
 .sidebar-panel-title {
   min-width: 0;
   display: flex;
   align-items: center;
-}
-
-.sidebar-panel-title strong,
-.sidebar-panel-head p {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-panel-title strong {
-  flex: 1 1 auto;
-  color: var(--text-strong);
-}
-
-.sidebar-panel-head p {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 0.68rem;
-  font-weight: 780;
 }
 
 .sidebar-section {

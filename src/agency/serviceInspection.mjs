@@ -11,7 +11,7 @@ const minutes = seconds => Number.isFinite(seconds) ? Math.round(seconds / 60 * 
 
 // The same bounded evidence packet serves diagnosis, rider impact and action
 // questions. It does not choose an incident cause or simulate a dispatch action.
-export function inspectionScope(context, snapshot, args) {
+function inspectionScope(context, snapshot, args) {
   const resolve = (kind, values) => values.map(value => {
     const index = kind === 'route' ? context.routeIndex : context.stopIndex
     if (index.has(value)) return value

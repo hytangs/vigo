@@ -1,7 +1,7 @@
 {
   "name": "vigo",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Build, inspect, and query city transport networks from GTFS, GTFS-RT, and OSM.",
   "license": "Apache-2.0",
   "repository": {
@@ -28,7 +28,7 @@
     "dev:web": "vite --host 127.0.0.1",
     "studio": "electron .",
     "build:rust-routing-kernel": "node scripts/build-rust-routing-kernel.mjs",
-    "check:rust-routing-kernel": "npm run build:rust-routing-kernel --silent && node test/check-rust-routing-kernel.mjs && node test/check-native-matrices.mjs && node test/check-terminal-access.mjs",
+    "check:rust-routing-kernel": "npm run build:rust-routing-kernel --silent && node test/check-timetable-preparation.mjs && node test/check-rust-routing-kernel.mjs && node test/check-native-matrices.mjs && node test/check-terminal-access.mjs",
     "check:rust-routing-targets": "node test/check-rust-routing-targets.mjs",
     "rebuild:project:raw": "node scripts/rebuild-vigo-project-from-raw.mjs",
     "rebuild:project:street": "node scripts/rebuild-project-street-store.mjs",
@@ -36,7 +36,7 @@
     "batch:routing": "npm run build:cli --silent && node public/vigo.mjs route",
     "check:icons": "node test/check-desktop-icons.mjs",
     "typecheck": "tsc --noEmit",
-    "check:studio": "node test/check-desktop.mjs && node test/check-static-assets.mjs",
+    "check:studio": "node test/check-package-audit.mjs && node test/check-static-assets.mjs",
     "check:scenario-draft-lifecycle": "node test/check-scenario-draft-lifecycle.mjs",
     "check:docs": "node test/check-documentation.mjs",
     "clean:css": "node test/check-css-cascade.mjs --write",
@@ -74,7 +74,7 @@
     "check:packaged": "node test/check-package-audit.mjs && node test/check-packaged-studio.mjs",
     "check:studio-runtime": "node test/check-city-intake-runtime.mjs && node test/check-routing-refresh-runtime.mjs && node test/check-primary-navigation-runtime.mjs && node test/check-scenario-draft-lifecycle.mjs && node test/check-map-runtime.mjs && node test/check-network-workspace-runtime.mjs && node test/check-agency-notebook-runtime.mjs && node test/check-analysis-origin.mjs",
     "evaluate:replay": "node scripts/evaluate-operational-replay.mjs",
-    "check:agency": "node test/check-network-workspace.mjs && node test/check-agency-skills.mjs && node test/check-agency-realtime.mjs && node test/check-vehicle-indicators.mjs && node test/check-alert-policy.mjs && node test/check-alert-applicability.mjs && node test/check-agency-efficiency.mjs && node test/check-agency-tools.mjs && node test/check-agency-intelligence.mjs && node test/check-service-assessment.mjs && node test/check-service-assessment-text.mjs && node test/check-agency-places.mjs && node test/check-place-map-handoff.mjs && node test/check-network-schedule-worker.mjs && node test/check-agency-journeys.mjs && node test/check-journey-time-contract.mjs && node test/check-agency-journey-modes.mjs && node test/check-agency-routing-integration.mjs && node test/check-agency-agent.mjs && node test/check-agency-clock.mjs && node test/check-agency-communications.mjs && node test/check-agency-web.mjs && node test/check-agency-provider.mjs && node test/check-agency-clarification-recovery.mjs && node test/check-agency-connection-order.mjs && node test/check-agency-runtime.mjs && node test/check-agency-snapshot.mjs && node test/check-agency-lifecycle.mjs && node test/check-agency-operations.mjs && node test/check-operational-replay.mjs && node test/check-agency-route-line.mjs && node test/check-added-service-display.mjs && node test/check-agency-vehicle-details.mjs && node test/check-stop-board.mjs && node test/check-agency-arrivals.mjs && node test/check-agency-service-timing.mjs && node test/check-agency-presentation.mjs && node test/check-agency-activity.mjs && node test/check-agency-notebook.mjs && node test/check-agency-history-clear.mjs && node test/check-agency-route-browser.mjs && node test/check-agency-observation-export.mjs && node test/check-agency-briefing.mjs && node test/check-network-diagnosis.mjs && node test/check-network-narrative.mjs && node test/check-agency-service-hours.mjs && node test/check-briefing-investigation.mjs && node test/check-lamp-reader.mjs",
+    "check:agency": "node test/check-network-workspace.mjs && node test/check-agency-skills.mjs && node test/check-agency-realtime.mjs && node test/check-reordered-bunching.mjs && node test/check-vehicle-indicators.mjs && node test/check-alert-policy.mjs && node test/check-alert-applicability.mjs && node test/check-agency-efficiency.mjs && node test/check-agency-tools.mjs && node test/check-agency-intelligence.mjs && node test/check-service-assessment.mjs && node test/check-service-assessment-text.mjs && node test/check-agency-places.mjs && node test/check-place-map-handoff.mjs && node test/check-network-schedule-worker.mjs && node test/check-agency-journeys.mjs && node test/check-journey-time-contract.mjs && node test/check-agency-journey-modes.mjs && node test/check-agency-routing-integration.mjs && node test/check-agency-agent.mjs && node test/check-agency-clock.mjs && node test/check-agency-communications.mjs && node test/check-agency-web.mjs && node test/check-agency-provider.mjs && node test/check-agency-clarification-recovery.mjs && node test/check-agency-connection-order.mjs && node test/check-agency-runtime.mjs && node test/check-agency-snapshot.mjs && node test/check-agency-lifecycle.mjs && node test/check-agency-operations.mjs && node test/check-operational-replay.mjs && node test/check-agency-route-line.mjs && node test/check-added-service-display.mjs && node test/check-agency-vehicle-details.mjs && node test/check-stop-board.mjs && node test/check-agency-arrivals.mjs && node test/check-agency-service-timing.mjs && node test/check-agency-presentation.mjs && node test/check-agency-activity.mjs && node test/check-agency-notebook.mjs && node test/check-agency-history-clear.mjs && node test/check-agency-route-browser.mjs && node test/check-agency-observation-export.mjs && node test/check-agency-briefing.mjs && node test/check-network-diagnosis.mjs && node test/check-network-narrative.mjs && node test/check-agency-service-hours.mjs && node test/check-briefing-investigation.mjs && node test/check-lamp-reader.mjs",
     "check:lamp": "python3 test/check-lamp-study.py",
     "evaluate:intelligence": "node scripts/evaluate-agency-intelligence.mjs"
   },

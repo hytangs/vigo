@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
-import { annotateStationAccess, stationAccessPaths } from '../src/server/station-access.mjs'
+import { annotateStationAccess, prepareStationAccessPaths } from '../src/server/station-access.mjs'
+import { compileNativeStationPaths, validateNativeStationPaths } from '../src/server/native-routing-kernel.mjs'
 import { haversineKm } from '../src/server/geometry-utils.mjs'
-import { packStationPaths, stationPathLookup } from '../src/server/prepared-access-context.mjs'
+import { stationPathLookup } from '../src/server/prepared-access-context.mjs'
 import { decodeRoutingSnapshot, encodeRoutingSnapshot } from '../src/server/routing-snapshot.mjs'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -9,6 +10,15 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import { buildNationalGtfsStore, routeNationalGtfsStore, disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
+
+// Decode native witnesses only; the oracle below independently enumerates paths.
+function unpack(packed) {
+  return Array.from(packed.from, (from, i) => ({ from, to: packed.to[i], seconds: packed.seconds[i], distanceM: packed.distanceM[i],
+    stops: [...packed.pathStops.slice(packed.pathOffsets[i], packed.pathOffsets[i + 1])],
+    sources: [...packed.pathSources.slice(packed.pathOffsets[i] - i, packed.pathOffsets[i + 1] - i - 1)].map(s => packed.sources[s]),
+  }))
+}
+const stationAccessPaths = (...args) => unpack(prepareStationAccessPaths(...args))
 
 // Compare compilation with exhaustive simple-path enumeration. Positive
 // cycles cannot improve either time or distance; zero-cost ties collapse.
@@ -21,11 +31,12 @@ for (let fixture = 0; fixture < 40; fixture += 1) {
   const transfers = new Map(stops.map(stop => [stop.stop_id, []]))
   for (const from of stops) for (const to of stops) {
     if (from !== to && random() < 0.3) transfers.get(from.stop_id).push({
-      to_stop_id: to.stop_id, min_transfer_time: Math.floor(random() * 2000), provenance: 'gtfs_pathway',
+      to_stop_id: to.stop_id, min_transfer_time: Math.floor(random() * 2000), provenance: 'gtfs_pathway', path_distance_m: null,
     })
   }
-  const actual = stationAccessPaths({ transfers, stationMembers: new Map(), forbiddenTransferPairs: new Set() }, stops)
-  const { stopIds, sources, ...arrays } = packStationPaths(stops, actual)
+  const packed = prepareStationAccessPaths({ transfers, stationMembers: new Map(), forbiddenTransferPairs: new Set() }, stops)
+  const actual = unpack(packed)
+  const { stopIds, sources, ...arrays } = packed
   const restored = decodeRoutingSnapshot(encodeRoutingSnapshot({ stopIds, sources }, arrays))
   const lookup = stationPathLookup({ ...restored.metadata, ...restored.arrays }, stops)
   for (const link of actual) {
@@ -66,6 +77,37 @@ assert.deepEqual(declared.map(p => [p.from, p.to, p.seconds, p.distanceM]), [[0,
 const fallback = stationAccessPaths({ ...station, transfers: new Map() }, stationStops)
 assert(fallback.every(p => p.seconds >= Math.ceil(p.distanceM / (4.8 / 3.6))),
   'A parent-station fallback must include the time needed to cross its distance.')
+
+const blocked = { ...station, forbiddenTransferPairs: new Set(['A\u0000B']) }
+assert.deepEqual(stationAccessPaths(blocked, stationStops), [])
+const externalPathway = { ...station, transfers: new Map([['outside', [{ to_stop_id: 'A', provenance: 'gtfs_pathway' }]]]),
+  stationMembers: new Map([['S', ['A', 'B', 'outside']]]) }
+assert.deepEqual(stationAccessPaths(externalPathway, stationStops), [], 'An outside pathway still owns station connectivity')
+const streetOnly = { ...station, transfers: new Map([['A', [{ to_stop_id: 'B', provenance: 'osm_certified_radial' }]]]) }
+assert.deepEqual(stationAccessPaths(streetOnly, stationStops).map(p => [p.from, p.to]), [[1, 0]], 'Excluded street links still suppress invented parallel links')
+for (const cost of [-1, Infinity, NaN]) {
+  assert.throws(() => prepareStationAccessPaths({ ...station,
+    transfers: new Map([['A', [{ to_stop_id: 'B', provenance: 'gtfs_pathway', path_distance_m: cost }]]]),
+  }, stationStops), /Station paths/)
+}
+
+const nativeEmpty = { coordinates: new Float64Array(0), platforms: new Uint8Array(0), edges: [], groups: [],
+  forbiddenFrom: new Uint32Array(0), forbiddenTo: new Uint32Array(0), fallbackSource: 0, walkingSpeedKph: 4.8 }
+assert.deepEqual([...compileNativeStationPaths(nativeEmpty).offsets], [0])
+for (const change of [
+  { coordinates: Float64Array.of(0) }, { forbiddenFrom: Uint32Array.of(0) },
+  { groups: [{ members: [0], declared: false }] }, { walkingSpeedKph: 0 },
+  { edges: [{ from: 0, to: 0, seconds: 0, source: 0, street: false }] },
+]) assert.throws(() => compileNativeStationPaths({ ...nativeEmpty, ...change }), /Station paths/)
+
+const packedPaths = prepareStationAccessPaths(station, stationStops)
+const validPaths = { ...packedPaths, stopCount: 2, sourceCount: packedPaths.sources.length }
+validateNativeStationPaths(validPaths)
+for (const change of [
+  { offsets: Uint32Array.of(0, 9, 1) }, { pathOffsets: Uint32Array.of(0, 1) },
+  { seconds: Float64Array.of(-1) }, { to: Uint32Array.of(2) },
+  { pathSources: Uint32Array.of(99) }, { pathStops: Uint32Array.of(1, 0) },
+]) assert.throws(() => validateNativeStationPaths({ ...validPaths, ...change }), /Prepared station paths/)
 
 const evidenceLegs = [
   { type: 'walk', toStopId: 'A', durationMinutes: 0, distanceKm: 0, streetPathVerified: true },

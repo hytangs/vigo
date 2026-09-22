@@ -39,7 +39,7 @@ export function realtimeRequestFromFields(fields: RealtimeFeedFields): RealtimeI
   }
 }
 
-export function realtimeInspectRequest(sourceText: string): RealtimeInspectRequest {
+function realtimeInspectRequest(sourceText: string): RealtimeInspectRequest {
   const urls = (sourceText.match(/https?:\/\/[^\s<>"']+/gi) ?? [])
     .map((value) => value.replace(/[),;\]]+$/, ''))
   if (!urls.length) throw new Error('Enter a valid GTFS-RT URL.')

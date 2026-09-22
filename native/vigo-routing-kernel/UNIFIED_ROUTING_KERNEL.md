@@ -8,6 +8,10 @@ The resident Rust kernel owns timetable and directed street search. JavaScript v
 | --- | --- |
 | [lib.rs](src/lib.rs) | Node-API boundary, coordinate kernel, street access and matrix integration |
 | [timetable.rs](src/timetable.rs) | Chronological timetable propagation, transfer constraints, range and matrix queries |
+| [timetable/preparation.rs](src/timetable/preparation.rs) | Departure ordering, transfer deduplication, station fallback expansion, and adjacency packing |
+| [timetable/realtime.rs](src/timetable/realtime.rs) | Immutable realtime timetable reconstruction, cancellations, continuity, and departure ordering |
+| [timetable/station_access.rs](src/timetable/station_access.rs) | Directed station graph compilation, nondominated time/distance paths, and packed witnesses |
+| [timetable/station_access_validation.rs](src/timetable/station_access_validation.rs) | Bounds, costs, and witness integrity for persisted station paths |
 | [timetable/journeys.rs](src/timetable/journeys.rs) | Selected matrix journey witnesses |
 | [timetable/overlay_quality.rs](src/timetable/overlay_quality.rs) | Overlay quality and timetable regressions |
 | [terminal_access.rs](src/terminal_access.rs) | Directed endpoint and station access |
@@ -22,7 +26,7 @@ Transit uses native connection scans over immutable prepared timetable data. For
 
 Planned Reach changes compile bounded overlay services into chronological connections. Resident and overlay events share stop/run state and directed transfer adjacency. Exclusions apply to the requested overlay; the baseline remains immutable. Equal-time events must preserve legal boarding independent of input ordering.
 
-There is **no implicit boarding slack**. Published minimums and forbidden transfers govern changing vehicles; staying aboard retains its trip state. A zero-time overlay identity edge requires the same declared GTFS stop identity. Other connectors need a directed OSM path. Identity links do not waive explicit transfer restrictions. See the [Route contract](../../docs/routing.md) and [GTFS support matrix](../../docs/gtfs-support-matrix.md).
+There is **no implicit boarding slack**. Published minimums and forbidden transfers govern changing vehicles; staying aboard retains its trip state. A zero-time overlay identity edge requires the same declared GTFS stop identity. Other connectors need a directed OSM path. Identity links do not waive explicit transfer restrictions. See the [Route contract](../../docs/reference/routing.md) and [GTFS support matrix](../../docs/reference/gtfs-support-matrix.md).
 
 ## Reach and street access
 
@@ -30,7 +34,7 @@ Reach prepares directed access from the origin, propagates through the timetable
 
 Timed connectors with one origin and a common distance policy can use CCH scalar searches. Multiple seeds with different arrival times or remaining walking budgets require a nondominated resource frontier. A later seed may still reach farther; retaining only the earliest label is insufficient.
 
-No straight-line substitute creates a missing street connection. Directed geometry, walking budgets, and source identities remain part of the result. Studio uses the complete reached-edge envelope; CLI raster bounds and time cutoffs are explained in [Reach](../../docs/reach.md).
+No straight-line substitute creates a missing street connection. Directed geometry, walking budgets, and source identities remain part of the result. Studio uses the complete reached-edge envelope; CLI raster bounds and time cutoffs are explained in [Reach](../../docs/reference/reach.md).
 
 ## Drive
 
@@ -38,7 +42,7 @@ Drive uses a CCH structure customized for time and distance. A minimum-time witn
 
 The constrained fallback retains nondominated labels and enforces an eight-million-label safety cap. Exhaustion reports a typed budget outcome rather than silently relaxing the distance constraint. Persistent CCH structure and metric files must form a complete identity-matched set; partial artifacts are rejected.
 
-These algorithms operate on the supplied graph. Unmodeled turns, station paths, permissions, or source features remain [model limitations](../../docs/known-routing-limitations.md), even when graph search is exact.
+These algorithms operate on the supplied graph. Unmodeled turns, station paths, permissions, or source features remain [model limitations](../../docs/reference/known-routing-limitations.md), even when graph search is exact.
 
 ## Verification
 
@@ -46,4 +50,4 @@ These algorithms operate on the supplied graph. Unmodeled turns, station paths, 
 
 Retain regressions for same-time connections, legal pickup/alighting, through-riding, explicit transfer rules, caps, source identity, directed barriers, baseline–scenario–baseline reuse, and blocked results. Drive checks cover both CCH certificates, constrained fallback, parallel edges, multiple snap candidates, and artifact reload/rejection.
 
-Native execution time excludes preparation, access work outside that operator, geometry, transport, and serialization. Use the [performance boundaries](../../docs/performance.md) when reporting latency. Passing finite fixtures supports the tested model; it is not proof of arbitrary-source correctness or observed travel-time accuracy.
+Native execution time excludes preparation, access work outside that operator, geometry, transport, and serialization. Use the [performance boundaries](../../docs/development/performance.md) when reporting latency. Passing finite fixtures supports the tested model; it is not proof of arbitrary-source correctness or observed travel-time accuracy.

@@ -69,7 +69,7 @@ export const toolDefinitions = [
   { name: 'draft_rider_message', description: 'Optional English starting draft using current routeNames/routeId or an eventId. A cause is NOT required. You may write or rewrite directly in the conversation, in any language, from supported facts. Does not publish.', parameters: object({ ...routeScope.properties, eventId: string, channel: { type: 'string', enum: ['app', 'signage', 'service-alert', 'social'] }, language: string, accessibilityMode: { type: 'boolean' } }) },
 ]
 
-export const internalToolDefinitions = [{ name: 'matrix', description: 'Compute a small scheduled VIGO travel-time matrix.', parameters: object({
+const internalToolDefinitions = [{ name: 'matrix', description: 'Compute a small scheduled VIGO travel-time matrix.', parameters: object({
   origins: { type: 'array', items: coordinate, minItems: 1, maxItems: 10 }, destinations: { type: 'array', items: coordinate, minItems: 1, maxItems: 10 },
   serviceDate: journey.serviceDate, departMinutes: serviceMinutes,
 }, ['origins', 'destinations', 'serviceDate', 'departMinutes']) }]

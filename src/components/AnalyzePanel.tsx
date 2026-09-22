@@ -11,7 +11,6 @@ import {
   Radar,
   RotateCcw,
   Route,
-  SlidersHorizontal,
   Trash2,
   X,
 } from 'lucide-react'
@@ -250,7 +249,7 @@ function ReachRenderModePicker({
   return (
     <div className="reach-render-mode">
       <span className="reach-render-mode-label">Map</span>
-      <div className="reach-segmented is-render-mode" role="group" aria-label="Reach map rendering">
+      <div className="studio-tabs reach-segmented is-render-mode" role="group" aria-label="Reach map rendering">
         <button
           type="button"
           className={classNames(renderMode === 'area' && 'is-active')}
@@ -775,7 +774,7 @@ export function AnalyzePanel({
     <section className="sidebar-section reach-surface" aria-label="Reach analysis controls">
       <form onSubmit={submit}>
         <div className="reach-analysis-switch">
-          <div className="reach-mode-tabs" role="group" aria-label="Analyze mode">
+          <div className="studio-tabs reach-mode-tabs" role="group" aria-label="Analyze mode">
             <button
               type="button"
               className={classNames(mode === 'single' && 'is-active')}
@@ -869,9 +868,9 @@ export function AnalyzePanel({
           </div>
         </div>
 
-        <details className="reach-advanced">
+        <details className="studio-disclosure reach-advanced">
           <summary>
-            <span><SlidersHorizontal size={14} aria-hidden="true" /> Analysis settings</span>
+            <span>Analysis settings</span>
             <b>{cutoffMinutes} min · {maxWalkKm} km final walk</b>
           </summary>
           <div className="reach-field-grid">
@@ -898,12 +897,12 @@ export function AnalyzePanel({
 
         {mode === 'single' ? (
           <details
-            className="reach-scenario-builder"
+            className="studio-disclosure reach-scenario-builder"
             open={scenarioEditorOpen}
             onToggle={(event) => setScenarioEditorOpen(event.currentTarget.open)}
           >
             <summary>
-              <span><SlidersHorizontal size={14} aria-hidden="true" /> Scenario</span>
+              <span>Scenario</span>
               <b>{hasScenarioChanges ? `${interventions.length} change${interventions.length === 1 ? '' : 's'} · ${activeCase?.name ?? 'Case'}` : 'No changes'}</b>
             </summary>
             <div className="reach-scenario-content">
@@ -1447,7 +1446,7 @@ export function AnalyzePanel({
                   <strong>Network view</strong>
                 </div>
               </div>
-              <div className="reach-segmented is-view" role="group" aria-label="Network comparison view">
+              <div className="studio-tabs reach-segmented is-view" role="group" aria-label="Network comparison view">
                 {scenarioViewOptions.map(([value, label]) => (
                   <button
                     key={value}

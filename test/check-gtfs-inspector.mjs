@@ -1,32 +1,9 @@
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import ts from 'typescript'
+import { importTestModules } from './helpers/import-test-modules.mjs'
 
-const root = resolve(import.meta.dirname, '..')
-const modules = new Map()
-function moduleUrl(path) {
-  if (modules.has(path)) return modules.get(path)
-  const compiled = ts.transpileModule(readFileSync(path, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-    fileName: path,
-  }).outputText.replace(/from ['"]([^'"]+)['"]/g, (_match, specifier) => {
-    if (!specifier.startsWith('.')) return `from '${import.meta.resolve(specifier)}'`
-    const absolute = resolve(dirname(path), specifier)
-    const dependency = [absolute, `${absolute}.ts`, `${absolute}.tsx`].find(existsSync)
-    assert(dependency, `Cannot resolve ${specifier} from ${path}`)
-    return `from '${moduleUrl(dependency)}'`
-  })
-  const url = `data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`
-  modules.set(path, url)
-  return url
-}
-
-const presentation = await import(moduleUrl(resolve(root, 'src/app/gtfsPresentation.ts')))
-const analysis = await import(moduleUrl(resolve(root, 'src/app/gtfsAnalysis.ts')))
-const { NetworkTimetable } = await import(moduleUrl(resolve(root, 'src/components/NetworkTimetable.tsx')))
+const [presentation, analysis, { NetworkTimetable }] = await importTestModules('app/gtfsPresentation.ts', 'app/gtfsAnalysis.ts', 'components/NetworkTimetable.tsx')
 const stops = [
   { id: 'a', name: 'Harvard', platformCode: '1' },
   { id: 'b', name: 'Central' },

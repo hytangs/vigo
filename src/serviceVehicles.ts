@@ -1,4 +1,4 @@
-import { vehicleOccupancyIndicator, bunchingPartner, vehicleGap, vehicleAlert, vehicleReportFresh } from './agency/vehicleIndicators'
+import { vehicleOccupancyIndicator, bunchingPartner, vehicleAlerts, vehicleAlert, vehicleReportFresh } from './agency/vehicleIndicators'
 import type { OperationalEvent } from './agency/types'
 import type { LngLat, MapPreview, RealtimeSnapshot, RouteMetric, ScheduledTrip, StopMetric } from './domain'
 import { scopedRouteServiceKey } from './routeServices'
@@ -32,7 +32,7 @@ export type ServiceVehicle = {
   routeColor: string
   tripId: string
   nextStopFeatureId?: string
-  pairedCoordinate?: LngLat
+  bunchingLinks?: Array<{ id: string; coordinate: LngLat; severity: OperationalEvent['severity'] }>
   delaySeverity?: string
   gapSeverity?: string
   indicatorLabel?: string
@@ -263,12 +263,22 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
         ? 'Not encoded'
         : formatScheduleClock(scheduledArrivalMinutes + Math.round((delaySeconds ?? 0) / 60))
     const stop = stopFor(index, nextStopId)
-    const gap = vehicleGap(vehicle, snapshot, events)
+    const gaps = vehicleAlerts(vehicle, snapshot, events)
+    const gap = gaps[0]
     const delay = vehicleAlert(vehicle, snapshot, events, 'delay')
     const partner = bunchingPartner(vehicle, snapshot, gap)
+    const links = new Map<string, NonNullable<ServiceVehicle['bunchingLinks']>[number]>()
+    for (const event of gaps) {
+      if (event.vehicleId !== vehicle.id) continue
+      const other = bunchingPartner(vehicle, snapshot, event)
+      if (!other || !Number.isFinite(other.lon) || !Number.isFinite(other.lat) || Math.abs(other.lon!) > 180 || Math.abs(other.lat!) > 90) continue
+      const id = JSON.stringify([other.sourceUrl, other.id, other.tripId, other.startDate, other.startTime])
+      if (!links.has(id)) links.set(id, { id, coordinate: [other.lon!, other.lat!], severity: event.severity })
+    }
     const occupancy = vehicleOccupancyIndicator(vehicle.occupancyStatus, vehicle.carriages)
     const fresh = vehicleReportFresh(vehicle, snapshot)
-    const gapLabel = gap ? `${Math.round((gap.evidence.observedHeadwaySeconds || 0) / 60)} min ${gap.type === 'bunching' ? 'spacing' : 'gap'} · scheduled ${Math.round((gap.evidence.scheduledHeadwaySeconds || 0) / 60)} min` : ''
+    const spacingTime = (seconds: number) => seconds < 60 ? `${Math.round(seconds)} sec` : `${Number((seconds / 60).toFixed(1))} min`
+    const gapLabel = gap ? `${spacingTime(gap.evidence.observedHeadwaySeconds || 0)} ${gap.type === 'bunching' ? 'spacing' : 'gap'} · ${gap.evidence.comparisonBasis ? 'local scheduled interval' : 'scheduled'} ${spacingTime(gap.evidence.scheduledHeadwaySeconds || 0)}` : ''
     const routeShortName = route?.shortName || routeId || 'Unassigned'
 
     return [{
@@ -288,7 +298,7 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
       routeShortName,
       routeColor: route?.color ?? '#6af3ee',
       tripId,
-      pairedCoordinate: gap?.vehicleId === vehicle.id && partner && Number.isFinite(partner.lon) && Number.isFinite(partner.lat) && Math.abs(partner.lon!) <= 180 && Math.abs(partner.lat!) <= 90 ? [partner.lon!, partner.lat!] : undefined,
+      bunchingLinks: [...links.values()],
       delaySeverity: delay?.severity,
       gapSeverity: gap?.severity,
       crowded: fresh && occupancy.crowded,

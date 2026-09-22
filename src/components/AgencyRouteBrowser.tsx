@@ -39,7 +39,7 @@ export function AgencyRouteBrowser({ state, onSelect, initialFilter = 'all', onF
   const hasFilters = Boolean(search.trim() || filter !== 'all')
 
   return <section className="agency-route-browser" aria-label="Route browser">
-    <header className="agency-page-heading"><h1>Routes</h1></header>
+    <header className="agency-page-heading"><h1 className="studio-page-title">Routes</h1></header>
     <div className="agency-route-search"><Search size={16} aria-hidden="true" /><input ref={searchRef} aria-label="Find a route" placeholder="Find a route" value={search} onChange={event => { setSearch(event.target.value); setLimit(50) }} />{search ? <button type="button" aria-label="Clear route search" onClick={() => { setSearch(''); setLimit(50); searchRef.current?.focus() }}><X size={14} aria-hidden="true" /></button> : null}</div>
     <div className="agency-route-filters" role="group" aria-label="Filter routes">{filters.map(item => <button type="button" key={item.value} aria-pressed={filter === item.value} onClick={() => chooseFilter(item.value)}><span>{item.label}</span><span className="agency-route-filter-count">{counts[item.value].toLocaleString()}</span></button>)}</div>
     <div className="agency-route-toolbar">

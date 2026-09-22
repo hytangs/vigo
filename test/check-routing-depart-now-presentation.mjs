@@ -9,7 +9,7 @@ import path from 'node:path'
 const directory = await mkdtemp(path.join(tmpdir(), 'vigo-depart-now-ui-'))
 const server = await createServer({ configFile: false, cacheDir: path.join(directory, 'vite-cache'), server: { host: '127.0.0.1', port: 0 } })
 try {
-  const { SidebarPathfinderBox } = await server.ssrLoadModule('/src/components/PathfinderPanel.tsx')
+  const { SidebarPathfinderBox, RoutingDetailPanel } = await server.ssrLoadModule('/src/components/PathfinderPanel.tsx')
   const props = {
     routingEnabled: false, routingOrigin: null, routingWaypoints: [], routingDestination: null,
     routingPlan: null, routingChoices: [], routingScopeStatus: 'ready', routingStoreReady: true,
@@ -48,5 +48,29 @@ try {
     assert.doesNotMatch(street, /Depart now/)
     assert.match(street, /aria-label="Routing time"[^>]*value="08:00"/, 'Street mode retains its clock')
   }
+  const detailPlan = {
+    status: 'ready', travelMode: 'transit', timePreference: 'depart',
+    departMinutes: 480, arriveMinutes: 510, durationMinutes: 30, walkMinutes: 5,
+    rideMinutes: 20, waitMinutes: 5, transfers: 0, maxWalkKm: 1.2,
+    origin: { label: 'Origin' }, destination: { label: 'Destination' },
+    diagnostics: { departurePresentation: { requestedDepartMinutes: 460 } },
+    legs: [
+      { type: 'walk', fromName: 'Origin', toName: 'Station', startMinutes: 480, endMinutes: 485,
+        durationMinutes: 5, distanceKm: .3, stationAccessStatus: 'unverified' },
+      { type: 'ride', fromName: 'Station', toName: 'Destination', startMinutes: 490, endMinutes: 510,
+        durationMinutes: 20, distanceKm: 4, stopCount: 5, routeShortName: 'Orange Line', routeColor: 'ED8B00', geometrySource: 'shape' },
+    ],
+  }
+  const unchanged = structuredClone(detailPlan)
+  const details = renderToStaticMarkup(createElement(RoutingDetailPanel, { plan: detailPlan, onClose() {} }))
+  assert.match(details, /<h2>30m<\/h2>/)
+  assert.match(details, /Leave 20m after your requested time/)
+  assert.match(details, /5m waiting en route/)
+  assert.match(details, /5m wait at Station/)
+  assert.match(details, /Orange Line/)
+  assert.match(details, /Station entrance \/ platform path unverified/)
+  assert.match(details, /Arrive at Destination/)
+  assert.doesNotMatch(details, /Why this journey is shown|sidebox-itinerary-summary|label="Ready"/)
+  assert.deepEqual(detailPlan, unchanged, 'Itinerary presentation never mutates routing results')
   console.log('Depart now presentation passed: fixed realtime clock, retained research date/time and arrive-by, current-date failure, and unchanged street controls.')
 } finally { await server.close(); await rm(directory, { recursive: true, force: true }) }

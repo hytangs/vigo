@@ -26,7 +26,7 @@ An unreported scheduled prefix may conflict with the first explicit prediction o
 
 Full snapshot processing is not a claim that every trip has a prediction. The UI distinguishes predicted and scheduled journey times, live cancellations, and excluded records. Added/unscheduled/replacement/duplicated trips without a supported scheduled instance remain unsupported and disclosed. Frequency instances and cross-timezone stores retain the existing routing-contract limits. Vehicle positions and text alerts do not invent stop-time predictions.
 
-Studio's [added-service display](network.md#added-service) is separate from routing admission. A reported trip can appear in the line view and trip selector without being available to Route.
+Studio's [added-service display](../guides/network.md#added-service) is separate from routing admission. A reported trip can appear in the line view and trip selector without being available to Route.
 
 ## Verification
 
