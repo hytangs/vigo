@@ -163,7 +163,7 @@ if (worker) {
   const reloadedDrive = prepareNationalOsmDriveStore(currentStore)
   assert.equal(reloadedWalk.source, 'rust_mmap_node_api')
   assert.equal(reloadedDrive.source, 'snapshot')
-  assert.equal(reloadedDrive.nativeCch.cchSource, 'in_memory')
+  assert.equal(reloadedDrive.nativeCch.cchSource, 'existing_mmap')
   const streetCch = buildNativeStreetCchIndex(currentStore)
   assert(streetCch.loaded.nodeCount > 0)
 
@@ -191,7 +191,7 @@ if (worker) {
   assert.equal(drive.diagnostics.weightModel, 'free_flow_seconds')
   assert.equal(drive.diagnostics.searchStats.accelerated, true)
   assert.equal(drive.diagnostics.searchStats.cchAccelerated, true)
-  assert.equal(drive.diagnostics.searchStats.cchSource, 'in_memory')
+  assert.equal(drive.diagnostics.searchStats.cchSource, 'existing_mmap')
 
   for (const [request, departurePlan] of [[walkRequest, walk], [driveRequest, drive]]) {
     for (const deadline of [510, 0, -5]) {
@@ -785,7 +785,7 @@ if (worker) {
   assert.equal(runtimeWalk.ready, true)
   const runtimeDrive = prepareNationalOsmDriveStore(currentStore)
   assert.equal(runtimeDrive.ready, true)
-  assert.equal(runtimeDrive.nativeCch.cchSource, 'in_memory')
+  assert.equal(runtimeDrive.nativeCch.cchSource, 'existing_mmap')
   const runtimeDriveRoute = routeNationalStreetStore(currentStore, driveRequest)
   assert.equal(runtimeDriveRoute.status, 'ready')
   assert.equal(runtimeDriveRoute.diagnostics.searchStats.cchAccelerated, true)

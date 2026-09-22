@@ -34,6 +34,8 @@ Actual-model evaluations are opt-in, never part of deterministic tests. `npm run
 
 Run `npm run check:release` before a release-affecting change. On each supported target, `npm run release:studio` checks icons, builds, packages, verifies the bundled runtime, and archives Studio. macOS bundles receive an ad-hoc signature.
 
+`check:public` scans every public file for developer paths, private workspace references and credential patterns. `check:packaged` scans the built payload and runs the relocated application with an isolated environment. These checks detect known patterns; they do not certify the absence of every possible secret. Keep runtime defaults portable and derive product versions from package metadata.
+
 `check:public` also tests the host archiver with a small fixture. Archive paths belong to `scripts/lib/studio-paths.mjs`; pass the produced file directly to the uploader instead of duplicating filename rules in CI. The release workflow verifies supported OS/CPU targets and City portability. A local pass establishes only that host's results.
 
 Tests validate the declared model and interfaces, not observed service, passenger impact, operational feasibility, or general model quality. See [accuracy](../docs/development/routing-accuracy.md) and [security reporting](../SECURITY.md).

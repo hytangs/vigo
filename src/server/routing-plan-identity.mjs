@@ -1,3 +1,4 @@
+import { nativeStableKeySuffix } from './native-routing-kernel.mjs'
 import { numeric } from './number-utils.mjs'
 
 export function stableJson(value) {
@@ -14,12 +15,7 @@ const volatilePlanIdentityKeys = new Set(['nativeStreetQueryMs'])
 // deterministic 64-bit suffix keeps them compact without making every route
 // identity pay for a cryptographic digest.
 export function stableKeySuffix(value) {
-  let state = 0xcbf29ce484222325n
-  for (const character of String(value)) {
-    state ^= BigInt(character.codePointAt(0))
-    state = BigInt.asUintN(64, state * 0x100000001b3n)
-  }
-  return state.toString(36).padStart(13, '0')
+  return nativeStableKeySuffix(String(value))
 }
 
 function stablePlanIdentityJson(value) {

@@ -10,7 +10,7 @@
 
 VIGO turns GTFS timetables and OpenStreetMap streets into a reusable city model. Inspect live service, plan journeys, calculate travel-time matrices, and compare the reach of proposed service changes. Each computed Result retains its request, City identity, warnings, and timing.
 
-**VIGO 0.4.1** moves timetable indexing into Rust, improves live bunching indicators, and reorganizes Engine and Studio internals. See the [release notes](docs/releases/0.4.1.md).
+**VIGO 0.4.2** prepares Drive hierarchies at City build time, shares native Matrix endpoint work, and moves shape alignment into Rust. See the [release notes](docs/releases/0.4.2.md).
 
 ## Why VIGO
 
@@ -29,10 +29,6 @@ The goal is a reproducible workflow from source data to a reviewable answer. Nat
 | Calculate travel times between sets of locations | `vigo matrix` |
 | Map travel time from an origin and test planned service | Studio **Analyze** or `vigo reach` |
 | Import or remove GTFS and OSM sources | Studio **City → Data sources** |
-
-![Route 1 in Boston: reported vehicles arranged by stop and direction](docs/guides/images/06-lineview.png)
-
-*An example line view. Positions and times describe the captured feed; they are not current service information or verified actual arrivals.*
 
 ## Choose an interface
 
@@ -76,6 +72,6 @@ Ask sends questions and selected evidence to the configured inference endpoint. 
 
 ## Documentation
 
-Start with the [documentation index](docs/README.md), [Studio guide](docs/guides/studio.md), or [CLI reference](docs/reference/programmatic.md). The [offline guide](docs/guide.html) includes a local Result viewer; the [Developer Guide source](docs/developer-guide/VIGO-0.4.1-Developer-Guide.tex) builds the release PDF. Contributors should read the [architecture](docs/development/architecture.md) and [verification guide](.github/CONTRIBUTING.md).
+Start with the [documentation index](docs/README.md), [Studio guide](docs/guides/studio.md), or [CLI reference](docs/reference/programmatic.md). The [offline guide](docs/guide.html) includes a local Result viewer; the [Developer Guide source](docs/developer-guide/VIGO-0.4.2-Developer-Guide.tex) builds the release PDF. Contributors should read the [architecture](docs/development/architecture.md) and [verification guide](.github/CONTRIBUTING.md).
 
-API 1.0, City format 1, and Result schema 1 are unchanged in 0.4.1. VIGO is licensed under [Apache-2.0](LICENSE); see [NOTICE](NOTICE) for attribution.
+API 1.0, City format 1, and Result schema 1 are unchanged in 0.4.2. VIGO is licensed under [Apache-2.0](LICENSE); see [NOTICE](NOTICE) for attribution.

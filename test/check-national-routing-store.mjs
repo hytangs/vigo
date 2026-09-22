@@ -24,7 +24,26 @@ import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.m
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 import { finalizeCurrentStreetFixture } from './helpers/street-fixture.mjs'
 import { processFixtureDirectory } from './helpers/fixture-process.mjs'
+import { blockedPlan } from '../src/server/gtfs/route-results.mjs'
 import { disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
+
+const unavailableAccessDiagnostic = blockedPlan(
+  { serviceDate: '2026-07-12', horizonMinutes: 240, maxTransfers: 3 }, 480, 1.2,
+  'No reachable station', 'Generic failure', {
+    accessAvailability: {
+      origin: { status: 'outside_selected_budget' },
+      destination: { status: 'diagnostic_unavailable', detail: 'Fixture probe failure' },
+    },
+  },
+)
+assert.equal(unavailableAccessDiagnostic.diagnostics.failureCode, 'access_diagnostic_unavailable')
+assert.equal(unavailableAccessDiagnostic.diagnostics.failure.retryable, true)
+assert.equal(unavailableAccessDiagnostic.title, 'Access diagnostic unavailable')
+assert.deepEqual(unavailableAccessDiagnostic.diagnostics.searchLimits, {
+  maxWalkKm: 1.2, walkingLimitScope: 'per_endpoint', horizonMinutes: 240,
+  horizonScope: 'timetable_scan',
+  maxTransfers: 3, requireTransitRide: true,
+})
 
 async function rebuildFixtureRoutingDerivedArtifacts(storePath) {
   const database = new DatabaseSync(storePath)
@@ -1403,6 +1422,8 @@ try {
   })
   assert.equal(accessBudgetExceeded.status, 'blocked')
   assert.equal(accessBudgetExceeded.diagnostics.failureCode, 'access_budget_exceeded')
+  assert.equal(accessBudgetExceeded.title, 'Walking limit exceeded')
+  assert.equal(accessBudgetExceeded.detail, accessBudgetExceeded.diagnostics.failure.message)
   assert.equal(
     accessBudgetExceeded.diagnostics.accessAvailability.origin.status,
     'outside_selected_budget',
@@ -1423,10 +1444,39 @@ try {
   })
   assert.equal(streetAccessUnverified.status, 'blocked')
   assert.equal(streetAccessUnverified.diagnostics.failureCode, 'street_access_unverified')
+  assert.equal(streetAccessUnverified.title, 'Street access unverified')
+  const unverifiedHint = streetAccessUnverified.diagnostics.accessAvailability.origin
+  assert.equal(unverifiedHint.nearestStop.distanceKind, 'straight_line')
+  assert.equal(unverifiedHint.nearestStop.walkMinutes, undefined,
+    'Geometric proximity must not be presented as a verified walking time.')
   assert.equal(
     streetAccessUnverified.diagnostics.accessAvailability.origin.status,
     'street_access_unverified',
   )
+  // Repeat after cached queries, and exercise both departure and arrival
+  // paths: the wider explanatory probe must honor the same cache policy.
+  for (const timePreference of ['depart', 'arrive']) {
+    for (let repeat = 0; repeat < 2; repeat += 1) {
+      const plan = routeNationalGtfsStore(shortTransitStorePath, {
+        ...shortWalkRequest,
+        origin: streetAccessUnverified.origin,
+        destination: streetAccessUnverified.destination,
+        maxWalkKm: 0.6,
+        timePreference,
+        arriveMinutes: 600,
+        requireTransitRide: true,
+        __originAccessStopIds: ['short\u001fLONG_A'],
+        __disableNativeStreetPathCache: true,
+      })
+      assert.equal(plan.status, 'blocked')
+      assert.equal(plan.maxWalkKm, 0.6, 'Diagnostic probes must not relax the actual request.')
+      for (const hint of Object.values(plan.diagnostics.accessAvailability).filter(Boolean)) {
+        assert.equal(hint.cacheDisabled, true)
+        assert.equal(hint.cacheHit, false)
+        assert.equal(hint.probeComplete, true)
+      }
+    }
+  }
   const transitReadyWholeLegWalkRequest = {
     ...shortWalkRequest,
     origin: {

@@ -44,6 +44,9 @@ impl Hasher for IntegerHasher {
 
 type IntegerHashSet<T> = HashSet<T, BuildHasherDefault<IntegerHasher>>;
 
+mod coordinate_matrix;
+mod route_materialization;
+pub use route_materialization::{ShapeGeometry, stable_key_suffix};
 mod snapshot_validation;
 mod street_kernel;
 mod street_snapshot;
@@ -1898,8 +1901,10 @@ fn reduce_access_frontier(
         );
     }
     workspace.source_touched.sort_unstable();
-    let raw_sources = workspace.source_touched.clone();
-    for &source_member in &raw_sources {
+    // These passes update labels/stations, never the source list. Copy only the
+    // current index instead of allocating a duplicate frontier per endpoint.
+    for index in 0..workspace.source_touched.len() {
+        let source_member = workspace.source_touched[index];
         let source = workspace.sources[source_member as usize];
         let member = source.member;
         let member_index = member as usize;
@@ -1927,8 +1932,8 @@ fn reduce_access_frontier(
         workspace.retain_direct_station(generation, station, source);
     }
 
-    let direct_stations = workspace.direct_station_touched.clone();
-    for station in direct_stations {
+    for index in 0..workspace.direct_station_touched.len() {
+        let station = workspace.direct_station_touched[index];
         let source = workspace.direct_stations[station as usize];
         let members = profile.station_members(station, origin_role);
         for &member in members {
@@ -1951,7 +1956,8 @@ fn reduce_access_frontier(
         }
     }
 
-    for source_member in raw_sources {
+    for index in 0..workspace.source_touched.len() {
+        let source_member = workspace.source_touched[index];
         let source = workspace.sources[source_member as usize];
         let member = source.member as usize;
         let source_stop_key = profile.member_stop_keys[member];
@@ -2279,10 +2285,15 @@ pub struct CoordinateTimetableMatrixInput {
     pub maximum_boardings: Option<u32>,
     pub include_journeys: Option<bool>,
     pub disable_cache: Option<bool>,
+    pub direct_walk_maximum_m: Option<f64>,
 }
 
 #[napi(object)]
 pub struct CoordinateTimetableMatrixResult {
+    pub direct_walk: Option<StreetMatrixResult>,
+    pub origin_cache_hits: u32,
+    pub destination_cache_hits: u32,
+    pub cache_disabled: bool,
     pub timetable: TimetableMatrixQueryResult,
     pub access_ns: f64,
     pub query_ns: f64,
@@ -2643,10 +2654,12 @@ pub struct StreetMatrixInput {
     pub origin_coordinates: Vec<f64>,
     pub destination_coordinates: Vec<f64>,
     pub maximum_distance_m: f64,
+    pub disable_cache: Option<bool>,
 }
 
 #[napi(object)]
 pub struct StreetMatrixResult {
+    pub reused_endpoint_snaps: u32,
     pub distances_m: Vec<f64>,
     pub ready_pairs: u32,
     pub source_candidates: u32,
@@ -3774,11 +3787,18 @@ impl CoordinateKernel {
             }
             _ => false,
         };
-        if input.member_timetable_stops.len() != member_count || !arrive_by_bounds_valid {
+        if input.member_timetable_stops.len() != member_count
+            || !arrive_by_bounds_valid
+            || !input.departure.is_finite()
+            || !input.horizon.is_finite()
+            || input.departure < 0.0
+            || input.horizon < input.departure
+        {
             return Err(Error::from_reason(
                 "Coordinate timetable projection or arrive-by bounds are inconsistent.",
             ));
         }
+        timetable::boarding_layers(input.maximum_boardings)?;
         let access_started = Instant::now();
         let endpoints = self.route_endpoints(EndpointRouteInput {
             origin_lon: input.origin_lon,
@@ -3955,7 +3975,13 @@ impl CoordinateKernel {
         let mut arrive_by_result = None;
         let mut arrive_by_ns = 0.0;
         let mut forward_timetable_ns = 0.0;
-        let mut timetable_result = if direct_walk_access_dominates {
+        // An empty endpoint frontier cannot produce a transit journey. In
+        // particular, an empty origin previously scanned the whole timetable
+        // before JavaScript returned the already-known access failure.
+        let skip_timetable = direct_walk_access_dominates
+            || origin_candidate_count == 0
+            || destination_candidate_count == 0;
+        let mut timetable_result = if skip_timetable {
             None
         } else {
             let mut origin_stops = Vec::<u32>::new();
@@ -4038,7 +4064,7 @@ impl CoordinateKernel {
                 None
             }
         };
-        let timetable_ns = if direct_walk_access_dominates {
+        let timetable_ns = if skip_timetable {
             0.0
         } else {
             timetable_started.elapsed().as_nanos() as f64
@@ -4137,105 +4163,6 @@ impl CoordinateKernel {
             timetable_ns,
             arrive_by_ns,
             forward_timetable_ns,
-        })
-    }
-
-    /// Coordinate Matrix keeps endpoint frontiers and their timetable
-    /// projection in Rust. It uses the same directed endpoint search and the
-    /// same shared timetable scan as the separately exposed operations.
-    #[napi]
-    pub fn route_endpoints_timetable_matrix(
-        &mut self,
-        mut timetable: ClassInstance<'_, TimetableKernel>,
-        input: CoordinateTimetableMatrixInput,
-    ) -> napi::Result<CoordinateTimetableMatrixResult> {
-        let started = Instant::now();
-        let origin_count = input.origin_coordinates.len() / 2;
-        let destination_count = input.destination_coordinates.len() / 2;
-        let member_count = self
-            .profile
-            .as_ref()
-            .ok_or_else(|| Error::from_reason("Rust routing access profile is not configured."))?
-            .member_lons
-            .len();
-        if origin_count == 0
-            || destination_count == 0
-            || !input.origin_coordinates.len().is_multiple_of(2)
-            || !input.destination_coordinates.len().is_multiple_of(2)
-            || origin_count > MAXIMUM_MATRIX_PAIRS / destination_count
-            || input.member_timetable_stops.len() != member_count
-            || input
-                .origin_coordinates
-                .chunks_exact(2)
-                .chain(input.destination_coordinates.chunks_exact(2))
-                .any(|point| {
-                    !point[0].is_finite()
-                        || !point[1].is_finite()
-                        || point[0].abs() > 180.0
-                        || point[1].abs() > 90.0
-                })
-        {
-            return Err(Error::from_reason(
-                "Coordinate Matrix requires valid coordinates, a matching stop projection, and at most 100,000 pairs.",
-            ));
-        }
-        let mut project = |coordinates: &[f64],
-                           role: &str|
-         -> napi::Result<(Vec<u32>, Vec<u32>, Vec<f64>)> {
-            let mut offsets = Vec::with_capacity(coordinates.len() / 2 + 1);
-            let mut stops = Vec::new();
-            let mut seconds = Vec::new();
-            offsets.push(0);
-            for point in coordinates.chunks_exact(2) {
-                let access = self.route_endpoint(EndpointRoleInput {
-                    longitude: point[0],
-                    latitude: point[1],
-                    role: role.to_owned(),
-                    maximum_walk_m: input.maximum_walk_m,
-                    walking_speed_kph: input.walking_speed_kph,
-                    access_padding_factor: input.access_padding_factor,
-                    access_overhead_seconds: input.access_overhead_seconds,
-                    disable_cache: input.disable_cache,
-                })?;
-                for (&member, &walk) in access.member_indices.iter().zip(&access.access_seconds) {
-                    let stop = input.member_timetable_stops[member as usize];
-                    if stop != u32::MAX {
-                        stops.push(stop);
-                        seconds.push(f64::from(walk));
-                    }
-                }
-                offsets.push(u32::try_from(stops.len()).map_err(|_| {
-                    Error::from_reason(
-                        "Coordinate Matrix endpoint frontier exceeds native index capacity.",
-                    )
-                })?);
-            }
-            Ok((offsets, stops, seconds))
-        };
-        let (destination_offsets, destination_stops, destination_walk_seconds) =
-            project(&input.destination_coordinates, "destination")?;
-        let (origin_offsets, origin_stops, origin_walk_seconds) =
-            project(&input.origin_coordinates, "origin")?;
-        let access_ns = started.elapsed().as_nanos() as f64;
-        let result = timetable.route_matrix_csa(TimetableMatrixQueryInput {
-            origin_offsets,
-            origin_stops,
-            origin_walk_seconds,
-            destination_offsets,
-            destination_stops,
-            destination_walk_seconds,
-            allow_pre_ride_transfers: vec![false; origin_count],
-            allow_post_ride_transfers: Some(vec![false; destination_count]),
-            departure: input.departure,
-            horizon: input.horizon,
-            arrive_by: input.arrive_by,
-            maximum_boardings: input.maximum_boardings,
-            include_journeys: input.include_journeys,
-        })?;
-        Ok(CoordinateTimetableMatrixResult {
-            timetable: result,
-            access_ns,
-            query_ns: started.elapsed().as_nanos() as f64,
         })
     }
 
@@ -5080,193 +5007,6 @@ impl CoordinateKernel {
             input.maximum_points,
             started,
         )
-    }
-
-    /// Compute a bounded directed coordinate matrix in one native call. The
-    /// CCH query shares one destination frontier across every source row and
-    /// returns scalar distances only; path geometry remains an explicit
-    /// point-query concern.
-    #[napi]
-    pub fn route_street_matrix(
-        &mut self,
-        input: StreetMatrixInput,
-    ) -> napi::Result<StreetMatrixResult> {
-        let (origin_coordinate_pairs, origin_remainder) = input.origin_coordinates.as_chunks::<2>();
-        let (destination_coordinate_pairs, destination_remainder) =
-            input.destination_coordinates.as_chunks::<2>();
-        let origin_count = origin_coordinate_pairs.len();
-        let destination_count = destination_coordinate_pairs.len();
-        if !origin_remainder.is_empty()
-            || !destination_remainder.is_empty()
-            || origin_count == 0
-            || destination_count == 0
-        {
-            return Err(Error::from_reason(
-                "Street matrix coordinates must contain non-empty longitude/latitude pairs.",
-            ));
-        }
-        if origin_count.saturating_mul(destination_count) > MAXIMUM_MATRIX_PAIRS {
-            return Err(Error::from_reason(
-                "Street matrices are limited to 100,000 pairs.",
-            ));
-        }
-        if input
-            .origin_coordinates
-            .iter()
-            .chain(input.destination_coordinates.iter())
-            .any(|coordinate| !coordinate.is_finite())
-            || !input.maximum_distance_m.is_finite()
-            || input.maximum_distance_m <= 0.0
-        {
-            return Err(Error::from_reason(
-                "Street matrix coordinates or distance bound are inconsistent.",
-            ));
-        }
-
-        let started = Instant::now();
-        let reciprocal_edge_flags = self.snapshot.reciprocal_edge_flags();
-        let origin_access = origin_coordinate_pairs
-            .iter()
-            .map(|pair| {
-                let key = EndpointCacheKey::new(pair[0], pair[1], input.maximum_distance_m);
-                if let Some(frontier) = self.origin_cache.get(&key)
-                    && (!frontier.source_snaps.is_empty() || frontier.terminal_attachment.is_some())
-                {
-                    return Ok((
-                        frontier.source_snaps.clone(),
-                        frontier.terminal_attachment.clone(),
-                    ));
-                }
-                terminal_endpoint_snaps(
-                    &self.snapshot,
-                    self.terminal_access.as_ref(),
-                    snaps_for_coordinate(&self.snapshot, reciprocal_edge_flags, pair[0], pair[1])?,
-                    pair[0],
-                    pair[1],
-                    input.maximum_distance_m,
-                    false,
-                )
-            })
-            .collect::<napi::Result<Vec<_>>>()?;
-        let destination_access = destination_coordinate_pairs
-            .iter()
-            .map(|pair| {
-                let key = EndpointCacheKey::new(pair[0], pair[1], input.maximum_distance_m);
-                if let Some(frontier) = self.destination_cache.get(&key)
-                    && (!frontier.source_snaps.is_empty() || frontier.terminal_attachment.is_some())
-                {
-                    return Ok((
-                        frontier.source_snaps.clone(),
-                        frontier.terminal_attachment.clone(),
-                    ));
-                }
-                terminal_endpoint_snaps(
-                    &self.snapshot,
-                    self.terminal_access.as_ref(),
-                    snaps_for_coordinate(&self.snapshot, reciprocal_edge_flags, pair[0], pair[1])?,
-                    pair[0],
-                    pair[1],
-                    input.maximum_distance_m,
-                    true,
-                )
-            })
-            .collect::<napi::Result<Vec<_>>>()?;
-        let origin_snaps: Vec<_> = origin_access
-            .iter()
-            .map(|(snaps, _)| snaps.clone())
-            .collect();
-        let destination_snaps: Vec<_> = destination_access
-            .iter()
-            .map(|(snaps, _)| snaps.clone())
-            .collect();
-        let reverse = origin_count > destination_count;
-        let (target_coordinates, target_snaps, source_snaps) = if reverse {
-            (&input.origin_coordinates, &origin_snaps, &destination_snaps)
-        } else {
-            (
-                &input.destination_coordinates,
-                &destination_snaps,
-                &origin_snaps,
-            )
-        };
-        let targets = cch_coordinate_targets_from_snap_sets(target_coordinates, target_snaps);
-        let mut distances_m = vec![f64::INFINITY; origin_count * destination_count];
-        let mut ready_pairs = 0_u32;
-        let source_candidates = origin_snaps.iter().fold(0_u32, |count, snaps| {
-            count.saturating_add(snaps.len() as u32)
-        });
-        let destination_candidates = destination_snaps.iter().fold(0_u32, |count, snaps| {
-            count.saturating_add(snaps.len() as u32)
-        });
-
-        let Some(index) = self.street_cch.as_mut() else {
-            return Err(Error::from_reason(
-                "Rust street matrix routing requires a loaded current CCH index.",
-            ));
-        };
-        let buckets = coordinate_matrix_buckets(
-            index,
-            &targets,
-            source_snaps.len(),
-            input.maximum_distance_m,
-            reverse,
-        )?;
-        for (source, source_snap_set) in source_snaps.iter().enumerate() {
-            let sources = source_snap_set
-                .iter()
-                .map(|snap| (snap.node, cch_distance_units(snap.distance_m)))
-                .collect::<Vec<_>>();
-            let row = cch_distances_to_coordinate_targets(
-                index,
-                &sources,
-                &targets,
-                input.maximum_distance_m,
-                buckets.as_ref(),
-                reverse,
-            );
-            for (target, distance) in row.iter().copied().enumerate() {
-                let (origin, destination) = if reverse {
-                    (target, source)
-                } else {
-                    (source, target)
-                };
-                let private_distance = origin_access[origin]
-                    .1
-                    .as_ref()
-                    .and_then(|a| {
-                        destination_access[destination]
-                            .1
-                            .as_ref()
-                            .and_then(|b| a.direct_to(b))
-                    })
-                    .map_or(f64::INFINITY, |(d, _)| d);
-                let distance = if private_distance <= input.maximum_distance_m {
-                    distance.min(private_distance)
-                } else {
-                    distance
-                };
-                let matrix_index = origin * destination_count + destination;
-                if input.origin_coordinates[origin * 2..origin * 2 + 2]
-                    == input.destination_coordinates[destination * 2..destination * 2 + 2]
-                {
-                    distances_m[matrix_index] = 0.0;
-                    ready_pairs = ready_pairs.saturating_add(1);
-                } else if distance.is_finite() {
-                    distances_m[matrix_index] = distance;
-                    ready_pairs = ready_pairs.saturating_add(1);
-                }
-            }
-        }
-
-        Ok(StreetMatrixResult {
-            distances_m,
-            ready_pairs,
-            source_candidates,
-            destination_candidates,
-            query_ns: started.elapsed().as_nanos() as f64,
-            cch_accelerated: true,
-            algorithm: "rust_cch_coordinate_distance_matrix_v1".to_owned(),
-        })
     }
 
     #[napi]

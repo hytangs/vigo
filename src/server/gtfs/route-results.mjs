@@ -2,6 +2,8 @@ import {
   accessOverheadSeconds,
   accessPaddingFactor,
   nationalRoutingAccessPolicy,
+  routingHorizonMinutes,
+  transitRideRequired,
   walkSeconds,
   walkingSpeedKph,
 } from './routing-policy.mjs'
@@ -600,12 +602,20 @@ function accessFailureFromAvailability(accessAvailability) {
     .map((hint) => hint?.status)
     .filter(Boolean)
   if (!statuses.length) return null
+  if (statuses.includes('diagnostic_unavailable')) {
+    return {
+      code: 'access_diagnostic_unavailable',
+      category: 'diagnostic',
+      retryable: true,
+      message: 'No access candidate was found within the selected walking limit, and the wider diagnostic search could not complete.',
+    }
+  }
   if (statuses.every((status) => status === 'outside_selected_budget')) {
     return {
       code: 'access_budget_exceeded',
       category: 'access',
       retryable: false,
-      message: 'A graph-verified station access path exists beyond the selected walking budget.',
+      message: 'A station access candidate exists beyond the selected walking limit. Increasing the limit may allow a journey; a complete transit itinerary has not been verified.',
     }
   }
   if (
@@ -619,10 +629,15 @@ function accessFailureFromAvailability(accessAvailability) {
       code: 'street_access_unverified',
       category: 'access',
       retryable: false,
-      message: 'Nearby transit stops exist, but the imported street graph does not verify pedestrian access to every required endpoint.',
+      message: 'Nearby transit stops exist, but no pedestrian access path was verified within the diagnostic search limit. A longer path or missing street connections may explain this result.',
     }
   }
-  return null
+  return {
+    code: 'access_unreachable',
+    category: 'access',
+    retryable: false,
+    message: 'At least one endpoint has no station access candidate within the bounded diagnostic search. This does not establish that no longer path exists.',
+  }
 }
 
 function routingFailure(title, detail, stats = {}) {
@@ -651,6 +666,14 @@ export function blockedPlan(request, departureMinutes, maxWalkKm, title, detail,
     availableServiceScopeCount: 0,
   }
   const failure = routingFailure(title, detail, stats)
+  if (title === 'No reachable station' && stats.accessAvailability) {
+    title = ({
+      access_budget_exceeded: 'Walking limit exceeded',
+      street_access_unverified: 'Street access unverified',
+      access_diagnostic_unavailable: 'Access diagnostic unavailable',
+    })[failure.code] ?? 'No access within search limits'
+    detail = failure.message
+  }
   return {
     id: stablePlanId('national-blocked', {
       failure: failure.code,
@@ -676,6 +699,14 @@ export function blockedPlan(request, departureMinutes, maxWalkKm, title, detail,
       failureCode: failure.code,
       failureCategory: failure.category,
       failure,
+      searchLimits: {
+        maxWalkKm,
+        walkingLimitScope: 'per_endpoint',
+        horizonMinutes: routingHorizonMinutes(request),
+        horizonScope: 'timetable_scan',
+        maxTransfers: request.maxTransfers ?? null,
+        requireTransitRide: transitRideRequired(request),
+      },
       originStopCandidates: stats.originStops ?? 0, destinationStopCandidates: stats.destinationStops ?? 0, destinationLabels: 0,
       ...(stats.accessAvailability ? { accessAvailability: stats.accessAvailability } : {}),
       searchStats: {},

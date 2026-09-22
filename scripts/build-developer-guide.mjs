@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const sourceDirectory = path.join(root, 'docs', 'developer-guide')
-const sourceName = 'VIGO-0.4.1-Developer-Guide.tex'
+const { version } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+const sourceName = `VIGO-${version}-Developer-Guide.tex`
 const buildDirectory = path.join(root, 'temp', 'developer-guide-build')
 const outputDirectory = path.join(root, 'output', 'pdf')
 

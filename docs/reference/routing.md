@@ -24,18 +24,43 @@ Matrix uses the same default. `maxWalkKm` limits each access and egress walk;
 it is not a limit on an explicitly requested complete walking journey.
 `--horizon` / `horizonMinutes` sets the timetable
 search horizon in minutes (default 480, range 1–2880).
+For depart-at transit this bounds the timetable scan; final walking can finish
+after that boundary. It is not a hard limit on door-to-door journey duration.
+Comparisons using a total-duration cap must check the final arrival separately.
 
 Transit JSON requests accept `disableCache: true` to disable street-access
 frontier and walking-path caches while keeping the prepared City resident.
 Route answers are recomputed regardless of this option.
+The same flag applies to the wider access probes used to explain a blocked
+Route; each returned probe records `cacheDisabled` and `cacheHit`.
 
 ## Result
 
 A Route Result contains status, chronological legs, departure and arrival, duration, transfers, warnings, timing, and a run record. A blocked Result remains a valid answer and explains why no journey was returned.
 
+Access failures include endpoint-specific `diagnostics.accessAvailability`:
+
+- `outside_selected_budget`: an access candidate exists at a larger walking
+  limit. Its suggested limit does not guarantee a complete transit itinerary;
+  `streetPathVerified` records whether the candidate's path is verified.
+- `street_access_unverified`: nearby stops exist, but the bounded street search
+  did not verify access. `nearestStop.distanceKind: "straight_line"` describes
+  proximity, not walking distance or time. Longer paths can still exist.
+- `none_within_probe`: no access candidate was found within `probeWalkKm`.
+  This is a bounded result, not proof of disconnection at every distance.
+- `diagnostic_unavailable`: the explanatory probe failed. The result reports
+  `access_diagnostic_unavailable`, distinct from a completed negative search.
+
+The diagnostic never increases the request's walking allowance automatically.
+Blocked plans retain `diagnostics.searchLimits` for walking, horizon, transfers,
+and the transit-ride requirement, including `horizonScope: "timetable_scan"`.
+`no_path` means no scheduled itinerary under
+those constraints and the selected service date; changing a constraint requires
+a separate query.
+
 The engine adds no implicit boarding buffer. Same-stop vehicle changes honor published GTFS minimum transfer times and forbidden transfers; staying aboard does not incur a transfer minimum. Explicit transfer edges retain their durations without an added boarding margin or a 60-second floor. Native diagnostics report `transferBoardSlackSeconds: 0`. A published platform-to-platform transfer rule takes precedence over the station walking fallback.
 
-VIGO 0.4.1 exposes `earliest_arrival`. Equal-arrival journeys prefer fewer boardings, then less walking, then a stable final order. VIGO does not expose an undefined “balanced” preference. Arrive-by first maximizes departure time; among journeys leaving at that boundary and arriving by the deadline, it minimizes boardings, then walking, then actual arrival. A slightly later on-time arrival can therefore avoid unnecessary transfers.
+VIGO 0.4.2 exposes `earliest_arrival`. Equal-arrival journeys prefer fewer boardings, then less walking, then a stable final order. VIGO does not expose an undefined “balanced” preference. Arrive-by first maximizes departure time; among journeys leaving at that boundary and arriving by the deadline, it minimizes boardings, then walking, then actual arrival. A slightly later on-time arrival can therefore avoid unnecessary transfers.
 
 Departure-window queries also return up to five distinct journey choices in
 `choices`, including slower services that reduce transfers or walking. For each
@@ -70,6 +95,11 @@ declared pathway length, or the stop-coordinate distance if length is also
 absent. A missing time is not a zero-time link. For endpoint access, declared
 pathway graphs suppress generic platform shortcuts. Fallback station links
 include their walking time in both endpoint and timetable preparation.
+Endpoint walks using a prepared station path expose `accessCost.street` and
+`accessCost.station`, each with distance and seconds. The station component
+also retains directed `stopIds` and source types. Published station traversal
+times can differ from distance divided by street walking speed. The component
+witness supports a source-data audit; it does not certify physical station access.
 Cities built with transfer semantics v2 must be rebuilt to retain pathway lengths.
 The walking
 limit covers each complete continuous access or egress walk; a transfer walk
@@ -86,3 +116,18 @@ the first or last walking leg. Its coordinates and distance describe the snap
 already included in that leg's cost. It has `source: "coordinate-snap"` and
 `streetPathVerified: false`; the leg's `coordinates` retain the routed street
 path. A connector is not evidence of a mapped or legally traversable street.
+
+## Itinerary geometry and identifiers
+
+Rust prepares the shape-distance prefix and latitude index, then aligns the
+complete selected trip's stop sequence monotonically to the published shape.
+The matcher retains up to 16 points within 1 km per stop and preserves source
+order to disambiguate loops. The latitude index only eliminates points outside
+that radius; it does not simplify the published shape. JavaScript loads source
+rows and assembles the selected itinerary. Prepared shapes remain subject to
+the store's entry and byte budgets, including the bounded native candidate cache.
+
+Plan identifiers retain the existing 64-bit hash and Unicode code-point
+semantics. Rust performs that arithmetic; identifiers are selection keys, not
+security digests. `npm run check:accuracy` includes differential tests against
+the previous JavaScript shape matcher and identifier arithmetic.

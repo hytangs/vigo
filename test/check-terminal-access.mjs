@@ -66,6 +66,33 @@ try {
   const matrix = kernel.routeStreetMatrix({ originCoordinates: points.flat(), destinationCoordinates: points.flat(), maximumDistanceM: 5000 })
   const expected = points.flatMap((from) => points.map((to) => from === to ? 0 : query(from, to).distanceM))
   assert.deepEqual(matrix.distancesM, expected)
+  const timetable = new binding.TimetableKernel({
+    stopCount: 2, runCount: 2,
+    departureSeconds: new Uint32Array([300, 700]), arrivalSeconds: new Uint32Array([600, 800]),
+    fromStop: new Uint32Array([1, 0]), toStop: new Uint32Array([0, 1]),
+    sequence: new Uint32Array([1, 1]), segmentTrip: new Uint32Array([0, 1]), segmentRun: new Uint32Array([0, 1]),
+    continuityBreak: new Uint8Array([1, 1]), canBoard: new Uint8Array([1, 1]), canAlight: new Uint8Array([1, 1]),
+    tripStart: new Uint32Array([0, 1, 2]), departureOffset: new Uint32Array([0, 1, 2]), departureOrder: new Uint32Array([1, 0]),
+    transferOffset: new Uint32Array(3), transferTo: new Uint32Array(), transferDuration: new Uint32Array(), forbiddenSameStop: new Uint8Array(2),
+  })
+  const checkFused = () => {
+    for (const [origins, destinations] of [[points, [target]], [[target], points]]) {
+      for (const disableCache of [false, true]) {
+        const fused = kernel.routeEndpointsTimetableMatrix(timetable, {
+          originCoordinates: origins.flat(), destinationCoordinates: destinations.flat(),
+          maximumWalkM: 400, memberTimetableStops: new Uint32Array([0]), departure: 0, horizon: 1000,
+          arriveBy: origins.length > destinations.length, directWalkMaximumM: 5000, disableCache,
+        })
+        const walking = kernel.routeStreetMatrix({ originCoordinates: origins.flat(),
+          destinationCoordinates: destinations.flat(), maximumDistanceM: 5000, disableCache })
+        assert.deepEqual(fused.directWalk.distancesM, walking.distancesM,
+          'Private attachments must use the walking bound even when transit access is empty.')
+        assert.equal(fused.directWalk.reusedEndpointSnaps, 0)
+        if (disableCache) assert.equal(fused.originCacheHits + fused.destinationCacheHits, 0)
+      }
+    }
+  }
+  checkFused()
   // Directed private access must reverse the search, not the permission.
   graph.edgeSources = [1, 2]; graph.edgeTargets = [0, 1]; graph.edgeDistancesM = [100, 100]
   fs.writeFileSync(file, JSON.stringify(graph)); kernel.configureTerminalAccess(file)
@@ -80,6 +107,8 @@ try {
       return path.found ? path.distanceM : Infinity
     })), 'Matrix orientation must preserve directed private endpoint permissions.')
   }
+
+  checkFused()
 
   // Reject an artifact linked to a different physical public vertex.
   graph.nodeLons[0] += 0.01

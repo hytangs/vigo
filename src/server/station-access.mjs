@@ -3,6 +3,28 @@ import { haversineKm } from './geometry-utils.mjs'
 
 const isPathway = source => source === 'gtfs_pathway' || source === 'schedule_pathway'
 
+// Declared station traversal time need not equal street walking time (for
+// example, a moving walkway). Preserve both priced components and the directed
+// stop witness so a consumer can check source timing independently.
+export function stationAccessTiming(candidate) {
+  const distanceKm = candidate.accessTransferPathDistanceKm
+  const seconds = candidate.accessTransferSeconds
+  if (!candidate.accessTransferStopIds || !Number.isFinite(distanceKm)
+    || !Number.isFinite(seconds) || !Number.isFinite(candidate.accessSeconds)) return {}
+  return { accessCost: {
+    street: {
+      distanceKm: Math.max(0, candidate.distanceKm - distanceKm),
+      seconds: Math.max(0, candidate.accessSeconds - seconds),
+    },
+    station: {
+      stopIds: candidate.accessTransferStopIds,
+      sources: candidate.accessTransferSources,
+      distanceKm,
+      seconds,
+    },
+  } }
+}
+
 // A street path to a platform coordinate does not establish the station's
 // interior connection. Keep that evidence boundary on the selected legs;
 // missing station data does not supply a defensible additional travel time.

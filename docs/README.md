@@ -1,6 +1,6 @@
 # VIGO documentation
 
-VIGO 0.4.1 combines a reusable routing engine with Studio network inspection and scenario analysis. Begin with the workflow you need; the reference pages describe the supported data and query contracts.
+VIGO 0.4.2 combines a reusable routing engine with Studio network inspection and scenario analysis. Begin with the workflow you need; the reference pages describe the supported data and query contracts.
 
 ## Start here
 
@@ -27,7 +27,7 @@ VIGO 0.4.1 combines a reusable routing engine with Studio network inspection and
 
 [Contributing and checks](../.github/CONTRIBUTING.md) · [Architecture](development/architecture.md) · [Security](../SECURITY.md)
 
-The [Developer Guide](developer-guide/VIGO-0.4.1-Developer-Guide.tex) is the printable engine reference. Build it with `npm run docs:developer-guide`; the PDF is also a release artifact. Current behavior belongs in the guides above. [Release notes](releases/0.4.1.md) and the [changelog](../CHANGELOG.md) preserve version history.
+The [Developer Guide](developer-guide/VIGO-0.4.2-Developer-Guide.tex) is the printable engine reference. Build it with `npm run docs:developer-guide`; the PDF is also a release artifact. Current behavior belongs in the guides above. [Release notes](releases/0.4.2.md) and the [changelog](../CHANGELOG.md) preserve version history.
 
 ## Research interfaces and retained evidence
 

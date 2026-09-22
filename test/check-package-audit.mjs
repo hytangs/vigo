@@ -12,7 +12,15 @@ try {
   for (const [name, content, reason] of [
     ['.env', 'not-a-real-secret', /credential file/],
     ['app.js', ['', 'Users', 'build-owner', 'project', 'source'].join('/'), /developer path/],
+    ['app.cjs', ['C:', 'Users', 'build-owner', 'source'].join('\\'), /developer path/],
+    ['app.lock', ['C:', 'Users', 'build-owner', 'source'].join('\\\\'), /developer path/],
+    ['app.bin', Buffer.from(['C:', 'Users', 'build-owner', 'source'].join('\\'), 'utf16le'), /developer path/],
+    ['app.tex', 'vigo-' + 'bench/results', /private workspace/],
     ['app.js', 'sk-' + 'x'.repeat(32), /possible embedded credential/],
+    ['app.js', 'ghp_' + 'x'.repeat(32), /possible embedded credential/],
+    ['app.js', 'github_pat_' + 'x'.repeat(32), /possible embedded credential/],
+    ['app.js', 'crsr_' + 'x'.repeat(32), /possible embedded credential/],
+    ['app.js', 'AKIA' + 'X'.repeat(16), /possible embedded credential/],
     ['old.sqlite', '', /development data/],
     ['check-example.mjs', '', /test artifact/],
     ['example.test.js', '', /test artifact/],
@@ -39,13 +47,19 @@ assert.equal(options.webPreferences.nodeIntegration, false)
 assert.equal(options.webPreferences.sandbox, true)
 assert.equal(options.webPreferences.webSecurity, true)
 const source = main.slice(main.indexOf('function engineEnvironment()'), main.indexOf('\nfunction startEngine()'))
-const original = { PATH: '/usr/bin:/bin', VIGO_AGENCY_LLM_BASE_URL: 'http://localhost:1234', VIGO_AGENCY_LLM_API_KEY: 'fixture', VIGO_ROUTE_WORKER_URL: '/private/worker', NODE_OPTIONS: '--require=/private/file' }
+const original = { PATH: '/usr/bin:/bin', SystemRoot: 'windows', TMPDIR: 'temporary', LANG: 'en_US.UTF-8',
+  OPENAI_API_KEY: 'fixture', GH_TOKEN: 'fixture', AWS_SECRET_ACCESS_KEY: 'fixture',
+  LD_PRELOAD: 'injected', LD_LIBRARY_PATH: 'injected', ELECTRON_RUN_AS_NODE: '1',
+  VIGO_AGENCY_LLM_BASE_URL: 'http://localhost:1234', VIGO_AGENCY_LLM_API_KEY: 'fixture', VIGO_ROUTE_WORKER_URL: '/private/worker', NODE_OPTIONS: '--require=/private/file' }
 for (const isPackaged of [true, false]) {
   const environment = vm.runInNewContext(`${source}; engineEnvironment()`, { process: { env: original }, app: { isPackaged }, nativeKernelPath: '/bundle/server/kernel.node' })
   assert.equal(environment.VIGO_AGENCY_LLM_BASE_URL, isPackaged ? undefined : original.VIGO_AGENCY_LLM_BASE_URL)
   assert.equal(environment.VIGO_AGENCY_LLM_API_KEY, isPackaged ? undefined : 'fixture')
   assert.equal(environment.VIGO_ROUTE_WORKER_URL, isPackaged ? undefined : '/private/worker')
   assert.equal(environment.NODE_OPTIONS, undefined)
+  for (const name of ['LD_PRELOAD', 'LD_LIBRARY_PATH', 'ELECTRON_RUN_AS_NODE']) assert.equal(environment[name], undefined)
+  for (const name of ['OPENAI_API_KEY', 'GH_TOKEN', 'AWS_SECRET_ACCESS_KEY']) assert.equal(environment[name], isPackaged ? undefined : 'fixture')
+  for (const name of ['PATH', 'SystemRoot', 'TMPDIR', 'LANG']) assert.equal(environment[name], original[name])
   assert.equal(environment.VIGO_NATIVE_ROUTING_KERNEL, '/bundle/server/kernel.node')
   assert.equal(environment.VIGO_API_TRANSPORT, 'memory')
 }

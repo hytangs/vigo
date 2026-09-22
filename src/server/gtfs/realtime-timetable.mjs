@@ -113,21 +113,25 @@ function realtimeTimezoneFormatter(timezone) {
   return formatter
 }
 
-function realtimeEpochToServiceSeconds(epochSeconds, serviceDate, timezone) {
-  const epoch = numeric(epochSeconds, Number.NaN)
-  if (!Number.isFinite(epoch)) return undefined
-  const parts = Object.fromEntries(
-    realtimeTimezoneFormatter(timezone).formatToParts(new Date(epoch * 1000))
-      .filter((part) => part.type !== 'literal')
-      .map((part) => [part.type, Number(part.value)]),
-  )
-  const dateParts = String(serviceDate ?? '').split('-').map(Number)
-  if (dateParts.length !== 3 || dateParts.some((part) => !Number.isInteger(part))) return undefined
-  const dayOffset = Math.round(
-    (Date.UTC(parts.year, parts.month - 1, parts.day) - Date.UTC(dateParts[0], dateParts[1] - 1, dateParts[2]))
-    / 86_400_000,
-  )
-  return dayOffset * 86_400 + parts.hour * 3_600 + parts.minute * 60 + parts.second
+// One clock per snapshot build keeps reuse inside its service date/timezone.
+function realtimeServiceClock(serviceDate, timezone) {
+  const date = String(serviceDate ?? '').split('-').map(Number)
+  if (date.length !== 3 || date.some(part => !Number.isInteger(part))) return () => undefined
+  const serviceMidnight = Date.UTC(date[0], date[1] - 1, date[2])
+  const formatter = realtimeTimezoneFormatter(timezone), secondsByEpoch = new Map()
+  return epochSeconds => {
+    const epoch = numeric(epochSeconds, Number.NaN)
+    if (!Number.isFinite(epoch)) return undefined
+    if (secondsByEpoch.has(epoch)) return secondsByEpoch.get(epoch)
+    const parts = {}
+    for (const part of formatter.formatToParts(new Date(epoch * 1000))) {
+      if (part.type !== 'literal') parts[part.type] = Number(part.value)
+    }
+    const dayOffset = Math.round((Date.UTC(parts.year, parts.month - 1, parts.day) - serviceMidnight) / 86_400_000)
+    const seconds = dayOffset * 86_400 + parts.hour * 3_600 + parts.minute * 60 + parts.second
+    secondsByEpoch.set(epoch, seconds)
+    return seconds
+  }
 }
 
 function realtimeStaticTripStopTimes(store, tripId) {
@@ -281,7 +285,7 @@ export function realtimeTimetableForRequest(store, kernel, request, serviceDateR
       identities.set(trip, (identities.get(trip) ?? 0) + 1)
     }
   }
-  const timezone = store.agencyTimezones[0] || 'UTC'
+  let toServiceSeconds
   for (let index = 0; index < snapshot.tripUpdates.length; index++) {
     const update = snapshot.tripUpdates[index], tripIndex = resolved[index]
     if (!validity[index][0] || !validity[index][1]) { diagnostics.staleTrips++; continue }
@@ -307,8 +311,8 @@ export function realtimeTimetableForRequest(store, kernel, request, serviceDateR
     if (relationship !== 'SCHEDULED') { diagnostics.unsupportedTrips++; continue }
     const rows = realtimeStaticTripStopTimes(store, tripId)
     if (rows.length < 2) { diagnostics.invalidTrips++; continue }
-    const timing = resolveRealtimeTripTimes(rows, update,
-      epoch => realtimeEpochToServiceSeconds(epoch, serviceDate, timezone),
+    toServiceSeconds ??= realtimeServiceClock(serviceDate, store.agencyTimezones[0] || 'UTC')
+    const timing = resolveRealtimeTripTimes(rows, update, toServiceSeconds,
       { nowSeconds: now, feedTimestamp: update.sourceFeedTimestamp ?? snapshot.feedTimestamp })
     if (timing.status !== 'ready') {
       diagnostics[timing.status === 'unsupported' ? 'unsupportedTrips' : 'invalidTrips']++

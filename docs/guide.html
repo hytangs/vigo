@@ -2,7 +2,7 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VIGO 0.4.1 — from source to routing</title>
+<title>VIGO 0.4.2 — from source to routing</title>
 <style>
   :root { color-scheme: light; --ink: #18352e; --muted: #536c63; --line: #d4dfd9; --paper: #f7f9f6; --accent: #006b51; }
   * { box-sizing: border-box; }
@@ -60,7 +60,7 @@ npm run build
 node public/vigo.mjs capabilities
 npm test</code></pre>
   <p>These separate commands work in a terminal or PowerShell. Use <code>npm.cmd</code> if PowerShell blocks <code>npm.ps1</code>. Run the examples below from the cloned <code>vigo</code> directory. <code>node public/vigo.mjs</code> avoids a global installation; optional <code>npm link</code> exposes the shorter <code>vigo</code> command.</p>
-  <p class="note">VIGO 0.4.1 uses API 1.0, City format 1, and Result schema 1.</p>
+  <p class="note">VIGO 0.4.2 uses API 1.0, City format 1, and Result schema 1.</p>
   <p>Supported native targets: macOS 13.5+ on ARM64/x64, Linux glibc on ARM64/x64, and Windows x64. Linux release builds use Ubuntu 24.04. Alpine/musl, 32-bit, and native Windows ARM64 are not provided. Studio needs a graphical session and WebGL 2; Engine does not need a GPU.</p>
 </section>
 <section id="city">
@@ -174,7 +174,7 @@ npm run archive:studio</code></pre>
   </table></div>
   <p><code>npm run release:studio</code> combines icon checks, build, packaging, packaged checks, and archiving. Run <code>npm run check:release</code> for the full source/native suite. These commands produce local files; they do not publish Git tags or releases. macOS receives an ad-hoc signature, not Developer ID notarization. Build separately for each OS/CPU and retain the whole distribution, including resources.</p>
   <p>Studio imports GTFS and OSM into its own project library. It does not open CLI City directories and has no Matrix screen. Its packaged interface communicates with Engine internally and opens no local server port.</p>
-  <p>Use <strong>Network</strong> for live reporting, trip times, line diagrams, and experimental Ask; <strong>Route</strong> for ordered journeys; <strong>Analyze</strong> for Reach; and <strong>City</strong> to manage sources. Individual GTFS feeds and OSM can be removed under <strong>City → Data sources</strong>. See the <a href="guides/studio.md">Studio guide</a> for the workflow and the <a href="releases/0.4.1.md">0.4.1 release notes</a> for changes.</p>
+  <p>Use <strong>Network</strong> for live reporting, trip times, line diagrams, and experimental Ask; <strong>Route</strong> for ordered journeys; <strong>Analyze</strong> for Reach; and <strong>City</strong> to manage sources. Individual GTFS feeds and OSM can be removed under <strong>City → Data sources</strong>. See the <a href="guides/studio.md">Studio guide</a> for the workflow and the <a href="releases/0.4.2.md">0.4.2 release notes</a> for changes.</p>
   <p><strong>For your own app:</strong> use the public CLI's JSON contract or the <a href="https://github.com/hytangs/vigo-py/tree/main/docs">Python API</a>. Studio's internal HTTP endpoints are not a supported external API. An HTML page can display an exported Result, as below; a static page cannot execute the native routing engine by itself. Live queries need a local native host or your application's backend.</p>
   <p>Build the City before accepting queries, reuse it, and select the matching runtime explicitly in deployment. Starting a CLI process for each query includes reopening costs. Python provides resident execution for supported query types; its lifecycle and API details remain in the Python repository.</p>
 </section>

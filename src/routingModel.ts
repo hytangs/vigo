@@ -57,6 +57,10 @@ export type RoutingAccessAvailabilityHint = {
   status: 'outside_selected_budget' | 'none_within_probe' | 'street_access_unverified' | 'diagnostic_unavailable'
   selectedWalkKm: number
   probeWalkKm: number
+  probeComplete?: boolean
+  cacheDisabled?: boolean
+  cacheHit?: boolean | null
+  streetPathVerified?: boolean
   requiredWalkKm?: number
   requiredWalkMinutes?: number
   suggestedMaxWalkKm?: number
@@ -64,7 +68,8 @@ export type RoutingAccessAvailabilityHint = {
     id: string
     name: string
     distanceKm: number
-    walkMinutes: number
+    distanceKind?: 'straight_line' | 'access_path'
+    walkMinutes?: number
   }
   strategy?: string
   detail?: string
@@ -89,6 +94,10 @@ export type RoutingLeg = {
   streetSegmentVerified?: boolean
   stationAccessStatus?: 'source_path' | 'unverified'
   stationAccessStopIds?: string[]
+  accessCost?: {
+    street: { distanceKm: number; seconds: number }
+    station: { stopIds: string[]; sources: string[]; distanceKm: number; seconds: number }
+  }
   fromStopId?: string
   toStopId?: string
   fromStationGroupId?: string
@@ -209,6 +218,14 @@ export type RoutingPlan = {
     accessAvailability?: {
       origin?: RoutingAccessAvailabilityHint | null
       destination?: RoutingAccessAvailabilityHint | null
+    }
+    searchLimits?: {
+      maxWalkKm: number
+      walkingLimitScope: 'per_endpoint'
+      horizonMinutes: number
+      horizonScope: 'timetable_scan'
+      maxTransfers: number | null
+      requireTransitRide: boolean
     }
     destinationLabels?: number
     selectedTimeChoice?: boolean

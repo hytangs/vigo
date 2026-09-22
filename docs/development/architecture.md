@@ -24,7 +24,19 @@ Store admission accepts current formats. Obsolete source stores require a rebuil
 
 Open validates identity and loads the data a query needs. Active-service timetable snapshots and directed station-access contexts can be retained with the City. Derived caches can be regenerated from compiled data; missing required street indexes require restoration or a source rebuild. Ride geometry is loaded and aligned only for selected trips. See [performance](performance.md) for cold, reopened, and resident timing boundaries.
 
+New City builds persist the Rust drive hierarchy and both free-flow metrics.
+Drive startup maps these artifacts; it does not rebuild the hierarchy. The CLI
+prepares only the requested mode, and Matrix streams prepare each mode on its
+first use. Missing required drive artifacts cause a rebuild/restore error.
+Older Cities marked with an ephemeral drive hierarchy retain their existing
+behavior until rebuilt from source.
+
 ## Computation ownership
+
+Materialization-critical computation has moved into the Rust kernel, including
+shape alignment and plan-identity hashing. JavaScript still loads selected GTFS
+source rows, assembles itinerary objects, and handles orchestration and public
+interfaces. Itinerary materialization is not fully native.
 
 | Operation | Implementation boundary |
 | --- | --- |

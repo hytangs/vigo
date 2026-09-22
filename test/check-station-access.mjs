@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { annotateStationAccess, prepareStationAccessPaths } from '../src/server/station-access.mjs'
+import { annotateStationAccess, prepareStationAccessPaths, stationAccessTiming } from '../src/server/station-access.mjs'
 import { compileNativeStationPaths, validateNativeStationPaths } from '../src/server/native-routing-kernel.mjs'
 import { haversineKm } from '../src/server/geometry-utils.mjs'
 import { stationPathLookup } from '../src/server/prepared-access-context.mjs'
@@ -19,6 +19,13 @@ function unpack(packed) {
   }))
 }
 const stationAccessPaths = (...args) => unpack(prepareStationAccessPaths(...args))
+
+assert.deepEqual(stationAccessTiming({ distanceKm: 1, accessSeconds: 650,
+  accessTransferPathDistanceKm: 0.2, accessTransferSeconds: 50,
+  accessTransferStopIds: ['entrance', 'platform'], accessTransferSources: ['gtfs_pathway'],
+}), { accessCost: { street: { distanceKm: 0.8, seconds: 600 },
+  station: { stopIds: ['entrance', 'platform'], sources: ['gtfs_pathway'], distanceKm: 0.2, seconds: 50 } } })
+assert.deepEqual(stationAccessTiming({ distanceKm: 1, accessSeconds: 750 }), {})
 
 // Compare compilation with exhaustive simple-path enumeration. Positive
 // cycles cannot improve either time or distance; zero-cost ties collapse.
@@ -41,6 +48,7 @@ for (let fixture = 0; fixture < 40; fixture += 1) {
   const lookup = stationPathLookup({ ...restored.metadata, ...restored.arrays }, stops)
   for (const link of actual) {
     assert.deepEqual(lookup.get(`${link.from}:${link.to}:${link.seconds}`), {
+      stopIds: link.stops.map(index => stops[index].stop_id),
       coordinates: link.stops.map(index => [stops[index].lon, stops[index].lat]), sources: link.sources,
     }, 'Persisted station paths must retain the complete directed path and source evidence.')
   }

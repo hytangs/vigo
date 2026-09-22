@@ -6473,7 +6473,7 @@ impl TimetableKernel {
     }
 }
 
-fn boarding_layers(maximum: Option<u32>) -> napi::Result<usize> {
+pub(crate) fn boarding_layers(maximum: Option<u32>) -> napi::Result<usize> {
     match maximum {
         Some(value) if value == 0 || value as usize > MAX_PROFILE_BOARDINGS => Err(
             Error::from_reason("maximumBoardings must be between 1 and 32."),

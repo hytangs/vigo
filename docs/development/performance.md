@@ -16,7 +16,7 @@ Report downloads and runtime installation separately. State whether process star
 - `network.json.timing` describes compiler stages. `totalMs` begins inside the compiler after input/staging checks and ends before writing the manifest. It excludes process startup, shutdown, final City publication, and the first query. Stages may overlap; their durations cannot be summed into wall time. `osmBuildMs` can include waiting until the parent collects the worker result.
 - Route `searchStats.queryMs` includes the engine route function, street access, and selected-journey work. It excludes caller transport and final Result serialization.
 - `engineQueryMs` measures native timetable work. For arrive-by, this includes reverse feasibility and forward selection; `arriveByNativeQueryMs` and `forwardEngineQueryMs` identify those components. Street access and geometry are outside that timetable total.
-- Matrix parent timing covers shared query work. Optional journey timings describe witness rendering, not independent searches or a share of batch time.
+- Matrix `computeMs` covers engine execution; `requestPreparationMs` and `resultAssemblyMs` describe caller preparation and row assembly. `openMs` reports mode initialization, including the first request of each mode in a stream. JSON serialization and transport require an external timer. Optional journey timings describe witness rendering, not independent searches or a share of batch time.
 
 Use an external elapsed timer for complete Build and query latency. A small native search time does not establish the same user-perceived response time.
 
@@ -55,9 +55,9 @@ scratch distances use zero-filled storage with an encoded unreachable value,
 so the first path does not need to fill city-wide distance and predecessor
 arrays. These changes do not reuse previous route results.
 
-For drive hierarchies built in memory, ordering uses one 33-percent balanced
-four-axis flow cut per component, instead of evaluating three balance ratios.
-Persisted hierarchy builds retain the three-ratio ordering. Both retain every
+Since 0.4.2, both persisted and in-memory Drive hierarchy construction use one
+33-percent balanced four-axis flow cut per component. New City builds persist
+the hierarchy; opening that City loads it instead of repeating construction. Both retain every
 node and edge and use the same exact CCH search and distance certification;
 ordering can change the chosen witness between equal-cost paths. Arc ordering
 uses a shared stable counting sort. Native kernel diagnostics expose the hierarchy's

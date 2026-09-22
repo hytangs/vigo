@@ -1584,6 +1584,7 @@ function prepareNationalOsmDriveProfile(state, storePath, options, startedAt) {
   const nativeDriveKernel = accelerator && options.prepareNative !== false
     ? prepareNativeDriveKernel(accelerator, {
         persistCch: state.metadata.driveCchPersistence !== 'ephemeral',
+        requirePrepared: state.runtimeSnapshotOnly && state.metadata.driveCchPersistence === 'persisted',
       })
     : null
   return {
@@ -1616,7 +1617,7 @@ export function buildNationalOsmDriveStore(storePath, options = {}) {
   return prepareNationalOsmDriveProfile(state, storePath, options, startedAt)
 }
 
-/** Prepare the sealed drive snapshot and its in-memory query accelerator. */
+/** Open the sealed drive snapshot and its prepared native hierarchy. */
 export function prepareNationalOsmDriveStore(storePath, options = {}) {
   const startedAt = performance.now()
   const state = openRuntimeStreetStore(storePath)
@@ -2148,10 +2149,8 @@ export function disposeNationalOsmStore(storePath) {
 /**
  * Seal a built OSM graph into the runtime representation. The importer and
  * all graph-dependent preprocessing run against the normalized SQLite graph;
- * the published workspace retains only bounded metadata plus the current walk
- * and drive snapshots. Drive routing remains available, but its CCH is built
- * in memory on demand so the immutable runtime does not pay for a second copy
- * of the drive topology on disk.
+ * the published workspace retains metadata, snapshots and native hierarchies.
+ * Drive CCH preparation belongs to this build phase, not query startup.
  */
 export function compactNationalOsmRuntimeStore(storePath, options = {}) {
   const resolvedPath = path.resolve(storePath)
@@ -2175,7 +2174,7 @@ export function compactNationalOsmRuntimeStore(storePath, options = {}) {
   if (Number(metadataBefore.driveEdgeCount ?? 0) > 0) {
     drivePreparation = buildNationalOsmDriveStore(resolvedPath, {
       force: options.forceDrive === true,
-      prepareNative: false,
+      prepareNative: true,
       persist: true,
       ensureIndexes: false,
     })
@@ -2207,7 +2206,7 @@ export function compactNationalOsmRuntimeStore(storePath, options = {}) {
     setMetadata.run('storageLayout', JSON.stringify(runtimeStreetStoreStorageLayout))
     setMetadata.run('driveIndexState', JSON.stringify('snapshot'))
     setMetadata.run('driveNodeStorage', JSON.stringify('snapshot-only-v1'))
-    setMetadata.run('driveCchPersistence', JSON.stringify('ephemeral'))
+    setMetadata.run('driveCchPersistence', JSON.stringify('persisted'))
     setMetadata.run('runtimeSnapshotVersion', JSON.stringify({ walk: streetAcceleratorSnapshotVersion, drive: driveAcceleratorSnapshotVersion }))
     database.exec('COMMIT')
     database.exec('VACUUM')
@@ -3407,6 +3406,7 @@ export function routeNationalStreetMatrix(storePath, request = {}, options = {})
       originCoordinates: originSet.unique.flatMap((point) => point.coordinate),
       destinationCoordinates: destinationSet.unique.flatMap((point) => point.coordinate),
       maximumDistanceKm,
+      disableCache: request.disableCache === true,
     })
   } else {
     let state = openRuntimeStreetStore(storePath)

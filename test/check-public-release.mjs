@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { publicationContentFindings } from '../scripts/lib/package-audit.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const ignoredDirectories = new Set([
@@ -90,41 +91,14 @@ for (const file of files) {
   assert(!/(?:^|\/)(?:debug|scratch)(?:[._-]|$)/iu.test(file), `Debug or scratch file is present: ${file}`)
 }
 
-const textExtensions = new Set([
-  '', '.c', '.css', '.html', '.js', '.json', '.md', '.mjs', '.rs', '.toml',
-  '.ts', '.tsx', '.txt', '.xml', '.yml', '.yaml',
-])
-const forbiddenContent = [
-  { pattern: /\/(?:Users|home|Volumes)\/[A-Za-z0-9._-]+/gu, label: 'developer-specific absolute path' },
-  {
-    pattern: new RegExp(
-      String.raw`vigo-` + String.raw`(?:bench|paper)|/private/var/` + String.raw`folders/`,
-      'giu',
-    ),
-    label: 'private workspace reference',
-  },
-  { pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/gu, label: 'private key' },
-  { pattern: /\bgh(?:p|o|s|r|u)_[A-Za-z0-9]{20,}\b/gu, label: 'GitHub token' },
-  { pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/gu, label: 'GitHub token' },
-  { pattern: /\bAKIA[0-9A-Z]{16}\b/gu, label: 'AWS access key' },
-  { pattern: /https:\/\/github\.com\/hytangs\/vigo-dev(?:\.git)?/gu, label: 'private development remote' },
-  { pattern: /r[a]pidonkey/giu, label: 'private source-tree reference' },
-]
-
-let scannedTextFiles = 0
 for (const file of files) {
-  if (!textExtensions.has(path.extname(file).toLowerCase())) continue
-  const absolute = path.join(root, file)
-  const source = fs.readFileSync(absolute, 'utf8')
-  scannedTextFiles += 1
-  for (const rule of forbiddenContent) {
-    rule.pattern.lastIndex = 0
-    assert(!rule.pattern.test(source), `${file} contains a ${rule.label}.`)
-  }
+  const findings = publicationContentFindings(fs.readFileSync(path.join(root, file)), { forbiddenRoots: [root] })
+  assert.equal(findings.length, 0, `${file}: ${findings.join(', ')}`)
 }
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
-assert.equal(packageJson.version, '0.4.1', 'Public package version must be 0.4.1.')
+assert.match(packageJson.version, /^\d+\.\d+\.\d+$/u, 'Public package must have a release version.')
+assert(fs.existsSync(path.join(root, 'docs', 'releases', `${packageJson.version}.md`)), 'Current release notes are missing.')
 assert.equal(packageJson.license, 'Apache-2.0', 'Public package must use Apache-2.0.')
 
 const workflowFiles = files.filter((file) => file.startsWith('.github/workflows/'))
@@ -154,7 +128,7 @@ console.log(JSON.stringify({
   status: 'passed',
   version: packageJson.version,
   files: files.length,
-  scannedTextFiles,
+  scannedContentFiles: files.length,
   excludedPublicationMaterial: true,
   excludedPrivateData: true,
   excludedExperimentScripts: true,

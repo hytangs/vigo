@@ -1,5 +1,18 @@
 import assert from 'node:assert/strict'
-import { nationalRideGeometry } from '../src/server/national-route-geometry.mjs'
+import { createNativeShapeGeometry } from '../src/server/native-routing-kernel.mjs'
+import { nationalRideGeometry, clipNationalShapeCoordinatesThroughStops } from '../src/server/national-route-geometry.mjs'
+
+// Far latitude points cannot displace accepted candidates. Longitude proximity
+// alone is insufficient, and the latitude bound must remain valid at the poles
+// and across the antimeridian.
+for (const near of [
+  [[0, 0], [0.002, 0], [0.004, 0]],
+  [[179.999, 0], [-180, 0], [-179.999, 0]],
+  [[10, 89.99], [11, 89.99], [12, 89.99]],
+]) {
+  const shape = [[0, -45], ...near, [0, 45]]
+  assert.deepEqual(clipNationalShapeCoordinatesThroughStops(shape, near), near)
+}
 
 const coordinates = [[0, 0], [0.01, 0], [0.02, 0], [0.01, 0], [0.01, -0.01], [0.03, -0.01]]
 const stops = new Map(['A', 'B', 'C', 'D'].map((id, index) => {
@@ -64,6 +77,18 @@ assert.equal(store.shapeGeometryCache.size, 0)
 assert.equal(loadedShapes.length, 1)
 assert.deepEqual(leg(3, 'B', 'D').coordinates, coordinates.slice(3))
 assert.equal(store.shapeGeometryCache.size, 0)
+assert.equal(loadedShapes.length, 2)
+
+// A shape that initially fits must also be evicted when native candidate
+// storage grows beyond the byte budget during alignment.
+store.activeServiceKernel = { ...kernel }
+store.shapeGeometryCacheMaxBytes = coordinates.length * 24 + createNativeShapeGeometry(coordinates).estimatedBytes + 257
+loadedShapes.length = 0
+assert.deepEqual(leg(3, 'B', 'D').coordinates, coordinates.slice(3))
+assert.equal(store.shapeGeometryCache.size, 0)
+assert.equal(store.shapeGeometryCacheBytes, 0)
+assert.equal(loadedShapes.length, 1)
+assert.deepEqual(leg(3, 'B', 'D').coordinates, coordinates.slice(3))
 assert.equal(loadedShapes.length, 2)
 
 console.log(JSON.stringify({ check: 'selected-trip-geometry', status: 'passed' }))

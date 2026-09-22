@@ -23,6 +23,11 @@ VIGO models the City revision and Query it is given. It does not certify real-wo
 ## Streets
 
 - Walk and Drive depend on OSM coverage and directionality.
+- Pedestrian coordinate attachment searches vertices within 160 m and projects
+  onto reciprocal edges within 80 m only when both edge endpoints are in that
+  vertex search. Long edges can therefore be missed even when their interior
+  passes close to a coordinate. A missing attachment is not proof that no
+  physical pedestrian path exists.
 - Authorized private endpoint access is an opt-in City build model; see [Street routing](street-routing.md). It does not establish individual permissions, gate hours, or missing connections.
 - Drive does not yet model all turn restrictions, signals, or intersection delay.
 - Traffic must be supplied by the caller; VIGO does not fetch a provider.
@@ -39,12 +44,13 @@ VIGO models the City revision and Query it is given. It does not certify real-wo
 - Studio maps require WebGL 2. Engine and Python queries do not require a graphics device.
 - Supported native targets are macOS 13.5+ on Apple Silicon/Intel, Linux glibc on ARM64/x64, and Windows x64. Linux release builds use Ubuntu 24.04. Alpine/musl, 32-bit, and native Windows ARM64 builds are not provided.
 - Copy the entire City directory; street indexes and prepared files are part of it. The native runtime executable is specific to OS/CPU, while City data is portable across the supported 64-bit targets.
-- An older timetable cache may require one preparation in 0.4.1. New active-service patterns, changed walking policy, or evicted snapshots also require preparation. Missing/corrupt required street indexes are errors, not permission to query a different graph; restore the complete City or rebuild it from source.
-- Studio project-library settings, drafts, and live connections are local application state and do not travel inside a CLI City. Studio cannot directly open CLI City directories in 0.4.1.
+- Older Cities with ephemeral Drive CCH still rebuild that hierarchy on fresh-process startup; rebuilding the City from source enables persisted Drive CCH.
+- An older timetable cache may require one preparation in 0.4.2. New active-service patterns, changed walking policy, or evicted snapshots also require preparation. Missing/corrupt required street indexes are errors, not permission to query a different graph; restore the complete City or rebuild it from source.
+- Studio project-library settings, drafts, and live connections are local application state and do not travel inside a CLI City. Studio cannot directly open CLI City directories in 0.4.2.
 
 ## Scenario
 
-- Planned transit service changes are supported for Reach in VIGO 0.4.1.
+- Planned transit service changes are supported for Reach in VIGO 0.4.2.
 - Supplied traffic is supported for Drive Route and Drive Matrix.
 - Other combinations return `unsupported`.
 

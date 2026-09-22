@@ -1,3 +1,4 @@
+import packageJson from '../../package.json' with { type: 'json' }
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -115,7 +116,7 @@ export function publishCchManifest({ kind, format, sourcePath, manifestPath, str
     schemaVersion: nativeCchManifestSchema,
     kind,
     format,
-    builderVersion: '0.4.1',
+    builderVersion: packageJson.version,
     source: fileIdentity(sourcePath),
     sourceSnapshot: snapshotIdentity(sourcePath),
     structure: fileIdentity(structurePath),
@@ -204,6 +205,29 @@ function loadNativeBinding() {
   )
   nativeBindingError.code = 'VIGO_NATIVE_ROUTING_KERNEL_MISSING'
   throw nativeBindingError
+}
+
+// Numeric materialization uses the same required Rust binding as routing.
+function packCoordinates(coordinates) {
+  const packed = new Float64Array(coordinates.length * 2)
+  for (let index = 0; index < coordinates.length; index += 1) {
+    packed[index * 2] = coordinates[index][0]
+    packed[index * 2 + 1] = coordinates[index][1]
+  }
+  return packed
+}
+
+export function createNativeShapeGeometry(coordinates) {
+  return new (loadNativeBinding().ShapeGeometry)(packCoordinates(coordinates))
+}
+
+export function alignNativeShapeStops(shape, coordinates) {
+  const indices = shape.alignStops(packCoordinates(coordinates))
+  return indices.length ? indices : null
+}
+
+export function nativeStableKeySuffix(value) {
+  return loadNativeBinding().stableKeySuffix(value)
 }
 
 function snapshotPathForStore(storePath) {
@@ -801,8 +825,13 @@ export function routeNativeCoordinateTimetableMatrix(storePath, kernel, request)
     includeJourneys: request.includeJourneys === true,
     maximumBoardings: request.maxTransfers === undefined ? undefined : request.maxTransfers + 1,
     disableCache: request.disableCache === true,
+    directWalkMaximumM: request.directWalkMaximumM,
   })
-  return { ...result.timetable, queryMs: normalizeNativeMilliseconds(result.timetable.queryNs),
+  return { ...result.timetable,
+    directWalk: result.directWalk ? { ...result.directWalk, queryMs: normalizeNativeMilliseconds(result.directWalk.queryNs) } : null,
+    originCacheHits: result.originCacheHits, destinationCacheHits: result.destinationCacheHits,
+    cacheDisabled: result.cacheDisabled,
+    queryMs: normalizeNativeMilliseconds(result.timetable.queryNs),
     accessMs: normalizeNativeMilliseconds(result.accessNs),
     coordinateMatrixMs: normalizeNativeMilliseconds(result.queryNs) }
 }
@@ -964,6 +993,9 @@ export function prepareNativeDriveKernel(accelerator, options = {}) {
     cchPaths.cchManifestPath,
   ].filter(Boolean)
   const cchArtifactsExist = cchArtifactPaths.map((filePath) => fs.existsSync(filePath))
+  if (options.requirePrepared && (cchArtifactPaths.length !== 4 || !cchArtifactsExist.every(Boolean))) {
+    throw new Error('Prepared Drive CCH artifacts are missing; restore the complete City or rebuild it from source.')
+  }
   if (cchArtifactsExist.some(Boolean) && !cchArtifactsExist.every(Boolean)) {
     throw new Error('Native Drive CCH generation is incomplete; rebuild all artifacts together.')
   }
@@ -1400,6 +1432,7 @@ function candidateFromNativeValues(
       ...(path ? {
         accessTransferCoordinates: reverse ? [...path.coordinates].reverse() : path.coordinates,
         accessTransferSources: path.sources,
+        accessTransferStopIds: path.stopIds,
       } : {}),
       accessTransferFromStopId: fromStopId,
       accessTransferToStopId: toStopId,
@@ -2067,6 +2100,7 @@ export function routeNativeWalkMatrix(storePath, request) {
     originCoordinates: Array.from(request.originCoordinates ?? [], Number),
     destinationCoordinates: Array.from(request.destinationCoordinates ?? [], Number),
     maximumDistanceM: request.maximumDistanceKm * 1_000,
+    disableCache: request.disableCache === true,
   })
   const nodeApiWallMs = performance.now() - startedAt
   return {

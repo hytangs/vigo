@@ -9,6 +9,8 @@ const lock = JSON.parse(read('package-lock.json'))
 assert.equal(lock.version, manifest.version)
 assert.equal(lock.packages?.['']?.version, manifest.version)
 assert.equal(manifest.license, 'Apache-2.0')
+assert.equal(read('native/vigo-routing-kernel/Cargo.toml').match(/^version = "([^"]+)"/mu)?.[1], manifest.version)
+assert.equal(read('native/vigo-routing-kernel/Cargo.lock').match(/name = "vigo-routing-kernel"\nversion = "([^"]+)"/u)?.[1], manifest.version)
 
 function walk(directory) {
   return fs.readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap(entry => {

@@ -2,12 +2,32 @@ import { lstat, readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 
+// Shared by source and packaged-payload checks, including binary strings and
+// UTF-16 Windows metadata. Return categories only, never matched values.
+export function publicationContentFindings(data, { forbiddenRoots = [] } = {}) {
+  const roots = [...forbiddenRoots, os.homedir()].filter(value => value && value.length > 3)
+  const texts = [data.toString('utf8'), data.toString('utf16le')]
+  const rules = [
+    [/\/(?:Users|home|Volumes)\/[^/\s"']+/u, 'embedded developer path'],
+    [/\b[A-Za-z]:[\\/]+(?:Users|Documents and Settings)[\\/]+[^\\/\s"']+/iu, 'embedded developer path'],
+    [/vigo-(?:bench|paper)|\/private\/var\/folders\/|https:\/\/github\.com\/hytangs\/vigo-dev(?:\.git)?|r[a]pidonkey/iu, 'private workspace reference'],
+    [/-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----|\b(?:sk-|crsr_)[A-Za-z0-9_-]{24,}|\bgh(?:p|o|s|r|u)_[A-Za-z0-9]{20,}\b|\bgithub_pat_[A-Za-z0-9_]{20,}\b|\bAKIA[0-9A-Z]{16}\b|\bxox[baprs]-[A-Za-z0-9-]{20,}/u, 'possible embedded credential'],
+  ]
+  const findings = new Set()
+  if (roots.some(value => [value, value.replaceAll('\\', '\\\\')].some(root => (
+    data.includes(Buffer.from(root)) || data.includes(Buffer.from(root, 'utf16le'))
+  )))) findings.add('embedded developer path')
+  for (const [pattern, category] of rules) {
+    if (texts.some(text => pattern.test(text))) findings.add(category)
+  }
+  return [...findings]
+}
+
 // Scan only the application payload, not Electron's signed framework resources.
 // Report file names and finding categories; never print possible secret values.
 export async function auditPackageFiles(root, { forbiddenRoots = [] } = {}) {
   const failures = []
   let files = 0, bytes = 0
-  const roots = [...forbiddenRoots, os.homedir()].filter(value => value && value.length > 3)
   async function visit(directory) {
     for (const name of await readdir(directory)) {
       const file = path.join(directory, name), relative = path.relative(root, file)
@@ -25,10 +45,7 @@ export async function auditPackageFiles(root, { forbiddenRoots = [] } = {}) {
       if (!info.isFile()) continue
       files++; bytes += info.size
       const data = await readFile(file)
-      const text = data.toString('utf8')
-      if (roots.some(value => data.includes(Buffer.from(value)) || data.includes(Buffer.from(value.replaceAll('\\', '\\\\'))))
-        || /\/(?:Users|home)\/[^/\s"']+\//u.test(text)) failures.push(`${relative}: embedded developer path`)
-      if (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\bsk-[A-Za-z0-9_-]{24,}/u.test(text)) failures.push(`${relative}: possible embedded credential`)
+      for (const category of publicationContentFindings(data, { forbiddenRoots })) failures.push(`${relative}: ${category}`)
     }
   }
   await visit(root)

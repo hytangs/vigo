@@ -380,12 +380,7 @@ fn initialize_drive_cch(
         .iter()
         .map(|value| *value as f32)
         .collect::<Vec<_>>();
-    let order_builder = if persisted_paths.is_none() {
-        cch::order::balanced_inertial_order
-    } else {
-        cch::inertial_order
-    };
-    let order = order_builder(
+    let order = cch::order::balanced_inertial_order(
         node_count as u32,
         &tails,
         edge_targets,

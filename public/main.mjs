@@ -108,10 +108,19 @@ function failPendingRequests(error) {
 }
 
 function engineEnvironment() {
-  const environment = { ...process.env }
+  // A packaged engine needs OS paths and locale, not the launching shell's
+  // provider credentials, build overrides or runtime injection settings.
+  const environment = app.isPackaged
+    ? Object.fromEntries(Object.entries(process.env).filter(([name]) => (
+      /^(?:PATH|HOME|USERPROFILE|HOMEDRIVE|HOMEPATH|APPDATA|LOCALAPPDATA|SystemRoot|WINDIR|TEMP|TMP|TMPDIR|XDG_CONFIG_HOME|XDG_CACHE_HOME|XDG_DATA_HOME|LANG|LANGUAGE|LC_[A-Z_]+|TZ)$/iu.test(name)
+    )))
+    : { ...process.env }
   for (const name of [
     'DYLD_INSERT_LIBRARIES',
     'DYLD_LIBRARY_PATH',
+    'LD_PRELOAD',
+    'LD_LIBRARY_PATH',
+    'ELECTRON_RUN_AS_NODE',
     'NODE_OPTIONS',
     'NODE_PATH',
     'VIGO_API_PORT',
@@ -124,11 +133,6 @@ function engineEnvironment() {
     'VIGO_PROJECTS_DIR',
   ]) {
     delete environment[name]
-  }
-  // Packaged desktop settings come from this user's UI/configuration, never
-  // inherited developer model credentials, worker paths or fixture overrides.
-  if (app.isPackaged) {
-    for (const name of Object.keys(environment)) if (name.startsWith('VIGO_')) delete environment[name]
   }
   environment.VIGO_API_TRANSPORT = 'memory'
   environment.VIGO_NATIVE_ROUTING_KERNEL = nativeKernelPath
@@ -404,22 +408,8 @@ function createWindow() {
   mainWindow.webContents.on('did-fail-load', (_event, code, description, targetUrl) => {
     console.error(`VIGO_STUDIO_LOAD_FAILED code=${code} url=${targetUrl} ${description}`)
   })
-  mainWindow.webContents.once('did-finish-load', async () => {
+  mainWindow.webContents.once('did-finish-load', () => {
     console.log(`VIGO_STUDIO_READY ${studioOrigin}/`)
-    const capturePath = String(process.env.VIGO_STUDIO_CAPTURE_PATH ?? '').trim()
-    if (!capturePath) return
-    try {
-      await mainWindow?.webContents.executeJavaScript(
-        'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
-      )
-      const image = await mainWindow?.webContents.capturePage()
-      if (!image) throw new Error('Studio window closed before capture.')
-      await fs.mkdir(path.dirname(path.resolve(capturePath)), { recursive: true })
-      await fs.writeFile(path.resolve(capturePath), image.toPNG())
-      console.log(`VIGO_STUDIO_CAPTURED ${path.resolve(capturePath)}`)
-    } catch (error) {
-      console.error(`VIGO_STUDIO_CAPTURE_FAILED ${error instanceof Error ? error.message : String(error)}`)
-    }
   })
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show()

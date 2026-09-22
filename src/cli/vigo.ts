@@ -46,6 +46,7 @@ import {
   compactNationalOsmRuntimeStore,
   disposeNationalOsmStore,
   prepareNationalOsmNativeStore,
+  prepareNationalOsmDriveStore,
   routeNationalStreetMatrix,
   routeNationalStreetStore,
 } from '../server/national-osm-store.mjs'
@@ -360,28 +361,22 @@ async function prepareRuntime(
   streetStorePath: string | undefined,
   serviceDate: string | undefined,
   serviceDay: ServiceDay,
+  mode = 'transit',
 ) {
-  const preparationStarted = performance.now()
-  const street = streetStorePath
-    ? prepareNationalOsmNativeStore(streetStorePath)
-    : null
-  const transfers = streetStorePath
-    ? await ensureNationalGtfsOsmStopTransfers(storePath, streetStorePath)
-    : null
-  const routing = serviceDate
-    ? prepareNationalGtfsRoutingContext(storePath, {
-        serviceDate,
-        serviceDay,
-        streetStorePath,
-        allowServiceDateFallback: false,
-      })
-    : prepareNationalGtfsStore(storePath)
-  return {
-    elapsedMs: Number((performance.now() - preparationStarted).toFixed(3)),
-    routing,
-    street,
-    transfers,
+  if (!['transit', 'walk', 'drive'].includes(mode)) throw new Error('mode must be transit, walk, or drive')
+  const started = performance.now()
+  if (streetStorePath) {
+    if (mode === 'drive') prepareNationalOsmDriveStore(streetStorePath)
+    else prepareNationalOsmNativeStore(streetStorePath)
   }
+  if (mode === 'transit') {
+    if (streetStorePath) await ensureNationalGtfsOsmStopTransfers(storePath, streetStorePath)
+    if (serviceDate) prepareNationalGtfsRoutingContext(storePath, {
+      serviceDate, serviceDay, streetStorePath, allowServiceDateFallback: false,
+    })
+    else prepareNationalGtfsStore(storePath)
+  }
+  return { elapsedMs: Number((performance.now() - started).toFixed(3)) }
 }
 
 async function runRouteRequest(args: CliArguments) {
@@ -410,6 +405,7 @@ async function runRouteRequest(args: CliArguments) {
     streetStorePath,
     options.serviceDate,
     options.serviceDay,
+    mode,
   )
   const queryStarted = performance.now()
   try {
@@ -698,7 +694,13 @@ async function runRouteStream(args: CliArguments) {
   const paths = resolveRuntimePaths(args)
   const { storePath, streetStorePath } = paths
   const defaults = runtimeOptions(args)
-  const preparation = await prepareRuntime(storePath, streetStorePath, defaults.serviceDate, defaults.serviceDay)
+  const preparedModes = new Set<string>()
+  const prepareMode = async (mode: string) => {
+    if (preparedModes.has(mode)) return 0
+    const prepared = await prepareRuntime(storePath, streetStorePath, defaults.serviceDate, defaults.serviceDay, mode)
+    preparedModes.add(mode)
+    return prepared.elapsedMs
+  }
   const stopLookup = openStopLookup(storePath)
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: false })
   let sequence = 0
@@ -746,12 +748,13 @@ async function runRouteStream(args: CliArguments) {
         }
         if (input.kind === 'matrix') {
           if (departureWindowMinutes !== 0) throw new Error('Matrix does not support departure windows')
+          const openMs = await prepareMode(String(input.mode ?? 'transit'))
           const matrix = computePreparedMatrix(new Map(), input, paths, {
             ...defaults, routingDataMode, timePreference, objective, routingPreference, timeMinutes, maxWalkKm, maxTransfers,
           }, stopLookup)
           await writeNdjson({ ...matrix, sequence, id, timing: {
             ...matrix.timing,
-            openMs: sequence === 1 ? preparation.elapsedMs : 0,
+            openMs,
             endToEndMs: Number((performance.now() - (sequence === 1 ? cliStartedAt : requestStarted)).toFixed(3)),
           } })
           continue
@@ -759,6 +762,7 @@ async function runRouteStream(args: CliArguments) {
         const origin = ndjsonPoint(input.origin, 'Origin', stopLookup)
         const destination = ndjsonPoint(input.destination, 'Destination', stopLookup)
         requireStreetStoreForCoordinateEndpoints(streetStorePath, origin, destination, `Request ${id}`)
+        const openMs = await prepareMode('transit')
         const routed = routeOne(storePath, {
           routingDataMode,
           ...(routingDataMode === 'realtime' && input.realtimeSnapshot ? { realtimeSnapshot: input.realtimeSnapshot } : {}),
@@ -792,10 +796,13 @@ async function runRouteStream(args: CliArguments) {
           query: {
             routingDataMode, serviceDate: defaults.serviceDate, timeMinutes, timePreference,
             objective, maxWalkKm, maxTransfers, departureWindowMinutes,
+            horizonMinutes, requireTransitRide: input.requireTransitRide !== false,
+            horizonScope: 'timetable_scan',
+            disableCache: input.disableCache === true,
           },
           engine,
           timing: {
-            openMs: sequence === 1 ? preparation.elapsedMs : 0,
+            openMs,
             computeMs: Number(routed.elapsedMs.toFixed(3)),
             endToEndMs: Number((performance.now() - (sequence === 1 ? cliStartedAt : requestStarted)).toFixed(3)),
             requestMs: Number((performance.now() - requestStarted).toFixed(3)),
@@ -804,7 +811,7 @@ async function runRouteStream(args: CliArguments) {
               routed.plan?.diagnostics.searchStats?.engineQueryMs,
               null,
             ),
-            preparationMs: sequence === 1 ? preparation.elapsedMs : 0,
+            preparationMs: openMs,
           },
           routingStore: {
             storeId: stopLookup.routingStore.storeId,
@@ -933,6 +940,7 @@ function computePreparedMatrix(
   options: ReturnType<typeof runtimeOptions>,
   stopLookup: ReturnType<typeof openStopLookup>,
 ) {
+  const preparationStarted = performance.now()
   normalizeScheduledAnalysisRequest({ ...options, departMinutes: options.timeMinutes }, 'Matrix')
   const { storePath, streetStorePath, city } = paths
   assertMatrixSize(Array.isArray(request.origins) ? request.origins.length : 0,
@@ -1000,17 +1008,19 @@ function computePreparedMatrix(
       })
     : routeNationalStreetMatrix(streetStorePath!, {
         mode,
+        disableCache: request.disableCache === true,
         origins: origins.map((origin) => origin.point),
         destinations: destinations.map((destination) => destination.point),
         walkingSpeedKph: request.walkSpeedKph,
         maxDistanceKm: request.maxDistanceKm,
       })
-  const queryWallMs = performance.now() - queryStarted
-  const rows = matrix.rows.map((row: Record<string, unknown>) => ({
-    ...row,
-    originId: origins[Number(row.originIndex)]?.id ?? null,
-    destinationId: destinations[Number(row.destinationIndex)]?.id ?? null,
-  }))
+  const assemblyStarted = performance.now()
+  // Matrix owns fresh rows for this request; attach IDs without copying each row.
+  const rows = matrix.rows
+  for (const row of rows) {
+    row.originId = origins[Number(row.originIndex)]?.id ?? null
+    row.destinationId = destinations[Number(row.destinationIndex)]?.id ?? null
+  }
   const payload = {
     schemaVersion: 'vigo.result.matrix.v1',
     ...publicResultMetadata,
@@ -1033,11 +1043,14 @@ function computePreparedMatrix(
       horizonMinutes,
       includeJourneys: request.includeJourneys === true,
       includeGeometry: request.includeGeometry === true,
+      disableCache: request.disableCache === true,
     },
     rows,
     diagnostics: matrix.diagnostics,
     timing: {
-      computeMs: Number(queryWallMs.toFixed(3)),
+      computeMs: Number((assemblyStarted - queryStarted).toFixed(3)),
+      requestPreparationMs: Number((queryStarted - preparationStarted).toFixed(3)),
+      resultAssemblyMs: Number((performance.now() - assemblyStarted).toFixed(3)),
     },
   }
   return payload
@@ -1049,7 +1062,8 @@ async function runMatrix(args: CliArguments) {
   const paths = resolveRuntimePaths(args)
   assertMatrixSize((request.origins as unknown[])?.length, (request.destinations as unknown[])?.length)
   const options = analyticalRuntimeOptions(args, 'matrix', request)
-  const preparation = await prepareRuntime(paths.storePath, paths.streetStorePath, options.serviceDate, options.serviceDay)
+  const preparation = await prepareRuntime(paths.storePath, paths.streetStorePath, options.serviceDate, options.serviceDay,
+    String(value(args, 'mode', String(request.mode ?? 'transit'))))
   const payload = computePreparedMatrix(args, request, paths, options, openStopLookup(paths.storePath))
   writeJsonResult({ ...payload, timing: { ...payload.timing,
     openMs: preparation.elapsedMs,

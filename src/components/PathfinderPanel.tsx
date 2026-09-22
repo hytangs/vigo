@@ -80,13 +80,15 @@ function earliestTransitSummary(plans: RoutingPlan[]) {
 function routingAccessHintText(hint: RoutingAccessAvailabilityHint) {
   const role = hint.role === 'origin' ? 'Starting point' : 'Destination'
   if (hint.status === 'outside_selected_budget' && hint.nearestStop) {
-    return `${role} is outside the ${hint.selectedWalkKm.toFixed(1)} km access limit. ${hint.nearestStop.name} is the nearest indexed station at ${hint.nearestStop.distanceKm.toFixed(1)} km (${hint.nearestStop.walkMinutes.toFixed(1)} min walk).`
+    const duration = hint.nearestStop.walkMinutes === undefined ? '' : ` (${hint.nearestStop.walkMinutes.toFixed(1)} min)`
+    const verification = hint.streetPathVerified === false ? ' Street or station access remains unverified.' : ''
+    return `${role}: access to ${hint.nearestStop.name} requires ${hint.nearestStop.distanceKm.toFixed(1)} km${duration}, beyond the ${hint.selectedWalkKm.toFixed(1)} km limit.${verification}`
   }
   if (hint.status === 'street_access_unverified' && hint.nearestStop) {
-    return `${role} is near ${hint.nearestStop.name} (${hint.nearestStop.distanceKm.toFixed(1)} km), but the OSM pedestrian graph could not certify a walk path within the ${hint.probeWalkKm.toFixed(1)} km diagnostic search.`
+    return `${role} is near ${hint.nearestStop.name} (${hint.nearestStop.distanceKm.toFixed(1)} km in a straight line), but no walk path was verified within ${hint.probeWalkKm.toFixed(1)} km.`
   }
   if (hint.status === 'none_within_probe') {
-    return `${role}: no indexed station was found within the ${hint.probeWalkKm.toFixed(1)} km diagnostic search.`
+    return `${role}: no station access candidate was found within the ${hint.probeWalkKm.toFixed(1)} km diagnostic search. A longer path may exist.`
   }
   return `${role}: the station-access diagnostic could not complete${hint.detail ? ` (${hint.detail})` : '.'}`
 }

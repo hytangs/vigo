@@ -90,6 +90,7 @@ export function stationPathLookup(paths, stops) {
       if (paths.to[i] !== to || paths.seconds[i] !== seconds) continue
       const start = paths.pathOffsets[i], end = paths.pathOffsets[i + 1]
       return {
+        stopIds: Array.from(paths.pathStops.subarray(start, end), index => stops[index].stop_id),
         coordinates: Array.from(paths.pathStops.subarray(start, end), index => [stops[index].lon, stops[index].lat]),
         sources: Array.from(paths.pathSources.subarray(start - i, end - i - 1), index => paths.sources[index]),
       }

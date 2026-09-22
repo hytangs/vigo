@@ -34,7 +34,6 @@ export const serviceAssessmentTool = {
   }, ['targets', 'checks']),
 }
 const n = value => Number.isFinite(value) ? Number(value.toFixed(1)) : null
-const list = values => [...new Set(values)].join(', ')
 
 export async function assessService(environment, args) {
   const { context, state } = environment

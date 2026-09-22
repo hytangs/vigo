@@ -206,6 +206,37 @@ try {
     }
   }
 
+  const streetDirectory = path.join(cityPath, 'osm')
+  const streetFiles = fs.readdirSync(streetDirectory)
+  const driveArtifacts = streetFiles.filter(name => name.includes('.drive-cch-'))
+  assert.equal(driveArtifacts.length, 4, 'City build must publish the drive hierarchy, two metrics and manifest.')
+  const walkStructure = path.join(streetDirectory, streetFiles.find(name => name.includes('.street-cch-') && name.endsWith('.structure')))
+  fs.renameSync(walkStructure, `${walkStructure}.held`)
+  try {
+    const independentDrive = JSON.parse(run(['route', `--city=${cityPath}`, `--request=${routeRequest}`,
+      '--mode=drive', '--time=08:00', '--service-date=2026-07-15']))
+    assert.equal(independentDrive.status, 'ready', 'Drive startup must not load the pedestrian hierarchy.')
+    assert.equal(independentDrive.result.diagnostics.searchStats.cchSource, 'existing_mmap')
+    const matrices = execFileSync(executable, [...prefix, '_route-stream', `--city=${cityPath}`,
+      '--service-date=2026-07-15'], { encoding: 'utf8', input: [0, 1].map(id => JSON.stringify({
+        id, kind: 'matrix', mode: 'drive', origins: [{ coordinate: [-77.05, 38.9] }],
+        destinations: [{ coordinate: [-77.03, 38.91] }],
+      })).join('\n') + '\n' }).trim().split('\n').map(line => JSON.parse(line))
+    assert(matrices.every(result => result.rows[0].status === 'ready'))
+    assert.equal(matrices[1].timing.openMs, 0)
+  } finally { fs.renameSync(`${walkStructure}.held`, walkStructure) }
+  for (const name of driveArtifacts) fs.renameSync(path.join(streetDirectory, name), path.join(streetDirectory, `${name}.held`))
+  try {
+    const missing = invoke(['route', `--city=${cityPath}`, `--request=${routeRequest}`,
+      '--mode=drive', '--time=08:00', '--service-date=2026-07-15'])
+    assert.equal(missing.status, 2)
+    assert.match(missing.stderr, /Prepared Drive CCH artifacts are missing/)
+    assert(driveArtifacts.every(name => !fs.existsSync(path.join(streetDirectory, name))),
+      'Queries must not silently regenerate missing required hierarchies.')
+  } finally {
+    for (const name of driveArtifacts) fs.renameSync(path.join(streetDirectory, `${name}.held`), path.join(streetDirectory, name))
+  }
+
   const matrixRequest = path.join(temporaryRoot, 'matrix.json')
   fs.writeFileSync(matrixRequest, JSON.stringify({
     origins: [{ id: 'a', point: 'A' }],
@@ -301,12 +332,22 @@ try {
       { id: 'afternoon', kind: 'matrix', origins: [{ id: 'school', point: 'A' }],
         destinations: Array.from({ length: 1024 }, (_, i) => ({ id: `point_${i}`, point: 'B' })),
         timePreference: 'depart', time: '07:55', maxWalkKm: 0.2 },
-      { id: 'uncached-route', origin: 'A', destination: 'B', time: '07:55', disableCache: true },
+      { id: 'uncached-route', origin: 'A', destination: 'B', time: '07:55', disableCache: true,
+        horizonMinutes: 240, requireTransitRide: true },
+      ...[false, true].map(disableCache => ({ id: `coordinate-matrix-${disableCache}`, kind: 'matrix',
+        origins: [{ id: 'home', coordinate: [-77.05, 38.9] }],
+        destinations: [{ id: 'near', coordinate: [-77.04, 38.905] }, { id: 'same', coordinate: [-77.05, 38.9] },
+          { id: 'duplicate', coordinate: [-77.04, 38.905] }],
+        time: '07:55', maxWalkKm: 0.2, disableCache, requireTransitRide: false, includeJourneys: true, includeGeometry: true })),
     ].map(value => JSON.stringify(value)).join('\n') + '\n',
   }).trim().split('\n').map(line => JSON.parse(line))
-  assert.deepEqual(streamedMatrices.map(result => result.status), ['ready', 'error', 'ready', 'ok'])
+  assert.deepEqual(streamedMatrices.map(result => result.status), ['ready', 'error', 'ready', 'ok', 'ready', 'ready'])
   assert.equal(streamedMatrices[3].plan.status, 'ready')
   assert.equal(streamedMatrices[3].plan.diagnostics.searchStats.nativeStreetPathCacheDisabled, true)
+  assert.equal(streamedMatrices[3].query.horizonMinutes, 240)
+  assert.equal(streamedMatrices[3].query.horizonScope, 'timetable_scan')
+  assert.equal(streamedMatrices[3].query.requireTransitRide, true)
+  assert.equal(streamedMatrices[3].query.disableCache, true)
   assert.equal(streamedMatrices[0].rows.length, 1024)
   assert.equal(streamedMatrices[0].query.timePreference, 'arrive')
   assert.equal(streamedMatrices[0].query.timeMinutes, 510)
@@ -315,6 +356,17 @@ try {
   assert.equal(streamedMatrices[2].query.timeMinutes, 475)
   assert.equal(streamedMatrices[2].timing.openMs, 0, 'Later Matrix requests must reuse the loaded City.')
   assert.equal(streamedMatrices[2].diagnostics.forwardSearches, 1)
+  const [cachedMatrix, uncachedMatrix] = streamedMatrices.slice(4)
+  assert.equal(uncachedMatrix.query.disableCache, true)
+  assert.equal(uncachedMatrix.diagnostics.nativeStreetPathCacheDisabled, true)
+  assert.equal(uncachedMatrix.diagnostics.originAccessCacheHits, 0)
+  assert.equal(uncachedMatrix.diagnostics.destinationAccessCacheHits, 0)
+  assert.equal(uncachedMatrix.diagnostics.directWalk.execution, 'rust_fused_matrix')
+  assert.equal(uncachedMatrix.diagnostics.directWalk.reusedEndpointSnaps, 3)
+  const stripTiming = value => JSON.parse(JSON.stringify(value, (key, item) => /Ms$/.test(key) ? undefined : item))
+  assert.deepEqual(stripTiming(uncachedMatrix.rows), stripTiming(cachedMatrix.rows))
+  assert.deepEqual(uncachedMatrix.rows.map(row => row.destinationId), ['near', 'same', 'duplicate'])
+  assert.equal(uncachedMatrix.rows[1].durationMinutes, 0)
 
   // A separate process releases native memory maps before Windows fixture cleanup.
   execFileSync(process.execPath, [

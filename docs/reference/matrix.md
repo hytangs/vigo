@@ -85,3 +85,19 @@ For coordinate endpoints, access frontiers and their projection to timetable
 stops stay in Rust through the matrix scan. Scalar results, or the requested
 compact witnesses, cross back to JavaScript. Named-stop and mixed endpoint requests retain their station access
 semantics. Both paths use the same timetable kernel and are checked for parity.
+
+When direct walking is enabled for coordinate endpoints, the same Rust call
+also computes the walking matrix. Public street snaps from transit access are
+reused within that request. Private-access attachments are prepared with the
+walking limit because they depend on that bound. The walking batch chooses
+its search direction from the smaller endpoint set and preserves directed
+street permissions. `diagnostics.directWalk` reports `execution`,
+`reusedEndpointSnaps`, and the walking query time; `coordinateMatrixMs` includes
+access, timetable, and this optional walking computation.
+
+`disableCache: true` bypasses cross-request native endpoint-frontier caches in
+Transit and Walk Matrix. It also applies to transit journey access preparation.
+It preserves same-request work sharing, loaded City data, and immutable CCH
+indexes; it does not clear the operating system page cache. Transit diagnostics
+report `nativeStreetPathCacheDisabled` and, for coordinate batches,
+`originAccessCacheHits` and `destinationAccessCacheHits`.

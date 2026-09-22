@@ -36,7 +36,7 @@ Scenario drafts and the selected case are saved in Studio's local profile when e
 
 For a stop inserted on an A → B edge shared by several branches, the road path is applied to each affected branch. Each branch retains its untouched published shape and its own A → B runtime, with dwell added at the inserted stop. Load complete branch shapes before building the path.
 
-Matrix is available through the CLI in 0.4.1. Studio does not add a separate Matrix screen.
+Matrix is available through the CLI in 0.4.2. Studio does not add a separate Matrix screen.
 
 ## City
 
