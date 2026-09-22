@@ -35,7 +35,7 @@ assert.equal(profileAnswer.aiGenerated, true)
 assert.equal(profileCalls, 2, 'A timetable result is assessed against the question instead of automatically ending any operational investigation')
 const event = { id: 'delay/T1', type: 'delay', title: 'Departure later than scheduled', routeId: 'R', stopId: 'A', observedAt: state.observedAt, evidence: { delaySeconds: 300 }, sourceRefs: ['fixture:trip/T1'] }
 const catalog = discoverableTools(toolDefinitions)
-for (const name of ['network_overview', 'realtime_status', 'walk_compare', 'run_runtime_study', 'compare_holding']) assert.ok(!catalog.definitions().some(tool => tool.name === name), 'Specialist schemas load only when needed')
+for (const name of ['network_overview', 'realtime_status', 'walk_compare', 'compare_holding']) assert.ok(!catalog.definitions().some(tool => tool.name === name), 'Specialist schemas load only when needed')
 assert.throws(() => catalog.prepare({ names: ['invented_tool'] }), /available catalogue/)
 for (const name of ['gtfs_query', 'route_plan', 'assess_service', 'service_timing']) assert.ok(catalog.definitions().some(tool => tool.name === name), 'Common transit tools are ready without a discovery round')
 assert.ok(discoverableTools(toolDefinitions, ['walk_compare']).definitions().some(tool => tool.name === 'walk_compare'), 'Follow-ups retain tools used in their saved context')
@@ -348,17 +348,15 @@ assert.equal(failureActivity.filter(item => item.detail === 'Fixture unavailable
 
 // Research adapters may exist on the server, but everyday Ask must not launch them.
 let focusedTurns = 0
-const focused = await queryAgency({ question: 'Explain this service and prepare an update.', context, state, placesAvailable: false, runtimeStudyAvailable: true,
+const focused = await queryAgency({ question: 'Explain this service and prepare an update.', context, state, placesAvailable: false,
   provider: { available: true, complete: async (_messages, tools) => {
     assert.ok(!JSON.stringify(tools).includes('compare_holding'))
-    assert.ok(!JSON.stringify(tools).includes('run_runtime_study'))
-    if (++focusedTurns === 1) return { tool_calls: ['compare_holding', 'run_runtime_study'].map((name, index) => ({ id: `outside-${index}`, function: { name, arguments: '{}' } })) }
+    if (++focusedTurns === 1) return { tool_calls: ['compare_holding'].map((name, index) => ({ id: `outside-${index}`, function: { name, arguments: '{}' } })) }
     return { content: 'Those research actions are outside Ask. Current service evidence and rider drafts remain available.' }
   } }, callTool: () => assert.fail('A model cannot invoke an out-of-scope research adapter'),
 })
-assert.equal(focused.trace.length, 2)
+assert.equal(focused.trace.length, 1)
 assert.ok(focused.trace.every(call => !call.result.ok))
-assert.ok(!focused.runtime.networkTools.some(tool => tool.tool === 'run_runtime_study'))
 console.log('Focused Ask: research actions excluded from discovery, execution and runtime capabilities.')
 
 const fabricated = await queryAgency({ context, state, callTool, question: 'What disruption is happening now?', provider: { available: true, complete: async () => ({ content: 'A collision has closed route R. Service resumes in 12 minutes.' }) } })

@@ -19,14 +19,13 @@ export function modelRuntimeFacts({ baseUrl, model, protocol }) {
 export const runtimeTool = { name: 'runtime_status', description: 'Read server-recorded model connection, request workflow and privacy limits. Use for questions about the AI setup, harness or what VIGO sends; not transit network facts. This is evidence for the answer, not a command to end the conversation.',
   parameters: { type: 'object', properties: {}, required: [], additionalProperties: false } }
 
-export function queryRuntimeFacts({ provider, webStatus, placesAvailable, placeEndpoint, placeDetailsEndpoint, runtimeStudyAvailable = false, generatedAt }) {
+export function queryRuntimeFacts({ provider, webStatus, placesAvailable, placeEndpoint, placeDetailsEndpoint, generatedAt }) {
   const networkTools = []
   if (webStatus.searchAvailable) networkTools.push({ tool: webStatus.provider === 'wikipedia' ? 'reference_lookup' : 'web_search',
     label: webStatus.provider === 'wikipedia' ? 'Public references' : 'Web search', endpoint: webStatus.endpoint ?? null })
   if (webStatus.readAvailable) networkTools.push({ tool: 'web_read', label: 'Public page reading', endpoint: 'Requested public website' })
   if (placesAvailable) networkTools.push({ tool: 'place_search', label: 'Place search', endpoint: placeEndpoint ?? null })
   if (placesAvailable && placeDetailsEndpoint) networkTools.push({ tool: 'find_walk', label: 'Map place details', endpoint: placeDetailsEndpoint })
-  if (runtimeStudyAvailable) networkTools.push({ tool: 'run_runtime_study', label: 'LAMP public data and archived timetables', endpoint: 'performancedata.mbta.com, cdn.mbta.com, cdn.mbtace.com' })
   return { capturedAt: generatedAt, modelConnection: provider.runtime ?? modelRuntimeFacts({ model: provider.model }), networkTools,
     requestWorkflow: {
       sentToModel: ['The current question and application instructions', 'City clock, indexed network summary and available capabilities', 'Supplied conversation history and selected tool schemas', 'Compact results of completed tools, with source references'],

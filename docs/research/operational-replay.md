@@ -26,7 +26,7 @@ The high-load example illustrates the trade-off: restoring headways can worsen t
 
 ## Data and procedure selection
 
-The [complete input package](../../artifacts/replay/holding-v1/manifest.json) contains five cases: three development scenarios and two held-out variants. Expected actions are developer-authored, not expert agency labels, and are excluded from model prompts.
+The [complete input package](../../src/agency/replay/holding-v1/manifest.json) contains five cases: three development scenarios and two held-out variants. Expected actions are developer-authored, not expert agency labels, and are excluded from model prompts.
 
 - `timetable.json` contains the exact miniature GTFS tables: agency, route, stops, trips, stop times, dated calendar exceptions and feed version `SYN-HOLD-1`.
 - Each case preserves **authored synthetic** VehiclePosition and TripUpdate observations using a GTFS-Realtime JSON field mapping, including source/entity timestamps. These are not captured agency feeds or records reconstructed from the derived headways.
@@ -75,6 +75,6 @@ node test/check-operational-replay.mjs
 npm run evaluate:replay -- --ai
 ```
 
-Each evaluation writes results under `artifacts/replay/evaluations/`. These generated reports are local outputs. The cases use synthetic inputs and developer-authored expectations; they do not establish staff decisions or observed service impact.
+Each evaluation writes results under `output/replay/evaluations/`. These generated reports are local outputs. The cases use synthetic inputs and developer-authored expectations; they do not establish staff decisions or observed service impact.
 
 Tests cover procedure scope, expiry, conflicts, optimizer calculations, denied approvals, outdated revisions, atomic rollback, cancellation, duplicate delivery, withdrawal and restart.

@@ -69,6 +69,6 @@ Studio Reach retains packed reached-edge data, lazily reuses decoded coordinates
 
 ## Storage and verification
 
-The complete CLI City directory is portable; individual databases and native files are implementation details. Studio library settings, drafts, notebooks, and connections are separate application state. The [operations ledger](../research/agency-operations.md), [replay](../research/operational-replay.md), and [LAMP study](../research/lamp-runtime-study.md) remain active research interfaces with their own tests and storage.
+The complete CLI City directory is portable; individual databases and native files are implementation details. Studio library settings, drafts, notebooks, and connections are separate application state. The [operations ledger](../research/agency-operations.md) and [replay](../research/operational-replay.md) remain active research interfaces with their own tests and storage. The [LAMP reader](../research/lamp-runtime-study.md) can inspect existing City studies.
 
 Use the [contribution guide](../../.github/CONTRIBUTING.md) to choose checks. Routing fixtures verify feasibility and witnesses; desktop runtime fixtures verify interaction. Actual-provider evaluations are opt-in and separate from deterministic tests. No fixture or build proves field accuracy or model reliability.

@@ -1,11 +1,10 @@
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fail, recordIdentity } from './operations.mjs'
 import { procedureMetadata } from './procedures.mjs'
 
-const sourceDirectory = fileURLToPath(new URL('../../artifacts/replay/holding-v1/', import.meta.url))
-export const replayDirectory = existsSync(sourceDirectory) ? sourceDirectory : fileURLToPath(new URL('./replay/holding-v1/', import.meta.url))
+export const replayDirectory = fileURLToPath(new URL('./replay/holding-v1/', import.meta.url))
 export function loadReplay(directory = replayDirectory) {
   const read = name => {
     if (typeof name !== 'string' || path.basename(name) !== name || !name.endsWith('.json')) fail('Replay files must be JSON files inside the package.')

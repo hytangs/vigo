@@ -1,7 +1,0 @@
-# LAMP running-time study
-
-This adapter uses MBTA's public LAMP subway exports and GTFS archive. It requires Python with pandas, numpy and pyarrow; it does not install packages. Choose explicit past dates with training ending before evaluation, and allow enough earlier service dates to support each segment. Daily files and archived timetables are bounded and cached in this City's agency research directory.
-
-Match exact trip, route, direction, date and consecutive stop sequences to the applicable archived GTFS. Exclude ambiguous trip instances, missing or nonpositive running times and disagreement between LAMP's planned duration and the archived schedule. Fit a median of daily running-time medians for each directed segment with at least three training dates. Entire later service dates form the holdout. Compare both predictors on identical test rows; report abstention coverage. Preserve long valid runs rather than trimming errors to improve the score.
-
-Save provenance, exclusion counts, fitted segment summaries, daily errors and row-level evaluation. Existing completed results remain readable if a new run fails. The historical archive may include later corrections; call this a retrospective evaluation, not a prospective online test. LAMP reconstructed events can use predictions when vehicle reports are missing, so the target is not independent sensor ground truth. Do not infer live incidents or recovery from a historical study.

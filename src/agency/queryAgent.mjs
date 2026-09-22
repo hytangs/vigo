@@ -141,7 +141,7 @@ export async function queryAgency({ question, context, state, callTool, provider
     ...history.flatMap((item) => [{ role: 'user', content: item.question }, { role: 'assistant', content: item.answer.slice(0, 2000) }]),
     { role: 'user', content: question },
   ]
-  const capabilities = { run_runtime_study: false, compare_holding: false, place_search: placesAvailable, find_walk: placesAvailable, web_search: Boolean(webStatus.searchAvailable && webStatus.provider !== 'wikipedia'), reference_lookup: Boolean(webStatus.searchAvailable && webStatus.provider === 'wikipedia'), web_read: Boolean(webStatus.readAvailable) }
+  const capabilities = { compare_holding: false, place_search: placesAvailable, find_walk: placesAvailable, web_search: Boolean(webStatus.searchAvailable && webStatus.provider !== 'wikipedia'), reference_lookup: Boolean(webStatus.searchAvailable && webStatus.provider === 'wikipedia'), web_read: Boolean(webStatus.readAvailable) }
   const journeyChoices = createJourneyChoices(toolDefinitions.find(tool => tool.name === 'route_plan'))
   const previousJourney = history.at(-1)
   const continuation = createJourneyChoices(toolDefinitions.find(tool => tool.name === 'route_plan'))

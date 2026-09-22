@@ -100,7 +100,3 @@ try {
   assert.deepEqual(notebook.read(saved.id).answer.runtime, answer.runtime, 'Runtime evidence survives restart and provider changes')
 } finally { notebook?.close(); fs.rmSync(directory, { recursive: true, force: true }) }
 console.log('Agency runtime: request snapshots, unknown hosting, endpoint redaction, available versus attempted tools, and saved evidence passed.')
-const { queryRuntimeFacts, withRuntimeActivity } = await import('../src/agency/runtimeFacts.mjs')
-const researchRuntime=queryRuntimeFacts({provider:inference,webStatus:{},placesAvailable:false,runtimeStudyAvailable:true,generatedAt:state.generatedAt})
-assert.deepEqual(researchRuntime.networkTools.map(item=>item.tool),['run_runtime_study'])
-assert.deepEqual(withRuntimeActivity(researchRuntime,[{tool:'run_runtime_study',result:{ok:false}},{tool:'historical_runtime',result:{ok:true}}]).networkToolCalls,[{tool:'run_runtime_study',completed:false}], 'LAMP downloading is network-capable; reading its saved study is local')

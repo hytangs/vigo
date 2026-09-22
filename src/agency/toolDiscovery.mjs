@@ -5,7 +5,6 @@ const descriptions = {
   assess_service: 'Complete operational checks with verified answers: conditions, causes, vehicle history, occupancy, coverage and decisions',
   inspect_service: 'Test hypotheses using surrounding service, prediction progression, vehicle agreement, alerts and historical evidence',
   historical_runtime: 'LAMP running-time study and chronological prediction accuracy',
-  run_runtime_study: 'Run an explicitly requested LAMP historical study for past dates',
   compare_holding: 'Compare alternatives in an opened synthetic Operations replay; no live dispatch',
   operational_context: 'Approved City context explicitly marked public; private SOPs stay in Operations',
   historical_baseline: 'Comparable historical prediction summaries and chronological evaluation',

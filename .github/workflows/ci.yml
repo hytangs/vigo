@@ -28,17 +28,6 @@ jobs:
       - run: cargo test --manifest-path native/vigo-routing-kernel/Cargo.toml
       - run: cargo clippy --release --all-targets --all-features --manifest-path native/vigo-routing-kernel/Cargo.toml -- -D warnings
 
-  lamp-study:
-    name: LAMP study checks
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - run: python3 --version
-      - run: python3 -m venv .lamp-venv
-      - run: .lamp-venv/bin/python -m pip install -r scripts/lamp/requirements.txt
-      - run: .lamp-venv/bin/python test/check-lamp-study.py
-
   engine:
     name: Complete engine (${{ matrix.os }})
     timeout-minutes: 60

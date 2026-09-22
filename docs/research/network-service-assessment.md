@@ -32,7 +32,7 @@ The candidate space is deliberately small: a shared corridor disruption, delay c
 
 A retained observation was tested with the configured local `qwen3.5:4b`. Unrestricted prose invented a blockage and confused scheduled intervals with conditions elsewhere; an early constrained version misused escalator notices. Neither behavior was accepted. The revised form separates notice effects, requires upstream evidence, and preserves support and counterevidence. In the retained test, delay already forecast upstream weakened a corridor-origin explanation. This single case does not establish general model reliability.
 
-The card shows the working explanation and next observation. An expandable investigation contains public evidence, not private model reasoning or JSON. Staff still need dispatch records, measured passage/speed data and corroborated incidents to establish a cause. The [LAMP study](lamp-runtime-study.md) supplies a separate historical benchmark; it does not confirm current delay causes.
+The card shows the working explanation and next observation. An expandable investigation contains public evidence, not private model reasoning or JSON. Staff still need dispatch records, measured passage/speed data and corroborated incidents to establish a cause. The [LAMP reader](lamp-runtime-study.md) can inspect an existing historical study; it does not confirm current delay causes.
 
 ## Refresh and saved evidence
 

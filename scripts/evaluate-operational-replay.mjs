@@ -59,7 +59,7 @@ try {
     timer: 'Per case: opening an isolated persisted replay through assessment, simulated approval/delivery, duplicate retry and changed-evidence withdrawal. AI mode includes two inference calls. First case includes cold SQLite work; model cache state is not controlled.',
     manual: { status: 'not-run', reviewer: null, taskTimeMs: null, corrections: null, messageEditing: null }, observedServiceImpact: null, inferenceCost: null,
     summary: ['deterministic', ...(useAI ? ['ai-orchestration'] : [])].map(mode => { const group = rows.filter(r => r.mode === mode); return { mode, cases: group.length, complete: group.filter(r => r.complete).length, correctActions: group.filter(r => r.correctAction).length, medianAssessmentMs: quantile(group.map(r => r.assessmentMs).filter(Number.isFinite), .5), p90EndToEndMs: quantile(group.map(r => r.endToEndMs), .9) } }), rows }
-  const out = path.resolve('artifacts/replay/evaluations', result.generatedAt.replaceAll(':', '-'))
+  const out = path.resolve('output/replay/evaluations', result.generatedAt.replaceAll(':', '-'))
   mkdirSync(out, { recursive: true }); writeFileSync(path.join(out, 'results.json'), `${JSON.stringify(result, null, 2)}\n`)
   console.log(`Saved all outcomes: ${path.join(out, 'results.json')}`)
   if (rows.some(r => !r.complete)) process.exitCode = 1

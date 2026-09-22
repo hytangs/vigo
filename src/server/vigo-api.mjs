@@ -13,7 +13,6 @@ import { vigoCapabilities } from '../capabilities.mjs'
 import { createAgencyService } from './agency-api.mjs'
 import { readGtfsNetworkOverview, readGtfsRouteAnalysis } from './gtfs-analysis-store.mjs'
 import { decodeGtfsRealtimeFeed } from './gtfs-realtime-decoder.mjs'
-import { runLampStudy } from './lamp-study-runner.mjs'
 import { applyLocalCors, assertLocalBindHost, localRequestAccess } from './local-http-security.mjs'
 import {
   disposeNationalGtfsStore,
@@ -4564,7 +4563,6 @@ async function route(request, response) {
 }
 
 const agency = createAgencyService({
-  runtimeStudy: runLampStudy,
   skillDirectory: process.env.VIGO_AGENCY_SKILLS_DIR || path.join(staticRoot || path.resolve('public'), 'agency-skills'),
   async context(projectId) {
     const project = await readProjectMetadata(projectId)

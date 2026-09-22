@@ -111,7 +111,7 @@ try {
 
 async function bundleEngine() {
   await mkdir(serverRoot, { recursive: true })
-  await cp(path.join(repositoryRoot, 'artifacts', 'replay', 'holding-v1'), path.join(serverRoot, 'replay', 'holding-v1'), { recursive: true })
+  await cp(path.join(repositoryRoot, 'src', 'agency', 'replay', 'holding-v1'), path.join(serverRoot, 'replay', 'holding-v1'), { recursive: true })
   const rolldown = path.join(repositoryRoot, 'node_modules', 'rolldown', 'bin', 'cli.mjs')
   await assertFile(rolldown, 'Missing Rolldown. Run npm install first.')
   const bundle = (input, args) => execFileAsync(process.execPath, [rolldown, input, ...args, '--format', 'esm', '--platform', 'node'], {

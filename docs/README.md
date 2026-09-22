@@ -34,5 +34,5 @@ The [Developer Guide](developer-guide/VIGO-0.4.1-Developer-Guide.tex) is the pri
 These pages describe bounded methods and prototypes, not additional everyday Studio panels or validated operational outcomes:
 
 - [Network service assessment](research/network-service-assessment.md): measurements, reporting denominators, and model investigation.
-- [LAMP running-time study](research/lamp-runtime-study.md): a retrospective holdout against reconstructed events, with retained sources and exclusions.
+- [LAMP running-time study](research/lamp-runtime-study.md): reading existing City reports and interpreting their limitations.
 - [Operations ledger](research/agency-operations.md) and [synthetic holding replay](research/operational-replay.md): internal research APIs, approval records, and sandbox delivery.

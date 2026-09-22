@@ -30,8 +30,3 @@ output/
 *.out
 logs/
 tmp/
-# Optional LAMP research runtime bytecode
-__pycache__/
-
-# Generated replay evaluation reports
-artifacts/replay/evaluations/
