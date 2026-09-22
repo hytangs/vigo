@@ -93,11 +93,15 @@ impl TerminalAttachment {
 
 impl TerminalAccessGraph {
     pub(crate) fn open(snapshot: &Snapshot, path: &Path) -> napi::Result<Self> {
-        let file: TerminalAccessFile =
-            serde_json::from_reader(std::io::BufReader::new(File::open(path).map_err(|e| {
+        // Parsing a contiguous slice avoids per-byte reader overhead for the
+        // immutable regional graph. Release the input bytes after decoding.
+        let file: TerminalAccessFile = {
+            let bytes = std::fs::read(path).map_err(|e| {
                 Error::from_reason(format!("Cannot open terminal access graph: {e}"))
-            })?))
-            .map_err(|e| Error::from_reason(format!("Invalid terminal access graph: {e}")))?;
+            })?;
+            serde_json::from_slice(&bytes)
+                .map_err(|e| Error::from_reason(format!("Invalid terminal access graph: {e}")))?
+        };
         let count = file.node_lons.len();
         let public_count = snapshot.header.node_count;
         let components = snapshot.f64_array("componentLengthKm")?.len();

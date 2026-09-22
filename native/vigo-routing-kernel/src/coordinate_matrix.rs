@@ -1,14 +1,15 @@
 //! Shared directed street-matrix execution. Coordinate transit batches may
-//! reuse same-request public street attachments, even when caches are disabled.
+//! reuse same-request directed endpoint attachments, even when caches are disabled.
 use super::*;
 
-type MatrixSnapSets = (Vec<Vec<Snap>>, Vec<Vec<Snap>>);
+type MatrixAttachment = (Vec<Snap>, Option<Arc<TerminalAttachment>>);
+type MatrixSnapSets = (Vec<MatrixAttachment>, Vec<MatrixAttachment>);
 
 struct MatrixEndpointProjection {
     offsets: Vec<u32>,
     stops: Vec<u32>,
     seconds: Vec<f64>,
-    snaps: Vec<Vec<Snap>>,
+    snaps: Vec<MatrixAttachment>,
     cache_hits: u32,
 }
 
@@ -61,7 +62,11 @@ impl CoordinateKernel {
                 "Coordinate Matrix requires valid coordinates, a matching stop projection, and at most 100,000 pairs.",
             ));
         }
-        let reuse_snaps = input.direct_walk_maximum_m.is_some() && self.terminal_access.is_none();
+        // Restricted attachments contain a bounded directed search. Reuse is
+        // valid only when that search covers the direct-walk query as well.
+        let reuse_snaps = input.direct_walk_maximum_m.is_some_and(|maximum| {
+            self.terminal_access.is_none() || maximum <= input.maximum_walk_m
+        });
         let destinations =
             self.project_matrix_endpoints(&input, &input.destination_coordinates, true)?;
         let origins = self.project_matrix_endpoints(&input, &input.origin_coordinates, false)?;
@@ -124,7 +129,9 @@ impl CoordinateKernel {
         coordinates: &[f64],
         reverse: bool,
     ) -> napi::Result<MatrixEndpointProjection> {
-        let reuse_snaps = input.direct_walk_maximum_m.is_some() && self.terminal_access.is_none();
+        let reuse_snaps = input.direct_walk_maximum_m.is_some_and(|maximum| {
+            self.terminal_access.is_none() || maximum <= input.maximum_walk_m
+        });
         let mut projected = MatrixEndpointProjection {
             offsets: Vec::with_capacity(coordinates.len() / 2 + 1),
             stops: Vec::new(),
@@ -155,12 +162,11 @@ impl CoordinateKernel {
                 } else {
                     self.last_origin_frontier.as_ref()
                 };
-                projected.snaps.push(
-                    frontier
-                        .expect("route_endpoint retains its frontier")
-                        .source_snaps
-                        .clone(),
-                );
+                let frontier = frontier.expect("route_endpoint retains its frontier");
+                projected.snaps.push((
+                    frontier.source_snaps.clone(),
+                    frontier.terminal_attachment.clone(),
+                ));
             }
             for (&member, &walk) in access.member_indices.iter().zip(&access.access_seconds) {
                 let stop = input.member_timetable_stops[member as usize];
@@ -224,24 +230,12 @@ impl CoordinateKernel {
             0
         };
         let (origin_access, destination_access) = if let Some((origins, destinations)) = prepared {
-            if origins.len() != origin_count
-                || destinations.len() != destination_count
-                || self.terminal_access.is_some()
-            {
+            if origins.len() != origin_count || destinations.len() != destination_count {
                 return Err(Error::from_reason(
                     "Prepared Matrix street attachments are inconsistent.",
                 ));
             }
-            (
-                origins
-                    .into_iter()
-                    .map(|snaps| (snaps, None))
-                    .collect::<Vec<_>>(),
-                destinations
-                    .into_iter()
-                    .map(|snaps| (snaps, None))
-                    .collect::<Vec<_>>(),
-            )
+            (origins, destinations)
         } else {
             let reciprocal_edge_flags = self.snapshot.reciprocal_edge_flags();
             let origin_access = origin_coordinate_pairs

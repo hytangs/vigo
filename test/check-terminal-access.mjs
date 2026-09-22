@@ -77,17 +77,17 @@ try {
   })
   const checkFused = () => {
     for (const [origins, destinations] of [[points, [target]], [[target], points]]) {
-      for (const disableCache of [false, true]) {
+      for (const disableCache of [false, true]) for (const directWalkMaximumM of [200, 400, 5000]) {
         const fused = kernel.routeEndpointsTimetableMatrix(timetable, {
           originCoordinates: origins.flat(), destinationCoordinates: destinations.flat(),
           maximumWalkM: 400, memberTimetableStops: new Uint32Array([0]), departure: 0, horizon: 1000,
-          arriveBy: origins.length > destinations.length, directWalkMaximumM: 5000, disableCache,
+          arriveBy: origins.length > destinations.length, directWalkMaximumM, disableCache,
         })
         const walking = kernel.routeStreetMatrix({ originCoordinates: origins.flat(),
-          destinationCoordinates: destinations.flat(), maximumDistanceM: 5000, disableCache })
+          destinationCoordinates: destinations.flat(), maximumDistanceM: directWalkMaximumM, disableCache })
         assert.deepEqual(fused.directWalk.distancesM, walking.distancesM,
           'Private attachments must use the walking bound even when transit access is empty.')
-        assert.equal(fused.directWalk.reusedEndpointSnaps, 0)
+        assert.equal(fused.directWalk.reusedEndpointSnaps, directWalkMaximumM <= 400 ? origins.length + destinations.length : 0)
         if (disableCache) assert.equal(fused.originCacheHits + fused.destinationCacheHits, 0)
       }
     }
