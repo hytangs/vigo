@@ -42,10 +42,10 @@ assembles its stops, legs, and geometry into the returned Result. **Admission**
 validates whether input data can be used; **prewarming** prepares it before a
 query, and **resident** state stays in memory for reuse.
 
-Materialization-critical computation has moved into the Rust kernel, including
-shape alignment and plan-identity hashing. JavaScript still loads selected GTFS
-source rows, assembles itinerary objects, and handles orchestration and public
-interfaces. Itinerary materialization is not fully native.
+Rust reads selected GTFS shapes directly into numeric buffers, indexes and
+aligns them, and hashes plan identities. JavaScript samples the selected shape
+range from compact coordinate columns and distinct-position indices, assembles
+itinerary objects, and handles store lifetime, orchestration, and public interfaces.
 
 | Operation | Implementation boundary |
 | --- | --- |

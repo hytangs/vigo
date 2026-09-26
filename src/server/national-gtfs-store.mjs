@@ -550,6 +550,7 @@ function invalidateNationalStore(storePath) {
   const resolvedPath = path.resolve(storePath)
   const cached = nationalStoreCache.get(resolvedPath)
   if (cached) {
+    try { cached.nativeShapeSource?.close() } catch {}
     try { cached.db.close() } catch {}
     nationalStoreCache.delete(resolvedPath)
   }

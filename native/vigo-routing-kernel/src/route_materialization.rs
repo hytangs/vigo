@@ -1,11 +1,80 @@
-//! Numeric itinerary materialization. JavaScript owns source loading and output
-//! objects; Rust owns shape indexing/alignment and stable identifier arithmetic.
+//! Numeric itinerary materialization. JavaScript owns store lifetime and output
+//! objects; Rust reads shapes, indexes/aligns them and hashes identifiers.
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use rusqlite::{Connection, OpenFlags, types::ValueRef};
 use std::collections::{HashMap, VecDeque};
 
 const RADIUS_KM: f64 = 6371.0088;
 const CANDIDATE_LIMIT: usize = 16;
+
+fn unit_position(point: [f64; 2]) -> [f64; 3] {
+    let (sin_lat, cos_lat) = point[1].to_radians().sin_cos();
+    let (sin_lon, cos_lon) = point[0].to_radians().sin_cos();
+    [cos_lat * cos_lon, cos_lat * sin_lon, sin_lat]
+}
+
+#[derive(Clone, Copy, Default)]
+struct ShapeNode {
+    minimum: [f64; 3],
+    maximum: [f64; 3],
+    start: u32,
+    end: u32,
+    right: u32,
+}
+
+impl ShapeNode {
+    fn lower_bound(&self, point: [f64; 3]) -> f64 {
+        let mut distance = 0.0;
+        for (axis, value) in point.iter().enumerate() {
+            let delta =
+                (self.minimum[axis] - value).max(0.0) + (value - self.maximum[axis]).max(0.0);
+            distance += delta * delta;
+        }
+        distance
+    }
+}
+
+// A linear-build hierarchy over consecutive source sections. Bounds use unit
+// sphere coordinates, so poles and antimeridian crossings need no special case.
+// Leaf points still use the original haversine and source-index tie breaking.
+fn shape_nodes(points: &[[f64; 2]]) -> Vec<ShapeNode> {
+    fn build(points: &[[f64; 2]], nodes: &mut Vec<ShapeNode>, start: usize, end: usize) -> usize {
+        let index = nodes.len();
+        nodes.push(ShapeNode::default());
+        let mut node = ShapeNode {
+            start: start as u32,
+            end: end as u32,
+            minimum: [f64::INFINITY; 3],
+            maximum: [f64::NEG_INFINITY; 3],
+            right: 0,
+        };
+        if end - start <= 16 {
+            for &point in &points[start..end] {
+                for (axis, value) in unit_position(point).iter().enumerate() {
+                    node.minimum[axis] = node.minimum[axis].min(*value);
+                    node.maximum[axis] = node.maximum[axis].max(*value);
+                }
+            }
+        } else {
+            let middle = start + (end - start) / 2;
+            let left = build(points, nodes, start, middle);
+            let right = build(points, nodes, middle, end);
+            node.right = right as u32;
+            for axis in 0..3 {
+                node.minimum[axis] = nodes[left].minimum[axis].min(nodes[right].minimum[axis]);
+                node.maximum[axis] = nodes[left].maximum[axis].max(nodes[right].maximum[axis]);
+            }
+        }
+        nodes[index] = node;
+        index
+    }
+    let mut nodes = Vec::new();
+    if !points.is_empty() {
+        build(points, &mut nodes, 0, points.len());
+    }
+    nodes
+}
 
 fn haversine_km(a: [f64; 2], b: [f64; 2]) -> f64 {
     let radians = |v: f64| v * std::f64::consts::PI / 180.0;
@@ -39,44 +108,141 @@ struct State {
     previous: usize,
 }
 
+/// A source reader owned by the same lifetime as the JS routing store. Reading
+/// directly into native points avoids one JS object and two coordinate copies
+/// per shape point. It does not retain shapes or itinerary answers.
+#[napi]
+pub struct ShapeGeometrySource {
+    db: Option<Connection>,
+}
+
+fn source_error(error: impl std::fmt::Display) -> Error {
+    Error::from_reason(format!("Native shape geometry: {error}"))
+}
+
+fn coordinate_number(value: ValueRef<'_>) -> Option<f64> {
+    let number = match value {
+        ValueRef::Null => 0.0, // Match Number(null) in the existing loader.
+        ValueRef::Integer(value) => value as f64,
+        ValueRef::Real(value) => value,
+        ValueRef::Text(value) => {
+            let value = std::str::from_utf8(value).ok()?.trim();
+            if value.is_empty() {
+                0.0
+            } else {
+                value.parse().ok()?
+            }
+        }
+        ValueRef::Blob(_) => return None,
+    };
+    number.is_finite().then_some(number)
+}
+
+#[napi]
+impl ShapeGeometrySource {
+    #[napi(constructor)]
+    pub fn new(store_path: String) -> Result<Self> {
+        let db = Connection::open_with_flags(
+            store_path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(source_error)?;
+        db.execute_batch("PRAGMA mmap_size=0; PRAGMA cache_size=-2048; PRAGMA query_only=ON;")
+            .map_err(source_error)?;
+        db.set_prepared_statement_cache_capacity(1);
+        Ok(Self { db: Some(db) })
+    }
+
+    #[napi]
+    pub fn read_shape(&self, shape_id: String) -> Result<Option<ShapeGeometry>> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| source_error("source is closed"))?;
+        let mut statement = db
+            .prepare_cached("SELECT lon,lat FROM shape_points WHERE shape_id=? ORDER BY sequence")
+            .map_err(source_error)?;
+        let mut rows = statement.query([shape_id]).map_err(source_error)?;
+        let mut points = Vec::new();
+        while let Some(row) = rows.next().map_err(source_error)? {
+            let lon = coordinate_number(row.get_ref(0).map_err(source_error)?);
+            let lat = coordinate_number(row.get_ref(1).map_err(source_error)?);
+            if let (Some(lon), Some(lat)) = (lon, lat) {
+                points.push([lon, lat]);
+            }
+        }
+        if points.len() < 2 {
+            return Ok(None);
+        }
+        ShapeGeometry::from_points(points).map(Some)
+    }
+
+    #[napi]
+    pub fn close(&mut self) {
+        self.db.take();
+    }
+}
+
 #[napi]
 pub struct ShapeGeometry {
     points: Vec<[f64; 2]>,
     prefix: Vec<f64>,
-    latitude_order: Vec<u32>,
+    nodes: Vec<ShapeNode>,
     candidates: HashMap<(u64, u64), Vec<Candidate>>,
     candidate_order: VecDeque<(u64, u64)>,
     candidate_bytes: usize,
+}
+
+#[napi(object)]
+pub struct ShapeRenderCoordinates {
+    pub coordinates: Float64Array,
+    pub distinct_indices: Option<Uint32Array>,
 }
 
 #[napi]
 impl ShapeGeometry {
     #[napi(constructor)]
     pub fn new(values: Float64Array) -> Result<Self> {
-        let points = coordinates(&values)?;
-        if points.len() > u32::MAX as usize {
-            return Err(Error::from_reason(
-                "Shape point count exceeds the index domain.",
-            ));
+        Self::from_points(coordinates(&values)?)
+    }
+
+    #[napi(getter)]
+    pub fn point_count(&self) -> u32 {
+        self.points.len() as u32
+    }
+
+    // One compact coordinate column per prepared shape, rather than crossing
+    // Node-API and allocating a native output buffer for every selected leg.
+    // Its bytes are accounted separately by the owning JS store.
+    #[napi(getter)]
+    pub fn packed_coordinates(&self) -> Float64Array {
+        self.points
+            .iter()
+            .flatten()
+            .copied()
+            .collect::<Vec<_>>()
+            .into()
+    }
+
+    /// Compile the source-order distinct-point projection once with the
+    /// coordinate column. Shapes without consecutive duplicates need no index.
+    /// Both returned columns are owned and budgeted by the JS routing store.
+    #[napi]
+    pub fn render_coordinates(&self) -> ShapeRenderCoordinates {
+        let mut coordinates = Vec::with_capacity(self.points.len() * 2);
+        let mut distinct: Option<Vec<u32>> = None;
+        for (index, point) in self.points.iter().enumerate() {
+            coordinates.extend_from_slice(point);
+            if index > 0 && *point == self.points[index - 1] {
+                distinct.get_or_insert_with(|| (0..index as u32).collect());
+            } else if let Some(indices) = &mut distinct {
+                indices.push(index as u32);
+            }
         }
-        let mut prefix = vec![0.0; points.len()];
-        for i in 1..points.len() {
-            prefix[i] = prefix[i - 1] + haversine_km(points[i - 1], points[i]);
+        ShapeRenderCoordinates {
+            coordinates: coordinates.into(),
+            distinct_indices: distinct.map(|indices| indices.into_boxed_slice().into_vec().into()),
         }
-        let mut latitude_order: Vec<u32> = (0..points.len() as u32).collect();
-        latitude_order.sort_unstable_by(|&a, &b| {
-            points[a as usize][1]
-                .total_cmp(&points[b as usize][1])
-                .then(a.cmp(&b))
-        });
-        Ok(Self {
-            points,
-            prefix,
-            latitude_order,
-            candidates: HashMap::new(),
-            candidate_order: VecDeque::new(),
-            candidate_bytes: 0,
-        })
     }
 
     /// Returns source-order point indices, or an empty array when no monotone
@@ -93,7 +259,7 @@ impl ShapeGeometry {
     pub fn estimated_bytes(&self) -> f64 {
         (self.points.capacity() * std::mem::size_of::<[f64; 2]>()
             + self.prefix.capacity() * std::mem::size_of::<f64>()
-            + self.latitude_order.capacity() * std::mem::size_of::<u32>()
+            + self.nodes.capacity() * std::mem::size_of::<ShapeNode>()
             + self.candidates.capacity() * 64
             + self.candidate_order.capacity() * 16
             + self.candidate_bytes) as f64
@@ -101,19 +267,75 @@ impl ShapeGeometry {
 }
 
 impl ShapeGeometry {
+    fn from_points(points: Vec<[f64; 2]>) -> Result<Self> {
+        if points.len() > u32::MAX as usize {
+            return Err(Error::from_reason(
+                "Shape point count exceeds the index domain.",
+            ));
+        }
+        let mut prefix = vec![0.0; points.len()];
+        for i in 1..points.len() {
+            prefix[i] = prefix[i - 1] + haversine_km(points[i - 1], points[i]);
+        }
+        let nodes = shape_nodes(&points);
+        Ok(Self {
+            points,
+            prefix,
+            nodes,
+            candidates: HashMap::new(),
+            candidate_order: VecDeque::new(),
+            candidate_bytes: 0,
+        })
+    }
+
     fn candidates(&self, stop: [f64; 2]) -> Vec<Candidate> {
-        // Great-circle distance is bounded below by latitude separation. The
-        // epsilon makes both binary-search boundaries conservative.
-        let delta = 180.0 / (std::f64::consts::PI * RADIUS_KM) + 1e-12;
-        let start = self
-            .latitude_order
-            .partition_point(|&i| self.points[i as usize][1] < stop[1] - delta);
-        let end = self
-            .latitude_order
-            .partition_point(|&i| self.points[i as usize][1] <= stop[1] + delta);
         let mut nearest: Vec<Candidate> = Vec::with_capacity(CANDIDATE_LIMIT);
-        for &index in &self.latitude_order[start..end] {
-            let index = index as usize;
+        if !self.nodes.is_empty() {
+            let mut radius_squared = (2.0 * (0.5 / RADIUS_KM).sin()).powi(2);
+            self.visit_candidates(
+                0,
+                unit_position(stop),
+                stop,
+                &mut nearest,
+                &mut radius_squared,
+            );
+        }
+        nearest
+    }
+
+    fn visit_candidates(
+        &self,
+        node_index: usize,
+        position: [f64; 3],
+        stop: [f64; 2],
+        nearest: &mut Vec<Candidate>,
+        radius_squared: &mut f64,
+    ) {
+        let node = &self.nodes[node_index];
+        // Conservative slack covers unit-vector and box arithmetic roundoff,
+        // including coincident points. It only adds work, never candidates.
+        if node.lower_bound(position) > *radius_squared + 1e-15 {
+            return;
+        }
+        if node.right != 0 {
+            let left = node_index + 1;
+            let right = node.right as usize;
+            let (first, second) = if self.nodes[left].lower_bound(position)
+                <= self.nodes[right].lower_bound(position)
+            {
+                (left, right)
+            } else {
+                (right, left)
+            };
+            self.visit_candidates(first, position, stop, nearest, radius_squared);
+            self.visit_candidates(second, position, stop, nearest, radius_squared);
+            return;
+        }
+        let latitude_delta = 180.0 / (std::f64::consts::PI * RADIUS_KM) + 1e-12;
+        for index in node.start as usize..node.end as usize {
+            if (self.points[index][1] - stop[1]).abs() > latitude_delta {
+                continue;
+            }
             let distance = haversine_km(self.points[index], stop);
             if distance > 1.0 || !distance.is_finite() {
                 continue;
@@ -130,8 +352,12 @@ impl ShapeGeometry {
                 nearest.pop();
             }
             nearest.insert(position, candidate);
+            if nearest.len() == CANDIDATE_LIMIT {
+                *radius_squared = (2.0
+                    * (nearest[CANDIDATE_LIMIT - 1].distance / (2.0 * RADIUS_KM)).sin())
+                .powi(2);
+            }
         }
-        nearest
     }
 
     fn cached_candidates(&mut self, stop: [f64; 2]) -> Vec<Candidate> {

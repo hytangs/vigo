@@ -46,7 +46,7 @@ type IntegerHashSet<T> = HashSet<T, BuildHasherDefault<IntegerHasher>>;
 
 mod coordinate_matrix;
 mod route_materialization;
-pub use route_materialization::{ShapeGeometry, stable_key_suffix};
+pub use route_materialization::{ShapeGeometry, ShapeGeometrySource, stable_key_suffix};
 mod snapshot_validation;
 mod street_kernel;
 mod street_snapshot;
@@ -4846,8 +4846,7 @@ impl CoordinateKernel {
                 ));
             }
         }
-        .ok_or_else(|| Error::from_reason("Rust street path frontier is unavailable."))?
-        .clone();
+        .ok_or_else(|| Error::from_reason("Rust street path frontier is unavailable."))?;
         let path = if frontier.cch_accelerated {
             let profile = self.profile.as_ref().ok_or_else(|| {
                 Error::from_reason("Rust routing access profile is not configured.")
@@ -4929,10 +4928,11 @@ impl CoordinateKernel {
         } else {
             frontier.path_for_member(&self.snapshot, input.member_index)?
         };
-        let path = frontier.terminal_attachment.as_ref().map_or_else(
-            || path.clone(),
-            |a| a.extend_path(path.clone(), frontier.reverse_direction),
-        );
+        let path = if let Some(attachment) = &frontier.terminal_attachment {
+            attachment.extend_path(path, frontier.reverse_direction)
+        } else {
+            path
+        };
         Ok(MaterializePathResult {
             coordinates: flatten_access_path(
                 &self.snapshot,

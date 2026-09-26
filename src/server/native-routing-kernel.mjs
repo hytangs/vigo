@@ -221,6 +221,10 @@ export function createNativeShapeGeometry(coordinates) {
   return new (loadNativeBinding().ShapeGeometry)(packCoordinates(coordinates))
 }
 
+export function createNativeShapeGeometrySource(storePath) {
+  return new (loadNativeBinding().ShapeGeometrySource)(storePath)
+}
+
 export function alignNativeShapeStops(shape, coordinates) {
   const indices = shape.alignStops(packCoordinates(coordinates))
   return indices.length ? indices : null

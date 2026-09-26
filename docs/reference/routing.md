@@ -121,13 +121,23 @@ path. A connector is not evidence of a mapped or legally traversable street.
 
 ## Itinerary geometry and identifiers
 
-Rust prepares the shape-distance prefix and latitude index, then aligns the
-complete selected trip's stop sequence monotonically to the published shape.
-The matcher retains up to 16 points within 1 km per stop and preserves source
-order to disambiguate loops. The latitude index only eliminates points outside
-that radius; it does not simplify the published shape. JavaScript loads source
-rows and assembles the selected itinerary. Prepared shapes remain subject to
-the store's entry and byte budgets, including the bounded native candidate cache.
+Rust reads selected shape rows directly from SQLite into numeric buffers and
+builds a distance prefix and a hierarchy of bounds in unit-sphere coordinates.
+The bounds skip sections that cannot contain a nearer candidate, including
+across the antimeridian and near the poles. The matcher still retains up to 16
+points within 1 km per stop, evaluates the original haversine distances and tie
+rules, and aligns the complete trip monotonically to disambiguate loops.
+JavaScript samples the selected range from a compact coordinate column using
+the existing distinct-point stride and 512-point limit. Shapes with consecutive
+duplicates also carry an index of distinct source positions. Range clipping
+uses two binary searches and visits only sampled positions; shapes without
+duplicates use source positions directly. Short ranges use a single bounded
+pass. Final duplicate cleanup and distance calculation share one pass over
+the newly materialized coordinates. Prepared shapes remain
+subject to the store's entry and byte budgets, including the coordinate column,
+distinct-position index, spatial index, and bounded native candidate cache.
+A read-only source connection has a 2 MiB SQLite page-cache budget and closes when its routing store is disposed
+or invalidated. No itinerary answer cache is introduced.
 
 Plan identifiers retain the existing 64-bit hash and Unicode code-point
 semantics. Rust performs that arithmetic; identifiers are selection keys, not

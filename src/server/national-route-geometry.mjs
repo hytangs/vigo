@@ -1,7 +1,7 @@
-import { createNativeShapeGeometry, alignNativeShapeStops } from './native-routing-kernel.mjs'
+import { createNativeShapeGeometry, createNativeShapeGeometrySource, alignNativeShapeStops } from './native-routing-kernel.mjs'
 import {
   appendDistinctCoordinates,
-  lineDistanceKm,
+  haversineKm,
 } from './geometry-utils.mjs'
 import { numeric } from './number-utils.mjs'
 
@@ -14,14 +14,6 @@ export function deduplicateNationalRouteCoordinates(coordinates) {
   return distinct.length === 1 && source.length >= 2
     ? [distinct[0], distinct[0]]
     : distinct
-}
-
-function boundedLineCoordinates(coordinates, limit = 512) {
-  if (coordinates.length <= limit) return coordinates
-  const stride = Math.ceil((coordinates.length - 1) / (limit - 1))
-  const sampled = coordinates.filter((_coordinate, index) => index === 0 || index === coordinates.length - 1 || index % stride === 0)
-  if (sampled.at(-1) !== coordinates.at(-1)) sampled.push(coordinates.at(-1))
-  return sampled
 }
 
 function shapeIdForTrip(store, tripId) {
@@ -55,7 +47,7 @@ function trimShapeCache(store) {
 }
 
 function shapeEstimatedBytes(shape) {
-  return shape.coordinates.length * 24 + shape.native.estimatedBytes + 256
+  return shape.coordinates.byteLength + (shape.distinctIndices?.byteLength ?? 0) + shape.native.estimatedBytes + 256
 }
 
 function cachedNationalShapeCoordinatesById(store, shapeId) {
@@ -66,11 +58,20 @@ function cachedNationalShapeCoordinatesById(store, shapeId) {
     store.shapeGeometryCache.set(shapeId, preparedShape)
     return preparedShape
   }
-  const coordinates = store.shapePointsLookup.all(shapeId)
-    .map((point) => [numeric(point.lon, NaN), numeric(point.lat, NaN)])
-    .filter((coordinate) => coordinate.every(Number.isFinite))
-  if (coordinates.length < 2) return null
-  const preparedShape = { shapeId, coordinates, native: createNativeShapeGeometry(coordinates) }
+  let native
+  if (store.nativeShapeSource || store.storePath) {
+    store.nativeShapeSource ??= createNativeShapeGeometrySource(store.storePath)
+    native = store.nativeShapeSource.readShape(shapeId)
+  } else {
+    // In-memory source adapters, including fixtures, share the native pipeline.
+    const coordinates = store.shapePointsLookup.all(shapeId)
+      .map((point) => [numeric(point.lon, NaN), numeric(point.lat, NaN)])
+      .filter((coordinate) => coordinate.every(Number.isFinite))
+    if (coordinates.length >= 2) native = createNativeShapeGeometry(coordinates)
+  }
+  if (!native) return null
+  const columns = native.renderCoordinates()
+  const preparedShape = { shapeId, native, coordinates: columns.coordinates, distinctIndices: columns.distinctIndices ?? null }
   preparedShape.estimatedBytes = shapeEstimatedBytes(preparedShape)
   store.shapeGeometryCache.set(shapeId, preparedShape)
   store.shapeGeometryCacheBytes = Number(store.shapeGeometryCacheBytes ?? 0) + preparedShape.estimatedBytes
@@ -145,14 +146,86 @@ function selectedTripShapeAlignment(store, connection) {
 }
 
 function clipPreparedShapeCoordinatesThroughStops(preparedShape, stopCoordinates, store) {
-  const shapeCoordinates = preparedShape?.coordinates
-  if (!shapeCoordinates?.length || !stopCoordinates?.length || stopCoordinates.length < 2) return null
+  if (!preparedShape?.coordinates?.length || !stopCoordinates?.length || stopCoordinates.length < 2) return null
   const indices = alignPreparedShapeStopIndices(preparedShape, stopCoordinates, store)
   if (!indices) return null
-  return boundedLineCoordinates(appendDistinctCoordinates(
-    [stopCoordinates[0]],
-    [...shapeCoordinates.slice(indices[0], indices.at(-1) + 1), stopCoordinates.at(-1)],
-  ))
+  return clipPackedShapeCoordinates(preparedShape.coordinates, indices[0], indices.at(-1), stopCoordinates[0], stopCoordinates.at(-1), 512, preparedShape.distinctIndices)
+}
+
+function upperBoundPointIndex(indices, value) {
+  let low = 0, high = indices.length
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2)
+    if (indices[middle] <= value) low = middle + 1
+    else high = middle
+  }
+  return low
+}
+
+function clipIndexedShapeCoordinates(packed, indices, start, end, from, to, limit) {
+  const begin = indices ? upperBoundPointIndex(indices, start) : start + 1
+  const finish = indices ? upperBoundPointIndex(indices, end) : end + 1
+  const sourceCount = 1 + finish - begin
+  const last = sourceCount === 1 ? start : indices ? indices[finish - 1] : end
+  const hasFrom = Boolean(from)
+  const skipFirst = hasFrom && from[0] === packed[start * 2] && from[1] === packed[start * 2 + 1]
+  const hasTo = Boolean(to) && (to[0] !== packed[last * 2] || to[1] !== packed[last * 2 + 1])
+  const count = sourceCount + Number(hasFrom) - Number(skipFirst) + Number(hasTo)
+  const stride = Math.max(1, Math.ceil((count - 1) / (limit - 1)))
+  const coordinates = []
+  const append = (position) => {
+    if (hasFrom && position === 0) {
+      coordinates.push([from[0], from[1]])
+      return
+    }
+    const source = position - Number(hasFrom) + Number(skipFirst)
+    if (source >= sourceCount) coordinates.push([to[0], to[1]])
+    else {
+      // A slice beginning inside a duplicate run must keep its own first
+      // position (including signed zero), not the earlier global run start.
+      const index = source === 0 ? start : indices ? indices[begin + source - 1] : start + source
+      coordinates.push([packed[index * 2], packed[index * 2 + 1]])
+    }
+  }
+  for (let position = 0; position < count - 1; position += stride) append(position)
+  append(count - 1)
+  return coordinates
+}
+
+// Preserve distinct-then-stride sampling without expanding the full shape
+// slice into point arrays. Only the output positions allocate JS objects.
+export function clipPackedShapeCoordinates(packed, start, end, from, to, limit = 512, distinctIndices = undefined) {
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || start > end
+    || end * 2 + 1 >= packed.length || !Number.isInteger(limit) || limit < 2) {
+    throw new Error('Invalid shape clipping bounds.')
+  }
+  const first = start - Number(Boolean(from)), last = end + Number(Boolean(to))
+  // null denotes the identity projection; undefined is an unindexed caller.
+  // A short slice already needs only one bounded pass. Longer slices visit
+  // sampled output positions through the index instead of scanning twice.
+  if (distinctIndices !== undefined && last - first + 1 > limit) {
+    return clipIndexedShapeCoordinates(packed, distinctIndices, start, end, from, to, limit)
+  }
+  const coordinates = []
+  const visit = (stride, count) => {
+    let previousLon, previousLat, distinct = 0
+    for (let index = first; index <= last; index += 1) {
+      const lon = index < start ? from[0] : index > end ? to[0] : packed[index * 2]
+      const lat = index < start ? from[1] : index > end ? to[1] : packed[index * 2 + 1]
+      if (distinct && lon === previousLon && lat === previousLat) continue
+      previousLon = lon
+      previousLat = lat
+      if (stride && (distinct % stride === 0 || distinct === count - 1)) coordinates.push([lon, lat])
+      distinct += 1
+    }
+    return distinct
+  }
+  if (last - first + 1 <= limit) visit(1, 0)
+  else {
+    const count = visit(0, 0)
+    visit(Math.max(1, Math.ceil((count - 1) / (limit - 1))), count)
+  }
+  return coordinates
 }
 
 /**
@@ -161,14 +234,37 @@ function clipPreparedShapeCoordinatesThroughStops(preparedShape, stopCoordinates
  * clipped safely from endpoints alone.
  */
 export function clipNationalShapeCoordinatesThroughStops(shapeCoordinates, stopCoordinates) {
+  const native = createNativeShapeGeometry(shapeCoordinates ?? [])
+  const columns = native.renderCoordinates()
   return clipPreparedShapeCoordinatesThroughStops({
-    coordinates: shapeCoordinates,
-    native: createNativeShapeGeometry(shapeCoordinates ?? []),
+    native, coordinates: columns.coordinates, distinctIndices: columns.distinctIndices ?? null,
   }, stopCoordinates)
 }
 
 export function clipNationalShapeCoordinates(shapeCoordinates, fromCoordinate, toCoordinate) {
   return clipNationalShapeCoordinatesThroughStops(shapeCoordinates, [fromCoordinate, toCoordinate])
+}
+
+// The caller owns this newly materialized array. Compact sampled duplicates
+// and sum the same retained edges in one pass, without two more array copies.
+function finishRideGeometry(coordinates, geometrySource, shapeId) {
+  const sourceLength = coordinates.length
+  let length = sourceLength ? 1 : 0
+  let previous = coordinates[0]
+  let distanceKm = 0
+  for (let index = 1; index < sourceLength; index += 1) {
+    const coordinate = coordinates[index]
+    if (previous[0] === coordinate[0] && previous[1] === coordinate[1]) continue
+    distanceKm += haversineKm(previous, coordinate)
+    coordinates[length++] = coordinate
+    previous = coordinate
+  }
+  if (length === 1 && sourceLength >= 2) {
+    coordinates[length++] = coordinates[0]
+    distanceKm += haversineKm(coordinates[0], coordinates[0])
+  }
+  coordinates.length = length
+  return { coordinates, distanceKm, geometrySource, shapeId }
 }
 
 export function nationalRideGeometry(store, connections, stopLookup) {
@@ -193,21 +289,12 @@ export function nationalRideGeometry(store, connections, stopLookup) {
     const firstShapeIndex = alignment.shapeIndices[firstSegment - alignment.startSegment]
     const lastShapeIndex = alignment.shapeIndices[lastSegment - alignment.startSegment + 1]
     if (Number.isInteger(firstShapeIndex) && Number.isInteger(lastShapeIndex) && lastShapeIndex > firstShapeIndex) {
-      const coordinates = deduplicateNationalRouteCoordinates(boundedLineCoordinates(
-        appendDistinctCoordinates(
-          from ? [[from.lon, from.lat]] : [],
-          [
-            ...alignedShape.coordinates.slice(firstShapeIndex, lastShapeIndex + 1),
-            ...(to ? [[to.lon, to.lat]] : []),
-          ],
-        ),
-      ))
-      return {
-        coordinates,
-        distanceKm: lineDistanceKm(coordinates),
-        geometrySource: 'shape',
-        shapeId: alignment.shapeId,
-      }
+      const coordinates = clipPackedShapeCoordinates(
+        alignedShape.coordinates, firstShapeIndex, lastShapeIndex,
+        from ? [from.lon, from.lat] : null, to ? [to.lon, to.lat] : null,
+        512, alignedShape.distinctIndices,
+      )
+      return finishRideGeometry(coordinates, 'shape', alignment.shapeId)
     }
   }
   const stopCoordinates = []
@@ -224,13 +311,8 @@ export function nationalRideGeometry(store, connections, stopLookup) {
   const shapeCoordinates = shape && stopCoordinates.length >= 2
     ? clipPreparedShapeCoordinatesThroughStops(shape, stopCoordinates, store)
     : null
-  const coordinates = deduplicateNationalRouteCoordinates(
-    shapeCoordinates ?? stopCoordinates,
+  return finishRideGeometry(
+    shapeCoordinates ?? stopCoordinates, shapeCoordinates ? 'shape' : 'stop_sequence',
+    shapeCoordinates ? shape.shapeId : undefined,
   )
-  return {
-    coordinates,
-    distanceKm: lineDistanceKm(coordinates),
-    geometrySource: shapeCoordinates ? 'shape' : 'stop_sequence',
-    shapeId: shapeCoordinates ? shape.shapeId : undefined,
-  }
 }
