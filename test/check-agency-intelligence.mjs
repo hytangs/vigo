@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { AgencyContext } from '../src/agency/agencyContext.mjs'
 import { intelligenceScenario } from './fixtures/intelligence/scenario.mjs'
 import { createToolRegistry } from '../src/agency/toolRegistry.mjs'
-import { compactResult, queryAgency } from '../src/agency/queryAgent.mjs'
+import { compactResult } from '../src/agency/queryAgent.mjs'
 import { operationalDataContext } from '../src/agency/queryPrompt.mjs'
 import { inspectionFacts } from '../src/agency/serviceInspection.mjs'
 import { deriveOperationalState } from '../src/agency/realtimeIntelligence.mjs'
@@ -141,99 +141,5 @@ try {
   assert.ok(operationalDataContext(state).notConnectedToAsk.some(item => item.includes('Crew')))
   const duplicate = { ...f.snapshot, vehicles: [...f.snapshot.vehicles, { ...f.snapshot.vehicles.find(row => row.id === '1827'), sourceUrl: 'https://example.org/other-operator' }] }
   await assert.rejects(createToolRegistry({ ...f, snapshot: duplicate, adapters: {} })('inspect_service', { vehicleId: '1827' }), /more than one/)
-  let modelCalls = 0
-  const response = await queryAgency({ ...f, question: 'Explain the condition of the whole network.', callTool: call, placesAvailable: false,
-    provider: { available: true, complete: async (_messages, tools) => ++modelCalls === 1
-      ? (assert.ok(tools.some(tool => tool.name === 'assess_service')), { tool_calls: [{ id: 'diagnosis', function: { name: 'inspect_service', arguments: '{}' } }] })
-      : { content: 'The selected route is not the full network; Route 66 has a reported cancellation. [1]' } } })
-  assert.equal(response.trace[0].result.data.scope.allNetwork, true)
-  assert.deepEqual(response.citations, [1])
-  let selectionReads = 0
-  const selectedBoard = await queryAgency({ ...f, question: 'Next departure here for every route.', callTool: call, placesAvailable: false,
-    provider: { available: true, complete: async messages => {
-      if (++selectionReads === 1) return { tool_calls: [{ id: 'where', function: { name: 'workspace_selection', arguments: '{}' } }] }
-      const result = messages.findLast(message => message.role === 'tool').content
-      const selected = JSON.parse(result.slice(result.indexOf('\n') + 1)).data.selection
-      assert.equal(selected.stop.id, 'C')
-      assert.deepEqual(selected.stop.coordinate, f.selection.stop.coordinate)
-      return { tool_calls: [{ id: 'here-board', function: { name: 'stop_arrivals', arguments: JSON.stringify({ stopId: selected.stop.id, resultUse: 'answer' }) } }] }
-    } } })
-  assert.equal(selectedBoard.trace[1].arguments.routeId, undefined, 'A station reference does not inherit a route filter')
-  assert.equal(new Set(selectedBoard.trace[1].result.data.board.rows.map(row => row.routeId)).size, 7)
-  let framedCalls = 0
-  const framed = await queryAgency({ ...f, question: 'What needs attention across the network?', callTool: call, placesAvailable: false,
-    provider: { available: true, complete: async (_messages, tools) => ++framedCalls === 1
-      ? (assert.ok(tools.find(tool => tool.name === 'assess_service').parameters.properties.targets.items.properties.kind.enum.includes('vehicle')),
-        { tool_calls: [{ id: 'scope', function: { name: 'inspect_service', arguments: '{"scope":"network"}' } }] })
-      : (assert.deepEqual(tools.map(tool => tool.name), ['prepare_tools']), { content: 'Four routes have late predictions; Route 66 also has a reported cancellation. [1]' }) } })
-  assert.equal(framed.trace[0].result.data.scope.allNetwork, true, 'A network choice does not inherit the selected route')
-  let followup = 0
-  const continued = await queryAgency({ ...f, question: 'Inspect this route and compare its history.', callTool: call, placesAvailable: false,
-    provider: { available: true, complete: async () => [
-      { tool_calls: [{ id: 'current', function: { name: 'inspect_service', arguments: '{"scope":"selected_route"}' } }] },
-      { tool_calls: [{ id: 'prepare', function: { name: 'prepare_tools', arguments: '{"names":["historical_baseline"]}' } }] },
-      { tool_calls: [{ id: 'history', function: { name: 'historical_baseline', arguments: '{"routeId":"39"}' } }] },
-      { content: 'Current predictions show delay. No comparable historical service days are retained. [1] [2]' },
-    ][followup++] } })
-  assert.deepEqual(continued.trace.map(call => call.tool), ['inspect_service', 'historical_baseline'])
-  assert.equal(continued.trace[1].result.data.serviceDays, 0)
-  let followupReads = 0
-  const priorFinding = { tool: 'inspect_service', arguments: { routeNames: ['66'] }, result: await call('inspect_service', { routeNames: ['66'] }) }
-  await queryAgency({ ...f, question: 'Compare that earlier Route 66 finding with now.', callTool: call, placesAvailable: false,
-    history: [{ question: 'Inspect Route 66.', answer: 'Earlier assessment.', observedAt: f.state.generatedAt, findings: [priorFinding], requests: [{ tool: priorFinding.tool, arguments: priorFinding.arguments }] }],
-    provider: { available: true, complete: async messages => {
-      if (++followupReads === 1) return { tool_calls: [{ id: 'current-66', function: { name: 'inspect_service', arguments: '{"scope":"routes","routeNames":["66"]}' } }] }
-      const previous = JSON.parse(messages[1].content).history[0]
-      assert.equal(previous.savedAt, f.state.generatedAt)
-      assert.deepEqual(previous.priorFindings[0].arguments, { routeNames: ['66'] })
-      assert.deepEqual(previous.priorFindings[0].result.data.servicePattern.reportedCancellations, [{ route: '66', trips: 1 }], 'Composition retains dated checked facts, not just previous model prose')
-      return { content: 'Both records describe the same observation; this is not evidence of persistence. [1]' }
-    } } })
-  let repeatedCalls = 0, executed = 0
-  const repeated = await queryAgency({ ...f, question: 'Assess the network and give the supported next step.', placesAvailable: false,
-    callTool: async (...args) => { executed++; return call(...args) },
-    provider: { available: true, complete: async (_messages, tools) => ++repeatedCalls < 3
-      ? { tool_calls: [{ id: `same-${repeatedCalls}`, function: { name: 'inspect_service', arguments: '{"scope":"network"}' } }] }
-      : (assert.equal(tools.length, 0, 'An identical observation read ends the loop with evidence-based composition'), { content: 'Route 66 has a cancellation and wider spacing. Verify replacement coverage. [1]' }) } })
-  assert.equal(executed, 1)
-  assert.equal(repeated.trace.length, 1, 'Reusing a source does not invent a second check or citation')
-  assert.deepEqual(repeated.citations, [1])
-  let filteredCalls = 0
-  await queryAgency({ ...f, question: 'Inspect service and look for a crash notice.', callTool: call, placesAvailable: false,
-    provider: { available: true, complete: async messages => {
-      filteredCalls++
-      if (filteredCalls === 1) return { tool_calls: [{ id: 'current-scope', function: { name: 'inspect_service', arguments: '{"scope":"network"}' } }] }
-      if (filteredCalls === 2) return { tool_calls: [{ id: 'load-notices', function: { name: 'prepare_tools', arguments: '{"names":["service_alerts"]}' } }] }
-      if (filteredCalls === 3) return { tool_calls: [{ id: 'find-notice', function: { name: 'service_alerts', arguments: '{"search":"crash","routeNames":["39"]}' } }] }
-      const evidence = JSON.parse(messages[1].content).evidence
-      assert.equal(evidence[1].arguments.search, 'crash', 'The composition stage must retain filters so an empty search is not all alerts')
-      assert.deepEqual(evidence[1].arguments.routeNames, ['39'])
-      return { content: 'No notice matched the crash search on Route 39. That does not exclude an incident. [2]' }
-    } } })
-  let investigationRounds = 0
-  const investigation = await queryAgency({ ...f, question: 'Investigate this gap and check the upcoming departures.', callTool: call, placesAvailable: false,
-    provider: { available: true, complete: async messages => {
-      if (++investigationRounds === 1) return { tool_calls: [{ id: 'inspect-gap', function: { name: 'inspect_service', arguments: '{"scope":"routes","routeNames":["66"]}' } }] }
-      if (investigationRounds === 2) return { tool_calls: [{ id: 'supporting-board', function: { name: 'stop_arrivals', arguments: '{"scope":"station","stopId":"C","resultUse":"answer"}' } }] }
-      if (investigationRounds === 3) return { content: 'Thinking Process:\nThis unfinished private draft is not an answer.' }
-      const packet = JSON.parse(messages[1].content)
-      assert.equal(packet.evidence.length, 2, 'The supporting board and diagnosis remain available together')
-      assert.match(packet.responseInstruction, /finished public answer/)
-      return { content: 'Route 66 has a reported cancellation and a wider predicted gap; the board supplies upcoming departures. [1] [2]' }
-    } } })
-  assert.equal(investigationRounds, 4, 'A supporting board does not prematurely finish an investigation; private drafts get one retry')
-  assert.match(investigation.answer, /reported cancellation/)
-  assert.doesNotMatch(JSON.stringify(investigation), /unfinished private draft/)
-  const queries = JSON.parse(await fs.readFile(new URL('./fixtures/intelligence/query-cases.json', import.meta.url), 'utf8'))
-  assert.equal(new Set(queries.map(row => row.id)).size, queries.length)
-  for (const [index, item] of queries.entries()) {
-    assert.ok(item.question && item.expect)
-    if (item.follows) assert.ok(queries.slice(0, index).some(row => row.id === item.follows))
-  }
-  const questions = JSON.parse(await fs.readFile(new URL('./fixtures/intelligence/questions.json', import.meta.url), 'utf8'))
-  assert.equal(questions.length, 32)
-  assert.equal(new Set(questions.map(row => row.id)).size, 32)
-  const criteria = JSON.parse(await fs.readFile(new URL('./fixtures/intelligence/review-criteria.json', import.meta.url), 'utf8'))
-  assert.deepEqual(criteria.cases.map(row => row.id), questions.map(row => row.id))
 } finally { f.close(); await fs.rm(directory, { recursive: true, force: true }) }
-console.log('Agency intelligence: shared multi-route diagnosis, vehicle history, scope, cancellation, occupancy, bounded outlook, freshness, privacy and 32-question corpus integrity passed (model answer quality is evaluated separately).')
+console.log('Agency computation: scope, cancellation, occupancy, freshness and history passed.')

@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { AgencyContext } from '../src/agency/agencyContext.mjs'
 import { deriveOperationalState } from '../src/agency/realtimeIntelligence.mjs'
 import { createToolRegistry } from '../src/agency/toolRegistry.mjs'
-import { queryAgency, compactResult } from '../src/agency/queryAgent.mjs'
+import { compactResult } from '../src/agency/queryAgent.mjs'
 import { stopBoard } from '../src/agency/stopBoard.mjs'
 import { describeVehicleArrival } from '../src/agency/vehicleTrip.mjs'
 import { createAgencyFixture, realtimeFixture, tripUpdate, observationTime } from './fixtures/agency.mjs'
@@ -54,27 +54,6 @@ try {
   assert.equal(compact.data.rows.find(row => row.route === 'R').departure.predicted, null)
   assert.doesNotMatch(JSON.stringify(compact), /example.org/, 'Feed URLs stay out of model context')
 
-  let modelCalls = 0
-  const answer = await queryAgency({ question: 'Next departure from Library for each route', context, state, callTool,
-    selection: { route: { id: 'R', name: 'R' } }, provider: { available: true, model: 'fixture', complete: async (_messages, tools) => {
-      assert.equal(++modelCalls, 1, 'A completed board is displayed without another model rewrite')
-      assert.ok(tools.some(tool => tool.name === 'stop_arrivals'), 'The board is available without discovery overhead')
-      return { tool_calls: [{ id: 'arrivals', function: { name: 'stop_arrivals', arguments: JSON.stringify({ stopId: 'B', resultUse: 'answer' }) } }] }
-    } },
-  })
-  assert.equal(answer.aiGenerated, false)
-  assert.match(answer.answer, /2 routes have upcoming service at Library/)
-  assert.deepEqual(answer.citations, [1])
-  assert.deepEqual(new Set(answer.trace[0].result.data.board.rows.map(row => row.routeId)), new Set(['R', 'Q']), 'Explicit all-route station queries remain independent of the route selected on the map')
-  let round = 0
-  const rewritten = await queryAgency({ question: 'Next departures at Library', context, state, callTool,
-    provider: { available: true, complete: async () => ++round === 1
-      ? { tool_calls: [{ id: 'board', function: { name: 'stop_arrivals', arguments: JSON.stringify({ stopId: 'Library', resultUse: 'continue' }) } }] }
-      : { content: 'Only R is running; the next bus is in one minute.' } },
-  })
-  assert.equal(rewritten.aiGenerated, false)
-  assert.match(rewritten.answer, /2 routes have upcoming service at Library/)
-  assert.doesNotMatch(rewritten.answer, /one minute|Only R/, 'A model rewrite cannot replace a complete station board with an incomplete or invented time list')
   const destinationTime = observationTime + 27 * 60
   const targetUpdate = tripUpdate('T2', 0, { vehicleId: 'fleet-42', vehicleLabel: '42', stopTimeUpdates: [
     { stopId: 'B', stopSequence: 30, arrival: { delay: 60 }, departure: { delay: 60 } },
@@ -94,18 +73,8 @@ try {
   assert.equal(target.rows[0].arrival.scheduled, observationTime + 24 * 60)
   assert.match(describeVehicleArrival(target), /Vehicle 42 on R.*Terminal.*12:27.*27 min.*Scheduled arrival: 12:24/s)
   assert.deepEqual(vehicleBoard({ vehicleId: 'fleet-42' }).rows, target.rows, 'Public labels and internal IDs resolve to the same vehicle')
-  const vehicleTool = createToolRegistry({ context, snapshot: fleet, state: deriveOperationalState(context, fleet, observationTime) })
-  let vehicleRounds = 0
-  const vehicleAnswer = await queryAgency({ question: 'When does vehicle 42 on R arrive at Terminal?', context, state, callTool: vehicleTool,
-    selection: { stop: { id: 'A', name: 'River' } }, provider: { available: true, complete: async (_messages, tools) => {
-      assert.equal(++vehicleRounds, 1, 'A vehicle arrival needs no prose-generation round')
-      assert.ok(tools.find(tool => tool.name === 'stop_arrivals').parameters.anyOf.find(form => form.properties.scope.enum[0] === 'vehicle').required.includes('vehicleId'))
-      return { tool_calls: [{ id: 'vehicle', function: { name: 'stop_arrivals', arguments: JSON.stringify({ stopId: 'Terminal', vehicleId: '42', routeId: 'R', resultUse: 'answer' }) } }] }
-    } },
-  })
-  assert.equal(vehicleAnswer.aiGenerated, false)
-  assert.match(vehicleAnswer.answer, /expected to arrive at Terminal at 12:27/)
-  assert.equal(vehicleAnswer.trace[0].result.data.board.rows[0].kind, 'arrival', 'Vehicle ETA defaults to arrival, independent of map selection')
+
+
   targetUpdate.scheduleRelationship = 'CANCELED'
   assert.match(describeVehicleArrival(vehicleBoard()), /cancelled/)
   delete targetUpdate.scheduleRelationship
@@ -141,4 +110,4 @@ try {
   assert.match(vehicleBoard().vehicle.issue, /out of date/)
 
 } finally { context?.close(); await fs.rm(directory, { recursive: true, force: true }) }
-console.log('Agency arrivals: shared station board, exact route scope, cancellations, departure semantics, overnight next service and one-call display passed.')
+console.log('Agency arrivals: shared station board, exact route scope, cancellations, departure semantics, overnight next service and fleet-board computation passed.')

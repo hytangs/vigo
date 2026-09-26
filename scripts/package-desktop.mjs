@@ -33,7 +33,7 @@ await assertFile(path.join(repositoryRoot, 'public', 'preload.cjs'), 'Missing El
 await rm(stagingRoot, { force: true, recursive: true })
 try {
   await mkdir(applicationRoot, { recursive: true })
-  const publicFiles = ['index.html', 'main.mjs', 'preload.cjs', 'vigo.mjs', 'assets', 'agency-skills',
+  const publicFiles = ['index.html', 'main.mjs', 'engine-environment.mjs', 'preload.cjs', 'vigo.mjs', 'assets', 'agency-skills',
     'favicon.png', 'vigo-mark-dark.png', 'vigo-mark-transparent.png', 'icons/VIGOIcon.png']
   const copies = await Promise.allSettled([
     ...publicFiles.map(async name => {

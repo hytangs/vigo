@@ -1,53 +1,34 @@
 import assert from 'node:assert/strict'
+import http from 'node:http'
 import { apiJson, apiProgressJson } from '../src/app/api.ts'
 
-const originalFetch = globalThis.fetch
-const encoder = new TextEncoder()
-let cancelled = false, body
-function response(chunks, close = true) {
-  cancelled = false
-  body = new ReadableStream({
-    start(controller) { for (const chunk of chunks) controller.enqueue(chunk); if (close) controller.close() },
-    cancel() { cancelled = true },
-  })
-  globalThis.fetch = async () => new Response(body)
-}
-const bytes = text => encoder.encode(text)
+const server = http.createServer(async (request, response) => {
+  response.setHeader('Content-Type', 'application/x-ndjson')
+  if (request.url === '/unavailable') { response.writeHead(503); response.end(JSON.stringify({ error: 'The selected City is still opening.' })); return }
+  if (request.url === '/invalid') { response.write('not-json\n'); return }
+  if (request.url === '/interrupted') { response.end('{"type":"progress","progress":{"detail":"Working"}}\n'); return }
+  const wire = Buffer.from('{"type":"progress","progress":{"detail":"Checking…"}}\n{"type":"preliminary","answer":"初步"}\n{"type":"complete","answer":"完成"}\n')
+  for (const byte of wire) {
+    if (response.destroyed) break
+    response.write(Buffer.from([byte]))
+    await new Promise(resolve => setImmediate(resolve))
+  }
+  // Deliberately keep the real connection open after terminal completion.
+})
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+const base = `http://127.0.0.1:${server.address().port}`
 try {
   const progress = [], preliminary = []
-  const wire = bytes('{"type":"progress","progress":{"detail":"Checking…"}}\n{"type":"preliminary","answer":"初步"}\n{"type":"complete","answer":"完成"}')
-  response([...wire].map(byte => Uint8Array.of(byte)))
-  assert.equal((await apiProgressJson('/test', {}, item => progress.push(item), item => preliminary.push(item))).answer, '完成')
+  const result = await apiProgressJson(`${base}/stream`, { signal: AbortSignal.timeout(5000) }, item => progress.push(item), item => preliminary.push(item))
+  assert.equal(result.answer, '完成')
   assert.equal(progress[0].detail, 'Checking…')
   assert.equal(preliminary[0].answer, '初步')
-  assert.equal(body.locked, false, 'Completed requests release the stream reader')
-
-  for (const content of ['{"type":"error","error":"Study failed"}\n', 'not-json\n']) {
-    response([bytes(content)], false)
-    await assert.rejects(apiProgressJson('/test', {}, () => {}))
-    assert.equal(cancelled, true, 'Rejected streams must cancel upstream work')
-    assert.equal(body.locked, false)
-  }
-  response([bytes('{"type":"progress","progress":{"detail":"Working"}}\n')], false)
-  await assert.rejects(apiProgressJson('/test', {}, () => { throw new Error('View closed') }), /View closed/)
-  assert.equal(cancelled, true, 'A failed consumer must also release its connection')
-
-  response([bytes('{"type":"complete","answer":"Ready"}\n')], false)
-  const deadline = AbortSignal.timeout(1000)
-  const timeout = new Promise((_, reject) => deadline.addEventListener('abort', () => reject(new Error('Completion waited for the socket to close')), { once: true }))
-  const keepAlive = setInterval(() => {}, 1000)
-  try { assert.equal((await Promise.race([apiProgressJson('/test', {}, () => {}), timeout])).answer, 'Ready') }
-  finally { clearInterval(keepAlive) }
-  assert.equal(cancelled, true)
-  assert.equal(body.locked, false)
-
-  response([bytes('{"type":"progress","progress":{"detail":"Interrupted"}}\n')])
-  await assert.rejects(apiProgressJson('/test', {}, () => {}), /ended before returning/)
-  assert.equal(body.locked, false)
-
-  globalThis.fetch = async () => new Response('Bad gateway', { status: 502 })
-  await assert.rejects(apiJson('/test'), error => error.statusCode === 502 && /local VIGO service is unavailable/.test(error.message))
-  globalThis.fetch = async () => new Response(JSON.stringify({ error: 'The selected City is still opening.' }), { status: 503 })
-  await assert.rejects(apiJson('/test'), /selected City is still opening/, 'Server remediation takes precedence over generic availability text')
-} finally { globalThis.fetch = originalFetch }
-console.log('API streaming: chunk boundaries, terminal completion, interrupted results and upstream cleanup passed.')
+  await assert.rejects(apiProgressJson(`${base}/invalid`, { signal: AbortSignal.timeout(5000) }, () => {}))
+  await assert.rejects(apiProgressJson(`${base}/interrupted`, {}, () => {}), /ended before returning/)
+  await assert.rejects(apiProgressJson(`${base}/stream`, {}, () => { throw Error('View closed') }), /View closed/)
+  await assert.rejects(apiJson(`${base}/unavailable`), error => error.statusCode === 503 && /selected City is still opening/.test(error.message))
+  console.log('Actual HTTP streaming preserves UTF-8, progress, terminal completion, failure and server remediation.')
+} finally {
+  server.closeAllConnections()
+  await new Promise(resolve => server.close(resolve))
+}

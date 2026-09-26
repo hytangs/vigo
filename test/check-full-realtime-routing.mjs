@@ -1,3 +1,4 @@
+import { withRealtimeQueryContext } from '../src/server/gtfs/realtime-timetable.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -407,50 +408,21 @@ try {
 
   await check('arrive-by freezes freshness across reverse forward and preference searches', async () => {
     const store = await getDeadlineStore()
-    // Warm storage before replacing the wall clock. The getter deterministically
-    // advances wall time only after routing has captured its observation time;
-    // no sleeping, elapsed-time assumptions, or performance-clock changes.
-    routeNationalGtfsStore(store, request())
-    const realNow = Date.now
-    const observedMs = Math.floor(realNow() / 1000) * 1000
-    let wallClockMs = observedMs
-    let timestampReads = 0
-    const timedUpdate = update('late', { delaySeconds: 600 })
-    Object.defineProperty(timedUpdate, 'sourceFeedTimestamp', {
-      enumerable: true,
-      get() {
-        timestampReads++
-        wallClockMs = observedMs + 181_000
-        return observedMs / 1000
-      },
-    })
-    const realtimeSnapshot = snapshot([timedUpdate], {
-      sourceUrl: 'https://example.test/frozen-clock.pb', feedTimestamp: observedMs / 1000,
-    })
-    try {
-      Date.now = () => wallClockMs
-      const live = routeNationalGtfsStore(store, deadlineRequest({
-        arriveMinutes: 650, routingPreference: 'balanced', realtimeSnapshot,
-      }))
-      connected(live)
-      assert(timestampReads > 0)
-      assert.equal(wallClockMs, observedMs + 181_000)
-      assert.equal(live.departMinutes, 640)
-      assert.equal(rides(live)[0].endMinutes, 650)
-      assert.equal(live.diagnostics.realtimeRouting.status, 'applied')
-      assert.equal(live.diagnostics.searchStats.arriveByRequestedPreferenceVerificationPerformed, true)
-      const next = routeNationalGtfsStore(store, deadlineRequest({
-        arriveMinutes: 650, routingPreference: 'balanced', realtimeSnapshot,
-      }))
-      connected(next)
-      assert.equal(next.departMinutes, 630, 'The next query captures the advanced time and must expire the cached prediction.')
-      assert.equal(rides(next)[0].endMinutes, 640)
-      assert.equal(next.diagnostics.realtimeRouting.status, 'stale_fallback')
-    } finally {
-      Date.now = realNow
-    }
+    const observed = Date.now() / 1000
+    const realtimeSnapshot = snapshot([update('late', { delaySeconds: 600 })], { feedTimestamp: observed })
+    const input = deadlineRequest({ arriveMinutes: 650, routingPreference: 'balanced', realtimeSnapshot })
+    const live = routeNationalGtfsStore(store, withRealtimeQueryContext(input, observed))
+    connected(live)
+    assert.equal(live.departMinutes, 640)
+    assert.equal(rides(live)[0].endMinutes, 650)
+    assert.equal(live.diagnostics.realtimeRouting.status, 'applied')
+    assert.equal(live.diagnostics.searchStats.arriveByRequestedPreferenceVerificationPerformed, true)
+    const next = routeNationalGtfsStore(store, withRealtimeQueryContext(input, observed + 181))
+    connected(next)
+    assert.equal(next.departMinutes, 630)
+    assert.equal(rides(next)[0].endMinutes, 640)
+    assert.equal(next.diagnostics.realtimeRouting.status, 'stale_fallback')
   })
-
   let sourceIdentityStore
   const getSourceIdentityStore = async () => sourceIdentityStore ??= await build('source-identity',
     [stop('A', 0), stop('D', .3)], [trip('T', [['A', 600], ['D', 620]])], 'feed-a')

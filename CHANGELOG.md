@@ -1,5 +1,9 @@
 # Version history
 
+## Unreleased
+
+Bound routing admission, worker heap use, capacity waits and operation duration; enable a finite timetable byte guard and scale cache defaults to host capacity. Keep Studio open through Engine failures with bounded automatic restart. Replace test doubles with real routing, SQLite, browser, socket and process checks, and remove redundant canned-response suites. See [runtime limits and recovery](docs/development/runtime-recovery.md) for coverage and limits. The existing `v0.4.2` tag is unchanged.
+
 ## 0.4.2 — 2026-09-25
 
 Persist Drive hierarchies during City build, prepare only the requested CLI mode, and share endpoint work in native coordinate Matrix execution. Move shape alignment and stable identifier arithmetic into Rust while retaining JavaScript source loading and itinerary assembly. Clarify blocked access and station-pathway costs, preserve cache-disable boundaries, isolate packaged Engine from shell credentials, and strengthen source/package leak checks. Remove the stale README screenshot and refresh current documentation. API 1.0, City format 1, and Result schema 1 are unchanged. See the [release notes](docs/releases/0.4.2.md).

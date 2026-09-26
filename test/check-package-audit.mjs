@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile, readFile, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile, symlink } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import vm from 'node:vm'
+import { engineEnvironment } from '../public/engine-environment.mjs'
 import { auditPackageFiles } from '../scripts/lib/package-audit.mjs'
 
 const root = await mkdtemp(path.join(os.tmpdir(), 'vigo-package-audit-'))
@@ -37,22 +37,12 @@ try {
   await symlink(path.join(root, 'absent'), path.join(root, 'outside'))
   await assert.rejects(auditPackageFiles(root), /symlink/)
 } finally { await rm(root, { recursive: true, force: true }) }
-const main = await readFile(new URL('../public/main.mjs', import.meta.url), 'utf8')
-const windowConstruction = main.slice(main.indexOf('  mainWindow = new BrowserWindow('), main.indexOf('  mainWindow.webContents.setWindowOpenHandler'))
-const options = vm.runInNewContext(windowConstruction, {
-  BrowserWindow: class { constructor(options) { return options } }, process: { platform: 'darwin' }, studioIconPath: 'icon', preloadPath: 'preload',
-})
-assert.equal(options.webPreferences.contextIsolation, true)
-assert.equal(options.webPreferences.nodeIntegration, false)
-assert.equal(options.webPreferences.sandbox, true)
-assert.equal(options.webPreferences.webSecurity, true)
-const source = main.slice(main.indexOf('function engineEnvironment()'), main.indexOf('\nfunction startEngine()'))
 const original = { PATH: '/usr/bin:/bin', SystemRoot: 'windows', TMPDIR: 'temporary', LANG: 'en_US.UTF-8',
   OPENAI_API_KEY: 'fixture', GH_TOKEN: 'fixture', AWS_SECRET_ACCESS_KEY: 'fixture',
   LD_PRELOAD: 'injected', LD_LIBRARY_PATH: 'injected', ELECTRON_RUN_AS_NODE: '1',
   VIGO_AGENCY_LLM_BASE_URL: 'http://localhost:1234', VIGO_AGENCY_LLM_API_KEY: 'fixture', VIGO_ROUTE_WORKER_URL: '/private/worker', NODE_OPTIONS: '--require=/private/file' }
 for (const isPackaged of [true, false]) {
-  const environment = vm.runInNewContext(`${source}; engineEnvironment()`, { process: { env: original }, app: { isPackaged }, nativeKernelPath: '/bundle/server/kernel.node' })
+  const environment = engineEnvironment({ isPackaged, env: original, nativeKernelPath: '/bundle/server/kernel.node' })
   assert.equal(environment.VIGO_AGENCY_LLM_BASE_URL, isPackaged ? undefined : original.VIGO_AGENCY_LLM_BASE_URL)
   assert.equal(environment.VIGO_AGENCY_LLM_API_KEY, isPackaged ? undefined : 'fixture')
   assert.equal(environment.VIGO_ROUTE_WORKER_URL, isPackaged ? undefined : '/private/worker')

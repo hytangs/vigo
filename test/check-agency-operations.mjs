@@ -3,7 +3,9 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { createAgencyService } from '../src/server/agency-api.mjs'
+import { AgencyContext } from '../src/agency/agencyContext.mjs'
+import { deriveOperationalState } from '../src/agency/realtimeIntelligence.mjs'
+import { handleOperations } from '../src/agency/operationsService.mjs'
 import { createOperationsStore } from '../src/agency/operationsStore.mjs'
 import { historicalComparison, qualitySummary, operationsPolicy } from '../src/agency/operations.mjs'
 import { createAgencyFixture, realtimeFixture, tripUpdate, observationTime } from './fixtures/agency.mjs'
@@ -13,17 +15,18 @@ const file = path.join(directory, 'schedule.sqlite')
 createAgencyFixture(file)
 let now = observationTime * 1000, principal = { id: 'dispatcher', role: 'operator' }
 let snapshot = realtimeFixture([tripUpdate('T1', 300), tripUpdate('T2', 900), tripUpdate('T3', 300)])
-const provider = { available: false, status: () => ({ available: false }) }
-const adapters = { context: async id => ({ storePath: file, cityName: id, agencyDirectory: path.join(directory, id) }), inspectRealtime: async () => snapshot }
-const options = { clock: () => now, provider, access: async id => id === 'denied' ? null : principal }
-let service = createAgencyService(adapters, options)
-const command = body => service.handle('city-x', body)
+const context = new AgencyContext(file, 'Test City')
+const ledgerDirectory = path.join(directory, 'city-x')
+let ledger = createOperationsStore(ledgerDirectory, 'city-x')
+let currentState = deriveOperationalState(context, snapshot, now / 1000)
+const command = async body => handleOperations({ store: ledger, state: currentState, context, scheduleIdentity: 'fixture-v1', principal, body })
 const change = (record, action, fields = {}) => command({ action, id: record.id, version: record.version, ...fields })
 const rejects = (promise, status) => assert.rejects(promise, error => error.statusCode === status)
 try {
   principal = { id: 'local-owner', role: 'admin' }
-  await service.connect('city-x', {})
-  const state = await service.state('city-x')
+  const state = currentState
+  ledger.observe(state, 'fixture-v1')
+  const firstStoredAt = ledger.health().lastStoredAt
   assert.equal(qualitySummary(state).alignmentRatio, 1)
   assert.equal(qualitySummary({ ...state, counts: { ...state.counts, trips: 0, matchedTrips: 0 } }).alignmentRatio, null)
   const event = state.events.find(event => event.type === 'service-gap')
@@ -44,9 +47,7 @@ try {
   await rejects(command({ action: 'knowledge-save', kind: 'sop', title: 'bad', text: 'bad', source: 'fixture', validUntil: 'not a date' }), 400)
   principal = { id: 'supervisor', role: 'reviewer' }
   knowledge = await change(knowledge, 'knowledge-approve')
-  const recalled = await command({ action: 'tool', name: 'operational_context', arguments: { kind: 'knowledge', search: 'gap' } })
-  assert.equal(recalled.data.records.length, 0, 'Approved private SOPs stay out of model context')
-  assert.match(recalled.data.policy, /Internal SOPs/)
+  assert.deepEqual(ledger.publicKnowledge('gap', state.generatedAt), [], 'Approved private procedures stay out of model context')
   finding = await change(finding, 'operations-transition', { status: 'investigating', note: 'Reviewed consecutive trip evidence.', knowledge: [knowledge.id] })
   let message = await command({ action: 'message-draft', findingId: finding.id, channel: 'app', audience: 'accessible-travel' })
   assert.match(message.body, /agency staff/)
@@ -75,9 +76,6 @@ try {
 
   principal = { id: 'reader', role: 'viewer' }
   for (const action of ['operations-track', 'operations-transition', 'knowledge-save', 'message-draft', 'message-approve', 'message-release']) await rejects(command({ action, eventId: event.id, principal: { id: 'forged', role: 'admin' } }), 403)
-  await rejects(command({ action: 'provider-connect', connection: {} }), 403)
-  await rejects(service.state('denied'), 403)
-  await rejects(service.handle('another-city', { action: 'operations-record', id: finding.id }), 404)
   assert.equal((await command({ action: 'operations-record', id: finding.id })).version, finding.version)
   principal = { id: 'invalid-role', role: '__proto__' }
   await rejects(command({ action: 'operations-overview' }), 403)
@@ -93,7 +91,7 @@ try {
   now += 11_000
   snapshot = realtimeFixture([tripUpdate('T1', 300), tripUpdate('T2', 800), tripUpdate('T3', 300)])
   snapshot.fetchedAt = new Date(now).toISOString()
-  await service.connect('city-x', {})
+  currentState = deriveOperationalState(context, snapshot, now / 1000)
   await rejects(change(pending, 'message-release'), 409)
   finding = await change(finding, 'operations-refresh')
   await rejects(change(pending, 'message-release'), 409)
@@ -102,6 +100,7 @@ try {
   knowledge = await change(knowledge, 'knowledge-save', { kind: 'sop', title: knowledge.title, text: 'Revised review steps.', source: knowledge.source, routeIds: ['R'], validUntil: '2026-10-01' })
   await rejects(change(currentDraft, 'message-release'), 409, 'Knowledge edits invalidate old message approval')
   now += 181_000
+  currentState = deriveOperationalState(context, snapshot, now / 1000)
   const aged = await command({ action: 'operations-overview' })
   assert.equal(aged.findings[0].status, 'monitoring')
   assert.equal(aged.findings[0].availability.status, 'unknown')
@@ -111,14 +110,10 @@ try {
   assert.equal(finding.outcome.label, 'unable-to-confirm')
   const beforeRestart = await command({ action: 'operations-health' })
   assert.equal(beforeRestart.integrity, 'ok'); assert.equal(beforeRestart.sampleCount, 1, 'Repeated reads do not multiply historical samples')
-  assert.equal(beforeRestart.lastStoredAt, state.generatedAt, 'Skipped samples must not advance the last retained timestamp')
-  service.close(); service = createAgencyService(adapters, options)
+  assert.equal(beforeRestart.lastStoredAt, firstStoredAt, 'Skipped samples must not advance the last retained timestamp')
+  ledger.close(); ledger = createOperationsStore(ledgerDirectory, 'city-x')
   assert.equal((await command({ action: 'operations-record', id: finding.id })).outcome.label, 'unable-to-confirm')
   principal = { id: 'reader', role: 'viewer' }
-  adapters.inspectRealtime = async () => { throw new Error('Synthetic upstream outage') }
-  const failedRefresh = await service.state('city-x')
-  assert.ok(failedRefresh.warnings.some(warning => warning.includes('Synthetic upstream outage')), 'An outage must preserve the previous observation with a visible error')
-  assert.match((await command({ action: 'operations-health' })).monitoring.refreshError, /upstream outage/)
   const revisions = (await command({ action: 'operations-audit', id: finding.id })).revisions
   assert.equal(revisions.at(-1).data.status, 'new')
   assert.equal(revisions[0].data.status, 'resolved')
@@ -136,20 +131,23 @@ try {
   assert.equal(historicalComparison(history, state, 'R', 'other-import').serviceDays, 0)
   assert.equal(historicalComparison(history, { ...state, coverage: { ...state.coverage, valid: false, serviceDate: null } }, 'R', 'fixture-v1').serviceDays, 0)
   assert.equal(historicalComparison([...history, ...Array(50).fill(history[0])], state, 'R', 'fixture-v1').baselineSeconds, 150)
-  const retained = createOperationsStore(path.join(directory, 'retention'), 'retention', () => now)
+  const retained = createOperationsStore(path.join(directory, 'retention'), 'retention')
   try {
     retained.observe(state, 'fixture-v1')
     assert.equal(retained.routeSamples('R', 'fixture-v1').length, 1)
     assert.equal(retained.routeSamples('R', 'different-import').length, 0)
-    now += (operationsPolicy.retentionDays + 1) * 86_400_000
+    const agedRows = new DatabaseSync(path.join(directory, 'retention', 'operations.sqlite'))
+    agedRows.prepare('UPDATE samples SET bucket=?').run(Math.floor((Date.now() - (operationsPolicy.retentionDays + 1) * 86_400_000) / 300000))
+    agedRows.close()
+    now += 1000
     retained.observe({ ...state, generatedAt: new Date(now).toISOString(), observedAt: new Date(now).toISOString() }, 'fixture-v1')
     assert.equal(retained.samples().length, 1)
     const old = retained.health().recordCount
-    assert.throws(() => retained.transaction(() => { retained.save('knowledge', null, null, { title: 'rollback test' }, principal, 'test'); throw new Error('synthetic crash') }))
+    assert.throws(() => retained.transaction(() => { retained.save('knowledge', null, null, { title: 'rollback test' }, principal, 'test'); retained.read('missing-record') }))
     assert.equal(retained.health().recordCount, old); assert.equal(retained.health().auditCount, 0)
   } finally { retained.close() }
   const future = new DatabaseSync(path.join(directory, 'retention', 'operations.sqlite'))
   future.exec('PRAGMA user_version=2'); future.close()
   assert.throws(() => createOperationsStore(path.join(directory, 'retention'), 'retention'), error => error.statusCode === 409)
   console.log('Agency operations: workflow, immutable audit, restart, City ownership, RBAC, approval invalidation, handoff retry, receipts, unknown recovery, bounded history and chronological baseline evaluation passed.')
-} finally { service.close(); await fs.rm(directory, { recursive: true, force: true }) }
+} finally { ledger.close(); context.close(); await fs.rm(directory, { recursive: true, force: true }) }

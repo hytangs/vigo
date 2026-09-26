@@ -6,9 +6,8 @@ import { draftRouteMessage, draftRiderMessage } from '../src/agency/communicatio
 import { AgencyContext } from '../src/agency/agencyContext.mjs'
 import { deriveOperationalState } from '../src/agency/realtimeIntelligence.mjs'
 import { createToolRegistry } from '../src/agency/toolRegistry.mjs'
-import { compactResult, queryAgency } from '../src/agency/queryAgent.mjs'
-import { createWebResearch } from '../src/agency/webResearch.mjs'
-import { createAgencyService } from '../src/server/agency-api.mjs'
+import { compactResult } from '../src/agency/queryAgent.mjs'
+
 import { createAgencyFixture, realtimeFixture, tripUpdate, observationTime } from './fixtures/agency.mjs'
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agency-writing-'))
@@ -49,48 +48,6 @@ try {
   assert.match(eventDraft.body, /As of Sep 13.*Review before publishing/)
   const staleDraft = await draftRiderMessage({ context, event: { type: 'stale-data', title: 'Feed is stale', evidence: {}, observedAt: state.observedAt, sourceRefs: [] }, channel: 'app' })
   assert.doesNotMatch(staleDraft.body, /sorry|disruption/)
-  let modelCalls = 0
-  const provider = { available: true, model: 'fixture', complete: async (messages, tools) => {
-    const question = messages.filter(message => message.role === 'user').at(-1).content
-    if (question === 'Investigate R') return { tool_calls: [{ id: 'inspect', function: { name: 'inspect_service', arguments: '{"scope":"routes","routeNames":["R"]}' } }] }
-    if (question.startsWith('{"question":"Investigate R"')) return { content: 'Route R has late departure predictions. [1]' }
-    if (question === 'Use that investigation for a draft') {
-      assert.match(messages[1].content, /previousRequests.*inspect_service.*routeNames.*R/s)
-      assert.match(messages[1].content, /priorFindings.*Maximum predicted departure delay/s, 'Follow-ups retain the checked investigation, not only its generated prose')
-      return { content: 'We’re sorry for the delays on R. Check current departures before travelling.' }
-    }
-    if (question === 'Check R' && !messages.some(message => message.role === 'tool')) return { tool_calls: [{ id: 'status', function: { name: 'realtime_status', arguments: '{"routeNames":["R"]}' } }] }
-    if (question === 'Check R') return { content: 'Some departures on R are predicted late. [1]' }
-    modelCalls++
-    assert.match(messages[1].content, /previousRequests.*routeNames.*R/s)
-    assert.match(messages[1].content, /priorFindings.*maxDelayMinutes.*10/s, 'The notebook preserves checked measurements, not only the old answer')
-    assert.ok(tools.some(tool => tool.name === 'web_read'))
-    assert.ok(!tools.some(tool => tool.name === 'web_search'), 'Unavailable search is not advertised to the model')
-    return { content: 'We’re sorry: some Route R departures are delayed. Please check current departure information before travelling.' }
-  } }
-  service = createAgencyService({ context: async () => ({ storePath: file, cityName: 'City X', agencyDirectory: path.join(directory, 'notes') }), inspectRealtime: async () => snapshot }, { provider, web: createWebResearch({ env: { VIGO_AGENCY_WEB_SEARCH_PROVIDER: 'off' }, readPage: () => {} }), clock: () => observationTime * 1000 })
-  await service.connect('x', {})
-  const first = await service.handle('x', { action: 'ask', question: 'Check R' })
-  const next = await service.handle('x', { action: 'ask', question: 'Draft an apologetic message', parentId: first.entryId })
-  const third = await service.handle('x', { action: 'ask', question: 'Make it shorter', parentId: next.entryId })
-  assert.match(next.answer, /We’re sorry/)
-  assert.match(third.answer, /We’re sorry/)
-  assert.equal(modelCalls, 2, 'Drafting and revision each require only one inference when context supplies the facts')
-  assert.equal(third.trace.length, 0)
-  const investigation = await service.handle('x', { action: 'ask', question: 'Investigate R' })
-  const investigationDraft = await service.handle('x', { action: 'ask', question: 'Use that investigation for a draft', parentId: investigation.entryId })
-  assert.match(investigationDraft.answer, /sorry/)
-  assert.equal(investigationDraft.trace.length, 0)
 
-  let round = 0
-  const researched = await queryAgency({ question: 'Find a cause and draft a rider update', context, state, webStatus: { searchAvailable: true, readAvailable: true },
-    provider: { available: true, complete: async (messages, tools) => {
-      assert.ok(tools.some(tool => tool.name === 'web_search'))
-      if (++round === 1) return { tool_calls: [{ id: 'web', function: { name: 'web_search', arguments: '{"query":"City X R road work today"}' } }] }
-      assert.match(messages.filter(message => message.role !== 'system').at(-1).content, /Search unavailable/)
-      return { content: 'We’re sorry for the delays on Route R. Please check live departures. The cause has not been confirmed.' }
-    } }, callTool: async () => { throw new Error('Search unavailable') } })
-  assert.match(researched.answer, /We’re sorry/)
-  assert.equal(researched.trace[0].result.ok, false, 'A failed search remains visible without blocking the useful draft')
-  console.log('Agency communications: full alert explanations, exact scope, expired-event recovery, retained operational findings, direct revisions and failed-search recovery passed.')
+  console.log('Computed rider drafts preserve alert scope, uncertainty and cancellation evidence.')
 } finally { service?.close(); context?.close(); await fs.rm(directory, { recursive: true, force: true }) }

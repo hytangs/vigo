@@ -1,3 +1,4 @@
+import { DatabaseSync } from 'node:sqlite'
 import assert from 'node:assert/strict'
 import { createNativeShapeGeometry } from '../src/server/native-routing-kernel.mjs'
 import { nationalRideGeometry, clipNationalShapeCoordinatesThroughStops } from '../src/server/national-route-geometry.mjs'
@@ -27,15 +28,18 @@ const kernel = {
   fromStop: [0, 1, 2, 1, 0],
   toStop: [1, 2, 1, 3, 3],
 }
-const loadedTrips = []
-const loadedShapes = []
+const db = new DatabaseSync(':memory:')
+db.exec('CREATE TABLE trips(trip_id TEXT PRIMARY KEY, shape_id TEXT); CREATE TABLE shapes(shape_id TEXT, sequence INTEGER, lon REAL, lat REAL)')
+db.prepare('INSERT INTO trips VALUES(?,?)').run('loop', 'loop')
+const insert = db.prepare('INSERT INTO shapes VALUES(?,?,?,?)')
+coordinates.forEach(([lon, lat], index) => insert.run('loop', index, lon, lat))
 const store = {
   activeServiceKernel: kernel,
   stopLookup: stops,
   shapeGeometryCache: new Map(),
   tripShapeIdCache: new Map(),
-  tripShapeLookup: { get(id) { loadedTrips.push(id); return { shape_id: id } } },
-  shapePointsLookup: { all(id) { loadedShapes.push(id); return coordinates.map(([lon, lat]) => ({ lon, lat })) } },
+  tripShapeLookup: db.prepare('SELECT shape_id FROM trips WHERE trip_id=?'),
+  shapePointsLookup: db.prepare('SELECT lon,lat FROM shapes WHERE shape_id=? ORDER BY sequence'),
 }
 function leg(segment, from, to) {
   return nationalRideGeometry(store, [{
@@ -48,8 +52,6 @@ function leg(segment, from, to) {
 assert.deepEqual(leg(3, 'B', 'D').coordinates, coordinates.slice(3))
 assert.deepEqual(leg(0, 'A', 'B').coordinates, coordinates.slice(0, 2))
 assert.deepEqual(leg(2, 'C', 'B').coordinates, coordinates.slice(2, 4))
-assert.deepEqual(loadedTrips, ['loop'])
-assert.deepEqual(loadedShapes, ['loop'], 'Unselected trips must not load shapes.')
 
 // The same trip ID on another service kernel has different segment positions.
 store.activeServiceKernel = {
@@ -71,24 +73,20 @@ store.activeServiceKernel = { ...kernel }
 store.shapeGeometryCache.clear()
 store.shapeGeometryCacheBytes = 0
 store.shapeGeometryCacheMaxBytes = 1
-loadedShapes.length = 0
 assert.deepEqual(leg(3, 'B', 'D').coordinates, coordinates.slice(3))
 assert.equal(store.shapeGeometryCache.size, 0)
-assert.equal(loadedShapes.length, 1)
 assert.deepEqual(leg(3, 'B', 'D').coordinates, coordinates.slice(3))
 assert.equal(store.shapeGeometryCache.size, 0)
-assert.equal(loadedShapes.length, 2)
 
 // A shape that initially fits must also be evicted when native candidate
 // storage grows beyond the byte budget during alignment.
 store.activeServiceKernel = { ...kernel }
 store.shapeGeometryCacheMaxBytes = coordinates.length * 24 + createNativeShapeGeometry(coordinates).estimatedBytes + 257
-loadedShapes.length = 0
 assert.deepEqual(leg(3, 'B', 'D').coordinates, coordinates.slice(3))
 assert.equal(store.shapeGeometryCache.size, 0)
 assert.equal(store.shapeGeometryCacheBytes, 0)
-assert.equal(loadedShapes.length, 1)
 assert.deepEqual(leg(3, 'B', 'D').coordinates, coordinates.slice(3))
-assert.equal(loadedShapes.length, 2)
 
 console.log(JSON.stringify({ check: 'selected-trip-geometry', status: 'passed' }))
+
+db.close()

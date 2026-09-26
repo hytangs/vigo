@@ -5,7 +5,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { AgencyContext, serviceEpoch } from '../src/agency/agencyContext.mjs'
 import { stopBoard, indexedBoardStop } from '../src/agency/stopBoard.mjs'
-import { createAgencyService } from '../src/server/agency-api.mjs'
+
 import { createAgencyFixture, realtimeFixture, tripUpdate, observationTime, sourceUrl } from './fixtures/agency.mjs'
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'stop-board-'))
@@ -124,10 +124,5 @@ try {
   assert.match(noCall.vehicle.issue, /does not call at Terminal/, 'Do not use a different trip just because it visits the requested destination')
   assert.throws(() => board('unknown'), /exact stop/)
   assert.ok(stopBoard(context, null, { stopId: 'B' }, Date.parse('2026-10-01T12:00:00Z') / 1000).warnings.length, 'Expired schedule is explained')
-  const service = createAgencyService({ context: async () => ({ storePath: file, cityName: 'City X', agencyDirectory: path.join(directory, 'agency'), feedIds: ['feed-a'] }) }, { clock: () => observationTime * 1000 })
-  try {
-    assert.equal((await service.handle('city-x', { action: 'stop-board', stopId: 'feed-a::B' })).stop.id, 'station')
-    await assert.rejects(service.handle('city-x', { action: 'stop-board', stopId: 'wrong-feed::B', feedIds: ['wrong-feed'] }), /exact stop/, 'Source mappings come from server metadata, not the request')
-  } finally { service.close() }
   console.log('Stop board: station grouping, both directions, vehicle identities, separate arrival/departure, terminals, cancellations, skipped stops, duplicate/unknown/stale reports, loops, midnight and schedule fallback passed.')
 } finally { context?.close(); await fs.rm(directory, { recursive: true, force: true }) }

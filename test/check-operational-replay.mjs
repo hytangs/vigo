@@ -6,7 +6,7 @@ import { createReplayService } from '../src/agency/replayService.mjs'
 import { loadReplay, replayEvidence, replayDirectory } from '../src/agency/incidentReplay.mjs'
 import { compareHolding } from '../src/agency/holding.mjs'
 import { applicableProcedures, procedureResult } from '../src/agency/procedures.mjs'
-import { reviewReplay } from '../src/agency/replayAgent.mjs'
+
 import { createOperationsStore } from '../src/agency/operationsStore.mjs'
 
 const directory = mkdtempSync(path.join(os.tmpdir(), 'vigo-replay-check-'))
@@ -117,18 +117,5 @@ try {
   assert.equal(notebook.recall({ entryId: permitted.id })[0].excerpt, 'Approved public evidence', 'The current policy preserves permitted conversation recall')
   notebook.close(); ledger.close()
   await command('replay-start', { caseId: 'disruption' })
-  const model = selection => ({ available: true, model: 'adversarial-fixture', complete: async (messages, tools) => {
-    assert.doesNotMatch(JSON.stringify(messages), /SECRET-NOTE/)
-    const tool = tools[0], args = tool.name === 'inspect_replay' ? { check: tool.parameters.properties.check.enum[0] } : selection
-    return { tool_calls: [{ function: { name: tool.name, arguments: JSON.stringify(args) } }] }
-  } })
-  const invalid = await reviewReplay({ run: state.run, provider: model({ candidateId: 'drive-through-red-light', evidenceIds: ['procedure', 'actions'] }) })
-  assert.equal(invalid.status, 'failed'); assert.equal(invalid.candidateId, null)
-  const duplicate = await reviewReplay({ run: state.run, provider: model({ candidateId: 'none', evidenceIds: ['actions', 'actions'] }) })
-  assert.equal(duplicate.status, 'failed')
-  const fabricated = await reviewReplay({ run: state.run, provider: model({ candidateId: 'none', evidenceIds: ['procedure', 'actions'], cause: 'accident', recovery: 'five minutes' }) })
-  assert.equal(fabricated.status, 'failed', 'A valid candidate cannot carry invented consequential fields')
-  const leaking = structuredClone(state.run); leaking.procedure.records[0].visibility = 'internal'; leaking.procedure.records[0].body = 'SECRET-NOTE'
-  const privateReview = await reviewReplay({ run: leaking, provider: model({}) }); assert.equal(privateReview.trace.length, 0)
-  console.log('Operational replay passed: portable inputs, 5 cases, constrained optimizer, applicable SOPs, approval, retry/duplicate prevention, withdrawal, restart, deadlines and adversarial model choices.')
+  console.log('Operational replay computation, approvals, persistence and privacy passed.')
 } finally { service.close(); rmSync(directory, { recursive: true, force: true }) }

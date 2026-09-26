@@ -109,15 +109,15 @@ try {
 
 const cacheDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-route-browser-vite-'))
 const server = await createServer({ cacheDir: cacheDirectory, configFile: false, plugins: [react()], server: { middlewareMode: true }, appType: 'custom' })
-const originalNow = Date.now
 try {
-  Date.now = () => now
+  const observedAt = Date.now()
+  const currentState = { ...state, generatedAt: new Date(observedAt).toISOString(), observedAt: new Date(observedAt).toISOString(), feeds: state.feeds.map(feed => ({ ...feed, feedTimestamp: observedAt / 1000 })) }
   const { AgencyRouteBrowser } = await server.ssrLoadModule('/src/components/AgencyRouteBrowser.tsx')
-  const render = (changes = {}, props = {}) => renderToStaticMarkup(createElement(AgencyRouteBrowser, { state: { ...state, ...changes }, onSelect: () => {}, ...props }))
+  const render = (changes = {}, props = {}) => renderToStaticMarkup(createElement(AgencyRouteBrowser, { state: { ...currentState, ...changes }, onSelect: () => {}, ...props }))
   const gapRoute = route('R', { reportingTrips: 2, comparedPairs: 4, widestInterval: { predictedSeconds: 1800, scheduledSeconds: 600, stopName: 'River', directionId: '0' } })
   assert.doesNotMatch(render({ routes: [gapRoute] }), /Worst predicted gap|Headway coverage unknown/, 'Route browsing stays compact; detailed comparisons belong to route coverage')
   const { AgencyRouteCoverage } = await server.ssrLoadModule('/src/components/AgencyRouteCoverage.tsx')
-  const renderCoverage = refreshFailed => renderToStaticMarkup(createElement(AgencyRouteCoverage, { state, route: gapRoute, refreshFailed }))
+  const renderCoverage = refreshFailed => renderToStaticMarkup(createElement(AgencyRouteCoverage, { state: currentState, route: gapRoute, refreshFailed }))
   const gapHtml = renderCoverage(false)
   assert.doesNotMatch(renderCoverage(true), /Worst predicted gap/, 'Unavailable feeds cannot retain a current-looking gap in route coverage')
   assert.match(gapHtml, /Worst predicted gap: 30 min \/ 10 min scheduled/)
@@ -151,7 +151,6 @@ try {
   assert.match(unknownTimezone, /UTC · agency timezone unknown/, 'A missing agency timezone must not silently use the browser timezone')
   assert.match(unknownTimezone, /Service date unknown/)
 } finally {
-  Date.now = originalNow
   await server.close()
   await fs.rm(cacheDirectory, { recursive: true, force: true })
 }

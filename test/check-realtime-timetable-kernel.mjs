@@ -1,3 +1,4 @@
+import { DatabaseSync } from 'node:sqlite'
 import assert from 'node:assert/strict'
 import { compileRealtimeTimetableKernel } from '../src/server/realtime-timetable-kernel.mjs'
 import { realtimeTimetableForRequest, withRealtimeQueryContext } from '../src/server/gtfs/realtime-timetable.mjs'
@@ -94,7 +95,11 @@ assert.deepEqual([...broken.segmentRun], [0, 1, 2, 3], 'Static discontinuities s
 assert.deepEqual([...broken.departureOrder], [0, 1, 3, 2])
 // Absolute event clocks remain local to the snapshot's service date/timezone.
 // Repeated arrival/departure epochs must preserve DST and overnight offsets.
-const originalNow = Date.now
+const db = new DatabaseSync(':memory:')
+db.exec('CREATE TABLE stop_times(trip_id TEXT, stop_id TEXT, stop_sequence INTEGER, arrival INTEGER, departure INTEGER, can_board INTEGER, can_alight INTEGER)')
+const insert = db.prepare('INSERT INTO stop_times VALUES(?,?,?,?,?,1,1)')
+for (const call of stopTimes) insert.run('live', call.stopId, call.sequence, call.arrival, call.departure)
+const lookup = db.prepare('SELECT * FROM stop_times WHERE trip_id=? ORDER BY stop_sequence')
 try {
   for (const [timezone, serviceDate, absolute, seconds] of [
     ['America/New_York', '2026-03-08', '2026-03-08T03:30:00-04:00', 12600],
@@ -104,22 +109,18 @@ try {
     ['UTC', '2026-09-22', '2026-09-22T00:30:00Z', 1800],
   ]) {
     const epoch = Date.parse(absolute) / 1000
-    Date.now = () => (epoch - 60) * 1000
-    const store = { agencyTimezones: [timezone], realtimeTripStopTimesLookup: {
-      all: () => stopTimes.map(call => ({ stop_id: call.stopId, stop_sequence: call.sequence,
-        arrival: call.arrival, departure: call.departure, can_board: 1, can_alight: 1 })),
-    } }
+    const store = { agencyTimezones: [timezone], realtimeTripStopTimesLookup: lookup }
     const request = withRealtimeQueryContext({ routingDataMode: 'realtime', realtimeSnapshot: {
       feedTimestamp: epoch - 60, tripUpdates: [{ tripId: 'live', startDate: serviceDate.replaceAll('-', ''),
         stopTimeUpdates: stopTimes.map((call, i) => ({ stopId: call.stopId, stopSequence: call.sequence,
           arrival: { time: epoch + i * 60 }, departure: { time: epoch + i * 60 } })),
       }],
-    } })
+    } }, epoch - 60)
     const result = realtimeTimetableForRequest(store, base, request, { resolvedServiceDate: serviceDate })
     assert.equal(result.status, 'applied')
     const start = result.kernel.tripStart[1], end = result.kernel.tripStart[2]
     assert.deepEqual([...result.kernel.departureSeconds.slice(start, end)], [seconds, seconds + 60])
     assert.deepEqual([...result.kernel.arrivalSeconds.slice(start, end)], [seconds + 60, seconds + 120])
   }
-} finally { Date.now = originalNow }
+} finally { db.close() }
 console.log('Realtime timetable kernel passed: immutable identities, cancellations, delayed routing, reverse parity, skipped calls, native bounds, DST and overnight clocks.')

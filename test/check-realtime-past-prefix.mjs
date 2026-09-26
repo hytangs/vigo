@@ -3,11 +3,13 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import JSZip from 'jszip'
-import { buildNationalGtfsStore, disposeNationalGtfsStore, routeNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
+import { buildNationalGtfsStore, disposeNationalGtfsStore, routeNationalGtfsStore as routeStore } from '../src/server/national-gtfs-store.mjs'
 
 const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-realtime-past-prefix-'))
 const stores = []
-const originalNow = Date.now
+import { withRealtimeQueryContext } from '../src/server/gtfs/realtime-timetable.mjs'
+let observationSeconds
+const routeNationalGtfsStore = (store, input) => routeStore(store, withRealtimeQueryContext(input, observationSeconds))
 const serviceEpoch = Date.parse('2026-09-15T00:00:00Z') / 1000
 const epochAt = minutes => serviceEpoch + minutes * 60
 const stops = ['A', 'B', 'C', 'D', 'E']
@@ -64,7 +66,7 @@ try {
 
   // The timestamp is accepted within the ordinary future tolerance, but it
   // cannot establish that the unreported prefix is past until the clock crosses.
-  Date.now = () => (realtimeSnapshot.feedTimestamp - 1) * 1000
+  observationSeconds = realtimeSnapshot.feedTimestamp - 1
   const before = routeNationalGtfsStore(baseStore, sameRequest)
   assert.equal(before.status, 'ready', before.detail)
   assert.equal(before.arriveMinutes, 620)
@@ -72,7 +74,7 @@ try {
   assert.equal(before.diagnostics.realtimeRouting.invalidTrips, 1)
   assert.equal(before.diagnostics.realtimeRouting.omittedPastPrefixStops, 0)
 
-  Date.now = () => (realtimeSnapshot.feedTimestamp + 1) * 1000
+  observationSeconds = realtimeSnapshot.feedTimestamp + 1
   const after = routeNationalGtfsStore(baseStore, sameRequest)
   assert.equal(after.status, 'ready', after.detail)
   assert.equal(after.arriveMinutes, 610, 'Crossing the source timestamp must invalidate the cached scheduled fallback')
@@ -109,14 +111,13 @@ try {
   }))
   assert.equal(missed.status, 'blocked', 'The replaced trip must not retain its original, later scheduled departure')
 
-  Date.now = () => (realtimeSnapshot.feedTimestamp + 30) * 1000
+  observationSeconds = realtimeSnapshot.feedTimestamp + 30
   const later = routeNationalGtfsStore(baseStore, sameRequest)
   assert.deepEqual(witness(later), witness(after))
   assert.equal(later.diagnostics.realtimeRouting.snapshotId, after.diagnostics.realtimeRouting.snapshotId,
     'An unchanged fresh snapshot must keep a stable compiled identity after the source clock crossing')
   console.log(`Realtime past-prefix check passed (${pairs} native/literal comparisons, prefix boarding exclusion, and future-header cache crossing).`)
 } finally {
-  Date.now = originalNow
   for (const store of stores) disposeNationalGtfsStore(store)
   await fs.rm(folder, { recursive: true, force: true })
 }

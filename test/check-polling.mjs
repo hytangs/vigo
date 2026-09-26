@@ -1,69 +1,32 @@
-import assert from 'node:assert/strict'
-import { mock } from 'node:test'
-import { startPolling } from '../src/app/polling.ts'
-
-const previousDocument = globalThis.document
-const document = Object.assign(new EventTarget(), { hidden: false })
-globalThis.document = document
-mock.timers.enable({ apis: ['setTimeout'] })
-const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve() }
-const requests = []
-let poll
-try {
-  poll = startPolling(signal => new Promise((resolve, reject) => requests.push({ signal, resolve, reject })), 10_000)
-  await flush()
-  assert.equal(requests.length, 1)
-  mock.timers.tick(30_000)
-  const manual = poll.refresh()
-  await flush()
-  assert.equal(requests.length, 1, 'A slow request and repeated manual refreshes share one operation')
-  requests[0].resolve()
-  await manual
-  mock.timers.tick(9_999)
-  await flush()
-  assert.equal(requests.length, 1, 'Cadence starts after completion, not request start')
-  mock.timers.tick(1)
-  await flush()
-  assert.equal(requests.length, 2)
-  requests[1].reject(new Error('Offline'))
-  await flush()
-  mock.timers.tick(10_000)
-  await flush()
-  assert.equal(requests.length, 3, 'A failed refresh can recover at the next interval')
-  document.hidden = true
-  document.dispatchEvent(new Event('visibilitychange'))
-  requests[2].resolve()
-  await flush()
-  mock.timers.tick(60_000)
-  await flush()
-  assert.equal(requests.length, 3, 'No background polling while hidden')
-  document.hidden = false
-  document.dispatchEvent(new Event('visibilitychange'))
-  await flush()
-  assert.equal(requests.length, 4, 'Returning to the app refreshes immediately')
-  poll.stop()
-  assert.equal(requests[3].signal.aborted, true, 'Cleanup cancels the active request')
-  requests[3].resolve()
-  await flush()
-  document.dispatchEvent(new Event('visibilitychange'))
-  mock.timers.tick(60_000)
-  await flush()
-  assert.equal(requests.length, 4, 'Cleanup removes timers and visibility listeners')
-  let stoppedReads = 0
-  poll = startPolling(async () => { stoppedReads++ }, 10_000)
-  poll.stop()
-  await flush()
-  assert.equal(stoppedReads, 0, 'Stopping before the first microtask prevents the read')
-  poll = startPolling(async () => requests.push({}), 10_000, { immediate: false })
-  await flush()
-  assert.equal(requests.length, 4, 'Connecting a feed does not immediately fetch it twice')
-  mock.timers.tick(10_000)
-  await flush()
-  assert.equal(requests.length, 5)
-} finally {
-  poll?.stop()
-  mock.timers.reset()
-  if (previousDocument === undefined) delete globalThis.document
-  else globalThis.document = previousDocument
-}
-console.log('Polling: sequential requests, coalesced manual refresh, failure recovery, visibility pause and cleanup passed.')
+import { readFile } from 'node:fs/promises'
+import ts from 'typescript'
+import { runElectronCheck } from './helpers/electron-check.mjs'
+const module = ts.transpileModule(await readFile(new URL('../src/app/polling.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText.replace('export function', 'function')
+await runElectronCheck(`
+await app.whenReady();
+const window = new BrowserWindow({ show: true, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+await window.loadURL('data:text/html,<title>Polling lifecycle</title>');
+const result = await window.webContents.executeJavaScript(${JSON.stringify(`(async () => {
+${module}
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+let completed = 0, active = 0, peak = 0;
+const poll = startPolling(async signal => { active++; peak = Math.max(peak, active); await wait(30); if (!signal.aborted) completed++; active--; }, 20);
+await wait(10);
+await Promise.all([poll.refresh(), poll.refresh()]);
+if (completed !== 1 || peak !== 1) throw Error('Concurrent polling was not coalesced');
+await wait(90);
+if (completed < 2 || peak !== 1) throw Error('Real timers did not serialize polling');
+poll.stop();
+const stopped = completed;
+await wait(100);
+if (completed !== stopped) throw Error('Polling continued after cleanup');
+let reads = 0;
+const immediate = startPolling(async () => { reads++; }, 20);
+immediate.stop();
+await wait(50);
+if (reads !== 0) throw Error('Stop before first read failed');
+return true;
+})()`)});
+assert.equal(result, true);
+`)
+console.log('Polling with real browser document and timers: serialization, manual coalescing and cleanup passed.')

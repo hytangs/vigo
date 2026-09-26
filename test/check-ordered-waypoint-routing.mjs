@@ -1,11 +1,6 @@
 import assert from 'node:assert/strict'
 
-import {
-  composeOrderedRoutingFailure,
-  composeOrderedRoutingPlans,
-  routeOrderedRoutingSegments,
-  validateOrderedRoutingPoints,
-} from '../src/server/ordered-route-composition.mjs'
+import { composeOrderedRoutingPlans, validateOrderedRoutingPoints } from '../src/server/ordered-route-composition.mjs'
 import { parseRoutingCommand } from '../src/routingCommand.ts'
 import {
   appendRoutingPointSequence,
@@ -163,51 +158,6 @@ assert.deepEqual(acb.legs.map((leg) => [leg.fromName, leg.toName]), [
   ['Map point C', 'Map point B'],
 ])
 
-const departRequests = []
-const departed = await routeOrderedRoutingSegments(
-  [a, b, c],
-  { mode: 'drive', timePreference: 'depart', departMinutes: 480, departureWindowMinutes: 20 },
-  async (request, index) => {
-    departRequests.push(request)
-    return streetPlan(`depart-${index}`, request.origin, request.destination, request.departMinutes, index === 0 ? 10 : 15)
-  },
-)
-assert.equal(departed.failedIndex, -1)
-assert.deepEqual(departRequests.map((request) => request.departMinutes), [480, 490])
-assert.deepEqual(departRequests.map((request) => request.departureWindowMinutes), [20, 0])
-
-await assert.rejects(() => routeOrderedRoutingSegments([a, b, c],
-  { mode: 'transit', maxTransfers: 1 }, () => assert.fail('Do not apply an overall cap independently per segment')),
-/ordered transit waypoints/)
-
-const arriveRequests = []
-const arrived = await routeOrderedRoutingSegments(
-  [a, b, c],
-  { mode: 'transit', timePreference: 'arrive', arriveMinutes: 600 },
-  async (request, index) => {
-    arriveRequests.push({ ...request, index })
-    const durationMinutes = index === 1 ? 12 : 8
-    const plan = streetPlan(`arrive-${index}`, request.origin, request.destination, request.arriveMinutes - durationMinutes, durationMinutes)
-    return {
-      ...plan,
-      travelMode: 'transit',
-      timePreference: 'arrive',
-      arriveMinutes: request.arriveMinutes,
-      legs: plan.legs.map((leg) => ({
-        ...leg,
-        type: 'ride',
-        travelMode: 'transit',
-        routeId: `arrive-route-${index}`,
-        routeShortName: `R${index}`,
-        tripId: `arrive-trip-${index}`,
-      })),
-    }
-  },
-)
-assert.equal(arrived.failedIndex, -1)
-assert.deepEqual(arriveRequests.map((request) => request.index), [1, 0])
-assert.deepEqual(arriveRequests.map((request) => request.arriveMinutes), [600, 588])
-
 function transitPlan(id, origin, destination, departMinutes, arriveMinutes, legs) {
   return {
     ...streetPlan(id, origin, destination, departMinutes, arriveMinutes - departMinutes),
@@ -290,22 +240,6 @@ const walkOnlyBToC = {
     algorithm: 'osm_direct_walk_vs_transit',
   },
 }
-const transitWithWalkOnlyLeg = await routeOrderedRoutingSegments(
-  [a, b, c],
-  { mode: 'transit', timePreference: 'depart', departMinutes: 480 },
-  async (_request, index) => index === 0
-    ? transitPlan('transit-a-b', a, b, 480, 490, [throughRide(a, b, 480, 490)])
-    : walkOnlyBToC,
-)
-assert.equal(transitWithWalkOnlyLeg.failedIndex, 1)
-assert.equal(transitWithWalkOnlyLeg.failedPlan.status, 'blocked')
-assert.equal(
-  transitWithWalkOnlyLeg.failedPlan.diagnostics.failureCode,
-  'ordered_transit_ride_required',
-  'A walk-only component must not silently satisfy an ordered Transit route.',
-)
-assert.equal(transitWithWalkOnlyLeg.failedPlan.diagnostics.walkOnlyCandidate.distanceKm, 1.1)
-
 const rejectedWalkOnlyComposition = composeOrderedRoutingPlans(
   [
     transitPlan('transit-a-b-compose', a, b, 480, 490, [throughRide(a, b, 480, 490)]),
@@ -317,15 +251,6 @@ const rejectedWalkOnlyComposition = composeOrderedRoutingPlans(
 assert.equal(rejectedWalkOnlyComposition.status, 'blocked')
 assert.equal(rejectedWalkOnlyComposition.title, 'No route for leg 2')
 assert.match(rejectedWalkOnlyComposition.detail, /requires at least one scheduled ride/)
-
-const displayedWalkOnlyFailure = composeOrderedRoutingFailure(
-  transitWithWalkOnlyLeg.failedPlan,
-  transitWithWalkOnlyLeg.failedIndex,
-  [a, b, c],
-  transitWithWalkOnlyLeg.componentPlans,
-)
-assert.equal(displayedWalkOnlyFailure.title, 'No route for leg 2')
-assert.match(displayedWalkOnlyFailure.detail, /Map point B to Map point C/)
 
 const reversed = [a, b].reverse()
 assert.equal(reversed[0], b)

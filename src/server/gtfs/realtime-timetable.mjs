@@ -166,7 +166,7 @@ function realtimeStaticTripStopTimes(store, tripId) {
   return stopTimes
 }
 
-export function withRealtimeQueryContext(request) {
+export function withRealtimeQueryContext(request, observationSeconds = Date.now() / 1000) {
   const mode = routingDataModeForRequest(request)
   if (request[realtimeQueryContext]?.mode === mode) return request
   // Preserve the non-enumerable prepared access controls on local requests.
@@ -175,7 +175,7 @@ export function withRealtimeQueryContext(request) {
   descriptors[realtimeQueryContext] = { enumerable: true, value: {
     mode,
     snapshot: mode === 'realtime' ? normalizeRealtimeSnapshotForRouting(request.realtimeSnapshot) : null,
-    nowSeconds: mode === 'realtime' ? Date.now() / 1000 : null,
+    nowSeconds: mode === 'realtime' ? observationSeconds : null,
     resolutions: new WeakMap(),
   } }
   return Object.create(Object.getPrototypeOf(request), descriptors)

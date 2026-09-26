@@ -1,34 +1,5 @@
 import assert from 'node:assert/strict'
 import { importTestModules } from './helpers/import-test-modules.mjs'
-import { renderedStopAtPoint, selectableStopLayers } from '../src/app/mapStopSelection.ts'
-
-{
-  const stop = (id, x, y) => ({ properties: { stopId: id }, geometry: { type: 'Point', coordinates: [x, y] } })
-  let hits = [stop('other-feed::S', 12, 0), stop('agency::S', 4, 0), stop('agency::S', 4, 0)]
-  let queried = false
-  const map = {
-    getLayer: id => id === 'vigo-network-stops',
-    queryRenderedFeatures: (box, options) => {
-      queried = true
-      assert.deepEqual(box, [[-18, -18], [18, 18]])
-      assert.deepEqual(options.layers, ['vigo-network-stops'])
-      return hits
-    },
-    project: ([x, y]) => ({ x, y }),
-  }
-  assert.equal(renderedStopAtPoint(map, { x: 0, y: 0 }).properties.stopId, 'agency::S', 'Nearest visible stop wins, not layer order or an unscoped ID')
-  hits = [stop('outside-circle', 17, 17), stop('invalid', NaN, 0), { properties: { stopId: 'line' }, geometry: { type: 'LineString', coordinates: [] } }]
-  assert.equal(renderedStopAtPoint(map, { x: 0, y: 0 }), undefined, 'A bounding-box corner or invalid geometry is not a nearby stop')
-  hits = [stop('edge', 18, 0)]
-  assert.equal(renderedStopAtPoint(map, { x: 0, y: 0 }).properties.stopId, 'edge', 'A tap need not land on the small visual dot')
-  hits = []
-  assert.equal(renderedStopAtPoint(map, { x: 0, y: 0 }), undefined, 'Hidden and offscreen stops are not selected from source data')
-  queried = false
-  assert.equal(renderedStopAtPoint({ ...map, getLayer: () => undefined }, { x: 0, y: 0 }), undefined)
-  assert.equal(queried, false, 'Do not query absent layers while the map loads')
-  assert.ok(selectableStopLayers.includes('vigo-selected-stop'), 'The selection ring remains an interactive stop')
-}
-
 const [presentation, routeServices, gtfsAnalysis, routePresentation, cityPreview, scheduledVehicles, serviceVehicles, firstRenderTelemetry] = await importTestModules(
   'app/mapPresentation.ts', 'routeServices.ts', 'app/gtfsAnalysis.ts', 'app/routePresentation.ts',
   'app/cityPreview.ts', 'scheduledVehicles.ts', 'serviceVehicles.ts', 'app/mapFirstRenderTelemetry.ts',

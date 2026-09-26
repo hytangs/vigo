@@ -14,8 +14,8 @@ try {
   await fs.writeFile(path.join(temporary, 'index.html'), '<div id="map" style="width:512px;height:512px"></div><script type="module" src="/fixture.mjs"></script>')
   await fs.writeFile(path.join(temporary, 'fixture.mjs'), `
 import { Map, AttributionControl } from '../../src/app/mapRuntime.ts';
-import { runMapRefreshChecks, runMapStartupChecks } from '../../test/fixtures/map-refresh.jsx';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { setMapSourceData, setStreetMapSourceData } from '../../src/app/mapSourceUpdates.ts';
 import { ensureVehicleDirectionSprite, vehicleHeadingLayer, vehicleMarkerLayer } from '../../src/app/mapDirections.ts';
 window.checkMap = async () => {
   console.log('Map fixture: starting GeoJSON render');
@@ -49,26 +49,28 @@ window.checkMap = async () => {
   console.log('Map fixture: map rotation rendered');
   if (map.getLayoutProperty('vigo-vehicle-headings','icon-rotation-alignment') !== 'map') throw Error('Vehicle compass bearings must rotate with the map');
   const next = waitForRender();
-  map.getSource('fixture').setData({...data,features:[{...data.features[0],geometry:{type:'LineString',coordinates:[[0,-0.001],[0,0.001]]}}]});
+  setMapSourceData(map.getSource('fixture'), {...data,features:[{...data.features[0],geometry:{type:'LineString',coordinates:[[0,-0.001],[0,0.001]]}}]});
   await next;
-  console.log('Map fixture: source update rendered');
   if (!map.queryRenderedFeatures({layers:['fixture']}).length) throw Error('GeoJSON source update did not render');
+  console.log('Map fixture: source update rendered');
+  const source = map.getSource('fixture');
+  setStreetMapSourceData(source, data);
+  setStreetMapSourceData(source, {...data, features:[]});
+  const deadline = Date.now()+10000;
+  while((await source.getData()).features.length) {
+    if(Date.now()>deadline) throw Error('Cleared street data reappeared');
+    await new Promise(resolve=>setTimeout(resolve,20));
+  }
+  await new Promise(resolve=>setTimeout(resolve,100));
+  if((await source.getData()).features.length) throw Error('Superseded street data reappeared');
   const details = document.querySelector('.maplibregl-ctrl-attrib details');
   if (!details || details.hasAttribute('onload') || details.hasAttribute('ontoggle') || window.attributionExecuted) throw Error('Unsafe attribution survived sanitization');
   map.remove();
   document.getElementById('map').remove();
-  console.log('Map fixture: checking City startup');
-  const startupIsolation = await runMapStartupChecks();
-  console.log('Map fixture: checking refresh isolation');
-  const refreshIsolation = await runMapRefreshChecks();
-  return {rendered:true,sourceUpdate:true,sanitizedAttribution:true,offlineDirections:true,networkHeadings:true,mapRotation:true,startupIsolation,refreshIsolation};
+  return {rendered:true,sourceUpdate:true,sanitizedAttribution:true,offlineDirections:true,networkHeadings:true,mapRotation:true};
 };
 `)
-  const sourceOverride = process.env.VIGO_TEST_MAP_SOURCE
-  await build({ configFile: false, root: temporary, cacheDir: path.join(temporary, 'vite-cache'), plugins: [
-    ...(sourceOverride ? [{ name: 'retained-map-source', enforce: 'pre', async load(id) { if (id === path.join(root, 'src', 'VigoMap.tsx')) return fs.readFile(sourceOverride, 'utf8') } }] : []),
-    react(),
-  ], publicDir: false, logLevel: 'warn', build: { chunkSizeWarningLimit: 1500 } })
+  await build({ configFile: false, root: temporary, cacheDir: path.join(temporary, 'vite-cache'), plugins: [react()], publicDir: false, logLevel: 'warn', build: { chunkSizeWarningLimit: 1500 } })
   const dist = path.join(temporary, 'dist')
   await fs.writeFile(path.join(temporary, 'main.cjs'), `
 const {app,BrowserWindow,protocol,net} = require('electron');

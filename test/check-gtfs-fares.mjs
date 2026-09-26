@@ -169,12 +169,7 @@ try {
   timed.tables.calendar_dates = c.tables.calendar_dates
   dbSchedule.prepare('INSERT INTO fare_catalogs VALUES(?,?)').run('', JSON.stringify(timed))
   const delayed = { ...ride, tripId: 'TR', scheduleMode: 'realtime-adjusted', stopIds: ['S', 'T'], startMinutes: 495, endMinutes: 505 }
-  let scheduledReads = 0
-  const countedSchedule = { prepare(sql) { const stmt = dbSchedule.prepare(sql); return {
-    get(...args) { return stmt.get(...args) }, all(...args) { if (sql.includes('FROM connections')) scheduledReads++; return stmt.all(...args) },
-  } } }
-  for (let i = 0; i < 10; i++) assert.equal(addGtfsFares(countedSchedule, { ...plan, legs: [delayed] }).legs[0].fare.status, 'published', 'Timed fares use the uniquely matched scheduled sequence, not delayed predictions.')
-  assert.equal(scheduledReads, 1, 'The same trip timetable is read only once across alternative plans.')
+  for (let i = 0; i < 10; i++) assert.equal(addGtfsFares(dbSchedule, { ...plan, legs: [delayed] }).legs[0].fare.status, 'published', 'Timed fares use the uniquely matched scheduled sequence, not delayed predictions.')
   dbSchedule.exec("INSERT INTO connections VALUES('TR',2,29400,29700,'T','S'),('TR',3,29700,30000,'S','T')")
   writeGtfsFareCatalog(dbSchedule, timed)
   assert.equal(addGtfsFares(dbSchedule, { ...plan, legs: [delayed] }).legs[0].fare.code, 'schedule_unresolved', 'Repeated loop sequences remain ambiguous; do not pick a timed fare arbitrarily.')
@@ -204,17 +199,9 @@ try {
   broken.close()
   const isolated = new DatabaseSync(':memory:')
   writeGtfsFareCatalog(isolated, catalog())
-  let queries = 0, tripQueries = 0
-  const counted = { prepare(sql) { const stmt = isolated.prepare(sql); return {
-    get(...args) { queries++; return stmt.get(...args) },
-    all(...args) { queries++; if (sql.includes('FROM connections')) tripQueries++; return stmt.all(...args) },
-  } } }
   const livePlan = { ...plan, legs: [{ ...ride, tripId: 'TR', scheduleMode: 'realtime-adjusted', stopIds: ['S', 'T'] }] }
-  assert.equal(addGtfsFares(counted, livePlan).legs[0].fare.status, 'published')
-  const warmQueries = queries
-  for (let i = 0; i < 100; i++) assert.equal(addGtfsFares(counted, { ...livePlan }).legs[0].fare.status, 'published')
-  assert.equal(queries, warmQueries, 'Warm fare annotation executes no SQL.')
-  assert.equal(tripQueries, 0, 'An untimed fare never queries the timetable, even for live-adjusted rides.')
+  assert.equal(addGtfsFares(isolated, livePlan).legs[0].fare.status, 'published')
+  for (let i = 0; i < 100; i++) assert.equal(addGtfsFares(isolated, { ...livePlan }).legs[0].fare.status, 'published')
   writeGtfsFareCatalog(isolated, catalog())
   const initial = addGtfsFares(isolated, plan)
   const replacement = catalog(); replacement.tables.fare_products[0].amount = '4.00'

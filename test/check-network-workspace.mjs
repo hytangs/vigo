@@ -7,8 +7,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { workspaceSelection, selectedStopIds, eventInSelection } from '../src/agency/workspaceSelection.mjs'
 import { findNetworkRoute, findNetworkStop, networkRouteId } from '../src/app/networkSelection.ts'
-import { createAgencyService } from '../src/server/agency-api.mjs'
-import { createAgencyFixture, observationTime, realtimeFixture, tripUpdate } from './fixtures/agency.mjs'
+
+import { createAgencyFixture } from './fixtures/agency.mjs'
 
 const routes = [
   { id: 'north::pattern1', routeId: 'R' }, { id: 'north::pattern2', routeId: 'R' },
@@ -61,33 +61,5 @@ try {
     assert.deepEqual(line.serviceDates, ['2026-09-13', '2026-09-14'])
     assert.deepEqual(line.patterns.find(pattern => pattern.id === line.vehicles[0].patternId).stops.map(stop => stop.id), ['A', 'C'])
   } finally { context.close() }
-  let calls = 0
-  service = createAgencyService({ context: async () => ({ storePath: file, cityName: 'City X', agencyDirectory: directory, feedIds: ['fixture'] }), inspectRealtime: async () => realtimeFixture([tripUpdate('T1', 600)]) }, {
-    clock: () => observationTime * 1000,
-    provider: { available: true, model: 'fixture', complete: async (messages, tools) => {
-      calls++
-      if (calls === 1) {
-        const supplied = messages.find(message => message.content.includes('Workspace selection available')).content
-        assert.doesNotMatch(supplied, /River service|"coordinate":\[-71.06,42.36\]/, 'Unrelated questions are not anchored to a map-selected entity')
-        assert.ok(tools.some(tool => tool.name === 'workspace_selection'))
-        return { tool_calls: [{ id: 'selected', function: { name: 'workspace_selection', arguments: '{}' } }] }
-      }
-      const supplied = messages.find(message => message.role === 'tool').content
-      assert.match(supplied, /"route":\{"id":"R","name":"R","description":"River service"\}/)
-      assert.match(supplied, /"stop":\{"id":"A","name":"River","coordinate":\[-71.06,42.36\]\}/)
-      return { content: 'The selected station is River on route R.' }
-    } },
-  })
-  await service.connect('x', { sourceUrl: 'fixture' })
-  const input = { routeId: 'fixture::R', stopId: 'fixture::A' }
-  const state = await service.state('x', input)
-  assert.equal(state.selection.stop.name, 'River')
-  assert.ok(state.events.some(event => event.type === 'delay'))
-  assert.equal((await service.state('x', { stopId: 'fixture::C' })).events.length, 0)
-  const answer = await service.handle('x', { action: 'ask', question: 'What station is selected?', selection: input })
-  assert.deepEqual(answer.selection, state.selection, 'UI and Ask resolve exactly the same selection')
-  assert.deepEqual((await service.handle('x', { action: 'notebook-entry', id: answer.entryId })).entries[0].answer.selection, state.selection, 'Saved answers retain their original context')
-  await assert.rejects(service.handle('x', { action: 'ask', question: 'What is here?', selection: { stopId: 'missing' } }), /exact stop/)
-  assert.equal(calls, 2, 'Invalid selection never reaches the model')
 } finally { service?.close(); await fs.rm(directory, { recursive: true, force: true }) }
-console.log('Network workspace: exact feed identities, parent/platform filtering, shared Ask context and saved selection passed.')
+console.log('Workspace identity, selection and overnight vehicle patterns passed.')

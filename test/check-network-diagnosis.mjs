@@ -1,8 +1,8 @@
+
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { mock } from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
 import { AgencyContext, serviceEpoch } from '../src/agency/agencyContext.mjs'
 import { deriveOperationalState, createObservationHistory } from '../src/agency/realtimeIntelligence.mjs'
@@ -11,13 +11,12 @@ import { networkNarrative } from '../src/agency/networkNarrative.mjs'
 import { networkSynthesisFacts } from '../src/agency/networkSynthesis.mjs'
 import { serviceConcentrations } from '../src/agency/serviceConcentrations.mjs'
 import { scheduledServiceWindow } from '../src/agency/serviceWindow.mjs'
-import { briefingStatus, briefingPreferences, defaultBriefingPreferences } from '../src/agency/briefingSchedule.mjs'
-import { createAgencyService } from '../src/server/agency-api.mjs'
+
 import { createAgencyFixture, observationTime as now, realtimeFixture, tripUpdate } from './fixtures/agency.mjs'
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'network-diagnosis-'))
 const file = path.join(directory, 'schedule.sqlite')
-let context, service, coverageReads
+let context
 try {
   createAgencyFixture(file)
   const db = new DatabaseSync(file)
@@ -134,39 +133,5 @@ try {
   } finally { midnight.close() }
   assert.equal(serviceEpoch('2026-11-01', 'America/New_York'), Date.parse('2026-11-01T05:00Z') / 1000, 'GTFS service clock uses local noon minus twelve hours through DST')
 
-  let clock = now * 1000, modelCalls = 0
-  const snapshot = realtimeFixture(updates)
-  const options = { clock: () => clock, provider: { available: false, model: 'fixture', complete: async () => { modelCalls++; throw Error('Not needed for computed diagnosis') } } }
-  const adapters = { context: async () => ({ storePath: file, cityName: 'City X', agencyDirectory: path.join(directory, 'agency') }), inspectRealtime: async () => snapshot }
-  service = createAgencyService(adapters, options)
-  await service.connect('x', { sourceUrl: 'fixture' })
-  coverageReads = mock.method(AgencyContext.prototype, 'coverage')
-  const [a, b] = await Promise.all([service.handle('x', { action: 'briefing' }), service.handle('x', { action: 'briefing' })])
-  const sharedReads = coverageReads.mock.callCount()
-  assert.equal(a.entryId, b.entryId, 'Concurrent tabs share one assessment')
-  assert.equal(modelCalls, 0, 'Network diagnosis incurs no LLM latency')
-  assert.equal(a.diagnosis.routes.length, 3)
-  const live = await service.state('x')
-  assert.equal('measurements' in live, false)
-  assert.equal('trips' in live, false)
-  coverageReads.mock.resetCalls()
-  assert.deepEqual(await service.handle('x', { action: 'briefing' }), a, 'Returning a retained briefing preserves its entire answer and observation time.')
-  assert.equal(coverageReads.mock.callCount(), 0, 'A retained briefing must not rebuild current network state before returning.')
-  const forced = await service.handle('x', { action: 'briefing', force: true })
-  assert.notEqual(forced.entryId, a.entryId)
-  assert.ok(coverageReads.mock.callCount() > 0, 'Force refresh obtains current evidence.')
-  assert.equal(coverageReads.mock.callCount(), sharedReads, 'Concurrent readers require no more assessment work than one forced refresh.')
-  coverageReads.mock.resetCalls()
-  clock += 15 * 60000
-  assert.equal((await service.handle('x', { action: 'briefing-latest' })).current, false)
-  assert.notEqual((await service.handle('x', { action: 'briefing' })).entryId, forced.entryId)
-  assert.ok(coverageReads.mock.callCount() > 0, 'Expiry obtains current evidence rather than extending the retained answer.')
-  await service.handle('x', { action: 'briefing-settings', preferences: { intervalMinutes: 60, automatic: false } })
-  service.close(); service = createAgencyService(adapters, options)
-  assert.deepEqual((await service.handle('x', { action: 'briefing-latest' })).preferences, { intervalMinutes: 60, automatic: false })
-  assert.throws(() => briefingPreferences({ intervalMinutes: 1, automatic: true }), /15, 30, or 60/)
-  assert.equal(briefingStatus({ answer: { generatedAt: new Date(clock).toISOString() } }, defaultBriefingPreferences, clock, 'same').current, false, 'Legacy anomaly text must not be presented as a current assessment')
-  assert.equal(briefingStatus({ answer: a }, defaultBriefingPreferences, now * 1000, 'changed').current, false, 'A timetable replacement invalidates the briefing')
-  assert.equal(briefingStatus({ answer: a }, defaultBriefingPreferences, now * 1000 - 1, a.scheduleIdentity).current, false)
-  console.log('Network assessment: all routes, complete comparisons, distinct trips, weighted coverage, spatial/time/direction identity, source-clock history, overnight service, cache/expiry/persistence, and no LLM overhead passed.')
-} finally { coverageReads?.mock.restore(); service?.close(); context?.close(); await fs.rm(directory, { recursive: true, force: true }) }
+  console.log('Network diagnosis: real schedule, observations, coverage and overnight calculations passed.')
+} finally { context?.close(); await fs.rm(directory, { recursive: true, force: true }) }

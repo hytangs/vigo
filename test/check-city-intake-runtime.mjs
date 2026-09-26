@@ -12,16 +12,14 @@ const fixture = `import React from 'react';
 import {createRoot} from 'react-dom/client';
 import {EmptyOperationsStart} from '/src/components/studio/CitySources.tsx';
 import '/src/App.css'; import '/src/index.css';
-let gtfs=0,osm=0,connected=0;
-HTMLInputElement.prototype.click=function(){if(this.accept.includes('zip'))gtfs++;else osm++};
+let connected=0;
 const noop=()=>{};
 createRoot(document.getElementById('root')).render(React.createElement('main',{className:'app-shell appearance-light project-empty page-project',style:{height:'100vh',display:'grid'}},React.createElement(EmptyOperationsStart,{
  project:{name:'Other City',summary:{feeds:0,routes:0},feeds:[],jobs:[]},onOpenNetwork:noop,osmStreetReady:false,isImporting:false,isOsmImporting:false,importMessage:'',osmStreetMessage:'',realtimeSnapshot:null,realtimeMessage:'',realtimeRequest:null,isRealtimeLoading:false,onFiles:noop,onNationalGtfsPath:noop,onNationalOsmPath:noop,onOsmFiles:noop,onConnectRealtime:()=>connected++,onDisconnectRealtime:noop,onCancelGtfs:noop,onRetryGtfs:noop,onCancelOsm:noop,onRetryOsm:noop
 })));
 window.checkNavigation=async()=>{
  const wait=()=>new Promise(resolve=>requestAnimationFrame(resolve));await wait();
- const cards=document.querySelectorAll('.surface-source-status');cards[0].click();cards[1].click();
- if(gtfs<1||osm<1)throw Error('Source cards did not open pickers');
+ if(document.querySelectorAll('input[type=file]').length<2)throw Error('Source inputs missing');
  for(const selector of ['.drop-zone','.osm-import-strip button','.realtime-fields input','.realtime-actions button','.network-import-example']){
   const element=document.querySelector(selector);element.scrollIntoView({block:'center'});await wait();
   const r=element.getBoundingClientRect();
@@ -37,7 +35,7 @@ window.checkNavigation=async()=>{
  const preset=document.querySelector('.realtime-preset button');preset.click();await wait();
  document.querySelector('.realtime-actions button').click();await wait();
  if(!connected)throw Error('Realtime form did not connect');
- return {width:innerWidth,height:innerHeight,pickers:true,controlsReachable:true,realtimeSubmit:true};
+ return {width:innerWidth,height:innerHeight,sourceInputs:true,controlsReachable:true,realtimeSubmit:true};
 };`
 const server = await createServer({ root, cacheDir: path.join(directory, 'vite-cache'), configFile: false, plugins: [react(), {
   name: 'navigation-fixture',

@@ -42,7 +42,7 @@ export function intelligenceScenario(directory) {
   const state = deriveOperationalState(context, snapshot, now)
   state.tripHistory = { '39-0/2026-09-14': [8, 4, 0].map((ago, i) => ({ at: new Date((now - ago * 60) * 1000).toISOString(), delaySeconds: [600, 900, 1200][i], stopId: 'C', tripId: '39-0', serviceDate: '2026-09-14' })) }
   const notebook = createNotebook(path.join(directory, 'agency'))
-  const operations = createOperationsStore(notebook.directory, 'evaluation', () => now * 1000)
+  const operations = createOperationsStore(notebook.directory, 'evaluation')
   return { context, state, snapshot, notebook, operations, scheduleIdentity: 'synthetic-evaluation-v1',
     selection: workspaceSelection(context, { routeId: '39', stopId: 'C' }),
     close() { operations.close(); notebook.close(); context.close() } }

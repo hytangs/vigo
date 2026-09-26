@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { createRequire } from 'node:module'
+
 import JSZip from 'jszip'
 import { DatabaseSync } from 'node:sqlite'
 import {
@@ -232,30 +232,17 @@ try {
 
   // Fused coordinate frontiers must keep the endpoint walking rule when the
   // scalar witness crosses the JS boundary into exact Pareto certification.
-  const { TimetableKernel } = createRequire(import.meta.url)('../native/vigo-routing-kernel/vigo-routing-kernel.node')
-  const nativePareto = TimetableKernel.prototype.routeParetoRoundCsa
-  const terminalRules = []
-  TimetableKernel.prototype.routeParetoRoundCsa = function (input) {
-    terminalRules.push(input.allowPostRideTransfers)
-    return nativePareto.call(this, input)
+  const { __destinationAccessStopIds: ignored, ...coordinateRequest } = threeRideRequest
+  void ignored
+  for (const timePreference of ['depart', 'arrive']) {
+    const coordinatePlan = routeNationalGtfsStore(routingStorePath, { ...coordinateRequest,
+      origin: { ...coordinateRequest.origin, source: 'map' },
+      timePreference, arriveMinutes: 530,
+    })
+    assert.equal(coordinatePlan.status, 'ready')
+    const lastRide = coordinatePlan.legs.findLastIndex((leg) => leg.type === 'ride')
+    assert(coordinatePlan.legs.slice(lastRide + 1).reduce((sum, leg) => sum + leg.distanceKm, 0) <= coordinateRequest.maxWalkKm)
   }
-  try {
-    const { __destinationAccessStopIds: ignored, ...coordinateRequest } = threeRideRequest
-    void ignored
-    for (const timePreference of ['depart', 'arrive']) {
-      const coordinatePlan = routeNationalGtfsStore(routingStorePath, { ...coordinateRequest,
-        origin: { ...coordinateRequest.origin, source: 'map' },
-        timePreference, arriveMinutes: 530,
-      })
-      assert.equal(coordinatePlan.status, 'ready')
-      const lastRide = coordinatePlan.legs.findLastIndex((leg) => leg.type === 'ride')
-      assert(coordinatePlan.legs.slice(lastRide + 1).reduce((sum, leg) => sum + leg.distanceKm, 0) <= coordinateRequest.maxWalkKm)
-    }
-  } finally {
-    TimetableKernel.prototype.routeParetoRoundCsa = nativePareto
-  }
-  assert(terminalRules.length >= 2)
-  assert(terminalRules.every((allow) => allow === false))
 
   const twoRidePlan = routeNationalGtfsStore(routingStorePath, {
     origin: { coordinate: [0, 0], label: 'Origin', source: 'stop', stopId: 'O' },

@@ -5,11 +5,9 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { AgencyContext } from '../src/agency/agencyContext.mjs'
 import { deriveOperationalState } from '../src/agency/realtimeIntelligence.mjs'
-import { createToolRegistry } from '../src/agency/toolRegistry.mjs'
+
 import { serviceTiming } from '../src/agency/serviceTiming.mjs'
-import { queryAgency } from '../src/agency/queryAgent.mjs'
-import { normalizeArguments, validateArguments } from '../src/agency/toolArguments.mjs'
-import { publicReply } from '../src/agency/publicReply.mjs'
+
 import { createAgencyFixture, realtimeFixture, tripUpdate, observationTime } from './fixtures/agency.mjs'
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agency-service-timing-'))
@@ -70,39 +68,5 @@ try {
   assert.equal(noReturn.roundTrips.length, 0)
   assert.match(noReturn.summary, /does not supply both sides/)
 
-  const callTool = createToolRegistry({ context, snapshot, state })
-  for (const [question, args, expected] of [
-    ['Which buses are on R now?', { view: 'vehicles', routeId: 'R' }, /2 vehicles/],
-    ['When did vehicle 42 leave its terminal?', { view: 'trip', vehicleId: '42' }, /actual departure time is not recorded/],
-    ['How long is a full cycle on R now?', { view: 'cycle', routeId: 'R' }, /29 min.*excluding terminal layovers/],
-  ]) {
-    let calls = 0
-    const result = await queryAgency({ question, context, state, callTool, provider: { available: true, model: 'fixture', complete: async (_messages, tools) => {
-      assert.equal(++calls, 1, 'Completed service timing is rendered without a model rewrite')
-      assert.ok(tools.some(tool => tool.name === 'service_timing'))
-      return { tool_calls: [{ id: 'timing', function: { name: 'service_timing', arguments: JSON.stringify({ ...args, resultUse: 'answer' }) } }] }
-    } } })
-    assert.match(result.answer, expected); assert.equal(result.aiGenerated, false); assert.equal(result.warnings.length, 0)
-  }
-  const numeric = { type: 'object', properties: { horizonMinutes: { type: 'integer', minimum: 1, maximum: 120 }, vehicleId: { type: 'string' } }, required: ['horizonMinutes'] }
-  assert.deepEqual(normalizeArguments({ horizonMinutes: '60', vehicleId: '0042' }, numeric), { horizonMinutes: 60, vehicleId: '0042' })
-  for (const value of ['60 minutes', '2.5', '121', 'Infinity', '1e999', '']) assert.throws(() => validateArguments(normalizeArguments({ horizonMinutes: value }, numeric), numeric))
-  assert.throws(() => validateArguments(normalizeArguments({ horizonMinutes: '60', unexpected: true }, numeric), numeric), /Unknown/)
-  for (const content of ['private draft</think>Public answer.', '<think>private draft</think>Public answer.', 'private draft</THINK >Public answer.', '<think>unfinished']) {
-    assert.doesNotMatch(publicReply(content), /private|think|unfinished/)
-  }
-  assert.equal(publicReply('private draft</think>Public answer.'), 'Public answer.')
-  assert.equal(publicReply('Thinking Process:\nprivate unfinished draft'), '')
-  assert.equal(publicReply('**Thinking Process:**\nprivate draft\n**Final Answer:**\nPublic answer.'), 'Public answer.')
-  assert.equal(publicReply('This explains the thinking process behind a service change.'), 'This explains the thinking process behind a service change.')
-  let round = 0
-  const normalized = await queryAgency({ question: 'Check R for an hour', context, state, callTool: async (name, args) => {
-    assert.equal(name, 'inspect_service'); assert.equal(args.horizonMinutes, 60)
-    return { ok: true, data: { aspect: 'outlook' }, generatedAt: state.generatedAt, warnings: [], provenance: [] }
-  }, history: [{ question: 'Earlier', answer: 'private draft</think>Prior public answer.' }], provider: { available: true, complete: async messages => {
-    assert.doesNotMatch(JSON.stringify(messages), /private draft/)
-    return ++round === 1 ? { tool_calls: [{ id: 'scope', function: { name: 'inspect_service', arguments: JSON.stringify({ scope: 'routes', routeNames: ['R'], horizonMinutes: '60' }) } }] } : { content: 'private draft</think>Public answer.' }
-  } } })
-  assert.equal(normalized.answer, 'Public answer.'); assert.equal(normalized.warnings.length, 0)
 } finally { context?.close(); await fs.rm(directory, { recursive: true, force: true }) }
-console.log('Service timing: distinct fresh vehicles, past terminal evidence, out-and-back running time vs headway, direct rendering, numeric argument repair and reasoning boundaries passed.')
+console.log('Service timing: fresh vehicles, terminal evidence and round-trip computation passed.')

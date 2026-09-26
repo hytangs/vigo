@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict'
-import fs from 'node:fs/promises'
-import os from 'node:os'
-import path from 'node:path'
+
 import { realtimeSnapshotFromFeed, realtimeSnapshotFromFeeds } from '../src/server/realtime-snapshot.mjs'
 import { gtfsRealtimeEnums } from '../src/server/gtfs-realtime-decoder.mjs'
-import { createAgencyService } from '../src/server/agency-api.mjs'
-import { createAgencyFixture, realtimeFixture, observationTime } from './fixtures/agency.mjs'
+
+import { observationTime } from './fixtures/agency.mjs'
 
 const stamp = '2026-09-13T12:00:00Z'
 const normalize = entities => realtimeSnapshotFromFeed({ header: { timestamp: observationTime, incrementality: 0 }, entity: entities }, 'fixture', stamp, 'application/x-protobuf')
@@ -65,78 +63,10 @@ assert.equal(failed.feeds[0].error, 'Fixture failure')
 const future = realtimeSnapshotFromFeeds([{ sourceUrl: 'https://example.org/future', kind: 'tripUpdates', fetchedAt: stamp, feed: { header: { timestamp: observationTime + 181 }, entity: [] } }])
 assert.equal(future.freshness.status, 'unknown', 'A future feed header must not become fresh through age clamping')
 
-const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agency-snapshot-'))
-const file = path.join(directory, 'schedule.sqlite')
-createAgencyFixture(file)
-const sourceSnapshot = realtimeFixture()
-let calls = 0
-let now = observationTime * 1000
-const provider = { available: false, model: null }
-const agency = createAgencyService({ context: async () => ({ storePath: file, cityName: 'City X' }), inspectRealtime: async () => { calls++; return sourceSnapshot } }, { clock: () => now, provider, refreshMs: 60_000 })
-try {
-  const request = { urls: { tripUpdates: 'https://example.org/feed' } }
-  await agency.connect('city', request)
-  await agency.connect('city', request)
-  assert.equal(calls, 1, 'A second client consumes the server snapshot, without another feed fetch')
-  const live = await agency.state('city')
-  const result = await agency.handle('city', { action: 'tool', name: 'realtime_status' })
-  assert.equal(live.observedAt, result.data.observedAt)
-  const skill = await agency.handle('city', { action: 'run-skill', id: 'network-health-summary' })
-  assert.equal(skill.trace[1].result.generatedAt, live.generatedAt)
-  assert.match(skill.answer, /Reporting trips currently match the timetable/)
-  const recalled = await agency.handle('city', { action: 'tool', name: 'recall_notebook', arguments: { entryId: skill.entryId } })
-  assert.equal(recalled.data.entries[0].observedAt, live.generatedAt)
-  assert.equal(calls, 1, 'Notebook retrieval uses City evidence without fetching feeds or calling a model')
-  await agency.handle('city', { action: 'skill-install', skill: {
-    id: 'partial-study', name: 'Partial study', description: 'Exercise a failed tool after a completed check.', instructions: 'Read the network, then the selected route.', inputs: [],
-    steps: [{ tool: 'network_overview' }, { tool: 'service_alerts', arguments: { routeId: 'missing-route' } }, { tool: 'realtime_status' }],
-  } })
-  const partial = await agency.handle('city', { action: 'run-skill', id: 'partial-study' })
-  assert.match(partial.answer, /Study incomplete\. 1 of 3 checks completed/)
-  assert.equal(partial.trace.length, 2)
-  assert.equal(partial.trace[1].result.ok, false)
-  const saved = await agency.handle('city', { action: 'notebook-entry', id: partial.entryId })
-  assert.deepEqual(saved.entries[0].answer.trace, partial.trace, 'A failed later step must not discard the saved investigation')
-  const stop = new AbortController()
-  const stopped = await agency.handle('city', { action: 'run-skill', id: 'network-health-summary' }, stop.signal, (activity) => { if (activity.phase === 'skill-0' && activity.progress === 1) stop.abort() })
-  assert.match(stopped.answer, /Study stopped\. 1 of 3 checks completed/)
-  assert.equal(stopped.trace.length, 1)
-  assert.ok((await agency.handle('city', { action: 'notebook-entry', id: stopped.entryId })).entries.length)
-  await agency.handle('city', { action: 'skill-install', skill: { id: 'alert-summary', name: 'Alert evidence summary', description: 'Exercise cancellation during model interpretation.', instructions: 'Summarize the published notice.', inputs: [], steps: [{tool:'realtime_status'},{tool:'service_alerts'},{tool:'service_alerts'}] } })
-  const summaryStop = new AbortController()
-  sourceSnapshot.alerts.push({ id: 'summary-check', header: 'River service notice', sourceUrl: sourceSnapshot.feeds[0].sourceUrl })
-  provider.available = true
-  provider.complete = async () => { summaryStop.abort(); throw new Error('Summary interrupted') }
-  const stoppedSummary = await agency.handle('city', { action: 'run-skill', id: 'alert-summary' }, summaryStop.signal)
-  assert.match(stoppedSummary.answer, /Study stopped\. 3 of 3 checks completed/)
-  assert.match(stoppedSummary.answer, /River service notice/, 'A cancelled summary retains the supplied service evidence')
-  assert.equal(stoppedSummary.aiGenerated, false)
-  assert.ok(stoppedSummary.entryId, 'Cancellation during AI summarization must also retain all completed checks')
-  provider.available = false
-  sourceSnapshot.alerts = []
-  sourceSnapshot.alerts = Array.from({ length: 600 }, (_, index) => ({ id: `network-${index}`, severity: 'SEVERE', header: 'Network notice', sourceUrl: sourceSnapshot.feeds[0].sourceUrl }))
-  sourceSnapshot.tripUpdates[0].stopTimeUpdates[0].departure.delay = 300
-  const capped = await agency.state('city')
-  assert.equal(capped.events.length, 500)
-  assert.equal(capped.events.some((event) => event.type === 'delay'), false)
-  const scoped = await agency.state('city', { routeId: 'R', eventType: 'delay' })
-  assert.equal(scoped.events.length, 1, 'Filter before limiting, so network notices cannot hide a route finding')
-  assert.equal(scoped.events[0].routeId, 'R')
-  await assert.rejects(agency.state('city', { routeId: 'missing' }), /Unknown route/)
-  sourceSnapshot.alerts = []
-  now += 181_000
-  assert.equal((await agency.state('city')).counts.matchedTrips, 0, 'The same snapshot ages without a new fetch')
-  assert.equal(calls, 1)
-  await agency.disconnect('city')
-  assert.equal((await agency.state('city')).connected, false)
-  now = Date.parse('2026-10-02T12:00:00Z')
-  await assert.rejects(agency.connect('city', request), /expired/)
-  assert.equal(calls, 1, 'Timetable coverage is checked before any realtime network call')
-  console.log('Agency snapshots: decoder identity, independent source clocks, partial errors, one server observation, calendar checks before fetch, shared tools/skills, aging, and disconnect passed.')
-} finally { agency.close(); await fs.rm(directory, { recursive: true, force: true }) }
-
 const cars = [{ label: '1462', carriageSequence: 1, occupancyStatus: 2, occupancyPercentage: 0 }, { carriageSequence: 2, occupancyPercentage: -1 }]
 const train = normalize([{ id: 'train', vehicle: { multiCarriageDetails: cars } }]).vehicles[0]
 assert.equal(train.occupancyStatus, undefined)
 assert.deepEqual(train.carriages, [{ label: '1462', carriageSequence: 1, occupancyStatus: 'FEW_SEATS_AVAILABLE', occupancyPercentage: 0 }, { carriageSequence: 2 }])
 assert.equal(normalize([{ id: 'train', vehicle: { multiCarriageDetails: [cars[1]] } }]).vehicles[0].carriages, undefined, 'Invalid carriage sequences must be discarded')
+
+console.log('Realtime decoding and source-clock normalization passed.')

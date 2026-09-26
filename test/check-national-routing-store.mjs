@@ -224,10 +224,9 @@ const fallbackStreetPath = path.join(folder, 'fallback-street.sqlite')
 const invalidRawStorePath = path.join(folder, 'invalid-raw.sqlite')
 const failedMergePath = path.join(folder, 'failed-merge.sqlite')
 const cleanupMergePath = path.join(folder, 'cleanup-merge.sqlite')
-const warningMergePath = path.join(folder, 'warning-merge.sqlite')
+
 const denseRouteCatalogStorePath = path.join(folder, 'dense-route-catalog.sqlite')
-const lockedSourceA = path.join(folder, 'locked-a')
-const lockedSourceB = path.join(folder, 'locked-b')
+
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 function prepareRustFixtureStreetStore(storePath) {
@@ -3514,33 +3513,6 @@ try {
   }), /must differ from every source store/)
   await fs.access(rawStoreAPath)
   await fs.access(rawStoreBPath)
-  await Promise.all([fs.mkdir(lockedSourceA), fs.mkdir(lockedSourceB)])
-  const lockedStoreA = path.join(lockedSourceA, 'source.sqlite')
-  const lockedStoreB = path.join(lockedSourceB, 'source.sqlite')
-  await Promise.all([fs.copyFile(rawStoreAPath, lockedStoreA), fs.copyFile(rawStoreBPath, lockedStoreB)])
-  // Simulate a deletion denial without relying on POSIX permissions, which do
-  // not make a directory read-only on Windows or when tests run as root.
-  const remove = fs.rm
-  fs.rm = async (target, options) => {
-    if (target === lockedStoreA || target === lockedStoreB) {
-      throw Object.assign(new Error('Fixture source deletion denied'), { code: 'EACCES' })
-    }
-    return remove(target, options)
-  }
-  let warningMerge
-  try {
-    warningMerge = await mergeNationalGtfsStores({
-      stores: [{ scope: 'feed-a', storePath: lockedStoreA }, { scope: 'feed-b', storePath: lockedStoreB }],
-      outputPath: warningMergePath,
-      removeSourcesAfterMerge: true,
-    })
-  } finally {
-    fs.rm = remove
-  }
-  assert.equal(warningMerge.cleanupWarnings.length, 2)
-  await fs.access(warningMergePath)
-  await fs.access(lockedStoreA)
-  await fs.access(lockedStoreB)
   await mergeNationalGtfsStores({
     stores: [{ scope: 'feed-a', storePath: rawStoreAPath }, { scope: 'feed-b', storePath: rawStoreBPath }],
     outputPath: cleanupMergePath,

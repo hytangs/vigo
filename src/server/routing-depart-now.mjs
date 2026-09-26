@@ -6,7 +6,7 @@ function requestError(message, code, statusCode = 400) {
 
 // Resolve once at the HTTP boundary. Ordered legs then advance from the first
 // departure instead of each independently returning to the wall clock.
-export function resolveDepartNowRequest(request, agencyTimezones, clock = Date.now) {
+export function resolveDepartNowRequest(request, agencyTimezones, observationMs = Date.now()) {
   if (request?.departNow === undefined || request.departNow === false) return request
   if (request.departNow !== true) throw requestError('departNow must be a boolean.', 'invalid_depart_now')
   if (request.routingDataMode !== 'realtime' || !['transit', undefined].includes(request.mode)) {
@@ -28,7 +28,7 @@ export function resolveDepartNowRequest(request, agencyTimezones, clock = Date.n
     throw requestError('The imported agency timezone is invalid. Rebuild the GTFS feed before using Depart now.',
       'depart_now_timezone_unavailable', 409)
   }
-  const nowMs = Number(clock())
+  const nowMs = Number(observationMs)
   if (!Number.isFinite(nowMs)) throw requestError('The server clock is unavailable.', 'depart_now_clock_unavailable', 503)
   // Public routing times use whole minutes. Round forward before converting to
   // the agency calendar, so an earlier departure within this minute cannot be

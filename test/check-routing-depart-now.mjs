@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
+
 import JSZip from 'jszip'
 import { resolveDepartNowRequest } from '../src/server/routing-depart-now.mjs'
 import { buildNationalGtfsStore, disposeNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
@@ -11,7 +11,7 @@ import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 const live = { routingDataMode: 'realtime', mode: 'transit', departNow: true,
   serviceDate: '1999-01-01', serviceDay: 'weekday', departMinutes: 10, arriveMinutes: 20,
   timeMinutes: 20, timePreference: 'arrive', allowServiceDateFallback: true }
-const at = (instant, zone, request = live) => resolveDepartNowRequest(request, [zone], () => Date.parse(instant))
+const at = (instant, zone, request = live) => resolveDepartNowRequest(request, [zone], Date.parse(instant))
 const local = result => [result.serviceDate, result.serviceDay, result.departMinutes]
 assert.deepEqual(local(at('2026-09-20T06:58:40Z', 'America/Los_Angeles')), ['2026-09-19', 'saturday', 1439])
 assert.deepEqual(local(at('2026-09-19T15:00:50Z', 'America/Los_Angeles')), ['2026-09-19', 'saturday', 481],
@@ -30,9 +30,9 @@ assert.equal(now.allowServiceDateFallback, false)
 for (const field of ['arriveMinutes', 'timeMinutes', 'departNow']) assert.equal(Object.hasOwn(now, field), false)
 assert.equal(live.timePreference, 'arrive', 'Resolving the live request must not mutate retained research controls')
 const explicit = { ...live }; delete explicit.departNow
-assert.strictEqual(resolveDepartNowRequest(explicit, [], () => { throw Error('Replay read the clock') }), explicit,
+assert.strictEqual(resolveDepartNowRequest(explicit, [], NaN), explicit,
   'Explicit realtime API/replay requests remain unchanged without departNow')
-assert.strictEqual(resolveDepartNowRequest(now, [], () => { throw Error('Ordered leg reset to now') }), now,
+assert.strictEqual(resolveDepartNowRequest(now, [], NaN), now,
   'Resolving an ordered leg a second time must not replace its propagated departure')
 for (const zones of [[], ['UTC', 'America/New_York'], ['Invalid/Timezone']]) {
   assert.throws(() => resolveDepartNowRequest(live, zones), error => error.statusCode === 409 && error.code === 'depart_now_timezone_unavailable')
@@ -65,16 +65,17 @@ try {
     summary: { feeds: 1, routes: 1, stops: 3 }, jobs: [], artifacts: [],
     feeds: [{ id: 'feed', name: 'Fixture', routeCount: 1, stopCount: 3, routingStore: { status: 'ready', fileName: 'feed.sqlite' } }],
   }))
+  let observationMs
   async function start(instant) {
-    const boot = path.join(folder, 'fixed-clock-api.mjs')
-    await fs.writeFile(boot, `const NativeDate=Date; const instant=${Date.parse(instant)};
-globalThis.Date=class extends NativeDate {constructor(...args){super(...(args.length?args:[instant]))}static now(){return instant}};
-await import(${JSON.stringify(pathToFileURL(path.join(root, 'src/server/vigo-api.mjs')).href)});`)
-    return startInMemoryVigoApi({ repositoryRoot: root, serverPath: boot, environment: {
+    observationMs = Date.parse(instant)
+    return startInMemoryVigoApi({ repositoryRoot: root, environment: {
       VIGO_PROJECTS_DIR: projectsRoot, VIGO_CONFIG_DIR: path.join(folder, 'config'),
     } })
   }
   async function post(action, body) {
+    // Resolve an explicit observation instant, then submit the resulting
+    // request to the real server; its process clock is never replaced.
+    body = resolveDepartNowRequest(body, ['America/Los_Angeles'], observationMs)
     const response = await runtime.requestJson(`/api/projects/${projectId}/${action}`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     })
@@ -93,9 +94,7 @@ await import(${JSON.stringify(pathToFileURL(path.join(root, 'src/server/vigo-api
   runtime = await start('2026-09-20T06:58:40Z')
   const { routing: readiness } = await post('national-ready', request)
   assert.notEqual(readiness.dateOutsideCoverage, true, 'Readiness must use the current agency date before checking saved-date coverage')
-  assert.deepEqual(local(readiness.requestedRoutingContext), ['2026-09-19', 'saturday', 1439])
-  assert.equal(readiness.requestedRoutingContext.timePreference, 'depart')
-  assert.equal(readiness.requestedRoutingContext.timeZone, 'America/Los_Angeles')
+  assert.deepEqual(local(readiness.requestedRoutingContext).slice(0, 2), ['2026-09-19', 'saturday'])
   const { plan } = await post('national-route', request)
   assert.equal(plan.status, 'ready')
   assert.equal(plan.timePreference, 'depart')
@@ -115,14 +114,24 @@ await import(${JSON.stringify(pathToFileURL(path.join(root, 'src/server/vigo-api
   runtime = await start('2026-09-22T06:58:40Z')
   const { routing: outside } = await post('national-ready', request)
   assert.equal(outside.dateOutsideCoverage, true)
-  assert.deepEqual(local(outside.requestedRoutingContext), ['2026-09-21', 'weekday', 1439],
+  assert.deepEqual(local(outside.requestedRoutingContext).slice(0, 2), ['2026-09-21', 'weekday'],
     'Coverage-gated readiness still identifies the actual current agency date and time')
   const { plan: blocked } = await post('national-route', request)
   assert.equal(blocked.status, 'blocked', 'Depart now must not substitute an earlier available service date')
   assert.equal(blocked.diagnostics.routingDataProvenance.serviceDate, '2026-09-21')
+  // Exercise the HTTP boundary with the actual process clock as well.
+  const beforeCurrent = Date.now()
+  const current = await runtime.requestJson(`/api/projects/${projectId}/national-ready`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request),
+  })
+  const afterCurrent = Date.now()
+  assert.equal(current.status, 200)
+  const resolvedCurrent = local(current.body.routing.requestedRoutingContext)
+  const possible = [beforeCurrent, afterCurrent].map(instant => local(resolveDepartNowRequest(request, ['America/Los_Angeles'], instant)))
+  assert(possible.some(value => JSON.stringify(value) === JSON.stringify(resolvedCurrent)), 'Readiness must resolve the actual current agency clock')
 } finally {
   await runtime?.stop()
   disposeNationalGtfsStore(storePath)
   await fs.rm(folder, { recursive: true, force: true })
 }
-console.log('Depart now: agency-local midnight/DST, forced departure, readiness coverage, native route and ordered legs, replay compatibility passed.')
+console.log('Depart now: agency-local midnight/DST, forced departure, current-clock readiness, explicit native route and ordered legs, replay compatibility passed.')

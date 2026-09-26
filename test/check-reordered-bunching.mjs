@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { AgencyContext } from '../src/agency/agencyContext.mjs'
 import { deriveOperationalState } from '../src/agency/realtimeIntelligence.mjs'
 import { vehicleGap } from '../src/agency/vehicleIndicators.ts'
-import { createAgencyService } from '../src/server/agency-api.mjs'
+
 import { eventSentences } from '../src/agency/communications.mjs'
 import { summarizeEvidence } from '../src/agency/evidenceSummary.mjs'
 import { briefingFacts } from '../src/agency/briefing.mjs'
@@ -31,18 +31,11 @@ snapshot.vehicles = snapshot.tripUpdates.map((update, index) => ({ id: update.ve
   timestamp: now, sourceFeedTimestamp: now, sourceUrl, currentStopSequence: update.tripId === 'T2' ? 30 : 10 }))
 const derive = value => deriveOperationalState(context, value, now)
 const reordered = state => state.events.filter(event => event.evidence.comparisonBasis === 'reordered-predictions')
-const agency = createAgencyService({ context: async () => ({ storePath: file, cityName: 'Test city' }), inspectRealtime: async () => snapshot },
-  { clock: () => now * 1000, provider: { available: false }, refreshMs: 60_000 })
 const server = await createSsrTestServer({ configFile: false, plugins: [react()], cacheDir: path.join(directory, 'cache') })
 try {
   const { buildServiceVehicleFrame } = await server.ssrLoadModule('/src/serviceVehicles.ts')
   const { AgencyEvidence } = await server.ssrLoadModule('/src/components/AgencyEvidence.tsx')
-  const frame = (events, input = snapshot) => {
-    const original = Date.now
-    Date.now = () => now * 1000
-    try { return buildServiceVehicleFrame({ mode: 'live', preview: { routes: [], stops: [] }, realtimeSnapshot: input, operationalEvents: events, scheduledVehicles: [] }) }
-    finally { Date.now = original }
-  }
+  const frame = (events, input = snapshot) => buildServiceVehicleFrame({ mode: 'live', preview: { routes: [], stops: [] }, realtimeSnapshot: input, operationalEvents: events, scheduledVehicles: [], observationSeconds: now })
   const state = derive(snapshot)
   const event = reordered(state)[0]
   assert.deepEqual(event.evidence.tripIds, ['T1', 'T3'])
@@ -51,10 +44,9 @@ try {
   assert.equal(event.severity, 'critical')
   assert.ok(event.sourceRefs.some(ref => ref.includes('vehicle-T2')), 'Retain the position evidence that accounts for the overtaken trip')
   assert.equal(state.measurements.intervals.some(row => row.tripIds.join() === 'T1,T3'), false, 'Do not count this as a complete scheduled headway')
-  await agency.connect('city', { urls: { tripUpdates: sourceUrl } })
-  const live = await agency.state('city')
+  const live = { ...state, mapOperationalEvents: state.events, tripHistory: {}, history: [] }
   for (const id of ['vehicle-T1', 'vehicle-T3', 'vehicle-T4']) {
-    assert.equal(vehicleGap(snapshot.vehicles.find(vehicle => vehicle.id === id), snapshot, live.mapOperationalEvents, now)?.severity, 'critical', `${id} receives the indicator through the real API map payload`)
+    assert.equal(vehicleGap(snapshot.vehicles.find(vehicle => vehicle.id === id), snapshot, live.mapOperationalEvents, now)?.severity, 'critical', `${id} receives the indicator from computed operational events`)
   }
   const displayed = frame(live.mapOperationalEvents)
   for (const id of ['vehicle-T1', 'vehicle-T3', 'vehicle-T4']) assert.match(displayed.vehicles.find(vehicle => vehicle.id === id).indicatorLabel, /↔/)
@@ -114,7 +106,8 @@ try {
   // Both reordered and scheduled pairs can end at T3; compacting by T3 alone
   // would discard one pair and leave its other member without a map indicator.
   snapshot.tripUpdates[1].stopTimeUpdates = [{ stopId: 'A', stopSequence: 10, departure: { delay: -40 } }]
-  const shared = await agency.state('city')
+  const sharedState = derive(snapshot)
+  const shared = { ...sharedState, mapOperationalEvents: sharedState.events }
   assert.ok(shared.mapOperationalEvents.some(event => event.evidence.tripIds?.join() === 'T1,T3'))
   assert.ok(shared.mapOperationalEvents.some(event => event.evidence.tripIds?.join() === 'T2,T3'))
   const sharedFrame = frame(shared.mapOperationalEvents)
@@ -122,4 +115,4 @@ try {
   const strongerGap = { ...event, id: 'wider', type: 'service-gap', severity: 'critical', vehicleId: 'vehicle-T3', tripId: 'T3', evidence: { scheduledHeadwaySeconds: 600, observedHeadwaySeconds: 2400 } }
   assert.equal(frame([...shared.mapOperationalEvents, strongerGap]).vehicles.find(vehicle => vehicle.id === 'vehicle-T3').bunchingLinks.length, 2, 'A stronger gap warning must not hide supported bunching links')
   console.log('Reordered bunching: three-bus indicators, pair retention, conservative baseline, exact identity, freshness, and metric separation passed.')
-} finally { await server.close(); agency.close(); context.close(); await fs.rm(directory, { recursive: true, force: true }) }
+} finally { await server.close(); context.close(); await fs.rm(directory, { recursive: true, force: true }) }

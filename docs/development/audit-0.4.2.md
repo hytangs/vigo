@@ -1,5 +1,9 @@
 # Architecture audit for 0.4.2
 
+This is the historical audit of the frozen `v0.4.2` tag. Subsequent test pruning
+and runtime changes are recorded in [runtime limits and recovery](runtime-recovery.md);
+test filenames below refer to the tagged revision.
+
 This review covers the Engine and Studio repository: import and City storage,
 native adapters and kernels, worker scheduling, CLI and HTTP boundaries, React
 and map surfaces, agency research interfaces, documentation, and release checks.

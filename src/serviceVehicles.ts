@@ -214,7 +214,7 @@ export function routeDirectionBearing(coordinate: LngLat, route: RouteMetric | u
   return bearing
 }
 
-function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview, events: OperationalEvent[] = []): ServiceVehicle[] {
+function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview, events: OperationalEvent[] = [], nowSeconds = Date.now() / 1000): ServiceVehicle[] {
   if (!snapshot) return []
   const index = previewVehicleIndex(preview)
   const tripUpdates = new Map<string, RealtimeSnapshot['tripUpdates'][number]>()
@@ -263,20 +263,20 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
         ? 'Not encoded'
         : formatScheduleClock(scheduledArrivalMinutes + Math.round((delaySeconds ?? 0) / 60))
     const stop = stopFor(index, nextStopId)
-    const gaps = vehicleAlerts(vehicle, snapshot, events)
+    const gaps = vehicleAlerts(vehicle, snapshot, events, 'spacing', nowSeconds)
     const gap = gaps[0]
-    const delay = vehicleAlert(vehicle, snapshot, events, 'delay')
-    const partner = bunchingPartner(vehicle, snapshot, gap)
+    const delay = vehicleAlert(vehicle, snapshot, events, 'delay', nowSeconds)
+    const partner = bunchingPartner(vehicle, snapshot, gap, nowSeconds)
     const links = new Map<string, NonNullable<ServiceVehicle['bunchingLinks']>[number]>()
     for (const event of gaps) {
       if (event.vehicleId !== vehicle.id) continue
-      const other = bunchingPartner(vehicle, snapshot, event)
+      const other = bunchingPartner(vehicle, snapshot, event, nowSeconds)
       if (!other || !Number.isFinite(other.lon) || !Number.isFinite(other.lat) || Math.abs(other.lon!) > 180 || Math.abs(other.lat!) > 90) continue
       const id = JSON.stringify([other.sourceUrl, other.id, other.tripId, other.startDate, other.startTime])
       if (!links.has(id)) links.set(id, { id, coordinate: [other.lon!, other.lat!], severity: event.severity })
     }
     const occupancy = vehicleOccupancyIndicator(vehicle.occupancyStatus, vehicle.carriages)
-    const fresh = vehicleReportFresh(vehicle, snapshot)
+    const fresh = vehicleReportFresh(vehicle, snapshot, nowSeconds)
     const spacingTime = (seconds: number) => seconds < 60 ? `${Math.round(seconds)} sec` : `${Number((seconds / 60).toFixed(1))} min`
     const gapLabel = gap ? `${spacingTime(gap.evidence.observedHeadwaySeconds || 0)} ${gap.type === 'bunching' ? 'spacing' : 'gap'} · ${gap.evidence.comparisonBasis ? 'local scheduled interval' : 'scheduled'} ${spacingTime(gap.evidence.scheduledHeadwaySeconds || 0)}` : ''
     const routeShortName = route?.shortName || routeId || 'Unassigned'
@@ -377,17 +377,19 @@ export function buildServiceVehicleFrame({
   realtimeSnapshot,
   scheduledVehicles,
   operationalEvents = [],
+  observationSeconds = Date.now() / 1000,
 }: {
   mode: ServiceVehicleMode
   preview: MapPreview
   realtimeSnapshot: RealtimeSnapshot | null
+  observationSeconds?: number
   operationalEvents?: OperationalEvent[]
   scheduledVehicles: ScheduledVehicle[]
 }): ServiceVehicleFrame {
   return {
     mode,
     vehicles: mode === 'live'
-      ? realtimeVehicles(realtimeSnapshot, preview, operationalEvents)
+      ? realtimeVehicles(realtimeSnapshot, preview, operationalEvents, observationSeconds)
       : scheduledServiceVehicles(scheduledVehicles, preview),
     fetchedAt: mode === 'live' ? realtimeSnapshot?.fetchedAt : undefined,
     tripUpdateCount: mode === 'live' ? realtimeSnapshot?.counts.tripUpdates ?? 0 : 0,

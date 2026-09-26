@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { spawnSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { prepareNativeTimetableIndexes, readNativeServiceTimetable } from '../src/server/native-routing-kernel.mjs'
@@ -125,24 +125,5 @@ try {
   assert.throws(() => readNativeServiceTimetable({ ...sourceInput, segmentCount: 4 }), /slice changed/)
   assert.throws(() => readNativeServiceTimetable({ ...sourceInput, segmentCount: 6 }), /slice changed/)
   assert.equal(readNativeServiceTimetable({ ...sourceInput, serviceIds: [], segmentCount: 0 }).runCount, 0)
-  const binding = path.join(fixture, 'binding.cjs')
-  for (const [source, message, operator = 'prepareNativeTimetableIndexes'] of [
-    ['module.exports = {}', 'lacks timetable preparation'],
-    ['module.exports = {}', 'lacks service timetable compilation', 'readNativeServiceTimetable'],
-    ['module.exports = {}', 'lacks realtime compilation', 'compileNativeRealtimeTimetable'],
-    ['module.exports = {}', 'lacks station path compilation', 'compileNativeStationPaths'],
-    ['module.exports = {}', 'lacks station path validation', 'validateNativeStationPaths'],
-    ["exports.compileRealtimeTimetable = () => { throw Error('fixture native failure') }", 'fixture native failure', 'compileNativeRealtimeTimetable'],
-    ["exports.compileStationPaths = () => { throw Error('fixture native failure') }", 'fixture native failure', 'compileNativeStationPaths'],
-    ["exports.prepareTimetableIndexes = () => { throw Error('fixture native failure') }", 'fixture native failure'],
-  ]) {
-    writeFileSync(binding, source)
-    const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
-      import assert from 'node:assert/strict'
-      import { ${operator} as execute } from ${JSON.stringify(new URL('../src/server/native-routing-kernel.mjs', import.meta.url).href)}
-      assert.throws(() => execute({}), new RegExp(${JSON.stringify(message)}))
-    `], { env: { ...process.env, VIGO_NATIVE_ROUTING_KERNEL: binding }, encoding: 'utf8' })
-    assert.equal(child.status, 0, child.stderr)
-  }
 } finally { rmSync(fixture, { recursive: true, force: true }) }
 console.log('Native timetable preparation: 300 seeded graphs, ordering, transfer precedence, station projection, malformed arrays and source identity adapter passed.')

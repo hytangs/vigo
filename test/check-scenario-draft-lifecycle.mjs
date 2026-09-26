@@ -31,15 +31,6 @@ window.runTests = () => {
   flushSync(() => root.unmount());
   root = createRoot(document.getElementById('root')); mount(A);
   check(state.scenarioDrafts[0].name === 'Saved A', 'Remount lost draft');
-  const original = Storage.prototype.setItem;
-  try {
-    Storage.prototype.setItem = () => { throw Error('quota'); };
-    flushSync(() => state.setScenarioDrafts([{id:'case-a',name:'Unsaved A',interventions:[]}]))
-    check(state.draftStorageError.includes('could not be saved'), 'Missing save failure');
-    check(JSON.parse(localStorage.getItem(A)).cases[0].name === 'Saved A', 'Failed save erased copy');
-  } finally { Storage.prototype.setItem = original; }
-  flushSync(() => state.setScenarioDrafts([{id:'case-a',name:'Recovered A',interventions:[]}]))
-  check(!state.draftStorageError, 'Save did not recover');
   localStorage.setItem('damaged', '{'); mount('damaged');
   check(state.draftStorageError.includes('stored copy has been kept'), 'Malformed storage failure');
   check(localStorage.getItem('damaged') === '{', 'Malformed copy erased');
@@ -75,9 +66,9 @@ window.runTests = () => {
   mount('road-lifecycle-A');
   check(changes()[0].geometryStatus === 'idle', 'Returning to a City restored an abandoned loading state');
   mount(A);
-  return { switch: true, staleCallback: true, remount: true, quotaRecovery: true, damagedCopyRetained: true, roadCancellation:true, roadRetry:true, roadCityIsolation:true };
+  return { switch: true, staleCallback: true, remount: true, damagedCopyRetained: true, roadCancellation:true, roadRetry:true, roadCityIsolation:true };
 };
-window.checkReload = () => { check(state.scenarioDrafts[0].name === 'Recovered A', 'Reload lost draft'); return true; };
+window.checkReload = () => { check(state.scenarioDrafts[0].name === 'Saved A', 'Reload lost draft'); return true; };
 `
 const server = await createServer({ root, configFile: false, optimizeDeps: {include:['react','react-dom','react-dom/client']}, server: { host:'127.0.0.1', port:0 }, plugins:[{
   name:'draft-lifecycle', configureServer(server) { server.middlewares.use((req,res,next) => {

@@ -10,6 +10,7 @@ import {
   shell,
   utilityProcess,
 } from 'electron'
+import { engineEnvironment } from './engine-environment.mjs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -37,8 +38,9 @@ const studioIconPath = path.join(publicRoot, 'icons', 'VIGOIcon.png')
 let mainWindow = null
 let engine = null
 let engineReady = null
-let engineReadyResolve = null
-let engineReadyReject = null
+let restartTimer = null
+let engineStarts = []
+let engineAdmissions = 0
 let engineSequence = 0
 let quitting = false
 const pendingRequests = new Map()
@@ -107,61 +109,53 @@ function failPendingRequests(error) {
   pendingRequests.clear()
 }
 
-function engineEnvironment() {
-  // A packaged engine needs OS paths and locale, not the launching shell's
-  // provider credentials, build overrides or runtime injection settings.
-  const environment = app.isPackaged
-    ? Object.fromEntries(Object.entries(process.env).filter(([name]) => (
-      /^(?:PATH|HOME|USERPROFILE|HOMEDRIVE|HOMEPATH|APPDATA|LOCALAPPDATA|SystemRoot|WINDIR|TEMP|TMP|TMPDIR|XDG_CONFIG_HOME|XDG_CACHE_HOME|XDG_DATA_HOME|LANG|LANGUAGE|LC_[A-Z_]+|TZ)$/iu.test(name)
-    )))
-    : { ...process.env }
-  for (const name of [
-    'DYLD_INSERT_LIBRARIES',
-    'DYLD_LIBRARY_PATH',
-    'LD_PRELOAD',
-    'LD_LIBRARY_PATH',
-    'ELECTRON_RUN_AS_NODE',
-    'NODE_OPTIONS',
-    'NODE_PATH',
-    'VIGO_API_PORT',
-    'VIGO_API_TRANSPORT',
-    'VIGO_CONFIG_DIR',
-    'VIGO_DIST_DIR',
-    'VIGO_HOST',
-    'VIGO_NATIVE_ROUTING_KERNEL',
-    'VIGO_PORT',
-    'VIGO_PROJECTS_DIR',
-  ]) {
-    delete environment[name]
-  }
-  environment.VIGO_API_TRANSPORT = 'memory'
-  environment.VIGO_NATIVE_ROUTING_KERNEL = nativeKernelPath
-  return environment
+
+function scheduleEngineRestart() {
+  if (quitting || restartTimer || engineStarts.filter(time => Date.now() - time < 60_000).length >= 3) return
+  restartTimer = setTimeout(() => {
+    restartTimer = null
+    void startEngine().catch(error => console.error(error.message))
+  }, Math.min(4_000, 250 * 2 ** engineStarts.length))
 }
 
 function startEngine() {
   if (engine) return engineReady
 
-  engineReady = new Promise((resolve, reject) => {
-    engineReadyResolve = resolve
-    engineReadyReject = reject
-  })
+  if (quitting) return Promise.reject(new Error('VIGO Studio is closing.'))
+  engineStarts = engineStarts.filter(time => Date.now() - time < 60_000)
+  if (engineStarts.length >= 3) return Promise.reject(new Error('VIGO Engine repeatedly stopped. Wait one minute before retrying.'))
+  engineStarts.push(Date.now())
+  clearTimeout(restartTimer)
+  restartTimer = null
+  let resolveReady, rejectReady
+  engineReady = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject })
+  // Automatic restarts may have no caller waiting for startup.
+  engineReady.catch(() => {})
   const startupTimeout = setTimeout(() => {
-    engineReadyReject?.(new Error('VIGO Engine did not start within 30 seconds.'))
+    rejectReady(new Error('VIGO Engine did not start within 30 seconds.'))
+    child.kill()
   }, 30_000)
 
-  engine = utilityProcess.fork(serverPath, [], {
+  let child
+  try { child = utilityProcess.fork(serverPath, [], {
     cwd: applicationRoot,
-    env: engineEnvironment(),
+    env: { ...engineEnvironment({ isPackaged: app.isPackaged, env: process.env, nativeKernelPath }), VIGO_CONFIG_DIR: app.getPath('userData') },
     serviceName: 'VIGO Engine',
     stdio: 'pipe',
-  })
-  engine.stdout?.on('data', (chunk) => process.stdout.write(`[engine] ${chunk}`))
-  engine.stderr?.on('data', (chunk) => process.stderr.write(`[engine] ${chunk}`))
-  engine.on('message', (message) => {
+  }) } catch (error) {
+    clearTimeout(startupTimeout)
+    rejectReady(error)
+    scheduleEngineRestart()
+    return engineReady
+  }
+  engine = child
+  child.stdout?.on('data', (chunk) => process.stdout.write(`[engine] ${chunk}`))
+  child.stderr?.on('data', (chunk) => process.stderr.write(`[engine] ${chunk}`))
+  child.on('message', (message) => {
+    if (engine !== child) return
     if (message?.type === 'vigo-api-ready') {
       clearTimeout(startupTimeout)
-      engineReadyResolve?.(message)
+      resolveReady(message)
       return
     }
     if (message?.type !== 'vigo-api-response') return
@@ -177,27 +171,38 @@ function startEngine() {
     }
     entry.resolve(message)
   })
-  engine.on('error', (error) => {
+  child.on('error', (error) => {
+    if (engine !== child) return
     clearTimeout(startupTimeout)
-    engineReadyReject?.(error)
+    rejectReady(error)
     failPendingRequests(error)
+    child.kill()
   })
-  engine.on('exit', (code) => {
+  child.on('exit', (code) => {
+    if (engine !== child) return
     clearTimeout(startupTimeout)
     const error = new Error(`VIGO Engine stopped with status ${code}.`)
-    engineReadyReject?.(error)
+    rejectReady(error)
     failPendingRequests(error)
     engine = null
     if (!quitting) {
-      dialog.showErrorBox('VIGO Engine stopped', 'Close and reopen VIGO Studio to restart the engine.')
-      app.quit()
+      console.error(`${error.message} Pending requests failed.`)
+      scheduleEngineRestart()
     }
   })
   return engineReady
 }
 
 async function requestEngine(request, signal) {
-  await engineReady
+  if (engineAdmissions >= 128) throw new Error('VIGO Engine has too many pending requests. Retry shortly.')
+  engineAdmissions += 1
+  try { return await dispatchEngine(request, signal) }
+  finally { engineAdmissions -= 1 }
+}
+
+async function dispatchEngine(request, signal) {
+  if (signal?.aborted) throw signal.reason ?? new DOMException('Request aborted.', 'AbortError')
+  await startEngine()
   if (!engine) throw new Error('VIGO Engine is not running.')
   if (signal?.aborted) throw signal.reason ?? new DOMException('Request aborted.', 'AbortError')
 
@@ -424,8 +429,8 @@ async function startStudio() {
   protocol.handle(studioScheme, handleStudioProtocol)
   installDesktopBridge()
   installMenu()
-  await startEngine()
   createWindow()
+  void startEngine().catch(error => console.error(error.message))
 }
 
 const hasSingleInstance = app.requestSingleInstanceLock()
@@ -440,6 +445,7 @@ app.on('second-instance', () => {
 app.on('window-all-closed', () => app.quit())
 app.on('before-quit', () => {
   quitting = true
+  clearTimeout(restartTimer)
   failPendingRequests(new Error('VIGO Studio is closing.'))
   engine?.kill()
   engine = null

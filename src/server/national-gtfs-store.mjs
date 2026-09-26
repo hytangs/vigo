@@ -1,4 +1,5 @@
 import { readServiceTimetable } from './gtfs/service-timetable.mjs'
+import { boundedInteger, defaultTimetableBudgetBytes } from './runtime/resource-limits.mjs'
 import {
   nativeCoordinateAccessProfile,
   nativeStopTransferProfile,
@@ -256,34 +257,29 @@ function optionalPositiveLimit(name) {
   return Number.isFinite(value) && value > 0 ? value : 0
 }
 
-// These are opt-in operational safeguards. A zero value means unbounded: the
-// current resident kernel remains the routing engine for every city that fits
-// the native integer representation and the host's available memory. Routing
-// must not silently become unavailable merely because a deployment-specific
-// byte or segment budget was chosen for a smaller feed.
+// Segment limits remain optional. A finite, host-aware byte budget checks
+// timetable size before native allocation and checks retained size afterward.
 const activeServiceKernelMaxSegments = optionalPositiveLimit('VIGO_ACTIVE_KERNEL_MAX_SEGMENTS')
 const activeServiceKernelMaxSourceConnections = optionalPositiveLimit('VIGO_ACTIVE_KERNEL_MAX_SOURCE_CONNECTIONS')
   || activeServiceKernelMaxSegments
-const activeServiceKernelMaxEstimatedBytes = optionalPositiveLimit('VIGO_ACTIVE_KERNEL_MAX_BYTES')
+const activeServiceKernelMaxEstimatedBytes = boundedInteger(
+  process.env.VIGO_ACTIVE_KERNEL_MAX_BYTES, defaultTimetableBudgetBytes,
+  1024 * 1024, 16 * 1024 * 1024 * 1024,
+)
 // A malformed/oversized persisted snapshot is a cache miss, never a routing
 // capability failure: the active timetable is rebuilt from the authoritative
-// GTFS SQLite source. Keep a finite default only to bound snapshot admission;
-// the current route engine itself remains unbounded by city size.
+// GTFS SQLite source, subject to the same timetable memory budget.
 const activeServiceKernelMaxSnapshotBytes = optionalPositiveLimit('VIGO_ACTIVE_KERNEL_MAX_SNAPSHOT_BYTES')
   || 512 * 1024 * 1024
-const activeServiceKernelCacheBudgetBytes = Math.max(
-  640 * 1024 * 1024,
-  Math.min(
-    4 * 1024 * 1024 * 1024,
-    Math.floor(Number(process.env.VIGO_ACTIVE_KERNEL_CACHE_BUDGET_BYTES ?? 1280 * 1024 * 1024) || 0),
-  ),
+const activeServiceKernelCacheBudgetBytes = boundedInteger(
+  process.env.VIGO_ACTIVE_KERNEL_CACHE_BUDGET_BYTES,
+  Math.min(1280 * 1024 * 1024, Math.floor(defaultTimetableBudgetBytes / 2)),
+  16 * 1024 * 1024, 4 * 1024 * 1024 * 1024,
 )
-const activeServiceKernelSnapshotCacheBudgetBytes = Math.max(
-  128 * 1024 * 1024,
-  Math.min(
-    2 * 1024 * 1024 * 1024,
-    Math.floor(Number(process.env.VIGO_ACTIVE_KERNEL_SNAPSHOT_CACHE_BUDGET_BYTES ?? 512 * 1024 * 1024) || 0),
-  ),
+const activeServiceKernelSnapshotCacheBudgetBytes = boundedInteger(
+  process.env.VIGO_ACTIVE_KERNEL_SNAPSHOT_CACHE_BUDGET_BYTES,
+  Math.min(512 * 1024 * 1024, Math.floor(defaultTimetableBudgetBytes / 4)),
+  8 * 1024 * 1024, 2 * 1024 * 1024 * 1024,
 )
 const activeServiceKernelSchemaVersion = 'vigo.routing.active-service-kernel.v15-portable'
 const activeServiceTransferProjectionVersion = 'single_edge_service_ingress.v6-station-time'
@@ -310,7 +306,7 @@ const activeServiceKernelSnapshotCacheMaxEntries = Math.max(
 const activeServiceKernelSnapshotCacheMaxBytes = Math.max(
   activeServiceKernelSnapshotCacheBudgetBytes,
   Math.min(2 * 1024 * 1024 * 1024, Math.floor(Number(
-    process.env.VIGO_ACTIVE_KERNEL_SNAPSHOT_CACHE_MAX_BYTES ?? 512 * 1024 * 1024,
+    process.env.VIGO_ACTIVE_KERNEL_SNAPSHOT_CACHE_MAX_BYTES ?? activeServiceKernelSnapshotCacheBudgetBytes,
   ) || 0)),
 )
 const readOnlySqliteMmapBytes = Math.max(
@@ -4447,8 +4443,8 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
   let builder = null
   try {
     let activeSegmentCount = null
-    // Only configured admission guards require a count before allocating.
-    // Otherwise Rust streams the service slice once and reports its length.
+    // Count the active slice before native allocation so the byte guard can
+    // reject oversized inputs without constructing the timetable.
     if (activeServiceKernelMaxSegments > 0 || activeServiceKernelMaxEstimatedBytes > 0) {
       builder = new DatabaseSync(store.storePath, { readOnly: true })
       builder.exec('PRAGMA mmap_size=0; PRAGMA cache_size=-8192; PRAGMA temp_store=MEMORY; CREATE TEMP TABLE active_kernel_services(service_id TEXT PRIMARY KEY) WITHOUT ROWID;')

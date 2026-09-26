@@ -1,55 +1,25 @@
-import os from 'node:os'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { Worker } from 'node:worker_threads'
 import { resolveServiceDay } from '../service-day.mjs'
+import { boundedInteger, memoryCapacityBytes, runtimeCapacityError } from './resource-limits.mjs'
 
-const nationalRouteWorkerIdleMs = Math.max(100, Number(process.env.VIGO_ROUTE_WORKER_IDLE_MS) || 120_000)
+const maxPendingRequests = boundedInteger(process.env.VIGO_ROUTE_MAX_PENDING, 128, 1, 1024)
+const maxQueuedJobs = boundedInteger(process.env.VIGO_ROUTE_MAX_QUEUED, 32, 1, 256)
+const workerHeapMb = boundedInteger(process.env.VIGO_ROUTE_WORKER_HEAP_MB,
+  Math.max(128, Math.min(2048, Math.floor(memoryCapacityBytes / 8 / 1024 / 1024))), 64, 8192)
+const jobTimeoutMs = boundedInteger(process.env.VIGO_ROUTE_JOB_TIMEOUT_MS, 900_000, 1000, 3_600_000)
 
-// Selecting a routing workspace is an explicit signal of near-term use. Keep
-// its prepared context for the same lease as an interactive query so a person
-// can choose A/B without paying the national cold start a second time.
-const nationalRoutePrewarmIdleMs = Math.max(
-  100,
-  Number(process.env.VIGO_ROUTE_PREWARM_IDLE_MS) || nationalRouteWorkerIdleMs,
-)
-
-const nationalRoutePressureIdleMs = Math.max(100, Number(process.env.VIGO_ROUTE_PRESSURE_IDLE_MS) || 15_000)
-
-// A superseded interactive request normally finishes far sooner than a worker
-// restart. Preserve the prepared kernel and discard that obsolete result unless
-// the synchronous worker operation exceeds this bounded cancellation grace.
-const nationalRouteCancellationGraceMs = Math.max(
-  25,
-  Math.min(1_000, Number(process.env.VIGO_ROUTE_CANCEL_GRACE_MS) || 150),
-)
-
-const reachCancellationGraceMs = Math.max(
-  1_000,
-  Math.min(60_000, Number(process.env.VIGO_REACH_CANCEL_GRACE_MS) || 30_000),
-)
-
-const nationalRoutePrewarmWaitTimeoutMs = Math.max(
-  1_000,
-  Number(process.env.VIGO_ROUTE_PREWARM_WAIT_TIMEOUT_MS) || 180_000,
-)
-
-const nationalRoutePrewarmHardTimeoutMs = Math.max(
-  60_000,
-  Number(process.env.VIGO_ROUTE_PREWARM_HARD_TIMEOUT_MS) || 300_000,
-)
-
-export const maxNationalRouteWorkerStores = Math.max(1, Math.min(2, Number(process.env.VIGO_ROUTE_WORKER_MAX_STORES) || 2))
-
-const defaultNationalRouteRssBudgetBytes = Math.max(
-  512 * 1024 * 1024,
-  Math.min(Math.floor(os.totalmem() * 0.125), 2 * 1024 * 1024 * 1024),
-)
-
-const nationalRouteRssBudgetBytes = Math.max(
-  256 * 1024 * 1024,
-  Number(process.env.VIGO_ROUTE_WORKER_RSS_BUDGET_BYTES) || defaultNationalRouteRssBudgetBytes,
-)
+const nationalRouteWorkerIdleMs = boundedInteger(process.env.VIGO_ROUTE_WORKER_IDLE_MS, 120_000, 100, 3_600_000)
+const nationalRoutePrewarmIdleMs = boundedInteger(process.env.VIGO_ROUTE_PREWARM_IDLE_MS, nationalRouteWorkerIdleMs, 100, 3_600_000)
+const nationalRoutePressureIdleMs = boundedInteger(process.env.VIGO_ROUTE_PRESSURE_IDLE_MS, 15_000, 100, 3_600_000)
+const nationalRouteCancellationGraceMs = boundedInteger(process.env.VIGO_ROUTE_CANCEL_GRACE_MS, 150, 25, 1000)
+const reachCancellationGraceMs = boundedInteger(process.env.VIGO_REACH_CANCEL_GRACE_MS, 30_000, 1000, 60_000)
+const nationalRoutePrewarmWaitTimeoutMs = boundedInteger(process.env.VIGO_ROUTE_PREWARM_WAIT_TIMEOUT_MS, 180_000, 1000, 3_600_000)
+const nationalRoutePrewarmHardTimeoutMs = boundedInteger(process.env.VIGO_ROUTE_PREWARM_HARD_TIMEOUT_MS, 300_000, 60_000, 3_600_000)
+export const maxNationalRouteWorkerStores = boundedInteger(process.env.VIGO_ROUTE_WORKER_MAX_STORES, 2, 1, 2)
+const nationalRouteRssBudgetBytes = boundedInteger(process.env.VIGO_ROUTE_WORKER_RSS_BUDGET_BYTES,
+  Math.max(64 * 1024 * 1024, Math.min(Math.floor(memoryCapacityBytes / 8), 2 * 1024 * 1024 * 1024)),
+  64 * 1024 * 1024, Math.max(64 * 1024 * 1024, memoryCapacityBytes))
 
 export function makeAbortError(message = 'The route request was cancelled.') {
   const error = new Error(message)
@@ -161,15 +131,6 @@ function nationalRoutingPrewarmContext(context = {}) {
   }
 }
 
-function nationalRouteWorkerUrl(defaultUrl) {
-  const override = String(process.env.VIGO_ROUTE_WORKER_URL ?? '').trim()
-  if (!override) return defaultUrl
-  try {
-    return new URL(override)
-  } catch {
-    return pathToFileURL(path.resolve(override))
-  }
-}
 
 class NationalRouteWorkerClient {
   constructor(storePath, { onIdle, onExpire, isMemoryPressure, workerUrl }) {
@@ -255,6 +216,7 @@ class NationalRouteWorkerClient {
   enqueue(operation, request, signal, onProgress) {
     if (this.closed) return Promise.reject(new Error('The route worker is no longer available.'))
     if (signal?.aborted) return Promise.reject(makeAbortError())
+    if (this.queue.length >= maxQueuedJobs) return Promise.reject(runtimeCapacityError('The routing queue is full. Retry when a request finishes.'))
     this.#clearIdleTimer()
     return new Promise((resolve, reject) => {
       const job = {
@@ -267,6 +229,7 @@ class NationalRouteWorkerClient {
         reject,
         abort: null,
         cancelTimer: null,
+        deadlineTimer: null,
         cancelled: false,
         cancellation: ['reach', 'street-surface', 'street-matrix', 'street-route-batch'].includes(operation)
           ? new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT))
@@ -335,6 +298,8 @@ class NationalRouteWorkerClient {
       failedJobs: this.failedJobs,
       abandonedJobs: this.abandonedJobs,
       forcedCancellationRestarts: this.forcedCancellationRestarts,
+      heapLimitMb: workerHeapMb,
+      jobTimeoutMs,
       cancellationGraceMs: nationalRouteCancellationGraceMs,
       reachCancellationGraceMs,
       lastOperation: this.lastOperation || undefined,
@@ -386,7 +351,9 @@ class NationalRouteWorkerClient {
   #ensureWorker() {
     if (this.worker) return this.worker
     if (this.closed) throw new Error('The route worker is closed.')
-    const worker = new Worker(nationalRouteWorkerUrl(this.workerUrl))
+    const worker = new Worker(this.workerUrl, {
+      resourceLimits: { maxOldGenerationSizeMb: workerHeapMb },
+    })
     const generation = ++this.generation
     this.worker = worker
     this.workerStartedAt = Date.now()
@@ -448,6 +415,14 @@ class NationalRouteWorkerClient {
     const job = this.queue.shift()
     this.active = job
     job.startedAt = Date.now()
+    job.deadlineTimer = setTimeout(() => {
+      if (this.active !== job) return
+      this.#handleWorkerFailure(runtimeCapacityError(
+        'The routing operation exceeded its time limit. Retry with a smaller query.',
+        'VIGO_ROUTE_JOB_TIMEOUT',
+      ), this.generation)
+    }, jobTimeoutMs)
+    job.deadlineTimer.unref?.()
     if (!['prepare', 'prepare-street', 'prepare-transfers', 'prepare-derived', 'prepare-routing-access'].includes(job.operation)) {
       this.hasInteractiveUse = true
     }
@@ -582,8 +557,9 @@ class NationalRouteWorkerClient {
   #handleWorkerFailure(error, generation) {
     if (generation !== this.generation || !this.worker) return
     const worker = this.#detachWorker()
-    worker?.terminate().catch(() => {})
+    this.restarting = true
     if (this.active) {
+      this.failedJobs += 1
       const job = this.active
       this.active = null
       this.#cleanupJob(job)
@@ -594,7 +570,12 @@ class NationalRouteWorkerClient {
       queued.reject(makeWorkerRestartedError())
     }
     this.lastUsedAt = Date.now()
-    if (this.isIdle) this.#becameIdle()
+    void worker.terminate().catch(() => {}).finally(() => {
+      this.restarting = false
+      if (this.closed) return
+      this.#pump()
+      if (this.isIdle) this.#becameIdle()
+    })
   }
 
   #cancel(job) {
@@ -660,6 +641,10 @@ class NationalRouteWorkerClient {
   }
 
   #cleanupJob(job) {
+    if (job?.deadlineTimer) {
+      clearTimeout(job.deadlineTimer)
+      job.deadlineTimer = null
+    }
     if (job?.signal && job.abort) job.signal.removeEventListener('abort', job.abort)
     if (job?.cancelTimer) {
       clearTimeout(job.cancelTimer)
@@ -697,9 +682,13 @@ class NationalRouteWorkerClient {
 export class NationalRouteWorkerPool {
   constructor(maxWorkers, workerUrl) {
     this.workerUrl = workerUrl
-    this.maxWorkers = maxWorkers
+    this.maxWorkers = boundedInteger(maxWorkers, 2, 1, 2)
+    this.closed = false
+    this.pendingDispatches = 0
+    this.pendingLifecycles = 0
     this.clients = new Map()
     this.waiters = new Set()
+    this.capacityGeneration = 0
     this.prewarmInFlight = new Map()
     this.routingAccessPrewarmInFlight = new Map()
     this.routeLifecycleTails = new Map()
@@ -734,6 +723,8 @@ export class NationalRouteWorkerPool {
   }
 
   prepare(storePath, { reason = 'explicit', signal, context } = {}) {
+    if (this.closed) return Promise.reject(runtimeCapacityError('The routing runtime is closed.', 'VIGO_ROUTE_CLOSED'))
+    if (signal?.aborted) return Promise.reject(makeAbortError())
     this.prewarmStats.requested += 1
     const normalizedContext = nationalRoutingPrewarmContext(context)
     const reused = this.#reusePreparation(storePath, normalizedContext, signal, reason)
@@ -744,6 +735,8 @@ export class NationalRouteWorkerPool {
   }
 
   prepareRoutingAccess(storePath, { reason = 'background-access', signal, context } = {}) {
+    if (this.closed) return Promise.reject(runtimeCapacityError('The routing runtime is closed.', 'VIGO_ROUTE_CLOSED'))
+    if (signal?.aborted) return Promise.reject(makeAbortError())
     this.routingAccessPrewarmStats.requested += 1
     const normalizedContext = nationalRoutingPrewarmContext(context)
     const retained = this.clients.get(storePath)?.routingAccessResultFor(normalizedContext.key)
@@ -896,12 +889,27 @@ export class NationalRouteWorkerPool {
   }
 
   async dispatch(storePath, operation, request, signal, onProgress) {
+    if (this.closed) throw runtimeCapacityError('The routing runtime is closed.', 'VIGO_ROUTE_CLOSED')
+    if (this.pendingDispatches >= maxPendingRequests) throw runtimeCapacityError('Too many pending routing requests. Retry shortly.')
+    this.pendingDispatches += 1
+    try {
+      return await this.#dispatch(storePath, operation, request, signal, onProgress)
+    } finally {
+      this.pendingDispatches -= 1
+    }
+  }
+
+  async #dispatch(storePath, operation, request, signal, onProgress) {
+    const deadline = Date.now() + jobTimeoutMs
     while (true) {
+      if (this.closed) throw runtimeCapacityError('The routing runtime is closed.', 'VIGO_ROUTE_CLOSED')
       if (signal?.aborted) throw makeAbortError()
+      const capacityGeneration = this.capacityGeneration
       const attempt = await this.#withLock(async () => {
+        if (this.closed) throw runtimeCapacityError('The routing runtime is closed.', 'VIGO_ROUTE_CLOSED')
         let client = this.clients.get(storePath)
         if (!client) {
-          if (this.clients.size >= this.maxWorkers) {
+          if (this.clients.size >= this.maxWorkers || (this.clients.size > 0 && this.#memorySnapshot().pressure)) {
             const idleEntry = [...this.clients].find(
               ([candidateStorePath, candidate]) => candidate.isIdle && !this.residencyLeases.has(candidateStorePath),
             )
@@ -916,7 +924,7 @@ export class NationalRouteWorkerPool {
         return { result: client.enqueue(operation, request, signal, onProgress) }
       })
       if (attempt) return attempt.result
-      await this.#waitForCapacity(signal)
+      await this.#waitForCapacity(signal, capacityGeneration, deadline)
     }
   }
 
@@ -927,6 +935,10 @@ export class NationalRouteWorkerPool {
       .map((client) => client.diagnostics())
     return {
       maxWorkers: this.maxWorkers,
+      pendingDispatches: this.pendingDispatches,
+      pendingLifecycles: this.pendingLifecycles,
+      maxPendingRequests,
+      maxQueuedJobs,
       workerCount: workers.length,
       residentStoreCount: this.clients.size,
       idleTimeoutMs: nationalRouteWorkerIdleMs,
@@ -980,6 +992,7 @@ export class NationalRouteWorkerPool {
   }
 
   async closeAll() {
+    this.closed = true
     for (const warmup of this.prewarmInFlight.values()) warmup.controller.abort()
     for (const warmup of this.routingAccessPrewarmInFlight.values()) warmup.controller.abort()
     await this.#withLock(async () => {
@@ -992,6 +1005,9 @@ export class NationalRouteWorkerPool {
   }
 
   #withRouteLifecycle(storePath, signal, action) {
+    if (this.closed) return Promise.reject(runtimeCapacityError('The routing runtime is closed.', 'VIGO_ROUTE_CLOSED'))
+    if (this.pendingLifecycles >= maxPendingRequests) return Promise.reject(runtimeCapacityError('Too many pending routing preparations. Retry shortly.'))
+    this.pendingLifecycles += 1
     const previous = this.routeLifecycleTails.get(storePath)
     let execution
     if (previous) {
@@ -1000,7 +1016,10 @@ export class NationalRouteWorkerPool {
         return action()
       })
     } else {
-      if (signal?.aborted) return Promise.reject(makeAbortError())
+      if (signal?.aborted) {
+        this.pendingLifecycles -= 1
+        return Promise.reject(makeAbortError())
+      }
       try {
         execution = Promise.resolve(action())
       } catch (error) {
@@ -1010,6 +1029,7 @@ export class NationalRouteWorkerPool {
     const tail = execution.then(() => undefined, () => undefined)
     this.routeLifecycleTails.set(storePath, tail)
     tail.finally(() => {
+      this.pendingLifecycles -= 1
       if (this.routeLifecycleTails.get(storePath) !== tail) return
       this.routeLifecycleTails.delete(storePath)
       const client = this.clients.get(storePath)
@@ -1136,13 +1156,16 @@ export class NationalRouteWorkerPool {
   }
 
   #notifyCapacity() {
+    this.capacityGeneration += 1
     for (const wake of [...this.waiters]) wake()
   }
 
-  #waitForCapacity(signal) {
+  #waitForCapacity(signal, generation, deadline) {
     if (signal?.aborted) return Promise.reject(makeAbortError())
+    if (this.closed || generation !== this.capacityGeneration) return Promise.resolve()
     return new Promise((resolve, reject) => {
       const cleanup = () => {
+        clearTimeout(timeout)
         this.waiters.delete(wake)
         signal?.removeEventListener('abort', abort)
       }
@@ -1154,6 +1177,11 @@ export class NationalRouteWorkerPool {
         cleanup()
         reject(makeAbortError())
       }
+      const timeout = setTimeout(() => {
+        cleanup()
+        reject(runtimeCapacityError('Routing capacity remained occupied. Retry when another query finishes.'))
+      }, Math.max(1, deadline - Date.now()))
+      timeout.unref?.()
       this.waiters.add(wake)
       signal?.addEventListener('abort', abort, { once: true })
     })

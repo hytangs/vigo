@@ -148,14 +148,12 @@ try {
     }
   })
 
-  await check('scheduled route and provenance remain stable across wall clocks and live updates', () => {
+  await check('scheduled route and provenance remain stable across snapshot timestamps and live updates', () => {
     const baselines = new Map(['depart', 'arrive'].map(timePreference => [timePreference,
       semanticResult(routeNationalGtfsStore(storePath, request({ routingDataMode: 'scheduled', timePreference, arriveMinutes: 650 }))),
     ]))
-    const realNow = Date.now
-    try {
+    {
       for (const wallClockMs of [0, nowSeconds * 1000, (nowSeconds + 365 * 24 * 3600) * 1000]) {
-        Date.now = () => wallClockMs
         for (const tripUpdates of [[update()], [update('late', 0, { scheduleRelationship: 'CANCELED' })], []]) {
           for (const timePreference of ['depart', 'arrive']) {
             const result = routeNationalGtfsStore(storePath, request({
@@ -166,8 +164,6 @@ try {
           }
         }
       }
-    } finally {
-      Date.now = realNow
     }
   })
 
@@ -240,15 +236,11 @@ try {
         assert.equal(ride(plan).endMinutes, 640)
       } else assert.equal(plan.status, 'blocked')
     }
-    const realNow = Date.now
     let repeat
-    try {
-      Date.now = () => 0
+    {
       repeat = routeNationalGtfsDepartureWindow(storePath, request({
         routingDataMode: 'scheduled', departureWindowMinutes: 10, realtimeSnapshot: snapshot(),
       }))
-    } finally {
-      Date.now = realNow
     }
     assert.deepEqual(repeat.profile.plans.map(semanticResult), scheduled.profile.plans.map(semanticResult))
     assert.deepEqual(semanticResult(repeat.plan), semanticResult(scheduled.plan))
