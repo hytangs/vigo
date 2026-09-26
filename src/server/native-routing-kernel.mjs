@@ -4,6 +4,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { performance } from 'node:perf_hooks'
 import { fileURLToPath } from 'node:url'
+import { projectAccessProfileToTimetable } from './gtfs/stop-projection.mjs'
 
 const require = createRequire(import.meta.url)
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url))
@@ -15,7 +16,6 @@ const nativeKernelCandidates = [...new Set([
 ].filter(Boolean))]
 const nativeKernelCache = new Map()
 const nativeTimetableKernelCache = new WeakMap()
-const nativeCoordinateTimetableProjectionCache = new WeakMap()
 const nativeDriveKernelCache = new WeakMap()
 const nativeEndpointWorkspaceReservationM = Math.max(
   100,
@@ -482,25 +482,6 @@ function timetableEndpointQuery(request) {
   }
 }
 
-function coordinateTimetableProjection(record, kernel) {
-  let retained = nativeCoordinateTimetableProjectionCache.get(kernel)
-  if (!retained) {
-    retained = new Map()
-    nativeCoordinateTimetableProjectionCache.set(kernel, retained)
-  }
-  const key = `${record.identity}|${record.profileKey}`
-  const cached = retained.get(key)
-  if (cached) return cached
-  const projection = new Uint32Array(record.profileMembers.length)
-  projection.fill(0xffff_ffff)
-  for (let member = 0; member < record.profileMembers.length; member += 1) {
-    const stop = kernel.stopIndex.get(record.profileMembers[member].stop_id)
-    if (stop !== undefined) projection[member] = stop
-  }
-  retained.set(key, projection)
-  return projection
-}
-
 export function routeNativeCoordinateTimetableScalar(storePath, kernel, request) {
   const record = preparedKernelRecord(storePath)
   if (!record.profileMembers || !record.profileKey) {
@@ -515,7 +496,7 @@ export function routeNativeCoordinateTimetableScalar(storePath, kernel, request)
     destinationLat: request.destination[1],
     maximumWalkM: request.maximumWalkM,
     ...queryAccessTiming(request),
-    memberTimetableStops: coordinateTimetableProjection(record, kernel),
+    memberTimetableStops: projectAccessProfileToTimetable(record, kernel),
     departure: request.departure,
     horizon: request.horizon,
     ...(Number.isFinite(request.arriveByEarliest) ? {
@@ -641,7 +622,7 @@ export function routeNativeCoordinateTimetableMany(storePath, kernel, request) {
     originLat: request.origin[1],
     maximumWalkM: request.maximumWalkM,
     ...queryAccessTiming(request),
-    memberTimetableStops: coordinateTimetableProjection(record, kernel),
+    memberTimetableStops: projectAccessProfileToTimetable(record, kernel),
     targetTimetableStops,
     excludedTrips,
     departure: request.departure,
@@ -818,7 +799,7 @@ export function routeNativeCoordinateTimetableMatrix(storePath, kernel, request)
   const result = record.kernel.routeEndpointsTimetableMatrix(timetable.kernel, {
     originCoordinates: request.origins.flatMap((point) => point.coordinate),
     destinationCoordinates: request.destinations.flatMap((point) => point.coordinate),
-    memberTimetableStops: coordinateTimetableProjection(record, kernel),
+    memberTimetableStops: projectAccessProfileToTimetable(record, kernel),
     maximumWalkM: request.maximumWalkM,
     ...queryAccessTiming(request),
     departure: request.departure, horizon: request.horizon, arriveBy: request.arriveBy,

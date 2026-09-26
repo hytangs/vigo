@@ -54,7 +54,7 @@
     "check:reach-scenarios": "node test/check-reach-scenarios.mjs && node test/check-scenario-timing.mjs && node test/check-scenario-drafts.mjs && node test/check-scenario-branches.mjs && node test/check-street-network-surface.mjs && node test/check-service-edge-decomposition.mjs && node test/check-analysis-cutoff-presentation.mjs",
     "check:reach-engine": "node test/check-reach-engine.mjs",
     "check:national-focused": "node test/check-station-access.mjs && node test/check-national-stop-access-index.mjs && node test/check-national-parent-transfer-routing.mjs",
-    "check:national-runtime": "node test/check-routing-snapshot.mjs && node test/check-national-derived-artifact-lifecycle.mjs && node test/check-national-cache.mjs && node test/check-national-prewarm-lifecycle.mjs && node test/check-street-preparation.mjs && node test/check-national-runtime-isolation.mjs && node test/check-national-memory-pressure.mjs && npm run check:national-focused --silent",
+    "check:national-runtime": "node test/check-route-worker-recovery.mjs && node test/check-stop-projection.mjs && node test/check-routing-snapshot.mjs && node test/check-national-derived-artifact-lifecycle.mjs && node test/check-national-cache.mjs && node test/check-national-prewarm-lifecycle.mjs && node test/check-street-preparation.mjs && node test/check-national-runtime-isolation.mjs && node test/check-national-memory-pressure.mjs && npm run check:national-focused --silent",
     "check:atlas": "node test/check-transport-atlas.mjs && node test/check-project-atlas-api.mjs",
     "build:cli": "node scripts/build-cli.mjs",
     "cli": "node public/vigo.mjs",

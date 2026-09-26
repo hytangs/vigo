@@ -33,6 +33,15 @@ behavior until rebuilt from source.
 
 ## Computation ownership
 
+In this guide, **CCH** means Customizable Contraction Hierarchies, the prepared
+street index used to accelerate path queries. **CSA** means Connection Scan
+Algorithm, which scans timetable connections in time order. A **frontier** keeps
+competing feasible options, such as earlier arrival versus less walking. A
+**witness** is the path or journey supporting a computed cost. **Materialization**
+assembles its stops, legs, and geometry into the returned Result. **Admission**
+validates whether input data can be used; **prewarming** prepares it before a
+query, and **resident** state stays in memory for reuse.
+
 Materialization-critical computation has moved into the Rust kernel, including
 shape alignment and plan-identity hashing. JavaScript still loads selected GTFS
 source rows, assembles itinerary objects, and handles orchestration and public
@@ -59,6 +68,12 @@ JavaScript owns request validation, identity resolution, orchestration, cancella
 
 These modules do not import their coordinating entry points. Public GTFS exports remain available through `national-gtfs-store.mjs`. Calendar caches still belong to each admitted store. Walking-anchor profiles remain private to the walking-plan module and are cleared when the coordinator invalidates their store. Realtime query symbols and weak timetable caches belong to the realtime module; decoded street-edge bundles retain one weak cache in the Reach feature module.
 
+Stop projections use weak references to both the timetable and street record,
+retaining only the current access profile for each pair. Changing a profile
+replaces its projection; returning to an earlier profile recomputes it. Worker
+transfer failures reject the affected request and release the queue slot while
+preserving the worker for subsequent requests.
+
 The remaining large files have tighter state coupling: GTFS import and query orchestration share store identity and cache lifetime; `national-osm-store.mjs` couples graph admission and native preparation; the Rust coordinate and timetable kernels share search workspaces and snapshot layouts. Split those along explicit state ownership boundaries, with routing, cancellation, and persistence checks, rather than moving arbitrary line ranges. Vendor code is maintained separately.
 
 ## Desktop and Network
@@ -84,3 +99,6 @@ Studio Reach retains packed reached-edge data, lazily reuses decoded coordinates
 The complete CLI City directory is portable; individual databases and native files are implementation details. Studio library settings, drafts, notebooks, and connections are separate application state. The [operations ledger](../research/agency-operations.md) and [replay](../research/operational-replay.md) remain active research interfaces with their own tests and storage. The [LAMP reader](../research/lamp-runtime-study.md) can inspect existing City studies.
 
 Use the [contribution guide](../../.github/CONTRIBUTING.md) to choose checks. Routing fixtures verify feasibility and witnesses; desktop runtime fixtures verify interaction. Actual-provider evaluations are opt-in and separate from deterministic tests. No fixture or build proves field accuracy or model reliability.
+
+The [0.4.2 architecture audit](audit-0.4.2.md) records the freeze review,
+remaining cost centers, and reasons for retaining compatibility code.

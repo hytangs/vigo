@@ -1,8 +1,10 @@
 # Version history
 
-## 0.4.2 — 2026-09-22
+## 0.4.2 — 2026-09-25
 
 Persist Drive hierarchies during City build, prepare only the requested CLI mode, and share endpoint work in native coordinate Matrix execution. Move shape alignment and stable identifier arithmetic into Rust while retaining JavaScript source loading and itinerary assembly. Clarify blocked access and station-pathway costs, preserve cache-disable boundaries, isolate packaged Engine from shell credentials, and strengthen source/package leak checks. Remove the stale README screenshot and refresh current documentation. API 1.0, City format 1, and Result schema 1 are unchanged. See the [release notes](docs/releases/0.4.2.md).
+
+The final freeze repairs worker queue recovery after message-transfer failures, bounds stop-projection cache retention, aligns mock memory accounting with production, validates CI tag/version agreement, and documents remaining architectural cost centers.
 
 ## 0.4.1 — 2026-09-21
 

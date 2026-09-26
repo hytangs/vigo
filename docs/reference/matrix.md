@@ -21,14 +21,14 @@ actual departure and arrival, `transfers`, `walkMinutes`, `rideMinutes`,
 `waitMinutes`, and timed legs with trip and stop IDs. Blocked rows have a null
 journey. `includeGeometry: true` additionally uses the existing Route renderer
 to supply route metadata, distances, and coordinates for those selected
-witnesses. It requires `includeJourneys: true` and performs no new timetable
+journeys. It requires `includeJourneys: true` and performs no new timetable
 search. Both options default to false.
 The parent Matrix diagnostics report the complete shared query time. Timings
-inside a materialized journey cover that witness's rendering, not a separate
+inside an assembled journey cover that journey's rendering, not a separate
 timetable search or an allocated share of the batch cost.
 
 Journey searches first obtain exact scalar bounds, then share boarding rounds
-across the same endpoint group. They retain the time/walking frontier needed
+across the same endpoint group. They retain the competing arrival-time and walking options needed
 for secondary objectives. Depart-at minimizes arrival, then boardings and
 walking. Arrive-by maximizes departure, then minimizes boardings, walking, and
 actual arrival within the deadline. Equal-objective paths can differ from
@@ -85,9 +85,9 @@ chosen cap. Omitting it retains the smaller unrestricted scalar workspace.
 Synthetic coverage is in `test/check-bounded-search.mjs`, including independent
 whole-ride enumeration and 100,000-target forward and reverse checks.
 
-For coordinate endpoints, access frontiers and their projection to timetable
+For coordinate endpoints, candidate walking connections and their mapping to timetable
 stops stay in Rust through the matrix scan. Scalar results, or the requested
-compact witnesses, cross back to JavaScript. Named-stop and mixed endpoint requests retain their station access
+compact journey records, cross back to JavaScript. Named-stop and mixed endpoint requests retain their station access
 semantics. Both paths use the same timetable kernel and are checked for parity.
 
 When direct walking is enabled for coordinate endpoints, the same Rust call

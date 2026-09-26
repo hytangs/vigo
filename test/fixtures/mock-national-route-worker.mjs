@@ -17,7 +17,7 @@ function metrics() {
   const memory = process.memoryUsage()
   const reportedProcessRssBytes = Number(process.env.VIGO_MOCK_REPORTED_RSS_BYTES) || memory.rss
   const reportedIsolateResidentEstimateBytes = Number(process.env.VIGO_MOCK_REPORTED_ISOLATE_BYTES)
-    || memory.heapUsed + memory.external + memory.arrayBuffers
+    || memory.heapUsed + memory.external
   return {
     heapUsedBytes: memory.heapUsed,
     externalBytes: memory.external,

@@ -451,13 +451,26 @@ class NationalRouteWorkerClient {
     if (!['prepare', 'prepare-street', 'prepare-transfers', 'prepare-derived', 'prepare-routing-access'].includes(job.operation)) {
       this.hasInteractiveUse = true
     }
-    worker.postMessage({
-      id: job.id,
-      operation: job.operation,
-      storePath: this.storePath,
-      request: job.request,
-      ...(job.cancellation ? { cancelBuffer: job.cancellation.buffer } : {}),
-    })
+    try {
+      worker.postMessage({
+        id: job.id,
+        operation: job.operation,
+        storePath: this.storePath,
+        request: job.request,
+        ...(job.cancellation ? { cancelBuffer: job.cancellation.buffer } : {}),
+      })
+    } catch (error) {
+      // A structured-clone failure never reaches the worker. Release the slot
+      // here so the next request can still use its prepared routing state.
+      this.active = null
+      this.#cleanupJob(job)
+      this.failedJobs += 1
+      job.reject(error)
+      queueMicrotask(() => {
+        this.#pump()
+        if (this.isIdle) this.#becameIdle()
+      })
+    }
   }
 
   #handleMessage(message, generation) {
