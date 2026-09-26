@@ -25,6 +25,30 @@ const catalog = () => ({ version: 1, source: 'fixture.zip', tables: {
 const ride = { type: 'ride', routeId: 'R', fromStopId: 'S', toStopId: 'T', startMinutes: 480, endMinutes: 490 }
 // Each edited fixture represents a new immutable imported catalog.
 const quote = (c, leg = ride, date = '2026-09-14') => quoteBoardingFare(structuredClone(c), leg, date)
+// Whole-unit validation must agree with the existing minor-unit arithmetic for
+// every currency supported by this runtime, including precision boundaries.
+const fareAmountCases = ['0', '2', '2.000', '000002.0000', '0.000000000000000000000001',
+  '2.000000000000000000000001', '900719925473', '900719925474', '900719925475',
+  '90071992547409.91', '9007199254740991', '1.01', '1.001', '1.0001', '1.00001',
+  '', '-1', '1e2', 'NaN', 'Infinity', '2.', '.2', ' 2', '2.0000000000000000000000000000000']
+for (const currency of Intl.supportedValuesOf('currency')) {
+  const digits = new Intl.NumberFormat('en-US', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits
+  assert(digits <= 4, `Update the conservative whole-unit bound for ${currency}'s ${digits}-digit scale.`)
+  for (const text of fareAmountCases) {
+    let expected = null
+    if (text.length <= 32 && /^\d+(?:\.\d+)?$/.test(text)) {
+      const [whole, fraction = ''] = text.split('.')
+      const units = Number(whole + fraction.slice(0, digits).padEnd(digits, '0'))
+      if (!/[^0]/.test(fraction.slice(digits)) && Number.isSafeInteger(units)) {
+        const number = units / 10 ** digits
+        const [storedWhole, storedFraction = ''] = String(number).split('.')
+        if (Number(storedWhole + storedFraction.padEnd(digits, '0')) === units) expected = number
+      }
+    }
+    assert.equal(parseFareAmount(text, currency), expected, `${currency}: ${text}`)
+  }
+}
+for (const currency of ['usd', 'US', 'ZZZ', '', null, undefined]) assert.equal(parseFareAmount('2', currency), null)
 assert.equal(parseFareAmount('2.400', 'USD'), 2.4)
 assert.equal(parseFareAmount('1.23', 'JPY'), null)
 assert.equal(parseFareAmount('1.234', 'KWD'), 1.234)

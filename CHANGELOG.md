@@ -6,7 +6,9 @@ Combine multiple GTFS timetables with multiple GTFS-RT endpoints in Studio. Pres
 
 Persist Drive hierarchies during City build, share native Matrix endpoint work, and move shape alignment and identifier arithmetic into Rust. Bound routing admission, worker heaps, caches and operation duration. Keep Studio open through Engine failures with bounded restart and recovery. Remove simulated test infrastructure and redundant suites; validate actual routing, SQLite, browser, socket and process behavior.
 
-Refresh documentation with the VIGO social image, real application captures, multi-feed setup and explicit realtime/traffic methods and limits. API 1.0, City format 1, and Result schema 1 are unchanged. See the [release notes](docs/releases/0.4.2.md) and [audit](docs/development/realtime-audit-0.4.2.md). The local `v0.4.2` tag is replaced by this final freeze.
+Reduce selected-shape loading, range sampling and geometry normalization work while preserving complete itinerary outputs and existing sampling rules. Validate whole-unit fares without initializing localized currency formatting; fractional and large prices retain exact minor-unit validation. Document fare annotation outside the inner routing timer and the limits of pedestrian attachment to disconnected components.
+
+Refresh documentation with the VIGO social image, real application captures, multi-feed setup and explicit realtime/traffic methods and limits. API 1.0, City format 1, and Result schema 1 are unchanged. See the [release notes](docs/releases/0.4.2.md) and [audit](docs/development/realtime-audit-0.4.2.md).
 
 ## 0.4.1 — 2026-09-21
 

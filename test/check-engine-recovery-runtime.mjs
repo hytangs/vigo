@@ -13,7 +13,12 @@ assert.equal(preferences.sandbox, true);
 assert.equal(preferences.webSecurity, true);
 const initial = await until(engine);
 const readHealth = () => net.fetch('vigo://studio/api/health', { signal: AbortSignal.timeout(5000) });
-const health = async () => { try { return (await readHealth()).status === 200; } catch { return false; } };
+const health = async () => { try {
+  const response = await readHealth();
+  // Finish the health request before deliberately killing its Engine.
+  await response.arrayBuffer();
+  return response.status === 200;
+} catch { return false; } };
 assert(await until(health));
 process.kill(initial.pid, 'SIGKILL');
 const second = await until(() => { const current = engine(); return current && current.pid !== initial.pid ? current : null; });

@@ -28,6 +28,12 @@ VIGO models the City revision and Query it is given. It does not certify real-wo
   vertex search. Long edges can therefore be missed even when their interior
   passes close to a coordinate. A missing attachment is not proof that no
   physical pedestrian path exists.
+- A coordinate has one physical street attachment. If its closest attachment
+  lies in a disconnected pedestrian component, a geometrically nearby stop can
+  remain unreachable even with a larger walking budget. VIGO does not switch to
+  a farther component merely because that component produces a transit route.
+  Check endpoint connectors, permissions and missing source links before
+  interpreting a blocked result or accepting a route from a different graph.
 - Authorized private endpoint access is an opt-in City build model; see [Street routing](street-routing.md). It does not establish individual permissions, gate hours, or missing connections.
 - Drive does not yet model all turn restrictions, signals, or intersection delay.
 - Traffic must be supplied by the caller; VIGO does not fetch a provider.

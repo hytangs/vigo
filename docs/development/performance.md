@@ -14,11 +14,19 @@ Report downloads and runtime installation separately. State whether process star
 ## What the timers include
 
 - `network.json.timing` describes compiler stages. `totalMs` begins inside the compiler after input/staging checks and ends before writing the manifest. It excludes process startup, shutdown, final City publication, and the first query. Stages may overlap; their durations cannot be summed into wall time. `osmBuildMs` can include waiting until the parent collects the worker result.
-- Route `searchStats.queryMs` includes the engine route function, street access, and selected-journey work. It excludes caller transport and final Result serialization.
+- Route `searchStats.queryMs` measures the timed route-search and selected-journey work, including street access. It excludes fare annotation performed by the caller, final CLI decoration, transport and Result serialization. CLI `routeMs` / `computeMs` wraps routing, fare annotation and CLI decoration; it still excludes final serialization and transport.
+- `materializationMs` covers selected itinerary assembly. Its components include trip connection loading, metadata lookup, shape extraction, access/egress geometry, leg normalization and identity construction. Components need not sum to the enclosing timer. A geometry improvement is not automatically the same improvement in the complete response.
 - `engineQueryMs` measures native timetable work. For arrive-by, this includes reverse feasibility and forward selection; `arriveByNativeQueryMs` and `forwardEngineQueryMs` identify those components. Street access and geometry are outside that timetable total.
 - Matrix `computeMs` covers engine execution; `requestPreparationMs` and `resultAssemblyMs` describe caller preparation and row assembly. `openMs` reports mode initialization, including the first request of each mode in a stream. JSON serialization and transport require an external timer. Optional journey timings describe witness rendering, not independent searches or a share of batch time.
 
 Use an external elapsed timer for complete Build and query latency. A small native search time does not establish the same user-perceived response time.
+
+Fare parsing and localized display have separate costs. Whole-unit prices within
+the exact-integer fast path need no currency formatter; fractional and large
+prices still consult currency precision, and displayed labels still format
+currency symbols. Include the first fare-bearing result when measuring a fresh
+process. A preceding blocked route does not initialize every successful-route
+presentation path.
 
 ## Preparation and reuse
 
