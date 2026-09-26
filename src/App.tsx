@@ -183,7 +183,7 @@ const emptyCoordinates: [number, number][] = []
 export default function App() {
   const [appearance, setAppearance] = useState<Appearance>('dark')
   const [accent, setAccent] = useState<AppAccent>('blue')
-  const [basemap, setBasemap] = useState<Basemap>('streets')
+  const [basemap, setBasemap] = useState<Basemap>('offline')
   const [projects, setProjects] = useState<VigoProject[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [openedNetworkProjectId, setOpenedNetworkProjectId] = useState('')
@@ -3221,7 +3221,7 @@ export default function App() {
           stopCount={selectedProject.summary.stops}
           appearance={appearance}
           basemap={basemap}
-          localStreetGraphAvailable={selectedProject.osmStreetIndex?.status === 'ready'}
+          localBasemapAvailable={selectedProject.osmStreetIndex?.status === 'ready'}
           runtimeConfig={runtimeConfig}
           health={health}
           busy={setupBusy}
@@ -3278,7 +3278,8 @@ export default function App() {
           layers={layers}
           appearance={appearance}
           basemap={basemap}
-          localStreetGraphAvailable={selectedProject.osmStreetIndex?.status === 'ready'}
+          localBasemapAvailable={selectedProject.osmStreetIndex?.status === 'ready'}
+          localBasemapRevision={selectedProject.osmStreetIndex?.builtAt}
           selectedRouteId={selectedRoute?.id ?? ''}
           selectedStopId={activeRouteTool === 'agency' ? selectedStopId : selectedStop?.id ?? ''}
           realtimeSnapshot={realtimeSnapshot}

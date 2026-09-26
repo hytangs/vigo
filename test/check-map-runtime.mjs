@@ -12,11 +12,19 @@ const temporary = await fs.mkdtemp(path.join(root, 'temp', 'map-runtime-'))
 let softwareLoader = null
 try {
   await fs.writeFile(path.join(temporary, 'index.html'), '<div id="map" style="width:512px;height:512px"></div><script type="module" src="/fixture.mjs"></script>')
+  const localMapData = process.env.VIGO_BASEMAP_PREVIEW_FILE
+    ? JSON.parse(await fs.readFile(process.env.VIGO_BASEMAP_PREVIEW_FILE, 'utf8'))
+    : { type: 'FeatureCollection', features: [
+      { type: 'Feature', properties: { kind: 'water' }, geometry: { type: 'Polygon', coordinates: [[[-0.005,-0.005],[0.005,-0.005],[0.005,0.005],[-0.005,0.005],[-0.005,-0.005]], [[-0.001,-0.001],[-0.001,0.001],[0.001,0.001],[0.001,-0.001],[-0.001,-0.001]]] } },
+      { type: 'Feature', properties: { kind: 'road', roadClass: 'primary' }, geometry: { type: 'LineString', coordinates: [[-0.005,0.006],[0.005,0.006]] } },
+      { type: 'Feature', properties: { kind: 'river' }, geometry: { type: 'LineString', coordinates: [[-0.008,-0.01],[-0.008,0.01]] } },
+    ] }
   await fs.writeFile(path.join(temporary, 'fixture.mjs'), `
 import { Map, AttributionControl } from '../../src/app/mapRuntime.ts';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { setMapSourceData, setStreetMapSourceData } from '../../src/app/mapSourceUpdates.ts';
 import { ensureVehicleDirectionSprite, vehicleHeadingLayer, vehicleMarkerLayer } from '../../src/app/mapDirections.ts';
+import { baseCanvasColor, ensureLocalBasemapLayers, syncBasemap, removeLocalBasemap, setLocalBasemapData } from '../../src/map/basemaps.ts';
 window.checkMap = async () => {
   console.log('Map fixture: starting GeoJSON render');
   window.attributionExecuted = false;
@@ -65,9 +73,46 @@ window.checkMap = async () => {
   if((await source.getData()).features.length) throw Error('Superseded street data reappeared');
   const details = document.querySelector('.maplibregl-ctrl-attrib details');
   if (!details || details.hasAttribute('onload') || details.hasAttribute('ontoggle') || window.attributionExecuted) throw Error('Unsafe attribution survived sanitization');
-  map.remove();
-  document.getElementById('map').remove();
-  return {rendered:true,sourceUpdate:true,sanitizedAttribution:true,offlineDirections:true,networkHeadings:true,mapRotation:true};
+  map.removeLayer('fixture'); map.removeSource('fixture');
+  map.removeLayer('vigo-vehicle-headings'); map.removeLayer('vigo-vehicles'); map.removeSource('vigo-service-vehicles');
+  const localData = ${JSON.stringify(localMapData)};
+  map.addLayer({id:'vigo-offline-bg',type:'background',paint:{'background-color':baseCanvasColor('offline','light')}});
+  const localBounds = localData.metadata?.bbox;
+  map.setBearing(0);
+  if (localBounds) map.fitBounds([[localBounds.west,localBounds.south],[localBounds.east,localBounds.north]],{padding:15,duration:0});
+  else map.jumpTo({center:[0,0],zoom:14});
+  const localErrors=[]; map.on('error', event=>localErrors.push(event.error.message));
+  await setLocalBasemapData(map,localData);
+  ensureLocalBasemapLayers(map,'light');
+  await waitForRender();
+  if (!map.queryRenderedFeatures({layers:['vigo-local-roads']}).length) throw Error('Local major roads did not render');
+  if (!map.queryRenderedFeatures({layers:['vigo-local-water']}).length) throw Error('Local water did not render');
+  if (localErrors.length) throw Error(localErrors.join('; '));
+  const tagged=revision=>({...localData,features:localData.features.map(feature=>({...feature,properties:{...feature.properties,revision}}))});
+  for(let round=0;round<3;round++) {
+    removeLocalBasemap(map);
+    const pending=[setLocalBasemapData(map,tagged('old-a')),setLocalBasemapData(map,tagged('old-b'))];
+    removeLocalBasemap(map);
+    pending.push(setLocalBasemapData(map,tagged('next-city')));
+    removeLocalBasemap(map);
+    pending.push(setLocalBasemapData(map,tagged('current')));
+    const applied=await Promise.all(pending);
+    if(applied.slice(0,-1).some(Boolean) || !applied.at(-1)) throw Error('Superseded basemap update was published');
+    ensureLocalBasemapLayers(map,'light');
+    await waitForRender();
+    const rendered=map.queryRenderedFeatures({layers:['vigo-local-roads','vigo-local-water']});
+    if(!rendered.length || rendered.some(feature=>feature.properties.revision!=='current')) throw Error('Previous City geometry reappeared after source replacement');
+  }
+  if(localErrors.length) throw Error(localErrors.join('; '));
+  console.log('Map fixture: overlapping local updates and City replacement rendered latest geometry');
+  window.localPreviewMap=map;
+  window.localPreviewDark=async()=>{syncBasemap(map,'offline','dark');await waitForRender();};
+  window.localPreviewDispose=()=>{
+    removeLocalBasemap(map);
+    if(map.getSource('vigo-local-basemap') || map.getLayer('vigo-local-water')) throw Error('Local basemap resources leaked after removal');
+    map.remove();document.getElementById('map').remove();
+  };
+  return {rendered:true,sourceUpdate:true,sanitizedAttribution:true,offlineDirections:true,networkHeadings:true,mapRotation:true,offlineBasemap:true,latestCityGeometry:true};
 };
 `)
   await build({ configFile: false, root: temporary, cacheDir: path.join(temporary, 'vite-cache'), plugins: [react()], publicDir: false, logLevel: 'warn', build: { chunkSizeWarningLimit: 1500 } })
@@ -75,6 +120,7 @@ window.checkMap = async () => {
   await fs.writeFile(path.join(temporary, 'main.cjs'), `
 const {app,BrowserWindow,protocol,net} = require('electron');
 const path = require('node:path');
+const fs = require('node:fs/promises');
 const {pathToFileURL} = require('node:url');
 app.setPath('userData', ${JSON.stringify(path.join(temporary, 'profile'))});
 protocol.registerSchemesAsPrivileged([{scheme:'vigo',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true}}]);
@@ -88,6 +134,11 @@ app.whenReady().then(async()=>{
   await window.loadURL('vigo://studio/');
   console.log('Map fixture: Studio protocol loaded');
   console.log(JSON.stringify(await window.webContents.executeJavaScript('window.checkMap()')));
+  const previewDirectory=${JSON.stringify(process.env.VIGO_BASEMAP_SCREENSHOT_DIR ?? '')};
+  if(previewDirectory) {await fs.mkdir(previewDirectory,{recursive:true});await fs.writeFile(path.join(previewDirectory,'local-map-light.png'),(await window.webContents.capturePage({x:8,y:8,width:512,height:512})).toPNG());}
+  await window.webContents.executeJavaScript('window.localPreviewDark()');
+  if(previewDirectory) await fs.writeFile(path.join(previewDirectory,'local-map-dark.png'),(await window.webContents.capturePage({x:8,y:8,width:512,height:512})).toPNG());
+  await window.webContents.executeJavaScript('window.localPreviewDispose()');
   if(externalRequests.length) throw Error('Offline map fixture attempted external requests: '+externalRequests.join(', '));
   app.exit(0);
  } catch(error) {console.error(error);app.exit(1);}

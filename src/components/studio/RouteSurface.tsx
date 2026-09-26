@@ -99,7 +99,8 @@ export function RouteSurface({
   layers,
   appearance,
   basemap,
-  localStreetGraphAvailable,
+  localBasemapAvailable,
+  localBasemapRevision,
   selectedRouteId,
   selectedStopId,
   realtimeSnapshot,
@@ -147,7 +148,8 @@ export function RouteSurface({
   layers: LayerState
   appearance: Appearance
   basemap: Basemap
-  localStreetGraphAvailable: boolean
+  localBasemapAvailable: boolean
+  localBasemapRevision?: string
   selectedRouteId: string
   selectedStopId: string
   realtimeSnapshot: RealtimeSnapshot | null
@@ -317,7 +319,8 @@ export function RouteSurface({
           showStopDetails={!agencyFocus}
           focusLocation={agencyFocus ? agencyLocation : undefined}
           projectId={projectId}
-          localStreetGraphAvailable={localStreetGraphAvailable}
+          localBasemapAvailable={localBasemapAvailable}
+          localBasemapRevision={localBasemapRevision}
           preview={mapPreview}
           feedName={feed.name}
           layers={mapLayers}

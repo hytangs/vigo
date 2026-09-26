@@ -141,6 +141,17 @@
   box-shadow: 0 0 0 3px rgba(199, 85, 85, 0.13);
 }
 
+.map-basemap-status.is-error {
+  align-items: flex-start;
+  border-radius: 12px;
+}
+
+.map-basemap-status.is-error small {
+  white-space: normal;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
 .map-live-card {
   position: absolute;
   top: 68px;

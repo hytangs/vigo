@@ -26,6 +26,7 @@ import {
 } from './osm-pbf-reader.mjs'
 import { timingMilliseconds } from './number-utils.mjs'
 import { stableKeySuffix } from './routing-plan-identity.mjs'
+import { createLocalBasemapWriter } from './local-basemap-store.mjs'
 
 // v4 also excludes foot=private from the public pedestrian graph, even when
 // the general access tag is absent or permits other travel modes.
@@ -302,6 +303,7 @@ export async function buildNationalOsmStore({
   const insertDriveEdge = db.prepare('INSERT INTO drive_edges VALUES(?,?,?,?,?,?)')
   const insertDriveNode = db.prepare('INSERT OR IGNORE INTO drive_nodes VALUES(?,?,?)')
   const getNode = db.prepare('SELECT lat,lon FROM nodes WHERE node_id=?')
+  const basemapWriter = createLocalBasemapWriter(db)
   let nodeCount = 0
   let walkNodeCount = 0
   let edgeCount = 0
@@ -323,6 +325,17 @@ export async function buildNationalOsmStore({
   }
   db.exec('BEGIN IMMEDIATE')
   try {
+    // Relations follow ways in a PBF. Select water members first so untagged
+    // shores and island holes are available in the existing node/way passes.
+    const relationHasher = crypto.createHash('sha256')
+    await forEachPbfBlock(pbfPath, async (block) => {
+      basemapWriter.setSourceBounds(block.bounds)
+      for (const groupBytes of block.groups) forEachPrimitiveEntity(block, groupBytes, {
+        relation: (relation) => basemapWriter.selectRelation(relation, wayTags(relation, block.strings), block.strings),
+      })
+    }, ({ progress }) => onProgress?.({ phase: 'Selecting local water geometry', progress: progress * 0.03,
+      memory: process.memoryUsage().rss }), (bytes) => relationHasher.update(bytes))
+    const relationSourceFingerprint = relationHasher.digest('hex')
     // Resolve every supported way, but avoid writing unrelated building/land-use
     // nodes to the temporary SQLite lookup. The second pass still validates all
     // node records and preserves the original source-node count.
@@ -348,13 +361,13 @@ export async function buildNationalOsmStore({
         forEachPrimitiveEntity(block, groupBytes, {
           way: (way) => {
             const tags = wayTags(way, block.strings)
-            if (!nationalOsmWayWalkable(tags) && !drivable(tags)) return
+            if (!nationalOsmWayWalkable(tags) && !drivable(tags) && !basemapWriter.needsWay(way, tags)) return
             for (const nodeId of way.refs) requireNode(nodeId)
           },
         })
       }
     }, ({ progress, bytesRead, totalBytes }) => onProgress?.({
-      phase: 'Selecting street node references', progress: progress * 0.12,
+      phase: 'Selecting street node references', progress: 0.03 + progress * 0.09,
       detail: `${requiredNodeCount.toLocaleString()} referenced nodes`,
       bytesRead, totalBytes, memory: process.memoryUsage().rss,
     }), (bytes) => selectionHasher.update(bytes))
@@ -385,6 +398,7 @@ export async function buildNationalOsmStore({
           },
           way: (way) => {
             const tags = wayTags(way, block.strings)
+            basemapWriter.addWay(way, tags, getNode)
             const isWalkable = nationalOsmWayWalkable(tags)
             const isDrivable = drivable(tags)
             if (!isWalkable && !isDrivable) return
@@ -471,10 +485,12 @@ export async function buildNationalOsmStore({
       memory: process.memoryUsage().rss,
     }), (bytes) => sourceHasher.update(bytes))
     const sourceFingerprint = sourceHasher.digest('hex')
-    if (sourceFingerprint !== selectedSourceFingerprint) {
+    if (sourceFingerprint !== selectedSourceFingerprint || sourceFingerprint !== relationSourceFingerprint) {
       throw new Error('OSM PBF changed during street compilation; retry against a stable input.')
     }
     requiredNodes.clear()
+    onProgress?.({ phase: 'Preparing local basemap', progress: 0.89, memory: process.memoryUsage().rss })
+    const localBasemap = basemapWriter.finish()
     db.exec('COMMIT')
     onProgress?.({ phase: 'Building street indexes', progress: 0.9, detail: `${edgeCount.toLocaleString()} walk + ${driveEdgeCount.toLocaleString()} drive edges`, memory: process.memoryUsage().rss })
     // `nodes` is an import-time lookup table used to resolve OSM way
@@ -527,6 +543,7 @@ export async function buildNationalOsmStore({
       sourceFingerprint,
       sourceFile: path.basename(pbfPath),
       sourceBytes: source.size,
+      localBasemap,
       builtAt: new Date().toISOString(),
       nodeCount,
       walkNodeCount,
@@ -1694,68 +1711,6 @@ function snapshotNodeIndicesInBounds(accelerator, bounds) {
     }
   }
   return nodeIndices
-}
-
-function runtimeStreetGeometryFromAccelerator(accelerator, bounds, limit) {
-  const fromNodes = snapshotNodeIndicesInBounds(accelerator, bounds)
-  const features = []
-  const seenSegments = new Set()
-  for (const fromNode of fromNodes) {
-    if (features.length >= limit) break
-    for (
-      let edgeIndex = accelerator.edgeOffsets[fromNode];
-      edgeIndex < accelerator.edgeOffsets[fromNode + 1] && features.length < limit;
-      edgeIndex += 1
-    ) {
-      const toNode = accelerator.edgeTargets[edgeIndex]
-      if (
-        fromNode === toNode
-        || !coordinateInsideBounds(accelerator.nodeLons[toNode], accelerator.nodeLats[toNode], bounds)
-      ) continue
-      const segmentKey = fromNode < toNode
-        ? `${fromNode}:${toNode}`
-        : `${toNode}:${fromNode}`
-      if (seenSegments.has(segmentKey)) continue
-      seenSegments.add(segmentKey)
-      features.push({
-        type: 'Feature',
-        properties: {
-          // Runtime snapshots intentionally omit source OSM way ids. The
-          // edge ordinal is stable for this immutable snapshot and is all
-          // the map renderer needs for a local street line.
-          wayId: null,
-          edgeIndex,
-        },
-        geometry: {
-          type: 'LineString',
-          coordinates: [
-            [accelerator.nodeLons[fromNode], accelerator.nodeLats[fromNode]],
-            [accelerator.nodeLons[toNode], accelerator.nodeLats[toNode]],
-          ],
-        },
-      })
-    }
-  }
-  return features
-}
-
-/** Read local street lines from the sealed pedestrian snapshot. */
-export function readNationalOsmStreetGeometry(storePath, bounds, options = {}) {
-  const state = openRuntimeStreetStore(storePath)
-  const accelerator = state.accelerator ?? loadStreetAcceleratorSnapshot(state)
-  const limit = Math.max(1, Math.min(16_000, Math.floor(Number(options.limit) || 12_000)))
-  const features = runtimeStreetGeometryFromAccelerator(accelerator, bounds, limit) ?? []
-  return {
-    type: 'FeatureCollection',
-    features,
-    metadata: {
-      source: 'local-osm-street-snapshot',
-      storageLayout: runtimeStreetStoreStorageLayout,
-      bbox: bounds,
-      edgeCount: features.length,
-      sampled: features.length >= limit,
-    },
-  }
 }
 
 /**

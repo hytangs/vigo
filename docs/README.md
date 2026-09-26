@@ -37,7 +37,7 @@ New to Engine? Follow the [quickstart](guides/quickstart.md), choose a [workflow
 
 ## Development
 
-[Contributing and checks](../.github/CONTRIBUTING.md) · [Architecture](development/architecture.md) · [Security](../SECURITY.md)
+[Contributing and checks](../.github/CONTRIBUTING.md) · [Architecture](development/architecture.md) · [Local basemap](development/local-basemap.md) · [Security](../SECURITY.md)
 
 The [Developer Guide](developer-guide/VIGO-0.4.2-Developer-Guide.tex) is the printable engine reference. Build it with `npm run docs:developer-guide`; the PDF is also a release artifact. Current behavior belongs in the guides above. [Release notes](releases/0.4.2.md) and the [changelog](../CHANGELOG.md) preserve version history.
 

@@ -11,7 +11,7 @@ export const schedulePresets = [
 ]
 
 export const networkLensOptions: NetworkLens[] = ['network', 'shape', 'service', 'transfer', 'risk']
-export const basemapOptions: Basemap[] = ['none', 'offline', 'minimal', 'streets', 'dark', 'terrain']
+export const basemapOptions: Basemap[] = ['offline', 'none', 'minimal', 'streets', 'dark', 'terrain']
 
 export const routingTimeOptions: Array<{ label: string; value: RoutingTimePreference }> = [
   { label: 'Depart', value: 'depart' },

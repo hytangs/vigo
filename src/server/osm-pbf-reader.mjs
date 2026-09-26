@@ -11,6 +11,7 @@ export const osmPbfLimits = Object.freeze({
   primitiveGroups: 100_000,
   nodesPerBlock: 5_000_000,
   waysPerBlock: 1_000_000,
+  relationsPerBlock: 100_000,
   tagsPerBlock: 5_000_000,
   wayReferences: 5_000_000,
 })
@@ -45,7 +46,11 @@ function readBlob(bytes) {
 
 function readHeaderBlock(bytes) {
   return reader(bytes).readFields((tag, result, pbf) => {
-    if (tag === 4) result.requiredFeatures.push(pbf.readString())
+    if (tag === 1) result.bounds = reader(pbf.readBytes()).readFields((field, bounds, bbox) => {
+      const name = { 1: 'west', 2: 'east', 3: 'north', 4: 'south' }[field]
+      if (name) bounds[name] = bbox.readSVarint() * 1e-9
+    }, {})
+    else if (tag === 4) result.requiredFeatures.push(pbf.readString())
     else if (tag === 5) result.optionalFeatures.push(pbf.readString())
   }, { requiredFeatures: [], optionalFeatures: [] })
 }
@@ -60,7 +65,7 @@ function readStringTable(bytes) {
   }, [])
 }
 
-function readPrimitiveBlock(bytes, requiredFeatures) {
+function readPrimitiveBlock(bytes, requiredFeatures, bounds) {
   const block = reader(bytes).readFields((tag, result, pbf) => {
     if (tag === 1) result.strings = readStringTable(pbf.readBytes())
     else if (tag === 2) {
@@ -78,7 +83,8 @@ function readPrimitiveBlock(bytes, requiredFeatures) {
     latOffset: 0,
     lonOffset: 0,
     requiredFeatures,
-    entityBudget: { nodes: 0, ways: 0, tags: 0 },
+    bounds,
+    entityBudget: { nodes: 0, ways: 0, relations: 0, tags: 0 },
   })
   if (!Number.isInteger(block.granularity) || block.granularity <= 0) {
     throw new Error('OSM PBF primitive block has an invalid granularity.')
@@ -156,6 +162,35 @@ function readWay(bytes, budget) {
   return way
 }
 
+function readRelation(bytes, budget) {
+  if (budget.relations >= osmPbfLimits.relationsPerBlock) {
+    throw new Error('OSM PBF primitive block exceeds the relation limit.')
+  }
+  budget.relations += 1
+  const relation = reader(bytes).readFields((tag, result, pbf) => {
+    if (tag === 1) result.id = pbf.readVarint()
+    else if (tag === 2) result.keys = pbf.readPackedVarint(result.keys)
+    else if (tag === 3) result.vals = pbf.readPackedVarint(result.vals)
+    else if (tag === 8) result.roles = pbf.readPackedVarint(result.roles)
+    else if (tag === 9) result.refs = pbf.readPackedSVarint(result.refs)
+    else if (tag === 10) result.types = pbf.readPackedVarint(result.types)
+  }, { id: 0, keys: [], vals: [], roles: [], refs: [], types: [] })
+  if (relation.keys.length !== relation.vals.length
+    || budget.tags + relation.keys.length > osmPbfLimits.tagsPerBlock
+    || relation.refs.length > osmPbfLimits.wayReferences
+    || relation.refs.length !== relation.roles.length
+    || relation.refs.length !== relation.types.length) {
+    throw new Error('OSM PBF relation tags or members are inconsistent or exceed their limits.')
+  }
+  budget.tags += relation.keys.length
+  let ref = 0
+  for (let index = 0; index < relation.refs.length; index += 1) {
+    ref += relation.refs[index]
+    relation.refs[index] = ref
+  }
+  return relation
+}
+
 export function forEachPrimitiveEntity(block, groupBytes, handlers) {
   const denseNodesAllowed = block.requiredFeatures.has('DenseNodes')
   reader(groupBytes).readFields((tag, _result, pbf) => {
@@ -163,6 +198,7 @@ export function forEachPrimitiveEntity(block, groupBytes, handlers) {
     else if (tag === 2) {
       handlers.denseNodes?.(readDenseNodes(pbf.readBytes(), block.entityBudget, denseNodesAllowed))
     } else if (tag === 3) handlers.way?.(readWay(pbf.readBytes(), block.entityBudget))
+    else if (tag === 4) handlers.relation?.(readRelation(pbf.readBytes(), block.entityBudget))
   }, null)
 }
 
@@ -236,6 +272,7 @@ export async function forEachPbfBlock(filePath, onBlock, onProgress, onFileBytes
   const stats = await handle.stat()
   let offset = 0
   let headerFeatures = null
+  let headerBounds = null
   let dataBlockCount = 0
   try {
     while (offset < stats.size) {
@@ -269,10 +306,13 @@ export async function forEachPbfBlock(filePath, onBlock, onProgress, onFileBytes
           throw new Error(`OSM PBF declares unsupported required features: ${unknown.join(', ') || 'missing OsmSchema-V0.6'}.`)
         }
         headerFeatures = new Set(parsedHeader.requiredFeatures)
+        if (parsedHeader.bounds && ['west', 'east', 'south', 'north'].every((key) => Number.isFinite(parsedHeader.bounds[key]))) {
+          headerBounds = parsedHeader.bounds
+        }
       } else if (header.type === 'OSMData') {
         if (!headerFeatures) throw new Error('OSM PBF must contain OSMHeader before OSMData.')
         dataBlockCount += 1
-        await onBlock(readPrimitiveBlock(data, headerFeatures))
+        await onBlock(readPrimitiveBlock(data, headerFeatures, headerBounds))
       } else {
         throw new Error(`OSM PBF contains unsupported block type ${header.type}.`)
       }

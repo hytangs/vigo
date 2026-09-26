@@ -22,7 +22,7 @@ export function CityPanel({
   stopCount,
   appearance,
   basemap,
-  localStreetGraphAvailable,
+  localBasemapAvailable,
   runtimeConfig,
   health,
   busy,
@@ -45,7 +45,7 @@ export function CityPanel({
   stopCount: number
   appearance: Appearance
   basemap: Basemap
-  localStreetGraphAvailable: boolean
+  localBasemapAvailable: boolean
   runtimeConfig: VigoRuntimeConfig | null
   health: HealthResponse | null
   busy: boolean
@@ -179,7 +179,7 @@ export function CityPanel({
                 >
                   {basemapOptions.map((option) => (
                     <option key={option} value={option}>
-                      {basemapLabels[option]}{option === 'offline' && !localStreetGraphAvailable ? ' · not indexed' : ''}
+                      {basemapLabels[option]}{option === 'offline' && !localBasemapAvailable ? ' · not indexed' : ''}
                     </option>
                   ))}
                 </select>

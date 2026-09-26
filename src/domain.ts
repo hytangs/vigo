@@ -493,7 +493,7 @@ export type NetworkLens = 'network' | 'shape' | 'service' | 'transfer' | 'risk'
 
 export const basemapLabels: Record<Basemap, string> = {
   none: 'No basemap',
-  offline: 'Local OSM streets',
+  offline: 'Local OSM',
   minimal: 'CARTO Positron',
   streets: 'OpenStreetMap Standard',
   dark: 'CARTO Dark Matter',
@@ -511,7 +511,7 @@ export const basemapShortLabels: Record<Basemap, string> = {
 
 export const basemapDescriptions: Record<Basemap, string> = {
   none: 'Clean analysis canvas with no geographic backdrop.',
-  offline: 'Street geometry from this City’s imported OSM PBF; no labels or network tiles.',
+  offline: 'A quiet offline map of main roads, rivers, lakes, and coastline from this City’s OSM import.',
   minimal: 'Quiet light OSM-derived context for route and stop review.',
   streets: 'Standard OpenStreetMap context; requires a network connection.',
   dark: 'Dark OSM-derived context for this City.',

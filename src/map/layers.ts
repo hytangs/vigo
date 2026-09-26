@@ -35,7 +35,7 @@ export const reachResultLayerIds = [
   'vigo-scenario-sketch-labels',
 ]
 
-export const localStreetLayerIds = ['vigo-local-streets-casing', 'vigo-local-streets']
+export const localBasemapLayerIds = ['vigo-local-water', 'vigo-local-shore', 'vigo-local-rivers', 'vigo-local-roads-casing', 'vigo-local-roads']
 
 export function reachComparisonLayerIds(count: number) {
   return Array.from({ length: count }, (_, index) => [

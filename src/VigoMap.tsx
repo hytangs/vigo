@@ -1,10 +1,12 @@
 import {
   baseCanvasColor,
-  ensureLocalStreetLayers,
-  localStreetLimitForZoom,
-  removeLocalStreetBasemap,
+  ensureLocalBasemapLayers,
+  localBasemapFeatureLimit,
+  removeLocalBasemap,
+  setLocalBasemapData,
   syncBasemap,
 } from './map/basemaps'
+import { localBasemapViewport, type LocalBasemapViewport } from './map/localBasemapViewport'
 import { emptyCollection, isFiniteLngLat, lineGeometryCoordinates, stopLngLat, type FeatureCollection } from './map/featureGeometry'
 import { routingLineFeatures, routingPinFeatures, serviceVehicleFeatures } from './map/journeyFeatures'
 import {
@@ -101,7 +103,8 @@ type MapLiveSelection = {
 export type VigoMapProps = {
   showStopDetails?: boolean
   projectId?: string
-  localStreetGraphAvailable?: boolean
+  localBasemapAvailable?: boolean
+  localBasemapRevision?: string
   preview: MapPreview
   feedName: string
   layers: LayerState
@@ -396,7 +399,8 @@ function desktopMapTelemetryPayload(
 export function VigoMap({
   showStopDetails = true,
   projectId,
-  localStreetGraphAvailable = false,
+  localBasemapAvailable = false,
+  localBasemapRevision,
   preview,
   feedName,
   layers,
@@ -443,11 +447,11 @@ export function VigoMap({
   const basemapRef = useRef(basemap)
   const appearanceRef = useRef(appearance)
   const projectIdRef = useRef(projectId)
-  const localStreetGraphAvailableRef = useRef(localStreetGraphAvailable)
-  const localStreetRequestRef = useRef<AbortController | null>(null)
-  const localStreetRequestKeyRef = useRef('')
-  const localStreetRefreshTimerRef = useRef<number | null>(null)
-  const localStreetQueryRef = useRef('')
+  const localBasemapAvailableRef = useRef(localBasemapAvailable)
+  const localBasemapRequestRef = useRef<AbortController | null>(null)
+  const localBasemapRequestKeyRef = useRef('')
+  const localBasemapRefreshTimerRef = useRef<number | null>(null)
+  const localBasemapViewportRef = useRef<LocalBasemapViewport | null>(null)
   const mapTelemetryRef = useRef<MapFirstRenderTracker | null>(null)
   const lastFitSignatureRef = useRef('')
   const lastRoutingFitSignatureRef = useRef('')
@@ -463,7 +467,7 @@ export function VigoMap({
     return { tone: 'stop', stopId: selectedStopId, eyebrow: 'Stop arrivals', title: stop?.name || 'Station', subtitle: '', metrics: [] }
   })
   const [mapFailure, setMapFailure] = useState('')
-  const [localStreetStatus, setLocalStreetStatus] = useState<{
+  const [localBasemapStatus, setLocalBasemapStatus] = useState<{
     phase: 'idle' | 'loading' | 'ready' | 'empty' | 'error'
     featureCount: number
     detail?: string
@@ -481,8 +485,8 @@ export function VigoMap({
   }, [onMoveScenarioStop])
   useEffect(() => {
     projectIdRef.current = projectId
-    localStreetGraphAvailableRef.current = localStreetGraphAvailable
-  }, [localStreetGraphAvailable, projectId])
+    localBasemapAvailableRef.current = localBasemapAvailable
+  }, [localBasemapAvailable, projectId])
   const featureProcessingStartedAt = performance.now()
   const performanceProfile = useMemo(() => providedPerformanceProfile ?? buildNetworkPerformanceProfile(preview), [preview, providedPerformanceProfile])
   const routingFocus = focusMode === 'routing'
@@ -739,8 +743,8 @@ export function VigoMap({
       }
       if (currentBasemap === 'offline') {
         if (
-          !localStreetGraphAvailableRef.current
-          || (map.getSource('vigo-local-streets') && map.isSourceLoaded('vigo-local-streets'))
+          !localBasemapAvailableRef.current
+          || (map.getSource('vigo-local-basemap') && map.isSourceLoaded('vigo-local-basemap'))
         ) {
           if (markBasemapReady(tracker, performance.now())) reportPhase('basemap-ready')
         }
@@ -752,7 +756,7 @@ export function VigoMap({
     }
     const handleMapError = (event: maplibregl.ErrorEvent) => {
       const sourceId = 'sourceId' in event ? String(event.sourceId || '') : ''
-      if (sourceId === 'osm' || sourceId === 'vigo-local-streets') {
+      if (sourceId === 'osm' || sourceId === 'vigo-local-basemap') {
         const tracker = mapTelemetryRef.current
         if (tracker && markBasemapFailed(tracker, performance.now())) reportPhase('basemap-failed')
         return
@@ -761,7 +765,7 @@ export function VigoMap({
       reportMapFailure('render', event.error)
     }
     const handleSourceData = (event: { sourceId?: string }) => {
-      if (event.sourceId === 'osm' || event.sourceId === 'vigo-local-streets') reportBasemapReadiness()
+      if (event.sourceId === 'osm' || event.sourceId === 'vigo-local-basemap') reportBasemapReadiness()
     }
     const handleMapLoad = () => {
       if (mapRemovedRef.current || mapReadyRef.current) return
@@ -1021,8 +1025,8 @@ export function VigoMap({
       syncBasemap(map, basemap, appearance)
       if (!tracker) return
       const ready = basemap === 'none'
-        || (basemap === 'offline' && !localStreetGraphAvailable)
-        || (basemap === 'offline' && Boolean(map.getSource('vigo-local-streets') && map.isSourceLoaded('vigo-local-streets')))
+        || (basemap === 'offline' && !localBasemapAvailable)
+        || (basemap === 'offline' && Boolean(map.getSource('vigo-local-basemap') && map.isSourceLoaded('vigo-local-basemap')))
         || (basemap !== 'offline' && Boolean(map.getSource('osm') && map.isSourceLoaded('osm')))
       if (ready && markBasemapReady(tracker, performance.now())) {
         reportDesktopMapPhase({
@@ -1035,26 +1039,26 @@ export function VigoMap({
     // queued. Route and Analyze intentionally hide GTFS layers, so waiting for
     // a rendered route or stop can prevent the basemap from ever starting.
     return scheduleMapFrameUpdate(map, mapReadyRef.current, update, () => mapRemovedRef.current)
-  }, [appearance, basemap, localStreetGraphAvailable, routesGeoJson.features.length, stopsGeoJson.features.length])
+  }, [appearance, basemap, localBasemapAvailable, routesGeoJson.features.length, stopsGeoJson.features.length])
 
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
     let cancelled = false
-    let localStreetReadyTimer: number | null = null
+    let localBasemapReadyTimer: number | null = null
 
-    const clearLocalStreetBasemap = () => {
-      if (localStreetRefreshTimerRef.current !== null) {
-        window.clearTimeout(localStreetRefreshTimerRef.current)
-        localStreetRefreshTimerRef.current = null
+    const clearLocalBasemap = () => {
+      if (localBasemapRefreshTimerRef.current !== null) {
+        window.clearTimeout(localBasemapRefreshTimerRef.current)
+        localBasemapRefreshTimerRef.current = null
       }
-      localStreetRequestRef.current?.abort()
-      localStreetRequestRef.current = null
-      localStreetRequestKeyRef.current = ''
-      localStreetQueryRef.current = ''
-      setLocalStreetStatus({ phase: 'idle', featureCount: 0 })
+      localBasemapRequestRef.current?.abort()
+      localBasemapRequestRef.current = null
+      localBasemapRequestKeyRef.current = ''
+      localBasemapViewportRef.current = null
+      setLocalBasemapStatus({ phase: 'idle', featureCount: 0 })
       if (mapRemovedRef.current) return
-      removeLocalStreetBasemap(map)
+      removeLocalBasemap(map)
     }
 
     const reportLocalBasemapFailure = (error: unknown) => {
@@ -1066,14 +1070,14 @@ export function VigoMap({
         })
       }
       if (error instanceof Error && error.name !== 'AbortError') {
-        setLocalStreetStatus({ phase: 'error', featureCount: 0, detail: error.message })
+        setLocalBasemapStatus({ phase: 'error', featureCount: 0, detail: error.message })
       }
     }
 
-    const refreshLocalStreetBasemap = async () => {
+    const refreshLocalBasemap = async () => {
       if (cancelled || mapRemovedRef.current || !mapReadyRef.current) return
-      if (basemap !== 'offline' || !projectIdRef.current || !localStreetGraphAvailableRef.current) {
-        clearLocalStreetBasemap()
+      if (basemap !== 'offline' || !projectIdRef.current || !localBasemapAvailableRef.current) {
+        clearLocalBasemap()
         const tracker = mapTelemetryRef.current
         if (basemap === 'offline' && tracker && markBasemapReady(tracker, performance.now())) {
           reportDesktopMapPhase({
@@ -1085,23 +1089,23 @@ export function VigoMap({
       }
 
       const bounds = map.getBounds()
-      const west = Number(bounds.getWest().toFixed(5))
-      const south = Number(bounds.getSouth().toFixed(5))
-      const east = Number(bounds.getEast().toFixed(5))
-      const north = Number(bounds.getNorth().toFixed(5))
-      const zoom = Math.max(1, Math.min(22, Math.round(map.getZoom())))
-      const queryKey = `${projectIdRef.current}:${west}:${south}:${east}:${north}:${zoom}`
-      if (queryKey === localStreetQueryRef.current && map.getSource('vigo-local-streets')) {
-        ensureLocalStreetLayers(map, appearanceRef.current)
+      const viewport = localBasemapViewport({ west: bounds.getWest(), south: bounds.getSouth(),
+        east: bounds.getEast(), north: bounds.getNorth(), zoom: map.getZoom() },
+      map.getSource('vigo-local-basemap') ? localBasemapViewportRef.current : null)
+      if (!viewport) {
+        ensureLocalBasemapLayers(map, appearanceRef.current)
+        setLocalBasemapStatus((current) => ({ ...current, phase: current.featureCount ? 'ready' : 'empty' }))
         return
       }
-      if (queryKey === localStreetRequestKeyRef.current) return
+      const { west, south, east, north, zoom } = viewport
+      const queryKey = `${projectIdRef.current}:${west}:${south}:${east}:${north}:${zoom}`
+      if (queryKey === localBasemapRequestKeyRef.current && !localBasemapRequestRef.current?.signal.aborted) return
 
-      localStreetRequestRef.current?.abort()
+      localBasemapRequestRef.current?.abort()
       const controller = new AbortController()
-      localStreetRequestRef.current = controller
-      localStreetRequestKeyRef.current = queryKey
-      setLocalStreetStatus((current) => ({
+      localBasemapRequestRef.current = controller
+      localBasemapRequestKeyRef.current = queryKey
+      setLocalBasemapStatus((current) => ({
         phase: 'loading',
         featureCount: current.featureCount,
       }))
@@ -1111,33 +1115,31 @@ export function VigoMap({
         east: String(east),
         north: String(north),
         zoom: String(zoom),
-        limit: String(localStreetLimitForZoom(zoom)),
+        limit: String(localBasemapFeatureLimit(zoom)),
       })
       try {
         const response = await fetch(
-          `/api/projects/${encodeURIComponent(projectIdRef.current)}/local-streets?${params.toString()}`,
+          `/api/projects/${encodeURIComponent(projectIdRef.current)}/local-basemap?${params.toString()}`,
           { signal: controller.signal },
         )
-        if (!response.ok) throw new Error(`Local street request failed (${response.status}).`)
-        const collection = await response.json() as FeatureCollection
+        if (!response.ok) throw new Error(`Local map request failed (${response.status}).`)
+        const collection = await response.json() as FeatureCollection & { metadata?: { status?: string; detail?: string } }
         if (cancelled || mapRemovedRef.current || controller.signal.aborted || basemapRef.current !== 'offline') return
         if (!map.getStyle()) return
-        const source = map.getSource('vigo-local-streets') as GeoJSONSource | undefined
-        if (source) {
-          source.setData(collection)
-        } else {
-          map.addSource('vigo-local-streets', {
-            type: 'geojson',
-            data: collection,
-            attribution: '© OpenStreetMap contributors · local PBF',
-          })
+        if (collection.metadata?.status === 'needs-import') {
+          throw new Error(collection.metadata.detail || 'Re-import the OSM PBF to prepare the local map.')
         }
-        ensureLocalStreetLayers(map, appearanceRef.current)
-        localStreetQueryRef.current = queryKey
-        setLocalStreetStatus({
+        // A worker update may outlive an aborted fetch. Do not reuse the prior
+        // viewport once its source geometry has been replaced.
+        localBasemapViewportRef.current = null
+        const applied = await setLocalBasemapData(map, collection, controller.signal)
+        if (!applied || cancelled || mapRemovedRef.current || controller.signal.aborted || basemapRef.current !== 'offline') return
+        ensureLocalBasemapLayers(map, appearanceRef.current)
+        localBasemapViewportRef.current = viewport
+        setLocalBasemapStatus({
           phase: collection.features.length ? 'ready' : 'empty',
           featureCount: collection.features.length,
-          detail: collection.features.length ? undefined : 'No local streets intersect this map view.',
+          detail: collection.features.length ? undefined : 'No local map geometry in this view.',
         })
         const tracker = mapTelemetryRef.current
         if (tracker && markBasemapReady(tracker, performance.now())) {
@@ -1150,47 +1152,48 @@ export function VigoMap({
         if (controller.signal.aborted || cancelled) return
         reportLocalBasemapFailure(error)
       } finally {
-        if (localStreetRequestRef.current === controller) {
-          localStreetRequestRef.current = null
-          localStreetRequestKeyRef.current = ''
+        if (localBasemapRequestRef.current === controller) {
+          localBasemapRequestRef.current = null
+          localBasemapRequestKeyRef.current = ''
         }
       }
     }
 
-    const scheduleLocalStreetRefresh = () => {
+    const scheduleLocalBasemapRefresh = () => {
       if (cancelled || mapRemovedRef.current) return
-      if (localStreetRefreshTimerRef.current !== null) window.clearTimeout(localStreetRefreshTimerRef.current)
-      localStreetRefreshTimerRef.current = window.setTimeout(() => {
-        localStreetRefreshTimerRef.current = null
-        void refreshLocalStreetBasemap()
+      localBasemapRequestRef.current?.abort()
+      if (localBasemapRefreshTimerRef.current !== null) window.clearTimeout(localBasemapRefreshTimerRef.current)
+      localBasemapRefreshTimerRef.current = window.setTimeout(() => {
+        localBasemapRefreshTimerRef.current = null
+        void refreshLocalBasemap()
       }, 220)
     }
 
-    if (basemap === 'offline' && localStreetGraphAvailable && projectId) {
-      if (mapReadyRef.current) scheduleLocalStreetRefresh()
+    if (basemap === 'offline' && localBasemapAvailable && projectId) {
+      if (mapReadyRef.current) scheduleLocalBasemapRefresh()
       else {
-        map.once('load', scheduleLocalStreetRefresh)
-        map.once('idle', scheduleLocalStreetRefresh)
-        localStreetReadyTimer = window.setTimeout(scheduleLocalStreetRefresh, 360)
+        map.once('load', scheduleLocalBasemapRefresh)
+        map.once('idle', scheduleLocalBasemapRefresh)
+        localBasemapReadyTimer = window.setTimeout(scheduleLocalBasemapRefresh, 360)
       }
-      map.on('moveend', scheduleLocalStreetRefresh)
+      map.on('moveend', scheduleLocalBasemapRefresh)
     } else {
-      clearLocalStreetBasemap()
+      clearLocalBasemap()
     }
 
     return () => {
       cancelled = true
-      if (localStreetRefreshTimerRef.current !== null) {
-        window.clearTimeout(localStreetRefreshTimerRef.current)
-        localStreetRefreshTimerRef.current = null
+      if (localBasemapRefreshTimerRef.current !== null) {
+        window.clearTimeout(localBasemapRefreshTimerRef.current)
+        localBasemapRefreshTimerRef.current = null
       }
-      if (localStreetReadyTimer !== null) window.clearTimeout(localStreetReadyTimer)
-      map.off('load', scheduleLocalStreetRefresh)
-      map.off('idle', scheduleLocalStreetRefresh)
-      map.off('moveend', scheduleLocalStreetRefresh)
-      clearLocalStreetBasemap()
+      if (localBasemapReadyTimer !== null) window.clearTimeout(localBasemapReadyTimer)
+      map.off('load', scheduleLocalBasemapRefresh)
+      map.off('idle', scheduleLocalBasemapRefresh)
+      map.off('moveend', scheduleLocalBasemapRefresh)
+      clearLocalBasemap()
     }
-  }, [basemap, localStreetGraphAvailable, projectId])
+  }, [basemap, localBasemapAvailable, localBasemapRevision, projectId])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1511,26 +1514,27 @@ export function VigoMap({
       <div ref={containerRef} className="maplibre-canvas" />
       {basemap === 'offline' ? (
         <div
-          className={classNames('map-basemap-status', `is-${localStreetStatus.phase}`)}
-          data-local-street-status={localStreetStatus.phase}
+          className={classNames('map-basemap-status', `is-${localBasemapStatus.phase}`)}
+          data-local-basemap-status={localBasemapStatus.phase}
+          title={localBasemapStatus.detail}
           role="status"
           aria-live="polite"
         >
           <span className="map-basemap-status-dot" aria-hidden="true" />
           <strong>Local OSM</strong>
           <small>
-            {!localStreetGraphAvailable
-              ? 'No local street index'
-              : localStreetStatus.phase === 'loading'
-                ? localStreetStatus.featureCount
-                  ? `Refreshing · ${formatNumber(localStreetStatus.featureCount)} segments`
-                  : 'Loading streets…'
-                : localStreetStatus.phase === 'ready'
-                  ? `${formatNumber(localStreetStatus.featureCount)} segments`
-                  : localStreetStatus.phase === 'empty'
-                    ? 'No streets in this view'
-                    : localStreetStatus.phase === 'error'
-                      ? localStreetStatus.detail || 'Could not load streets'
+            {!localBasemapAvailable
+              ? 'Import OSM to add a map'
+              : localBasemapStatus.phase === 'loading'
+                ? localBasemapStatus.featureCount
+                  ? 'Refreshing…'
+                  : 'Loading map…'
+                : localBasemapStatus.phase === 'ready'
+                  ? 'Offline'
+                  : localBasemapStatus.phase === 'empty'
+                    ? 'Outside local coverage'
+                    : localBasemapStatus.phase === 'error'
+                      ? localBasemapStatus.detail || 'Could not load local map'
                       : 'Waiting for map view'}
           </small>
         </div>

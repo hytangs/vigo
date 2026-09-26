@@ -22,7 +22,8 @@ import {
   readNationalGtfsStoreMetadata,
   removeNationalGtfsOsmStopTransfers,
 } from './national-gtfs-store.mjs'
-import { readNationalOsmStoreMetadata, readNationalOsmStreetGeometry } from './national-osm-store.mjs'
+import { readNationalOsmStoreMetadata } from './national-osm-store.mjs'
+import { readLocalBasemap, localBasemapBudgets } from './local-basemap-store.mjs'
 import { integralNumber } from './number-utils.mjs'
 import {
   composeOrderedRoutingFailure,
@@ -96,7 +97,7 @@ let runtimeConfig = {
   storageRoot: envStorageRoot || defaultStorageRoot(),
   appearance: 'dark',
   accent: 'blue',
-  basemap: 'streets',
+  basemap: 'offline',
   createdAt: '',
   updatedAt: '',
 }
@@ -217,7 +218,7 @@ function normalizeAccent(value) {
 }
 
 function normalizeBasemap(value) {
-  return ['none', 'offline', 'minimal', 'streets', 'dark', 'terrain'].includes(value) ? value : 'streets'
+  return ['none', 'offline', 'minimal', 'streets', 'dark', 'terrain'].includes(value) ? value : 'offline'
 }
 
 async function loadRuntimeConfig() {
@@ -541,11 +542,13 @@ function streetStoreFile(projectId) {
 }
 
 function queryNumber(url, name) {
-  const value = Number(url.searchParams.get(name))
+  const raw = url.searchParams.get(name)
+  if (raw === null || raw.trim() === '') return null
+  const value = Number(raw)
   return Number.isFinite(value) ? value : null
 }
 
-async function readLocalStreetGeometry(projectId, url) {
+async function readProjectBasemap(projectId, url) {
   const project = await readProjectMetadata(projectId)
   if (project.osmStreetIndex?.status !== 'ready' || !await exists(streetStoreFile(projectId))) {
     const error = new Error('This City has no ready OSM street index. Import an .osm.pbf file first.')
@@ -560,30 +563,30 @@ async function readLocalStreetGeometry(projectId, url) {
     north: queryNumber(url, 'north'),
   }
   if (Object.values(requested).some((value) => value === null)) {
-    const error = new Error('Local street geometry requires west, south, east, and north.')
+    const error = new Error('Local basemap requires west, south, east, and north.')
     error.statusCode = 400
     throw error
   }
   if (requested.east <= requested.west || requested.north <= requested.south) {
-    const error = new Error('Local street geometry bounds are invalid.')
+    const error = new Error('Local basemap bounds are invalid.')
     error.statusCode = 400
     throw error
   }
 
-  const maxSpan = 2.5
-  const centerLon = (requested.west + requested.east) / 2
-  const centerLat = (requested.south + requested.north) / 2
-  const halfLon = Math.min(maxSpan / 2, (requested.east - requested.west) / 2)
-  const halfLat = Math.min(maxSpan / 2, (requested.north - requested.south) / 2)
+  // Generalized geometry and hard feature/vertex budgets keep overview queries
+  // bounded without silently cropping the map to a 2.5-degree square.
   const bbox = {
-    west: Math.max(-180, centerLon - halfLon),
-    south: Math.max(-90, centerLat - halfLat),
-    east: Math.min(180, centerLon + halfLon),
-    north: Math.min(90, centerLat + halfLat),
+    west: Math.max(-180, requested.west),
+    south: Math.max(-85.051129, requested.south),
+    east: Math.min(180, requested.east),
+    north: Math.min(85.051129, requested.north),
   }
-  const limitValue = Math.floor(queryNumber(url, 'limit') ?? 12_000)
-  const limit = Math.max(500, Math.min(16_000, limitValue))
-  const runtimeGeometry = readNationalOsmStreetGeometry(streetStoreFile(projectId), bbox, { limit })
+  if (bbox.west >= bbox.east || bbox.south >= bbox.north) {
+    throw Object.assign(new Error('Local map bounds are outside the supported world extent.'), { statusCode: 400 })
+  }
+  const limitValue = Math.floor(queryNumber(url, 'limit') ?? localBasemapBudgets.features)
+  const limit = Math.max(1, Math.min(localBasemapBudgets.features, limitValue))
+  const runtimeGeometry = readLocalBasemap(streetStoreFile(projectId), bbox, { limit, zoom: queryNumber(url, 'zoom') ?? 12 })
   return {
     ...runtimeGeometry,
     metadata: {
@@ -4250,8 +4253,8 @@ async function route(request, response) {
       return true
     }
 
-    if (request.method === 'GET' && action === 'local-streets') {
-      sendJson(response, 200, await readLocalStreetGeometry(projectId, url))
+    if (request.method === 'GET' && action === 'local-basemap') {
+      sendJson(response, 200, await readProjectBasemap(projectId, url))
       return true
     }
 

@@ -182,7 +182,7 @@ export function FirstRunSetupDialog({
     storageRoot: '',
     appearance: 'dark',
     accent: 'blue',
-    basemap: 'streets',
+    basemap: 'offline',
   })
   const [desktopHint, setDesktopHint] = useState('')
   const setupKey = `${config?.storageRoot ?? ''}:${config?.appearance ?? ''}:${config?.accent ?? ''}:${config?.basemap ?? ''}`

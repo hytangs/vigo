@@ -57,7 +57,9 @@ The City, other sources, saved notebooks, and your original input files are reta
 
 Choose appearance, storage location, and map preferences. Runtime detail appears only when it helps diagnose a problem.
 
-The optional CARTO basemaps currently require a provider key that Studio does not configure. Use the OpenStreetMap street style or the local map if those styles display an API-key watermark.
+**Local OSM** is the default for new settings. It draws main roads, rivers, lakes, and coastal water from the City's imported PBF in light or dark appearance, with no tile service, API key, or network connection. Residential streets, service lanes, paths, buildings, and labels are omitted to keep routes and analysis clear. Your saved basemap preference is retained.
+
+Cities imported before the local map index was introduced need one fresh OSM import. The map reports this when the geometry is missing. Coastlines must be complete within the visible area to fill the sea correctly; an incomplete shoreline remains a line. Water outside the imported coverage is unavailable. Online OpenStreetMap and CARTO styles remain optional.
 
 ## Troubleshooting
 
