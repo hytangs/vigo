@@ -23,7 +23,13 @@ const realtimeTimezoneFormatterCache = new Map()
 
 function normalizeRealtimeSnapshotForRouting(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  if (value.incrementality != null && !['FULL_DATASET', 0].includes(value.incrementality)) {
+    throw Object.assign(new Error('Realtime routing requires a FULL_DATASET snapshot.'), { statusCode: 400 })
+  }
   const tripUpdates = Array.isArray(value.tripUpdates) ? value.tripUpdates : []
+  if (tripUpdates.length > 100_000 || tripUpdates.reduce((total, update) => total + (Array.isArray(update?.stopTimeUpdates) ? update.stopTimeUpdates.length : 0), 0) > 500_000) {
+    throw Object.assign(new Error('Realtime snapshot exceeds 100,000 trip updates or 500,000 stop predictions.'), { statusCode: 413 })
+  }
   if (!tripUpdates.length && !value.inputCoverage?.received) return null
   return {
     sourceUrl: String(value.sourceUrl ?? '').trim() || undefined,
@@ -33,6 +39,7 @@ function normalizeRealtimeSnapshotForRouting(value) {
     fetchedAt: String(value.fetchedAt ?? '').trim() || undefined,
     feedTimestamp: numeric(value.feedTimestamp, undefined),
     tripUpdates,
+    failedFeeds: Array.isArray(value.feeds) ? value.feeds.filter(feed => feed.error).length : 0,
     inputCoverage: value.inputCoverage,
     counts: value.counts && typeof value.counts === 'object' ? value.counts : undefined,
   }
@@ -268,6 +275,7 @@ export function realtimeTimetableForRequest(store, kernel, request, serviceDateR
     mode: 'full-snapshot', snapshotId: cacheKey,
     feedTimestamp: snapshot.feedTimestamp, fetchedAt: snapshot.fetchedAt,
     feedTripUpdates: snapshot.tripUpdates.length,
+    failedFeeds: snapshot.failedFeeds,
     inputCoverage: snapshot.inputCoverage,
     matchedTripUpdates: 0, appliedTrips: 0, replacedTrips: 0, canceledTrips: 0,
     unsupportedTrips: 0, dateMismatches: 0, unmatchedTrips: 0,
@@ -333,9 +341,10 @@ export function realtimeTimetableForRequest(store, kernel, request, serviceDateR
   diagnostics.coverage = {
     inputUpdates: snapshot.tripUpdates.length + upstreamRejected,
     appliedUpdates: applied, rejectedUpdates: rejected, prunedUpdates: 0,
-    complete: rejected === 0 && (snapshot.tripUpdates.length > 0 || snapshot.inputCoverage?.complete === true),
+    failedFeeds: snapshot.failedFeeds,
+    complete: rejected === 0 && snapshot.failedFeeds === 0 && (snapshot.tripUpdates.length > 0 || snapshot.inputCoverage?.complete === true),
   }
-  const status = applied ? rejected ? 'partial' : replacements.size ? 'applied' : 'cancellations_only'
+  const status = applied ? rejected || snapshot.failedFeeds ? 'partial' : replacements.size ? 'applied' : 'cancellations_only'
     : diagnostics.staleTrips > 0 || diagnostics.stale ? 'stale_fallback' : 'no_matches'
   diagnostics.status = status
   if (status === 'stale_fallback') diagnostics.fallbackReason = 'feed_or_record_timestamp_missing_invalid_or_stale'

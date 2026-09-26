@@ -13,7 +13,6 @@ import { Worker } from 'node:worker_threads'
 import { vigoCapabilities } from '../capabilities.mjs'
 import { createAgencyService } from './agency-api.mjs'
 import { readGtfsNetworkOverview, readGtfsRouteAnalysis } from './gtfs-analysis-store.mjs'
-import { decodeGtfsRealtimeFeed } from './gtfs-realtime-decoder.mjs'
 import { applyLocalCors, assertLocalBindHost, localRequestAccess } from './local-http-security.mjs'
 import {
   disposeNationalGtfsStore,
@@ -32,8 +31,7 @@ import {
   validateOrderedRoutingPoints,
 } from './ordered-route-composition.mjs'
 import { computeReachResult } from './reach.mjs'
-import { realtimeSnapshotFromFeeds } from './realtime-snapshot.mjs'
-import { fetchSafeRealtimeBody } from './realtime-url-security.mjs'
+import { inspectRealtimeFeed } from './realtime-inspector.mjs'
 import { normalizeRoutingDataRequest } from './routing-data-mode.mjs'
 import { resolveDepartNowRequest } from './routing-depart-now.mjs'
 import { normalizeRoutingPointIdentities } from './routing-point-identity.mjs'
@@ -60,7 +58,6 @@ const projectSchemaVersion = 'vigo.project.v1'
 const artifactSchemaVersion = 'vigo.artifact.v1'
 const jobSchemaVersion = 'vigo.job.v2'
 const routingStatusSchemaVersion = 'vigo.routing.status.v1'
-const maxRealtimeBytes = 20e6
 const maxTransportStopPairs = 2_000
 const nationalImportJobs = new Map()
 const nationalImportProjects = new Map()
@@ -4018,103 +4015,6 @@ async function readBody(request) {
   if (!byteLength) return {}
 
   return JSON.parse(Buffer.concat(chunks, byteLength).toString('utf8'))
-}
-
-function optionalUrl(value) {
-  try {
-    return new URL(value)
-  } catch {
-    return undefined
-  }
-}
-
-function viewerRealtimeUrls(sourceUrl) {
-  const parsedUrl = optionalUrl(sourceUrl)
-  if (!parsedUrl) return undefined
-  if (parsedUrl.hostname !== 'viz.rt.gtfs.zone') return undefined
-  const params = new URLSearchParams(parsedUrl.hash.replace(/^#/, ''))
-  const urls = compactObject({
-    vehicles: params.get('rt_vp') || undefined,
-    tripUpdates: params.get('rt_tu') || undefined,
-    alerts: params.get('rt_al') || undefined,
-  })
-  return Object.keys(urls).length ? urls : undefined
-}
-
-function mbtaStandardRealtimeUrls(sourceUrl) {
-  const parsedUrl = optionalUrl(sourceUrl)
-  if (!parsedUrl) return undefined
-  if (parsedUrl.hostname !== 'cdn.mbta.com') return undefined
-  if (!/^\/realtime\/(?:Alerts|TripUpdates|VehiclePositions)\.pb$/i.test(parsedUrl.pathname)) return undefined
-
-  return {
-    vehicles: new URL('/realtime/VehiclePositions.pb', parsedUrl.origin).toString(),
-    tripUpdates: new URL('/realtime/TripUpdates.pb', parsedUrl.origin).toString(),
-    alerts: new URL('/realtime/Alerts.pb', parsedUrl.origin).toString(),
-  }
-}
-
-function realtimeFeedUrls(body) {
-  const supplied = body?.urls && typeof body.urls === 'object' ? body.urls : {}
-  const urls = compactObject({
-    vehicles: supplied.vehicles ?? supplied.vehiclePositions ?? supplied.rt_vp,
-    tripUpdates: supplied.tripUpdates ?? supplied.trip_updates ?? supplied.rt_tu,
-    alerts: supplied.alerts ?? supplied.rt_al,
-  })
-  if (Object.keys(urls).length) return urls
-  const sourceUrl = typeof body?.url === 'string' ? body.url.trim() : ''
-  if (!sourceUrl) return {}
-  return viewerRealtimeUrls(sourceUrl) ?? mbtaStandardRealtimeUrls(sourceUrl) ?? { feed: sourceUrl }
-}
-
-async function fetchRealtimeFeed(sourceUrl) {
-  let fetched
-  try {
-    fetched = await fetchSafeRealtimeBody(sourceUrl, {
-      maximumBytes: maxRealtimeBytes,
-      headers: {
-        accept: 'application/x-protobuf, application/octet-stream, */*',
-        'user-agent': `VIGO GTFS-RT inspector/${appVersion}`,
-      },
-    })
-  } catch (error) {
-    const next = new Error(error.code === 'unsafe_url' ? error.message : `GTFS-RT request failed: ${error.message}`)
-    next.statusCode = error.code === 'unsafe_url' ? 400 : error.code === 'response_too_large' ? 413 : 502
-    throw next
-  }
-
-  let feed
-  try {
-    feed = decodeGtfsRealtimeFeed(fetched.body)
-  } catch (error) {
-    const next = new Error(`GTFS-RT protobuf decode failed: ${error.message}`)
-    next.statusCode = 400
-    throw next
-  }
-
-  return {
-    feed,
-    sourceUrl,
-    fetchedAt: now(),
-    contentType: fetched.contentType,
-  }
-}
-
-async function inspectRealtimeFeed(body) {
-  const urls = realtimeFeedUrls(body)
-  const entries = Object.entries(urls)
-    .map(([kind, value]) => [kind, typeof value === 'string' ? value.trim() : ''])
-    .filter(([, value]) => value)
-  if (!entries.length) {
-    const error = new Error('GTFS-RT URL is required.')
-    error.statusCode = 400
-    throw error
-  }
-  const records = await Promise.all(entries.map(async ([kind, sourceUrl]) => {
-    try { return { ...await fetchRealtimeFeed(sourceUrl), kind } }
-    catch (error) { return { sourceUrl, kind, fetchedAt: now(), error: error.message } }
-  }))
-  return realtimeSnapshotFromFeeds(records)
 }
 
 function requestPathname(request) {

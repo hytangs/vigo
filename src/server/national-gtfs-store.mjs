@@ -1,5 +1,5 @@
 import { readServiceTimetable } from './gtfs/service-timetable.mjs'
-import { boundedInteger, defaultTimetableBudgetBytes } from './runtime/resource-limits.mjs'
+import { boundedInteger, defaultTimetableBudgetBytes, timetableBudgetBytes } from './runtime/resource-limits.mjs'
 import {
   nativeCoordinateAccessProfile,
   nativeStopTransferProfile,
@@ -262,10 +262,7 @@ function optionalPositiveLimit(name) {
 const activeServiceKernelMaxSegments = optionalPositiveLimit('VIGO_ACTIVE_KERNEL_MAX_SEGMENTS')
 const activeServiceKernelMaxSourceConnections = optionalPositiveLimit('VIGO_ACTIVE_KERNEL_MAX_SOURCE_CONNECTIONS')
   || activeServiceKernelMaxSegments
-const activeServiceKernelMaxEstimatedBytes = boundedInteger(
-  process.env.VIGO_ACTIVE_KERNEL_MAX_BYTES, defaultTimetableBudgetBytes,
-  1024 * 1024, 16 * 1024 * 1024 * 1024,
-)
+const activeServiceKernelMaxEstimatedBytes = timetableBudgetBytes
 // A malformed/oversized persisted snapshot is a cache miss, never a routing
 // capability failure: the active timetable is rebuilt from the authoritative
 // GTFS SQLite source, subject to the same timetable memory budget.

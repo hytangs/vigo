@@ -1,4 +1,5 @@
 import { compileNativeRealtimeTimetable } from './native-routing-kernel.mjs'
+import { timetableBudgetBytes, runtimeCapacityError } from './runtime/resource-limits.mjs'
 
 function invalidReplacement(trip, detail) {
   const error = new Error(`Invalid realtime timetable trip ${trip}: ${detail}.`)
@@ -12,6 +13,16 @@ export function compileRealtimeTimetableKernel(base, { replacements = new Map(),
   const started = performance.now(), tripCount = base.tripIds.length
   for (const trip of [...replacements.keys(), ...canceledTrips]) {
     if (!Number.isInteger(trip) || trip < 0 || trip >= tripCount) throw invalidReplacement(trip, 'unknown original trip index')
+  }
+  // Account for the scheduled view, reconstructed arrays and call objects
+  // before native reconstruction. These conservative estimates bound admission,
+  // not whole-process RSS; shared street state has its own budget.
+  const calls = [...replacements.values()].reduce((total, replacement) => total + (replacement?.stopTimes?.length ?? 0), 0)
+  const segments = Math.max(base.activeSegmentCount, calls)
+  const estimatedBytes = (base.estimatedBytes ?? base.activeSegmentCount * 96 + base.stopIds.length * 256)
+    + segments * 96 + calls * 256
+  if (estimatedBytes > timetableBudgetBytes) {
+    throw runtimeCapacityError(`Realtime reconstruction needs an estimated ${Math.ceil(estimatedBytes / 1024 / 1024)} MiB; the timetable budget is ${Math.floor(timetableBudgetBytes / 1024 / 1024)} MiB.`, 'VIGO_REALTIME_MEMORY_LIMIT')
   }
   const canceled = new Uint8Array(tripCount)
   for (const trip of canceledTrips) canceled[trip] = 1

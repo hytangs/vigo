@@ -33,6 +33,7 @@ const readinessStateClasses: Record<ActivityStatus, string> = {
 }
 
 export function ImportPanel({
+  staticFeeds,
   osmDelete,
   isImporting,
   isOsmImporting,
@@ -56,6 +57,7 @@ export function ImportPanel({
   onCancelOsm,
   onRetryOsm,
 }: {
+  staticFeeds: VigoProject['feeds']
   osmDelete?: ReactNode
   isImporting: boolean
   isOsmImporting: boolean
@@ -180,6 +182,7 @@ export function ImportPanel({
       </div>
 
       <RealtimePanel
+        staticFeeds={staticFeeds}
         snapshot={realtimeSnapshot}
         request={realtimeRequest}
         message={realtimeMessage}
@@ -493,6 +496,7 @@ export function EmptyOperationsStart({
         <button type="button" className="button button-primary" disabled={!gtfsReady || isImporting || isOsmImporting} onClick={onOpenNetwork}>Open network</button>
 
         <ImportPanel
+          staticFeeds={project.feeds}
           isImporting={isImporting}
           isOsmImporting={isOsmImporting}
           gtfsJob={gtfsJob}

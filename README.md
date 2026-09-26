@@ -1,22 +1,22 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="public/vigo-mark-dark.png">
-    <img src="public/vigo-mark-transparent.png" width="104" alt="VIGO">
-  </picture>
+  <img src="public/github-social-preview.png" width="880" alt="VIGO — transport networks, routing and analysis">
 </p>
 
-<h1 align="center">VIGO</h1>
-<p align="center"><strong>Understand a transport network. Test what could change.</strong></p>
+<p align="center">
+  <strong>Build a City. Follow its service. Find a journey.</strong><br>
+  <a href="docs/guides/quickstart.md">Quickstart</a> ·
+  <a href="docs/guides/studio.md">Studio</a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="docs/releases/0.4.2.md">Release notes</a>
+</p>
 
 VIGO turns GTFS timetables and OpenStreetMap streets into a reusable city model. Inspect live service, plan journeys, calculate travel-time matrices, and compare the reach of proposed service changes. Each computed Result retains its request, City identity, warnings, and timing.
 
-**VIGO 0.4.2** prepares Drive hierarchies at City build time, shares native Matrix endpoint work, and moves shape alignment into Rust. See the [release notes](docs/releases/0.4.2.md).
+**VIGO 0.4.2** supports multiple GTFS timetables and multiple GTFS-RT endpoints in one City, with explicit source matching, bounded memory admission, and automatic Engine recovery. Native routing powers the desktop and command line. A model connection is optional.
 
-## Why VIGO
+![VIGO Studio showing Boston's real MBTA network](docs/assets/studio-network.png)
 
-Timetables, vehicle reports, and street networks describe different parts of a journey. VIGO brings them together so you can move from a network overview to a particular trip, inspect the evidence, and test a transport change against the same baseline.
-
-The goal is a reproducible workflow from source data to a reviewable answer. Native routing performs the computation; optional AI tools help ask questions and interpret evidence. Model explanations remain hypotheses for review.
+*Captured from the running application with public MBTA data. [Screenshots, sources and reproduction steps](docs/guides/studio-tour.md).*
 
 ## What you can do
 
@@ -54,7 +54,7 @@ npm run build
 npm run studio
 ```
 
-In Studio, create a City and import a static GTFS ZIP and an overlapping OSM PBF. Add GTFS-Realtime connections for live inspection. A model connection is optional. For a complete command-line example, follow the [quickstart](docs/guides/quickstart.md).
+In Studio, create a City and import one or more static GTFS ZIPs and an overlapping OSM PBF. [Match live feeds to their timetables](docs/guides/multiple-feeds.md) when adding GTFS-Realtime connections for live inspection. A model connection is optional. For a complete command-line example, follow the [quickstart](docs/guides/quickstart.md).
 
 | Command | Purpose |
 | --- | --- |
@@ -75,7 +75,7 @@ Ask sends questions and selected evidence to the configured inference endpoint. 
 | Start | Understand | Go deeper |
 | --- | --- | --- |
 | [CLI quickstart](docs/guides/quickstart.md) · [Studio](docs/guides/studio.md) | [Practical workflows](docs/guides/workflows.md) · [Read a Result](docs/reference/results.md) | [CLI reference](docs/reference/programmatic.md) · [Architecture](docs/development/architecture.md) |
-| [Documentation index](docs/README.md) | [Network evidence](docs/guides/network.md) · [Troubleshooting](docs/guides/troubleshooting.md) | [Contributing and checks](.github/CONTRIBUTING.md) |
+| [Multiple feeds](docs/guides/multiple-feeds.md) · [Documentation index](docs/README.md) | [Network evidence](docs/guides/network.md) · [Troubleshooting](docs/guides/troubleshooting.md) | [Contributing and checks](.github/CONTRIBUTING.md) |
 
 The [offline guide](docs/guide.html) includes a local Result viewer; the [Developer Guide source](docs/developer-guide/VIGO-0.4.2-Developer-Guide.tex) builds the release PDF.
 

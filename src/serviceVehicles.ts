@@ -62,7 +62,7 @@ type PreviewVehicleIndex = {
 const previewIndexCache = new WeakMap<MapPreview, PreviewVehicleIndex>()
 
 function unscopedId(value: string) {
-  return value.split('::').at(-1) ?? value
+  return value.split(/::|\u001f/).at(-1) ?? value
 }
 
 function indexValue<T>(index: Map<string, T>, keys: Array<string | undefined>, value: T) {
@@ -112,16 +112,17 @@ function previewVehicleIndex(preview: MapPreview) {
       directions.set(directionKey, directions.has(directionKey) ? null : route)
     }
     indexValue(routes, [route.id, route.patternId, route.routeId, route.shortName], route)
+    const scope = route.id.includes('::') ? route.id.slice(0, route.id.indexOf('::')) : ''
     for (const alias of [route.id, route.patternId, route.routeId, route.shortName]) {
       if (!alias) continue
       indexCandidate(routeCandidates, alias, serviceKey, route)
       indexCandidate(routeCandidates, unscopedId(alias), serviceKey, route)
+      if (scope) indexCandidate(routeCandidates, `${scope}::${unscopedId(alias)}`, serviceKey, route)
     }
     for (const trip of route.scheduledTrips ?? []) {
       const tripKey = unscopedId(trip.tripId)
       const assignment = { trip, route }
       const identity = `${route.id}:${trip.tripId}`
-      const scope = route.id.includes('::') ? route.id.slice(0, route.id.indexOf('::')) : ''
       for (const alias of [trip.tripId, tripKey, `${serviceKey}:${tripKey}`, scope ? `${scope}::${tripKey}` : '']) {
         indexCandidate(trips, alias, identity, assignment)
       }
@@ -135,7 +136,7 @@ function previewVehicleIndex(preview: MapPreview) {
 }
 
 function stopFor(index: PreviewVehicleIndex, stopId: string | undefined) {
-  return stopId ? index.stops.get(stopId) ?? index.stops.get(unscopedId(stopId)) : undefined
+  return stopId ? index.stops.get(stopId) ?? (stopId.includes('::') ? undefined : index.stops.get(unscopedId(stopId))) : undefined
 }
 
 function stopName(index: PreviewVehicleIndex, stopId: string | undefined) {
@@ -217,17 +218,25 @@ export function routeDirectionBearing(coordinate: LngLat, route: RouteMetric | u
 function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview, events: OperationalEvent[] = [], nowSeconds = Date.now() / 1000): ServiceVehicle[] {
   if (!snapshot) return []
   const index = previewVehicleIndex(preview)
-  const tripUpdates = new Map<string, RealtimeSnapshot['tripUpdates'][number]>()
-  for (const update of snapshot.tripUpdates) indexValue(tripUpdates, [update.tripId], update)
+  const tripUpdates = new Map<string, RealtimeSnapshot['tripUpdates']>()
+  const instanceKey = (record: { sourceScope?: string; tripId?: string; startDate?: string; startTime?: string }) =>
+    JSON.stringify([record.sourceScope, record.tripId, record.startDate?.replaceAll('-', ''), record.startTime])
+  for (const update of snapshot.tripUpdates) {
+    const key = instanceKey(update)
+    const reports = tripUpdates.get(key) ?? []
+    reports.push(update); tripUpdates.set(key, reports)
+  }
 
   return snapshot.vehicles.flatMap((vehicle) => {
     if (typeof vehicle.lon !== 'number' || !Number.isFinite(vehicle.lon) || Math.abs(vehicle.lon) > 180) return []
     if (typeof vehicle.lat !== 'number' || !Number.isFinite(vehicle.lat) || Math.abs(vehicle.lat) > 90) return []
 
-    const routeId = vehicle.routeId ?? ''
-    const tripId = vehicle.tripId ?? ''
+    const scoped = (id: string | undefined) => id ? vehicle.sourceScope ? `${vehicle.sourceScope}::${unscopedId(id)}` : id.replaceAll('\u001f', '::') : ''
+    const routeId = scoped(vehicle.routeId)
+    const tripId = scoped(vehicle.tripId)
     const serviceRoute = uniqueCandidate(index.routeCandidates.get(routeId))
-    const tripUpdate = tripUpdates.get(tripId) ?? tripUpdates.get(unscopedId(tripId))
+    const reports = (tripUpdates.get(instanceKey(vehicle)) ?? []).filter(update => !update.vehicleId || update.vehicleId === vehicle.id)
+    const tripUpdate = reports.length === 1 ? reports[0] : undefined
     const assignment = tripFor(index, serviceRoute, tripId, routeId)
     const scheduledTrip = assignment?.trip
     const patternRoute = scheduledTrip?.patternId
@@ -242,7 +251,7 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
     const directionRoute = exactPattern ?? (serviceRoute && directionId !== undefined
       ? index.directions.get(JSON.stringify([serviceKeyForRoute(serviceRoute), String(directionId)])) ?? undefined
       : undefined)
-    const nextStopId = vehicle.stopId || tripUpdate?.nextStopId
+    const nextStopId = scoped(vehicle.stopId || tripUpdate?.nextStopId)
     const nextStopUpdate = tripUpdate?.stopTimeUpdates?.find((update) => (
       Boolean(update.stopId && nextStopId && unscopedId(update.stopId) === unscopedId(nextStopId))
       || (tripUpdate.nextStopSequence !== undefined && update.stopSequence === tripUpdate.nextStopSequence)
@@ -255,8 +264,8 @@ function realtimeVehicles(snapshot: RealtimeSnapshot | null, preview: MapPreview
     const delaySeconds = tripUpdate?.delaySeconds
       ?? nextStopUpdate?.arrival?.delay
       ?? nextStopUpdate?.departure?.delay
-    const destinationStopId = scheduledTrip?.stopTimes.at(-1)?.stopId
-      ?? tripUpdate?.stopTimeUpdates?.at(-1)?.stopId
+    const destinationStopId = scoped(scheduledTrip?.stopTimes.at(-1)?.stopId
+      ?? tripUpdate?.stopTimeUpdates?.at(-1)?.stopId)
     const expectedArrival = realtimeArrivalTimestamp
       ? realtimeClock(realtimeArrivalTimestamp)
       : scheduledArrivalMinutes === undefined

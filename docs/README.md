@@ -1,3 +1,5 @@
+[![VIGO](../public/github-social-preview.png)](../README.md)
+
 # VIGO documentation
 
 VIGO 0.4.2 combines a reusable routing engine with Studio network inspection and scenario analysis. Begin with the workflow you need; the reference pages describe the supported data and query contracts.
@@ -13,7 +15,8 @@ New to Engine? Follow the [quickstart](guides/quickstart.md), choose a [workflow
 | Goal | Guide |
 | --- | --- |
 | Install, build a City, and run the first query | [Quickstart](guides/quickstart.md) |
-| Use the desktop and manage City sources | [Studio](guides/studio.md) |
+| Use the desktop and manage City sources | [Studio](guides/studio.md) · [Visual tour](guides/studio-tour.md) |
+| Combine agencies and live endpoints | [Multiple GTFS and GTFS-RT feeds](guides/multiple-feeds.md) |
 | Inspect trips, live reports, and Ask evidence | [Network, Routes, and Ask](guides/network.md) |
 | Understand City, Scenario, Query, and Result | [Core concepts](guides/concepts.md) |
 | Plan an arrival, compute a matrix, or test service change | [Practical workflows](guides/workflows.md) |
@@ -28,7 +31,7 @@ New to Engine? Follow the [quickstart](guides/quickstart.md), choose a [workflow
 | --- | --- |
 | Journeys, travel-time tables, and reachable places | [Route](reference/routing.md) · [Matrix](reference/matrix.md) · [Reach](reference/reach.md) |
 | Planned changes and comparing results | [Scenario](reference/scenarios.md) · [Compare semantics](reference/results.md#compare-saved-results) |
-| Scheduled and supplied realtime state | [Realtime routing](reference/realtime-routing.md) |
+| Scheduled and supplied realtime state | [Realtime routing](reference/realtime-routing.md) · [Method audit](development/realtime-audit-0.4.2.md) |
 | Source semantics and prices | [GTFS support](reference/gtfs-support-matrix.md) · [Streets](reference/street-routing.md) · [Fares](reference/fares.md) |
 | Interpreting an answer | [Known limits](reference/known-routing-limitations.md) · [Accuracy checks](development/routing-accuracy.md) · [Performance measurement](development/performance.md) |
 

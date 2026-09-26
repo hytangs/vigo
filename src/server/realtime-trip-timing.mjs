@@ -39,6 +39,7 @@ export function resolveRealtimeTripTimes(rows, update, toServiceSeconds, options
   const updates = update.stopTimeUpdates ?? []
   if (!Array.isArray(updates) || !Array.isArray(rows) || rows.length < 2
     || rows.length - 1 > maximumRunSegments) return { status: 'invalid' }
+  let lastReportedSequence = -1
   for (const stopUpdate of updates) {
     if (!['SCHEDULED', 'SKIPPED', 'NO_DATA'].includes(relationship(stopUpdate?.scheduleRelationship))) {
       return { status: 'unsupported' }
@@ -46,6 +47,10 @@ export function resolveRealtimeTripTimes(rows, update, toServiceSeconds, options
     const sequence = finite(stopUpdate?.stopSequence)
     if (supplied(stopUpdate?.stopSequence)
       && (!Number.isInteger(sequence) || sequence < 0 || sequence > 0xffff_ffff)) return { status: 'invalid' }
+    if (Number.isInteger(sequence)) {
+      if (sequence <= lastReportedSequence) return { status: 'invalid' }
+      lastReportedSequence = sequence
+    }
     // A stop sequence identifies one call on a loop. Do not also apply that
     // prediction to other occurrences of the same stop through an ID fallback.
     const index = Number.isInteger(sequence) ? bySequence : byStop

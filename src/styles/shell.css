@@ -1538,17 +1538,11 @@
   cursor: pointer;
 }
 
-.realtime-preset button[aria-pressed="true"] {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
-}
-
 .realtime-fields {
   display: grid;
   gap: 10px;
   min-width: 0;
-  margin: 0;
+  margin: 0 0 12px;
   padding: 0;
   border: 0;
 }
@@ -1561,13 +1555,8 @@
   font-size: 0.71rem;
 }
 
-.realtime-fields small {
-  margin-left: 4px;
-  color: var(--text-muted);
-  font-size: 0.64rem;
-}
-
-.realtime-fields input {
+.realtime-fields input,
+.realtime-fields select {
   width: 100%;
   min-width: 0;
   height: 34px;
@@ -1625,3 +1614,9 @@
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
+
+.realtime-fields legend { padding: 0 0 8px; font-size: 0.76rem; font-weight: 650; }
+.realtime-fields + .realtime-fields { margin-top: 16px; }
+.realtime-feed-options { display: flex; align-items: end; gap: 8px; }
+.realtime-feed-options label { flex: 1; }
+.realtime-feed-health { margin-top: 10px; font-size: 0.74rem; overflow-wrap: anywhere; }

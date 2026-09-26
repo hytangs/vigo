@@ -12,7 +12,7 @@ function enumLabel(enumObject, value) {
     for (const [label, code] of Object.entries(enumObject)) if (!labels.has(code)) labels.set(code, label)
     enumLabels.set(enumObject, labels)
   }
-  return labels.get(value)
+  return labels.get(value) ?? 'UNKNOWN'
 }
 
 function translatedText(value) {
@@ -77,10 +77,6 @@ function vehiclePositionToRecord(entity) {
   })
 }
 
-function stopEventDelay(update) {
-  return update?.arrival?.delay ?? update?.departure?.delay
-}
-
 function stopTimeEventToRecord(event) {
   if (!event) return undefined
   return compactObject({
@@ -114,7 +110,7 @@ function tripUpdateToRecord(entity) {
     vehicleLabel: tripUpdate?.vehicle?.label,
     tripDelaySeconds: numeric(tripUpdate?.delay),
     timestamp: numeric(tripUpdate?.timestamp),
-    delaySeconds: tripUpdate?.delay ?? stopEventDelay(firstUpcoming),
+    delaySeconds: numeric(tripUpdate?.delay),
     stopUpdateCount: tripUpdate?.stopTimeUpdate?.length ?? 0,
     nextStopId: firstUpcoming?.stopId,
     nextStopSequence: firstUpcoming?.stopSequence,
@@ -143,9 +139,9 @@ function alertToRecord(entity) {
   })
 }
 
-export function realtimeSnapshotFromFeed(feed, sourceUrl, fetchedAt, contentType) {
+export function realtimeSnapshotFromFeed(feed, sourceUrl, fetchedAt, contentType, sourceScope) {
   const feedTimestamp = numeric(feed.header?.timestamp)
-  const identity = (record) => ({ ...record, sourceUrl, sourceFeedTimestamp: feedTimestamp })
+  const identity = (record) => ({ ...record, ...(sourceScope ? { sourceScope } : {}), sourceUrl, sourceFeedTimestamp: feedTimestamp })
   const vehicles = [], tripUpdates = [], alerts = []
   let entityCount = 0
   for (const entity of feed.entity ?? []) {
@@ -167,7 +163,7 @@ export function realtimeSnapshotFromFeed(feed, sourceUrl, fetchedAt, contentType
     fetchedAt,
     feedTimestamp,
     freshness: {
-      status: ageSeconds === undefined || ageSeconds < -180 ? 'unknown' : ageSeconds > 180 ? 'stale' : 'fresh',
+      status: ageSeconds === undefined || ageSeconds < -60 ? 'unknown' : ageSeconds > 180 ? 'stale' : 'fresh',
       ...(ageSeconds === undefined ? {} : { ageSeconds: Number(ageSeconds.toFixed(1)) }),
       thresholdSeconds: 180,
     },
@@ -190,12 +186,13 @@ export function realtimeSnapshotFromFeed(feed, sourceUrl, fetchedAt, contentType
 
 
 export function realtimeSnapshotFromFeeds(records) {
-  const successful = records.filter((record) => record.feed)
-  const snapshots = successful.map((record) => realtimeSnapshotFromFeed(
+  const successful = records.filter((record) => record.feed || record.snapshot)
+  const snapshots = successful.map((record) => record.snapshot ?? realtimeSnapshotFromFeed(
     record.feed,
     record.sourceUrl,
     record.fetchedAt,
     record.contentType,
+    record.sourceScope,
   ))
   const first = snapshots[0] ?? { fetchedAt: new Date().toISOString() }
   const sourceUrls = snapshots.map((snapshot) => snapshot.sourceUrl).filter(Boolean)
@@ -206,7 +203,13 @@ export function realtimeSnapshotFromFeeds(records) {
   return {
     sourceUrl: sourceUrls.length === 1 ? sourceUrls[0] : undefined,
     sourceUrls,
-    feeds: records.map((record) => ({ sourceUrl: record.sourceUrl, kind: record.kind, fetchedAt: record.fetchedAt, feedTimestamp: numeric(record.feed?.header?.timestamp), ...(record.error ? { error: record.error } : {}) })),
+    feeds: records.map((record) => {
+      const snapshot = record.snapshot ?? snapshots[successful.indexOf(record)]
+      return { sourceUrl: record.sourceUrl, kind: record.kind, sourceScope: record.sourceScope, fetchedAt: record.fetchedAt,
+        feedTimestamp: snapshot?.feedTimestamp, feedVersion: snapshot?.feedVersion,
+        incrementality: snapshot?.incrementality, freshness: snapshot?.freshness,
+        ...(record.error ? { error: record.error } : {}) }
+    }),
     fetchedAt: records.reduce((latest, record) => record.fetchedAt > latest ? record.fetchedAt : latest, first.fetchedAt),
     feedTimestamp: snapshots.length && snapshots.every((snapshot) => Number.isFinite(snapshot.feedTimestamp)) ? Math.min(...snapshots.map((snapshot) => snapshot.feedTimestamp)) : undefined,
     freshness: {
@@ -218,7 +221,7 @@ export function realtimeSnapshotFromFeeds(records) {
         : {}),
       thresholdSeconds: 180,
     },
-    feedVersion: first.feedVersion,
+    feedVersion: snapshots.length === 1 ? first.feedVersion : undefined,
     gtfsRealtimeVersion: first.gtfsRealtimeVersion,
     incrementality: first.incrementality,
     contentType: snapshots.length === 1 ? first.contentType : 'multiple',

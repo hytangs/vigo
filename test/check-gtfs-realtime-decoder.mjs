@@ -191,3 +191,8 @@ assert.throws(
 console.log('GTFS-Realtime decoder check passed (full-dataset vehicle, trip update, alert, signed delay, required header, and differential rejection).')
 
 assert.deepEqual(feed.entity.find(entity => entity.vehicle).vehicle.multiCarriageDetails, [{ label: '1462', occupancyStatus: 2, occupancyPercentage: -1, carriageSequence: 1 }])
+
+const deletedWriter = new PbfWriter()
+deletedWriter.writeMessage(1, writeHeader, { version: '2.0', incrementality: 0, timestamp: 1_700_000_000 })
+deletedWriter.writeMessage(2, (_, out) => { out.writeStringField(1, 'deleted'); out.writeBooleanField(2, true) })
+assert.throws(() => decodeGtfsRealtimeFeed(deletedWriter.finish()), /is_deleted requires unsupported DIFFERENTIAL/)

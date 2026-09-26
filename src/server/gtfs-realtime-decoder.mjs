@@ -182,7 +182,11 @@ function readStopTimeUpdate(tag, result, pbf) {
 
 function readTripUpdate(tag, result, pbf) {
   if (tag === 1) result.trip = tripDescriptor(pbf)
-  else if (tag === 2) result.stopTimeUpdate.push(message(pbf, readStopTimeUpdate, {}))
+  else if (tag === 2) {
+    pbf.vigoStopUpdates = (pbf.vigoStopUpdates ?? 0) + 1
+    if (pbf.vigoStopUpdates > 500_000) throw new Error('GTFS-RT feed exceeds 500,000 stop predictions.')
+    result.stopTimeUpdate.push(message(pbf, readStopTimeUpdate, {}))
+  }
   else if (tag === 3) result.vehicle = vehicleDescriptor(pbf)
   else if (tag === 4) result.timestamp = pbf.readVarint()
   else if (tag === 5) result.delay = pbf.readVarint(true)
@@ -225,7 +229,10 @@ function readFeedHeader(tag, result, pbf) {
 
 function readFeedMessage(tag, result, pbf) {
   if (tag === 1) result.header = message(pbf, readFeedHeader, {})
-  else if (tag === 2) result.entity.push(message(pbf, readFeedEntity, {}))
+  else if (tag === 2) {
+    if (result.entity.length >= 100_000) throw new Error('GTFS-RT feed exceeds 100,000 entities.')
+    result.entity.push(message(pbf, readFeedEntity, {}))
+  }
 }
 
 export function decodeGtfsRealtimeFeed(bytes) {
@@ -234,8 +241,9 @@ export function decodeGtfsRealtimeFeed(bytes) {
   if (!feed.header?.gtfsRealtimeVersion) {
     throw new Error('missing required FeedHeader.gtfs_realtime_version')
   }
-  if (feed.header.incrementality === gtfsRealtimeEnums.FeedHeader.Incrementality.DIFFERENTIAL) {
+  if (feed.header.incrementality != null && feed.header.incrementality !== gtfsRealtimeEnums.FeedHeader.Incrementality.FULL_DATASET) {
     throw new Error('unsupported GTFS-Realtime DIFFERENTIAL incrementality; configure a FULL_DATASET feed')
   }
+  if (feed.entity.some(entity => entity.isDeleted)) throw new Error('FeedEntity.is_deleted requires unsupported DIFFERENTIAL updates; use TripDescriptor.CANCELED or DELETED in a FULL_DATASET feed.')
   return feed
 }

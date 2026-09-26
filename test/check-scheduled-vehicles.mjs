@@ -135,14 +135,16 @@ try {
     realtimeSnapshot: liveSnapshot([
       { id: 'SCOPED', routeId: 'DETOUR', tripId: 'feed-b::DETOUR-TRIP' },
       { id: 'AMBIGUOUS', routeId: 'DETOUR', tripId: 'DETOUR-TRIP' },
+      { id: 'SOURCE', sourceScope: 'feed-b', routeId: 'DETOUR', tripId: 'DETOUR-TRIP' },
       { id: 'CONTRADICTORY', routeId: 'feed-a::DETOUR', tripId: 'feed-b::DETOUR-TRIP' },
     ]),
   })
   assert.equal(multiFeedFrame.vehicles[0].routeFeatureId, `feed-b::${detourPattern.id}`, 'A scoped trip distinguishes same-ID services in multiple feeds')
   assert.equal(multiFeedFrame.vehicles[1].routeFeatureId, undefined, 'Ambiguous unscoped trips must not be assigned to the first feed')
-  assert.equal(multiFeedFrame.vehicles[2].routeFeatureId, undefined, 'Contradictory feed scopes cannot establish branch membership')
+  assert.equal(multiFeedFrame.vehicles[3].routeFeatureId, undefined, 'Contradictory feed scopes cannot establish branch membership')
+  assert.equal(multiFeedFrame.vehicles[2].routeFeatureId, `feed-b::${detourPattern.id}`, 'Source metadata binds a raw GTFS-RT trip to its own timetable')
   const feedBPattern = multiFeed.routes.find((route) => route.id === `feed-b::${detourPattern.id}`)
-  assert.equal(serviceVehicleCount(multiFeedFrame, feedBPattern, { ...multiFeed, routes: [feedBPattern] }), 1)
+  assert.equal(serviceVehicleCount(multiFeedFrame, feedBPattern, { ...multiFeed, routes: [feedBPattern] }), 2)
   const loop = readGtfsRouteAnalysis(storePath, 'LOOP', { serviceDate })
   assert.equal(loop.routes[0].scheduledTrips[0].stopTimes.at(-1).progress, 1, 'A returning loop terminal projects after the intermediate stop')
   assert(Math.abs(scheduledVehiclesAtTime(loop, 491, serviceDate)[0].bearing - 270) < 1, 'A dwelling vehicle at a corner faces its departing segment')

@@ -3236,7 +3236,7 @@ export default function App() {
           feeds={(
             <div className="data-feed-layout">
               <DataReadinessRail project={selectedProject} activeFeed={activeFeed} />
-              <ImportPanel {...importPanelProps} />
+              <ImportPanel staticFeeds={selectedProject.feeds} {...importPanelProps} />
               <BundlePanel
                 deletingDisabled={sourceDeletionDisabled}
                 onSourceDeleted={applyCityReset}
@@ -3313,6 +3313,7 @@ export default function App() {
           onSelectStop={activeRouteTool === 'agency' ? (id, options) => options?.inspect === false ? locateAgencyEntities([], [id]) : browseAgencyEntities([], [id]) : selectStop}
         />
         {activeRouteTool === 'agency' ? <AgencyPanel
+          staticFeeds={selectedProject.feeds}
           onOperationalEvents={setOperationalEvents}
           key={selectedProjectId}
           projectId={selectedProjectId}

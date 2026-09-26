@@ -32,7 +32,8 @@ function exportObservation(state: AgencyState) {
   downloadText('agency-observation.json', JSON.stringify(state, null, 2), 'application/json')
 }
 
-export function AgencyPanel({ onOperationalEvents, projectId, snapshot, realtimeRequest, realtimeMessage, realtimeLoading, onConnect, onDisconnect, onLocate, onResult, onOpenData, mapOpen, onToggleMap, selection = {}, timetable, onClearSelection, onBrowseRoute, browseRequest = 0, tripTarget, onOpenTrip }: {
+export function AgencyPanel({ staticFeeds, onOperationalEvents, projectId, snapshot, realtimeRequest, realtimeMessage, realtimeLoading, onConnect, onDisconnect, onLocate, onResult, onOpenData, mapOpen, onToggleMap, selection = {}, timetable, onClearSelection, onBrowseRoute, browseRequest = 0, tripTarget, onOpenTrip }: {
+  staticFeeds: Array<{ id: string; name: string }>
   onOpenTrip?: TripNavigation
   tripTarget?: { routeId: string; tripId: string; serviceDate: string }
   browseRequest?: number
@@ -287,7 +288,7 @@ export function AgencyPanel({ onOperationalEvents, projectId, snapshot, realtime
       {(mode === errorMode && error) || observationError ? <div className="agency-error" role="alert"><strong>{observationError ? 'Could not refresh observations' : 'Could not complete the request'}</strong><p>{observationError || error}</p>{observationError ? <button className="agency-text-button" onClick={() => void observationPolling.current?.refresh()}>Retry refresh <ArrowRight size={13} /></button> : null}{!state || !state.coverage.valid ? <button className="agency-text-button" onClick={onOpenData}>Open City data <ArrowRight size={13} /></button> : null}</div> : null}
       {loading && !state ? <div className="agency-empty"><Activity size={24} /><h2>Reading the City</h2><p>Checking the indexed timetable and service calendar.</p></div> : null}
       {state ? <>
-        {feedsOpen ? <div className="agency-connect"><button ref={feedSettingsCloseRef} className="agency-icon-button agency-connect-close" aria-label="Close feed settings" onClick={() => { setFeedsOpen(false); document.querySelector<HTMLElement>('.agency-more > summary')?.focus() }}><X size={15} /></button><RealtimePanel snapshot={snapshot} request={realtimeRequest} message={realtimeMessage} loading={realtimeLoading} onConnect={onConnect} onDisconnect={onDisconnect} /></div> : null}
+        {feedsOpen ? <div className="agency-connect"><button ref={feedSettingsCloseRef} className="agency-icon-button agency-connect-close" aria-label="Close feed settings" onClick={() => { setFeedsOpen(false); document.querySelector<HTMLElement>('.agency-more > summary')?.focus() }}><X size={15} /></button><RealtimePanel staticFeeds={staticFeeds} snapshot={snapshot} request={realtimeRequest} message={realtimeMessage} loading={realtimeLoading} onConnect={onConnect} onDisconnect={onDisconnect} /></div> : null}
         {hasSelection && mode === 'live' && !selectedEvent ? <NetworkSelection selection={selectionReady ? state.selection : undefined} loading={!selectionReady && !observationError} onClear={clearSelection} onAsk={() => { setMode('ask'); requestAnimationFrame(() => document.getElementById('agency-question')?.focus()) }} asking={false} /> : null}
         {!state.coverage.valid ? <div className="agency-notice"><strong>Timetable needs attention</strong><p>{state.coverage.message}</p><button className="agency-text-button" onClick={onOpenData}>Update City data <ArrowRight size={13} /></button></div> : null}
         {mode === 'live' ? <div id="agency-live" role="tabpanel" aria-labelledby="agency-tab-live">

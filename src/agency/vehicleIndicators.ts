@@ -8,7 +8,8 @@ export function occupancyIndicator(status?: string) {
 export function vehicleReportFresh(vehicle: RealtimeVehicle, snapshot: RealtimeSnapshot, now = Date.now() / 1000) {
   const feed = snapshot.feeds?.find(item => item.sourceUrl === vehicle.sourceUrl)
   const timestamp = vehicle.sourceFeedTimestamp ?? feed?.feedTimestamp
-  return Boolean(vehicle.timestamp && Math.abs(now - vehicle.timestamp) <= 180 && timestamp && Math.abs(now - timestamp) <= 180 && !feed?.error)
+  const fresh = (time: number | undefined) => typeof time === 'number' && time > 0 && now - time <= 180 && time - now <= 60
+  return fresh(vehicle.timestamp) && fresh(timestamp) && !feed?.error
 }
 const raw = (id?: string) => id?.split('\u001f').at(-1)
 const sameId = (a?: string, b?: string) => Boolean(a && b && (a.includes('\u001f') && b.includes('\u001f') ? a === b : raw(a) === raw(b)))
@@ -25,6 +26,7 @@ function matchesPairMember(vehicle: RealtimeVehicle, event: OperationalEvent, le
   const tripId = leading ? event.evidence.tripIds?.[0] : event.tripId
   return Boolean(tripId && vehicle.tripId && vehicle.startDate && vehicle.routeId
     && vehicle.id === (leading ? event.evidence.leadingVehicleId : event.vehicleId)
+    && (!vehicle.sourceScope || tripId.startsWith(`${vehicle.sourceScope}\u001f`))
     && sameId(vehicle.tripId, tripId) && sameId(vehicle.routeId, event.routeId)
     && vehicle.startDate.replaceAll('-', '') === event.serviceDate?.replaceAll('-', '')
     && vehicle.startTime === (leading ? event.evidence.leadingTripStartTime : event.evidence.tripStartTime))
@@ -32,7 +34,7 @@ function matchesPairMember(vehicle: RealtimeVehicle, event: OperationalEvent, le
 // Match the reported vehicle AND trip instance, never a route number alone.
 function uniqueCurrentVehicle(vehicle: RealtimeVehicle, snapshot: RealtimeSnapshot, now: number) {
   if (!vehicleReportFresh(vehicle, snapshot, now) || !vehicle.tripId || !vehicle.startDate || !vehicle.routeId) return false
-  return snapshot.vehicles.filter(item => sameId(item.tripId, vehicle.tripId) && sameId(item.routeId, vehicle.routeId)
+  return snapshot.vehicles.filter(item => item.sourceScope === vehicle.sourceScope && sameId(item.tripId, vehicle.tripId) && sameId(item.routeId, vehicle.routeId)
     && item.startDate?.replaceAll('-', '') === vehicle.startDate?.replaceAll('-', '') && item.startTime === vehicle.startTime).length === 1
 }
 export function vehicleAlerts(vehicle: RealtimeVehicle, snapshot: RealtimeSnapshot, events: OperationalEvent[], kind: 'spacing' | 'delay' = 'spacing', now = Date.now() / 1000) {

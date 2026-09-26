@@ -245,6 +245,7 @@ export type MapPreview = {
 
 export type RealtimeVehicle = {
   sourceUrl?: string
+  sourceScope?: string
   sourceFeedTimestamp?: number
   directionId?: number
   entityId?: string
@@ -271,6 +272,7 @@ export type RealtimeVehicle = {
 
 export type RealtimeTripUpdate = {
   sourceUrl?: string
+  sourceScope?: string
   sourceFeedTimestamp?: number
   directionId?: number
   vehicleId?: string
@@ -308,6 +310,7 @@ export type RealtimeTripUpdate = {
 
 export type RealtimeAlert = {
   sourceUrl?: string
+  sourceScope?: string
   sourceFeedTimestamp?: number
   id: string
   cause?: string
@@ -322,7 +325,7 @@ export type RealtimeAlert = {
 }
 
 export type RealtimeSnapshot = {
-  feeds?: Array<{ sourceUrl: string; kind: string; fetchedAt: string; feedTimestamp?: number; error?: string }>
+  feeds?: Array<{ sourceUrl: string; kind: string; sourceScope?: string; fetchedAt: string; feedTimestamp?: number; feedVersion?: string; incrementality?: string; freshness?: RealtimeSnapshot['freshness']; error?: string }>
   sourceUrl?: string
   sourceUrls?: string[]
   fetchedAt: string

@@ -243,12 +243,17 @@ async function handleStudioProtocol(request) {
     const bodyBytes = ['GET', 'HEAD'].includes(method)
       ? undefined
       : new Uint8Array(await request.arrayBuffer())
-    const result = await requestEngine({
-      path: `${url.pathname}${url.search}`,
-      method,
-      headers: Object.fromEntries(request.headers.entries()),
-      ...(bodyBytes?.byteLength ? { bodyBytes } : {}),
-    }, request.signal)
+    let result
+    try {
+      result = await requestEngine({
+        path: `${url.pathname}${url.search}`,
+        method,
+        headers: Object.fromEntries(request.headers.entries()),
+        ...(bodyBytes?.byteLength ? { bodyBytes } : {}),
+      }, request.signal)
+    } catch (error) {
+      return Response.json({ error: error instanceof Error ? error.message : 'VIGO Engine is unavailable.' }, { status: 503 })
+    }
     const body = result.bodyBytes instanceof Uint8Array
       ? result.bodyBytes
       : typeof result.bodyBase64 === 'string'

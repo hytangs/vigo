@@ -1,8 +1,9 @@
 # Architecture audit for 0.4.2
 
-This is the historical audit of the frozen `v0.4.2` tag. Subsequent test pruning
-and runtime changes are recorded in [runtime limits and recovery](runtime-recovery.md);
-test filenames below refer to the tagged revision.
+This records the final local VIGO 0.4.2 freeze, including the runtime hardening
+and multi-feed follow-up. The user-authorized retag replaces the earlier local
+freeze. [Realtime and traffic methods](realtime-audit-0.4.2.md) and
+[runtime limits and recovery](runtime-recovery.md) document current behavior.
 
 This review covers the Engine and Studio repository: import and City storage,
 native adapters and kernels, worker scheduling, CLI and HTTP boundaries, React
@@ -20,13 +21,13 @@ that all defects have been found. No new comparative benchmark was run.
 
 | Finding | Consequence | Repair and regression |
 | --- | --- | --- |
-| Worker message transfer could throw after setting the active job | An immediately rejected request left the worker busy; a queued failure could escape from the completion handler | Catch transfer failure, clean cancellation listeners, reject that job, and continue the queue without restarting the prepared worker. `check-route-worker-recovery.mjs` covers immediate and queued failures and subsequent success. |
+| Worker message transfer could throw after setting the active job | An immediately rejected request left the worker busy; a queued failure could escape from the completion handler | Catch transfer failure, clean cancellation listeners, reject that job, and continue the queue without restarting the prepared worker. `check-national-runtime-isolation.mjs` uses actual workers to check clone failure, capacity, shutdown and recovery. |
 | A timetable retained a string-keyed map of every street identity/access-profile projection used with it | Repeated policy changes could accumulate full stop-mapping arrays for the timetable's lifetime | Weak keys for both owners, with one current profile per pair. `check-stop-projection.mjs` covers reuse, 100 replacements, return to an earlier profile, unknown stops, and distinct owners. |
-| The mock worker added ArrayBuffer memory to external memory | Test diagnostics double-counted a subset of external memory and differed from production | Match production's heap-plus-external estimate; retain separate ArrayBuffer reporting. |
 | Release checks verified package versions but not the CI tag name | A differently named tag could package and publish the wrong declared version | Tagged CI runs require `v` followed by the package version. |
+| Engine failures could reject a desktop protocol handler without an explicit response | Unavailable-engine requests depended on Electron's rejection handling | Return a structured 503; the actual-process recovery check verifies this response after exhausting the restart budget. |
 | Matrix reference used implementation vocabulary for returned journeys | Readers needed algorithm context to interpret ordinary output | Replace witness/materialization wording with journey/assembly where equivalent; define necessary algorithm terms in the architecture guide. |
 
-Both new regression fixtures run in `check:national-runtime`, included in
+Runtime and projection regressions run in `check:national-runtime`, included in
 `check:release`. Existing Route/Matrix and lifecycle suites check the integrated
 behavior. Cache eviction changes preparation reuse, not routing objectives.
 
@@ -46,11 +47,23 @@ latency. Use the [timing boundaries](performance.md) before making speed claims.
 | Realtime: `src/server/gtfs/realtime-timetable.mjs` | A changed or newly invalid snapshot requires reconstruction and indexing | Preserve captured-clock validity and scheduled isolation; measure unchanged and changed snapshots separately. |
 | Renderer and map: `src/App.tsx`, `src/VigoMap.tsx`, `src/map/` | Large feature replacement, geometry decoding, and render effects can dominate visible response | Retain lazy decoding and serialized source updates; interaction checks cover refresh isolation and small layouts. |
 
+## Follow-up repairs
+
+Studio now connects multiple GTFS-RT endpoints and retains the selected static
+source on every record. Stop-specific delay no longer propagates backward.
+Unknown relationships, unordered stop sequences and oversized snapshots are
+rejected. Individual source failures remain visible through routing coverage.
+The [method audit](realtime-audit-0.4.2.md) records the complete findings.
+
+Downloads, decoding, reconstructed timetables, worker queues and restart attempts
+have finite limits. The actual-process recovery checks replace substituted
+workers and clocks. No native search or provider response is fabricated.
+
 ## Cleanup decisions
 
-The exported-symbol scan found no single-occurrence exported function, class,
+The initial exported-symbol scan found no single-occurrence exported function, class,
 or constant candidates across tracked source, tests, scripts, and public entry
-points. The exact normalized 12-line block scan found no cross-file duplicate
+points. The initial exact normalized 12-line block scan found no cross-file duplicate
 blocks above its 380-character threshold in source. These limited checks do not
 detect every unused path or semantic duplicate. TypeScript already enforces
 unused locals and parameters.
@@ -65,6 +78,14 @@ remain maintenance risks. Extract future modules by ownership of store identity,
 cache lifetime, request state, or search workspace. A line-count-driven split at
 the freeze would move complexity without proving a behavior improvement.
 
+The follow-up removed 26 redundant test/fixture files and over 6,000 net lines
+of simulated infrastructure before this final pass. This pass also removes the
+duplicate URL parser and an enum test loop that mirrored the lookup itself,
+while extending real multi-source integration and vehicle identity checks.
+Scratch imports, captures, temporary profiles, logs and superseded archives are
+removed after verification. Final screenshots and their public source provenance
+remain in documentation; the final distributable remains under `release/`.
+
 ## Freeze verification
 
 Run `npm run check:release`, `npm run check:studio-runtime`, Rust tests and
@@ -78,7 +99,7 @@ foreign-platform validation, remote publication, signed provenance, live feed
 accuracy, or performance on an untested City. The release workflow performs the
 supported-platform builds and attestation when dispatched or triggered remotely.
 
-The local freeze run on macOS ARM64 passed the full release suite, Studio
+The local freeze run on 26 September 2026 on macOS ARM64 passed the full release suite, Studio
 interaction suite, all 16 Rust tests, Clippy with warnings denied, and the
 Studio build/package/isolated-runtime/archive checks. The printable guide
 compiled to 10 pages. Source checks ran on Node 26.7.0, which satisfies the

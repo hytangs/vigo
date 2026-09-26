@@ -15,6 +15,11 @@ export const defaultTimetableBudgetBytes = Math.max(64 * 1024 * 1024, Math.min(
   2 * 1024 * 1024 * 1024, Math.floor(memoryCapacityBytes / 8),
 ))
 
+export const timetableBudgetBytes = boundedInteger(
+  process.env.VIGO_ACTIVE_KERNEL_MAX_BYTES, defaultTimetableBudgetBytes,
+  1024 * 1024, 16 * 1024 * 1024 * 1024,
+)
+
 export function runtimeCapacityError(message, code = 'VIGO_ROUTE_CAPACITY') {
   const error = new Error(message)
   error.code = code

@@ -5,6 +5,7 @@ import electron from 'electron'
 
 export async function runElectronCheck(source) {
   const root = path.resolve(import.meta.dirname, '../..')
+  await fs.mkdir(path.join(root, 'temp'), { recursive: true })
   const directory = await fs.mkdtemp(path.join(root, 'temp', 'electron-check-'))
   const entry = path.join(directory, 'check.mjs')
   try {

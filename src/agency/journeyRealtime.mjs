@@ -42,7 +42,8 @@ export function prepareJourneyRealtime({ context, state, snapshot, serviceDate, 
     feedTimestamp = feedTimestamp === undefined ? trip.sourceFeedTimestamp : Math.min(feedTimestamp, trip.sourceFeedTimestamp)
   }
   inputCoverage.eligible = eligible.length
-  inputCoverage.complete = inputCoverage.rejected === 0
+  inputCoverage.failedFeeds = snapshot?.feeds?.filter(feed => feed.error).length ?? 0
+  inputCoverage.complete = inputCoverage.rejected === 0 && inputCoverage.failedFeeds === 0
   // Preserve even an all-rejected snapshot so the engine can disclose why no
   // realtime update was applied. No snapshot still means no observations.
   return { inputCoverage, realtimeSnapshot: snapshot ? { ...snapshot, tripUpdates: eligible, feedTimestamp, inputCoverage } : undefined }

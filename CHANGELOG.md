@@ -1,14 +1,12 @@
 # Version history
 
-## Unreleased
+## 0.4.2 — 2026-09-26
 
-Bound routing admission, worker heap use, capacity waits and operation duration; enable a finite timetable byte guard and scale cache defaults to host capacity. Keep Studio open through Engine failures with bounded automatic restart. Replace test doubles with real routing, SQLite, browser, socket and process checks, and remove redundant canned-response suites. See [runtime limits and recovery](docs/development/runtime-recovery.md) for coverage and limits. The existing `v0.4.2` tag is unchanged.
+Combine multiple GTFS timetables with multiple GTFS-RT endpoints in Studio. Preserve per-source identity, freshness and failure diagnostics through routing and vehicle display. Correct downstream delay propagation and reject unknown relationships and unordered stop predictions. Bound realtime downloads, decoding and native reconstruction.
 
-## 0.4.2 — 2026-09-25
+Persist Drive hierarchies during City build, share native Matrix endpoint work, and move shape alignment and identifier arithmetic into Rust. Bound routing admission, worker heaps, caches and operation duration. Keep Studio open through Engine failures with bounded restart and recovery. Remove simulated test infrastructure and redundant suites; validate actual routing, SQLite, browser, socket and process behavior.
 
-Persist Drive hierarchies during City build, prepare only the requested CLI mode, and share endpoint work in native coordinate Matrix execution. Move shape alignment and stable identifier arithmetic into Rust while retaining JavaScript source loading and itinerary assembly. Clarify blocked access and station-pathway costs, preserve cache-disable boundaries, isolate packaged Engine from shell credentials, and strengthen source/package leak checks. Remove the stale README screenshot and refresh current documentation. API 1.0, City format 1, and Result schema 1 are unchanged. See the [release notes](docs/releases/0.4.2.md).
-
-The final freeze repairs worker queue recovery after message-transfer failures, bounds stop-projection cache retention, aligns mock memory accounting with production, validates CI tag/version agreement, and documents remaining architectural cost centers.
+Refresh documentation with the VIGO social image, real application captures, multi-feed setup and explicit realtime/traffic methods and limits. API 1.0, City format 1, and Result schema 1 are unchanged. See the [release notes](docs/releases/0.4.2.md) and [audit](docs/development/realtime-audit-0.4.2.md). The local `v0.4.2` tag is replaced by this final freeze.
 
 ## 0.4.1 — 2026-09-21
 

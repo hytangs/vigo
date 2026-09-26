@@ -1,3 +1,4 @@
+import { realtimeSources } from '../shared/realtime-sources.mjs'
 import { queryRuntimeFacts, withRuntimeActivity } from '../agency/runtimeFacts.mjs'
 import { indexedEntityId, workspaceSelection, selectedStopIds, eventInSelection } from '../agency/workspaceSelection.mjs'
 import fs from 'node:fs/promises'
@@ -66,12 +67,16 @@ export function createAgencyService(adapters, { provider = createProvider(), web
       try {
         context = new AgencyContext(storePath, cityName)
         operations = createOperationsStore(notebook.directory, projectId, clock)
-        const retained = notebook.get('observation') ?? {}
+        const saved = notebook.get('observation') ?? {}
+        const scheduleIdentity = recordIdentity([storePath, stat.size, stat.mtimeMs])
+        // A retained raw-ID snapshot belongs to the timetable it was resolved
+        // against. Reimport/merge must obtain new source-scoped observations.
+        const retained = saved.scheduleIdentity === scheduleIdentity ? saved : { request: saved.request }
         session = { notebook, storePath, modified: stat.mtimeMs, context, snapshot: retained.snapshot ?? null, request: retained.request ?? null, generation: 0, inFlight: null, timer: null,
           active: 0, retired: false, disposed: false, history: createObservationHistory(policy, retained), skills: createSkillRegistry({ directory: adapters.skillDirectory, installedDirectory: path.join(notebook.directory, 'skills'), preferences: notebook.get('skills') ?? {} }), lastRead: clock() }
         session.places = createPlaceSearch({ stops: session.context.stops })
         session.operations = operations
-        session.scheduleIdentity = recordIdentity([storePath, stat.size, stat.mtimeMs])
+        session.scheduleIdentity = scheduleIdentity
       } catch (error) { operations?.close(); context?.close(); notebook.close(); throw error }
       sessions.set(projectId, session)
     }
@@ -96,9 +101,9 @@ export function createAgencyService(adapters, { provider = createProvider(), web
     const request = session.request
     session.inFlight = (async () => {
       let snapshot
-      try { snapshot = await adapters.inspectRealtime(request); if (generation === session.generation) session.refreshError = null }
+      try { snapshot = await adapters.inspectRealtime(request, { feedIds: session.feedIds, sourceScopes: session.context.scopes }); if (generation === session.generation) session.refreshError = null }
       catch (error) { if (generation === session.generation) session.refreshError = `Realtime refresh failed: ${error.message}`; throw error }
-      if (generation === session.generation) { session.snapshot = snapshot; const { history, tripHistory } = current(session); session.notebook.set('observation', { request: session.request, snapshot, history, tripHistory }) }
+      if (generation === session.generation) { session.snapshot = snapshot; const { history, tripHistory } = current(session); session.notebook.set('observation', { request: session.request, snapshot, history, tripHistory, scheduleIdentity: session.scheduleIdentity }) }
       return session.snapshot
     })().finally(() => { session.inFlight = null })
     return session.inFlight
@@ -106,6 +111,9 @@ export function createAgencyService(adapters, { provider = createProvider(), web
 
   async function resume(projectId, request) {
     return withSession(projectId, async session => {
+      request = { sources: realtimeSources(request).map(source => ({ ...source,
+        ...(!source.sourceScope && session.feedIds.length === 1 ? { sourceScope: session.feedIds[0] } : {}),
+      })) }
       const coverage = session.context.coverage(clock() / 1000)
       if (!coverage.valid) throw Object.assign(new Error(coverage.message), { statusCode: 409 })
       const sameRequest = JSON.stringify(session.request) === JSON.stringify(request)

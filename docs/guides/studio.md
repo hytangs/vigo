@@ -2,6 +2,8 @@
 
 VIGO Studio provides Network, Route, Analyze and City views over the VIGO routing engine. See the [Network guide](network.md) for Network, Routes and Ask.
 
+See the [visual tour](studio-tour.md) for real application captures and [multiple-feed setup](multiple-feeds.md) for combined timetables and live endpoints.
+
 ## Open a City
 
 Select a project from the Studio library and import GTFS and OSM. Rebuild when the source feed or street extract changes. Studio currently stores its projects in a library format; it cannot directly open the movable City directories built by the CLI.

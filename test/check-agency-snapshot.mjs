@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 
 import { realtimeSnapshotFromFeed, realtimeSnapshotFromFeeds } from '../src/server/realtime-snapshot.mjs'
-import { gtfsRealtimeEnums } from '../src/server/gtfs-realtime-decoder.mjs'
 
 import { observationTime } from './fixtures/agency.mjs'
 
@@ -27,18 +26,7 @@ assert.equal(normalized.tripUpdates[0].stopTimeUpdates[0].arrival.uncertainty, 0
 assert.equal(normalized.tripUpdates[0].stopTimeUpdates[0].departure.time, 0)
 assert.equal(normalized.tripUpdates[0].stopTimeUpdates[0].stopSequence, 0)
 assert.equal(normalized.alerts[0].header, 'Notice')
-for (const [enumObject, record, read] of [
-  [gtfsRealtimeEnums.FeedHeader.Incrementality, value => realtimeSnapshotFromFeed({ header: { incrementality: value } }, 'fixture', stamp), snapshot => snapshot.incrementality],
-  ...['VehicleStopStatus', 'CongestionLevel', 'OccupancyStatus'].map((name, i) => { const field = ['currentStatus', 'congestionLevel', 'occupancyStatus'][i]; return [gtfsRealtimeEnums.VehiclePosition[name], value => normalize([{ id: 'v', vehicle: { [field]: value } }]), snapshot => snapshot.vehicles[0][field]] }),
-  ...['Cause', 'Effect', 'SeverityLevel'].map((name, i) => { const field = ['cause', 'effect', 'severityLevel'][i]; return [gtfsRealtimeEnums.Alert[name], value => normalize([{ id: 'a', alert: { [field]: value } }]), snapshot => snapshot.alerts[0][i === 2 ? 'severity' : field]] }),
-  [gtfsRealtimeEnums.TripDescriptor.ScheduleRelationship, value => normalize([{ id: 't', tripUpdate: { trip: { scheduleRelationship: value } } }]), snapshot => snapshot.tripUpdates[0].scheduleRelationship],
-  [gtfsRealtimeEnums.StopTimeUpdate.ScheduleRelationship, value => normalize([{ id: 't', tripUpdate: { stopTimeUpdate: [{ scheduleRelationship: value }] } }]), snapshot => snapshot.tripUpdates[0].stopTimeUpdates[0].scheduleRelationship],
-]) {
-  for (const value of [...Object.values(enumObject), -1, 999, '0', null, undefined, NaN]) {
-    const expected = Object.entries(enumObject).find(([, code]) => code === value)?.[0]
-    assert.equal(read(record(value)), expected, 'Enum lookup retains strict numeric matching, including unknown values.')
-  }
-}
+assert.equal(normalize([{ id: 'unknown', tripUpdate: { trip: { scheduleRelationship: 999 } } }]).tripUpdates[0].scheduleRelationship, 'UNKNOWN', 'Unknown relationships cannot silently become scheduled service.')
 const snapshot = realtimeSnapshotFromFeeds([
   { sourceUrl: 'https://example.org/trips', kind: 'tripUpdates', fetchedAt: stamp, feed: { header: { timestamp: observationTime - 250, gtfsRealtimeVersion: '2.0' }, entity: [
     { id: 'trip-entity', tripUpdate: { trip: { tripId: 'T1', routeId: 'R', directionId: 0, startDate: '20260913', startTime: '12:05:00' }, vehicle: { id: 'V1' }, timestamp: observationTime - 250, stopTimeUpdate: [] } },

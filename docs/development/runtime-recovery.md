@@ -1,7 +1,7 @@
 # Runtime limits and recovery
 
-These changes follow the frozen `v0.4.2` revision. They do not move that tag or
-replace its archived build. API 1.0, City format 1, and Result schema 1 are unchanged.
+These safeguards are included in the final VIGO 0.4.2 freeze. API 1.0, City
+format 1, and Result schema 1 are unchanged.
 
 ## Memory and request admission
 
@@ -20,7 +20,7 @@ range. Zero no longer disables the timetable byte guard.
 | `VIGO_ROUTE_WORKER_RSS_BUDGET_BYTES` | One eighth of capacity, between 64 MiB and 2 GiB | 64 MiB–reported capacity |
 
 Timetable admission counts the active service slice before allocating native
-arrays, estimates its size, and checks retained bytes after construction.
+arrays, estimates its size, and checks retained bytes after construction. Realtime reconstruction estimates the resident scheduled view, rebuilt arrays and replacement calls before native compilation against the same budget.
 Default cache budgets now scale with capacity instead of imposing large minimums.
 This adds a count query to cold timetable construction. No latency improvement
 or large-City performance result is claimed.
@@ -53,6 +53,9 @@ request can try again after the rolling window permits it. Engine startup
 failure does not prevent the window from opening. Pending requests fail rather
 than being replayed automatically, because some requests change stored data.
 Studio admits at most 128 Engine requests, including those waiting for startup.
+When the Engine is unavailable or the restart budget is exhausted, desktop API
+requests return a structured 503 response. The interface can show the failure
+without waiting for an unresolved protocol request.
 
 Packaged Engine environment filtering lives in `public/engine-environment.mjs`.
 Studio supplies its own application-data path after filtering so startup and
@@ -63,12 +66,15 @@ recovery use the same configuration directory.
 `test/check-national-runtime-isolation.mjs` builds actual GTFS and OSM inputs,
 uses the production worker and native kernel, verifies exact journeys after
 thread termination, rejects a 50,000-trip input under a 4 MiB budget, verifies
-subsequent small-City routing, and checks overload and shutdown. It replaces the
+subsequent small-City routing, and checks overload and shutdown. It also imports
+a 5,000-trip timetable that fits the scheduled budget, rejects a realtime
+reconstruction above that budget, and verifies scheduled routing still works. It replaces the
 simulated worker and several overlapping lifecycle suites.
 
 `test/check-engine-recovery-runtime.mjs` runs the actual Electron entry point,
 kills Engine processes, checks health after each restart, checks the retained
-window and sandbox settings, and verifies the crash limit. Browser polling uses
+window and sandbox settings, and verifies the crash limit and subsequent 503
+response. Browser polling uses
 real timers. Streaming and provider-deadline checks use real local sockets.
 Operations permissions, approval invalidation, SQLite transactions, audit history,
 and reopening retained records run against the production operations service.
@@ -91,12 +97,9 @@ research consumers still use them.
 
 ## Verification on this checkout
 
-The final `check:release` gate passed, including native routing comparisons,
-TypeScript, import and request security, CLI/City portability, agency computation,
-and worker lifecycle checks. The real Electron suites passed, with the final
-map-source replacement and Engine-recovery changes also checked directly.
-`release:studio` passed for macOS ARM64: package isolation, startup, City build,
-prepared-state reuse, Route parity, and archive creation. The follow-up archive
-was written under `temp/hardened-release/`, leaving the frozen release archive
-untouched. These checks do not establish other-platform behavior, live provider
-quality, or whole-process immunity to memory exhaustion.
+The final verification record is maintained in the [release audit](audit-0.4.2.md).
+Checks cover native routing comparisons, TypeScript, import/request security,
+CLI/City portability, operational calculations, actual worker/Engine recovery,
+real browser interactions and the macOS ARM64 package. They do not establish
+other-platform behavior, live provider quality, or whole-process immunity to
+memory exhaustion.
