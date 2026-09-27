@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/github-social-preview.png" width="880" alt="VIGO — transport networks, routing and analysis">
+  <img src="public/github-social-preview.png" width="440" alt="VIGO — transport networks, routing and analysis">
 </p>
 
 <p align="center">
