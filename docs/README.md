@@ -2,7 +2,7 @@
 
 # VIGO documentation
 
-VIGO 0.4.2 combines a reusable routing engine with Studio network inspection and scenario analysis. Begin with the workflow you need; the reference pages describe the supported data and query contracts.
+These pages describe VIGO 0.4.3 development (unreleased). VIGO combines a reusable routing engine with Studio network inspection and scenario analysis. Begin with the workflow you need; the reference pages describe the supported data and query contracts.
 
 ```text
 Build a City → ask a routing question → read the Result → retain the evidence
@@ -39,7 +39,7 @@ New to Engine? Follow the [quickstart](guides/quickstart.md), choose a [workflow
 
 [Contributing and checks](../.github/CONTRIBUTING.md) · [Architecture](development/architecture.md) · [Local basemap](development/local-basemap.md) · [Security](../SECURITY.md)
 
-The [Developer Guide](developer-guide/VIGO-0.4.2-Developer-Guide.tex) is the printable engine reference. Build it with `npm run docs:developer-guide`; the PDF is also a release artifact. Current behavior belongs in the guides above. [Release notes](releases/0.4.2.md) and the [changelog](../CHANGELOG.md) preserve version history.
+The [Developer Guide](developer-guide/VIGO-0.4.3-Developer-Guide.tex) is the printable engine reference. Build it with `npm run docs:developer-guide`; the PDF is also a release artifact. Current behavior belongs in the guides above. [Release notes](releases/0.4.2.md) and the [changelog](../CHANGELOG.md) preserve version history.
 
 Engine commands, City data, and routing contracts belong here. Python installation and API details live in the [VIGO-py documentation](https://github.com/hytangs/vigo-py/tree/main/docs). Studio's internal application API is not the public integration boundary.
 

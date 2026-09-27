@@ -12,7 +12,9 @@
 
 VIGO turns GTFS timetables and OpenStreetMap streets into a reusable city model. Inspect live service, plan journeys, calculate travel-time matrices, and compare the reach of proposed service changes. Each computed Result retains its request, City identity, warnings, and timing.
 
-**VIGO 0.4.2** supports multiple GTFS timetables and multiple GTFS-RT endpoints in one City, with explicit source matching, bounded memory admission, and automatic Engine recovery. Native routing powers the desktop and command line. A model connection is optional.
+Development is now on **VIGO 0.4.3 (unreleased)**; [VIGO 0.4.2](docs/releases/0.4.2.md) is the latest release. See the [0.4.3 development notes](docs/releases/0.4.3.md).
+
+VIGO supports multiple GTFS timetables and multiple GTFS-RT endpoints in one City, with explicit source matching, bounded memory admission, and automatic Engine recovery. Native routing powers the desktop and command line. A model connection is optional.
 
 ![VIGO Studio showing Boston's real MBTA network](docs/assets/studio-network.png)
 
@@ -77,6 +79,6 @@ Ask sends questions and selected evidence to the configured inference endpoint. 
 | [CLI quickstart](docs/guides/quickstart.md) · [Studio](docs/guides/studio.md) | [Practical workflows](docs/guides/workflows.md) · [Read a Result](docs/reference/results.md) | [CLI reference](docs/reference/programmatic.md) · [Architecture](docs/development/architecture.md) |
 | [Multiple feeds](docs/guides/multiple-feeds.md) · [Documentation index](docs/README.md) | [Network evidence](docs/guides/network.md) · [Troubleshooting](docs/guides/troubleshooting.md) | [Contributing and checks](.github/CONTRIBUTING.md) |
 
-The [offline guide](docs/guide.html) includes a local Result viewer; the [Developer Guide source](docs/developer-guide/VIGO-0.4.2-Developer-Guide.tex) builds the release PDF.
+The [offline guide](docs/guide.html) includes a local Result viewer; the [Developer Guide source](docs/developer-guide/VIGO-0.4.3-Developer-Guide.tex) builds the release PDF.
 
 API 1.0, City format 1, and Result schema 1 are unchanged in 0.4.2. VIGO is licensed under [Apache-2.0](LICENSE); see [NOTICE](NOTICE) for attribution.

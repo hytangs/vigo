@@ -1,5 +1,9 @@
 # Version history
 
+## 0.4.3 — Unreleased
+
+Begin the next development cycle after the `v0.4.2` tag. No functional changes yet.
+
 ## 0.4.2 — 2026-09-26
 
 Combine multiple GTFS timetables with multiple GTFS-RT endpoints in Studio. Preserve per-source identity, freshness and failure diagnostics through routing and vehicle display. Correct downstream delay propagation and reject unknown relationships and unordered stop predictions. Bound realtime downloads, decoding and native reconstruction.
