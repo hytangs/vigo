@@ -231,6 +231,8 @@ export type SidebarPathfinderBoxProps = {
   routingMaxWalkKm: number
   routingMaxTransfers?: number
   routingAllowLongWalk: boolean
+  routingAllowStreetTransfers: boolean
+  routingMinimumTransferBufferMinutes: number
   routingActivity: RoutingActivity
   routingAlternativesLoading: boolean
   routingServiceDate: string
@@ -253,6 +255,8 @@ export type SidebarPathfinderBoxProps = {
   onRoutingMaxWalkKmChange: (km: number) => void
   onRoutingMaxTransfersChange: (count: number | undefined) => void
   onRoutingAllowLongWalkChange: (allow: boolean) => void
+  onRoutingAllowStreetTransfersChange: (allow: boolean) => void
+  onRoutingMinimumTransferBufferChange: (minutes: number) => void
   onRoutingServiceDateChange: (serviceDate: string) => void
   onSelectRoutingPlan: (id: string) => void
   onToggleRouting: () => void
@@ -275,6 +279,8 @@ export function SidebarPathfinderBox({
   routingMaxWalkKm,
   routingMaxTransfers,
   routingAllowLongWalk,
+  routingAllowStreetTransfers,
+  routingMinimumTransferBufferMinutes,
   routingActivity,
   routingAlternativesLoading,
   routingServiceDate,
@@ -297,6 +303,8 @@ export function SidebarPathfinderBox({
   onRoutingMaxWalkKmChange,
   onRoutingMaxTransfersChange,
   onRoutingAllowLongWalkChange,
+  onRoutingAllowStreetTransfersChange,
+  onRoutingMinimumTransferBufferChange,
   onRoutingServiceDateChange,
   onSelectRoutingPlan,
   onToggleRouting,
@@ -305,6 +313,7 @@ export function SidebarPathfinderBox({
   const points = [...(routingOrigin ? [routingOrigin] : []), ...routingWaypoints, ...(routingDestination ? [routingDestination] : [])]
   const transferLimitUnavailable = routingMode === 'transit' && routingWaypoints.length > 0
   const effectiveMaxTransfers = transferLimitUnavailable ? undefined : routingMaxTransfers
+  const effectiveTransferBufferMinutes = transferLimitUnavailable ? 0 : routingMinimumTransferBufferMinutes
   const pointRows = points.length < 2 ? [routingOrigin, null] : points
   const mapPointLimitReached = points.length >= maxRoutingPointCount
   const busy = routingActivity.kind === 'loading' || routingActivity.kind === 'preparing'
@@ -579,7 +588,7 @@ export function SidebarPathfinderBox({
       {routingMode === 'transit' ? <details className="studio-disclosure pathfinder-options">
         <summary>
           <span>Route options</span>
-          <b>{effectiveMaxTransfers === undefined ? '' : `≤${effectiveMaxTransfers} transfers · `}{routingDepartureWindowMinutes ? 'Later departures' : 'Exact time'} · {routingMaxWalkKm.toFixed(1)} km access</b>
+          <b>{effectiveMaxTransfers === undefined ? '' : `≤${effectiveMaxTransfers} transfers · `}{routingDepartureWindowMinutes ? 'Later departures' : 'Exact time'} · {routingMaxWalkKm.toFixed(1)} km access{routingAllowStreetTransfers === false ? ' · No street transfers' : ''}{effectiveTransferBufferMinutes > 0 ? ` · ${effectiveTransferBufferMinutes} min buffer` : ''}</b>
         </summary>
         <div className="pathfinder-options-body">
           {departNow || routingTimePreference === 'depart' ? (
@@ -607,6 +616,43 @@ export function SidebarPathfinderBox({
               ))}
             </select>
             {transferLimitUnavailable ? <p id="pathfinder-transfer-limit-note">Transfer limits are available for routes without via points.</p> : null}
+          </div>
+
+          <div className="pathfinder-option-group">
+            <label htmlFor="pathfinder-street-transfers">Walking transfers</label>
+            <label className="pathfinder-option-check" htmlFor="pathfinder-street-transfers">
+              <input
+                id="pathfinder-street-transfers"
+                type="checkbox"
+                checked={routingAllowStreetTransfers}
+                aria-describedby="pathfinder-street-transfers-help"
+                onChange={(event) => onRoutingAllowStreetTransfersChange(event.currentTarget.checked)}
+              />
+              <span>Allow walks between stations or stops</span>
+            </label>
+            <small id="pathfinder-street-transfers-help">
+              {routingAllowStreetTransfers
+                ? 'Include walking connections between separate stations or stops. Station paths and fare eligibility may remain unverified.'
+                : 'Change services at the same stop or within one station. Walking to your first stop and from your last stop is still allowed; station paths may remain unverified.'}
+            </small>
+          </div>
+
+          <div className="pathfinder-option-group">
+            <label htmlFor="pathfinder-transfer-buffer">Minimum transfer buffer</label>
+            <select
+              id="pathfinder-transfer-buffer"
+              value={effectiveTransferBufferMinutes}
+              disabled={transferLimitUnavailable}
+              aria-describedby="pathfinder-transfer-buffer-help"
+              onChange={(event) => onRoutingMinimumTransferBufferChange(Number(event.currentTarget.value))}
+            >
+              {[0, 1, 2, 3, 5, 10, 15, 20, 30, 60].map(minutes => (
+                <option key={minutes} value={minutes}>{minutes === 0 ? '0 min — No extra buffer' : `${minutes} min`}</option>
+              ))}
+            </select>
+            <small id="pathfinder-transfer-buffer-help">{transferLimitUnavailable
+              ? 'Transfer buffers are available for routes without via points.'
+              : 'Extra time before boarding your next service, after any transfer walk. Your first boarding is unaffected.'}</small>
           </div>
 
           <div className="pathfinder-option-group pathfinder-walk-limit">

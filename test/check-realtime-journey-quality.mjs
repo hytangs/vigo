@@ -5,7 +5,7 @@ const { TimetableKernel } = createRequire(import.meta.url)(
   process.env.VIGO_NATIVE_ROUTING_KERNEL ?? '../native/vigo-routing-kernel/vigo-routing-kernel.node',
 )
 
-function kernelFor(trips, stopCount, minimum = [0, 0, 0, 0]) {
+function kernelFor(trips, stopCount, minimum = [0, 0, 0, 0], buffer = 0) {
   const departure = [], arrival = [], from = [], to = [], sequence = [], trip = [], board = [], alight = [], starts = [0]
   for (const [id, calls] of trips.entries()) {
     for (let i = 0; i < calls.length - 1; i++) {
@@ -29,19 +29,20 @@ function kernelFor(trips, stopCount, minimum = [0, 0, 0, 0]) {
     transferOffset: new Uint32Array(stopCount + 1), transferTo: new Uint32Array(), transferDuration: new Uint32Array(),
     forbiddenSameStop: Uint8Array.from(minimum, value => value === Infinity ? 1 : 0),
     sameStopTransferMinimum: new Uint32Array(minimum),
+    minimumTransferBufferSeconds: buffer,
   })
 }
 
 const compare = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
 // Exhaustive complete-journey enumeration on tiny acyclic networks. This is
 // independent of the native stop labels, run dominance and Pareto machinery.
-function enumerate(trips, walks, maximumBoardings, minimum) {
+function enumerate(trips, walks, maximumBoardings, minimum, buffer) {
   let best = [Infinity, Infinity, Infinity]
   function visit(stop, time, boardings, walking) {
     if (stop === 3 && boardings && compare([time, boardings, walking], best) < 0) best = [time, boardings, walking]
     if (boardings >= maximumBoardings) return
     for (const calls of trips) for (let i = 0; i < calls.length - 1; i++) {
-      const ready = time + (boardings ? minimum[stop] : 0)
+      const ready = time + (boardings ? minimum[stop] + buffer : 0)
       if (calls[i].stop !== stop || calls[i].time < ready || calls[i].board === false) continue
       for (let j = i + 1; j < calls.length; j++) {
         if (calls[j].alight !== false) visit(calls[j].stop, calls[j].arrival ?? calls[j].time, boardings + 1, walking)
@@ -78,11 +79,11 @@ function overlayRequest(updates, walks, excluded, maximumBoardings) {
 }
 
 let checked = 0
-function check(trips, updates, replaced, canceled, walks, cap, minimum = [0, 0, 0, 0]) {
-  const kernel = kernelFor(trips, 4, minimum)
+function check(trips, updates, replaced, canceled, walks, cap, minimum = [0, 0, 0, 0], buffer = 0) {
+  const kernel = kernelFor(trips, 4, minimum, buffer)
   const excluded = [...replaced, ...canceled]
   const active = trips.filter((_, i) => !excluded.includes(i)).concat(updates)
-  const expected = enumerate(active, walks, cap ?? 4, minimum)
+  const expected = enumerate(active, walks, cap ?? 4, minimum, buffer)
   const request = overlayRequest(updates, walks, excluded, cap)
   const result = kernel.routeOverlayManyCsa(request)
   assert.equal(result.timetable.bestArrivals[0], expected[0])
@@ -155,7 +156,9 @@ const interchange = [
 ]
 for (const minimum of [0, 10, 11, 70, Infinity]) {
   for (const replaced of [[0], [1], [0, 1]]) {
-    check(interchange, replaced.map(i => interchange[i]), replaced, [], [0, 2000, 2000], 3, [0, minimum, 0, 0])
+    for (const buffer of [0, 60, 120]) {
+      check(interchange, replaced.map(i => interchange[i]), replaced, [], [0, 2000, 2000], 3, [0, minimum, 0, 0], buffer)
+    }
   }
 }
 check([sameTrain], [sameTrain], [0], [], [0, 2000, 2000], 3, [0, Infinity, 0, 0])
@@ -192,5 +195,9 @@ for (let sample = 0; sample < 120; sample++) {
   const updates = [trips[0].map(call => ({ ...call, time: call.time + 60, arrival: call.arrival + 60 }))]
   check(trips, updates, [0], sample % 3 === 0 ? [1] : [], [random(160), random(160), random(160)], sample % 2 ? 1 : 3)
   check(trips, updates, [0], [], [random(160), random(160), random(160)], 3, [0, 70, 90, 0])
+  for (const buffer of [60, 120]) {
+    check(trips, updates, [0], sample % 3 === 0 ? [1] : [], [random(160), random(160), random(160)],
+      sample % 2 ? 1 : 3, [0, 70, 90, 0], buffer)
+  }
 }
 console.log(`Realtime journey quality: ${checked} exhaustive comparisons passed.`)

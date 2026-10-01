@@ -217,6 +217,8 @@ export default function App() {
   const [routingMaxWalkKm, setRoutingMaxWalkKm] = useState(1.2)
   const [routingMaxTransfers, setRoutingMaxTransfers] = useState<number | undefined>()
   const [routingAllowLongWalk, setRoutingAllowLongWalk] = useState(true)
+  const [routingAllowStreetTransfers, setRoutingAllowStreetTransfers] = useState(true)
+  const [routingMinimumTransferBufferMinutes, setRoutingMinimumTransferBufferMinutes] = useState(0)
   const [selectedRoutingPlanId, setSelectedRoutingPlanId] = useState('')
   const [routingEnabled, setRoutingEnabled] = useState(false)
   const [routingPickIndex, setRoutingPickIndex] = useState<number | null>(null)
@@ -468,6 +470,8 @@ export default function App() {
     maxWalkKm: routingMaxWalkKm,
     maxTransfers: routingMaxTransfers,
     allowLongWalk: routingAllowLongWalk,
+    allowStreetTransfers: routingAllowStreetTransfers,
+    minimumTransferBufferMinutes: routingMinimumTransferBufferMinutes,
     departureWindowMinutes: routingDepartureWindowMinutes,
     realtimeSnapshot,
     routeAllowed: routingStreetState === 'ready',
@@ -3135,6 +3139,8 @@ export default function App() {
         routingMaxWalkKm={routingMaxWalkKm}
         routingMaxTransfers={routingMaxTransfers}
         routingAllowLongWalk={routingAllowLongWalk}
+        routingAllowStreetTransfers={routingAllowStreetTransfers}
+        routingMinimumTransferBufferMinutes={routingMinimumTransferBufferMinutes}
         routingActivity={routingActivity}
         routingAlternativesLoading={nationalRouting.alternativesLoading}
         routingServiceDate={routingServiceDate}
@@ -3179,6 +3185,8 @@ export default function App() {
         onRoutingMaxWalkKmChange={changeRoutingMaxWalkKm}
         onRoutingMaxTransfersChange={setRoutingMaxTransfers}
         onRoutingAllowLongWalkChange={setRoutingAllowLongWalk}
+        onRoutingAllowStreetTransfersChange={setRoutingAllowStreetTransfers}
+        onRoutingMinimumTransferBufferChange={setRoutingMinimumTransferBufferMinutes}
         onRoutingServiceDateChange={changeRoutingServiceDate}
         onSelectRoutingPlan={(id) => {
           setSelectedRoutingPlanId(id)

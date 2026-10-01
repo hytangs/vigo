@@ -227,6 +227,9 @@ export async function routeOrderedRoutingSegments(points, request, routeSegment)
   if (points.length > 2 && request?.mode !== 'walk' && request?.mode !== 'drive' && request?.maxTransfers !== undefined) {
     throw new Error('maxTransfers with ordered transit waypoints is not supported; omit the waypoints or the cap.')
   }
+  if (points.length > 2 && request?.mode !== 'walk' && request?.mode !== 'drive' && request?.minimumTransferBufferMinutes > 0) {
+    throw new Error('minimumTransferBufferMinutes with ordered transit waypoints is not supported; omit the waypoints or set the buffer to zero.')
+  }
   const componentPlans = new Array(points.length - 1)
   if (request?.timePreference === 'arrive') {
     let nextArriveMinutes = Number(request?.arriveMinutes ?? request?.departMinutes ?? 8 * 60)

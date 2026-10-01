@@ -67,6 +67,8 @@ export function VigoSidebar({
   routingMaxWalkKm,
   routingMaxTransfers,
   routingAllowLongWalk,
+  routingAllowStreetTransfers,
+  routingMinimumTransferBufferMinutes,
   routingActivity,
   routingAlternativesLoading,
   routingServiceDate,
@@ -103,6 +105,8 @@ export function VigoSidebar({
   onRoutingMaxWalkKmChange,
   onRoutingMaxTransfersChange,
   onRoutingAllowLongWalkChange,
+  onRoutingAllowStreetTransfersChange,
+  onRoutingMinimumTransferBufferChange,
   onRoutingServiceDateChange,
   onSelectRoutingPlan,
   onToggleRouting,
@@ -158,6 +162,8 @@ export function VigoSidebar({
   | 'routingMaxWalkKm'
   | 'routingMaxTransfers'
   | 'routingAllowLongWalk'
+  | 'routingAllowStreetTransfers'
+  | 'routingMinimumTransferBufferMinutes'
   | 'routingActivity'
   | 'routingAlternativesLoading'
   | 'routingServiceDate'
@@ -180,6 +186,8 @@ export function VigoSidebar({
   | 'onRoutingMaxWalkKmChange'
   | 'onRoutingMaxTransfersChange'
   | 'onRoutingAllowLongWalkChange'
+  | 'onRoutingAllowStreetTransfersChange'
+  | 'onRoutingMinimumTransferBufferChange'
   | 'onRoutingServiceDateChange'
   | 'onSelectRoutingPlan'
   | 'onToggleRouting'
@@ -385,6 +393,8 @@ export function VigoSidebar({
                 routingMaxWalkKm={routingMaxWalkKm}
                 routingMaxTransfers={routingMaxTransfers}
                 routingAllowLongWalk={routingAllowLongWalk}
+                routingAllowStreetTransfers={routingAllowStreetTransfers}
+                routingMinimumTransferBufferMinutes={routingMinimumTransferBufferMinutes}
                 routingActivity={routingActivity}
                 routingAlternativesLoading={routingAlternativesLoading}
                 routingServiceDate={routingServiceDate}
@@ -407,6 +417,8 @@ export function VigoSidebar({
                 onRoutingMaxWalkKmChange={onRoutingMaxWalkKmChange}
                 onRoutingMaxTransfersChange={onRoutingMaxTransfersChange}
                 onRoutingAllowLongWalkChange={onRoutingAllowLongWalkChange}
+                onRoutingAllowStreetTransfersChange={onRoutingAllowStreetTransfersChange}
+                onRoutingMinimumTransferBufferChange={onRoutingMinimumTransferBufferChange}
                 onRoutingServiceDateChange={onRoutingServiceDateChange}
                 onSelectRoutingPlan={onSelectRoutingPlan}
                 onToggleRouting={onToggleRouting}

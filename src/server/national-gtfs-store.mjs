@@ -1,5 +1,6 @@
 import { recoverNativeArriveByBoundary } from './gtfs/arrive-by-reconstruction.mjs'
 import { readServiceTimetable } from './gtfs/service-timetable.mjs'
+import { timetableForTransferSelection, validateTransferSelection } from './gtfs/transfer-selection.mjs'
 import { boundedInteger, defaultTimetableBudgetBytes, timetableBudgetBytes } from './runtime/resource-limits.mjs'
 import {
   nativeCoordinateAccessProfile,
@@ -6550,6 +6551,7 @@ export function routeNationalGtfsMatrix(storePath, request) {
   request = { ...request, __disableNativeStreetPathCache: request.__disableNativeStreetPathCache === true || request.disableCache === true }
   validateTransitRideRequirement(request)
   validateMaximumTransfers(request.maxTransfers)
+  validateTransferSelection(request)
   if (request.includeJourneys != null && typeof request.includeJourneys !== 'boolean') {
     throw new Error('Matrix includeJourneys must be a boolean.')
   }
@@ -6757,7 +6759,7 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
     }
   }
   const services = activateServices(store, serviceDateResolution.resolvedServiceDate, request.serviceDay)
-  const activeKernel = ensureActiveServiceKernel(store, services).kernel
+  const activeKernel = timetableForTransferSelection(store, ensureActiveServiceKernel(store, services).kernel, request)
   if (!activeKernel) {
     if (['no_active_segments', 'no_active_services'].includes(store.activeServiceKernelStatus?.reason)) {
       const failureCode = store.activeServiceKernelStatus.reason
@@ -6892,6 +6894,8 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
       reverseSearches: search.reverseSearches,
       coordinateAccessExecution: coordinateOnly ? 'rust_fused_matrix' : 'endpoint_adapter',
       nativeStreetPathCacheDisabled: disableCache,
+      ...(request.allowStreetTransfers === false ? { allowStreetTransfers: false } : {}),
+      ...(request.minimumTransferBufferMinutes > 0 ? { minimumTransferBufferMinutes: request.minimumTransferBufferMinutes } : {}),
       ...(coordinateOnly ? { originAccessCacheHits: search.originCacheHits, destinationAccessCacheHits: search.destinationCacheHits } : {}),
       ...(coordinateOnly ? { coordinateAccessMs: search.accessMs, coordinateMatrixMs: search.coordinateMatrixMs } : {}),
       originAccessComputations: uniqueOrigins.length,
@@ -6974,7 +6978,7 @@ function routeNationalGtfsArriveByStore(
     throw error
   }
   const realtimeTimetable = realtimeTimetableForRequest(store, activeKernel, request, serviceDateResolution)
-  const kernel = realtimeTimetable?.kernel ?? activeKernel
+  const kernel = timetableForTransferSelection(store, realtimeTimetable?.kernel ?? activeKernel, request)
   if (kernel.activeSegmentCount === 0) {
     const blocked = blockedPlan(request, earliest / 60, maxWalkKm, 'No available service',
       'No trips remain available in the realtime timetable.', { originStops: 0, destinationStops: 0 }, serviceDateResolution)
@@ -7636,6 +7640,7 @@ export function routeNationalGtfsStore(storePath, request) {
   request = normalizeRoutingDataRequest(request)
   validateTransitRideRequirement(request)
   validateMaximumTransfers(request.maxTransfers)
+  validateTransferSelection(request)
   request = withResolvedServiceDay(request)
   if (request.__allowSubMinuteTimes !== true) {
     integralRoutingMinute(
@@ -7800,7 +7805,7 @@ export function routeNationalGtfsStore(storePath, request) {
       : null
     const residentRealtimeTimetable = residentFusedKernel
       ? realtimeTimetableForRequest(store, residentFusedKernel, request, serviceDateResolution) : null
-    const residentQueryKernel = residentRealtimeTimetable?.kernel ?? residentFusedKernel
+    const residentQueryKernel = timetableForTransferSelection(store, residentRealtimeTimetable?.kernel ?? residentFusedKernel, request)
     const fusedCoordinateEligible = Boolean(
       residentQueryKernel?.activeSegmentCount > 0
       && request.streetStorePath
@@ -8025,6 +8030,7 @@ export function routeNationalGtfsStore(storePath, request) {
         realtimeTimetable = fusedCoordinateTimetable?.realtimeTimetable
           ?? realtimeTimetableForRequest(store, activeKernel, request, serviceDateResolution)
         if (realtimeTimetable) activeKernel = realtimeTimetable.kernel
+        activeKernel = timetableForTransferSelection(store, activeKernel, request)
         const kernelSearch = activeKernel.activeSegmentCount === 0
           ? { supported: true, status: 'blocked', chain: [], queryMs: 0,
               scannedDepartures: 0, relaxedStops: 0, explicitTransferChecks: 0 }
@@ -8648,6 +8654,7 @@ export function routeNationalGtfsDepartureWindow(storePath, request) {
   request = normalizeRoutingDataRequest(request)
   validateTransitRideRequirement(request)
   validateMaximumTransfers(request.maxTransfers)
+  validateTransferSelection(request)
   request = withResolvedServiceDay(request)
   request = withRealtimeQueryContext(request)
   const windowStartedAt = performance.now()

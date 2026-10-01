@@ -21,7 +21,6 @@ mod overlay_quality;
 pub use journeys::TimetableMatrixJourney;
 
 const STATE_STRIDE: usize = 8;
-const TRANSFER_BOARD_SLACK_SECONDS: f64 = 0.0;
 const NO_STATE: i32 = -1;
 const SCAN_CAN_BOARD: u8 = 1;
 const SCAN_CAN_ALIGHT: u8 = 2;
@@ -140,6 +139,7 @@ pub struct TimetableKernelInput {
     pub transfer_duration: Uint32Array,
     pub forbidden_same_stop: Uint8Array,
     pub same_stop_transfer_minimum: Option<Uint32Array>,
+    pub minimum_transfer_buffer_seconds: Option<u32>,
 }
 
 #[derive(Clone)]
@@ -1992,6 +1992,7 @@ fn execute_marked_run_round(
     transfer_edges: &[TransferEdge],
     forbidden_same_stop: &[u8],
     same_stop_transfer_minimum: &[u32],
+    transfer_buffer_seconds: u32,
     run_start: &[u32],
     run_end: &[u32],
     stop_deadlines: &[u32],
@@ -2044,6 +2045,7 @@ fn execute_marked_run_round(
                     flags & 4 != 0,
                     flags & 1 != 0,
                     same_stop_transfer_minimum[stop],
+                    transfer_buffer_seconds,
                 ));
                 minimum_walking = minimum_walking.min(current.walking_seconds);
                 label = current.next;
@@ -2114,6 +2116,7 @@ fn execute_marked_run_round(
                             flags & 4 != 0,
                             flags & 1 != 0,
                             same_stop_transfer_minimum[stop],
+                            transfer_buffer_seconds,
                         ) <= connection_departure
                             && current.walking_seconds < candidate_walking
                         {
@@ -3164,10 +3167,16 @@ fn boarding_ready_time(
     has_ride: bool,
     transfer_episode_state: bool,
     minimum: u32,
+    transfer_buffer_seconds: u32,
 ) -> f64 {
     arrival
         + if has_ride && transfer_episode_state {
             f64::from(minimum)
+        } else {
+            0.0
+        }
+        + if has_ride {
+            f64::from(transfer_buffer_seconds)
         } else {
             0.0
         }
@@ -3196,6 +3205,7 @@ pub struct TimetableKernel {
     transfer_edges: Vec<TransferEdge>,
     forbidden_same_stop: Uint8Array,
     same_stop_transfer_minimum: Vec<u32>,
+    minimum_transfer_buffer_seconds: u32,
     scan_events: Vec<ScanEvent>,
     scan_times: Vec<u32>,
     scan_time_offsets: Vec<u32>,
@@ -3425,6 +3435,7 @@ impl TimetableKernel {
             same_stop_transfer_minimum: input
                 .same_stop_transfer_minimum
                 .map_or_else(|| vec![0; stop_count], |values| values.to_vec()),
+            minimum_transfer_buffer_seconds: input.minimum_transfer_buffer_seconds.unwrap_or(0),
             scan_events,
             scan_times,
             scan_time_offsets,
@@ -3601,6 +3612,7 @@ impl TimetableKernel {
                 explicit_transfer_checks: result.explicit_transfer_checks,
             });
         }
+        let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
             stop_count: _,
             run_count: _,
@@ -3621,6 +3633,7 @@ impl TimetableKernel {
             transfer_edges,
             forbidden_same_stop,
             same_stop_transfer_minimum,
+            minimum_transfer_buffer_seconds: _,
             scan_events,
             scan_times,
             scan_time_offsets,
@@ -3780,6 +3793,7 @@ impl TimetableKernel {
                                 has_ride,
                                 needs_board_slack,
                                 same_stop_transfer_minimum[stop],
+                                transfer_buffer_seconds,
                             ) > connection_departure
                             {
                                 continue;
@@ -4123,6 +4137,7 @@ impl TimetableKernel {
                 explicit_transfer_checks: result.explicit_transfer_checks,
             });
         }
+        let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
             stop_count: _,
             run_count: _,
@@ -4143,6 +4158,7 @@ impl TimetableKernel {
             transfer_edges,
             forbidden_same_stop,
             same_stop_transfer_minimum,
+            minimum_transfer_buffer_seconds: _,
             scan_events,
             scan_times,
             scan_time_offsets,
@@ -4300,7 +4316,9 @@ impl TimetableKernel {
                                 epoch,
                                 &mut stats,
                                 stop,
-                                departure - f64::from(same_stop_transfer_minimum[stop]),
+                                departure
+                                    - f64::from(same_stop_transfer_minimum[stop])
+                                    - f64::from(transfer_buffer_seconds),
                                 input.earliest,
                             );
                         }
@@ -4312,7 +4330,7 @@ impl TimetableKernel {
                             epoch,
                             &mut stats,
                             stop,
-                            departure,
+                            departure - f64::from(transfer_buffer_seconds),
                             input.earliest,
                             reverse_transfer_offset,
                             reverse_transfer_edges,
@@ -4671,7 +4689,8 @@ impl TimetableKernel {
                                     &mut stats,
                                     stop,
                                     departure
-                                        - f64::from(self.same_stop_transfer_minimum[base_stop]),
+                                        - f64::from(self.same_stop_transfer_minimum[base_stop])
+                                        - f64::from(self.minimum_transfer_buffer_seconds),
                                     input.earliest,
                                 );
                             }
@@ -4680,7 +4699,7 @@ impl TimetableKernel {
                                 epoch,
                                 &mut stats,
                                 stop,
-                                departure,
+                                departure - f64::from(self.minimum_transfer_buffer_seconds),
                                 input.earliest,
                                 &self.reverse_transfer_offset,
                                 &self.reverse_transfer_edges,
@@ -4820,6 +4839,7 @@ impl TimetableKernel {
             base_run_count * (maximum_layer + 1),
         );
 
+        let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
             stop_count: _,
             run_count: _,
@@ -4840,6 +4860,7 @@ impl TimetableKernel {
             transfer_edges,
             forbidden_same_stop,
             same_stop_transfer_minimum,
+            minimum_transfer_buffer_seconds: _,
             scan_events,
             scan_times,
             scan_time_offsets,
@@ -5049,6 +5070,7 @@ impl TimetableKernel {
                                     has_ride,
                                     state_flags & 1 != 0,
                                     same_stop_transfer_minimum[base_stop],
+                                    transfer_buffer_seconds,
                                 ) <= connection_departure
                                 {
                                     boardable = true;
@@ -5347,6 +5369,7 @@ impl TimetableKernel {
 
         let base_stop_count = self.stop_count;
         let base_run_count = self.run_count;
+        let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
             stop_count: _,
             run_count: _,
@@ -5367,6 +5390,7 @@ impl TimetableKernel {
             transfer_edges,
             forbidden_same_stop,
             same_stop_transfer_minimum,
+            minimum_transfer_buffer_seconds: _,
             scan_events,
             scan_times,
             scan_time_offsets,
@@ -5564,6 +5588,7 @@ impl TimetableKernel {
                                         has_ride,
                                         state_flags & 1 != 0,
                                         same_stop_transfer_minimum[base_stop],
+                                        transfer_buffer_seconds,
                                     ) <= f64::from(connection_departure)
                                     {
                                         boarding_state = state as i32;
@@ -5721,6 +5746,7 @@ impl TimetableKernel {
                                     has_ride,
                                     state_flags & 1 != 0,
                                     rule_stop.map_or(0, |stop| same_stop_transfer_minimum[stop]),
+                                    transfer_buffer_seconds,
                                 ) <= f64::from(event.departure)
                                 {
                                     boarding_state = state as i32;
@@ -6011,6 +6037,7 @@ impl TimetableKernel {
                 "Rust round timetable query arrays or bounds are inconsistent.",
             ));
         }
+        let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
             stop_count,
             run_count,
@@ -6031,6 +6058,7 @@ impl TimetableKernel {
             transfer_edges,
             forbidden_same_stop,
             same_stop_transfer_minimum,
+            minimum_transfer_buffer_seconds: _,
             scan_events,
             scan_times,
             scan_time_offsets,
@@ -6331,6 +6359,7 @@ impl TimetableKernel {
                 transfer_edges,
                 forbidden_same_stop,
                 same_stop_transfer_minimum,
+                transfer_buffer_seconds,
                 run_start,
                 run_end,
                 &corridor.stop_deadlines[remaining],
@@ -6481,7 +6510,7 @@ impl TimetableKernel {
             trip_count: self.trip_start.len().saturating_sub(1) as u32,
             run_count: self.run_count as u32,
             transfer_count: self.transfer_edges.len() as u32,
-            transfer_board_slack_seconds: TRANSFER_BOARD_SLACK_SECONDS,
+            transfer_board_slack_seconds: f64::from(self.minimum_transfer_buffer_seconds),
             workspace_bytes: (self.workspace.byte_length()
                 + self.many_workspace.byte_length()
                 + self.forward_workspace.byte_length()

@@ -225,6 +225,8 @@ export type RoutingPlan = {
       horizonMinutes: number
       horizonScope: 'timetable_scan'
       maxTransfers: number | null
+      allowStreetTransfers?: boolean
+      minimumTransferBufferMinutes?: number
       requireTransitRide: boolean
     }
     destinationLabels?: number

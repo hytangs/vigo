@@ -424,6 +424,44 @@ try {
     }
   }
 
+
+  for (const minimumTransferBufferMinutes of [0, 2]) {
+    const selection = { allowStreetTransfers: false, minimumTransferBufferMinutes }
+    const query = { origin: plans.http.origin, destination: plans.http.destination,
+      timePreference: 'depart', departMinutes: 475, serviceDate, serviceDay: 'weekday', maxWalkKm: 0.2, ...selection }
+    const response = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-route`, apiUrl), {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(query),
+    })
+    const body = await response.json()
+    assert.equal(response.status, 200, JSON.stringify(body))
+    assert.equal(body.plan.arriveMinutes, minimumTransferBufferMinutes ? 492 : 490)
+    assert.equal(body.plan.diagnostics.routingDataProvenance.searchParameters.allowStreetTransfers, false)
+    assert.equal(body.plan.diagnostics.routingDataProvenance.searchParameters.minimumTransferBufferMinutes, minimumTransferBufferMinutes)
+    const input = { id: 'transfer-selection', origin: 'A', destination: 'B', ...selection }
+    const stream = runCli(['_route-stream', `--city=${projectMetaPath}`, '--time=07:55',
+      `--service-date=${serviceDate}`, '--max-walk=0.2'], { input: JSON.stringify(input) + '\n' })
+    assert.equal(stream.status, 0, stream.stderr)
+    assert.deepEqual(canonicalPlan(JSON.parse(stream.stdout).plan), canonicalPlan(body.plan))
+    const selectionPath = path.join(temporaryRoot, 'selection-request.json')
+    await fsp.writeFile(selectionPath, JSON.stringify(input))
+    const jsonRoute = runCli(['route', `--city=${projectMetaPath}`, `--request=${selectionPath}`,
+      '--time=07:55', `--service-date=${serviceDate}`, '--max-walk=0.2'])
+    assert.equal(jsonRoute.status, 0, jsonRoute.stderr)
+    assert.deepEqual(canonicalPlan(JSON.parse(jsonRoute.stdout).result), canonicalPlan(body.plan))
+    const matrixResponse = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-matrix`, apiUrl), {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...query, origins: [query.origin], destinations: [query.destination] }),
+    })
+    const matrix = (await matrixResponse.json()).matrix
+    assert.equal(matrixResponse.status, 200)
+    assert.equal(matrix.rows[0].arriveMinutes, body.plan.arriveMinutes)
+    await fsp.writeFile(selectionPath, JSON.stringify({ origins: ['A'], destinations: ['B'], ...selection }))
+    const jsonMatrix = runCli(['matrix', `--city=${projectMetaPath}`, `--request=${selectionPath}`,
+      '--time=07:55', `--service-date=${serviceDate}`, '--max-walk=0.2'])
+    assert.equal(jsonMatrix.status, 0, jsonMatrix.stderr)
+    assert.equal(JSON.parse(jsonMatrix.stdout).rows[0].arriveMinutes, body.plan.arriveMinutes)
+  }
+
   const alternativesResponse = await apiRuntime.fetch(
     new URL(`api/projects/${projectId}/national-route`, apiUrl), {
       method: 'POST', headers: { 'content-type': 'application/json' },

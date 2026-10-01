@@ -14,7 +14,7 @@ try {
     routingEnabled: false, routingOrigin: null, routingWaypoints: [], routingDestination: null,
     routingPlan: null, routingChoices: [], routingScopeStatus: 'ready', routingStoreReady: true,
     routingTimePreference: 'arrive', routingMode: 'transit', routingDataMode: 'realtime',
-    routingDepartureWindowMinutes: 20, routingMaxWalkKm: 1.2, routingAllowLongWalk: false,
+    routingDepartureWindowMinutes: 20, routingMaxWalkKm: 1.2, routingAllowLongWalk: false, routingAllowStreetTransfers: true, routingMinimumTransferBufferMinutes: 0,
     routingActivity: { kind: 'idle', title: '', detail: '' }, routingAlternativesLoading: false,
     routingServiceDate: '2026-09-15', routingServiceCoverage: null,
     routingServiceDateAvailability: 'outside', routingServiceDateOptions: [{ date: '2026-09-16', label: 'September 16' }],
@@ -26,6 +26,18 @@ try {
   assert.doesNotMatch(live, /type="(?:date|time)"|Time preference|Arrive by|September 16|Date outside timetable/,
     'Realtime exposes no stale clock, arrive-by, or historical date correction')
   assert.match(live, /Departure search window/, 'Retained arrive-by does not hide the live departure search control')
+  assert.match(live, /Allow walks between stations or stops/)
+  assert.match(live, /Minimum transfer buffer/)
+  assert.match(live, /value="0" selected=""/)
+  assert.match(render({ routingMinimumTransferBufferMinutes: 5 }), /5 min buffer/)
+  const viaBuffer = render({ routingMinimumTransferBufferMinutes: 5, routingWaypoints: [{ coordinate: [0, 0], label: 'Via', source: 'map' }] })
+  assert.match(viaBuffer, /Transfer buffers are available for routes without via points/)
+  assert.doesNotMatch(viaBuffer, /5 min buffer/)
+  assert.match(live, /aria-describedby="pathfinder-street-transfers-help"[^>]*checked=""/)
+  const stationOnly = render({ routingAllowStreetTransfers: false })
+  assert.doesNotMatch(stationOnly, /aria-describedby="pathfinder-street-transfers-help"[^>]*checked=""/)
+  assert.match(stationOnly, /No street transfers/)
+  assert.match(stationOnly, /Walking to your first stop and from your last stop is still allowed/)
 
   const research = render({ routingDataMode: 'scheduled', routingServiceDateAvailability: 'covered' })
   assert.doesNotMatch(research, /Depart now/)
@@ -47,6 +59,7 @@ try {
     const street = render({ routingMode })
     assert.doesNotMatch(street, /Depart now/)
     assert.match(street, /aria-label="Routing time"[^>]*value="08:00"/, 'Street mode retains its clock')
+    assert.doesNotMatch(street, /Allow walks between stations or stops/)
   }
   const detailPlan = {
     status: 'ready', travelMode: 'transit', timePreference: 'depart',

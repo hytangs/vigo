@@ -224,6 +224,8 @@ export function attachRoutingDataProvenance(plan, store, request) {
       directWalkLimitKm: directWalkEndToEndLimitKm(request),
       requireTransitRide: transitRideRequired(request),
       maxTransfers: request.maxTransfers ?? null,
+      allowStreetTransfers: request.allowStreetTransfers !== false,
+      minimumTransferBufferMinutes: request.minimumTransferBufferMinutes ?? 0,
       horizonMinutes: routingHorizonMinutes(request),
       serviceDateFallbackAllowed: request.allowServiceDateFallback === true,
       requireCompleteServiceCoverage: request.requireCompleteServiceCoverage === true,

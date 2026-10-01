@@ -447,11 +447,16 @@ export function prepareNativeTimetableKernel(kernel) {
     transferDuration: kernel.transferDuration,
     forbiddenSameStop: kernel.forbiddenSameStop,
     sameStopTransferMinimum: kernel.sameStopTransferMinimum,
+    minimumTransferBufferSeconds: kernel.minimumTransferBufferSeconds ?? 0,
   })
+  const diagnostics = nativeKernel.diagnostics()
+  if ((kernel.minimumTransferBufferSeconds ?? 0) !== (diagnostics.transferBoardSlackSeconds ?? 0)) {
+    throw new Error('Rust routing binding lacks the requested transfer buffer. Rebuild the native kernel.')
+  }
   const record = {
     kernel: nativeKernel,
     configureMs: Number((performance.now() - startedAt).toFixed(3)),
-    diagnostics: nativeKernel.diagnostics(),
+    diagnostics,
   }
   nativeTimetableKernelCache.set(kernel, record)
   return record

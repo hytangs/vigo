@@ -47,6 +47,8 @@ type UseNationalRoutingOptions = {
   maxWalkKm: number
   maxTransfers?: number
   allowLongWalk: boolean
+  allowStreetTransfers: boolean
+  minimumTransferBufferMinutes: number
   departureWindowMinutes: RoutingDepartureWindowMinutes
   realtimeSnapshot: RealtimeSnapshot | null
   routeAllowed: boolean
@@ -85,6 +87,8 @@ export function useNationalRouting({
   maxWalkKm,
   maxTransfers,
   allowLongWalk,
+  allowStreetTransfers,
+  minimumTransferBufferMinutes,
   departureWindowMinutes,
   realtimeSnapshot,
   routeAllowed,
@@ -139,12 +143,14 @@ export function useNationalRouting({
     maxWalkKm,
     maxTransfers: mode === 'transit' && waypoints.length ? undefined : maxTransfers,
     allowLongWalk,
+    allowStreetTransfers,
+    minimumTransferBufferMinutes: mode === 'transit' && waypoints.length ? 0 : minimumTransferBufferMinutes,
     includeEarliestTransit: mode === 'transit',
     objective: 'earliest_arrival',
     maxStreetKm: mode === 'drive' ? 750 : 50,
     departureWindowMinutes: streetMode ? 0 : departureWindowMinutes,
     departureWindowDirection: !streetMode && departureWindowMinutes > 0 ? 'forward' : undefined,
-  } }), [allowLongWalk, departNow, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, runRevision, origin, projectId, requestDepartMinutes, requestServiceDate, requestServiceDay, requestTimePreference, routingDataMode, storeKey, streetKey, streetMode, waypoints])
+  } }), [allowLongWalk, allowStreetTransfers, minimumTransferBufferMinutes, departNow, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, runRevision, origin, projectId, requestDepartMinutes, requestServiceDate, requestServiceDay, requestTimePreference, routingDataMode, storeKey, streetKey, streetMode, waypoints])
   const completedRequest = useRef<typeof request | null>(null)
 
   const reset = useCallback(() => {

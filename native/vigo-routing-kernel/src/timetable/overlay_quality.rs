@@ -183,6 +183,7 @@ pub(super) fn certify(
         transfer_duration: transfer_duration.into(),
         forbidden_same_stop: forbidden.into(),
         same_stop_transfer_minimum: Some(minimum.into()),
+        minimum_transfer_buffer_seconds: Some(base.minimum_transfer_buffer_seconds),
     })?;
     kernel.profile_workspace.identity_transfer_edges = identity_transfers;
     let candidates = input

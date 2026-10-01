@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { composeOrderedRoutingPlans, validateOrderedRoutingPoints } from '../src/server/ordered-route-composition.mjs'
+import { composeOrderedRoutingPlans, validateOrderedRoutingPoints, routeOrderedRoutingSegments } from '../src/server/ordered-route-composition.mjs'
 import { parseRoutingCommand } from '../src/routingCommand.ts'
 import {
   appendRoutingPointSequence,
@@ -75,6 +75,8 @@ assert.equal(command?.originText, 'Map point A')
 assert.equal(command?.destinationText, 'Map point C')
 
 assert.deepEqual(validateOrderedRoutingPoints(a, [b], c), [a, b, c])
+await assert.rejects(routeOrderedRoutingSegments([a, b, c], { mode: 'transit', minimumTransferBufferMinutes: 2 },
+  () => { throw new Error('A buffered waypoint route must be rejected before any segment query.') }), /minimumTransferBufferMinutes with ordered transit waypoints is not supported/)
 assert.throws(
   () => validateOrderedRoutingPoints(a, [a], c),
   (error) => error?.code === 'VIGO_DUPLICATE_CONSECUTIVE_POINT',

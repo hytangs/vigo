@@ -302,6 +302,7 @@ impl TimetableKernel {
                                 label.boardings > 0,
                                 !label.transfer,
                                 self.same_stop_transfer_minimum[stop],
+                                self.minimum_transfer_buffer_seconds,
                             )
                         })
                         .fold(f64::INFINITY, f64::min);
@@ -624,6 +625,7 @@ impl TimetableKernel {
                 label.boardings > 0,
                 !label.transfer,
                 self.same_stop_transfer_minimum[stop],
+                self.minimum_transfer_buffer_seconds,
             );
             if ready > time {
                 continue;

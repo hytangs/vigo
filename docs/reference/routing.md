@@ -30,6 +30,31 @@ it. Arrival slack for alternatives does not extend the timetable horizon.
 The horizon is not a hard limit on door-to-door journey duration.
 Comparisons using a total-duration cap must check the final arrival separately.
 
+Studio's **Route options → Allow walks between stations or stops** controls
+walking connections between separate stops or stations. It is enabled by
+default. Turn it off to change services only at the same stop or between members
+of one station, as identified by the GTFS station hierarchy. The engine removes
+cross-station walking edges before searching again, including for arrive-by,
+realtime and departure-window alternatives. Access to the first stop and egress
+from the last stop remain available.
+
+Transit Route requests accept the boolean `allowStreetTransfers` (default
+`true`); Transit Matrix uses the same choice. This option does not certify
+station-interior paths or free-transfer eligibility. Existing station-access
+warnings still apply, including to assumed connections within one station.
+
+**Minimum transfer buffer** adds extra time before boarding each subsequent
+service, after any transfer walk and source-defined minimum transfer time. It
+is charged once per transfer, including a change at the same stop. It does not
+change first boarding, final egress, or remaining on the same vehicle. The
+selector defaults to 0 minutes; Route and Matrix requests accept
+`minimumTransferBufferMinutes`, an integer from 0 to 60, with the same default.
+The buffer is available for routes without via points and constrains departure,
+arrive-by, realtime, and departure-window searches. Ordered transit requests
+with via points reject a nonzero buffer because independently composed legs
+cannot certify the transfer at their boundary. It is a timetable feasibility
+constraint, not a prediction of delays.
+
 Transit JSON requests accept `disableCache: true` to disable street-access
 frontier and walking-path caches while keeping the prepared City resident.
 Route answers are recomputed regardless of this option.
