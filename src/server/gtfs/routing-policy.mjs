@@ -44,11 +44,13 @@ const configuredAccessOverheadSeconds = Math.max(
 )
 
 export const nationalRoutingAccessPolicy = Object.freeze({
-  schemaVersion: 'vigo.routing.access-policy.v3',
+  schemaVersion: 'vigo.routing.access-policy.v4',
   id: customWalkingParametersEnabled
     ? 'vigo-national-configured-access'
     : 'vigo-national-regular-access',
   durationModel: 'osm-distance-at-configured-walking-speed',
+  parentStationTransferMinimums: 'published-type-2-floors-v1',
+  sameStopTransferProhibitionScope: 'direct-reboarding-only',
   walkingSpeedKph: configuredWalkingSpeedKph,
   accessPaddingFactor: configuredAccessPaddingFactor,
   accessOverheadSeconds: configuredAccessOverheadSeconds,

@@ -1,3 +1,4 @@
+import { recoverNativeArriveByBoundary } from './gtfs/arrive-by-reconstruction.mjs'
 import { readServiceTimetable } from './gtfs/service-timetable.mjs'
 import { boundedInteger, defaultTimetableBudgetBytes, timetableBudgetBytes } from './runtime/resource-limits.mjs'
 import {
@@ -2371,7 +2372,8 @@ function nearestStops(store, coordinate, maxWalkKm, limit = 12) {
   return nearestStopsFromIndex(store, coordinate, maxWalkKm, limit)
 }
 
-function expandParentStationTransfers(rawTransfers, stopRecords, stationMembers) {
+export function expandParentStationTransfers(rawTransfers, stopRecords, stationMembers) {
+  const parentMinimumRules = []
   const targetMaps = new Map()
   let rawTransferCount = 0
   const add = (transfer) => {
@@ -2399,6 +2401,12 @@ function expandParentStationTransfers(rawTransfers, stopRecords, stationMembers)
 
   for (const rawTransfer of rawTransfers) {
     rawTransferCount += 1
+    if (['gtfs_transfer', 'schedule_transfer'].includes(rawTransfer.provenance)
+      && Number(rawTransfer.transfer_type) === 2
+      && (numeric(stopRecords.get(rawTransfer.from_stop_id)?.location_type, 0) === 1
+        || numeric(stopRecords.get(rawTransfer.to_stop_id)?.location_type, 0) === 1)) {
+      parentMinimumRules.push(rawTransfer)
+    }
     const transfer = rawTransfer.provenance === 'osm_certified_radial'
       ? {
           ...rawTransfer,
@@ -2417,6 +2425,26 @@ function expandParentStationTransfers(rawTransfers, stopRecords, stationMembers)
           from_stop_id: fromStopId,
           to_stop_id: toStopId,
           parent_station_transfer: true,
+        })
+      }
+    }
+  }
+
+  // A published parent-station type-2 rule is a boarding minimum for
+  // every covered platform pair, including faster generated walking edges.
+  // Retain only these source rules: the database iterator is consumed once.
+  for (const rule of parentMinimumRules) {
+    const minimum = transferDurationSeconds(rule)
+    for (const from of serviceMembers(rule.from_stop_id)) {
+      for (const to of serviceMembers(rule.to_stop_id)) {
+        const edge = targetMaps.get(from)?.get(to)
+        if (!edge || edge.min_transfer_time >= minimum) continue
+        targetMaps.get(from).set(to, {
+          ...edge,
+          min_transfer_time: minimum,
+          parentStationMinimumSeconds: minimum,
+          parentStationMinimumFrom: rule.from_stop_id,
+          parentStationMinimumTo: rule.to_stop_id,
         })
       }
     }
@@ -4659,64 +4687,6 @@ function activeServiceKernelAccessSeeds(kernel, accessStops) {
   return seeds
 }
 
-function activeServiceKernelArriveByRecoveryCandidates(
-  kernel,
-  originSeeds,
-  earliest,
-  deadline,
-  allowPreRideTransfers,
-) {
-  // Allocate the complete initial-departure frontier only when the exact
-  // reverse boundary cannot be reproduced by forward materialization. Ordinary
-  // arrive-by queries never build or sort this list.
-  const maximumOffset = deadline - earliest
-  const offsets = new Float64Array(kernel.stopIds.length)
-  offsets.fill(Number.POSITIVE_INFINITY)
-  const touchedStops = []
-  const retainOffset = (stop, offset) => {
-    if (offset > maximumOffset || offset >= offsets[stop]) return
-    if (!Number.isFinite(offsets[stop])) touchedStops.push(stop)
-    offsets[stop] = offset
-  }
-  for (const seed of originSeeds) retainOffset(seed.stop, seed.walkSeconds)
-  if (allowPreRideTransfers) {
-    for (const seed of originSeeds) {
-      if (seed.walkSeconds > maximumOffset) continue
-      for (
-        let edge = kernel.transferOffset[seed.stop];
-        edge < kernel.transferOffset[seed.stop + 1];
-        edge += 1
-      ) {
-        retainOffset(
-          kernel.transferTo[edge],
-          seed.walkSeconds + kernel.transferDuration[edge],
-        )
-      }
-    }
-  }
-
-  const candidates = []
-  for (const stop of touchedStops) {
-    const offset = offsets[stop]
-    let low = kernel.departureOffset[stop]
-    let high = kernel.departureOffset[stop + 1]
-    const minimumBoardingTime = earliest + offset
-    while (low < high) {
-      const middle = (low + high) >>> 1
-      const segment = kernel.departureOrder[middle]
-      if (kernel.departureSeconds[segment] < minimumBoardingTime) low = middle + 1
-      else high = middle
-    }
-    for (let cursor = low; cursor < kernel.departureOffset[stop + 1]; cursor += 1) {
-      const segment = kernel.departureOrder[cursor]
-      const candidate = kernel.departureSeconds[segment] - offset
-      if (candidate > deadline) break
-      if (candidate >= earliest) candidates.push(candidate)
-    }
-  }
-  candidates.sort((left, right) => right - left)
-  return candidates.filter((candidate, index) => index === 0 || candidate !== candidates[index - 1])
-}
 
 function nativeTimetableChain(kernel, raw) {
   return raw.chainKinds.map((kind, index) => {
@@ -7204,7 +7174,7 @@ function routeNationalGtfsArriveByStore(
     }, preparedArriveByCoordinateAccess))
     return planMeetsArriveByDeadline(plan) ? plan : null
   }
-  const materializeFastest = (candidateSeconds) => {
+  const materializeFastest = (candidateSeconds, reuseFusedWitness = true) => {
     if (request.routingPreference === 'balanced') {
       return materializeFastestThroughPublicRoute(candidateSeconds)
     }
@@ -7217,13 +7187,13 @@ function routeNationalGtfsArriveByStore(
       __disableDirectWalkDominance: true,
       __suppressServiceDateFallback: true,
     }
-    const fusedBoundaryMatches = fusedCoordinateTimetable?.arriveBy
+    const fusedBoundaryMatches = reuseFusedWitness && fusedCoordinateTimetable?.arriveBy
       && Math.abs(
         numeric(fusedCoordinateTimetable.arriveBy.latestDeparture, Number.NaN)
           - candidateSeconds,
       ) <= 1e-9
     const candidateHorizon = deadline
-    if (!fusedBoundaryMatches && fusedCoordinateTimetable?.compactFrontier) {
+    if (reuseFusedWitness && !fusedBoundaryMatches && fusedCoordinateTimetable?.compactFrontier) {
       return materializeFastestThroughPublicRoute(candidateSeconds)
     }
     const search = fusedBoundaryMatches && fusedForwardSearch
@@ -7326,6 +7296,7 @@ function routeNationalGtfsArriveByStore(
     materializationSearches = 1,
   ) => {
     const recoveredByDirectWalk = forwardParityRecovery?.outcome?.startsWith('direct_walk_') === true
+    const recoveredAtBoundary = forwardParityRecovery?.outcome === 'same_boundary_forward_witness'
     const candidateCount = forwardParityRecovery?.reproducedCandidateCount
       ?? boundary.candidateCount
     return {
@@ -7337,15 +7308,19 @@ function routeNationalGtfsArriveByStore(
     diagnostics: {
       ...plan.diagnostics,
       ...(realtimeTimetable ? { realtimeRouting: realtimeTimetable.diagnostics } : {}),
-      algorithm: recoveredByDirectWalk
+      algorithm: recoveredAtBoundary
+        ? 'rust_exact_arrive_by_reverse_scan_after_same_boundary_reconstruction'
+        : recoveredByDirectWalk
         ? 'rust_arrive_by_reverse_upper_bound_plus_osm_direct_walk_certificate'
         : forwardParityRecovery
           ? 'rust_arrive_by_reverse_scan_plus_complete_public_candidate_recovery'
           : 'rust_exact_arrive_by_reverse_scan',
-      optimality: recoveredByDirectWalk
+      optimality: recoveredAtBoundary
+        ? 'latest_departure_guaranteed_by_exact_reverse_scan_and_same_boundary_forward_witness'
+        : recoveredByDirectWalk
         ? 'latest_departure_certified_by_direct_walk_dominating_scalar_transit_upper_bound'
         : forwardParityRecovery
-          ? 'latest_public_departure_certified_over_complete_initial_board_event_set_after_cycle_filter'
+          ? 'latest_departure_verified_at_native_reverse_boundary'
           : 'latest_departure_guaranteed_by_exact_reverse_timetable_scan',
       searchStats: {
         ...plan.diagnostics.searchStats,
@@ -7353,7 +7328,9 @@ function routeNationalGtfsArriveByStore(
         engineQueryMs: timingMilliseconds(
           timingMilliseconds(plan.diagnostics.searchStats?.engineQueryMs) + timingMilliseconds(boundary.queryMs),
         ),
-        arriveByCandidateSource: forwardParityRecovery
+        arriveByCandidateSource: recoveredAtBoundary
+          ? 'complete_access_frontier_at_native_reverse_boundary'
+          : forwardParityRecovery
           ? 'resident_departure_index_after_materialization_rejection'
           : 'rust_exact_reverse_scan',
         arriveByCandidates: candidateCount,
@@ -7362,7 +7339,9 @@ function routeNationalGtfsArriveByStore(
           materializationSearches,
         ),
         arriveByReverseScans: 1,
-        arriveBySearchStrategy: forwardParityRecovery
+        arriveBySearchStrategy: recoveredAtBoundary
+          ? 'rust_exact_reverse_scan_plus_same_boundary_forward_reconstruction'
+          : forwardParityRecovery
           ? 'rust_exact_reverse_scan_plus_complete_public_candidate_recovery'
           : 'rust_exact_reverse_connection_scan',
         arriveByNativeQueryMs: timingMilliseconds(boundary.queryMs),
@@ -7481,128 +7460,70 @@ function routeNationalGtfsArriveByStore(
     ? materializeFastest(latestFeasibleCandidateSeconds)
     : null
   if (Number.isFinite(latestFeasibleCandidateSeconds) && !latestFeasiblePlan) {
-    const recoverySeeds = ensureRecoverySeeds()
-    const candidates = activeServiceKernelArriveByRecoveryCandidates(
-      kernel,
-      recoverySeeds.origin,
-      earliest,
-      deadline,
-      allowPreRideTransfers,
-    )
-    const selectedCandidateIndex = candidates.findIndex(
-      (candidate) => Math.abs(candidate - latestFeasibleCandidateSeconds) <= 1e-9,
-    )
-    if (selectedCandidateIndex < 0) {
-      const error = new Error(
-        'Arrive-by recovery did not contain the departure selected by the reverse scan.',
-      )
-      error.code = 'native_arrive_by_candidate_mismatch'
-      error.nativeCandidateCount = nativeBoundary.candidateCount
-      error.reproducedCandidateCount = candidates.length
-      error.nativeLatestDeparture = latestFeasibleCandidateSeconds
-      error.selectedCandidateIndex = selectedCandidateIndex
-      throw error
-    }
-
-    let directWalkWitness = null
-    if (
-      !transitRideRequired(request)
-      && request.streetStorePath
-      && request.origin?.coordinate
-      && request.destination?.coordinate
-      && !explicitRoutingStopId(request.origin)
-      && !explicitRoutingStopId(request.destination)
-    ) {
-      const directWalkLimitKm = directWalkEndToEndLimitKm(request)
-      if (
-        haversineKm(request.origin.coordinate, request.destination.coordinate)
-          <= directWalkLimitKm + 1e-9
-      ) {
-        const path = streetPathBetween(
-          request.streetStorePath,
-          request.origin.coordinate,
-          request.destination.coordinate,
-          directWalkLimitKm,
-        )
-        if (path && path.distanceKm <= directWalkLimitKm + 1e-9) {
-          const durationSeconds = path.distanceKm / walkingSpeedKph * 3600
-          const plan = materializeDirectWalkCandidate(request, maxWalkKm, path, {
-            algorithm: 'osm_direct_walk_latest_departure',
-            optimality:
-              'latest_departure_certified_by_direct_walk_dominating_scalar_transit_upper_bound',
-            transitLowerBoundMinutes: undefined,
-          })
-          directWalkWitness = {
-            departureSeconds: deadline - durationSeconds,
-            plan: {
-              ...plan,
-              diagnostics: {
-                ...plan.diagnostics,
-                ...serviceDateDiagnostics(serviceDateResolution),
-                originStopCandidates: originStops.length,
-                destinationStopCandidates: destinationStops.length,
-                directWalkEnvelope: directWalkEnvelopeDiagnostics(request, maxWalkKm, path),
-              },
-            },
+    const recovered = recoverNativeArriveByBoundary({
+      latestDepartureSeconds: latestFeasibleCandidateSeconds,
+      prepareCompleteAccess: ensureRecoverySeeds,
+      materializeAtBoundary: (candidateSeconds) => {
+        materializationSearches += 1
+        // Rebuild the forward witness from the complete endpoint frontier;
+        // never reuse the fused result that just failed to materialize.
+        return materializeFastest(candidateSeconds, false)
+      },
+      dominatingDirectWalk: () => {
+        let directWalkWitness = null
+        if (
+          !transitRideRequired(request)
+          && request.streetStorePath
+          && request.origin?.coordinate
+          && request.destination?.coordinate
+          && !explicitRoutingStopId(request.origin)
+          && !explicitRoutingStopId(request.destination)
+        ) {
+          const directWalkLimitKm = directWalkEndToEndLimitKm(request)
+          if (
+            haversineKm(request.origin.coordinate, request.destination.coordinate)
+              <= directWalkLimitKm + 1e-9
+          ) {
+            const path = streetPathBetween(
+              request.streetStorePath,
+              request.origin.coordinate,
+              request.destination.coordinate,
+              directWalkLimitKm,
+            )
+            if (path && path.distanceKm <= directWalkLimitKm + 1e-9) {
+              const durationSeconds = path.distanceKm / walkingSpeedKph * 3600
+              const plan = materializeDirectWalkCandidate(request, maxWalkKm, path, {
+                algorithm: 'osm_direct_walk_latest_departure',
+                optimality:
+                  'latest_departure_certified_by_direct_walk_dominating_scalar_transit_upper_bound',
+                transitLowerBoundMinutes: undefined,
+              })
+              directWalkWitness = {
+                departureSeconds: deadline - durationSeconds,
+                plan: {
+                  ...plan,
+                  diagnostics: {
+                    ...plan.diagnostics,
+                    ...serviceDateDiagnostics(serviceDateResolution),
+                    originStopCandidates: originStops.length,
+                    destinationStopCandidates: destinationStops.length,
+                    directWalkEnvelope: directWalkEnvelopeDiagnostics(request, maxWalkKm, path),
+                  },
+                },
+              }
+            }
           }
         }
-      }
-    }
-
-    const recovery = {
-      status: 'passed',
-      trigger: 'native_reverse_boundary_failed_public_forward_materialization',
-      exactness:
-        'initial_departure_frontier_verified_by_forward_materialization',
-      nativeLatestDepartureSeconds: latestFeasibleCandidateSeconds,
+        return directWalkWitness
+      },
+    })
+    latestFeasiblePlan = recovered.plan
+    selectedFeasibleCandidateSeconds = recovered.departureSeconds
+    forwardParityRecovery = {
+      ...recovered.recovery,
       nativeCandidateCount: nativeBoundary.candidateCount,
-      reproducedCandidateCount: candidates.length,
-      selectedCandidateIndex,
-      directWalkDepartureSeconds: directWalkWitness?.departureSeconds ?? null,
       materializationSearches,
-      recoveredCandidateSeconds: null,
-      outcome: null,
     }
-
-    if (
-      directWalkWitness
-      && directWalkWitness.departureSeconds > latestFeasibleCandidateSeconds + 1e-9
-    ) {
-      latestFeasiblePlan = directWalkWitness.plan
-      selectedFeasibleCandidateSeconds = directWalkWitness.departureSeconds
-      recovery.outcome = 'direct_walk_dominates_scalar_transit_upper_bound'
-    } else {
-      for (let index = selectedCandidateIndex + 1; index < candidates.length; index += 1) {
-        const candidateSeconds = candidates[index]
-        if (
-          directWalkWitness
-          && candidateSeconds <= directWalkWitness.departureSeconds + 1e-9
-        ) {
-          latestFeasiblePlan = directWalkWitness.plan
-          selectedFeasibleCandidateSeconds = directWalkWitness.departureSeconds
-          recovery.outcome = 'direct_walk_dominates_remaining_public_candidate_frontier'
-          break
-        }
-        materializationSearches += 1
-        const candidatePlan = materializeFastest(candidateSeconds)
-        if (candidatePlan) {
-          latestFeasiblePlan = candidatePlan
-          selectedFeasibleCandidateSeconds = candidateSeconds
-          recovery.recoveredCandidateSeconds = candidateSeconds
-          recovery.outcome = 'earlier_public_transit_candidate'
-          break
-        }
-      }
-      if (!latestFeasiblePlan && directWalkWitness) {
-        latestFeasiblePlan = directWalkWitness.plan
-        selectedFeasibleCandidateSeconds = directWalkWitness.departureSeconds
-        recovery.outcome = 'direct_walk_after_public_transit_candidate_exhaustion'
-      } else if (!latestFeasiblePlan) {
-        recovery.outcome = 'no_public_path_after_complete_candidate_exhaustion'
-      }
-    }
-    recovery.materializationSearches = materializationSearches
-    forwardParityRecovery = recovery
   }
   if (latestFeasiblePlan) {
     if (request.routingPreference === 'balanced' && latestFeasiblePlan.travelMode === 'transit') {

@@ -2029,7 +2029,7 @@ fn execute_marked_run_round(
         let mut earliest_ready = f64::INFINITY;
         let mut minimum_walking = f64::INFINITY;
         for flags in 0..STATE_STRIDE {
-            if flags & 4 != 0 && forbidden_same_stop[stop] == 1 {
+            if flags & 4 != 0 && flags & 1 != 0 && forbidden_same_stop[stop] == 1 {
                 continue;
             }
             let state = stop * STATE_STRIDE + flags;
@@ -2099,7 +2099,7 @@ fn execute_marked_run_round(
                 let mut candidate = NO_STATE;
                 let mut candidate_walking = predecessor_walking;
                 for flags in 0..STATE_STRIDE {
-                    if flags & 4 != 0 && forbidden_same_stop[stop] == 1 {
+                    if flags & 4 != 0 && flags & 1 != 0 && forbidden_same_stop[stop] == 1 {
                         continue;
                     }
                     let state = stop * STATE_STRIDE + flags;
@@ -2420,6 +2420,7 @@ struct ForwardWorkspace {
     scalar_runs: Vec<u64>,
     scalar_first_boarding: Vec<u32>,
     scalar_identity: Option<ScalarEnvelopeIdentity>,
+    envelope_revision: u64,
 }
 
 struct ScalarEnvelopeIdentity {
@@ -2489,6 +2490,7 @@ impl ForwardWorkspace {
             scalar_runs: vec![0; run_count.div_ceil(u64::BITS as usize)],
             scalar_first_boarding: vec![u32::MAX; run_count],
             scalar_identity: None,
+            envelope_revision: 0,
         }
     }
 
@@ -2609,7 +2611,7 @@ fn offer_forward_ride_exit(
     transfer_offset: &[u32],
     transfer_edges: &[TransferEdge],
 ) -> u64 {
-    offer_forward_layer(
+    if offer_forward_layer(
         &mut workspace.layer_earliest,
         &mut workspace.stop_layer_mask,
         stop_count,
@@ -2617,7 +2619,9 @@ fn offer_forward_ride_exit(
         stop,
         arrival,
         maximum_time,
-    );
+    ) {
+        workspace.envelope_revision += 1;
+    }
     let index = layer * stop_count + stop;
     // An earlier walking arrival has already consumed its transfer edge. It
     // cannot suppress a later ride exit that can still take an ingress edge.
@@ -2625,6 +2629,7 @@ fn offer_forward_ride_exit(
         return 0;
     }
     workspace.layer_ride_earliest[index] = arrival;
+    workspace.envelope_revision += 1;
     expand_forward_transfer_layer(
         &mut workspace.layer_earliest,
         &mut workspace.stop_layer_mask,
@@ -2661,6 +2666,7 @@ fn begin_forward_run_envelope_csa(
     workspace.layer_ride_earliest.fill(u32::MAX);
     workspace.stop_layer_mask.fill(0);
     workspace.run_layer_mask.fill(0);
+    workspace.envelope_revision = 0;
     workspace.changed_stops.clear();
     for layer in workspace.run_layers.iter_mut().take(boarding_upper_bound) {
         layer.fill(0);
@@ -2742,6 +2748,7 @@ fn scan_forward_run_envelope_connection(
             if workspace.run_layer_mask[run] & bit == 0 {
                 workspace.run_layer_mask[run] |= bit;
                 workspace.run_layers[layer][run] = 1;
+                workspace.envelope_revision += 1;
             }
         }
     }
@@ -2806,6 +2813,7 @@ fn build_forward_run_envelope_csa(
     scan_events: &[ScanEvent],
     scan_times: &[u32],
     scan_time_offsets: &[u32],
+    scan_time_needs_closure: &[bool],
     scan_arrivals: &[ScanArrival],
     transfer_offset: &[u32],
     transfer_edges: &[TransferEdge],
@@ -2832,19 +2840,32 @@ fn build_forward_run_envelope_csa(
         }
         let start = scan_time_offsets[time_index] as usize;
         let end = scan_time_offsets[time_index + 1] as usize;
-        for cursor in start..end {
-            scan_forward_run_envelope_connection(
-                workspace,
-                stop_count,
-                boarding_upper_bound,
-                scan_events[cursor],
-                scan_departure,
-                scan_arrivals[cursor],
-                maximum_time,
-                transfer_offset,
-                transfer_edges,
-                &mut stats,
-            );
+        // Zero-time arrivals and bridge exits may make an earlier event in
+        // this bucket boardable. Close the monotone reachability state before
+        // using its run layers as a pruning envelope. Counters record actual
+        // work, while the revision changes only on a new run/layer or an
+        // improved ride exit; repeated scans therefore reach a fixed point.
+        loop {
+            let previous_revision = workspace.envelope_revision;
+            for cursor in start..end {
+                scan_forward_run_envelope_connection(
+                    workspace,
+                    stop_count,
+                    boarding_upper_bound,
+                    scan_events[cursor],
+                    scan_departure,
+                    scan_arrivals[cursor],
+                    maximum_time,
+                    transfer_offset,
+                    transfer_edges,
+                    &mut stats,
+                );
+            }
+            if !scan_time_needs_closure[time_index]
+                || previous_revision == workspace.envelope_revision
+            {
+                break;
+            }
         }
         time_index += 1;
     }
@@ -3750,7 +3771,7 @@ impl TimetableKernel {
                             active_states &= active_states - 1;
                             let state = stop * STATE_STRIDE + flags;
                             let has_ride = flags & 4 != 0;
-                            if has_ride && forbidden_same_stop[stop] == 1 {
+                            if has_ride && flags & 1 != 0 && forbidden_same_stop[stop] == 1 {
                                 continue;
                             }
                             let needs_board_slack = flags & 1 != 0;
@@ -4282,17 +4303,20 @@ impl TimetableKernel {
                                 departure - f64::from(same_stop_transfer_minimum[stop]),
                                 input.earliest,
                             );
-                            relax_reverse_transfer_target_deadline(
-                                workspace,
-                                epoch,
-                                &mut stats,
-                                stop,
-                                departure,
-                                input.earliest,
-                                reverse_transfer_offset,
-                                reverse_transfer_edges,
-                            );
                         }
+                        // Pair-specific incoming edges have already passed
+                        // transfer filtering. A same-stop ban cannot forbid
+                        // an explicit transfer from a different stop.
+                        relax_reverse_transfer_target_deadline(
+                            workspace,
+                            epoch,
+                            &mut stats,
+                            stop,
+                            departure,
+                            input.earliest,
+                            reverse_transfer_offset,
+                            reverse_transfer_edges,
+                        );
                     }
 
                     let bridge_exit_feasible = flags & SCAN_BRIDGE_EXIT != 0
@@ -4324,7 +4348,7 @@ impl TimetableKernel {
         }
         let engine_query_ns = engine_started.elapsed().as_nanos() as f64;
         // The reverse scan resolves one exact upper boundary. The uncommon
-        // presentation-only recovery enumerates earlier departures lazily in
+        // presentation-only recovery reconstructs that same boundary in
         // JavaScript if forward materialization rejects that boundary.
         let verified_candidates = u32::from(latest_departure.is_some());
         let candidate_count = verified_candidates;
@@ -4650,17 +4674,17 @@ impl TimetableKernel {
                                         - f64::from(self.same_stop_transfer_minimum[base_stop]),
                                     input.earliest,
                                 );
-                                relax_reverse_transfer_target_deadline(
-                                    workspace,
-                                    epoch,
-                                    &mut stats,
-                                    stop,
-                                    departure,
-                                    input.earliest,
-                                    &self.reverse_transfer_offset,
-                                    &self.reverse_transfer_edges,
-                                );
                             }
+                            relax_reverse_transfer_target_deadline(
+                                workspace,
+                                epoch,
+                                &mut stats,
+                                stop,
+                                departure,
+                                input.earliest,
+                                &self.reverse_transfer_offset,
+                                &self.reverse_transfer_edges,
+                            );
                         }
                         let bridge_exit_feasible = flags & SCAN_BRIDGE_EXIT != 0
                             && workspace.destination_generation[exit_stop] == epoch
@@ -5013,7 +5037,10 @@ impl TimetableKernel {
                                 let state_flags = active_states.trailing_zeros() as usize;
                                 active_states &= active_states - 1;
                                 let has_ride = state_flags & 4 != 0;
-                                if has_ride && forbidden_same_stop[base_stop] == 1 {
+                                if has_ride
+                                    && state_flags & 1 != 0
+                                    && forbidden_same_stop[base_stop] == 1
+                                {
                                     continue;
                                 }
                                 let state = stop * STATE_STRIDE + state_flags;
@@ -5525,7 +5552,10 @@ impl TimetableKernel {
                                     let state_flags = active_states.trailing_zeros() as usize;
                                     active_states &= active_states - 1;
                                     let has_ride = state_flags & 4 != 0;
-                                    if has_ride && forbidden_same_stop[base_stop] == 1 {
+                                    if has_ride
+                                        && state_flags & 1 != 0
+                                        && forbidden_same_stop[base_stop] == 1
+                                    {
                                         continue;
                                     }
                                     let state = stop * STATE_STRIDE + state_flags;
@@ -5681,6 +5711,7 @@ impl TimetableKernel {
                                 let has_ride = state_flags & 4 != 0;
                                 let state = input_stop * STATE_STRIDE + state_flags;
                                 if has_ride
+                                    && state_flags & 1 != 0
                                     && rule_stop.is_some_and(|stop| forbidden_same_stop[stop] == 1)
                                 {
                                     continue;
@@ -6003,7 +6034,7 @@ impl TimetableKernel {
             scan_events,
             scan_times,
             scan_time_offsets,
-            scan_time_needs_closure: _,
+            scan_time_needs_closure,
             scan_arrivals,
             scan_journeys: _,
             run_start,
@@ -6108,6 +6139,7 @@ impl TimetableKernel {
                 scan_events,
                 scan_times,
                 scan_time_offsets,
+                scan_time_needs_closure,
                 scan_arrivals,
                 transfer_offset,
                 transfer_edges,
