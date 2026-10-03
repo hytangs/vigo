@@ -22,6 +22,7 @@ New to Engine? Follow the [quickstart](guides/quickstart.md), choose a [workflow
 | Plan an arrival, compute a matrix, or test service change | [Practical workflows](guides/workflows.md) |
 | Understand status, uncertainty, and comparison | [Read and retain a Result](reference/results.md) |
 | Diagnose installation, data, or unexpected results | [Troubleshooting](guides/troubleshooting.md) |
+| Identify the current local build and archive older install copies | [Local build housekeeping](guides/local-builds.md) |
 | Automate VIGO | [CLI reference](reference/programmatic.md) · [Python package](https://github.com/hytangs/vigo-py) |
 | Read offline and inspect an exported Result | [Offline guide](guide.html) |
 
