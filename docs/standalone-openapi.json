@@ -6616,6 +6616,15 @@
           "includeGeometry": {
             "type": "boolean",
             "default": false
+          },
+          "journeyFormat": {
+            "type": "string",
+            "enum": [
+              "full",
+              "compact"
+            ],
+            "default": "full",
+            "description": "Requires transit includeJourneys. Compact retains the exact timed trip/stop/boarding witness, without display metadata or walking evidence; it cannot include geometry."
           }
         },
         "required": [
@@ -6661,7 +6670,7 @@
             }
           }
         ],
-        "description": "At most 65536 pairs. Journeys require transit; geometry requires journeys. No realtime transit."
+        "description": "At most 65536 pairs. Journeys require transit; geometry requires full journeys. No realtime transit."
       },
       "ReachOverlay": {
         "type": "object",
@@ -8080,10 +8089,24 @@
             "$ref": "#/components/schemas/JourneyEndpoint"
           },
           "fromStopId": {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "toStopId": {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "fromStop": {
             "anyOf": [

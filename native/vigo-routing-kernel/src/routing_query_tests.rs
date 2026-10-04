@@ -161,6 +161,24 @@ fn owned_and_borrowed_paths_match_one_shot_across_metric_changes() {
                         cch::node_path(&view, &metric.view(), target, source)
                     );
                 }
+                let targets = [source, 30, 2, source, 0, 29, 2];
+                let view = owned.structure().view();
+                let mut borrowed = cch::PathQuery::new(&view);
+                assert!(borrowed.paths_from(&metric.view(), source, &[]).is_empty());
+                for changed in [&metrics[1], &metrics[0], metric] {
+                    assert_eq!(
+                        borrowed.paths_from(&changed.view(), source, &targets),
+                        targets
+                            .iter()
+                            .map(|&target| cch::node_path(&view, &changed.view(), source, target))
+                            .collect::<Vec<_>>()
+                    );
+                    // A single query after a batch cannot inherit its source.
+                    assert_eq!(
+                        borrowed.path(&changed.view(), 29, source),
+                        cch::node_path(&view, &changed.view(), 29, source)
+                    );
+                }
             }
         }
     }

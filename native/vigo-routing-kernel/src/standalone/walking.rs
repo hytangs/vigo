@@ -25,7 +25,7 @@ impl City {
                 .ok_or("Invalid station witness cost")?;
             Ok(f64::from_le_bytes(value.try_into()?))
         };
-        let metadata = &self.context.header["metadata"]["stationPaths"];
+        let metadata = &self.access.station_paths;
         for i in integer("offsets", from)?..integer("offsets", from + 1)? {
             if integer("to", i)? != to || (number("seconds", i)? - seconds).abs() > 0.001 {
                 continue;
@@ -99,50 +99,36 @@ impl City {
                 }
                 return Ok(value);
             }
-            let evidence = &access[role].evidence;
+            let evidence = access[role]
+                .evidence
+                .as_ref()
+                .ok_or("Missing coordinate access evidence")?;
             let target = ids[1 - role].as_ref().ok_or("Missing access stop")?;
-            let index = evidence["memberIndices"]
-                .as_array()
-                .into_iter()
-                .flatten()
+            let index = evidence
+                .member_indices
+                .iter()
                 .enumerate()
                 .find(|(index, member)| {
-                    member.as_u64().and_then(|i| self.members.get(i as usize)) == Some(target)
-                        && evidence["accessSeconds"][*index]
-                            .as_f64()
-                            .is_some_and(|s| (s - duration).abs() < 0.001)
+                    self.members.get(**member as usize) == Some(target)
+                        && (f64::from(evidence.access_seconds[*index]) - duration).abs() < 0.001
                 })
                 .map(|(index, _)| index)
                 .ok_or("Selected access witness is missing")?;
-            let priced = evidence["accessSeconds"][index]
-                .as_f64()
-                .ok_or("Missing access cost")?;
+            let priced = f64::from(evidence.access_seconds[index]);
             if (priced - duration).abs() > 0.001 {
                 return Err("Selected access cost does not match its journey".into());
             }
-            distance = Some(
-                evidence["distancesM"][index]
-                    .as_f64()
-                    .ok_or("Missing selected access distance")?,
-            );
-            let member = evidence["pathMemberIndices"][index]
-                .as_u64()
-                .ok_or("Missing access path member")? as usize;
+            distance = Some(evidence.distances_m[index]);
+            let member = evidence.path_member_indices[index] as usize;
             let stop = self.stop(self.members.get(member).ok_or("Unknown access member")?)?;
             street_coordinates[1 - role] = [stop.lon, stop.lat];
-            if evidence["candidateKinds"][index] == 1 {
-                let mut from = evidence["linkFromStopKeys"][index]
-                    .as_u64()
-                    .ok_or("Missing station from")? as usize;
-                let mut to = evidence["linkToStopKeys"][index]
-                    .as_u64()
-                    .ok_or("Missing station to")? as usize;
+            if evidence.candidate_kinds[index] == 1 {
+                let mut from = evidence.link_from_stop_keys[index] as usize;
+                let mut to = evidence.link_to_stop_keys[index] as usize;
                 if role == 1 {
                     std::mem::swap(&mut from, &mut to);
                 }
-                let seconds = evidence["linkDurations"][index]
-                    .as_f64()
-                    .ok_or("Missing station duration")?;
+                let seconds = f64::from(evidence.link_durations[index]);
                 street_budget = (duration - seconds).max(0.);
                 {
                     let station = self
@@ -162,25 +148,25 @@ impl City {
                 value["stationAccessStatus"] = json!("unverified");
             }
         } else if let (Some(from), Some(to)) = (&ids[0], &ids[1]) {
-            let row = self.transfer_rows.get(from).and_then(|&i| {
-                self.context.header["metadata"]["materialized"]["transfers"][i][1].as_array()
-            });
+            let row = self
+                .transfer_rows
+                .get(from)
+                .map(|&i| &self.access.materialized.transfers[i].1);
             let transfer = row.and_then(|rows| {
                 rows.iter().find(|r| {
-                    r["to_stop_id"] == *to
-                        && r["min_transfer_time"]
-                            .as_f64()
+                    r.to_stop_id == *to
+                        && r.min_transfer_time
                             .is_some_and(|s| (s - duration).abs() < 0.001)
                 })
             });
             if let Some(transfer) = transfer {
-                let source = transfer["provenance"].as_str().unwrap_or("unknown");
+                let source = transfer.provenance.as_deref().unwrap_or("unknown");
                 value["transferSource"] = json!(source);
                 if source != "osm_certified_radial" {
                     source_only = true;
                     distance = Some(
-                        transfer["path_distance_m"]
-                            .as_f64()
+                        transfer
+                            .path_distance_m
                             .unwrap_or_else(|| haversine(coordinates[0], coordinates[1])),
                     );
                     value["geometrySource"] = json!(if pathway(source) {

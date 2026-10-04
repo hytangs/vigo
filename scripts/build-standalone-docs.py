@@ -276,7 +276,7 @@ def specification(native):
         'windowMinutes':number(0,240,0),'windowStepMinutes':number(1,60,1)},['origin','destination'],allOf=[clock_rule,transit_date,mode_rule,{'not':{'required':['via','waypoints']}}],
         description='Additional mode constraints, source identities, freshness, and via/window combinations are validated by the runtime. Route always includes geometry.')
     matrix_fields = {k:v for k,v in clock_common.items() if k!='realtimeSnapshot'}
-    schemas['MatrixRequest'] = obj({**matrix_fields,'origins':array(ref('Point'),1,65536),'destinations':array(ref('Point'),1,65536),'includeJourneys':boolean(),'includeGeometry':boolean()},['origins','destinations'],allOf=[clock_rule,transit_date,mode_rule],description='At most 65536 pairs. Journeys require transit; geometry requires journeys. No realtime transit.')
+    schemas['MatrixRequest'] = obj({**matrix_fields,'origins':array(ref('Point'),1,65536),'destinations':array(ref('Point'),1,65536),'includeJourneys':boolean(),'includeGeometry':boolean(), 'journeyFormat':{**text('full','compact'),'default':'full','description':'Requires transit includeJourneys. Compact retains the exact timed trip/stop/boarding witness, without display metadata or walking evidence; it cannot include geometry.'}},['origins','destinations'],allOf=[clock_rule,transit_date,mode_rule],description='At most 65536 pairs. Journeys require transit; geometry requires full journeys. No realtime transit.')
     scheduled = obj({'tripId':text(),'departureSeconds':number(0,1048575),'arrivalOffsetsSeconds':array(number(0)), 'departureOffsetsSeconds':array(number(0)),
         'canBoard':array(number(0,1,integer=True)),'canAlight':array(number(0,1,integer=True))},['departureSeconds','arrivalOffsetsSeconds','departureOffsetsSeconds'],strict=False)
     service = obj({'id':text(),'name':text(),'operation':text('add','augment','replace',default='add'),'stops':array(ref('Point'),2),
@@ -308,7 +308,7 @@ def specification(native):
     leg_times = {'departureMinutes':number(description='Service-day clock in minutes.'),'arrivalMinutes':number(description='Service-day clock in minutes.'),'durationMinutes':number(0,description='Elapsed minutes between the leg clocks.')}
     schemas['RouteLeg'] = obj({'kind':text('walk','ride','drive'),**leg_times,
         'departure':number(description='Native service-day clock in seconds, when present.'),'arrival':number(description='Native service-day clock in seconds, when present.'),
-        'from':ref('JourneyEndpoint'),'to':ref('JourneyEndpoint'),'fromStopId':text(),'toStopId':text(),
+        'from':ref('JourneyEndpoint'),'to':ref('JourneyEndpoint'),'fromStopId':nullable(text()),'toStopId':nullable(text()),
         **{k:nullable(number(0,integer=True)) for k in ['fromStop','toStop','trip']},
         **{k:nullable(number()) for k in ['boardSequence','alightSequence']},
         'tripId':text(),'routeId':text(),'route':nullable(ref('RouteDisplay')),

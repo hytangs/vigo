@@ -1,7 +1,9 @@
 //! Standalone City runtime. No Node, JavaScript evaluator, or external service.
+mod access;
 mod city;
 mod http;
 mod materialize;
+mod prepared;
 mod query;
 mod reach;
 mod realtime;

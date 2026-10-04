@@ -359,6 +359,8 @@ Supply `origins` and `destinations` arrays with at least one point each. Use poi
 
 `includeJourneys` defaults to false and is supported for transit only. With true, `journeys` has the same dimensions and nulls for unreachable pairs. `includeGeometry` defaults to false and requires journeys. If direct walking wins under `requireTransitRide: false`, its journey is a compact walk record. Large journey/geometry matrices can reach the HTTP response limit; split them into smaller requests.
 
+`journeyFormat` defaults to `"full"`, retaining stop names, route details, stop sequences, and walking evidence. Analytical callers can explicitly request `"compact"` with `includeJourneys: true`: it returns the same selected trips, stops, boarding sequences, leg clocks, transfers, and walking/riding/waiting durations without display metadata or walking-evidence annotations. Compact does not accept `includeGeometry: true`. For duration-only workloads, leave `includeJourneys` false. Compare performance at the same output detail; the Node Matrix interface returns compact witnesses.
+
 ## 9. Reach and isochrones
 
 Reach finds the streets and areas accessible from an origin within a set of travel-time limits. Transit queries combine timetable travel with walking over the prepared street network. Use `mode: "walk"` for walking only, or call `isochrone` as an alias of `reach`.
@@ -610,6 +612,7 @@ Successful dispatch of Route, Matrix, Reach, and Native adds these fields. A com
 | `runtime` | `rust`. Use `capabilities` or `--version` for the executable version. |
 | `cityRevision` | Revision of the City loaded by the process. Keep it with saved results; IDs and graph indices depend on the dataset. |
 | `timing.totalMs` | Milliseconds inside query dispatch, including on-demand preparation and result construction. Excludes initial City load, process startup, final JSON serialization, HTTP queue/network time, and client parsing. |
+| `timing.timetableSource` | Transit preparation path: `prepared_snapshot` for a matching compiled service timetable, or `source` for SQLite preparation. Retained on later requests that reuse that timetable. |
 | `id` | Echoed by Stream and worker-dispatched HTTP queries when supplied. One-shot CLI results do not echo it; transport failures can omit it. |
 | `warnings` | Source-provided routing limitations on some families. May be absent, null, or an array; an empty array does not certify the source dataset. |
 
@@ -821,6 +824,7 @@ Walk/Drive matrices use their street travel durations. `distancesMeters` is a se
 | Transit `includeJourneys: true` | Two-dimensional `journeys[row][column]`; unreachable entries are null |
 | `includeGeometry: false` | Transit clocks, legs, IDs, endpoints, and stop sequences without line geometry |
 | `includeGeometry: true` | Geometry and provenance added to materialized transit legs |
+| `journeyFormat: "compact"` | Exact timed trip/stop witness without full display or walking-evidence metadata; requires journeys and excludes geometry |
 | Direct walking wins in a transit matrix | A compact `mode: "walk"` journey with clocks, duration, distance, and transfers; no `legs` even if geometry was requested |
 | Walk/Drive matrix | Distances and durations; no `journeys` property. Journey flags are unsupported. |
 
@@ -1013,6 +1017,8 @@ Native `timetable.matrix` returns a flat origin-major `times` array of **service
 Keep a City loaded while sending a sequence of JSON queries through standard input. Streaming returns one result for each request, in order.
 
 One-shot commands open a City for each invocation. `stream` keeps a City resident and reads one object per line. Every line requires `kind`; an optional `id` is echoed even for query errors. Output is one compact JSON object per line, in input order. Blank lines are ignored. There is no startup handshake or `sequence` field in the public Rust stream.
+
+Transit can reuse a prepared service snapshot only when its source database, access policy, active services, transfer projection, dictionaries, and array layout validate. Missing or invalid optional timetable snapshots fall back to source preparation without writing City files. Realtime and disabled street transfers use source preparation. For repeated calls, keep `stream` or `serve` resident; measure fresh-process startup separately from warm query time. The runtime retains bounded immutable shape/alignment data and shares same-request endpoint evidence even when answer caches are disabled.
 
 ```ndjson
 {"kind":"route","id":"trip-1","origin":{"stopId":"A"},"destination":{"stopId":"B"},"serviceDate":"2026-07-15","time":"07:55","maxWalkKm":0.2}

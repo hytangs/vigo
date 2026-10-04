@@ -8,10 +8,51 @@ use std::collections::VecDeque;
 /// Compiled immutable GTFS shapes, owned by one City. No route or timetable
 /// answers are retained. Account again after alignment grows candidate data.
 pub(crate) struct ShapeCache {
-    entries: VecDeque<(String, ShapeGeometry, usize)>,
+    entries: VecDeque<(String, CompiledShape, usize)>,
     bytes: usize,
     maximum_bytes: usize,
     maximum_entries: usize,
+}
+
+struct CompiledShape {
+    geometry: ShapeGeometry,
+    // A shape can serve several active stop sequences (including skipped
+    // realtime calls). Key the complete coordinates, never only the trip ID.
+    alignments: VecDeque<(Vec<[u64; 2]>, Vec<u32>)>,
+}
+impl CompiledShape {
+    fn new(geometry: ShapeGeometry) -> Self {
+        Self {
+            geometry,
+            alignments: VecDeque::new(),
+        }
+    }
+    fn align(&mut self, stops: &[[f64; 2]]) -> Result<Vec<u32>> {
+        let key: Vec<_> = stops.iter().map(|s| s.map(f64::to_bits)).collect();
+        if let Some(index) = self.alignments.iter().position(|(k, _)| *k == key) {
+            let entry = self.alignments.remove(index).unwrap();
+            let indices = entry.1.clone();
+            self.alignments.push_back(entry);
+            return Ok(indices);
+        }
+        let indices = self
+            .geometry
+            .align_stops(stops.iter().flatten().copied().collect())?;
+        if self.alignments.len() == 8 {
+            self.alignments.pop_front();
+        }
+        self.alignments.push_back((key, indices.clone()));
+        Ok(indices)
+    }
+    fn estimated_bytes(&self) -> usize {
+        self.geometry.estimated_bytes() as usize
+            + self.alignments.capacity() * std::mem::size_of::<(Vec<[u64; 2]>, Vec<u32>)>()
+            + self
+                .alignments
+                .iter()
+                .map(|(key, indices)| key.capacity() * 16 + indices.capacity() * 4)
+                .sum::<usize>()
+    }
 }
 
 impl Default for ShapeCache {
@@ -26,17 +67,17 @@ impl Default for ShapeCache {
 }
 
 impl ShapeCache {
-    fn take(&mut self, id: &str) -> Option<ShapeGeometry> {
+    fn take(&mut self, id: &str) -> Option<CompiledShape> {
         let index = self.entries.iter().position(|entry| entry.0 == id)?;
         let (_, shape, bytes) = self.entries.remove(index)?;
         self.bytes -= bytes;
         Some(shape)
     }
 
-    fn put(&mut self, id: String, shape: ShapeGeometry) {
+    fn put(&mut self, id: String, shape: CompiledShape) {
         let bytes = id.capacity()
-            + shape.estimated_bytes() as usize
-            + std::mem::size_of::<(String, ShapeGeometry, usize)>();
+            + shape.estimated_bytes()
+            + std::mem::size_of::<(String, CompiledShape, usize)>();
         if bytes > self.maximum_bytes || self.maximum_entries == 0 {
             return;
         }
@@ -51,6 +92,43 @@ impl ShapeCache {
 }
 
 impl City {
+    /// The exact native witness for analytical matrices. Full display and
+    /// walking-evidence materialization remains the default response format.
+    pub(crate) fn compact_journey(&self, journey: &TimetableMatrixJourney) -> Result<Value> {
+        let t = self.timetable.as_ref().ok_or("Timetable not active")?;
+        let mut value = json!({
+            "departureMinutes": journey.departure / 60.,
+            "arrivalMinutes": journey.arrival / 60.,
+            "durationMinutes": (journey.arrival - journey.departure) / 60.,
+            "walkMinutes": journey.walking_seconds / 60.,
+            "rideMinutes": journey.ride_seconds / 60.,
+            "waitMinutes": journey.waiting_seconds / 60.,
+            "transfers": journey.boardings.saturating_sub(1),
+        });
+        value["legs"] = Value::Array(
+            journey
+                .legs
+                .iter()
+                .map(|leg| {
+                    let mut v = json!({
+                        "kind": leg.kind,
+                        "fromStopId": leg.from_stop.map(|i| &t.stop_ids[i as usize]),
+                        "toStopId": leg.to_stop.map(|i| &t.stop_ids[i as usize]),
+                        "departureMinutes": leg.departure / 60.,
+                        "arrivalMinutes": leg.arrival / 60.,
+                        "durationMinutes": (leg.arrival - leg.departure) / 60.,
+                    });
+                    if let Some(trip) = leg.trip {
+                        v["tripId"] = json!(t.trip_ids[trip as usize]);
+                        v["boardSequence"] = json!(leg.board_sequence);
+                        v["alightSequence"] = json!(leg.alight_sequence);
+                    }
+                    v
+                })
+                .collect(),
+        );
+        Ok(value)
+    }
     pub(crate) fn materialize(
         &mut self,
         journey: &TimetableMatrixJourney,
@@ -124,21 +202,19 @@ impl City {
                     if let Some(id) = shape_id {
                         let shape = match self.shape_cache.take(&id) {
                             Some(shape) => Some(shape),
-                            None => self.shapes.read_shape(id.clone())?,
+                            None => self.shapes.read_shape(id.clone())?.map(CompiledShape::new),
                         };
                         if let Some(mut shape) = shape {
-                            let alignment = shape.align_stops(
-                                trip_coordinates.iter().flatten().copied().collect(),
-                            )?;
+                            let alignment = shape.align(&trip_coordinates)?;
                             if alignment.len() == trip_coordinates.len()
                                 && alignment[first] < alignment[last]
                             {
-                                let packed = shape.packed_coordinates();
-                                selected = packed[(alignment[first] as usize) * 2
-                                    ..=(alignment[last] as usize) * 2 + 1]
-                                    .chunks_exact(2)
-                                    .map(|p| [p[0], p[1]])
-                                    .collect();
+                                selected = shape
+                                    .geometry
+                                    .coordinate_slice(
+                                        alignment[first] as usize..=alignment[last] as usize,
+                                    )?
+                                    .to_vec();
                                 source = "gtfs_shape";
                             }
                             self.shape_cache.put(id, shape);
@@ -156,9 +232,9 @@ impl City {
             } else {
                 let evidence =
                     self.walk_evidence(leg, [origin, destination], access, opt, geometry)?;
-                v.as_object_mut()
-                    .unwrap()
-                    .extend(evidence.as_object().unwrap().clone());
+                if let Value::Object(evidence) = evidence {
+                    v.as_object_mut().unwrap().extend(evidence);
+                }
             }
             v["departureMinutes"] = json!(leg.departure / 60.);
             v["arrivalMinutes"] = json!(leg.arrival / 60.);
@@ -180,8 +256,8 @@ impl City {
 mod tests {
     use super::*;
 
-    fn shape() -> ShapeGeometry {
-        ShapeGeometry::new(vec![-77.0, 38.0, -77.001, 38.001]).unwrap()
+    fn shape() -> CompiledShape {
+        CompiledShape::new(ShapeGeometry::new(vec![-77.0, 38.0, -77.001, 38.001]).unwrap())
     }
 
     #[test]
@@ -193,12 +269,16 @@ mod tests {
         cache.put("a".into(), shape());
         cache.put("b".into(), shape());
         let mut a = cache.take("a").unwrap();
-        let points = a.packed_coordinates();
-        assert_eq!(a.align_stops(points.clone()).unwrap(), vec![0, 1]);
+        let points = a.geometry.packed_coordinates();
+        let stops: Vec<_> = points.chunks_exact(2).map(|p| [p[0], p[1]]).collect();
+        assert_eq!(a.align(&stops).unwrap(), vec![0, 1]);
         cache.put("a".into(), a);
         cache.put("c".into(), shape());
         assert!(cache.take("b").is_none());
-        assert_eq!(cache.take("a").unwrap().packed_coordinates(), points);
+        assert_eq!(
+            cache.take("a").unwrap().geometry.packed_coordinates(),
+            points
+        );
         assert!(cache.take("c").is_some());
         assert_eq!(cache.bytes, 0);
 
@@ -212,5 +292,32 @@ mod tests {
         cache.put("other".into(), shape());
         assert!(cache.entries.len() <= 1);
         assert!(cache.bytes <= cache.maximum_bytes);
+    }
+
+    #[test]
+    fn alignment_reuse_is_exact_bounded_and_accounted() {
+        let mut cached = shape();
+        let original = [[-77.0, 38.0], [-77.001, 38.001]];
+        let before = cached.estimated_bytes();
+        assert_eq!(cached.align(&original).unwrap(), vec![0, 1]);
+        let after = cached.estimated_bytes();
+        assert!(after > before);
+        assert_eq!(cached.align(&original).unwrap(), vec![0, 1]);
+        assert_eq!(cached.alignments.len(), 1);
+        assert_eq!(cached.estimated_bytes(), after);
+        for i in 0..12 {
+            let stops = [[-77.0 + f64::from(i) * 1e-6, 38.0], [-77.001, 38.001]];
+            let expected = shape()
+                .geometry
+                .align_stops(stops.into_iter().flatten().collect())
+                .unwrap();
+            assert_eq!(cached.align(&stops).unwrap(), expected);
+        }
+        assert_eq!(cached.alignments.len(), 8);
+        // A realtime skipped call changes the full sequence and cannot reuse
+        // an alignment belonging to the scheduled trip.
+        let skipped = [original[1]];
+        assert!(cached.align(&skipped).unwrap().is_empty());
+        assert_eq!(cached.align(&original).unwrap(), vec![0, 1]);
     }
 }

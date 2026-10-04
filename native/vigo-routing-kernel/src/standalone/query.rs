@@ -1,6 +1,7 @@
 use super::{City, Result, capabilities, fail, flag, number};
 use crate::*;
 use serde_json::{Value, json};
+use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Clone)]
@@ -13,7 +14,18 @@ pub(crate) struct Candidates {
     pub stops: Vec<u32>,
     pub seconds: Vec<f64>,
     pub terminal_transfers: bool,
-    pub evidence: Value,
+    // Native evidence is consumed directly by walking materialization. Only
+    // point diagnostics need its JSON form. Duplicate batch endpoints share
+    // the immutable arrays instead of copying a tree of JSON values.
+    pub evidence: Option<Arc<EndpointRoleResult>>,
+}
+impl Candidates {
+    fn diagnostics(&self, point: &Point) -> Result<Value> {
+        self.evidence.as_ref().map_or_else(
+            || Ok(json!({"stopId":point.stop,"exactStopAccess":true})),
+            |evidence| Ok(serde_json::to_value(evidence.as_ref())?),
+        )
+    }
 }
 pub(crate) struct Options {
     pub time: f64,
@@ -116,6 +128,12 @@ impl City {
         result["runtime"] = json!("rust");
         result["cityRevision"] = self.manifest["revisionId"].clone();
         result["timing"] = json!({"totalMs":started.elapsed().as_secs_f64()*1000.});
+        if request["mode"].as_str().unwrap_or("transit") == "transit"
+            && matches!(command, "route" | "matrix" | "reach" | "isochrone")
+            && let Some(timetable) = &self.timetable
+        {
+            result["timing"]["timetableSource"] = json!(timetable.preparation);
+        }
         if result.get("schemaVersion").is_none() {
             result["schemaVersion"] = json!("vigo.standalone.result.v1");
         }
@@ -195,19 +213,9 @@ impl City {
                 station
             }];
             if !station.is_empty() {
-                for item in self.context.header["metadata"]["materialized"]["stationMembers"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                {
-                    if item[0] == station {
-                        ids.extend(
-                            item[1]
-                                .as_array()
-                                .into_iter()
-                                .flatten()
-                                .filter_map(Value::as_str),
-                        );
+                for (id, members) in &self.access.materialized.station_members {
+                    if id == station {
+                        ids.extend(members.iter().map(String::as_str));
                     }
                 }
             }
@@ -224,7 +232,7 @@ impl City {
                 seconds: vec![0.; stops.len()],
                 stops,
                 terminal_transfers: true,
-                evidence: json!({"stopId":id,"exactStopAccess":true}),
+                evidence: None,
             });
         }
         self.street_candidates(point, role, opt, self.padding, self.overhead)
@@ -247,6 +255,9 @@ impl City {
             role: role.into(),
             disable_cache: Some(opt.disable_cache),
         })?;
+        self.project_candidates(result)
+    }
+    fn project_candidates(&self, result: EndpointRoleResult) -> Result<Candidates> {
         let t = self.timetable.as_ref().ok_or("Timetable is not active")?;
         let mut stops = vec![];
         let mut seconds = vec![];
@@ -264,8 +275,81 @@ impl City {
             stops,
             seconds,
             terminal_transfers: false,
-            evidence: serde_json::to_value(result)?,
+            evidence: Some(Arc::new(result)),
         })
+    }
+    fn point_candidates(
+        &mut self,
+        origin: &Point,
+        destination: &Point,
+        opt: &Options,
+    ) -> Result<(Candidates, Candidates)> {
+        if origin.stop.is_some() || destination.stop.is_some() {
+            return Ok((
+                self.candidates(origin, "origin", opt)?,
+                self.candidates(destination, "destination", opt)?,
+            ));
+        }
+        // Both roles are independent and share the native kernel's bounded
+        // two-thread executor, just like the Node coordinate entry point.
+        let r = self.street.route_endpoints(EndpointRouteInput {
+            origin_lon: origin.coordinate[0],
+            origin_lat: origin.coordinate[1],
+            destination_lon: destination.coordinate[0],
+            destination_lat: destination.coordinate[1],
+            maximum_walk_m: opt.walk_m,
+            walking_speed_kph: Some(opt.walk_speed.unwrap_or(self.speed)),
+            access_padding_factor: Some(self.padding),
+            access_overhead_seconds: Some(self.overhead),
+            disable_cache: Some(opt.disable_cache),
+        })?;
+        let origin = self.project_candidates(EndpointRoleResult {
+            query_token: r.query_token,
+            cache_hit: r.origin_cache_hit,
+            member_indices: r.origin_member_indices,
+            path_member_indices: r.origin_path_member_indices,
+            distances_m: r.origin_distances_m,
+            access_seconds: r.origin_access_seconds,
+            candidate_kinds: r.origin_candidate_kinds,
+            link_from_stop_keys: r.origin_link_from_stop_keys,
+            link_to_stop_keys: r.origin_link_to_stop_keys,
+            link_durations: r.origin_link_durations,
+            link_path_distances_m: r.origin_link_path_distances_m,
+            link_street_verified: r.origin_link_street_verified,
+            query_ns: r.query_ns,
+            access_reduction_ns: r.origin_access_reduction_ns,
+            snap_ns: r.snap_ns,
+            search_ns: r.origin_search_ns,
+            settled_nodes: r.origin_settled_nodes,
+            relaxed_edges: r.origin_relaxed_edges,
+            raw_candidates: r.origin_raw_candidates,
+            linked_stations: r.origin_linked_stations,
+            cch_accelerated: r.origin_cch_accelerated,
+        })?;
+        let destination = self.project_candidates(EndpointRoleResult {
+            query_token: r.query_token,
+            cache_hit: r.destination_cache_hit,
+            member_indices: r.destination_member_indices,
+            path_member_indices: r.destination_path_member_indices,
+            distances_m: r.destination_distances_m,
+            access_seconds: r.destination_access_seconds,
+            candidate_kinds: r.destination_candidate_kinds,
+            link_from_stop_keys: r.destination_link_from_stop_keys,
+            link_to_stop_keys: r.destination_link_to_stop_keys,
+            link_durations: r.destination_link_durations,
+            link_path_distances_m: r.destination_link_path_distances_m,
+            link_street_verified: r.destination_link_street_verified,
+            query_ns: r.query_ns,
+            access_reduction_ns: r.destination_access_reduction_ns,
+            snap_ns: r.snap_ns,
+            search_ns: r.destination_search_ns,
+            settled_nodes: r.destination_settled_nodes,
+            relaxed_edges: r.destination_relaxed_edges,
+            raw_candidates: r.destination_raw_candidates,
+            linked_stations: r.destination_linked_stations,
+            cch_accelerated: r.destination_cch_accelerated,
+        })?;
+        Ok((origin, destination))
     }
     pub(crate) fn matrix_input(
         origins: &[Candidates],
@@ -349,8 +433,7 @@ impl City {
             return self.street_route(q, &origin, &destination, &opt, mode);
         }
         self.activate(q)?;
-        let a = self.candidates(&origin, "origin", &opt)?;
-        let b = self.candidates(&destination, "destination", &opt)?;
+        let (a, b) = self.point_candidates(&origin, &destination, &opt)?;
         let input = Self::matrix_input(
             std::slice::from_ref(&a),
             std::slice::from_ref(&b),
@@ -393,7 +476,9 @@ impl City {
                 output = walk;
             }
         }
-        output["diagnostics"] = json!({"originAccess":a.evidence,"destinationAccess":b.evidence,"search":{"startSeconds":opt.start,"endSeconds":opt.end,"horizonScope":"timetable_scan","maxTransfers":q["maxTransfers"],"allowStreetTransfers":q.get("allowStreetTransfers").unwrap_or(&Value::Bool(true)),"minimumTransferBufferMinutes":q.get("minimumTransferBufferMinutes").unwrap_or(&json!(0))},"native":result});
+        output["diagnostics"] = json!({"search":{"startSeconds":opt.start,"endSeconds":opt.end,"horizonScope":"timetable_scan","maxTransfers":q["maxTransfers"],"allowStreetTransfers":q.get("allowStreetTransfers").unwrap_or(&Value::Bool(true)),"minimumTransferBufferMinutes":q.get("minimumTransferBufferMinutes").unwrap_or(&json!(0))},"native":result});
+        output["diagnostics"]["originAccess"] = a.diagnostics(&origin)?;
+        output["diagnostics"]["destinationAccess"] = b.diagnostics(&destination)?;
         output["serviceDate"] = q["serviceDate"].clone();
         output["diagnostics"]["realtime"] = self.timetable.as_ref().unwrap().realtime.clone();
         output["warnings"] = self.metadata["routingLimitations"].clone();
@@ -552,6 +637,7 @@ impl City {
             })
             .collect();
         let include_geometry = flag(q, "includeGeometry", false)?;
+        let compact = q["journeyFormat"] == "compact";
         let mut journeys = result
             .journeys
             .take()
@@ -560,6 +646,9 @@ impl City {
                     .enumerate()
                     .map(|(i, j)| {
                         j.as_ref().map_or(Ok(Value::Null), |j| {
+                            if compact {
+                                return self.compact_journey(j);
+                            }
                             self.materialize(
                                 j,
                                 &origins[i / destinations.len()],
@@ -1162,6 +1251,7 @@ fn validate_request(command: &str, q: &Value) -> Result<()> {
             "destinations",
             "includeJourneys",
             "includeGeometry",
+            "journeyFormat",
         ],
         "reach" | "isochrone" => &[
             "origin",
@@ -1234,6 +1324,17 @@ fn validate_request(command: &str, q: &Value) -> Result<()> {
         }
         if geometry && !journeys {
             return fail("includeGeometry requires includeJourneys");
+        }
+        if let Some(format) = q.get("journeyFormat") {
+            if format != "full" && format != "compact" {
+                return fail("journeyFormat must be full or compact");
+            }
+            if !journeys || mode != "transit" {
+                return fail("journeyFormat requires transit includeJourneys");
+            }
+            if geometry && format == "compact" {
+                return fail("Compact journeys do not include geometry; use journeyFormat full");
+            }
         }
     }
     if mode != "walk"

@@ -58,7 +58,7 @@ def main():
         assert capabilities["standalone"] is True
         assert args.node, "Node is required only for building test fixtures and running comparison checks"
         node = str(Path(args.node).resolve())
-        for suite in ("check-standalone.mjs", "check-standalone-parity.mjs", "check-standalone-station-access.mjs", "check-standalone-http.mjs", "check-standalone-docs.mjs"):
+        for suite in ("check-standalone.mjs", "check-standalone-prepared.mjs", "check-standalone-parity.mjs", "check-standalone-station-access.mjs", "check-standalone-http.mjs", "check-standalone-docs.mjs"):
             subprocess.run([node, str(ROOT / "test" / suite)], cwd=ROOT,
                            env={**os.environ, "VIGO_STANDALONE_PATH": str(binary)}, check=True)
     print(json.dumps({"archive": str(archive), "sha256": expected, "payloadFiles": len(allowed),

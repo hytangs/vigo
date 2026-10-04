@@ -272,6 +272,15 @@ impl ShapeGeometry {
 }
 
 impl ShapeGeometry {
+    #[cfg(all(feature = "standalone", not(feature = "node")))]
+    pub(crate) fn coordinate_slice(
+        &self,
+        range: std::ops::RangeInclusive<usize>,
+    ) -> Result<&[[f64; 2]]> {
+        self.points
+            .get(range)
+            .ok_or_else(|| Error::from_reason("Shape alignment exceeds source coordinates"))
+    }
     fn from_points(points: Vec<[f64; 2]>) -> Result<Self> {
         if points.len() > u32::MAX as usize {
             return Err(Error::from_reason(

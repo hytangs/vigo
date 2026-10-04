@@ -6,6 +6,8 @@ Add a standalone Rust CLI/HTTP runtime and headless Engine and CLI distributions
 
 Reuse native query workspaces, retain matching forward reachability proofs through arrive-by certification, share duplicate batch endpoint searches, and stop journey rounds after all reachable targets attain their exact time bounds. Retain bounded immutable Rust shape data while reconstructing each active itinerary. Preserve search objectives, transfer caps, directed access, and routing-quality checks.
 
+Load validated prepared service timetables in standalone Rust, retain only the access-context fields it uses, and keep endpoint evidence in native structures until response construction. Share street-path source sweeps across candidate destinations, retain bounded exact shape alignments, and reuse stream encoding buffers. Keep full Rust journey detail by default and offer explicit compact timed matrix witnesses for analytical callers.
+
 Correct standalone station-walking evidence to follow the selected entrance/pathway and distinguish verified street segments from unresolved station interiors. Add extracted-package, source-parity, and failure-recovery checks. API 1.0, City format 1, and Result schema 1 remain unchanged; see the [development notes](docs/releases/0.4.3.md) for scope and release limits.
 
 Keep active GTFS departures when editing an existing Reach branch unless a frequency change is explicitly selected. Return complete-network Reach surfaces and optional directed street-edge evidence. Include a verified direct walk as a point-to-point competitor within the shared walking budget.

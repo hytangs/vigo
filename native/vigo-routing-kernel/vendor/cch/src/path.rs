@@ -177,6 +177,28 @@ impl<'a> PathQuery<'a> {
     pub fn path(&mut self, metric: &MetricView, source: u32, target: u32) -> Option<Vec<u32>> {
         self.state.path(self.cch, metric, source, target)
     }
+
+    /// Share the forward sweep for destinations in one call. No search state
+    /// is reused across calls or metrics; each path retains the scalar tie rule.
+    #[must_use]
+    pub fn paths_from(
+        &mut self,
+        metric: &MetricView,
+        source: u32,
+        targets: &[u32],
+    ) -> Vec<Option<Vec<u32>>> {
+        if targets.is_empty() {
+            return Vec::new();
+        }
+        self.state.prepare_source(self.cch, metric, source);
+        targets
+            .iter()
+            .map(|&target| {
+                self.state
+                    .path_from_prepared_source(self.cch, metric, source, target)
+            })
+            .collect()
+    }
 }
 
 /// Own an in-memory structure and its reusable path buffers without borrowing
@@ -256,7 +278,9 @@ impl PathQueryState {
         // amortized to ~0 over many queries) so the unchecked accesses are sound
         // for any `CchView`, however it was constructed.
         assert!(
-            cch.up_head.iter().fold(true, |valid, &h| valid & ((h as usize) < n)),
+            cch.up_head
+                .iter()
+                .fold(true, |valid, &h| valid & ((h as usize) < n)),
             "malformed CchView: up_head contains a node id >= node_count"
         );
 
@@ -302,7 +326,12 @@ impl PathQueryState {
         if source == target {
             return Some(vec![source]);
         }
+        self.prepare_source(cch, metric, source);
+        self.path_from_prepared_source(cch, metric, source, target)
+    }
 
+    #[allow(clippy::many_single_char_names)]
+    fn prepare_source(&mut self, cch: &CchView<'_>, metric: &MetricView, source: u32) {
         // Cheap touched-only reset: restore exactly the entries the previous
         // query dirtied (NOT the whole node_count-sized arrays). `order` is
         // invariant and never reset.
@@ -313,12 +342,6 @@ impl PathQueryState {
             self.in_forward_search_space[i] = false;
         }
         self.fwd_touched.clear();
-        for &nd in &self.bwd_touched {
-            let i = nd as usize;
-            self.bwd_dist[i] = 0;
-            self.bwd_pred[i] = INVALID_ID;
-        }
-        self.bwd_touched.clear();
 
         // Hoist borrowed slices so the inner relaxation loops index plain
         // `&[u32]`s and slice each node's arc range once — letting the compiler
@@ -327,10 +350,8 @@ impl PathQueryState {
         let up_head = cch.up_head;
         let elim = cch.elimination_tree_parent;
         let forward = metric.forward;
-        let backward = metric.backward;
 
         let s = cch.rank[source as usize];
-        let t = cch.rank[target as usize];
 
         // Forward sweep from s (up-arcs, forward weights). Relax along the
         // elimination-tree ancestor chain of s, recording predecessors and
@@ -375,7 +396,30 @@ impl PathQueryState {
                 touched.push(x);
             }
         }
+    }
 
+    #[allow(clippy::too_many_lines, clippy::many_single_char_names)]
+    fn path_from_prepared_source(
+        &mut self,
+        cch: &CchView<'_>,
+        metric: &MetricView,
+        source: u32,
+        target: u32,
+    ) -> Option<Vec<u32>> {
+        if source == target {
+            return Some(vec![source]);
+        }
+        for &nd in &self.bwd_touched {
+            let i = nd as usize;
+            self.bwd_dist[i] = 0;
+            self.bwd_pred[i] = INVALID_ID;
+        }
+        self.bwd_touched.clear();
+        let up_first_out = cch.up_first_out;
+        let up_head = cch.up_head;
+        let elim = cch.elimination_tree_parent;
+        let backward = metric.backward;
+        let t = cch.rank[target as usize];
         // Backward sweep from t (up-arcs, backward weights), choosing the meeting
         // node EXACTLY as routingkit does: walk t's ancestor chain in order,
         // relaxing then — if x is in the forward search space — updating the

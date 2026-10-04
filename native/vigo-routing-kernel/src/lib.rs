@@ -7449,9 +7449,11 @@ fn run_cch_point_path(
         .as_mut()
         .expect("street CCH path query was prepared");
     let mut best: Option<PointPath> = None;
+    let targets: Vec<_> = destinations.iter().map(|snap| snap.node).collect();
     for origin in origins {
-        for destination in destinations {
-            let Some(nodes) = query.path(&metric, origin.node, destination.node) else {
+        let paths = query.paths_from(&metric, origin.node, &targets);
+        for (destination, nodes) in destinations.iter().zip(paths) {
+            let Some(nodes) = nodes else {
                 continue;
             };
             let graph_distance_m = directed_node_path_distance_m(snapshot, &nodes)?;

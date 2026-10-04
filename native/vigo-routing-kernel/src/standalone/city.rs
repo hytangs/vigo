@@ -1,4 +1,4 @@
-use super::{Result, fail, flag, number};
+use super::{Result, access::AccessContext, fail, flag, number};
 use crate::*;
 use chrono::{Datelike, NaiveDate};
 use memmap2::Mmap;
@@ -46,20 +46,70 @@ pub(crate) struct Image {
     base: usize,
 }
 impl Image {
+    // Parse large metadata directly into its native projection; unknown fields
+    // are validated as JSON and skipped instead of retained as Value trees.
+    pub(crate) fn open_with_metadata<T: serde::de::DeserializeOwned>(
+        path: &Path,
+    ) -> Result<(Self, T)> {
+        #[derive(serde::Deserialize)]
+        struct Envelope<T> {
+            metadata: T,
+            #[serde(flatten)]
+            header: serde_json::Map<String, Value>,
+        }
+        let file = File::open(path)?;
+        // Prepared City artifacts are immutable for the process lifetime.
+        let bytes = unsafe { Mmap::map(&file)? };
+        let (range, base) = portable_header(&bytes)?;
+        let parsed: Envelope<T> = serde_json::from_slice(&bytes[range])?;
+        let image = Self {
+            header: Value::Object(parsed.header),
+            bytes,
+            base,
+        };
+        image.validate_portable_arrays()?;
+        Ok((image, parsed.metadata))
+    }
+    fn validate_portable_arrays(&self) -> Result<()> {
+        if !self.base.is_multiple_of(8) {
+            return fail("Unaligned routing snapshot payload");
+        }
+        let mut ranges = Vec::new();
+        for (name, array) in self.header["arrays"]
+            .as_object()
+            .ok_or("Missing snapshot arrays")?
+        {
+            let kind = array["type"].as_str().ok_or("Missing array type")?;
+            let size = match kind {
+                "Uint8Array" => 1,
+                "Uint32Array" | "Int32Array" => 4,
+                "Float64Array" => 8,
+                _ => return fail("Unsupported snapshot array type"),
+            };
+            let bytes = self.array(name, kind, size)?;
+            let start = usize::try_from(array["offset"].as_u64().ok_or("Invalid array offset")?)?;
+            ranges.push((start, bytes.len()));
+        }
+        // JSON object key order is immaterial. Zero-length arrays sharing an
+        // offset precede a nonempty array at that offset.
+        ranges.sort_unstable();
+        let mut end = 0usize;
+        for (start, length) in ranges {
+            let aligned = end.checked_add(7).ok_or("Array alignment overflow")? / 8 * 8;
+            if start != aligned {
+                return fail("Overlapping or noncanonical snapshot arrays");
+            }
+            end = start.checked_add(length).ok_or("Array end overflow")?;
+        }
+        Ok(())
+    }
     pub fn open(path: &Path, portable: bool) -> Result<Self> {
         let file = File::open(path)?;
         // City artifacts are immutable for the lifetime of the process.
         let bytes = unsafe { Mmap::map(&file)? };
         let (header, base) = if portable {
-            if bytes.len() < 16 || &bytes[..8] != b"VIGORS01" {
-                return fail("Invalid routing snapshot magic");
-            }
-            let len = u32::from_le_bytes(bytes[8..12].try_into()?) as usize;
-            let base = u32::from_le_bytes(bytes[12..16].try_into()?) as usize;
-            if len > bytes.len() - 16 || base < 16 + len || base > bytes.len() {
-                return fail("Invalid routing snapshot header");
-            }
-            (serde_json::from_slice(&bytes[16..16 + len])?, base)
+            let (range, base) = portable_header(&bytes)?;
+            (serde_json::from_slice(&bytes[range])?, base)
         } else {
             if bytes.len() < 4096 {
                 return fail("Truncated street snapshot");
@@ -108,11 +158,23 @@ impl Image {
     }
 }
 
+fn portable_header(bytes: &[u8]) -> Result<(std::ops::Range<usize>, usize)> {
+    if bytes.len() < 16 || &bytes[..8] != b"VIGORS01" {
+        return fail("Invalid routing snapshot magic");
+    }
+    let len = u32::from_le_bytes(bytes[8..12].try_into()?) as usize;
+    let base = u32::from_le_bytes(bytes[12..16].try_into()?) as usize;
+    if len > bytes.len() - 16 || base < 16 + len || base > bytes.len() {
+        return fail("Invalid routing snapshot header");
+    }
+    Ok((16..16 + len, base))
+}
+
 fn str_path(p: &Path) -> Result<String> {
     Ok(p.to_str().ok_or("City paths must be UTF-8")?.to_owned())
 }
 fn read_json(p: &Path) -> Result<Value> {
-    Ok(serde_json::from_reader(File::open(p)?)?)
+    Ok(serde_json::from_slice(&fs::read(p)?)?)
 }
 fn member_file(dir: &Path, entry: &Value) -> Result<String> {
     let name = entry["file"].as_str().ok_or("Missing CCH file")?;
@@ -196,6 +258,7 @@ pub(crate) struct Timetable {
     pub route_ids: Vec<String>,
     pub key: String,
     pub realtime: Value,
+    pub preparation: &'static str,
 }
 pub(crate) struct Drive {
     pub kernel: DriveKernel,
@@ -211,6 +274,7 @@ pub struct City {
     pub(crate) manifest: Value,
     pub(crate) metadata: Value,
     pub(crate) context: Image,
+    pub(crate) access: AccessContext,
     pub(crate) stops: Vec<Stop>,
     pub(crate) stop_index: HashMap<String, usize>,
     pub(crate) members: Vec<String>,
@@ -263,13 +327,11 @@ impl City {
         {
             return fail("City contains blocking routing features");
         }
-        let context = Image::open(
+        let (context, mut access) = Image::open_with_metadata::<AccessContext>(
             &path.join("routing/project.sqlite.access-context.bin"),
-            true,
         )?;
-        let saved = &context.header["metadata"];
-        if saved["schemaVersion"] != "vigo.routing.access-context.v1"
-            || saved["materialized"]["stopAccessIndex"]["ready"] != true
+        if access.schema_version != "vigo.routing.access-context.v1"
+            || !access.materialized.stop_access_index.ready
         {
             return fail("A prepared access context is required; rebuild the City");
         }
@@ -284,25 +346,18 @@ impl City {
             ));
         }
         let expected = format!("{}\n{}|", serde_json::to_string(&identity)?, generation);
-        if saved["sourceArtifactIdentity"].as_str() != Some(&expected) {
+        if access.source_artifact_identity != expected {
             return fail("Prepared access context does not match the routing database");
         }
-        let policy: Value = serde_json::from_str(
-            saved["accessPolicyIdentity"]
-                .as_str()
-                .ok_or("Missing access policy")?,
-        )?;
+        let policy: Value = serde_json::from_str(&access.access_policy_identity)?;
         let speed = number(&policy, "walkingSpeedKph", 4.8, 1., 8.)?;
         let padding = number(&policy, "accessPaddingFactor", 1., 0.75, 3.)?;
         let overhead = number(&policy, "accessOverheadSeconds", 0., 0., 900.)?;
-        let records = saved["materialized"]["stopRecords"]
-            .as_array()
-            .ok_or("Missing stop records")?;
+        let records = std::mem::take(&mut access.materialized.stop_records);
         let mut stops = Vec::with_capacity(records.len());
-        for record in records {
-            let s = &record[1];
+        for (id, s) in records {
             stops.push(Stop {
-                id: record[0].as_str().ok_or("Invalid stop ID")?.to_owned(),
+                id,
                 name: s["name"].as_str().unwrap_or("").to_owned(),
                 lon: s["lon"].as_f64().ok_or("Invalid stop longitude")?,
                 lat: s["lat"].as_f64().ok_or("Invalid stop latitude")?,
@@ -318,16 +373,18 @@ impl City {
             .enumerate()
             .map(|(i, s)| (s.id.clone(), i))
             .collect();
-        let access = &saved["materialized"]["stopAccessIndex"];
-        let eligible: HashSet<&str> = ["departureServiceStopIds", "arrivalServiceStopIds"]
+        let eligible: HashSet<&str> = access
+            .materialized
+            .stop_access_index
+            .departure_service_stop_ids
             .iter()
-            .flat_map(|k| {
-                access[k]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-            })
+            .chain(
+                &access
+                    .materialized
+                    .stop_access_index
+                    .arrival_service_stop_ids,
+            )
+            .map(String::as_str)
             .collect();
         let members: Vec<String> = stops
             .iter()
@@ -359,7 +416,7 @@ impl City {
         if key_parts.len() != 6
             || key_parts[0] != "coordinate-access-v11"
             || percent_decode(key_parts[1])? != expected
-            || percent_decode(key_parts[5])? != saved["accessPolicyIdentity"].as_str().unwrap_or("")
+            || percent_decode(key_parts[5])? != access.access_policy_identity
             || key_parts[3].parse::<usize>()? != members.len()
         {
             return fail("Prepared coordinate access profile identity is stale");
@@ -386,12 +443,12 @@ impl City {
         {
             return fail("Coordinate access member count mismatch");
         }
-        let transfer_rows = context.header["metadata"]["materialized"]["transfers"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        let transfer_rows = access
+            .materialized
+            .transfers
+            .iter()
             .enumerate()
-            .filter_map(|(i, row)| row[0].as_str().map(|id| (id.to_owned(), i)))
+            .map(|(i, (id, _))| (id.clone(), i))
             .collect();
         Ok(Self {
             shapes: ShapeGeometrySource::new(str_path(&db_path)?)?,
@@ -403,6 +460,7 @@ impl City {
             manifest,
             metadata,
             context,
+            access,
             stops,
             stop_index,
             members,
@@ -517,6 +575,14 @@ impl City {
                 );
             }
         }
+        if allow
+            && request.get("realtimeSnapshot").is_none()
+            && let Ok(timetable) =
+                self.prepared_timetable(&services, key.clone(), buffer as u32 * 60)
+        {
+            self.timetable = Some(timetable);
+            return Ok(());
+        }
         let has_permissions: bool = self.db.query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='connection_permissions')",
             [],
@@ -537,12 +603,12 @@ impl City {
             .map(|(i, s)| (s.clone(), i as u32))
             .collect();
         let n = source.stop_count as usize;
-        let saved = &self.context.header["metadata"]["materialized"];
-        let direct: HashSet<&str> = saved["stopAccessIndex"]["directServiceStopIds"]
-            .as_array()
-            .ok_or("Missing service stop roles")?
+        let saved = &self.access.materialized;
+        let direct: HashSet<&str> = saved
+            .stop_access_index
+            .direct_service_stop_ids
             .iter()
-            .filter_map(Value::as_str)
+            .map(String::as_str)
             .collect();
         let mut retained: Vec<u8> = source
             .stop_ids
@@ -561,11 +627,10 @@ impl City {
                     .unwrap_or([f64::NAN; 2])
             })
             .collect();
-        let forbidden: HashSet<&str> = saved["forbiddenTransferPairs"]
-            .as_array()
-            .ok_or("Missing forbidden transfers")?
+        let forbidden: HashSet<&str> = saved
+            .forbidden_transfer_pairs
             .iter()
-            .filter_map(Value::as_str)
+            .map(String::as_str)
             .collect();
         let mut forbidden_from = vec![];
         let mut forbidden_to = vec![];
@@ -585,17 +650,14 @@ impl City {
         let mut transfer_from = vec![];
         let mut transfer_to = vec![];
         let mut transfer_seconds = vec![];
-        for item in saved["transfers"].as_array().ok_or("Missing transfers")? {
-            let from = item[0].as_str().ok_or("Invalid transfer origin")?;
-            for edge in item[1].as_array().ok_or("Invalid transfer edges")? {
-                let to = edge["to_stop_id"]
-                    .as_str()
-                    .ok_or("Invalid transfer destination")?;
+        for (from, edges) in &saved.transfers {
+            for edge in edges {
+                let to = &edge.to_stop_id;
                 if forbidden.contains(format!("{from}\0{to}").as_str()) {
                     continue;
                 }
                 if let (Some(&a), Some(&b)) = (index.get(from), index.get(to)) {
-                    let duration = edge["min_transfer_time"].as_f64().unwrap_or(0.);
+                    let duration = edge.min_transfer_time.unwrap_or(0.);
                     transfer_from.push(a);
                     transfer_to.push(b);
                     transfer_seconds.push(duration);
@@ -607,16 +669,8 @@ impl City {
         }
         let mut station_offset = vec![0];
         let mut station_members = vec![];
-        for item in saved["stationMembers"]
-            .as_array()
-            .ok_or("Missing station members")?
-        {
-            for id in item[1]
-                .as_array()
-                .ok_or("Invalid station members")?
-                .iter()
-                .filter_map(Value::as_str)
-            {
+        for (_, members) in &saved.station_members {
+            for id in members {
                 if let Some(&i) = index.get(id) {
                     station_members.push(i);
                 }
@@ -700,6 +754,7 @@ impl City {
             route_ids: source.route_ids,
             key,
             realtime,
+            preparation: "source",
         });
         Ok(())
     }

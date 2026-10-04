@@ -172,9 +172,12 @@ fn run() -> Result<()> {
     if command == "stream" || command == "_worker" {
         let stdin = io::stdin();
         let mut reader = stdin.lock();
-        let mut stdout = io::BufWriter::new(io::stdout().lock());
+        // Bound serialization scratch even for huge matrices. Larger chunks
+        // reduce pipe writes without retaining a second complete response.
+        let mut stdout = io::BufWriter::with_capacity(64 * 1024, io::stdout().lock());
+        let mut bytes = Vec::new();
         loop {
-            let mut bytes = Vec::new();
+            bytes.clear();
             let read = reader
                 .by_ref()
                 .take(8 * 1024 * 1024 + 1)
