@@ -23,6 +23,17 @@ impl TimetableKernel {
             if stops.last() != Some(&self.from_stop[i]) {
                 stops.push(self.from_stop[i]);
             }
+            // The kernel represents an alighting at the next segment's origin
+            // with the preceding sequence plus 0.5. It is an actual selected
+            // continuity bridge, not a missing integer GTFS sequence.
+            if i > self.trip_start[trip] as usize
+                && self.continuity_break[i] == 0
+                && self.segment_run[i] == self.segment_run[i - 1]
+                && self.from_stop[i] != self.to_stop[i - 1]
+                && f64::from(self.sequence[i - 1]) + 0.5 == alight
+            {
+                last = Some(stops.len() - 1);
+            }
             if self.sequence[i] as f64 == board {
                 first = Some(stops.len() - 1);
             }
@@ -922,5 +933,52 @@ mod workspace_tests {
                 (Some(0), 10.0, 20.0)
             );
         }
+    }
+
+    #[cfg(all(feature = "standalone", not(feature = "node")))]
+    #[test]
+    fn selected_continuity_bridge_keeps_its_active_stop_sequence() {
+        let mut kernel = TimetableKernel::new(TimetableKernelInput {
+            stop_count: 4,
+            run_count: 1,
+            departure_seconds: vec![10, 30].into(),
+            arrival_seconds: vec![20, 40].into(),
+            from_stop: vec![0, 2].into(),
+            to_stop: vec![1, 3].into(),
+            sequence: vec![1, 2].into(),
+            segment_trip: vec![0, 0].into(),
+            segment_run: vec![0, 0].into(),
+            continuity_break: vec![1, 0].into(),
+            can_board: vec![1, 1].into(),
+            can_alight: vec![1, 1].into(),
+            trip_start: vec![0, 2].into(),
+            departure_offset: vec![0, 1, 1, 2, 2].into(),
+            departure_order: vec![0, 1].into(),
+            transfer_offset: vec![0, 0, 0, 0, 0].into(),
+            transfer_to: vec![].into(),
+            transfer_duration: vec![].into(),
+            forbidden_same_stop: vec![0, 0, 0, 0].into(),
+            same_stop_transfer_minimum: None,
+            minimum_transfer_buffer_seconds: None,
+        })
+        .unwrap();
+        for reverse in [false, true] {
+            let mut request = query(reverse, true);
+            request.destination_stops = vec![2];
+            let result = kernel.route_matrix_csa(request).unwrap();
+            let journey = result.journeys.unwrap().remove(0).unwrap();
+            assert_eq!(journey.arrival, 30.0);
+            let leg = journey.legs.iter().find(|l| l.kind == "ride").unwrap();
+            assert_eq!(leg.alight_sequence, Some(1.5));
+            let (stops, start, end) = kernel
+                .ride_stop_sequence(
+                    leg.trip.unwrap(),
+                    leg.board_sequence.unwrap(),
+                    leg.alight_sequence.unwrap(),
+                )
+                .unwrap();
+            assert_eq!(&stops[start..=end], &[0, 1, 2]);
+        }
+        assert!(kernel.ride_stop_sequence(0, 1.0, 1.25).is_err());
     }
 }

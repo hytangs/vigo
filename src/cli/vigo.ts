@@ -11,6 +11,7 @@ import { CliUsageError, parseArguments, validateInvocation, value, values, enabl
 import { commands, usage } from './commands.mjs'
 import { handleOutputErrors, readJsonObject, writeJsonResult, writeOutputFile } from './io.mjs'
 import { assertMatrixSize } from '../server/matrix-size.mjs'
+import { validateArrivalBuffer } from '../server/arrival-reserve.mjs'
 import { normalizeRoutingDataRequest, normalizeScheduledAnalysisRequest } from '../server/routing-data-mode.mjs'
 import {
   apiVersion,
@@ -388,6 +389,7 @@ async function computeRouteRequest(
   if (request.scenario) throw new Error('Planned transit Scenarios are supported by Reach, not Route.')
   const options = runtimeOptions(args, request)
   const mode = String(value(args, 'mode', String(request.mode ?? 'transit')))
+  validateArrivalBuffer({ ...request, timePreference: options.timePreference, mode })
   if (!['transit', 'walk', 'drive'].includes(mode)) {
     throw new Error('route mode must be transit, walk, or drive')
   }
@@ -432,6 +434,7 @@ async function computeRouteRequest(
     allowLongWalk: request.allowLongWalk !== false,
     allowStreetTransfers: request.allowStreetTransfers,
     minimumTransferBufferMinutes: request.minimumTransferBufferMinutes,
+    arrivalBufferMinutes: request.arrivalBufferMinutes,
     departureWindowMinutes: options.departureWindowMinutes,
     walkingSpeedKph: request.walkSpeedKph,
     ...(options.routingDataMode === 'realtime' && mode === 'transit' && request.realtimeSnapshot
@@ -488,6 +491,7 @@ async function computeRouteRequest(
       departureWindowMinutes: options.departureWindowMinutes,
       ...(request.allowStreetTransfers !== undefined ? { allowStreetTransfers: request.allowStreetTransfers } : {}),
       ...(request.minimumTransferBufferMinutes !== undefined ? { minimumTransferBufferMinutes: request.minimumTransferBufferMinutes } : {}),
+      ...(request.arrivalBufferMinutes !== undefined ? { arrivalBufferMinutes: request.arrivalBufferMinutes } : {}),
     },
     result: routed.plan ?? null,
     ...(routed.choices ? { choices: routed.choices } : {}),
@@ -830,6 +834,7 @@ async function runRouteStream(args: CliArguments, explicitKinds = false) {
           requireTransitRide: input.requireTransitRide,
           allowStreetTransfers: input.allowStreetTransfers,
           minimumTransferBufferMinutes: input.minimumTransferBufferMinutes,
+          arrivalBufferMinutes: input.arrivalBufferMinutes,
           __disableNativeStreetPathCache: input.disableCache === true,
           horizonMinutes,
           streetStorePath,
@@ -851,6 +856,7 @@ async function runRouteStream(args: CliArguments, explicitKinds = false) {
             horizonMinutes, requireTransitRide: input.requireTransitRide !== false,
             ...(input.allowStreetTransfers !== undefined ? { allowStreetTransfers: input.allowStreetTransfers } : {}),
             ...(input.minimumTransferBufferMinutes !== undefined ? { minimumTransferBufferMinutes: input.minimumTransferBufferMinutes } : {}),
+            ...(input.arrivalBufferMinutes !== undefined ? { arrivalBufferMinutes: input.arrivalBufferMinutes } : {}),
             horizonScope: 'timetable_scan',
             disableCache: input.disableCache === true,
           },
@@ -952,6 +958,7 @@ function boundedAnalyticalNumber(
 }
 
 function validateAnalysisDataMode(options: ReturnType<typeof runtimeOptions>, command: string, mode: string, request: Record<string, unknown>) {
+  validateArrivalBuffer({ ...request, mode, timePreference: options.timePreference }, command.toLowerCase() === 'matrix')
   if (command.toLowerCase() === 'matrix' && mode === 'drive' && options.routingDataMode === 'realtime' && request.traffic) {
     if (request.realtimeSnapshot || request.live) throw new Error('Drive Matrix accepts supplied traffic only.')
     return
@@ -1066,6 +1073,7 @@ function computePreparedMatrix(
         __disableNativeStreetPathCache: request.disableCache === true,
         allowStreetTransfers: request.allowStreetTransfers,
         minimumTransferBufferMinutes: request.minimumTransferBufferMinutes,
+        arrivalBufferMinutes: request.arrivalBufferMinutes,
         includeJourneys: request.includeJourneys,
         includeGeometry: request.includeGeometry,
         streetStorePath,
@@ -1110,6 +1118,7 @@ function computePreparedMatrix(
       includeGeometry: request.includeGeometry === true,
       ...(request.allowStreetTransfers !== undefined ? { allowStreetTransfers: request.allowStreetTransfers } : {}),
       ...(request.minimumTransferBufferMinutes !== undefined ? { minimumTransferBufferMinutes: request.minimumTransferBufferMinutes } : {}),
+      ...(request.arrivalBufferMinutes !== undefined ? { arrivalBufferMinutes: request.arrivalBufferMinutes } : {}),
       disableCache: request.disableCache === true,
     },
     rows,

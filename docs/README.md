@@ -2,7 +2,7 @@
 
 # VIGO documentation
 
-These pages describe VIGO 0.4.3 development (unreleased). VIGO combines a reusable routing engine with Studio network inspection and scenario analysis. Begin with the workflow you need; the reference pages describe the supported data and query contracts.
+These pages describe the VIGO 0.4.3 source freeze. VIGO combines a reusable routing engine with Studio network inspection and scenario analysis. Begin with the workflow you need; the reference pages describe the supported data and query contracts.
 
 ```text
 Build a City → ask a routing question → read the Result → retain the evidence
@@ -33,6 +33,7 @@ New to Engine? Follow the [quickstart](guides/quickstart.md), choose a [workflow
 | Topic | Reference |
 | --- | --- |
 | Journeys, travel-time tables, and reachable places | [Route](reference/routing.md) · [Matrix](reference/matrix.md) · [Reach](reference/reach.md) |
+| Plan extra time and understand reliability limits | [Travel-time uncertainty](reference/travel-time-uncertainty.md) |
 | Planned changes and comparing results | [Scenario](reference/scenarios.md) · [Compare semantics](reference/results.md#compare-saved-results) |
 | Scheduled and supplied realtime state | [Realtime routing](reference/realtime-routing.md) · [Method audit](development/realtime-audit-0.4.2.md) |
 | Source semantics and prices | [GTFS support](reference/gtfs-support-matrix.md) · [Streets](reference/street-routing.md) · [Fares](reference/fares.md) |

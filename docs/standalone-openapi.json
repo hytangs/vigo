@@ -6381,6 +6381,13 @@
               "realtime"
             ]
           },
+          "arrivalBufferMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 60,
+            "default": 0,
+            "description": "Caller-selected arrival reserve. Positive values require arrive-by Transit Route/Matrix without via points; reserve the final minutes of the original horizon. Not a calibrated probability."
+          },
           "realtimeSnapshot": {
             "$ref": "#/components/schemas/RealtimeSnapshot"
           },
@@ -6589,6 +6596,13 @@
               "scheduled",
               "realtime"
             ]
+          },
+          "arrivalBufferMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 60,
+            "default": 0,
+            "description": "Caller-selected arrival reserve. Positive values require arrive-by Transit Route/Matrix without via points; reserve the final minutes of the original horizon. Not a calibrated probability."
           },
           "traffic": {
             "$ref": "#/components/schemas/Traffic"

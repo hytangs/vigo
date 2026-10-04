@@ -150,6 +150,7 @@ import {
 import { integralNumber, numeric, timingMilliseconds } from './number-utils.mjs'
 import { loadPreparedAccessContext, persistPreparedAccessContext } from './prepared-access-context.mjs'
 import { normalizeRoutingDataRequest, normalizeScheduledAnalysisRequest } from './routing-data-mode.mjs'
+import { arrivalReserve, validateArrivalBuffer, withArrivalReserve } from './arrival-reserve.mjs'
 import { stableKeySuffix, stableNationalTransitPlanId, stablePlanId } from './routing-plan-identity.mjs'
 import { decodeRoutingSnapshot, encodeRoutingSnapshot } from './routing-snapshot.mjs'
 import { resolveServiceDay } from './service-day.mjs'
@@ -5915,6 +5916,7 @@ function reachTransitStatus({
  * operator with zero-cost station access.
  */
 export function routeNationalGtfsReach(storePath, request, options = {}) {
+  validateArrivalBuffer(request, false)
   request = normalizeScheduledAnalysisRequest(request, 'Reach')
   request = withResolvedServiceDay(request)
   const started = performance.now()
@@ -6564,6 +6566,8 @@ export function routeNationalGtfsReach(storePath, request, options = {}) {
 
 export function routeNationalGtfsMatrix(storePath, request) {
   request = normalizeScheduledAnalysisRequest(request, 'Matrix')
+  const reserve = arrivalReserve(request)
+  if (reserve) return withArrivalReserve(routeNationalGtfsMatrix(storePath, reserve.request), reserve, true)
   request = { ...request, __disableNativeStreetPathCache: request.__disableNativeStreetPathCache === true || request.disableCache === true }
   validateTransitRideRequirement(request)
   validateMaximumTransfers(request.maxTransfers)
@@ -7654,6 +7658,8 @@ export function addNationalGtfsFares(storePath, plan) {
 
 export function routeNationalGtfsStore(storePath, request) {
   request = normalizeRoutingDataRequest(request)
+  const reserve = arrivalReserve(request)
+  if (reserve) return withArrivalReserve(routeNationalGtfsStore(storePath, reserve.request), reserve)
   validateTransitRideRequirement(request)
   validateMaximumTransfers(request.maxTransfers)
   validateTransferSelection(request)

@@ -18,6 +18,7 @@ import {
 } from './native-routing-kernel.mjs'
 import { haversineKm } from './geometry-utils.mjs'
 import { assertMatrixSize } from './matrix-size.mjs'
+import { validateArrivalBuffer } from './arrival-reserve.mjs'
 import {
   coordinate,
   forEachPbfBlock,
@@ -3047,6 +3048,7 @@ function blockedStreetRoute(request, failureCode, detail, diagnostics = {}) {
  * the resident CCH time metric; turn restrictions remain outside this graph.
  */
 export function routeNationalStreetStore(storePath, request) {
+  validateArrivalBuffer(request, false)
   const startedAt = performance.now()
   const mode = request?.mode === 'drive' ? 'drive' : 'walk'
   const timePreference = request?.timePreference === 'arrive' ? 'arrive' : 'depart'
@@ -3325,6 +3327,7 @@ function uniqueStreetMatrixPoints(points) {
  * request shape, row order, caps, and diagnostics are shared.
  */
 export function routeNationalStreetMatrix(storePath, request = {}, options = {}) {
+  validateArrivalBuffer(request, false)
   const startedAt = performance.now()
   if (options.isCancelled?.()) throw streetAnalysisAbort('matrix')
   const mode = request.mode === 'drive' ? 'drive' : 'walk'

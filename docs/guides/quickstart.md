@@ -114,6 +114,13 @@ Read `status` first, then `result.departMinutes`, `result.arriveMinutes`, and `r
 
 Trip IDs and journey times depend on the downloaded feed. This is scheduled routing; these commands do not fetch live delays. The [offline Result viewer](../guide.html#viewer) opens the exported JSON. [Read and retain a Result](../reference/results.md) explains the full record.
 
+For extra time before an appointment, add `"arrivalBufferMinutes": 5` to an
+arrive-by request and optionally `"minimumTransferBufferMinutes": 3`. A 09:00
+deadline then searches for arrival by 08:55, with extra time at transit changes.
+These are explicit preferences, not measured delay probabilities. The
+[uncertainty guide](../reference/travel-time-uncertainty.md) gives a complete
+Boston request and explains what the margins cover.
+
 ## 5. Run Matrix
 
 Save `matrix.json`: rows are **Harvard Square and Kendall Square**, columns are **South Station and Copley Square**. This asks for four journeys:

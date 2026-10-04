@@ -1,6 +1,8 @@
 # Version history
 
-## 0.4.3 — Unreleased
+## 0.4.3 — Source freeze, 2026-10-04
+
+Add explicit arrival reserves for arrive-by Transit Route and Matrix in both runtimes. Preserve the original search start and actual journey clocks, expose both deadlines, and label margins as uncalibrated. Improve capped coordinate arrive-by with a certified unrestricted bound and exact fallback. Reject invalid native run continuity/time ordering and repair standalone stop-sequence materialization for selected bridge alightings. See [travel-time uncertainty](docs/reference/travel-time-uncertainty.md).
 
 Reuse the selected coordinate access/egress path when its query token is still current, and skip impossible transit scans when an endpoint has no access. Preserve full journey detail, directed station evidence, and the exact fallback for expired matrix frontiers. Start the CLI tutorials in Boston with MBTA and OpenStreetMap downloads, Harvard Square–South Station queries, arrive-by, matrices, and resident streaming.
 
@@ -10,7 +12,7 @@ Reuse native query workspaces, retain matching forward reachability proofs throu
 
 Load validated prepared service timetables in standalone Rust, retain only the access-context fields it uses, and keep endpoint evidence in native structures until response construction. Share street-path source sweeps across candidate destinations, retain bounded exact shape alignments, and reuse stream encoding buffers. Keep full Rust journey detail by default and offer explicit compact timed matrix witnesses for analytical callers.
 
-Correct standalone station-walking evidence to follow the selected entrance/pathway and distinguish verified street segments from unresolved station interiors. Add extracted-package, source-parity, and failure-recovery checks. API 1.0, City format 1, and Result schema 1 remain unchanged; see the [development notes](docs/releases/0.4.3.md) for scope and release limits.
+Correct standalone station-walking evidence to follow the selected entrance/pathway and distinguish verified street segments from unresolved station interiors. Add extracted-package, source-parity, and failure-recovery checks. API 1.0, City format 1, and Result schema 1 remain unchanged; see the [freeze notes](docs/releases/0.4.3.md) for scope and release limits.
 
 Keep active GTFS departures when editing an existing Reach branch unless a frequency change is explicitly selected. Return complete-network Reach surfaces and optional directed street-edge evidence. Include a verified direct walk as a point-to-point competitor within the shared walking budget.
 

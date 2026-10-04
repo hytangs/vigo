@@ -1,5 +1,6 @@
 import { stablePlanId } from './routing-plan-identity.mjs'
 import { numeric as finiteNumber } from './number-utils.mjs'
+import { validateArrivalBuffer } from './arrival-reserve.mjs'
 
 const maximumOrderedRoutingPoints = 8
 
@@ -221,6 +222,7 @@ export function composeOrderedRoutingFailure(failedPlan, failedIndex, points, co
 }
 
 export async function routeOrderedRoutingSegments(points, request, routeSegment) {
+  validateArrivalBuffer(request, points?.length === 2)
   if (!Array.isArray(points) || points.length < 2 || typeof routeSegment !== 'function') {
     throw new Error('Ordered segment routing requires points and a route callback.')
   }

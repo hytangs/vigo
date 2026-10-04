@@ -100,6 +100,13 @@ with coordinate points. Realtime transit uses `routingDataMode: "realtime"`
 and `realtimeSnapshot` in the request. Traffic uses `traffic` with realtime Drive.
 The package does not fetch live feeds automatically.
 
+Arrive-by Transit Route and Matrix also accept `arrivalBufferMinutes` (integer
+0–60, default 0) and `minimumTransferBufferMinutes` (same range). For example,
+five arrival minutes plan against 08:55 for a 09:00 appointment; three transfer
+minutes require extra time at each vehicle change. These are caller-selected
+reserves, not on-time probabilities. Read the [uncertainty contract](https://github.com/hytangs/vigo/blob/main/docs/reference/travel-time-uncertainty.md)
+before using them as a reliability policy.
+
 For a transit CSV batch, provide columns `id,origin_stop_id,destination_stop_id`,
 or `id,origin_lon,origin_lat,destination_lon,destination_lat`:
 

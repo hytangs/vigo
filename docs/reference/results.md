@@ -35,6 +35,7 @@ An empty `warnings` array is not a certificate of complete source coverage. Impo
 
 | Evidence to inspect | Why it matters |
 | --- | --- |
+| `diagnostics.timeReserves`, when an arrival reserve is requested | Keep the original deadline, earlier planning deadline, and explicit margins. `calibratedProbability: false` means these are not probability estimates |
 | Transit Route `result.diagnostics.routingDataMode` and `routingDataProvenance`, when present | Identify requested mode and source identities; check `realtimeApplied` to establish whether predictions or cancellations were applied |
 | Transit Route `result.diagnostics.realtimeRouting`, when present | Read applied/excluded update counts and scheduled fallback; an unreported trip can retain scheduled times |
 | Route leg `stationAccessStatus`, `streetPathVerified`, `streetSegmentVerified`, and `stationPathSources` when present | A routed street segment does not establish a complete entrance-to-platform path |

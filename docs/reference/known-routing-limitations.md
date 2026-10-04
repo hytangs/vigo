@@ -13,6 +13,7 @@ VIGO models the City revision and Query it is given. It does not certify real-wo
 
 - Transit Matrix supports depart-at and arrive-by. Arrive-by duration includes any wait between actual arrival and the deadline; use Route for itinerary legs and actual arrival.
 - Arrive-by is available for point-to-point transit Route.
+- [Explicit transfer and arrival reserves](travel-time-uncertainty.md) can change route selection, but VIGO does not yet compute calibrated arrival probabilities or delay distributions. Realtime uncertainty fields do not supply such a model.
 - `maxTransfers` accepts integers 0–31; omit it for no additional cap. Combining a finite cap with ordered transit waypoints is currently unsupported.
 - Station returns may be valid in the supplied timetable. They are flagged for inspection, not automatically excluded.
 - Without an explicit rule, service platforms sharing a parent station use the existing 120-second transfer assumption. These legs report `transferSource: 'parent_station_fallback'` and schematic geometry, not a verified station pathway. Only generated OSM transfers claim a corresponding street-path witness.
@@ -48,7 +49,7 @@ VIGO models the City revision and Query it is given. It does not certify real-wo
 ## City reuse and platforms
 
 - Studio maps require WebGL 2. Engine and Python queries do not require a graphics device.
-- Supported native targets are macOS 13.5+ on Apple Silicon/Intel, Linux glibc on ARM64/x64, and Windows x64. Linux release builds use Ubuntu 24.04. Alpine/musl, 32-bit, and native Windows ARM64 builds are not provided.
+- Supported native targets are macOS 13.5+ on Apple Silicon/Intel, Linux glibc on ARM64/x64, and Windows x64. Linux release builds use Ubuntu 24.04. The Node native packages require glibc on Linux; the [standalone Rust container](../guides/rust-standalone.md#container) uses musl. Neither distribution provides 32-bit or native Windows ARM64 binaries.
 - Copy the entire City directory; street indexes and prepared files are part of it. The native runtime executable is specific to OS/CPU, while City data is portable across the supported 64-bit targets.
 - Older Cities with ephemeral Drive CCH still rebuild that hierarchy on fresh-process startup; rebuilding the City from source enables persisted Drive CCH.
 - An older timetable cache may require one preparation in 0.4.2. New active-service patterns, changed walking policy, or evicted snapshots also require preparation. Missing/corrupt required street indexes are errors, not permission to query a different graph; restore the complete City or rebuild it from source.

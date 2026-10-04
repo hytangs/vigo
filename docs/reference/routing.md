@@ -55,6 +55,14 @@ with via points reject a nonzero buffer because independently composed legs
 cannot certify the transfer at their boundary. It is a timetable feasibility
 constraint, not a prediction of delays.
 
+**Arrival reserve** (`arrivalBufferMinutes`, integer 0–60, default 0) plans an
+arrive-by Transit Route or Matrix against an earlier destination deadline while
+preserving the original earliest departure. Use it with the transfer buffer
+when the traveler wants extra time. Results retain the actual timetable clocks
+and report both deadlines in `diagnostics.timeReserves`. It is a user-selected
+margin with no calibrated probability; see [Travel-time uncertainty](travel-time-uncertainty.md)
+for a Boston example, restrictions, and the calibration requirements.
+
 Transit JSON requests accept `disableCache: true` to disable street-access
 frontier and walking-path caches while keeping the prepared City resident.
 Route answers are recomputed regardless of this option.

@@ -271,7 +271,7 @@ def specification(native):
         'streetSourceFingerprint':text(), **{k:array(observation,1,100000) for k in ['observations','segments','edgeUpdates']}},strict=False,
         allOf=[{'anyOf':[{'required':[k]} for k in ['observedAt','fetchedAt','timestamp']]},{'anyOf':[{'required':[k]} for k in ['observations','segments','edgeUpdates']]}])
     schemas['Traffic'] = {'oneOf':[raw,observations]}
-    clock_common = {**common,'realtimeSnapshot':ref('RealtimeSnapshot'),'traffic':ref('Traffic')}
+    clock_common = {**common,'arrivalBufferMinutes':number(0,60,0,integer=True,description='Caller-selected arrival reserve. Positive values require arrive-by Transit Route/Matrix without via points; reserve the final minutes of the original horizon. Not a calibrated probability.'),'realtimeSnapshot':ref('RealtimeSnapshot'),'traffic':ref('Traffic')}
     schemas['RouteRequest'] = obj({**clock_common,'origin':ref('Point'),'destination':ref('Point'),'via':array(ref('Point'),0,16),'waypoints':array(ref('Point'),0,16),
         'windowMinutes':number(0,240,0),'windowStepMinutes':number(1,60,1)},['origin','destination'],allOf=[clock_rule,transit_date,mode_rule,{'not':{'required':['via','waypoints']}}],
         description='Additional mode constraints, source identities, freshness, and via/window combinations are validated by the runtime. Route always includes geometry.')

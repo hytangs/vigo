@@ -110,7 +110,7 @@ for (const arriveBy of [false, true]) {
 }
 // The unrestricted fastest route needs two boardings. A one-boarding cap
 // must fall back to the exact bounded scan, including when it becomes blocked.
-const capped = new TimetableKernel({
+const cappedInput = {
   stopCount: 3, runCount: 3,
   departureSeconds: new Uint32Array([10, 10, 20]), arrivalSeconds: new Uint32Array([100, 20, 30]),
   fromStop: new Uint32Array([0, 0, 1]), toStop: new Uint32Array([2, 1, 2]),
@@ -119,7 +119,8 @@ const capped = new TimetableKernel({
   tripStart: new Uint32Array([0, 1, 2, 3]), departureOffset: new Uint32Array([0, 2, 3, 3]), departureOrder: new Uint32Array([0, 1, 2]),
   transferOffset: new Uint32Array([0, 0, 0, 0]), transferTo: new Uint32Array(), transferDuration: new Uint32Array(),
   forbiddenSameStop: new Uint8Array(3),
-})
+}
+const capped = new TimetableKernel(cappedInput)
 for (const horizon of [50, 120]) {
   for (const maximumBoardings of [1, 2, undefined]) {
     const q = timetableMatrixRequest([0], [2], { departure: 0, horizon, maximumBoardings,
@@ -133,4 +134,29 @@ for (const horizon of [50, 120]) {
     pointChecks++
   }
 }
+const reverseCapped = new TimetableKernel({ ...cappedInput,
+  departureSeconds: new Uint32Array([10, 50, 60]), arrivalSeconds: new Uint32Array([100, 60, 70]) })
+for (const horizon of [80, 120]) for (const maximumBoardings of [1, 2, undefined]) {
+  const q = timetableMatrixRequest([0], [2], { arriveBy: true, departure: 0, horizon, maximumBoardings,
+    allowPreRideTransfers: [false], allowPostRideTransfers: [false] })
+  const actual = reverseCapped.routeMatrixCsa(q)
+  const reference = reverseCapped.routeMatrixCsa({ ...q, destinationOffsets: [0, 1, 2],
+    destinationStops: [2, 2], destinationWalkSeconds: [0, 0], allowPostRideTransfers: [false, false] })
+  assert.equal(actual.times[0], maximumBoardings === 1 ? (horizon < 100 ? -Infinity : 10) : 50)
+  assert.equal(actual.times[0], reference.times[0])
+  assert.deepEqual(actual.journeys[0], reference.journeys[0], 'Capped reverse proof retains exact journey ties')
+  assert.throws(() => reverseCapped.routeMatrixCsa({ ...q, departure: -1 }))
+  assert.throws(() => reverseCapped.routeMatrixCsa({ ...q, maximumBoardings: 0 }))
+  pointChecks++
+}
+assert.throws(() => new TimetableKernel({ ...cappedInput, segmentRun: new Uint32Array([0, 1, 0]), runCount: 2 }), /contiguous/)
+const reversedRun = new Uint32Array(fixture.departureSeconds)
+reversedRun[1] = reversedRun[0]
+assert.throws(() => new TimetableKernel({ ...fixture, departureSeconds: reversedRun }), /chronological/)
+const brokenRun = new Uint8Array(fixture.continuityBreak)
+brokenRun[1] = 1
+assert.throws(() => new TimetableKernel({ ...fixture, continuityBreak: brokenRun }), /contiguous/)
+const repeatedSequence = new Uint32Array(fixture.sequence)
+repeatedSequence[1] = repeatedSequence[0]
+assert.throws(() => new TimetableKernel({ ...fixture, sequence: repeatedSequence }), /contiguous/)
 console.log(`Timetable query reuse passed: ${checks} fresh/resident and ${pointChecks} point/general-Matrix comparisons, both directions, scalar and full journeys, invalid-input recovery.`)

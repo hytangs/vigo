@@ -102,6 +102,36 @@ try {
       }
     }
     await route({ origin: point('B'), destination: point('A'), requireTransitRide: false }, 'blocked selected-stop fallback')
+    for (const arrivalBufferMinutes of [0, 5, 6]) {
+      for (const minimumTransferBufferMinutes of [0, 3, 15]) {
+        const q = { ...base, timePreference: 'arrive_by', timeMinutes: 515,
+          arrivalBufferMinutes, minimumTransferBufferMinutes }
+        await route(q, `arrival reserve ${arrivalBufferMinutes}, transfer reserve ${minimumTransferBufferMinutes}`)
+        const matrix = { ...q, kind: 'matrix', origins: [point('A'), point('B')], destinations: [point('B')], includeJourneys: true }
+        delete matrix.origin; delete matrix.destination
+        const ref = await legacy({ ...matrix, timePreference: 'arrive' })
+        const actual = await rust(matrix)
+        check(`${policy} reserved Matrix ${arrivalBufferMinutes}/${minimumTransferBufferMinutes}`, () => {
+          assert(!ref.error, JSON.stringify(ref.error)); assert(!actual.error, JSON.stringify(actual.error))
+          for (const row of ref.rows) {
+            close(actual.durationsMinutes[row.originIndex][row.destinationIndex], row.durationMinutes, 'reserved matrix duration')
+            if (row.journey) close(actual.journeys[row.originIndex][row.destinationIndex].arrivalMinutes, row.journey.arriveMinutes, 'actual arrival')
+          }
+          assert.deepEqual(actual.diagnostics.timeReserves, ref.diagnostics.timeReserves)
+        })
+      }
+    }
+    for (const invalid of [{ arrivalBufferMinutes: -1 }, { arrivalBufferMinutes: '5' },
+      { arrivalBufferMinutes: 5, timePreference: 'depart_at' }, { arrivalBufferMinutes: 5, mode: 'walk' },
+      { arrivalBufferMinutes: 5, horizonMinutes: 5 }, { arrivalBufferMinutes: 5, timeMinutes: 4 },
+      { arrivalBufferMinutes: 5, waypoints: [point('X')] }]) {
+      const input = { ...base, timePreference: 'arrive_by', timeMinutes: 515, ...invalid }
+      const a = await rust(input)
+      const b = await legacy({ ...input, timePreference: input.timePreference === 'arrive_by' ? 'arrive' : 'depart' })
+      check(`${policy} invalid arrival reserve ${JSON.stringify(invalid)}`, () => {
+        assert(a.error, JSON.stringify(a)); assert(b.error, JSON.stringify(b))
+      })
+    }
     for (const serviceDate of ['2026-07-16', '2026-07-18', '2026-07-19']) {
       await route({ serviceDate }, `calendar ${serviceDate}`)
     }
@@ -201,7 +231,11 @@ try {
       ['skipped terminal', { feedTimestamp: now, tripUpdates: [{ tripId: 'T2', stopTimeUpdates: [{ stopSequence: 2, scheduleRelationship: 'SKIPPED' }] }] }],
       ['contradictory prediction', { feedTimestamp: now, tripUpdates: [{ tripId: 'T2', stopTimeUpdates: [{ stopSequence: 2, arrival: { delay: -1800 } }] }] }],
       ['record freshness', { feedTimestamp: now, tripUpdates: [{ tripId: 'T2', timestamp: now - 1000, delaySeconds: 600 }] }],
-    ]) await route({ routingDataMode: 'realtime', realtimeSnapshot: snapshot }, `realtime ${label}`)
+    ]) {
+      await route({ routingDataMode: 'realtime', realtimeSnapshot: snapshot }, `realtime ${label}`)
+      await route({ routingDataMode: 'realtime', realtimeSnapshot: snapshot, timePreference: 'arrive_by',
+        timeMinutes: 525, arrivalBufferMinutes: 5, minimumTransferBufferMinutes: 3 }, `realtime reserved ${label}`)
+    }
   }
   console.log(JSON.stringify({ checked, failures }, null, 2))
   assert.equal(failures.length, 0, `${failures.length}/${checked} standalone parity checks failed`)

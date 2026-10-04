@@ -10,6 +10,14 @@ For coordinate batches, journey rounds finish after every reachable target has a
 
 Arrive-by Route retains the scalar forward reachability envelope through successive capped and deadline certifications. Reuse requires identical origin and destination seeds, costs, departure, horizon, and terminal-transfer policies. Extending a deadline admits the remaining timetable events; contracting it keeps a conservative superset that exact rounds filter against the requested deadline. A new scalar search or a separately built forward envelope invalidates the retained identity. The reverse latest-departure search and exact deadline/boarding/walking certification still run.
 
+Capped coordinate arrive-by searches first obtain the unrestricted latest
+departure and seek a forward witness at that same boundary. They accept the
+bound only when the witness reaches the deadline within the boarding cap; an
+unrestricted blocked result also proves the capped result blocked. Otherwise
+the existing layered reverse scan resolves the cap. A 1×1 Matrix uses this
+same certified bound before its unchanged journey rounds. Work counters include
+the proof and any fallback; no trip choice or tie criterion is removed.
+
 Retaining scratch trades some resident memory for fewer allocations. Native `workspaceBytes` diagnostics include the journey arrays and their retained capacities. Scalar-only users do not allocate journey scratch.
 
 ## Coordinate routes and materialization

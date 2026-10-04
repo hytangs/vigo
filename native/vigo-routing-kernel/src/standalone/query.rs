@@ -115,16 +115,31 @@ impl City {
         }
         validate_request(command, request)?;
         let started = Instant::now();
+        let reserved = arrival_reserve(command, request)?;
+        let effective = reserved.as_ref().map_or(request, |(query, _)| query);
         let mut result = match command {
             "info" => self.info(),
             "capabilities" => capabilities(),
-            "route" => self.route(request)?,
-            "matrix" => self.matrix(request)?,
-            "reach" | "isochrone" => self.reach(request)?,
+            "route" => self.route(effective)?,
+            "matrix" => self.matrix(effective)?,
+            "reach" | "isochrone" => self.reach(effective)?,
             "compare" => super::compare(&request["before"], &request["after"])?,
             "native" => self.native(request)?,
             _ => return fail(format!("Unknown command: {command}")),
         };
+        if let Some((_, diagnostics)) = reserved {
+            if command == "matrix" {
+                let minutes = diagnostics["arrivalBufferMinutes"].as_f64().unwrap();
+                for row in result["durationsMinutes"].as_array_mut().unwrap() {
+                    for duration in row.as_array_mut().unwrap() {
+                        if let Some(value) = duration.as_f64() {
+                            *duration = json!(value + minutes);
+                        }
+                    }
+                }
+            }
+            result["diagnostics"]["timeReserves"] = diagnostics;
+        }
         result["runtime"] = json!("rust");
         result["cityRevision"] = self.manifest["revisionId"].clone();
         result["timing"] = json!({"totalMs":started.elapsed().as_secs_f64()*1000.});
@@ -1232,6 +1247,52 @@ fn epoch(v: &Value) -> Result<f64> {
     .timestamp_millis() as f64
         / 1000.)
 }
+// Reserve time at the final destination without modifying vehicle events or
+// moving the query's earliest departure. This is deliberately not a calibrated
+// probability model. Matrix durations retain deadline minus departure.
+fn arrival_reserve(command: &str, q: &Value) -> Result<Option<(Value, Value)>> {
+    let Some(value) = q.get("arrivalBufferMinutes") else {
+        return Ok(None);
+    };
+    let minutes = value
+        .as_u64()
+        .filter(|&n| n <= 60)
+        .ok_or("arrivalBufferMinutes must be an integer from 0 to 60")?;
+    if minutes == 0 {
+        return Ok(None);
+    }
+    if !["route", "matrix"].contains(&command)
+        || q["mode"].as_str().unwrap_or("transit") != "transit"
+        || !matches!(q["timePreference"].as_str(), Some("arrive" | "arrive_by"))
+    {
+        return fail("arrivalBufferMinutes requires an arrive-by Transit Route or Matrix");
+    }
+    if ["via", "waypoints"].iter().any(|key| {
+        q.get(key)
+            .is_some_and(|v| v.as_array().is_none_or(|v| !v.is_empty()))
+    }) {
+        return fail("arrivalBufferMinutes with transit waypoints is not supported");
+    }
+    let opt = Options::parse(q)?;
+    let seconds = minutes as f64 * 60.;
+    let horizon = number(q, "horizonMinutes", 480., 1., 2880.)?;
+    if opt.time < seconds {
+        return fail("The arrival deadline must be at least arrivalBufferMinutes");
+    }
+    if horizon - (minutes as f64) < 1. {
+        return fail("horizonMinutes must exceed arrivalBufferMinutes by at least one minute");
+    }
+    let mut effective = q.clone();
+    effective.as_object_mut().unwrap().remove("time");
+    effective["timeMinutes"] = json!((opt.time - seconds) / 60.);
+    effective["horizonMinutes"] = json!(horizon - minutes as f64);
+    effective["arrivalBufferMinutes"] = json!(0);
+    let diagnostics = json!({"method":"explicit_time_reserves","calibratedProbability":false,
+        "arrivalBufferMinutes":minutes,"minimumTransferBufferMinutes":q.get("minimumTransferBufferMinutes").unwrap_or(&json!(0)),
+        "requestedArrivalMinutes":opt.time/60.,"planningArrivalMinutes":(opt.time-seconds)/60.});
+    Ok(Some((effective, diagnostics)))
+}
+
 fn validate_request(command: &str, q: &Value) -> Result<()> {
     let common = [
         "kind",
@@ -1248,6 +1309,7 @@ fn validate_request(command: &str, q: &Value) -> Result<()> {
         "horizonMinutes",
         "allowStreetTransfers",
         "minimumTransferBufferMinutes",
+        "arrivalBufferMinutes",
         "disableCache",
         "requireTransitRide",
         "allowLongWalk",

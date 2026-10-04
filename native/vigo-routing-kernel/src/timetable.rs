@@ -199,6 +199,7 @@ pub struct TimetableQueryResult {
 #[cfg_attr(feature = "node", napi(object))]
 #[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(Clone)]
 pub struct TimetableArriveByQueryInput {
     pub origin_stops: Vec<u32>,
     pub origin_walk_seconds: Vec<f64>,
@@ -3368,6 +3369,22 @@ impl TimetableKernel {
                 "Rust timetable kernel contains an empty run.",
             ));
         }
+        for run in 0..run_count {
+            let start = run_start[run] as usize;
+            let end = run_end[run] as usize;
+            if (start..end).any(|c| {
+                input.segment_run[c] as usize != run
+                    || (c > start
+                        && (input.segment_trip[c] != input.segment_trip[c - 1]
+                            || input.continuity_break[c] != 0
+                            || input.sequence[c] <= input.sequence[c - 1]
+                            || input.departure_seconds[c] < input.arrival_seconds[c - 1]))
+            }) {
+                return Err(Error::from_reason(
+                    "Rust timetable runs must be contiguous, chronological segments of one trip.",
+                ));
+            }
+        }
         if (0..run_count).any(|run| {
             run_end[run]
                 .saturating_sub(run_start[run])
@@ -4133,6 +4150,7 @@ impl TimetableKernel {
                 .chain(input.destination_walk_seconds.iter())
                 .any(|seconds| !seconds.is_finite() || *seconds < 0.0)
             || !input.earliest.is_finite()
+            || input.earliest < 0.0
             || !input.deadline.is_finite()
             || input.deadline < input.earliest
         {
@@ -4141,7 +4159,64 @@ impl TimetableKernel {
             ));
         }
 
-        if input.maximum_boardings.is_some() {
+        if let Some(cap) = input.maximum_boardings {
+            boarding_layers(Some(cap))?;
+            // The unrestricted latest departure is an upper bound for every
+            // capped journey. Accept it only with a forward witness that fits
+            // the cap and deadline. Otherwise the layered search below remains
+            // authoritative. No scalar witness replaces journey tie selection.
+            let mut proof = None;
+            if !input.allow_pre_ride_transfers && input.allow_post_ride_transfers == Some(false) {
+                let mut bound = self.route_arrive_by_csa(TimetableArriveByQueryInput {
+                    maximum_boardings: None,
+                    ..input.clone()
+                })?;
+                if let Some(departure) = bound.latest_departure {
+                    let witness = self.route_scalar_csa(TimetableQueryInput {
+                        origin_stops: input.origin_stops.clone(),
+                        origin_walk_seconds: input.origin_walk_seconds.clone(),
+                        origin_candidate_indices: input.origin_candidate_indices.clone(),
+                        destination_stops: input.destination_stops.clone(),
+                        destination_walk_seconds: input.destination_walk_seconds.clone(),
+                        destination_candidate_indices: input.destination_candidate_indices.clone(),
+                        departure,
+                        horizon: input.deadline,
+                        allow_pre_ride_transfers: false,
+                        allow_post_ride_transfers: Some(false),
+                        maximum_boardings: None,
+                    })?;
+                    bound.scanned_departures = bound
+                        .scanned_departures
+                        .saturating_add(witness.scanned_departures);
+                    bound.relaxed_stops = bound.relaxed_stops.saturating_add(witness.relaxed_stops);
+                    bound.expanded_trip_runs = bound
+                        .expanded_trip_runs
+                        .saturating_add(witness.expanded_trip_runs);
+                    bound.dominated_trip_boardings = bound
+                        .dominated_trip_boardings
+                        .saturating_add(witness.dominated_trip_boardings);
+                    bound.explicit_transfer_checks = bound
+                        .explicit_transfer_checks
+                        .saturating_add(witness.explicit_transfer_checks);
+                    bound.engine_query_ns += witness.query_ns;
+                    if witness.supported
+                        && witness.status == "ready"
+                        && witness
+                            .best_arrival
+                            .is_some_and(|arrival| arrival <= input.deadline)
+                        && witness
+                            .best_boardings
+                            .is_some_and(|boardings| boardings <= cap)
+                    {
+                        bound.query_ns = started.elapsed().as_nanos() as f64;
+                        return Ok(bound);
+                    }
+                } else if bound.supported && bound.status == "blocked" {
+                    bound.query_ns = started.elapsed().as_nanos() as f64;
+                    return Ok(bound);
+                }
+                proof = Some(bound);
+            }
             let result = self.route_arrive_by_many_csa(TimetableArriveByManyQueryInput {
                 origin_offsets: vec![0, input.origin_stops.len() as u32],
                 origin_stops: input.origin_stops,
@@ -4156,7 +4231,7 @@ impl TimetableKernel {
                 maximum_boardings: input.maximum_boardings,
             })?;
             let latest = result.latest_departures[0];
-            return Ok(TimetableArriveByQueryResult {
+            let mut result = TimetableArriveByQueryResult {
                 supported: true,
                 status: if latest.is_finite() {
                     "ready"
@@ -4175,7 +4250,24 @@ impl TimetableKernel {
                 expanded_trip_runs: result.expanded_trip_runs,
                 dominated_trip_boardings: result.dominated_trip_boardings,
                 explicit_transfer_checks: result.explicit_transfer_checks,
-            });
+            };
+            if let Some(proof) = proof {
+                result.engine_query_ns += proof.engine_query_ns;
+                result.scanned_departures = result
+                    .scanned_departures
+                    .saturating_add(proof.scanned_departures);
+                result.relaxed_stops = result.relaxed_stops.saturating_add(proof.relaxed_stops);
+                result.expanded_trip_runs = result
+                    .expanded_trip_runs
+                    .saturating_add(proof.expanded_trip_runs);
+                result.dominated_trip_boardings = result
+                    .dominated_trip_boardings
+                    .saturating_add(proof.dominated_trip_boardings);
+                result.explicit_transfer_checks = result
+                    .explicit_transfer_checks
+                    .saturating_add(proof.explicit_transfer_checks);
+            }
+            return Ok(result);
         }
         let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
@@ -4533,6 +4625,35 @@ impl TimetableKernel {
         if let Some(bound) = point_bound {
             output.times[0] = bound.best_arrival.unwrap_or(f64::INFINITY);
             output.forward_searches = 1;
+            output.scanned_departures = f64::from(bound.scanned_departures);
+            output.relaxed_stops = f64::from(bound.relaxed_stops);
+            output.expanded_trip_runs = f64::from(bound.expanded_trip_runs);
+            output.dominated_trip_boardings = f64::from(bound.dominated_trip_boardings);
+            output.explicit_transfer_checks = f64::from(bound.explicit_transfer_checks);
+        } else if origin_count == 1
+            && destination_count == 1
+            && input.arrive_by
+            && !input.allow_pre_ride_transfers[0]
+            && input
+                .allow_post_ride_transfers
+                .as_ref()
+                .is_some_and(|flags| !flags[0])
+        {
+            let bound = self.route_arrive_by_csa(TimetableArriveByQueryInput {
+                origin_stops: input.origin_stops.clone(),
+                origin_walk_seconds: input.origin_walk_seconds.clone(),
+                origin_candidate_indices: (0..input.origin_stops.len() as u32).collect(),
+                destination_stops: input.destination_stops.clone(),
+                destination_walk_seconds: input.destination_walk_seconds.clone(),
+                destination_candidate_indices: (0..input.destination_stops.len() as u32).collect(),
+                earliest: input.departure,
+                deadline: input.horizon,
+                allow_pre_ride_transfers: false,
+                allow_post_ride_transfers: Some(false),
+                maximum_boardings: input.maximum_boardings,
+            })?;
+            output.times[0] = bound.latest_departure.unwrap_or(f64::NEG_INFINITY);
+            output.reverse_searches = 1;
             output.scanned_departures = f64::from(bound.scanned_departures);
             output.relaxed_stops = f64::from(bound.relaxed_stops);
             output.expanded_trip_runs = f64::from(bound.expanded_trip_runs);

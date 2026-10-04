@@ -48,6 +48,19 @@ try {
     return r
   }
   assert.equal((await post()).status, 200); checks++
+  for (const arrivalBufferMinutes of [5, 6]) {
+    const response = await fetch(`${origin}/v1/route`, { method: 'POST', headers,
+      body: JSON.stringify({ ...JSON.parse(body), time: '08:35', timePreference: 'arrive_by', arrivalBufferMinutes }) })
+    assert.equal(response.status, 200)
+    const plan = await response.json()
+    assert.equal(plan.status, arrivalBufferMinutes === 5 ? 'ready' : 'blocked')
+    assert.equal(plan.diagnostics.timeReserves.planningArrivalMinutes, 515 - arrivalBufferMinutes)
+    assert.equal(plan.diagnostics.timeReserves.calibratedProbability, false)
+    checks++
+  }
+  const invalidReserve = await fetch(`${origin}/v1/route`, { method: 'POST', headers,
+    body: JSON.stringify({ ...JSON.parse(body), arrivalBufferMinutes: 5 }) })
+  assert.equal(invalidReserve.status, 400); checks++
   await status(prefix + `Content-Length: ${body.length}\r\nContent-Length: ${body.length}\r\n\r\n${body}`, 400)
   await status(prefix + `Content-Length: ${body.length}\r\nTransfer-Encoding: chunked\r\n\r\n${body}`, 400)
   await status(prefix + 'Content-Length: 1048577\r\n\r\n', 413)

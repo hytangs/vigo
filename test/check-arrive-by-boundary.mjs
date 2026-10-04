@@ -3,7 +3,8 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import { buildRoutingStoreFromSchedules, disposeNationalGtfsStore, routeNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
+import { buildRoutingStoreFromSchedules, disposeNationalGtfsStore, routeNationalGtfsStore, routeNationalGtfsMatrix, routeNationalGtfsReach } from '../src/server/national-gtfs-store.mjs'
+import { routeNationalStreetStore, routeNationalStreetMatrix } from '../src/server/national-osm-store.mjs'
 import { recoverNativeArriveByBoundary } from '../src/server/gtfs/arrive-by-reconstruction.mjs'
 
 const { TimetableKernel } = createRequire(import.meta.url)('../native/vigo-routing-kernel/vigo-routing-kernel.node')
@@ -36,6 +37,38 @@ try {
   const forward = routeNationalGtfsStore(storePath, { ...query, timePreference: 'depart', departMinutes: 485 })
   assert.equal(forward.arriveMinutes, 490, 'Independent forward witness proves the later departure feasible')
   assert.equal(routeNationalGtfsStore(storePath, query).departMinutes, 485)
+  const reserved = routeNationalGtfsStore(storePath, { ...query, arrivalBufferMinutes: 5 })
+  assert.equal(reserved.departMinutes, 480, 'The reserve must change selection, not just annotate a late itinerary')
+  assert.equal(reserved.arriveMinutes, 485, 'Keep the actual timetable arrival')
+  assert.deepEqual(reserved.diagnostics.timeReserves, {
+    method: 'explicit_time_reserves', calibratedProbability: false,
+    arrivalBufferMinutes: 5, minimumTransferBufferMinutes: 0,
+    requestedArrivalMinutes: 490, planningArrivalMinutes: 485,
+  })
+  assert.equal(routeNationalGtfsStore(storePath, { ...query, arrivalBufferMinutes: 5, horizonMinutes: 6 }).status, 'blocked',
+    'A reserve must not expand the original earliest-departure bound')
+  assert.equal(routeNationalGtfsStore(storePath, { ...query, arrivalBufferMinutes: 0 }).departMinutes, 485,
+    'A prior reserved request must not change the next query')
+  const matrixRequest = { ...query, origins: [query.origin, query.destination], destinations: [query.destination], arrivalBufferMinutes: 5 }
+  for (const includeJourneys of [false, true]) {
+    const matrix = routeNationalGtfsMatrix(storePath, { ...matrixRequest, includeJourneys })
+    assert.equal(matrix.rows[0].departMinutes, 480)
+    assert.equal(matrix.rows[0].arriveMinutes, 490, 'Matrix deadline remains the requested deadline')
+    assert.equal(matrix.rows[0].durationMinutes, 10, 'Matrix duration includes the reserve after early arrival')
+    assert.equal(matrix.rows[1].status, 'blocked')
+    if (includeJourneys) assert.equal(matrix.rows[0].journey.arriveMinutes, 485)
+    assert.deepEqual(matrix.diagnostics.timeReserves, reserved.diagnostics.timeReserves)
+  }
+  for (const arrivalBufferMinutes of [-1, 61, .5, '5', null, true, Infinity]) {
+    assert.throws(() => routeNationalGtfsStore(storePath, { ...query, arrivalBufferMinutes }), /arrivalBufferMinutes/)
+    assert.throws(() => routeNationalGtfsMatrix(storePath, { ...matrixRequest, arrivalBufferMinutes }), /arrivalBufferMinutes/)
+  }
+  for (const invalid of [{ timePreference: 'depart' }, { horizonMinutes: 5 }, { arriveMinutes: 4 }, { waypoints: [query.origin] }]) {
+    assert.throws(() => routeNationalGtfsStore(storePath, { ...query, arrivalBufferMinutes: 5, ...invalid }), /arrivalBufferMinutes/)
+  }
+  for (const route of [routeNationalGtfsReach, routeNationalStreetStore, routeNationalStreetMatrix]) {
+    assert.throws(() => route(storePath, { ...query, arrivalBufferMinutes: 5 }), /arrivalBufferMinutes/)
+  }
   // QA-only native presentation rejection. Reverse scanning runs inside Rust
   // and is unaffected by this JavaScript forward-result injection.
   TimetableKernel.prototype.routeScalarCsa = function (input) {

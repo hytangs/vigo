@@ -1,6 +1,6 @@
 # VIGO Rust standalone manual
 
-VIGO 0.4.3 development · CLI and HTTP reference · Prepared City format 1
+VIGO 0.4.3 source freeze · CLI and HTTP reference · Prepared City format 1
 
 VIGO runs routing and isochrone queries from a single Rust executable. The executable contains the routing kernels, City loader, JSON interface, and HTTP server. It needs no Node, Python, browser, external routing service, or internet connection at query time. SQLite is compiled in. City data is supplied separately and opened read-only.
 
@@ -319,6 +319,18 @@ Transit times are service-day clocks, including after-midnight GTFS hours. The q
 The depart-at timetable search ends at departure plus horizon; arrive-by searches back to the later of midnight and arrival minus horizon. A transit egress walk may extend beyond the depart-at scan horizon. Direct walking is bounded by physical walking duration as well as its distance cap. Drive routing uses its street-distance limit and supplied static metric; `horizonMinutes` does not add a drive travel-time cutoff.
 
 City access padding/overhead apply to boarding access, not physical direct-walk duration. The transfer buffer applies once after walking and source-defined transfer minima; it does not delay first boarding, final egress, or staying aboard. `allowStreetTransfers: false` retains endpoint access and egress. Neither control establishes station accessibility or fare-transfer eligibility.
+
+`arrivalBufferMinutes` is an optional integer 0–60 (default 0) for arrive-by
+Transit Route and Matrix. A positive value reserves time before the final
+deadline while retaining the original earliest departure. The deadline must
+be at least the reserve, and `horizonMinutes` must exceed it by at least one
+minute. Positive reserves reject via points, depart-at, Walk, Drive, Reach,
+and native operations. `diagnostics.timeReserves` records both deadlines and
+`calibratedProbability: false`. Route and journey clocks retain their actual
+modeled times; Matrix scalar durations include the reserve. Combine with
+`minimumTransferBufferMinutes` for time at intermediate changes. See
+[Travel-time uncertainty](https://github.com/hytangs/vigo/blob/main/docs/reference/travel-time-uncertainty.md) for the Boston
+example and calibration requirements; a margin is not a probability guarantee.
 
 ## 6. Route
 
