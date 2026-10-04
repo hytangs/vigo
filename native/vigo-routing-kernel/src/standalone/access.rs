@@ -18,6 +18,8 @@ pub(crate) struct AccessContext {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Materialized {
     pub transfers: Vec<(String, Vec<Transfer>)>,
+    pub transfer_shortcuts: Vec<(String, Vec<TransferShortcut>)>,
+    pub declared_pathway_stops: Vec<String>,
     pub station_members: Vec<(String, Vec<String>)>,
     pub stop_records: Vec<(String, Value)>,
     pub forbidden_transfer_pairs: Vec<String>,
@@ -39,4 +41,18 @@ pub(crate) struct Transfer {
     pub min_transfer_time: Option<f64>,
     pub provenance: Option<String>,
     pub path_distance_m: Option<f64>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct TransferShortcut {
+    pub to_stop_id: String,
+    pub min_transfer_time: f64,
+    pub steps: Vec<TransferStep>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct TransferStep {
+    pub from_stop_id: String,
+    pub to_stop_id: String,
+    pub min_transfer_time: f64,
 }

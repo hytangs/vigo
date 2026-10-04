@@ -1,8 +1,9 @@
 use super::query::{Candidates, Options, Point, haversine};
 use super::{City, Result};
-use crate::{ShapeGeometry, TimetableMatrixJourney};
+use crate::{ShapeGeometry, TimetableMatrixJourney, TimetableMatrixLeg};
 use rusqlite::OptionalExtension;
 use serde_json::{Value, json};
+use std::borrow::Cow;
 use std::collections::VecDeque;
 
 /// Compiled immutable GTFS shapes, owned by one City. No route or timetable
@@ -92,9 +93,70 @@ impl ShapeCache {
 }
 
 impl City {
+    fn expand_transfer_journey<'a>(
+        &self,
+        journey: &'a TimetableMatrixJourney,
+    ) -> Result<Cow<'a, TimetableMatrixJourney>> {
+        let t = self.timetable.as_ref().ok_or("Timetable not active")?;
+        let mut expanded: Option<Vec<TimetableMatrixLeg>> = None;
+        for (i, leg) in journey.legs.iter().enumerate() {
+            let shortcut = if leg.kind == "walk" {
+                leg.from_stop.zip(leg.to_stop).and_then(|(a, b)| {
+                    self.transfer_shortcut_rows
+                        .get(&t.stop_ids[a as usize])
+                        .and_then(|&row| {
+                            self.access.materialized.transfer_shortcuts[row]
+                                .1
+                                .iter()
+                                .find(|e| {
+                                    e.to_stop_id == t.stop_ids[b as usize]
+                                        && (e.min_transfer_time - (leg.arrival - leg.departure))
+                                            .abs()
+                                            < 0.001
+                                })
+                        })
+                })
+            } else {
+                None
+            };
+            if let Some(shortcut) = shortcut {
+                let legs = expanded.get_or_insert_with(|| journey.legs[..i].to_vec());
+                let mut clock = leg.departure;
+                for step in &shortcut.steps {
+                    let from = *t
+                        .index
+                        .get(&step.from_stop_id)
+                        .ok_or("Unknown transfer witness origin")?;
+                    let to = *t
+                        .index
+                        .get(&step.to_stop_id)
+                        .ok_or("Unknown transfer witness destination")?;
+                    legs.push(TimetableMatrixLeg {
+                        from_stop: Some(from),
+                        to_stop: Some(to),
+                        departure: clock,
+                        arrival: clock + step.min_transfer_time,
+                        ..leg.clone()
+                    });
+                    clock += step.min_transfer_time;
+                }
+            } else if let Some(legs) = &mut expanded {
+                legs.push(leg.clone());
+            }
+        }
+        Ok(if let Some(legs) = expanded {
+            Cow::Owned(TimetableMatrixJourney {
+                legs,
+                ..journey.clone()
+            })
+        } else {
+            Cow::Borrowed(journey)
+        })
+    }
     /// The exact native witness for analytical matrices. Full display and
     /// walking-evidence materialization remains the default response format.
     pub(crate) fn compact_journey(&self, journey: &TimetableMatrixJourney) -> Result<Value> {
+        let journey = self.expand_transfer_journey(journey)?;
         let t = self.timetable.as_ref().ok_or("Timetable not active")?;
         let mut value = json!({
             "departureMinutes": journey.departure / 60.,
@@ -138,7 +200,8 @@ impl City {
         opt: &Options,
         access: [&Candidates; 2],
     ) -> Result<Value> {
-        let mut value = serde_json::to_value(journey)?;
+        let journey = self.expand_transfer_journey(journey)?;
+        let mut value = serde_json::to_value(journey.as_ref())?;
         for (i, leg) in journey.legs.iter().enumerate() {
             let t = self.timetable.as_ref().ok_or("Timetable not active")?;
             let v = &mut value["legs"][i];

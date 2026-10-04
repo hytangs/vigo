@@ -291,6 +291,7 @@ pub struct City {
     pub(crate) route_metadata: HashMap<String, Value>,
     pub(crate) trip_shape_ids: HashMap<String, Option<String>>,
     pub(crate) transfer_rows: HashMap<String, usize>,
+    pub(crate) transfer_shortcut_rows: HashMap<String, usize>,
 }
 impl City {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
@@ -353,6 +354,7 @@ impl City {
         if policy["transferWalkingTimeFloor"] != "distance-at-configured-speed-v1"
             || policy["unpricedPathways"] != "excluded-with-declared-connectivity-v1"
             || policy["stationStreetAnchors"] != "declared-entrances-v1"
+            || policy["stationStreetTransfers"] != "entrance-pathway-chain-v1"
         {
             return fail(
                 "Prepared station walking times are stale; prepare the City with the current VIGO runtime",
@@ -471,6 +473,13 @@ impl City {
             .enumerate()
             .map(|(i, (id, _))| (id.clone(), i))
             .collect();
+        let transfer_shortcut_rows = access
+            .materialized
+            .transfer_shortcuts
+            .iter()
+            .enumerate()
+            .map(|(i, (id, _))| (id.clone(), i))
+            .collect();
         Ok(Self {
             shapes: ShapeGeometrySource::new(str_path(&db_path)?)?,
             shape_cache: super::materialize::ShapeCache::default(),
@@ -492,6 +501,7 @@ impl City {
             padding,
             overhead,
             transfer_rows,
+            transfer_shortcut_rows,
         })
     }
     pub fn info(&self) -> Value {
@@ -690,7 +700,20 @@ impl City {
         }
         let mut station_offset = vec![0];
         let mut station_members = vec![];
+        for (from, shortcuts) in &saved.transfer_shortcuts {
+            for edge in shortcuts {
+                if let (Some(&a), Some(&b)) = (index.get(from), index.get(&edge.to_stop_id)) {
+                    transfer_from.push(a);
+                    transfer_to.push(b);
+                    transfer_seconds.push(edge.min_transfer_time);
+                }
+            }
+        }
+        let declared: HashSet<_> = saved.declared_pathway_stops.iter().collect();
         for (_, members) in &saved.station_members {
+            if members.iter().any(|id| declared.contains(id)) {
+                continue;
+            }
             for id in members {
                 if let Some(&i) = index.get(id) {
                     station_members.push(i);

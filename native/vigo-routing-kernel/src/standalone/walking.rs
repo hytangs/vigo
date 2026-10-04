@@ -217,7 +217,7 @@ impl City {
                 rows.iter().find(|r| {
                     r.to_stop_id == *to
                         && r.min_transfer_time
-                            .is_some_and(|s| (s - duration).abs() < 0.001)
+                            .is_some_and(|s| s.trunc() <= duration + 0.001)
                 })
             });
             if let Some(transfer) = transfer {
@@ -225,11 +225,20 @@ impl City {
                 value["transferSource"] = json!(source);
                 if source != "osm_certified_radial" {
                     source_only = true;
-                    distance = Some(
-                        transfer
-                            .path_distance_m
-                            .unwrap_or_else(|| haversine(coordinates[0], coordinates[1])),
-                    );
+                    let located = coordinates.iter().flatten().all(|v| v.is_finite());
+                    if !located {
+                        value["stationGeometryStatus"] = json!("incomplete");
+                        if transfer.path_distance_m.is_none() {
+                            value["stationDistanceStatus"] = json!("lower_bound");
+                        }
+                    }
+                    distance = Some(transfer.path_distance_m.unwrap_or_else(|| {
+                        if located {
+                            haversine(coordinates[0], coordinates[1])
+                        } else {
+                            0.
+                        }
+                    }));
                     value["geometrySource"] = json!(if pathway(source) {
                         "gtfs_pathway"
                     } else {
@@ -300,7 +309,12 @@ impl City {
             }
         }
         if geometry && value.get("coordinates").is_none() {
-            value["coordinates"] = json!(coordinates);
+            value["coordinates"] = json!(
+                coordinates
+                    .iter()
+                    .filter(|c| c.iter().all(|v| v.is_finite()))
+                    .collect::<Vec<_>>()
+            );
             if value.get("geometrySource").is_none() {
                 value["geometrySource"] = json!("unverified_transfer");
             }

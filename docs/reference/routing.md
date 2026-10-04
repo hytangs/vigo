@@ -127,7 +127,7 @@ pathway nodes do not create additional street entrances. Station links with
 schematic geometry report `streetPathVerified: false` and `stationPathSources`.
 When GTFS omits `traversal_time`, the configured walking policy prices the
 declared pathway length, or the stop-coordinate distance if length is also
-absent. A missing time is not a zero-time link. For endpoint access, declared
+absent. A missing time is not a zero-time link. For endpoint access and transfers, declared
 pathway graphs suppress generic platform shortcuts. Fallback station links
 include their walking time in both endpoint and timetable preparation.
 Endpoint walks using a prepared station path expose `accessCost.street` and
@@ -140,6 +140,9 @@ The walking
 limit covers each complete continuous access or egress walk; a transfer walk
 cannot extend the final egress beyond that budget. Generated transfer legs
 are reconstructed from the same physical-stop profiles used to price them.
+Street transfers use declared entrances and directed station pathways. Preparation
+composes the station paths around at most one external transfer edge; returned
+journeys retain each original walking segment and its source time.
 
 A repeated station is reported from the complete ride stop sequence. It does
 not automatically invalidate a path: a scheduled loop or a forbidden direct

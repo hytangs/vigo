@@ -9,7 +9,7 @@ use serde_json::Value;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 const SCHEMA: &str = "vigo.routing.active-service-kernel.v15-portable";
-const TRANSFERS: &str = "single_edge_service_ingress.v6-station-time";
+const TRANSFERS: &str = "single_edge_service_ingress.v7-station-chain";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

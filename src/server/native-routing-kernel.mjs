@@ -416,6 +416,12 @@ export function prepareNativeTimetableIndexes(input) {
   return binding.prepareTimetableIndexes(input)
 }
 
+export function compileNativeTransferPaths(input) {
+  const binding = loadNativeBinding()
+  if (typeof binding.compileTransferPaths !== 'function') throw new Error('Rust routing binding lacks transfer path compilation. Rebuild the native kernel.')
+  return binding.compileTransferPaths(input)
+}
+
 export function prepareNativeTimetableKernel(kernel) {
   const retained = nativeTimetableKernelCache.get(kernel)
   if (retained) return retained

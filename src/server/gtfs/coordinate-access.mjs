@@ -214,8 +214,9 @@ function physicalStopAccessProfile(store, streetStorePath, version) {
       stop.stop_id,
       'destination',
     )
+    const transferEntrance = version.startsWith('stop-transfer') && Number(stop.location_type) === 2
     if (!originEligible && !destinationEligible
-      && (numeric(stop.location_type, 0) === 0 || version.startsWith('stop-transfer'))) continue
+      && (numeric(stop.location_type, 0) === 0 || (version.startsWith('stop-transfer') && !transferEntrance))) continue
     const memberIndex = members.length
     members.push(stop)
     // Unlocated interior nodes retain declared topology but never become
@@ -223,8 +224,10 @@ function physicalStopAccessProfile(store, streetStorePath, version) {
     // and rendered geometry retain the missing-coordinate distinction.
     memberLons.push(hasCoordinate ? stop.lon : 0)
     memberLats.push(hasCoordinate ? stop.lat : 0)
-    memberOriginEligible.push(Number(originEligible))
-    memberDestinationEligible.push(Number(destinationEligible))
+    // Entrances do not have timetable events, but street transfers must reach
+    // them so declared directed pathways can continue to/from served platforms.
+    memberOriginEligible.push(Number(originEligible || transferEntrance))
+    memberDestinationEligible.push(Number(destinationEligible || transferEntrance))
     memberStreetAccessStopIds.push(stop.stop_id)
     // Interior pathway nodes carry their declared connections, not additional
     // entrances through the nearest external street.
@@ -291,7 +294,7 @@ function physicalStopAccessProfile(store, streetStorePath, version) {
 }
 
 export function nativeStopTransferProfile(store, streetStorePath) {
-  const profile = physicalStopAccessProfile(store, streetStorePath, 'stop-transfer-v2')
+  const profile = physicalStopAccessProfile(store, streetStorePath, 'stop-transfer-v3')
   const diagnostics = configureNativeRoutingAccessProfile(streetStorePath, profile)
   return { profile, diagnostics }
 }

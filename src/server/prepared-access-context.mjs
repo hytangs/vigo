@@ -5,7 +5,7 @@ import { decodeRoutingSnapshot, encodeRoutingSnapshot } from './routing-snapshot
 
 const schemaVersion = 'vigo.routing.access-context.v1'
 const maximumBytes = 512 * 1024 * 1024
-const mapFields = ['transfers', 'stationMembers', 'stopRecords']
+const mapFields = ['transfers', 'transferShortcuts', 'stationMembers', 'stopRecords']
 const indexMaps = ['cells', 'profilesByStop', 'directProfilesByStop']
 const indexSets = ['directServiceStopIds', 'departureServiceStopIds', 'arrivalServiceStopIds']
 

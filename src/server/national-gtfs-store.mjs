@@ -1,4 +1,5 @@
 import { recoverNativeArriveByBoundary } from './gtfs/arrive-by-reconstruction.mjs'
+import { prepareServiceTransfers, expandTransferSteps } from './gtfs/transfer-paths.mjs'
 import { readServiceTimetable } from './gtfs/service-timetable.mjs'
 import { timetableForTransferSelection, validateTransferSelection } from './gtfs/transfer-selection.mjs'
 import { boundedInteger, defaultTimetableBudgetBytes, timetableBudgetBytes } from './runtime/resource-limits.mjs'
@@ -283,7 +284,7 @@ const activeServiceKernelSnapshotCacheBudgetBytes = boundedInteger(
   8 * 1024 * 1024, 2 * 1024 * 1024 * 1024,
 )
 const activeServiceKernelSchemaVersion = 'vigo.routing.active-service-kernel.v15-portable'
-const activeServiceTransferProjectionVersion = 'single_edge_service_ingress.v6-station-time'
+const activeServiceTransferProjectionVersion = 'single_edge_service_ingress.v7-station-chain'
 const activeServiceKernelContextCacheMaxEntries = Math.max(
   1,
   Math.min(8, Math.floor(Number(process.env.VIGO_ACTIVE_KERNEL_CONTEXT_CACHE_MAX_ENTRIES ?? 2) || 0)),
@@ -2557,7 +2558,7 @@ function buildNationalStoreAccessMaterialization(store) {
     error.code = 'resident_stop_access_index_required'
     throw error
   }
-  return {
+  const materialized = {
     transfers,
     declaredPathwayStops,
     forbiddenTransferPairs,
@@ -2568,6 +2569,8 @@ function buildNationalStoreAccessMaterialization(store) {
     stopRecords,
     stopAccessIndex,
   }
+  materialized.transferShortcuts = prepareServiceTransfers(materialized)
+  return materialized
 }
 
 function ensureNationalStoreAccessMaterialization(store) {
@@ -3298,9 +3301,9 @@ export async function ensureNationalGtfsOsmStopTransfers(
       maximumNeighbors,
     })
   } finally {
-    // Endpoint routing deliberately snaps station members through their public
-    // access anchor. Stop-to-stop transfers deliberately do not. Restore the
-    // endpoint profile before the worker begins serving point queries.
+    // Street transfers connect public entrances; timetable propagation then
+    // follows the declared station pathways. Restore the expanded endpoint
+    // profile before the worker begins serving point queries.
     nativeCoordinateAccessProfile(
       store,
       resolvedStreetStorePath,
@@ -5317,7 +5320,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
   } = context
   const stopLookup = store.stopLookup
   const routeLookup = store.routeLookup
-  const chain = search.chain
+  const chain = expandTransferSteps(store, search.chain)
   const paretoCertifier = search.paretoFrontier === true
   const lexicographicCertifier = paretoCertifier || search.lexicographicCertified === true
     || request.maxTransfers !== undefined
@@ -5375,6 +5378,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
       const transfer = store.transfers.get(step.fromStopId)
         ?.find((rule) => rule.to_stop_id === step.toStopId)
       const transferSource = transfer?.provenance ?? 'parent_station_fallback'
+      const located = [from?.lon, from?.lat, to?.lon, to?.lat].every(Number.isFinite)
       let transferPath = null
       if (
         transferSource === 'osm_certified_radial'
@@ -5413,10 +5417,12 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
         startMinutes: minuteCoordinate(step.arrival - step.duration), endMinutes: minuteCoordinate(step.arrival),
         durationMinutes: secondsToMinutes(step.duration),
         distanceKm: transferPath?.distanceKm ?? (transfer?.path_distance_m != null ? transfer.path_distance_m / 1000 : undefined)
-          ?? (from && to ? haversineKm([from.lon, from.lat], [to.lon, to.lat]) : 0),
+          ?? (located ? haversineKm([from.lon, from.lat], [to.lon, to.lat]) : 0),
         stopCount: 0,
         coordinates: transferPath?.coordinates
-          ?? (from && to ? [[from.lon, from.lat], [to.lon, to.lat]] : []),
+          ?? [from, to].filter(stop => Number.isFinite(stop?.lon) && Number.isFinite(stop?.lat)).map(stop => [stop.lon, stop.lat]),
+        ...(!located ? { stationGeometryStatus: 'incomplete',
+          ...(transfer?.path_distance_m == null ? { stationDistanceStatus: 'lower_bound' } : {}) } : {}),
         // Source transfer/pathway times and the station fallback describe their
         // own connections, not a detour through the external street network.
         geometrySource: transferPath ? 'osm-rust-selected-transfer'
@@ -6677,13 +6683,20 @@ export function routeNationalGtfsMatrix(storePath, request) {
   return result
 }
 
-function matrixJourney(kernel, journey) {
+function matrixJourney(store, kernel, journey) {
+  const legs = journey.legs.flatMap(leg => {
+    if (leg.kind !== 'walk' || leg.fromStop == null || leg.toStop == null) return [leg]
+    return expandTransferSteps(store, [{ kind: 'transfer', fromStopId: kernel.stopIds[leg.fromStop],
+      toStopId: kernel.stopIds[leg.toStop], arrival: leg.arrival, duration: leg.arrival - leg.departure }])
+      .map(step => ({ ...leg, fromStop: kernel.stopIndex.get(step.fromStopId), toStop: kernel.stopIndex.get(step.toStopId),
+        departure: step.arrival - step.duration, arrival: step.arrival }))
+  })
   return {
     departMinutes: minuteCoordinate(journey.departure), arriveMinutes: minuteCoordinate(journey.arrival),
     durationMinutes: secondsToMinutes(journey.arrival - journey.departure),
     transfers: Math.max(0, journey.boardings - 1), walkMinutes: secondsToMinutes(journey.walkingSeconds),
     rideMinutes: secondsToMinutes(journey.rideSeconds), waitMinutes: secondsToMinutes(journey.waitingSeconds),
-    legs: journey.legs.map((leg) => ({
+    legs: legs.map((leg) => ({
       type: leg.kind, fromStopId: kernel.stopIds[leg.fromStop] ?? null, toStopId: kernel.stopIds[leg.toStop] ?? null,
       startMinutes: minuteCoordinate(leg.departure), endMinutes: minuteCoordinate(leg.arrival),
       durationMinutes: secondsToMinutes(leg.arrival - leg.departure),
@@ -6911,7 +6924,7 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
             ? materializeMatrixJourney(store, activeKernel, search.journeys[cell], {
               request: { ...request, origin: origins[originIndex], destination: destinations[destinationIndex] },
               maxWalkKm, streetStorageIdentity, horizon, services, serviceDateResolution, startedAt: performance.now(),
-            }) : matrixJourney(activeKernel, search.journeys[cell]) : null } : {}),
+            }) : matrixJourney(store, activeKernel, search.journeys[cell]) : null } : {}),
       }
       rowIndex += 1
     }

@@ -169,60 +169,6 @@ export function materializeDirectWalkPlan(plan, departMinutes) {
   }
 }
 
-function coalesceContinuousWalkLegs(legs) {
-  const result = []
-  for (let index = 0; index < legs.length;) {
-    const leg = legs[index]
-    if (leg.type !== 'walk') {
-      result.push(leg)
-      index += 1
-      continue
-    }
-    let end = index + 1
-    while (end < legs.length && legs[end].type === 'walk') end += 1
-    const group = legs.slice(index, end)
-    if (group.length === 1 || group.some((candidate) => candidate.walkSource !== 'transfer')) {
-      result.push(...group)
-      index = end
-      continue
-    }
-    const coordinates = []
-    for (const candidate of group) {
-      for (const coordinate of candidate.coordinates ?? []) {
-        const previous = coordinates.at(-1)
-        if (!previous || previous[0] !== coordinate[0] || previous[1] !== coordinate[1]) coordinates.push(coordinate)
-      }
-    }
-    const last = group.at(-1)
-    result.push({
-      type: 'walk',
-      travelMode: 'walk',
-      walkSource: 'transfer',
-      transferSource: group.every((candidate) => candidate.transferSource === leg.transferSource)
-        ? leg.transferSource : undefined,
-      geometrySource: group.every((candidate) => candidate.geometrySource === leg.geometrySource)
-        ? leg.geometrySource : undefined,
-      streetPathVerified: group.every((candidate) => candidate.streetPathVerified === true),
-      streetSegmentVerified: group.every((candidate) => (candidate.streetSegmentVerified ?? candidate.streetPathVerified) === true),
-      stationAccessStatus: group.some((candidate) => candidate.stationAccessStatus === 'unverified')
-        ? 'unverified' : group.find((candidate) => candidate.stationAccessStatus)?.stationAccessStatus,
-      stationAccessStopIds: [...new Set(group.flatMap((candidate) => candidate.stationAccessStopIds ?? []))],
-      fromStopId: leg.fromStopId,
-      toStopId: last.toStopId,
-      fromName: leg.fromName,
-      toName: last.toName,
-      startMinutes: leg.startMinutes,
-      endMinutes: last.endMinutes,
-      durationMinutes: Math.max(0, last.endMinutes - leg.startMinutes),
-      distanceKm: group.reduce((sum, candidate) => sum + Math.max(0, numeric(candidate.distanceKm, 0)), 0),
-      stopCount: 0,
-      coordinates,
-    })
-    index = end
-  }
-  return result
-}
-
 function annotateNationalTransferSemantics(legs) {
   return legs.map((leg, index) => {
     if (leg?.type !== 'walk' || leg.walkSource !== 'transfer') return leg
@@ -242,7 +188,8 @@ function annotateNationalTransferSemantics(legs) {
 
 export function normalizeNationalLegs(legs) {
   if (!legs.some((leg) => leg?.walkSource === 'transfer')) return legs
-  return annotateNationalTransferSemantics(coalesceContinuousWalkLegs(legs))
+  // Preserve each priced source edge; merging transfers discards the pathway witness.
+  return annotateNationalTransferSemantics(legs)
 }
 
 export function secondsToMinutes(seconds) {
