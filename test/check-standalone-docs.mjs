@@ -14,7 +14,9 @@ import { standaloneBinary as binary } from './helpers/standalone-runtime.mjs'
 const manual = fs.readFileSync(path.join(root, 'docs/guides/rust-standalone.md'), 'utf8')
 const html = fs.readFileSync(path.join(root, 'docs/standalone.html'), 'utf8')
 const spec = JSON.parse(fs.readFileSync(path.join(root, 'docs/standalone-openapi.json'), 'utf8'))
-execFileSync(process.env.VIGO_PYTHON || (process.platform === 'win32' ? 'python' : 'python3'), ['scripts/build-standalone-docs.py', '--check'], { cwd: root })
+const python = process.env.VIGO_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
+execFileSync(python, ['test/check-standalone-docs-portability.py'], { cwd: root })
+execFileSync(python, ['scripts/build-standalone-docs.py', '--check'], { cwd: root })
 assert.equal(spec.openapi, '3.1.0')
 const schemas = spec.components.schemas
 function walk(value) {

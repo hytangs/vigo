@@ -181,7 +181,7 @@ def native_contracts():
                 if field:
                     fields.append((field[1], field[2], ' '.join(comments)))
                     comments = []
-            structs[match[1]] = (fields, str(path.relative_to(ROOT)))
+            structs[match[1]] = (fields, path.relative_to(ROOT).as_posix())
     schemas, directions = {}, {}
     def kind(value, output):
         if value.startswith('Option<'):
