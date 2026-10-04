@@ -199,7 +199,14 @@ npm run build:rust-routing-kernel
 npm run build:cli
 ```
 
-Then set `vigo-build` to `node "/absolute/path/to/vigo/public/vigo.mjs"` and run the same build from your Boston working directory. This avoids compiling Studio. Raw import, street preparation, and timetable preparation happen at build time; they are separate from query latency.
+Then set `vigo-build` to `node "/absolute/path/to/vigo/public/vigo.mjs"` and run the same build from your Boston working directory. This avoids compiling Studio. Raw import and street preparation happen at build time; they are separate from query latency. Service timetables depend on the date and routing policy. Before distributing a City for repeated fresh-process use, prepare each service date you intend to use by running the compiler CLI once with the `route.json` from the quickstart:
+
+```sh
+vigo-build route --city ./boston --service-date 2026-10-05 \
+  --time 08:00 --request route.json > preparation-check.json
+```
+
+Choose a date covered by your downloaded feed. Copy the complete City after this step. Rust reports `timing.timetableSource: "prepared_snapshot"` when it can reuse the matching timetable; otherwise it prepares from SQLite for that process and reports `"source"`. Both paths use the same source schedule. A resident `stream` or `serve` process retains its active timetable. Compare startup only with identical date-specific prepared files; repeated Node invocations can write a missing snapshot, while Rust keeps the City read-only.
 
 An existing output is rejected unless you explicitly pass `--replace`. Keep the completed `boston/` directory beside your Rust executable, or pass its absolute path with `--city`. Continue with [Harvard Square to South Station](#1-quickstart). No Node, Python, Osmium, or internet connection is needed for those Rust queries.
 

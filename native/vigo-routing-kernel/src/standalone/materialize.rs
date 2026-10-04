@@ -186,6 +186,7 @@ impl City {
                         .map(|id| self.stop(id).map(|s| [s.lon, s.lat]))
                         .collect::<Result<_>>()?;
                     let mut selected = trip_coordinates[first..=last].to_vec();
+                    let mut prepared_distance = None;
                     let mut source = "stop_sequence";
                     let shape_id = match self.trip_shape_ids.entry(trip_id.clone()) {
                         std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
@@ -209,6 +210,13 @@ impl City {
                             if alignment.len() == trip_coordinates.len()
                                 && alignment[first] < alignment[last]
                             {
+                                // The immutable shape already contains exact
+                                // cumulative distances. Reuse that column instead
+                                // of repeating trigonometry for every ride.
+                                prepared_distance = Some(shape.geometry.section_distance_m(
+                                    alignment[first] as usize,
+                                    alignment[last] as usize,
+                                )?);
                                 selected = shape
                                     .geometry
                                     .coordinate_slice(
@@ -220,12 +228,12 @@ impl City {
                             self.shape_cache.put(id, shape);
                         }
                     }
-                    v["distanceMeters"] = json!(
+                    v["distanceMeters"] = json!(prepared_distance.unwrap_or_else(|| {
                         selected
                             .windows(2)
                             .map(|p| haversine(p[0], p[1]))
                             .sum::<f64>()
-                    );
+                    }));
                     v["coordinates"] = json!(selected);
                     v["geometrySource"] = json!(source);
                 }

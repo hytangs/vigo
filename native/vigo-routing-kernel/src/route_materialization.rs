@@ -281,6 +281,15 @@ impl ShapeGeometry {
             .get(range)
             .ok_or_else(|| Error::from_reason("Shape alignment exceeds source coordinates"))
     }
+    #[cfg(all(feature = "standalone", not(feature = "node")))]
+    pub(crate) fn section_distance_m(&self, first: usize, last: usize) -> Result<f64> {
+        if first > last || last >= self.prefix.len() {
+            return Err(Error::from_reason(
+                "Shape alignment exceeds source coordinates",
+            ));
+        }
+        Ok((self.prefix[last] - self.prefix[first]) * 1000.)
+    }
     fn from_points(points: Vec<[f64; 2]>) -> Result<Self> {
         if points.len() > u32::MAX as usize {
             return Err(Error::from_reason(
