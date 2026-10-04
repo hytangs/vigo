@@ -7,7 +7,7 @@ export function yyyymmdd(value) {
   return Number(String(value ?? '').replace(/-/g, '')) || 0
 }
 
-function activeServiceIds(db, date, serviceModel = 'exact-date', serviceDay = 'weekday') {
+export function activeServiceIds(db, date, serviceModel = 'exact-date', serviceDay = 'weekday') {
   const dateNumber = yyyymmdd(date)
   const parsed = parseServiceDate(date)
   if (!dateNumber || !parsed) throw new Error('A valid service date is required for national routing.')

@@ -1,11 +1,16 @@
 //! Read a service slice directly from SQLite into native column buffers.
 //! No per-connection objects or strings cross the Node-API boundary.
+#[cfg(not(feature = "node"))]
+use crate::standalone_types as napi;
 use napi::bindgen_prelude::*;
+#[cfg(feature = "node")]
 use napi_derive::napi;
 use rusqlite::{Connection, OpenFlags};
 use std::collections::HashMap;
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct ServiceTimetableInput {
     pub store_path: String,
     pub stop_ids: Vec<String>,
@@ -14,7 +19,9 @@ pub struct ServiceTimetableInput {
     pub segment_count: Option<u32>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct ServiceTimetableResult {
     pub stop_ids: Vec<String>,
     pub departure_seconds: Uint32Array,
@@ -55,7 +62,7 @@ fn seconds(value: f64) -> u32 {
     value.trunc().rem_euclid(4_294_967_296.0) as u32
 }
 
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 pub fn read_service_timetable(input: ServiceTimetableInput) -> Result<ServiceTimetableResult> {
     let db = Connection::open_with_flags(
         &input.store_path,

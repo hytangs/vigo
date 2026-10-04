@@ -34,7 +34,8 @@ VIGO supports multiple GTFS timetables and multiple GTFS-RT endpoints in one Cit
 
 ## Choose an interface
 
-- **VIGO Engine:** the `vigo` command and shared native runtime in this repository. Build a City once, then run Route, Matrix, or Reach.
+- **VIGO Rust standalone:** one executable for CLI, resident streaming, and a localhost or hosted HTTP service. No Node runtime is required. See [Rust build, query contract, and generic deployment](docs/guides/rust-standalone.md).
+- **VIGO Engine:** the `vigo` command and shared native runtime in this repository. The [CLI-only archive](docs/guides/cli-only.md) retains routing, matrices, isochrones, scenarios, and resident streaming in two runtime files. Build a City once, then run Route, Matrix, or Reach.
 - **VIGO Studio:** a desktop workspace for network inspection, journeys, and scenario analysis. Its project library is separate from CLI City directories.
 - **VIGO Python:** automate Engine through the [separate Python package](https://github.com/hytangs/vigo-py).
 
@@ -62,6 +63,8 @@ In Studio, create a City and import one or more static GTFS ZIPs and an overlapp
 | --- | --- |
 | `npm run dev` | Browser development with the local engine |
 | `npm run build:studio` | Build and package the desktop application |
+| `npm run package:cli` | Build the CLI-only archive without Studio or HTTP |
+| `npm run check:cli-package` | Verify the extracted CLI and its complete command contracts |
 | `npm test` | Public-repository and engine checks |
 
 Native targets are macOS 13.5+ on ARM64/x64, Linux glibc on ARM64/x64, and Windows x64. Linux release builds use Ubuntu 24.04. Studio requires WebGL 2; Engine does not need a graphics device. Packaged Studio communicates with Engine in memory without a local TCP listener.
@@ -74,6 +77,10 @@ Ask sends questions and selected evidence to the configured inference endpoint. 
 
 ## Documentation
 
+For the smallest command-line distribution, see [VIGO CLI](docs/guides/cli-only.md).
+For a CLI/HTTP ZIP without Studio or the Python wrapper, see
+[Engine packaging and deployment](docs/guides/engine-deployment.md).
+
 | Start | Understand | Go deeper |
 | --- | --- | --- |
 | [CLI quickstart](docs/guides/quickstart.md) · [Studio](docs/guides/studio.md) | [Practical workflows](docs/guides/workflows.md) · [Read a Result](docs/reference/results.md) | [CLI reference](docs/reference/programmatic.md) · [Architecture](docs/development/architecture.md) |
@@ -81,4 +88,4 @@ Ask sends questions and selected evidence to the configured inference endpoint. 
 
 The [offline guide](docs/guide.html) includes a local Result viewer; the [Developer Guide source](docs/developer-guide/VIGO-0.4.3-Developer-Guide.tex) builds the release PDF.
 
-API 1.0, City format 1, and Result schema 1 are unchanged in 0.4.2. VIGO is licensed under [Apache-2.0](LICENSE); see [NOTICE](NOTICE) for attribution.
+API 1.0, City format 1, and Result schema 1 remain unchanged in 0.4.3 development. VIGO is licensed under [Apache-2.0](LICENSE); see [NOTICE](NOTICE) for attribution.

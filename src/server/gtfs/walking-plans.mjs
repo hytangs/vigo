@@ -37,28 +37,28 @@ const serviceAccessAnchorCacheMaxEntries = Math.max(
 )
 
 export function directWalkAlternativePlan(request, preferredWalkKm, alternativeWalkKm) {
-  if (
-    transitRideRequired(request)
-    || request.allowLongWalk === false
-    || !request.streetStorePath
-  ) {
+  if (transitRideRequired(request) || !request.streetStorePath) {
     return { plan: null, walkSearches: 0 }
   }
   const origin = request.origin
   const destination = request.destination
   if (!origin?.coordinate || !destination?.coordinate) return { plan: null, walkSearches: 0 }
-  if (haversineKm(origin.coordinate, destination.coordinate) > alternativeWalkKm) {
+  // The shared policy caps short walks at the endpoint budget and all walks
+  // at the time limit, using the explicit alternative budget for longer walks.
+  const maximumWalkKm = directWalkEndToEndLimitKm({
+    ...request, maxWalkKm: preferredWalkKm, maxStreetKm: alternativeWalkKm,
+  })
+  if (haversineKm(origin.coordinate, destination.coordinate) > maximumWalkKm) {
     return { plan: null, walkSearches: 0 }
   }
   const path = streetPathBetween(
     request.streetStorePath,
     origin.coordinate,
     destination.coordinate,
-    alternativeWalkKm,
+    maximumWalkKm,
   )
-  if (!path || path.distanceKm > directWalkEndToEndLimitKm({ ...request,
-    allowLongWalk: true, maxStreetKm: alternativeWalkKm }) + 1e-9) return { plan: null, walkSearches: 1 }
-  const plan = materializeDirectWalkCandidate(request, alternativeWalkKm, path, {
+  if (!path || path.distanceKm > maximumWalkKm + 1e-9) return { plan: null, walkSearches: 1 }
+  const plan = materializeDirectWalkCandidate(request, maximumWalkKm, path, {
     choiceLabel: 'Walk only',
     title: 'Walk only',
     recommended: false,
@@ -76,7 +76,7 @@ export function directWalkAlternativePlan(request, preferredWalkKm, alternativeW
         alternativeStrategy: 'long_walk_direct',
         longerWalkAlternative: path.distanceKm > preferredWalkKm + 0.01,
         preferredMaxWalkKm: preferredWalkKm,
-        alternativeMaxWalkKm: alternativeWalkKm,
+        alternativeMaxWalkKm: maximumWalkKm,
       },
     },
     walkSearches: 1,

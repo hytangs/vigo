@@ -1,5 +1,8 @@
 mod source;
+#[cfg(not(feature = "node"))]
+use crate::standalone_types as napi;
 use napi::bindgen_prelude::*;
+#[cfg(feature = "node")]
 use napi_derive::napi;
 pub use source::*;
 use std::time::Instant;
@@ -18,7 +21,7 @@ pub use preparation::*;
 
 mod journeys;
 mod overlay_quality;
-pub use journeys::TimetableMatrixJourney;
+pub use journeys::{TimetableMatrixJourney, TimetableMatrixLeg};
 
 const STATE_STRIDE: usize = 8;
 const NO_STATE: i32 = -1;
@@ -117,7 +120,9 @@ impl ExitEvent {
     }
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableKernelInput {
     pub stop_count: u32,
     pub run_count: u32,
@@ -143,7 +148,9 @@ pub struct TimetableKernelInput {
 }
 
 #[derive(Clone)]
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableQueryInput {
     pub origin_stops: Vec<u32>,
     pub origin_walk_seconds: Vec<f64>,
@@ -158,7 +165,9 @@ pub struct TimetableQueryInput {
     pub maximum_boardings: Option<u32>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableQueryResult {
     pub supported: bool,
     pub status: String,
@@ -187,7 +196,9 @@ pub struct TimetableQueryResult {
     pub explicit_transfer_checks: u32,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableArriveByQueryInput {
     pub origin_stops: Vec<u32>,
     pub origin_walk_seconds: Vec<f64>,
@@ -202,7 +213,9 @@ pub struct TimetableArriveByQueryInput {
     pub maximum_boardings: Option<u32>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableArriveByQueryResult {
     pub supported: bool,
     pub status: String,
@@ -219,7 +232,9 @@ pub struct TimetableArriveByQueryResult {
     pub explicit_transfer_checks: u32,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableManyQueryInput {
     pub origin_stops: Vec<u32>,
     pub origin_walk_seconds: Vec<f64>,
@@ -234,7 +249,9 @@ pub struct TimetableManyQueryInput {
     pub maximum_boardings: Option<u32>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableArriveByManyQueryInput {
     pub origin_offsets: Vec<u32>,
     pub origin_stops: Vec<u32>,
@@ -249,7 +266,9 @@ pub struct TimetableArriveByManyQueryInput {
     pub maximum_boardings: Option<u32>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableArriveByManyQueryResult {
     pub latest_departures: Vec<f64>,
     pub query_ns: f64,
@@ -261,7 +280,9 @@ pub struct TimetableArriveByManyQueryResult {
     pub explicit_transfer_checks: u32,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableMatrixQueryInput {
     pub origin_offsets: Vec<u32>,
     pub origin_stops: Vec<u32>,
@@ -278,7 +299,9 @@ pub struct TimetableMatrixQueryInput {
     pub include_journeys: Option<bool>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableMatrixQueryResult {
     pub times: Vec<f64>,
     pub journeys: Option<Vec<Option<TimetableMatrixJourney>>>,
@@ -292,7 +315,9 @@ pub struct TimetableMatrixQueryResult {
     pub explicit_transfer_checks: f64,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableManyQueryResult {
     pub supported: bool,
     pub status: String,
@@ -321,7 +346,9 @@ pub struct TimetableManyQueryResult {
 /// Overlay stops are local indices in `0..overlay_stop_count`; the native
 /// kernel maps them immediately after the resident stop domain. Supplemental
 /// transfers use that combined resident+overlay stop domain.
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableOverlayManyQueryInput {
     pub origin_stops: Vec<u32>,
     pub origin_walk_seconds: Vec<f64>,
@@ -359,7 +386,9 @@ pub struct TimetableOverlayManyQueryInput {
     pub certify_journey: Option<bool>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableOverlayManyQueryResult {
     pub timetable: TimetableManyQueryResult,
     pub overlay_connections: u32,
@@ -378,7 +407,9 @@ pub struct TimetableOverlayManyQueryResult {
     pub quality_reason: Option<String>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableParetoQueryInput {
     pub origin_stops: Vec<u32>,
     pub origin_walk_seconds: Vec<f64>,
@@ -406,7 +437,9 @@ pub struct TimetableParetoQueryInput {
     pub deadline_objective: Option<bool>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableParetoQueryResult {
     pub supported: bool,
     pub status: String,
@@ -464,7 +497,9 @@ pub struct TimetableParetoQueryResult {
     pub label_bytes: f64,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableParetoAlternative {
     pub best_arrival: f64,
     pub best_boardings: u32,
@@ -480,7 +515,9 @@ pub struct TimetableParetoAlternative {
     pub chain_arrivals: Vec<f64>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableKernelDiagnostics {
     pub stop_count: u32,
     pub state_count: u32,
@@ -3182,7 +3219,7 @@ fn boarding_ready_time(
         }
 }
 
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 pub struct TimetableKernel {
     stop_count: usize,
     run_count: usize,
@@ -3222,11 +3259,12 @@ pub struct TimetableKernel {
     many_workspace: ManyWorkspace,
     forward_workspace: ForwardWorkspace,
     profile_workspace: ProfileWorkspace,
+    journey_workspace: Option<journeys::JourneyWorkspace>,
 }
 
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 impl TimetableKernel {
-    #[napi(constructor)]
+    #[cfg_attr(feature = "node", napi(constructor))]
     pub fn new(input: TimetableKernelInput) -> napi::Result<Self> {
         let stop_count = input.stop_count as usize;
         let run_count = input.run_count as usize;
@@ -3452,10 +3490,11 @@ impl TimetableKernel {
             many_workspace: ManyWorkspace::new(stop_count, run_count, trip_count),
             forward_workspace: ForwardWorkspace::new(stop_count, run_count),
             profile_workspace: ProfileWorkspace::new(stop_count * STATE_STRIDE, run_count),
+            journey_workspace: None,
         })
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_scalar_csa(
         &mut self,
         input: TimetableQueryInput,
@@ -3650,6 +3689,7 @@ impl TimetableKernel {
             many_workspace: _,
             forward_workspace,
             profile_workspace: _,
+            journey_workspace: _,
         } = self;
         forward_workspace.scalar_identity = None;
         forward_workspace.scalar_first_boarding.fill(u32::MAX);
@@ -4072,7 +4112,7 @@ impl TimetableKernel {
         })
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_arrive_by_csa(
         &mut self,
         input: TimetableArriveByQueryInput,
@@ -4175,6 +4215,7 @@ impl TimetableKernel {
             many_workspace: _,
             forward_workspace: _,
             profile_workspace: _,
+            journey_workspace: _,
         } = self;
         let epoch = workspace.begin_query();
 
@@ -4396,7 +4437,7 @@ impl TimetableKernel {
     /// departure shares a scan across destinations; a fixed deadline shares a
     /// reverse scan across origins. Matrix orientation never changes the time
     /// constraint or reverses the directed physical network.
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_matrix_csa(
         &mut self,
         input: TimetableMatrixQueryInput,
@@ -4450,26 +4491,85 @@ impl TimetableKernel {
             dominated_trip_boardings: 0.0,
             explicit_transfer_checks: 0.0,
         };
-        if input.arrive_by {
+        // A coordinate point journey can use the same destination-directed
+        // scalar scan as Route to establish its primary bound. An unrestricted
+        // witness proves the capped bound only when it fits the requested cap;
+        // otherwise keep the exact layered Matrix scan below. The full journey
+        // rounds still certify boarding/walking ties and reconstruct the same
+        // witness; this shortcut never substitutes the scalar witness itself.
+        let point_bound = if origin_count == 1
+            && destination_count == 1
+            && !input.arrive_by
+            && input.include_journeys == Some(true)
+            && !input.allow_pre_ride_transfers[0]
+            && input
+                .allow_post_ride_transfers
+                .as_ref()
+                .is_some_and(|flags| !flags[0])
+        {
+            boarding_layers(input.maximum_boardings)?;
+            let scalar = self.route_scalar_csa(TimetableQueryInput {
+                origin_stops: input.origin_stops.clone(),
+                origin_walk_seconds: input.origin_walk_seconds.clone(),
+                origin_candidate_indices: (0..input.origin_stops.len() as u32).collect(),
+                destination_stops: input.destination_stops.clone(),
+                destination_walk_seconds: input.destination_walk_seconds.clone(),
+                destination_candidate_indices: (0..input.destination_stops.len() as u32).collect(),
+                departure: input.departure,
+                horizon: input.horizon,
+                allow_pre_ride_transfers: false,
+                allow_post_ride_transfers: Some(false),
+                maximum_boardings: None,
+            })?;
+            (scalar.supported
+                && (scalar.status == "blocked"
+                    || scalar.best_boardings.is_some_and(|boardings| {
+                        input.maximum_boardings.is_none_or(|cap| boardings <= cap)
+                    })))
+            .then_some(scalar)
+        } else {
+            None
+        };
+        if let Some(bound) = point_bound {
+            output.times[0] = bound.best_arrival.unwrap_or(f64::INFINITY);
+            output.forward_searches = 1;
+            output.scanned_departures = f64::from(bound.scanned_departures);
+            output.relaxed_stops = f64::from(bound.relaxed_stops);
+            output.expanded_trip_runs = f64::from(bound.expanded_trip_runs);
+            output.dominated_trip_boardings = f64::from(bound.dominated_trip_boardings);
+            output.explicit_transfer_checks = f64::from(bound.explicit_transfer_checks);
+        } else if input.arrive_by {
+            // Keep the shared endpoint arrays once for the batch. Each reverse
+            // search changes only its destination frontier and terminal policy.
+            let mut query = TimetableArriveByManyQueryInput {
+                origin_offsets: input.origin_offsets.clone(),
+                origin_stops: input.origin_stops.clone(),
+                origin_walk_seconds: input.origin_walk_seconds.clone(),
+                allow_pre_ride_transfers: input.allow_pre_ride_transfers.clone(),
+                allow_post_ride_transfers: None,
+                destination_stops: Vec::new(),
+                destination_walk_seconds: Vec::new(),
+                earliest: input.departure,
+                deadline: input.horizon,
+                excluded_trips: Vec::new(),
+                maximum_boardings: input.maximum_boardings,
+            };
             for destination in 0..destination_count {
                 let range = input.destination_offsets[destination] as usize
                     ..input.destination_offsets[destination + 1] as usize;
-                let result = self.route_arrive_by_many_csa(TimetableArriveByManyQueryInput {
-                    origin_offsets: input.origin_offsets.clone(),
-                    origin_stops: input.origin_stops.clone(),
-                    origin_walk_seconds: input.origin_walk_seconds.clone(),
-                    allow_pre_ride_transfers: input.allow_pre_ride_transfers.clone(),
-                    allow_post_ride_transfers: input
-                        .allow_post_ride_transfers
-                        .as_ref()
-                        .map(|flags| flags[destination]),
-                    destination_stops: input.destination_stops[range.clone()].to_vec(),
-                    destination_walk_seconds: input.destination_walk_seconds[range].to_vec(),
-                    earliest: input.departure,
-                    deadline: input.horizon,
-                    excluded_trips: Vec::new(),
-                    maximum_boardings: input.maximum_boardings,
-                })?;
+                query.allow_post_ride_transfers = input
+                    .allow_post_ride_transfers
+                    .as_ref()
+                    .map(|flags| flags[destination]);
+                query.destination_stops.clear();
+                query
+                    .destination_stops
+                    .extend_from_slice(&input.destination_stops[range.clone()]);
+                query.destination_walk_seconds.clear();
+                query
+                    .destination_walk_seconds
+                    .extend_from_slice(&input.destination_walk_seconds[range]);
+                let result = self.route_arrive_by_many_csa_impl(&query)?;
                 for (origin, departure) in result.latest_departures.into_iter().enumerate() {
                     output.times[origin * destination_count + destination] = departure;
                 }
@@ -4481,22 +4581,32 @@ impl TimetableKernel {
                 output.explicit_transfer_checks += f64::from(result.explicit_transfer_checks);
             }
         } else {
+            let mut query = TimetableManyQueryInput {
+                origin_stops: Vec::new(),
+                origin_walk_seconds: Vec::new(),
+                allow_post_ride_transfers: input.allow_post_ride_transfers.clone(),
+                destination_offsets: input.destination_offsets.clone(),
+                destination_stops: input.destination_stops.clone(),
+                destination_walk_seconds: input.destination_walk_seconds.clone(),
+                departure: input.departure,
+                horizon: input.horizon,
+                allow_pre_ride_transfers: false,
+                excluded_trips: Vec::new(),
+                maximum_boardings: input.maximum_boardings,
+            };
             for origin in 0..origin_count {
                 let range = input.origin_offsets[origin] as usize
                     ..input.origin_offsets[origin + 1] as usize;
-                let result = self.route_many_csa(TimetableManyQueryInput {
-                    origin_stops: input.origin_stops[range.clone()].to_vec(),
-                    origin_walk_seconds: input.origin_walk_seconds[range].to_vec(),
-                    allow_post_ride_transfers: input.allow_post_ride_transfers.clone(),
-                    destination_offsets: input.destination_offsets.clone(),
-                    destination_stops: input.destination_stops.clone(),
-                    destination_walk_seconds: input.destination_walk_seconds.clone(),
-                    departure: input.departure,
-                    horizon: input.horizon,
-                    allow_pre_ride_transfers: input.allow_pre_ride_transfers[origin],
-                    excluded_trips: Vec::new(),
-                    maximum_boardings: input.maximum_boardings,
-                })?;
+                query.origin_stops.clear();
+                query
+                    .origin_stops
+                    .extend_from_slice(&input.origin_stops[range.clone()]);
+                query.origin_walk_seconds.clear();
+                query
+                    .origin_walk_seconds
+                    .extend_from_slice(&input.origin_walk_seconds[range]);
+                query.allow_pre_ride_transfers = input.allow_pre_ride_transfers[origin];
+                let result = self.route_many_csa_impl(&query)?;
                 output.times[origin * destination_count..(origin + 1) * destination_count]
                     .copy_from_slice(&result.best_arrivals);
                 output.forward_searches += 1;
@@ -4519,10 +4629,17 @@ impl TimetableKernel {
     /// and its permitted single pre-ride transfer are reduced only after the
     /// timetable scan. The scalar workspace is reused without stop-sized
     /// allocations or a timetable scan per origin.
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_arrive_by_many_csa(
         &mut self,
         input: TimetableArriveByManyQueryInput,
+    ) -> napi::Result<TimetableArriveByManyQueryResult> {
+        self.route_arrive_by_many_csa_impl(&input)
+    }
+
+    fn route_arrive_by_many_csa_impl(
+        &mut self,
+        input: &TimetableArriveByManyQueryInput,
     ) -> napi::Result<TimetableArriveByManyQueryResult> {
         let started = Instant::now();
         let origin_count = input.origin_offsets.len().saturating_sub(1);
@@ -4780,10 +4897,17 @@ impl TimetableKernel {
         })
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_many_csa(
         &mut self,
         input: TimetableManyQueryInput,
+    ) -> napi::Result<TimetableManyQueryResult> {
+        self.route_many_csa_impl(&input)
+    }
+
+    fn route_many_csa_impl(
+        &mut self,
+        input: &TimetableManyQueryInput,
     ) -> napi::Result<TimetableManyQueryResult> {
         let started = Instant::now();
         let destination_count = input.destination_offsets.len().saturating_sub(1);
@@ -4877,6 +5001,7 @@ impl TimetableKernel {
             many_workspace,
             forward_workspace: _,
             profile_workspace: _,
+            journey_workspace: _,
         } = self;
         // A single Matrix target also supplies the capped point-query anchor.
         // Retain a feasible terminal bound so that scan stops once remaining
@@ -5232,7 +5357,7 @@ impl TimetableKernel {
     /// resident and overlay stop domains, so a journey may alternate between
     /// baseline and proposed service any finite number of times admitted by
     /// the chronological event stream.
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_overlay_many_csa(
         &mut self,
         input: TimetableOverlayManyQueryInput,
@@ -5407,6 +5532,7 @@ impl TimetableKernel {
             many_workspace,
             forward_workspace: _,
             profile_workspace: _,
+            journey_workspace: _,
         } = self;
         let maximum_layer = boarding_layers(input.maximum_boardings)?;
         let first_layer = usize::from(input.maximum_boardings.is_some());
@@ -5995,7 +6121,7 @@ impl TimetableKernel {
         })
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_pareto_round_csa(
         &mut self,
         input: TimetableParetoQueryInput,
@@ -6075,6 +6201,7 @@ impl TimetableKernel {
             many_workspace: _,
             forward_workspace,
             profile_workspace,
+            journey_workspace: _,
         } = self;
         let destination_epoch = destination_workspace.begin_query();
         destination_workspace.allow_post_ride_transfers =
@@ -6151,6 +6278,16 @@ impl TimetableKernel {
                 }
                 time_index += 1;
             }
+            // Capped Route certification can be followed immediately by an
+            // arrive-by deadline or preference certification. Keep this exact
+            // request's universal reachability envelope and its scanned suffix
+            // instead of rebuilding the same forward search. A smaller later
+            // deadline sees a harmless superset; exact rounds still enforce it.
+            forward_workspace
+                .scalar_identity
+                .as_mut()
+                .unwrap()
+                .next_scan_time_index = time_index;
             envelope
         } else {
             forward_workspace.scalar_runs.fill(0);
@@ -6173,7 +6310,12 @@ impl TimetableKernel {
                 transfer_edges,
             )
         };
-        forward_workspace.scalar_identity = None;
+        // A separately built layered envelope overwrites scalar_runs. Never
+        // retain its old scalar identity across that operation (or a query
+        // that does not use the scalar envelope).
+        if !scalar_envelope_reused {
+            forward_workspace.scalar_identity = None;
+        }
         let forward_ns = if restriction_mode.uses_forward() {
             forward_started.elapsed().as_nanos() as f64
         } else {
@@ -6470,7 +6612,7 @@ impl TimetableKernel {
         Ok(result(chain, true))
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn diagnostics(&self) -> TimetableKernelDiagnostics {
         let source_array_bytes = self.departure_seconds.len() * std::mem::size_of::<u32>()
             + self.arrival_seconds.len() * std::mem::size_of::<u32>()
@@ -6514,7 +6656,12 @@ impl TimetableKernel {
             workspace_bytes: (self.workspace.byte_length()
                 + self.many_workspace.byte_length()
                 + self.forward_workspace.byte_length()
-                + self.profile_workspace.byte_length()) as f64,
+                + self.profile_workspace.byte_length()
+                + self
+                    .journey_workspace
+                    .as_ref()
+                    .map_or(0, journeys::JourneyWorkspace::byte_length))
+                as f64,
             source_array_bytes: source_array_bytes as f64,
             native_index_bytes: native_index_bytes as f64,
             array_bytes: array_bytes as f64,

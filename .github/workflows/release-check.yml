@@ -25,11 +25,49 @@ jobs:
       - run: npm ci
       - run: npm run check:release
       - run: cargo test --manifest-path native/vigo-routing-kernel/Cargo.toml
-      - run: cargo clippy --release --all-targets --all-features --manifest-path native/vigo-routing-kernel/Cargo.toml -- -D warnings
+      - run: cargo clippy --release --all-targets --manifest-path native/vigo-routing-kernel/Cargo.toml -- -D warnings
+      - run: cargo test --no-default-features --features standalone --manifest-path native/vigo-routing-kernel/Cargo.toml
+      - run: cargo clippy --all-targets --no-default-features --features standalone --manifest-path native/vigo-routing-kernel/Cargo.toml -- -D warnings
+      - run: npm run check:standalone
+      - name: Package and verify standalone Rust
+        run: python scripts/package-standalone.py
+      - run: python test/check-standalone-package.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rust-${{ matrix.os }}
+          path: |
+            release/rust/*.tar.gz
+            release/rust/*.tar.gz.sha256
+          compression-level: 0
+          if-no-files-found: error
       - run: xvfb-run -a npm run check:studio-runtime
         if: runner.os == 'Linux'
       - run: npm run check:studio-runtime
         if: runner.os != 'Linux'
+      - name: Build and archive headless Engine
+        id: engine
+        run: npm run package:engine
+      - run: npm run check:engine-package
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: engine-${{ matrix.os }}
+          path: |
+            ${{ steps.engine.outputs.archive-path }}
+            ${{ steps.engine.outputs.archive-path }}.sha256
+          compression-level: 0
+          if-no-files-found: error
+      - name: Build and archive CLI only
+        id: cli
+        run: npm run package:cli
+      - run: npm run check:cli-package
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cli-${{ matrix.os }}
+          path: |
+            ${{ steps.cli.outputs.archive-path }}
+            ${{ steps.cli.outputs.archive-path }}.sha256
+          compression-level: 0
+          if-no-files-found: error
       - name: Build, verify, and archive Studio
         id: package
         run: npm run release:studio

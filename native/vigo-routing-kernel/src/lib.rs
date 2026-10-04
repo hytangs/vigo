@@ -1,8 +1,17 @@
+// Shared kernels convert Vec buffers into Node typed arrays only in addon builds.
+#![cfg_attr(not(feature = "node"), allow(clippy::useless_conversion))]
 use bincode::Options;
+#[cfg(all(feature = "standalone", not(feature = "node")))]
+pub mod standalone;
+#[cfg(not(feature = "node"))]
+mod standalone_types;
+#[cfg(not(feature = "node"))]
+use crate::standalone_types as napi;
 #[cfg(unix)]
 use memmap2::Advice;
 use memmap2::Mmap;
 use napi::bindgen_prelude::*;
+#[cfg(feature = "node")]
 use napi_derive::napi;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -2161,7 +2170,9 @@ impl EndpointCacheKey {
     }
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct AccessProfileInput {
     pub profile_key: String,
     pub anchor_lons: Vec<f64>,
@@ -2190,7 +2201,9 @@ pub struct AccessProfileInput {
     pub prepare_cch_buckets: Option<bool>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct EndpointRouteInput {
     pub origin_lon: f64,
     pub origin_lat: f64,
@@ -2203,7 +2216,9 @@ pub struct EndpointRouteInput {
     pub disable_cache: Option<bool>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct EndpointRouteResult {
     pub query_token: u32,
     pub cache_hit: bool,
@@ -2248,7 +2263,9 @@ pub struct EndpointRouteResult {
     pub destination_cch_accelerated: bool,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct CoordinateTimetableInput {
     pub origin_lon: f64,
     pub origin_lat: f64,
@@ -2270,7 +2287,9 @@ pub struct CoordinateTimetableInput {
     pub maximum_boardings: Option<u32>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct CoordinateTimetableMatrixInput {
     pub origin_coordinates: Vec<f64>,
     pub destination_coordinates: Vec<f64>,
@@ -2288,7 +2307,9 @@ pub struct CoordinateTimetableMatrixInput {
     pub direct_walk_maximum_m: Option<f64>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct CoordinateTimetableMatrixResult {
     pub direct_walk: Option<StreetMatrixResult>,
     pub origin_cache_hits: u32,
@@ -2299,7 +2320,9 @@ pub struct CoordinateTimetableMatrixResult {
     pub query_ns: f64,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct CoordinateTimetableResult {
     pub endpoints: Option<EndpointRouteResult>,
     pub compact_endpoints: Option<CompactEndpointRouteResult>,
@@ -2326,7 +2349,9 @@ pub struct CoordinateTimetableResult {
 
 /// Fused arbitrary-coordinate origin access plus exact one-to-many timetable
 /// search over the same resident timetable image used by scalar point routing.
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct CoordinateTimetableManyInput {
     pub origin_lon: f64,
     pub origin_lat: f64,
@@ -2344,7 +2369,9 @@ pub struct CoordinateTimetableManyInput {
     pub maximum_boardings: Option<u32>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct CoordinateTimetableManyResult {
     pub access: EndpointRoleResult,
     pub timetable: TimetableManyQueryResult,
@@ -2356,7 +2383,9 @@ pub struct CoordinateTimetableManyResult {
     pub timetable_ns: f64,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct CompactEndpointRouteResult {
     pub query_token: u32,
     pub cache_hit: bool,
@@ -2506,7 +2535,9 @@ impl CompactEndpointRouteResult {
     }
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct EndpointRoleInput {
     pub longitude: f64,
     pub latitude: f64,
@@ -2518,7 +2549,9 @@ pub struct EndpointRoleInput {
     pub disable_cache: Option<bool>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct EndpointRoleResult {
     pub query_token: u32,
     pub cache_hit: bool,
@@ -2543,14 +2576,18 @@ pub struct EndpointRoleResult {
     pub cch_accelerated: bool,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StreetCchBuildInput {
     pub structure_path: String,
     pub metric_path: String,
     pub order_strategy: Option<String>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StreetCchBuildResult {
     pub node_count: u32,
     pub edge_count: u32,
@@ -2565,13 +2602,17 @@ pub struct StreetCchBuildResult {
     pub metric_bytes: f64,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StreetCchLoadInput {
     pub structure_path: String,
     pub metric_path: String,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 #[derive(Clone)]
 pub struct StreetCchLoadResult {
     pub node_count: u32,
@@ -2581,7 +2622,9 @@ pub struct StreetCchLoadResult {
     pub load_ns: f64,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StreetCchProbeInput {
     pub source_nodes: Vec<u32>,
     pub source_distances_m: Vec<f64>,
@@ -2589,7 +2632,9 @@ pub struct StreetCchProbeInput {
     pub reverse: Option<bool>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StreetCchProbeResult {
     pub distances_m: Vec<f64>,
     pub query_ns: f64,
@@ -2597,7 +2642,9 @@ pub struct StreetCchProbeResult {
     pub target_count: u32,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct MaterializePathInput {
     pub query_token: u32,
     pub role: String,
@@ -2605,12 +2652,16 @@ pub struct MaterializePathInput {
     pub maximum_points: u32,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct MaterializePathResult {
     pub coordinates: Vec<f64>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StreetPathInput {
     pub origin_lon: f64,
     pub origin_lat: f64,
@@ -2620,7 +2671,9 @@ pub struct StreetPathInput {
     pub maximum_points: u32,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct AccessMemberPathInput {
     pub origin_member_index: u32,
     pub destination_member_index: u32,
@@ -2631,7 +2684,9 @@ pub struct AccessMemberPathInput {
     pub stop_transfer: Option<bool>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StreetPathResult {
     pub found: bool,
     pub distance_m: f64,
@@ -2649,7 +2704,9 @@ pub struct StreetPathResult {
 /// Scalar directed street distances for a bounded coordinate matrix. The
 /// matrix deliberately returns no path witnesses; callers that need geometry
 /// should replay only the selected cells through `route_path`.
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StreetMatrixInput {
     pub origin_coordinates: Vec<f64>,
     pub destination_coordinates: Vec<f64>,
@@ -2657,7 +2714,9 @@ pub struct StreetMatrixInput {
     pub disable_cache: Option<bool>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StreetMatrixResult {
     pub reused_endpoint_snaps: u32,
     pub distances_m: Vec<f64>,
@@ -2669,13 +2728,17 @@ pub struct StreetMatrixResult {
     pub algorithm: String,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StopTransferGraphInput {
     pub maximum_walk_m: f64,
     pub maximum_neighbors: u32,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StopTransferGraphResult {
     pub from_member_indices: Vec<u32>,
     pub to_member_indices: Vec<u32>,
@@ -2687,7 +2750,9 @@ pub struct StopTransferGraphResult {
     pub build_ns: f64,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct KernelDiagnostics {
     pub snapshot_version: u32,
     pub snapshot_bytes: f64,
@@ -2700,7 +2765,9 @@ pub struct KernelDiagnostics {
     pub native_resident_bytes: f64,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct ProfileDiagnostics {
     pub configured: bool,
     pub profile_key: Option<String>,
@@ -2724,14 +2791,18 @@ pub struct ProfileDiagnostics {
     pub endpoint_cache_maximum_bytes_per_role: f64,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct AccessProfileSnapshotResult {
     pub profile_key: String,
     pub snapshot_bytes: f64,
     pub elapsed_ns: f64,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct WorkspaceReservationResult {
     pub maximum_walk_m: f64,
     pub local_nodes: u32,
@@ -2848,7 +2919,7 @@ impl SnapWorkspace {
     }
 }
 
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 pub struct CoordinateKernel {
     street_cch_load: Option<StreetCchLoadResult>,
     snapshot: Snapshot,
@@ -2874,9 +2945,9 @@ pub struct CoordinateKernel {
     destination_cache_bytes: usize,
 }
 
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 impl CoordinateKernel {
-    #[napi(constructor)]
+    #[cfg_attr(feature = "node", napi(constructor))]
     pub fn new(snapshot_path: String) -> napi::Result<Self> {
         let _ = LazyLock::force(&ENDPOINT_ACCESS_POOL);
         let snapshot = Snapshot::open(&snapshot_path)?;
@@ -2885,7 +2956,7 @@ impl CoordinateKernel {
         Ok(Self::from_snapshot(snapshot))
     }
 
-    #[napi(factory)]
+    #[cfg_attr(feature = "node", napi(factory))]
     pub fn open_prepared(snapshot_path: String, input: StreetCchLoadInput) -> napi::Result<Self> {
         let started = Instant::now();
         let (snapshot, bundles) = join_endpoint_access(
@@ -2900,12 +2971,12 @@ impl CoordinateKernel {
         Ok(kernel)
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn street_cch_load_diagnostics(&self) -> Option<StreetCchLoadResult> {
         self.street_cch_load.clone()
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn load_street_cch_index(
         &mut self,
         input: StreetCchLoadInput,
@@ -2918,7 +2989,7 @@ impl CoordinateKernel {
         Ok(result)
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn configure_terminal_access(&mut self, path: String) -> napi::Result<()> {
         let graph = TerminalAccessGraph::open(&self.snapshot, Path::new(&path))?;
         self.terminal_access = Some(graph);
@@ -2926,7 +2997,7 @@ impl CoordinateKernel {
         Ok(())
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn public_access_components(&self) -> napi::Result<Vec<u32>> {
         let profile = self.profile.as_ref().ok_or_else(|| {
             Error::from_reason(
@@ -2944,7 +3015,7 @@ impl CoordinateKernel {
         Ok(result)
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn set_access_profile(
         &mut self,
         input: AccessProfileInput,
@@ -3236,7 +3307,7 @@ impl CoordinateKernel {
         Ok(self.profile_diagnostics())
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn load_access_profile_snapshot(
         &mut self,
         snapshot_path: String,
@@ -3388,7 +3459,7 @@ impl CoordinateKernel {
         })
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn persist_access_profile_snapshot(
         &self,
         snapshot_path: String,
@@ -3522,7 +3593,7 @@ impl CoordinateKernel {
         })
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_endpoints(
         &mut self,
         input: EndpointRouteInput,
@@ -3767,7 +3838,7 @@ impl CoordinateKernel {
     /// timetable search. `member_timetable_stops` is a precomputed immutable
     /// profile-member -> active-kernel-stop projection; `u32::MAX` means the
     /// member is outside the active service kernel.
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_endpoints_timetable_scalar(
         &mut self,
         mut timetable: ClassInstance<'_, TimetableKernel>,
@@ -4170,7 +4241,7 @@ impl CoordinateKernel {
     /// access followed by one exact timetable scan to every requested stop.
     /// The timetable object is the same resident `TimetableKernel` instance
     /// used by scalar point and matrix queries.
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_endpoint_timetable_many(
         &mut self,
         mut timetable: ClassInstance<'_, TimetableKernel>,
@@ -4248,7 +4319,7 @@ impl CoordinateKernel {
         })
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn clear_endpoint_caches(&mut self) {
         self.origin_cache.clear();
         self.origin_cache_order.clear();
@@ -4261,7 +4332,7 @@ impl CoordinateKernel {
         self.query_token = self.query_token.wrapping_add(1).max(1);
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn reserve_endpoint_workspaces(
         &mut self,
         maximum_walk_m: f64,
@@ -4289,7 +4360,7 @@ impl CoordinateKernel {
     /// Build and persist the metric-independent street CCH plus its walking
     /// distance metric. This is an offline/prewarm operation; endpoint queries
     /// only mmap the resulting immutable files.
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn build_street_cch_index(
         &self,
         input: StreetCchBuildInput,
@@ -4420,7 +4491,7 @@ impl CoordinateKernel {
         })
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn probe_street_cch(
         &mut self,
         input: StreetCchProbeInput,
@@ -4508,7 +4579,7 @@ impl CoordinateKernel {
         })
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn street_surface(&self, input: StreetSurfaceInput) -> napi::Result<StreetSurfaceResult> {
         street_analysis::street_surface(
             &self.snapshot,
@@ -4517,7 +4588,7 @@ impl CoordinateKernel {
         )
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn timed_connectors(
         &mut self,
         mut input: TimedConnectorInput,
@@ -4668,7 +4739,7 @@ impl CoordinateKernel {
         Ok(result)
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_endpoint(&mut self, input: EndpointRoleInput) -> napi::Result<EndpointRoleResult> {
         if !input.maximum_walk_m.is_finite() || input.maximum_walk_m <= 0.0 {
             return Err(Error::from_reason(
@@ -4827,7 +4898,7 @@ impl CoordinateKernel {
         })
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn materialize_path(
         &mut self,
         input: MaterializePathInput,
@@ -4943,7 +5014,7 @@ impl CoordinateKernel {
         })
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_path(&mut self, input: StreetPathInput) -> napi::Result<StreetPathResult> {
         if !input.maximum_distance_m.is_finite() || input.maximum_distance_m <= 0.0 {
             return Err(Error::from_reason(
@@ -5009,7 +5080,7 @@ impl CoordinateKernel {
         )
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_access_member_path(
         &mut self,
         input: AccessMemberPathInput,
@@ -5078,7 +5149,7 @@ impl CoordinateKernel {
         )
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn build_stop_transfer_graph(
         &mut self,
         input: StopTransferGraphInput,
@@ -5180,7 +5251,7 @@ impl CoordinateKernel {
         })
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn diagnostics(&self) -> KernelDiagnostics {
         let profile_bytes = self
             .profile
@@ -5218,7 +5289,7 @@ impl CoordinateKernel {
         }
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn profile_diagnostics(&self) -> ProfileDiagnostics {
         let endpoint_cache_entries = self.origin_cache.len() + self.destination_cache.len();
         let endpoint_cache_bytes = self.origin_cache_bytes + self.destination_cache_bytes;

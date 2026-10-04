@@ -25,6 +25,7 @@ import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 import { finalizeCurrentStreetFixture } from './helpers/street-fixture.mjs'
 import { processFixtureDirectory } from './helpers/fixture-process.mjs'
 import { blockedPlan } from '../src/server/gtfs/route-results.mjs'
+import { directWalkAlternativePlan } from '../src/server/gtfs/walking-plans.mjs'
 import { disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
 
 const unavailableAccessDiagnostic = blockedPlan(
@@ -1489,6 +1490,23 @@ try {
       source: 'map',
     },
     maxStreetKm: 0.3,
+  }
+  for (const [label, query, expectedWalk] of [
+    ['Short walks remain available', { ...shortWalkRequest, allowLongWalk: false }, true],
+    ['Long walks respect the opt-out', { ...transitReadyWholeLegWalkRequest, allowLongWalk: false }, false],
+    ['Long walks respect the opt-in', { ...transitReadyWholeLegWalkRequest, allowLongWalk: true }, true],
+    ['Walking respects the time limit', { ...shortWalkRequest, horizonMinutes: 1 }, false],
+    ['Explicit transit-only routing requires a ride', { ...shortWalkRequest, requireTransitRide: true }, false],
+    ['The engine default still requires a ride', { ...shortWalkRequest, requireTransitRide: undefined }, false],
+  ]) {
+    const { plan: walk } = directWalkAlternativePlan(query, query.maxWalkKm, 0.3)
+    assert.equal(Boolean(walk), expectedWalk, label)
+    if (walk) {
+      assert.equal(walk.travelMode, 'walk')
+      assert.equal(walk.legs[0].walkSource, 'osm')
+      assert.equal(walk.departMinutes, query.departMinutes)
+      if (query.allowLongWalk === false) assert(walk.legs[0].distanceKm <= query.maxWalkKm)
+    }
   }
   const transitReadyWholeLegWalk = routeNationalGtfsStore(
     shortTransitStorePath,

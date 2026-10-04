@@ -32,25 +32,27 @@ window.fetch=async (url,options)=>{
 function Fixture(){
  const [allowStreetTransfers,setAllowStreetTransfers]=useState(true);
  const [minimumTransferBufferMinutes,setMinimumTransferBufferMinutes]=useState(0);
+ const [allowLongWalk,setAllowLongWalk]=useState(true);
+ const [routingDataMode,setRoutingDataMode]=useState('scheduled');
  const routing=useNationalRouting({active:true,projectId:'fixture',feedId:'fixture',storeKey:'fixture',
-   origin,waypoints,destination,mode:'transit',routingDataMode:'scheduled',departMinutes:480,timePreference:'depart',
-   serviceDay:'weekday',serviceDate:'2026-07-15',maxWalkKm:1.2,allowLongWalk:true,allowStreetTransfers,minimumTransferBufferMinutes,
+   origin,waypoints,destination,mode:'transit',routingDataMode,departMinutes:480,timePreference:'depart',
+   serviceDay:'weekday',serviceDate:'2026-07-15',maxWalkKm:1.2,allowLongWalk,allowStreetTransfers,minimumTransferBufferMinutes,
    departureWindowMinutes:0,realtimeSnapshot:null,routeAllowed:true});
  return React.createElement('main',{className:'app-shell appearance-light accent-teal page-project view-pathfinder',style:{display:'block',overflowY:'auto',width:'100%',maxWidth:380,margin:'0 auto',padding:12}},
   React.createElement('output',{id:'selection-result',style:{display:'none'}},routing.choices[0]?.id||'pending'),
   React.createElement(SidebarPathfinderBox,{
    routingEnabled:false,routingOrigin:origin,routingWaypoints:waypoints,routingDestination:destination,
    routingPlan:null,routingChoices:[],routingScopeStatus:'ready',routingStoreReady:true,
-   routingTimePreference:'depart',routingMode:'transit',routingDataMode:'scheduled',routingDepartureWindowMinutes:0,
-   routingMaxWalkKm:1.2,routingAllowLongWalk:true,routingAllowStreetTransfers:allowStreetTransfers,routingMinimumTransferBufferMinutes:minimumTransferBufferMinutes,
+   routingTimePreference:'depart',routingMode:'transit',routingDataMode,routingDepartureWindowMinutes:0,
+   routingMaxWalkKm:1.2,routingAllowLongWalk:allowLongWalk,routingAllowStreetTransfers:allowStreetTransfers,routingMinimumTransferBufferMinutes:minimumTransferBufferMinutes,
    routingActivity:{kind:'idle',title:'',detail:''},routingAlternativesLoading:false,
    routingServiceDate:'2026-07-15',routingServiceCoverage:null,routingServiceDateAvailability:'covered',
    routingServiceDateOptions:[],storeBackedRouting:true,scheduleTimeMinutes:480,routingPickIndex:null,
    onRunRouting:routing.reset,onRoutingAllowStreetTransfersChange:setAllowStreetTransfers,onRoutingMinimumTransferBufferChange:setMinimumTransferBufferMinutes,
    onPickRoutingPoint:noOp,onReorderRoutingPoints:noOp,onOpenFeed:noOp,onScheduleTimeChange:noOp,
-   onRoutingTimePreferenceChange:noOp,onRoutingModeChange:noOp,onRoutingDataModeChange:noOp,
+   onRoutingTimePreferenceChange:noOp,onRoutingModeChange:noOp,onRoutingDataModeChange:setRoutingDataMode,
    onRoutingDepartureWindowChange:noOp,onRoutingMaxWalkKmChange:noOp,onRoutingMaxTransfersChange:noOp,
-   onRoutingAllowLongWalkChange:noOp,onRoutingServiceDateChange:noOp,onSelectRoutingPlan:noOp,
+   onRoutingAllowLongWalkChange:setAllowLongWalk,onRoutingServiceDateChange:noOp,onSelectRoutingPlan:noOp,
    onToggleRouting:noOp,onClearRouting:noOp}));
 }
 createRoot(document.getElementById('root')).render(React.createElement(Fixture));`
@@ -74,7 +76,11 @@ try {
     await window.loadURL(${JSON.stringify(url)});
     const read=code=>window.webContents.executeJavaScript(code);
     await until(()=>read('document.getElementById("selection-result")?.textContent==="allowed:0"'));
-    await read('document.querySelector(".pathfinder-options").open=true;document.getElementById("pathfinder-street-transfers").click()');
+    assert.equal(await read('window.selectionRequests.at(-1).requireTransitRide'),false,'Point-to-point transit must admit direct walking');
+    await read('document.querySelector(".pathfinder-options").open=true;document.getElementById("pathfinder-long-walk").click()');
+    await until(()=>read('window.selectionRequests.at(-1).allowLongWalk===false'));
+    assert.equal(await read('window.selectionRequests.at(-1).requireTransitRide'),false,'Disabling longer walks must still admit short direct walks');
+    await read('document.getElementById("pathfinder-street-transfers").click()');
     await until(()=>read('document.getElementById("selection-result").textContent==="station:0"'));
     assert.equal(await read('window.selectionRequests.at(-1).allowStreetTransfers'),false);
     assert.equal(await read('document.getElementById("pathfinder-street-transfers").checked'),false);
@@ -102,7 +108,14 @@ try {
     await until(()=>read('document.getElementById("selection-result").textContent==="allowed:0"'));
     await wait(150);
     assert.equal(await read('document.getElementById("selection-result").textContent'),'allowed:0','A superseded restricted response cannot overwrite the new choice');
+    await read('[...document.querySelectorAll("button")].find(button=>button.textContent==="Realtime").click()');
+    await until(()=>read('window.selectionRequests.at(-1).routingDataMode==="realtime"'));
+    assert.equal(await read('window.selectionRequests.at(-1).departNow'),true);
+    assert.equal(await read('window.selectionRequests.at(-1).requireTransitRide'),false,'Depart now must compare direct walking too');
     window.destroy();
   `)
-  console.log(`Transfer selection UI passed: checkbox and buffer dispatch selections, reject obsolete responses and fits 320/390 px. Screenshot: ${screenshotPath}`)
-} finally { await server.close() }
+  console.log(`Route controls passed: walking comparison, realtime mode, transfer settings, obsolete responses and 320/390 px layout. Screenshot: ${screenshotPath}`)
+} finally {
+  await server.close()
+  await fs.rm(path.join(directory, 'vite-cache'), { recursive: true, force: true })
+}

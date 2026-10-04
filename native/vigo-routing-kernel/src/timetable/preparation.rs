@@ -1,10 +1,15 @@
 //! Cold timetable indexing. Preserve source insertion order for equal-cost
 //! transfers, so moving preparation across Node-API does not change witnesses.
+#[cfg(not(feature = "node"))]
+use crate::standalone_types as napi;
 use napi::bindgen_prelude::*;
+#[cfg(feature = "node")]
 use napi_derive::napi;
 use std::collections::{HashMap, HashSet};
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetablePreparationInput {
     pub departure_seconds: Uint32Array,
     pub from_stop: Uint32Array,
@@ -21,7 +26,9 @@ pub struct TimetablePreparationInput {
     pub walking_speed_kph: f64,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetablePreparationResult {
     pub departure_offset: Uint32Array,
     pub departure_order: Uint32Array,
@@ -70,7 +77,7 @@ fn fallback_seconds(coordinates: &[f64], from: usize, to: usize, speed: f64) -> 
     }
 }
 
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 pub fn prepare_timetable_indexes(
     input: TimetablePreparationInput,
 ) -> Result<TimetablePreparationResult> {

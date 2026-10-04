@@ -122,6 +122,7 @@ function newScenarioChange(
   return {
     id: `intervention-${crypto.randomUUID()}`,
     kind,
+    scheduleMode: kind === 'change-line' ? 'preserve-trips' : 'frequency',
     name: kind.replaceAll('-', ' '),
     stops: [],
     headwayMinutes: 10,
@@ -1555,6 +1556,7 @@ export default function App() {
             : undefined
           return {
             ...nextIntervention,
+            scheduleMode: patch.kind === 'change-line' ? 'preserve-trips' : 'frequency',
             routeScope: patch.kind === 'add-line' ? undefined : 'pattern' as const,
             bidirectional: patch.kind === 'add-line',
             ...(['add-line', 'change-line'].includes(patch.kind)
@@ -1819,13 +1821,16 @@ export default function App() {
           : intervention.kind === 'change-line'
             ? 'replace'
             : 'augment',
+        scheduleMode: intervention.kind === 'change-line' ? intervention.scheduleMode ?? 'preserve-trips' : 'frequency',
         sourceRouteId: route ? scenarioSourceRouteId(route) : undefined,
         sourcePatternId: route?.patternId ?? route?.id,
         // Each exact-edge branch replacement is hydrated and excluded by its
         // own GTFS pattern. The UI-level edge scope is expanded below.
         routeScope: intervention.routeScope === 'edge' ? 'pattern' : intervention.routeScope,
         timeModel,
-        bidirectional: intervention.routeScope === 'edge' ? false : intervention.bidirectional,
+        bidirectional: intervention.routeScope === 'edge'
+          || (intervention.kind === 'change-line' && intervention.scheduleMode !== 'frequency')
+          ? false : intervention.bidirectional,
         headwayMinutes: intervention.headwayMinutes,
         startMinutes: intervention.startMinutes,
         endMinutes: intervention.endMinutes,

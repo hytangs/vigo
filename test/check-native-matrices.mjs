@@ -129,7 +129,8 @@ try {
     }
     return { offsets, stops, walkSeconds }
   }
-  for (const [sources, targets] of [[[0], [5, 6, 70]], [[0, 1, 70], [5]], [[0, 1], [5, 6, 0]]]) {
+  for (const [sources, targets] of [[[0], [5, 6, 70]], [[0, 1, 70], [5]], [[0, 1], [5, 6, 0]],
+    [[0, 1, 0, 70, 1], [5, 6, 0, 5, 6]]]) {
     const o = seedSets(sources, 'origin'), d = seedSets(targets, 'destination')
     for (const arriveBy of [false, true]) for (const maximumBoardings of [undefined, 1, 2]) {
       const bounds = { departure: 0, horizon: 1000, arriveBy, maximumBoardings }

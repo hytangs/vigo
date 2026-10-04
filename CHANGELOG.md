@@ -2,7 +2,13 @@
 
 ## 0.4.3 — Unreleased
 
-Begin the next development cycle after the `v0.4.2` tag. No functional changes yet.
+Add a standalone Rust CLI/HTTP runtime and headless Engine and CLI distributions. Keep resident Route, Matrix, and Reach requests behind explicit input, queue, body, response, and worker-deadline bounds; recover after a stalled worker.
+
+Reuse native query workspaces, retain matching forward reachability proofs through arrive-by certification, share duplicate batch endpoint searches, and stop journey rounds after all reachable targets attain their exact time bounds. Retain bounded immutable Rust shape data while reconstructing each active itinerary. Preserve search objectives, transfer caps, directed access, and routing-quality checks.
+
+Correct standalone station-walking evidence to follow the selected entrance/pathway and distinguish verified street segments from unresolved station interiors. Add extracted-package, source-parity, and failure-recovery checks. API 1.0, City format 1, and Result schema 1 remain unchanged; see the [development notes](docs/releases/0.4.3.md) for scope and release limits.
+
+Keep active GTFS departures when editing an existing Reach branch unless a frequency change is explicitly selected. Return complete-network Reach surfaces and optional directed street-edge evidence. Include a verified direct walk as a point-to-point competitor within the shared walking budget.
 
 ## 0.4.2 — 2026-09-26
 

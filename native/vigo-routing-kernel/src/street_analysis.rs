@@ -1,6 +1,9 @@
 use super::{Snap, snaps_for_coordinate};
+#[cfg(not(feature = "node"))]
+use crate::standalone_types as napi;
 use crate::street_snapshot::Snapshot;
 use napi::bindgen_prelude::*;
+#[cfg(feature = "node")]
 use napi_derive::napi;
 use rayon::prelude::*;
 use std::cmp::Ordering;
@@ -10,7 +13,9 @@ use std::time::Instant;
 const DURATION_EPSILON_MINUTES: f64 = 1e-9;
 const DISTANCE_EPSILON_M: f64 = 1e-6;
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StreetSurfaceInput {
     pub bounds: Vec<f64>,
     pub width: u32,
@@ -28,7 +33,9 @@ pub struct StreetSurfaceInput {
     pub expand_bounds_to_reached_edges: bool,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StreetSurfaceNode {
     pub longitude: f64,
     pub latitude: f64,
@@ -36,7 +43,9 @@ pub struct StreetSurfaceNode {
     pub walk_distance_m: f64,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StreetSurfaceEdge {
     pub from_longitude: f64,
     pub from_latitude: f64,
@@ -47,7 +56,9 @@ pub struct StreetSurfaceEdge {
     pub transit_arrival_minutes: Option<f64>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StreetSurfaceResult {
     pub values: Vec<f64>,
     pub full_surface_values: Option<Vec<f64>>,
@@ -72,7 +83,9 @@ pub struct StreetSurfaceResult {
     pub edge_evidence_transit_arrivals: Option<Float64Array>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimedConnectorInput {
     pub seed_coordinates: Vec<f64>,
     pub seed_durations_minutes: Vec<f64>,
@@ -85,7 +98,9 @@ pub struct TimedConnectorInput {
     pub include_target_matrix: bool,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimedConnectorResult {
     pub durations_minutes: Vec<f64>,
     pub walk_distances_m: Vec<f64>,

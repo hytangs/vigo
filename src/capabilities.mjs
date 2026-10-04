@@ -22,6 +22,7 @@ export const publicCliCommands = Object.freeze([
   'route',
   'matrix',
   'reach',
+  'stream',
   'compare',
 ])
 

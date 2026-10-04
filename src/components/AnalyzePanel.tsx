@@ -175,6 +175,10 @@ function hasLineSettings(kind: ScenarioChangeKind) {
   return ['add-line', 'enhance-line', 'change-line'].includes(kind)
 }
 
+function keepsScheduledTrips(intervention: ScenarioChangeDraft) {
+  return intervention.kind === 'change-line' && intervention.scheduleMode !== 'frequency'
+}
+
 function routeScopeLabel(scope: ScenarioRouteScope | undefined) {
   if (scope === 'edge') return 'same ordered A → B edge'
   if (scope === 'route') return 'all branches'
@@ -573,10 +577,10 @@ function interventionDetails(
     source,
     `${intervention.stops.length} stops${editedStops ? ` · ${editedStops} edited` : ''}`,
     `${routeScopeLabel(intervention.routeScope)} · ${timeModelLabel(intervention.timeModel)}`,
-    `${intervention.headwayMinutes} min headway`,
+    keepsScheduledTrips(intervention) ? 'Original scheduled departures' : `${intervention.headwayMinutes} min headway`,
     `${intervention.averageSpeedKph} km/h average speed`,
-    `${serviceTimeLabel(intervention.startMinutes)}–${serviceTimeLabel(intervention.endMinutes)}`,
-    intervention.bidirectional && intervention.routeScope !== 'edge' ? 'both directions' : 'one direction',
+    keepsScheduledTrips(intervention) ? 'Original service dates and hours' : `${serviceTimeLabel(intervention.startMinutes)}–${serviceTimeLabel(intervention.endMinutes)}`,
+    !keepsScheduledTrips(intervention) && intervention.bidirectional && intervention.routeScope !== 'edge' ? 'both directions' : 'one direction',
   ].join(' · ')
 }
 
@@ -1230,18 +1234,36 @@ export function AnalyzePanel({
 
                     {hasLineSettings(intervention.kind) ? (
                       <>
-                        <div className="reach-field-grid">
+                        {intervention.kind === 'change-line' ? (
                           <label className="reach-field">
-                            <span>Headway</span>
+                            <span>Departures</span>
                             <select
-                              value={intervention.headwayMinutes}
+                              value={intervention.scheduleMode ?? 'preserve-trips'}
                               onChange={(event) => onUpdateIntervention(intervention.id, {
-                                headwayMinutes: Number(event.currentTarget.value),
+                                scheduleMode: event.currentTarget.value as 'preserve-trips' | 'frequency',
+                                bidirectional: false,
                               })}
                             >
-                              {lineHeadwayOptions.map((value) => <option key={value} value={value}>{value} min</option>)}
+                              <option value="preserve-trips">Keep scheduled departures</option>
+                              <option value="frequency">Set frequency and hours</option>
                             </select>
+                            {keepsScheduledTrips(intervention) ? <small>Keep every trip on the selected service date. Stop edits change travel times without adding departures.</small> : null}
                           </label>
+                        ) : null}
+                        <div className="reach-field-grid">
+                          {!keepsScheduledTrips(intervention) ? (
+                            <label className="reach-field">
+                              <span>Headway</span>
+                              <select
+                                value={intervention.headwayMinutes}
+                                onChange={(event) => onUpdateIntervention(intervention.id, {
+                                  headwayMinutes: Number(event.currentTarget.value),
+                                })}
+                              >
+                                {lineHeadwayOptions.map((value) => <option key={value} value={value}>{value} min</option>)}
+                              </select>
+                            </label>
+                          ) : null}
                           <label className="reach-field">
                             <span>Average speed</span>
                             <select
@@ -1254,49 +1276,53 @@ export function AnalyzePanel({
                             </select>
                           </label>
                         </div>
-                        <div className="reach-field-grid">
-                          <label className="reach-field">
-                            <span>Service begins</span>
-                            <select
-                              value={intervention.startMinutes}
-                              onChange={(event) => onUpdateIntervention(intervention.id, {
-                                startMinutes: Number(event.currentTarget.value),
-                              })}
-                            >
-                              {serviceStartOptions.map((value) => (
-                                <option key={value} value={value}>{serviceTimeLabel(value)}</option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="reach-field">
-                            <span>Service ends</span>
-                            <select
-                              value={intervention.endMinutes}
-                              onChange={(event) => onUpdateIntervention(intervention.id, {
-                                endMinutes: Number(event.currentTarget.value),
-                              })}
-                            >
-                              {serviceEndOptions.map((value) => (
-                                <option key={value} value={value}>{serviceTimeLabel(value)}</option>
-                              ))}
-                            </select>
-                          </label>
-                        </div>
-                        <label className="reach-check">
-                          <input
-                            type="checkbox"
-                            checked={intervention.routeScope === 'edge' ? false : intervention.bidirectional}
-                            disabled={intervention.routeScope === 'edge'}
-                            onChange={(event) => onUpdateIntervention(intervention.id, {
-                              bidirectional: event.currentTarget.checked,
-                            })}
-                          />
-                          <span><strong>{intervention.kind === 'add-line' ? 'Bidirectional' : 'Add reverse service'}</strong><small>{intervention.routeScope === 'edge'
-                            ? 'Each matching branch follows its published stop order.'
-                            : intervention.kind === 'add-line'
-                              ? 'Operate the modeled line in both directions.'
-                              : 'Also model a reversed copy of this branch. Its reverse is not inferred from GTFS.'}</small></span>
-                        </label>
+                        {!keepsScheduledTrips(intervention) ? (
+                          <>
+                            <div className="reach-field-grid">
+                              <label className="reach-field">
+                                <span>Service begins</span>
+                                <select
+                                  value={intervention.startMinutes}
+                                  onChange={(event) => onUpdateIntervention(intervention.id, {
+                                    startMinutes: Number(event.currentTarget.value),
+                                  })}
+                                >
+                                  {serviceStartOptions.map((value) => (
+                                    <option key={value} value={value}>{serviceTimeLabel(value)}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="reach-field">
+                                <span>Service ends</span>
+                                <select
+                                  value={intervention.endMinutes}
+                                  onChange={(event) => onUpdateIntervention(intervention.id, {
+                                    endMinutes: Number(event.currentTarget.value),
+                                  })}
+                                >
+                                  {serviceEndOptions.map((value) => (
+                                    <option key={value} value={value}>{serviceTimeLabel(value)}</option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                            <label className="reach-check">
+                              <input
+                                type="checkbox"
+                                checked={intervention.routeScope === 'edge' ? false : intervention.bidirectional}
+                                disabled={intervention.routeScope === 'edge'}
+                                onChange={(event) => onUpdateIntervention(intervention.id, {
+                                  bidirectional: event.currentTarget.checked,
+                                })}
+                              />
+                              <span><strong>{intervention.kind === 'add-line' ? 'Bidirectional' : 'Add reverse service'}</strong><small>{intervention.routeScope === 'edge'
+                                ? 'Each matching branch follows its published stop order.'
+                                : intervention.kind === 'add-line'
+                                  ? 'Operate the modeled line in both directions.'
+                                  : 'Also model a reversed copy of this branch. Its reverse is not inferred from GTFS.'}</small></span>
+                            </label>
+                          </>
+                        ) : null}
                       </>
                     ) : null}
 
@@ -1508,7 +1534,7 @@ export function AnalyzePanel({
             ) : null}
             {activeCase?.interventions.some((intervention) => hasLineSettings(intervention.kind)) ? (
               <p className="reach-method-caveat">
-                Scenario departures use the chosen headway and service window. Published paths use median GTFS segment times; road edits distribute those times and add 0.35 minutes at inserted stops. Distance estimates use the chosen speed and stop dwell. These are modeled services, not the original trip timetable or observed operations.
+                Edited lines keep their scheduled departures, service dates, and per-trip timing unless frequency and hours are explicitly changed. Road edits distribute each trip’s running time and add 0.35 minutes at inserted stops. New services and frequency changes use the chosen headway and hours. Travel-time changes are modeled estimates, not observed operations.
               </p>
             ) : null}
             <ul>

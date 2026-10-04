@@ -99,12 +99,20 @@ function normalizedService(value, index) {
   if (!['add', 'augment', 'replace'].includes(operation)) {
     throw badRequest(`scenario.services[${index}].operation must be add, augment, or replace.`)
   }
+  const scheduleMode = value.scheduleMode ?? (operation === 'replace' ? 'preserve-trips' : 'frequency')
+  if (!['preserve-trips', 'frequency'].includes(scheduleMode)) {
+    throw badRequest(`scenario.services[${index}].scheduleMode must be preserve-trips or frequency.`)
+  }
+  const preserveTrips = scheduleMode === 'preserve-trips'
+  if (preserveTrips && (operation !== 'replace' || !value.sourceRouteId || !value.sourcePatternId)) {
+    throw badRequest('Keeping scheduled departures requires a replacement with sourceRouteId and sourcePatternId.')
+  }
   const routeScope = ['pattern', 'edge', 'route'].includes(String(value.routeScope ?? ''))
     ? String(value.routeScope)
     : undefined
   const timeModel = ['preserve-scheduled', 'infer-road', 'estimate-distance'].includes(String(value.timeModel ?? ''))
     ? String(value.timeModel)
-    : 'estimate-distance'
+    : preserveTrips ? 'preserve-scheduled' : 'estimate-distance'
   const geometry = normalizedGeometry(value.geometry, `scenario.services[${index}].geometry`)
   const geometrySource = ['shape', 'stop_sequence', 'osm_drive'].includes(String(value.geometrySource ?? ''))
     ? String(value.geometrySource)
@@ -125,35 +133,74 @@ function normalizedService(value, index) {
   if (timeModel === 'infer-road' && !value.segmentRuntimeMinutes && !value.segmentDistancesKm) {
     throw badRequest(`scenario.services[${index}] requires road distances or segment runtimes for infer-road timing.`)
   }
+  let scheduledTrips
+  if (preserveTrips) {
+    if (!Array.isArray(value.scheduledTrips)) {
+      throw badRequest('Scheduled replacements must be hydrated from the City timetable for the requested service date.')
+    }
+    if (value.scheduledTrips.length > 50_000 || value.scheduledTrips.length * stops.length > 1_000_000) {
+      throw badRequest('The scheduled replacement exceeds the trip or stop-event limit.')
+    }
+    scheduledTrips = value.scheduledTrips.map((trip, tripIndex) => {
+      const label = `scenario.services[${index}].scheduledTrips[${tripIndex}]`
+      const times = (field) => {
+        if (!Array.isArray(trip?.[field]) || trip[field].length !== stops.length) {
+          throw badRequest(`${label}.${field} must contain one value per stop.`)
+        }
+        return trip[field].map((time) => boundedNumber(time, `${label}.${field}`, 0, 0xffff_ffff))
+      }
+      const departureOffsetsSeconds = times('departureOffsetsSeconds')
+      const arrivalOffsetsSeconds = times('arrivalOffsetsSeconds')
+      if (departureOffsetsSeconds[0] !== 0 || arrivalOffsetsSeconds.some((arrival, position) => (
+        arrival > departureOffsetsSeconds[position] || (position > 0 && arrival < departureOffsetsSeconds[position - 1])
+      ))) throw badRequest(`${label} has inconsistent arrival and departure times.`)
+      const flags = (field) => {
+        if (!Array.isArray(trip[field]) || trip[field].length !== stops.length || trip[field].some((flag) => flag !== 0 && flag !== 1)) {
+          throw badRequest(`${label}.${field} must contain one boarding permission per stop.`)
+        }
+        return [...trip[field]]
+      }
+      return {
+        tripId: compactText(trip.tripId, '', 240),
+        departureSeconds: boundedNumber(trip.departureSeconds, `${label}.departureSeconds`, 0, 0xffff_ffff),
+        departureOffsetsSeconds, arrivalOffsetsSeconds,
+        canBoard: flags('canBoard'), canAlight: flags('canAlight'),
+      }
+    })
+  }
   return {
     id: compactText(value.id, `service-${index + 1}`, 80),
     name: compactText(value.name, `Service ${index + 1}`),
     operation,
+    scheduleMode,
+    ...(preserveTrips ? { scheduledTrips } : {}),
     sourceRouteId: value.sourceRouteId ? compactText(value.sourceRouteId, '', 160) : undefined,
     sourcePatternId: value.sourcePatternId ? compactText(value.sourcePatternId, '', 240) : undefined,
     ...(routeScope ? { routeScope } : {}),
     timeModel,
-    bidirectional: value.bidirectional === undefined && operation !== 'add' && value.sourcePatternId
+    bidirectional: preserveTrips || (value.bidirectional === undefined && operation !== 'add' && value.sourcePatternId)
       ? false
       : value.bidirectional !== false,
-    headwayMinutes: boundedNumber(
-      value.headwayMinutes ?? 12,
-      `scenario.services[${index}].headwayMinutes`,
-      2,
-      180,
-    ),
-    startMinutes: boundedNumber(
-      value.startMinutes ?? 5 * 60,
-      `scenario.services[${index}].startMinutes`,
-      0,
-      2_880,
-    ),
-    endMinutes: boundedNumber(
-      value.endMinutes ?? 25 * 60,
-      `scenario.services[${index}].endMinutes`,
-      0,
-      2_880,
-    ),
+    ...(preserveTrips ? {} : {
+      headwayMinutes: boundedNumber(
+        value.headwayMinutes ?? 12,
+        `scenario.services[${index}].headwayMinutes`,
+        2,
+        180,
+      ),
+      startMinutes: boundedNumber(
+        value.startMinutes ?? 5 * 60,
+        `scenario.services[${index}].startMinutes`,
+        0,
+        2_880,
+      ),
+      endMinutes: boundedNumber(
+        value.endMinutes ?? 25 * 60,
+        `scenario.services[${index}].endMinutes`,
+        0,
+        2_880,
+      ),
+    }),
     averageSpeedKph: boundedNumber(
       value.averageSpeedKph ?? 22,
       `scenario.services[${index}].averageSpeedKph`,
@@ -167,7 +214,7 @@ function normalizedService(value, index) {
       10,
     ),
     addedStopDwellMinutes: boundedNumber(
-      value.addedStopDwellMinutes ?? 0,
+      value.addedStopDwellMinutes ?? (preserveTrips ? 0.35 : 0),
       `scenario.services[${index}].addedStopDwellMinutes`,
       0,
       10,
@@ -302,21 +349,36 @@ function compileScenarioOverlay({
   const directionStarts = [0]
   const directionStops = []
   const stopOffsets = []
-  for (const direction of directions) {
+  const arrivalOffsets = []
+  const canBoard = [], canAlight = []
+  const runs = directions.flatMap((direction) => direction.service.scheduleMode === 'preserve-trips'
+    ? direction.service.scheduledTrips.map((trip) => ({
+        ...direction, trip, start: trip.departureSeconds, end: trip.departureSeconds, headway: 1,
+      }))
+    : [{ ...direction, start: direction.service.startMinutes * 60,
+        end: direction.service.endMinutes * 60, headway: direction.service.headwayMinutes * 60 }])
+  for (const direction of runs) {
     directionStops.push(...direction.indexes)
-    stopOffsets.push(...direction.offsets.map((minutes) => minutes * 60))
+    const offsets = direction.trip?.departureOffsetsSeconds ?? direction.offsets.map((minutes) => minutes * 60)
+    stopOffsets.push(...offsets)
+    arrivalOffsets.push(...(direction.trip?.arrivalOffsetsSeconds ?? offsets))
+    canBoard.push(...(direction.trip?.canBoard ?? direction.indexes.map(() => 1)))
+    canAlight.push(...(direction.trip?.canAlight ?? direction.indexes.map(() => 1)))
     directionStarts.push(directionStops.length)
   }
   return {
     directions,
-    overlay: scenarioStops.length ? {
+    overlay: scenarioStops.length && runs.length ? {
       stops: scenarioStops,
       directionOffsets: directionStarts,
       directionStops,
       directionStopOffsetsSeconds: stopOffsets,
-      serviceStartSeconds: directions.map((direction) => direction.service.startMinutes * 60),
-      serviceEndSeconds: directions.map((direction) => direction.service.endMinutes * 60),
-      serviceHeadwaySeconds: directions.map((direction) => direction.service.headwayMinutes * 60),
+      directionArrivalOffsetsSeconds: arrivalOffsets,
+      directionCanBoard: canBoard,
+      directionCanAlight: canAlight,
+      serviceStartSeconds: runs.map((direction) => direction.start),
+      serviceEndSeconds: runs.map((direction) => direction.end),
+      serviceHeadwaySeconds: runs.map((direction) => direction.headway),
     } : null,
   }
 }
@@ -334,6 +396,8 @@ function routeFeatures(directions) {
       serviceId: direction.service.id,
       name: direction.service.name,
       operation: direction.service.operation,
+      scheduleMode: direction.service.scheduleMode,
+      scheduledTripCount: direction.service.scheduledTrips?.length,
       direction: direction.id.endsWith(':inbound') ? 'inbound' : 'outbound',
       headwayMinutes: direction.service.headwayMinutes,
       averageSpeedKph: direction.service.averageSpeedKph,
@@ -657,7 +721,7 @@ function areaPolygons(rings) {
   })
 }
 
-function rasterAreas(values, width, height, bounds, cutoffsMinutes, surface) {
+export function rasterAreas(values, width, height, bounds, cutoffsMinutes, surface) {
   return featureCollection(cutoffsMinutes.flatMap((cutoffMinutes) => {
     const rings = stitchContourSegments(
       areaBoundarySegments(values, width, height, bounds, cutoffMinutes),
@@ -920,7 +984,7 @@ function scenarioLimitations(request, hasScenarioChanges) {
   if (request.scenario.services.length) {
     limitations.push({
       code: 'modeled_scenario_service',
-      detail: 'Scenario services use the specified headway, operating span, average speed, fixed dwell, and ordered stops. They are synthetic schedules rather than published timetables or observed operations.',
+      detail: 'Edited branches keep their active GTFS departures unless a frequency change is explicitly selected. Stop edits model travel and dwell times. New or frequency-based services use the specified headway and operating span; none represent observed operations.',
     })
   }
   if (hasScenarioChanges) {
@@ -1015,7 +1079,7 @@ export function compileReachScenario(value) {
     throw badRequest(`scenario.services is limited to ${maximumScenarioServices} services.`)
   }
   for (const [index, service] of services.entries()) {
-    if (service.endMinutes <= service.startMinutes) {
+    if (service.scheduleMode === 'frequency' && service.endMinutes <= service.startMinutes) {
       throw badRequest(`scenario.services[${index}].endMinutes must be after startMinutes.`)
     }
   }

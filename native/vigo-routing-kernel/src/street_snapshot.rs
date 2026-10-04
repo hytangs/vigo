@@ -1,3 +1,5 @@
+#[cfg(not(feature = "node"))]
+use crate::standalone_types as napi;
 use memmap2::Mmap;
 use napi::bindgen_prelude::Error;
 use serde::Deserialize;

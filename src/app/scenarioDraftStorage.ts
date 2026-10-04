@@ -38,6 +38,7 @@ export function parseStoredScenarios(text: string | null): StoredScenarios {
       && entry.interventions.every((change) => (
         typeof change?.id === 'string' && typeof change.name === 'string'
         && ['add-line', 'enhance-line', 'change-line', 'remove-line'].includes(change.kind)
+        && (change.scheduleMode === undefined || ['preserve-trips', 'frequency'].includes(change.scheduleMode))
         && [change.headwayMinutes, change.averageSpeedKph, change.startMinutes, change.endMinutes].every(Number.isFinite)
         && typeof change.bidirectional === 'boolean'
         && (change.inferredGeometry === undefined || geometry(change.inferredGeometry))

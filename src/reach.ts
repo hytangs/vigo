@@ -387,6 +387,7 @@ export type ScenarioServiceDraft = {
   id: string
   name: string
   operation: 'add' | 'augment' | 'replace'
+  scheduleMode?: 'preserve-trips' | 'frequency'
   sourceRouteId?: string
   bidirectional: boolean
   headwayMinutes: number
@@ -415,6 +416,7 @@ export type ScenarioChangeKind =
 export type ScenarioChangeDraft = {
   id: string
   kind: ScenarioChangeKind
+  scheduleMode?: 'preserve-trips' | 'frequency'
   name: string
   routeId?: string
   routeScope?: ScenarioRouteScope

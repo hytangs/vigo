@@ -10,8 +10,9 @@ pub(crate) fn kernel_input_is_valid(
     let segment_count = input.departure_seconds.len();
     let trip_count = input.trip_start.len().saturating_sub(1);
     stop_count != 0
-        && run_count != 0
-        && segment_count != 0
+        // An exact service date (or a fully canceled realtime snapshot) may
+        // have no runs. Keep the stop/transfer domain for walking and overlays.
+        && (run_count == 0) == (segment_count == 0)
         && run_count <= scan_run_mask as usize
         && segment_count <= i32::MAX as usize
         && input.arrival_seconds.len() == segment_count
@@ -99,7 +100,8 @@ pub(crate) fn trip_index_is_valid(
     trip_start: &[u32],
     segment_trip: &[u32],
 ) -> bool {
-    if trip_start.len() < 2
+    if trip_start.is_empty()
+        || (segment_count > 0 && trip_start.len() < 2)
         || trip_start.first() != Some(&0)
         || trip_start.last().copied() != Some(segment_count as u32)
         || trip_start.windows(2).any(|range| range[0] > range[1])
@@ -185,6 +187,14 @@ pub(crate) fn transfer_index_is_valid(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_service_slice_has_an_empty_trip_index_not_a_fabricated_trip() {
+        assert!(trip_index_is_valid(0, &[0], &[]));
+        assert!(trip_index_is_valid(0, &[0, 0, 0], &[])); // all original trips canceled
+        assert!(!trip_index_is_valid(0, &[], &[]));
+        assert!(!trip_index_is_valid(1, &[0], &[0]));
+    }
 
     #[test]
     fn rejects_out_of_range_transfer_without_indexing_it() {

@@ -1,8 +1,13 @@
 //! Validate persisted station witnesses before any native routing consumes them.
+#[cfg(not(feature = "node"))]
+use crate::standalone_types as napi;
 use napi::bindgen_prelude::*;
+#[cfg(feature = "node")]
 use napi_derive::napi;
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StationPathsValidationInput {
     pub stop_count: u32,
     pub source_count: u32,
@@ -18,7 +23,7 @@ pub struct StationPathsValidationInput {
 fn invalid() -> Error {
     Error::new(Status::InvalidArg, "Prepared station paths are invalid.")
 }
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 pub fn validate_station_paths(p: StationPathsValidationInput) -> Result<()> {
     let stops = p.stop_count as usize;
     let count = p.from.len();

@@ -1,4 +1,7 @@
+#[cfg(not(feature = "node"))]
+use crate::standalone_types as napi;
 use napi::bindgen_prelude::*;
+#[cfg(feature = "node")]
 use napi_derive::napi;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
@@ -443,7 +446,9 @@ fn initialize_drive_cch(
     )
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct DriveKernelInput {
     pub node_count: u32,
     pub node_lats: Float64Array,
@@ -459,14 +464,18 @@ pub struct DriveKernelInput {
     pub cch_distance_metric_path: Option<String>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct DriveTrafficInput {
     pub snapshot_key: String,
     pub edge_indices: Vec<u32>,
     pub edge_time_units: Vec<u32>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct DriveQueryInput {
     pub origin_nodes: Vec<u32>,
     pub origin_snap_meters: Vec<f64>,
@@ -476,7 +485,9 @@ pub struct DriveQueryInput {
     pub traffic: Option<DriveTrafficInput>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct DriveQueryResult {
     pub supported: bool,
     pub status: String,
@@ -506,7 +517,9 @@ pub struct DriveQueryResult {
     pub algorithm: String,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct DriveMatrixInput {
     pub origin_offsets: Vec<u32>,
     pub origin_nodes: Vec<u32>,
@@ -518,7 +531,9 @@ pub struct DriveMatrixInput {
     pub traffic: Option<DriveTrafficInput>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct DriveMatrixResult {
     pub distances_m: Vec<f64>,
     pub durations_s: Vec<f64>,
@@ -570,7 +585,9 @@ struct DriveMatrixCandidate {
     snap_time_units: f64,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct DriveKernelDiagnostics {
     pub cch_arc_count: u32,
     pub node_count: u32,
@@ -628,7 +645,7 @@ fn blocked_drive_result(
     }
 }
 
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 pub struct DriveKernel {
     node_count: usize,
     edge_offsets: Vec<u32>,
@@ -1016,9 +1033,9 @@ impl DriveKernel {
     }
 }
 
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 impl DriveKernel {
-    #[napi(constructor)]
+    #[cfg_attr(feature = "node", napi(constructor))]
     pub fn new(input: DriveKernelInput) -> napi::Result<Self> {
         let node_count = input.node_count as usize;
         let edge_count = input.edge_targets.len();
@@ -1131,7 +1148,7 @@ impl DriveKernel {
         })
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn diagnostics(&self) -> DriveKernelDiagnostics {
         DriveKernelDiagnostics {
             cch_arc_count: match &self.cch {
@@ -1147,7 +1164,7 @@ impl DriveKernel {
         }
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_exact(&mut self, input: DriveQueryInput) -> napi::Result<DriveQueryResult> {
         let started = Instant::now();
         if input.origin_nodes.len() != input.origin_snap_meters.len()
@@ -1526,7 +1543,7 @@ impl DriveKernel {
     /// fastest witnesses are unpacked to keep distance and duration on the
     /// same path; cells that exceed the distance ceiling reuse the exact
     /// constrained fallback. Geometry is intentionally left to point replays.
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_matrix(&mut self, input: DriveMatrixInput) -> napi::Result<DriveMatrixResult> {
         let origin_count = input.origin_offsets.len().saturating_sub(1);
         let target_count = input.target_offsets.len().saturating_sub(1);

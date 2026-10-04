@@ -21,6 +21,7 @@ import {
 import { finalizeCurrentStreetFixture } from './helpers/street-fixture.mjs'
 import { normalizeRoutingPointIdentities } from '../src/server/routing-point-identity.mjs'
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
+import { readGtfsRouteAnalysis } from '../src/server/gtfs-analysis-store.mjs'
 
 const repositoryRoot = path.resolve(import.meta.dirname, '..')
 const folder = await fsp.mkdtemp(path.join(os.tmpdir(), 'vigo-reach-'))
@@ -250,6 +251,22 @@ try {
   }
   const apiReach = await endpoint('reach', { ...boundaryRequest, cutoffsMinutes: [20], rasterSize: 48, includePreliminary: false, includeStreetEdges: false })
   assert(apiReach.result.summary.transitStopSeeds > 0, 'Reach API must resolve imported-stop identity before dispatch.')
+  const localPattern = readGtfsRouteAnalysis(storePath, 'R1', { includeTripIds: true }).routes[0]
+  const replacement = { operation: 'replace', sourceRouteId: 'feed-local::R1', sourcePatternId: localPattern.patternId,
+    routeScope: 'pattern', headwayMinutes: 10, startMinutes: 300, endMinutes: 1500 }
+  const unchangedReach = await endpoint('reach', { ...boundaryRequest, cutoffsMinutes: [20], rasterSize: 48,
+    includePreliminary: false, includeStreetEdges: false, scenario: { services: [replacement] } })
+  assert.equal(unchangedReach.result.surface.raster.scenario, unchangedReach.result.surface.raster.baseline,
+    'An unchanged branch replacement must preserve the actual Reach surface, including through the API hydration boundary.')
+  const editedReplacement = { ...replacement, timeModel: 'infer-road', segmentDistancesKm: [1, 1],
+    addedStopDwellMinutes: 0.35, stops: [
+      { id: 'O', stopId: 'O', baselineStopIndex: 0, coordinate: [8, 47], editStatus: 'baseline' },
+      { id: 'inserted', coordinate: [8.0025, 47], editStatus: 'inserted' },
+      { id: 'A', stopId: 'A', baselineStopIndex: 1, coordinate: [8.005, 47], editStatus: 'baseline' },
+    ] }
+  const missedReach = await endpoint('reach', { ...boundaryRequest, departMinutes: 483, cutoffsMinutes: [20], rasterSize: 48,
+    includePreliminary: false, includeStreetEdges: false, scenario: { services: [editedReplacement] } })
+  assert.equal(missedReach.result.summary.improvedPixels, 0, 'A stop edit after the sole bus departed cannot manufacture an accessibility gain.')
   const apiRoute = await endpoint('national-route', boundaryRequest)
   assert.equal(apiRoute.plan.status, 'ready', 'Route API must resolve both imported-stop endpoints.')
   assert(apiRoute.plan.legs.some(leg => leg.type === 'ride'))

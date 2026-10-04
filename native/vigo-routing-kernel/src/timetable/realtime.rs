@@ -1,10 +1,15 @@
 //! Build one immutable realtime view. The scheduled arrays remain borrowed and
 //! unchanged; original trip indices survive cancellations and skipped calls.
 use super::preparation::departure_index;
+#[cfg(not(feature = "node"))]
+use crate::standalone_types as napi;
 use napi::bindgen_prelude::*;
+#[cfg(feature = "node")]
 use napi_derive::napi;
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct RealtimeCallInput {
     pub stop: u32,
     pub arrival: f64,
@@ -13,12 +18,16 @@ pub struct RealtimeCallInput {
     pub can_board: bool,
     pub can_alight: bool,
 }
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct RealtimeTripInput {
     pub trip: u32,
     pub stops: Vec<RealtimeCallInput>,
 }
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct RealtimeTimetableInput {
     pub stop_count: u32,
     pub departure_seconds: Uint32Array,
@@ -34,7 +43,9 @@ pub struct RealtimeTimetableInput {
     pub canceled: Uint8Array,
     pub replacements: Vec<RealtimeTripInput>,
 }
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct RealtimeTimetableResult {
     pub departure_seconds: Uint32Array,
     pub arrival_seconds: Uint32Array,
@@ -66,7 +77,7 @@ fn malformed() -> Error {
     )
 }
 
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 pub fn compile_realtime_timetable(
     input: RealtimeTimetableInput,
 ) -> Result<RealtimeTimetableResult> {

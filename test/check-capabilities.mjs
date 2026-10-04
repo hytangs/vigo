@@ -20,7 +20,7 @@ const cliPath = path.join(root, 'public', 'vigo.mjs')
 assert.deepEqual(capabilityCatalog.product.model, ['City', 'Scenario', 'Query', 'Result'])
 assert.deepEqual(capabilityCatalog.product.queryFamilies, ['Route', 'Matrix', 'Reach'])
 assert.deepEqual(capabilityCatalog.queries.map((query) => query.id), ['route', 'matrix', 'reach'])
-assert.deepEqual(publicCliCommands, ['build', 'capabilities', 'inspect', 'route', 'matrix', 'reach', 'compare'])
+assert.deepEqual(publicCliCommands, ['build', 'capabilities', 'inspect', 'route', 'matrix', 'reach', 'stream', 'compare'])
 assert.deepEqual(supportedReachRasterSizes, [48, 64, 96, 128, 192, 256, 384, 512, 1024])
 assert.deepEqual(
   capabilityCatalog.productLine.map((product) => product.label),

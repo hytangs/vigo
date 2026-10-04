@@ -2,6 +2,8 @@
 
 Measure the operation the caller waits for. Keep source data, City revision, query semantics, output detail, and status counts fixed when comparing runs.
 
+For the shared native timetable workspace and a reproducible component comparison, see [Timetable query performance](query-performance.md).
+
 | Operation | Start | End |
 | --- | --- | --- |
 | Build from raw files | Invoke `vigo build` with local inputs and a new output City | The complete City is published and the command returns |

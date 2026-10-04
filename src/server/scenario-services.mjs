@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { readNationalGtfsPreview } from './national-gtfs-store.mjs'
 import { readGtfsRouteAnalysis } from './gtfs-analysis-store.mjs'
 import { scenarioEntityCandidates, scenarioEntityMatches } from './scenario-entity-ids.mjs'
+import { hydrateScheduledScenarioService } from './scenario-schedules.mjs'
 
 const scenarioRouteStopCache = new Map()
 const scenarioRouteStopCacheMaxEntries = 256
@@ -188,7 +189,7 @@ export function hydrateScenarioRouteServices(storePath, storeIdentity, body) {
     }
     excludedTripIds.push(...tripIds)
   }
-  for (const service of services) {
+  for (const [index, service] of services.entries()) {
     if (!service || service.operation !== 'replace') continue
     if (!service.sourceRouteId) {
       const error = new Error('A replacement service requires sourceRouteId.')
@@ -203,6 +204,12 @@ export function hydrateScenarioRouteServices(storePath, storeIdentity, body) {
     const routeId = scenarioStoredRouteId(storePath, service.sourceRouteId)
     const patternScoped = service.routeScope === 'pattern'
       || (service.routeScope !== 'route' && Boolean(service.sourcePatternId))
+    const preserveTrips = (service.scheduleMode ?? 'preserve-trips') === 'preserve-trips'
+    if (preserveTrips && (!patternScoped || !service.sourcePatternId)) {
+      const error = new Error('Keeping scheduled departures requires sourcePatternId and selected-branch scope. Expand an exact-edge edit into separate branch replacements.')
+      error.statusCode = 400
+      throw error
+    }
     if (!patternScoped) {
       reserveReplacement(routeId, null)
       excludedRouteIds.push(routeId)
@@ -222,6 +229,9 @@ export function hydrateScenarioRouteServices(storePath, storeIdentity, body) {
     }
     reserveReplacement(routeId, tripIds)
     excludedTripIds.push(...tripIds)
+    if (preserveTrips) {
+      services[index] = hydrateScheduledScenarioService(storePath, service, tripIds, body)
+    }
   }
   return {
     ...body,

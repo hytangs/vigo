@@ -5658,6 +5658,17 @@ function normalizedReachScenarioOverlay(value) {
   const serviceEndSeconds = Array.from(value.serviceEndSeconds ?? [], Number)
   const serviceHeadwaySeconds = Array.from(value.serviceHeadwaySeconds ?? [], Number)
   const directionCount = serviceStartSeconds.length
+  const eventFields = {}
+  for (const field of ['directionArrivalOffsetsSeconds', 'directionCanBoard', 'directionCanAlight']) {
+    if (value[field] === undefined) continue
+    const values = Array.from(value[field], Number)
+    if (values.length !== directionStops.length || values.some((entry) => field === 'directionArrivalOffsetsSeconds'
+      ? !Number.isFinite(entry) || entry < 0
+      : entry !== 0 && entry !== 1)) {
+      throw new Error(`Reach scenario overlay ${field} is inconsistent.`)
+    }
+    eventFields[field] = values
+  }
   if (
     directionOffsets.length !== directionCount + 1
     || directionOffsets[0] !== 0
@@ -5681,6 +5692,7 @@ function normalizedReachScenarioOverlay(value) {
     serviceStartSeconds,
     serviceEndSeconds,
     serviceHeadwaySeconds,
+    ...eventFields,
   }
 }
 
@@ -6295,9 +6307,13 @@ export function routeNationalGtfsReach(storePath, request, options = {}) {
       allowPreRideTransfers: true,
       overlay: {
         stopCount: scenarioOverlay.stops.length,
+        baseStops: scenarioOverlay.stops.map((stop) => stop.stopId ? activeKernel.stopIndex.get(stop.stopId) ?? -1 : -1),
         directionOffsets: scenarioOverlay.directionOffsets,
         directionStops: scenarioOverlay.directionStops,
         directionStopOffsetsSeconds: scenarioOverlay.directionStopOffsetsSeconds,
+        directionArrivalOffsetsSeconds: scenarioOverlay.directionArrivalOffsetsSeconds,
+        directionCanBoard: scenarioOverlay.directionCanBoard,
+        directionCanAlight: scenarioOverlay.directionCanAlight,
         serviceStartSeconds: scenarioOverlay.serviceStartSeconds,
         serviceEndSeconds: scenarioOverlay.serviceEndSeconds,
         serviceHeadwaySeconds: scenarioOverlay.serviceHeadwaySeconds,
@@ -7845,7 +7861,12 @@ export function routeNationalGtfsStore(storePath, request) {
           horizon,
           allowPreRideTransfers: false,
           maxTransfers: request.maxTransfers,
-          retainFullFrontier: true,
+          // A capped fastest query already certifies its complete objective
+          // inside Rust. Return its selected access/egress witnesses directly;
+          // JS certifiers and alternative collection still need all candidates.
+          retainFullFrontier: request.maxTransfers === undefined
+            || request.routingPreference === 'balanced'
+            || Array.isArray(request[departureWindowAlternativePlans]),
           enableDirectWalkDominance: !transitRideRequired(request),
           disableCache: request.__disableNativeStreetPathCache === true,
         },

@@ -2,7 +2,9 @@
 
 The VIGO command builds Cities and runs Route, Matrix, Reach, and Compare from scripts and terminals. See the [Quickstart](../guides/quickstart.md) for installation and complete examples.
 
-This is the public VIGO Engine interface. Studio uses the same core through an internal application channel; its local HTTP endpoints are not a supported external API. Python wraps the command's contracts in the [separate Python package](https://github.com/hytangs/vigo-py). API 1.0, City format 1, and Result schema 1 remain unchanged in 0.4.2; query support is declared by `capabilities` and the [Scenario support table](scenarios.md).
+The [CLI-only package](../guides/cli-only.md) contains the complete command and native kernel without Studio or HTTP. `stream` keeps them resident for mixed Route, Matrix, and Reach requests.
+
+This is the public VIGO Engine interface. The [headless Engine HTTP service](../guides/engine-deployment.md) exposes these same CLI query and Result contracts. Studio uses the same core through an internal application channel; its project-management HTTP endpoints are not a supported external API. Python wraps the command's contracts in the [separate Python package](https://github.com/hytangs/vigo-py). API 1.0, City format 1, and Result schema 1 remain unchanged in 0.4.3 development; query support is declared by `capabilities` and the [Scenario support table](scenarios.md).
 
 | Command | Input | Output |
 | --- | --- | --- |
@@ -12,6 +14,7 @@ This is the public VIGO Engine interface. Studio uses the same core through an i
 | `route` | City, JSON request or CSV, date | Journey or batch rows |
 | `matrix` | City, JSON request, date | One row per pair |
 | `reach` | City, JSON request, date | Surface and contours |
+| `stream` | City, date, NDJSON on stdin | One Result or error per request; resident preparation |
 | `compare` | Two saved Results | Changes without recomputation |
 
 ```bash
@@ -41,6 +44,8 @@ Saved JSON and CSV files are staged beside their destination and renamed after a
 CSV batches require `--input` and an output file, support transit only, and cannot be combined with `--request`. Use a JSON request for walking or driving. Reach uses `--cutoffs` to bound the surface; `--horizon` applies to Route and Matrix.
 
 ## Results and errors
+
+For resident mixed queries, use `vigo stream --city ./city --service-date YYYY-MM-DD < queries.ndjson`. Each line requires `kind: "route"`, `"matrix"`, or `"reach"`; its fields follow the corresponding query request. Responses retain `id` and add `sequence`. Errors are returned per line and do not stop the stream, so inspect each response even when the process exits 0. A process keeps one City and service date; a different date in a request is rejected. See the [resident examples](../guides/cli-only.md#keep-the-engine-resident).
 
 Route uses `result`, Matrix uses `rows`, Reach uses `surface` and `contours`, and Compare uses `change`. Query Results also carry `kind`, `status`, `query`, `warnings`, `timing`, and City identity.
 

@@ -1,6 +1,9 @@
 //! Numeric itinerary materialization. JavaScript owns store lifetime and output
 //! objects; Rust reads shapes, indexes/aligns them and hashes identifiers.
+#[cfg(not(feature = "node"))]
+use crate::standalone_types as napi;
 use napi::bindgen_prelude::*;
+#[cfg(feature = "node")]
 use napi_derive::napi;
 use rusqlite::{Connection, OpenFlags, types::ValueRef};
 use std::collections::{HashMap, VecDeque};
@@ -111,7 +114,7 @@ struct State {
 /// A source reader owned by the same lifetime as the JS routing store. Reading
 /// directly into native points avoids one JS object and two coordinate copies
 /// per shape point. It does not retain shapes or itinerary answers.
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 pub struct ShapeGeometrySource {
     db: Option<Connection>,
 }
@@ -138,9 +141,9 @@ fn coordinate_number(value: ValueRef<'_>) -> Option<f64> {
     number.is_finite().then_some(number)
 }
 
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 impl ShapeGeometrySource {
-    #[napi(constructor)]
+    #[cfg_attr(feature = "node", napi(constructor))]
     pub fn new(store_path: String) -> Result<Self> {
         let db = Connection::open_with_flags(
             store_path,
@@ -153,7 +156,7 @@ impl ShapeGeometrySource {
         Ok(Self { db: Some(db) })
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn read_shape(&self, shape_id: String) -> Result<Option<ShapeGeometry>> {
         let db = self
             .db
@@ -177,13 +180,13 @@ impl ShapeGeometrySource {
         ShapeGeometry::from_points(points).map(Some)
     }
 
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn close(&mut self) {
         self.db.take();
     }
 }
 
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 pub struct ShapeGeometry {
     points: Vec<[f64; 2]>,
     prefix: Vec<f64>,
@@ -193,20 +196,22 @@ pub struct ShapeGeometry {
     candidate_bytes: usize,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct ShapeRenderCoordinates {
     pub coordinates: Float64Array,
     pub distinct_indices: Option<Uint32Array>,
 }
 
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 impl ShapeGeometry {
-    #[napi(constructor)]
+    #[cfg_attr(feature = "node", napi(constructor))]
     pub fn new(values: Float64Array) -> Result<Self> {
         Self::from_points(coordinates(&values)?)
     }
 
-    #[napi(getter)]
+    #[cfg_attr(feature = "node", napi(getter))]
     pub fn point_count(&self) -> u32 {
         self.points.len() as u32
     }
@@ -214,7 +219,7 @@ impl ShapeGeometry {
     // One compact coordinate column per prepared shape, rather than crossing
     // Node-API and allocating a native output buffer for every selected leg.
     // Its bytes are accounted separately by the owning JS store.
-    #[napi(getter)]
+    #[cfg_attr(feature = "node", napi(getter))]
     pub fn packed_coordinates(&self) -> Float64Array {
         self.points
             .iter()
@@ -227,7 +232,7 @@ impl ShapeGeometry {
     /// Compile the source-order distinct-point projection once with the
     /// coordinate column. Shapes without consecutive duplicates need no index.
     /// Both returned columns are owned and budgeted by the JS routing store.
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn render_coordinates(&self) -> ShapeRenderCoordinates {
         let mut coordinates = Vec::with_capacity(self.points.len() * 2);
         let mut distinct: Option<Vec<u32>> = None;
@@ -247,7 +252,7 @@ impl ShapeGeometry {
 
     /// Returns source-order point indices, or an empty array when no monotone
     /// alignment is possible. No approximate nearest-neighbor search is used.
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn align_stops(&mut self, values: Float64Array) -> Result<Uint32Array> {
         let stops = coordinates(&values)?;
         Ok(self.align(&stops).into())
@@ -255,7 +260,7 @@ impl ShapeGeometry {
 
     // Includes allocated cache capacities, so JS can evict the complete shape
     // when candidate reuse grows beyond its owning store's byte budget.
-    #[napi(getter)]
+    #[cfg_attr(feature = "node", napi(getter))]
     pub fn estimated_bytes(&self) -> f64 {
         (self.points.capacity() * std::mem::size_of::<[f64; 2]>()
             + self.prefix.capacity() * std::mem::size_of::<f64>()
@@ -466,7 +471,7 @@ impl ShapeGeometry {
 /// Preserve JavaScript String iteration: valid surrogate pairs are one code
 /// point; unpaired surrogates retain their original code-unit value. Hashing
 /// UTF-8 bytes or replacing malformed surrogates would change existing IDs.
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 pub fn stable_key_suffix(value: Utf16String) -> String {
     let mut state = 0xcbf29ce484222325_u64;
     for character in char::decode_utf16(value.iter().copied()) {

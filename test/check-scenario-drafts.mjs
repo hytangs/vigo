@@ -9,6 +9,14 @@ const restored = parseStoredScenarios(JSON.stringify(draft))
 assert.equal(restored.cases[0].interventions[0].geometryStatus, 'idle', 'Interrupted geometry work must be restartable.')
 assert.deepEqual(restored.cases[0].interventions[0].stops, change.stops)
 assert.equal(restored.activeChangeId, 'change')
+for (const scheduleMode of ['preserve-trips', 'frequency']) {
+  const saved = { ...draft, cases: [{ ...draft.cases[0], interventions: [{ ...change, scheduleMode }] }] }
+  assert.equal(parseStoredScenarios(JSON.stringify(saved)).cases[0].interventions[0].scheduleMode, scheduleMode,
+    'Reopening a saved draft must retain its explicit departure mode.')
+}
+assert.throws(() => parseStoredScenarios(JSON.stringify({ ...draft,
+  cases: [{ ...draft.cases[0], interventions: [{ ...change, scheduleMode: 'unknown' }] }],
+})), /stored copy has been kept/)
 assert.deepEqual(parseStoredScenarios(null), emptyScenarios())
 assert.equal(parseStoredScenarios(JSON.stringify({ ...draft, activeCaseId: 'missing', activeChangeId: 'missing' })).activeChangeId, '')
 for (const text of ['{', 'null', '{}', JSON.stringify({ ...draft, cases: [draft.cases[0], draft.cases[0]] }),

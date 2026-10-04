@@ -12,7 +12,7 @@ VIGO 0.4.2 supports planned service changes in Reach, supplied traffic in Drive 
 
 ## Planned service
 
-A planned service change states what changes and supplies enough information to run it: ordered stops, operating span, frequency, and travel-time assumptions. It never contains a precomputed network surface.
+A planned service change states what changes and supplies enough information to run it: ordered stops and travel-time assumptions, plus a departure schedule. Existing branch edits retain their GTFS trips by default; new service specifies frequency and operating hours. A Scenario never contains a precomputed network surface.
 
 A Reach request can include this `scenario` object:
 
@@ -41,13 +41,17 @@ A Reach request can include this `scenario` object:
 
 `operation` is `add`, `augment`, or `replace`. `excludedRouteIds` removes selected scheduled route variants for the Scenario. These changes remain tied to the City revision used to create the Scenario.
 
-`replace` requires `sourceRouteId` and removes that scheduled route before applying the new service. Supply `sourcePatternId` and `routeScope: "pattern"` to replace just one branch. Studio and the CLI resolve these references through the same code.
+`replace` defaults to `scheduleMode: "preserve-trips"` and requires `sourceRouteId`, `sourcePatternId`, and selected-branch scope (`routeScope: "pattern"`, or omitted when a pattern is supplied). Studio and the CLI load the actual trips active on the query's service date, including calendar exceptions and departures after midnight. Each affected trip produces exactly one replacement; irregular gaps, per-trip running times, dwell, and pickup/drop-off restrictions are retained. Editing stops never adds departures or reverse service. Legacy replacement requests also use this default: old headway/hour fields are ignored unless frequency mode is explicitly selected.
+
+To change the timetable deliberately, use `scheduleMode: "frequency"` with `headwayMinutes`, `startMinutes`, and `endMinutes`. Studio exposes this as **Departures → Set frequency and hours**. This mode can replace a whole route; `add` and `augment` use frequency mode by default. **Keep scheduled departures** requires a specific branch so one edited stop sequence cannot silently replace unrelated branches.
 
 In Studio, **Selected branch only** keeps the change on the chosen pattern. **All branches serving this exact A → B edge** applies one inserted gap to every occurrence of that ordered stop pair within the same feed and public route. It does not include the reverse B → A edge. The editor shows the affected branches and occurrences before running. This scope requires complete branch analysis and one inserted gap; use selected-branch scope for moved stops, extensions, or edits to multiple gaps. Repeated stop visits retain their own position in the sequence and their published runtimes. Overlapping replacement services are rejected.
 
-Editing an existing GTFS branch follows its published direction by default. Creating reverse service is an explicit scenario choice; it is not inferred from a shared route name.
+Editing an existing GTFS branch follows its published direction. Creating reverse service is available in frequency mode as an explicit scenario choice; it is not inferred from a shared route name.
 
-For an edited GTFS line, road geometry distributes the original A → B runtime among the edited gaps. `addedStopDwellMinutes` adds dwell at inserted stops in each direction. New lines use `segmentDistancesKm` and `averageSpeedKph` for road timing, plus `dwellMinutes`. Segment distance and runtime arrays must contain one value per stop pair. Studio requires a completed road path before running a road-following Scenario.
+For a branch retaining its trips, road geometry distributes each trip's original A → B running time among the edited gaps. Original dwell remains at retained stops; `addedStopDwellMinutes` (default 0.35) adds dwell at inserted stops. Removing an intermediate stop removes its dwell. The first retained GTFS stop anchors departure timing; a preceding extension departs earlier, while later stop edits shift downstream times. At least one original stop must remain, with `baselineStopId`/`baselineStopIndex` identifying moved stops and repeated visits. An extension requiring a departure before the service date is rejected. Straight-line estimates use the supplied speed for changed gaps; untouched gaps keep their trip-specific times. These are modeled timing changes, not a vehicle or crew scheduling feasibility check.
+
+New lines use `segmentDistancesKm` and `averageSpeedKph` for road timing, plus `dwellMinutes`. Frequency-mode edits use the supplied segment runtime estimates. Segment distance and runtime arrays must contain one value per stop pair. Studio requires a completed road path before running a road-following Scenario.
 
 ## Compare the change
 

@@ -5,8 +5,12 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { importTestModules } from './helpers/import-test-modules.mjs'
 import { readGtfsRouteAnalysis } from '../src/server/gtfs-analysis-store.mjs'
-import { hydrateScenarioRouteServices } from '../src/server/scenario-services.mjs'
+import { hydrateScenarioRouteServices as hydrateServices } from '../src/server/scenario-services.mjs'
 import { compileReachScenario } from '../src/server/reach.mjs'
+
+const hydrateScenarioRouteServices = (storePath, identity, body) => hydrateServices(storePath, identity, {
+  serviceDate: '2026-07-20', ...body,
+})
 
 const [{ orderedPolylineAnchors }, reach] = await importTestModules('app/geometry.ts', 'reach.ts')
 assert.deepEqual(orderedPolylineAnchors([[0, 0], [0.01, 0]], [[0, 0], [0.01, 0], [0.01, 0]])
@@ -25,7 +29,7 @@ const preview = { stops: Object.entries(coordinates).map(([id, [lon, lat]]) => (
   stopPairs: [1, 2, 3, 10, 5].map((medianRuntimeMinutes, index) => ({ patternId: route.id,
     fromStopId: route.stopIds[index], toStopId: route.stopIds[index + 1], sequence: index + 1, medianRuntimeMinutes })) }
 const baseline = scenarioStopsForRoute(route, preview)
-const patternService = { operation: 'replace', sourceRouteId: 'R', sourcePatternId: 'loop', stops: baseline }
+const patternService = { operation: 'replace', scheduleMode: 'frequency', sourceRouteId: 'R', sourcePatternId: 'loop', stops: baseline }
 assert.equal(compileReachScenario({ services: [patternService] }).overlay.directionOffsets.length, 2,
   'A selected-pattern replacement defaults to its existing direction, without inventing reverse service.')
 assert.equal(compileReachScenario({ services: [{ ...patternService, bidirectional: true }] }).overlay.directionOffsets.length, 3,
@@ -92,6 +96,7 @@ try {
   const storePath = join(directory, 'fixture.sqlite')
   const db = new DatabaseSync(storePath)
   db.exec(`
+    CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT);
     CREATE TABLE routes(route_id TEXT PRIMARY KEY, short_name TEXT, long_name TEXT, route_type INTEGER, color TEXT);
     CREATE TABLE trips(trip_id TEXT PRIMARY KEY, route_id TEXT, service_id TEXT, direction_id TEXT);
     CREATE INDEX trips_route ON trips(route_id, trip_id);
@@ -100,6 +105,10 @@ try {
       from_stop_id TEXT, to_stop_id TEXT, stop_sequence INTEGER, PRIMARY KEY(trip_id, stop_sequence));
     CREATE TABLE trip_shapes(trip_id TEXT PRIMARY KEY, shape_id TEXT);
     CREATE TABLE shape_points(shape_id TEXT, sequence INTEGER, lat REAL, lon REAL, PRIMARY KEY(shape_id, sequence));
+    CREATE TABLE calendar(service_id TEXT, start_date INTEGER, end_date INTEGER,
+      monday INTEGER, tuesday INTEGER, wednesday INTEGER, thursday INTEGER, friday INTEGER, saturday INTEGER, sunday INTEGER);
+    CREATE TABLE calendar_dates(service_id TEXT, date INTEGER, exception_type INTEGER);
+    INSERT INTO calendar_dates VALUES('WKD', 20260720, 1);
   `)
   for (const [id, [lon, lat]] of Object.entries(coordinates)) db.prepare('INSERT INTO stops VALUES(?,?,?,?,NULL,0,NULL)').run(id, id, lat, lon)
   for (const [id, [lon, lat]] of Object.entries(coordinates)) db.prepare('INSERT INTO stops VALUES(?,?,?,?,NULL,0,NULL)').run(`feed-a\u001f${id}`, id, lat, lon)

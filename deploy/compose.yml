@@ -1,0 +1,32 @@
+services:
+  engine:
+    image: ${VIGO_ENGINE_IMAGE:?Set a verified Engine image or digest}
+    init: true
+    restart: unless-stopped
+    read_only: true
+    user: ${VIGO_ENGINE_UID:-1000}:${VIGO_ENGINE_GID:-1000}
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    cpus: ${VIGO_ENGINE_CPUS:-2}
+    mem_limit: ${VIGO_ENGINE_MEMORY:-3g}
+    stop_grace_period: 10s
+    ports:
+      - 127.0.0.1:${VIGO_ENGINE_LOCAL_PORT:-8080}:8080
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m
+    volumes:
+      - type: bind
+        source: ${VIGO_CITY_DIR:?Set a prepared City directory}
+        target: /data/city
+        bind:
+          create_host_path: false
+    environment:
+      VIGO_ENGINE_HOST: 0.0.0.0
+      VIGO_ENGINE_PORT: 8080
+      VIGO_CITY_DIR: /data/city
+      VIGO_ENGINE_API_TOKEN: ${VIGO_ENGINE_API_TOKEN:?Set a secret bearer token}
+      VIGO_ENGINE_MAX_WORKERS: ${VIGO_ENGINE_MAX_WORKERS:-2}
+      VIGO_ENGINE_QUEUE_LIMIT: ${VIGO_ENGINE_QUEUE_LIMIT:-16}
+      VIGO_ENGINE_TIMEOUT_MS: ${VIGO_ENGINE_TIMEOUT_MS:-120000}
+      RAYON_NUM_THREADS: ${VIGO_ENGINE_THREADS:-2}

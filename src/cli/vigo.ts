@@ -58,7 +58,7 @@ import {
   routeOrderedRoutingSegments,
   validateOrderedRoutingPoints,
 } from '../server/ordered-route-composition.mjs'
-import { compileReachScenario, rasterBounds, rasterContours } from '../server/reach.mjs'
+import { compileReachScenario, rasterAreas, rasterBounds, rasterContours } from '../server/reach.mjs'
 import { hydrateScenarioRouteServices } from '../server/scenario-services.mjs'
 import { resolveServiceDay } from '../server/service-day.mjs'
 import type { ServiceDay } from '../domain'
@@ -703,7 +703,7 @@ async function writeNdjson(value: unknown) {
   await once(process.stdout, 'drain')
 }
 
-async function runRouteStream(args: CliArguments) {
+async function runRouteStream(args: CliArguments, explicitKinds = false) {
   const paths = resolveRuntimePaths(args)
   const { storePath, streetStorePath } = paths
   const defaults = runtimeOptions(args)
@@ -727,15 +727,29 @@ async function runRouteStream(args: CliArguments) {
         const input = JSON.parse(line) as Record<string, unknown>
         if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Each line must be a JSON object')
         if (typeof input.id === 'string' && input.id.trim()) id = input.id.trim()
+        if (explicitKinds && !['route', 'matrix', 'reach'].includes(String(input.kind))) {
+          throw new Error('stream requires kind: route, matrix, or reach on every line')
+        }
+        if (input.serviceDate !== undefined && input.serviceDate !== defaults.serviceDate) {
+          throw new Error('A stream has one service date; start another process for a different serviceDate')
+        }
+        if (input.serviceDay !== undefined && input.serviceDay !== defaults.serviceDay) {
+          throw new Error('serviceDay must agree with the stream service date')
+        }
         if (input.kind === 'route' || input.kind === 'reach') {
           // Share validation and materialization with one-shot commands. The
           // service date belongs to this process; only preparation is reused.
           const requestArgs = new Map(args)
           for (const [field, option] of [
-            ['time', 'time'], ['maxWalkKm', 'max-walk'],
+            ['maxWalkKm', 'max-walk'],
             ['departureWindowMinutes', 'departure-window'],
           ]) {
             if (input[field] !== undefined) requestArgs.set(option, [String(input[field])])
+          }
+          const clock = input.time !== undefined ? input.time : input.timeMinutes
+          if (clock !== undefined) {
+            const minutes = parseNdjsonTime(clock, input.time !== undefined ? 'time' : 'timeMinutes')
+            requestArgs.set('time', [`${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`])
           }
           const prepare: typeof prepareRuntime = async (_store, _street, _date, _day, mode = 'transit') => ({
             elapsedMs: await prepareMode(mode),
@@ -1157,6 +1171,10 @@ async function computeReachRequest(
     throw new Error('Unknown Reach extent; use --extent-radius or extentRadiusKm')
   }
   const options = analyticalRuntimeOptions(args, 'reach', request)
+  if (request.includeStreetEdges !== undefined && typeof request.includeStreetEdges !== 'boolean') {
+    throw new Error('Reach includeStreetEdges must be a boolean')
+  }
+  const includeStreetEdges = args.has('street-edges') ? enabled(args, 'street-edges') : request.includeStreetEdges === true
   const cutoffsMinutes = reachCutoffs(args, request)
   const radiusKm = boundedAnalyticalNumber(args, request, 'extent-radius', 'extentRadiusKm', 8, 1, 40)
   const rasterSize = boundedAnalyticalNumber(
@@ -1180,7 +1198,9 @@ async function computeReachRequest(
     1,
     8,
   )
-  const hydrated = hydrateScenarioRouteServices(storePath, { storageGeneration: city.revisionId }, request)
+  const hydrated = hydrateScenarioRouteServices(storePath, { storageGeneration: city.revisionId }, {
+    ...request, serviceDate: options.serviceDate, serviceDay: options.serviceDay,
+  })
   const { scenario, overlay } = compileReachScenario(hydrated.scenario)
   const preparation = await prepare(
     storePath,
@@ -1210,6 +1230,7 @@ async function computeReachRequest(
       bounds,
       width: rasterSize,
       height: rasterSize,
+      includeEdges: includeStreetEdges,
     },
   }, { streetStorePath })
   const queryWallMs = performance.now() - queryStarted
@@ -1230,6 +1251,15 @@ async function computeReachRequest(
     cutoffsMinutes,
     'reach',
   )
+  const fullValues = range.surface.fullValues
+  const fullBounds = range.surface.fullBounds
+  const fullContours = fullValues?.length === rasterSize ** 2 && Array.isArray(fullBounds)
+    ? rasterContours(fullValues, rasterSize, rasterSize, fullBounds, cutoffsMinutes, 'reach')
+    : undefined
+  const areas = rasterAreas(range.surface.values, rasterSize, rasterSize, bounds, cutoffsMinutes, 'reach')
+  const fullAreas = fullContours
+    ? rasterAreas(fullValues, rasterSize, rasterSize, fullBounds, cutoffsMinutes, 'reach')
+    : undefined
   const contourMs = performance.now() - contourStarted
   return {
     schemaVersion: 'vigo.result.reach.v1',
@@ -1250,6 +1280,7 @@ async function computeReachRequest(
       extentRadiusKm: radiusKm,
       rasterSize,
       cutoffsMinutes,
+      includeStreetEdges,
       scenario,
     },
     stops: range.stops,
@@ -1257,8 +1288,13 @@ async function computeReachRequest(
     surface: {
       ...range.surface,
       values: Array.from(range.surface.values),
+      ...(fullValues ? { fullValues: Array.from(fullValues) } : {}),
     },
     contours,
+    areas,
+    ...(fullContours ? { fullContours } : {}),
+    ...(fullAreas ? { fullAreas } : {}),
+    diagnostics: range.diagnostics,
     timing: {
       openMs: preparation.elapsedMs,
       computeMs: Number(queryWallMs.toFixed(3)),
@@ -1897,7 +1933,7 @@ try {
     else if (command === 'reach') await runReach(args)
     else if (command === 'matrix') await runMatrix(args)
     else if (command === 'compare') await runCompare(args)
-    else if (command === '_route-stream') await runRouteStream(args)
+    else if (command === 'stream' || command === '_route-stream') await runRouteStream(args, command === 'stream')
     else await runRoute(args)
   }
 } catch (error) {

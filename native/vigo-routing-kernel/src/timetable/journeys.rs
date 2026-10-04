@@ -3,8 +3,47 @@
 //! reverse time is negated so dominance and boarding tests stay identical.
 use super::*;
 
+#[cfg(all(feature = "standalone", not(feature = "node")))]
+impl TimetableKernel {
+    // Materialize the active (including realtime) stop sequence without copying
+    // the whole resident timetable into a second adapter-owned representation.
+    pub(crate) fn ride_stop_sequence(
+        &self,
+        trip: u32,
+        board: f64,
+        alight: f64,
+    ) -> napi::Result<(Vec<u32>, usize, usize)> {
+        let trip = trip as usize;
+        if trip + 1 >= self.trip_start.len() {
+            return Err(Error::from_reason("Unknown journey trip"));
+        }
+        let mut stops = Vec::new();
+        let (mut first, mut last) = (None, None);
+        for i in self.trip_start[trip] as usize..self.trip_start[trip + 1] as usize {
+            if stops.last() != Some(&self.from_stop[i]) {
+                stops.push(self.from_stop[i]);
+            }
+            if self.sequence[i] as f64 == board {
+                first = Some(stops.len() - 1);
+            }
+            stops.push(self.to_stop[i]);
+            if self.sequence[i] as f64 == alight {
+                last = Some(stops.len() - 1);
+            }
+        }
+        match (first, last) {
+            (Some(a), Some(b)) if a < b => Ok((stops, a, b)),
+            _ => Err(Error::from_reason(
+                "Journey sequence is not present in its active timetable",
+            )),
+        }
+    }
+}
+
 #[derive(Clone)]
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableMatrixLeg {
     pub kind: String,
     pub from_stop: Option<u32>,
@@ -17,7 +56,9 @@ pub struct TimetableMatrixLeg {
 }
 
 #[derive(Clone)]
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct TimetableMatrixJourney {
     pub departure: f64,
     pub arrival: f64,
@@ -72,10 +113,18 @@ struct Label {
 struct Labels {
     arena: Vec<Label>,
     fronts: Vec<Vec<usize>>,
+    touched_fronts: Vec<usize>,
     reverse: bool,
 }
 
 impl Labels {
+    fn clear(&mut self) {
+        for state in self.touched_fronts.drain(..) {
+            self.fronts[state].clear();
+        }
+        self.arena.clear();
+    }
+
     fn offer(&mut self, candidate: Label) -> napi::Result<()> {
         let state = candidate.stop * 4
             + usize::from(candidate.boardings > 0) * 2
@@ -95,6 +144,9 @@ impl Labels {
         {
             return Ok(());
         }
+        // A frontier can become empty while replacing dominated labels. Mark
+        // it before retention so each touched state is recorded only once.
+        let first_in_state = self.fronts[state].is_empty();
         self.fronts[state].retain(|&i| {
             if dominates(&candidate, &self.arena[i]) {
                 self.arena[i].active = false;
@@ -107,6 +159,9 @@ impl Labels {
             return Err(Error::from_reason(
                 "Shared Matrix journey label capacity exceeded.",
             ));
+        }
+        if first_in_state {
+            self.touched_fronts.push(state);
         }
         self.fronts[state].push(self.arena.len());
         self.arena.push(candidate);
@@ -153,6 +208,52 @@ impl Labels {
     }
 }
 
+/// Scratch belongs to one immutable timetable and is allocated only when a
+/// caller requests journeys. No result or endpoint identity is cached here.
+pub(super) struct JourneyWorkspace {
+    labels: Labels,
+    boarding_labels: Vec<Vec<usize>>,
+    boarding_stops: Vec<usize>,
+    run_generation: Vec<u32>,
+    run_epoch: u32,
+    runs: Vec<usize>,
+}
+
+impl JourneyWorkspace {
+    fn new(stops: usize, runs: usize) -> Self {
+        Self {
+            labels: Labels {
+                arena: Vec::new(),
+                fronts: vec![Vec::new(); stops * 4],
+                touched_fronts: Vec::new(),
+                reverse: false,
+            },
+            boarding_labels: vec![Vec::new(); stops],
+            boarding_stops: Vec::new(),
+            run_generation: vec![0; runs],
+            run_epoch: 0,
+            runs: Vec::new(),
+        }
+    }
+
+    pub(super) fn byte_length(&self) -> usize {
+        self.labels.arena.capacity() * std::mem::size_of::<Label>()
+            + (self.labels.fronts.capacity() + self.boarding_labels.capacity())
+                * std::mem::size_of::<Vec<usize>>()
+            + (self.labels.touched_fronts.capacity()
+                + self.boarding_stops.capacity()
+                + self.runs.capacity()
+                + self.labels.fronts.iter().map(Vec::capacity).sum::<usize>()
+                + self
+                    .boarding_labels
+                    .iter()
+                    .map(Vec::capacity)
+                    .sum::<usize>())
+                * std::mem::size_of::<usize>()
+            + self.run_generation.capacity() * std::mem::size_of::<u32>()
+    }
+}
+
 fn walk_leg(from: Option<u32>, to: Option<u32>, seconds: f64) -> Step {
     Step {
         ride: false,
@@ -168,9 +269,26 @@ fn walk_leg(from: Option<u32>, to: Option<u32>, seconds: f64) -> Step {
 
 impl TimetableKernel {
     pub(super) fn matrix_journeys(
+        &mut self,
+        input: &TimetableMatrixQueryInput,
+        output: TimetableMatrixQueryResult,
+    ) -> napi::Result<TimetableMatrixQueryResult> {
+        let mut workspace = self
+            .journey_workspace
+            .take()
+            .unwrap_or_else(|| JourneyWorkspace::new(self.stop_count, self.run_count));
+        let result = self.matrix_journeys_with_workspace(input, output, &mut workspace);
+        // Restore even after a capacity/error return; the next source clears
+        // every touched frontier before it can observe a previous query.
+        self.journey_workspace = Some(workspace);
+        result
+    }
+
+    fn matrix_journeys_with_workspace(
         &self,
         input: &TimetableMatrixQueryInput,
         mut output: TimetableMatrixQueryResult,
+        workspace: &mut JourneyWorkspace,
     ) -> napi::Result<TimetableMatrixQueryResult> {
         let reverse = input.arrive_by;
         let origins = input.origin_offsets.len() - 1;
@@ -202,11 +320,20 @@ impl TimetableKernel {
             )
         };
         output.journeys = Some(vec![None; origins * destinations]);
-        let mut labels = Labels {
-            arena: Vec::new(),
-            fronts: vec![Vec::new(); self.stop_count * 4],
-            reverse,
-        };
+        let JourneyWorkspace {
+            labels,
+            boarding_labels,
+            boarding_stops,
+            run_generation,
+            run_epoch,
+            runs,
+        } = workspace;
+        labels.reverse = reverse;
+        let coordinate_endpoints = input.allow_pre_ride_transfers.iter().all(|allow| !allow)
+            && input
+                .allow_post_ride_transfers
+                .as_ref()
+                .is_some_and(|flags| flags.iter().all(|allow| !allow));
         for source in 0..source_offsets.len() - 1 {
             // The scalar Matrix supplies exact primary bounds for this group.
             // No optimal witness needs an earlier AM departure or a later PM
@@ -233,10 +360,7 @@ impl TimetableKernel {
             let start_time = if reverse { -maximum_time } else { minimum_time };
             let end_time = if reverse { -minimum_time } else { maximum_time };
 
-            labels.arena.clear();
-            for front in &mut labels.fronts {
-                front.clear();
-            }
+            labels.clear();
             let initial_transfers = if reverse {
                 input
                     .allow_post_ride_transfers
@@ -267,33 +391,40 @@ impl TimetableKernel {
             }
             let maximum = input.maximum_boardings.unwrap_or(u32::MAX);
             let mut previous = 0..labels.arena.len();
-            let mut run_generation = vec![0; self.run_count];
-            let mut boarding_labels = vec![Vec::new(); self.stop_count];
             for round in 1..=maximum {
                 // Freeze the previous round: zero-time connections and trip
                 // order cannot consume two boardings in a single round.
-                for frontier in &mut boarding_labels {
-                    frontier.clear();
+                for stop in boarding_stops.drain(..) {
+                    boarding_labels[stop].clear();
                 }
                 for i in previous.clone() {
                     if labels.arena[i].active {
-                        boarding_labels[labels.arena[i].stop].push(i);
+                        let stop = labels.arena[i].stop;
+                        if boarding_labels[stop].is_empty() {
+                            boarding_stops.push(stop);
+                        }
+                        boarding_labels[stop].push(i);
                     }
                 }
-                if boarding_labels.iter().all(Vec::is_empty) {
+                if boarding_stops.is_empty() {
                     break;
                 }
                 // Only runs with a boardable event at a reached stop can
                 // contribute in this round. Every target shares this work.
-                let mut runs = Vec::new();
+                runs.clear();
+                *run_epoch = run_epoch.wrapping_add(1);
+                if *run_epoch == 0 {
+                    run_generation.fill(0);
+                    *run_epoch = 1;
+                }
                 let mut mark = |run: usize| {
-                    if run_generation[run] != round {
-                        run_generation[run] = round;
+                    if run_generation[run] != *run_epoch {
+                        run_generation[run] = *run_epoch;
                         runs.push(run);
                     }
                 };
-                for (stop, frontier) in boarding_labels.iter().enumerate() {
-                    let ready = frontier
+                for &stop in boarding_stops.iter() {
+                    let ready = boarding_labels[stop]
                         .iter()
                         .map(|&i| {
                             let label = &labels.arena[i];
@@ -344,7 +475,7 @@ impl TimetableKernel {
                 runs.sort_unstable();
                 let round_start = labels.arena.len();
                 output.expanded_trip_runs += runs.len() as f64;
-                for run in runs {
+                for &run in runs.iter() {
                     let first = self.run_start[run] as usize;
                     let last = self.run_end[run] as usize;
                     let mut boarding: Option<(usize, usize, f64, f64)> = None;
@@ -365,7 +496,7 @@ impl TimetableKernel {
                             && self.to_stop[c - 1] != self.from_stop[c];
                         if !reverse && bridge {
                             self.journey_exit(
-                                &mut labels,
+                                labels,
                                 boarding,
                                 self.from_stop[c] as usize,
                                 dep,
@@ -391,7 +522,7 @@ impl TimetableKernel {
                         };
                         if allowed {
                             self.journey_board(
-                                &labels,
+                                labels,
                                 &boarding_labels[stop],
                                 stop,
                                 time,
@@ -411,7 +542,7 @@ impl TimetableKernel {
                         };
                         if allowed {
                             self.journey_exit(
-                                &mut labels,
+                                labels,
                                 boarding,
                                 exit,
                                 time,
@@ -423,7 +554,7 @@ impl TimetableKernel {
                         if reverse && bridge {
                             let stop = self.from_stop[c] as usize;
                             self.journey_board(
-                                &labels,
+                                labels,
                                 &boarding_labels[stop],
                                 stop,
                                 -dep,
@@ -444,6 +575,32 @@ impl TimetableKernel {
                     }
                 }
                 previous = round_start..labels.arena.len();
+                // The scalar pass proves every target's best time. Finish the
+                // entire round, including walking and equal-time ties. When
+                // all reachable targets attain their own bounds, later rounds
+                // add boardings and cannot improve any selected journey.
+                // Selected-stop terminal transfers retain the general path.
+                if coordinate_endpoints
+                    && (0..target_offsets.len() - 1).all(|target| {
+                        let bound = output.times[if reverse {
+                            target * destinations + source
+                        } else {
+                            source * destinations + target
+                        }];
+                        !bound.is_finite()
+                            || (target_offsets[target] as usize
+                                ..target_offsets[target + 1] as usize)
+                                .any(|seed| {
+                                    let stop = target_stops[seed] as usize;
+                                    labels.fronts[stop * 4 + 2].iter().any(|&i| {
+                                        labels.arena[i].time + target_walks[seed]
+                                            <= if reverse { -bound } else { bound }
+                                    })
+                                })
+                    })
+                {
+                    break;
+                }
             }
             output.relaxed_stops += labels.arena.len() as f64;
             for target in 0..target_offsets.len() - 1 {
@@ -459,18 +616,16 @@ impl TimetableKernel {
                 for seed in target_offsets[target] as usize..target_offsets[target + 1] as usize {
                     let stop = target_stops[seed] as usize;
                     let walk = target_walks[seed];
-                    let mut terminal = vec![(stop, walk, None)];
-                    if reverse && allow_transfer {
-                        for edge in &self.transfer_edges[self.transfer_offset[stop] as usize
+                    let transfer_edges = if reverse && allow_transfer {
+                        &self.transfer_edges[self.transfer_offset[stop] as usize
                             ..self.transfer_offset[stop + 1] as usize]
-                        {
-                            terminal.push((
-                                edge.stop(),
-                                walk + f64::from(edge.duration()),
-                                Some(stop),
-                            ));
-                        }
-                    }
+                    } else {
+                        &[]
+                    };
+                    let terminal =
+                        std::iter::once((stop, walk, None)).chain(transfer_edges.iter().map(
+                            |edge| (edge.stop(), walk + f64::from(edge.duration()), Some(stop)),
+                        ));
                     for (stop, access, transfer_stop) in terminal {
                         for phase in 0..=usize::from(!reverse && allow_transfer) {
                             for &i in &labels.fronts[stop * 4 + 2 + phase] {
@@ -690,5 +845,82 @@ impl TimetableKernel {
             leg,
             active: true,
         })
+    }
+}
+
+#[cfg(test)]
+mod workspace_tests {
+    use super::*;
+
+    fn kernel() -> TimetableKernel {
+        TimetableKernel::new(TimetableKernelInput {
+            stop_count: 2,
+            run_count: 1,
+            departure_seconds: vec![10].into(),
+            arrival_seconds: vec![20].into(),
+            from_stop: vec![0].into(),
+            to_stop: vec![1].into(),
+            sequence: vec![1].into(),
+            segment_trip: vec![0].into(),
+            segment_run: vec![0].into(),
+            continuity_break: vec![1].into(),
+            can_board: vec![1].into(),
+            can_alight: vec![1].into(),
+            trip_start: vec![0, 1].into(),
+            departure_offset: vec![0, 1, 1].into(),
+            departure_order: vec![0].into(),
+            transfer_offset: vec![0, 0, 0].into(),
+            transfer_to: vec![].into(),
+            transfer_duration: vec![].into(),
+            forbidden_same_stop: vec![0, 0].into(),
+            same_stop_transfer_minimum: None,
+            minimum_transfer_buffer_seconds: None,
+        })
+        .unwrap()
+    }
+
+    fn query(reverse: bool, journeys: bool) -> TimetableMatrixQueryInput {
+        TimetableMatrixQueryInput {
+            origin_offsets: vec![0, 1],
+            origin_stops: vec![0],
+            origin_walk_seconds: vec![0.0],
+            allow_pre_ride_transfers: vec![false],
+            destination_offsets: vec![0, 1],
+            destination_stops: vec![1],
+            destination_walk_seconds: vec![0.0],
+            allow_post_ride_transfers: Some(vec![false]),
+            departure: 0.0,
+            horizon: 40.0,
+            arrive_by: reverse,
+            maximum_boardings: None,
+            include_journeys: Some(journeys),
+        }
+    }
+
+    #[test]
+    fn journey_scratch_recovers_after_error_and_generation_wrap() {
+        let mut kernel = kernel();
+        assert!(kernel.journey_workspace.is_none());
+        for reverse in [false, true, false] {
+            let mut bound = kernel.route_matrix_csa(query(reverse, false)).unwrap();
+            bound.times[0] += if reverse { -1.0 } else { 1.0 };
+            assert!(
+                kernel
+                    .matrix_journeys(&query(reverse, true), bound)
+                    .is_err()
+            );
+            let workspace = kernel.journey_workspace.as_mut().unwrap();
+            workspace.run_epoch = u32::MAX;
+            workspace.run_generation.fill(1);
+            let result = kernel.route_matrix_csa(query(reverse, true)).unwrap();
+            assert_eq!(result.times, vec![if reverse { 10.0 } else { 20.0 }]);
+            let journey = result.journeys.unwrap().remove(0).unwrap();
+            assert_eq!(journey.boardings, 1);
+            let ride = journey.legs.iter().find(|leg| leg.kind == "ride").unwrap();
+            assert_eq!(
+                (ride.trip, ride.departure, ride.arrival),
+                (Some(0), 10.0, 20.0)
+            );
+        }
     }
 }

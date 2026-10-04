@@ -115,6 +115,25 @@ for (let seed = 0; seed < 100; seed += 1) {
     assert.deepEqual(metrics(layered), metrics(open), `Layered envelope, seed ${seed}`)
     comparisons += 2
   }
+  // Arrive-by performs a capped scalar certification followed by a deadline
+  // certification. Reuse the forward reachability proof through both, even
+  // when a later request contracts a previously extended deadline. Compare
+  // against independent unpruned expansions on fresh resident kernels.
+  const capped = kernel.routeScalarCsa({ ...query, maximumBoardings: 3 })
+  const walking = capped.chainDurations.reduce((total, duration, i) =>
+    total + ([1, 3].includes(capped.chainKinds[i]) ? duration : 0), query.destinationWalkSeconds[capped.bestDestinationIndex])
+  for (const arrivalSlackSeconds of [600, 0, 300, 900]) {
+    const deadline = { ...query, earliestArrival: capped.bestArrival,
+      boardingUpperBound: capped.bestBoardings, candidateDestinationIndex: capped.bestDestinationIndex,
+      candidateWalkingSeconds: walking, arrivalSlackSeconds,
+      transferPenaltySeconds: 0, walkReluctance: 0, deadlineObjective: true }
+    const reused = kernel.routeParetoRoundCsa(deadline)
+    const reference = new TimetableKernel(data).routeParetoRoundCsa({ ...deadline, restrictionMode: 'anchor-only' })
+    assert.equal(reused.scalarEnvelopeReused, true, `Repeated deadline envelope, seed ${seed}`)
+    assert.equal(reused.forwardEnvelopeBuilt, false)
+    assert.deepEqual(metrics(reused), metrics(reference), `Repeated deadline envelope, seed ${seed}, slack ${arrivalSlackSeconds}`)
+    comparisons++
+  }
 }
 console.log(`Bounded search matched unrestricted expansion in ${comparisons} seeded comparisons; reverse-work bounds passed.`)
 

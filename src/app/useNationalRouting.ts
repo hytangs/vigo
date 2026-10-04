@@ -140,6 +140,9 @@ export function useNationalRouting({
     serviceDay: requestServiceDay,
     serviceDate: requestServiceDate,
     allowServiceDateFallback: false,
+    // Compare a direct walk for point-to-point trips. Ordered transit legs
+    // retain their requirement to board a vehicle on each segment.
+    requireTransitRide: mode === 'transit' ? waypoints.length > 0 : undefined,
     maxWalkKm,
     maxTransfers: mode === 'transit' && waypoints.length ? undefined : maxTransfers,
     allowLongWalk,

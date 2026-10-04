@@ -10,6 +10,19 @@ permissions:
   contents: read
 
 jobs:
+  container:
+    name: Engine container (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - run: docker build -f deploy/engine.Dockerfile --target verify .
+      - run: docker build -f deploy/engine.Dockerfile -t vigo-engine-check .
+
   source-and-native-safety:
     runs-on: ubuntu-latest
     steps:
@@ -26,7 +39,9 @@ jobs:
       - run: npm run check:rust-routing-targets
       - run: cargo fmt --manifest-path native/vigo-routing-kernel/Cargo.toml -- --check
       - run: cargo test --manifest-path native/vigo-routing-kernel/Cargo.toml
-      - run: cargo clippy --release --all-targets --all-features --manifest-path native/vigo-routing-kernel/Cargo.toml -- -D warnings
+      - run: cargo clippy --release --all-targets --manifest-path native/vigo-routing-kernel/Cargo.toml -- -D warnings
+      - run: cargo test --no-default-features --features standalone --manifest-path native/vigo-routing-kernel/Cargo.toml
+      - run: cargo clippy --all-targets --no-default-features --features standalone --manifest-path native/vigo-routing-kernel/Cargo.toml -- -D warnings
 
   engine:
     name: Complete engine (${{ matrix.os }})
@@ -49,6 +64,11 @@ jobs:
       - run: npm run check:studio-runtime
         if: runner.os != 'Linux'
       - run: npm run build
+      - run: npm run check:standalone
+      - run: npm run package:engine
+      - run: npm run check:engine-package
+      - run: npm run package:cli
+      - run: npm run check:cli-package
       - run: node test/check-city-portability.mjs --write temp/portable-city.zip
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

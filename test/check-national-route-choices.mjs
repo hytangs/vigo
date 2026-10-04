@@ -138,6 +138,30 @@ assert.equal(timeTradeoffChoices[1].choiceLabel, 'Shortest journey')
 assert.equal(timeTradeoffChoices[0].durationMinutes, 20)
 assert.equal(timeTradeoffChoices[1].durationMinutes, 6)
 
+const oneStopDetour = readyPlan({
+  id: 'one-stop-detour', departMinutes: centerMinutes + 8, durationMinutes: 5,
+  transfers: 0, walkMinutes: 3, routes: ['1'],
+})
+const shortDirectWalk = {
+  ...readyPlan({ id: 'short-direct-walk', departMinutes: centerMinutes, durationMinutes: 2,
+    transfers: 0, walkMinutes: 2, routes: [] }),
+  travelMode: 'walk',
+  legs: [{ type: 'walk', startMinutes: centerMinutes, endMinutes: centerMinutes + 2,
+    durationMinutes: 2, walkSource: 'osm' }],
+}
+const walkingDominatedChoices = selectNationalDepartureWindowChoices(
+  [oneStopDetour, shortDirectWalk], { centerMinutes, limit: 5 },
+)
+assert.deepEqual(walkingDominatedChoices.map((plan) => plan.id), ['short-direct-walk'],
+  'A short direct walk must remove a one-stop detour with more waiting, journey time and walking.')
+assert.equal(walkingDominatedChoices[0].recommended, true)
+assert.equal(walkingDominatedChoices[0].choiceLabel, 'Walk only')
+const lessWalkingRide = { ...oneStopDetour, id: 'less-walking-ride', walkMinutes: 1 }
+assert.deepEqual(selectNationalDepartureWindowChoices(
+  [lessWalkingRide, shortDirectWalk], { centerMinutes, limit: 5 },
+).map((plan) => plan.id), ['short-direct-walk', 'less-walking-ride'],
+  'A slower ride that saves walking must remain a tradeoff beside the recommended walk.')
+
 const constrained = selectNationalDepartureWindowChoices([
   sameRouteEarly,
   exactSelectedTime,

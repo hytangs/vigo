@@ -1,9 +1,14 @@
 //! Directed station paths with time/distance Pareto labels and packed witnesses.
+#[cfg(not(feature = "node"))]
+use crate::standalone_types as napi;
 use napi::bindgen_prelude::*;
+#[cfg(feature = "node")]
 use napi_derive::napi;
 use std::collections::{HashMap, HashSet};
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StationEdge {
     pub from: u32,
     pub to: u32,
@@ -12,12 +17,16 @@ pub struct StationEdge {
     pub source: u32,
     pub street: bool,
 }
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StationGroup {
     pub members: Vec<u32>,
     pub declared: bool,
 }
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StationPathsInput {
     pub coordinates: Float64Array,
     pub platforms: Uint8Array,
@@ -28,7 +37,9 @@ pub struct StationPathsInput {
     pub fallback_source: u32,
     pub walking_speed_kph: f64,
 }
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StationPathsResult {
     pub offsets: Uint32Array,
     pub path_offsets: Uint32Array,
@@ -73,7 +84,7 @@ fn distance_km(coords: &[f64], from: usize, to: usize) -> f64 {
         + radians(b).cos() * radians(d).cos() * (radians(c - a) / 2.0).sin().powi(2);
     6371.0088 * 2.0 * h.sqrt().atan2((1.0 - h).sqrt())
 }
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 pub fn compile_station_paths(input: StationPathsInput) -> Result<StationPathsResult> {
     let n = input.platforms.len();
     if input.coordinates.len() != n * 2

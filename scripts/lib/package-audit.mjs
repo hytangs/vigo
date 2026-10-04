@@ -6,6 +6,7 @@ import os from 'node:os'
 // UTF-16 Windows metadata. Return categories only, never matched values.
 export function publicationContentFindings(data, { forbiddenRoots = [] } = {}) {
   const roots = [...forbiddenRoots, os.homedir()].filter(value => value && value.length > 3)
+    .map(value => value.replace(/[\\/]+$/u, ''))
   const texts = [data.toString('utf8'), data.toString('utf16le')]
   const rules = [
     [/\/(?:Users|home|Volumes)\/[^/\s"']+/u, 'embedded developer path'],
@@ -14,9 +15,23 @@ export function publicationContentFindings(data, { forbiddenRoots = [] } = {}) {
     [/-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----|\b(?:sk-|crsr_)[A-Za-z0-9_-]{24,}|\bgh(?:p|o|s|r|u)_[A-Za-z0-9]{20,}\b|\bgithub_pat_[A-Za-z0-9_]{20,}\b|\bAKIA[0-9A-Z]{16}\b|\bxox[baprs]-[A-Za-z0-9-]{20,}/u, 'possible embedded credential'],
   ]
   const findings = new Set()
-  if (roots.some(value => [value, value.replaceAll('\\', '\\\\')].some(root => (
-    data.includes(Buffer.from(root)) || data.includes(Buffer.from(root, 'utf16le'))
-  )))) findings.add('embedded developer path')
+  // A build root is a complete path component. In containers, `/build` must
+  // match `/build/src` but not Rust's shipped `core/src/fmt/builders.rs`.
+  if (roots.some(value => [value, value.replaceAll('\\', '\\\\')].some(root => {
+    // Scan bytes so UTF-16 strings at odd offsets in binary payloads still
+    // match, without relying on the alignment of the whole decoded file.
+    return ['utf8', 'utf16le'].some(encoding => {
+      const needle = Buffer.from(root, encoding)
+      let offset = -1
+      while ((offset = data.indexOf(needle, offset + 1)) !== -1) {
+        const end = offset + needle.length
+        if (end === data.length) return true
+        const next = encoding === 'utf16le' && end + 1 < data.length ? data.readUInt16LE(end) : data[end]
+        if (next <= 32 || [34, 39, 47, 60, 62, 92].includes(next)) return true
+      }
+      return false
+    })
+  }))) findings.add('embedded developer path')
   for (const [pattern, category] of rules) {
     if (texts.some(text => pattern.test(text))) findings.add(category)
   }

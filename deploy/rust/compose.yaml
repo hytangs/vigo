@@ -1,0 +1,18 @@
+services:
+  vigo:
+    build:
+      context: ../..
+      dockerfile: deploy/rust/Dockerfile
+    environment:
+      VIGO_API_TOKEN: ${VIGO_API_TOKEN:?Set a random token of at least 16 characters}
+      VIGO_CITY: /city
+      PORT: "8080"
+    volumes:
+      - ${VIGO_CITY:?Set the absolute prepared City directory}:/city:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    stop_grace_period: 30s

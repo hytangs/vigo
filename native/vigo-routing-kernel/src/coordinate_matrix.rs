@@ -13,12 +13,12 @@ struct MatrixEndpointProjection {
     cache_hits: u32,
 }
 
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 impl CoordinateKernel {
     /// Coordinate Matrix keeps endpoint frontiers and their timetable
     /// projection in Rust. It uses the same directed endpoint search and the
     /// same shared timetable scan as the separately exposed operations.
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_endpoints_timetable_matrix(
         &mut self,
         mut timetable: ClassInstance<'_, TimetableKernel>,
@@ -113,7 +113,7 @@ impl CoordinateKernel {
     /// CCH query shares one destination frontier across every source row and
     /// returns scalar distances only; path geometry remains an explicit
     /// point-query concern.
-    #[napi]
+    #[cfg_attr(feature = "node", napi)]
     pub fn route_street_matrix(
         &mut self,
         input: StreetMatrixInput,
@@ -144,7 +144,32 @@ impl CoordinateKernel {
             cache_hits: 0,
         };
         projected.offsets.push(0);
-        for point in coordinates.chunks_exact(2) {
+        // Endpoint policies and direction are fixed inside this projection.
+        // Duplicate rows still get their own output cells; only identical
+        // same-request street searches are shared, including with caches off.
+        let mut seen: HashMap<(u64, u64), usize> = HashMap::new();
+        for (index, point) in coordinates.chunks_exact(2).enumerate() {
+            let key = (point[0].to_bits(), point[1].to_bits());
+            if let Some(&previous) = seen.get(&key) {
+                let range =
+                    projected.offsets[previous] as usize..projected.offsets[previous + 1] as usize;
+                projected.stops.extend_from_within(range.clone());
+                projected.seconds.extend_from_within(range);
+                if reuse_snaps {
+                    projected.snaps.push(projected.snaps[previous].clone());
+                }
+                projected
+                    .offsets
+                    .push(u32::try_from(projected.stops.len()).map_err(|_| {
+                        Error::from_reason(
+                            "Coordinate Matrix endpoint frontier exceeds native index capacity.",
+                        )
+                    })?);
+                continue;
+            }
+            if coordinates.len() > 2 {
+                seen.insert(key, index);
+            }
             let access = self.route_endpoint(EndpointRoleInput {
                 longitude: point[0],
                 latitude: point[1],

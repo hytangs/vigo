@@ -6,6 +6,8 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import Papa from 'papaparse'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { inspectNationalStaticTopologySidecar } from '../src/server/national-gtfs-store.mjs'
+import { DatabaseSync } from 'node:sqlite'
+import { readGtfsRouteAnalysis } from '../src/server/gtfs-analysis-store.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const cliPath = process.env.VIGO_CLI_PATH ? path.resolve(process.env.VIGO_CLI_PATH) : path.join(root, 'public', 'vigo.mjs')
@@ -406,8 +408,71 @@ try {
   assert.equal(reach.query.routingDataMode, 'scheduled')
   assert.equal(reach.surface.values.length, 48 * 48)
   assert.equal(reach.contours.type, 'FeatureCollection')
+  assert(Array.isArray(reach.surface.fullValues), 'The full-network raster must serialize as a JSON array.')
+  assert.equal(reach.surface.fullValues.length, 48 * 48)
+  assert.equal(reach.fullContours.type, 'FeatureCollection')
+  assert.equal(reach.diagnostics.surface.edgeSelection, 'all-reached-directed-edges')
   assert(Number.isFinite(reach.timing.openMs) && Number.isFinite(reach.timing.computeMs))
   assert(fs.existsSync(reachPath))
+  const streetReach = JSON.parse(run([
+    'reach', `--city=${cityPath}`, `--request=${reachRequest}`, '--street-edges',
+    '--time=07:55', '--service-date=2026-07-15', '--max-walk=1.2',
+  ]))
+  const areaReach = JSON.parse(run([
+    'reach', `--city=${cityPath}`, `--request=${reachRequest}`, '--street-edges=false',
+    '--time=07:55', '--service-date=2026-07-15', '--max-walk=1.2',
+  ]))
+  assert.equal(streetReach.surface.edges.schemaVersion, 'vigo.street.edge-bundle.v1')
+  assert(streetReach.surface.edges.count > 0)
+  assert.equal(streetReach.surface.edges.count, streetReach.surface.diagnostics.reachedEdgeCount,
+    'CLI must retain every reached directed street edge.')
+  assert.equal(streetReach.surface.diagnostics.edgeDetailTruncated, false)
+  assert(streetReach.fullAreas.features.length > 0, 'Sparse reachable streets must still produce area polygons.')
+  for (const collection of [streetReach.areas, streetReach.fullAreas]) {
+    assert.equal(collection.type, 'FeatureCollection')
+    for (const feature of collection.features) {
+      assert(['Polygon', 'MultiPolygon'].includes(feature.geometry.type))
+      const polygons = feature.geometry.type === 'Polygon' ? [feature.geometry.coordinates] : feature.geometry.coordinates
+      for (const polygon of polygons) for (const ring of polygon) {
+        assert(ring.length >= 4)
+        assert.deepEqual(ring[0], ring.at(-1), 'Reach area rings must close for GIS export.')
+      }
+    }
+  }
+  assert.deepEqual(streetReach.surface.values, areaReach.surface.values, 'Requesting edges must preserve the numerical surface.')
+  assert.deepEqual(streetReach.fullContours, areaReach.fullContours)
+  assert.deepEqual(streetReach.fullAreas, areaReach.fullAreas)
+  const streamQueries = [
+    { id: 'numeric-clock', kind: 'route', origin: 'A', destination: 'B', time: 475 },
+    { id: 'minutes-clock', kind: 'route', origin: 'A', destination: 'B', timeMinutes: 475 },
+    { id: 'matrix', kind: 'matrix', origins: ['A'], destinations: ['B'], time: '07:55' },
+    { id: 'surface', kind: 'reach', origin: 'A', cutoffsMinutes: [5, 15, 40], extentRadiusKm: 2,
+      rasterSize: 48, includeStreetEdges: true, maxWalkKm: 1.2, time: '07:55' },
+    { id: 'wrong-date', kind: 'route', origin: 'A', destination: 'B', serviceDate: '2026-07-16' },
+    { id: 'missing-kind', origin: 'A', destination: 'B' },
+    { id: 'bad-edges', kind: 'reach', origin: 'A', includeStreetEdges: 'yes' },
+    { id: 'null-clock', kind: 'route', origin: 'A', destination: 'B', time: null },
+    { id: 'recovery', kind: 'route', origin: 'A', destination: 'B', time: '07:55' },
+  ]
+  const streamed = execFileSync(executable, [...prefix, 'stream', `--city=${cityPath}`,
+    '--service-date=2026-07-15', '--max-walk=0.2'], {
+    encoding: 'utf8', input: streamQueries.map(query => JSON.stringify(query)).join('\n') + '\n',
+    maxBuffer: 8 * 1024 * 1024,
+  }).trim().split('\n').map(line => JSON.parse(line))
+  assert.deepEqual(streamed.map(result => result.id), streamQueries.map(query => query.id))
+  assert.deepEqual(streamed.map(result => result.sequence), streamQueries.map((_, index) => index + 1))
+  assert.deepEqual(streamed.map(result => result.status), ['ready', 'ready', 'ready', 'ready', 'error', 'error', 'error', 'error', 'ready'])
+  for (const index of [0, 1, 8]) assert.equal(streamed[index].result.durationMinutes, route.result.durationMinutes)
+  assert.equal(streamed[2].rows[0].durationMinutes, route.result.durationMinutes)
+  assert.deepEqual(streamed[3].surface.values, streetReach.surface.values)
+  assert.deepEqual(streamed[3].surface.edges, streetReach.surface.edges)
+  assert.deepEqual(streamed[3].fullContours, streetReach.fullContours)
+  assert.deepEqual(streamed[3].fullAreas, streetReach.fullAreas)
+  for (const index of [1, 2, 3, 8]) assert.equal(streamed[index].timing.openMs, 0, 'Mixed queries reuse the resident transit preparation.')
+  assert.match(streamed[4].error.message, /one service date/u)
+  assert.match(streamed[5].error.message, /requires kind/u)
+  assert.match(streamed[6].error.message, /must be a boolean/u)
+  assert.match(streamed[7].error.message, /expected HH:MM/u)
   for (const [command, contents] of [['matrix', { origins: ['A'], destinations: ['B'] }], ['reach', { origin: 'A' }]]) {
     const unsupportedPath = path.join(temporaryRoot, `${command}-realtime.json`)
     fs.writeFileSync(unsupportedPath, JSON.stringify({ ...contents, routingDataMode: 'realtime', realtimeSnapshot }))
@@ -453,8 +518,32 @@ try {
   assert.equal(scenarioReach.scenarioStops.length, 2)
   assert.equal(scenarioReach.surface.values.length, 48 * 48)
 
-  const replacementRequest = JSON.parse(fs.readFileSync(scenarioReachRequest, 'utf8'))
+  const timetablePath = path.join(cityPath, 'routing', 'project.sqlite')
+  const timetable = new DatabaseSync(timetablePath, { readOnly: true })
+  const scheduledRouteId = timetable.prepare('SELECT route_id FROM routes ORDER BY route_id LIMIT 1').get().route_id
+  timetable.close()
+  const scheduledPattern = readGtfsRouteAnalysis(timetablePath, scheduledRouteId, { includeTripIds: true }).routes[0]
+  fs.writeFileSync(scenarioReachRequest, JSON.stringify({
+    ...JSON.parse(fs.readFileSync(reachRequest, 'utf8')),
+    scenario: { services: [{ operation: 'replace', sourceRouteId: scheduledRouteId,
+      sourcePatternId: scheduledPattern.patternId, routeScope: 'pattern' }] },
+  }))
+  const preserved = JSON.parse(run([
+    'reach', `--city=${cityPath}`, `--request=${scenarioReachRequest}`,
+    '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2',
+  ]))
+  assert.equal(preserved.query.scenario.services[0].scheduleMode, 'preserve-trips')
+  assert.equal(preserved.query.scenario.services[0].scheduledTrips.length, scheduledPattern.tripIds.length,
+    'CLI service-date flags must hydrate the exact active trips even when JSON omits a date.')
+  assert.deepEqual(preserved.surface.values, reach.surface.values, 'A no-op CLI replacement keeps the baseline accessibility.')
+
+  const replacementRequest = { ...JSON.parse(fs.readFileSync(reachRequest, 'utf8')),
+    scenario: { services: [{ headwayMinutes: 10, stops: [
+      { label: 'Alpha', coordinate: [-77.050, 38.900] },
+      { label: 'Bravo', coordinate: [-77.030, 38.910] },
+    ] }] } }
   replacementRequest.scenario.services[0].operation = 'replace'
+  replacementRequest.scenario.services[0].scheduleMode = 'frequency'
   replacementRequest.scenario.services[0].sourceRouteId = 'R1'
   fs.writeFileSync(scenarioReachRequest, JSON.stringify(replacementRequest))
   const replaced = JSON.parse(run([

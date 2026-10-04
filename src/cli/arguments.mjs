@@ -69,11 +69,12 @@ export function parseArguments(argv) {
 export function validateInvocation(command, args) {
   const fail = message => { throw new CliUsageError(message, command) }
   const requireOption = name => { if (!args.has(name)) fail(`${command} requires --${name}`) }
-  if (['build', 'inspect', 'route', 'matrix', 'reach', 'compare'].includes(command)) {
+  if (['build', 'inspect', 'route', 'matrix', 'reach', 'stream', 'compare'].includes(command)) {
     if (command === 'build') { requireOption('gtfs'); requireOption('osm'); requireOption('output') }
     else if (command === 'compare') { requireOption('before'); requireOption('after') }
     else requireOption('city')
   }
+  if (command === 'stream') requireOption('service-date')
   if (['route', 'matrix', 'reach'].includes(command)) {
     if (command === 'route') {
       if (args.has('input') && args.has('request')) fail('Use either --request JSON or --input CSV, not both')

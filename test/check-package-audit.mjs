@@ -3,7 +3,17 @@ import { mkdir, mkdtemp, rm, writeFile, symlink } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { engineEnvironment } from '../public/engine-environment.mjs'
-import { auditPackageFiles } from '../scripts/lib/package-audit.mjs'
+import { auditPackageFiles, publicationContentFindings } from '../scripts/lib/package-audit.mjs'
+
+for (const encoding of ['utf8', 'utf16le']) {
+  const scan = text => publicationContentFindings(Buffer.from(text, encoding), { forbiddenRoots: ['/build'] })
+  assert.deepEqual(scan('/rustc/revision/library/core/src/fmt/builders.rs'), [])
+  for (const text of ['/build/src/lib.rs', '/build\u0000', '"/build"', '/build']) {
+    assert.deepEqual(scan(text), ['embedded developer path'])
+  }
+}
+assert.deepEqual(publicationContentFindings(Buffer.concat([Buffer.from([1]), Buffer.from('/build/source', 'utf16le')]),
+  { forbiddenRoots: ['/build/'] }), ['embedded developer path'])
 
 const root = await mkdtemp(path.join(os.tmpdir(), 'vigo-package-audit-'))
 try {

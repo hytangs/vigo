@@ -14,7 +14,9 @@ New to Engine? Follow the [quickstart](guides/quickstart.md), choose a [workflow
 
 | Goal | Guide |
 | --- | --- |
+| Run a single Rust executable on localhost or a generic server | [Complete Rust manual](guides/rust-standalone.md) · [Offline reader](standalone.html) · [OpenAPI](standalone-openapi.json) |
 | Install, build a City, and run the first query | [Quickstart](guides/quickstart.md) |
+| Use the small CLI-only routing and isochrone package | [VIGO CLI](guides/cli-only.md) |
 | Use the desktop and manage City sources | [Studio](guides/studio.md) · [Visual tour](guides/studio-tour.md) |
 | Combine agencies and live endpoints | [Multiple GTFS and GTFS-RT feeds](guides/multiple-feeds.md) |
 | Inspect trips, live reports, and Ask evidence | [Network, Routes, and Ask](guides/network.md) |
@@ -23,7 +25,7 @@ New to Engine? Follow the [quickstart](guides/quickstart.md), choose a [workflow
 | Understand status, uncertainty, and comparison | [Read and retain a Result](reference/results.md) |
 | Diagnose installation, data, or unexpected results | [Troubleshooting](guides/troubleshooting.md) |
 | Identify the current local build and archive older install copies | [Local build housekeeping](guides/local-builds.md) |
-| Automate VIGO | [CLI reference](reference/programmatic.md) · [Python package](https://github.com/hytangs/vigo-py) |
+| Automate VIGO | [CLI reference](reference/programmatic.md) · [Engine deployment](guides/engine-deployment.md) · [Python package](https://github.com/hytangs/vigo-py) |
 | Read offline and inspect an exported Result | [Offline guide](guide.html) |
 
 ## Query and data reference
