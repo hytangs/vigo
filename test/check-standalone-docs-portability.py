@@ -7,6 +7,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location(
     "standalone_docs", ROOT / "scripts/build-standalone-docs.py")
