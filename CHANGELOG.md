@@ -2,6 +2,8 @@
 
 ## 0.4.3 — Unreleased
 
+Reuse the selected coordinate access/egress path when its query token is still current, and skip impossible transit scans when an endpoint has no access. Preserve full journey detail, directed station evidence, and the exact fallback for expired matrix frontiers. Start the CLI tutorials in Boston with MBTA and OpenStreetMap downloads, Harvard Square–South Station queries, arrive-by, matrices, and resident streaming.
+
 Add a standalone Rust CLI/HTTP runtime and headless Engine and CLI distributions. Keep resident Route, Matrix, and Reach requests behind explicit input, queue, body, response, and worker-deadline bounds; recover after a stalled worker.
 
 Reuse native query workspaces, retain matching forward reachability proofs through arrive-by certification, share duplicate batch endpoint searches, and stop journey rounds after all reachable targets attain their exact time bounds. Retain bounded immutable Rust shape data while reconstructing each active itinerary. Preserve search objectives, transfer caps, directed access, and routing-quality checks.

@@ -37,6 +37,10 @@ Agreement between adapters does not independently validate their shared kernels.
 
 To reproduce in a development checkout, build the existing public CLI and native addon, build the standalone executable, and run `npm run check:standalone` with `VIGO_STANDALONE_PATH` set to it. Package with `python3 scripts/package-standalone.py`; then run `python3 test/check-standalone-package.py ARCHIVE.tar.gz`. That gate reruns all three adapter suites against the extracted binary. Node and Python are development tools; neither ships in the runtime payload. POSIX worker-stop/crash injection is skipped on Windows.
 
+## October 4 follow-up
+
+The table above records the original October 3 audit. An October 4 macOS ARM64 follow-up (Rust 1.97.1, Node 26.7.0 as the fixture/compiler host) passed 69 standalone checks, 63 prepared-data checks, 332 differential/regression cases, 18 HTTP lifecycle checks, 42 documentation/HTTP checks, and 23 standalone Cargo tests. Standalone Clippy passed with warnings denied. The additional cases compare current and expired access witnesses in both time directions, repeated matrix endpoints, cached/uncached requests, and two City access policies. They also verify that missing transit access skips the timetable scan without suppressing a requested direct-walk result. Public fixtures remain synthetic; these counts do not establish production capacity or field accuracy.
+
 ## Remaining compatibility boundaries
 
 - City preparation from raw GTFS/OSM remains the existing compiler. The executable consumes an immutable prepared City.

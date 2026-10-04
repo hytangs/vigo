@@ -521,12 +521,12 @@ def page(source,native,audit):
     pages={}
     overview=f'''VIGO runs transit, walking, and driving queries from a standalone Rust executable. Use the command line for individual jobs or serve a prepared City over HTTP.
 
-## Start a local service
+## Start with Boston
 
-You need the [executable](#installation) and a [prepared City directory](#city-data). From the package directory, start the server:
+Follow the [Boston quickstart](#quickstart) to route from Harvard Square to South Station. The [data instructions](#city-data) show where to download the MBTA timetable and OpenStreetMap streets, and how to compile them into `boston/`. Then start a local service:
 
 ```sh
-./vigo serve --city ./city --port 8080
+./vigo serve --city ./boston --port 8080
 ```
 
 Open `http://127.0.0.1:8080/` for this manual. The [quickstart](#quickstart) walks through a request and its response.

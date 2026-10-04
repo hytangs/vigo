@@ -1,8 +1,8 @@
 # VIGO CLI quickstart
 
-Build one City, then reuse it for Route, Matrix, and Reach. Build and first-query time depend on the size of the supplied network.
+Start with **Boston and Cambridge**: download the MBTA timetable and OpenStreetMap streets, prepare them once, then route from **Harvard Square to South Station**. You will save Route, Matrix, and Reach results. A “City” means the compiled data folder, called `boston/` here.
 
-You will finish with a compiled City and saved Route, Matrix, and Reach Results. You supply the GTFS ZIP and OSM PBF; the commands do not download the example data.
+This tutorial uses the **Node CLI**, including its raw-data compiler. For the single Rust executable, follow the [Rust Boston quickstart](rust-standalone.md#1-quickstart); it loads the same prepared Boston directory, with a different request/result interface.
 
 For the desktop workflow, use the [Studio guide](studio.md). Studio imports data into its own project library; it does not open the CLI City directory created below.
 
@@ -15,8 +15,9 @@ Source builds also require the pinned Rust toolchain. Supported targets are macO
 git clone https://github.com/hytangs/vigo.git
 cd vigo
 npm ci
-npm run build
-npm link
+npm run build:rust-routing-kernel
+npm run build:cli
+alias vigo="node \"$PWD/public/vigo.mjs\""
 ```
 
 Check the installed command before importing data:
@@ -26,21 +27,44 @@ vigo --version
 vigo capabilities
 ```
 
-To avoid a global command link, omit `npm link` and replace `vigo` with `node public/vigo.mjs` from the source checkout in the examples below.
+The alias keeps the source checkout path when you change directories. If you have an extracted [CLI-only archive](cli-only.md), skip the source build and set `vigo` to `node "/absolute/path/to/cli-package/vigo.mjs"`. Keep its native kernel beside the script. The commands below use a POSIX shell; on Windows use WSL for these download/extract steps or translate the shell commands to PowerShell.
 
-## 2. Build a City
+## 2. Download the Boston inputs and build
 
-You need a static GTFS ZIP and an OSM PBF covering the same area. The examples below use Boston; replace the filenames and coordinates for your own network.
+Two files supply different parts of the journey:
 
-Choose a service date covered by the feed's `calendar.txt` and `calendar_dates.txt`. Keep the original files and their acquisition dates if you intend to reproduce the build. Check the [GTFS support](../reference/gtfs-support-matrix.md) and [street assumptions](../reference/street-routing.md) for source features that affect your analysis.
+| Data | Official source | Purpose |
+| --- | --- | --- |
+| MBTA static GTFS ZIP | [MBTA GTFS documentation](https://github.com/mbta/gtfs-documentation/blob/master/reference/gtfs.md), [download ZIP](https://cdn.mbta.com/MBTA_GTFS.zip) | Stops, trips, calendars, transfers, and transit shapes |
+| Massachusetts OpenStreetMap PBF | [Geofabrik Massachusetts](https://download.geofabrik.de/north-america/us/massachusetts.html), [download PBF](https://download.geofabrik.de/north-america/us/massachusetts-latest.osm.pbf) | Streets for access, egress, transfers, walking, and driving |
 
-```bash
-vigo build \
-  --gtfs ./mbta.zip \
-  --gtfs-scope mbta \
-  --osm ./massachusetts.osm.pbf \
-  --output ./boston
+No API key is needed for these downloads. Choose **static GTFS ZIP**, not GTFS-realtime, and **`.osm.pbf`**, not a shapefile or GeoPackage. Keep the original files and acquisition date: `latest` is not a frozen dataset.
+
+With `curl`, `unzip`, and [Osmium Tool](https://osmcode.org/osmium-tool/manual.html) available, create a separate working directory:
+
+```sh
+mkdir -p boston-tutorial/data
+cd boston-tutorial
+curl --fail --location --retry 3 --output data/MBTA_GTFS.zip \
+  https://cdn.mbta.com/MBTA_GTFS.zip
+curl --fail --location --retry 3 --output data/massachusetts-latest.osm.pbf \
+  https://download.geofabrik.de/north-america/us/massachusetts-latest.osm.pbf
+unzip -p data/MBTA_GTFS.zip feed_info.txt
+unzip -p data/MBTA_GTFS.zip calendar.txt
+unzip -p data/MBTA_GTFS.zip calendar_dates.txt
 ```
+
+The feed checked for this tutorial covers **2026-09-25 through 2026-12-12**. We use Monday **2026-10-05**. For a later download, choose a date covered by both the feed interval and its weekday calendars/dated exceptions. Times below are local MBTA service times in `America/New_York`.
+
+```sh
+SERVICE_DATE=2026-10-05
+osmium extract --bbox=-71.20,42.25,-70.95,42.45 --strategy=complete_ways \
+  data/massachusetts-latest.osm.pbf --output=data/boston.osm.pbf
+vigo build --gtfs ./data/MBTA_GTFS.zip \
+  --osm ./data/boston.osm.pbf --output ./boston
+```
+
+The [complete-ways extract](https://docs.osmcode.org/osmium/latest/osmium-extract.html) retains the nodes of ways crossing the rectangle. It covers this tutorial's central Boston/Cambridge locations, **not the full MBTA network's street access**. For a wider study, enlarge the extract to cover every endpoint and transfer location. To skip Osmium, pass the complete Massachusetts PBF to `--osm`; expect more preparation work, and use additional coverage for Rhode Island trips. Keep the providers' notices when distributing data; see [OpenStreetMap attribution](https://www.openstreetmap.org/copyright).
 
 VIGO writes one complete `./boston` directory. An existing output is left alone unless you supply `--replace`.
 Time this command from invocation through successful return to measure Build
@@ -58,55 +82,55 @@ Confirm the expected sources and counts. Keep the entire City directory; the ins
 
 ## 3. Run a Route
 
-Save `route.json`. Coordinates are **[longitude, latitude]**:
+Save `route.json` for **Harvard Square → South Station**. Coordinates are **[longitude, latitude]**:
 
 ```json
 {
   "origin": {"coordinate": [-71.11902, 42.37334]},
-  "destination": {"coordinate": [-71.08337, 42.32978]}
+  "destination": {"coordinate": [-71.05524, 42.35227]},
+  "maxWalkKm": 1.2,
+  "maxTransfers": 3,
+  "requireTransitRide": true
 }
 ```
 
-Replace `YYYY-MM-DD` in every command below with an exact local service date covered by your GTFS feed. Then run:
+Use the `SERVICE_DATE` selected above. First depart at 08:00, then ask for arrival by 09:00:
 
 ```bash
 vigo route \
   --city ./boston \
   --request ./route.json \
-  --time 11:04 \
-  --service-date YYYY-MM-DD \
+  --time 08:00 \
+  --service-date "$SERVICE_DATE" \
   --output ./route-result.json
+vigo route --city ./boston --request ./route.json \
+  --service-date "$SERVICE_DATE" --time 09:00 --time-preference arrive \
+  --output ./arrive-by-result.json
 ```
 
 ## 4. Inspect the Result
 
-Every computation returns a Result with the answer and its meaning:
+Read `status` first, then `result.departMinutes`, `result.arriveMinutes`, and `result.legs`. Clocks are minutes after local service-day midnight; 540 means 09:00. A `ready` result has a journey; `blocked` means no journey under the requested date, walking limit, transfer cap, and time horizon. Check warnings and station/walking qualifications too.
 
-```json
-{
-  "kind": "route",
-  "status": "ready",
-  "query": {},
-  "result": {
-    "durationMinutes": 33.517,
-    "transfers": 2,
-    "legs": []
-  },
-  "warnings": [],
-  "timing": {"computeMs": 3.301}
-}
-```
-
-This abbreviated example illustrates the Result fields, not a measured journey or benchmark. Values depend on the supplied City and request. Inspect `status`, `warnings`, and leg/diagnostic qualifications before using the answer; a blocked Result is not a successful journey. The [offline Result viewer](../guide.html#viewer) can open the exported JSON. [Read and retain a Result](../reference/results.md) explains the fields and reproducibility record.
+Trip IDs and journey times depend on the downloaded feed. This is scheduled routing; these commands do not fetch live delays. The [offline Result viewer](../guide.html#viewer) opens the exported JSON. [Read and retain a Result](../reference/results.md) explains the full record.
 
 ## 5. Run Matrix
 
-Save `matrix.json`:
+Save `matrix.json`: rows are **Harvard Square and Kendall Square**, columns are **South Station and Copley Square**. This asks for four journeys:
 
 ```json
 {
-  "origins": [{"id": "home", "point": {"coordinate": [-71.11902, 42.37334]}}],
-  "destinations": [{"id": "work", "point": {"coordinate": [-71.07540, 42.34730]}}]
+  "origins": [
+    {"id": "harvard", "point": {"coordinate": [-71.11902, 42.37334]}},
+    {"id": "kendall", "point": {"coordinate": [-71.08618, 42.36249]}}
+  ],
+  "destinations": [
+    {"id": "south-station", "point": {"coordinate": [-71.05524, 42.35227]}},
+    {"id": "copley", "point": {"coordinate": [-71.07758, 42.34997]}}
+  ],
+  "maxWalkKm": 1.2,
+  "maxTransfers": 3,
+  "includeJourneys": true
 }
 ```
 
@@ -115,7 +139,7 @@ vigo matrix \
   --city ./boston \
   --request ./matrix.json \
   --time 08:00 \
-  --service-date YYYY-MM-DD \
+  --service-date "$SERVICE_DATE" \
   --output ./matrix-result.json
 ```
 
@@ -123,7 +147,7 @@ Inspect every row's `status`. A ready Matrix can contain blocked pairs; missing 
 
 ## 6. Run Reach
 
-Save `reach.json`:
+Save `reach.json` to find streets and stops reachable from **Harvard Square** within 15, 30, and 45 minutes:
 
 ```json
 {
@@ -139,9 +163,25 @@ vigo reach \
   --city ./boston \
   --request ./reach.json \
   --time 08:00 \
-  --service-date YYYY-MM-DD \
+  --service-date "$SERVICE_DATE" \
   --output ./reach-result.json
 ```
+
+## 7. Reuse the loaded network
+
+One-off commands load the City each time. For repeated requests, keep one `stream` process running. Save `queries.ndjson` with one object on each line:
+
+```jsonl
+{"id":"harvard-south-depart","kind":"route","origin":{"coordinate":[-71.11902,42.37334]},"destination":{"coordinate":[-71.05524,42.35227]},"time":"08:00","maxWalkKm":1.2,"maxTransfers":3}
+{"id":"harvard-south-arrive","kind":"route","origin":{"coordinate":[-71.11902,42.37334]},"destination":{"coordinate":[-71.05524,42.35227]},"time":"09:00","timePreference":"arrive","maxWalkKm":1.2,"maxTransfers":3}
+```
+
+```sh
+vigo stream --city ./boston --service-date "$SERVICE_DATE" \
+  < queries.ndjson > results.ndjson
+```
+
+Check every response status. For an API, use [VIGO Engine](engine-deployment.md) or the [Rust HTTP service](rust-standalone.md#15-http-api-and-server-operation). When timing routing, distinguish the network build, a fresh process's first answer, and requests to a resident process.
 
 ## Where next
 

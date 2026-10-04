@@ -440,12 +440,33 @@ impl City {
             &opt,
             true,
         );
-        let mut result = self
-            .timetable
-            .as_mut()
-            .unwrap()
-            .kernel
-            .route_matrix_csa(input)?;
+        // Neither direction can board and alight without both frontiers. Keep
+        // the optional direct-walk comparison below, but avoid a timetable scan
+        // that cannot produce a transit witness.
+        let mut result = if a.stops.is_empty() || b.stops.is_empty() {
+            TimetableMatrixQueryResult {
+                journeys: None,
+                times: vec![if opt.arrive {
+                    f64::NEG_INFINITY
+                } else {
+                    f64::INFINITY
+                }],
+                forward_searches: 0,
+                reverse_searches: 0,
+                query_ns: 0.,
+                scanned_departures: 0.,
+                relaxed_stops: 0.,
+                expanded_trip_runs: 0.,
+                dominated_trip_boardings: 0.,
+                explicit_transfer_checks: 0.,
+            }
+        } else {
+            self.timetable
+                .as_mut()
+                .unwrap()
+                .kernel
+                .route_matrix_csa(input)?
+        };
         // Move the witness out before serializing diagnostics: the complete
         // materialized journey already belongs to the high-level response.
         let journey = result

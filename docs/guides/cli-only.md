@@ -29,35 +29,66 @@ The examples below use that alias. On Windows, use `node .\vigo.mjs` instead of
 `vigo`. A native archive works only on its matching OS/CPU; a macOS archive is
 not a Linux binary. Node and your City data are additional to the archive size.
 
-## Build once
+## Start with Boston
+
+A City is the data directory the engine opens. Prepare `boston/` once, then
+reuse it for every query. The [Boston tutorial](https://github.com/hytangs/vigo/blob/main/docs/guides/quickstart.md)
+walks through Harvard Square to South Station, a four-pair matrix, and Reach.
+
+Download the [MBTA static GTFS ZIP](https://cdn.mbta.com/MBTA_GTFS.zip), documented
+by [MBTA](https://github.com/mbta/gtfs-documentation/blob/master/reference/gtfs.md),
+and the [Massachusetts OpenStreetMap PBF from Geofabrik](https://download.geofabrik.de/north-america/us/massachusetts.html).
+The ZIP supplies timetables and stop data; the PBF supplies street paths.
+Neither requires an API key. Use static GTFS rather than GTFS-realtime, and PBF
+rather than shapefile/GeoPackage.
+
+With `curl`, `unzip`, and [Osmium Tool](https://osmcode.org/osmium-tool/manual.html):
 
 ```sh
-vigo build --gtfs feed.zip --osm region.osm.pbf --output ./city
-vigo inspect --city ./city
+mkdir -p data
+curl --fail --location --retry 3 --output data/MBTA_GTFS.zip \
+  https://cdn.mbta.com/MBTA_GTFS.zip
+curl --fail --location --retry 3 --output data/massachusetts-latest.osm.pbf \
+  https://download.geofabrik.de/north-america/us/massachusetts-latest.osm.pbf
+unzip -p data/MBTA_GTFS.zip feed_info.txt
+unzip -p data/MBTA_GTFS.zip calendar.txt
+unzip -p data/MBTA_GTFS.zip calendar_dates.txt
+osmium extract --bbox=-71.20,42.25,-70.95,42.45 --strategy=complete_ways \
+  data/massachusetts-latest.osm.pbf --output=data/boston.osm.pbf
+vigo build --gtfs ./data/MBTA_GTFS.zip --osm ./data/boston.osm.pbf --output ./boston
+vigo inspect --city ./boston
 ```
 
-Repeat `--gtfs` for multiple feeds, with a unique `--gtfs-scope` per feed. OSM
-must cover the query area. `--replace` explicitly replaces an existing City;
-otherwise an existing destination is rejected. `--private-access endpoints`
-enables the existing authorized-endpoint policy when appropriate.
+This smaller street extract covers the examples' central Boston/Cambridge
+locations, not all MBTA service. Enlarge it for wider trips, or skip Osmium and
+use the full Massachusetts PBF (which still excludes Rhode Island). Keep the
+original inputs, download date, and source notices for reproducibility and
+attribution. See [OpenStreetMap attribution](https://www.openstreetmap.org/copyright).
 
-The following examples use `YYYY-MM-DD` as a placeholder: choose an exact date
-covered by your GTFS feed, and replace stop IDs `A` and `B` with real IDs. Times
-are local service times in the City timezone and can extend through `29:59`.
-Coordinates always use `[longitude, latitude]`.
+The checked feed covers 2026-09-25 through 2026-12-12. Choose a date within your
+own download's weekday calendars and dated exceptions; this example uses Monday:
+
+```sh
+SERVICE_DATE=2026-10-05
+```
+
+Times are local MBTA service times in `America/New_York`. Coordinates always use
+`[longitude, latitude]`. `--replace` explicitly replaces an existing City;
+otherwise an existing destination is rejected. For multiple feeds, repeat
+`--gtfs` with a unique `--gtfs-scope` per feed.
 
 ## Route and Matrix
 
-Save `route.json`:
+Save `route.json` for **Harvard Square → South Station**:
 
 ```json
-{"origin":"A","destination":"B","allowStreetTransfers":false,"minimumTransferBufferMinutes":2}
+{"origin":{"coordinate":[-71.11902,42.37334]},"destination":{"coordinate":[-71.05524,42.35227]},"maxWalkKm":1.2,"maxTransfers":3,"requireTransitRide":true}
 ```
 
 ```sh
-vigo route --city ./city --request route.json --service-date YYYY-MM-DD \
+vigo route --city ./boston --request route.json --service-date "$SERVICE_DATE" \
   --time 08:00 --max-walk 1.2 --output route-result.json
-vigo route --city ./city --request route.json --service-date YYYY-MM-DD \
+vigo route --city ./boston --request route.json --service-date "$SERVICE_DATE" \
   --time 09:00 --time-preference arrive
 ```
 
@@ -73,18 +104,18 @@ For a transit CSV batch, provide columns `id,origin_stop_id,destination_stop_id`
 or `id,origin_lon,origin_lat,destination_lon,destination_lat`:
 
 ```sh
-vigo route --city ./city --input trips.csv --output trips-result.csv \
-  --service-date YYYY-MM-DD --time 08:00
+vigo route --city ./boston --input trips.csv --output trips-result.csv \
+  --service-date "$SERVICE_DATE" --time 08:00
 ```
 
-Save `matrix.json`:
+Save `matrix.json` for Harvard/Kendall Square to South Station/Copley Square:
 
 ```json
-{"origins":[{"id":"home","point":"A"}],"destinations":[{"id":"work","point":"B"}],"includeJourneys":true}
+{"origins":[{"id":"harvard","point":{"coordinate":[-71.11902,42.37334]}},{"id":"kendall","point":{"coordinate":[-71.08618,42.36249]}}],"destinations":[{"id":"south-station","point":{"coordinate":[-71.05524,42.35227]}},{"id":"copley","point":{"coordinate":[-71.07758,42.34997]}}],"maxWalkKm":1.2,"maxTransfers":3,"includeJourneys":true}
 ```
 
 ```sh
-vigo matrix --city ./city --request matrix.json --service-date YYYY-MM-DD \
+vigo matrix --city ./boston --request matrix.json --service-date "$SERVICE_DATE" \
   --time 08:00 --output matrix-result.json
 ```
 
@@ -98,11 +129,11 @@ geometry; and supplied traffic for realtime Drive. `includeGeometry` requires
 Save `reach.json`:
 
 ```json
-{"origin":"A","cutoffsMinutes":[15,30,45,60],"extentRadiusKm":8,"rasterSize":96}
+{"origin":{"coordinate":[-71.11902,42.37334]},"cutoffsMinutes":[15,30,45,60],"extentRadiusKm":8,"rasterSize":96}
 ```
 
 ```sh
-vigo reach --city ./city --request reach.json --service-date YYYY-MM-DD \
+vigo reach --city ./boston --request reach.json --service-date "$SERVICE_DATE" \
   --time 08:00 --street-edges --output reach-result.json
 ```
 
@@ -134,10 +165,10 @@ jq '.fullAreas // .areas' reach-result.json > isochrones.geojson
 ```
 
 Supply a `scenario` in a second Reach request to add, replace, or exclude
-scheduled service. For example, remove a real GTFS route by its exact ID:
+scheduled service. For example, remove the MBTA Red Line by its unscoped GTFS route ID:
 
 ```json
-{"origin":"A","cutoffsMinutes":[15,30,45,60],"extentRadiusKm":8,"rasterSize":96,"scenario":{"excludedRouteIds":["ROUTE_ID"]}}
+{"origin":{"coordinate":[-71.11902,42.37334]},"cutoffsMinutes":[15,30,45,60],"extentRadiusKm":8,"rasterSize":96,"scenario":{"excludedRouteIds":["Red"]}}
 ```
 
 Run that request with the same date, time, origin, extent, and grid, saving
@@ -165,13 +196,13 @@ Use `stream` for repeated queries without reopening the City for every request.
 Save `queries.ndjson`, one JSON object per line:
 
 ```jsonl
-{"id":"journey","kind":"route","origin":"A","destination":"B","time":"08:00"}
-{"id":"times","kind":"matrix","origins":["A"],"destinations":["B"],"time":480}
-{"id":"area","kind":"reach","origin":"A","timeMinutes":480,"cutoffsMinutes":[15,30],"rasterSize":96,"includeStreetEdges":true}
+{"id":"journey","kind":"route","origin":{"coordinate":[-71.11902,42.37334]},"destination":{"coordinate":[-71.05524,42.35227]},"time":"08:00"}
+{"id":"times","kind":"matrix","origins":[{"coordinate":[-71.11902,42.37334]}],"destinations":[{"coordinate":[-71.05524,42.35227]}],"time":480}
+{"id":"area","kind":"reach","origin":{"coordinate":[-71.11902,42.37334]},"timeMinutes":480,"cutoffsMinutes":[15,30],"rasterSize":96,"includeStreetEdges":true}
 ```
 
 ```sh
-vigo stream --city ./city --service-date YYYY-MM-DD \
+vigo stream --city ./boston --service-date "$SERVICE_DATE" \
   < queries.ndjson > results.ndjson
 ```
 

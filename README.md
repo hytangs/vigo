@@ -34,7 +34,7 @@ VIGO supports multiple GTFS timetables and multiple GTFS-RT endpoints in one Cit
 
 ## Choose an interface
 
-- **VIGO Rust standalone:** one executable for CLI, resident streaming, and a localhost or hosted HTTP service. No Node runtime is required. See [Rust build, query contract, and generic deployment](docs/guides/rust-standalone.md).
+- **VIGO Rust standalone:** one executable for CLI, resident streaming, and a localhost or hosted HTTP service. No Node runtime is required. See [Boston tutorial, Rust query contract, and deployment](docs/guides/rust-standalone.md).
 - **VIGO Engine:** the `vigo` command and shared native runtime in this repository. The [CLI-only archive](docs/guides/cli-only.md) retains routing, matrices, isochrones, scenarios, and resident streaming in two runtime files. Build a City once, then run Route, Matrix, or Reach.
 - **VIGO Studio:** a desktop workspace for network inspection, journeys, and scenario analysis. Its project library is separate from CLI City directories.
 - **VIGO Python:** automate Engine through the [separate Python package](https://github.com/hytangs/vigo-py).

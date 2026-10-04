@@ -1,12 +1,41 @@
 //! Materialize the selected access witness, not a new walk to a platform.
 use super::query::{Candidates, Options, Point, haversine};
 use super::{City, Result};
-use crate::{StreetPathInput, TimetableMatrixLeg};
+use crate::{CoordinateKernel, MaterializePathInput, StreetPathInput, TimetableMatrixLeg};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
 fn pathway(source: &str) -> bool {
     matches!(source, "gtfs_pathway" | "schedule_pathway")
+}
+
+// Endpoint frontiers belong to one coordinate query. Point queries retain both
+// roles; matrix requests may have replaced them while preparing other endpoints.
+// Only reconstruct the selected witness while its token is still current.
+fn selected_street_path(
+    kernel: &mut CoordinateKernel,
+    input: MaterializePathInput,
+) -> Result<Option<(Vec<f64>, f64)>> {
+    if input.query_token != kernel.query_token {
+        return Ok(None);
+    }
+    let frontier = match input.role.as_str() {
+        "origin" => &kernel.last_origin_frontier,
+        "destination" => &kernel.last_destination_frontier,
+        _ => return Err("Invalid selected street path role".into()),
+    }
+    .as_ref()
+    .ok_or("Selected street path frontier is missing")?;
+    let index = frontier
+        .member_indices
+        .iter()
+        .position(|member| *member == input.member_index)
+        .ok_or("Selected street path member is missing")?;
+    let distance = frontier.distances_m[index];
+    Ok(Some((
+        kernel.materialize_path(input)?.coordinates,
+        distance,
+    )))
 }
 
 impl City {
@@ -90,6 +119,7 @@ impl City {
         let mut street_budget = duration;
         let mut distance = None;
         let mut source_only = false;
+        let mut selected_path = None;
         if let Some(role) = role {
             if endpoints[role].stop.is_some() {
                 value["geometrySource"] = json!("station_selection");
@@ -120,6 +150,12 @@ impl City {
             }
             distance = Some(evidence.distances_m[index]);
             let member = evidence.path_member_indices[index] as usize;
+            selected_path = geometry.then(|| MaterializePathInput {
+                query_token: evidence.query_token,
+                role: if role == 0 { "origin" } else { "destination" }.into(),
+                member_index: member as u32,
+                maximum_points: 512,
+            });
             let stop = self.stop(self.members.get(member).ok_or("Unknown access member")?)?;
             street_coordinates[1 - role] = [stop.lon, stop.lat];
             if evidence.candidate_kinds[index] == 1 {
@@ -186,24 +222,33 @@ impl City {
             value["distanceMeters"] = json!(distance);
         }
         if geometry && !source_only && duration > 0. {
-            let path = self.street.route_path(StreetPathInput {
-                origin_lon: street_coordinates[0][0],
-                origin_lat: street_coordinates[0][1],
-                destination_lon: street_coordinates[1][0],
-                destination_lat: street_coordinates[1][1],
-                maximum_distance_m: opt
-                    .walk_m
-                    .max(duration * opt.walk_speed.unwrap_or(self.speed) / 3.6),
-                maximum_points: 512,
-            })?;
+            let selected = match selected_path {
+                Some(input) => selected_street_path(&mut self.street, input)?,
+                None => None,
+            };
+            let (path_coordinates, path_distance, found) =
+                if let Some((coordinates, distance)) = selected {
+                    (coordinates, distance, true)
+                } else {
+                    let path = self.street.route_path(StreetPathInput {
+                        origin_lon: street_coordinates[0][0],
+                        origin_lat: street_coordinates[0][1],
+                        destination_lon: street_coordinates[1][0],
+                        destination_lat: street_coordinates[1][1],
+                        maximum_distance_m: opt
+                            .walk_m
+                            .max(duration * opt.walk_speed.unwrap_or(self.speed) / 3.6),
+                        maximum_points: 512,
+                    })?;
+                    (path.coordinates, path.distance_m, path.found)
+                };
             // Never attach a longer, newly searched path to an already priced
             // walk and then claim that path fits the timetable's walking cost.
-            if path.found
-                && path.distance_m * 3.6 / opt.walk_speed.unwrap_or(self.speed)
+            if found
+                && path_distance * 3.6 / opt.walk_speed.unwrap_or(self.speed)
                     <= street_budget + 0.061
             {
-                let street: Vec<[f64; 2]> = path
-                    .coordinates
+                let street: Vec<[f64; 2]> = path_coordinates
                     .chunks_exact(2)
                     .map(|p| [p[0], p[1]])
                     .collect();
@@ -225,7 +270,7 @@ impl City {
                 value["streetSegmentVerified"] = json!(true);
                 value["streetPathVerified"] = json!(value.get("stationAccessStatus").is_none());
                 if distance.is_none() {
-                    value["distanceMeters"] = json!(path.distance_m);
+                    value["distanceMeters"] = json!(path_distance);
                 }
             }
         }

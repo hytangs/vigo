@@ -123,6 +123,36 @@ try {
         }
       }
     }
+    // A point retains both selected street frontiers. A matrix replaces them
+    // while preparing other endpoints; old tokens must use the exact fallback.
+    // Repeat a coordinate to cover shared candidate evidence as well.
+    for (const timePreference of ['depart_at', 'arrive_by']) {
+      for (const disableCache of [true, false]) {
+        const origins = [coord(-77.049, 38.9005), coord(-77.048, 38.901), coord(-77.049, 38.9005)]
+        const destinations = [coord(-77.031, 38.9095), coord(-77.032, 38.909)]
+        const q = { ...base, kind: 'matrix', origins, destinations, timePreference,
+          timeMinutes: timePreference === 'arrive_by' ? 530 : 475,
+          includeJourneys: true, includeGeometry: true, disableCache, requireTransitRide: true }
+        delete q.origin; delete q.destination
+        const matrix = await rust(q)
+        check(`${policy} selected walking frontiers ${timePreference} disableCache=${disableCache}`, () => assert(!matrix.error, JSON.stringify(matrix.error)))
+        for (let i = 0; i < origins.length; i++) {
+          for (let j = 0; j < destinations.length; j++) {
+            const request = { ...q, kind: 'route', origin: origins[i], destination: destinations[j] }
+            for (const key of ['origins', 'destinations', 'includeJourneys', 'includeGeometry']) delete request[key]
+            const point = await rust(request)
+            check(`${policy} selected versus expired walking witness ${timePreference} disableCache=${disableCache} ${i},${j}`, () => {
+              assert(!point.error, JSON.stringify(point.error))
+              const journey = matrix.journeys[i][j]
+              assert.equal(journey !== null, point.status === 'ready')
+              if (!journey) return
+              assert.deepEqual(journey.legs, point.legs, 'Path direction, costs, station evidence, and geometry must survive frontier replacement')
+              for (const key of ['departureMinutes', 'arrivalMinutes', 'transfers']) assert.equal(journey[key], point[key])
+            })
+          }
+        }
+      }
+    }
     for (const walkSpeedKph of [2, 4.8, 8]) {
       const q = { ...base, kind: 'reach', origin: coord(-77.049, 38.9005), walkSpeedKph, timeMinutes: 478, cutoffsMinutes: [15, 30, 45], extentRadiusKm: 2, rasterSize: 48, includeStreetEdges: true }
       delete q.destination

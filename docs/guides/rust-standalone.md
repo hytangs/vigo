@@ -10,64 +10,93 @@ Read this manual in the [searchable offline reader](../standalone.html). The [Op
 
 ## 1. Quickstart
 
-Start with the VIGO executable and a prepared City directory. If you need to compile a network first, follow [City data](#3-prepare-and-manage-city-data).
+Start in **Boston**: route from **Harvard Square in Cambridge to South Station in Boston**, then ask when to leave to arrive by 09:00. A “City” is simply the prepared data directory that VIGO opens; here it is `./boston`.
 
-### Start the service
+You need a matching [Rust executable](#2-installation-and-build) and the Boston directory. If you have only downloaded the executable, follow [the Boston data instructions](#3-prepare-and-manage-city-data) first: they give the MBTA timetable and OpenStreetMap download links and the exact build commands. Raw ZIP/PBF files are inputs to the separate compiler, not to `./vigo route`.
 
-Run these commands from the extracted package directory. Replace `/path/to/city` with your City directory:
+Run the following from a working directory containing the executable and `boston/`. On Windows use `vigo.exe`.
 
 ```sh
 ./vigo --version
 ./vigo capabilities --pretty
-./vigo info --city /path/to/city --pretty
-./vigo serve --city /path/to/city --port 8080
+./vigo info --city ./boston --pretty
 ```
 
-On Windows use `vigo.exe`. The default listener is `127.0.0.1:8080`. Open `http://127.0.0.1:8080/` for this manual, `/healthz` for liveness, and `/readyz` for readiness. Query endpoints are under `/v1/`.
+### Harvard Square to South Station
 
-### Run a route
+Save `route.json`. Coordinates are **[longitude, latitude]**. The service date below is Monday **2026-10-05**, covered by the MBTA feed used to check this tutorial. For a newer download, choose a date inside its calendar coverage; see the feed inspection step below. These are scheduled journeys, without live delays.
 
-The examples use a small synthetic network with stops `A → X → B` and service on **2026-07-15**. The localhost demo on port **8787** uses this network. For your own City, use its stop IDs and a date covered by its service calendar.
-
-Save the following as `route.json`:
-
-```json query=route
+```json tutorial=route
 {
-  "origin": {"stopId": "A"},
-  "destination": {"stopId": "B"},
-  "serviceDate": "2026-07-15",
-  "time": "07:55",
-  "maxWalkKm": 0.2
+  "origin": {"coordinate": [-71.11902, 42.37334]},
+  "destination": {"coordinate": [-71.05524, 42.35227]},
+  "serviceDate": "2026-10-05",
+  "time": "08:00",
+  "maxWalkKm": 1.2,
+  "maxTransfers": 3,
+  "requireTransitRide": true
 }
 ```
 
-Run one query or send the same object over HTTP:
+```sh
+./vigo route --city ./boston --request route.json --pretty
+./vigo route --city ./boston --request route.json --time 09:00 --arrive-by --pretty
+```
+
+The second command overrides the departure time with a 09:00 arrival deadline. Read `status` first: `ready` contains a journey; `blocked` is a valid no-journey result. `departureMinutes` and `arrivalMinutes` are minutes after local service-day midnight, so 540 means 09:00. Check the selected trip/stop IDs in `legs`, the walking evidence, and any warnings. Timetables and street data change; do not expect a permanently fixed trip ID or travel time.
+
+### Several origins and destinations
+
+Save `matrix.json`. The rows are Harvard Square and Kendall Square; the columns are South Station and Copley Square. This requests all four pairs with their journeys:
+
+```json tutorial=matrix
+{
+  "origins": [
+    {"coordinate": [-71.11902, 42.37334]},
+    {"coordinate": [-71.08618, 42.36249]}
+  ],
+  "destinations": [
+    {"coordinate": [-71.05524, 42.35227]},
+    {"coordinate": [-71.07758, 42.34997]}
+  ],
+  "serviceDate": "2026-10-05",
+  "time": "09:00",
+  "timePreference": "arrive_by",
+  "maxWalkKm": 1.2,
+  "maxTransfers": 3,
+  "includeJourneys": true
+}
+```
 
 ```sh
-./vigo route --city ./city --request route.json --pretty
+./vigo matrix --city ./boston --request matrix.json --output matrix-result.json
+```
+
+`durationsMinutes[row][column]` follows the input order; `null` means no journey. For arrive-by matrices, duration is the arrival deadline minus latest departure; a journey can arrive before the deadline. Full journey detail is the default. For large analytical batches, `journeyFormat: "compact"` retains timed trip/stop witnesses with less display metadata; `includeJourneys: false` requests times only. Neither setting changes the routing search.
+
+### Keep Boston loaded for repeated requests
+
+Starting a new process for each route repeats City loading. For an application, use `stream` or `serve` and keep that process running. Save `queries.ndjson`, one object per line:
+
+```jsonl tutorial=stream
+{"id":"harvard-south-depart","kind":"route","origin":{"coordinate":[-71.11902,42.37334]},"destination":{"coordinate":[-71.05524,42.35227]},"serviceDate":"2026-10-05","time":"08:00","maxWalkKm":1.2,"maxTransfers":3}
+{"id":"harvard-south-arrive","kind":"route","origin":{"coordinate":[-71.11902,42.37334]},"destination":{"coordinate":[-71.05524,42.35227]},"serviceDate":"2026-10-05","time":"09:00","timePreference":"arrive_by","maxWalkKm":1.2,"maxTransfers":3}
+```
+
+```sh
+./vigo stream --city ./boston < queries.ndjson > results.ndjson
+./vigo serve --city ./boston --port 8080
+```
+
+The service stays in the foreground. In a second terminal in the same directory:
+
+```sh
+curl --fail-with-body http://127.0.0.1:8080/readyz
 curl --fail-with-body http://127.0.0.1:8080/v1/route \
   -H 'Content-Type: application/json' --data-binary @route.json
 ```
 
-### Read the result
-
-The response includes these fields. This excerpt omits the legs, metadata, and diagnostics:
-
-```json response=quickstart
-{
-  "status": "ready",
-  "mode": "transit",
-  "departureMinutes": 475,
-  "arrivalMinutes": 510,
-  "durationMinutes": 35,
-  "transfers": 1,
-  "walkMinutes": 0,
-  "rideMinutes": 25,
-  "waitMinutes": 10
-}
-```
-
-The journey departs at `07:55` and arrives at `08:30`, with 25 minutes riding and 10 minutes waiting. `transfers: 1` means two boardings. Times ending in `Minutes` use minutes; the native `departure` and `arrival` fields, when present, use service-day seconds. See [Results and errors](#13-read-results-and-errors) for the full response structure.
+The default listener is `127.0.0.1:8080`. Open `http://127.0.0.1:8080/` for this offline manual. For production settings, see [Deployment](#16-authentication-and-generic-deployment). Separate network-build time, fresh-process time to first answer, and resident request latency when measuring performance.
 
 ## 2. Installation and build
 
@@ -116,19 +145,63 @@ The manifest identifies the build and hashes each file. Previous packages are sa
 
 A City is a compiled network containing the transit timetable, street graph, and access data. Build it once with the VIGO compiler, then copy the complete directory to the machine running the Rust executable.
 
-### Compile a network
+### Download Boston's timetable and streets
 
-From a source checkout with Node 24.18+ and npm installed:
+You need two different inputs:
+
+| Input | Where to get it | What VIGO uses it for |
+| --- | --- | --- |
+| MBTA **static GTFS ZIP** | [MBTA's official GTFS documentation](https://github.com/mbta/gtfs-documentation/blob/master/reference/gtfs.md), [direct ZIP](https://cdn.mbta.com/MBTA_GTFS.zip) | Stops, trips, service calendars, transfer rules, and route shapes |
+| Massachusetts **OpenStreetMap `.osm.pbf`** | [Geofabrik Massachusetts downloads](https://download.geofabrik.de/north-america/us/massachusetts.html), [direct PBF](https://download.geofabrik.de/north-america/us/massachusetts-latest.osm.pbf) | Street paths for walking access, egress, transfers, and direct street routing |
+
+Use the static GTFS ZIP, not the GTFS-realtime protobuf. Use the OSM PBF, not the shapefile or GeoPackage. No MBTA API key is needed for these public file downloads. Preserve the source files and acquisition date for reproducibility; the `latest` URLs can change.
+
+In a new working directory, using `curl`, `unzip`, and [Osmium Tool](https://osmcode.org/osmium-tool/manual.html):
+
+```sh
+mkdir -p data
+curl --fail --location --retry 3 --output data/MBTA_GTFS.zip \
+  https://cdn.mbta.com/MBTA_GTFS.zip
+curl --fail --location --retry 3 --output data/massachusetts-latest.osm.pbf \
+  https://download.geofabrik.de/north-america/us/massachusetts-latest.osm.pbf
+unzip -p data/MBTA_GTFS.zip feed_info.txt
+unzip -p data/MBTA_GTFS.zip calendar.txt
+unzip -p data/MBTA_GTFS.zip calendar_dates.txt
+```
+
+`feed_start_date` and `feed_end_date` give the published feed interval. Check the weekday calendars and dated exceptions too: being inside that interval does not make every route run every day. The feed used for this tutorial spans **2026-09-25 through 2026-12-12**; its example date is **2026-10-05**, in `America/New_York` local service time.
+
+For a smaller first build, extract central Boston, Cambridge, and nearby streets. Osmium's [complete-ways strategy](https://docs.osmcode.org/osmium/latest/osmium-extract.html) retains the nodes needed by ways crossing the boundary:
+
+```sh
+osmium extract --bbox=-71.20,42.25,-70.95,42.45 --strategy=complete_ways \
+  data/massachusetts-latest.osm.pbf --output=data/boston.osm.pbf
+```
+
+This rectangle supports the tutorial's four places; it is **not full MBTA street coverage**. For broader trips, use a larger extract covering every access, egress, and transfer location. You can skip Osmium and build with the full Massachusetts PBF instead; that is a larger preparation job and still does not cover the Rhode Island portion of MBTA service. Retain the source providers' required notices when distributing data; see [OpenStreetMap attribution](https://www.openstreetmap.org/copyright).
+
+### Compile Boston once
+
+Use the **Node CLI compiler**, which imports raw data. The standalone Rust executable currently opens prepared data only. With an extracted CLI package, keep `vigo.mjs` and `vigo-routing-kernel.node` together and define:
+
+```sh
+alias vigo-build='node "/absolute/path/to/cli-package/vigo.mjs"'
+vigo-build build --gtfs ./data/MBTA_GTFS.zip \
+  --osm ./data/boston.osm.pbf --output ./boston
+vigo-build inspect --city ./boston
+```
+
+Alternatively, build the compiler from a source checkout with Node 24.18+, npm, and the pinned Rust toolchain:
 
 ```sh
 npm ci
 npm run build:rust-routing-kernel
 npm run build:cli
-node public/vigo.mjs build \
-  --gtfs ./agency.zip --osm ./region.osm.pbf --output ./city
 ```
 
-Use the compiler's help for multi-feed scopes, source admission, and street preparation options. Raw GTFS and OSM import is provided by this compiler; the Rust executable loads its prepared `vigo.city.v1` output.
+Then set `vigo-build` to `node "/absolute/path/to/vigo/public/vigo.mjs"` and run the same build from your Boston working directory. This avoids compiling Studio. Raw import, street preparation, and timetable preparation happen at build time; they are separate from query latency.
+
+An existing output is rejected unless you explicitly pass `--replace`. Keep the completed `boston/` directory beside your Rust executable, or pass its absolute path with `--city`. Continue with [Harvard Square to South Station](#1-quickstart). No Node, Python, Osmium, or internet connection is needed for those Rust queries.
 
 ### Copy and load the City
 
@@ -250,6 +323,40 @@ City access padding/overhead apply to boarding access, not physical direct-walk 
 ## 6. Route
 
 Route finds a journey between an `origin` and a `destination` at a chosen time. Transit queries also require a service date. A valid query with no journey returns `status: "blocked"`.
+
+### Reference fixture
+
+The remaining reference examples use the small public test network `A → X → B`, with service on **2026-07-15**. It is also used by the localhost demonstration on port 8787. These IDs do not belong to Boston; use the coordinates and data above for your own first queries.
+
+A depart-at request for that fixture:
+
+```json query=route
+{
+  "origin": {"stopId": "A"},
+  "destination": {"stopId": "B"},
+  "serviceDate": "2026-07-15",
+  "time": "07:55",
+  "maxWalkKm": 0.2
+}
+```
+
+Its response excerpt (legs, metadata, and diagnostics omitted):
+
+```json response=quickstart
+{
+  "status": "ready",
+  "mode": "transit",
+  "departureMinutes": 475,
+  "arrivalMinutes": 510,
+  "durationMinutes": 35,
+  "transfers": 1,
+  "walkMinutes": 0,
+  "rideMinutes": 25,
+  "waitMinutes": 10
+}
+```
+
+The journey departs at `07:55` and arrives at `08:30`, with 25 minutes riding and 10 minutes waiting. `transfers: 1` means two boardings. Times ending in `Minutes` use minutes; the native `departure` and `arrival` fields, when present, use service-day seconds. See [Results and errors](#13-read-results-and-errors) for the full response structure.
 
 ### Transit
 

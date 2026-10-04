@@ -60,6 +60,17 @@ try {
   const coordinate = { ...base, origin: { coordinate: [-77.05, 38.9] }, destination: { coordinate: [-77.03, 38.91] } }
   assert.equal(run('route', coordinate).arrivalMinutes, forward.arrivalMinutes)
   assert.equal(run('route', { ...coordinate, disableCache: true }).arrivalMinutes, forward.arrivalMinutes)
+  for (const timePreference of ['depart_at', 'arrive_by']) {
+    const noAccess = { ...coordinate, timePreference, time: '08:30', maxWalkKm: .01,
+      origin: { coordinate: [-77.0498, 38.9001] }, destination: { coordinate: [-77.0495, 38.90025] } }
+    const transit = run('route', { ...noAccess, requireTransitRide: true })
+    assert.equal(transit.status, 'blocked')
+    assert.equal(transit.reason, 'no_access')
+    assert.equal(transit.diagnostics.native.scannedDepartures, 0, 'Empty access cannot board transit')
+    const fallback = run('route', { ...noAccess, requireTransitRide: false })
+    assert.equal(fallback.status, 'ready', 'No transit access must still allow the requested direct-walk comparison')
+    assert.equal(fallback.mode, 'walk')
+  }
   const walk = run('route', { ...coordinate, mode: 'walk' })
   const drive = run('route', { ...coordinate, mode: 'drive' })
   assert.equal(walk.status, 'ready')
