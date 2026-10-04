@@ -130,15 +130,15 @@ impl Default for ShapeCache {
         Self {
             entries: VecDeque::new(),
             bytes: 0,
-            maximum_bytes: 32 * 1024 * 1024,
-            maximum_entries: 128,
+            maximum_bytes: 256 * 1024 * 1024,
+            maximum_entries: 4096,
         }
     }
 }
 
 impl ShapeCache {
     fn take(&mut self, id: &str) -> Option<CompiledShape> {
-        let index = self.entries.iter().position(|entry| entry.0 == id)?;
+        let index = self.entries.iter().rposition(|entry| entry.0 == id)?;
         let (_, shape, bytes) = self.entries.remove(index)?;
         self.bytes -= bytes;
         Some(shape)
