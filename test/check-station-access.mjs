@@ -85,6 +85,17 @@ assert.deepEqual(declared.map(p => [p.from, p.to, p.seconds, p.distanceM]), [[0,
 const fallback = stationAccessPaths({ ...station, transfers: new Map() }, stationStops)
 assert(fallback.every(p => p.seconds >= Math.ceil(p.distanceM / (4.8 / 3.6))),
   'A parent-station fallback must include the time needed to cross its distance.')
+const unpriced = { ...station, transfers: new Map([['A', [{
+  to_stop_id: 'B', min_transfer_time: null, path_distance_m: null, provenance: 'gtfs_pathway',
+}]]]) }
+assert.deepEqual(stationAccessPaths(unpriced, stationStops), [], 'An unpriced pathway is not a zero-second connection.')
+assert.deepEqual(stationAccessPaths({ ...station, transfers: new Map(), declaredPathwayStops: new Set(['A']) }, stationStops), [],
+  'Excluding an unpriced pathway must not invent a parent-station shortcut.')
+const timedInterior = stationAccessPaths({ ...station, transfers: new Map([['A', [{
+  to_stop_id: 'B', min_transfer_time: 45, path_distance_m: null, provenance: 'gtfs_pathway',
+}]]]) }, [{ stop_id: 'A', lon: -71, lat: 42 }, { stop_id: 'B', lon: null, lat: null }])
+assert.deepEqual(timedInterior.map(p => [p.seconds, p.distanceM]), [[45, 0]],
+  'A source-timed, unlocated interior link has unknown distance, not a chord to (0, 0).')
 
 const blocked = { ...station, forbiddenTransferPairs: new Set(['A\u0000B']) }
 assert.deepEqual(stationAccessPaths(blocked, stationStops), [])

@@ -1,6 +1,6 @@
 # VIGO Rust standalone manual
 
-VIGO 0.4.3 source freeze · CLI and HTTP reference · Prepared City format 1
+VIGO 0.4.3 · CLI and HTTP reference · Prepared City format 1
 
 VIGO runs routing and isochrone queries from a single Rust executable. The executable contains the routing kernels, City loader, JSON interface, and HTTP server. It needs no Node, Python, browser, external routing service, or internet connection at query time. SQLite is compiled in. City data is supplied separately and opened read-only.
 
@@ -72,11 +72,11 @@ Save `matrix.json`. The rows are Harvard Square and Kendall Square; the columns 
 ./vigo matrix --city ./boston --request matrix.json --output matrix-result.json
 ```
 
-`durationsMinutes[row][column]` follows the input order; `null` means no journey. For arrive-by matrices, duration is the arrival deadline minus latest departure; a journey can arrive before the deadline. Full journey detail is the default. For large analytical batches, `journeyFormat: "compact"` retains timed trip/stop witnesses with less display metadata; `includeJourneys: false` requests times only. Neither setting changes the routing search.
+`durationsMinutes[row][column]` follows the input order; `null` means no journey. For arrive-by matrices, duration is the arrival deadline minus latest departure; a journey can arrive before the deadline. Full journey detail is the default. For large analytical batches, `journeyFormat: "compact"` retains timed trip/stop witnesses with less display metadata; `includeJourneys: false` requests times only. Neither setting changes the routing search. Repeated rows or columns are shared internally, but every requested cell is returned. Compare full point responses and equivalent Matrix formats when timing the Node and Rust interfaces; full Rust matrices carry more metadata than Node's compact witnesses.
 
 ### Keep Boston loaded for repeated requests
 
-Starting a new process for each route repeats City loading. For an application, use `stream` or `serve` and keep that process running. Save `queries.ndjson`, one object per line:
+For a one-off answer, use `route`. For a school, accessibility study, or web application, keep Boston resident and send Route, Matrix, and Reach requests through the same process. Starting a new process for each route repeats City loading. For an application, use `stream` or `serve` and keep that process running. Save `queries.ndjson`, one object per line:
 
 ```jsonl tutorial=stream
 {"id":"harvard-south-depart","kind":"route","origin":{"coordinate":[-71.11902,42.37334]},"destination":{"coordinate":[-71.05524,42.35227]},"serviceDate":"2026-10-05","time":"08:00","maxWalkKm":1.2,"maxTransfers":3}
@@ -202,6 +202,8 @@ npm run build:cli
 Then set `vigo-build` to `node "/absolute/path/to/vigo/public/vigo.mjs"` and run the same build from your Boston working directory. This avoids compiling Studio. Raw import, street preparation, and timetable preparation happen at build time; they are separate from query latency.
 
 An existing output is rejected unless you explicitly pass `--replace`. Keep the completed `boston/` directory beside your Rust executable, or pass its absolute path with `--city`. Continue with [Harvard Square to South Station](#1-quickstart). No Node, Python, Osmium, or internet connection is needed for those Rust queries.
+
+The final 0.4.3 pedestrian model requires a fresh build from the original inputs, including for Cities from earlier 0.4.3 candidates. See [walking evidence](../reference/walking-evidence.md) for missing station costs, conservative access exclusions, and distance lower bounds. Preserve the runtime version and package checksum with the data.
 
 ### Copy and load the City
 

@@ -100,7 +100,8 @@ function readDenseNodes(bytes, budget, denseNodesAllowed) {
     if (tag === 1) result.ids = pbf.readPackedSVarint(result.ids)
     else if (tag === 8) result.lats = pbf.readPackedSVarint(result.lats)
     else if (tag === 9) result.lons = pbf.readPackedSVarint(result.lons)
-  }, { ids: [], lats: [], lons: [] })
+    else if (tag === 10) result.keysVals = pbf.readPackedVarint(result.keysVals)
+  }, { ids: [], lats: [], lons: [], keysVals: [] })
   if (
     packed.ids.length !== packed.lats.length
     || packed.ids.length !== packed.lons.length
@@ -109,6 +110,21 @@ function readDenseNodes(bytes, budget, denseNodesAllowed) {
     throw new Error('OSM PBF dense-node arrays are inconsistent or exceed the node limit.')
   }
   budget.nodes += packed.ids.length
+  packed.tagOffsets = new Uint32Array(packed.ids.length + 1)
+  if (packed.keysVals.length) {
+    let offset = 0
+    for (let index = 0; index < packed.ids.length; index += 1) {
+      while (offset < packed.keysVals.length && packed.keysVals[offset] !== 0) {
+        if (offset + 1 >= packed.keysVals.length || ++budget.tags > osmPbfLimits.tagsPerBlock) {
+          throw new Error('OSM PBF dense-node tags are inconsistent or exceed the tag limit.')
+        }
+        offset += 2
+      }
+      if (offset >= packed.keysVals.length) throw new Error('OSM PBF dense-node tags lack a node delimiter.')
+      packed.tagOffsets[index + 1] = ++offset
+    }
+    if (offset !== packed.keysVals.length) throw new Error('OSM PBF dense-node tags exceed the node count.')
+  }
   let id = 0
   let lat = 0
   let lon = 0
@@ -128,11 +144,28 @@ function readNode(bytes, budget) {
     throw new Error('OSM PBF primitive block exceeds the node limit.')
   }
   budget.nodes += 1
-  return reader(bytes).readFields((tag, result, pbf) => {
-    if (tag === 1) result.id = pbf.readVarint()
+  const node = reader(bytes).readFields((tag, result, pbf) => {
+    if (tag === 1) result.id = pbf.readSVarint()
+    else if (tag === 2) result.keys = pbf.readPackedVarint(result.keys)
+    else if (tag === 3) result.vals = pbf.readPackedVarint(result.vals)
     else if (tag === 8) result.lat = pbf.readSVarint()
     else if (tag === 9) result.lon = pbf.readSVarint()
-  }, { id: 0, lat: 0, lon: 0 })
+  }, { id: 0, lat: 0, lon: 0, keys: [], vals: [] })
+  if (node.keys.length !== node.vals.length || budget.tags + node.keys.length > osmPbfLimits.tagsPerBlock) {
+    throw new Error('OSM PBF node tags are inconsistent or exceed the tag limit.')
+  }
+  budget.tags += node.keys.length
+  return node
+}
+
+export function denseNodeTags(dense, index, strings) {
+  const tags = {}
+  for (let offset = dense.tagOffsets[index]; offset + 1 < dense.tagOffsets[index + 1]; offset += 2) {
+    const key = strings[dense.keysVals[offset]], value = strings[dense.keysVals[offset + 1]]
+    if (key === undefined || value === undefined) throw new Error('OSM PBF node references an out-of-range string-table entry.')
+    tags[key] = value
+  }
+  return tags
 }
 
 function readWay(bytes, budget) {

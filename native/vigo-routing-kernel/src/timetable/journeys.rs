@@ -5,6 +5,20 @@ use super::*;
 
 #[cfg(all(feature = "standalone", not(feature = "node")))]
 impl TimetableKernel {
+    pub(crate) fn ride_departure(&self, trip: u32, board: f64) -> napi::Result<f64> {
+        let trip = trip as usize;
+        if trip + 1 < self.trip_start.len() {
+            for i in self.trip_start[trip] as usize..self.trip_start[trip + 1] as usize {
+                if f64::from(self.sequence[i]) == board {
+                    return Ok(f64::from(self.departure_seconds[i]));
+                }
+            }
+        }
+        Err(Error::from_reason(
+            "Journey boarding is not present in its active timetable",
+        ))
+    }
+
     // Materialize the active (including realtime) stop sequence without copying
     // the whole resident timetable into a second adapter-owned representation.
     pub(crate) fn ride_stop_sequence(

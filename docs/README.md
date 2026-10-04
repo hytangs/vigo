@@ -2,7 +2,7 @@
 
 # VIGO documentation
 
-These pages describe the VIGO 0.4.3 source freeze. VIGO combines a reusable routing engine with Studio network inspection and scenario analysis. Begin with the workflow you need; the reference pages describe the supported data and query contracts.
+These pages describe [VIGO 0.4.3](releases/0.4.3.md). VIGO combines a reusable routing engine with Studio network inspection and scenario analysis. Begin with the workflow you need; the reference pages describe the supported data and query contracts.
 
 ```text
 Build a City → ask a routing question → read the Result → retain the evidence
@@ -34,6 +34,7 @@ New to Engine? Follow the [quickstart](guides/quickstart.md), choose a [workflow
 | --- | --- |
 | Journeys, travel-time tables, and reachable places | [Route](reference/routing.md) · [Matrix](reference/matrix.md) · [Reach](reference/reach.md) |
 | Plan extra time and understand reliability limits | [Travel-time uncertainty](reference/travel-time-uncertainty.md) |
+| Check walking costs, permissions, and missing connections | [Walking evidence](reference/walking-evidence.md) |
 | Planned changes and comparing results | [Scenario](reference/scenarios.md) · [Compare semantics](reference/results.md#compare-saved-results) |
 | Scheduled and supplied realtime state | [Realtime routing](reference/realtime-routing.md) · [Method audit](development/realtime-audit-0.4.2.md) |
 | Source semantics and prices | [GTFS support](reference/gtfs-support-matrix.md) · [Streets](reference/street-routing.md) · [Fares](reference/fares.md) |
@@ -43,7 +44,7 @@ New to Engine? Follow the [quickstart](guides/quickstart.md), choose a [workflow
 
 [Contributing and checks](../.github/CONTRIBUTING.md) · [Architecture](development/architecture.md) · [Local basemap](development/local-basemap.md) · [Security](../SECURITY.md)
 
-The [Developer Guide](developer-guide/VIGO-0.4.3-Developer-Guide.tex) is the printable engine reference. Build it with `npm run docs:developer-guide`; the PDF is also a release artifact. Current behavior belongs in the guides above. [Release notes](releases/0.4.2.md) and the [changelog](../CHANGELOG.md) preserve version history.
+The [Developer Guide](developer-guide/VIGO-0.4.3-Developer-Guide.tex) is the printable engine reference. Build it with `npm run docs:developer-guide`; the PDF is also a release artifact. Current behavior belongs in the guides above. [Release notes](releases/0.4.3.md) and the [changelog](../CHANGELOG.md) preserve version history.
 
 Engine commands, City data, and routing contracts belong here. Python installation and API details live in the [VIGO-py documentation](https://github.com/hytangs/vigo-py/tree/main/docs). Studio's internal application API is not the public integration boundary.
 

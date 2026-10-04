@@ -373,7 +373,7 @@ export type FeedSummary = {
   stopMetrics: StopMetric[]
   mapPreview?: MapPreview
   routingStore?: {
-    schemaVersion: 'vigo.routing.store.v1'
+    schemaVersion: 'vigo.routing.store.v3'
     status: 'building' | 'ready' | 'failed'
     routingEligibility?: 'exact' | 'qualified' | 'unsupported'
     fileName: string
@@ -443,7 +443,7 @@ export type VigoProject = {
   artifacts: ArtifactRecord[]
   routingStore?: RoutingStoreMetadata | null
   osmStreetIndex?: {
-    schemaVersion: 'vigo.street.store.v4'
+    schemaVersion: 'vigo.street.store.v5'
     status: 'building' | 'ready' | 'failed'
     fileName: string
     sourceBytes: number

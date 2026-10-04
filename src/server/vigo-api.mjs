@@ -1778,7 +1778,7 @@ async function projectRoutingStoreMatchesInputs(projectId, project, inputs) {
 
 function projectRoutingStoreStatusMetadata({ status, sourceFingerprint, current, error } = {}) {
   return {
-    schemaVersion: 'vigo.routing.store.v1',
+    schemaVersion: 'vigo.routing.store.v3',
     status,
     routingEligibility: current?.routingEligibility,
     fileName: 'project.sqlite',
@@ -1800,7 +1800,7 @@ function projectRoutingStoreMetadataFromBuild(result) {
     ? result.routingLimitations
     : []
   return {
-    schemaVersion: result.schemaVersion || 'vigo.routing.store.v1',
+    schemaVersion: result.schemaVersion || 'vigo.routing.store.v3',
     status: 'ready',
     routingEligibility: blockingRoutingFeatures.length
       ? 'unsupported'

@@ -1,5 +1,6 @@
 import { compileNativeStationPaths } from './native-routing-kernel.mjs'
 import { haversineKm } from './geometry-utils.mjs'
+import { stationTransferDurationSeconds } from './gtfs/routing-policy.mjs'
 
 const isPathway = source => source === 'gtfs_pathway' || source === 'schedule_pathway'
 
@@ -11,7 +12,8 @@ export function stationAccessTiming(candidate) {
   const seconds = candidate.accessTransferSeconds
   if (!candidate.accessTransferStopIds || !Number.isFinite(distanceKm)
     || !Number.isFinite(seconds) || !Number.isFinite(candidate.accessSeconds)) return {}
-  return { accessCost: {
+  return { ...(candidate.accessTransferGeometryIncomplete ? { stationGeometryStatus: 'incomplete' } : {}),
+    ...(candidate.accessTransferDistanceIncomplete ? { stationDistanceStatus: 'lower_bound' } : {}), accessCost: {
     street: {
       distanceKm: Math.max(0, candidate.distanceKm - distanceKm),
       seconds: Math.max(0, candidate.accessSeconds - seconds),
@@ -84,15 +86,23 @@ export function prepareStationAccessPaths(store, stops, walkingSpeedKph = 4.8) {
     for (const transfer of transfers) {
       const to = indices.get(transfer.to_stop_id)
       if (to === undefined) continue
+      const seconds = stationTransferDurationSeconds(transfer, stops[from], stops[to], walkingSpeedKph)
+      if (seconds == null) continue
       const source = transfer.provenance
       if (!sourceIndices.has(source)) { sourceIndices.set(source, sources.length); sources.push(source) }
-      edges.push({ from, to, seconds: Math.max(0, Number(transfer.min_transfer_time) || 0),
-        distance: transfer.path_distance_m ?? undefined, source: sourceIndices.get(source), street: source === 'osm_certified_radial' })
+      const located = [stops[from].lon, stops[from].lat, stops[to].lon, stops[to].lat].every(Number.isFinite)
+      edges.push({ from, to, seconds,
+        // Zero is only a distance lower bound for a timed but unlocated link.
+        // Its source coordinates and incomplete-geometry flag remain missing;
+        // packed coordinate placeholders must never become a measured chord.
+        distance: transfer.path_distance_m ?? (located ? undefined : 0),
+        source: sourceIndices.get(source), street: source === 'osm_certified_radial' })
     }
   }
   for (const ids of store.stationMembers.values()) groups.push({
     members: ids.filter(id => indices.has(id)).map(id => indices.get(id)),
-    declared: ids.some(id => store.transfers.get(id)?.some(link => link.provenance === 'gtfs_pathway')),
+    declared: ids.some(id => store.declaredPathwayStops?.has(id)
+      || store.transfers.get(id)?.some(link => link.provenance === 'gtfs_pathway')),
   })
   for (const pair of store.forbiddenTransferPairs) {
     const [a, b] = pair.split('\u0000'), from = indices.get(a), to = indices.get(b)

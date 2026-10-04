@@ -97,6 +97,11 @@ try {
     const q = { kind: 'matrix', mode: 'transit', serviceDate: base.serviceDate, time: '08:30', timePreference, origins: [base.origin, base.origin, base.destination], destinations: [base.destination, base.origin], includeJourneys: true }
     const full = query(q)
     const compact = query({ ...q, journeyFormat: 'compact' })
+    const unique = query({ ...q, origins: [base.origin, base.destination] })
+    assert.deepEqual(full.durationsMinutes, [unique.durationsMinutes[0], unique.durationsMinutes[0], unique.durationsMinutes[1]])
+    assert.deepEqual(full.journeys, [unique.journeys[0], unique.journeys[0], unique.journeys[1]],
+      'Sharing repeated endpoints preserves every full journey and output position.')
+    assert.deepEqual(query({ ...q, includeJourneys: false }).durationsMinutes, full.durationsMinutes)
     assert.deepEqual(compact.durationsMinutes, full.durationsMinutes)
     for (let i = 0; i < q.origins.length; i++) for (let j = 0; j < q.destinations.length; j++) {
       const a = compact.journeys[i][j], b = full.journeys[i][j]
@@ -113,6 +118,16 @@ try {
   // A required stale access context is an error, not an optional-sidecar miss.
   const accessFile = path.join(routing, 'project.sqlite.access-context.bin')
   const { metadata, arrays } = decodeRoutingSnapshot(fs.readFileSync(accessFile))
+  const originalAccess = fs.readFileSync(accessFile)
+  const oldPolicy = JSON.parse(metadata.accessPolicyIdentity)
+  delete oldPolicy.transferWalkingTimeFloor
+  metadata.accessPolicyIdentity = JSON.stringify(oldPolicy)
+  fs.writeFileSync(accessFile, encodeRoutingSnapshot(metadata, arrays))
+  const stalePolicy = spawnSync(binary, ['info', '--city', city], { env, encoding: 'utf8' })
+  assert.equal(stalePolicy.status, 2)
+  assert.match(stalePolicy.stderr, /station walking times are stale/); checked++
+  fs.writeFileSync(accessFile, originalAccess)
+  metadata.accessPolicyIdentity = decodeRoutingSnapshot(originalAccess).metadata.accessPolicyIdentity
   metadata.sourceArtifactIdentity += '-stale'
   fs.writeFileSync(accessFile, encodeRoutingSnapshot(metadata, arrays))
   assert.equal(spawnSync(binary, ['info', '--city', city], { env }).status, 2); checked++

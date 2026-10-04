@@ -174,6 +174,8 @@ vigo reach \
   --output ./reach-result.json
 ```
 
+Station pathways without usable time or length are excluded. Source-timed interior links without a known distance report a distance lower bound; neither those links nor free-coordinate connectors establish complete physical walking feasibility. Inspect the [walking evidence](../reference/walking-evidence.md) on a returned journey before treating it as a passenger-facing guarantee.
+
 ## 7. Reuse the loaded network
 
 One-off commands load the City each time. For repeated requests, keep one `stream` process running. Save `queries.ndjson` with one object on each line:

@@ -411,6 +411,7 @@ pub struct TimetableOverlayManyQueryResult {
 #[cfg_attr(feature = "node", napi(object))]
 #[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(Clone)]
 pub struct TimetableParetoQueryInput {
     pub origin_stops: Vec<u32>,
     pub origin_walk_seconds: Vec<f64>,

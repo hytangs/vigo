@@ -1,5 +1,6 @@
 import { numeric } from '../number-utils.mjs'
 import { stableJson } from '../routing-plan-identity.mjs'
+import { haversineKm } from '../geometry-utils.mjs'
 
 // The desktop uses an ordinary walking pace without hidden reliability
 // padding. Deployments may tune each term explicitly through the environment;
@@ -44,13 +45,17 @@ const configuredAccessOverheadSeconds = Math.max(
 )
 
 export const nationalRoutingAccessPolicy = Object.freeze({
-  schemaVersion: 'vigo.routing.access-policy.v4',
+  schemaVersion: 'vigo.routing.access-policy.v5',
   id: customWalkingParametersEnabled
     ? 'vigo-national-configured-access'
     : 'vigo-national-regular-access',
   durationModel: 'osm-distance-at-configured-walking-speed',
   parentStationTransferMinimums: 'published-type-2-floors-v1',
   sameStopTransferProhibitionScope: 'direct-reboarding-only',
+  transferWalkingTimeFloor: 'distance-at-configured-speed-v1',
+  unpricedPathways: 'excluded-with-declared-connectivity-v1',
+  stationStreetAnchors: 'declared-entrances-v1',
+  stationPathDistance: 'source-or-located-chord-v1',
   walkingSpeedKph: configuredWalkingSpeedKph,
   accessPaddingFactor: configuredAccessPaddingFactor,
   accessOverheadSeconds: configuredAccessOverheadSeconds,
@@ -78,7 +83,7 @@ export const directWalkTransitEndpointLowerBoundMinutes = (
   2 * Math.ceil(accessOverheadSeconds) / 60
 )
 
-export const osmTransferGraphSchemaVersion = 'vigo.routing.osm-stop-transfers.v3'
+export const osmTransferGraphSchemaVersion = 'vigo.routing.osm-stop-transfers.v4'
 
 export const osmTransferMaximumWalkM = Math.max(
   50,
@@ -116,9 +121,27 @@ export function walkSeconds(distanceKm) {
 
 export function transferDurationSeconds(transfer) {
   if (transfer?.provenance === 'gtfs_pathway' && transfer.min_transfer_time == null) {
+    if (transfer.path_distance_m == null) return null
     return walkSeconds(numeric(transfer.path_distance_m, 0) / 1000)
   }
   return Math.max(0, numeric(transfer?.min_transfer_time, 0))
+}
+
+// A transfers.txt minimum constrains boarding; it is not a pathway traversal
+// time or permission to walk faster than the configured pace. Apply this to
+// each expanded platform pair before searching, including station access.
+// Explicit pathway traversal times retain their source meaning (e.g. lifts).
+export function stationTransferDurationSeconds(transfer, from, to, speedKph = walkingSpeedKph) {
+  const minimum = transferDurationSeconds(transfer)
+  if (!['gtfs_transfer', 'schedule_transfer'].includes(transfer?.provenance)
+    || Number(transfer.transfer_type) === 3 || !from || !to) return minimum
+  const coordinates = [from.lon, from.lat, to.lon, to.lat]
+  if (!coordinates.every(Number.isFinite)) return minimum
+  const distanceKm = Math.max(
+    haversineKm(coordinates.slice(0, 2), coordinates.slice(2)),
+    numeric(transfer.path_distance_m, 0) / 1000,
+  )
+  return Math.max(minimum, Math.ceil(distanceKm / speedKph * 3600))
 }
 
 export function accessWalkSeconds(stop) {

@@ -54,7 +54,7 @@ try {
   }
   await fs.writeFile(projectFile, JSON.stringify(emptyProject))
   const routingStore = {
-    schemaVersion: 'vigo.routing.store.v1',
+    schemaVersion: 'vigo.routing.store.v3',
     status: 'ready',
     fileName: 'fixture.sqlite',
     bytes: 4_096,
@@ -82,7 +82,7 @@ try {
     artifacts: [{ id: 'artifact-fixture', sourceFeedIds: ['fixture-feed'] }],
     routingStore,
     osmStreetIndex: {
-      schemaVersion: 'vigo.street.store.v4',
+      schemaVersion: 'vigo.street.store.v5',
       status: 'ready',
       fileName: 'fixture.osm.pbf',
       sourceBytes: 2_048,

@@ -2,6 +2,8 @@
 
 This repository contains Engine and Studio. Keep language bindings, private datasets, notebooks, generated data, release archives, and local workspaces outside it. Follow the [quickstart](../docs/guides/quickstart.md) to install and build.
 
+The current release line is [VIGO 0.4.3](../docs/releases/0.4.3.md).
+
 ## Make a change
 
 1. Discuss substantial behavior changes in an issue. Keep patches focused and preserve unrelated work.

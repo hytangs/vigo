@@ -86,7 +86,7 @@ def main():
         for file in ("LICENSE", "NOTICE"):
             shutil.copy2(ROOT / file, stage / file)
         guide = (ROOT / "docs/guides/rust-standalone.md").read_text(encoding="utf-8")
-        (stage / "README.md").write_text(guide.replace("../reference/rust-standalone-audit.md", "AUDIT.md").replace("../reference/rust-standalone-native.md", "NATIVE.md").replace("../standalone.html", "standalone.html").replace("../standalone-openapi.json", "standalone-openapi.json"), encoding="utf-8")
+        (stage / "README.md").write_text(guide.replace("../reference/rust-standalone-audit.md", "AUDIT.md").replace("../reference/rust-standalone-native.md", "NATIVE.md").replace("../reference/walking-evidence.md", "standalone.html#walking-evidence").replace("../standalone.html", "standalone.html").replace("../standalone-openapi.json", "standalone-openapi.json"), encoding="utf-8")
         shutil.copy2(ROOT / "docs/reference/rust-standalone-audit.md", stage / "AUDIT.md")
         native = (ROOT / "docs/reference/rust-standalone-native.md").read_text(encoding="utf-8")
         (stage / "NATIVE.md").write_text(native.replace("../guides/rust-standalone.md", "README.md"), encoding="utf-8")

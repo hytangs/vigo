@@ -42,6 +42,7 @@ import {
   requiredServiceCoverageIncomplete,
   routingHorizonMinutes,
   transferDurationSeconds,
+  stationTransferDurationSeconds,
   transitRideRequired,
   validateMaximumTransfers,
   validateTransitRideRequirement,
@@ -1389,7 +1390,9 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
         }
         if (locationType === 2) featureInventory.stationEntranceCount += 1
         if (String(row.level_id ?? '').trim()) featureInventory.stationLevelRuleCount += 1
-        return [row.stop_id, row.stop_name ?? '', numeric(row.stop_lat, null), numeric(row.stop_lon, null), row.parent_station || null, locationType, row.platform_code || null]
+        const latitude = String(row.stop_lat ?? '').trim() ? numeric(row.stop_lat, null) : null
+        const longitude = String(row.stop_lon ?? '').trim() ? numeric(row.stop_lon, null) : null
+        return [row.stop_id, row.stop_name ?? '', latitude, longitude, row.parent_station || null, locationType, row.platform_code || null]
       })
     await importTable('routes.txt', 0.09,
       'INSERT INTO routes VALUES(?,?,?,?,?)',
@@ -1571,13 +1574,22 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       db.exec('BEGIN IMMEDIATE')
       try {
         const pathwayProfile = await streamTable(pathwaysEntry, (row) => {
-          const seconds = String(row.traversal_time ?? '').trim()
-            ? Math.max(0, numeric(row.traversal_time, 0)) : null
+          const optionalCost = (value, field) => {
+            if (!String(value ?? '').trim()) return null
+            const cost = Number(value)
+            if (!Number.isFinite(cost) || cost < 0) throw new Error(`Invalid GTFS pathway ${field}: ${row.pathway_id}`)
+            return cost
+          }
+          const seconds = optionalCost(row.traversal_time, 'traversal_time')
           const from = pathwayStop.get(row.from_stop_id)
           const to = pathwayStop.get(row.to_stop_id)
-          const distanceM = String(row.length ?? '').trim()
-            ? Math.max(0, numeric(row.length, 0))
-            : from && to ? haversineKm([from.lon, from.lat], [to.lon, to.lat]) * 1000 : 0
+          const chord = from && to && [from.lon, from.lat, to.lon, to.lat].every(Number.isFinite)
+            ? haversineKm([from.lon, from.lat], [to.lon, to.lat]) * 1000 : null
+          // Co-located station levels do not establish a zero-time connection.
+          const distanceM = optionalCost(row.length, 'length') ?? (chord > 0 ? chord : null)
+          if (seconds == null && distanceM == null) {
+            featureInventory.unpricedPathwayCount = (featureInventory.unpricedPathwayCount ?? 0) + 1
+          }
           const forward = insertPathway.run(row.from_stop_id, row.to_stop_id, seconds)
           if (Number(forward.changes ?? 0)) insertPathwayProvenance.run(row.from_stop_id, row.to_stop_id, 'gtfs_pathway', distanceM)
           if (numeric(row.is_bidirectional, 0) === 1) {
@@ -1746,6 +1758,8 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       'Timed-transfer guarantee rows are excluded from the generic stop-pair transfer graph.')
     limitFeature('pathway_accessibility', featureInventory.pathwayAccessibilityRuleCount,
       'Pathway direction and traversal time are used, but accessibility attributes are not query constraints.')
+    limitFeature('unpriced_pathways', featureInventory.unpricedPathwayCount ?? 0,
+      'Pathways without traversal time, length, or distinct located endpoints are excluded. Their declared station connectivity still suppresses inferred shortcuts.')
     limitFeature('wheelchair_accessibility', featureInventory.stopWheelchairBoardingRuleCount + featureInventory.tripWheelchairAccessibleRuleCount,
       'Stop wheelchair_boarding and trip wheelchair_accessible values are inventoried, but VIGO does not yet expose a wheelchair-constrained routing request.')
     limitFeature('bicycle_accessibility', featureInventory.tripBikesAllowedRuleCount,
@@ -2211,10 +2225,12 @@ function populateStaticTopology(sourceDb, targetDb, { expectedConnections = 1, o
     WHERE COALESCE(transfer.transfer_type, 0) != 3
       AND transfer.from_stop_id != transfer.to_stop_id
   `).iterate()) {
+    const duration = transferDurationSeconds(transfer)
+    if (duration == null) continue
     insertEdge.run(
       transfer.from_stop_id,
       transfer.to_stop_id,
-      transferDurationSeconds(transfer),
+      duration,
     )
     transferCount += 1
   }
@@ -2376,13 +2392,16 @@ function nearestStops(store, coordinate, maxWalkKm, limit = 12) {
 
 export function expandParentStationTransfers(rawTransfers, stopRecords, stationMembers) {
   const parentMinimumRules = []
+  const declaredPathwayStops = new Set()
   const targetMaps = new Map()
   let rawTransferCount = 0
   const add = (transfer) => {
     if (!stopRecords.has(transfer.from_stop_id) || !stopRecords.has(transfer.to_stop_id)) return
     const targets = targetMaps.get(transfer.from_stop_id) ?? new Map()
     const current = targets.get(transfer.to_stop_id)
-    const duration = transferDurationSeconds(transfer)
+    const duration = stationTransferDurationSeconds(transfer,
+      stopRecords.get(transfer.from_stop_id), stopRecords.get(transfer.to_stop_id))
+    if (duration == null) return
     if (!current || duration < current.min_transfer_time) {
       targets.set(transfer.to_stop_id, {
         ...transfer,
@@ -2403,6 +2422,10 @@ export function expandParentStationTransfers(rawTransfers, stopRecords, stationM
 
   for (const rawTransfer of rawTransfers) {
     rawTransferCount += 1
+    if (rawTransfer.provenance === 'gtfs_pathway') {
+      declaredPathwayStops.add(rawTransfer.from_stop_id)
+      declaredPathwayStops.add(rawTransfer.to_stop_id)
+    }
     if (['gtfs_transfer', 'schedule_transfer'].includes(rawTransfer.provenance)
       && Number(rawTransfer.transfer_type) === 2
       && (numeric(stopRecords.get(rawTransfer.from_stop_id)?.location_type, 0) === 1
@@ -2459,7 +2482,7 @@ export function expandParentStationTransfers(rawTransfers, stopRecords, stationM
     transfers.set(fromStopId, rows)
     resolvedTransferCount += rows.length
   }
-  return { transfers, rawTransferCount, resolvedTransferCount }
+  return { transfers, rawTransferCount, resolvedTransferCount, declaredPathwayStops }
 }
 
 function transferPairKey(fromStopId, toStopId) {
@@ -2511,6 +2534,7 @@ function buildNationalStoreAccessMaterialization(store) {
     transfers,
     rawTransferCount,
     resolvedTransferCount,
+    declaredPathwayStops,
   } = expandParentStationTransfers(
     db.prepare(`${transferSelect} WHERE transfer.transfer_type != 3`).iterate(),
     stopRecords,
@@ -2535,6 +2559,7 @@ function buildNationalStoreAccessMaterialization(store) {
   }
   return {
     transfers,
+    declaredPathwayStops,
     forbiddenTransferPairs,
     rawTransferCount,
     rawForbiddenTransferCount: forbiddenTransferExpansion.rawTransferCount,

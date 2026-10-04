@@ -1,7 +1,6 @@
 use super::{City, Result, capabilities, fail, flag, number};
 use crate::*;
 use serde_json::{Value, json};
-use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Clone)]
@@ -9,21 +8,20 @@ pub(crate) struct Point {
     pub coordinate: [f64; 2],
     pub stop: Option<String>,
 }
-#[derive(Clone)]
 pub(crate) struct Candidates {
     pub stops: Vec<u32>,
     pub seconds: Vec<f64>,
     pub terminal_transfers: bool,
-    // Native evidence is consumed directly by walking materialization. Only
-    // point diagnostics need its JSON form. Duplicate batch endpoints share
-    // the immutable arrays instead of copying a tree of JSON values.
-    pub evidence: Option<Arc<EndpointRoleResult>>,
+    // Native evidence is consumed directly by walking materialization. Batch
+    // endpoints are unique before this object is built; no shared allocation
+    // or intermediate JSON tree is needed.
+    pub evidence: Option<EndpointRoleResult>,
 }
 impl Candidates {
     fn diagnostics(&self, point: &Point) -> Result<Value> {
         self.evidence.as_ref().map_or_else(
             || Ok(json!({"stopId":point.stop,"exactStopAccess":true})),
-            |evidence| Ok(serde_json::to_value(evidence.as_ref())?),
+            |evidence| Ok(serde_json::to_value(evidence)?),
         )
     }
 }
@@ -181,6 +179,9 @@ impl City {
             && let Some(id) = value["stopId"].as_str().or_else(|| value.as_str())
         {
             let s = self.stop(id)?;
+            if !s.lon.is_finite() || !s.lat.is_finite() {
+                return fail("Selected stop has no source coordinate");
+            }
             return Ok(Point {
                 coordinate: [s.lon, s.lat],
                 stop: Some(id.to_owned()),
@@ -290,7 +291,7 @@ impl City {
             stops,
             seconds,
             terminal_transfers: false,
-            evidence: Some(Arc::new(result)),
+            evidence: Some(result),
         })
     }
     fn point_candidates(
@@ -403,32 +404,25 @@ impl City {
             include_journeys: Some(journeys),
         }
     }
-    fn batch_candidates(
-        &mut self,
-        points: &[Point],
-        role: &str,
-        opt: &Options,
-    ) -> Result<Vec<Candidates>> {
-        // Same-coordinate stop IDs can have different station permissions.
-        // Keep that identity and the endpoint role in the sharing boundary.
-        let mut seen: std::collections::HashMap<(Option<&str>, u64, u64), usize> =
-            std::collections::HashMap::new();
-        let mut candidates: Vec<Candidates> = Vec::with_capacity(points.len());
+    fn distinct_points(points: &[Point]) -> (Vec<Point>, Vec<usize>) {
+        // Endpoint labels do not affect routing. Stop identity and exact
+        // coordinates do: never merge co-located platforms with different IDs.
+        let mut seen = std::collections::HashMap::new();
+        let mut unique = Vec::new();
+        let mut indices = Vec::with_capacity(points.len());
         for point in points {
             let key = (
                 point.stop.as_deref(),
                 point.coordinate[0].to_bits(),
                 point.coordinate[1].to_bits(),
             );
-            let candidate = if let Some(&index) = seen.get(&key) {
-                candidates[index].clone()
-            } else {
-                seen.insert(key, candidates.len());
-                self.candidates(point, role, opt)?
-            };
-            candidates.push(candidate);
+            let index = *seen.entry(key).or_insert_with(|| {
+                unique.push(point.clone());
+                unique.len() - 1
+            });
+            indices.push(index);
         }
-        Ok(candidates)
+        (unique, indices)
     }
     pub fn route(&mut self, q: &Value) -> Result<Value> {
         let opt = Options::parse(q)?;
@@ -476,11 +470,11 @@ impl City {
                 explicit_transfer_checks: 0.,
             }
         } else {
-            self.timetable
-                .as_mut()
-                .unwrap()
-                .kernel
-                .route_matrix_csa(input)?
+            let kernel = &mut self.timetable.as_mut().unwrap().kernel;
+            match super::point::route(kernel, &input)? {
+                Some(result) => result,
+                None => kernel.route_matrix_csa(input)?,
+            }
         };
         // Move the witness out before serializing diagnostics: the complete
         // materialized journey already belongs to the high-level response.
@@ -652,8 +646,29 @@ impl City {
             return self.street_matrix(q, &origins, &destinations, &opt, mode);
         }
         self.activate(q)?;
-        let a = self.batch_candidates(&origins, "origin", &opt)?;
-        let b = self.batch_candidates(&destinations, "destination", &opt)?;
+        let (search_origins, origin_indices) = Self::distinct_points(&origins);
+        let (search_destinations, destination_indices) = Self::distinct_points(&destinations);
+        let search_width = search_destinations.len();
+        let cells = (search_origins.len() != origins.len()
+            || search_destinations.len() != destinations.len())
+        .then(|| {
+            origin_indices
+                .iter()
+                .flat_map(|&a| {
+                    destination_indices
+                        .iter()
+                        .map(move |&b| a * search_width + b)
+                })
+                .collect::<Vec<_>>()
+        });
+        let a = search_origins
+            .iter()
+            .map(|p| self.candidates(p, "origin", &opt))
+            .collect::<Result<Vec<_>>>()?;
+        let b = search_destinations
+            .iter()
+            .map(|p| self.candidates(p, "destination", &opt))
+            .collect::<Result<Vec<_>>>()?;
         let include = flag(q, "includeJourneys", false)?;
         let mut result = self
             .timetable
@@ -661,6 +676,9 @@ impl City {
             .unwrap()
             .kernel
             .route_matrix_csa(Self::matrix_input(&a, &b, &opt, include))?;
+        if let Some(cells) = &cells {
+            result.times = cells.iter().map(|&i| result.times[i]).collect();
+        }
         let mut durations: Vec<f64> = result
             .times
             .iter()
@@ -687,17 +705,37 @@ impl City {
                             }
                             self.materialize(
                                 j,
-                                &origins[i / destinations.len()],
-                                &destinations[i % destinations.len()],
+                                &search_origins[i / search_destinations.len()],
+                                &search_destinations[i % search_destinations.len()],
                                 include_geometry,
                                 &opt,
-                                [&a[i / destinations.len()], &b[i % destinations.len()]],
+                                [
+                                    &a[i / search_destinations.len()],
+                                    &b[i % search_destinations.len()],
+                                ],
                             )
                         })
                     })
                     .collect::<Result<Vec<_>>>()
             })
             .transpose()?;
+        if let (Some(cells), Some(rows)) = (&cells, &mut journeys) {
+            let mut uses = vec![0usize; rows.len()];
+            for &i in cells {
+                uses[i] += 1;
+            }
+            *rows = cells
+                .iter()
+                .map(|&i| {
+                    uses[i] -= 1;
+                    if uses[i] == 0 {
+                        std::mem::take(&mut rows[i])
+                    } else {
+                        rows[i].clone()
+                    }
+                })
+                .collect();
+        }
         if !flag(q, "requireTransitRide", true)? {
             let walk = self.street.route_street_matrix(StreetMatrixInput {
                 origin_coordinates: origins.iter().flat_map(|p| p.coordinate).collect(),

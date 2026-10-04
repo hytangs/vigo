@@ -53,7 +53,7 @@ const feed = {
   },
 }
 const projectRoutingStore = {
-  schemaVersion: 'vigo.routing.store.v1',
+  schemaVersion: 'vigo.routing.store.v3',
   status: 'ready',
   fileName: 'project.sqlite',
   connectionCount: routes.length * 2,

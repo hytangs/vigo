@@ -28,7 +28,7 @@ function writeStringTable(strings, pbf) {
 }
 
 function writeNode(node, pbf) {
-  pbf.writeVarintField(1, node.id)
+  pbf.writeSVarintField(1, node.id)
   pbf.writeSVarintField(8, node.lat)
   pbf.writeSVarintField(9, node.lon)
 }

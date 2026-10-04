@@ -36,7 +36,7 @@ function buildFixture() {
     CREATE INDEX drive_edges_from ON drive_edges(from_node);
     CREATE INDEX drive_edges_to ON drive_edges(to_node);
     INSERT INTO metadata VALUES
-      ('schemaVersion', '"vigo.street.store.v4"'),
+      ('schemaVersion', '"vigo.street.store.v5"'),
       ('sourceModel', '"pbf"'),
       ('storageLayout', '"walk-drive-role-tables-v2"'),
       ('nodeCount', '6'),

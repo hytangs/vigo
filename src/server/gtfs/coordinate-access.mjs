@@ -195,11 +195,16 @@ function physicalStopAccessProfile(store, streetStorePath, version) {
   const anchorLats = []
   const anchorMemberOffsets = [0]
   const anchorMemberIndices = []
+  const entranceStations = new Set([...store.stationMembers].filter(([, ids]) => (
+    ids.some(id => Number(store.stopRecords.get(id)?.location_type) === 2)
+    && ids.some(id => store.declaredPathwayStops?.has(id))
+  )).map(([id]) => id))
   for (const stop of store.stopRecords.values()) {
+    const hasCoordinate = Number.isFinite(stop.lon) && Number.isFinite(stop.lat)
+    const interior = [3, 4].includes(numeric(stop.location_type, 0))
     if (
       numeric(stop.location_type, 0) === 1
-      || !Number.isFinite(stop.lon)
-      || !Number.isFinite(stop.lat)
+      || (!hasCoordinate && (!interior || !version.startsWith('coordinate-access')))
     ) {
       continue
     }
@@ -213,14 +218,20 @@ function physicalStopAccessProfile(store, streetStorePath, version) {
       && (numeric(stop.location_type, 0) === 0 || version.startsWith('stop-transfer'))) continue
     const memberIndex = members.length
     members.push(stop)
-    memberLons.push(stop.lon)
-    memberLats.push(stop.lat)
+    // Unlocated interior nodes retain declared topology but never become
+    // street anchors. Packed coordinates are placeholders only; source records
+    // and rendered geometry retain the missing-coordinate distinction.
+    memberLons.push(hasCoordinate ? stop.lon : 0)
+    memberLats.push(hasCoordinate ? stop.lat : 0)
     memberOriginEligible.push(Number(originEligible))
     memberDestinationEligible.push(Number(destinationEligible))
     memberStreetAccessStopIds.push(stop.stop_id)
     // Interior pathway nodes carry their declared connections, not additional
     // entrances through the nearest external street.
-    if ([0, 2].includes(numeric(stop.location_type, 0))) {
+    const location = numeric(stop.location_type, 0)
+    // A feed with entrances and declared pathways owns access to its platforms.
+    // Snapping straight to a platform would bypass missing or one-way links.
+    if (location === 2 || (location === 0 && !entranceStations.has(stop.parent_station))) {
       anchorLons.push(stop.lon)
       anchorLats.push(stop.lat)
       anchorMemberIndices.push(memberIndex)
@@ -274,7 +285,7 @@ function physicalStopAccessProfile(store, streetStorePath, version) {
     profile.transferMinDurations = paths.seconds
     profile.transferPathDistancesM = paths.distanceM
     profile.transferOsmCertified = new Uint8Array(paths.from.length)
-    profile.transferPaths = stationPathLookup(paths, members)
+    profile.transferPaths = stationPathLookup(paths, members, store.transfers)
   }
   return profile
 }

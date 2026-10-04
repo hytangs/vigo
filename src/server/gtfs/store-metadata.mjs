@@ -6,7 +6,9 @@ import { performance as nodePerformance } from 'node:perf_hooks'
 import { DatabaseSync } from 'node:sqlite'
 import { stableJson } from '../routing-plan-identity.mjs'
 
-export const storeSchemaVersion = 'vigo.routing.store.v1'
+// v3 preserves missing station coordinates and pathway costs as null. Older
+// stores cannot distinguish coerced zero values from explicit source values.
+export const storeSchemaVersion = 'vigo.routing.store.v3'
 
 export const transferSemanticsVersion = 'vigo.routing.transfers.v3'
 
@@ -56,6 +58,7 @@ const supportedScheduledCoreLimitationCodes = new Set([
   'in_seat_transfer_rules',
   'block_interlining',
   'pathway_accessibility',
+  'unpriced_pathways',
   'wheelchair_accessibility',
   'bicycle_accessibility',
   'station_entrances',

@@ -96,7 +96,7 @@ function fixtureProject(storeMetadata) {
     jobs: [],
     artifacts: [],
     routingStore: {
-      schemaVersion: 'vigo.routing.store.v1',
+      schemaVersion: 'vigo.routing.store.v3',
       status: 'ready',
       fileName: 'project.sqlite',
       storeId: storeMetadata.storeId,
@@ -106,7 +106,7 @@ function fixtureProject(storeMetadata) {
       connectionCount: storeMetadata.connectionCount,
     },
     osmStreetIndex: {
-      schemaVersion: 'vigo.street.store.v4',
+      schemaVersion: 'vigo.street.store.v5',
       status: 'ready',
       fileName: 'street-index.sqlite',
       cch: { ready: true, format: 'fixture' },

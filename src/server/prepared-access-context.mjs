@@ -24,6 +24,7 @@ export function loadPreparedAccessContext(store, accessPolicyIdentity) {
       rawForbiddenTransferCount: saved.rawForbiddenTransferCount,
       resolvedTransferCount: saved.resolvedTransferCount,
       forbiddenTransferPairs: new Set(saved.forbiddenTransferPairs),
+      declaredPathwayStops: new Set(saved.declaredPathwayStops),
       stopAccessIndex: saved.stopAccessIndex,
     }
     for (const name of mapFields) value[name] = new Map(saved[name])
@@ -53,6 +54,7 @@ export function persistPreparedAccessContext(store, accessPolicyIdentity) {
     const materialized = Object.fromEntries(mapFields.map(name => [name, [...store[name]]]))
     Object.assign(materialized, {
       forbiddenTransferPairs: [...store.forbiddenTransferPairs],
+      declaredPathwayStops: [...(store.declaredPathwayStops ?? [])],
       rawTransferCount: store.rawTransferCount,
       rawForbiddenTransferCount: store.rawForbiddenTransferCount,
       resolvedTransferCount: store.resolvedTransferCount,
@@ -82,16 +84,25 @@ function validateStationPaths(paths) {
   validateNativeStationPaths({ ...paths, stopCount: stopIds.length, sourceCount: sources.length })
 }
 
-export function stationPathLookup(paths, stops) {
+export function stationPathLookup(paths, stops, transfers) {
   return { get(key) {
     const [from, to, seconds] = key.split(':').map(Number)
     if (!Number.isInteger(from) || from < 0 || from >= stops.length) return undefined
     for (let i = paths.offsets[from]; i < paths.offsets[from + 1]; i += 1) {
       if (paths.to[i] !== to || paths.seconds[i] !== seconds) continue
       const start = paths.pathOffsets[i], end = paths.pathOffsets[i + 1]
+      const members = Array.from(paths.pathStops.subarray(start, end), index => stops[index])
+      const distanceIncomplete = transfers && members.slice(1).some((to, j) => {
+        const from = members[j]
+        return ![from.lon, from.lat, to.lon, to.lat].every(Number.isFinite)
+          && transfers.get(from.stop_id)?.find(edge => edge.to_stop_id === to.stop_id)?.path_distance_m == null
+      })
       return {
+        ...(distanceIncomplete ? { distanceIncomplete: true } : {}),
         stopIds: Array.from(paths.pathStops.subarray(start, end), index => stops[index].stop_id),
         coordinates: Array.from(paths.pathStops.subarray(start, end), index => [stops[index].lon, stops[index].lat]),
+        ...(Array.from(paths.pathStops.subarray(start, end)).some(index => !Number.isFinite(stops[index].lon) || !Number.isFinite(stops[index].lat))
+          ? { geometryIncomplete: true } : {}),
         sources: Array.from(paths.pathSources.subarray(start - i, end - i - 1), index => paths.sources[index]),
       }
     }

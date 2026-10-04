@@ -316,7 +316,7 @@ impl City {
             let (k, v) = row?;
             metadata[k] = serde_json::from_str(&v).unwrap_or(Value::String(v));
         }
-        if metadata["schemaVersion"] != "vigo.routing.store.v1"
+        if metadata["schemaVersion"] != "vigo.routing.store.v3"
             || metadata["transferSemanticsVersion"] != "vigo.routing.transfers.v3"
         {
             return fail("Rebuild City with the current routing/transfer format");
@@ -350,19 +350,35 @@ impl City {
             return fail("Prepared access context does not match the routing database");
         }
         let policy: Value = serde_json::from_str(&access.access_policy_identity)?;
+        if policy["transferWalkingTimeFloor"] != "distance-at-configured-speed-v1"
+            || policy["unpricedPathways"] != "excluded-with-declared-connectivity-v1"
+            || policy["stationStreetAnchors"] != "declared-entrances-v1"
+        {
+            return fail(
+                "Prepared station walking times are stale; prepare the City with the current VIGO runtime",
+            );
+        }
         let speed = number(&policy, "walkingSpeedKph", 4.8, 1., 8.)?;
         let padding = number(&policy, "accessPaddingFactor", 1., 0.75, 3.)?;
         let overhead = number(&policy, "accessOverheadSeconds", 0., 0., 900.)?;
         let records = std::mem::take(&mut access.materialized.stop_records);
         let mut stops = Vec::with_capacity(records.len());
         for (id, s) in records {
+            let location = s["location_type"].as_u64().unwrap_or(0) as u32;
+            let coordinate = |key: &str| -> Result<f64> {
+                match s[key].as_f64() {
+                    Some(value) => Ok(value),
+                    None if s[key].is_null() && [3, 4].contains(&location) => Ok(f64::NAN),
+                    _ => fail("Invalid stop coordinate"),
+                }
+            };
             stops.push(Stop {
                 id,
                 name: s["name"].as_str().unwrap_or("").to_owned(),
-                lon: s["lon"].as_f64().ok_or("Invalid stop longitude")?,
-                lat: s["lat"].as_f64().ok_or("Invalid stop latitude")?,
+                lon: coordinate("lon")?,
+                lat: coordinate("lat")?,
                 parent: s["parent_station"].as_str().unwrap_or("").to_owned(),
-                location: s["location_type"].as_u64().unwrap_or(0) as u32,
+                location,
             });
         }
         if Some(stops.len() as u64) != metadata["stopCount"].as_u64() {
@@ -392,6 +408,12 @@ impl City {
             .map(|s| s.id.clone())
             .collect();
         let street_path = path.join("osm/street-index.sqlite.street-accelerator-v7.bin");
+        let street_header = Image::open(&street_path, false)?;
+        if street_header.header["identity"]["schemaVersion"] != "vigo.street.store.v5" {
+            return fail(
+                "Street pedestrian restrictions are stale; rebuild the City from the source OSM PBF",
+            );
+        }
         let (structure_path, metric_path, _) = cch_files(&street_path, "street")?;
         let mut street = CoordinateKernel::open_prepared(
             str_path(&street_path)?,
@@ -421,7 +443,6 @@ impl City {
         {
             return fail("Prepared coordinate access profile identity is stale");
         }
-        let street_header = Image::open(&street_path, false)?;
         let fingerprint = street_header.header["identity"]["sourceFingerprint"]
             .as_str()
             .ok_or("Missing street source fingerprint")?;

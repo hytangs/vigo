@@ -33,7 +33,7 @@ function buildFixture() {
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX drive_edges_from ON drive_edges(from_node);
     INSERT INTO metadata VALUES
-      ('schemaVersion', '"vigo.street.store.v4"'),
+      ('schemaVersion', '"vigo.street.store.v5"'),
       ('sourceModel', '"pbf"'),
       ('storageLayout', '"walk-drive-role-tables-v2"'),
       ('driveNodeStorage', '"walk-shared-plus-drive-only-v1"'),
@@ -83,7 +83,7 @@ try {
   buildFixture()
   const diagnostics = nationalOsmStoreDiagnostics(storePath)
   assert.equal(diagnostics.storeAdmission.status, 'admitted')
-  assert.equal(diagnostics.storeAdmission.schemaVersion, 'vigo.street.store.v4')
+  assert.equal(diagnostics.storeAdmission.schemaVersion, 'vigo.street.store.v5')
   assert.equal(diagnostics.storeAdmission.sourceModel, 'pbf')
   assert.equal(diagnostics.storeAdmission.requiredTableCount, 5)
   assert.equal(diagnostics.storeAdmission.requiredIndexCount, 3)
@@ -93,7 +93,7 @@ try {
     await mutatedCopy('wrong-version', "UPDATE metadata SET value='\"vigo.street.store.v0\"' WHERE key='schemaVersion';"),
     'schema_version_mismatch',
   )
-  for (const version of ['vigo.street.store.v1', 'vigo.street.store.v2', 'vigo.street.store.v3']) {
+  for (const version of ['vigo.street.store.v1', 'vigo.street.store.v2', 'vigo.street.store.v3', 'vigo.street.store.v4']) {
     const oldPath = await mutatedCopy(version, `UPDATE metadata SET value='"${version}"' WHERE key='schemaVersion';`)
     const original = await fs.readFile(oldPath)
     assertAdmissionRejected(oldPath, 'schema_version_mismatch')

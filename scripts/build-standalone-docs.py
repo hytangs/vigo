@@ -510,12 +510,13 @@ PAGE_GROUPS = [
     ('Routing', ['route', 'via-and-windows', 'matrix', 'reach', 'scenarios', 'compare', 'realtime']),
     ('Results', ['results']+[key for key,_ in OUTPUT_PAGES]),
     ('Reference', ['cli', 'points-and-time', 'streaming', 'http-api', 'clients', 'native-api', 'native-fields']),
-    ('Operations', ['deployment', 'troubleshooting', 'validation', 'audit-record']),
+    ('Operations', ['deployment', 'troubleshooting', 'walking-evidence', 'validation', 'audit-record']),
 ]
 
 
-def page(source,native,audit):
+def page(source,native,audit,walking):
     source=source.replace('../standalone.html','#overview').replace('../standalone-openapi.json','standalone-openapi.json').replace('../reference/rust-standalone-audit.md','#audit-record').replace('../reference/rust-standalone-native.md','#native-fields')
+    source=source.replace('../reference/walking-evidence.md','#walking-evidence')
     _,*parts=re.split(r'(?=^## \d+\. )',source,flags=re.M)
     assert len(parts)==len(PAGE_NAMES), 'Give every manual chapter a page and navigation label'
     pages={}
@@ -570,6 +571,8 @@ This manual covers VIGO {VERSION}. See [Compatibility](#validation) for supporte
         title=heading[3:]
         pages[slug(title)]={'title':title,'label':title,'body':body,'parent':'native-fields'}
     pages['audit-record']={'title':'Test record','label':'Test record','body':audit.split('\n',1)[1]}
+    walking=walking.replace('../guides/quickstart.md','#city-data').replace('../guides/rust-standalone.md','#city-data')
+    pages['walking-evidence']={'title':'Walking evidence','label':'Walking evidence','body':walking.split('\n',1)[1]}
     order=[key for _,keys in PAGE_GROUPS for key in keys]
     type_order=[slug(part.splitlines()[0][3:]) for part in types]
     used={key:1 for key in pages}
@@ -613,7 +616,8 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__); parser.add_argument('--check',action='store_true'); args=parser.parse_args()
     source=SOURCE.read_text(encoding='utf-8'); native,native_md=native_contracts()
     audit=(ROOT/'docs/reference/rust-standalone-audit.md').read_text(encoding='utf-8')
-    products={'docs/reference/rust-standalone-native.md':native_md,'docs/standalone-openapi.json':json.dumps(specification(native),indent=2,ensure_ascii=False)+'\n','docs/standalone.html':page(source,native_md,audit)}
+    walking=(ROOT/'docs/reference/walking-evidence.md').read_text(encoding='utf-8')
+    products={'docs/reference/rust-standalone-native.md':native_md,'docs/standalone-openapi.json':json.dumps(specification(native),indent=2,ensure_ascii=False)+'\n','docs/standalone.html':page(source,native_md,audit,walking)}
     for name,body in products.items():
         path=ROOT/name
         if args.check:

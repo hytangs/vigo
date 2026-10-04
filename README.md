@@ -7,12 +7,12 @@
   <a href="docs/guides/quickstart.md">Quickstart</a> ·
   <a href="docs/guides/studio.md">Studio</a> ·
   <a href="docs/README.md">Documentation</a> ·
-  <a href="docs/releases/0.4.2.md">Release notes</a>
+  <a href="docs/releases/0.4.3.md">Release notes</a>
 </p>
 
 VIGO turns GTFS timetables and OpenStreetMap streets into a reusable city model. Inspect live service, plan journeys, calculate travel-time matrices, and compare the reach of proposed service changes. Each computed Result retains its request, City identity, warnings, and timing.
 
-**VIGO 0.4.3 is source-frozen** for release verification. [VIGO 0.4.2](docs/releases/0.4.2.md) remains the latest published release until 0.4.3 assets are published. See the [0.4.3 freeze notes](docs/releases/0.4.3.md).
+**VIGO 0.4.3** includes the final routing and pedestrian-access corrections. See the [release notes](docs/releases/0.4.3.md) and [City rebuild instructions](docs/reference/walking-evidence.md#upgrade-and-check).
 
 VIGO supports multiple GTFS timetables and multiple GTFS-RT endpoints in one City, with explicit source matching, bounded memory admission, and automatic Engine recovery. Native routing powers the desktop and command line. A model connection is optional.
 

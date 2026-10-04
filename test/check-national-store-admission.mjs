@@ -90,7 +90,7 @@ try {
   const prepared = prepareNationalGtfsStore(storePath)
   assert.deepEqual(prepared.storeAdmission, {
     status: 'admitted',
-    schemaVersion: 'vigo.routing.store.v1',
+    schemaVersion: 'vigo.routing.store.v3',
     requiredTableCount: 14,
     requiredIndexCount: 13,
     departureIndexState: 'ready',
@@ -128,6 +128,9 @@ try {
     "UPDATE metadata SET value='\"vigo.routing.store.v0\"' WHERE key='schemaVersion';",
   )
   assertAdmissionRejected(wrongVersionPath, 'schema_version_mismatch')
+  const zeroCoercionPath = await mutatedCopy('coerced-zero-coordinates',
+    "UPDATE metadata SET value='\"vigo.routing.store.v1\"' WHERE key='schemaVersion';")
+  assertAdmissionRejected(zeroCoercionPath, 'schema_version_mismatch')
 
   const staleV1Path = await mutatedCopy('stale-v1', 'DROP TABLE stop_modes;')
   assertAdmissionRejected(staleV1Path, 'required_table_missing')

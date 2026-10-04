@@ -438,7 +438,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v4"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v5"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES
       (1, 0, 0), (2, 0, 0.0009),
@@ -660,7 +660,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v4"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v5"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES
       (1, 0, 0), (2, 0, -0.0009), (3, 0, 0.00135), (4, 0, 0.004), (16, 0.01, 0),
@@ -734,7 +734,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v4"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v5"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES (1, 0, 0.01), (2, 0, 0.011), (3, 0, 0.012);
     INSERT INTO edges VALUES
@@ -785,7 +785,7 @@ try {
   assert.equal(result.stopTimeCount, 4)
   assert.equal(result.connectionCount, 2)
   assert.equal(result.shapePointCount, 4)
-  assert.equal(readNationalGtfsStoreMetadata(storePath).schemaVersion, 'vigo.routing.store.v1')
+  assert.equal(readNationalGtfsStoreMetadata(storePath).schemaVersion, 'vigo.routing.store.v3')
   const oversizedSourcePreflight = await runOversizedSourcePreflightFixture(storePath)
   assert.equal(oversizedSourcePreflight.preflight.eligible, false)
   assert.equal(oversizedSourcePreflight.preflight.reason, 'source_connection_guard')
@@ -2306,7 +2306,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v4"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v5"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES(1, 46.9992, 8), (2, 47, 8), (3, 47.02, 8.02);
     INSERT INTO edges VALUES(1, 2, 100, 1), (2, 1, 100, 1);
@@ -2728,7 +2728,8 @@ try {
     stops: [
       { id: 'O', name: 'Horizon origin', lat: 47, lon: 8 },
       { id: 'X', name: 'In-horizon alighting', lat: 47, lon: 8.01 },
-      { id: 'D', name: 'Post-horizon transfer destination', lat: 47, lon: 8.02 },
+      // About 152 m: the published two-minute transfer remains walkable.
+      { id: 'D', name: 'Post-horizon transfer destination', lat: 47, lon: 8.012 },
       { id: 'Z', name: 'Destination service witness', lat: 47, lon: 8.03 },
     ],
     transferRules: [{
@@ -2763,7 +2764,7 @@ try {
       stopId: 'matrix-horizon\u001fO', coordinate: [8, 47], label: 'Horizon origin', source: 'stop',
     }],
     destinations: [{
-      stopId: 'matrix-horizon\u001fD', coordinate: [8.02, 47], label: 'Transfer destination', source: 'stop',
+      stopId: 'matrix-horizon\u001fD', coordinate: [8.012, 47], label: 'Transfer destination', source: 'stop',
     }],
     departMinutes: 480,
     horizonMinutes: 10,
@@ -3363,7 +3364,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v4"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v5"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES
       (1, 46.9900, 7.9900),

@@ -175,7 +175,32 @@ impl City {
                         .ok_or("Missing station path")?
                     {
                         let stop = self.stop(id.as_str().ok_or("Invalid station stop")?)?;
-                        station_coordinates.push([stop.lon, stop.lat]);
+                        if stop.lon.is_finite() && stop.lat.is_finite() {
+                            station_coordinates.push([stop.lon, stop.lat]);
+                        } else {
+                            value["stationGeometryStatus"] = json!("incomplete");
+                        }
+                    }
+                    let ids = station["stopIds"].as_array().unwrap();
+                    for pair in ids.windows(2) {
+                        let from = pair[0].as_str().unwrap();
+                        let to = pair[1].as_str().unwrap();
+                        let a = self.stop(from)?;
+                        let b = self.stop(to)?;
+                        if [a.lon, a.lat, b.lon, b.lat].iter().any(|v| !v.is_finite())
+                            && self
+                                .transfer_rows
+                                .get(from)
+                                .and_then(|&i| {
+                                    self.access.materialized.transfers[i]
+                                        .1
+                                        .iter()
+                                        .find(|edge| edge.to_stop_id == to)
+                                })
+                                .is_none_or(|edge| edge.path_distance_m.is_none())
+                        {
+                            value["stationDistanceStatus"] = json!("lower_bound");
+                        }
                     }
                     value["stationPathSources"] = station["sources"].clone();
                     value["accessCost"] = json!({"street":{"seconds":street_budget,"distanceKm":

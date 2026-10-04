@@ -1421,6 +1421,8 @@ function candidateFromNativeValues(
     Object.assign(candidate, {
       ...(path ? {
         accessTransferCoordinates: reverse ? [...path.coordinates].reverse() : path.coordinates,
+        accessTransferGeometryIncomplete: path.geometryIncomplete,
+        accessTransferDistanceIncomplete: path.distanceIncomplete,
         accessTransferSources: path.sources,
         accessTransferStopIds: path.stopIds,
       } : {}),

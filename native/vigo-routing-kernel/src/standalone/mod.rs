@@ -3,6 +3,7 @@ mod access;
 mod city;
 mod http;
 mod materialize;
+mod point;
 mod prepared;
 mod query;
 mod reach;

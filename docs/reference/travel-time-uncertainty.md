@@ -1,6 +1,6 @@
 # Travel-time uncertainty
 
-VIGO 0.4.3 supports explicit time reserves that affect route selection. It does
+VIGO supports explicit time reserves that affect route selection. It does
 not yet estimate an on-time arrival probability, travel-time distribution, or
 calibrated confidence interval. Scheduled and admitted realtime event times
 remain point estimates.
@@ -74,7 +74,7 @@ dictionary](https://github.com/mbta/lamp/blob/main/Data_Dictionary.md). They
 describe trip/stop/date identifiers, observed movement and stop timestamps,
 travel times, and matched scheduled clocks. [TransitMatters Gobble](https://github.com/transitmatters/gobble)
 also documents its collection of MBTA V3 streaming events. These are potential
-inputs; 0.4.3 does not download or fit them automatically.
+inputs; the current engine does not download or fit them automatically.
 
 A proposed next stage is to retain historical forecast snapshots and outcomes,
 match the exact feed revision and trip instance, and estimate errors by route,

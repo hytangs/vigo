@@ -35,7 +35,8 @@ const selected = ['Red', 'Orange', 'Blue-later']
 const shortcut = ['Red', 'Blue']
 const schedule = {
   stops: [stop('O', 0), stop('A', .01, undefined, 1), stop('A1', .01, 'A'), stop('A2', .01, 'A'),
-    stop('B', .014, undefined, 1), stop('B1', .014, 'B'), stop('B2', .014, 'B'), stop('D', .05)],
+    // About 111 m from A: the two-minute transfer is physically feasible.
+    stop('B', .011, undefined, 1), stop('B1', .011, 'B'), stop('B2', .011, 'B'), stop('D', .05)],
   transferRules: [
     { fromStopId: 'A1', toStopId: 'B1', transferType: 2, minTransferTimeSeconds: 120 },
     { fromStopId: 'A1', toStopId: 'A2', transferType: 2, minTransferTimeSeconds: 60 },
@@ -183,9 +184,9 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v4"'), ('sourceModel', '"pbf"');
-    INSERT INTO walk_nodes VALUES (1,0,0), (2,0,.0001), (3,0,.01), (4,0,.014), (5,0,.05), (6,0,.0501);
-    INSERT INTO edges VALUES (1,2,11,1), (2,1,11,1), (3,4,445,2), (4,3,445,2), (5,6,11,3), (6,5,11,3);
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v5"'), ('sourceModel', '"pbf"');
+    INSERT INTO walk_nodes VALUES (1,0,0), (2,0,.0001), (3,0,.01), (4,0,.011), (5,0,.05), (6,0,.0501);
+    INSERT INTO edges VALUES (1,2,11,1), (2,1,11,1), (3,4,111.196,2), (4,3,111.196,2), (5,6,11,3), (6,5,11,3);
   `)
   finalizeCurrentStreetFixture(street)
   street.close()

@@ -21,6 +21,7 @@ import { assertMatrixSize } from './matrix-size.mjs'
 import { validateArrivalBuffer } from './arrival-reserve.mjs'
 import {
   coordinate,
+  denseNodeTags,
   forEachPbfBlock,
   forEachPrimitiveEntity,
   wayTags,
@@ -29,11 +30,11 @@ import { timingMilliseconds } from './number-utils.mjs'
 import { stableKeySuffix } from './routing-plan-identity.mjs'
 import { createLocalBasemapWriter } from './local-basemap-store.mjs'
 
-// v4 also excludes foot=private from the public pedestrian graph, even when
-// the general access tag is absent or permits other travel modes.
+// v5 retains node access/barrier tags and excludes unresolved time-dependent
+// permissions. Older graphs must be rebuilt; their edges can cross barriers.
 // Public pedestrian access semantics are part of the persisted-store
 // schema. Rebuild from the source PBF when this schema changes.
-const streetStoreSchemaVersion = 'vigo.street.store.v4'
+const streetStoreSchemaVersion = 'vigo.street.store.v5'
 // A store is admitted by version, source model, and the objects the runtime
 // actually queries. Column-by-column and index-SQL checks duplicated SQLite's
 // schema and made harmless builder changes look like corrupt stores.
@@ -111,7 +112,7 @@ const explicitPedestrianAccessValues = new Set([
   'permissive',
   'official',
 ])
-const restrictedPedestrianAccessValues = new Set(['no', 'private'])
+const restrictedPedestrianAccessValues = new Set(['no', 'private', 'use_sidepath'])
 
 const drivableHighways = new Set([
   'motorway', 'motorway_link',
@@ -150,6 +151,7 @@ export function nationalOsmWayWalkable(tags) {
   const highway = normalizedTag(tags.highway)
   const access = normalizedTag(tags.access)
   const foot = normalizedTag(tags.foot)
+  if (hasUnresolvedPedestrianHours(tags)) return false
   if (!highway || restrictedPedestrianAccessValues.has(foot)) return false
   // OSM mode-specific access overrides the general access tag. In particular,
   // access=no/private + foot=permissive is a pedestrian path, while an
@@ -170,6 +172,26 @@ export function nationalOsmWayWalkable(tags) {
     && hasCompletelySeparateSidewalkGeometry(tags)
   ) return false
   return !['motorway', 'motorway_link', 'raceway', 'construction', 'proposed'].includes(highway)
+}
+
+function hasUnresolvedPedestrianHours(tags) {
+  return ['foot:conditional', 'access:conditional', 'oneway:foot:conditional']
+    .some(key => String(tags[key] ?? '').trim())
+    || (String(tags.opening_hours ?? '').trim() !== '' && normalizedTag(tags.opening_hours) !== '24/7')
+}
+
+export function nationalOsmNodeWalkable(tags) {
+  if (hasUnresolvedPedestrianHours(tags)) return false
+  const foot = normalizedTag(tags.foot), access = normalizedTag(tags.access)
+  if (restrictedPedestrianAccessValues.has(foot)
+    || (restrictedPedestrianAccessValues.has(access) && !explicitPedestrianAccessValues.has(foot))) return false
+  if (explicitPedestrianAccessValues.has(foot)) return true
+  const barrier = normalizedTag(tags.barrier)
+  if (['wall', 'fence', 'retaining_wall', 'block', 'jersey_barrier'].includes(barrier)) return false
+  if (['gate', 'lift_gate', 'swing_gate', 'sliding_gate', 'full-height_turnstile'].includes(barrier)) {
+    return explicitPedestrianAccessValues.has(access)
+  }
+  return true
 }
 
 function deniesMotorVehicleAccess(value) {
@@ -203,8 +225,8 @@ export function nationalOsmWalkDirections(tags) {
     forward = false
     backward = false
   }
-  if (['no', 'private'].includes(normalized(tags['foot:forward']))) forward = false
-  if (['no', 'private'].includes(normalized(tags['foot:backward']))) backward = false
+  if (restrictedPedestrianAccessValues.has(normalized(tags['foot:forward']))) forward = false
+  if (restrictedPedestrianAccessValues.has(normalized(tags['foot:backward']))) backward = false
   return { forward, backward }
 }
 
@@ -315,6 +337,8 @@ export async function buildNationalOsmStore({
   let directionRestrictedWayCount = 0
   let directionExcludedWayCount = 0
   let uncertainConveyingWayCount = 0
+  const blockedWalkNodes = new Set()
+  let blockedWalkSegmentCount = 0
   let transactionRows = 0
   const sourceHasher = crypto.createHash('sha256')
   const validateNodeId = (id) => {
@@ -381,6 +405,7 @@ export async function buildNationalOsmStore({
               validateNodeId(node.id)
               nodeCount += 1
               if (isRequiredNode(node.id)) {
+                if (!nationalOsmNodeWalkable(wayTags(node, block.strings))) blockedWalkNodes.add(node.id)
                 const [lon, lat] = coordinate(block, node.lat, node.lon)
                 insertNode.run(node.id, lat, lon)
                 transactionRows += 1
@@ -392,6 +417,7 @@ export async function buildNationalOsmStore({
               validateNodeId(dense.ids[index])
               nodeCount += 1
               if (!isRequiredNode(dense.ids[index])) continue
+              if (!nationalOsmNodeWalkable(denseNodeTags(dense, index, block.strings))) blockedWalkNodes.add(dense.ids[index])
               const [lon, lat] = coordinate(block, dense.lats[index], dense.lons[index])
               insertNode.run(dense.ids[index], lat, lon)
               transactionRows += 1
@@ -424,17 +450,20 @@ export async function buildNationalOsmStore({
             let previous = null
             for (const nodeId of way.refs) {
               const point = getNode.get(nodeId)
-              let indexed = false
+              let walkIndexed = false, driveIndexed = false
               if (previous && point) {
                 const distanceM = haversineKm([previous.lon, previous.lat], [point.lon, point.lat]) * 1000
                 if (distanceM > 0 && distanceM < 10_000) {
-                  if (walkDirections.forward || walkDirections.backward) {
+                  const nodeAccessAllowed = !blockedWalkNodes.has(previous.id) && !blockedWalkNodes.has(nodeId)
+                  if (!nodeAccessAllowed && (walkDirections.forward || walkDirections.backward)) blockedWalkSegmentCount += 1
+                  if (nodeAccessAllowed && (walkDirections.forward || walkDirections.backward)) {
                     if (walkDirections.forward) insertEdge.run(previous.id, nodeId, distanceM, way.id)
                     if (walkDirections.backward) insertEdge.run(nodeId, previous.id, distanceM, way.id)
-                    if (!previous.indexed) walkNodeCount += Number(insertWalkNode.run(previous.id, previous.lat, previous.lon).changes > 0)
+                    if (!previous.walkIndexed) walkNodeCount += Number(insertWalkNode.run(previous.id, previous.lat, previous.lon).changes > 0)
                     walkNodeCount += Number(insertWalkNode.run(nodeId, point.lat, point.lon).changes > 0)
                     edgeCount += Number(walkDirections.forward) + Number(walkDirections.backward)
                     transactionRows += Number(walkDirections.forward) + Number(walkDirections.backward)
+                    walkIndexed = true
                   }
                   if (driveDirections.forward || driveDirections.backward) {
                     if (driveDirections.forward) {
@@ -457,18 +486,18 @@ export async function buildNationalOsmStore({
                         roadClass,
                       )
                     }
-                    if (!previous.indexed) driveNodeCount += Number(insertDriveNode.run(previous.id, previous.lat, previous.lon).changes > 0)
+                    if (!previous.driveIndexed) driveNodeCount += Number(insertDriveNode.run(previous.id, previous.lat, previous.lon).changes > 0)
                     const pointInsert = insertDriveNode.run(nodeId, point.lat, point.lon)
                     driveNodeCount += Number(pointInsert.changes > 0)
                     driveEdgeCount += Number(driveDirections.forward) + Number(driveDirections.backward)
                     transactionRows += Number(driveDirections.forward) + Number(driveDirections.backward)
+                    driveIndexed = true
                   }
-                  indexed = true
                 }
               }
               // A valid preceding segment has already inserted this endpoint
               // for the same way permissions; avoid the duplicate SQL writes.
-              previous = point ? { id: nodeId, ...point, indexed } : null
+              previous = point ? { id: nodeId, ...point, walkIndexed, driveIndexed } : null
             }
           },
         })
@@ -559,6 +588,8 @@ export async function buildNationalOsmStore({
       directionRestrictedWayCount,
       directionExcludedWayCount,
       uncertainConveyingWayCount,
+      blockedWalkNodeCount: blockedWalkNodes.size,
+      blockedWalkSegmentCount,
       storageLayout: 'walk-drive-role-tables-v2',
       driveNodeStorage: 'walk-shared-plus-drive-only-v1',
       driveIndexState: buildDrivingProfile ? 'ready' : 'deferred',

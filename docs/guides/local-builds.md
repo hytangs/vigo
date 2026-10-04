@@ -3,7 +3,7 @@
 Use the package version, source revision and checksum together to identify a
 local build. Development builds can share a version number while containing
 different code. The version in `package.json` does not make a local build a
-published release; [release notes](../releases/0.4.2.md) retain that history.
+published release; [release notes](../releases/0.4.3.md) retain that history.
 
 ## Choose the current build
 
