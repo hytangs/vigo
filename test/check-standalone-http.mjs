@@ -72,7 +72,10 @@ try {
   const slow = raw(prefix + 'Content-Length: 1000\r\n\r\n{')
   assert.equal((await health()).status, 200, 'A slow body must not block health'); checks++
   assert.match(await slow, /^HTTP\/1\.1 408 /); checks++
-  assert.equal((await post()).status, 200, 'Body timeout must not poison routing'); checks++
+  const afterBodyTimeout = await post()
+  assert.equal(afterBodyTimeout.status, 200, 'Body timeout must not poison routing')
+  await afterBodyTimeout.arrayBuffer()
+  checks++
   if (process.platform !== 'win32') {
     // Stop only the child of the exact server this test created. A deadline
     // must terminate actual native work, replace the worker, and recover.
@@ -80,10 +83,23 @@ try {
     assert.equal(children.length, 1)
     const worker = children[0]
     process.kill(worker, 'SIGSTOP')
-    const replies = await Promise.all(Array.from({ length: 7 }, () => post().then(r => r.status)))
+    const overload = await Promise.allSettled(Array.from({ length: 7 }, async () => {
+      const response = await post()
+      await response.arrayBuffer()
+      return response.status
+    }))
+    // Four connections can enter HTTP handling. Excess connections are closed
+    // before their bodies are read; macOS can report that close as a TCP reset
+    // instead of delivering the best-effort 503. This allowance is confined to
+    // the three excess connections, never normal requests or queue timeouts.
+    const refused = overload.filter(reply => reply.status === 'rejected')
+    assert(refused.length <= 3, 'Admitted connections must return HTTP responses')
+    for (const reply of refused) assert.match(reply.reason?.cause?.code ?? '', /^(ECONNRESET|UND_ERR_SOCKET)$/)
+    const replies = overload.filter(reply => reply.status === 'fulfilled').map(reply => reply.value)
+    assert(replies.every(status => [200, 503, 504].includes(status)), 'Unexpected overload HTTP response')
     assert(replies.includes(503), 'Full connection/query capacity must reject work')
     assert(replies.includes(504), 'Stalled worker must time out')
-    checks += 2
+    checks += 3
     const firstRecovery = Date.now() + 5000
     while ((await fetch(`${origin}/readyz`)).status !== 200) {
       assert(Date.now() < firstRecovery); await new Promise(resolve => setTimeout(resolve, 25))
