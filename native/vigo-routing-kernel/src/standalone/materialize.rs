@@ -4,7 +4,76 @@ use crate::{ShapeGeometry, TimetableMatrixJourney, TimetableMatrixLeg};
 use rusqlite::OptionalExtension;
 use serde_json::{Value, json};
 use std::borrow::Cow;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
+
+#[derive(Debug, Eq, Hash, PartialEq)]
+enum LegKey {
+    Ride(u32, Option<u32>, Option<u32>, u64, u64),
+    Walk(Option<u32>, Option<u32>, u64, [usize; 2]),
+}
+
+/// Immutable evidence shared only inside one matrix request. Timetable, options,
+/// and endpoint candidates cannot change during that request. No route answers
+/// or mutable street frontiers survive it; output clocks are always refreshed.
+#[derive(Default)]
+pub(crate) struct MatrixMaterializationCache {
+    entries: HashMap<LegKey, Value>,
+    bytes: usize,
+}
+impl MatrixMaterializationCache {
+    fn key(leg: &TimetableMatrixLeg, access: [&Candidates; 2]) -> LegKey {
+        if let Some(trip) = leg.trip {
+            LegKey::Ride(
+                trip,
+                leg.from_stop,
+                leg.to_stop,
+                leg.board_sequence.unwrap_or(f64::NAN).to_bits(),
+                leg.alight_sequence.unwrap_or(f64::NAN).to_bits(),
+            )
+        } else {
+            // Candidate identity retains the exact selected entrance/pathway
+            // witness. Endpoint vectors live unchanged for the whole request.
+            let endpoints = [leg.from_stop, leg.to_stop].map(|stop| stop.is_none());
+            LegKey::Walk(
+                leg.from_stop,
+                leg.to_stop,
+                (leg.arrival - leg.departure).to_bits(),
+                std::array::from_fn(|i| {
+                    if endpoints[i] {
+                        access[i] as *const Candidates as usize
+                    } else {
+                        0
+                    }
+                }),
+            )
+        }
+    }
+    fn insert(&mut self, key: LegKey, value: &Value) {
+        fn size(value: &Value) -> usize {
+            std::mem::size_of::<Value>()
+                + match value {
+                    Value::String(s) => s.capacity(),
+                    Value::Array(a) => a.iter().map(size).sum(),
+                    Value::Object(o) => o.iter().map(|(k, v)| k.capacity() + 128 + size(v)).sum(),
+                    _ => 0,
+                }
+        }
+        let bytes = size(value) + 128;
+        if self.entries.len() < 4096 && bytes <= (16 * 1024 * 1024usize).saturating_sub(self.bytes)
+        {
+            self.bytes += bytes;
+            self.entries.insert(key, value.clone());
+        }
+    }
+}
+
+fn leg_clocks(value: &mut Value, leg: &TimetableMatrixLeg) {
+    value["departure"] = json!(leg.departure);
+    value["arrival"] = json!(leg.arrival);
+    value["departureMinutes"] = json!(leg.departure / 60.);
+    value["arrivalMinutes"] = json!(leg.arrival / 60.);
+    value["durationMinutes"] = json!((leg.arrival - leg.departure) / 60.);
+}
 
 /// Compiled immutable GTFS shapes, owned by one City. No route or timetable
 /// answers are retained. Account again after alignment grows candidate data.
@@ -194,17 +263,29 @@ impl City {
     pub(crate) fn materialize(
         &mut self,
         journey: &TimetableMatrixJourney,
-        origin: &Point,
-        destination: &Point,
+        endpoints: [&Point; 2],
         geometry: bool,
         opt: &Options,
         access: [&Candidates; 2],
+        mut cache: Option<&mut MatrixMaterializationCache>,
     ) -> Result<Value> {
+        let [origin, destination] = endpoints;
         let journey = self.expand_transfer_journey(journey)?;
         let mut value = serde_json::to_value(journey.as_ref())?;
         for (i, leg) in journey.legs.iter().enumerate() {
             let t = self.timetable.as_ref().ok_or("Timetable not active")?;
             let v = &mut value["legs"][i];
+            let key = cache
+                .as_ref()
+                .map(|_| MatrixMaterializationCache::key(leg, access));
+            if let Some(saved) = key
+                .as_ref()
+                .and_then(|k| cache.as_ref().unwrap().entries.get(k))
+            {
+                *v = saved.clone();
+                leg_clocks(v, leg);
+                continue;
+            }
             let mut coordinates = [origin.coordinate, destination.coordinate];
             for (j, (key, index)) in [("from", leg.from_stop), ("to", leg.to_stop)]
                 .into_iter()
@@ -307,9 +388,10 @@ impl City {
                     v.as_object_mut().unwrap().extend(evidence);
                 }
             }
-            v["departureMinutes"] = json!(leg.departure / 60.);
-            v["arrivalMinutes"] = json!(leg.arrival / 60.);
-            v["durationMinutes"] = json!((leg.arrival - leg.departure) / 60.);
+            leg_clocks(v, leg);
+            if let (Some(cache), Some(key)) = (cache.as_deref_mut(), key) {
+                cache.insert(key, v);
+            }
         }
         value["departureMinutes"] = json!(journey.departure / 60.);
         value["arrivalMinutes"] = json!(journey.arrival / 60.);
@@ -326,6 +408,65 @@ impl City {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn matrix_evidence_keeps_endpoints_and_run_clocks_separate() {
+        let candidate = || Candidates {
+            stops: vec![],
+            seconds: vec![],
+            terminal_transfers: false,
+            evidence: None,
+        };
+        let (origin, a, b) = (candidate(), candidate(), candidate());
+        let mut leg = TimetableMatrixLeg {
+            kind: "walk".into(),
+            from_stop: None,
+            to_stop: None,
+            trip: None,
+            board_sequence: None,
+            alight_sequence: None,
+            departure: 0.,
+            arrival: 60.,
+        };
+        assert_ne!(
+            MatrixMaterializationCache::key(&leg, [&origin, &a]),
+            MatrixMaterializationCache::key(&leg, [&origin, &b])
+        );
+        leg.from_stop = Some(1);
+        leg.to_stop = Some(2);
+        leg.trip = Some(3);
+        leg.board_sequence = Some(1.);
+        leg.alight_sequence = Some(2.);
+        let key = MatrixMaterializationCache::key(&leg, [&origin, &a]);
+        leg.departure = 120.;
+        leg.arrival = 210.;
+        assert_eq!(key, MatrixMaterializationCache::key(&leg, [&origin, &a]));
+        let mut evidence = json!({"coordinates":[[1.,2.],[3.,4.]],"departure":0.,"arrival":60.});
+        leg_clocks(&mut evidence, &leg);
+        assert_eq!(evidence["departure"], 120.);
+        assert_eq!(evidence["arrival"], 210.);
+        assert_eq!(evidence["durationMinutes"], 1.5);
+        assert_eq!(evidence["coordinates"], json!([[1., 2.], [3., 4.]]));
+    }
+
+    #[test]
+    fn matrix_evidence_is_bounded_and_does_not_survive_requests() {
+        let mut cache = MatrixMaterializationCache::default();
+        for i in 0..5000 {
+            cache.insert(LegKey::Ride(i, None, None, 0, 0), &json!({"source":"GTFS"}));
+        }
+        assert_eq!(cache.entries.len(), 4096);
+        assert!(cache.bytes <= 16 * 1024 * 1024);
+        let empty = MatrixMaterializationCache::default();
+        assert!(empty.entries.is_empty());
+        let mut cache = MatrixMaterializationCache::default();
+        cache.insert(
+            LegKey::Ride(0, None, None, 0, 0),
+            &json!("x".repeat(16 * 1024 * 1024)),
+        );
+        assert!(cache.entries.is_empty());
+        assert_eq!(cache.bytes, 0);
+    }
 
     fn shape() -> CompiledShape {
         CompiledShape::new(ShapeGeometry::new(vec![-77.0, 38.0, -77.001, 38.001]).unwrap())

@@ -483,7 +483,7 @@ impl City {
             .take()
             .and_then(|mut rows| rows.pop().flatten());
         let mut output = if let Some(j) = journey.as_ref() {
-            let mut j = self.materialize(j, &origin, &destination, true, &opt, [&a, &b])?;
+            let mut j = self.materialize(j, [&origin, &destination], true, &opt, [&a, &b], None)?;
             j["status"] = json!("ready");
             j["mode"] = json!("transit");
             j
@@ -692,6 +692,7 @@ impl City {
             .collect();
         let include_geometry = flag(q, "includeGeometry", false)?;
         let compact = q["journeyFormat"] == "compact";
+        let mut materialization = super::materialize::MatrixMaterializationCache::default();
         let mut journeys = result
             .journeys
             .take()
@@ -705,14 +706,17 @@ impl City {
                             }
                             self.materialize(
                                 j,
-                                &search_origins[i / search_destinations.len()],
-                                &search_destinations[i % search_destinations.len()],
+                                [
+                                    &search_origins[i / search_destinations.len()],
+                                    &search_destinations[i % search_destinations.len()],
+                                ],
                                 include_geometry,
                                 &opt,
                                 [
                                     &a[i / search_destinations.len()],
                                     &b[i % search_destinations.len()],
                                 ],
+                                Some(&mut materialization),
                             )
                         })
                     })

@@ -1148,6 +1148,8 @@ One-shot commands open a City for each invocation. `stream` keeps a City residen
 
 Transit can reuse a prepared service snapshot only when its source database, access policy, active services, transfer projection, dictionaries, and array layout validate. Missing or invalid optional timetable snapshots fall back to source preparation without writing City files. Realtime and disabled street transfers use source preparation. For repeated calls, keep `stream` or `serve` resident; measure fresh-process startup separately from warm query time. The runtime retains bounded immutable shape/alignment data and shares same-request endpoint evidence even when answer caches are disabled.
 
+Full Matrix journeys also share immutable ride and walking evidence within the request, bounded to 4,096 entries and 16 MiB of estimated storage. The key retains the selected endpoint candidates, stop/sequence identities and walking cost; each occurrence keeps its own service clocks. Geometry is unchanged. This storage is discarded after the matrix, including when the query fails. Disabling request caches does not disable this sharing inside one batch.
+
 ```ndjson
 {"kind":"route","id":"trip-1","origin":{"stopId":"A"},"destination":{"stopId":"B"},"serviceDate":"2026-07-15","time":"07:55","maxWalkKm":0.2}
 {"kind":"reach","id":"area-1","origin":{"stopId":"A"},"serviceDate":"2026-07-15","time":"07:55","cutoffsMinutes":[30],"rasterSize":48,"extentRadiusKm":2}
