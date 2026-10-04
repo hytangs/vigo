@@ -9,7 +9,7 @@ import re
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / 'docs/guides/rust-standalone.md'
-VERSION = json.loads((ROOT / 'package.json').read_text())['version']
+VERSION = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))['version']
 OPERATIONS = {
     'timetable.route': ('TimetableQueryInput', 'TimetableQueryResult'),
     'timetable.arrive_by': ('TimetableArriveByQueryInput', 'TimetableArriveByQueryResult'),
@@ -172,7 +172,7 @@ TYPE_FIELD_NOTES = {
 def native_contracts():
     structs = {}
     for path in sorted((ROOT / 'native/vigo-routing-kernel/src').rglob('*.rs')):
-        for match in re.finditer(r'pub struct (\w+)\s*\{([^}]+)\}', path.read_text()):
+        for match in re.finditer(r'pub struct (\w+)\s*\{([^}]+)\}', path.read_text(encoding='utf-8')):
             fields, comments = [], []
             for line in match[2].splitlines():
                 if line.strip().startswith('///'):
@@ -599,8 +599,8 @@ This manual covers VIGO {VERSION}. See [Compatibility](#validation) for supporte
         headings=re.findall(r'<h2 id="([^"]+)">(.+?)</h2>',body)
         outline='<aside class="page-outline" aria-label="On this page"><p>On this page</p><nav>'+''.join(f'<a href="#{identifier}">{title}</a>' for identifier,title in headings)+'</nav></aside>' if len(headings)>1 else ''
         articles.append(f'<article class="doc-page" id="page-{key}" data-page="{key}" data-title="{html.escape(p["title"],quote=True)}" data-nav="{p.get("parent",key)}"{hidden}>{legacy}{breadcrumb}<h1 id="{key}" tabindex="-1">{page_title(p)}</h1>{outline}<div class="page-body">{body}</div><nav class="pagination" aria-label="Page navigation">{"".join(pagination)}</nav></article>')
-    css=(ROOT/'scripts/standalone-docs.css').read_text()
-    javascript=(ROOT/'scripts/standalone-docs.js').read_text()
+    css=(ROOT/'scripts/standalone-docs.css').read_text(encoding='utf-8')
+    javascript=(ROOT/'scripts/standalone-docs.js').read_text(encoding='utf-8')
     logo=base64.b64encode((ROOT/'public/vigo-wordmark.png').read_bytes()).decode()
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="description" content="VIGO documentation: routing, matrices, isochrones, and deployment."><title>Documentation — VIGO</title><style>{css}</style></head>
@@ -611,14 +611,14 @@ This manual covers VIGO {VERSION}. See [Compatibility](#validation) for supporte
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__); parser.add_argument('--check',action='store_true'); args=parser.parse_args()
-    source=SOURCE.read_text(); native,native_md=native_contracts()
-    audit=(ROOT/'docs/reference/rust-standalone-audit.md').read_text()
+    source=SOURCE.read_text(encoding='utf-8'); native,native_md=native_contracts()
+    audit=(ROOT/'docs/reference/rust-standalone-audit.md').read_text(encoding='utf-8')
     products={'docs/reference/rust-standalone-native.md':native_md,'docs/standalone-openapi.json':json.dumps(specification(native),indent=2,ensure_ascii=False)+'\n','docs/standalone.html':page(source,native_md,audit)}
     for name,body in products.items():
         path=ROOT/name
         if args.check:
-            assert path.exists() and path.read_text()==body, f'{name} is stale; run npm run docs:standalone'
-        else: path.write_text(body)
+            assert path.exists() and path.read_text(encoding='utf-8')==body, f'{name} is stale; run npm run docs:standalone'
+        else: path.write_text(body, encoding='utf-8')
     print(json.dumps({'status':'current' if args.check else 'generated','files':list(products),'nativeOperations':len(OPERATIONS)+1,'nativeTypes':len(native)}))
 
 

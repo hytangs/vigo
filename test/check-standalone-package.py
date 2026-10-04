@@ -21,7 +21,7 @@ def main():
     archives = [args.archive] if args.archive else list((ROOT / "release/rust").glob("*.tar.gz"))
     assert len(archives) == 1, "Specify exactly one archive to verify"
     archive = archives[0].resolve()
-    expected = archive.with_name(archive.name + ".sha256").read_text().split()[0]
+    expected = archive.with_name(archive.name + ".sha256").read_text(encoding="utf-8").split()[0]
     assert hashlib.sha256(archive.read_bytes()).hexdigest() == expected, "Archive digest mismatch"
     executable = "vigo.exe" if os.name == "nt" else "vigo"
     allowed = {executable, "LICENSE", "NOTICE", "README.md", "AUDIT.md", "NATIVE.md", "standalone.html", "standalone-openapi.json", "THIRD-PARTY-NOTICES.txt", "manifest.json"}
@@ -43,7 +43,7 @@ def main():
                     output = destination / parts[-1]
                     output.write_bytes(tar.extractfile(member).read())
                     output.chmod(member.mode & 0o777)
-        manifest = json.loads((destination / "manifest.json").read_text())
+        manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
         assert manifest["runtime"] == "rust" and manifest["externalRuntimeRequired"] is False
         assert manifest["cityDataIncluded"] is False
         assert set(manifest["files"]) == allowed - {"manifest.json"}
