@@ -1,5 +1,7 @@
-import { access, appendFile, mkdir, readFile, rm, stat } from 'node:fs/promises'
+import { access, appendFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
@@ -37,6 +39,9 @@ else await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-C
 ], { env: { ...process.env, VIGO_ARCHIVE_SOURCE: appBundle, VIGO_ARCHIVE_DESTINATION: archivePath } })
 const archive = await stat(archivePath)
 if (!archive.isFile() || archive.size === 0) throw new Error('Studio archiving did not produce a nonempty file.')
+const digest = createHash('sha256')
+for await (const chunk of createReadStream(archivePath)) digest.update(chunk)
+await writeFile(`${archivePath}.sha256`, `${digest.digest('hex')}  ${path.basename(archivePath)}\n`)
 // Give CI the actual output instead of repeating filename patterns in YAML.
 if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `archive-path=${archivePath}\n`)
 console.log(archivePath)
