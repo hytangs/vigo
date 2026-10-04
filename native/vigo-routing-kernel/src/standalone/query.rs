@@ -1283,8 +1283,22 @@ fn arrival_reserve(command: &str, q: &Value) -> Result<Option<(Value, Value)>> {
         return fail("horizonMinutes must exceed arrivalBufferMinutes by at least one minute");
     }
     let mut effective = q.clone();
-    effective.as_object_mut().unwrap().remove("time");
-    effective["timeMinutes"] = json!((opt.time - seconds) / 60.);
+    if q["time"].is_string() {
+        // Keep an integral-second clock exact. Converting 08:32:03 through
+        // floating-point minutes can turn its deadline into 30722.999999999996
+        // and incorrectly exclude a vehicle arriving at that very second.
+        let target = (opt.time - seconds) as u32;
+        effective["time"] = json!(format!(
+            "{}:{:02}:{:02}",
+            target / 3600,
+            target / 60 % 60,
+            target % 60
+        ));
+    } else {
+        effective.as_object_mut().unwrap().remove("time");
+        let time = q.get("timeMinutes").unwrap_or(&q["time"]).as_f64().unwrap();
+        effective["timeMinutes"] = json!(time - minutes as f64);
+    }
     effective["horizonMinutes"] = json!(horizon - minutes as f64);
     effective["arrivalBufferMinutes"] = json!(0);
     let diagnostics = json!({"method":"explicit_time_reserves","calibratedProbability":false,
@@ -1460,4 +1474,21 @@ fn validate_request(command: &str, q: &Value) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod reserve_tests {
+    use super::*;
+
+    #[test]
+    fn arrival_reserves_preserve_second_precision_and_original_start() {
+        for clock in ["08:37:03", "08:37:01", "24:37:59", "71:59:59"] {
+            let q = json!({"time":clock,"timePreference":"arrive_by","horizonMinutes":120,"arrivalBufferMinutes":5});
+            let before = Options::parse(&q).unwrap();
+            let (effective, _) = arrival_reserve("route", &q).unwrap().unwrap();
+            let after = Options::parse(&effective).unwrap();
+            assert_eq!(after.end, before.end - 300.);
+            assert_eq!(after.start, before.start);
+        }
+    }
 }
