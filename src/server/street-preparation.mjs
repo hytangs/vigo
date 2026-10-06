@@ -30,11 +30,22 @@ export function createStreetPreparationManager({ pool, onJob = () => {} }) {
     void Promise.resolve().then(async () => {
       if (controller.signal.aborted) throw new Error('Street preparation superseded by a newer OSM network.')
       publish({ status: 'running' })
+      const walking = await pool.dispatch(workerStorePath, 'prepare-street', {
+        streetStorePath: storePath, prepareDrive: false,
+      }, controller.signal)
+      if (!walking?.streetStore?.ready || !walking.streetStore.accelerated) {
+        throw new Error('Walking street preparation did not finish.')
+      }
+      publish({ phase: 'Walking ready · preparing driving',
+        detail: 'Walking is available; opening the saved driving network',
+        result: { modes: { walk: true, drive: false } } })
+      // Queue driving immediately after walking. Separate worker operations
+      // allow already waiting transit work to run between these two loads.
       const result = await pool.dispatch(workerStorePath, 'prepare-street', {
         streetStorePath: storePath, prepareDrive: true,
       }, controller.signal, (progress) => publish({
         phase: progress.phase, detail: progress.detail,
-        ...(progress.modes ? { result: { modes: progress.modes } } : {}),
+        ...(progress.modes ? { result: { modes: { ...progress.modes, walk: true } } } : {}),
       }))
       if (!result?.streetStore?.ready || !result.streetStore.accelerated
         || !result.streetStore.drive?.ready || result.streetStore.drive.deferred

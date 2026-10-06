@@ -338,10 +338,7 @@ export default function App() {
   )
   const preparationJobs = selectedProject.jobs.map((job) => preparationJobUpdates[job.id] ?? job)
   const streetPreparation = useStreetPreparation({
-    // Transit residency already prepares pedestrian access. Loading the
-    // driving network here would queue ahead of the first transit request.
-    active: page === 'project' && activeRouteTool === 'pathfinder' && routingMode !== 'transit'
-      && selectedProject.osmStreetIndex?.status === 'ready' && !isOsmImporting,
+    active: page === 'project' && selectedProject.osmStreetIndex?.status === 'ready' && !isOsmImporting,
     projectId: selectedProject.id,
     identity: `${selectedProject.osmStreetIndex?.builtAt ?? ''}:${selectedProject.osmStreetIndex?.bytes ?? ''}`,
     refreshKey: activeRouteTool === 'pathfinder' ? routingMode : '',
@@ -445,7 +442,7 @@ export default function App() {
   )
   const routingStreetState: 'ready' | 'loading' | 'missing' = routingMode !== 'transit'
     ? selectedProject.osmStreetIndex?.status === 'ready'
-      ? streetPreparation.ready ? 'ready' : 'loading'
+      ? (routingMode === 'walk' ? streetPreparation.walkReady : streetPreparation.ready) ? 'ready' : 'loading'
       : selectedProject.osmStreetIndex?.status === 'building' || isOsmImporting ? 'loading' : 'missing'
     : !mapPointRoutingNeedsStreetGraph ||
     Boolean(nationalRoutingFeed && selectedProject.osmStreetIndex?.status === 'ready')
@@ -778,7 +775,7 @@ export default function App() {
     ?? routingChoices[0]
     ?? null
   const routingActivity = buildRoutingActivity({
-    routingError: nationalRouting.error || (routingMode !== 'transit' ? streetPreparation.error : ''),
+    routingError: nationalRouting.error || (routingMode === 'drive' || (routingMode === 'walk' && !streetPreparation.walkReady) ? streetPreparation.error : ''),
     routingErrorStatus: nationalRouting.errorStatus,
     routingPlan,
     storeBackedRouting,

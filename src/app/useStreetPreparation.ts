@@ -68,6 +68,7 @@ export function useStreetPreparation({ active, projectId, identity, refreshKey =
   }
   return {
     task, retry,
+    walkReady: !task?.statusError && (task?.result as { modes?: { walk?: boolean } } | undefined)?.modes?.walk === true,
     ready: task?.status === 'complete' && !task.statusError,
     error: task?.statusError || task?.error || '',
   }
