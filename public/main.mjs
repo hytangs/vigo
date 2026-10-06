@@ -18,6 +18,17 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 app.setName('VIGO Studio')
 app.setPath('userData', path.join(app.getPath('appData'), 'VIGO'))
 
+// Keep one bounded launch trace, without request bodies or City paths. Writes
+// are asynchronous and never gate the window, Engine, or routing requests.
+const launchStarted = performance.now()
+const launchLogPath = path.join(app.getPath('userData'), 'startup.jsonl')
+let launchLog = Promise.resolve()
+const launchRequests = new Set()
+function recordLaunch(phase, details = {}) {
+  const entry = JSON.stringify({ phase, elapsedMs: Math.round(performance.now() - launchStarted), ...details }) + '\n'
+  launchLog = launchLog.then(() => fs.appendFile(launchLogPath, entry)).catch(() => {})
+}
+
 const studioScheme = 'vigo'
 const studioOrigin = `${studioScheme}://studio`
 const requestTimeoutMs = 15 * 60 * 1_000
@@ -125,6 +136,7 @@ function startEngine() {
   engineStarts = engineStarts.filter(time => Date.now() - time < 60_000)
   if (engineStarts.length >= 3) return Promise.reject(new Error('VIGO Engine repeatedly stopped. Wait one minute before retrying.'))
   engineStarts.push(Date.now())
+  recordLaunch('engine-starting')
   clearTimeout(restartTimer)
   restartTimer = null
   let resolveReady, rejectReady
@@ -132,6 +144,7 @@ function startEngine() {
   // Automatic restarts may have no caller waiting for startup.
   engineReady.catch(() => {})
   const startupTimeout = setTimeout(() => {
+    recordLaunch('engine-start-timeout')
     rejectReady(new Error('VIGO Engine did not start within 30 seconds.'))
     child.kill()
   }, 30_000)
@@ -155,6 +168,7 @@ function startEngine() {
     if (engine !== child) return
     if (message?.type === 'vigo-api-ready') {
       clearTimeout(startupTimeout)
+      recordLaunch('engine-ready')
       resolveReady(message)
       return
     }
@@ -196,8 +210,24 @@ function startEngine() {
 async function requestEngine(request, signal) {
   if (engineAdmissions >= 128) throw new Error('VIGO Engine has too many pending requests. Retry shortly.')
   engineAdmissions += 1
-  try { return await dispatchEngine(request, signal) }
-  finally { engineAdmissions -= 1 }
+  const pathname = String(request.path ?? '').split('?')[0]
+  const phase = pathname === '/api/health' ? 'health'
+    : pathname === '/api/projects' && request.method === 'GET' ? 'city-list'
+    : /^\/api\/projects\/[^/]+$/.test(pathname) && request.method === 'GET' ? 'city-open'
+    : pathname.endsWith('/national-ready') ? 'first-routing-readiness'
+    : pathname.endsWith('/routing-residency') ? 'first-city-preparation'
+    : pathname.endsWith('/national-route') ? 'first-route' : null
+  const trace = phase && !launchRequests.has(phase)
+  if (trace) launchRequests.add(phase)
+  const started = performance.now()
+  try {
+    const result = await dispatchEngine(request, signal)
+    if (trace) recordLaunch(phase, { requestMs: Math.round(performance.now() - started), status: result.status })
+    return result
+  } catch (error) {
+    if (trace) recordLaunch(phase, { requestMs: Math.round(performance.now() - started), failed: true })
+    throw error
+  } finally { engineAdmissions -= 1 }
 }
 
 async function dispatchEngine(request, signal) {
@@ -419,9 +449,11 @@ function createWindow() {
     console.error(`VIGO_STUDIO_LOAD_FAILED code=${code} url=${targetUrl} ${description}`)
   })
   mainWindow.webContents.once('did-finish-load', () => {
+    recordLaunch('window-loaded')
     console.log(`VIGO_STUDIO_READY ${studioOrigin}/`)
   })
   mainWindow.once('ready-to-show', () => {
+    recordLaunch('window-shown')
     mainWindow?.show()
     mainWindow?.focus()
   })
@@ -430,6 +462,9 @@ function createWindow() {
 }
 
 async function startStudio() {
+  launchLog = fs.mkdir(app.getPath('userData'), { recursive: true })
+    .then(() => fs.writeFile(launchLogPath, '')).catch(() => {})
+  recordLaunch('app-ready', { version: app.getVersion(), at: new Date().toISOString() })
   if (process.platform === 'darwin') app.dock.setIcon(studioIconPath)
   protocol.handle(studioScheme, handleStudioProtocol)
   installDesktopBridge()

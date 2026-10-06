@@ -338,7 +338,10 @@ export default function App() {
   )
   const preparationJobs = selectedProject.jobs.map((job) => preparationJobUpdates[job.id] ?? job)
   const streetPreparation = useStreetPreparation({
-    active: page === 'project' && selectedProject.osmStreetIndex?.status === 'ready' && !isOsmImporting,
+    // Transit residency already prepares pedestrian access. Loading the
+    // driving network here would queue ahead of the first transit request.
+    active: page === 'project' && activeRouteTool === 'pathfinder' && routingMode !== 'transit'
+      && selectedProject.osmStreetIndex?.status === 'ready' && !isOsmImporting,
     projectId: selectedProject.id,
     identity: `${selectedProject.osmStreetIndex?.builtAt ?? ''}:${selectedProject.osmStreetIndex?.bytes ?? ''}`,
     refreshKey: activeRouteTool === 'pathfinder' ? routingMode : '',
@@ -561,18 +564,24 @@ export default function App() {
         feedId: nationalRoutingFeed.id,
         resident,
         leaseId,
+        mode: routingMode,
+        routingDataMode,
+        departNow: activeRouteTool === 'pathfinder' && routingMode === 'transit' && routingDataMode === 'realtime' || undefined,
         serviceDate: routingServiceDate,
         serviceDay: routingServiceDay,
       }),
     }).then((response) => response.ok ? response.json() : null).catch(() => null)
-    void request(true).then((result: {
+    const acquisition = request(true)
+    void acquisition.then((result: {
       residency?: { serviceCoverage?: RoutingServiceCoverage }
     } | null) => {
       if (active) setRoutingResidencyCoverage(result?.residency?.serviceCoverage ?? null)
     })
     return () => {
       active = false
-      void request(false, true)
+      // Registration may still be opening a store when the view changes.
+      // Release after it settles so a late acquisition cannot retain a worker.
+      void acquisition.then(() => request(false, true))
     }
   }, [
     cityRoutingActive,
@@ -580,6 +589,9 @@ export default function App() {
     selectedProject.id,
     routingServiceDate,
     routingServiceDay,
+    activeRouteTool,
+    routingMode,
+    routingDataMode,
   ])
   useEffect(() => {
     if (activeRouteTool !== 'analyze') return

@@ -183,7 +183,9 @@ for (const maximumBoardings of [undefined,3,2,3]) {
   if (result.status==='ready') assert.equal(result.bestBoardings,3)
 }
 
-let state=619, comparisons=0, reverseComparisons=0
+const initialSeed = Number(process.env.VIGO_ORACLE_SEED ?? 619)
+assert(Number.isSafeInteger(initialSeed) && initialSeed >= 0 && initialSeed <= 0xffffffff)
+let state=initialSeed, comparisons=0, reverseComparisons=0
 const seedCount = Number(process.env.VIGO_ORACLE_SEEDS ?? 120)
 assert(Number.isSafeInteger(seedCount) && seedCount > 0)
 // Use high bits: the low bits of this generator alternate predictably and
@@ -253,6 +255,6 @@ for (let seed=0;seed<seedCount;seed++) {
   }
   reverseComparisons++
 }
-console.log(JSON.stringify({status:'passed',seedCount,equalTimeRegression:!process.argv.includes('--reverse-only'),
+console.log(JSON.stringify({status:'passed',initialSeed,seedCount,equalTimeRegression:!process.argv.includes('--reverse-only'),
   independentOracleComparisons:comparisons,cappedScalarComparisons:seedCount,cappedMatrixComparisons:seedCount,
   latestDepartureComparisons:reverseComparisons},null,2))

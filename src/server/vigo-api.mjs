@@ -1214,7 +1214,9 @@ async function listProjectsRaw({ hydrate = true } = {}) {
     if (!(await exists(projectFile))) return null
 
     try {
-      return hydrate ? await readProject(entry.name) : await readProjectMetadata(entry.name)
+      // The City library needs saved summaries only. Opening a City still
+      // validates its stores before exposing them to routing or analysis.
+      return hydrate ? await readProject(entry.name) : compactProjectMetadata(await readJson(projectFile))
     } catch {
       // Corrupt project metadata should not prevent the workbench opening.
       return null
@@ -3866,6 +3868,7 @@ async function setRoutingResidency(projectId, body) {
   const project = await readProjectMetadata(projectId)
   const feedId = String(body?.feedId ?? '')
   const { storePath } = await requireRoutingStore(projectId, project, feedId)
+  if (body?.resident === true) body = resolveStoreDepartNow(storePath, body)
   const residency = nationalRouteWorkerPool.setResidency(
     storePath,
     body?.resident === true,
@@ -3887,6 +3890,7 @@ async function setRoutingResidency(projectId, body) {
               ...nationalRequestServiceContext(body),
               streetStorePath: streetPath,
               allowServiceDateFallback: false,
+              requireCompleteServiceCoverage: true,
             },
           },
         )
@@ -4150,6 +4154,13 @@ async function route(request, response) {
   }
 
   if (!pathname.startsWith('/api/')) return false
+
+  // Startup housekeeping must not block the City library or routing requests.
+  // Mutations wait so cleanup cannot delete a newly uploaded source or race
+  // a storage-root change, import retry, or City deletion.
+  const routingRequest = request.method === 'POST'
+    && /^\/api\/projects\/[^/]+\/(national-route|national-ready|national-matrix|national-street-matrix|reach|scenario-road-geometry|routing-residency|street-residency)$/.test(pathname)
+  if (!routingRequest && !['GET', 'HEAD', 'OPTIONS'].includes(request.method)) await startupMaintenance
 
   if (request.method === 'GET' && pathname === '/api/health') {
     await ensureStorage()
@@ -4637,19 +4648,15 @@ if (!['tcp', 'memory'].includes(apiTransport)) {
 }
 assertLocalBindHost({ host, transport: apiTransport, unsafeNonLoopback })
 
+const startupMaintenance = ensureStorage().then(removeAbandonedStaging).catch((error) => {
+  console.warn(`VIGO staging cleanup skipped: ${error instanceof Error ? error.message : String(error)}`)
+})
+
 if (apiTransport === 'memory') {
-  await ensureStorage()
-  await removeAbandonedStaging().catch((error) => {
-    console.warn(`VIGO staging cleanup skipped: ${error instanceof Error ? error.message : String(error)}`)
-  })
   process.title = 'VIGO'
   startInMemoryHttpTransport()
 } else {
-  server.listen(port, host, async () => {
-    await ensureStorage()
-    await removeAbandonedStaging().catch((error) => {
-      console.warn(`VIGO staging cleanup skipped: ${error instanceof Error ? error.message : String(error)}`)
-    })
+  server.listen(port, host, () => {
     const address = server.address()
     const resolvedPort = typeof address === 'object' && address ? address.port : port
     const url = `http://${host}:${resolvedPort}/`
