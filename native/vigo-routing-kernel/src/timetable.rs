@@ -5,6 +5,7 @@ use napi::bindgen_prelude::*;
 #[cfg(feature = "node")]
 use napi_derive::napi;
 pub use source::*;
+use std::collections::HashMap;
 use std::time::Instant;
 
 mod station_access_validation;
@@ -27,6 +28,32 @@ pub use journeys::{TimetableMatrixJourney, TimetableMatrixLeg};
 
 const STATE_STRIDE: usize = 8;
 const NO_STATE: i32 = -1;
+
+#[derive(Clone, Copy)]
+struct ScalarRunBoarding {
+    connection: i32,
+    predecessor: i32,
+    sequence: u32,
+    boardings: u16,
+}
+
+fn retain_scalar_bucket_boarding(
+    profiles: &mut HashMap<usize, Vec<ScalarRunBoarding>>,
+    run: usize,
+    candidate: ScalarRunBoarding,
+) -> bool {
+    let frontier = profiles.entry(run).or_default();
+    if frontier
+        .iter()
+        .any(|old| old.connection <= candidate.connection && old.boardings <= candidate.boardings)
+    {
+        return false;
+    }
+    frontier
+        .retain(|old| candidate.connection > old.connection || candidate.boardings > old.boardings);
+    frontier.push(candidate);
+    true
+}
 const SCAN_CAN_BOARD: u8 = 1;
 const SCAN_CAN_ALIGHT: u8 = 2;
 const SCAN_BRIDGE_EXIT: u8 = 4;
@@ -597,6 +624,8 @@ struct ScalarWorkspace {
     run_board_sequence: Vec<u32>,
     run_generation: Vec<u32>,
     touched_runs: Vec<u32>,
+    reverse_reached_stops: Vec<u32>,
+    reverse_reached_runs: Vec<u32>,
 }
 
 impl ScalarWorkspace {
@@ -617,6 +646,8 @@ impl ScalarWorkspace {
             run_board_sequence: vec![0; run_count],
             run_generation: vec![0; run_count],
             touched_runs: Vec::with_capacity(run_count),
+            reverse_reached_stops: vec![0; stop_count],
+            reverse_reached_runs: vec![0; run_count],
         }
     }
 
@@ -645,6 +676,8 @@ impl ScalarWorkspace {
             }
             self.active_stop_generation.fill(0);
             self.destination_generation.fill(0);
+            self.reverse_reached_stops.fill(0);
+            self.reverse_reached_runs.fill(0);
             self.run_generation.fill(0);
             self.epoch = 1;
         }
@@ -664,6 +697,8 @@ impl ScalarWorkspace {
             + self.run_board_sequence.len() * std::mem::size_of::<u32>()
             + self.run_generation.len() * std::mem::size_of::<u32>()
             + self.touched_runs.capacity() * std::mem::size_of::<u32>()
+            + self.reverse_reached_stops.len() * std::mem::size_of::<u32>()
+            + self.reverse_reached_runs.len() * std::mem::size_of::<u32>()
     }
 }
 
@@ -1324,6 +1359,8 @@ fn relax_reverse_post_ride_deadline(
         return;
     }
     workspace.destination_generation[stop] = epoch;
+    let base_stop = stop % workspace.reverse_reached_stops.len();
+    workspace.reverse_reached_stops[base_stop] = epoch;
     workspace.destination_egress[stop] = deadline;
     stats.relaxed_stops = stats.relaxed_stops.saturating_add(1);
 }
@@ -3804,6 +3841,7 @@ impl TimetableKernel {
             )
         };
         let mut time_index = scan_time_lower_bound(scan_times, scan_start);
+        let mut bucket_boardings = HashMap::<usize, Vec<ScalarRunBoarding>>::new();
         while time_index < scan_times.len() {
             let connection_departure = scan_times[time_index] as f64;
             // Every remaining journey must spend at least the smallest legal
@@ -3819,6 +3857,10 @@ impl TimetableKernel {
             let bucket_events = &scan_events[start..end];
             let bucket_arrivals = &scan_arrivals[start..end];
             let bucket_journeys = &scan_journeys[start..end];
+            // Within a zero-time bucket, a later segment can be boarded first.
+            // Its lower boarding count does not dominate a newly reachable
+            // earlier segment. Retain both until this timestamp is closed.
+            bucket_boardings.clear();
             loop {
                 let previous_changes = (stats.relaxed_stops, stats.expanded_trip_runs);
                 stats.scanned_departures += (end - start) as u32;
@@ -3908,6 +3950,21 @@ impl TimetableKernel {
                             || (candidate_boardings == retained_boardings
                                 && connection < earlier_start as usize)
                         {
+                            if run_active
+                                && scan_time_needs_closure[time_index]
+                                && connection as i32 > earlier_start
+                            {
+                                retain_scalar_bucket_boarding(
+                                    &mut bucket_boardings,
+                                    run,
+                                    ScalarRunBoarding {
+                                        connection: earlier_start,
+                                        predecessor: workspace.run_predecessor_state[run],
+                                        sequence: workspace.run_board_sequence[run],
+                                        boardings: retained_boardings,
+                                    },
+                                );
+                            }
                             if !run_active {
                                 workspace.run_generation[run] = epoch;
                                 workspace.touched_runs.push(run as u32);
@@ -3917,21 +3974,54 @@ impl TimetableKernel {
                             run_updated = true;
                             stats.expanded_trip_runs += 1;
                         } else {
-                            stats.dominated_trip_boardings += 1;
+                            if (connection as i32) < earlier_start
+                                && retain_scalar_bucket_boarding(
+                                    &mut bucket_boardings,
+                                    run,
+                                    ScalarRunBoarding {
+                                        connection: connection as i32,
+                                        predecessor: boarding_state,
+                                        sequence: journey.sequence,
+                                        boardings: candidate_boardings,
+                                    },
+                                )
+                            {
+                                stats.expanded_trip_runs += 1;
+                            } else {
+                                stats.dominated_trip_boardings += 1;
+                            }
                         }
                     }
                     if workspace.run_generation[run] != epoch
                         || workspace.expanded_run_start[run] < 0
-                        || workspace.expanded_run_start[run] > connection as i32
                     {
                         continue;
                     }
                     if run_updated {
                         workspace.run_board_sequence[run] = journey.sequence;
                     }
-                    let boarding = workspace.expanded_run_start[run] as usize;
-                    let predecessor = workspace.run_predecessor_state[run];
-                    let board_sequence = workspace.run_board_sequence[run] as f64;
+                    let mut boarding = workspace.expanded_run_start[run];
+                    let mut predecessor = workspace.run_predecessor_state[run];
+                    let mut board_sequence = workspace.run_board_sequence[run] as f64;
+                    if let Some(frontier) = bucket_boardings.get(&run) {
+                        let mut boardings = workspace.labels[predecessor as usize]
+                            .boardings.saturating_add(1);
+                        for &candidate in frontier {
+                            if candidate.connection <= connection as i32
+                                && (boarding > connection as i32
+                                    || (candidate.boardings, candidate.connection) < (boardings, boarding))
+                            {
+                                boarding = candidate.connection;
+                                predecessor = candidate.predecessor;
+                                board_sequence = candidate.sequence as f64;
+                                boardings = candidate.boardings;
+                            }
+                        }
+                    }
+                    if boarding > connection as i32 {
+                        continue;
+                    }
+                    let boarding = boarding as usize;
                     let trip = journey.trip as i32;
                     if connection > boarding && scan_flags & SCAN_BRIDGE_EXIT != 0 {
                         let bridge_arrival = connection_departure;
@@ -4890,6 +4980,19 @@ impl TimetableKernel {
                         excluded_departures = excluded_departures.saturating_add(1);
                         continue;
                     }
+                    let event = self.scan_events[connection];
+                    let arrival = self.scan_arrivals[connection];
+                    // A connection cannot enter any boarding layer until its
+                    // run or an exit stop has a suffix to the destination.
+                    // This union is updated immediately, including during
+                    // equal-time closure; all layer-specific checks remain.
+                    if workspace.reverse_reached_runs[event.run()] != epoch
+                        && workspace.reverse_reached_stops[arrival.to as usize] != epoch
+                        && (event.flags() & SCAN_BRIDGE_EXIT == 0
+                            || workspace.reverse_reached_stops[event.source_stop()] != epoch)
+                    {
+                        continue;
+                    }
                     for layer in first_layer..=maximum_layer {
                         let input_offset = layer.saturating_sub(1) * self.stop_count;
                         let output_offset = layer * self.stop_count;
@@ -4959,6 +5062,7 @@ impl TimetableKernel {
                                 || exit_connection > workspace.expanded_run_start[run])
                         {
                             workspace.run_generation[run] = epoch;
+                            workspace.reverse_reached_runs[event.run()] = epoch;
                             workspace.expanded_run_start[run] = exit_connection;
                             stats.expanded_trip_runs = stats.expanded_trip_runs.saturating_add(1);
                         } else if run_was_feasible && flags & SCAN_CAN_BOARD != 0 {

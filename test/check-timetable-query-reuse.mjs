@@ -20,7 +20,9 @@ const compareFresh = request => {
 // terminal transfers, empty endpoint frontiers, and failed request validation.
 for (let iteration = 0; iteration < 4; iteration++) {
   for (const arriveBy of [false, true]) {
-    for (const maximumBoardings of [undefined, 1, 3]) {
+    // Grow to the public cap limit, then shrink on the same kernel. Reverse
+    // reachability summaries must not retain stops or runs from an old query.
+    for (const maximumBoardings of [undefined, 1, 32, 3, 1]) {
       for (const [origins, destinations] of [
         [[0], [31]], [[32, 0, 127], [63, 31, 0]], [[127], [0]],
       ]) {
