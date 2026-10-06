@@ -68,6 +68,21 @@ function index(catalog) {
   return data
 }
 
+// City preparation can initialize fare indexes without inventing a journey
+// or caching a quote for endpoints the user has not requested.
+export function prepareBoardingFares(catalog) {
+  try {
+    if (catalog.unavailableReason) return false
+    const data = index(catalog)
+    if (data.error) return false
+    if (!data.prepared) {
+      for (const fare of data.t.fare_attributes ?? []) parseFareAmount(fare.price, fare.currency_type)
+      data.prepared = true
+    }
+    return true
+  } catch { return false }
+}
+
 function stopReference(data, id) {
   if (data.stopReferences.has(id)) return data.stopReferences.get(id)
   const stop = data.stops.get(id)

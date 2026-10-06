@@ -8,7 +8,7 @@ import { quoteBoardingFare, farePriceLabel } from '../src/fares.mjs'
 import { parseFareAmount } from '../src/farePresentation.mjs'
 import { fareEventDay } from '../src/fareTime.mjs'
 import { compactResult } from '../src/agency/queryAgent.mjs'
-import { addGtfsFares, writeGtfsFareCatalog } from '../src/server/gtfs-fare-store.mjs'
+import { addGtfsFares, prepareGtfsFares, writeGtfsFareCatalog } from '../src/server/gtfs-fare-store.mjs'
 import { buildNationalGtfsStore, buildNationalGtfsCityStore, mergeNationalGtfsStores, addNationalGtfsFares, routeNationalGtfsStore, disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
 
 const catalog = () => ({ version: 1, source: 'fixture.zip', tables: {
@@ -216,6 +216,7 @@ try {
   legacy.close()
   const broken = new DatabaseSync(':memory:')
   broken.exec("CREATE TABLE fare_catalogs(scope TEXT PRIMARY KEY,data TEXT); INSERT INTO fare_catalogs VALUES('', 'broken json')")
+  assert.equal(prepareGtfsFares(broken).prepared, 0)
   const safe = addGtfsFares(broken, plan)
   assert.equal(safe.status, 'ready')
   assert.equal(safe.legs.find(leg => leg.type === 'ride').fare.status, 'unavailable')
@@ -227,12 +228,23 @@ try {
   assert.equal(addGtfsFares(isolated, livePlan).legs[0].fare.status, 'published')
   for (let i = 0; i < 100; i++) assert.equal(addGtfsFares(isolated, { ...livePlan }).legs[0].fare.status, 'published')
   writeGtfsFareCatalog(isolated, catalog())
+  const cold = addGtfsFares(isolated, plan)
+  writeGtfsFareCatalog(isolated, catalog())
+  assert.equal(prepareGtfsFares(isolated).prepared, 1)
   const initial = addGtfsFares(isolated, plan)
+  assert.deepEqual(initial, cold, 'Fare preparation must preserve the entire annotated itinerary')
   const replacement = catalog(); replacement.tables.fare_products[0].amount = '4.00'
   writeGtfsFareCatalog(isolated, replacement)
   assert.equal(farePriceLabel(addGtfsFares(isolated, plan).legs.find(leg => leg.type === 'ride').fare.options), '$4.00', 'Replacing a catalog invalidates plan and quote caches.')
   assert.equal(farePriceLabel(initial.legs.find(leg => leg.type === 'ride').fare.options), '$2.40', 'An earlier answer retains its own fare evidence.')
   isolated.close()
+  const bounded = new DatabaseSync(':memory:')
+  for (let i = 0; i < 10; i++) writeGtfsFareCatalog(bounded, catalog(), `scope${i}`)
+  assert.deepEqual(prepareGtfsFares(bounded).prepared, 8)
+  assert.deepEqual(prepareGtfsFares(bounded).skipped, 2)
+  const scoped = { ...plan, legs: [{ ...ride, routeId: 'scope9\u001fR', fromStopId: 'scope9\u001fS', toStopId: 'scope9\u001fT' }] }
+  assert.equal(addGtfsFares(bounded, scoped).legs[0].fare.status, 'published', 'A scope outside the prewarm budget must still load on demand')
+  bounded.close()
 } finally {
   disposeAllNationalGtfsStores()
   await fs.rm(root, { recursive: true, force: true })

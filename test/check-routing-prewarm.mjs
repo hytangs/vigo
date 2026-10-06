@@ -24,6 +24,7 @@ try {
  const context={feedId:'feed',serviceDate:'2026-09-14',serviceDay:'weekday',mode:'transit',routingDataMode:'scheduled'}
  const [lease]=await Promise.all([post('routing-residency',{...context,resident:true,leaseId:'test'}),post('national-ready',context)])
  assert.equal(lease.residency.reachPreparation.activeServiceKernel.ready,true)
+ assert(lease.residency.reachPreparation.farePreparation, 'City preparation must initialize optional fare output before the first route')
  const health=await api.requestJson('/api/health')
  assert.equal(health.body.routingRuntime.routingAccessPrewarm.started,1,'City residency and Pathfinder must share one exact-context preparation')
  const request={...context,origin:{stopId:'A',coordinate:[-77.05,38.9]},destination:{stopId:'B',coordinate:[-77.03,38.91]},departMinutes:480,maxWalkKm:0.1}

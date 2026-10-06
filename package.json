@@ -54,7 +54,7 @@
     "check:store-admission": "node test/check-national-store-admission.mjs && node test/check-national-osm-store-admission.mjs",
     "check:security": "node test/check-local-http-security.mjs && node test/check-realtime-url-security.mjs && node test/check-cch-manifest.mjs",
     "check:national": "node test/check-national-routing-store.mjs",
-    "check:accuracy": "node test/check-native-materialization.mjs && node test/check-national-route-geometry.mjs && node test/check-routing-accuracy.mjs",
+    "check:accuracy": "node test/check-native-materialization.mjs && node test/check-national-route-geometry.mjs && node test/check-routing-accuracy.mjs && node test/check-multitransfer-quality.mjs",
     "check:national-choices": "node test/check-national-route-choices.mjs && node test/check-route-alternatives.mjs && node test/check-route-horizon.mjs && node test/check-bounded-search.mjs && node test/check-equal-time-routing.mjs && node test/check-arrive-by-boundary.mjs",
     "check:reach-scenarios": "node test/check-scenario-timing.mjs && node test/check-scenario-drafts.mjs && node test/check-scenario-branches.mjs && node test/check-scenario-schedules.mjs && node test/check-street-network-surface.mjs && node test/check-service-edge-decomposition.mjs && node test/check-analysis-cutoff-presentation.mjs",
     "check:reach-engine": "node test/check-reach-engine.mjs",

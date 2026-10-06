@@ -117,7 +117,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { journeyContinuityIssue } from '../journeyIntegrity.mjs'
 import { haversineKm } from './geometry-utils.mjs'
-import { addGtfsFares, copyGtfsFareCatalogs, readGtfsFareCatalog, writeGtfsFareCatalog } from './gtfs-fare-store.mjs'
+import { addGtfsFares, prepareGtfsFares, copyGtfsFareCatalogs, readGtfsFareCatalog, writeGtfsFareCatalog } from './gtfs-fare-store.mjs'
 import { createGtfsZipImportBudget, gtfsTableEntry, inspectGtfsZip, streamGtfsZipCsv } from './gtfs-zip-reader.mjs'
 import { assertMatrixSize } from './matrix-size.mjs'
 import { readNationalOsmStoreMetadata, routeNationalStreetMatrix, streetPathBetween } from './national-osm-store.mjs'
@@ -2870,6 +2870,7 @@ export function prepareNationalGtfsRoutingContext(storePath, options = {}) {
         }
       })()
     : null
+  const farePreparation = prepareGtfsFares(store.db)
   persistNationalStoreAccessMaterialization(store)
   return {
     ready: true,
@@ -2892,6 +2893,7 @@ export function prepareNationalGtfsRoutingContext(storePath, options = {}) {
     activeServiceKernel,
     nativeTimetableKernel,
     routeGeometry: null,
+    farePreparation,
     nativeCoordinateAccess,
     routingPipelinePrewarm: null,
   }

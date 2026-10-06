@@ -1,5 +1,5 @@
 import { gtfsTableEntry, streamGtfsZipCsv } from './gtfs-zip-reader.mjs'
-import { quoteBoardingFare, fareNeedsScheduledTime } from '../fares.mjs'
+import { quoteBoardingFare, fareNeedsScheduledTime, prepareBoardingFares } from '../fares.mjs'
 import { WeightedLruCache } from './weighted-lru-cache.mjs'
 
 // Kept separate from the routing graph: fare data never changes path selection.
@@ -123,6 +123,24 @@ export function copyGtfsFareCatalogs(db, alias, scope) {
   for (const row of db.prepare(`SELECT scope, data FROM ${alias}.fare_catalogs`).all()) {
     writeGtfsFareCatalog(db, JSON.parse(row.data), row.scope ? `${scope}\u001f${row.scope}` : scope)
   }
+}
+
+// Bound speculative preparation below the retained catalog budget. Large
+// merged Cities still load other fare scopes when a returned ride needs them.
+export function prepareGtfsFares(db) {
+  let prepared = 0, skipped = 0, bytes = 0
+  try {
+    const state = databaseState(db)
+    if (!state.catalogQuery) return { prepared, skipped, bytes }
+    const sizes = db.prepare('SELECT scope, length(CAST(data AS BLOB)) AS bytes FROM fare_catalogs ORDER BY scope').all()
+    for (const row of sizes) {
+      if (prepared >= 8 || bytes + row.bytes > 8 * 1024 * 1024) { skipped++; continue }
+      bytes += row.bytes
+      if (prepareBoardingFares(catalogForScope(state, row.scope))) prepared++
+      else skipped++
+    }
+  } catch { /* Fare data is optional; routing preparation remains usable. */ }
+  return { prepared, skipped, bytes }
 }
 
 export function addGtfsFares(db, plan) {

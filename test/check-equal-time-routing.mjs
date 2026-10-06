@@ -183,8 +183,36 @@ for (const maximumBoardings of [undefined,3,2,3]) {
   if (result.status==='ready') assert.equal(result.bestBoardings,3)
 }
 
+// Deep corridors guarantee that high boarding budgets are actually used.
+// A direct fallback arrives later; unrestricted bounds must never hide it.
+let deepComparisons = 0
+for (const depth of [2, 4, 6, 8, 12, 16]) for (const base of [28800, 90000]) {
+  const trips = Array.from({length:depth}, (_,i) => [[i,base+i*120],[i+1,base+(i+1)*120]])
+  trips.push([[0,base+30],[depth,base+depth*120+600]])
+  const minimum = Array(depth+1).fill(0), forbidden = [...minimum]
+  const kernel = new TimetableKernel(input(trips,[],minimum,forbidden))
+  const query = {...regressionQuery,originStops:[0],destinationStops:[depth],departure:base,horizon:base+depth*120+900}
+  for (const cap of [depth,1,depth-1,depth,32]) {
+    const expected = enumerate(trips,[],minimum,query,cap).sort(compare)[0]
+    const result = kernel.routeScalarCsa({...query,maximumBoardings:cap})
+    assert.deepEqual([result.bestArrival,result.bestBoardings],expected.slice(0,2))
+    replayScalar(result,trips,[],minimum,forbidden,query,cap,`deep-${depth}-${base}-${cap}`)
+    const many = kernel.routeManyCsa({...query,maximumBoardings:cap,destinationOffsets:[0,1],allowPostRideTransfers:[true],excludedTrips:[]})
+    assert.equal(many.bestArrivals[0],expected[0])
+    const reverse = kernel.routeArriveByCsa({...query,earliest:base,deadline:base+depth*120,maximumBoardings:cap})
+    assert.equal(reverse.latestDeparture ?? null,cap>=depth ? base : null)
+    deepComparisons += 3
+  }
+}
+
 const initialSeed = Number(process.env.VIGO_ORACLE_SEED ?? 619)
 assert(Number.isSafeInteger(initialSeed) && initialSeed >= 0 && initialSeed <= 0xffffffff)
+const randomStopCount = Number(process.env.VIGO_ORACLE_STOPS ?? 6)
+const randomRunCount = Number(process.env.VIGO_ORACLE_RUNS ?? 12)
+const randomBoardingCap = Number(process.env.VIGO_ORACLE_MAX_BOARDINGS ?? 4)
+assert(Number.isSafeInteger(randomStopCount) && randomStopCount >= 6 && randomStopCount <= 64)
+assert(Number.isSafeInteger(randomRunCount) && randomRunCount >= 1 && randomRunCount <= 256)
+assert(Number.isSafeInteger(randomBoardingCap) && randomBoardingCap >= 1 && randomBoardingCap <= 32)
 let state=initialSeed, comparisons=0, reverseComparisons=0
 const seedCount = Number(process.env.VIGO_ORACLE_SEEDS ?? 120)
 assert(Number.isSafeInteger(seedCount) && seedCount > 0)
@@ -193,11 +221,11 @@ assert(Number.isSafeInteger(seedCount) && seedCount > 0)
 const random = n => Math.floor(((state=(Math.imul(state,1664525)+1013904223)>>>0)/2**32)*n)
 for (let seed=0;seed<seedCount;seed++) {
   const trips=[]
-  for (let run=0;run<12;run++) {
-    let time=50+10*random(20),stop=random(6)
+  for (let run=0;run<randomRunCount;run++) {
+    let time=50+10*random(20),stop=random(randomStopCount)
     const trip=[[stop,time]]
     for (let i=0,n=1+random(3);i<n;i++) {
-      stop=(stop+1+random(5))%6;time+=10*random(4)
+      stop=(stop+1+random(randomStopCount-1))%randomStopCount;time+=10*random(4)
       const arrival=time;time+=10*random(2);trip.push([stop,arrival,time])
     }
     trips.push(trip)
@@ -207,9 +235,9 @@ for (let seed=0;seed<seedCount;seed++) {
     call[4] = Number(random(4) !== 0)
   }
   const transfers=[]
-  for (let stop=0;stop<6;stop++) if(random(2)) transfers.push([stop,(stop+1+random(5))%6,10*random(3)])
-  const minimum=Array.from({length:6},()=>10*random(4)), forbidden=Array.from({length:6},()=>Number(random(4)===0)), cap=1+random(4)
-  const query={ originStops:[0,1],originWalkSeconds:[0,10*random(4)],originCandidateIndices:[0,1],destinationStops:[5,4],
+  for (let stop=0;stop<randomStopCount;stop++) if(random(2)) transfers.push([stop,(stop+1+random(randomStopCount-1))%randomStopCount,10*random(3)])
+  const minimum=Array.from({length:randomStopCount},()=>10*random(4)), forbidden=Array.from({length:randomStopCount},()=>Number(random(4)===0)), cap=1+random(randomBoardingCap)
+  const query={ originStops:[0,1],originWalkSeconds:[0,10*random(4)],originCandidateIndices:[0,1],destinationStops:[randomStopCount-1,randomStopCount-2],
     destinationWalkSeconds:[10*random(4),10*random(4)],destinationCandidateIndices:[0,1],
     departure:10*random(12),horizon:200+10*random(21),allowPreRideTransfers:Boolean(seed%2),allowPostRideTransfers:Boolean(random(2)) }
   const data=input(trips,transfers,minimum,forbidden), paths=enumerate(trips,transfers,minimum,query,cap,forbidden).sort(compare)
@@ -255,6 +283,6 @@ for (let seed=0;seed<seedCount;seed++) {
   }
   reverseComparisons++
 }
-console.log(JSON.stringify({status:'passed',initialSeed,seedCount,equalTimeRegression:!process.argv.includes('--reverse-only'),
+console.log(JSON.stringify({status:'passed',initialSeed,seedCount,randomStopCount,randomRunCount,randomBoardingCap,deepComparisons,equalTimeRegression:!process.argv.includes('--reverse-only'),
   independentOracleComparisons:comparisons,cappedScalarComparisons:seedCount,cappedMatrixComparisons:seedCount,
   latestDepartureComparisons:reverseComparisons},null,2))
