@@ -35,8 +35,8 @@ try {
     const request = { origin: kind === 'transfer' ? { stopId: 'A' } : { coordinate: [-77.0405, 38.90475] },
       destination: { stopId: 'B' }, serviceDate: '2026-07-15', time: '07:55', maxWalkKm: 1.2,
       maxTransfers: 2, requireTransitRide: true }
-    const query = body => JSON.parse(execFileSync(binary, ['route', '--city', city, '--request', '-'], {
-      input: JSON.stringify(body), encoding: 'utf8', env: { PATH: '', RAYON_NUM_THREADS: '2' }, timeout: 30000 }))
+    const query = body => unpack(JSON.parse(execFileSync(binary, ['route', '--city', city, '--request', '-'], {
+      input: JSON.stringify({ ...body, diagnostics: "trace" }), encoding: 'utf8', env: { PATH: '', RAYON_NUM_THREADS: '2' }, timeout: 30000 })))
     const result = query(request)
     if (kind === 'unpriced') {
       assert.equal(result.status, 'blocked', `Unknown station cost must prevent boarding through that link: ${JSON.stringify(result)}`)
@@ -46,8 +46,8 @@ try {
         const body = { ...request, timePreference: arrive ? 'arrive_by' : 'depart_at', time: arrive ? '08:40' : '07:55' }
         assert.equal(query(body).status, 'blocked')
         const { origin, destination, ...options } = body
-        const matrix = JSON.parse(execFileSync(binary, ['matrix', '--city', city, '--request', '-'], {
-          input: JSON.stringify({ ...options, origins: [origin], destinations: [destination], includeJourneys: true }), encoding: 'utf8', timeout: 30000 }))
+        const matrix = unpack(JSON.parse(execFileSync(binary, ['matrix', '--city', city, '--request', '-'], {
+          input: JSON.stringify({ diagnostics: "trace", ...options, origins: [origin], destinations: [destination], includeJourneys: true }), encoding: 'utf8', timeout: 30000 })))
         assert.deepEqual(matrix.durationsMinutes, [[null]])
         const node = routeNationalGtfsStore(routing, { ...body, timePreference: arrive ? 'arrive' : 'depart', departMinutes: 475, arriveMinutes: 520,
           destination: { ...request.destination, coordinate: [-77.030, 38.910], source: 'stop' },
@@ -102,3 +102,5 @@ try {
   }
   console.log('Standalone station access passed: selected directed pathway costs and unverified transfer interiors.')
 } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+
+function unpack(result) { return result.trace ?? result }

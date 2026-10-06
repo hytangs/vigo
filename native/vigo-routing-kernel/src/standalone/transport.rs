@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     env, fs,
-    io::{self, BufRead, Read, Write},
+    io::{self, BufRead, IsTerminal, Read, Write},
     path::Path,
 };
 
@@ -19,7 +19,10 @@ const HELP: &str = "VIGO — standalone Rust routing and isochrones
   vigo capabilities
   vigo native --city ./city --request kernel-query.json
 
+Use --format text|json (automatic terminal view by default).
 Use --request - for stdin; --output FILE saves JSON; --pretty indents JSON.
+Output: --diagnostics none|summary|profile|trace (default: none)
+        --include-geometry --include-limitations
 Common flags: --service-date YYYY-MM-DD --time HH:MM --mode transit|walk|drive
 --from lon,lat|stop:ID --to lon,lat|stop:ID --max-walk KM --arrive-by
 
@@ -30,7 +33,7 @@ VIGO_CITY and PORT supply deployment defaults. City files are read-only.
 No Node runtime or internet connection is needed for routing.
 ";
 pub(crate) fn error(error: impl std::fmt::Display) -> Value {
-    json!({"error":{"code":"invalid_request","message":error.to_string()}})
+    crate::presentation::error(&error.to_string())
 }
 pub fn main() -> i32 {
     match run() {
@@ -65,7 +68,16 @@ fn run() -> Result<()> {
         let raw = &arg[2..];
         let (name, value) = if let Some((k, v)) = raw.split_once('=') {
             (k.to_owned(), v.to_owned())
-        } else if ["pretty", "arrive-by", "street-edges", "help"].contains(&raw) {
+        } else if [
+            "pretty",
+            "arrive-by",
+            "street-edges",
+            "help",
+            "include-geometry",
+            "include-limitations",
+        ]
+        .contains(&raw)
+        {
             (raw.into(), "true".into())
         } else {
             (
@@ -104,6 +116,10 @@ fn run() -> Result<()> {
         "request",
         "output",
         "pretty",
+        "format",
+        "diagnostics",
+        "include-geometry",
+        "include-limitations",
         "host",
         "port",
         "max-body-bytes",
@@ -136,7 +152,9 @@ fn run() -> Result<()> {
             | "max-connections" | "max-queue" => command == "serve",
             "request" => ["route", "matrix", "reach", "isochrone", "compare", "native"]
                 .contains(&command.as_str()),
-            "output" | "pretty" => !["serve", "stream", "_worker"].contains(&command.as_str()),
+            "output" | "pretty" | "format" => {
+                !["serve", "stream", "_worker"].contains(&command.as_str())
+            }
             "service-date" => ["route", "matrix", "reach", "isochrone", "native", "stream"]
                 .contains(&command.as_str()),
             "from" => ["route", "reach", "isochrone"].contains(&command.as_str()),
@@ -166,7 +184,10 @@ fn run() -> Result<()> {
     }
     let mut city = City::open(&city_path)?;
     if command == "_worker" {
-        println!("{}", serde_json::json!({"ready":true,"info":city.info()}));
+        println!(
+            "{}",
+            serde_json::json!({"ready":true,"info":crate::presentation::format("info", &json!({}), &city.info())})
+        );
         io::stdout().flush()?;
     }
     if command == "stream" || command == "_worker" {
@@ -197,7 +218,7 @@ fn run() -> Result<()> {
                     let kind = q["kind"].as_str().unwrap_or("").to_owned();
                     let id = q.get("id").cloned();
                     let mut result = apply_flags(&mut q, &options)
-                        .and_then(|()| city.execute(&kind, &q))
+                        .and_then(|()| city.execute_public(&kind, &q))
                         .unwrap_or_else(error);
                     if let Some(id) = id {
                         result["id"] = id;
@@ -222,10 +243,22 @@ fn run() -> Result<()> {
         json!({})
     };
     apply_flags(&mut request, &options)?;
-    let result = city.execute(&command, &request)?;
+    let result = city.execute_public(&command, &request)?;
     output(&result, &options)
 }
 fn output(value: &Value, options: &HashMap<String, String>) -> Result<()> {
+    let format = options.get("format").map(String::as_str).unwrap_or("auto");
+    if !["auto", "text", "json"].contains(&format) {
+        return fail("format must be text or json");
+    }
+    if !options.contains_key("output")
+        && (format == "text" || (format == "auto" && io::stdout().is_terminal()))
+    {
+        if let Some(text) = crate::presentation::text(value) {
+            print!("{text}");
+            return Ok(());
+        }
+    }
     let mut bytes = if enabled(options, "pretty")? {
         serde_json::to_vec_pretty(value)?
     } else {
@@ -294,12 +327,21 @@ fn apply_flags(q: &mut Value, o: &HashMap<String, String>) -> Result<()> {
         ("service-date", "serviceDate"),
         ("time", "time"),
         ("mode", "mode"),
+        ("diagnostics", "diagnostics"),
     ] {
         if let Some(v) = o.get(cli) {
             if key == "time" {
                 q.as_object_mut().unwrap().remove("timeMinutes");
             }
             q[key] = json!(v);
+        }
+    }
+    for (cli, key) in [
+        ("include-geometry", "includeGeometry"),
+        ("include-limitations", "includeLimitations"),
+    ] {
+        if o.contains_key(cli) {
+            q[key] = json!(enabled(o, cli)?);
         }
     }
     for (cli, key) in [

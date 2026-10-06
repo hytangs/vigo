@@ -154,6 +154,7 @@ export function vigoCapabilities(productVersion) {
   return {
     ...capabilityCatalog,
     productVersion,
+    output: { schemas: ['vigo.route.v1', 'vigo.matrix.v1', 'vigo.reach.v1'], diagnostics: ['none', 'summary', 'profile', 'trace'], durationUnit: 'seconds', geometry: 'opt-in includeGeometry', trace: 'unstable internal ABI' },
     apiVersion,
     cityFormatVersion,
     resultSchemaVersion,

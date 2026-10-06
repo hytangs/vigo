@@ -13,9 +13,10 @@ const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-prepared-rust-'))
 const city = path.join(directory, 'city')
 const env = { ...process.env, RAYON_NUM_THREADS: '2' }
 const base = { kind: 'route', serviceDate: '2026-07-15', time: '07:55', origin: { stopId: 'A' }, destination: { stopId: 'B' }, maxWalkKm: .2 }
-const query = q => JSON.parse(execFileSync(binary, ['stream', '--city', city], {
-  input: `${JSON.stringify(q)}\n`, env: { PATH: '', RAYON_NUM_THREADS: '2' }, encoding: 'utf8',
-}))
+const query = q => unpack(JSON.parse(execFileSync(binary, ['stream', '--city', city], {
+  input: `${JSON.stringify({ ...q, diagnostics: "trace" })}\n`, env: { PATH: '', RAYON_NUM_THREADS: '2' }, encoding: 'utf8',
+})))
+function unpack(result) { return result.trace ?? result }
 const semantic = value => Array.isArray(value) ? value.map(semantic) : value && typeof value === 'object'
   ? Object.fromEntries(Object.entries(value).filter(([key]) => !['diagnostics', 'timing'].includes(key)).map(([k, v]) => [k, semantic(v)])) : value
 let checked = 0

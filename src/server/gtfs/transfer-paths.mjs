@@ -13,7 +13,7 @@ export function prepareServiceTransfers(store) {
     from: Uint32Array.from(edges, e => index.get(e.from_stop_id)),
     to: Uint32Array.from(edges, e => index.get(e.to_stop_id)),
     seconds: Uint32Array.from(edges, e => e.min_transfer_time),
-    pathway: Uint8Array.from(edges, e => ['gtfs_pathway', 'schedule_pathway'].includes(e.provenance) ? 1 : 0),
+    pathway: Uint8Array.from(edges, e => ['gtfs_pathway', 'gtfs_pathway_estimated', 'schedule_pathway'].includes(e.provenance) ? 1 : 0),
     forbiddenFrom: Uint32Array.from(forbidden, ([a]) => index.get(a)),
     forbiddenTo: Uint32Array.from(forbidden, ([, b]) => index.get(b)),
   })

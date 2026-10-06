@@ -259,3 +259,9 @@ check covers building Cities, modes, realtime, Matrix, Reach scenarios and
 streets, comparisons, CSV, and resident streaming. `VIGO_CLI_TEST_NODE` selects
 an alternative Node executable for this check. Source test dependencies are
 used only by the test driver; runtime commands have no external npm dependency.
+
+## Public output
+
+Route, Matrix and Reach use the [public result contract](../reference/results.md). Interactive Route output is a short itinerary; use `--format json` for structured output in a terminal. Pipes and files remain JSON. Add `--diagnostics summary`, `profile`, or `trace` only when needed; diagnostic requests use JSON so the requested evidence stays visible. Geometry is opt-in with `--include-geometry`.
+
+CSV batches retain their explicitly named CSV units and return a small `vigo.batch.v1` completion summary on stdout. Full per-query witnesses are available with `--diagnostics trace`.

@@ -107,6 +107,29 @@ impl City {
         Ok(distance
             .min((opt.end - opt.start) / 3600. * opt.walk_speed.unwrap_or(self.speed) * 1000.))
     }
+    pub fn execute_public(&mut self, command: &str, request: &Value) -> Result<Value> {
+        crate::presentation::validate(request)?;
+        let mut query = request.clone();
+        crate::presentation::normalize_points(&mut query)?;
+        if let Some(o) = query.as_object_mut() {
+            o.remove("diagnostics");
+            o.remove("includeLimitations");
+            if command != "matrix" {
+                o.remove("includeGeometry");
+            }
+        }
+        if command == "compare" && request["before"]["schema"].is_string() {
+            return Ok(crate::presentation::compare(
+                &request["before"],
+                &request["after"],
+            )?);
+        }
+        let mut raw = self.execute(command, &query)?;
+        if request["includeLimitations"] == true {
+            raw["warnings"] = self.metadata["routingLimitations"].clone();
+        }
+        Ok(crate::presentation::format(command, request, &raw))
+    }
     pub fn execute(&mut self, command: &str, request: &Value) -> Result<Value> {
         if !request.is_object() {
             return fail("Request must be a JSON object");

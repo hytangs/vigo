@@ -13,8 +13,10 @@ const root = path.resolve(import.meta.dirname, '..')
 const cliPath = process.env.VIGO_CLI_PATH ? path.resolve(process.env.VIGO_CLI_PATH) : path.join(root, 'public', 'vigo.mjs')
 const executable = cliPath.endsWith('.mjs') ? process.execPath : cliPath
 const prefix = cliPath.endsWith('.mjs') ? [cliPath] : []
-const run = (args) => execFileSync(executable, [...prefix, ...args], { encoding: 'utf8' })
-const invoke = (args) => spawnSync(executable, [...prefix, ...args], { encoding: 'utf8' })
+const parseResult = text => { const value = JSON.parse(text); return value.trace ?? value }
+const traceArguments = args => ['route','matrix','reach','stream'].includes(args[0]) ? [...args, '--diagnostics=trace'] : args
+const run = (args) => execFileSync(executable, [...prefix, ...traceArguments(args)], { encoding: 'utf8' })
+const invoke = (args) => spawnSync(executable, [...prefix, ...traceArguments(args)], { encoding: 'utf8' })
 
 assert(fs.existsSync(cliPath), 'Built CLI is missing.')
 
@@ -22,7 +24,7 @@ const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-cli-'))
 try {
   const { gtfsPath, osmPath } = await writeCliFixtureInputs(temporaryRoot)
   const cityPath = path.join(temporaryRoot, 'fixture-city')
-  const city = JSON.parse(run(['build', `--gtfs=${gtfsPath}`, `--osm=${osmPath}`, `--output=${cityPath}`]))
+  const city = parseResult(run(['build', `--gtfs=${gtfsPath}`, `--osm=${osmPath}`, `--output=${cityPath}`]))
 
   assert.equal(city.schemaVersion, 'vigo.city.v1')
   assert.equal(city.kind, 'city')
@@ -50,14 +52,14 @@ try {
   ])
   assert.equal(failedReplacement.status, 2, 'A failed compiler must fail the build.')
   assert.equal(fs.readFileSync(path.join(cityPath, 'network.json'), 'utf8'), originalManifest)
-  const replacement = JSON.parse(run([...buildArguments, '--replace']))
+  const replacement = parseResult(run([...buildArguments, '--replace']))
   assert.equal(replacement.name, city.name)
   assert.notEqual(replacement.revisionId, city.revisionId)
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(cityPath, 'network.json'), 'utf8')), replacement)
+  assert.deepEqual(parseResult(fs.readFileSync(path.join(cityPath, 'network.json'), 'utf8')), replacement)
   assert(!fs.readdirSync(temporaryRoot).some((name) => name.startsWith('.fixture-city.vigo-')),
     'Successful and failed compilation must release and clean staging directories.')
 
-  const merged = JSON.parse(run([
+  const merged = parseResult(run([
     'build', `--gtfs=${gtfsPath}`, `--gtfs=${gtfsPath}`, '--gtfs-scope=east', '--gtfs-scope=west',
     `--osm=${osmPath}`, `--output=${path.join(temporaryRoot, 'merged city')}`,
   ]))
@@ -69,13 +71,13 @@ try {
   fs.mkdirSync(privateInputs)
   const terminalFixture = await writeCliFixtureInputs(privateInputs, { terminalAccess: true })
   const terminalCityPath = path.join(temporaryRoot, 'terminal-city')
-  const terminalCity = JSON.parse(run(['build', `--gtfs=${terminalFixture.gtfsPath}`,
+  const terminalCity = parseResult(run(['build', `--gtfs=${terminalFixture.gtfsPath}`,
     `--osm=${terminalFixture.osmPath}`, `--output=${terminalCityPath}`, '--private-access=endpoints']))
   assert.equal(terminalCity.streetStore.terminalAccess.model, 'authorized_endpoints')
   assert.equal(terminalCity.streetStore.terminalAccess.privateWays, 2)
   const terminalRequest = path.join(temporaryRoot, 'terminal-route.json')
   fs.writeFileSync(terminalRequest, JSON.stringify({ origin: { coordinate: [-77.054, 38.9] }, destination: 'B', allowLongWalk: false }))
-  const terminalRoute = JSON.parse(run(['route', `--city=${terminalCityPath}`, `--request=${terminalRequest}`,
+  const terminalRoute = parseResult(run(['route', `--city=${terminalCityPath}`, `--request=${terminalRequest}`,
     '--time=08:30', '--time-preference=arrive', '--service-date=2026-07-15', '--max-walk=0.6', '--max-transfers=1']))
   assert.equal(terminalRoute.status, 'ready')
   assert.equal(terminalRoute.result.diagnostics.walkingAccessPermission, 'authorized_endpoints')
@@ -90,20 +92,19 @@ try {
     assert.notEqual(invoke([removed, '--help']).status, 0, `${removed} still runs.`)
   }
 
-  const inspected = JSON.parse(run(['inspect', `--city=${cityPath}`]))
-  assert.equal(inspected.schemaVersion, 'vigo.city.inspect.v1')
-  assert.equal(inspected.revisionId, replacement.revisionId)
-  assert.equal(inspected.builtAt, replacement.builtAt)
+  const inspected = parseResult(run(['inspect', `--city=${cityPath}`]))
+  assert.equal(inspected.schema, 'vigo.info.v1')
+  assert.equal(inspected.revision, replacement.revisionId)
   assert.equal(inspected.sources.gtfs[0].name, path.basename(gtfsPath))
   assert.equal(inspected.sources.osm.name, path.basename(osmPath))
 
   const routeRequest = path.join(temporaryRoot, 'route.json')
   fs.writeFileSync(routeRequest, JSON.stringify({ origin: 'A', destination: 'B' }))
-  const route = JSON.parse(run([
+  const route = parseResult(run([
     'route', `--city=${cityPath}`, `--request=${routeRequest}`,
     '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2',
   ]))
-  const pipedRoute = JSON.parse(execFileSync(executable, [...prefix, 'route', `--city=${cityPath}`, '--request=-',
+  const pipedRoute = parseResult(execFileSync(executable, [...prefix, 'route', '--diagnostics=trace', `--city=${cityPath}`, '--request=-',
     '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2', '--output=-'], {
     encoding: 'utf8', cwd: temporaryRoot, input: fs.readFileSync(routeRequest, 'utf8'),
   }))
@@ -112,9 +113,9 @@ try {
   assert.equal(pipedRoute.status, route.status)
   assert(!fs.existsSync(path.join(temporaryRoot, '-')), '--output=- must not create a file named -')
   const inspectPath = path.join(temporaryRoot, 'inspect.json')
-  const savedInspection = JSON.parse(run(['inspect', `--city=${cityPath}`, `--output=${inspectPath}`]))
+  const savedInspection = parseResult(run(['inspect', `--city=${cityPath}`, `--output=${inspectPath}`]))
   assert.deepEqual(savedInspection, inspected)
-  assert.deepEqual(JSON.parse(fs.readFileSync(inspectPath, 'utf8')), inspected)
+  assert.deepEqual(parseResult(fs.readFileSync(inspectPath, 'utf8')), inspected)
   assert.equal(route.schemaVersion, 'vigo.result.route.v1')
   assert.equal(route.kind, 'route')
   assert.equal(route.status, 'ready')
@@ -142,24 +143,24 @@ try {
       '--service-date=2026-07-15', '--max-walk=0.2']
     const fixture = { origin: 'A', destination: 'B', requireTransitRide: true, realtimeSnapshot }
     fs.writeFileSync(modeRequest, JSON.stringify({ ...fixture, routingDataMode: 'realtime' }))
-    const live = JSON.parse(run(modeArgs))
+    const live = parseResult(run(modeArgs))
     assert.equal(live.query.routingDataMode, 'realtime')
     assert.equal(live.result.diagnostics.routingDataMode, 'realtime')
     assert.equal(live.result.diagnostics.realtimeRouting.canceledTrips, 2)
     assert.equal(live.status, 'blocked', 'Both canceled rides must be absent from the CLI result.')
-    const scheduled = JSON.parse(run([...modeArgs, '--data-mode=scheduled']))
+    const scheduled = parseResult(run([...modeArgs, '--data-mode=scheduled']))
     assert.equal(scheduled.query.routingDataMode, 'scheduled', 'The flag overrides the JSON request mode.')
     assert.equal(scheduled.status, 'ready')
     assert.equal(scheduled.result.diagnostics.realtimeRouting, undefined)
     assert.equal(scheduled.result.diagnostics.routingDataProvenance.realtimeApplied, false)
     assert.equal(scheduled.result.diagnostics.routingDataProvenance.serviceDate, '2026-07-15')
     fs.writeFileSync(modeRequest, JSON.stringify({ ...fixture, traffic: { invalid: 'ignored in scheduled research' } }))
-    const defaultScheduled = JSON.parse(run(modeArgs))
+    const defaultScheduled = parseResult(run(modeArgs))
     assert.equal(defaultScheduled.query.routingDataMode, 'scheduled')
     assert.equal(defaultScheduled.result.durationMinutes, scheduled.result.durationMinutes)
     assert.deepEqual(defaultScheduled.result.diagnostics.routingDataProvenance, scheduled.result.diagnostics.routingDataProvenance)
     fs.writeFileSync(modeRequest, JSON.stringify(fixture))
-    assert.equal(JSON.parse(run([...modeArgs, '--data-mode=realtime'])).status, 'blocked')
+    assert.equal(parseResult(run([...modeArgs, '--data-mode=realtime'])).status, 'blocked')
   }
   for (const routingDataMode of ['live', '', null, 1]) {
     fs.writeFileSync(modeRequest, JSON.stringify({ origin: 'A', destination: 'B', routingDataMode }))
@@ -177,7 +178,7 @@ try {
   const modeStream = execFileSync(executable, [...prefix, '_route-stream', `--city=${cityPath}`,
     '--service-date=2026-07-15', '--time=07:55', '--max-walk=0.2'], {
     encoding: 'utf8', input: modeStreamInput,
-  }).trim().split('\n').map(line => JSON.parse(line))
+  }).trim().split('\n').map(line => parseResult(line))
   const residentRequests = [
     ...['walk', 'drive', 'transit'].flatMap(mode => [
       { kind: 'route', mode, origin: 'A', destination: 'B', time: '07:55', maxWalkKm: 0.2 },
@@ -192,7 +193,7 @@ try {
   const resident = execFileSync(executable, [...prefix, '_route-stream', `--city=${cityPath}`,
     '--service-date=2026-07-15'], {
     encoding: 'utf8', input: residentRequests.map(input => JSON.stringify(input)).join('\n') + '\n',
-  }).trim().split('\n').map(line => JSON.parse(line))
+  }).trim().split('\n').map(line => parseResult(line))
   assert.deepEqual(resident.map(row => row.status), [...Array(9).fill('ready'), 'error', 'ready'])
   for (const index of [1, 3, 5, 6, 7, 8, 10]) assert.equal(resident[index].timing.openMs, 0)
   for (const index of [0, 2, 4]) assert.equal(resident[index].result.durationMinutes, resident[index + 1].result.durationMinutes)
@@ -210,7 +211,7 @@ try {
     waypoints: ['X'],
     destination: 'B',
   }))
-  const waypointRoute = JSON.parse(run([
+  const waypointRoute = parseResult(run([
     'route', `--city=${cityPath}`, `--request=${waypointRequest}`,
     '--mode=walk', '--time=07:55', '--service-date=2026-07-15',
   ]))
@@ -219,7 +220,7 @@ try {
   assert.equal(waypointRoute.result.diagnostics.orderedPointCount, 3)
   for (const mode of ['walk', 'drive']) {
     for (const time of ['08:30', '00:00']) {
-      const arrival = JSON.parse(run([
+      const arrival = parseResult(run([
         'route', `--city=${cityPath}`, `--request=${waypointRequest}`,
         `--mode=${mode}`, `--time=${time}`, '--time-preference=arrive', '--service-date=2026-07-15',
       ]))
@@ -235,7 +236,7 @@ try {
   const walkStructure = path.join(streetDirectory, streetFiles.find(name => name.includes('.street-cch-') && name.endsWith('.structure')))
   fs.renameSync(walkStructure, `${walkStructure}.held`)
   try {
-    const independentDrive = JSON.parse(run(['route', `--city=${cityPath}`, `--request=${routeRequest}`,
+    const independentDrive = parseResult(run(['route', `--city=${cityPath}`, `--request=${routeRequest}`,
       '--mode=drive', '--time=08:00', '--service-date=2026-07-15']))
     assert.equal(independentDrive.status, 'ready', 'Drive startup must not load the pedestrian hierarchy.')
     assert.equal(independentDrive.result.diagnostics.searchStats.cchSource, 'existing_mmap')
@@ -243,7 +244,7 @@ try {
       '--service-date=2026-07-15'], { encoding: 'utf8', input: [0, 1].map(id => JSON.stringify({
         id, kind: 'matrix', mode: 'drive', origins: [{ coordinate: [-77.05, 38.9] }],
         destinations: [{ coordinate: [-77.03, 38.91] }],
-      })).join('\n') + '\n' }).trim().split('\n').map(line => JSON.parse(line))
+      })).join('\n') + '\n' }).trim().split('\n').map(line => parseResult(line))
     assert(matrices.every(result => result.rows[0].status === 'ready'))
     assert.equal(matrices[1].timing.openMs, 0)
   } finally { fs.renameSync(`${walkStructure}.held`, walkStructure) }
@@ -265,7 +266,7 @@ try {
     destinations: [{ id: 'x', point: 'X' }, { id: 'b', point: 'B' }],
   }))
   const matrixPath = path.join(temporaryRoot, 'matrix-result.json')
-  const matrix = JSON.parse(run([
+  const matrix = parseResult(run([
     'matrix', `--city=${cityPath}`, `--request=${matrixRequest}`,
     `--output=${matrixPath}`,
     '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2', '--horizon=90',
@@ -276,7 +277,7 @@ try {
   assert.deepEqual(matrix.rows.map((row) => row.destinationId), ['x', 'b'])
   assert(matrix.rows.every((row) => row.status === 'ready'))
   assert(Number.isFinite(matrix.timing.openMs) && Number.isFinite(matrix.timing.computeMs))
-  assert.deepEqual(JSON.parse(fs.readFileSync(matrixPath, 'utf8')), matrix)
+  assert.deepEqual(parseResult(fs.readFileSync(matrixPath, 'utf8')), matrix)
   assert(Math.abs(matrix.rows[1].durationMinutes - route.result.durationMinutes) < 0.001,
     'Public transit Route and Matrix must select the same transit journey.')
   assert(route.result.legs.some(leg => leg.type === 'ride'))
@@ -285,10 +286,10 @@ try {
     for (const maxTransfers of [0, 1]) {
       const options = [`--time-preference=${timePreference}`, '--time=08:00',
         '--service-date=2026-07-15', '--max-walk=0.2', `--max-transfers=${maxTransfers}`]
-      const capped = JSON.parse(run(['route', `--city=${cityPath}`, `--request=${routeRequest}`, ...options]))
+      const capped = parseResult(run(['route', `--city=${cityPath}`, `--request=${routeRequest}`, ...options]))
       assert.equal(capped.query.maxTransfers, maxTransfers)
       if (capped.result.status === 'ready') assert(capped.result.transfers <= maxTransfers)
-      const cappedMatrix = JSON.parse(run(['matrix', `--city=${cityPath}`, `--request=${matrixRequest}`, ...options]))
+      const cappedMatrix = parseResult(run(['matrix', `--city=${cityPath}`, `--request=${matrixRequest}`, ...options]))
       assert.equal(cappedMatrix.query.maxTransfers, maxTransfers)
       assert.equal(cappedMatrix.rows[1].status, capped.result.status)
       if (capped.result.status === 'ready') {
@@ -307,7 +308,7 @@ try {
     origins: [{ id: 'a', point: 'A' }],
     destinations: Array.from({ length: 1024 }, (_, i) => ({ id: `point_${i}`, point: i % 2 ? 'B' : 'X' })),
   }))
-  const largeMatrix = JSON.parse(run([
+  const largeMatrix = parseResult(run([
     'matrix', `--city=${cityPath}`, `--request=${largeMatrixRequest}`,
     '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2', '--horizon=90',
   ]))
@@ -325,7 +326,7 @@ try {
         destinations: Array.from({ length: manyOrigins ? 1 : 1024 }, (_, i) => ({ id: `destination_${i}`, point: 'B' })),
         timePreference,
       }))
-      const result = JSON.parse(run(['matrix', `--city=${cityPath}`, `--request=${largeMatrixRequest}`,
+      const result = parseResult(run(['matrix', `--city=${cityPath}`, `--request=${largeMatrixRequest}`,
         '--time=08:30', '--service-date=2026-07-15', '--max-walk=0.2', '--horizon=90']))
       assert.equal(result.query.timePreference, timePreference)
       assert.equal(result.rows.length, 1024)
@@ -362,7 +363,7 @@ try {
           { id: 'duplicate', coordinate: [-77.04, 38.905] }],
         time: '07:55', maxWalkKm: 0.2, disableCache, requireTransitRide: false, includeJourneys: true, includeGeometry: true })),
     ].map(value => JSON.stringify(value)).join('\n') + '\n',
-  }).trim().split('\n').map(line => JSON.parse(line))
+  }).trim().split('\n').map(line => parseResult(line))
   assert.deepEqual(streamedMatrices.map(result => result.status), ['ready', 'error', 'ready', 'ok', 'ready', 'ready'])
   assert.equal(streamedMatrices[3].plan.status, 'ready')
   assert.equal(streamedMatrices[3].plan.diagnostics.searchStats.nativeStreetPathCacheDisabled, true)
@@ -385,7 +386,7 @@ try {
   assert.equal(uncachedMatrix.diagnostics.destinationAccessCacheHits, 0)
   assert.equal(uncachedMatrix.diagnostics.directWalk.execution, 'rust_fused_matrix')
   assert.equal(uncachedMatrix.diagnostics.directWalk.reusedEndpointSnaps, 3)
-  const stripTiming = value => JSON.parse(JSON.stringify(value, (key, item) => /Ms$/.test(key) ? undefined : item))
+  const stripTiming = value => parseResult(JSON.stringify(value, (key, item) => /Ms$/.test(key) ? undefined : item))
   assert.deepEqual(stripTiming(uncachedMatrix.rows), stripTiming(cachedMatrix.rows))
   assert.deepEqual(uncachedMatrix.rows.map(row => row.destinationId), ['near', 'same', 'duplicate'])
   assert.equal(uncachedMatrix.rows[1].durationMinutes, 0)
@@ -399,7 +400,7 @@ try {
   const reachRequest = path.join(temporaryRoot, 'reach.json')
   fs.writeFileSync(reachRequest, JSON.stringify({ origin: 'A', cutoffsMinutes: [5, 15, 40], extentRadiusKm: 2, rasterSize: 48 }))
   const reachPath = path.join(temporaryRoot, 'reach-result.json')
-  const reach = JSON.parse(run([
+  const reach = parseResult(run([
     'reach', `--city=${cityPath}`, `--request=${reachRequest}`, `--output=${reachPath}`,
     '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2',
   ]))
@@ -414,11 +415,11 @@ try {
   assert.equal(reach.diagnostics.surface.edgeSelection, 'all-reached-directed-edges')
   assert(Number.isFinite(reach.timing.openMs) && Number.isFinite(reach.timing.computeMs))
   assert(fs.existsSync(reachPath))
-  const streetReach = JSON.parse(run([
+  const streetReach = parseResult(run([
     'reach', `--city=${cityPath}`, `--request=${reachRequest}`, '--street-edges',
     '--time=07:55', '--service-date=2026-07-15', '--max-walk=1.2',
   ]))
-  const areaReach = JSON.parse(run([
+  const areaReach = parseResult(run([
     'reach', `--city=${cityPath}`, `--request=${reachRequest}`, '--street-edges=false',
     '--time=07:55', '--service-date=2026-07-15', '--max-walk=1.2',
   ]))
@@ -454,11 +455,11 @@ try {
     { id: 'null-clock', kind: 'route', origin: 'A', destination: 'B', time: null },
     { id: 'recovery', kind: 'route', origin: 'A', destination: 'B', time: '07:55' },
   ]
-  const streamed = execFileSync(executable, [...prefix, 'stream', `--city=${cityPath}`,
+  const streamed = execFileSync(executable, [...prefix, 'stream', '--diagnostics=trace', `--city=${cityPath}`,
     '--service-date=2026-07-15', '--max-walk=0.2'], {
     encoding: 'utf8', input: streamQueries.map(query => JSON.stringify(query)).join('\n') + '\n',
     maxBuffer: 8 * 1024 * 1024,
-  }).trim().split('\n').map(line => JSON.parse(line))
+  }).trim().split('\n').map(line => parseResult(line))
   assert.deepEqual(streamed.map(result => result.id), streamQueries.map(query => query.id))
   assert.deepEqual(streamed.map(result => result.sequence), streamQueries.map((_, index) => index + 1))
   assert.deepEqual(streamed.map(result => result.status), ['ready', 'ready', 'ready', 'ready', 'error', 'error', 'error', 'error', 'ready'])
@@ -509,7 +510,7 @@ try {
       }],
     },
   }))
-  const scenarioReach = JSON.parse(run([
+  const scenarioReach = parseResult(run([
     'reach', `--city=${cityPath}`, `--request=${scenarioReachRequest}`,
     '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2',
   ]))
@@ -524,11 +525,11 @@ try {
   timetable.close()
   const scheduledPattern = readGtfsRouteAnalysis(timetablePath, scheduledRouteId, { includeTripIds: true }).routes[0]
   fs.writeFileSync(scenarioReachRequest, JSON.stringify({
-    ...JSON.parse(fs.readFileSync(reachRequest, 'utf8')),
+    ...parseResult(fs.readFileSync(reachRequest, 'utf8')),
     scenario: { services: [{ operation: 'replace', sourceRouteId: scheduledRouteId,
       sourcePatternId: scheduledPattern.patternId, routeScope: 'pattern' }] },
   }))
-  const preserved = JSON.parse(run([
+  const preserved = parseResult(run([
     'reach', `--city=${cityPath}`, `--request=${scenarioReachRequest}`,
     '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2',
   ]))
@@ -537,7 +538,7 @@ try {
     'CLI service-date flags must hydrate the exact active trips even when JSON omits a date.')
   assert.deepEqual(preserved.surface.values, reach.surface.values, 'A no-op CLI replacement keeps the baseline accessibility.')
 
-  const replacementRequest = { ...JSON.parse(fs.readFileSync(reachRequest, 'utf8')),
+  const replacementRequest = { ...parseResult(fs.readFileSync(reachRequest, 'utf8')),
     scenario: { services: [{ headwayMinutes: 10, stops: [
       { label: 'Alpha', coordinate: [-77.050, 38.900] },
       { label: 'Bravo', coordinate: [-77.030, 38.910] },
@@ -546,7 +547,7 @@ try {
   replacementRequest.scenario.services[0].scheduleMode = 'frequency'
   replacementRequest.scenario.services[0].sourceRouteId = 'R1'
   fs.writeFileSync(scenarioReachRequest, JSON.stringify(replacementRequest))
-  const replaced = JSON.parse(run([
+  const replaced = parseResult(run([
     'reach', `--city=${cityPath}`, `--request=${scenarioReachRequest}`,
     '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2',
   ]))
@@ -572,7 +573,7 @@ try {
   const odPath = path.join(temporaryRoot, 'od.csv')
   const routesPath = path.join(temporaryRoot, 'routes.csv')
   fs.writeFileSync(odPath, 'id,origin_stop_id,destination_stop_id\nfirst,A,B\nsecond,A,B\n')
-  const batch = JSON.parse(run([
+  const batch = parseResult(run([
     'route', `--city=${cityPath}`, `--input=${odPath}`, `--output=${routesPath}`,
     '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2',
   ]))
@@ -588,7 +589,7 @@ try {
   const after = path.join(temporaryRoot, 'after.json')
   fs.writeFileSync(before, JSON.stringify({ kind: 'route', result: { status: 'ready', durationMinutes: 20, transfers: 1 } }))
   fs.writeFileSync(after, JSON.stringify({ kind: 'route', result: { status: 'ready', durationMinutes: 17, transfers: 0 } }))
-  const comparison = JSON.parse(run(['compare', `--before=${before}`, `--after=${after}`]))
+  const comparison = parseResult(run(['compare', `--before=${before}`, `--after=${after}`]))
   assert.equal(comparison.schemaVersion, 'vigo.result.comparison.v1')
   assert.equal(comparison.change.durationChangeMinutes, -3)
   assert.equal(comparison.change.transferChange, -1)

@@ -2,6 +2,10 @@ import { publicCliCommands, supportedReachRasterSizes } from '../capabilities.mj
 
 // Help and validation share these definitions. Computation stays in the engines.
 export const options = {
+  format: ["FORMAT", "text or json (automatic terminal view by default)"],
+  diagnostics: ["LEVEL", "none (default), summary, profile, or trace"],
+  "include-geometry": ["", "Include journey GeoJSON", "boolean"],
+  "include-limitations": ["", "Include dataset limitations", "boolean"],
   city: ['PATH', 'Complete VIGO City directory'],
   gtfs: ['PATH', 'GTFS ZIP; repeat for multiple sources', 'repeat'],
   'gtfs-scope': ['VALUE', 'Unique source scope; one per --gtfs', 'repeat'],
@@ -38,7 +42,7 @@ export const options = {
   'street-store': ['PATH', ''],
 }
 
-const queryOptions = ['city', 'request', 'output', 'mode', 'time', 'time-preference', 'objective',
+const queryOptions = ['format', 'diagnostics', 'include-geometry', 'include-limitations', 'city', 'request', 'output', 'mode', 'time', 'time-preference', 'objective',
   'service-date', 'service-day', 'max-walk', 'max-transfers', 'horizon', 'departure-window']
 export const commands = {
   build: {
@@ -88,7 +92,7 @@ export const commands = {
   stream: {
     summary: 'Run Route, Matrix, and Reach as NDJSON in one resident process.',
     usage: ['--city ./city --service-date YYYY-MM-DD < queries.ndjson > results.ndjson'],
-    options: ['city', 'service-date', 'service-day', 'time', 'max-walk'],
+    options: ['diagnostics', 'include-geometry', 'include-limitations', 'city', 'service-date', 'service-day', 'time', 'max-walk'],
     notes: ['Send one JSON object per line with kind: "route", "matrix", or "reach" and an optional id.',
       'Example: {"id":"trip-1","kind":"route","origin":"A","destination":"B","time":"08:00"}',
       'One City and service date per process. Query fields supply mode, time, and other options.',
@@ -117,7 +121,7 @@ export function usage(version, command = '') {
     '  vigo route --city ./city --request route.json --service-date YYYY-MM-DD',
     '', 'Help:', '  vigo help COMMAND    Command options and request examples',
     '  vigo COMMAND -h      Same as --help', '  vigo --version       Same as -V',
-    '', 'JSON goes to stdout; diagnostics go to stderr. Use --request - for piped JSON.',
+    '', 'Clean JSON goes to stdout. Add --diagnostics summary, profile, or trace. Use --request - for piped JSON.',
     'Exit 0: result produced (including blocked results). Exit 2: invalid input or failure.', '',
   ].join('\n')
   const definition = commands[command]

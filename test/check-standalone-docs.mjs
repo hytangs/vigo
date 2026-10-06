@@ -52,11 +52,11 @@ try {
   const { gtfsPath, osmPath } = await writeCliFixtureInputs(directory)
   execFileSync(process.execPath, ['public/vigo.mjs', 'build', `--gtfs=${gtfsPath}`, `--osm=${osmPath}`, `--output=${city}`], { cwd: root, stdio: ['ignore','ignore','pipe'] })
   function execute(command, request) {
-    const process = spawnSync(binary, [command, '--city', city, '--request', '-'], { input: JSON.stringify(request), env, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+    const process = spawnSync(binary, [command, '--city', city, '--request', '-'], { input: JSON.stringify({ ...request, diagnostics: "trace" }), env, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
     assert.equal(process.status, 0, `${command}: ${process.stderr}`)
     const result = JSON.parse(process.stdout)
     assert(!result.error)
-    return result
+    return result.trace ?? result
   }
   for (const match of manual.matchAll(/```json query=(\w+)\n([\s\S]*?)\n```/g)) {
     const request = JSON.parse(match[2])
@@ -251,7 +251,7 @@ try {
   assert.equal((await fetch(base + '/v1/info')).status, 401); checks++
   const response = await fetch(base + '/v1/route', { method:'POST', headers: { 'content-type':'application/json', authorization:`Bearer ${token}` }, body: JSON.stringify(examples[0].request) })
   assert.equal(response.status, 200)
-  assert.equal((await response.json()).arrivalMinutes, 510); checks++
+  assert.equal((await response.json()).journey.arrivalTime, '08:30:00'); checks++
   // Optional retained output lets maintainers check examples with a full JSON
   // Schema validator without adding one to the executable or test dependency tree.
   if (process.env.VIGO_DOCS_EVIDENCE) fs.writeFileSync(process.env.VIGO_DOCS_EVIDENCE, JSON.stringify({ examples, nativeContractCases, outputCases, checks, nativeOperations:operations.length }, null, 2))

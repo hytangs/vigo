@@ -81,7 +81,7 @@ class ResidentWorker {
 
   constructor(config, serviceDate) {
     this.config = config
-    this.child = spawn(process.execPath, [cli, '_route-stream', `--city=${config.city}`, `--service-date=${serviceDate}`], {
+    this.child = spawn(process.execPath, [cli, 'stream', `--city=${config.city}`, `--service-date=${serviceDate}`], {
       env: process.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
     })
     this.child.stderr.on('data', data => process.stderr.write(data))
@@ -179,8 +179,16 @@ function send(response, statusCode, value) {
   const clear = () => clearTimeout(timer)
   response.once('finish', clear)
   response.once('close', clear)
+  if (value?.status === 'error') value = { schema: 'vigo.error.v1', status: 'error', error: {
+    code: value.error?.code ?? ({ 401: 'unauthorized', 403: 'forbidden', 404: 'endpoint_not_found', 405: 'method_not_allowed', 413: 'request_too_large', 429: 'queue_full', 503: 'service_unavailable', 504: 'query_timeout' }[statusCode] ?? 'invalid_request'),
+    message: value.error?.message ?? 'Request failed.',
+  } }
+  const serializationStart = performance.now()
+  const body = JSON.stringify(value)
+  const serializationMs = performance.now() - serializationStart
+  response.setHeader('server-timing', `serialize;dur=${serializationMs.toFixed(3)}${value?.meta?.computeUs == null ? '' : `, compute;dur=${(value.meta.computeUs / 1000).toFixed(3)}`}`)
   response.writeHead(statusCode, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' })
-  response.end(JSON.stringify(value))
+  response.end(body)
 }
 
 async function main() {
@@ -209,7 +217,7 @@ async function main() {
   }
   // Fail startup for an invalid City. Neither request bodies nor URLs can
   // select arbitrary City paths or invoke build/import/output commands.
-  execFileSync(process.execPath, [cli, 'inspect', `--city=${config.city}`], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000 })
+  const info = JSON.parse(execFileSync(process.execPath, [cli, 'inspect', `--city=${config.city}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000 }))
   const capabilities = JSON.parse(execFileSync(process.execPath, [cli, 'capabilities'], { timeout: 30000, encoding: 'utf8' }))
   const tokenHash = crypto.createHash('sha256').update(token).digest()
   const workers = new Map()
@@ -227,7 +235,8 @@ async function main() {
   }
   const server = http.createServer(async (request, response) => {
     try {
-      const pathname = new URL(request.url, 'http://engine').pathname
+      const url = new URL(request.url, 'http://engine')
+      const pathname = url.pathname
       if (request.method === 'GET' && pathname === '/health') {
         return send(response, 200, { status: 'ready', productVersion: capabilities.productVersion,
           platform: process.platform, architecture: process.arch,
@@ -241,11 +250,20 @@ async function main() {
           throw failure('A valid bearer token is required.', 401)
         }
       } else if (!localRequestAccess(request, { staticRoot: 'engine' }).allowed) throw failure('Only local same-origin requests are allowed.', 403)
+      if (request.method === 'GET' && pathname === '/v1/info') return send(response, 200, info)
       if (request.method === 'GET' && pathname === '/v1/capabilities') return send(response, 200, capabilities)
       const kind = /^\/v1\/(route|matrix|reach)$/.exec(pathname)?.[1]
       if (!kind) throw failure('Unknown Engine endpoint.', 404)
       if (request.method !== 'POST') { response.setHeader('allow', 'POST'); throw failure('This endpoint requires POST.', 405) }
       const body = await readBody(request, config.maxBytes, config.bodyTimeoutMs)
+      for (const [parameter, text] of url.searchParams) {
+        const key = parameter === 'vigo_diagnostics' ? 'diagnostics' : parameter
+        if (!['diagnostics', 'includeGeometry', 'includeLimitations'].includes(key)) throw failure('Unknown URL query option.')
+        if (key !== 'diagnostics' && !['true', 'false'].includes(text)) throw failure('Output query flags must be true or false.')
+        const value = key === 'diagnostics' ? text : text === 'true'
+        if (body[key] !== undefined && body[key] !== value) throw failure('Conflicting body and URL output options.')
+        body[key] = value
+      }
       const date = validateDate(body.serviceDate ?? config.defaultDate)
       try {
         if (resolveServiceDay(date, body.serviceDay) !== serviceDayForDate(date)) throw failure('serviceDay must agree with serviceDate.')

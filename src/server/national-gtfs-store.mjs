@@ -1,3 +1,4 @@
+import { estimatedPathwaySeconds } from './gtfs/pathway-cost.mjs'
 import { recoverNativeArriveByBoundary } from './gtfs/arrive-by-reconstruction.mjs'
 import { prepareServiceTransfers, expandTransferSteps } from './gtfs/transfer-paths.mjs'
 import { readServiceTimetable } from './gtfs/service-timetable.mjs'
@@ -1581,7 +1582,10 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
             if (!Number.isFinite(cost) || cost < 0) throw new Error(`Invalid GTFS pathway ${field}: ${row.pathway_id}`)
             return cost
           }
-          const seconds = optionalCost(row.traversal_time, 'traversal_time')
+          const publishedSeconds = optionalCost(row.traversal_time, 'traversal_time')
+          const estimatedSeconds = publishedSeconds == null ? estimatedPathwaySeconds(row) : null
+          const seconds = publishedSeconds ?? estimatedSeconds
+          const provenance = estimatedSeconds == null ? 'gtfs_pathway' : 'gtfs_pathway_estimated'
           const from = pathwayStop.get(row.from_stop_id)
           const to = pathwayStop.get(row.to_stop_id)
           const chord = from && to && [from.lon, from.lat, to.lon, to.lat].every(Number.isFinite)
@@ -1592,10 +1596,10 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
             featureInventory.unpricedPathwayCount = (featureInventory.unpricedPathwayCount ?? 0) + 1
           }
           const forward = insertPathway.run(row.from_stop_id, row.to_stop_id, seconds)
-          if (Number(forward.changes ?? 0)) insertPathwayProvenance.run(row.from_stop_id, row.to_stop_id, 'gtfs_pathway', distanceM)
+          if (Number(forward.changes ?? 0)) insertPathwayProvenance.run(row.from_stop_id, row.to_stop_id, provenance, distanceM)
           if (numeric(row.is_bidirectional, 0) === 1) {
             const reverse = insertPathway.run(row.to_stop_id, row.from_stop_id, seconds)
-            if (Number(reverse.changes ?? 0)) insertPathwayProvenance.run(row.to_stop_id, row.from_stop_id, 'gtfs_pathway', distanceM)
+            if (Number(reverse.changes ?? 0)) insertPathwayProvenance.run(row.to_stop_id, row.from_stop_id, provenance, distanceM)
           }
           featureInventory.pathwayCount += 1
           if ([row.wheelchair_traversal_time, row.stair_count, row.max_slope, row.min_width].some((value) => String(value ?? '').trim())) {
@@ -2423,7 +2427,7 @@ export function expandParentStationTransfers(rawTransfers, stopRecords, stationM
 
   for (const rawTransfer of rawTransfers) {
     rawTransferCount += 1
-    if (rawTransfer.provenance === 'gtfs_pathway') {
+    if (['gtfs_pathway', 'gtfs_pathway_estimated'].includes(rawTransfer.provenance)) {
       declaredPathwayStops.add(rawTransfer.from_stop_id)
       declaredPathwayStops.add(rawTransfer.to_stop_id)
     }

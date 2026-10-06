@@ -68,7 +68,7 @@ try {
     [['inspect', '--help=false'], /does not take a value/u],
     [['build', '--replace=maybe'], /expects true or false/u],
     [['route', '--city=x', '--request=x', '--input=x'], /not both/u],
-    [['route', '--city=x', '--request=x'], /requires --service-date/u],
+    [['route', '--city=x', '--request=x'], /file not found/u],
     [['route', '--city=x', '--input=x', '--output=-'], /require an --output file/u],
     [['route', '--city=x', '--input=x', '--output=x', '--mode=drive'], /CSV batches support transit only/u],
     [['route', '--routing-preference=fastest'], /--objective=earliest_arrival/u],

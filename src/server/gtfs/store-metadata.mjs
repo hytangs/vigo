@@ -10,7 +10,7 @@ import { stableJson } from '../routing-plan-identity.mjs'
 // stores cannot distinguish coerced zero values from explicit source values.
 export const storeSchemaVersion = 'vigo.routing.store.v3'
 
-export const transferSemanticsVersion = 'vigo.routing.transfers.v3'
+export const transferSemanticsVersion = 'vigo.routing.transfers.v4'
 
 export const stopAccessRoleIndexVersion = 'vigo.routing.stop-access-roles.v1'
 

@@ -2228,3 +2228,14 @@ export function routeNativeAccessMemberPath(
 export function disposeNativeRoutingKernel(storePath) {
   nativeKernelCache.delete(path.resolve(storePath))
 }
+
+// One versioned projection is implemented in Rust for every public transport.
+export function formatPublicResult(kind, request, result) {
+  const binding = loadNativeBinding()
+  if (typeof binding.formatPublicResult !== 'function') throw new Error('Native kernel needs rebuilding for the public result schema')
+  return JSON.parse(binding.formatPublicResult(JSON.stringify({ kind, request, result })))
+}
+
+export function renderPublicText(result) {
+  return loadNativeBinding().renderPublicText(JSON.stringify(result))
+}

@@ -33,8 +33,8 @@ whole store.
 | Duplicate stop names | Yes | Identity is `stop_id`, not name. | Supported. |
 | Parent stations and platforms | Yes | Explicit parent transfer rules expand to child service platforms; selected stations expand to service members. Without an explicit rule, service members share a modeled 120-second connection, reported as `parent_station_fallback` with schematic geometry. | Supported for `location_type` 0/1; fallback time is not a measured station pathway. |
 | Deeper `location_type` hierarchy | Parsed as stops | No complete entrance/boarding-area hierarchy model. | Partial. |
-| `pathways.txt` direction and traversal time | Yes | Creates directed transfer edges with their declared traversal times; bidirectional rows create the reverse edge. The full pathway mode/hierarchy is not preserved. | Partial. |
-| Pathway wheelchair/stair/slope/width attributes | Inventoried | Not applied as query constraints. | Unsupported and visible limitation. |
+| `pathways.txt` direction and traversal time | Yes | Creates directed transfer edges; explicit traversal times take precedence. Stairs with a stair count and fare/exit gates receive labeled estimated costs when time is omitted. Bidirectional rows create the reverse edge. The full hierarchy is not preserved. | Partial. |
+| Pathway wheelchair/slope/width attributes | Inventoried | Not applied as query constraints. | Unsupported and visible limitation. |
 | Transfer type 0 | Yes | Directed recommended transfer using declared/default duration. | Supported within transfer model. |
 | Transfer type 1 timed transfer | Inventoried | The guarantee is not represented; the row is omitted from the generic stop-pair transfer graph. Other supported scheduled service remains routable. | Excluded from the supported scheduled core; visible limitation. |
 | Transfer type 2 minimum time | Yes | Declared minimum traversal time is enforced. | Supported. |

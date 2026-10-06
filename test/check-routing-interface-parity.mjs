@@ -132,6 +132,7 @@ async function stopApi() {
 }
 
 function runCli(args, options = {}) {
+  if (['route','matrix','reach'].includes(args[0])) args = [...args, '--diagnostics=trace']
   return spawnSync(process.execPath, [cliPath, ...args], {
     cwd: repositoryRoot,
     encoding: 'utf8',
@@ -201,7 +202,8 @@ function cliBatchPlan(cityPath, temporaryRoot) {
     '--departure-window=0',
   ])
   assert.equal(result.status, 0, `JS CLI batch failed: ${result.stderr}`)
-  const payload = JSON.parse(result.stdout)
+  const envelope = JSON.parse(result.stdout)
+  const payload = envelope.trace ?? envelope
   assert.equal(payload.schemaVersion, 'vigo.result.route.v1')
   assert.equal(payload.results?.length, 1)
   return payload.results[0].plan
@@ -325,7 +327,7 @@ try {
         `--service-date=${serviceDate}`, `--time=${timePreference === 'arrive' ? '08:30' : '07:55'}`,
         '--max-walk=0.2'])
       assert.equal(cli.status, 0, `${mode} ${timePreference} CLI waypoints: ${cli.stderr}`)
-      assert.deepEqual(canonicalPlan(JSON.parse(cli.stdout).result), canonicalPlan(body.plan),
+      assert.deepEqual(canonicalPlan(JSON.parse(cli.stdout).trace.result), canonicalPlan(body.plan),
         `${mode} ${timePreference} ordered HTTP/CLI parity`)
     }
   }
@@ -447,7 +449,7 @@ try {
     const jsonRoute = runCli(['route', `--city=${projectMetaPath}`, `--request=${selectionPath}`,
       '--time=07:55', `--service-date=${serviceDate}`, '--max-walk=0.2'])
     assert.equal(jsonRoute.status, 0, jsonRoute.stderr)
-    assert.deepEqual(canonicalPlan(JSON.parse(jsonRoute.stdout).result), canonicalPlan(body.plan))
+    assert.deepEqual(canonicalPlan(JSON.parse(jsonRoute.stdout).trace.result), canonicalPlan(body.plan))
     const matrixResponse = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-matrix`, apiUrl), {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ ...query, origins: [query.origin], destinations: [query.destination] }),
@@ -459,7 +461,7 @@ try {
     const jsonMatrix = runCli(['matrix', `--city=${projectMetaPath}`, `--request=${selectionPath}`,
       '--time=07:55', `--service-date=${serviceDate}`, '--max-walk=0.2'])
     assert.equal(jsonMatrix.status, 0, jsonMatrix.stderr)
-    assert.equal(JSON.parse(jsonMatrix.stdout).rows[0].arriveMinutes, body.plan.arriveMinutes)
+    assert.equal(JSON.parse(jsonMatrix.stdout).trace.rows[0].arriveMinutes, body.plan.arriveMinutes)
   }
 
   const alternativesResponse = await apiRuntime.fetch(
@@ -482,13 +484,13 @@ try {
   const alternativeCli = runCli(['route', `--city=${projectMetaPath}`, `--request=${requestPath}`,
     '--time=07:55', `--service-date=${serviceDate}`, '--max-walk=0.2', '--departure-window=10'])
   assert.equal(alternativeCli.status, 0, alternativeCli.stderr)
-  assert.deepEqual(metrics(JSON.parse(alternativeCli.stdout).choices), metrics(alternatives.choices),
+  assert.deepEqual(metrics(JSON.parse(alternativeCli.stdout).trace.choices), metrics(alternatives.choices),
     'CLI JSON must preserve the same meaningful alternatives as HTTP.')
   const alternativeBatch = runCli(['route', `--city=${projectMetaPath}`,
     `--input=${path.join(temporaryRoot, 'od.csv')}`, `--output=${path.join(temporaryRoot, 'alternatives.csv')}`,
     '--time=07:55', `--service-date=${serviceDate}`, '--max-walk=0.2', '--departure-window=10'])
   assert.equal(alternativeBatch.status, 0, alternativeBatch.stderr)
-  assert.deepEqual(metrics(JSON.parse(alternativeBatch.stdout).results[0].choices), metrics(alternatives.choices))
+  assert.deepEqual(metrics(JSON.parse(alternativeBatch.stdout).trace.results[0].choices), metrics(alternatives.choices))
   const alternativeStream = runCli(['_route-stream', `--city=${projectMetaPath}`,
     '--time=07:55', `--service-date=${serviceDate}`, '--max-walk=0.2', '--departure-window=10'], {
     input: `${JSON.stringify({ id: 'alternatives', origin: 'A', destination: 'B' })}\n`,

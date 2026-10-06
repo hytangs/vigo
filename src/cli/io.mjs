@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { renderPublicText } from '../server/native-routing-kernel.mjs'
 
 export async function readJsonObject(input, label, { stdin = false, maxBytes = Infinity } = {}) {
   if (!input?.trim()) throw new Error(`${label} requires a JSON file`)
@@ -56,7 +57,12 @@ export function writeOutputFile(output, serialized) {
   }
 }
 
-export function writeJsonResult(payload, output = '') {
+export function writeJsonResult(payload, output = '', format = 'auto') {
+  if (!['auto', 'text', 'json'].includes(format)) throw new Error('format must be text or json')
+  if (!output && (format === 'text' || (format === 'auto' && process.stdout.isTTY)) && payload.schema === 'vigo.route.v1') {
+    const text = renderPublicText(payload)
+    if (text) { process.stdout.write(text); return }
+  }
   const serialized = `${JSON.stringify(payload, null, 2)}\n`
   if (output && output !== '-') writeOutputFile(output, serialized)
   process.stdout.write(serialized)

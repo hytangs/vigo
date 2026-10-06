@@ -12,7 +12,11 @@ import { processFixtureDirectory } from './helpers/fixture-process.mjs'
 const root = await processFixtureDirectory(import.meta.url, 'vigo-portable-')
 const cli = process.env.VIGO_TEST_CLI ?? path.resolve(import.meta.dirname, '../public/vigo.mjs')
 const executable = process.env.VIGO_TEST_EXECUTABLE ?? process.execPath
-const run = (args) => JSON.parse(execFileSync(executable, [cli, ...args], { encoding: 'utf8', timeout: 120_000 }))
+const run = args => {
+  if (args[0] === 'route') args = [...args, '--diagnostics=trace']
+  const result = JSON.parse(execFileSync(executable, [cli, ...args], { encoding: 'utf8', timeout: 120_000 }))
+  return result.trace ?? result
+}
 const date = '2026-07-15'
 const files = (directory) => fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
   const file = path.join(directory, entry.name)

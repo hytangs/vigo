@@ -3,7 +3,7 @@
   "info": {
     "title": "VIGO Rust standalone API",
     "version": "0.4.3-development",
-    "description": "Prepared City routing and isochrones. Standalone JSON differs from Studio/Node envelopes. Runtime validates mode combinations and native index/array invariants beyond these structural schemas. Bearer auth is optional only when no token is configured on a loopback listener."
+    "description": "Prepared City routing and isochrones. Public result schemas are shared with the Node CLI; raw native and trace contracts are separate. Runtime validates mode combinations and native index/array invariants beyond these structural schemas. Bearer auth is optional only when no token is configured on a loopback listener."
   },
   "servers": [
     {
@@ -25,6 +25,36 @@
       "post": {
         "operationId": "route",
         "summary": "Route",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "diagnostics",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ]
+            },
+            "description": "Optional diagnostic detail; default none."
+          },
+          {
+            "in": "query",
+            "name": "includeGeometry",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "includeLimitations",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -133,6 +163,36 @@
       "post": {
         "operationId": "matrix",
         "summary": "Matrix",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "diagnostics",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ]
+            },
+            "description": "Optional diagnostic detail; default none."
+          },
+          {
+            "in": "query",
+            "name": "includeGeometry",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "includeLimitations",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -241,6 +301,36 @@
       "post": {
         "operationId": "reach",
         "summary": "Reach",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "diagnostics",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ]
+            },
+            "description": "Optional diagnostic detail; default none."
+          },
+          {
+            "in": "query",
+            "name": "includeGeometry",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "includeLimitations",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -349,6 +439,36 @@
       "post": {
         "operationId": "compare",
         "summary": "Compare",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "diagnostics",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ]
+            },
+            "description": "Optional diagnostic detail; default none."
+          },
+          {
+            "in": "query",
+            "name": "includeGeometry",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "includeLimitations",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -457,6 +577,36 @@
       "post": {
         "operationId": "native",
         "summary": "Native",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "diagnostics",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ]
+            },
+            "description": "Optional diagnostic detail; default none."
+          },
+          {
+            "in": "query",
+            "name": "includeGeometry",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "includeLimitations",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -565,6 +715,36 @@
       "post": {
         "operationId": "isochrone",
         "summary": "Alias of Reach",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "diagnostics",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ]
+            },
+            "description": "Optional diagnostic detail; default none."
+          },
+          {
+            "in": "query",
+            "name": "includeGeometry",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "includeLimitations",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -5710,6 +5890,24 @@
           {
             "type": "object",
             "properties": {
+              "stop": {
+                "type": "object",
+                "properties": {
+                  "feed": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              },
               "stopId": {
                 "type": "string"
               },
@@ -5742,6 +5940,11 @@
             "required": [],
             "additionalProperties": false,
             "anyOf": [
+              {
+                "required": [
+                  "stop"
+                ]
+              },
               {
                 "required": [
                   "stopId"
@@ -6269,6 +6472,24 @@
       "RouteRequest": {
         "type": "object",
         "properties": {
+          "diagnostics": {
+            "type": "string",
+            "enum": [
+              "none",
+              "summary",
+              "profile",
+              "trace"
+            ],
+            "default": "none"
+          },
+          "includeGeometry": {
+            "type": "boolean",
+            "default": true
+          },
+          "includeLimitations": {
+            "type": "boolean",
+            "default": false
+          },
           "kind": {
             "type": "string"
           },
@@ -6480,11 +6701,29 @@
             }
           }
         ],
-        "description": "Additional mode constraints, source identities, freshness, and via/window combinations are validated by the runtime. Route always includes geometry."
+        "description": "Additional mode constraints, source identities, freshness, and via/window combinations are validated by the runtime. Route includes available leg GeoJSON by default. Set includeGeometry: false to omit coordinate arrays. Geometry retains source precision and provenance; inferred station links remain labeled."
       },
       "MatrixRequest": {
         "type": "object",
         "properties": {
+          "diagnostics": {
+            "type": "string",
+            "enum": [
+              "none",
+              "summary",
+              "profile",
+              "trace"
+            ],
+            "default": "none"
+          },
+          "includeGeometry": {
+            "type": "boolean",
+            "default": false
+          },
+          "includeLimitations": {
+            "type": "boolean",
+            "default": false
+          },
           "kind": {
             "type": "string"
           },
@@ -6624,10 +6863,6 @@
             "maxItems": 65536
           },
           "includeJourneys": {
-            "type": "boolean",
-            "default": false
-          },
-          "includeGeometry": {
             "type": "boolean",
             "default": false
           },
@@ -7090,6 +7325,24 @@
       "ReachRequest": {
         "type": "object",
         "properties": {
+          "diagnostics": {
+            "type": "string",
+            "enum": [
+              "none",
+              "summary",
+              "profile",
+              "trace"
+            ],
+            "default": "none"
+          },
+          "includeGeometry": {
+            "type": "boolean",
+            "default": false
+          },
+          "includeLimitations": {
+            "type": "boolean",
+            "default": false
+          },
           "kind": {
             "type": "string"
           },
@@ -7276,22 +7529,38 @@
       "CompareRequest": {
         "type": "object",
         "properties": {
-          "kind": {
-            "type": "string"
-          },
-          "id": {},
           "before": {
-            "$ref": "#/components/schemas/ReachResult"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RouteResult"
+              },
+              {
+                "$ref": "#/components/schemas/MatrixResult"
+              },
+              {
+                "$ref": "#/components/schemas/ReachResult"
+              }
+            ]
           },
           "after": {
-            "$ref": "#/components/schemas/ReachResult"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RouteResult"
+              },
+              {
+                "$ref": "#/components/schemas/MatrixResult"
+              },
+              {
+                "$ref": "#/components/schemas/ReachResult"
+              }
+            ]
           }
         },
         "required": [
           "before",
           "after"
         ],
-        "additionalProperties": false
+        "additionalProperties": true
       },
       "NativeRequest": {
         "oneOf": [
@@ -8318,249 +8587,235 @@
         "description": "Materialized transit journey or compact direct walk in a transit matrix. No outer status or dispatch metadata; compact walks omit legs."
       },
       "RouteResult": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/QueryMetadata"
+        "type": "object",
+        "properties": {
+          "schema": {
+            "const": "vigo.route.v1"
           },
-          {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "not_found"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "transit",
+              "walk",
+              "drive"
+            ]
+          },
+          "query": {
+            "type": "object"
+          },
+          "meta": {
             "type": "object",
             "properties": {
-              "departureMinutes": {
-                "type": "number",
-                "description": "Service-day clock in minutes."
-              },
-              "arrivalMinutes": {
-                "type": "number",
-                "description": "Service-day clock in minutes."
-              },
-              "durationMinutes": {
-                "type": "number",
-                "minimum": 0,
-                "description": "Elapsed minutes between the leg clocks."
-              },
-              "mode": {
-                "type": "string",
-                "enum": [
-                  "transit",
-                  "walk",
-                  "drive"
-                ]
-              },
-              "departure": {
-                "type": "number"
-              },
-              "arrival": {
-                "type": "number"
-              },
-              "walkingSeconds": {
-                "type": "number",
-                "minimum": 0
-              },
-              "rideSeconds": {
-                "type": "number",
-                "minimum": 0
-              },
-              "waitingSeconds": {
-                "type": "number",
-                "minimum": 0
-              },
-              "walkMinutes": {
-                "type": "number",
-                "minimum": 0
-              },
-              "rideMinutes": {
-                "type": "number",
-                "minimum": 0
-              },
-              "waitMinutes": {
-                "type": "number",
-                "minimum": 0
-              },
-              "distanceMeters": {
-                "type": "number",
-                "minimum": 0
-              },
-              "boardings": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "transfers": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "legs": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/RouteLeg"
-                }
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "ready",
-                  "blocked"
-                ]
-              },
-              "reason": {},
-              "serviceDate": {
+              "engineVersion": {
                 "type": "string"
               },
-              "dataMode": {
-                "type": "string",
-                "enum": [
-                  "scheduled",
-                  "realtime"
+              "cityRevision": {
+                "type": [
+                  "string",
+                  "null"
                 ]
               },
-              "warnings": {},
-              "segments": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/RouteResult"
-                }
+              "requestId": {},
+              "queryFingerprint": {
+                "type": "string"
               },
-              "via": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/Point"
-                }
-              },
-              "choices": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/RouteResult"
-                }
-              },
-              "window": {
-                "type": "object",
-                "properties": {
-                  "minutes": {
-                    "type": "number"
-                  },
-                  "stepMinutes": {
-                    "type": "number"
-                  },
-                  "searches": {
-                    "type": "integer",
-                    "minimum": 0
-                  }
-                },
-                "required": [
-                  "minutes",
-                  "stepMinutes",
-                  "searches"
+              "computeUs": {
+                "type": [
+                  "integer",
+                  "null"
                 ],
-                "additionalProperties": true
-              },
-              "legIndex": {
-                "type": "integer",
                 "minimum": 0
               },
-              "leg": {
-                "$ref": "#/components/schemas/RouteResult"
-              },
-              "diagnostics": {
-                "type": "object"
+              "computeScope": {
+                "type": "string"
               }
             },
             "required": [
-              "status"
+              "engineVersion",
+              "cityRevision",
+              "requestId",
+              "queryFingerprint",
+              "computeUs",
+              "computeScope"
             ],
-            "additionalProperties": true,
-            "description": "Ready, blocked, via, or sampled-window route. Blocked results can omit all journey fields; via results use segments instead of legs."
+            "additionalProperties": true
+          },
+          "diagnostics": {
+            "type": "object"
+          },
+          "profile": {
+            "type": "object"
+          },
+          "trace": {
+            "type": "object"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "datasetLimitations": {},
+          "id": {},
+          "journey": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicJourney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "type": "object"
+          },
+          "alternatives": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/PublicJourney"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
           }
-        ]
+        },
+        "required": [
+          "schema",
+          "status",
+          "query",
+          "meta",
+          "journey"
+        ],
+        "additionalProperties": true
       },
       "MatrixResult": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/QueryMetadata"
+        "type": "object",
+        "properties": {
+          "schema": {
+            "const": "vigo.matrix.v1"
           },
-          {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "not_found"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "transit",
+              "walk",
+              "drive"
+            ]
+          },
+          "query": {
+            "type": "object"
+          },
+          "meta": {
             "type": "object",
             "properties": {
-              "kind": {
-                "const": "matrix"
+              "engineVersion": {
+                "type": "string"
               },
-              "mode": {
-                "type": "string",
-                "enum": [
-                  "transit",
-                  "walk",
-                  "drive"
+              "cityRevision": {
+                "type": [
+                  "string",
+                  "null"
                 ]
               },
-              "originCount": {
-                "type": "integer",
-                "minimum": 1
+              "requestId": {},
+              "queryFingerprint": {
+                "type": "string"
               },
-              "destinationCount": {
-                "type": "integer",
-                "minimum": 1
+              "computeUs": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
               },
-              "durationsMinutes": {
-                "type": "array",
-                "items": {
-                  "type": "array",
-                  "items": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  }
-                },
-                "description": "Rows follow origins; columns follow destinations. Depart-at: arrival minus departure. Arrive-by transit: deadline minus latest departure, possibly longer than the actual journey."
-              },
-              "distancesMeters": {
-                "type": "array",
-                "items": {
-                  "type": "array",
-                  "items": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  }
-                },
-                "description": "Walk/Drive only; same row/column ordering."
-              },
-              "journeys": {
+              "computeScope": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "engineVersion",
+              "cityRevision",
+              "requestId",
+              "queryFingerprint",
+              "computeUs",
+              "computeScope"
+            ],
+            "additionalProperties": true
+          },
+          "diagnostics": {
+            "type": "object"
+          },
+          "profile": {
+            "type": "object"
+          },
+          "trace": {
+            "type": "object"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "datasetLimitations": {},
+          "id": {},
+          "durationsSeconds": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              }
+            }
+          },
+          "journeys": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
                 "anyOf": [
                   {
-                    "type": "array",
-                    "items": {
-                      "type": "array",
-                      "items": {
-                        "anyOf": [
-                          {
-                            "$ref": "#/components/schemas/Journey"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      }
-                    }
+                    "$ref": "#/components/schemas/PublicJourney"
                   },
                   {
                     "type": "null"
                   }
                 ]
-              },
-              "diagnostics": {
-                "type": "object"
-              },
-              "warnings": {}
-            },
-            "required": [
-              "kind",
-              "originCount",
-              "destinationCount",
-              "durationsMinutes"
-            ],
-            "additionalProperties": true
+              }
+            }
           }
-        ]
+        },
+        "required": [
+          "schema",
+          "status",
+          "query",
+          "meta",
+          "durationsSeconds"
+        ],
+        "additionalProperties": true
       },
       "ReachStop": {
         "type": "object",
@@ -8875,116 +9130,93 @@
         "additionalProperties": true
       },
       "ReachResult": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/QueryMetadata"
+        "type": "object",
+        "properties": {
+          "schema": {
+            "const": "vigo.reach.v1"
           },
-          {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "not_found"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "transit",
+              "walk",
+              "drive"
+            ]
+          },
+          "query": {
+            "type": "object"
+          },
+          "meta": {
             "type": "object",
             "properties": {
-              "kind": {
-                "const": "reach"
+              "engineVersion": {
+                "type": "string"
               },
-              "mode": {
-                "type": "string",
-                "enum": [
-                  "transit",
-                  "walk"
-                ]
-              },
-              "origin": {
-                "$ref": "#/components/schemas/Point"
-              },
-              "serviceDate": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "surface": {
-                "$ref": "#/components/schemas/ReachSurface"
-              },
-              "cutoffsMinutes": {
-                "type": "array",
-                "items": {
-                  "type": "number"
-                }
-              },
-              "stops": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/ReachStop"
-                }
-              },
-              "areas": {
-                "$ref": "#/components/schemas/ReachAreas"
-              },
-              "fullAreas": {
-                "$ref": "#/components/schemas/ReachAreas"
-              },
-              "contours": {
-                "$ref": "#/components/schemas/ReachContours"
-              },
-              "fullContours": {
-                "$ref": "#/components/schemas/ReachContours"
-              },
-              "diagnostics": {
-                "type": "object"
-              },
-              "warnings": {}
-            },
-            "required": [
-              "surface",
-              "stops"
-            ],
-            "additionalProperties": true
-          }
-        ]
-      },
-      "CompareResult": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/QueryMetadata"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "schemaVersion": {
-                "const": "vigo.standalone.comparison.v1"
-              },
-              "commonCells": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "newlyReachableCells": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "noLongerReachableCells": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "meanChangeMinutes": {
+              "cityRevision": {
                 "type": [
-                  "number",
+                  "string",
                   "null"
                 ]
               },
-              "deltaMinutes": {
-                "type": "array",
-                "items": {
-                  "type": [
-                    "number",
-                    "null"
-                  ]
-                }
+              "requestId": {},
+              "queryFingerprint": {
+                "type": "string"
               },
-              "sign": {
-                "const": "after-minus-before"
+              "computeUs": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "computeScope": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "engineVersion",
+              "cityRevision",
+              "requestId",
+              "queryFingerprint",
+              "computeUs",
+              "computeScope"
+            ],
+            "additionalProperties": true
+          },
+          "diagnostics": {
+            "type": "object"
+          },
+          "profile": {
+            "type": "object"
+          },
+          "trace": {
+            "type": "object"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "datasetLimitations": {},
+          "id": {},
+          "surface": {
+            "type": "object",
+            "properties": {
+              "width": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "height": {
+                "type": "integer",
+                "minimum": 0
               },
               "bounds": {
                 "type": "array",
@@ -8994,24 +9226,123 @@
                 "minItems": 4,
                 "maxItems": 4
               },
-              "width": {
-                "type": "integer",
-                "minimum": 1
-              },
-              "height": {
-                "type": "integer",
-                "minimum": 1
+              "valuesSeconds": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                }
               }
             },
             "required": [
-              "deltaMinutes",
-              "commonCells",
-              "newlyReachableCells",
-              "noLongerReachableCells"
+              "width",
+              "height",
+              "bounds",
+              "valuesSeconds"
             ],
             "additionalProperties": true
+          },
+          "fullSurface": {
+            "type": "object",
+            "properties": {
+              "width": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "height": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "bounds": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 4,
+                "maxItems": 4
+              },
+              "valuesSeconds": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                }
+              }
+            },
+            "required": [
+              "width",
+              "height",
+              "bounds",
+              "valuesSeconds"
+            ],
+            "additionalProperties": true
+          },
+          "cutoffsSeconds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "areas": {
+            "type": "object"
+          },
+          "contours": {
+            "type": "object"
+          },
+          "fullAreas": {
+            "type": "object"
+          },
+          "fullContours": {
+            "type": "object"
           }
-        ]
+        },
+        "required": [
+          "schema",
+          "status",
+          "query",
+          "meta",
+          "surface",
+          "cutoffsSeconds"
+        ],
+        "additionalProperties": true
+      },
+      "CompareResult": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "const": "vigo.compare.v1"
+          },
+          "status": {
+            "const": "ok"
+          },
+          "durationChangeSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "meanChangeSeconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "counts": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "schema",
+          "status"
+        ],
+        "additionalProperties": true
       },
       "NativeResult": {
         "allOf": [
@@ -9323,6 +9654,175 @@
             ]
           }
         ]
+      },
+      "PublicIdentifier": {
+        "type": "object",
+        "properties": {
+          "feed": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "feed",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "PublicEndpoint": {
+        "type": "object",
+        "properties": {
+          "stop": {
+            "$ref": "#/components/schemas/PublicIdentifier"
+          },
+          "name": {
+            "type": "string"
+          },
+          "coordinate": {
+            "$ref": "#/components/schemas/Coordinate"
+          }
+        },
+        "required": [],
+        "additionalProperties": true
+      },
+      "PublicLeg": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "walk",
+              "transit",
+              "drive"
+            ]
+          },
+          "from": {
+            "$ref": "#/components/schemas/PublicEndpoint"
+          },
+          "to": {
+            "$ref": "#/components/schemas/PublicEndpoint"
+          },
+          "departureTime": {
+            "type": "string"
+          },
+          "arrivalTime": {
+            "type": "string"
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "distanceMeters": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "quality": {
+            "type": "object"
+          },
+          "geometry": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "LineString"
+              },
+              "coordinates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Coordinate"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "coordinates"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "type",
+          "from",
+          "to",
+          "departureTime",
+          "arrivalTime",
+          "durationSeconds",
+          "quality"
+        ],
+        "additionalProperties": true
+      },
+      "PublicJourney": {
+        "type": "object",
+        "properties": {
+          "departureTime": {
+            "type": "string"
+          },
+          "arrivalTime": {
+            "type": "string"
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "walkingSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "waitingSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "ridingSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "drivingSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "boardings": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "transfers": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "legs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicLeg"
+            }
+          }
+        },
+        "required": [
+          "departureTime",
+          "arrivalTime",
+          "durationSeconds",
+          "walkingSeconds",
+          "waitingSeconds",
+          "ridingSeconds",
+          "boardings",
+          "transfers",
+          "legs"
+        ],
+        "additionalProperties": true
       }
     }
   }

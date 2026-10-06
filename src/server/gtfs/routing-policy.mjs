@@ -1,3 +1,4 @@
+import { pathwayCostModel } from './pathway-cost.mjs'
 import { numeric } from '../number-utils.mjs'
 import { stableJson } from '../routing-plan-identity.mjs'
 import { haversineKm } from '../geometry-utils.mjs'
@@ -53,7 +54,8 @@ export const nationalRoutingAccessPolicy = Object.freeze({
   parentStationTransferMinimums: 'published-type-2-floors-v1',
   sameStopTransferProhibitionScope: 'direct-reboarding-only',
   transferWalkingTimeFloor: 'distance-at-configured-speed-v1',
-  unpricedPathways: 'excluded-with-declared-connectivity-v1',
+  unpricedPathways: 'typed-estimates-otherwise-excluded-v2',
+  pathwayCostModel,
   stationStreetAnchors: 'declared-entrances-v1',
   stationStreetTransfers: 'entrance-pathway-chain-v1',
   stationPathDistance: 'source-or-located-chord-v1',
@@ -121,6 +123,10 @@ export function walkSeconds(distanceKm) {
 }
 
 export function transferDurationSeconds(transfer) {
+  if (transfer?.provenance === 'gtfs_pathway_estimated') {
+    return Math.max(Number(transfer.min_transfer_time),
+      transfer.path_distance_m == null ? 0 : walkSeconds(transfer.path_distance_m / 1000))
+  }
   if (transfer?.provenance === 'gtfs_pathway' && transfer.min_transfer_time == null) {
     if (transfer.path_distance_m == null) return null
     return walkSeconds(numeric(transfer.path_distance_m, 0) / 1000)

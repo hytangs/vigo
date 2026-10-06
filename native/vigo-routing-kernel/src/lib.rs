@@ -7861,3 +7861,25 @@ fn flatten_path(
     }
     Ok(coordinates)
 }
+
+// The public JSON boundary is shared by standalone and Node transports.
+pub mod presentation;
+#[cfg_attr(feature = "node", napi)]
+pub fn format_public_result(input: String) -> Result<String> {
+    let v: serde_json::Value =
+        serde_json::from_str(&input).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    presentation::validate(&v["request"]).map_err(napi::Error::from_reason)?;
+    serde_json::to_string(&presentation::format(
+        v["kind"].as_str().unwrap_or("route"),
+        &v["request"],
+        &v["result"],
+    ))
+    .map_err(|e| napi::Error::from_reason(e.to_string()))
+}
+
+#[cfg_attr(feature = "node", napi)]
+pub fn render_public_text(input: String) -> Result<Option<String>> {
+    let value: serde_json::Value =
+        serde_json::from_str(&input).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(presentation::text(&value))
+}

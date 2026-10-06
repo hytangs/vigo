@@ -77,7 +77,7 @@ function createFixture() {
       ('schemaVersion', '"vigo.routing.store.v3"'),
       ('storeId', '"derived-lifecycle-fixture"'),
       ('serviceModel', '"exact-date"'),
-      ('transferSemanticsVersion', '"vigo.routing.transfers.v3"'),
+      ('transferSemanticsVersion', '"vigo.routing.transfers.v4"'),
       ('departureIndexState', '"ready"'),
       ('connectionCount', '1'),
       ('transferCount', '0'),

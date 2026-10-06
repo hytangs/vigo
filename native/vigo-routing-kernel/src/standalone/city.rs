@@ -318,7 +318,7 @@ impl City {
             metadata[k] = serde_json::from_str(&v).unwrap_or(Value::String(v));
         }
         if metadata["schemaVersion"] != "vigo.routing.store.v3"
-            || metadata["transferSemanticsVersion"] != "vigo.routing.transfers.v3"
+            || metadata["transferSemanticsVersion"] != "vigo.routing.transfers.v4"
         {
             return fail("Rebuild City with the current routing/transfer format");
         }
@@ -352,7 +352,10 @@ impl City {
         }
         let policy: Value = serde_json::from_str(&access.access_policy_identity)?;
         if policy["transferWalkingTimeFloor"] != "distance-at-configured-speed-v1"
-            || policy["unpricedPathways"] != "excluded-with-declared-connectivity-v1"
+            || policy["unpricedPathways"] != "typed-estimates-otherwise-excluded-v2"
+            || policy["pathwayCostModel"]["id"] != "stairs-one-second-per-step-gates-five-seconds-v1"
+            || policy["pathwayCostModel"]["secondsPerStair"] != 1
+            || policy["pathwayCostModel"]["gateSeconds"] != 5
             || policy["stationStreetAnchors"] != "declared-entrances-v1"
             || policy["stationStreetTransfers"] != "entrance-pathway-chain-v1"
         {
@@ -505,7 +508,7 @@ impl City {
         })
     }
     pub fn info(&self) -> Value {
-        json!({"schemaVersion":"vigo.standalone.city.v1","name":self.manifest["name"],"revisionId":self.manifest["revisionId"],"runtime":"rust","routing":self.manifest["routingStore"],"streets":self.manifest["streetStore"],"warnings":self.metadata["routingLimitations"]})
+        json!({"schemaVersion":"vigo.standalone.city.v1","name":self.manifest["name"],"revisionId":self.manifest["revisionId"],"sources":self.manifest["sources"],"runtime":"rust","routing":self.manifest["routingStore"],"streets":self.manifest["streetStore"],"warnings":self.metadata["routingLimitations"]})
     }
     pub(crate) fn stop(&self, id: &str) -> Result<&Stop> {
         self.stop_index

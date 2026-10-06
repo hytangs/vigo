@@ -12,7 +12,7 @@ import { standaloneBinary as binary } from './helpers/standalone-runtime.mjs'
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-rust-http-'))
 const city = path.join(directory, 'city')
 const token = 'public-synthetic-test-token'
-const body = JSON.stringify({ origin: { stopId: 'A' }, destination: { stopId: 'B' }, serviceDate: '2026-07-15', time: '07:55', maxWalkKm: .2 })
+const body = JSON.stringify({ diagnostics: 'trace', origin: { stopId: 'A' }, destination: { stopId: 'B' }, serviceDate: '2026-07-15', time: '07:55', maxWalkKm: .2 })
 let server, port, checks = 0
 try {
   const { gtfsPath, osmPath } = await writeCliFixtureInputs(directory)
@@ -52,7 +52,7 @@ try {
     const response = await fetch(`${origin}/v1/route`, { method: 'POST', headers,
       body: JSON.stringify({ ...JSON.parse(body), time: '08:35', timePreference: 'arrive_by', arrivalBufferMinutes }) })
     assert.equal(response.status, 200)
-    const plan = await response.json()
+    const plan = (await response.json()).trace
     assert.equal(plan.status, arrivalBufferMinutes === 5 ? 'ready' : 'blocked')
     assert.equal(plan.diagnostics.timeReserves.planningArrivalMinutes, 515 - arrivalBufferMinutes)
     assert.equal(plan.diagnostics.timeReserves.calibratedProbability, false)
@@ -67,7 +67,7 @@ try {
   await status(prefix + 'Transfer-Encoding: chunked\r\n\r\n100001\r\n', 413)
   await status(prefix + 'Transfer-Encoding: chunked\r\n\r\nQ\r\n', 400)
   const chunked = await status(prefix + `Transfer-Encoding: chunked\r\n\r\n${body.length.toString(16)}\r\n${body}\r\n0\r\n\r\n`, 200)
-  assert.equal(JSON.parse(chunked.split('\r\n\r\n')[1]).arrivalMinutes, 510)
+  assert.equal(JSON.parse(chunked.split('\r\n\r\n')[1]).trace.arrivalMinutes, 510)
   await status(prefix + `X-Oversized: ${'a'.repeat(17000)}\r\n\r\n`, 431)
   const slow = raw(prefix + 'Content-Length: 1000\r\n\r\n{')
   assert.equal((await health()).status, 200, 'A slow body must not block health'); checks++
@@ -132,7 +132,7 @@ try {
     }
     const recovered = await post()
     assert.equal(recovered.status, 200)
-    assert.equal((await recovered.json()).arrivalMinutes, 510)
+    assert.equal((await recovered.json()).trace.arrivalMinutes, 510)
     assert.throws(() => process.kill(worker, 0), { code: 'ESRCH' }, 'Timed-out process must be reaped')
     checks += 2
   }

@@ -23,14 +23,15 @@ function resident(executable, args, env) {
   child.stderr.setEncoding('utf8').on('data', text => { errors += text })
   const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
   return async q => {
-    child.stdin.write(`${JSON.stringify(q)}\n`)
+    child.stdin.write(`${JSON.stringify({ ...q, diagnostics: "trace" })}\n`)
     let timer
     const line = await Promise.race([
       lines.next(),
       new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`Query timeout: ${errors}`)), 30_000) }),
     ]).finally(() => clearTimeout(timer))
     assert(!line.done, `Process exited: ${errors}`)
-    return JSON.parse(line.value)
+    const result = JSON.parse(line.value)
+    return result.trace ?? result
   }
 }
 function check(name, fn) {

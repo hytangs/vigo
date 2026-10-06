@@ -102,7 +102,7 @@ export function prepareStationAccessPaths(store, stops, walkingSpeedKph = 4.8) {
   for (const ids of store.stationMembers.values()) groups.push({
     members: ids.filter(id => indices.has(id)).map(id => indices.get(id)),
     declared: ids.some(id => store.declaredPathwayStops?.has(id)
-      || store.transfers.get(id)?.some(link => link.provenance === 'gtfs_pathway')),
+      || store.transfers.get(id)?.some(link => ['gtfs_pathway', 'gtfs_pathway_estimated'].includes(link.provenance))),
   })
   for (const pair of store.forbiddenTransferPairs) {
     const [a, b] = pair.split('\u0000'), from = indices.get(a), to = indices.get(b)

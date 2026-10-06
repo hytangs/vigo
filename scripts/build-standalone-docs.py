@@ -239,10 +239,11 @@ def specification(native):
     schemas = dict(native)
     coordinate = {'type':'array','prefixItems':[number(-180,180),number(-90,90)],'minItems':2,'maxItems':2,'items':False}
     schemas['Coordinate'] = coordinate
-    point_properties = {'stopId':text(), 'coordinate':ref('Coordinate'), **{k:text() for k in ['id','name','label','source','editStatus','baselineStopId']}, 'baselineStopIndex':number(0,integer=True)}
-    schemas['Point'] = {'oneOf':[ref('Coordinate'), obj(point_properties, anyOf=[{'required':['stopId']},{'required':['coordinate']}])], 'description':'Selected stop overrides coordinate unless source is map; map points require coordinate.'}
+    point_properties = {'stop':obj({'feed':{'type':['string','null']},'id':text()},['id']), 'stopId':text(), 'coordinate':ref('Coordinate'), **{k:text() for k in ['id','name','label','source','editStatus','baselineStopId']}, 'baselineStopIndex':number(0,integer=True)}
+    schemas['Point'] = {'oneOf':[ref('Coordinate'), obj(point_properties, anyOf=[{'required':['stop']},{'required':['stopId']},{'required':['coordinate']}])], 'description':'Selected stop overrides coordinate unless source is map; map points require coordinate.'}
     schemas['Clock'] = {'oneOf':[{'type':'string','pattern':r'^\d{1,2}:\d{1,2}(:\d{1,2})?$'},number(0,4319)], 'description':'Service-day HH:MM[:SS], hours 0..71, minutes/seconds 0..59; or numeric minutes.'}
     common = {
+        'diagnostics':text('none','summary','profile','trace',default='none'), 'includeGeometry':boolean(), 'includeLimitations':boolean(),
         'kind':text(), 'id':{}, 'serviceDate':{'type':'string','format':'date'}, 'serviceDay':text('weekday','saturday','sunday'),
         'time':ref('Clock'), 'timeMinutes':number(0,4319), 'timePreference':text('depart_at','arrive_by','depart','arrive',default='depart_at'),
         'mode':text('transit','walk','drive',default='transit'), 'maxWalkKm':number(0,100,1.2), 'maxStreetKm':number(.05,1000,50),
@@ -272,9 +273,9 @@ def specification(native):
         allOf=[{'anyOf':[{'required':[k]} for k in ['observedAt','fetchedAt','timestamp']]},{'anyOf':[{'required':[k]} for k in ['observations','segments','edgeUpdates']]}])
     schemas['Traffic'] = {'oneOf':[raw,observations]}
     clock_common = {**common,'arrivalBufferMinutes':number(0,60,0,integer=True,description='Caller-selected arrival reserve. Positive values require arrive-by Transit Route/Matrix without via points; reserve the final minutes of the original horizon. Not a calibrated probability.'),'realtimeSnapshot':ref('RealtimeSnapshot'),'traffic':ref('Traffic')}
-    schemas['RouteRequest'] = obj({**clock_common,'origin':ref('Point'),'destination':ref('Point'),'via':array(ref('Point'),0,16),'waypoints':array(ref('Point'),0,16),
+    schemas['RouteRequest'] = obj({**clock_common,'includeGeometry':boolean(True),'origin':ref('Point'),'destination':ref('Point'),'via':array(ref('Point'),0,16),'waypoints':array(ref('Point'),0,16),
         'windowMinutes':number(0,240,0),'windowStepMinutes':number(1,60,1)},['origin','destination'],allOf=[clock_rule,transit_date,mode_rule,{'not':{'required':['via','waypoints']}}],
-        description='Additional mode constraints, source identities, freshness, and via/window combinations are validated by the runtime. Route always includes geometry.')
+        description='Additional mode constraints, source identities, freshness, and via/window combinations are validated by the runtime. Route includes available leg GeoJSON by default. Set includeGeometry: false to omit coordinate arrays. Geometry retains source precision and provenance; inferred station links remain labeled.')
     matrix_fields = {k:v for k,v in clock_common.items() if k!='realtimeSnapshot'}
     schemas['MatrixRequest'] = obj({**matrix_fields,'origins':array(ref('Point'),1,65536),'destinations':array(ref('Point'),1,65536),'includeJourneys':boolean(),'includeGeometry':boolean(), 'journeyFormat':{**text('full','compact'),'default':'full','description':'Requires transit includeJourneys. Compact retains the exact timed trip/stop/boarding witness, without display metadata or walking evidence; it cannot include geometry.'}},['origins','destinations'],allOf=[clock_rule,transit_date,mode_rule],description='At most 65536 pairs. Journeys require transit; geometry requires full journeys. No realtime transit.')
     scheduled = obj({'tripId':text(),'departureSeconds':number(0,1048575),'arrivalOffsetsSeconds':array(number(0)), 'departureOffsetsSeconds':array(number(0)),
@@ -361,12 +362,37 @@ def specification(native):
         'diagnostics':{'type':'object'},'warnings':{}},['surface','stops'],strict=False)]}
     schemas['CompareResult'] = {'allOf':[ref('QueryMetadata'),obj({'schemaVersion':{'const':'vigo.standalone.comparison.v1'},'commonCells':number(0,integer=True),'newlyReachableCells':number(0,integer=True),'noLongerReachableCells':number(0,integer=True),'meanChangeMinutes':nullable_number,'deltaMinutes':array(nullable_number),'sign':{'const':'after-minus-before'},'bounds':array(number(),4,4),'width':number(1,integer=True),'height':number(1,integer=True)},['deltaMinutes','commonCells','newlyReachableCells','noLongerReachableCells'],strict=False)]}
     schemas['NativeResult'] = {'allOf':[ref('QueryMetadata'),{'oneOf':[obj({'operation':{'const':op},'result':ref(response)},['operation','result'],strict=False) for op,(_,response) in OPERATIONS.items()]+[obj({'operation':{'const':'timetable.identifiers'},'result':obj({k:array(text()) for k in ['stopIds','tripIds','routeIds','accessMemberStopIds']},strict=False)},['operation','result'],strict=False)]}]}
+    # Public projection is independent of the native witness schemas above.
+    seconds = {'type':'integer','minimum':0}
+    nullable_seconds = {'type':['integer','null'],'minimum':0}
+    schemas['PublicIdentifier'] = obj({'feed':{'type':['string','null']},'id':text()},['feed','id'])
+    schemas['PublicEndpoint'] = obj({'stop':ref('PublicIdentifier'),'name':text(),'coordinate':ref('Coordinate')},strict=False)
+    schemas['PublicLeg'] = obj({'type':text('walk','transit','drive'),'from':ref('PublicEndpoint'),'to':ref('PublicEndpoint'),
+        'departureTime':text(),'arrivalTime':text(),'durationSeconds':seconds,'distanceMeters':seconds,'quality':{'type':'object'},
+        'geometry':obj({'type':{'const':'LineString'},'coordinates':array(ref('Coordinate'))},['type','coordinates'])},
+        ['type','from','to','departureTime','arrivalTime','durationSeconds','quality'],strict=False)
+    schemas['PublicJourney'] = obj({'departureTime':text(),'arrivalTime':text(),'durationSeconds':seconds,
+        **{k:nullable_seconds for k in ['walkingSeconds','waitingSeconds','ridingSeconds','drivingSeconds']},
+        'boardings':seconds,'transfers':seconds,'legs':array(ref('PublicLeg'))},
+        ['departureTime','arrivalTime','durationSeconds','walkingSeconds','waitingSeconds','ridingSeconds','boardings','transfers','legs'],strict=False)
+    public_common = {'schema':text(),'status':text('ok','not_found'),'mode':text('transit','walk','drive'),
+        'query':{'type':'object'},'meta':obj({'engineVersion':text(),'cityRevision':{'type':['string','null']},'requestId':{},
+            'queryFingerprint':text(),'computeUs':nullable_seconds,'computeScope':text()},
+            ['engineVersion','cityRevision','requestId','queryFingerprint','computeUs','computeScope'],strict=False),
+        'diagnostics':{'type':'object'},'profile':{'type':'object'},'trace':{'type':'object'},'warnings':array({'type':'object'}),'datasetLimitations':{},'id':{}}
+    schemas['RouteResult'] = obj({**public_common,'schema':{'const':'vigo.route.v1'},'journey':nullable(ref('PublicJourney')),'reason':{'type':'object'},'alternatives':array(nullable(ref('PublicJourney')))},['schema','status','query','meta','journey'],strict=False)
+    schemas['MatrixResult'] = obj({**public_common,'schema':{'const':'vigo.matrix.v1'},'durationsSeconds':array(array(nullable_seconds)),'journeys':array(array(nullable(ref('PublicJourney'))))},['schema','status','query','meta','durationsSeconds'],strict=False)
+    public_surface = obj({'width':seconds,'height':seconds,'bounds':array(number(),4,4),'valuesSeconds':array(nullable_seconds)},['width','height','bounds','valuesSeconds'],strict=False)
+    schemas['ReachResult'] = obj({**public_common,'schema':{'const':'vigo.reach.v1'},'surface':public_surface,'fullSurface':public_surface,'cutoffsSeconds':array(seconds),
+        **{k:{'type':'object'} for k in ['areas','contours','fullAreas','fullContours']}},['schema','status','query','meta','surface','cutoffsSeconds'],strict=False)
+    schemas['CompareRequest'] = obj({'before':{'oneOf':[ref(k+'Result') for k in ['Route','Matrix','Reach']]},'after':{'oneOf':[ref(k+'Result') for k in ['Route','Matrix','Reach']]}},['before','after'],strict=False)
+    schemas['CompareResult'] = obj({'schema':{'const':'vigo.compare.v1'},'status':{'const':'ok'},'durationChangeSeconds':{'type':['integer','null']},'meanChangeSeconds':{'type':['number','null']},'counts':{'type':'object'}},['schema','status'],strict=False)
     paths = {}
     def response(schema, description='Successful response'):
         return {'description':description,'content':{'application/json':{'schema':ref(schema)}}}
     for kind in ['route','matrix','reach','compare','native']:
         title=kind.title()
-        paths['/v1/'+kind]={'post':{'operationId':kind,'summary':title,'requestBody':{'required':True,'content':{'application/json':{'schema':ref(title+'Request')}}},'responses':{'200':response(title+'Result'),'400':response('Error','Invalid request'),'401':response('Error','Bearer authentication failed'),'408':response('Error','Request read deadline'),'413':response('Error','Body limit'),'417':response('Error','Unsupported Expect header'),'431':response('Error','Header limit'),'503':response('Error','Capacity or worker unavailable'),'504':response('Error','Query deadline or worker failed')}}}
+        paths['/v1/'+kind]={'post':{'operationId':kind,'summary':title,'parameters':[{'in':'query','name':'diagnostics','schema':text('none','summary','profile','trace'),'description':'Optional diagnostic detail; default none.'},{'in':'query','name':'includeGeometry','schema':{'type':'boolean'}},{'in':'query','name':'includeLimitations','schema':{'type':'boolean'}}],'requestBody':{'required':True,'content':{'application/json':{'schema':ref(title+'Request')}}},'responses':{'200':response(title+'Result'),'400':response('Error','Invalid request'),'401':response('Error','Bearer authentication failed'),'408':response('Error','Request read deadline'),'413':response('Error','Body limit'),'417':response('Error','Unsupported Expect header'),'431':response('Error','Header limit'),'503':response('Error','Capacity or worker unavailable'),'504':response('Error','Query deadline or worker failed')}}}
     paths['/v1/isochrone']={'post':{**paths['/v1/reach']['post'],'operationId':'isochrone','summary':'Alias of Reach'}}
     for kind in ['info','capabilities']:
         paths['/v1/'+kind]={'get':{'operationId':kind,'summary':kind.title(),'responses':{'200':{'description':'Runtime metadata; inspect capabilities for supported combinations.','content':{'application/json':{'schema':{'type':'object'}}}},'401':response('Error','Bearer authentication failed')}}}
@@ -376,7 +402,7 @@ def specification(native):
         paths[name]={'get':{'security':[],'summary':'Offline manual','responses':{'200':{'description':'Self-contained HTML','content':{'text/html':{'schema':{'type':'string'}}}}}}}
     for name in ['/openapi.json','/docs/openapi.json','/standalone-openapi.json','/docs/standalone-openapi.json']:
         paths[name]={'get':{'security':[],'summary':'This OpenAPI document','responses':{'200':{'description':'OpenAPI 3.1 JSON','content':{'application/json':{'schema':{'type':'object'}}}}}}}
-    return {'openapi':'3.1.0','info':{'title':'VIGO Rust standalone API','version':VERSION+'-development','description':'Prepared City routing and isochrones. Standalone JSON differs from Studio/Node envelopes. Runtime validates mode combinations and native index/array invariants beyond these structural schemas. Bearer auth is optional only when no token is configured on a loopback listener.'},
+    return {'openapi':'3.1.0','info':{'title':'VIGO Rust standalone API','version':VERSION+'-development','description':'Prepared City routing and isochrones. Public result schemas are shared with the Node CLI; raw native and trace contracts are separate. Runtime validates mode combinations and native index/array invariants beyond these structural schemas. Bearer auth is optional only when no token is configured on a loopback listener.'},
         'servers':[{'url':'http://127.0.0.1:8080','description':'Default localhost listener'},{'url':'http://127.0.0.1:8787','description':'Optional synthetic local demo'}],
         'security':[{'bearerAuth':[]}],'paths':paths,'components':{'securitySchemes':{'bearerAuth':{'type':'http','scheme':'bearer'}},'schemas':schemas}}
 
@@ -615,6 +641,8 @@ This manual covers VIGO {VERSION}. See [Compatibility](#validation) for supporte
 def main():
     parser=argparse.ArgumentParser(description=__doc__); parser.add_argument('--check',action='store_true'); args=parser.parse_args()
     source=SOURCE.read_text(encoding='utf-8'); native,native_md=native_contracts()
+    public_results=(ROOT/'docs/reference/results.md').read_text(encoding='utf-8')
+    source=source.replace('<!-- PUBLIC_RESULTS -->', '\n'.join('##'+line if line.startswith('#') else line for line in public_results.splitlines()[1:]))
     audit=(ROOT/'docs/reference/rust-standalone-audit.md').read_text(encoding='utf-8')
     walking=(ROOT/'docs/reference/walking-evidence.md').read_text(encoding='utf-8')
     products={'docs/reference/rust-standalone-native.md':native_md,'docs/standalone-openapi.json':json.dumps(specification(native),indent=2,ensure_ascii=False)+'\n','docs/standalone.html':page(source,native_md,audit,walking)}

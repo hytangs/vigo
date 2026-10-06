@@ -4,7 +4,7 @@ VIGO 0.4.3 · CLI and HTTP reference · Prepared City format 1
 
 VIGO runs routing and isochrone queries from a single Rust executable. The executable contains the routing kernels, City loader, JSON interface, and HTTP server. It needs no Node, Python, browser, external routing service, or internet connection at query time. SQLite is compiled in. City data is supplied separately and opened read-only.
 
-This manual describes the **standalone Rust interface**. Its schema is `vigo.standalone.query.v1`; its results differ from the existing Node CLI and Studio/Python envelopes. Run `vigo capabilities` to identify the executable before integrating it.
+This manual describes the **standalone Rust interface**. Requests retain `vigo.standalone.query.v1`; public results share `vigo.route.v1`, `vigo.matrix.v1`, and `vigo.reach.v1` with the Node CLI. Studio and the private Python worker protocol remain separate. Run `vigo capabilities` to identify the executable before integrating it.
 
 Read this manual in the [searchable offline reader](../standalone.html). The [OpenAPI specification](../standalone-openapi.json) contains the HTTP request contracts and native input/output types. The [audit record](../reference/rust-standalone-audit.md) describes tested coverage and remaining boundaries.
 
@@ -43,7 +43,7 @@ Save `route.json`. Coordinates are **[longitude, latitude]**. The service date b
 ./vigo route --city ./boston --request route.json --time 09:00 --arrive-by --pretty
 ```
 
-The second command overrides the departure time with a 09:00 arrival deadline. Read `status` first: `ready` contains a journey; `blocked` is a valid no-journey result. `departureMinutes` and `arrivalMinutes` are minutes after local service-day midnight, so 540 means 09:00. Check the selected trip/stop IDs in `legs`, the walking evidence, and any warnings. Timetables and street data change; do not expect a permanently fixed trip ID or travel time.
+The second command overrides the departure time with a 09:00 arrival deadline. Read `status` first: `ok` contains `journey`; `not_found` is a valid no-journey result. `journey.departureTime` and `arrivalTime` are service-day clocks. Durations use integer seconds. Read `journey.legs` and any route-specific warnings. Timetables and street data change; do not expect a permanently fixed trip ID or travel time.
 
 ### Several origins and destinations
 
@@ -72,7 +72,7 @@ Save `matrix.json`. The rows are Harvard Square and Kendall Square; the columns 
 ./vigo matrix --city ./boston --request matrix.json --output matrix-result.json
 ```
 
-`durationsMinutes[row][column]` follows the input order; `null` means no journey. For arrive-by matrices, duration is the arrival deadline minus latest departure; a journey can arrive before the deadline. Full journey detail is the default. For large analytical batches, `journeyFormat: "compact"` retains timed trip/stop witnesses with less display metadata; `includeJourneys: false` requests times only. Neither setting changes the routing search. Repeated rows or columns are shared internally, but every requested cell is returned. Compare full point responses and equivalent Matrix formats when timing the Node and Rust interfaces; full Rust matrices carry more metadata than Node's compact witnesses.
+`durationsSeconds[row][column]` follows the input order; `null` means no journey. For arrive-by matrices, duration is the arrival deadline minus latest departure; a journey can arrive before the deadline. Full journey detail is the default. For large analytical batches, `journeyFormat: "compact"` retains timed trip/stop witnesses with less display metadata; `includeJourneys: false` requests times only. Neither setting changes the routing search. Repeated rows or columns are shared internally, but every requested cell is returned. Compare full point responses and equivalent Matrix formats when timing the Node and Rust interfaces; full Rust matrices carry more metadata than Node's compact witnesses.
 
 ### Keep Boston loaded for repeated requests
 
@@ -377,7 +377,7 @@ Its response excerpt (legs, metadata, and diagnostics omitted):
 }
 ```
 
-The journey departs at `07:55` and arrives at `08:30`, with 25 minutes riding and 10 minutes waiting. `transfers: 1` means two boardings. Times ending in `Minutes` use minutes; the native `departure` and `arrival` fields, when present, use service-day seconds. See [Results and errors](#13-read-results-and-errors) for the full response structure.
+The journey departs at `07:55` and arrives at `08:30`, with 25 minutes riding and 10 minutes waiting. `transfers: 1` means two boardings. Times ending in `Minutes` use minutes; the native `departure` and `arrival` fields, when present, use service-day seconds. See [Results and errors](#13-public-results-and-diagnostics) for the full response structure.
 
 ### Transit
 
@@ -420,7 +420,7 @@ For transit coordinate requests, `requireTransitRide: false` allows a direct OSM
 
 ### Journey geometry
 
-Route always materializes geometry in this version; `includeGeometry` is a Matrix option, not a Route option. Transit shape geometry is aligned using the shared native shape code. Missing source shapes fall back to a labeled stop sequence. Fare annotations and Studio's balanced/preference presentation are not part of this interface.
+Route includes its materialized leg geometry by default. Set `includeGeometry: false` to omit coordinate arrays from the public response. Matrix geometry remains opt-in. Transit shape geometry is aligned using the shared native shape code. Missing source shapes fall back to a labeled stop sequence. Fare annotations and Studio's balanced/preference presentation are not part of this interface.
 
 ## 7. Via points and departure windows
 
@@ -726,7 +726,24 @@ At most 100,000 observations and 200,000 affected edges are accepted. Geometry i
 
 Raw callers may provide `snapshotKey`, `edgeIndices`, and `edgeTimeUnits` (hundredths of seconds), plus the City drive `streetSourceFingerprint` in the high-level traffic object. A closed edge has weight 2147483647. Actual weights, not just the caller key, determine cache identity. The raw path does not perform timestamp expiry; its producer must manage observation validity and correct graph identity. Low-level native drive inputs already assume the correct index domain.
 
-## 13. Read results and errors
+## 13. Public results and diagnostics
+
+Default output is a compact journey or analysis result. See the [public result contract](../reference/results.md) for every field, unit, evidence boundary, and migration rule.
+
+- `--format text|json` selects terminal text or JSON; pipes and saved files use JSON by default.
+- `--diagnostics none|summary|profile|trace` selects optional detail. Default is `none`.
+- Route includes available leg GeoJSON by default; `--include-geometry=false` omits it. Matrix geometry remains opt-in with `--include-geometry`. `--include-limitations` adds dataset limitations.
+- HTTP accepts the equivalent body fields or `?diagnostics=summary`, `?includeGeometry=true`, and `?includeLimitations=true`.
+- Route uses `journey`; Matrix uses `durationsSeconds`; Reach uses `surface.valuesSeconds` and `fullSurface`.
+- `status: "ok"` means a result, `not_found` means no admissible journey, and `error` means failure.
+- `meta` separates engine version, City revision, request identity, query fingerprint, and measured compute time.
+
+<!-- PUBLIC_RESULTS -->
+
+### Trace reference (debug only)
+
+The rest of this section documents the **internal object under `trace`**, obtained only with `diagnostics: "trace"`. These raw fields are retained for debugging and old research tooling, not the default public schema. All old response excerpts below refer to `trace`. For native operations the raw result remains the direct response. CLI examples in earlier sections use the clean default; old exact field excerpts are trace excerpts.
+
 
 Read the outcome first, then the journey or analysis data. Keep units, array ordering, and evidence provenance alongside the values when storing or displaying a result.
 
@@ -1290,7 +1307,7 @@ Set `VIGO_CITY` and, when desired, `VIGO_API_TOKEN` in the environment file. Sto
 
 Send query JSON from your application through HTTP or the command line. An HTTP client needs no VIGO language package.
 
-Use the standalone response fields described in [Results and errors](#13-read-results-and-errors). The older Node `result`/`rows` envelope differs. For reproducible jobs, keep the build identity, `capabilities`, City revision, complete request, observation timestamps, and output.
+Use the standalone response fields described in [Results and errors](#13-public-results-and-diagnostics). The public Node and Rust result schemas are shared; old internal envelopes are retained only in trace. For reproducible jobs, keep the build identity, `capabilities`, City revision, complete request, observation timestamps, and output.
 
 A Python standard-library HTTP client needs no VIGO Python package:
 
@@ -1319,10 +1336,10 @@ try:
         result = json.load(response)
 except urllib.error.HTTPError as error:
     raise RuntimeError(error.read().decode()) from error
-if result.get("status") == "blocked":
+if result.get("status") == "not_found":
     print("No journey:", result.get("reason"))
 else:
-    print(result["arrivalMinutes"], result["legs"])
+    print(result["journey"]["arrivalTime"], result["journey"]["legs"])
 ```
 
 A JavaScript client can use `fetch` with an AbortSignal timeout. Read the HTTP status before interpreting JSON; its successful body can still be a blocked result. Keep bearer tokens in server-side integrations or an appropriate authenticated same-origin service. Do not embed a shared deployment token into publicly served application code.

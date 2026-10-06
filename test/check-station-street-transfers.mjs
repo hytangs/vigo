@@ -44,7 +44,7 @@ try {
         const prefix = runtime === 'rust' ? [standaloneBinary] : [process.execPath, 'public/vigo.mjs']
         const flags = runtime === 'node' ? ['--service-date', q.serviceDate, '--time', q.time, '--time-preference', arrive ? 'arrive' : 'depart'] : []
         const call = (kind, body) => JSON.parse(execFileSync(prefix[0], [...prefix.slice(1), kind, '--city', city, '--request', '-', ...flags], {
-          cwd: root, input: JSON.stringify(body), encoding: 'utf8', timeout: 30000 }))
+          cwd: root, input: JSON.stringify({ ...body, diagnostics: 'trace' }), encoding: 'utf8', timeout: 30000 })).trace
         const response = call('route', q)
         const journey = runtime === 'rust' ? response : response.result
         const blocked = variant === 'one-way-blocked'

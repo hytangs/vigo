@@ -102,6 +102,7 @@ impl Worker {
     }
 }
 struct Job {
+    queued_at: Instant,
     query: Value,
     deadline: Instant,
     response: SyncSender<(u16, Value)>,
@@ -198,7 +199,8 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                 worker = Worker::open(&city, startup_timeout).ok().map(|v| v.0);
                 supervisor.ready.store(worker.is_some(), Ordering::Release);
             }
-            let response = match worker.as_mut() {
+            let queue_us = job.queued_at.elapsed().as_micros() as u64;
+            let mut response = match worker.as_mut() {
                 None => (503, error("City worker is unavailable")),
                 Some(w) => match w.query(
                     &job.query,
@@ -217,6 +219,7 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                     }
                 },
             };
+            response.1["_httpQueueUs"] = json!(queue_us);
             let _ = job.response.send(response);
             if worker.is_none() {
                 worker = Worker::open(&city, startup_timeout).ok().map(|v| v.0);
@@ -322,12 +325,8 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
     let mut headers = [httparse::EMPTY_HEADER; 64];
     let mut request = httparse::Request::new(&mut headers);
     request.parse(&bytes[..header_end]).map_err(|_| invalid())?;
-    let path = request
-        .path
-        .ok_or_else(invalid)?
-        .split('?')
-        .next()
-        .unwrap_or("");
+    let target = request.path.ok_or_else(invalid)?;
+    let (path, parameters) = target.split_once('?').unwrap_or((target, ""));
     let method = request.method.ok_or_else(invalid)?;
     let get = |name: &str| -> std::io::Result<Option<&[u8]>> {
         let mut values = request
@@ -502,10 +501,26 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
     if !query.is_object() {
         return Ok((400, error("Request must be a JSON object")));
     }
+    for pair in parameters.split('&').filter(|p| !p.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        let key = if key == "vigo_diagnostics" { "diagnostics" } else { key };
+        let value = match key {
+            "diagnostics" => json!(value),
+            "includeGeometry" | "includeLimitations" => match value {
+                "true" => json!(true), "false" => json!(false),
+                _ => return Ok((400, error("Output query flags must be true or false"))),
+            },
+            _ => return Ok((400, error("Unknown URL query option"))),
+        };
+        if query.get(key).is_some_and(|old| old != &value) { return Ok((400, error("Conflicting body and URL output options"))); }
+        query[key] = value;
+    }
+    if let Err(e) = crate::presentation::validate(&query) { return Ok((400, error(e))); }
     query["kind"] = json!(kind);
     let (sender, receiver) = mpsc::sync_channel(1);
     let deadline = Instant::now() + state.query_timeout;
     let job = Job {
+        queued_at: Instant::now(),
         query,
         deadline,
         response: sender,
@@ -523,14 +538,58 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
     })().map(Response::Json)
 }
 fn respond(stream: &mut TcpStream, status: u16, value: &Value) -> std::io::Result<()> {
-    let body = serde_json::to_vec(value)?;
-    respond_bytes(stream, status, "application/json; charset=utf-8", &body)
+    let mut value = value.clone();
+    let queue_us = value
+        .as_object_mut()
+        .and_then(|v| v.remove("_httpQueueUs"))
+        .and_then(|v| v.as_u64());
+    if value["error"]["code"] == "invalid_request" {
+        let code = match status {
+            401 => "unauthorized",
+            404 => "endpoint_not_found",
+            408 => "request_timeout",
+            413 => "request_too_large",
+            431 => "headers_too_large",
+            503 => "service_unavailable",
+            504 => "query_timeout",
+            _ => "invalid_request",
+        };
+        value["error"]["code"] = json!(code);
+    }
+    let started = Instant::now();
+    let body = serde_json::to_vec(&value)?;
+    let serialization_ms = started.elapsed().as_secs_f64() * 1000.;
+    let mut timing = format!("Server-Timing: serialize;dur={serialization_ms:.3}");
+    if let Some(us) = queue_us {
+        timing.push_str(&format!(", queue;dur={:.3}", us as f64 / 1000.));
+    }
+    if let Some(us) = value["meta"]["computeUs"].as_f64() {
+        timing.push_str(&format!(", compute;dur={:.3}", us / 1000.));
+    }
+    timing.push_str("\r\n");
+    respond_with_headers(
+        stream,
+        status,
+        "application/json; charset=utf-8",
+        &body,
+        &timing,
+    )
 }
+
 fn respond_bytes(
     stream: &mut TcpStream,
     status: u16,
     content_type: &str,
     body: &[u8],
+) -> std::io::Result<()> {
+    respond_with_headers(stream, status, content_type, body, "")
+}
+fn respond_with_headers(
+    stream: &mut TcpStream,
+    status: u16,
+    content_type: &str,
+    body: &[u8],
+    headers: &str,
 ) -> std::io::Result<()> {
     let reason = match status {
         200 => "OK",
@@ -547,7 +606,7 @@ fn respond_bytes(
     };
     write!(
         stream,
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'\r\n\r\n",
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'\r\n{headers}\r\n",
         body.len()
     )?;
     let deadline = Instant::now() + Duration::from_secs(10);

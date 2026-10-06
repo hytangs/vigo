@@ -127,7 +127,7 @@ pathway nodes do not create additional street entrances. Station links with
 schematic geometry report `streetPathVerified: false` and `stationPathSources`.
 When GTFS omits `traversal_time`, the configured walking policy prices the
 declared pathway length, or the stop-coordinate distance if length is also
-absent. A missing time is not a zero-time link. For endpoint access and transfers, declared
+absent. Stairs with a stair count and fare/exit gates use the labeled estimates described in [walking evidence](walking-evidence.md), floored by any available walking distance. A missing time is not a zero-time link. For endpoint access and transfers, declared
 pathway graphs suppress generic platform shortcuts. Fallback station links
 include their walking time in both endpoint and timetable preparation.
 Endpoint walks using a prepared station path expose `accessCost.street` and

@@ -17,12 +17,13 @@ const env = { PATH: '', NODE_PATH: '', VIGO_API_TOKEN: 'standalone-test-token-12
 const base = { serviceDate: '2026-07-15', time: '07:55', origin: { stopId: 'A' }, destination: { stopId: 'B' }, maxWalkKm: 0.2 }
 let count = 0
 let server
-const invoke = (kind, request, extra = []) => spawnSync(binary, [kind, '--city', city, ...(kind === 'info' ? [] : ['--request', '-']), ...extra], { input: JSON.stringify(request), env, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+const invoke = (kind, request, extra = []) => spawnSync(binary, [kind, '--city', city, ...(kind === 'info' ? [] : ['--request', '-']), ...extra], { input: JSON.stringify({ ...request, diagnostics: "trace" }), env, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
 function run(kind, request) {
   const p = invoke(kind, request)
   assert.equal(p.status, 0, p.stderr)
   count++
-  return JSON.parse(p.stdout)
+  const result = JSON.parse(p.stdout)
+  return result.trace ?? result
 }
 function rejects(kind, request, pattern) {
   const p = invoke(kind, request)
@@ -46,7 +47,7 @@ try {
   const { gtfsPath, osmPath } = await writeCliFixtureInputs(directory)
   execFileSync(process.execPath, [path.join(root, 'public/vigo.mjs'), 'build', `--gtfs=${gtfsPath}`, `--osm=${osmPath}`, `--output=${city}`], { stdio: ['ignore', 'ignore', 'pipe'] })
   const original = fingerprint(city)
-  assert.equal(run('info', {}).runtime, 'rust')
+  assert.equal(run('info', {}).schema, 'vigo.info.v1')
   const forward = run('route', base)
   assert.equal(forward.status, 'ready')
   assert.equal(forward.diagnostics.native.journeys, null, 'Route diagnostics must not duplicate the materialized journey')
@@ -151,7 +152,7 @@ try {
   fs.writeFileSync(privateOutput, 'previous', { mode: 0o600 })
   const saved = invoke('route', base, ['--output', privateOutput])
   assert.equal(saved.status, 0, saved.stderr)
-  assert.equal(JSON.parse(fs.readFileSync(privateOutput, 'utf8')).arrivalMinutes, 510)
+  assert.equal(JSON.parse(fs.readFileSync(privateOutput, 'utf8')).trace.arrivalMinutes, 510)
   if (process.platform !== 'win32') assert.equal(fs.statSync(privateOutput).mode & 0o777, 0o600)
   assert.equal(fs.readdirSync(directory).some(name => name.endsWith('.tmp')), false)
   count++
@@ -175,14 +176,14 @@ try {
   const trafficStream = spawnSync(binary, ['stream', '--city', city], { input: trafficRequests.map(JSON.stringify).join('\n') + '\n', env, encoding: 'utf8' })
   assert.equal(trafficStream.status, 0, trafficStream.stderr)
   const trafficResults = trafficStream.stdout.trim().split('\n').map(JSON.parse)
-  assert(trafficResults[0].durationMinutes > trafficResults[1].durationMinutes, 'Traffic cache identity must bind the actual weights, not a caller key')
+  assert(trafficResults[0].journey.durationSeconds > trafficResults[1].journey.durationSeconds, 'Traffic cache identity must bind the actual weights, not a caller key')
   count++
   const lines = [{ kind: 'route', id: 1, ...base, realtimeSnapshot }, [], { kind: 'route', id: 2, ...base }]
   const stream = spawnSync(binary, ['stream', '--city', city], { input: lines.map(q => JSON.stringify(q)).join('\n') + '\n', env, encoding: 'utf8' })
   assert.equal(stream.status, 0, stream.stderr)
   const results = stream.stdout.trim().split('\n').map(s => JSON.parse(s))
   assert(results[1].error)
-  assert.deepEqual(results.filter(r => !r.error).map(r => [r.id, r.arrivalMinutes]), [[1, 520], [2, 510]])
+  assert.deepEqual(results.filter(r => !r.error).map(r => [r.id, r.journey.arrivalTime]), [[1, "08:40:00"], [2, "08:30:00"]])
   count++
   server = spawn(binary, ['serve', '--city', city, '--port', '0', '--max-body-bytes', '1024'], { env, stdio: ['ignore', 'pipe', 'pipe'] })
   const address = await new Promise((resolve, reject) => {
@@ -196,7 +197,7 @@ try {
   const headers = { authorization: `Bearer ${env.VIGO_API_TOKEN}`, 'content-type': 'application/json' }
   const response = await fetch(`${address}/v1/route`, { method: 'POST', headers, body: JSON.stringify(base) })
   assert.equal(response.status, 200)
-  assert.equal((await response.json()).arrivalMinutes, 510)
+  assert.equal((await response.json()).journey.arrivalTime, "08:30:00")
   assert.equal((await fetch(`${address}/v1/route`, { method: 'POST', headers, body: '{' })).status, 400)
   assert.equal((await fetch(`${address}/v1/route`, { method: 'POST', headers, body: ' '.repeat(1025) })).status, 413)
   assert.equal((await fetch(`${address}/v1/no-such-command`, { method: 'POST', headers, body: '{}' })).status, 404)

@@ -8,6 +8,7 @@ import { createInterface } from 'node:readline'
 import Papa from 'papaparse'
 import packageJson from '../../package.json'
 import { CliUsageError, parseArguments, validateInvocation, value, values, enabled } from './arguments.mjs'
+import { publicResult, presentationRequest, normalizePublicPoint, publicError } from './presentation.mjs'
 import { commands, usage } from './commands.mjs'
 import { handleOutputErrors, readJsonObject, writeJsonResult, writeOutputFile } from './io.mjs'
 import { assertMatrixSize } from '../server/matrix-size.mjs'
@@ -51,7 +52,7 @@ import {
   routeNationalStreetMatrix,
   routeNationalStreetStore,
 } from '../server/national-osm-store.mjs'
-import { buildNativeStreetCchIndex } from '../server/native-routing-kernel.mjs'
+import { buildNativeStreetCchIndex, formatPublicResult } from '../server/native-routing-kernel.mjs'
 import { buildTerminalAccessStore } from '../server/terminal-access-store.mjs'
 import { timingMilliseconds } from '../server/number-utils.mjs'
 import {
@@ -317,18 +318,19 @@ function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {
   if (args.has('routing-preference') || Object.hasOwn(request, 'routingPreference')) {
     throw new Error('Unknown routing option; use --objective=earliest_arrival')
   }
-  const timePreference = value(args, 'time-preference', String(request.timePreference ?? 'depart')) as RoutingTimePreference
+  const preference = value(args, 'time-preference', String(request.timePreference ?? 'depart'))
+  const timePreference = ({ depart_at: 'depart', arrive_by: 'arrive' }[preference] ?? preference) as RoutingTimePreference
   if (!['depart', 'arrive'].includes(timePreference)) throw new Error(`Invalid --time-preference value: ${timePreference}`)
   const objective = String(args.has('objective') ? value(args, 'objective') : request.objective ?? 'earliest_arrival')
   if (objective !== 'earliest_arrival') {
     throw new Error(`Invalid --objective value: ${objective}`)
   }
   const routingPreference = 'fastest'
-  const timeMinutes = parseClock(value(args, 'time', '08:00'))
+  const timeMinutes = args.has('time') ? parseClock(value(args, 'time')) : parseNdjsonTime(request.time ?? request.timeMinutes ?? '08:00', 'time')
   const serviceDate = normalizeServiceDate(value(args, 'service-date'))
   if (!serviceDate) throw new Error('--service-date is required for exact timetable routing')
   const serviceDay = resolveServiceDay(serviceDate, value(args, 'service-day')) as ServiceDay
-  const maxWalkKm = parseNumber(value(args, 'max-walk', '1.2'), 'max-walk', 0.01)
+  const maxWalkKm = parseNumber(value(args, 'max-walk', String(request.maxWalkKm ?? 1.2)), 'max-walk', 0.01)
   const horizonMinutes = boundedAnalyticalNumber(args, request, 'horizon', 'horizonMinutes', 480, 1, 2_880)
   const maxTransfers = args.has('max-transfers') || request.maxTransfers !== undefined
     ? parseIntegerNumber(value(args, 'max-transfers', String(request.maxTransfers)), 'max-transfers', 0, 31)
@@ -495,7 +497,7 @@ async function computeRouteRequest(
     },
     result: routed.plan ?? null,
     ...(routed.choices ? { choices: routed.choices } : {}),
-    warnings: [],
+    warnings: request.includeLimitations === true ? readNationalGtfsStoreMetadata(storePath).routingLimitations ?? [] : [],
     timing: {
       buildMs: null,
       openMs: preparation.elapsedMs,
@@ -509,7 +511,8 @@ async function runRouteRequest(args: CliArguments) {
   const request = await readStructuredRequest(args, 'route')
   const paths = resolveRuntimePaths(args)
   try {
-    writeJsonResult(await computeRouteRequest(args, request, paths), value(args, 'output'))
+    const raw = await computeRouteRequest(args, request, paths)
+    writeJsonResult(publicResult(raw, request, args), value(args, 'output'), value(args, 'format', 'auto'))
   } finally {
     disposeNationalGtfsStore(paths.storePath)
   }
@@ -628,7 +631,7 @@ async function runRoute(args: CliArguments) {
   writeOutputFile(outPath, `${Papa.unparse(rows, { newline: '\n' })}\n`)
   const outputElapsedMs = performance.now() - outputStarted
   const ready = rows.filter((row) => row.status === 'ready').length
-  process.stdout.write(`${JSON.stringify({
+  const batch = {
     schemaVersion: 'vigo.result.route.v1',
     ...publicResultMetadata,
     kind: 'route',
@@ -644,7 +647,15 @@ async function runRoute(args: CliArguments) {
     },
     output: outPath,
     results: fullResults,
-  }, null, 2)}\n`)
+  }
+  const level = presentationRequest({}, args).diagnostics ?? 'none'
+  const output: Record<string, unknown> = { schema: 'vigo.batch.v1', status: 'ok', counts: batch.rows,
+    output: outPath, meta: { engineVersion: packageJson.version, cityRevision: city.revisionId } }
+  if (level !== 'none') output.diagnostics = { queries: rows.length }
+  if (['profile', 'trace'].includes(level)) output.profile = { timingsUs: Object.fromEntries(Object.entries(batch.timing).map(([key, val]) => [key.replace(/Ms$/, 'Us'), Math.round(val * 1000)])) }
+  if (level === 'trace') output.trace = batch
+  process.stdout.write(`${JSON.stringify(output, null, 2)}\n`)
+
 }
 
 function ndjsonPoint(
@@ -652,6 +663,7 @@ function ndjsonPoint(
   fallbackLabel: string,
   stopLookup: ReturnType<typeof openStopLookup>,
 ): RoutingPoint {
+  input = normalizePublicPoint(input)
   if (typeof input === 'string') {
     const point = stopLookup.point(input)
     if (!point) throw new Error(`Unknown stop ID: ${input}`)
@@ -702,7 +714,11 @@ function serializeNdjson(value: unknown) {
   return `${serialized.slice(0, markerIndex)}${replacement}${serialized.slice(markerIndex + marker.length)}`
 }
 
-async function writeNdjson(value: unknown) {
+async function writeNdjson(value: unknown, request?: Record<string, unknown>, args?: CliArguments) {
+  if (request) {
+    const raw = value as Record<string, unknown>
+    value = { ...publicResult(value, request, args), ...(raw.sequence === undefined ? {} : { sequence: raw.sequence }) }
+  }
   if (process.stdout.write(`${serializeNdjson(value)}\n`)) return
   await once(process.stdout, 'drain')
 }
@@ -731,6 +747,11 @@ async function runRouteStream(args: CliArguments, explicitKinds = false) {
         const input = JSON.parse(line) as Record<string, unknown>
         if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Each line must be a JSON object')
         if (typeof input.id === 'string' && input.id.trim()) id = input.id.trim()
+        if (explicitKinds) {
+          presentationRequest(input, args)
+          if (input.timePreference === 'depart_at') input.timePreference = 'depart'
+          if (input.timePreference === 'arrive_by') input.timePreference = 'arrive'
+        }
         if (explicitKinds && !['route', 'matrix', 'reach'].includes(String(input.kind))) {
           throw new Error('stream requires kind: route, matrix, or reach on every line')
         }
@@ -764,7 +785,7 @@ async function runRouteStream(args: CliArguments, explicitKinds = false) {
           await writeNdjson({ ...result, sequence, id, timing: {
             ...result.timing,
             endToEndMs: Number((performance.now() - (sequence === 1 ? cliStartedAt : requestStarted)).toFixed(3)),
-          } })
+          } }, explicitKinds ? input : undefined, args)
           continue
         }
         if (input.kind !== undefined && input.kind !== 'matrix') throw new Error('Unknown resident query kind')
@@ -810,7 +831,7 @@ async function runRouteStream(args: CliArguments, explicitKinds = false) {
             ...matrix.timing,
             openMs,
             endToEndMs: Number((performance.now() - (sequence === 1 ? cliStartedAt : requestStarted)).toFixed(3)),
-          } })
+          } }, explicitKinds ? input : undefined, args)
           continue
         }
         const origin = ndjsonPoint(input.origin, 'Origin', stopLookup)
@@ -881,6 +902,10 @@ async function runRouteStream(args: CliArguments, explicitKinds = false) {
           profileSampleCount: routed.profileSampleCount,
         })
       } catch (error) {
+        if (explicitKinds) {
+          await writeNdjson({ ...publicError(error instanceof Error ? error.message : String(error), id), sequence })
+          continue
+        }
         await writeNdjson({
           schemaVersion: 'vigo.result.route.v1',
           ...publicResultMetadata,
@@ -899,7 +924,9 @@ async function runRouteStream(args: CliArguments, explicitKinds = false) {
 }
 
 async function readStructuredRequest(args: CliArguments, command: string) {
-  return await readJsonObject(value(args, 'request'), `${command} request`, { stdin: true, maxBytes: 16 * 1024 * 1024 }) as Record<string, unknown>
+  const request = presentationRequest(await readJsonObject(value(args, 'request'), `${command} request`, { stdin: true, maxBytes: 16 * 1024 * 1024 }), args) as Record<string, unknown>
+  if (!args.has('service-date') && typeof request.serviceDate === 'string') args.set('service-date', [request.serviceDate])
+  return request
 }
 
 function analyticalPoint(
@@ -1100,7 +1127,7 @@ function computePreparedMatrix(
     kind: 'matrix',
     status: 'ready',
     city,
-    warnings: [],
+    warnings: request.includeLimitations === true ? readNationalGtfsStoreMetadata(storePath).routingLimitations ?? [] : [],
     query: {
       origins,
       destinations,
@@ -1141,10 +1168,10 @@ async function runMatrix(args: CliArguments) {
   const preparation = await prepareRuntime(paths.storePath, paths.streetStorePath, options.serviceDate, options.serviceDay,
     String(value(args, 'mode', String(request.mode ?? 'transit'))))
   const payload = computePreparedMatrix(args, request, paths, options, openStopLookup(paths.storePath))
-  writeJsonResult({ ...payload, timing: { ...payload.timing,
+  writeJsonResult(publicResult({ ...payload, timing: { ...payload.timing,
     openMs: preparation.elapsedMs,
     endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)),
-  } }, value(args, 'output'))
+  } }, request, args), value(args, 'output'), value(args, 'format', 'auto'))
 }
 
 function reachCutoffs(args: CliArguments, request: Record<string, unknown>) {
@@ -1276,7 +1303,7 @@ async function computeReachRequest(
     kind: 'reach',
     status: 'ready',
     city,
-    warnings: [],
+    warnings: request.includeLimitations === true ? readNationalGtfsStoreMetadata(storePath).routingLimitations ?? [] : [],
     query: {
       routingDataMode: options.routingDataMode,
       origin,
@@ -1317,7 +1344,7 @@ async function runReach(args: CliArguments) {
   const request = await readStructuredRequest(args, 'reach')
   const paths = resolveRuntimePaths(args)
   try {
-    writeJsonResult(await computeReachRequest(args, request, paths), value(args, 'output'))
+    writeJsonResult(publicResult(await computeReachRequest(args, request, paths), request, args), value(args, 'output'), value(args, 'format', 'auto'))
   } finally {
     disposeNationalGtfsStore(paths.storePath)
   }
@@ -1768,7 +1795,8 @@ function runInspect(args: CliArguments) {
   if (!cityValue) throw new Error('inspect requires --city; use vigo capabilities for runtime support')
   const cityPath = path.resolve(cityValue)
   const city = validateCityDirectory(cityPath) as Record<string, any>
-  writeJsonResult({
+  writeJsonResult(formatPublicResult('info', {}, {
+    datasetLimitations: readNationalGtfsStoreMetadata(path.join(cityPath, 'routing', 'project.sqlite')).routingLimitations ?? [],
     schemaVersion: 'vigo.city.inspect.v1',
     productVersion: packageJson.version,
     apiVersion,
@@ -1798,7 +1826,7 @@ function runInspect(args: CliArguments) {
       streetEdges: city.streetStore?.edgeCount ?? null,
     },
     builtInMs: city.timing?.totalMs ?? null,
-  }, value(args, 'output'))
+  }), value(args, 'output'))
 }
 
 async function readResultFile(input: string, label: string) {
@@ -1900,6 +1928,12 @@ function reachComparison(before: Record<string, any>, after: Record<string, any>
 async function runCompare(args: CliArguments) {
   const before = await readResultFile(value(args, 'before'), 'before')
   const after = await readResultFile(value(args, 'after'), 'after')
+  if (before.schema || after.schema) {
+    const result = formatPublicResult('compare', {}, { before, after })
+    if (result.status === 'error') throw new Error(result.error.message)
+    writeJsonResult(result, value(args, 'output'))
+    return
+  }
   const beforeKind = resultKind(before)
   const afterKind = resultKind(after)
   if (beforeKind !== afterKind) throw new Error('compare requires two Results from the same Query family')

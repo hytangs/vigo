@@ -85,7 +85,7 @@ export function validateInvocation(command, args) {
         if (value(args, 'mode', 'transit') !== 'transit') fail('CSV batches support transit only; use --request for walk or drive')
       }
     } else requireOption('request')
-    requireOption('service-date')
+    if (args.has('input')) requireOption('service-date')
   }
   if (command === 'build' && value(args, 'output') === '-') fail('build requires a City output directory, not -')
 }
