@@ -470,18 +470,14 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
                 .get_mut("journey")
                 .and_then(|j| j.get_mut("legs"))
                 .and_then(Value::as_array_mut)
+                && legs.len() == 1
+                && ["walk", "drive"].iter().any(|kind| legs[0]["type"] == *kind)
             {
-                if legs.len() == 1
-                    && ["walk", "drive"]
-                        .iter()
-                        .any(|kind| legs[0]["type"] == *kind)
-                {
-                    if legs[0]["from"] == json!({}) {
-                        legs[0]["from"] = point(&q["origin"]);
-                    }
-                    if legs[0]["to"] == json!({}) {
-                        legs[0]["to"] = point(&q["destination"]);
-                    }
+                if legs[0]["from"] == json!({}) {
+                    legs[0]["from"] = point(&q["origin"]);
+                }
+                if legs[0]["to"] == json!({}) {
+                    legs[0]["to"] = point(&q["destination"]);
                 }
             }
             if out["journey"].is_null() {
@@ -549,14 +545,12 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
                     if let (Some(i), Some(j)) = (
                         row["originIndex"].as_u64(),
                         row["destinationIndex"].as_u64(),
-                    ) {
-                        if i < origin_count as u64 && j < destination_count as u64 {
-                            durations[i as usize][j as usize] =
-                                convert_minutes(&row["durationMinutes"]);
-                            if let Some(v) = row.get("journey") {
-                                has_journeys = true;
-                                journeys[i as usize][j as usize] = journey(v, geometry);
-                            }
+                    ) && i < origin_count as u64 && j < destination_count as u64 {
+                        durations[i as usize][j as usize] =
+                            convert_minutes(&row["durationMinutes"]);
+                        if let Some(v) = row.get("journey") {
+                            has_journeys = true;
+                            journeys[i as usize][j as usize] = journey(v, geometry);
                         }
                     }
                 }

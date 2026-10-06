@@ -176,24 +176,24 @@ function buildDirectedFixtureSnapshot(snapshotPath) {
   })
 }
 
-function buildReciprocalEdgeSnapFixtureSnapshot(snapshotPath) {
+function buildReciprocalEdgeSnapFixtureSnapshot(snapshotPath, farEndpoint = false) {
   // The query lies on the middle of reciprocal edge 1 <-> 2. Node 0 is a
   // geometrically closer vertex in the same weak component, but reaching the
   // destination through it requires a long detour. Segment projection must
   // seed both edge endpoints and recover the 199-meter path through node 2.
   const values = {
     nodeIds: new Float64Array([20, 21, 22, 23]),
-    nodeLats: new Float64Array([38, 38.001, 37.999, 37.999]),
+    nodeLats: new Float64Array([38, farEndpoint ? 38.002 : 38.001, 37.999, 37.999]),
     nodeLons: new Float64Array([0.0001, 0, 0, 0.001]),
     edgeOffsets: new Uint32Array([0, 1, 3, 5, 6]),
     edgeTargets: new Uint32Array([1, 0, 2, 1, 3, 2]),
-    edgeDistances: new Float64Array([112, 112, 222, 222, 88, 88]),
+    edgeDistances: new Float64Array(farEndpoint ? [225, 225, 333, 333, 88, 88] : [112, 112, 222, 222, 88, 88]),
     spatialOffsets: new Uint32Array([0, 4]),
     componentByNode: new Int32Array([0, 0, 0, 0]),
     componentLengthKm: new Float64Array([0.422]),
     reverseOffsets: new Uint32Array([0, 1, 3, 5, 6]),
     reverseSources: new Uint32Array([1, 0, 2, 1, 3, 2]),
-    reverseDistances: new Float64Array([112, 112, 222, 222, 88, 88]),
+    reverseDistances: new Float64Array(farEndpoint ? [225, 225, 333, 333, 88, 88] : [112, 112, 222, 222, 88, 88]),
   }
   writeFixtureSnapshot(snapshotPath, values, {
     spatialMinLat: 37.995,
@@ -750,6 +750,12 @@ try {
   const persistedProfile = kernel.persistAccessProfileSnapshot(accessProfileSnapshotPath)
   assert.equal(persistedProfile.profileKey, 'directed-fixture-v1')
   assert(persistedProfile.snapshotBytes > 0)
+  const obsoleteProfilePath = path.join(temporaryDirectory, 'obsolete-access-profile.bin')
+  const obsoleteProfileBytes = fs.readFileSync(accessProfileSnapshotPath)
+  obsoleteProfileBytes.writeUInt32LE(4, 8)
+  fs.writeFileSync(obsoleteProfilePath, obsoleteProfileBytes)
+  assert.throws(() => new CoordinateKernel(snapshotPath).loadAccessProfileSnapshot(obsoleteProfilePath, 'directed-fixture-v1'),
+    /unsupported schema/, 'Old stop attachments must not survive a snapping-policy change')
   const reloadedKernel = new CoordinateKernel(snapshotPath)
   reloadedKernel.loadStreetCchIndex({
     structurePath: directedCch.structurePath,
@@ -985,6 +991,21 @@ try {
   )
   assert(recoveredProjectedPath.originSnapDistanceM > 180)
   assert(recoveredProjectedPath.originSnapDistanceM < 190)
+
+  // The road passes through the query, but one endpoint lies outside the
+  // 160 m vertex lookup. Rejecting that edge attaches to the detour vertex.
+  const longEdgeSnapshot = path.join(temporaryDirectory, 'long-edge-snap.street-accelerator-v7.bin')
+  buildReciprocalEdgeSnapFixtureSnapshot(longEdgeSnapshot, true)
+  const longEdgeKernel = new CoordinateKernel(longEdgeSnapshot)
+  buildAndLoadStreetCch(longEdgeKernel, temporaryDirectory, 'long-edge-snap')
+  for (const reverse of [false, true]) {
+    const query = { originLon: 0, originLat: 38, destinationLon: 0.001, destinationLat: 37.999,
+      maximumDistanceM: 400, maximumPoints: 32 }
+    if (reverse) Object.assign(query, {originLon: 0.001, originLat: 37.999, destinationLon: 0, destinationLat: 38})
+    const result = longEdgeKernel.routePath(query)
+    assert.equal(result.found, true, 'A nearby reciprocal edge remains eligible when its far endpoint is outside the vertex radius')
+    assert.equal(Math.round(result.distanceM), 199)
+  }
 
   const contractedChainSnapshotPath = path.join(
     temporaryDirectory,

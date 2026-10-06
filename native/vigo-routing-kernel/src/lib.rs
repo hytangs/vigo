@@ -89,7 +89,9 @@ const MAXIMUM_MATRIX_PAIRS: usize = 100_000;
 // path inside the bounded latitude band; it prunes work but never guides order.
 const POINT_PATH_METRIC_LOWER_BOUND_FACTOR: f64 = 1.0;
 const ACCESS_PROFILE_SNAPSHOT_MAGIC: [u8; 8] = *b"VIGOAP04";
-const ACCESS_PROFILE_SNAPSHOT_VERSION: u32 = 4;
+// Version 5 invalidates stop snaps and buckets made with the former
+// both-endpoints-within-radius restriction.
+const ACCESS_PROFILE_SNAPSHOT_VERSION: u32 = 5;
 const ACCESS_PROFILE_SNAPSHOT_HEADER_BYTES: usize = 80;
 const MAXIMUM_ACCESS_PROFILE_SNAPSHOT_BYTES: u64 = 4_u64 * 1024 * 1024 * 1024;
 // One-tenth-millimetre quantization keeps even thousand-edge walks within
@@ -2903,7 +2905,6 @@ fn temporary_access_profile_path(snapshot_path: &Path) -> PathBuf {
 #[derive(Default)]
 struct SnapWorkspace {
     evaluated_from_nodes: IntegerHashSet<u32>,
-    ordered_by_node: Vec<Snap>,
     candidate_nodes: Vec<Snap>,
     projected_edges: Vec<ReciprocalEdgeSnap>,
 }
@@ -2911,7 +2912,6 @@ struct SnapWorkspace {
 impl SnapWorkspace {
     fn begin(&mut self, expected_nodes: usize) {
         self.evaluated_from_nodes.clear();
-        self.ordered_by_node.clear();
         if self.evaluated_from_nodes.capacity() < expected_nodes {
             self.evaluated_from_nodes
                 .reserve(expected_nodes - self.evaluated_from_nodes.capacity());
@@ -5908,7 +5908,6 @@ fn reciprocal_edge_snaps(
     snapshot: &Snapshot,
     reciprocal_edge_flags: &[u8],
     ordered_nodes: &[Snap],
-    ordered_by_node: &[Snap],
     coordinate: [f64; 2],
     evaluated_from_nodes: &mut IntegerHashSet<u32>,
     mut snaps: Vec<ReciprocalEdgeSnap>,
@@ -5955,12 +5954,9 @@ fn reciprocal_edge_snaps(
             if projection_distance_m > SNAP_RADIUS_M {
                 continue;
             }
-            if ordered_by_node
-                .binary_search_by_key(&right, |snap| snap.node)
-                .is_err()
-            {
-                continue;
-            }
+            // The edge is discoverable through its nearby endpoint. Its
+            // other endpoint may be farther away: attachment distance is to
+            // the projected point, and travel along the edge is charged below.
             let edge_distance_m = distances[edge];
             snaps.push(ReciprocalEdgeSnap {
                 left: Snap {
@@ -6018,15 +6014,10 @@ fn snaps_for_coordinate_with_workspace(
         return Ok(Vec::new());
     }
     workspace.begin(ordered.len());
-    workspace.ordered_by_node.extend_from_slice(&ordered);
-    workspace
-        .ordered_by_node
-        .sort_unstable_by_key(|snap| snap.node);
     let projected = reciprocal_edge_snaps(
         snapshot,
         reciprocal_edge_flags,
         &ordered,
-        &workspace.ordered_by_node,
         [longitude, latitude],
         &mut workspace.evaluated_from_nodes,
         std::mem::take(&mut workspace.projected_edges),

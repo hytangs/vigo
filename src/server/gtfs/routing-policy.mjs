@@ -46,7 +46,7 @@ const configuredAccessOverheadSeconds = Math.max(
 )
 
 export const nationalRoutingAccessPolicy = Object.freeze({
-  schemaVersion: 'vigo.routing.access-policy.v6',
+  schemaVersion: 'vigo.routing.access-policy.v7',
   id: customWalkingParametersEnabled
     ? 'vigo-national-configured-access'
     : 'vigo-national-regular-access',
@@ -56,6 +56,7 @@ export const nationalRoutingAccessPolicy = Object.freeze({
   transferWalkingTimeFloor: 'distance-at-configured-speed-v1',
   unpricedPathways: 'typed-estimates-otherwise-excluded-v2',
   pathwayCostModel,
+  streetAttachment: 'nearest-vertex-or-incident-reciprocal-edge-v2',
   stationStreetAnchors: 'declared-entrances-v1',
   stationStreetTransfers: 'entrance-pathway-chain-v1',
   stationPathDistance: 'source-or-located-chord-v1',
@@ -86,7 +87,7 @@ export const directWalkTransitEndpointLowerBoundMinutes = (
   2 * Math.ceil(accessOverheadSeconds) / 60
 )
 
-export const osmTransferGraphSchemaVersion = 'vigo.routing.osm-stop-transfers.v5'
+export const osmTransferGraphSchemaVersion = 'vigo.routing.osm-stop-transfers.v6'
 
 export const osmTransferMaximumWalkM = Math.max(
   50,

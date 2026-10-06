@@ -25,8 +25,8 @@ VIGO models the City revision and Query it is given. It does not certify real-wo
 
 - Walk and Drive depend on OSM coverage and directionality.
 - Pedestrian coordinate attachment searches vertices within 160 m and projects
-  onto reciprocal edges within 80 m only when both edge endpoints are in that
-  vertex search. Long edges can therefore be missed even when their interior
+  onto reciprocal edges within 80 m when at least one endpoint is in that
+  vertex search. Long edges with both endpoints outside that search can be missed even when their interior
   passes close to a coordinate. A missing attachment is not proof that no
   physical pedestrian path exists.
 - A coordinate has one physical street attachment. If its closest attachment
