@@ -52,17 +52,19 @@ const server = await createServer({ root, cacheDir: path.join(directory, 'vite-c
 await server.listen()
 const main = path.join(directory, 'main.cjs')
 await fs.writeFile(main, `const {app,BrowserWindow}=require('electron');const fs=require('node:fs');
+const {layoutFrame,resizeLayout}=require(${JSON.stringify(path.join(root, 'test/helpers/layout-frame.cjs'))});
+app.disableHardwareAcceleration();
 app.setPath('userData',${JSON.stringify(path.join(directory, 'profile'))});
 app.whenReady().then(async()=>{try{
- const window=new BrowserWindow({show:true,width:1280,height:900,webPreferences:{backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
+ const window=new BrowserWindow({show:false,width:1280,height:900,webPreferences:{offscreen:true,backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
  await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/navigation-fixture.html`)});
  await window.webContents.executeJavaScript('new Promise((resolve,reject)=>{const timer=setInterval(()=>{if(window.checkNavigation){clearInterval(timer);resolve()}},20);setTimeout(()=>{clearInterval(timer);reject(Error("Fixture timed out"))},15000)})');
  const results=[];
  for(const [width,height] of [[320,640],[760,708],[1280,900]]){
-  window.setContentSize(width,height);await new Promise(resolve=>setTimeout(resolve,100));
+  await resizeLayout(window,width,height);
   results.push(await window.webContents.executeJavaScript('window.checkNavigation()'));
  }
- const screenshot=await window.webContents.capturePage();
+ const screenshot=await layoutFrame(window);
  if(screenshot.isEmpty())throw Error('Layout fixture screenshot is empty');
  fs.writeFileSync(${JSON.stringify(path.join(directory, 'navigation.png'))},screenshot.toPNG());
  console.log(JSON.stringify({passed:true,results}));app.exit(0);
