@@ -24,8 +24,8 @@ required-features = ["standalone"]
 bincode = "1.3"
 cch = { path = "vendor/cch" }
 memmap2 = "0.9"
-napi = { version = "3", features = ["napi10"], optional = true }
-napi-derive = { version = "3", optional = true }
+napi = { version = "3.14.2", features = ["napi10"], optional = true }
+napi-derive = { version = "3.6.12", optional = true }
 rayon = "1"
 rusqlite = { version = "0.37.0", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

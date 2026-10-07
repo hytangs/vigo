@@ -103,6 +103,15 @@ const CCH_DISTANCE_UNITS_PER_METER: f64 = 10_000.0;
 const CCH_MAXIMUM_QUERY_DISTANCE_M: f64 = 5_000.0;
 const ENDPOINT_ACCESS_THREAD_COUNT: usize = 2;
 
+#[cfg(all(feature = "node", not(test)))]
+#[napi(module_exports)]
+fn retain_native_thread_code() {
+    // Rayon pools live beyond an individual Node worker. Retain the addon image
+    // so retiring the last loading worker cannot unmap their code or vtables.
+    // This retains the shared library, not City snapshots or query workspaces.
+    napi::bindgen_prelude::retain_current_module_for_unload_safety();
+}
+
 // A single coordinate OD has exactly two independent directed street-access
 // roles. A private two-worker pool avoids both global-pool oversubscription and
 // per-request thread creation, while leaving offline/batch Rayon work free to

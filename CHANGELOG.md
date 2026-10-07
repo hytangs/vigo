@@ -12,6 +12,8 @@ Honor `maxTransfers` in Node Reach for coordinate origins, selected stops, and p
 
 Build Reach surfaces from vehicle arrivals and directed station exits. Charge station pathway time and distance before street expansion, and keep the whole final walk within the endpoint allowance. Apply the same exit handling in Node and standalone Rust. Retain requested standalone node evidence up to its documented diagnostic limit and report truncation.
 
+Retain native library code across routing-worker retirement, update Node bindings for lifecycle safety, and exercise repeated process exits and worker replacement with resident kernels and typed arrays.
+
 ## 0.4.3 — 2026-10-04
 
 Final release verification includes the walking corrections below. API 1.0, City format 1, and Result schema 1 remain unchanged.
@@ -39,4 +41,4 @@ Correct standalone station-walking evidence to follow the selected entrance/path
 Keep active GTFS departures when editing an existing Reach branch unless a frequency change is explicitly selected. Return complete-network Reach surfaces and optional directed street-edge evidence. Include a verified direct walk as a point-to-point competitor within the shared walking budget.
 
 
-Earlier release notes remain available in Git history. Only 0.4.3 is maintained in the current documentation.
+Earlier release notes remain available in Git history.
