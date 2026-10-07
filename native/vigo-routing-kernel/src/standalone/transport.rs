@@ -253,11 +253,10 @@ fn output(value: &Value, options: &HashMap<String, String>) -> Result<()> {
     }
     if !options.contains_key("output")
         && (format == "text" || (format == "auto" && io::stdout().is_terminal()))
+        && let Some(text) = crate::presentation::text(value)
     {
-        if let Some(text) = crate::presentation::text(value) {
-            print!("{text}");
-            return Ok(());
-        }
+        print!("{text}");
+        return Ok(());
     }
     let mut bytes = if enabled(options, "pretty")? {
         serde_json::to_vec_pretty(value)?
