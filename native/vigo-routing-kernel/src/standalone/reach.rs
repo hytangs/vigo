@@ -5,6 +5,44 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
 impl City {
+    fn reach_grid_values(
+        &mut self,
+        q: &Value,
+        size: usize,
+        bounds: &[f64],
+        maximum: f64,
+    ) -> Result<Vec<f64>> {
+        let mut values = Vec::with_capacity(size * size);
+        let mut query = q.clone();
+        query["kind"] = json!("matrix");
+        query["origins"] = json!([q["origin"]]);
+        query["horizonMinutes"] = json!(maximum);
+        query["allowLongWalk"] = json!(false);
+        query["requireTransitRide"] = json!(false);
+        query["includeJourneys"] = json!(false);
+        query["includeGeometry"] = json!(false);
+        query.as_object_mut().unwrap().remove("scenario");
+        for first in (0..size * size).step_by(16_384) {
+            query["destinations"] = Value::Array((first..(first + 16_384).min(size * size)).map(|i| {
+                json!({"coordinate":[bounds[0]+(i%size) as f64/size as f64*(bounds[2]-bounds[0])
+                    +0.5/size as f64*(bounds[2]-bounds[0]),
+                    bounds[3]-((i/size) as f64+0.5)/size as f64*(bounds[3]-bounds[1])]})
+            }).collect());
+            let matrix = self.matrix(&query)?;
+            let row = matrix["durationsMinutes"][0]
+                .as_array()
+                .ok_or("Missing Reach destination-grid row")?;
+            values.extend(row.iter().map(|value| {
+                value
+                    .as_f64()
+                    .map(|v| (v * 1000.).round() / 1000.)
+                    .filter(|v| v.is_finite() && *v <= maximum)
+                    .unwrap_or(f64::INFINITY)
+            }));
+        }
+        Ok(values)
+    }
+
     pub fn reach(&mut self, q: &Value) -> Result<Value> {
         if let Some(scenario) = q.get("scenario") {
             for key in scenario
@@ -53,6 +91,34 @@ impl City {
         let mode = q["mode"].as_str().unwrap_or("transit");
         if !["transit", "walk"].contains(&mode) {
             return fail("Reach supports transit or walk");
+        }
+        let sampling = match q.get("surfaceSampling") {
+            None => "street",
+            Some(value) => value
+                .as_str()
+                .ok_or("surfaceSampling must be street or cell-center")?,
+        };
+        if !["street", "cell-center"].contains(&sampling) {
+            return fail("surfaceSampling must be street or cell-center");
+        }
+        if sampling == "cell-center" {
+            if q.get("scenario").is_some_and(|s| {
+                ["services", "excludedTripIds", "excludedRouteIds"]
+                    .iter()
+                    .any(|k| {
+                        s.get(k)
+                            .is_some_and(|v| v.as_array().is_none_or(|a| !a.is_empty()))
+                    })
+                    || q["scenario"].get("overlay").is_some()
+            }) {
+                return fail("Planned transit changes require transit Reach with street sampling");
+            }
+            if mode == "transit" && opt.walk_speed.is_some_and(|speed| speed != self.speed) {
+                return fail(format!(
+                    "Cell-center transit Reach uses the City walking speed of {} km/h",
+                    self.speed
+                ));
+            }
         }
         let mut cutoffs: Vec<f64> =
             q.get("cutoffsMinutes")
@@ -317,7 +383,30 @@ impl City {
             }
         }
         let include_edges = flag(q, "includeStreetEdges", false)?;
-        let result = self.street.street_surface(StreetSurfaceInput {
+        let grid = if sampling == "cell-center" {
+            Some(self.reach_grid_values(q, size, &bounds, maximum)?)
+        } else {
+            None
+        };
+        if let Some(values) = &grid
+            && !include_edges
+            && !flag(q, "includeNodes", false)?
+        {
+            let areas = areas(values, size, size, &bounds, &cutoffs);
+            let contours = contours(values, size, size, &bounds, &cutoffs);
+            let reached = values.iter().filter(|v| v.is_finite()).count();
+            return Ok(
+                json!({"kind":"reach","mode":mode,"serviceDate":q["serviceDate"],"origin":q["origin"],
+                "cutoffsMinutes":cutoffs,"stops":stops,"surface":{"sampling":sampling,"width":size,"height":size,
+                    "bounds":bounds,"values":values,"fullBounds":bounds,"fullValues":values,"nodes":[],"edges":null},
+                "areas":areas,"fullAreas":areas,"contours":contours,"fullContours":contours,
+                "diagnostics":{"transit":transit,"surface":{"surfaceModel":"coordinate_to_coordinate_cell_centers",
+                    "sampledTargets":values.len(),"reachableTargets":reached,"blockedTargets":values.len()-reached,
+                    "queryErrors":0,"fixedRequestedGrid":true,"walkingSpeedKph":opt.walk_speed.unwrap_or(self.speed),
+                    "directWalkingLimitKm":opt.walk_m/1000.}},"warnings":self.metadata["routingLimitations"]}),
+            );
+        }
+        let mut result = self.street.street_surface(StreetSurfaceInput {
             bounds: bounds.clone(),
             width: size as u32,
             height: size as u32,
@@ -335,6 +424,12 @@ impl City {
             edge_evidence_limit: 0,
             expand_bounds_to_reached_edges: true,
         })?;
+        if let Some(values) = grid {
+            result.reached_pixels = values.iter().filter(|v| v.is_finite()).count() as u32;
+            result.full_surface_values = Some(values.clone());
+            result.values = values;
+            result.full_surface_bounds = Some(bounds.clone());
+        }
         let full_bounds = result.full_surface_bounds.as_ref().unwrap_or(&bounds);
         let full_values = result
             .full_surface_values
@@ -346,8 +441,8 @@ impl City {
         let full_contours = contours(full_values, size, size, full_bounds, &cutoffs);
         Ok(
             json!({"kind":"reach","mode":mode,"serviceDate":q["serviceDate"],"origin":q["origin"],"cutoffsMinutes":cutoffs,"stops":stops,
-            "surface":{"width":size,"height":size,"bounds":bounds,"values":result.values,"fullBounds":full_bounds,"fullValues":full_values,"nodes":result.node_evidence,
-                "edges":if include_edges {json!({"schemaVersion":"vigo.standalone.street-edges.v1","encoding":"indexed-json","count":result.edge_evidence_ids.as_ref().map_or(0,Vec::len),"nodeCount":result.edge_evidence_nodes.as_ref().map_or(0,|v|v.len()/2),"nodes":result.edge_evidence_nodes,"endpoints":result.edge_evidence_endpoints,"edgeIds":result.edge_evidence_ids,"durationMinutes":result.edge_evidence_durations,"walkDistanceM":result.edge_evidence_walk_distances,"transitArrivalMinutes":result.edge_evidence_transit_arrivals})}else{Value::Null}},
+            "surface":{"sampling":sampling,"width":size,"height":size,"bounds":bounds,"values":result.values,"fullBounds":full_bounds,"fullValues":full_values,"nodes":result.node_evidence,
+                "edges":if include_edges {json!({"schemaVersion":"vigo.standalone.street-edges.v2","encoding":"indexed-json","count":result.edge_evidence_ids.as_ref().map_or(0,Vec::len),"nodeCount":result.edge_evidence_nodes.as_ref().map_or(0,|v|v.len()/2),"nodes":result.edge_evidence_nodes,"endpoints":result.edge_evidence_endpoints,"edgeIds":result.edge_evidence_ids,"durationMinutes":result.edge_evidence_durations,"fromDurationMinutes":result.edge_evidence_start_durations,"startFractions":result.edge_evidence_start_fractions,"endFractions":result.edge_evidence_end_fractions,"walkDistanceM":result.edge_evidence_walk_distances,"transitArrivalMinutes":result.edge_evidence_transit_arrivals})}else{Value::Null}},
             "areas":area_features,"fullAreas":full_areas,"contours":contour_features,"fullContours":full_contours,
             "diagnostics":{"transit":transit,"surface":{"queryNs":result.query_ns,"reachedPixels":result.reached_pixels,"reachedEdgeCount":result.reached_edge_count,"reachedEdgeLengthM":result.reached_edge_length_m,"edgeEvidenceTruncated":result.edge_evidence_truncated,"nodeEvidenceTruncated":result.node_evidence_truncated}},"warnings":self.metadata["routingLimitations"]}),
         )

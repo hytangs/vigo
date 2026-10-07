@@ -1763,6 +1763,9 @@ function packedNativeStreetEdges(result) {
   const endpoints = result.edgeEvidenceEndpoints
   const edgeIds = result.edgeEvidenceIds
   const durations = result.edgeEvidenceDurations
+  const startDurations = result.edgeEvidenceStartDurations
+  const startFractions = result.edgeEvidenceStartFractions
+  const endFractions = result.edgeEvidenceEndFractions
   const walkDistances = result.edgeEvidenceWalkDistances
   const transitArrivals = result.edgeEvidenceTransitArrivals
   if (
@@ -1770,17 +1773,23 @@ function packedNativeStreetEdges(result) {
     || !(endpoints instanceof Uint32Array)
     || !(edgeIds instanceof Uint32Array)
     || !(durations instanceof Float64Array)
+    || !(startDurations instanceof Float64Array)
+    || !(startFractions instanceof Float64Array)
+    || !(endFractions instanceof Float64Array)
     || !(walkDistances instanceof Float64Array)
     || !(transitArrivals instanceof Float64Array)
     || nodes.length % 2 !== 0
     || endpoints.length % 2 !== 0
     || edgeIds.length !== endpoints.length / 2
     || durations.length !== endpoints.length / 2
+    || startDurations.length !== durations.length
+    || startFractions.length !== durations.length
+    || endFractions.length !== durations.length
     || walkDistances.length !== durations.length
     || transitArrivals.length !== durations.length
   ) return null
   return {
-    schemaVersion: 'vigo.street.edge-bundle.v1',
+    schemaVersion: 'vigo.street.edge-bundle.v2',
     encoding: 'indexed-f64-le',
     count: durations.length,
     nodeCount: nodes.length / 2,
@@ -1788,6 +1797,9 @@ function packedNativeStreetEdges(result) {
     endpoints: encodedNativeTypedArray(endpoints, Uint32Array),
     edgeIds: encodedNativeTypedArray(edgeIds, Uint32Array),
     durationMinutes: encodedNativeTypedArray(durations, Float64Array),
+    fromDurationMinutes: encodedNativeTypedArray(startDurations, Float64Array),
+    startFractions: encodedNativeTypedArray(startFractions, Float64Array),
+    endFractions: encodedNativeTypedArray(endFractions, Float64Array),
     walkDistanceM: encodedNativeTypedArray(walkDistances, Float64Array),
     transitArrivalMinutes: encodedNativeTypedArray(transitArrivals, Float64Array),
   }
@@ -1805,13 +1817,16 @@ function materializeNativeStreetEdges(result) {
   return Array.from({ length: packed.count }, (_, index) => {
     const fromNode = endpoints[index * 2] * 2
     const toNode = endpoints[index * 2 + 1] * 2
+    const point = fraction => [nodes[fromNode] + fraction * (nodes[toNode] - nodes[fromNode]),
+      nodes[fromNode + 1] + fraction * (nodes[toNode + 1] - nodes[fromNode + 1])]
     return {
       coordinates: [
-        [nodes[fromNode], nodes[fromNode + 1]],
-        [nodes[toNode], nodes[toNode + 1]],
+        point(result.edgeEvidenceStartFractions[index]),
+        point(result.edgeEvidenceEndFractions[index]),
       ],
       ...(edgeIds instanceof Uint32Array ? { edgeId: edgeIds[index] } : {}),
       durationMinutes: durations[index],
+      fromDurationMinutes: result.edgeEvidenceStartDurations[index],
       walkDistanceM: walkDistances[index],
       ...(transitArrivals[index] >= 0 ? { transitArrivalMinutes: transitArrivals[index] } : {}),
     }
@@ -1884,6 +1899,7 @@ export function rasterNativeStreetSurface(storePath, value) {
           ? [{
               coordinates: [from, to],
               durationMinutes,
+              fromDurationMinutes: Number(edge.fromDurationMinutes),
               walkDistanceM,
               ...(Number.isFinite(transitArrivalMinutes) ? { transitArrivalMinutes } : {}),
             }]

@@ -302,10 +302,10 @@ try {
   const missedReach = await endpoint('reach', { ...boundaryRequest, departMinutes: 483, cutoffsMinutes: [20], rasterSize: 48,
     includePreliminary: false, includeStreetEdges: false, scenario: { services: [editedReplacement] } })
   assert.equal(missedReach.result.summary.improvedPixels, 0, 'A stop edit after the sole bus departed cannot manufacture an accessibility gain.')
-  const apiRoute = await endpoint('national-route', boundaryRequest)
+  const apiRoute = await endpoint('national-route', { ...boundaryRequest, requireTransitRide: true })
   assert.equal(apiRoute.plan.status, 'ready', 'Route API must resolve both imported-stop endpoints.')
   assert(apiRoute.plan.legs.some(leg => leg.type === 'ride'))
-  const apiMatrix = await endpoint('national-matrix', { ...boundaryRequest, origins: [selectedOrigin], destinations: [selectedDestination], includeJourneys: true })
+  const apiMatrix = await endpoint('national-matrix', { ...boundaryRequest, requireTransitRide: true, origins: [selectedOrigin], destinations: [selectedDestination], includeJourneys: true })
   assert.equal(apiMatrix.matrix.rows[0].status, 'ready', 'Matrix API must resolve every imported-stop endpoint.')
   assert(apiMatrix.matrix.rows[0].journey.legs.some(leg => leg.type === 'ride'))
   await apiRuntime.stop()
@@ -325,9 +325,9 @@ try {
   assert.equal(fullGeometry.surface.diagnostics.edgeDetailLimit, 0)
   assert.equal(fullGeometry.surface.diagnostics.edgeDetailTruncated, false)
   assert.equal(fullGeometry.surface.diagnostics.fullSurfaceRaster, true)
-  assert.equal(fullGeometry.surface.edges.schemaVersion, 'vigo.street.edge-bundle.v1')
-  assert.equal(
-    fullGeometry.surface.edges.count,
+  assert.equal(fullGeometry.surface.edges.schemaVersion, 'vigo.street.edge-bundle.v2')
+  assert(
+    fullGeometry.surface.edges.count >=
     fullGeometry.surface.diagnostics.reachedEdgeCount,
     'Reach street paths must return every reached directed OSM edge.',
   )
@@ -346,7 +346,7 @@ try {
   )
   for (let offset = 4; offset < edgeIdBytes.byteLength; offset += 4) {
     assert(
-      edgeIdBytes.readUInt32LE(offset) > edgeIdBytes.readUInt32LE(offset - 4),
+      edgeIdBytes.readUInt32LE(offset) >= edgeIdBytes.readUInt32LE(offset - 4),
       'Full street bundles must sort directed edge IDs for a linear comparison merge.',
     )
   }

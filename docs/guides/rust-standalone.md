@@ -1,6 +1,6 @@
 # VIGO Rust standalone manual
 
-VIGO 0.4.3 · CLI and HTTP reference · Prepared City format 1
+VIGO 0.4.4 · CLI and HTTP reference · Prepared City format 1
 
 VIGO runs routing and isochrone queries from a single Rust executable. The executable contains the routing kernels, City loader, JSON interface, and HTTP server. It needs no Node, Python, browser, external routing service, or internet connection at query time. SQLite is compiled in. City data is supplied separately and opened read-only.
 
@@ -210,7 +210,7 @@ Choose a date covered by your downloaded feed. Copy the complete City after this
 
 An existing output is rejected unless you explicitly pass `--replace`. Keep the completed `boston/` directory beside your Rust executable, or pass its absolute path with `--city`. Continue with [Harvard Square to South Station](#1-quickstart). No Node, Python, Osmium, or internet connection is needed for those Rust queries.
 
-The final 0.4.3 pedestrian model requires a fresh build from the original inputs, including for Cities from earlier 0.4.3 candidates. See [walking evidence](../reference/walking-evidence.md) for missing station costs, conservative access exclusions, and distance lower bounds. Preserve the runtime version and package checksum with the data.
+The final 0.4.4 pedestrian model requires a fresh build from the original inputs, including for Cities from earlier 0.4.4 candidates. See [walking evidence](../reference/walking-evidence.md) for missing station costs, conservative access exclusions, and distance lower bounds. Preserve the runtime version and package checksum with the data.
 
 ### Copy and load the City
 
@@ -313,7 +313,7 @@ Exact identifiers are case-sensitive. Multi-feed IDs may contain a feed scope an
 | `maxStreetKm` | 50 | Number 0.05–1000; Walk/Drive Route/Matrix limit |
 | `allowStreetTransfers` | true | Keep or filter walking transfers between separate stops/stations |
 | `minimumTransferBufferMinutes` | 0 | Integer 0–60; extra time per subsequent transit transfer |
-| `requireTransitRide` | true | Transit Route/Matrix boarding policy |
+| `requireTransitRide` | false | Transit Route/Matrix boarding policy |
 | `allowLongWalk` | true | When false, cap direct walking by `maxWalkKm` instead of `maxStreetKm` |
 | `walkSpeedKph` | City's walking policy, normally 4.8 | Number 1–8; Walk Route/Matrix and Reach only |
 | `disableCache` | false | Disable street endpoint caches; not a complete cold-run switch |
@@ -349,7 +349,7 @@ Route finds a journey between an `origin` and a `destination` at a chosen time. 
 
 The remaining reference examples use the small public test network `A → X → B`, with service on **2026-07-15**. It is also used by the localhost demonstration on port 8787. These IDs do not belong to Boston; use the coordinates and data above for your own first queries.
 
-A depart-at request for that fixture:
+A depart-at request requiring transit, so the fixture illustrates ride and transfer clocks:
 
 ```json query=route
 {
@@ -357,7 +357,8 @@ A depart-at request for that fixture:
   "destination": {"stopId": "B"},
   "serviceDate": "2026-07-15",
   "time": "07:55",
-  "maxWalkKm": 0.2
+  "maxWalkKm": 0.2,
+  "requireTransitRide": true
 }
 ```
 
@@ -392,6 +393,7 @@ An arrive-by request for the fixture:
   "timePreference": "arrive_by",
   "maxWalkKm": 0.2,
   "maxTransfers": 1,
+  "requireTransitRide": true,
   "allowStreetTransfers": false,
   "minimumTransferBufferMinutes": 5
 }
@@ -416,7 +418,7 @@ Change `mode` to `drive` and remove `walkSpeedKph` for a drive query. Street pat
 
 ### Direct walking policy
 
-For transit coordinate requests, `requireTransitRide: false` allows a direct OSM walk to compete with transit. A blocked request containing an explicitly selected stop does not gain a direct-walk fallback. A ready selected-stop route can still be replaced by a winning direct walk when that policy is false. Set `mode: "walk"` when walking is the intended operation.
+For transit coordinate requests, a direct OSM walk competes with transit by default. Set `requireTransitRide: true` to require a vehicle boarding. A blocked request containing an explicitly selected stop does not gain a direct-walk fallback. A ready selected-stop route can still be replaced by a winning direct walk when that policy is false. Set `mode: "walk"` when walking is the intended operation.
 
 ### Journey geometry
 
@@ -441,7 +443,7 @@ Supply `via` (alias `waypoints`) as an ordered array of at most 16 points. Do no
 }
 ```
 
-Transit via requests reject an explicit `maxTransfers` or a nonzero transfer buffer because independent segment composition cannot certify the transfer boundary. No dwell/visit duration is added at a via point.
+Transit via requests require a boarding on every segment. They reject an explicit `maxTransfers` or a nonzero transfer buffer because independent segment composition cannot certify the transfer boundary. No dwell/visit duration is added at a via point.
 
 ### Departure windows
 
@@ -455,7 +457,8 @@ Transit via requests reject an explicit `maxTransfers` or a nonzero transfer buf
   "time": "07:50",
   "windowMinutes": 15,
   "windowStepMinutes": 1,
-  "maxWalkKm": 0.2
+  "maxWalkKm": 0.2,
+  "requireTransitRide": true
 }
 ```
 
@@ -474,6 +477,7 @@ Supply `origins` and `destinations` arrays with at least one point each. Use poi
   "serviceDate": "2026-07-15",
   "time": "07:55",
   "maxWalkKm": 0.2,
+  "requireTransitRide": true,
   "includeJourneys": true,
   "includeGeometry": true
 }
@@ -485,7 +489,7 @@ Supply `origins` and `destinations` arrays with at least one point each. Use poi
 
 ### Include journeys
 
-`includeJourneys` defaults to false and is supported for transit only. With true, `journeys` has the same dimensions and nulls for unreachable pairs. `includeGeometry` defaults to false and requires journeys. If direct walking wins under `requireTransitRide: false`, its journey is a compact walk record. Large journey/geometry matrices can reach the HTTP response limit; split them into smaller requests.
+`includeJourneys` defaults to false and is supported for transit only. With true, `journeys` has the same dimensions and nulls for unreachable pairs. `includeGeometry` defaults to false and requires journeys. When direct walking wins, its journey contains a timed walking leg, with geometry if requested. Large journey/geometry matrices can reach the HTTP response limit; split them into smaller requests.
 
 `journeyFormat` defaults to `"full"`, retaining stop names, route details, stop sequences, and walking evidence. Analytical callers can explicitly request `"compact"` with `includeJourneys: true`: it returns the same selected trips, stops, boarding sequences, leg clocks, transfers, and walking/riding/waiting durations without display metadata or walking-evidence annotations. Compact does not accept `includeGeometry: true`. For duration-only workloads, leave `includeJourneys` false. Compare performance at the same output detail; the Node Matrix interface returns compact witnesses.
 
@@ -522,9 +526,12 @@ Reach supports depart-at queries. Drive and realtime transit are unavailable in 
 | `bounds` | Derived from origin/radius | `[west,south,east,north]`, finite and ordered geographic limits |
 | `includeStreetEdges` | false | Include indexed directed street evidence |
 | `includeNodes` | false | Include native node evidence |
+| `surfaceSampling` | `street` | `street` samples reached street intervals; `cell-center` routes to every grid center |
 | `scenario` | None | Exclusions, planned services, or compiled overlay |
 
 Do not supply `horizonMinutes`, `maxStreetKm`, `requireTransitRide`, or `allowLongWalk` to Reach. The largest cutoff bounds the analysis. Walk-only Reach accepts a clock without a service date and cannot apply a transit scenario.
+
+Cell-center sampling uses the Matrix walking allowance and fixed requested bounds. It supports walking or scheduled transit, without planned service changes. Transit uses the City's prepared 4.8 km/h walking policy; other speeds are rejected. Street sampling supports planned service changes and adjustable walking speed.
 
 ### Read the surface
 
@@ -539,7 +546,7 @@ latitude  = north - (y + 0.5) / height * (north - south)
 
 ### Street evidence
 
-Street evidence is `surface.edges` with schema `vigo.standalone.street-edges.v1`, encoding `indexed-json`. `nodes` is flat longitude/latitude pairs, `endpoints` contains two node indices per edge, and `edgeIds`, `durationMinutes`, `walkDistanceM`, and `transitArrivalMinutes` are parallel per-edge arrays. Use `count` and `nodeCount` for their domains. Inspect `diagnostics.surface.edgeEvidenceTruncated` before treating evidence as exhaustive. This encoding differs from Studio's binary edge bundles.
+Street evidence is `surface.edges` with schema `vigo.standalone.street-edges.v2`, encoding `indexed-json`. It retains partial directed intervals, with coordinates and times decoded as shown under [Reach output](#decode-directed-street-evidence). This encoding differs from Studio's binary edge bundles.
 
 ## 10. Scenarios
 
@@ -970,7 +977,7 @@ Walk/Drive matrices use their street travel durations. `distancesMeters` is a se
 | `includeGeometry: false` | Transit clocks, legs, IDs, endpoints, and stop sequences without line geometry |
 | `includeGeometry: true` | Geometry and provenance added to materialized transit legs |
 | `journeyFormat: "compact"` | Exact timed trip/stop witness without full display or walking-evidence metadata; requires journeys and excludes geometry |
-| Direct walking wins in a transit matrix | A compact `mode: "walk"` journey with clocks, duration, distance, and transfers; no `legs` even if geometry was requested |
+| Direct walking wins in a transit matrix | A `mode: "walk"` journey with a timed walking leg and walking totals; full journeys include geometry when requested |
 | Walk/Drive matrix | Distances and durations; no `journeys` property. Journey flags are unsupported. |
 
 Materialized transit journey cells have the [Route journey fields](#journey-clocks-and-totals), but no outer `status`, `mode`, or dispatch metadata. Read reachability from the duration cell and null journey entry. Do not parse every cell as a complete Route response.
@@ -981,7 +988,7 @@ High-level Route and Matrix diagnostics retain native clocks and search counters
 
 ### Reach output
 
-Reach returns several views of the same computation: transit stop arrivals, a raster, area/contour GeoJSON, and optional street evidence. Use the representation that matches the question; a raster cell is not an individual Route query to its center.
+Reach returns transit stop arrivals, a raster, area/contour GeoJSON, and optional street evidence. `surface.sampling` distinguishes reached street samples from routes to grid centers.
 
 #### Main fields
 
@@ -999,7 +1006,7 @@ Stop durations are elapsed minutes from the query clock. They are not clock minu
 
 #### Decode the raster
 
-`surface.width * surface.height` equals `surface.values.length`. Index zero is at the northwest. X grows east and Y grows south. Each finite value is the least elapsed time retained in that cell from reached graph nodes/edges; it does not promise a path to every point in the cell. Null means no finite value was retained under this computation's graph, grid, and limits.
+`surface.width * surface.height` equals `surface.values.length`. Index zero is at the northwest. X grows east and Y grows south. In street sampling, each finite value is the least elapsed time retained from sampled reached street intervals. In cell-center sampling, it is the Matrix travel time to the cell center. Neither promises a path to every point in the cell. Null means no finite value was retained under the query limits.
 
 This client function reads a cell without confusing zero with null:
 
@@ -1022,7 +1029,7 @@ function readCell(surface, x, y) {
 }
 ```
 
-The coordinate is the **cell center for display**, not a verified destination. A cell belongs to a cutoff when its value is not null and is at most that cutoff. Keep the original floating-point value for analysis; round only for display.
+The coordinate is the cell center: a display location for street sampling and the queried destination for cell-center sampling. A cell belongs to a cutoff when its value is not null and is at most that cutoff. Keep the original floating-point value for analysis; round only for display.
 
 For the full raster, pass `{...surface, bounds: surface.fullBounds, values: surface.fullValues}`. The full pair always exists in the high-level output; it falls back to the requested pair when no separate surface is produced. Both use the same dimensions. Recomputed bounds can be smaller or larger, so equal array indices need not refer to the same place. Changing bounds at fixed dimensions also changes cell size.
 
@@ -1041,34 +1048,43 @@ Areas trace occupied raster cells; contours interpolate threshold crossings. The
 
 #### Decode directed street evidence
 
-With `includeStreetEdges: true`, `surface.edges` uses `schemaVersion: "vigo.standalone.street-edges.v1"` and `encoding: "indexed-json"`. Without it, `edges` is null. An included but empty bundle has count zero and empty arrays.
+With `includeStreetEdges: true`, `surface.edges` uses `schemaVersion: "vigo.standalone.street-edges.v2"` and `encoding: "indexed-json"`. Without it, `edges` is null. An included but empty bundle has count zero and empty arrays.
 
 | Bundle field | Domain and meaning |
 | --- | --- |
-| `count` | Number of retained directed edge records |
+| `count` | Number of retained directed interval records |
 | `nodeCount`, `nodes` | Local coordinate table; `nodes.length = 2 * nodeCount` with longitude then latitude |
 | `endpoints` | Two local node indices per edge: from, then to; length `2 * count` |
 | `edgeIds` | Prepared directed graph edge IDs; length `count`. These are not local node indices or portable IDs across Cities. |
-| `durationMinutes` | Elapsed time to the directed edge's **to endpoint** on its retained best label; not the time to traverse just that edge |
+| `durationMinutes`, `fromDurationMinutes` | Elapsed times at the retained interval end and start |
+| `startFractions`, `endFractions` | Interval limits along the directed edge, between zero and one |
 | `walkDistanceM` | Walking distance accumulated from that label's seed through this edge, including snapping; not the full journey's walking distance or the edge length |
 | `transitArrivalMinutes` | Elapsed arrival at the transit seed, measured from the query clock. `-1` identifies the direct-origin seed; it is not a negative arrival time. |
 
-All three measurement arrays have length `count`. The bundle retains fully traversable directed edges within the largest cutoff and walking budget. Opposite directions are separate records. To draw records whose to endpoint is reachable at a smaller cutoff, filter `durationMinutes`; that gives whole-edge evidence, not partial-edge interpolation.
+All measurement arrays have length `count`. Repeated edge IDs describe ordered, non-overlapping intervals; opposite directions are separate records. Interpolate coordinates between the referenced graph vertices using the interval fractions. For a smaller cutoff, clip an interval between its start and end times instead of dropping the whole interval.
 
 ```js decoder=edge
-function readEdge(bundle, i) {
+function readEdge(bundle, i, cutoffMinutes = Infinity) {
   if (!Number.isInteger(i) || i < 0 || i >= bundle.count) {
     throw new RangeError('Edge is outside the bundle');
   }
   const point = node => bundle.nodes.slice(2 * node, 2 * node + 2);
+  const from = point(bundle.endpoints[2 * i]);
+  const to = point(bundle.endpoints[2 * i + 1]);
+  const start = bundle.startFractions?.[i] ?? 0;
+  const end = bundle.endFractions?.[i] ?? 1;
+  const startTime = bundle.fromDurationMinutes?.[i] ?? bundle.durationMinutes[i];
+  const endTime = bundle.durationMinutes[i];
+  if (cutoffMinutes < startTime) return null;
+  const clippedEnd = endTime <= cutoffMinutes ? end
+    : start + (end - start) * (cutoffMinutes - startTime) / (endTime - startTime);
+  if (clippedEnd <= start) return null;
+  const coordinate = fraction => from.map((v, axis) => v + fraction * (to[axis] - v));
   const seed = bundle.transitArrivalMinutes[i];
   return {
     edgeId: bundle.edgeIds[i],
-    coordinates: [
-      point(bundle.endpoints[2 * i]),
-      point(bundle.endpoints[2 * i + 1])
-    ],
-    durationMinutes: bundle.durationMinutes[i],
+    coordinates: [coordinate(start), coordinate(clippedEnd)],
+    durationMinutes: Math.min(endTime, cutoffMinutes),
     walkDistanceM: bundle.walkDistanceM[i],
     transitArrivalMinutes: seed === -1 ? null : seed
   };
@@ -1077,7 +1093,7 @@ function readEdge(bundle, i) {
 
 Here the client deliberately converts the `-1` sentinel to null for display. The API array still contains `-1`. Retain `edgeIds` when comparing bundles from the same graph; local `endpoints` indices can change from one bundle to another. Check `diagnostics.surface.edgeEvidenceTruncated` before treating the records as exhaustive.
 
-`surface.nodes` is a separate array of objects with `longitude`, `latitude`, `durationMinutes`, and `walkDistanceM`; it is not the coordinate table inside `edges`. With `includeNodes: false` it is empty. In this version, the high-level wrapper supplies a node-evidence limit of zero, which the kernel clamps to one: `includeNodes: true` returns at most one node and omits the native truncation flag. Use indexed edges for street coverage, or the native `street.surface` operation with an explicit node limit and its truncation diagnostic when you need node samples.
+`surface.nodes` is a separate array of objects with `longitude`, `latitude`, `durationMinutes`, and `walkDistanceM`; it is not the coordinate table inside `edges`. With `includeNodes: false` it is empty. `includeNodes: true` retains up to 30,000 reached nodes and reports `diagnostics.surface.nodeEvidenceTruncated`. This diagnostic limit does not truncate the raster or street intervals.
 
 ### Comparison output
 

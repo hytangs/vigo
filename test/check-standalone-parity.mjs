@@ -44,7 +44,7 @@ const close = (actual, expected, label, tolerance = .0011) => {
 }
 const point = id => ({ stopId: id })
 const coord = (lon, lat) => ({ coordinate: [lon, lat] })
-const base = { kind: 'route', origin: point('A'), destination: point('B'), serviceDate: '2026-07-15', timeMinutes: 475, maxWalkKm: .2 }
+const base = { kind: 'route', origin: point('A'), destination: point('B'), serviceDate: '2026-07-15', timeMinutes: 475, maxWalkKm: .2, requireTransitRide: true }
 const runtimeEnv = { PATH: '', RAYON_NUM_THREADS: '2' }
 try {
   for (const policy of ['default', 'configured']) {
@@ -86,6 +86,21 @@ try {
           assert.deepEqual(ride.coordinates, original.coordinates, 'source geometry')
         }
       })
+    }
+    for (const timePreference of ['depart_at', 'arrive_by']) {
+      const short = { ...base, origin: coord(-77.048, 38.901), destination: coord(-77.0479, 38.90105), timePreference, allowLongWalk: false, requireTransitRide: undefined }
+      const n = await legacy({ ...short, timePreference: timePreference === 'arrive_by' ? 'arrive' : 'depart' })
+      const r = await rust(short)
+      check(`${policy} very short ${timePreference} walks by default`, () => {
+        const p = n.result ?? n.plan
+        assert.equal(p.status, 'ready'); assert.equal(r.status, 'ready')
+        assert.equal(p.travelMode, 'walk'); assert.equal(r.mode, 'walk')
+        assert(p.durationMinutes < 1 && r.durationMinutes < 1)
+        assert(!p.legs.some(l => l.type === 'ride')); assert(!r.legs.some(l => l.kind === 'ride'))
+        close(p.durationMinutes, r.durationMinutes, 'short duration')
+      })
+      const required = await rust({ ...short, requireTransitRide: true })
+      check(`${policy} explicit transit remains required`, () => { assert(required.status === 'blocked' || required.legs.some(l => l.kind === 'ride')) })
     }
     const endpoints = [[point('A'), point('B')], [point('A'), point('P')], [point('P'), point('B')], [point('Y'), point('B')], [coord(-77.049, 38.9005), coord(-77.031, 38.9095)], [point('B'), point('A')]]
     for (const [origin, destination] of endpoints) {
@@ -187,6 +202,7 @@ try {
     for (const walkSpeedKph of [2, 4.8, 8]) {
       const q = { ...base, kind: 'reach', origin: coord(-77.049, 38.9005), walkSpeedKph, timeMinutes: 478, cutoffsMinutes: [15, 30, 45], extentRadiusKm: 2, rasterSize: 48, includeStreetEdges: true }
       delete q.destination
+      delete q.requireTransitRide
       const ref = await legacy(q)
       const r = await rust({ ...q, bounds: ref.surface?.bounds })
       check(`${policy} Reach walking speed ${walkSpeedKph}`, () => {
@@ -208,6 +224,7 @@ try {
     ]) {
       const q = { ...base, kind: 'reach', cutoffsMinutes: [15, 30, 45], extentRadiusKm: 2, rasterSize: 48, scenario }
       delete q.destination
+      delete q.requireTransitRide
       const ref = await legacy(q)
       const r = await rust({ ...q, bounds: ref.surface?.bounds })
       check(`${policy} Reach scenario ${JSON.stringify(scenario)}`, () => {

@@ -329,6 +329,30 @@ impl CoordinateKernel {
             origin_access.into_iter().unzip();
         let (destination_snaps, destination_attachments): (Vec<_>, Vec<_>) =
             destination_access.into_iter().unzip();
+        let origin_edges = origin_snaps
+            .iter()
+            .zip(origin_coordinate_pairs)
+            .zip(&origin_attachments)
+            .map(|((snaps, point), private)| {
+                if private.is_none() {
+                    edge_attachment::from_snaps(&self.snapshot, snaps, *point)
+                } else {
+                    Ok(None)
+                }
+            })
+            .collect::<napi::Result<Vec<_>>>()?;
+        let destination_edges = destination_snaps
+            .iter()
+            .zip(destination_coordinate_pairs)
+            .zip(&destination_attachments)
+            .map(|((snaps, point), private)| {
+                if private.is_none() {
+                    edge_attachment::from_snaps(&self.snapshot, snaps, *point)
+                } else {
+                    Ok(None)
+                }
+            })
+            .collect::<napi::Result<Vec<_>>>()?;
         let reverse = origin_count > destination_count;
         let (target_coordinates, target_snaps, source_snaps) = if reverse {
             (&input.origin_coordinates, &origin_snaps, &destination_snaps)
@@ -393,6 +417,13 @@ impl CoordinateKernel {
                 } else {
                     distance
                 };
+                let distance = edge_attachment::distance(
+                    &self.snapshot,
+                    origin_edges[origin],
+                    destination_edges[destination],
+                )?
+                .filter(|d| *d <= input.maximum_distance_m)
+                .map_or(distance, |d| d.min(distance));
                 let matrix_index = origin * destination_count + destination;
                 if input.origin_coordinates[origin * 2..origin * 2 + 2]
                     == input.destination_coordinates[destination * 2..destination * 2 + 2]

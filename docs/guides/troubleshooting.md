@@ -45,7 +45,7 @@ Invalid requests exit `2` and explain the failure on stderr. If an old `--output
 Start with `result.detail`, `result.diagnostics.searchLimits`, and `result.diagnostics.accessAvailability` when present.
 
 1. Confirm the requested City revision, date, time, and mode. GTFS time `25:10` belongs to the previous calendar day's service date, not a new service-day request at `01:10`.
-2. Check whether transit is required. Transit defaults to at least one boarding; walking-only feasibility requires `requireTransitRide: false` or a separate Walk query.
+2. Check whether transit is required. Transit compares a feasible direct walk by default. `requireTransitRide: true` requires at least one boarding; use Walk mode to request only walking.
 3. Check each endpoint's walking access. A nearby stop by straight-line distance may lack a verified street path. An `outside_selected_budget` diagnosis only proposes a wider access check, not a guaranteed complete journey.
 4. Check the horizon, transfer cap, and timetable. For depart-at, the horizon bounds transit boarding and alighting; it is not a door-to-door duration cap.
 5. If a changed constraint is justified, save it as a new request and compare the outcomes. Preserve the blocked Result as part of the analysis.

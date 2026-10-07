@@ -56,6 +56,7 @@ import { buildNativeStreetCchIndex, formatPublicResult } from '../server/native-
 import { buildTerminalAccessStore } from '../server/terminal-access-store.mjs'
 import { timingMilliseconds } from '../server/number-utils.mjs'
 import {
+  composeOrderedRoutingFailure,
   composeOrderedRoutingPlans,
   routeOrderedRoutingSegments,
   validateOrderedRoutingPoints,
@@ -458,7 +459,9 @@ async function computeRouteRequest(
     const points = validateOrderedRoutingPoints(origin, waypoints, destination)
     const components = await routeOrderedRoutingSegments(points, baseRequest, routeSegment)
     routed = {
-      plan: composeOrderedRoutingPlans(components.componentPlans, points, baseRequest),
+      plan: components.failedIndex >= 0
+        ? composeOrderedRoutingFailure(components.failedPlan, components.failedIndex, points, components.componentPlans)
+        : composeOrderedRoutingPlans(components.componentPlans, points, baseRequest),
       profileSampleCount: components.componentPlans.length,
       elapsedMs: performance.now() - queryStarted,
     }
@@ -876,7 +879,7 @@ async function runRouteStream(args: CliArguments, explicitKinds = false) {
           query: {
             routingDataMode, serviceDate: defaults.serviceDate, timeMinutes, timePreference,
             objective, maxWalkKm, maxTransfers, departureWindowMinutes,
-            horizonMinutes, requireTransitRide: input.requireTransitRide !== false,
+            horizonMinutes, requireTransitRide: input.requireTransitRide === true,
             ...(input.allowStreetTransfers !== undefined ? { allowStreetTransfers: input.allowStreetTransfers } : {}),
             ...(input.minimumTransferBufferMinutes !== undefined ? { minimumTransferBufferMinutes: input.minimumTransferBufferMinutes } : {}),
             ...(input.arrivalBufferMinutes !== undefined ? { arrivalBufferMinutes: input.arrivalBufferMinutes } : {}),
@@ -1205,7 +1208,7 @@ async function computeReachRequest(
     throw new Error('Reach does not support supplied traffic or live transit state.')
   }
   const mode = value(args, 'mode', String(request.mode ?? 'transit'))
-  if (mode !== 'transit') throw new Error('Reach supports transit with walking access and egress; walk-only and drive Reach are unavailable.')
+  if (!['transit', 'walk'].includes(mode)) throw new Error('Reach supports transit or walk.')
   if (args.has('radius') || Object.hasOwn(request, 'radiusKm')) {
     throw new Error('Unknown Reach extent; use --extent-radius or extentRadiusKm')
   }
@@ -1252,6 +1255,8 @@ async function computeReachRequest(
   const bounds = rasterBounds(origin, radiusKm)
   const queryStarted = performance.now()
   const range = routeNationalGtfsReach(storePath, {
+    mode,
+    surfaceSampling: request.surfaceSampling,
     routingDataMode: options.routingDataMode,
     origin,
     departMinutes: options.timeMinutes,
@@ -1309,6 +1314,8 @@ async function computeReachRequest(
     warnings: request.includeLimitations === true ? readNationalGtfsStoreMetadata(storePath).routingLimitations ?? [] : [],
     query: {
       routingDataMode: options.routingDataMode,
+      mode,
+      surfaceSampling: request.surfaceSampling ?? 'street',
       origin,
       timeMinutes: options.timeMinutes,
       serviceDate: options.serviceDate,

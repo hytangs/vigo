@@ -241,6 +241,7 @@ export default function App() {
   const [scenarioError, setScenarioError] = useState('')
   const [scenarioCutoffMinutes, setScenarioCutoffMinutes] = useState(45)
   const [scenarioWalkSpeedKph, setScenarioWalkSpeedKph] = useState(4.8)
+  const [reachSurfaceSampling, setReachSurfaceSampling] = useState<'street' | 'cell-center'>('street')
   const [scenarioView, setScenarioView] = useState<ScenarioView>('comparison')
   const [scenarioRenderMode, setScenarioRenderMode] = useState<ScenarioRenderMode>('area')
   const { scenarioDrafts, setScenarioDrafts, activeScenarioId, setActiveScenarioId,
@@ -2001,6 +2002,7 @@ export default function App() {
               serviceDay: routingServiceDay,
               maxWalkKm: routingMaxWalkKm,
               walkSpeedKph: scenarioWalkSpeedKph,
+              surfaceSampling: reachSurfaceSampling,
               rasterSize: desktopReachRasterSize,
               cutoffsMinutes: [...new Set([15, 30, 45, 60, 75, 90, scenarioCutoffMinutes])].sort((left, right) => left - right),
               includePreliminary: false,
@@ -2116,6 +2118,7 @@ export default function App() {
             serviceDay: routingServiceDay,
             maxWalkKm: routingMaxWalkKm,
             walkSpeedKph: scenarioWalkSpeedKph,
+            surfaceSampling: reachSurfaceSampling,
             rasterSize: desktopReachRasterSize,
             cutoffsMinutes: [...new Set([15, 30, 45, 60, 75, 90, scenarioCutoffMinutes])].sort((left, right) => left - right),
             // The final baseline surface is rendered after transit/routing
@@ -3029,6 +3032,12 @@ export default function App() {
             departMinutes={scheduleTimeMinutes}
             maxWalkKm={routingMaxWalkKm}
             walkSpeedKph={scenarioWalkSpeedKph}
+            surfaceSampling={reachSurfaceSampling}
+            onSurfaceSamplingChange={(value) => {
+              setReachSurfaceSampling(value)
+              if (value === 'cell-center') setScenarioWalkSpeedKph(4.8)
+              invalidateAnalyzeResult()
+            }}
             cutoffMinutes={scenarioCutoffMinutes}
             renderMode={scenarioRenderMode}
             cases={scenarioDrafts}

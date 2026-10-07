@@ -472,12 +472,12 @@ export type ScenarioAreaMetrics = {
 }
 
 /**
- * Exact full street-edge geometry packed for transport. The node table is
+ * Reached directed street intervals packed for transport. The node table is
  * indexed by the endpoint pairs; all numeric buffers are little-endian.
  * `transitArrivalMinutes=-1` represents an origin-only edge.
  */
 export type ScenarioStreetEdgeBundle = {
-  schemaVersion: 'vigo.street.edge-bundle.v1'
+  schemaVersion: 'vigo.street.edge-bundle.v1' | 'vigo.street.edge-bundle.v2'
   encoding: 'indexed-f64-le'
   count: number
   nodeCount: number
@@ -486,6 +486,10 @@ export type ScenarioStreetEdgeBundle = {
   /** Directed OSM edge indexes, stable within one persisted street snapshot. */
   edgeIds: string
   durationMinutes: string
+  /** v2 intervals are ordered by edge ID and start fraction; an edge may have multiple intervals. */
+  fromDurationMinutes?: string
+  startFractions?: string
+  endFractions?: string
   walkDistanceM: string
   transitArrivalMinutes: string
 }
@@ -509,7 +513,7 @@ export type ScenarioReachMethod = {
 }
 
 export type ReachTransitStatus = {
-  status: 'reached' | 'no_service' | 'no_service_window' | 'no_target_stops' | 'outside_window' | 'no_reachable_stops' | 'preliminary'
+  status: 'walk_only' | 'reached' | 'no_service' | 'no_service_window' | 'no_target_stops' | 'outside_window' | 'no_reachable_stops' | 'preliminary'
   detail: string
   requestedDepartureMinutes?: number
   windowEndMinutes?: number
@@ -523,6 +527,8 @@ export type ReachResult = {
   schemaVersion: 'vigo.result.reach.v1'
   request: {
     baselineIdentity: string
+    mode?: 'walk' | 'transit'
+    surfaceSampling?: 'street' | 'cell-center'
     origin: {
       id?: string
       label: string

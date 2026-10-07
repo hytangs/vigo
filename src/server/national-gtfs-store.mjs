@@ -5954,6 +5954,87 @@ function reachTransitStatus({
  */
 export function routeNationalGtfsReach(storePath, request, options = {}) {
   validateArrivalBuffer(request, false)
+  const sampling = request.surfaceSampling ?? 'street'
+  const mode = request.mode ?? 'transit'
+  if (!['street', 'cell-center'].includes(sampling)) throw new Error('Reach surfaceSampling must be street or cell-center.')
+  if (!['transit', 'walk'].includes(mode)) throw new Error('Reach supports transit or walk.')
+  if (sampling === 'street' && mode === 'transit') return routeNationalGtfsStreetReach(storePath, request, options)
+  validateMaximumTransfers(request.maxTransfers)
+  request = withResolvedServiceDay(normalizeScheduledAnalysisRequest(request, 'Reach'))
+  const surfaceRequest = normalizedReachSurface(request.surface)
+  if (!surfaceRequest) throw new Error('Reach requires a surface grid for this sampling mode.')
+  if (request.scenarioOverlay || request.excludedRouteIds?.length || request.excludedTripIds?.length) {
+    throw new Error('Planned transit changes require transit Reach with street sampling.')
+  }
+  const streetStorePath = options.streetStorePath ?? request.streetStorePath
+  if (!streetStorePath) throw new Error('Reach requires a City with streets.')
+  const maxWalkKm = Number(request.maxWalkKm ?? 1.2)
+  const speed = Number(request.walkSpeedKph ?? walkingSpeedKph)
+  const cutoff = Number(request.cutoffMinutes ?? 90)
+  if (!Number.isFinite(maxWalkKm) || maxWalkKm < 0.2 || maxWalkKm > 5
+    || !Number.isFinite(speed) || speed < 1 || speed > 8
+    || !Number.isFinite(cutoff) || cutoff < 5 || cutoff > 240) throw new Error('Invalid Reach walking or cutoff limits.')
+  if (mode === 'transit' && speed !== walkingSpeedKph) {
+    throw new Error(`Cell-center transit Reach uses the City walking speed of ${walkingSpeedKph} km/h.`)
+  }
+  const started = performance.now()
+  const native = mode === 'transit'
+    ? routeNationalGtfsStreetReach(storePath, { ...request,
+        surface: surfaceRequest.includeEdges ? surfaceRequest : undefined }, options)
+    : { schemaVersion: 'vigo.result.reach.v1', stops: [], scenarioStops: [],
+        surface: sampling === 'street' || surfaceRequest.includeEdges
+          ? buildReachSurface(streetStorePath, surfaceRequest,
+              [{ coordinate: request.origin.coordinate, durationMinutes: 0 }], maxWalkKm, speed, cutoff)
+          : null,
+        diagnostics: { owner: 'rust_resident_street_kernel', algorithm: 'directed_street_reach',
+          transit: { status: 'walk_only', detail: 'Walking only.', reachedStops: 0 } } }
+  if (sampling === 'street') return native
+  const { bounds, width, height } = surfaceRequest
+  const [west, south, east, north] = bounds
+  const values = new Float64Array(width * height).fill(Infinity)
+  let ready = 0, blocked = 0, queryCount = 0
+  for (let first = 0; first < values.length; first += 16_384) {
+    if (options.isCancelled?.()) {
+      const error = new Error('Reach analysis was cancelled.'); error.name = 'AbortError'; throw error
+    }
+    const destinations = Array.from({ length: Math.min(16_384, values.length - first) }, (_, offset) => {
+      const i = first + offset
+      return { coordinate: [west + (i % width + 0.5) / width * (east - west),
+        north - (Math.floor(i / width) + 0.5) / height * (north - south)], source: 'map' }
+    })
+    const matrix = mode === 'transit' ? routeNationalGtfsMatrix(storePath, {
+      ...request, origins: [request.origin], destinations, timePreference: 'depart',
+      routingPreference: 'fastest', horizonMinutes: cutoff, requireTransitRide: false,
+      allowLongWalk: false, includeJourneys: false, includeGeometry: false, streetStorePath,
+    }) : routeNationalStreetMatrix(streetStorePath, {
+      origins: [request.origin], destinations, mode: 'walk', walkingSpeedKph: speed,
+      maxDistanceKm: Math.min(maxWalkKm, cutoff / 60 * speed),
+    })
+    queryCount += 1
+    if (['unsupported_gtfs_feature', 'coverage_incomplete'].includes(matrix.diagnostics?.failure?.code)) {
+      const error = new Error(matrix.diagnostics.failure.message ?? matrix.diagnostics.failure.code)
+      error.code = matrix.diagnostics.failure.code; throw error
+    }
+    for (const [offset, row] of matrix.rows.entries()) {
+      if (!['ready', 'blocked'].includes(row.status)) throw new Error('Reach destination-grid query failed.')
+      if (row.status === 'ready' && Number.isFinite(row.durationMinutes) && row.durationMinutes <= cutoff) {
+        values[first + offset] = row.durationMinutes; ready += 1
+      } else blocked += 1
+    }
+  }
+  const surface = { schemaVersion: 'vigo.street.network-raster.v1', sampling: 'cell-center',
+    width, height, bounds, values, fullValues: values, fullBounds: bounds,
+    nodes: [], edges: native.surface?.edges ?? null,
+    diagnostics: { surfaceModel: 'coordinate_to_coordinate_cell_centers', sampledTargets: values.length,
+      reachableTargets: ready, blockedTargets: blocked, queryErrors: 0, matrixBatches: queryCount,
+      walkingSpeedKph: speed, directWalkingLimitKm: maxWalkKm, fixedRequestedGrid: true,
+      queryMs: Number((performance.now() - started).toFixed(3)) } }
+  return { ...native, surface,
+    diagnostics: { ...native.diagnostics, surface: surface.diagnostics, surfaceSampling: sampling } }
+}
+
+function routeNationalGtfsStreetReach(storePath, request, options = {}) {
+  validateArrivalBuffer(request, false)
   validateMaximumTransfers(request.maxTransfers)
   request = normalizeScheduledAnalysisRequest(request, 'Reach')
   request = withResolvedServiceDay(request)
@@ -6661,7 +6742,7 @@ export function routeNationalGtfsMatrix(storePath, request) {
     )) continue
     if (!walkReady || walkMinutes > horizonMinutes + 1e-9
       || (request.timePreference === 'arrive' && walkMinutes > row.arriveMinutes)
-      || (row.status === 'ready' && row.durationMinutes <= walkMinutes)) continue
+      || (row.status === 'ready' && row.durationMinutes < walkMinutes)) continue
     row.status = 'ready'
     if (request.timePreference === 'arrive') {
       row.departMinutes = minuteCoordinate((row.arriveMinutes - walkMinutes) * 60)

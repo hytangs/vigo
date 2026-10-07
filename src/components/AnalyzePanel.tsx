@@ -67,6 +67,8 @@ type AnalyzePanelProps = {
   departMinutes: number
   maxWalkKm: number
   walkSpeedKph: number
+  surfaceSampling?: 'street' | 'cell-center'
+  onSurfaceSamplingChange?: (value: 'street' | 'cell-center') => void
   cutoffMinutes: number
   renderMode: ScenarioRenderMode
   cases: ScenarioDraft[]
@@ -591,6 +593,8 @@ export function AnalyzePanel({
   departMinutes,
   maxWalkKm,
   walkSpeedKph,
+  surfaceSampling = 'street',
+  onSurfaceSamplingChange,
   cutoffMinutes,
   renderMode,
   cases,
@@ -659,6 +663,9 @@ export function AnalyzePanel({
     route.id === activeIntervention?.routeId || route.patternId === activeIntervention?.routeId
   )), [activeIntervention?.routeId, routes])
   const hasScenarioChanges = interventions.length > 0
+  useEffect(() => {
+    if (hasScenarioChanges && surfaceSampling === 'cell-center') onSurfaceSamplingChange?.('street')
+  }, [hasScenarioChanges, surfaceSampling, onSurfaceSamplingChange])
   useEffect(() => {
     if (hasScenarioChanges) setScenarioEditorOpen(true)
   }, [hasScenarioChanges])
@@ -886,10 +893,18 @@ export function AnalyzePanel({
             </label>
             <label className="reach-field">
               <span>Walk speed</span>
-              <select value={walkSpeedKph} onChange={(event) => onWalkSpeedChange(Number(event.currentTarget.value))}>
+              <select disabled={surfaceSampling === 'cell-center'} value={walkSpeedKph} onChange={(event) => onWalkSpeedChange(Number(event.currentTarget.value))}>
                 {walkSpeedOptions.map((value) => <option key={value} value={value}>{value} km/h</option>)}
               </select>
             </label>
+            {onSurfaceSamplingChange && <label className="reach-field">
+              <span>Area calculation</span>
+              <select value={surfaceSampling} onChange={(event) => onSurfaceSamplingChange(event.currentTarget.value as 'street' | 'cell-center')}>
+                <option value="street">Reachable streets</option>
+                <option value="cell-center" disabled={hasScenarioChanges}>Routes to grid points</option>
+              </select>
+              <small>{surfaceSampling === 'cell-center' ? 'Routes to each grid point; uses the City walking speed of 4.8 km/h.' : 'Follows reachable portions of streets; supports planned service changes.'}</small>
+            </label>}
             <label className="reach-field">
               <span>Time cutoff</span>
               <select value={cutoffMinutes} onChange={(event) => onCutoffChange(Number(event.currentTarget.value))}>

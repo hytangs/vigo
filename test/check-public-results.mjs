@@ -13,7 +13,7 @@ const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-public-results-'))
 const city = path.join(directory, 'city')
 const servers = []
 let checks = 0
-const base = { serviceDate: '2026-07-15', time: '07:55', origin: { stop: { feed: null, id: 'A' } }, destination: { stop: { feed: null, id: 'B' } }, maxWalkKm: .2 }
+const base = { serviceDate: '2026-07-15', time: '07:55', origin: { stop: { feed: null, id: 'A' } }, destination: { stop: { feed: null, id: 'B' } }, maxWalkKm: .2, requireTransitRide: true }
 const forbidden = ['memberIndices', 'pathMemberIndices', 'queryToken', 'linkFromStopKeys', 'originAccess', 'accessReductionNs', '4294967295', '\\u001f']
 function assertPublic(result) {
   assert.match(result.schema, /^vigo\.(route|matrix|reach)\.v1$/)
@@ -71,9 +71,21 @@ try {
     assert.equal(trace.journey.arrivalTime, result.journey.arrivalTime)
     assert.equal(cli(runtime, 'route', { ...base, maxTransfers: 0 }).status, 'not_found')
     assert.equal(cli(runtime, 'route', { ...base, serviceDate: '2026-07-19' }).status, 'not_found')
-    const matrix = cli(runtime, 'matrix', { serviceDate: base.serviceDate, time: base.time, origins: [base.origin], destinations: [base.destination], maxWalkKm: .2, includeJourneys: true })
+    const matrix = cli(runtime, 'matrix', { serviceDate: base.serviceDate, time: base.time, origins: [base.origin], destinations: [base.destination], maxWalkKm: .2, requireTransitRide: true, includeJourneys: true })
     assertPublic(matrix)
     assert.deepEqual(matrix.durationsSeconds, [[2100]])
+    const { requireTransitRide, ...defaultQuery } = base
+    const defaultRoute = cli(runtime, 'route', defaultQuery)
+    const walkingRoute = cli(runtime, 'route', { ...defaultQuery, mode: 'walk' })
+    assertPublic(defaultRoute)
+    assert.equal(defaultRoute.journey.durationSeconds, walkingRoute.journey.durationSeconds)
+    assert(defaultRoute.journey.durationSeconds < result.journey.durationSeconds)
+    assert(defaultRoute.journey.legs.every(leg => leg.type === 'walk'))
+    assert(defaultRoute.journey.legs.every(leg => leg.geometry?.coordinates?.length >= 2))
+    const defaultMatrix = cli(runtime, 'matrix', { serviceDate: base.serviceDate, time: base.time, origins: [base.origin], destinations: [base.destination], maxWalkKm: .2, includeJourneys: true })
+    assertPublic(defaultMatrix)
+    assert.deepEqual(defaultMatrix.durationsSeconds, [[defaultRoute.journey.durationSeconds]])
+    checks += 5
     const reach = cli(runtime, 'reach', { serviceDate: base.serviceDate, time: base.time, origin: base.origin, rasterSize: 48, cutoffsMinutes: [15, 30], maxWalkKm: .2 })
     assertPublic(reach)
     assert.equal(reach.surface.valuesSeconds.length, 48 * 48)

@@ -46,7 +46,7 @@ const configuredAccessOverheadSeconds = Math.max(
 )
 
 export const nationalRoutingAccessPolicy = Object.freeze({
-  schemaVersion: 'vigo.routing.access-policy.v8',
+  schemaVersion: 'vigo.routing.access-policy.v9',
   id: customWalkingParametersEnabled
     ? 'vigo-national-configured-access'
     : 'vigo-national-regular-access',
@@ -188,7 +188,7 @@ export function routingHorizonMinutes(request) {
 }
 
 export function transitRideRequired(request) {
-  return request?.requireTransitRide !== false || request?.__disableDirectWalkDominance === true
+  return request?.requireTransitRide === true || request?.__disableDirectWalkDominance === true
 }
 
 export function validateTransitRideRequirement(request) {

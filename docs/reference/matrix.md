@@ -35,7 +35,7 @@ actual arrival within the deadline. Equal-objective paths can differ from
 Route's stable traversal order and therefore have different ride/wait splits.
 The public objective is `earliest_arrival`; Matrix does not return Route's departure-window alternatives.
 
-Coordinate Transit Matrix requires a vehicle boarding by default. With `requireTransitRide: false`, it compares scheduled transit with a direct OSM walk, using the same independent end-to-end walking limit as Route. For depart-at, the horizon bounds the timetable search and the direct walk; a final transit egress walk can extend beyond the timetable horizon. For arrive-by, egress must finish by the deadline. Walking distances are computed in one native batch.
+Coordinate Transit Matrix compares scheduled transit with a direct OSM walk by default. Set `requireTransitRide: true` to require a vehicle boarding. Direct walking uses the same independent end-to-end walking limit as Route. For depart-at, the horizon bounds the timetable search and the direct walk; a final transit egress walk can extend beyond the timetable horizon. For arrive-by, egress must finish by the deadline. Walking distances are computed in one native batch.
 
 A request accepts up to 100,000 pairs, with no separate origin or destination
 limit. Both 1 × 100,000 and 100,000 × 1 fit in one call. Results remain in

@@ -1,6 +1,8 @@
 # Version history
 
-## Unreleased
+## 0.4.4
+
+Correct interior street routing and partial Reach boundaries; add destination-grid and walk-only Reach, prefer faster direct walks by default, and update Studio. See [release notes](docs/releases/0.4.4.md).
 
 Exclude bus-platform area outlines from the linear street graph, while retaining mapped platform centre lines. Discover nearby reciprocal street segments even when both endpoints lie outside the vertex search. Street stores now use schema v6; rebuild older Cities from their source inputs to apply the graph correction and regenerate access profiles and street transfers.
 

@@ -331,6 +331,24 @@ try {
         `${mode} ${timePreference} ordered HTTP/CLI parity`)
     }
   }
+  for (const timePreference of ['depart', 'arrive']) {
+    const request = { origin: orderedPoints[0], waypoints: [orderedPoints[1]], destination: orderedPoints[2],
+      mode: 'transit', timePreference, departMinutes: 510, arriveMinutes: 510,
+      serviceDate: '2026-07-19', maxWalkKm: 0.2 }
+    const response = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-route`, apiUrl), {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request),
+    })
+    const body = await response.json()
+    assert.equal(response.status, 200)
+    assert.equal(body.plan.status, 'blocked', 'Inactive service must preserve the failed waypoint component.')
+    const requestPath = path.join(temporaryRoot, 'blocked-ordered-route.json')
+    await fsp.writeFile(requestPath, JSON.stringify(request))
+    const cli = runCli(['route', `--city=${projectMetaPath}`, `--request=${requestPath}`,
+      '--service-date=2026-07-19', '--time=08:30', '--max-walk=0.2'])
+    assert.equal(cli.status, 0, cli.stderr)
+    assert.deepEqual(canonicalPlan(JSON.parse(cli.stdout).trace.result), canonicalPlan(body.plan),
+      `${timePreference} blocked waypoint HTTP/CLI parity`)
+  }
   for (const total of [8, 9]) {
     const points = Array.from({ length: total }, (_, index) => orderedPoints[index % 3])
     const response = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-route`, apiUrl), {
@@ -521,6 +539,17 @@ try {
       '--time=07:55', `--service-date=${serviceDate}`, '--max-walk=0.2'])
     assert.equal(jsonMatrix.status, 0, jsonMatrix.stderr)
     assert.equal(JSON.parse(jsonMatrix.stdout).trace.rows[0].arriveMinutes, body.plan.arriveMinutes)
+  }
+
+  for (const timePreference of ['depart', 'arrive']) {
+    const short = { origin: { coordinate: [-77.048, 38.901] }, destination: { coordinate: [-77.0479, 38.90105] },
+      timePreference, departMinutes: 475, arriveMinutes: 475, serviceDate, maxWalkKm: .2, allowLongWalk: false }
+    const response = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-route`, apiUrl), {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(short) })
+    const body = await response.json()
+    assert.equal(response.status, 200, JSON.stringify(body))
+    assert.equal(body.plan.status, 'ready'); assert.equal(body.plan.travelMode, 'walk')
+    assert(body.plan.durationMinutes < 1 && body.plan.legs.every(l => l.type !== 'ride'))
   }
 
   const alternativesResponse = await apiRuntime.fetch(

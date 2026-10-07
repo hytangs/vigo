@@ -1,6 +1,6 @@
 # Native Rust field reference
 
-Generated for VIGO 0.4.3 from public Rust structs. Regenerate with `npm run docs:standalone`.
+Generated for VIGO 0.4.4 from public Rust structs. Regenerate with `npm run docs:standalone`.
 
 Use the [standalone manual](../guides/rust-standalone.md#18-native-operation-reference) for units, index domains, and examples. In requests, an optional field accepts omission or null. Result objects include every listed field; an unavailable optional value is null. Native arrays become JSON arrays, and non-finite result numbers become null. The runtime also checks compatible array lengths, indices, and values.
 
@@ -355,6 +355,7 @@ Source: `native/vigo-routing-kernel/src/street_analysis.rs`.
 | `toLongitude` | `f64` | Always | — |
 | `toLatitude` | `f64` | Always | — |
 | `durationMinutes` | `f64` | Always | — |
+| `fromDurationMinutes` | `f64` | Always | — |
 | `walkDistanceM` | `f64` | Always | — |
 | `transitArrivalMinutes` | `Option<f64>` | Always | — |
 
@@ -369,6 +370,8 @@ Source: `native/vigo-routing-kernel/src/street_analysis.rs`.
 | `height` | `u32` | Yes | Number of raster rows. |
 | `seedCoordinates` | `Vec<f64>` | Yes | Flat longitude/latitude pairs for surface/connector seeds. |
 | `seedDurationsMinutes` | `Vec<f64>` | Yes | Elapsed minutes already spent reaching each seed. |
+| `seedMemberIndices` | `Option<Vec<i32>>` | No | — |
+| `seedWalkDistancesM` | `Option<Vec<f64>>` | No | — |
 | `maximumWalkM` | `f64` | Yes | Maximum endpoint or terminal walking distance in meters. |
 | `walkSpeedKph` | `f64` | Yes | Walking speed in kilometers per hour. |
 | `maximumDurationMinutes` | `f64` | Yes | Maximum elapsed duration accepted by the surface/connector query. |
@@ -414,7 +417,10 @@ Source: `native/vigo-routing-kernel/src/street_analysis.rs`.
 | `edgeEvidenceNodes` | `Option<Float64Array>` | Always | — |
 | `edgeEvidenceEndpoints` | `Option<Uint32Array>` | Always | — |
 | `edgeEvidenceIds` | `Option<Uint32Array>` | Always | — |
-| `edgeEvidenceDurations` | `Option<Float64Array>` | Always | Elapsed minutes to each retained directed edge to-endpoint, not the duration of that edge alone. |
+| `edgeEvidenceDurations` | `Option<Float64Array>` | Always | Elapsed minutes at each retained directed interval end, not its traversal duration. |
+| `edgeEvidenceStartDurations` | `Option<Float64Array>` | Always | — |
+| `edgeEvidenceStartFractions` | `Option<Float64Array>` | Always | — |
+| `edgeEvidenceEndFractions` | `Option<Float64Array>` | Always | — |
 | `edgeEvidenceWalkDistances` | `Option<Float64Array>` | Always | — |
 | `edgeEvidenceTransitArrivals` | `Option<Float64Array>` | Always | Elapsed seed duration for each indexed edge; -1 marks seed index zero. |
 

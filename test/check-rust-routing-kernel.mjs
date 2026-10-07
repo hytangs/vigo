@@ -1065,12 +1065,82 @@ try {
       destinationLon: 0.004, destinationLat: 38, maximumDistanceM: 1000, maximumPoints: 32 }).found, false,
     'The long-edge index must preserve the 80 metre projection limit.')
   }
+  for (const [originLon, destinationLon] of [[0, 0.0008], [0.0008, 0]]) {
+    const query = { originLon, originLat: 38, destinationLon, destinationLat: 38,
+      maximumDistanceM: 100, maximumPoints: 32 }
+    const result = interiorKernel.routePath(query)
+    assert(result.found, 'Two points 70 metres apart inside a 700 metre street must not detour through a vertex.')
+    assert(Math.abs(result.distanceM - 70) < 1e-6)
+    result.coordinates.forEach((v, i) => assert(Math.abs(v - [originLon, 38, destinationLon, 38][i]) < 1e-12))
+    assert.equal(interiorKernel.routePath({ ...query, maximumDistanceM: 69 }).found, false)
+    const matrix = interiorKernel.routeStreetMatrix({ originCoordinates: [originLon, 38],
+      destinationCoordinates: [destinationLon, 38], maximumDistanceM: 100 })
+    assert(Math.abs(matrix.distancesM[0] - 70) < 1e-6)
+  }
+  interiorKernel.setAccessProfile({ profileKey: 'interior-access', anchorLons: [0, 0.0008],
+    anchorLats: [38, 38], anchorMemberOffsets: [0, 1, 2], anchorMemberIndices: [0, 1],
+    memberLons: [0, 0.0008], memberLats: [38, 38], memberOriginEligible: [1, 1], memberDestinationEligible: [1, 1] })
+  for (const disableCache of [true, false, false]) {
+    const ends = interiorKernel.routeEndpoints({ originLon: 0, originLat: 38, destinationLon: 0,
+      destinationLat: 38, maximumWalkM: 100, disableCache })
+    for (const role of ['origin', 'destination']) {
+      const index = ends[`${role}MemberIndices`].indexOf(1)
+      assert(index >= 0, 'A nearby stop on the same edge must remain reachable within the walking cap.')
+      assert(Math.abs(ends[`${role}DistancesM`][index] - 70) < 1e-6)
+      const geometry = interiorKernel.materializePath({ queryToken: ends.queryToken, role, memberIndex: 1, maximumPoints: 32 }).coordinates
+      const expected = role === 'origin' ? [0, 38, 0.0008, 38] : [0.0008, 38, 0, 38]
+      geometry.forEach((v, i) => assert(Math.abs(v - expected[i]) < 1e-12))
+    }
+  }
+  const transfer = interiorKernel.buildStopTransferGraph({ maximumWalkM: 100, maximumNeighbors: 0 })
+  assert.equal(transfer.distancesM.filter(d => Math.abs(d - 70) < 1e-6).length, 2,
+    'Both stop-transfer directions must use the interior segment.')
+  const transferPath = interiorKernel.routeAccessMemberPath({ originMemberIndex: 0, destinationMemberIndex: 1,
+    maximumDistanceM: 100, maximumPoints: 32 })
+  assert(transferPath.found && Math.abs(transferPath.distanceM - 70) < 1e-6)
   const interiorSurface = interiorKernel.streetSurface({ bounds: [-0.005, 37.999, 0.005, 38.001],
     width: 48, height: 48, seedCoordinates: [0, 38], seedDurationsMinutes: [0],
     maximumWalkM: 400, walkSpeedKph: 4.8, maximumDurationMinutes: 10,
     independentTerminalWalk: false, includeNodes: true, nodeEvidenceLimit: 10,
     includeEdges: false, edgeEvidenceLimit: 0, expandBoundsToReachedEdges: false })
   assert.deepEqual(interiorSurface.nodeEvidence.map(n => n.walkDistanceM), [350, 350])
+
+  const boundarySurfaceInput = { bounds: [-0.0041, 37.999, 0.0041, 38.001], width: 128, height: 48,
+    seedCoordinates: [-0.004, 38], seedDurationsMinutes: [0], maximumWalkM: 1000,
+    walkSpeedKph: 4.8, maximumDurationMinutes: 3, independentTerminalWalk: false,
+    includeNodes: true, nodeEvidenceLimit: 10, includeEdges: true, edgeEvidenceLimit: 0,
+    expandBoundsToReachedEdges: true }
+  const partialFromNode = interiorKernel.streetSurface(boundarySurfaceInput)
+  assert(partialFromNode.values.filter(Number.isFinite).length > 20,
+    'The reachable prefix of an edge must survive when its far endpoint exceeds the time cutoff.')
+  assert.equal(partialFromNode.reachedEdgeCount, 1)
+  assert(Math.abs(partialFromNode.reachedEdgeLengthM - 240) < 1e-6)
+  assert(Math.abs(partialFromNode.edgeEvidenceDurations[0] - 3) < 1e-10)
+  assert(Math.abs(partialFromNode.edgeEvidenceEndFractions[0] - 240 / 700) < 1e-10)
+  const partialFromInterior = interiorKernel.streetSurface({ ...boundarySurfaceInput,
+    seedCoordinates: [0, 38], maximumWalkM: 100, maximumDurationMinutes: 10 })
+  assert(partialFromInterior.values.filter(Number.isFinite).length > 20,
+    'An interior street attachment must reach both adjacent portions even when neither endpoint is reachable.')
+  assert.equal(partialFromInterior.nodeEvidence.length, 0)
+  assert.equal(partialFromInterior.reachedEdgeCount, 2)
+  assert(Math.abs(partialFromInterior.reachedEdgeLengthM - 200) < 1e-6)
+  const remainingWalk = interiorKernel.streetSurface({ ...boundarySurfaceInput,
+    seedCoordinates: [0, 38], seedDurationsMinutes: [2], seedWalkDistancesM: [60],
+    maximumWalkM: 100, maximumDurationMinutes: 10 })
+  assert(Math.abs(remainingWalk.reachedEdgeLengthM - 80) < 1e-6,
+    'An interior projection must charge the already consumed station walking distance.')
+  const competingPrefixes = interiorKernel.streetSurface({ ...boundarySurfaceInput,
+    seedCoordinates: [-0.004, 38, -0.004, 38], seedDurationsMinutes: [2, 3],
+    seedWalkDistancesM: [200, 0], maximumWalkM: 250, maximumDurationMinutes: 10 })
+  assert.equal(competingPrefixes.edgeEvidenceIds.length, 2,
+    'An earlier short prefix and a later longer prefix need separate arrival intervals.')
+  assert.deepEqual([...competingPrefixes.edgeEvidenceDurations], [2.625, 6.125])
+  assert.deepEqual([...competingPrefixes.edgeEvidenceStartDurations], [2, 3.625])
+  const unsnappedSurface = interiorKernel.streetSurface({ ...boundarySurfaceInput,
+    seedCoordinates: [1, 38] })
+  assert(!unsnappedSurface.values.some(Number.isFinite))
+  assert(!unsnappedSurface.fullSurfaceValues.some(Number.isFinite),
+    'An unsnapped origin must not invent a zero-minute cell in the expanded surface.')
 
   const contractedChainSnapshotPath = path.join(
     temporaryDirectory,

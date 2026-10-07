@@ -1,5 +1,6 @@
 // Shared kernels convert Vec buffers into Node typed arrays only in addon builds.
 #![cfg_attr(not(feature = "node"), allow(clippy::useless_conversion))]
+mod edge_attachment;
 use bincode::Options;
 #[cfg(all(feature = "standalone", not(feature = "node")))]
 pub mod standalone;
@@ -165,6 +166,8 @@ struct ReciprocalEdgeSnap {
     left: Snap,
     right: Snap,
     projection_distance_m: f64,
+    edge_index: usize,
+    fraction: f64,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -3963,6 +3966,26 @@ impl CoordinateKernel {
             direct_walk_distance_m =
                 best.map(|distance| distance as f64 / CCH_DISTANCE_UNITS_PER_METER);
         }
+        if let Some((origin, destination)) = self
+            .last_origin_frontier
+            .as_ref()
+            .zip(self.last_destination_frontier.as_ref())
+            && origin.terminal_attachment.is_none()
+            && destination.terminal_attachment.is_none()
+            && let Some(path) = edge_attachment::path(
+                &self.snapshot,
+                &origin.source_snaps,
+                &destination.source_snaps,
+                [
+                    [input.origin_lon, input.origin_lat],
+                    [input.destination_lon, input.destination_lat],
+                ],
+                input.maximum_walk_m,
+            )?
+        {
+            direct_walk_distance_m =
+                Some(direct_walk_distance_m.map_or(path.distance_m, |d| d.min(path.distance_m)));
+        }
         let private_direct = self
             .last_origin_frontier
             .as_ref()
@@ -4731,6 +4754,7 @@ impl CoordinateKernel {
                 Error::from_reason("Street CCH matrix targets were not prepared.")
             })?;
             Some(run_cch_coordinate_distance_matrix(
+                &self.snapshot,
                 index,
                 targets,
                 input.default_maximum_walk_m,
@@ -5006,6 +5030,23 @@ impl CoordinateKernel {
             }
         }
         .ok_or_else(|| Error::from_reason("Rust street path frontier is unavailable."))?;
+        if let Some(offset) = frontier
+            .member_indices
+            .iter()
+            .position(|&m| m == input.member_index)
+            && frontier.terminals[offset] == NO_PREDECESSOR
+            && let Some(profile) = self.profile.as_ref()
+            && let Some(path) = edge_attachment::member_path(
+                &self.snapshot,
+                profile,
+                frontier,
+                input.member_index as usize,
+            )?
+        {
+            return Ok(MaterializePathResult {
+                coordinates: path.projected_coordinates.expect("projected member path"),
+            });
+        }
         let path = if frontier.cch_accelerated {
             let profile = self.profile.as_ref().ok_or_else(|| {
                 Error::from_reason("Rust routing access profile is not configured.")
@@ -5083,6 +5124,9 @@ impl CoordinateKernel {
             .ok_or_else(|| {
                 Error::from_reason("Rust CCH street path witness could not be reconstructed.")
             })?;
+            if let Some(coordinates) = exact.projected_coordinates {
+                return Ok(MaterializePathResult { coordinates });
+            }
             exact.nodes
         } else {
             frontier.path_for_member(&self.snapshot, input.member_index)?
@@ -5153,6 +5197,23 @@ impl CoordinateKernel {
             &destinations,
             input.maximum_distance_m,
         )?;
+        let path = if origin_access.is_none() && destination_access.is_none() {
+            edge_attachment::choose(
+                path,
+                edge_attachment::path(
+                    &self.snapshot,
+                    &origins,
+                    &destinations,
+                    [
+                        [input.origin_lon, input.origin_lat],
+                        [input.destination_lon, input.destination_lat],
+                    ],
+                    input.maximum_distance_m,
+                )?,
+            )
+        } else {
+            path
+        };
         let path = finish_terminal_point_path(
             path,
             origin_access.as_deref(),
@@ -5282,7 +5343,7 @@ impl CoordinateKernel {
                 continue;
             }
             let source_snaps = profile.member_snap_frontier(source);
-            let routed = run_frontier_search(
+            let mut routed = run_frontier_search(
                 &self.snapshot,
                 &mut self.origin_workspace,
                 profile,
@@ -5293,6 +5354,7 @@ impl CoordinateKernel {
                 input.maximum_walk_m,
                 false,
             )?;
+            edge_attachment::improve_frontier(&self.snapshot, profile, &mut routed)?;
             source_searches = source_searches.saturating_add(1);
             settled_nodes = settled_nodes.saturating_add(routed.settled_nodes);
             relaxed_edges = relaxed_edges.saturating_add(routed.relaxed_edges);
@@ -5691,6 +5753,11 @@ fn cached_frontier_search(
     Arc::get_mut(&mut frontier)
         .expect("new frontier")
         .terminal_attachment = attachment;
+    edge_attachment::improve_frontier(
+        snapshot,
+        profile,
+        Arc::get_mut(&mut frontier).expect("new frontier"),
+    )?;
     let search_ns = search_started.elapsed().as_nanos() as f64;
     if !disable_cache {
         insert_frontier_cache(cache, order, cache_bytes, key, Arc::clone(&frontier));
@@ -5791,6 +5858,11 @@ fn cached_cch_frontier_search(
     Arc::get_mut(&mut frontier)
         .expect("new frontier")
         .terminal_attachment = attachment;
+    edge_attachment::improve_frontier(
+        snapshot,
+        profile,
+        Arc::get_mut(&mut frontier).expect("new frontier"),
+    )?;
     let search_ns = search_started.elapsed().as_nanos() as f64;
     if !disable_cache {
         insert_frontier_cache(cache, order, cache_bytes, key, Arc::clone(&frontier));
@@ -6056,6 +6128,8 @@ fn reciprocal_edge_snaps(
                     distance_m: projection_distance_m + (1.0 - projection) * edge_distance_m,
                 },
                 projection_distance_m,
+                edge_index: edge,
+                fraction: projection,
             });
         }
         evaluated_from_nodes.insert(left);
@@ -6085,6 +6159,23 @@ fn snaps_for_coordinate_with_workspace(
     longitude: f64,
     latitude: f64,
 ) -> napi::Result<Vec<Snap>> {
+    Ok(street_attachment_with_workspace(
+        snapshot,
+        reciprocal_edge_flags,
+        workspace,
+        longitude,
+        latitude,
+    )?
+    .0)
+}
+
+fn street_attachment_with_workspace(
+    snapshot: &Snapshot,
+    reciprocal_edge_flags: &[u8],
+    workspace: &mut SnapWorkspace,
+    longitude: f64,
+    latitude: f64,
+) -> napi::Result<(Vec<Snap>, Option<ReciprocalEdgeSnap>)> {
     if !longitude.is_finite() || !latitude.is_finite() {
         return Err(Error::from_reason(
             "Coordinate longitude and latitude must be finite.",
@@ -6142,7 +6233,10 @@ fn snaps_for_coordinate_with_workspace(
                     ))
             })
     });
-    let mut selected = match (edge, nearest) {
+    let projection = edge
+        .filter(|edge| nearest.is_none_or(|n| edge.projection_distance_m < n.distance_m))
+        .copied();
+    let mut selected = match (projection, nearest) {
         (Some(edge), nearest)
             if nearest.is_none_or(|n| edge.projection_distance_m < n.distance_m) =>
         {
@@ -6163,7 +6257,7 @@ fn snaps_for_coordinate_with_workspace(
     selected.dedup_by_key(|snap| snap.node);
     workspace.candidate_nodes = ordered;
     workspace.projected_edges = projected;
-    Ok(selected)
+    Ok((selected, projection))
 }
 
 struct FrontierTargets {
@@ -7073,6 +7167,7 @@ struct PointPath {
     origin_snap_distance_m: f64,
     destination_snap_distance_m: f64,
     nodes: Vec<u32>,
+    projected_coordinates: Option<Vec<f64>>,
     settled_nodes: u32,
     relaxed_edges: u32,
     chain_skipped_nodes: u32,
@@ -7260,6 +7355,7 @@ fn directed_node_path_distance_m(snapshot: &Snapshot, nodes: &[u32]) -> napi::Re
 }
 
 struct CchCoordinateTargets {
+    attachments: Vec<Option<edge_attachment::EdgeAttachment>>,
     coordinates: Vec<(f64, f64)>,
     nodes: Vec<u32>,
     snap_units: Vec<u32>,
@@ -7286,6 +7382,7 @@ fn prepare_cch_coordinate_targets(
     }
     let target_count = coordinates.len() / 2;
     let mut normalized_coordinates = Vec::with_capacity(target_count);
+    let mut attachments = Vec::with_capacity(target_count);
     let mut nodes = Vec::new();
     let mut snap_units = Vec::new();
     let mut offsets = Vec::with_capacity(target_count + 1);
@@ -7295,6 +7392,11 @@ fn prepare_cch_coordinate_targets(
         let longitude = coordinates[target * 2];
         let latitude = coordinates[target * 2 + 1];
         let snaps = snaps_for_coordinate(snapshot, reciprocal_edge_flags, longitude, latitude)?;
+        attachments.push(edge_attachment::from_snaps(
+            snapshot,
+            &snaps,
+            [longitude, latitude],
+        )?);
         if !snaps.is_empty() {
             snapped_targets = snapped_targets.saturating_add(1);
         }
@@ -7306,6 +7408,7 @@ fn prepare_cch_coordinate_targets(
         normalized_coordinates.push((longitude, latitude));
     }
     Ok(CchCoordinateTargets {
+        attachments,
         coordinates: normalized_coordinates,
         nodes,
         snap_units,
@@ -7335,6 +7438,7 @@ fn cch_coordinate_targets_from_snap_sets(
         offsets.push(nodes.len());
     }
     CchCoordinateTargets {
+        attachments: vec![None; target_count],
         coordinates: coordinates
             .as_chunks::<2>()
             .0
@@ -7437,6 +7541,8 @@ fn run_cch_coordinate_distances(
         source_longitude,
         source_latitude,
     )?;
+    let attachment =
+        edge_attachment::from_snaps(snapshot, &source_snaps, [source_longitude, source_latitude])?;
     let maximum_distance_units = cch_distance_units(maximum_distance_m);
     let sources = source_snaps
         .iter()
@@ -7452,6 +7558,12 @@ fn run_cch_coordinate_distances(
         false,
     );
     for (target, &(longitude, latitude)) in targets.coordinates.iter().enumerate() {
+        if let Some(direct) =
+            edge_attachment::distance(snapshot, attachment, targets.attachments[target])?
+                .filter(|d| *d <= maximum_distance_m)
+        {
+            distances_m[target] = distances_m[target].min(direct);
+        }
         if source_longitude == longitude && source_latitude == latitude {
             distances_m[target] = 0.0;
         }
@@ -7489,6 +7601,7 @@ fn coordinate_matrix_buckets(
 }
 
 fn run_cch_coordinate_distance_matrix(
+    snapshot: &Snapshot,
     index: &mut StreetCchIndex,
     targets: &CchCoordinateTargets,
     maximum_distance_m: f64,
@@ -7518,6 +7631,13 @@ fn run_cch_coordinate_distance_matrix(
                 ready_pairs = ready_pairs.saturating_add(1);
                 continue;
             }
+            let row_distance = edge_attachment::distance(
+                snapshot,
+                targets.attachments[source],
+                targets.attachments[target],
+            )?
+            .filter(|d| *d <= maximum_distance_m)
+            .map_or(row_distance, |d| d.min(row_distance));
             if row_distance.is_finite() {
                 distances_m[matrix_index] = row_distance;
                 ready_pairs = ready_pairs.saturating_add(1);
@@ -7576,6 +7696,7 @@ fn run_cch_point_path(
                     origin_snap_distance_m: origin.distance_m,
                     destination_snap_distance_m: destination.distance_m,
                     nodes,
+                    projected_coordinates: None,
                     // CCH touches elimination-tree ancestors and shortcut arcs,
                     // not raw graph labels. Keep non-comparable counters at
                     // zero rather than misreporting incomparable work units.
@@ -7592,6 +7713,34 @@ fn run_cch_point_path(
 }
 
 fn run_point_path(
+    snapshot: &Snapshot,
+    forward: &mut TileWorkspace,
+    backward: &mut TileWorkspace,
+    origins: &[Snap],
+    destinations: &[Snap],
+    coordinates: [[f64; 2]; 2],
+    options: PointPathOptions,
+) -> napi::Result<Option<PointPath>> {
+    let direct = edge_attachment::path(
+        snapshot,
+        origins,
+        destinations,
+        coordinates,
+        options.maximum_distance_m,
+    )?;
+    let vertex = run_point_path_vertices(
+        snapshot,
+        forward,
+        backward,
+        origins,
+        destinations,
+        coordinates,
+        options,
+    )?;
+    Ok(edge_attachment::choose(vertex, direct))
+}
+
+fn run_point_path_vertices(
     snapshot: &Snapshot,
     forward: &mut TileWorkspace,
     backward: &mut TileWorkspace,
@@ -7803,6 +7952,7 @@ fn run_point_path(
         origin_snap_distance_m: best.origin_snap_distance_m,
         destination_snap_distance_m: best.destination_snap_distance_m,
         nodes,
+        projected_coordinates: None,
         settled_nodes,
         relaxed_edges,
         chain_skipped_nodes,
@@ -7869,6 +8019,7 @@ fn finish_terminal_point_path(
                 .find(|s| s.node == target)
                 .map_or(0.0, |s| s.distance_m),
             nodes,
+            projected_coordinates: None,
             settled_nodes: 0,
             relaxed_edges: 0,
             chain_skipped_nodes: 0,
@@ -7910,12 +8061,15 @@ fn street_path_result(
             distance_m: path.distance_m,
             origin_snap_distance_m: path.origin_snap_distance_m,
             destination_snap_distance_m: path.destination_snap_distance_m,
-            coordinates: flatten_access_path(
-                snapshot,
-                terminal_access,
-                &path.nodes,
-                maximum_points.max(2) as usize,
-            )?,
+            coordinates: match path.projected_coordinates {
+                Some(coordinates) => coordinates,
+                None => flatten_access_path(
+                    snapshot,
+                    terminal_access,
+                    &path.nodes,
+                    maximum_points.max(2) as usize,
+                )?,
+            },
             query_ns: started.elapsed().as_nanos() as f64,
             settled_nodes: path.settled_nodes,
             relaxed_edges: path.relaxed_edges,

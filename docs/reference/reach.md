@@ -1,6 +1,6 @@
 # Reach
 
-Reach computes travel time from one origin through scheduled transit and walking. It supports planned service scenarios. Walk-only, Drive, arrive-by, and realtime Reach are unavailable in 0.4.2.
+Reach computes travel time from one origin using scheduled transit and walking, or walking alone. Planned service scenarios use transit with street sampling. Drive, arrive-by, and realtime Reach are unavailable.
 
 ## Request
 
@@ -25,9 +25,18 @@ Choose a date covered by the feed. Cutoffs accept 5–240 minutes; `extentRadius
 
 The Result includes reached stops, a travel-time raster, and GeoJSON contours. The CLI extent defines the requested raster bounds; it is not a maximum trip distance. Travel-time cutoffs, walking budgets, and the supplied network govern reachability. Retain bounds and resolution when comparing raster results.
 
-The CLI also returns `surface.fullValues` and `surface.fullBounds` with `fullContours` for the complete reached-network envelope when available. Both raster arrays use JSON `null` for unreached cells. The original `surface.values`, `surface.bounds`, and `contours` retain the requested grid for comparison. `areas` and `fullAreas` are GeoJSON Polygon/MultiPolygon features around reachable cells in the respective grids; `contours` and `fullContours` are isolines. Add `--street-edges` or JSON `includeStreetEdges: true` to retain every reached directed OSM edge in `surface.edges` (the indexed `vigo.street.edge-bundle.v1` format). `diagnostics` retains the engine's transit and surface diagnostics. The [CLI-only guide](../guides/cli-only.md#isochrones-and-planned-service) shows GeoJSON export and resident Reach requests.
+The CLI also returns `surface.fullValues` and `surface.fullBounds` with `fullContours` for the complete reached-network envelope when available. Both raster arrays use JSON `null` for unreached cells. The original `surface.values`, `surface.bounds`, and `contours` retain the requested grid for comparison. `areas` and `fullAreas` are GeoJSON Polygon/MultiPolygon features around reachable cells in the respective grids; `contours` and `fullContours` are isolines. Add `--street-edges` or JSON `includeStreetEdges: true` to retain every reached directed OSM edge in `surface.edges` (the indexed `vigo.street.edge-bundle.v2` format). `diagnostics` retains the engine's transit and surface diagnostics. The [CLI-only guide](../guides/cli-only.md#isochrones-and-planned-service) shows GeoJSON export and resident Reach requests.
 
-Studio's **Analyze** view displays **Reachable area** or **Reached streets**. Its surface expands to the complete reached-network envelope. Choose an origin on the map, search imported stops, or enter coordinates. Switching a displayed cutoff filters the retained result; changing query inputs requires a new computation.
+`surfaceSampling` selects how travel times are sampled:
+
+- `"street"` (default) follows the directed walking graph, retaining reachable portions of edges even when their endpoints lie beyond the time or walking limit. Each cell records the earliest sampled street arrival within it.
+- `"cell-center"` routes to the coordinate at each cell center using the same Route/Matrix model. Its requested and full grids share fixed bounds. This is the mode for comparing destination travel times on a common grid. Transit uses the City's 4.8 km/h walking speed and supports the baseline timetable; use street sampling for planned changes.
+
+Set `mode: "walk"` for walking alone in either sampling mode. Missing raster values remain `null`; they do not establish that a destination is geographically off-network. A connected destination can be unreachable within the requested time or walking budget.
+
+Street bundle v2 adds `fromDurationMinutes`, `startFractions`, and `endFractions` as packed Float64 arrays. Fractions locate a reached interval on the directed edge identified by `edgeIds` and `endpoints`. An edge can have multiple non-overlapping intervals when different journeys reach different portions. `count` counts intervals; `reachedEdgeCount` counts distinct directed edges. The viewer clips each interval at the selected time cutoff. Existing v1 results remain readable.
+
+Studio's **Analyze** view displays **Reachable area** or **Reached streets**. Its surface expands to the complete reached-network envelope. Choose an origin on the map, search imported stops, or enter coordinates. **Analysis settings → Area calculation** selects reachable streets or routes to grid points. Switching a displayed cutoff filters the retained result; changing query inputs requires a new computation.
 
 Reach does not count people, jobs, schools, or other opportunities. An accessibility measure needs those data and an explicit method. A reachable street in the model does not establish safe access, observed travel time, demand, or operational feasibility. See [known limits](known-routing-limitations.md).
 

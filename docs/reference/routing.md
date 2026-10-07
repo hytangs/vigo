@@ -16,14 +16,12 @@ A Route Query selects:
 
 Stop IDs are exact GTFS identifiers. Coordinate points are [longitude, latitude] and require streets in the City.
 
-Transit Route requires at least one vehicle boarding by default. Missing transit
-remains a blocked transit result; it is not replaced by a long walk. Use Walk
-mode for a walking journey. A JSON request can opt into walking comparisons with
-`requireTransitRide: false`. Transit
-Matrix uses the same default. `maxWalkKm` limits each access and egress walk;
-it is not a limit on an explicitly requested complete walking journey.
-With `requireTransitRide: false`, set `allowLongWalk: false` to also bound a
-direct walking alternative by `maxWalkKm` in Route and Matrix.
+Transit Route and Matrix compare a direct OSM walk by default. This lets short
+coordinate trips return walking when it reaches the destination sooner. Set
+`requireTransitRide: true` to require at least one vehicle boarding, or select
+Walk mode to request walking alone. `maxWalkKm` limits each access and egress
+walk. Set `allowLongWalk: false` to apply that same limit to a direct walking
+alternative; otherwise `maxStreetKm` bounds the complete walk.
 `--horizon` / `horizonMinutes` sets the timetable
 search horizon in minutes (default 480, range 1–2880).
 For depart-at transit, boarding and alighting must occur at or before this

@@ -1,7 +1,7 @@
 {
   "name": "vigo",
   "private": true,
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Build, inspect, and query city transport networks from GTFS, GTFS-RT, and OSM.",
   "license": "Apache-2.0",
   "repository": {
@@ -56,7 +56,7 @@
     "check:national": "node test/check-national-routing-store.mjs",
     "check:accuracy": "node test/check-native-materialization.mjs && node test/check-national-route-geometry.mjs && node test/check-routing-accuracy.mjs && node test/check-multitransfer-quality.mjs",
     "check:national-choices": "node test/check-national-route-choices.mjs && node test/check-route-alternatives.mjs && node test/check-route-horizon.mjs && node test/check-bounded-search.mjs && node test/check-equal-time-routing.mjs && node test/check-arrive-by-boundary.mjs",
-    "check:reach-scenarios": "node test/check-scenario-timing.mjs && node test/check-scenario-drafts.mjs && node test/check-scenario-branches.mjs && node test/check-scenario-schedules.mjs && node test/check-street-network-surface.mjs && node test/check-service-edge-decomposition.mjs && node test/check-analysis-cutoff-presentation.mjs",
+    "check:reach-scenarios": "node test/check-scenario-timing.mjs && node test/check-scenario-drafts.mjs && node test/check-scenario-branches.mjs && node test/check-scenario-schedules.mjs && node test/check-street-network-surface.mjs && node test/check-service-edge-decomposition.mjs && node test/check-analysis-cutoff-presentation.mjs && node test/check-reach-geometry.mjs",
     "check:reach-engine": "node test/check-reach-engine.mjs",
     "check:national-focused": "node test/check-station-access.mjs && node test/check-transfer-walking-floor.mjs && node test/check-national-stop-access-index.mjs && node test/check-national-parent-transfer-routing.mjs && node test/check-parent-minimum-routing.mjs && node test/check-street-transfer-selection.mjs",
     "check:national-runtime": "node test/check-stop-projection.mjs && node test/check-routing-snapshot.mjs && node test/check-national-derived-artifact-lifecycle.mjs && node test/check-national-cache.mjs && node test/check-national-runtime-isolation.mjs && npm run check:national-focused --silent",
@@ -89,7 +89,9 @@
     "check:agency": "node test/check-network-workspace.mjs && node test/check-agency-skills.mjs && node test/check-agency-realtime.mjs && node test/check-reordered-bunching.mjs && node test/check-vehicle-indicators.mjs && node test/check-alert-policy.mjs && node test/check-alert-applicability.mjs && node test/check-agency-efficiency.mjs && node test/check-agency-tools.mjs && node test/check-agency-intelligence.mjs && node test/check-service-assessment-text.mjs && node test/check-journey-time-contract.mjs && node test/check-agency-journey-modes.mjs && node test/check-agency-clock.mjs && node test/check-agency-communications.mjs && node test/check-agency-provider.mjs && node test/check-agency-snapshot.mjs && node test/check-agency-operations.mjs && node test/check-operational-replay.mjs && node test/check-agency-route-line.mjs && node test/check-added-service-display.mjs && node test/check-agency-vehicle-details.mjs && node test/check-stop-board.mjs && node test/check-agency-arrivals.mjs && node test/check-agency-service-timing.mjs && node test/check-agency-presentation.mjs && node test/check-agency-activity.mjs && node test/check-agency-notebook.mjs && node test/check-agency-history-clear.mjs && node test/check-agency-route-browser.mjs && node test/check-agency-observation-export.mjs && node test/check-agency-briefing.mjs && node test/check-network-diagnosis.mjs && node test/check-network-narrative.mjs && node test/check-agency-service-hours.mjs",
     "evaluate:intelligence": "node scripts/evaluate-agency-intelligence.mjs",
     "check:public-results": "node test/check-public-results.mjs",
-    "check:pathway-cost-model": "node test/check-pathway-cost-model.mjs"
+    "check:pathway-cost-model": "node test/check-pathway-cost-model.mjs",
+    "check:reach-grid": "node test/check-reach-grid.mjs",
+    "check:reach-geometry": "node test/check-reach-geometry.mjs"
   },
   "dependencies": {
     "jszip": "^3.10.1",

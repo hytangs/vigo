@@ -6,6 +6,7 @@ const cityPath = process.argv[2]
 const expectedMinutes = Number(process.argv[3])
 
 const scalarMatrixRequest = {
+  requireTransitRide: true,
   origins: [{ coordinate: [-77.05, 38.9] }],
   destinations: [{ coordinate: [-77.03, 38.91] }],
   departMinutes: 475, serviceDate: '2026-07-15', maxWalkKm: 0.2,
@@ -19,7 +20,7 @@ assert(Math.abs(transit.rows[0].durationMinutes - expectedMinutes) < 0.001)
 assert.equal(transit.diagnostics.directWalk, undefined)
 const walked = query({ requireTransitRide: false })
 assert.equal(walked.diagnostics.directWalk.selectedPairs, 1)
-assert.equal(query({ allowLongWalk: false }).rows[0].durationMinutes, 35,
+assert.equal(query({ requireTransitRide: false, allowLongWalk: false }).rows[0].durationMinutes, 35,
   'The explicit direct-walk limit must preserve the transit choice.')
 assert.equal(query({ horizonMinutes: 10 }).rows[0].status, 'blocked',
   'Transit must respect the Matrix horizon.')

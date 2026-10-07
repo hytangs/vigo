@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "VIGO Rust standalone API",
-    "version": "0.4.3-development",
+    "version": "0.4.4-development",
     "description": "Prepared City routing and isochrones. Public result schemas are shared with the Node CLI; raw native and trace contracts are separate. Runtime validates mode combinations and native index/array invariants beyond these structural schemas. Bearer auth is optional only when no token is configured on a loopback listener."
   },
   "servers": [
@@ -4455,6 +4455,34 @@
             },
             "description": "Elapsed minutes already spent reaching each seed."
           },
+          "seedMemberIndices": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": -2147483648,
+                  "maximum": 2147483647
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seedWalkDistancesM": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "maximumWalkM": {
             "type": "number",
             "description": "Maximum endpoint or terminal walking distance in meters."
@@ -4684,7 +4712,55 @@
                 "type": "null"
               }
             ],
-            "description": "Elapsed minutes to each retained directed edge to-endpoint, not the duration of that edge alone."
+            "description": "Elapsed minutes at each retained directed interval end, not its traversal duration."
+          },
+          "edgeEvidenceStartDurations": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "edgeEvidenceStartFractions": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "edgeEvidenceEndFractions": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "edgeEvidenceWalkDistances": {
             "anyOf": [
@@ -4740,6 +4816,9 @@
           "edgeEvidenceEndpoints",
           "edgeEvidenceIds",
           "edgeEvidenceDurations",
+          "edgeEvidenceStartDurations",
+          "edgeEvidenceStartFractions",
+          "edgeEvidenceEndFractions",
           "edgeEvidenceWalkDistances",
           "edgeEvidenceTransitArrivals"
         ],
@@ -4818,6 +4897,12 @@
               "null"
             ]
           },
+          "fromDurationMinutes": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "walkDistanceM": {
             "type": [
               "number",
@@ -4844,6 +4929,7 @@
           "toLongitude",
           "toLatitude",
           "durationMinutes",
+          "fromDurationMinutes",
           "walkDistanceM",
           "transitArrivalMinutes"
         ],
@@ -6572,7 +6658,7 @@
           },
           "requireTransitRide": {
             "type": "boolean",
-            "default": true
+            "default": false
           },
           "allowLongWalk": {
             "type": "boolean",
@@ -6806,7 +6892,7 @@
           },
           "requireTransitRide": {
             "type": "boolean",
-            "default": true
+            "default": false
           },
           "allowLongWalk": {
             "type": "boolean",
@@ -7431,6 +7517,14 @@
               "scheduled",
               "realtime"
             ]
+          },
+          "surfaceSampling": {
+            "type": "string",
+            "enum": [
+              "street",
+              "cell-center"
+            ],
+            "default": "street"
           },
           "origin": {
             "$ref": "#/components/schemas/Point"
@@ -8584,7 +8678,7 @@
           "durationMinutes"
         ],
         "additionalProperties": true,
-        "description": "Materialized transit journey or compact direct walk in a transit matrix. No outer status or dispatch metadata; compact walks omit legs."
+        "description": "Transit or direct walking journey in a transit matrix. Both contain timed legs. Geometry is optional for full journeys and excluded from compact journeys. No outer status or dispatch metadata."
       },
       "RouteResult": {
         "type": "object",
@@ -8846,7 +8940,7 @@
         "type": "object",
         "properties": {
           "schemaVersion": {
-            "const": "vigo.standalone.street-edges.v1"
+            "const": "vigo.standalone.street-edges.v2"
           },
           "encoding": {
             "const": "indexed-json"
@@ -8887,7 +8981,33 @@
               "type": "number",
               "minimum": 0
             },
-            "description": "Elapsed time to each directed edge to-endpoint; not edge traversal time."
+            "description": "Elapsed time at each retained interval end; not traversal time."
+          },
+          "fromDurationMinutes": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": 0
+            },
+            "description": "Elapsed time at each retained interval start."
+          },
+          "startFractions": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "description": "Interval start fraction along the directed edge."
+          },
+          "endFractions": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "description": "Interval end fraction along the directed edge; greater than startFractions."
           },
           "walkDistanceM": {
             "type": "array",
@@ -8915,11 +9035,14 @@
           "endpoints",
           "edgeIds",
           "durationMinutes",
+          "fromDurationMinutes",
+          "startFractions",
+          "endFractions",
           "walkDistanceM",
           "transitArrivalMinutes"
         ],
         "additionalProperties": true,
-        "description": "All measurement arrays and edgeIds have count entries. Local node indices are bundle-specific."
+        "description": "All measurement arrays and edgeIds have count entries. Repeated edge IDs describe ordered non-overlapping intervals. Local node indices are bundle-specific."
       },
       "ReachSurface": {
         "type": "object",
@@ -8942,6 +9065,13 @@
             "minItems": 4,
             "maxItems": 4
           },
+          "sampling": {
+            "type": "string",
+            "enum": [
+              "street",
+              "cell-center"
+            ]
+          },
           "values": {
             "type": "array",
             "items": {
@@ -8950,7 +9080,7 @@
                 "null"
               ]
             },
-            "description": "Elapsed minutes, northwest-first row-major. Null means no finite retained value; not a route to the cell center."
+            "description": "Elapsed minutes, northwest-first row-major. Street sampling retains reached street samples; cell-center sampling routes to each cell center. Null means no finite retained value under the query limits."
           },
           "fullBounds": {
             "type": "array",
@@ -8984,7 +9114,7 @@
             "items": {
               "$ref": "#/components/schemas/StreetSurfaceNode"
             },
-            "description": "Separate object records, not edges.nodes. The current high-level wrapper returns at most one node when requested."
+            "description": "Separate object records, not edges.nodes. Up to 30000 reached nodes when requested; diagnostics.surface.nodeEvidenceTruncated reports truncation."
           }
         },
         "required": [

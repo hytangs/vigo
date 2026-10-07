@@ -12,7 +12,7 @@ import { standaloneBinary as binary } from './helpers/standalone-runtime.mjs'
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-rust-http-'))
 const city = path.join(directory, 'city')
 const token = 'public-synthetic-test-token'
-const body = JSON.stringify({ diagnostics: 'trace', origin: { stopId: 'A' }, destination: { stopId: 'B' }, serviceDate: '2026-07-15', time: '07:55', maxWalkKm: .2 })
+const body = JSON.stringify({ requireTransitRide: true, diagnostics: 'trace', origin: { stopId: 'A' }, destination: { stopId: 'B' }, serviceDate: '2026-07-15', time: '07:55', maxWalkKm: .2 })
 let server, port, checks = 0
 try {
   const { gtfsPath, osmPath } = await writeCliFixtureInputs(directory)

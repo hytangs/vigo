@@ -163,7 +163,7 @@ TYPE_FIELD_NOTES = {
     ('StreetSurfaceResult', 'values'): 'Elapsed minutes on the requested raster, flattened by row from the northwest corner. Null marks an unreached cell.',
     ('StreetSurfaceResult', 'full_surface_values'): 'Elapsed minutes on the recomputed raster, using fullSurfaceBounds and the requested dimensions. Null when no separate raster is returned.',
     ('StreetSurfaceResult', 'full_surface_bounds'): 'Recomputed raster bounds in west, south, east, north order; can be smaller or larger than requested. Null when no separate raster is returned.',
-    ('StreetSurfaceResult', 'edge_evidence_durations'): 'Elapsed minutes to each retained directed edge to-endpoint, not the duration of that edge alone.',
+    ('StreetSurfaceResult', 'edge_evidence_durations'): 'Elapsed minutes at each retained directed interval end, not its traversal duration.',
     ('StreetSurfaceResult', 'edge_evidence_transit_arrivals'): 'Elapsed seed duration for each indexed edge; -1 marks seed index zero.',
     ('StreetSurfaceResult', 'node_evidence_truncated'): 'True when reached-node samples exceeded nodeEvidenceLimit after clamping.',
 }
@@ -248,7 +248,7 @@ def specification(native):
         'time':ref('Clock'), 'timeMinutes':number(0,4319), 'timePreference':text('depart_at','arrive_by','depart','arrive',default='depart_at'),
         'mode':text('transit','walk','drive',default='transit'), 'maxWalkKm':number(0,100,1.2), 'maxStreetKm':number(.05,1000,50),
         'maxTransfers':number(0,31,integer=True), 'horizonMinutes':number(1,2880,480), 'allowStreetTransfers':boolean(True),
-        'minimumTransferBufferMinutes':number(0,60,0,integer=True), 'disableCache':boolean(), 'requireTransitRide':boolean(True),
+        'minimumTransferBufferMinutes':number(0,60,0,integer=True), 'disableCache':boolean(), 'requireTransitRide':boolean(False),
         'allowLongWalk':boolean(True), 'walkSpeedKph':number(1,8,description='Default comes from the City. Walk Route/Matrix and Reach only.'),
         'requireCompleteServiceCoverage':boolean(), 'routingDataMode':text('scheduled','realtime'), 'dataMode':text('scheduled','realtime'),
     }
@@ -290,6 +290,7 @@ def specification(native):
     schemas['ReachOverlay'] = obj({**overlay_properties,'stops':array(ref('Point'),0,256)},['stops']+[k for k in schemas['TimetableOverlayManyQueryInput']['required'] if k not in overlay_base],strict=False)
     schemas['Scenario'] = obj({'id':text(),'name':text(),'cityRevision':text(),'services':array(service,0,128),'excludedTripIds':array(text()),'excludedRouteIds':array(text()),'overlay':ref('ReachOverlay')},description='Request-scoped. Use services or overlay. At most 256 unique planned points and one million planned stop events.')
     reach_common = {k:v for k,v in common.items() if k not in ['maxStreetKm','horizonMinutes','requireTransitRide','allowLongWalk']}
+    reach_common['surfaceSampling'] = text('street','cell-center',default='street')
     reach_common['mode'] = text('transit','walk',default='transit')
     reach_common['timePreference'] = text('depart_at','depart',default='depart_at')
     schemas['ReachRequest'] = obj({**reach_common,'origin':ref('Point'),'cutoffsMinutes':{**array(number(1,240),1,16),'default':[15,30,45,60]},'rasterSize':number(16,1024,96,integer=True),
@@ -323,7 +324,7 @@ def specification(native):
         **{k:number(0) for k in ['walkingSeconds','rideSeconds','waitingSeconds','walkMinutes','rideMinutes','waitMinutes','distanceMeters']},
         'boardings':number(0,integer=True),'transfers':number(0,integer=True),'legs':array(ref('RouteLeg'))}
     schemas['Journey'] = obj(journey_fields,['departureMinutes','arrivalMinutes','durationMinutes'],strict=False,
-        description='Materialized transit journey or compact direct walk in a transit matrix. No outer status or dispatch metadata; compact walks omit legs.')
+        description='Transit or direct walking journey in a transit matrix. Both contain timed legs. Geometry is optional for full journeys and excluded from compact journeys. No outer status or dispatch metadata.')
     schemas['RouteResult'] = {'allOf':[ref('QueryMetadata'),obj({**journey_fields,'status':text('ready','blocked'),'reason':{},
         'serviceDate':text(),'dataMode':text('scheduled','realtime'),'warnings':{},
         'segments':array(ref('RouteResult')),'via':array(ref('Point')),'choices':array(ref('RouteResult')),
@@ -335,20 +336,24 @@ def specification(native):
         'distancesMeters':{**array(array(nullable_number)),'description':'Walk/Drive only; same row/column ordering.'},
         'journeys':nullable(array(array(nullable(ref('Journey'))))),'diagnostics':{'type':'object'},'warnings':{}},['kind','originCount','destinationCount','durationsMinutes'],strict=False)]}
     schemas['ReachStop'] = obj({'stopId':text(),'name':text(),'coordinate':ref('Coordinate'),'durationMinutes':number(0)},['stopId','name','coordinate','durationMinutes'],strict=False)
-    schemas['StreetEdgeBundle'] = obj({'schemaVersion':{'const':'vigo.standalone.street-edges.v1'},'encoding':{'const':'indexed-json'},
+    schemas['StreetEdgeBundle'] = obj({'schemaVersion':{'const':'vigo.standalone.street-edges.v2'},'encoding':{'const':'indexed-json'},
         'count':number(0,integer=True),'nodeCount':number(0,integer=True),
         'nodes':{**array(number()),'description':'Flat longitude/latitude pairs, length 2 * nodeCount.'},
         'endpoints':{**array(number(0,integer=True)),'description':'From/to local node indices, length 2 * count.'},
         'edgeIds':array(number(0,integer=True)),
-        'durationMinutes':{**array(number(0)),'description':'Elapsed time to each directed edge to-endpoint; not edge traversal time.'},
+        'durationMinutes':{**array(number(0)),'description':'Elapsed time at each retained interval end; not traversal time.'},
+        'fromDurationMinutes':{**array(number(0)),'description':'Elapsed time at each retained interval start.'},
+        'startFractions':{**array(number(0,1)),'description':'Interval start fraction along the directed edge.'},
+        'endFractions':{**array(number(0,1)),'description':'Interval end fraction along the directed edge; greater than startFractions.'},
         'walkDistanceM':{**array(number(0)),'description':'Accumulated walking distance from the retained seed through the edge.'},
         'transitArrivalMinutes':{**array(number(-1)),'description':'Elapsed minutes at the transit seed; -1 means direct-origin seed.'}},
-        ['schemaVersion','encoding','count','nodeCount','nodes','endpoints','edgeIds','durationMinutes','walkDistanceM','transitArrivalMinutes'],strict=False,
-        description='All measurement arrays and edgeIds have count entries. Local node indices are bundle-specific.')
+        ['schemaVersion','encoding','count','nodeCount','nodes','endpoints','edgeIds','durationMinutes','fromDurationMinutes','startFractions','endFractions','walkDistanceM','transitArrivalMinutes'],strict=False,
+        description='All measurement arrays and edgeIds have count entries. Repeated edge IDs describe ordered non-overlapping intervals. Local node indices are bundle-specific.')
     schemas['ReachSurface'] = obj({'width':number(1,1024,integer=True),'height':number(1,1024,integer=True),'bounds':array(number(),4,4),
-        'values':{**array(nullable_number),'description':'Elapsed minutes, northwest-first row-major. Null means no finite retained value; not a route to the cell center.'},
+        'sampling':text('street','cell-center'),
+        'values':{**array(nullable_number),'description':'Elapsed minutes, northwest-first row-major. Street sampling retains reached street samples; cell-center sampling routes to each cell center. Null means no finite retained value under the query limits.'},
         'fullBounds':array(number(),4,4),'fullValues':array(nullable_number),'edges':nullable(ref('StreetEdgeBundle')),
-        'nodes':{**array(ref('StreetSurfaceNode')),'description':'Separate object records, not edges.nodes. The current high-level wrapper returns at most one node when requested.'}},
+        'nodes':{**array(ref('StreetSurfaceNode')),'description':'Separate object records, not edges.nodes. Up to 30000 reached nodes when requested; diagnostics.surface.nodeEvidenceTruncated reports truncation.'}},
         ['width','height','bounds','values'],strict=False,description='Full values use fullBounds and the same dimensions. Recomputed bounds may be smaller or larger than the requested view.')
     def collection(geometry, coordinates):
         feature=obj({'type':{'const':'Feature'},'properties':obj({'cutoffMinutes':number(0)},['cutoffMinutes'],strict=False),

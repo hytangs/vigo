@@ -298,6 +298,19 @@ impl City {
                 if role == Some(0) {
                     combined.extend(station_coordinates);
                 }
+                combined.insert(0, coordinates[0]);
+                combined.push(coordinates[1]);
+                combined
+                    .dedup_by(|a, b| (a[0] - b[0]).abs() < 1e-10 && (a[1] - b[1]).abs() < 1e-10);
+                if let Some(first) = combined.first_mut() {
+                    *first = coordinates[0];
+                }
+                if combined.len() == 1 {
+                    combined.push(coordinates[1]);
+                }
+                if let Some(last) = combined.last_mut() {
+                    *last = coordinates[1];
+                }
                 value["coordinates"] = json!(combined);
                 value["geometrySource"] = json!(if value.get("accessCost").is_some() {
                     "osm_and_station_path"

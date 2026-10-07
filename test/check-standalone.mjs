@@ -14,10 +14,10 @@ import { standaloneBinary as binary } from './helpers/standalone-runtime.mjs'
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-rust-check-'))
 const city = path.join(directory, 'city')
 const env = { PATH: '', NODE_PATH: '', VIGO_API_TOKEN: 'standalone-test-token-12345', RAYON_NUM_THREADS: '2' }
-const base = { serviceDate: '2026-07-15', time: '07:55', origin: { stopId: 'A' }, destination: { stopId: 'B' }, maxWalkKm: 0.2 }
+const base = { requireTransitRide: true, serviceDate: '2026-07-15', time: '07:55', origin: { stopId: 'A' }, destination: { stopId: 'B' }, maxWalkKm: 0.2 }
 let count = 0
 let server
-const invoke = (kind, request, extra = []) => spawnSync(binary, [kind, '--city', city, ...(kind === 'info' ? [] : ['--request', '-']), ...extra], { input: JSON.stringify({ ...request, diagnostics: "trace" }), env, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+const invoke = (kind, request, extra = []) => spawnSync(binary, [kind, '--city', city, ...(kind === 'info' ? [] : ['--request', '-']), ...extra], { input: JSON.stringify({ ...(['route', 'matrix'].includes(kind) ? { requireTransitRide: true } : {}), ...request, diagnostics: "trace" }), env, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
 function run(kind, request) {
   const p = invoke(kind, request)
   assert.equal(p.status, 0, p.stderr)
@@ -79,6 +79,13 @@ try {
   assert(drive.durationMinutes < walk.durationMinutes)
   assert.equal(run('route', { ...coordinate, requireTransitRide: false }).mode, 'walk')
   assert.equal(run('route', { ...coordinate, mode: 'walk', via: [{ stopId: 'X' }] }).segments.length, 2)
+  for (const timePreference of ['depart_at', 'arrive_by']) {
+    const via = run('route', { ...coordinate, mode: 'transit', via: [{ stopId: 'X' }],
+      timePreference, time: timePreference === 'arrive_by' ? '08:30' : base.time, requireTransitRide: false })
+    assert.equal(via.status, 'ready')
+    assert(via.segments.every(segment => segment.legs.some(leg => leg.kind === 'ride')),
+      'Ordered Transit requires a boarding on each leg, including when point defaults allow walking.')
+  }
   assert(run('route', { ...base, windowMinutes: 10 }).choices.length > 0)
   const matrix = run('matrix', { serviceDate: base.serviceDate, time: base.time, origins: [base.origin, { stopId: 'X' }], destinations: [base.destination], maxWalkKm: .2, includeJourneys: true })
   assert.deepEqual(matrix.durationsMinutes, [[35], [35]])
@@ -102,9 +109,10 @@ try {
   const reach = run('reach', reachQuery)
   assert.equal(reach.surface.values.length, 48 * 48)
   assert.equal(reach.surface.fullValues.length, 48 * 48)
-  assert.equal(reach.diagnostics.surface.reachedEdgeCount, 3)
+  // Both directions of each reached street interval count, including clipped edges.
+  assert.equal(reach.diagnostics.surface.reachedEdgeCount, 4)
   assert.equal(reach.diagnostics.surface.edgeEvidenceTruncated, false)
-  assert.equal(reach.surface.edges.schemaVersion, 'vigo.standalone.street-edges.v1')
+  assert.equal(reach.surface.edges.schemaVersion, 'vigo.standalone.street-edges.v2')
   assert.equal(reach.surface.edges.endpoints.length, reach.surface.edges.count * 2)
   assert.equal(reach.surface.edges.durationMinutes.length, reach.surface.edges.count)
   assert(reach.areas.features.length > 0)

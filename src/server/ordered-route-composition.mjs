@@ -238,6 +238,7 @@ export async function routeOrderedRoutingSegments(points, request, routeSegment)
     for (let index = points.length - 2; index >= 0; index -= 1) {
       const segmentRequest = {
         ...request,
+        ...(orderedTransitRideRequired(request) ? { requireTransitRide: true } : {}),
         origin: points[index],
         destination: points[index + 1],
         timePreference: 'arrive',
@@ -261,6 +262,7 @@ export async function routeOrderedRoutingSegments(points, request, routeSegment)
     for (let index = 0; index < points.length - 1; index += 1) {
       const segmentRequest = {
         ...request,
+        ...(orderedTransitRideRequired(request) ? { requireTransitRide: true } : {}),
         origin: points[index],
         destination: points[index + 1],
         timePreference: 'depart',

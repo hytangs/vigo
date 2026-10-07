@@ -99,7 +99,7 @@ try {
   assert.equal(inspected.sources.osm.name, path.basename(osmPath))
 
   const routeRequest = path.join(temporaryRoot, 'route.json')
-  fs.writeFileSync(routeRequest, JSON.stringify({ origin: 'A', destination: 'B' }))
+  fs.writeFileSync(routeRequest, JSON.stringify({ origin: 'A', destination: 'B', requireTransitRide: true }))
   const route = parseResult(run([
     'route', `--city=${cityPath}`, `--request=${routeRequest}`,
     '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2',
@@ -262,6 +262,7 @@ try {
 
   const matrixRequest = path.join(temporaryRoot, 'matrix.json')
   fs.writeFileSync(matrixRequest, JSON.stringify({
+    requireTransitRide: true,
     origins: [{ id: 'a', point: 'A' }],
     destinations: [{ id: 'x', point: 'X' }, { id: 'b', point: 'B' }],
   }))
@@ -305,6 +306,7 @@ try {
 
   const largeMatrixRequest = path.join(temporaryRoot, 'large-matrix.json')
   fs.writeFileSync(largeMatrixRequest, JSON.stringify({
+    requireTransitRide: true,
     origins: [{ id: 'a', point: 'A' }],
     destinations: Array.from({ length: 1024 }, (_, i) => ({ id: `point_${i}`, point: i % 2 ? 'B' : 'X' })),
   }))
@@ -322,6 +324,7 @@ try {
   for (const timePreference of ['depart', 'arrive']) {
     for (const manyOrigins of [false, true]) {
       fs.writeFileSync(largeMatrixRequest, JSON.stringify({
+        requireTransitRide: true,
         origins: Array.from({ length: manyOrigins ? 1024 : 1 }, (_, i) => ({ id: `origin_${i}`, point: 'A' })),
         destinations: Array.from({ length: manyOrigins ? 1 : 1024 }, (_, i) => ({ id: `destination_${i}`, point: 'B' })),
         timePreference,
@@ -423,9 +426,9 @@ try {
     'reach', `--city=${cityPath}`, `--request=${reachRequest}`, '--street-edges=false',
     '--time=07:55', '--service-date=2026-07-15', '--max-walk=1.2',
   ]))
-  assert.equal(streetReach.surface.edges.schemaVersion, 'vigo.street.edge-bundle.v1')
+  assert.equal(streetReach.surface.edges.schemaVersion, 'vigo.street.edge-bundle.v2')
   assert(streetReach.surface.edges.count > 0)
-  assert.equal(streetReach.surface.edges.count, streetReach.surface.diagnostics.reachedEdgeCount,
+  assert(streetReach.surface.edges.count >= streetReach.surface.diagnostics.reachedEdgeCount,
     'CLI must retain every reached directed street edge.')
   assert.equal(streetReach.surface.diagnostics.edgeDetailTruncated, false)
   assert(streetReach.fullAreas.features.length > 0, 'Sparse reachable streets must still produce area polygons.')
@@ -457,7 +460,7 @@ try {
   ]
   const streamed = execFileSync(executable, [...prefix, 'stream', '--diagnostics=trace', `--city=${cityPath}`,
     '--service-date=2026-07-15', '--max-walk=0.2'], {
-    encoding: 'utf8', input: streamQueries.map(query => JSON.stringify(query)).join('\n') + '\n',
+    encoding: 'utf8', input: streamQueries.map(query => JSON.stringify({ ...(['route', 'matrix'].includes(query.kind) ? { requireTransitRide: true } : {}), ...query })).join('\n') + '\n',
     maxBuffer: 8 * 1024 * 1024,
   }).trim().split('\n').map(line => parseResult(line))
   assert.deepEqual(streamed.map(result => result.id), streamQueries.map(query => query.id))

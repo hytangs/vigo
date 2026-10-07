@@ -746,6 +746,8 @@ export function rasterAreas(values, width, height, bounds, cutoffsMinutes, surfa
 function scenarioRequestRecord(request) {
   return {
     baselineIdentity: request.baselineIdentity,
+    mode: request.mode,
+    surfaceSampling: request.surfaceSampling,
     origin: request.origin,
     departMinutes: request.departMinutes,
     serviceDate: request.serviceDate,
@@ -966,8 +968,8 @@ async function preliminaryWalkSurface(
 function scenarioLimitations(request, hasScenarioChanges) {
   const limitations = [
     {
-      code: 'street_network_cell_sampling',
-      detail: 'Surface cells use arrival times interpolated along reachable directed OSM edges; cells outside those edges remain no-data, so no straight-line travel is invented across network gaps.',
+      code: request.surfaceSampling === 'cell-center' ? 'coordinate_cell_centers' : 'street_network_cell_sampling',
+      detail: request.surfaceSampling === 'cell-center' ? 'Each raster value routes to the coordinate at that cell center on the requested fixed grid.' : 'Surface cells use arrival times interpolated along reachable directed OSM edges; cells outside those edges remain no-data, so no straight-line travel is invented across network gaps.',
     },
     {
       code: 'total_elapsed_time_cutoff',
@@ -999,7 +1001,7 @@ function scenarioLimitations(request, hasScenarioChanges) {
 
 function requireStreetEdgeBundle(edges, label) {
   if (
-    edges?.schemaVersion !== 'vigo.street.edge-bundle.v1'
+    !['vigo.street.edge-bundle.v1', 'vigo.street.edge-bundle.v2'].includes(edges?.schemaVersion)
     || edges.encoding !== 'indexed-f64-le'
     || typeof edges.edgeIds !== 'string'
   ) {
@@ -1033,6 +1035,14 @@ export function validateReachRequest(value) {
     throw badRequest('cutoffsMinutes must contain between one and eight values.')
   }
   const { scenario } = compileReachScenario(value.scenario)
+  const surfaceSampling = value.surfaceSampling ?? 'street'
+  const mode = value.mode ?? 'transit'
+  if (!['street', 'cell-center'].includes(surfaceSampling)) throw badRequest('surfaceSampling must be street or cell-center.')
+  if (!['transit', 'walk'].includes(mode)) throw badRequest('Reach supports transit or walk.')
+  if ((mode === 'walk' || surfaceSampling === 'cell-center') && (scenario.services.length
+    || scenario.excludedRouteIds.length || scenario.excludedTripIds.length || scenario.excludedPatternIds.length)) {
+    throw badRequest('Planned transit changes require transit Reach with street sampling.')
+  }
   const baselineMaxWalkKm = boundedNumber(value.maxWalkKm ?? 1.2, 'maxWalkKm', 0.2, 5)
   const baselineWalkSpeedKph = boundedNumber(value.walkSpeedKph ?? 4.8, 'walkSpeedKph', 1, 8)
   const serviceDate = compactText(value.serviceDate, '', 16)
@@ -1047,6 +1057,8 @@ export function validateReachRequest(value) {
     baselineIdentity: compactText(value.baselineIdentity, 'unversioned-baseline', 240),
     feedId: compactText(value.feedId, '__city__', 160),
     origin,
+    mode,
+    surfaceSampling,
     departMinutes: boundedIntegralNumber(value.departMinutes, 'departMinutes', 0, 2_880, 8 * 60),
     serviceDate,
     serviceDay,
@@ -1170,11 +1182,12 @@ export async function computeReachResult(
   if (
     onPreliminary
     && request.includePreliminary
+    && request.surfaceSampling === 'street'
     && typeof buildPreliminaryStreetRaster !== 'function'
   ) {
     throw new TypeError('A preliminary scenario preview requires an OSM street-raster function.')
   }
-  if (onPreliminary && request.includePreliminary) {
+  if (onPreliminary && request.includePreliminary && request.surfaceSampling === 'street') {
     onPreliminary(await preliminaryWalkSurface(
       request,
       startedAt,
@@ -1185,6 +1198,8 @@ export async function computeReachResult(
   let transitStops
   let baselineTransitDurations
   const reachResult = await runReach({
+    mode: request.mode,
+    surfaceSampling: request.surfaceSampling,
     stage: 'baseline-range',
     feedId: request.feedId,
     origin: request.origin,

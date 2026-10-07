@@ -12,7 +12,7 @@ const root = path.resolve(import.meta.dirname, '..')
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-prepared-rust-'))
 const city = path.join(directory, 'city')
 const env = { ...process.env, RAYON_NUM_THREADS: '2' }
-const base = { kind: 'route', serviceDate: '2026-07-15', time: '07:55', origin: { stopId: 'A' }, destination: { stopId: 'B' }, maxWalkKm: .2 }
+const base = { kind: 'route', serviceDate: '2026-07-15', time: '07:55', origin: { stopId: 'A' }, destination: { stopId: 'B' }, maxWalkKm: .2, requireTransitRide: true }
 const query = q => unpack(JSON.parse(execFileSync(binary, ['stream', '--city', city], {
   input: `${JSON.stringify({ ...q, diagnostics: "trace" })}\n`, env: { PATH: '', RAYON_NUM_THREADS: '2' }, encoding: 'utf8',
 })))
@@ -42,6 +42,8 @@ try {
     checked++
     return semantic(r)
   })
+  assert(prepared.some(r => r.legs?.some(leg => leg.kind === 'ride')),
+    'Snapshot and source equivalence must exercise actual timetable journeys.')
   const restore = () => { for (const [file, bytes] of originals) fs.writeFileSync(file, bytes) }
   for (const [file] of originals) fs.unlinkSync(file)
   queries.forEach((q, i) => {
@@ -99,6 +101,7 @@ try {
     const full = query(q)
     const compact = query({ ...q, journeyFormat: 'compact' })
     const unique = query({ ...q, origins: [base.origin, base.destination] })
+    const geometry = query({ ...q, includeGeometry: true })
     assert.deepEqual(full.durationsMinutes, [unique.durationsMinutes[0], unique.durationsMinutes[0], unique.durationsMinutes[1]])
     assert.deepEqual(full.journeys, [unique.journeys[0], unique.journeys[0], unique.journeys[1]],
       'Sharing repeated endpoints preserves every full journey and output position.')
@@ -110,6 +113,12 @@ try {
       for (const key of ['departureMinutes', 'arrivalMinutes', 'durationMinutes', 'transfers', 'walkMinutes', 'rideMinutes', 'waitMinutes']) assert.equal(a[key], b[key])
       assert.deepEqual(a.legs, b.legs.map(l => ({ kind: l.kind, fromStopId: l.fromStopId ?? null, toStopId: l.toStopId ?? null, departureMinutes: l.departureMinutes, arrivalMinutes: l.arrivalMinutes, durationMinutes: l.durationMinutes,
         ...(l.kind === 'ride' ? { tripId: l.tripId, boardSequence: l.boardSequence, alightSequence: l.alightSequence } : {}) })))
+      if (b.mode === 'walk') {
+        assert.equal(b.legs.length, 1, 'A winning direct walk must retain its timed walking leg.')
+        assert.equal(b.walkMinutes, b.durationMinutes)
+        assert(geometry.journeys[i][j].legs[0].coordinates.length >= 2,
+          'Full walking Matrix journeys materialize their requested geometry.')
+      }
     }
     checked++
     for (const patch of [{ journeyFormat: false }, { journeyFormat: 'other' }, { journeyFormat: 'compact', includeJourneys: false }, { journeyFormat: 'compact', includeGeometry: true }, { journeyFormat: 'full', mode: 'walk' }]) {

@@ -513,7 +513,7 @@ impl City {
         } else {
             json!({"status":"blocked","reason":if a.stops.is_empty() || b.stops.is_empty() {"no_access"}else{"no_path"},"mode":"transit"})
         };
-        if !flag(q, "requireTransitRide", true)?
+        if !flag(q, "requireTransitRide", false)?
             && (output["status"] == "ready"
                 || (origin.stop.is_none() && destination.stop.is_none()))
         {
@@ -521,9 +521,9 @@ impl City {
             let wins = walk["status"] == "ready"
                 && (output["status"] != "ready"
                     || if opt.arrive {
-                        walk["departureMinutes"].as_f64() > output["departureMinutes"].as_f64()
+                        walk["departureMinutes"].as_f64() >= output["departureMinutes"].as_f64()
                     } else {
-                        walk["arrivalMinutes"].as_f64() < output["arrivalMinutes"].as_f64()
+                        walk["arrivalMinutes"].as_f64() <= output["arrivalMinutes"].as_f64()
                     });
             if wins {
                 output = walk;
@@ -575,6 +575,9 @@ impl City {
             m.insert("timeMinutes".into(), json!(time));
             m.insert("origin".into(), points[i].clone());
             m.insert("destination".into(), points[i + 1].clone());
+            if q["mode"].as_str().unwrap_or("transit") == "transit" {
+                m.insert("requireTransitRide".into(), json!(true));
+            }
             let r = self.route(&request)?;
             if r["status"] != "ready" {
                 return Ok(
@@ -763,7 +766,7 @@ impl City {
                 })
                 .collect();
         }
-        if !flag(q, "requireTransitRide", true)? {
+        if !flag(q, "requireTransitRide", false)? {
             let walk = self.street.route_street_matrix(StreetMatrixInput {
                 origin_coordinates: origins.iter().flat_map(|p| p.coordinate).collect(),
                 destination_coordinates: destinations.iter().flat_map(|p| p.coordinate).collect(),
@@ -775,7 +778,8 @@ impl City {
                 let exact = origins[i / destinations.len()].stop.is_some()
                     || destinations[i % destinations.len()].stop.is_some();
                 if !(exact && !durations[i].is_finite())
-                    && minutes < durations[i]
+                    && minutes.is_finite()
+                    && minutes <= durations[i]
                     && minutes <= (opt.end - opt.start) / 60.
                 {
                     durations[i] = minutes;
@@ -785,7 +789,34 @@ impl City {
                         } else {
                             opt.time / 60.
                         };
-                        journeys[i] = json!({"mode":"walk","departureMinutes":departure,"arrivalMinutes":departure+minutes,"durationMinutes":minutes,"distanceMeters":distance,"transfers":0});
+                        let mut leg = json!({"kind":"walk","fromStopId":null,"toStopId":null,
+                            "departureMinutes":departure,"arrivalMinutes":departure+minutes,"durationMinutes":minutes});
+                        if !compact {
+                            leg["distanceMeters"] = json!(distance);
+                        }
+                        if include_geometry {
+                            let origin = &origins[i / destinations.len()];
+                            let destination = &destinations[i % destinations.len()];
+                            let path = self.street.route_path(StreetPathInput {
+                                origin_lon: origin.coordinate[0],
+                                origin_lat: origin.coordinate[1],
+                                destination_lon: destination.coordinate[0],
+                                destination_lat: destination.coordinate[1],
+                                maximum_distance_m: self.direct_walk_limit(q, &opt)?,
+                                maximum_points: 512,
+                            })?;
+                            if !path.found {
+                                return fail("Matrix selected walk could not be materialized");
+                            }
+                            leg["coordinates"] = json!(walking_coordinates(
+                                &path.coordinates,
+                                origin.coordinate,
+                                destination.coordinate
+                            ));
+                        }
+                        journeys[i] = json!({"mode":"walk","departureMinutes":departure,"arrivalMinutes":departure+minutes,
+                            "durationMinutes":minutes,"distanceMeters":distance,"transfers":0,
+                            "walkMinutes":minutes,"rideMinutes":0,"waitMinutes":0,"legs":[leg]});
                     }
                 }
             }
@@ -829,10 +860,7 @@ impl City {
                 (
                     r.distance_m / speed * 3.6,
                     r.distance_m,
-                    r.coordinates
-                        .chunks_exact(2)
-                        .map(|p| [p[0], p[1]])
-                        .collect::<Vec<_>>(),
+                    walking_coordinates(&r.coordinates, origin.coordinate, destination.coordinate),
                     serde_json::to_value(&r)?,
                 )
             }
@@ -1423,6 +1451,7 @@ fn validate_request(command: &str, q: &Value) -> Result<()> {
             "bounds",
             "walkSpeedKph",
             "includeStreetEdges",
+            "surfaceSampling",
             "includeNodes",
             "scenario",
         ],
@@ -1556,4 +1585,28 @@ mod reserve_tests {
             assert_eq!(after.start, before.start);
         }
     }
+}
+
+// Street kernels return graph geometry. Public walking journeys also retain
+// the requested endpoints, including a valid two-point zero-length line.
+fn walking_coordinates(raw: &[f64], origin: [f64; 2], destination: [f64; 2]) -> Vec<[f64; 2]> {
+    let mut points = Vec::with_capacity(raw.len() / 2 + 2);
+    points.push(origin);
+    for point in raw
+        .chunks_exact(2)
+        .map(|p| [p[0], p[1]])
+        .chain([destination])
+    {
+        if points
+            .last()
+            .is_none_or(|p| (p[0] - point[0]).abs() > 1e-10 || (p[1] - point[1]).abs() > 1e-10)
+        {
+            points.push(point);
+        }
+    }
+    *points.last_mut().unwrap() = destination;
+    if points.len() == 1 {
+        points.push(destination);
+    }
+    points
 }

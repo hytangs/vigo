@@ -159,12 +159,13 @@ try {
   assert(noGeometry.journeys[0][0].legs.every(leg => !Object.hasOwn(leg, 'coordinates')))
   assert.deepEqual(noGeometry.durationsMinutes, matrixExample.result.durationsMinutes)
   checks++
-  const compactWalk = outputCase('matrix-compact-walk', 'matrix', {
+  const matrixWalk = outputCase('matrix-walk', 'matrix', {
     ...matrixExample.request, origins: [{ stopId: 'A' }], destinations: [{ stopId: 'B' }], requireTransitRide: false,
   })
-  assert.equal(compactWalk.journeys[0][0].mode, 'walk')
-  assert(!Object.hasOwn(compactWalk.journeys[0][0], 'legs'))
-  assert(compactWalk.durationsMinutes[0][0] < 35)
+  assert.equal(matrixWalk.journeys[0][0].mode, 'walk')
+  assert.equal(matrixWalk.journeys[0][0].legs.length, 1)
+  assert(matrixWalk.journeys[0][0].legs[0].coordinates.length >= 2)
+  assert(matrixWalk.durationsMinutes[0][0] < 35)
   checks++
   const viaExample = examples.find(e => e.request.via)
   const viaWindow = outputCase('via-before-window', 'route', { ...viaExample.request, windowMinutes: 10 })
@@ -179,9 +180,10 @@ try {
   assert(edges.count > 0)
   assert.equal(edges.nodes.length, edges.nodeCount * 2)
   assert.equal(edges.endpoints.length, edges.count * 2)
-  for (const key of ['edgeIds', 'durationMinutes', 'walkDistanceM', 'transitArrivalMinutes']) assert.equal(edges[key].length, edges.count)
-  assert.equal(edgesResult.surface.nodes.length, 1, 'Document the current wrapper node cap')
-  assert(!Object.hasOwn(edgesResult.diagnostics.surface, 'nodeEvidenceTruncated'))
+  assert.equal(edges.schemaVersion, 'vigo.standalone.street-edges.v2')
+  for (const key of ['edgeIds', 'durationMinutes', 'fromDurationMinutes', 'startFractions', 'endFractions', 'walkDistanceM', 'transitArrivalMinutes']) assert.equal(edges[key].length, edges.count)
+  assert(edgesResult.surface.nodes.length > 1, 'Requested node evidence must retain the reached fixture nodes.')
+  assert.equal(edgesResult.diagnostics.surface.nodeEvidenceTruncated, false)
   checks++
   const decoders = new Map([...manual.matchAll(/```js decoder=(\w+)\n([\s\S]*?)\n```/g)].map(m => [m[1], m[2]]))
   assert.deepEqual([...decoders.keys()].sort(), ['edge', 'raster'])
@@ -206,7 +208,12 @@ try {
   assert(direct >= 0 && transit >= 0)
   assert.equal(readEdge(edges, direct).transitArrivalMinutes, null)
   assert.equal(readEdge(edges, transit).transitArrivalMinutes, edges.transitArrivalMinutes[transit])
-  assert.deepEqual(plain(readEdge(edges, 0).coordinates[1]), edges.nodes.slice(2 * edges.endpoints[1], 2 * edges.endpoints[1] + 2))
+  const interval = { count: 1, nodes: [0, 0, 10, 0], endpoints: [0, 1], edgeIds: [7],
+    startFractions: [.2], endFractions: [.8], fromDurationMinutes: [2], durationMinutes: [8],
+    walkDistanceM: [800], transitArrivalMinutes: [-1] }
+  assert.deepEqual(plain(readEdge(interval, 0).coordinates), [[2, 0], [8, 0]])
+  assert.deepEqual(plain(readEdge(interval, 0, 5).coordinates), [[2, 0], [5, 0]])
+  assert.equal(readEdge(interval, 0, 1), null)
   assert.throws(() => readEdge(edges, edges.count), { name: 'RangeError' })
   checks++
   const noCommon = outputCase('comparison-no-common', 'compare', {

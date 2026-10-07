@@ -6,7 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import JSZip from 'jszip'
 import { DatabaseSync } from 'node:sqlite'
-import { buildNationalGtfsStore, buildNationalStaticTopologySidecar, buildRoutingStoreFromSchedules, disposeNationalGtfsStore, ensureNationalGtfsStopAccessRoles, inspectNationalGtfsAccessCandidates, mergeNationalGtfsStores, nationalFeedSummary, prepareNationalGtfsRoutingContext, readNationalGtfsPreview, readNationalGtfsStoreMetadata, routeNationalGtfsDepartureWindow, routeNationalGtfsMatrix, routeNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
+import { buildNationalGtfsStore, buildNationalStaticTopologySidecar, buildRoutingStoreFromSchedules, disposeNationalGtfsStore, ensureNationalGtfsStopAccessRoles, inspectNationalGtfsAccessCandidates, mergeNationalGtfsStores, nationalFeedSummary, prepareNationalGtfsRoutingContext, readNationalGtfsPreview, readNationalGtfsStoreMetadata, routeNationalGtfsDepartureWindow, routeNationalGtfsMatrix as matrixWithDefaultWalking, routeNationalGtfsStore as routeWithDefaultWalking } from '../src/server/national-gtfs-store.mjs'
 import {
   buildNationalOsmWalkStore,
   compactNationalOsmRuntimeStore,
@@ -28,6 +28,10 @@ import { blockedPlan } from '../src/server/gtfs/route-results.mjs'
 import { directWalkAlternativePlan } from '../src/server/gtfs/walking-plans.mjs'
 import { disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
 
+// Timetable fixtures require a ride unless their request overrides it.
+const routeNationalGtfsStore = (store, request, ...options) => routeWithDefaultWalking(store, { requireTransitRide: true, ...request }, ...options)
+const routeNationalGtfsMatrix = (store, request, ...options) => matrixWithDefaultWalking(store, { requireTransitRide: true, ...request }, ...options)
+
 const unavailableAccessDiagnostic = blockedPlan(
   { serviceDate: '2026-07-12', horizonMinutes: 240, maxTransfers: 3 }, 480, 1.2,
   'No reachable station', 'Generic failure', {
@@ -43,7 +47,7 @@ assert.equal(unavailableAccessDiagnostic.title, 'Access diagnostic unavailable')
 assert.deepEqual(unavailableAccessDiagnostic.diagnostics.searchLimits, {
   maxWalkKm: 1.2, walkingLimitScope: 'per_endpoint', horizonMinutes: 240,
   horizonScope: 'timetable_scan',
-  maxTransfers: 3, requireTransitRide: true,
+  maxTransfers: 3, requireTransitRide: false,
 })
 
 async function rebuildFixtureRoutingDerivedArtifacts(storePath) {
@@ -1497,7 +1501,7 @@ try {
     ['Long walks respect the opt-in', { ...transitReadyWholeLegWalkRequest, allowLongWalk: true }, true],
     ['Walking respects the time limit', { ...shortWalkRequest, horizonMinutes: 1 }, false],
     ['Explicit transit-only routing requires a ride', { ...shortWalkRequest, requireTransitRide: true }, false],
-    ['The engine default still requires a ride', { ...shortWalkRequest, requireTransitRide: undefined }, false],
+    ['The engine default considers walking', { ...shortWalkRequest, requireTransitRide: undefined }, true],
   ]) {
     const { plan: walk } = directWalkAlternativePlan(query, query.maxWalkKm, 0.3)
     assert.equal(Boolean(walk), expectedWalk, label)

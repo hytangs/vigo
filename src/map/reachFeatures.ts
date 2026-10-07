@@ -87,6 +87,9 @@ type DecodedStreetEdgeBundle = {
   endpoints: Uint32Array
   edgeIds: Uint32Array
   durations: Float64Array
+  startDurations: Float64Array
+  startFractions: Float64Array
+  endFractions: Float64Array
   points: LngLat[]
   segments: Array<[LngLat, LngLat]>
 }
@@ -118,6 +121,9 @@ function decodeStreetEdgeBundle(bundle: ScenarioStreetEdgeBundle): DecodedStreet
     endpoints: new Uint32Array(decodeBase64Bytes(bundle.endpoints)),
     edgeIds: new Uint32Array(decodeBase64Bytes(bundle.edgeIds)),
     durations: new Float64Array(decodeBase64Bytes(bundle.durationMinutes)),
+    startDurations: new Float64Array(decodeBase64Bytes(bundle.fromDurationMinutes ?? bundle.durationMinutes)),
+    startFractions: bundle.startFractions ? new Float64Array(decodeBase64Bytes(bundle.startFractions)) : new Float64Array(bundle.count),
+    endFractions: bundle.endFractions ? new Float64Array(decodeBase64Bytes(bundle.endFractions)) : new Float64Array(bundle.count).fill(1),
     points: new Array<LngLat>(bundle.nodeCount),
     segments: new Array<[LngLat, LngLat]>(bundle.count),
   }
@@ -126,7 +132,18 @@ function decodeStreetEdgeBundle(bundle: ScenarioStreetEdgeBundle): DecodedStreet
     || decoded.endpoints.length !== bundle.count * 2
     || decoded.edgeIds.length !== bundle.count
     || decoded.durations.length !== bundle.count
+    || decoded.startDurations.length !== bundle.count
+    || decoded.startFractions.length !== bundle.count
+    || decoded.endFractions.length !== bundle.count
+    || (bundle.schemaVersion === 'vigo.street.edge-bundle.v2'
+      && (!bundle.fromDurationMinutes || !bundle.startFractions || !bundle.endFractions))
   ) throw new Error('Reach street-edge bundle has inconsistent packed lengths.')
+  for (let i = 0; i < bundle.count; i += 1) {
+    if (![decoded.startDurations[i], decoded.durations[i], decoded.startFractions[i], decoded.endFractions[i]].every(Number.isFinite)
+      || decoded.startDurations[i] < 0 || decoded.durations[i] < decoded.startDurations[i]
+      || decoded.startFractions[i] < 0 || decoded.endFractions[i] > 1
+      || decoded.startFractions[i] >= decoded.endFractions[i]) throw new Error('Reach has an invalid street interval.')
+  }
   decodedStreetEdgeBundles.set(bundle, decoded)
   return decoded
 }
@@ -151,48 +168,64 @@ function forEachStreetEdge(
   sources?: ScenarioEdgeSources,
 ) {
   const resolved = resolveStreetEdgeSource(source, sources)
-  if (resolved.schemaVersion !== 'vigo.street.edge-bundle.v1') {
+  if (!['vigo.street.edge-bundle.v1', 'vigo.street.edge-bundle.v2'].includes(resolved.schemaVersion)) {
     throw new Error('Reach street-edge bundle schema is unsupported.')
   }
   const decoded = decodeStreetEdgeBundle(resolved)
   for (let index = 0; index < resolved.count; index += 1) {
-    if (decoded.durations[index] > cutoffMinutes) continue
-    callback(indexedEdgeCoordinates(decoded, index), decoded.durations[index])
+    const end = cutoffFraction(decoded, index, cutoffMinutes)
+    if (end <= decoded.startFractions[index]) continue
+    callback(indexedEdgeCoordinates(decoded, index, decoded.startFractions[index], end),
+      indexedEdgeArrival(decoded, index, end))
   }
 }
 
 function indexedStreetEdges(source: ScenarioStreetEdgeSource, sources?: ScenarioEdgeSources) {
   const resolved = resolveStreetEdgeSource(source, sources)
-  if (resolved.schemaVersion !== 'vigo.street.edge-bundle.v1') {
+  if (!['vigo.street.edge-bundle.v1', 'vigo.street.edge-bundle.v2'].includes(resolved.schemaVersion)) {
     throw new Error('Reach street-edge bundle schema is unsupported.')
   }
   const decoded = decodeStreetEdgeBundle(resolved)
   for (let index = 1; index < decoded.edgeIds.length; index += 1) {
-    if (decoded.edgeIds[index] <= decoded.edgeIds[index - 1]) {
-      throw new Error('Reach street-edge IDs must be strictly increasing.')
+    if (decoded.edgeIds[index] < decoded.edgeIds[index - 1]
+      || (decoded.edgeIds[index] === decoded.edgeIds[index - 1]
+        && decoded.startFractions[index] < decoded.endFractions[index - 1])) {
+      throw new Error('Reach street intervals must be ordered and non-overlapping within each edge.')
     }
   }
   return { decoded }
 }
 
-function indexedEdgeArrival(decoded: DecodedStreetEdgeBundle, index: number) {
-  return decoded.durations[index]
+function indexedEdgeArrival(decoded: DecodedStreetEdgeBundle, index: number, fraction = decoded.endFractions[index]) {
+  return decoded.startDurations[index] + (decoded.durations[index] - decoded.startDurations[index])
+    * (fraction - decoded.startFractions[index]) / (decoded.endFractions[index] - decoded.startFractions[index])
 }
 
-function indexedEdgeCoordinates(decoded: DecodedStreetEdgeBundle, index: number): [LngLat, LngLat] {
+function cutoffFraction(decoded: DecodedStreetEdgeBundle, index: number, cutoff: number) {
+  if (decoded.startDurations[index] > cutoff) return decoded.startFractions[index]
+  if (decoded.durations[index] <= cutoff) return decoded.endFractions[index]
+  return decoded.startFractions[index] + (decoded.endFractions[index] - decoded.startFractions[index])
+    * (cutoff - decoded.startDurations[index]) / (decoded.durations[index] - decoded.startDurations[index])
+}
+
+function indexedEdgeCoordinates(decoded: DecodedStreetEdgeBundle, index: number,
+  start = decoded.startFractions[index], end = decoded.endFractions[index]): [LngLat, LngLat] {
   const cached = decoded.segments[index]
-  if (cached) return cached
+  const complete = start === decoded.startFractions[index] && end === decoded.endFractions[index]
+  if (cached && complete) return cached
   const fromNode = decoded.endpoints[index * 2] * 2
   const toNode = decoded.endpoints[index * 2 + 1] * 2
   if (fromNode + 1 >= decoded.nodes.length || toNode + 1 >= decoded.nodes.length) {
     throw new Error('Reach street-edge bundle references an invalid node.')
   }
-  // Cutoffs change inclusion and color, not geometry. Share immutable points
-  // and segments across views instead of reallocating millions on every edit.
-  return decoded.segments[index] = [
-    decoded.points[fromNode / 2] ??= [decoded.nodes[fromNode], decoded.nodes[fromNode + 1]],
-    decoded.points[toNode / 2] ??= [decoded.nodes[toNode], decoded.nodes[toNode + 1]],
-  ]
+  const point = (fraction: number): LngLat => fraction === 0
+    ? decoded.points[fromNode / 2] ??= [decoded.nodes[fromNode], decoded.nodes[fromNode + 1]]
+    : fraction === 1 ? decoded.points[toNode / 2] ??= [decoded.nodes[toNode], decoded.nodes[toNode + 1]]
+      : [decoded.nodes[fromNode] + fraction * (decoded.nodes[toNode] - decoded.nodes[fromNode]),
+          decoded.nodes[fromNode + 1] + fraction * (decoded.nodes[toNode + 1] - decoded.nodes[fromNode + 1])]
+  const segment: [LngLat, LngLat] = [point(start), point(end)]
+  if (complete) decoded.segments[index] = segment
+  return segment
 }
 
 function groupedStreetFeatures(
@@ -220,48 +253,41 @@ function indexedScenarioEdgeFeatures(
   const baseline = indexedStreetEdges(edges.baseline, edges)
   const scenario = indexedStreetEdges(edges.scenario, edges)
   const groups = new Map<string, { color: string; coordinates: Array<[LngLat, LngLat]>; count: number }>()
-  const add = (beforeIndex: number | undefined, afterIndex: number | undefined) => {
-    const beforeMinutes = beforeIndex === undefined
-      ? Number.POSITIVE_INFINITY
-      : indexedEdgeArrival(baseline.decoded, beforeIndex)
-    const afterMinutes = afterIndex === undefined
-      ? Number.POSITIVE_INFINITY
-      : indexedEdgeArrival(scenario.decoded, afterIndex)
-    if (beforeMinutes > cutoffMinutes && afterMinutes > cutoffMinutes) return
-    const edgeMinutes = Number.isFinite(afterMinutes) ? afterMinutes : beforeMinutes
-    const deltaMinutes = Number.isFinite(beforeMinutes) && Number.isFinite(afterMinutes)
-      ? beforeMinutes - afterMinutes
-      : Number.isFinite(afterMinutes) ? cutoffMinutes : -cutoffMinutes
-    const [red, green, blue] = reachDifferenceColor(deltaMinutes)
-    const color = `rgb(${red}, ${green}, ${blue})`
-    const group = groups.get(color) ?? { color, coordinates: [], count: 0 }
-    const coordinates = indexedEdgeCoordinates(
-      afterIndex === undefined ? baseline.decoded : scenario.decoded,
-      afterIndex === undefined ? beforeIndex as number : afterIndex,
-    )
-    if (!Number.isFinite(edgeMinutes)) return
-    group.coordinates.push(coordinates)
-    group.count += 1
-    groups.set(color, group)
-  }
-  let baselineIndex = 0
-  let scenarioIndex = 0
-  while (
-    baselineIndex < baseline.decoded.edgeIds.length
-    || scenarioIndex < scenario.decoded.edgeIds.length
-  ) {
-    const baselineId = baseline.decoded.edgeIds[baselineIndex]
-    const scenarioId = scenario.decoded.edgeIds[scenarioIndex]
-    if (scenarioIndex >= scenario.decoded.edgeIds.length || baselineId < scenarioId) {
-      add(baselineIndex, undefined)
-      baselineIndex += 1
-    } else if (baselineIndex >= baseline.decoded.edgeIds.length || scenarioId < baselineId) {
-      add(undefined, scenarioIndex)
-      scenarioIndex += 1
-    } else {
-      add(baselineIndex, scenarioIndex)
-      baselineIndex += 1
-      scenarioIndex += 1
+  let before = 0, after = 0
+  while (before < baseline.decoded.edgeIds.length || after < scenario.decoded.edgeIds.length) {
+    const id = Math.min(baseline.decoded.edgeIds[before] ?? Infinity, scenario.decoded.edgeIds[after] ?? Infinity)
+    const beforeStart = before, afterStart = after
+    while (baseline.decoded.edgeIds[before] === id) before += 1
+    while (scenario.decoded.edgeIds[after] === id) after += 1
+    const intervals = (decoded: DecodedStreetEdgeBundle, from: number, to: number) => {
+      const result: {index: number; start: number; end: number}[] = []
+      for (let i = from; i < to; i += 1) {
+        const start = decoded.startFractions[i], end = cutoffFraction(decoded, i, cutoffMinutes)
+        if (end > start) result.push({index: i, start, end})
+      }
+      return result
+    }
+    const a = intervals(baseline.decoded, beforeStart, before)
+    const b = intervals(scenario.decoded, afterStart, after)
+    const cuts = [...new Set([...a, ...b].flatMap(i => [i.start, i.end]))].sort((x,y) => x-y)
+    let ai = 0, bi = 0
+    for (let k = 1; k < cuts.length; k += 1) {
+      const start = cuts[k-1], end = cuts[k], middle = (start+end)/2
+      while (ai < a.length && a[ai].end < middle) ai += 1
+      while (bi < b.length && b[bi].end < middle) bi += 1
+      const left = a[ai]?.start <= middle && a[ai]?.end >= middle ? a[ai] : undefined
+      const right = b[bi]?.start <= middle && b[bi]?.end >= middle ? b[bi] : undefined
+      if (!left && !right) continue
+      const delta = left && right
+        ? indexedEdgeArrival(baseline.decoded,left.index,middle) - indexedEdgeArrival(scenario.decoded,right.index,middle)
+        : right ? cutoffMinutes : -cutoffMinutes
+      const [red,green,blue] = reachDifferenceColor(delta)
+      const color = `rgb(${red}, ${green}, ${blue})`
+      const group = groups.get(color) ?? {color,coordinates:[],count:0}
+      group.coordinates.push(indexedEdgeCoordinates(right ? scenario.decoded : baseline.decoded,
+        (right ?? left)!.index,start,end))
+      group.count += 1
+      groups.set(color,group)
     }
   }
   return groupedStreetFeatures(groups, 'comparison')
