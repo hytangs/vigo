@@ -137,9 +137,18 @@ fn leg(v: &Value, geometry: bool) -> Value {
             });
         }
         let estimated_station_time = v["transferSource"] == "gtfs_pathway_estimated"
-            || [&v["stationPathSources"], &v["accessCost"]["station"]["sources"]]
-                .iter().any(|sources| sources.as_array().is_some_and(|items|
-                    items.iter().any(|source| source == "gtfs_pathway_estimated")));
+            || [
+                &v["stationPathSources"],
+                &v["accessCost"]["station"]["sources"],
+            ]
+            .iter()
+            .any(|sources| {
+                sources.as_array().is_some_and(|items| {
+                    items
+                        .iter()
+                        .any(|source| source == "gtfs_pathway_estimated")
+                })
+            });
         if estimated_station_time {
             out["quality"]["stationTime"] = json!("estimated");
         }
@@ -401,7 +410,9 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
     } else {
         raw
     };
-    let geometry = request["includeGeometry"].as_bool().unwrap_or(kind == "route");
+    let geometry = request["includeGeometry"]
+        .as_bool()
+        .unwrap_or(kind == "route");
     let compute = pick(&raw["timing"], &["computeMs", "totalMs"]).as_f64();
     let revision = pick(raw, &["cityRevision", "revisionId"])
         .as_str()
@@ -471,7 +482,9 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
                 .and_then(|j| j.get_mut("legs"))
                 .and_then(Value::as_array_mut)
                 && legs.len() == 1
-                && ["walk", "drive"].iter().any(|kind| legs[0]["type"] == *kind)
+                && ["walk", "drive"]
+                    .iter()
+                    .any(|kind| legs[0]["type"] == *kind)
             {
                 if legs[0]["from"] == json!({}) {
                     legs[0]["from"] = point(&q["origin"]);
@@ -545,7 +558,9 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
                     if let (Some(i), Some(j)) = (
                         row["originIndex"].as_u64(),
                         row["destinationIndex"].as_u64(),
-                    ) && i < origin_count as u64 && j < destination_count as u64 {
+                    ) && i < origin_count as u64
+                        && j < destination_count as u64
+                    {
                         durations[i as usize][j as usize] =
                             convert_minutes(&row["durationMinutes"]);
                         if let Some(v) = row.get("journey") {

@@ -353,7 +353,8 @@ impl City {
         let policy: Value = serde_json::from_str(&access.access_policy_identity)?;
         if policy["transferWalkingTimeFloor"] != "distance-at-configured-speed-v1"
             || policy["unpricedPathways"] != "typed-estimates-otherwise-excluded-v2"
-            || policy["pathwayCostModel"]["id"] != "stairs-one-second-per-step-gates-five-seconds-v1"
+            || policy["pathwayCostModel"]["id"]
+                != "stairs-one-second-per-step-gates-five-seconds-v1"
             || policy["pathwayCostModel"]["secondsPerStair"] != 1
             || policy["pathwayCostModel"]["gateSeconds"] != 5
             || policy["stationStreetAnchors"] != "declared-entrances-v1"

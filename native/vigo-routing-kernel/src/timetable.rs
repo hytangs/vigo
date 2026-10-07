@@ -4005,11 +4005,13 @@ impl TimetableKernel {
                     let mut board_sequence = workspace.run_board_sequence[run] as f64;
                     if let Some(frontier) = bucket_boardings.get(&run) {
                         let mut boardings = workspace.labels[predecessor as usize]
-                            .boardings.saturating_add(1);
+                            .boardings
+                            .saturating_add(1);
                         for &candidate in frontier {
                             if candidate.connection <= connection as i32
                                 && (boarding > connection as i32
-                                    || (candidate.boardings, candidate.connection) < (boardings, boarding))
+                                    || (candidate.boardings, candidate.connection)
+                                        < (boardings, boarding))
                             {
                                 boarding = candidate.connection;
                                 predecessor = candidate.predecessor;
