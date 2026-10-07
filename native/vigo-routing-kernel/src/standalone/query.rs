@@ -1570,23 +1570,6 @@ fn validate_request(command: &str, q: &Value) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod reserve_tests {
-    use super::*;
-
-    #[test]
-    fn arrival_reserves_preserve_second_precision_and_original_start() {
-        for clock in ["08:37:03", "08:37:01", "24:37:59", "71:59:59"] {
-            let q = json!({"time":clock,"timePreference":"arrive_by","horizonMinutes":120,"arrivalBufferMinutes":5});
-            let before = Options::parse(&q).unwrap();
-            let (effective, _) = arrival_reserve("route", &q).unwrap().unwrap();
-            let after = Options::parse(&effective).unwrap();
-            assert_eq!(after.end, before.end - 300.);
-            assert_eq!(after.start, before.start);
-        }
-    }
-}
-
 // Street kernels return graph geometry. Public walking journeys also retain
 // the requested endpoints, including a valid two-point zero-length line.
 fn walking_coordinates(raw: &[f64], origin: [f64; 2], destination: [f64; 2]) -> Vec<[f64; 2]> {
@@ -1609,4 +1592,21 @@ fn walking_coordinates(raw: &[f64], origin: [f64; 2], destination: [f64; 2]) -> 
         points.push(destination);
     }
     points
+}
+
+#[cfg(test)]
+mod reserve_tests {
+    use super::*;
+
+    #[test]
+    fn arrival_reserves_preserve_second_precision_and_original_start() {
+        for clock in ["08:37:03", "08:37:01", "24:37:59", "71:59:59"] {
+            let q = json!({"time":clock,"timePreference":"arrive_by","horizonMinutes":120,"arrivalBufferMinutes":5});
+            let before = Options::parse(&q).unwrap();
+            let (effective, _) = arrival_reserve("route", &q).unwrap().unwrap();
+            let after = Options::parse(&effective).unwrap();
+            assert_eq!(after.end, before.end - 300.);
+            assert_eq!(after.start, before.start);
+        }
+    }
 }
