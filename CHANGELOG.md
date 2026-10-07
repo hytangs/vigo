@@ -14,6 +14,8 @@ Build Reach surfaces from vehicle arrivals and directed station exits. Charge st
 
 Retain native library code across routing-worker retirement, update Node bindings for lifecycle safety, and exercise repeated process exits and worker replacement with resident kernels and typed arrays.
 
+Rank departure-window journeys with equal arrival times by fewer transfers, then less walking, before leave-to-arrival duration. Use the same order in Studio, show total time from the requested departure on route cards, and identify zero-margin changes of vehicle in the itinerary.
+
 ## 0.4.3 — 2026-10-04
 
 Final release verification includes the walking corrections below. API 1.0, City format 1, and Result schema 1 remain unchanged.

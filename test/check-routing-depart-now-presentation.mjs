@@ -85,5 +85,36 @@ try {
   assert.match(details, /Arrive at Destination/)
   assert.doesNotMatch(details, /Why this journey is shown|sidebox-itinerary-summary|label="Ready"/)
   assert.deepEqual(detailPlan, unchanged, 'Itinerary presentation never mutates routing results')
+
+  const simple = { ...detailPlan, id: 'simple', departMinutes: 480, arriveMinutes: 530,
+    durationMinutes: 50, transfers: 1, walkMinutes: 25, recommended: true, choiceLabel: 'Earliest arrival',
+    diagnostics: { departureWindow: { centerMinutes: 480 } },
+    legs: [{ ...detailPlan.legs[1], routeShortName: 'SIMPLE' }] }
+  const chain = { ...simple, id: 'chain', departMinutes: 485, durationMinutes: 45,
+    transfers: 4, walkMinutes: 12, recommended: false, choiceLabel: 'Shortest journey',
+    legs: [{ ...detailPlan.legs[1], routeShortName: 'CHAIN' }] }
+  const ranked = render({ routingPlan: simple, routingChoices: [chain, simple], routingTimePreference: 'depart' })
+  assert(ranked.indexOf('SIMPLE') < ranked.indexOf('CHAIN'),
+    'Equal arrivals retain the fewer-transfer recommendation even when a later departure has a shorter journey.')
+  assert.equal((ranked.match(/>50m total<\/b>/g) ?? []).length, 2,
+    'Cards compare total time from the same requested departure, including the wait before leaving.')
+  assert.match(ranked, /including 5m before leaving; 45m travelling/)
+  const sameTransfers = render({ routingPlan: simple, routingChoices: [{ ...chain, transfers: 1, walkMinutes: 30 }, simple] })
+  assert(sameTransfers.indexOf('SIMPLE') < sameTransfers.indexOf('CHAIN'),
+    'Walking breaks an equal-arrival, equal-transfer tie before journey duration.')
+  const arriveCards = render({ routingPlan: { ...simple, timePreference: 'arrive' } })
+  assert.match(arriveCards, /title="Time from leaving to arriving"/)
+  assert.doesNotMatch(arriveCards, /from the requested departure/)
+
+  const connection = { ...detailPlan, legs: [
+    { ...detailPlan.legs[1], tripId: 'first-trip', startMinutes: 480, endMinutes: 490 },
+    { ...detailPlan.legs[1], tripId: 'next-trip', startMinutes: 490, endMinutes: 510 },
+  ] }
+  const renderConnection = plan => renderToStaticMarkup(createElement(RoutingDetailPanel, { plan, onClose() {} }))
+  assert.match(renderConnection(connection), /No time between vehicles/,
+    'A zero-margin change of vehicle is visible in the itinerary.')
+  assert.doesNotMatch(renderConnection({ ...connection, legs: [connection.legs[0], { ...connection.legs[1], startMinutes: 491 }] }), /No time between vehicles/)
+  assert.doesNotMatch(renderConnection({ ...connection, legs: [connection.legs[0], { ...connection.legs[1], tripId: 'first-trip' }] }), /No time between vehicles/,
+    'Remaining on the same trip is not presented as a vehicle change.')
   console.log('Depart now presentation passed: fixed realtime clock, retained research date/time and arrive-by, current-date failure, and unchanged street controls.')
 } finally { await server.close(); await rm(directory, { recursive: true, force: true }) }

@@ -44,6 +44,29 @@ function readyPlan({
 }
 
 const centerMinutes = 8 * 60
+// Leaving later must not turn an equal-arrival multi-vehicle chain into the
+// recommendation ahead of the lower-boarding point-query optimum.
+const equalArrivalSimple = readyPlan({
+  id: 'equal-arrival-simple', departMinutes: centerMinutes, durationMinutes: 50,
+  transfers: 1, walkMinutes: 25, routes: ['Bus', 'Rail'],
+})
+const equalArrivalChain = readyPlan({
+  id: 'equal-arrival-chain', departMinutes: centerMinutes + 5, durationMinutes: 45,
+  transfers: 4, walkMinutes: 12, routes: ['A', 'B', 'C', 'D', 'E'],
+})
+const equalArrivalChoices = selectNationalDepartureWindowChoices(
+  [equalArrivalChain, equalArrivalSimple], { centerMinutes },
+)
+assert.equal(equalArrivalChoices[0].id, equalArrivalSimple.id)
+assert.equal(equalArrivalChoices[0].recommended, true)
+assert.equal(equalArrivalChoices[0].choiceLabel, 'Earliest arrival')
+assert(equalArrivalChoices.some(plan => plan.id === equalArrivalChain.id),
+  'The chain can remain a lower-walking alternative, without being recommended.')
+const equalArrivalWalk = { ...equalArrivalChain, id: 'equal-arrival-walk',
+  transfers: 1, walkMinutes: 30 }
+assert.equal(selectNationalDepartureWindowChoices(
+  [equalArrivalWalk, equalArrivalSimple], { centerMinutes },
+)[0].id, equalArrivalSimple.id, 'Walking breaks equal-arrival, equal-transfer ties before journey duration.')
 const sameRouteEarly = readyPlan({
   id: 'same-route-early', departMinutes: 470, durationMinutes: 35,
   transfers: 0, walkMinutes: 5, routes: ['R1'], trip: 'early-trip',
@@ -102,7 +125,7 @@ assert.deepEqual(
 )
 assert.deepEqual(
   choices.map((choice) => choice.choiceLabel),
-  ['Fastest', 'Fewest transfers', 'Alternate', 'Least walking'],
+  ['Earliest arrival', 'Fewest transfers', 'Alternate', 'Least walking'],
 )
 assert.equal(choices.filter((choice) => choice.recommended).length, 1)
 assert.equal(choices[0].recommended, true)
@@ -133,7 +156,7 @@ assert.deepEqual(
   ['08-10-longer-journey', '08-25-shorter-journey'],
   'A later short journey must remain visible when it arrives one minute later than an earlier long journey.',
 )
-assert.equal(timeTradeoffChoices[0].choiceLabel, 'Fastest')
+assert.equal(timeTradeoffChoices[0].choiceLabel, 'Earliest arrival')
 assert.equal(timeTradeoffChoices[1].choiceLabel, 'Shortest journey')
 assert.equal(timeTradeoffChoices[0].durationMinutes, 20)
 assert.equal(timeTradeoffChoices[1].durationMinutes, 6)
@@ -178,7 +201,7 @@ const duplicatesOnly = selectNationalDepartureWindowChoices([
   sameRouteLate,
 ], { centerMinutes, limit: 5 })
 assert.equal(duplicatesOnly.length, 1, 'Trip and departure duplicates must not be presented as fake alternatives.')
-assert.equal(duplicatesOnly[0].choiceLabel, 'Fastest')
+assert.equal(duplicatesOnly[0].choiceLabel, 'Earliest arrival')
 
 const dominatedButDistinct = Array.from({ length: 6 }, (_, index) => readyPlan({
   id: `distinct-${index}`,

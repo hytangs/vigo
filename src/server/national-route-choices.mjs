@@ -152,9 +152,9 @@ export function nationalRoutingReturnedRideCycle(plan, { stationGroupForStopId }
 
 function compareFastestChoice(left, right, centerMinutes) {
   return choiceTotalElapsedMinutes(left, centerMinutes) - choiceTotalElapsedMinutes(right, centerMinutes)
-    || choiceJourneyMinutes(left) - choiceJourneyMinutes(right)
     || choiceMetric(left, 'transfers') - choiceMetric(right, 'transfers')
     || choiceMetric(left, 'walkMinutes') - choiceMetric(right, 'walkMinutes')
+    || choiceJourneyMinutes(left) - choiceJourneyMinutes(right)
     || Math.abs(choiceMetric(left, 'departMinutes') - centerMinutes) - Math.abs(choiceMetric(right, 'departMinutes') - centerMinutes)
     || choiceMetric(right, 'departMinutes') - choiceMetric(left, 'departMinutes')
     || compareChoiceIdentity(left, right)
@@ -391,7 +391,7 @@ export function selectNationalDepartureWindowChoices(plans, { centerMinutes, lim
   return orderedSelected.map((plan) => {
     let choiceLabel
     if (plan?.travelMode === 'walk') choiceLabel = 'Walk only'
-    else if (plan === visibleFastest) choiceLabel = 'Fastest'
+    else if (plan === visibleFastest) choiceLabel = 'Earliest arrival'
     else if (plan === visibleShortestJourney) choiceLabel = 'Shortest journey'
     else if (plan === visibleFewestTransfers) choiceLabel = 'Fewest transfers'
     else if (plan === visibleLeastWalking) choiceLabel = 'Least walking'

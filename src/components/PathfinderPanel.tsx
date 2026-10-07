@@ -70,7 +70,7 @@ function earliestTransitSummary(plans: RoutingPlan[]) {
       ? ` · arrives ${formatScheduleClock(Number(check.arriveMinutes))}`
       : ''
     const route = check.routeShortName ? ` · ${check.routeShortName}` : ''
-    return `Earliest transit: boards ${boarding}${arrival}${route}`
+    return `First boarding option: ${boarding}${arrival}${route}`
   }
   if (check?.status === 'none') return check.detail || 'No transit option in this search window.'
   if (check?.status === 'unavailable') return 'Earliest transit check unavailable.'
@@ -108,9 +108,9 @@ function PathfinderRouteList({
     .filter((plan) => plan.status === 'ready')
     .sort((left, right) => (
       routingPlanTotalElapsedMinutes(left) - routingPlanTotalElapsedMinutes(right)
-      || left.durationMinutes - right.durationMinutes
       || left.transfers - right.transfers
       || left.walkMinutes - right.walkMinutes
+      || left.durationMinutes - right.durationMinutes
       || left.id.localeCompare(right.id)
     ))
   if (!readyPlans.length && !alternativesLoading) return null
@@ -177,7 +177,9 @@ function PathfinderRouteList({
               >
                 <span className="pathfinder-route-time">
                   <strong>{formatScheduleClock(plan.departMinutes)} – {formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</strong>
-                  <b title={`Time from leaving to arriving; ${formatRoutingMinutes(totalElapsedMinutes)} elapsed from the requested departure`}>{formatRoutingMinutes(journeyMinutes)} time</b>
+                  <b title={plan.timePreference === 'depart'
+                    ? `${formatRoutingMinutes(totalElapsedMinutes)} from the requested departure, including ${formatRoutingMinutes(startWaitMinutes)} before leaving; ${formatRoutingMinutes(journeyMinutes)} travelling`
+                    : 'Time from leaving to arriving'}>{formatRoutingMinutes(totalElapsedMinutes)} total</b>
                 </span>
                 <span className="pathfinder-route-rationale">
                   <em>{plan.recommended ? 'Top result' : 'Alternative route'}</em>

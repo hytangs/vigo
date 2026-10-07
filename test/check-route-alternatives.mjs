@@ -82,7 +82,7 @@ try {
           `Arrival/transfer choices must match whole-ride enumeration: ${directArrival}, ${departureWindowDirection}`)
         assert.equal(window.plan.arriveMinutes, fastest.arriveMinutes)
         assert.equal(window.choices.filter((plan) => plan.recommended).length, 1)
-        assert.equal(window.choices[0].choiceLabel, 'Fastest')
+        assert.equal(window.choices[0].choiceLabel, 'Earliest arrival')
         assert.equal(window.choices.at(-1).choiceLabel, 'Fewest transfers')
         for (const plan of window.choices) {
           assert.equal(plan.departMinutes, request.departMinutes)
