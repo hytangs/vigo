@@ -25,10 +25,13 @@ VIGO models the City revision and Query it is given. It does not certify real-wo
 
 - Walk and Drive depend on OSM coverage and directionality.
 - Pedestrian coordinate attachment searches vertices within 160 m and projects
-  onto reciprocal edges within 80 m when at least one endpoint is in that
-  vertex search. Long edges with both endpoints outside that search can be missed even when their interior
-  passes close to a coordinate. A missing attachment is not proof that no
+  onto reciprocal edges within 80 m, including long segments whose endpoints
+  lie outside the vertex search. A missing attachment is not proof that no
   physical pedestrian path exists.
+- Platform polygons describe an area, not a walking centre line. Street-store
+  schema v6 excludes their outlines from the linear walking graph; mapped
+  footways and GTFS station pathways provide access. Routing freely across
+  polygon interiors is not modeled. Older Cities require a source rebuild.
 - A coordinate has one physical street attachment. If its closest attachment
   lies in a disconnected pedestrian component, a geometrically nearby stop can
   remain unreachable even with a larger walking budget. VIGO does not switch to

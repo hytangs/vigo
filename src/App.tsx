@@ -933,7 +933,7 @@ export default function App() {
   useEffect(() => {
     const street = selectedProject.osmStreetIndex
     if (street?.status === 'ready') {
-      setOsmStreetMessage(street.schemaVersion === 'vigo.street.store.v5'
+      setOsmStreetMessage(street.schemaVersion === 'vigo.street.store.v6'
         ? `${street.fileName} indexed / ${formatNumber(street.edgeCount)} walk + ${formatNumber(street.driveEdgeCount ?? 0)} drive edges`
         : `${street.fileName} indexed / ${formatNumber(street.edgeCount)} walk edges / rebuild for Drive`)
     } else if (street?.status === 'building') {

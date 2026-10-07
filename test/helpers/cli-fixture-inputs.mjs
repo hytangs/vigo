@@ -50,14 +50,20 @@ function writePrimitiveBlock(block, pbf) {
   pbf.writeMessage(2, writePrimitiveGroup, block.group)
 }
 
-function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffset) {
+function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffset, platformOutline) {
   const raw = pbfMessage(writePrimitiveBlock, {
-    strings: ['', 'highway', 'residential', 'footway', 'service', 'access', 'private', 'foot'],
+    strings: ['', 'highway', 'residential', 'footway', 'service', 'access', 'private', 'foot', 'platform', 'area', 'yes'],
     group: {
       nodes: [
         { id: 1, lat: 389_000_000, lon: -770_500_000 },
         { id: 2, lat: 389_050_000, lon: -770_400_000 },
         { id: 3, lat: 389_100_000, lon: -770_300_000 },
+        ...(platformOutline ? [
+          { id: 10, lat: 389_000_300, lon: -770_501_200 },
+          { id: 11, lat: 389_000_300, lon: -770_500_800 },
+          { id: 12, lat: 389_000_700, lon: -770_500_800 },
+          { id: 13, lat: 389_000_700, lon: -770_501_200 },
+        ] : []),
         ...Array.from({ length: unreferencedNodes }, (_, index) => ({ id: 100 + index, lat: 389_200_000, lon: -770_200_000 })),
         ...(terminalAccess ? [
           { id: 4, lat: 389_000_000, lon: -770_540_000 },
@@ -67,6 +73,7 @@ function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffs
       ].map((node) => ({ ...node, id: node.id + nodeIdOffset })),
       ways: [
         { id: 10, keys: [1], values: [2], refs: [1, 1, 1] },
+        ...(platformOutline ? [{ id: 14, keys: [1, 9], values: [8, 10], refs: [10, 1, 1, 1, -3] }] : []),
         ...(terminalAccess ? [
           { id: 11, keys: [1], values: [3], refs: [4, 1] },
           { id: 12, keys: [1, 5], values: [4, 6], refs: [5, 1] },
@@ -88,7 +95,7 @@ function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffs
   ]))
 }
 
-export async function writeCliFixtureInputs(directory, { terminalAccess = false, unreferencedNodes = 0, nodeIdOffset = 0 } = {}) {
+export async function writeCliFixtureInputs(directory, { terminalAccess = false, unreferencedNodes = 0, nodeIdOffset = 0, platformOutline = false } = {}) {
   const gtfsPath = path.join(directory, 'fixture.zip')
   const osmPath = path.join(directory, 'fixture.osm.pbf')
   const zip = new JSZip()
@@ -101,6 +108,6 @@ export async function writeCliFixtureInputs(directory, { terminalAccess = false,
   addTable('stop_times.txt', 'trip_id,arrival_time,departure_time,stop_id,stop_sequence\nT1,08:00:00,08:00:00,A,1\nT1,08:10:00,08:10:00,X,2\nT2,08:15:00,08:15:00,X,1\nT2,08:30:00,08:30:00,B,2\n')
   addTable('calendar.txt', 'service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nWKD,1,1,1,1,1,0,0,20260101,20261231\n')
   fs.writeFileSync(gtfsPath, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
-  writeOsmFixture(osmPath, terminalAccess, unreferencedNodes, nodeIdOffset)
+  writeOsmFixture(osmPath, terminalAccess, unreferencedNodes, nodeIdOffset, platformOutline)
   return { gtfsPath, osmPath }
 }

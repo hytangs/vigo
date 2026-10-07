@@ -46,7 +46,7 @@ const configuredAccessOverheadSeconds = Math.max(
 )
 
 export const nationalRoutingAccessPolicy = Object.freeze({
-  schemaVersion: 'vigo.routing.access-policy.v7',
+  schemaVersion: 'vigo.routing.access-policy.v8',
   id: customWalkingParametersEnabled
     ? 'vigo-national-configured-access'
     : 'vigo-national-regular-access',
@@ -56,7 +56,7 @@ export const nationalRoutingAccessPolicy = Object.freeze({
   transferWalkingTimeFloor: 'distance-at-configured-speed-v1',
   unpricedPathways: 'typed-estimates-otherwise-excluded-v2',
   pathwayCostModel,
-  streetAttachment: 'nearest-vertex-or-incident-reciprocal-edge-v2',
+  streetAttachment: 'nearest-vertex-or-reciprocal-edge-v3',
   stationStreetAnchors: 'declared-entrances-v1',
   stationStreetTransfers: 'entrance-pathway-chain-v1',
   stationPathDistance: 'source-or-located-chord-v1',

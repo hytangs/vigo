@@ -30,11 +30,11 @@ import { timingMilliseconds } from './number-utils.mjs'
 import { stableKeySuffix } from './routing-plan-identity.mjs'
 import { createLocalBasemapWriter } from './local-basemap-store.mjs'
 
-// v5 retains node access/barrier tags and excludes unresolved time-dependent
-// permissions. Older graphs must be rebuilt; their edges can cross barriers.
+// v6 also excludes platform area outlines from the linear walking graph.
+// Older graphs must be rebuilt; their outlines can trap nearby endpoints.
 // Public pedestrian access semantics are part of the persisted-store
 // schema. Rebuild from the source PBF when this schema changes.
-const streetStoreSchemaVersion = 'vigo.street.store.v5'
+const streetStoreSchemaVersion = 'vigo.street.store.v6'
 // A store is admitted by version, source model, and the objects the runtime
 // actually queries. Column-by-column and index-SQL checks duplicated SQLite's
 // schema and made harmless builder changes look like corrupt stores.
@@ -151,6 +151,10 @@ export function nationalOsmWayWalkable(tags) {
   const highway = normalizedTag(tags.highway)
   const access = normalizedTag(tags.access)
   const foot = normalizedTag(tags.foot)
+  // An area boundary describes the platform's extent, not a walking centre
+  // line. Importing it as a road can create an isolated loop closer than the
+  // mapped footways. Station interiors are connected through GTFS pathways.
+  if (highway === 'platform' && normalizedTag(tags.area) === 'yes') return false
   if (hasUnresolvedPedestrianHours(tags)) return false
   if (!highway || restrictedPedestrianAccessValues.has(foot)) return false
   // OSM mode-specific access overrides the general access tag. In particular,

@@ -184,7 +184,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v5"'), ('sourceModel', '"pbf"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v6"'), ('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES (1,0,0), (2,0,.0001), (3,0,.01), (4,0,.011), (5,0,.05), (6,0,.0501);
     INSERT INTO edges VALUES (1,2,11,1), (2,1,11,1), (3,4,111.196,2), (4,3,111.196,2), (5,6,11,3), (6,5,11,3);
   `)

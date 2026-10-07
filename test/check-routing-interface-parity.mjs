@@ -106,7 +106,7 @@ function fixtureProject(storeMetadata) {
       connectionCount: storeMetadata.connectionCount,
     },
     osmStreetIndex: {
-      schemaVersion: 'vigo.street.store.v5',
+      schemaVersion: 'vigo.street.store.v6',
       status: 'ready',
       fileName: 'street-index.sqlite',
       cch: { ready: true, format: 'fixture' },
@@ -436,6 +436,38 @@ try {
 
 
   const reachCaps = [0, 1, undefined, 0]
+  const walkLimits = [false, true, false]
+  const walkQueries = walkLimits.map((allowLongWalk, index) => ({ id: `walk-limit-${index}`, kind: 'matrix',
+    origins: [{ coordinate: [-77.050, 38.900] }], destinations: [{ coordinate: [-77.030, 38.910] }],
+    serviceDate, mode: 'transit', time: '20:00', horizonMinutes: 60, maxWalkKm: 0.2,
+    requireTransitRide: false, allowLongWalk }))
+  const walkStream = runCli(['_route-stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`], {
+    input: walkQueries.map(q => JSON.stringify(q)).join('\n') + '\n',
+  })
+  assert.equal(walkStream.status, 0, walkStream.stderr)
+  const walkMatrices = walkStream.stdout.trim().split('\n').map(line => JSON.parse(line))
+  for (const [index, request] of walkQueries.entries()) {
+    const expected = request.allowLongWalk ? 'ready' : 'blocked'
+    assert.equal(walkMatrices[index].rows[0].status, expected,
+      'Streamed Matrix must preserve the direct-walking limit independently for every request.')
+    const single = runCli(['matrix', `--city=${projectMetaPath}`, '--request=-'], { input: JSON.stringify(request) })
+    assert.equal(single.status, 0, single.stderr)
+    assert.equal(JSON.parse(single.stdout).trace.rows[0].status, expected)
+    const response = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-matrix`, apiUrl), {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...request, departMinutes: 1200, serviceDay: 'weekday' }),
+    })
+    assert.equal(response.status, 200)
+    assert.equal((await response.json()).matrix.rows[0].status, expected)
+    const route = { ...request, origin: request.origins[0], destination: request.destinations[0] }
+    delete route.kind; delete route.origins; delete route.destinations
+    const legacy = runCli(['_route-stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`], {
+      input: JSON.stringify(route) + '\n',
+    })
+    assert.equal(legacy.status, 0, legacy.stderr)
+    assert.equal(JSON.parse(legacy.stdout).plan.status, expected,
+      'Legacy streamed Route must preserve the same direct-walking limit.')
+  }
   const streamedReach = runCli(['_route-stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`,
     '--max-walk=0.2', '--max-transfers=1'], {
     input: reachCaps.map((maxTransfers, index) => JSON.stringify({

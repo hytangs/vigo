@@ -359,6 +359,7 @@ impl City {
             || policy["pathwayCostModel"]["gateSeconds"] != 5
             || policy["stationStreetAnchors"] != "declared-entrances-v1"
             || policy["stationStreetTransfers"] != "entrance-pathway-chain-v1"
+            || policy["streetAttachment"] != "nearest-vertex-or-reciprocal-edge-v3"
         {
             return fail(
                 "Prepared station walking times are stale; prepare the City with the current VIGO runtime",
@@ -415,7 +416,7 @@ impl City {
             .collect();
         let street_path = path.join("osm/street-index.sqlite.street-accelerator-v7.bin");
         let street_header = Image::open(&street_path, false)?;
-        if street_header.header["identity"]["schemaVersion"] != "vigo.street.store.v5" {
+        if street_header.header["identity"]["schemaVersion"] != "vigo.street.store.v6" {
             return fail(
                 "Street pedestrian restrictions are stale; rebuild the City from the source OSM PBF",
             );

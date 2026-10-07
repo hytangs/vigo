@@ -42,6 +42,8 @@ pub(crate) struct Snapshot {
     pub(crate) mmap: Mmap,
     pub(crate) header: Header,
     reciprocal_edge_flags_range: Range<usize>,
+    long_edges_by_cell: HashMap<(i32, i32), Vec<[u32; 2]>>,
+    unindexed_long_edges: Vec<([u32; 2], [f64; 4])>,
 }
 
 impl Snapshot {
@@ -117,13 +119,114 @@ impl Snapshot {
         .ok_or_else(|| {
             Error::from_reason("Street snapshot reciprocalEdgeFlags exceeds or overflows its file.")
         })?;
-        let snapshot = Self {
+        let mut snapshot = Self {
             mmap,
             header,
             reciprocal_edge_flags_range,
+            long_edges_by_cell: HashMap::new(),
+            unindexed_long_edges: Vec::new(),
         };
         snapshot.validate()?;
+        snapshot.index_long_edges()?;
         Ok(snapshot)
+    }
+
+    fn index_long_edges(&mut self) -> napi::Result<()> {
+        let lats = self.f64_array("nodeLats")?;
+        let lons = self.f64_array("nodeLons")?;
+        let offsets = self.u32_array("edgeOffsets")?;
+        let targets = self.u32_array("edgeTargets")?;
+        let reciprocal = self.reciprocal_edge_flags();
+        let mut cells = HashMap::<(i32, i32), Vec<[u32; 2]>>::new();
+        let mut unindexed = Vec::new();
+        for left in 0..lats.len() {
+            for edge in offsets[left] as usize..offsets[left + 1] as usize {
+                let right = targets[edge] as usize;
+                if left >= right || reciprocal[edge] == 0 {
+                    continue;
+                }
+                // A conservative coordinate-span filter: short segments are
+                // already discoverable from the 160 m vertex search. Use
+                // geometry rather than an edge's possibly customized weight.
+                if (lats[left] - lats[right]).abs() * 111_320.0 < 160.0
+                    && (lons[left] - lons[right]).abs() * 111_320.0 < 160.0
+                {
+                    continue;
+                }
+                let bounds = [
+                    lons[left].min(lons[right]),
+                    lats[left].min(lats[right]),
+                    lons[left].max(lons[right]),
+                    lats[left].max(lats[right]),
+                ];
+                let [west, south, east, north] = self.edge_cells(bounds);
+                let count = (i64::from(east) - i64::from(west) + 1)
+                    .saturating_mul(i64::from(north) - i64::from(south) + 1);
+                let nodes = [left as u32, right as u32];
+                // Very large segments must not allocate a dense world-sized
+                // index. Keep them as bounded-box candidates instead.
+                if count > 4096 {
+                    unindexed.push((nodes, bounds));
+                    continue;
+                }
+                for row in south..=north {
+                    for col in west..=east {
+                        cells.entry((row, col)).or_default().push(nodes);
+                    }
+                }
+            }
+        }
+        self.long_edges_by_cell = cells;
+        self.unindexed_long_edges = unindexed;
+        Ok(())
+    }
+
+    fn edge_cells(&self, [west, south, east, north]: [f64; 4]) -> [i32; 4] {
+        let h = &self.header;
+        [
+            ((west - h.spatial_min_lon) / h.spatial_cell_degrees).floor() as i32,
+            ((south - h.spatial_min_lat) / h.spatial_cell_degrees).floor() as i32,
+            ((east - h.spatial_min_lon) / h.spatial_cell_degrees).floor() as i32,
+            ((north - h.spatial_min_lat) / h.spatial_cell_degrees).floor() as i32,
+        ]
+    }
+
+    pub(crate) fn for_each_long_edge(
+        &self,
+        longitude: f64,
+        latitude: f64,
+        mut add: impl FnMut([u32; 2]),
+    ) {
+        let dy = crate::SNAP_RADIUS_M / 110_574.0;
+        let dx = crate::SNAP_RADIUS_M / (111_320.0 * latitude.to_radians().cos().abs()).max(1000.0);
+        let bounds = [longitude - dx, latitude - dy, longitude + dx, latitude + dy];
+        let [west, south, east, north] = self.edge_cells(bounds);
+        let count = (i64::from(east) - i64::from(west) + 1)
+            .saturating_mul(i64::from(north) - i64::from(south) + 1);
+        if count > 4096 {
+            for (&(row, col), edges) in &self.long_edges_by_cell {
+                if (south..=north).contains(&row) && (west..=east).contains(&col) {
+                    for &nodes in edges {
+                        add(nodes);
+                    }
+                }
+            }
+        } else {
+            for row in south..=north {
+                for col in west..=east {
+                    if let Some(edges) = self.long_edges_by_cell.get(&(row, col)) {
+                        for &nodes in edges {
+                            add(nodes);
+                        }
+                    }
+                }
+            }
+        }
+        for &(nodes, [w, s, e, n]) in &self.unindexed_long_edges {
+            if w <= bounds[2] && e >= bounds[0] && s <= bounds[3] && n >= bounds[1] {
+                add(nodes);
+            }
+        }
     }
 
     fn validate(&self) -> napi::Result<()> {
@@ -176,6 +279,10 @@ impl Snapshot {
                 value.is_finite() & (-180.0..=180.0).contains(value)
             })
             || self.header.spatial_node_order != "cell_then_source_node_id"
+            || !self.header.spatial_cell_degrees.is_finite()
+            || self.header.spatial_cell_degrees <= 0.0
+            || !self.header.spatial_min_lat.is_finite()
+            || !self.header.spatial_min_lon.is_finite()
         {
             return Err(Error::from_reason(
                 "Street accelerator snapshot topology is inconsistent.",

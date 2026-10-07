@@ -6090,17 +6090,35 @@ fn snaps_for_coordinate_with_workspace(
             "Coordinate longitude and latitude must be finite.",
         ));
     }
-    let ordered = nodes_in_radius(
+    let mut ordered = nodes_in_radius(
         snapshot,
         longitude,
         latitude,
         RECOVERY_SNAP_RADIUS_M,
         std::mem::take(&mut workspace.candidate_nodes),
     )?;
-    if ordered.is_empty() {
-        workspace.candidate_nodes = ordered;
-        return Ok(Vec::new());
-    }
+    let nearest = ordered.first().copied();
+    let lons = snapshot.f64_array("nodeLons")?;
+    let lats = snapshot.f64_array("nodeLats")?;
+    snapshot.for_each_long_edge(longitude, latitude, |nodes| {
+        for node in nodes {
+            ordered.push(Snap {
+                node,
+                distance_m: haversine_m(
+                    longitude,
+                    latitude,
+                    lons[node as usize],
+                    lats[node as usize],
+                ),
+            });
+        }
+    });
+    ordered.sort_by(|a, b| {
+        a.distance_m
+            .total_cmp(&b.distance_m)
+            .then_with(|| a.node.cmp(&b.node))
+    });
+    ordered.dedup_by_key(|snap| snap.node);
     workspace.begin(ordered.len());
     let projected = reciprocal_edge_snaps(
         snapshot,
@@ -6110,7 +6128,6 @@ fn snaps_for_coordinate_with_workspace(
         &mut workspace.evaluated_from_nodes,
         std::mem::take(&mut workspace.projected_edges),
     )?;
-    let nearest = ordered[0];
     let edge = projected.iter().min_by(|left, right| {
         left.projection_distance_m
             .total_cmp(&right.projection_distance_m)
@@ -6125,11 +6142,14 @@ fn snaps_for_coordinate_with_workspace(
                     ))
             })
     });
-    let mut selected = match edge {
-        Some(edge) if edge.projection_distance_m < nearest.distance_m => {
+    let mut selected = match (edge, nearest) {
+        (Some(edge), nearest)
+            if nearest.is_none_or(|n| edge.projection_distance_m < n.distance_m) =>
+        {
             vec![edge.left, edge.right]
         }
-        _ => vec![nearest],
+        (_, Some(nearest)) => vec![nearest],
+        _ => Vec::new(),
     };
     // Every physical coordinate has one fixed street attachment, including
     // transit stops. Multiple nearby components cannot be joined through a

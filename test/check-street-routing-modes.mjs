@@ -58,7 +58,7 @@ function createCurrentStore() {
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX drive_edges_from ON drive_edges(from_node);
     INSERT INTO metadata VALUES
-      ('schemaVersion', '"vigo.street.store.v5"'),
+      ('schemaVersion', '"vigo.street.store.v6"'),
       ('sourceModel', '"pbf"'),
       ('storageLayout', '"walk-drive-role-tables-v2"'),
       ('driveNodeStorage', '"walk-shared-plus-drive-only-v1"'),

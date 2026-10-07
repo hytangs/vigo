@@ -109,7 +109,7 @@ try {
     onProgress: progress,
   })
   const diagnostics = nationalOsmStoreDiagnostics(stagingStreetPath)
-  if (diagnostics.storeAdmission?.schemaVersion !== 'vigo.street.store.v4') {
+  if (diagnostics.storeAdmission?.schemaVersion !== 'vigo.street.store.v6') {
     throw new Error(
       `Rebuilt street store has unexpected schema ${diagnostics.storeAdmission?.schemaVersion}.`,
     )

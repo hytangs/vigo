@@ -438,7 +438,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v5"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v6"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES
       (1, 0, 0), (2, 0, 0.0009),
@@ -660,7 +660,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v5"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v6"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES
       (1, 0, 0), (2, 0, -0.0009), (3, 0, 0.00135), (4, 0, 0.004), (16, 0.01, 0),
@@ -734,7 +734,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v5"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v6"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES (1, 0, 0.01), (2, 0, 0.011), (3, 0, 0.012);
     INSERT INTO edges VALUES
@@ -2306,7 +2306,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v5"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v6"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES(1, 46.9992, 8), (2, 47, 8), (3, 47.02, 8.02);
     INSERT INTO edges VALUES(1, 2, 100, 1), (2, 1, 100, 1);
@@ -3364,7 +3364,7 @@ try {
     CREATE INDEX walk_nodes_lat_lon ON walk_nodes(lat,lon);
     CREATE INDEX edges_from ON edges(from_node);
     CREATE INDEX edges_to ON edges(to_node);
-    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v5"');
+    INSERT INTO metadata VALUES('schemaVersion', '"vigo.street.store.v6"');
     INSERT INTO metadata VALUES('sourceModel', '"pbf"');
     INSERT INTO walk_nodes VALUES
       (1, 46.9900, 7.9900),

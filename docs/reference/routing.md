@@ -22,6 +22,8 @@ mode for a walking journey. A JSON request can opt into walking comparisons with
 `requireTransitRide: false`. Transit
 Matrix uses the same default. `maxWalkKm` limits each access and egress walk;
 it is not a limit on an explicitly requested complete walking journey.
+With `requireTransitRide: false`, set `allowLongWalk: false` to also bound a
+direct walking alternative by `maxWalkKm` in Route and Matrix.
 `--horizon` / `horizonMinutes` sets the timetable
 search horizon in minutes (default 480, range 1–2880).
 For depart-at transit, boarding and alighting must occur at or before this

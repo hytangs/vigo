@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Exclude bus-platform area outlines from the linear street graph, while retaining mapped platform centre lines. Discover nearby reciprocal street segments even when both endpoints lie outside the vertex search. Street stores now use schema v6; rebuild older Cities from their source inputs to apply the graph correction and regenerate access profiles and street transfers.
+
+Preserve `allowLongWalk` in Node Matrix and legacy streamed Route requests, so an explicit direct-walking cap reaches the routing engine.
+
 Honor `maxTransfers` in Node Reach for coordinate origins, selected stops, and planned service scenarios. Preserve and validate the cap through the desktop HTTP API. Let individual streamed Route and Reach requests override the process transfer limit, as Matrix requests do.
 
 Build Reach surfaces from vehicle arrivals and directed station exits. Charge station pathway time and distance before street expansion, and keep the whole final walk within the endpoint allowance. Apply the same exit handling in Node and standalone Rust. Retain requested standalone node evidence up to its documented diagnostic limit and report truncation.

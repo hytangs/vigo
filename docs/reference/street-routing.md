@@ -14,7 +14,8 @@ their original roles.
 
 Build defaults to public pedestrian access. `access=private` without a pedestrian
 permission, or `foot=private`, stays outside the public walking graph.
-Rebuild older Cities to apply the current street-store v4 permission rules.
+Rebuild older Cities to apply street-store schema v6. It retains pedestrian
+permissions and excludes platform area outlines from the linear walking graph.
 
 For a population authorized to use internal roads at its own homes and destinations,
 build with `--private-access=endpoints`.

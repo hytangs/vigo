@@ -1038,6 +1038,40 @@ try {
     assert.equal(Math.round(result.distanceM), 199)
   }
 
+  const interiorSnapshot = path.join(temporaryDirectory, 'long-edge-interior.street-accelerator-v7.bin')
+  writeFixtureSnapshot(interiorSnapshot, {
+    nodeIds: new Float64Array([1, 2]), nodeLats: new Float64Array([38, 38]),
+    nodeLons: new Float64Array([-0.004, 0.004]),
+    edgeOffsets: new Uint32Array([0, 1, 2]), edgeTargets: new Uint32Array([1, 0]),
+    edgeDistances: new Float64Array([700, 700]), spatialOffsets: new Uint32Array([0, 2]),
+    componentByNode: new Int32Array([0, 0]), componentLengthKm: new Float64Array([0.7]),
+    reverseOffsets: new Uint32Array([0, 1, 2]), reverseSources: new Uint32Array([1, 0]),
+  }, { spatialMinLat: 37.995, spatialMinLon: -0.005, spatialCellDegrees: 0.01,
+    spatialRows: 1, spatialColumns: 1, componentCount: 1 })
+  const interiorKernel = new CoordinateKernel(interiorSnapshot)
+  buildAndLoadStreetCch(interiorKernel, temporaryDirectory, 'long-edge-interior')
+  {
+    for (const reverse of [false, true]) {
+      const originLon = reverse ? 0.004 : 0, destinationLon = reverse ? 0 : 0.004
+      const query = { originLon, originLat: 38, destinationLon, destinationLat: 38,
+        maximumDistanceM: 400, maximumPoints: 32 }
+      const result = interiorKernel.routePath(query)
+      assert.equal(result.found, true, 'A long edge must remain attachable when both vertices are outside 160 metres.')
+      assert.equal(result.distanceM, 350)
+      assert.equal(interiorKernel.routePath({ ...query, maximumDistanceM: 349 }).found, false,
+        'Interior projection must still pay the distance to the retained street vertex.')
+    }
+    assert.equal(interiorKernel.routePath({ originLon: 0, originLat: 38.001,
+      destinationLon: 0.004, destinationLat: 38, maximumDistanceM: 1000, maximumPoints: 32 }).found, false,
+    'The long-edge index must preserve the 80 metre projection limit.')
+  }
+  const interiorSurface = interiorKernel.streetSurface({ bounds: [-0.005, 37.999, 0.005, 38.001],
+    width: 48, height: 48, seedCoordinates: [0, 38], seedDurationsMinutes: [0],
+    maximumWalkM: 400, walkSpeedKph: 4.8, maximumDurationMinutes: 10,
+    independentTerminalWalk: false, includeNodes: true, nodeEvidenceLimit: 10,
+    includeEdges: false, edgeEvidenceLimit: 0, expandBoundsToReachedEdges: false })
+  assert.deepEqual(interiorSurface.nodeEvidence.map(n => n.walkDistanceM), [350, 350])
+
   const contractedChainSnapshotPath = path.join(
     temporaryDirectory,
     'contracted-chain.street-accelerator-v7.bin',

@@ -443,7 +443,7 @@ export type VigoProject = {
   artifacts: ArtifactRecord[]
   routingStore?: RoutingStoreMetadata | null
   osmStreetIndex?: {
-    schemaVersion: 'vigo.street.store.v5'
+    schemaVersion: 'vigo.street.store.v6'
     status: 'building' | 'ready' | 'failed'
     fileName: string
     sourceBytes: number
