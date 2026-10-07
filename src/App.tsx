@@ -2231,6 +2231,18 @@ export default function App() {
   async function submitProjectDialog(draft: ProjectDraft) {
     if (!projectDialog || projectDialogBusy) return
 
+    if (projectDialog.mode === 'delete') {
+      if (draft.name !== projectDialog.name) return
+      setProjectDialogBusy(true)
+      setProjectDialogError('')
+      try {
+        if (await deleteProject(projectDialog.projectId, { confirm: false })) setProjectDialog(null)
+      } finally {
+        setProjectDialogBusy(false)
+      }
+      return
+    }
+
     const name = draft.name.trim()
     const region = draft.region.trim() || 'Unassigned region'
 
@@ -2299,10 +2311,9 @@ export default function App() {
     if (!project) return false
 
     if (options.confirm !== false) {
-      const confirmation = globalThis.prompt?.(
-        `Delete "${project.name}"?\n\nThis removes the complete City folder from the local library.\nType the City name to confirm.`,
-      )?.trim()
-      if (confirmation !== project.name) return false
+      setProjectDialogError('')
+      setProjectDialog({ mode: 'delete', projectId, name: project.name, region: project.region })
+      return false
     }
 
     const applyDeletion = (nextProjects: VigoProject[]) => {
@@ -2330,6 +2341,7 @@ export default function App() {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Local API unavailable'
       setApiError(`City was not deleted: ${message}`)
+      setProjectDialogError(`City was not deleted: ${message}`)
       return false
     }
   }

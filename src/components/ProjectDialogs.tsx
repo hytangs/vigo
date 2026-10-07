@@ -79,7 +79,7 @@ export function ProjectEditorDialog({
   const nameRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLFormElement>(null)
   const [draft, setDraft] = useState<ProjectDraft>({ name: '', region: '' })
-  const dialogKey = state?.mode === 'rename' ? `rename:${state.projectId}` : state?.mode ?? ''
+  const dialogKey = state && state.mode !== 'create' ? `${state.mode}:${state.projectId}` : state?.mode ?? ''
 
   useEffect(() => {
     if (!state) {
@@ -87,7 +87,7 @@ export function ProjectEditorDialog({
       return
     }
 
-    setDraft({ name: state.name, region: state.region })
+    setDraft({ name: state.mode === 'delete' ? '' : state.name, region: state.region })
   }, [dialogKey])
 
   useDialogKeyboard({
@@ -101,6 +101,7 @@ export function ProjectEditorDialog({
   if (!state) return null
 
   const isCreate = state.mode === 'create'
+  const isDelete = state.mode === 'delete'
 
   return (
     <div className="project-dialog-layer" role="presentation">
@@ -118,25 +119,26 @@ export function ProjectEditorDialog({
         }}
       >
         <header>
-          <span>{isCreate ? 'New City' : 'City identity'}</span>
-          <h2 id="project-editor-title">{isCreate ? 'Create City' : 'Rename City'}</h2>
+          <span>{isCreate ? 'New City' : isDelete ? 'City data' : 'City identity'}</span>
+          <h2 id="project-editor-title">{isCreate ? 'Create City' : isDelete ? 'Delete City' : 'Rename City'}</h2>
           <button type="button" aria-label="Close City editor" onClick={onClose} disabled={busy}>
             <XCircle size={16} />
           </button>
         </header>
 
+        {isDelete ? <p>This permanently removes the complete City folder for <strong>{state.name}</strong>. Type its name to confirm.</p> : null}
         <label>
-          <span>City name</span>
+          <span>{isDelete ? 'Confirm City name' : 'City name'}</span>
           <input
             ref={nameRef}
             value={draft.name}
             onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-            placeholder="Regional Signal Lab"
+            placeholder={isDelete ? state.name : 'Regional Signal Lab'}
             disabled={busy}
           />
         </label>
 
-        <label>
+        {!isDelete ? <label>
           <span>Region</span>
           <input
             value={draft.region}
@@ -144,7 +146,7 @@ export function ProjectEditorDialog({
             placeholder="Sample transit corridor"
             disabled={busy}
           />
-        </label>
+        </label> : null}
 
         {error ? <p id="project-editor-error" className="project-dialog-error" role="alert">{error}</p> : null}
 
@@ -152,8 +154,8 @@ export function ProjectEditorDialog({
           <button type="button" className="project-dialog-secondary" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button type="submit" className="project-dialog-primary" disabled={busy || !draft.name.trim()}>
-            {busy ? 'Saving...' : isCreate ? 'Create City' : 'Save identity'}
+          <button type="submit" className="project-dialog-primary" disabled={busy || (isDelete ? draft.name !== state.name : !draft.name.trim())}>
+            {busy ? (isDelete ? 'Deleting…' : 'Saving...') : isCreate ? 'Create City' : isDelete ? 'Delete City' : 'Save identity'}
           </button>
         </footer>
       </form>

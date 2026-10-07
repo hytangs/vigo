@@ -14,6 +14,8 @@ Legs have `type: "walk" | "transit" | "drive"`, `from`, `to`, clocks, duration, 
 
 Route includes available GeoJSON `geometry` on each leg by default, preserving the full source coordinate precision and vertex sequence. Send `includeGeometry: false` or use `--include-geometry=false` for a smaller response without coordinate arrays. Matrix journey geometry remains opt-in with `includeGeometry: true`. Geometry describes the modeled path, not an observed vehicle trajectory or a guarantee of surveyed station interiors. Ordered journeys have a single ordered leg list; departure-window alternatives appear in `alternatives`.
 
+## Keep uncertainty with the answer
+
 `quality.streetGeometry` distinguishes verified street evidence from unverified geometry. `quality.stationPath` is `source_path` or `inferred` when station access is present. A verified street segment does not certify a complete entrance-to-platform path. `components` separates street and station access costs and identifies their source types. Transit `quality.schedule: "timetable"` means modeled timetable times, not observed punctuality or a guarantee that every source timestamp was measured.
 
 Route warnings describe qualifications that affect the returned journey. Dataset/model limitations live in `vigo info` (Rust), `vigo inspect` (Node), or `GET /v1/info`; send `includeLimitations: true` when needed alongside a query. No warnings does not certify complete source coverage. Unsupported GTFS semantics remain documented in [known limits](known-routing-limitations.md).
@@ -41,11 +43,13 @@ Matrix returns `durationsSeconds[origin][destination]`, with ordered endpoints i
 
 Reach returns `surface.valuesSeconds`, grid bounds and dimensions, `cutoffsSeconds`, GeoJSON contours/areas, and `fullSurface` when available. Cell order is unchanged: row-major, northwest first. Unreachable cells remain `null`. GeoJSON cutoff properties and explicitly requested street/node evidence retain their documented unit-labelled fields; these analytical evidence formats are separate from journey durations. Raw search chains are only in trace.
 
-## Compare and migrate
+## Compare saved results
 
 Public saved results can be compared without rerunning routing. Changes are after minus before, in seconds. Route reports duration and transfer changes; Matrix and Reach report common, faster, slower, unchanged, newly reachable and no-longer-reachable counts. Means use only mutually reachable entries and are `null` when none exist. Matrix requires identical ordered endpoints; Reach requires the same grid. Callers must align other experimental assumptions.
 
 Existing consumers of `result`, `plan`, top-level `legs`, `durationMinutes`, or `surface.values` must migrate to the public fields. For research tools that still require the original witness, explicitly request `diagnostics: "trace"` and read `trace`. The private Node worker protocol remains unchanged. Low-level `native` operations retain their separately documented contracts.
+
+## Keep a reproducible run
 
 Errors use `schema: "vigo.error.v1"`, `status: "error"`, and `error.code` / `error.message`. Handle stable codes and HTTP status, not OS error text. Keep the City, original query, executable version, supplied observations/scenario, and result together when retaining a reproducible run.
 

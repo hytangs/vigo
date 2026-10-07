@@ -543,6 +543,7 @@ PAGE_GROUPS = [
 def page(source,native,audit,walking):
     source=source.replace('../standalone.html','#overview').replace('../standalone-openapi.json','standalone-openapi.json').replace('../reference/rust-standalone-audit.md','#audit-record').replace('../reference/rust-standalone-native.md','#native-fields')
     source=source.replace('../reference/walking-evidence.md','#walking-evidence')
+    source=source.replace('../reference/results.md','#results')
     _,*parts=re.split(r'(?=^## \d+\. )',source,flags=re.M)
     assert len(parts)==len(PAGE_NAMES), 'Give every manual chapter a page and navigation label'
     pages={}
@@ -642,6 +643,9 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__); parser.add_argument('--check',action='store_true'); args=parser.parse_args()
     source=SOURCE.read_text(encoding='utf-8'); native,native_md=native_contracts()
     public_results=(ROOT/'docs/reference/results.md').read_text(encoding='utf-8')
+    # This reference is embedded in a single-file manual served by the binary;
+    # its source-relative Markdown link is not available beside that manual.
+    public_results=public_results.replace('(known-routing-limitations.md)', '(https://github.com/hytangs/vigo/blob/main/docs/reference/known-routing-limitations.md)')
     source=source.replace('<!-- PUBLIC_RESULTS -->', '\n'.join('##'+line if line.startswith('#') else line for line in public_results.splitlines()[1:]))
     audit=(ROOT/'docs/reference/rust-standalone-audit.md').read_text(encoding='utf-8')
     walking=(ROOT/'docs/reference/walking-evidence.md').read_text(encoding='utf-8')
