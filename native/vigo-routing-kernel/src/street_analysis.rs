@@ -22,6 +22,8 @@ pub struct StreetSurfaceInput {
     pub height: u32,
     pub seed_coordinates: Vec<f64>,
     pub seed_durations_minutes: Vec<f64>,
+    pub seed_member_indices: Option<Vec<i32>>,
+    pub seed_walk_distances_m: Option<Vec<f64>>,
     pub maximum_walk_m: f64,
     pub walk_speed_kph: f64,
     pub maximum_duration_minutes: f64,
@@ -513,6 +515,15 @@ pub(super) fn street_surface(
         input.seed_durations_minutes.len(),
         "surface seed",
     )?;
+    let seed_walk_distances = input.seed_walk_distances_m.as_deref();
+    if seed_walk_distances.is_some_and(|distances| {
+        distances.len() != input.seed_durations_minutes.len()
+            || distances.iter().any(|d| !d.is_finite() || *d < 0.0)
+    }) {
+        return Err(Error::from_reason(
+            "Street surface seed walking distances are inconsistent.",
+        ));
+    }
     if input
         .seed_durations_minutes
         .iter()
@@ -602,7 +613,7 @@ pub(super) fn street_surface(
                     &input.seed_durations_minutes,
                     snap.node,
                     input.seed_durations_minutes[seed] + snap.distance_m * minutes_per_meter,
-                    snap.distance_m,
+                    snap.distance_m + seed_walk_distances.map_or(0.0, |d| d[seed]),
                     input.maximum_walk_m,
                     input.maximum_duration_minutes,
                     input.seed_durations_minutes[seed],
@@ -649,7 +660,7 @@ pub(super) fn street_surface(
                         &input.seed_durations_minutes,
                         snap.node,
                         input.seed_durations_minutes[seed] + snap.distance_m * minutes_per_meter,
-                        snap.distance_m,
+                        snap.distance_m + seed_walk_distances.map_or(0.0, |d| d[seed]),
                         input.maximum_walk_m,
                         maximum_duration_minutes,
                         input.seed_durations_minutes[seed],

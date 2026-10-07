@@ -5954,6 +5954,7 @@ function reachTransitStatus({
  */
 export function routeNationalGtfsReach(storePath, request, options = {}) {
   validateArrivalBuffer(request, false)
+  validateMaximumTransfers(request.maxTransfers)
   request = normalizeScheduledAnalysisRequest(request, 'Reach')
   request = withResolvedServiceDay(request)
   const started = performance.now()
@@ -6333,6 +6334,8 @@ export function routeNationalGtfsReach(storePath, request, options = {}) {
     const supplemental = overlayTransferCsr(outgoing)
     routed = routeNativeTimetableOverlayMany(activeKernel, {
       originSeeds,
+      maxTransfers: request.maxTransfers,
+      allowPostRideTransfers: Array(targetTimetableStops.length + scenarioOverlay.stops.length).fill(false),
       destinationSeedSets: [
         ...Array.from(targetTimetableStops, (stop) => [{ stop, walkSeconds: 0 }]),
         ...scenarioOverlay.stops.map((_, index) => ([{
@@ -6407,6 +6410,8 @@ export function routeNationalGtfsReach(storePath, request, options = {}) {
     const profilePrepareMs = performance.now() - profileStarted
     routed = routeNativeCoordinateTimetableMany(streetStorePath, activeKernel, {
       origin,
+      maxTransfers: request.maxTransfers,
+      allowPostRideTransfers: false,
       maximumWalkM: maxWalkKm * 1_000,
       walkingSpeedKph: walkSpeedKph,
       accessPaddingFactor: nationalRoutingAccessPolicy.accessPaddingFactor,
@@ -6441,6 +6446,8 @@ export function routeNationalGtfsReach(storePath, request, options = {}) {
     const originSeeds = activeServiceKernelAccessSeeds(activeKernel, accessStops)
     routed = routeNativeTimetableMany(activeKernel, {
       originSeeds,
+      maxTransfers: request.maxTransfers,
+      allowPostRideTransfers: Array(targetTimetableStops.length).fill(false),
       destinationSeedSets: Array.from(
         targetTimetableStops,
         (stop) => [{ stop, walkSeconds: 0 }],
@@ -6505,19 +6512,24 @@ export function routeNationalGtfsReach(storePath, request, options = {}) {
   report('surface', 0.76, 'Building the reach-owned pedestrian surface')
   checkCancelled()
   const surfaceStarted = performance.now()
+  const surfaceProfile = streetStorePath && surfaceRequest
+    ? nativeCoordinateAccessProfile(store, streetStorePath, currentStreetStoreStorageIdentity(streetStorePath)).profile
+    : null
+  const surfaceMembers = new Map(surfaceProfile?.stopIds.map((id, index) => [id, index]) ?? [])
+  const surfaceSeed = (stop) => {
+    const memberIndex = surfaceMembers.get(stop.stopId)
+    if (surfaceProfile && stop.source === 'stop' && memberIndex === undefined) {
+      throw new Error(`Reach surface has no prepared egress member for ${stop.stopId}.`)
+    }
+    return { coordinate: stop.coordinate, durationMinutes: stop.durationMinutes, memberIndex }
+  }
   const surface = annotateReachSurface(buildReachSurface(
     streetStorePath,
     surfaceRequest,
     [
       { coordinate: origin, durationMinutes: 0 },
-      ...stops.map((stop) => ({
-        coordinate: stop.coordinate,
-        durationMinutes: stop.durationMinutes,
-      })),
-      ...scenarioStops.map((stop) => ({
-        coordinate: stop.coordinate,
-        durationMinutes: stop.durationMinutes,
-      })),
+      ...stops.map(surfaceSeed),
+      ...scenarioStops.map(surfaceSeed),
     ],
     maxWalkKm,
     walkSpeedKph,

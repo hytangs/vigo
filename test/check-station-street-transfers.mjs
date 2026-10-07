@@ -76,5 +76,38 @@ try {
       }
     }
   }
-  console.log('Bus-to-rail street transfers retain directed entrance pathways in both runtimes and both time directions.')
-} finally { fs.rmSync(folder, { recursive: true, force: true }) }
+  for (const exitAllowed of [false, true]) {
+    zip.file('stops.txt', stops)
+    zip.file('pathways.txt', exitAllowed
+      ? pathways.replace('entry,X,N', 'entry,N,X').replace('platform,N,Y', 'platform,Y,N')
+      : pathways)
+    zip.file('stop_times.txt', 'trip_id,arrival_time,departure_time,stop_id,stop_sequence\n'
+      + 'T1,08:00:00,08:00:00,A,1\nT1,08:10:00,08:10:00,Y,2\n'
+      + 'T2,08:15:00,08:15:00,Y,1\nT2,08:30:00,08:30:00,B,2\n')
+    fs.writeFileSync(gtfsPath, await zip.generateAsync({ type: 'nodebuffer' }))
+    const city = path.join(folder, exitAllowed ? 'reach-with-exit' : 'reach-without-exit')
+    execFileSync(process.execPath, ['public/vigo.mjs', 'build', '--gtfs', gtfsPath, '--osm', osmPath, '--output', city], {
+      cwd: root, stdio: ['ignore', 'ignore', 'pipe'],
+    })
+    for (const runtime of ['node', 'rust']) {
+      const prefix = runtime === 'rust' ? [standaloneBinary] : [process.execPath, 'public/vigo.mjs']
+      const flags = runtime === 'node' ? ['--service-date', '2026-07-15'] : []
+      const result = JSON.parse(execFileSync(prefix[0], [...prefix.slice(1), 'reach', '--city', city, '--request', '-', ...flags], {
+        cwd: root, encoding: 'utf8', timeout: 30000,
+        input: JSON.stringify({ origin: { stopId: 'A' }, serviceDate: '2026-07-15', time: '08:00',
+          cutoffsMinutes: [15], maxWalkKm: 0.2, maxTransfers: 0, includeNodes: true, diagnostics: 'trace' }),
+      })).trace
+      const entrance = result.surface.nodes.find(node => {
+        const xy = node.coordinate ?? [node.longitude, node.latitude]
+        return Math.abs(xy[0] + 77.040) < 1e-8 && Math.abs(xy[1] - 38.905) < 1e-8
+      })
+      assert.equal(Boolean(entrance), exitAllowed,
+        `${runtime}: Reach must respect the declared exit direction. ${JSON.stringify({ stops: result.stops, nodes: result.surface.nodes })}`)
+      if (exitAllowed) assert.equal(entrance.durationMinutes, 12, `${runtime}: Reach must pay two minutes inside the station.`)
+    }
+  }
+  console.log('Route, Matrix and Reach retain directed station access and exit costs in both runtimes.')
+} finally {
+  if (process.env.VIGO_KEEP_TEST_FIXTURE) console.error(`Fixture retained at ${folder}`)
+  else fs.rmSync(folder, { recursive: true, force: true })
+}

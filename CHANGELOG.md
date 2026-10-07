@@ -1,5 +1,11 @@
 # Version history
 
+## Unreleased
+
+Honor `maxTransfers` in Node Reach for coordinate origins, selected stops, and planned service scenarios. Preserve and validate the cap through the desktop HTTP API. Let individual streamed Route and Reach requests override the process transfer limit, as Matrix requests do.
+
+Build Reach surfaces from vehicle arrivals and directed station exits. Charge station pathway time and distance before street expansion, and keep the whole final walk within the endpoint allowance. Apply the same exit handling in Node and standalone Rust. Retain requested standalone node evidence up to its documented diagnostic limit and report truncation.
+
 ## 0.4.3 — 2026-10-04
 
 Final release verification includes the walking corrections below. API 1.0, City format 1, and Result schema 1 remain unchanged.

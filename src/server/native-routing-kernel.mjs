@@ -644,6 +644,7 @@ export function routeNativeCoordinateTimetableMany(storePath, kernel, request) {
     horizon: request.horizon,
     maximumBoardings: request.maxTransfers === undefined ? undefined : request.maxTransfers + 1,
     allowPreRideTransfers: request.allowPreRideTransfers === true,
+    allowPostRideTransfers: request.allowPostRideTransfers,
     disableCache: request.disableCache === true,
   })
   const nodeApiWallMs = performance.now() - startedAt
@@ -1848,7 +1849,7 @@ export function rasterNativeStreetSurface(storePath, value) {
       && coordinate.every(Number.isFinite)
       && Number.isFinite(durationMinutes)
       && durationMinutes <= maximumDurationMinutes
-      ? [{ coordinate, durationMinutes: Math.max(0, durationMinutes) }]
+      ? [{ coordinate, durationMinutes: Math.max(0, durationMinutes), memberIndex: seed.memberIndex ?? -1 }]
       : []
   })
   const record = kernelRecord(storePath)
@@ -1858,6 +1859,7 @@ export function rasterNativeStreetSurface(storePath, value) {
     height,
     seedCoordinates: seeds.flatMap((seed) => seed.coordinate),
     seedDurationsMinutes: seeds.map((seed) => seed.durationMinutes),
+    seedMemberIndices: seeds.some(seed => seed.memberIndex !== -1) ? seeds.map(seed => seed.memberIndex) : undefined,
     maximumWalkM: maxWalkKm * 1_000,
     walkSpeedKph,
     maximumDurationMinutes,

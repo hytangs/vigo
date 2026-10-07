@@ -534,6 +534,7 @@ export type ReachResult = {
     serviceDate: string
     serviceDay: string
     maxWalkKm: number
+    maxTransfers?: number
     radiusKm: number
     walkSpeedKph?: number
     rasterSize: number

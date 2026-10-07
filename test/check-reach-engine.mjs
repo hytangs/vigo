@@ -32,6 +32,7 @@ const metaRoot = path.join(projectsRoot, projectId, '.vigo')
 const storePath = path.join(metaRoot, 'routing', 'fixture.sqlite')
 const streetStorePath = path.join(metaRoot, 'osm', 'street-index.sqlite')
 const mergedStorePath = path.join(folder, 'merged.sqlite')
+const terminalStorePath = path.join(folder, 'terminal-transfer.sqlite')
 let apiRuntime
 
 async function createRoutingFixture() {
@@ -57,6 +58,8 @@ async function createRoutingFixture() {
     'R1,S,local,0',
     'R2,S,direct,0',
     'R3,S,tail,0',
+    'R3,S,late-connection,0',
+    'R3,S,late-tail,0',
     'RF,S,far,0',
   ].join('\n'))
   zip.file('stop_times.txt', [
@@ -67,6 +70,10 @@ async function createRoutingFixture() {
     'direct,08:07:00,08:07:00,D,2',
     'tail,08:14:00,08:14:00,B,1',
     'tail,08:18:00,08:18:00,X,2',
+    'late-connection,08:21:00,08:21:00,A,1',
+    'late-connection,08:25:00,08:25:00,B,2',
+    'late-tail,08:26:00,08:26:00,B,1',
+    'late-tail,08:30:00,08:30:00,X,2',
     'far,08:01:00,08:01:00,FAR,1',
     'far,08:05:00,08:05:00,FAR,2',
   ].join('\n'))
@@ -200,6 +207,20 @@ try {
   const selectedDestination = { coordinate: [8, 47.005], label: 'Imported destination', source: 'stop', stopId: 'feed-local::D' }
   const selectedRequest = request({ origin: selectedOrigin })
   const normalized = normalizeRoutingPointIdentities(storePath, selectedRequest, 'feed-local')
+  for (const origin of [request().origin, normalized.origin]) {
+    for (const [maxTransfers, expected] of [
+      [0, ['A', 'D']], [1, ['A', 'B', 'D']], [2, ['A', 'B', 'D', 'X']],
+      [undefined, ['A', 'B', 'D', 'X']], [0, ['A', 'D']],
+    ]) {
+      const capped = routeNationalGtfsReach(storePath, request({ origin, cutoffMinutes: 40, maxTransfers }), { streetStorePath })
+      assert.deepEqual(capped.stops.map(stop => stop.stopId).sort(), expected,
+        `Reach must honor maxTransfers=${maxTransfers} for ${origin.source} origins on each resident request.`)
+    }
+  }
+  for (const maxTransfers of [-1, 0.5, 32, NaN, null, '1']) {
+    assert.throws(() => routeNationalGtfsReach(storePath, request({ maxTransfers }), { streetStorePath }),
+      /maxTransfers must be an integer/)
+  }
   assert.equal(normalized.origin.stopId, 'O')
   assert.equal(selectedRequest.origin.stopId, 'feed-local::O', 'Resolving an endpoint must not mutate a shared comparison request.')
   const importedReach = routeNationalGtfsReach(storePath, normalized, { streetStorePath })
@@ -258,6 +279,20 @@ try {
     includePreliminary: false, includeStreetEdges: false, scenario: { services: [replacement] } })
   assert.equal(unchangedReach.result.surface.raster.scenario, unchangedReach.result.surface.raster.baseline,
     'An unchanged branch replacement must preserve the actual Reach surface, including through the API hydration boundary.')
+  for (const [maxTransfers, stopCount] of [[0, 2], [1, 3], [2, 4], [0, 2]]) {
+    const capped = await endpoint('reach', { ...boundaryRequest, maxTransfers, cutoffsMinutes: [40], rasterSize: 48,
+      includePreliminary: false, includeStreetEdges: false, scenario: { services: [replacement] } })
+    assert.equal(capped.result.request.maxTransfers, maxTransfers)
+    assert.equal(capped.result.summary.transitStopsByCutoff[0].stops, stopCount,
+      'The HTTP Reach boundary must preserve the transfer cap in the baseline search.')
+    assert.equal(capped.result.summary.scenarioTransitStopsByCutoff[0].stops, stopCount,
+      'The same transfer cap must constrain the scenario search.')
+  }
+  const invalidCap = await apiRuntime.requestJson(`/api/projects/${projectId}/reach`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ...boundaryRequest, maxTransfers: -1 }),
+  })
+  assert.equal(invalidCap.status, 400, 'An invalid Reach transfer cap must fail at the HTTP boundary.')
   const editedReplacement = { ...replacement, timeModel: 'infer-road', segmentDistancesKm: [1, 1],
     addedStopDwellMinutes: 0.35, stops: [
       { id: 'O', stopId: 'O', baselineStopIndex: 0, coordinate: [8, 47], editStatus: 'baseline' },
@@ -325,8 +360,7 @@ try {
   assert(excluded.diagnostics.search.excludedTrips > 0)
   assert(excluded.diagnostics.search.excludedDepartures > 0)
 
-  const overlay = routeNationalGtfsReach(storePath, request({
-    scenarioOverlay: {
+  const scenarioOverlay = {
       stops: [
         { id: 'scenario-a', label: 'Scenario A', coordinate: [8.005, 47], stopId: 'A' },
         { id: 'scenario-b', label: 'Scenario B', coordinate: [8.010, 47], stopId: 'B' },
@@ -337,8 +371,17 @@ try {
       serviceStartSeconds: [8 * 3_600 + 8 * 60],
       serviceEndSeconds: [8 * 3_600 + 8 * 60],
       serviceHeadwaySeconds: [600],
-    },
-  }), { streetStorePath })
+  }
+  const overlay = routeNationalGtfsReach(storePath, request({ scenarioOverlay }), { streetStorePath })
+  for (const origin of [request().origin, normalized.origin]) {
+    for (const [maxTransfers, expected] of [
+      [0, ['A', 'D']], [1, ['A', 'B', 'D']], [2, ['A', 'B', 'D', 'X']],
+    ]) {
+      const capped = routeNationalGtfsReach(storePath, request({ origin, scenarioOverlay, maxTransfers }), { streetStorePath })
+      assert.deepEqual(capped.stops.map(stop => stop.stopId).sort(), expected,
+        `A scenario ride must count toward maxTransfers=${maxTransfers} for ${origin.source} origins.`)
+    }
+  }
   assert.equal(
     overlay.diagnostics.algorithm,
     'rust_resident_query_overlay_connection_scan_one_to_many',
@@ -389,6 +432,17 @@ try {
     first.stops,
     'Generation-tagged exclusions must not leak into the next resident query.',
   )
+
+  const terminalZip = await JSZip.loadAsync(await fsp.readFile(zipPath))
+  terminalZip.file('transfers.txt', 'from_stop_id,to_stop_id,transfer_type,min_transfer_time\nA,B,2,285\n')
+  const terminalZipPath = path.join(folder, 'terminal-transfer.zip')
+  await fsp.writeFile(terminalZipPath, await terminalZip.generateAsync({ type: 'nodebuffer' }))
+  await buildNationalGtfsStore({ zipPath: terminalZipPath, outputPath: terminalStorePath })
+  for (const origin of [request().origin, normalized.origin]) {
+    const terminal = routeNationalGtfsReach(terminalStorePath, request({ origin, maxTransfers: 0 }), { streetStorePath })
+    assert.deepEqual(terminal.stops.map(stop => stop.stopId).sort(), ['A', 'D'],
+      'A transfer walk after the last ride must not become a fresh full-budget Reach seed.')
+  }
 
   let cancelled = false
   await assert.rejects(
@@ -442,6 +496,7 @@ try {
   await apiRuntime?.stop()
   disposeNationalGtfsStore(storePath)
   disposeNationalGtfsStore(mergedStorePath)
+  disposeNationalGtfsStore(terminalStorePath)
   disposeNationalOsmStore(streetStorePath)
   await fsp.rm(folder, { recursive: true, force: true })
 }

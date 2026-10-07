@@ -63,4 +63,8 @@ VIGO models the City revision and Query it is given. It does not certify real-wo
 
 ## Reach
 
+`maxTransfers` limits changes between transit vehicles in both the baseline and scenario searches. Zero permits one ride; omitting the field adds no transfer cap. Walking does not count as a boarding.
+
+After the last ride, Reach follows the same declared station exits used for coordinate egress. Pathway time counts toward elapsed travel time, and pathway distance counts toward the final walking allowance. A stop reached only by a transfer walk does not restart that allowance. Native Reach rasterizes reached street edges; Matrix evaluates destination coordinates, so their cells can differ even under matching routing settings. Standalone `includeNodes` retains at most 30,000 reached nodes and reports `nodeEvidenceTruncated` when this diagnostic sample is truncated; it does not limit the searched surface.
+
 Reach measures modeled travel time, not people, jobs, demand, welfare, observed behavior, or operational feasibility. Add opportunity data and a stated measure before describing an analysis as Accessibility.

@@ -114,6 +114,13 @@ impl City {
         }
         let mut seeds = origin.coordinate.to_vec();
         let mut durations = vec![0.];
+        let members: HashMap<String, i32> = self
+            .members
+            .iter()
+            .enumerate()
+            .map(|(index, id)| (id.clone(), index as i32))
+            .collect();
+        let mut seed_members = vec![-1];
         let mut stops = vec![];
         let mut transit = Value::Null;
         if mode == "transit" {
@@ -157,12 +164,28 @@ impl City {
                 maximum_boardings: opt.max_boardings,
             };
             let mut overlay_stops = vec![];
+            let mut overlay_members = vec![];
             let result = if scenario
                 .and_then(|s| s.get("services"))
                 .and_then(Value::as_array)
                 .is_some_and(|a| !a.is_empty())
             {
                 let overlay = self.scenario(scenario.unwrap(), input, &origin, &opt)?;
+                overlay_members = overlay
+                    .input
+                    .overlay_base_stops
+                    .as_deref()
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|&stop| {
+                        usize::try_from(stop)
+                            .ok()
+                            .and_then(|index| self.timetable.as_ref().unwrap().stop_ids.get(index))
+                            .and_then(|id| members.get(id))
+                            .copied()
+                            .unwrap_or(-1)
+                    })
+                    .collect();
                 overlay_stops = overlay.stops;
                 let result = self
                     .timetable
@@ -185,6 +208,13 @@ impl City {
                 let mut coordinates = vec![];
                 for (i, point) in points.iter().enumerate() {
                     let p = self.point(point)?;
+                    overlay_members.push(
+                        p.stop
+                            .as_deref()
+                            .and_then(|id| members.get(id))
+                            .copied()
+                            .unwrap_or(-1),
+                    );
                     coordinates.extend(p.coordinate);
                     overlay_stops.push((
                         point["id"]
@@ -273,6 +303,16 @@ impl City {
                 };
                 seeds.extend(coordinate);
                 durations.push(duration);
+                seed_members.push(if i < n {
+                    members
+                        .get(&id)
+                        .copied()
+                        .ok_or("Missing Reach egress access member")?
+                } else {
+                    *overlay_members
+                        .get(i - n)
+                        .ok_or("Missing scenario egress identity")?
+                });
                 stops.push(json!({"stopId":id,"name":name,"coordinate":coordinate,"durationMinutes":duration}));
             }
         }
@@ -283,12 +323,14 @@ impl City {
             height: size as u32,
             seed_coordinates: seeds,
             seed_durations_minutes: durations,
+            seed_member_indices: Some(seed_members),
+            seed_walk_distances_m: None,
             maximum_walk_m: opt.walk_m,
             walk_speed_kph: number(q, "walkSpeedKph", self.speed, 1., 8.)?,
             maximum_duration_minutes: maximum,
             independent_terminal_walk: false,
             include_nodes: flag(q, "includeNodes", false)?,
-            node_evidence_limit: 0,
+            node_evidence_limit: 30_000,
             include_edges,
             edge_evidence_limit: 0,
             expand_bounds_to_reached_edges: true,
@@ -307,7 +349,7 @@ impl City {
             "surface":{"width":size,"height":size,"bounds":bounds,"values":result.values,"fullBounds":full_bounds,"fullValues":full_values,"nodes":result.node_evidence,
                 "edges":if include_edges {json!({"schemaVersion":"vigo.standalone.street-edges.v1","encoding":"indexed-json","count":result.edge_evidence_ids.as_ref().map_or(0,Vec::len),"nodeCount":result.edge_evidence_nodes.as_ref().map_or(0,|v|v.len()/2),"nodes":result.edge_evidence_nodes,"endpoints":result.edge_evidence_endpoints,"edgeIds":result.edge_evidence_ids,"durationMinutes":result.edge_evidence_durations,"walkDistanceM":result.edge_evidence_walk_distances,"transitArrivalMinutes":result.edge_evidence_transit_arrivals})}else{Value::Null}},
             "areas":area_features,"fullAreas":full_areas,"contours":contour_features,"fullContours":full_contours,
-            "diagnostics":{"transit":transit,"surface":{"queryNs":result.query_ns,"reachedPixels":result.reached_pixels,"reachedEdgeCount":result.reached_edge_count,"reachedEdgeLengthM":result.reached_edge_length_m,"edgeEvidenceTruncated":result.edge_evidence_truncated}},"warnings":self.metadata["routingLimitations"]}),
+            "diagnostics":{"transit":transit,"surface":{"queryNs":result.query_ns,"reachedPixels":result.reached_pixels,"reachedEdgeCount":result.reached_edge_count,"reachedEdgeLengthM":result.reached_edge_length_m,"edgeEvidenceTruncated":result.edge_evidence_truncated,"nodeEvidenceTruncated":result.node_evidence_truncated}},"warnings":self.metadata["routingLimitations"]}),
         )
     }
 }

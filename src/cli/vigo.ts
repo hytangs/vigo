@@ -767,6 +767,7 @@ async function runRouteStream(args: CliArguments, explicitKinds = false) {
           const requestArgs = new Map(args)
           for (const [field, option] of [
             ['maxWalkKm', 'max-walk'],
+            ['maxTransfers', 'max-transfers'],
             ['departureWindowMinutes', 'departure-window'],
           ]) {
             if (input[field] !== undefined) requestArgs.set(option, [String(input[field])])

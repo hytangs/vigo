@@ -2367,6 +2367,7 @@ pub struct CoordinateTimetableManyInput {
     pub departure: f64,
     pub horizon: f64,
     pub allow_pre_ride_transfers: bool,
+    pub allow_post_ride_transfers: Option<bool>,
     pub disable_cache: Option<bool>,
     pub maximum_boardings: Option<u32>,
 }
@@ -4302,7 +4303,9 @@ impl CoordinateKernel {
             departure: input.departure,
             horizon: input.horizon,
             allow_pre_ride_transfers: input.allow_pre_ride_transfers,
-            allow_post_ride_transfers: None,
+            allow_post_ride_transfers: input
+                .allow_post_ride_transfers
+                .map(|allow| vec![allow; target_count]),
             maximum_boardings: input.maximum_boardings,
         })?;
         let timetable_ns = timetable_started.elapsed().as_nanos() as f64;
@@ -4580,7 +4583,92 @@ impl CoordinateKernel {
     }
 
     #[cfg_attr(feature = "node", napi)]
-    pub fn street_surface(&self, input: StreetSurfaceInput) -> napi::Result<StreetSurfaceResult> {
+    pub fn street_surface(
+        &self,
+        mut input: StreetSurfaceInput,
+    ) -> napi::Result<StreetSurfaceResult> {
+        if let Some(members) = input.seed_member_indices.take() {
+            let count = input.seed_durations_minutes.len();
+            if members.len() != count
+                || input.seed_coordinates.len() != count * 2
+                || input.seed_coordinates.iter().any(|x| !x.is_finite())
+                || input
+                    .seed_durations_minutes
+                    .iter()
+                    .any(|x| !x.is_finite() || *x < 0.0)
+                || input.seed_walk_distances_m.is_some()
+            {
+                return Err(Error::from_reason(
+                    "Street surface member seeds are inconsistent.",
+                ));
+            }
+            let profile = self.profile.as_ref().ok_or_else(|| {
+                Error::from_reason("Street surface member seeds require a prepared access profile.")
+            })?;
+            let mut anchors_by_stop = HashMap::<u32, Vec<usize>>::new();
+            for member in 0..profile.member_lons.len() {
+                for &anchor in profile.member_anchor_indices(member) {
+                    anchors_by_stop
+                        .entry(profile.member_stop_keys[member])
+                        .or_default()
+                        .push(anchor as usize);
+                }
+            }
+            let mut coordinates = Vec::new();
+            let mut durations = Vec::new();
+            let mut distances = Vec::new();
+            for (seed, member) in members.into_iter().enumerate() {
+                let arrival = input.seed_durations_minutes[seed];
+                if member == -1 {
+                    coordinates.extend_from_slice(&input.seed_coordinates[seed * 2..seed * 2 + 2]);
+                    durations.push(arrival);
+                    distances.push(0.0);
+                    continue;
+                }
+                if member < 0 || member as usize >= profile.member_lons.len() {
+                    return Err(Error::from_reason("Invalid street surface access member."));
+                }
+                let member = member as usize;
+                let key = profile.member_stop_keys[member];
+                let mut add = |anchor: usize, seconds: f64, distance: f64| {
+                    if distance > input.maximum_walk_m + 1e-6 {
+                        return;
+                    }
+                    coordinates.extend_from_slice(&[
+                        profile.anchor_lons[anchor],
+                        profile.anchor_lats[anchor],
+                    ]);
+                    durations.push(arrival + seconds / 60.0);
+                    distances.push(distance);
+                };
+                for &anchor in profile.member_anchor_indices(member) {
+                    add(anchor as usize, 0.0, 0.0);
+                }
+                // Reuse the directed station paths used by coordinate egress.
+                // A platform with no valid exit never falls back to its map coordinate.
+                for link in profile.linked_from_stop(key, true) {
+                    let Some(anchors) = anchors_by_stop.get(&link.to_stop_key) else {
+                        continue;
+                    };
+                    let distance = if link.path_distance_m >= 0.0 {
+                        link.path_distance_m
+                    } else {
+                        haversine_m(
+                            profile.stop_lons[key as usize],
+                            profile.stop_lats[key as usize],
+                            profile.stop_lons[link.to_stop_key as usize],
+                            profile.stop_lats[link.to_stop_key as usize],
+                        )
+                    };
+                    for &anchor in anchors {
+                        add(anchor, f64::from(link.duration_seconds), distance);
+                    }
+                }
+            }
+            input.seed_coordinates = coordinates;
+            input.seed_durations_minutes = durations;
+            input.seed_walk_distances_m = Some(distances);
+        }
         street_analysis::street_surface(
             &self.snapshot,
             self.snapshot.reciprocal_edge_flags(),

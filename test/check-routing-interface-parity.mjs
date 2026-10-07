@@ -415,6 +415,14 @@ try {
           timePreference, time: timePreference === 'arrive' ? '08:15' : '07:55', maxTransfers }) + '\n' })
       assert.equal(stream.status, 0, stream.stderr)
       assert.deepEqual(canonicalPlan(JSON.parse(stream.stdout).plan), canonicalPlan(body.plan))
+      const explicitStream = runCli(['_route-stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`,
+        '--max-walk=0.2', `--max-transfers=${1 - maxTransfers}`], {
+        input: JSON.stringify({ id: 'capped-route', kind: 'route', origin: 'A', destination: 'B',
+          timePreference, time: timePreference === 'arrive' ? '08:15' : '07:55', maxTransfers }) + '\n',
+      })
+      assert.equal(explicitStream.status, 0, explicitStream.stderr)
+      assert.deepEqual(canonicalPlan(JSON.parse(explicitStream.stdout).result), canonicalPlan(body.plan),
+        'Each stream route must use its requested transfer cap instead of the process default.')
       const matrixResponse = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-matrix`, apiUrl), {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ...query, origins: [query.origin], destinations: [query.destination] }),
@@ -426,6 +434,25 @@ try {
     }
   }
 
+
+  const reachCaps = [0, 1, undefined, 0]
+  const streamedReach = runCli(['_route-stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`,
+    '--max-walk=0.2', '--max-transfers=1'], {
+    input: reachCaps.map((maxTransfers, index) => JSON.stringify({
+      id: `reach-cap-${index}`, kind: 'reach', origin: 'A', time: '07:55',
+      maxTransfers, cutoffsMinutes: [20], rasterSize: 48, includeStreetEdges: false,
+    })).join('\n') + '\n',
+  })
+  assert.equal(streamedReach.status, 0, streamedReach.stderr)
+  const reachResults = streamedReach.stdout.trim().split('\n').map(line => JSON.parse(line))
+  assert.equal(reachResults.length, reachCaps.length)
+  for (const [index, result] of reachResults.entries()) {
+    const cap = reachCaps[index] ?? 1
+    assert.equal(result.status, 'ready')
+    assert.equal(result.query.maxTransfers, cap)
+    assert.equal(result.stops.find(stop => stop.stopId === 'B').durationMinutes, cap === 0 ? 17 : 15,
+      'Streamed Reach must override the default cap per request and restore it when the cap is omitted.')
+  }
 
   for (const minimumTransferBufferMinutes of [0, 2]) {
     const selection = { allowStreetTransfers: false, minimumTransferBufferMinutes }

@@ -726,6 +726,37 @@ try {
     /incomplete/,
   )
   const kernel = new CoordinateKernel(snapshotPath)
+  const surfaceKernel = new CoordinateKernel(snapshotPath)
+  const surfaceProfile = {
+    profileKey: 'directed-station-egress',
+    memberLons: [0.003, 0.001], memberLats: [38, 38],
+    memberOriginEligible: [1, 1], memberDestinationEligible: [1, 1],
+    memberStopKeys: [0, 1], memberStationKeys: [0, 1],
+    anchorLons: [0.001], anchorLats: [38], anchorMemberOffsets: [0, 1], anchorMemberIndices: [1],
+    transferFromStopKeys: [0], transferToStopKeys: [1], transferToStationKeys: [1],
+    transferMinDurations: [120], transferPathDistancesM: [150], transferOsmCertified: [0],
+    walkingSpeedKph: 4.8,
+  }
+  surfaceKernel.setAccessProfile(surfaceProfile)
+  const surfaceQuery = {
+    bounds: [-0.001, 37.999, 0.004, 38.001], width: 48, height: 48,
+    seedCoordinates: [-10, 0, 0.003, 38], seedDurationsMinutes: [0, 5], seedMemberIndices: [-1, 0],
+    maximumWalkM: 250, walkSpeedKph: 4.8, maximumDurationMinutes: 20,
+    independentTerminalWalk: false, includeNodes: true, nodeEvidenceLimit: 100,
+    includeEdges: true, edgeEvidenceLimit: 0, expandBoundsToReachedEdges: true,
+  }
+  const stationSurface = surfaceKernel.streetSurface(surfaceQuery)
+  assert.deepEqual(stationSurface.nodeEvidence.map(n => [n.longitude, n.durationMinutes, n.walkDistanceM]).sort(),
+    [[0.001, 7, 150], [0.002, 8.25, 250]],
+    'Reach must leave a platform through its entrance, pay the pathway time, and charge its distance to the final walk.')
+  surfaceKernel.setAccessProfile({ ...surfaceProfile, profileKey: 'entrance-only',
+    transferFromStopKeys: [1], transferToStopKeys: [0], transferToStationKeys: [0] })
+  assert.equal(surfaceKernel.streetSurface(surfaceQuery).nodeEvidence.length, 0,
+    'An entrance-only pathway cannot become a platform exit through coordinate snapping.')
+  assert.throws(() => surfaceKernel.streetSurface({ ...surfaceQuery, seedMemberIndices: [0] }), /inconsistent/)
+  assert.throws(() => surfaceKernel.streetSurface({ ...surfaceQuery, seedMemberIndices: [-1, 9] }), /Invalid.*member/)
+  assert.throws(() => surfaceKernel.streetSurface({ ...surfaceQuery, seedMemberIndices: undefined,
+    seedWalkDistancesM: [0, -1] }), /walking distances/)
   const directedCch = buildAndLoadStreetCch(kernel, temporaryDirectory, 'directed')
   const diagnostics = kernel.diagnostics()
   assert.equal(diagnostics.nodeCount, 4)
