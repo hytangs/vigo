@@ -9,6 +9,7 @@ const root = path.resolve(import.meta.dirname, '..')
 const directory = await fs.mkdtemp(path.join(root, 'temp', 'city-delete-runtime-'))
 const fixture = `import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
+import {flushSync} from 'react-dom';
 import {ProjectEditorDialog} from '/src/components/ProjectDialogs.tsx';
 import '/src/App.css';import '/src/index.css';
 let submitted=0,closed=0;
@@ -18,23 +19,23 @@ function Fixture(){
  return React.createElement(ProjectEditorDialog,{state:{mode:'delete',projectId:'synthetic',name:'Synthetic City',region:'Test'},busy,error,
   onClose:()=>closed++,onSubmit:()=>submitted++});
 }
-createRoot(document.getElementById('root')).render(React.createElement(Fixture));
+flushSync(()=>createRoot(document.getElementById('root')).render(React.createElement(Fixture)));
 window.checkNavigation=async()=>{
- const wait=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
- await wait();
+ // Hidden Windows fixtures may not receive animation frames. Commit React
+ // changes synchronously; the assertions below read DOM state and layout.
  const input=document.querySelector('input'),button=document.querySelector('button[type=submit]');
- const fill=async(value)=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));await wait()};
+ const fill=(value)=>flushSync(()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}))});
  if(!document.querySelector('[role=dialog]')||!document.body.textContent.includes('Delete City'))throw Error('Delete dialog missing');
- await fill('');if(!button.disabled)throw Error('Empty confirmation accepted');
- await fill('synthetic city');if(!button.disabled)throw Error('Wrong case accepted');
- await fill('Synthetic City ');if(!button.disabled)throw Error('Extra whitespace accepted');
- await fill('Synthetic City');if(button.disabled)throw Error('Exact name rejected');
- button.click();await wait();if(!submitted)throw Error('Confirmation did not submit');
- window.setBusy(true);await wait();if(!button.disabled||!input.disabled)throw Error('Busy deletion permits duplicate input');
- const before=closed;window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await wait();if(closed!==before)throw Error('Busy dialog dismissed');
- window.setBusy(false);window.setError('Synthetic deletion failed');await wait();
+ fill('');if(!button.disabled)throw Error('Empty confirmation accepted');
+ fill('synthetic city');if(!button.disabled)throw Error('Wrong case accepted');
+ fill('Synthetic City ');if(!button.disabled)throw Error('Extra whitespace accepted');
+ fill('Synthetic City');if(button.disabled)throw Error('Exact name rejected');
+ flushSync(()=>button.click());if(!submitted)throw Error('Confirmation did not submit');
+ flushSync(()=>window.setBusy(true));if(!button.disabled||!input.disabled)throw Error('Busy deletion permits duplicate input');
+ const before=closed;window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));if(closed!==before)throw Error('Busy dialog dismissed');
+ flushSync(()=>{window.setBusy(false);window.setError('Synthetic deletion failed')});
  if(!document.querySelector('[role=alert]')?.textContent.includes('Synthetic deletion failed'))throw Error('Failure hidden');
- window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await wait();if(closed!==before+1)throw Error('Escape did not cancel');
+ window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));if(closed!==before+1)throw Error('Escape did not cancel');
  const r=button.getBoundingClientRect();if(r.width<=0||r.height<=0||r.bottom>innerHeight||r.right>innerWidth)throw Error('Delete button clipped');
  return {width:innerWidth,height:innerHeight,exactConfirmation:true,busyGuard:true,errorVisible:true,cancel:true};
 };`

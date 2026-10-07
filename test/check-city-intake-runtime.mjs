@@ -10,18 +10,19 @@ await fs.mkdir(path.join(root, 'temp'), { recursive: true })
 const directory = await fs.mkdtemp(path.join(root, 'temp', 'city-intake-runtime-'))
 const fixture = `import React from 'react';
 import {createRoot} from 'react-dom/client';
+import {flushSync} from 'react-dom';
 import {EmptyOperationsStart} from '/src/components/studio/CitySources.tsx';
 import '/src/App.css'; import '/src/index.css';
 let connected=0;
 const noop=()=>{};
-createRoot(document.getElementById('root')).render(React.createElement('main',{className:'app-shell appearance-light project-empty page-project',style:{height:'100vh',display:'grid'}},React.createElement(EmptyOperationsStart,{
+flushSync(()=>createRoot(document.getElementById('root')).render(React.createElement('main',{className:'app-shell appearance-light project-empty page-project',style:{height:'100vh',display:'grid'}},React.createElement(EmptyOperationsStart,{
  project:{name:'Other City',summary:{feeds:0,routes:0},feeds:[],jobs:[]},onOpenNetwork:noop,osmStreetReady:false,isImporting:false,isOsmImporting:false,importMessage:'',osmStreetMessage:'',realtimeSnapshot:null,realtimeMessage:'',realtimeRequest:null,isRealtimeLoading:false,onFiles:noop,onNationalGtfsPath:noop,onNationalOsmPath:noop,onOsmFiles:noop,onConnectRealtime:()=>connected++,onDisconnectRealtime:noop,onCancelGtfs:noop,onRetryGtfs:noop,onCancelOsm:noop,onRetryOsm:noop
-})));
+}))));
 window.checkNavigation=async()=>{
- const wait=()=>new Promise(resolve=>requestAnimationFrame(resolve));await wait();
+ // DOM and layout assertions must not wait on a hidden window's paint loop.
  if(document.querySelectorAll('input[type=file]').length<2)throw Error('Source inputs missing');
  for(const selector of ['.drop-zone','.osm-import-strip button','.realtime-fields input','.realtime-actions button','.network-import-example']){
-  const element=document.querySelector(selector);element.scrollIntoView({block:'center'});await wait();
+  const element=document.querySelector(selector);element.scrollIntoView({block:'center'});
   const r=element.getBoundingClientRect();
   if(r.width<=0||r.height<=0||!element.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)))throw Error('Control clipped: '+selector);
  }
@@ -32,8 +33,8 @@ window.checkNavigation=async()=>{
  const scroller=document.querySelector('.empty-intake');
  if(scroller.scrollWidth>scroller.clientWidth+1)throw Error('Intake overflows horizontally');
  if(document.body.textContent.includes('Manifest'))throw Error('Manifest remains');
- const preset=document.querySelector('.realtime-preset button');preset.click();await wait();
- document.querySelector('.realtime-actions button').click();await wait();
+ const preset=document.querySelector('.realtime-preset button');flushSync(()=>preset.click());
+ flushSync(()=>document.querySelector('.realtime-actions button').click());
  if(!connected)throw Error('Realtime form did not connect');
  return {width:innerWidth,height:innerHeight,sourceInputs:true,controlsReachable:true,realtimeSubmit:true};
 };`

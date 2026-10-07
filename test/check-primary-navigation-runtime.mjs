@@ -9,6 +9,7 @@ const root = path.resolve(import.meta.dirname, '..')
 const directory = await fs.mkdtemp(path.join(root, 'temp', 'navigation-runtime-'))
 const fixture = `import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
+import {flushSync} from 'react-dom';
 import {PrimaryNav} from '/src/components/PrimaryNav.tsx';
 import '/src/App.css';
 import '/src/index.css';
@@ -22,7 +23,7 @@ function Fixture(){
     ['pathfinder','analyze'].includes(view)?React.createElement('section',{className:'sidebar-panel'},React.createElement('h2',null,view),React.createElement('label',null,'Fixture input',React.createElement('input'))):null),
    React.createElement('div',{className:'app-frame'},React.createElement('section',{className:'project-workbench'},'Workspace'))));
 }
-createRoot(document.getElementById('root')).render(React.createElement(Fixture));
+flushSync(()=>createRoot(document.getElementById('root')).render(React.createElement(Fixture)));
 window.checkNavigation=async()=>{
  const nav=document.querySelector('.sidebar-rail');
  if(!nav) throw Error('Navigation missing');
@@ -32,7 +33,8 @@ window.checkNavigation=async()=>{
   const name=button.getAttribute('aria-label');
   if(button.textContent.trim()||!button.querySelector('svg')) throw Error('Primary navigation must stay icon-only');
   if(button.title!==name+' ('+button.getAttribute('aria-keyshortcuts')+')') throw Error('Icon navigation must retain its destination tooltip and shortcut');
-  button.click(); await new Promise(resolve=>requestAnimationFrame(resolve));
+  // This fixture is hidden; flush React without depending on paint delivery.
+  flushSync(()=>button.click());
   if(button.getAttribute('aria-current')!=='page'||nav.querySelectorAll('[aria-current=page]').length!==1) throw Error('Active destination is not exposed');
   if(innerWidth<=760){
    const r=nav.getBoundingClientRect(),boxes=buttons.map(b=>b.getBoundingClientRect()),centers=boxes.map(b=>b.x+b.width/2),gaps=centers.slice(1).map((c,i)=>c-centers[i]);
@@ -49,7 +51,7 @@ window.checkNavigation=async()=>{
  }
  const scroll=document.documentElement.scrollWidth;
  if(scroll>innerWidth+1) throw Error('Horizontal overflow');
- buttons[0].click();
+ flushSync(()=>buttons[0].click());
  return {width:innerWidth,height:innerHeight,equalSpacing:true,allViews:true,visible:true,iconOnly:true};
 };`
 const server = await createServer({ root, cacheDir: path.join(directory, 'vite-cache'), configFile: false, plugins: [react(), {
