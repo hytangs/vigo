@@ -3,6 +3,14 @@
 async function layoutFrame(window) {
   const contents = window.webContents
   if (!contents.isOffscreen()) throw new Error('Layout fixture must render offscreen')
+  // A resize can update innerWidth before Chromium has applied every viewport
+  // media query. Offscreen rendering supplies frames even without a desktop.
+  await contents.executeJavaScript(`new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Layout frame did not settle')), 10000);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      clearTimeout(timeout); resolve();
+    }));
+  })`)
   const { width, height } = await contents.executeJavaScript(
     '({width: Math.round(innerWidth * devicePixelRatio), height: Math.round(innerHeight * devicePixelRatio)})',
   )
