@@ -28,16 +28,7 @@ export function alertSelectors(context, alert) {
       (!String(id).includes('\u001f') || row[field] === id) && (alert.sourceScope == null || scopeOf(row[field]) === alert.sourceScope))
     return candidates.length === 1 ? candidates[0] : null
   }
-  let selectors = alert.informedEntities
-  // Old retained snapshots may predate selector preservation. A single pair
-  // is recoverable; multiple route/stop lists cannot reconstruct conjunctions.
-  if (!selectors?.length) {
-    const routes = alert.routeIds ?? [], stops = alert.stopIds ?? []
-    selectors = routes.length <= 1 && stops.length <= 1 && routes.length + stops.length
-      ? [{ routeId: routes[0], stopId: stops[0] }]
-      : routes.length && !stops.length ? routes.map(routeId => ({ routeId }))
-        : stops.length && !routes.length ? stops.map(stopId => ({ stopId })) : []
-  }
+  const selectors = alert.informedEntities ?? []
   return selectors.map(selector => {
     const unresolved = []
     const route = selector.routeId ? resolve('route', selector.routeId) : null
@@ -69,9 +60,7 @@ export function alertSelectors(context, alert) {
 }
 
 export function alertInScope(event, { routeId, stopIds, tripId, directionId, serviceDate } = {}) {
-  const legacy = !event.selectors && !(event.routeIds?.length > 1 && event.stopIds?.length) && !(event.stopIds?.length > 1 && event.routeIds?.length)
-    ? [{ routeIds: event.routeIds ?? (event.routeId ? [event.routeId] : []), stopId: event.stopId ?? event.stopIds?.[0], tripId: event.tripId, directionId: event.directionId, unresolved: [] }] : []
-  return (event.selectors ?? legacy).some(selector => {
+  return (event.selectors ?? []).some(selector => {
     if (selector.unresolved.length) return false
     if (routeId && !selector.routeIds.includes(routeId)) {
       // A stop-only notice can apply at that stop without being route-wide.

@@ -40,6 +40,7 @@ import { hydrateScenarioRouteServices } from './scenario-services.mjs'
 import { resolveServiceDay, serviceDayForDate } from './service-day.mjs'
 import { buildServiceEdgeDecomposition } from './service-decomposition.mjs'
 import { createStreetPreparationManager } from './street-preparation.mjs'
+import { compactStudioRoutingResponse } from './studio-route-response.mjs'
 import { allocateProjectTransportAtlasBudgets, compactTransportPreview, projectTransportAtlasBudgets } from './transport-atlas.mjs'
 
 const defaultHost = '127.0.0.1'
@@ -2704,8 +2705,8 @@ async function startNationalOsmImport(projectId, body) {
           nationalRouteWorkerPool.retire(storePath)
         )))
         Object.assign(job, { status: 'complete', phase: 'Street index ready', progress: 1, detail: `${message.result.edgeCount.toLocaleString()} walk + ${message.result.driveEdgeCount.toLocaleString()} drive edges`, result: { ...message.result, sourceFile: sourceName }, finishedAt: now(), updatedAt: now() })
-        // The import worker exits with its memory. Open both saved networks in
-        // the worker that will serve walking and driving queries next.
+        // The import worker exits with its memory. Warm pedestrian access;
+        // driving stays on disk until a driving query needs it.
         void prepareProjectStreets(projectId, project).catch((error) => {
           console.warn(`Unable to start street preparation for ${projectId}:`, error.message)
         })
@@ -3841,11 +3842,11 @@ async function runServiceEdgeDecomposition(projectId, body, signal) {
   }
 }
 
-async function prepareProjectStreets(projectId, project, retry = false) {
+async function prepareProjectStreets(projectId, project, retry = false, prepareDrive = false) {
   const storePath = streetStoreFile(projectId)
   const stats = await fs.stat(storePath)
   return streetPreparationManager.start({
-    projectId, storePath, workerStorePath: await streetWorkerStore(projectId, project), retry,
+    projectId, storePath, workerStorePath: await streetWorkerStore(projectId, project), retry, prepareDrive,
     identity: `${project.osmStreetIndex?.sourceFingerprint ?? ''}:${project.osmStreetIndex?.builtAt ?? ''}:${stats.size}:${stats.mtimeMs}`,
     label: project.osmStreetIndex?.fileName || 'OpenStreetMap',
   })
@@ -3861,7 +3862,7 @@ async function setStreetResidency(projectId, body) {
     throw error
   }
   const residency = nationalRouteWorkerPool.setResidency(storePath, true, body?.leaseId)
-  return { residency, job: await prepareProjectStreets(projectId, project, body?.retry === true) }
+  return { residency, job: await prepareProjectStreets(projectId, project, body?.retry === true, body?.prepareDrive === true) }
 }
 
 async function setRoutingResidency(projectId, body) {
@@ -3968,16 +3969,6 @@ function decorateRoutingPlan(plan) {
       routingStatus: diagnostics.routingStatus ?? routingStatusForPlan(plan),
       routingStatusSchemaVersion: routingStatusSchemaVersion,
     },
-  }
-}
-
-function decorateRoutingResponse(result) {
-  if (!result || typeof result !== 'object') return result
-  return {
-    ...result,
-    ...(result.plan ? { plan: decorateRoutingPlan(result.plan) } : {}),
-    ...(Array.isArray(result.choices) ? { choices: result.choices.map(decorateRoutingPlan) } : {}),
-    ...(result.earliestTransit ? { earliestTransit: result.earliestTransit } : {}),
   }
 }
 
@@ -4348,7 +4339,8 @@ async function route(request, response) {
         const body = await readBody(request)
         const result = await runNationalRoute(projectId, body, signal)
         if (signal.aborted) throw makeAbortError()
-        sendJson(response, 200, decorateRoutingResponse(result))
+        const decorated = { ...result, choices: result.choices.map(decorateRoutingPlan) }
+        sendJson(response, 200, compactStudioRoutingResponse(decorated))
       })
       return true
     }

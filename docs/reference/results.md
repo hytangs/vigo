@@ -12,7 +12,7 @@ Interactive Route commands show a short itinerary. Pipes, `--output`, and `--for
 
 Legs have `type: "walk" | "transit" | "drive"`, `from`, `to`, clocks, duration, and available distance. Transit legs identify the route and trip. Stop, route, and trip references use `{ "feed": "mbta", "id": "70067" }`; an unscoped feed is `null`. You can send an endpoint as `{ "stop": { "feed": "mbta", "id": "70067" } }`. Older string `stopId` requests remain accepted.
 
-Route includes available GeoJSON `geometry` on each leg by default, preserving the full source coordinate precision and vertex sequence. Send `includeGeometry: false` or use `--include-geometry=false` for a smaller response without coordinate arrays. Matrix journey geometry remains opt-in with `includeGeometry: true`. Geometry describes the modeled path, not an observed vehicle trajectory or a guarantee of surveyed station interiors. Ordered journeys have a single ordered leg list; departure-window alternatives appear in `alternatives`.
+Route includes available GeoJSON `geometry` on each leg by default, preserving the full source coordinate precision and vertex sequence. Send `includeGeometry: false` or use `--include-geometry=false` for a smaller response without coordinate arrays. Matrix journey geometry remains opt-in with `includeGeometry: true`. Geometry describes the modeled path, not an observed vehicle trajectory or a guarantee of surveyed station interiors. Ordered journeys have a single ordered leg list; departure-window alternatives appear in `alternatives`. Alternatives exclude the primary journey and duplicate journeys; the field is omitted when none remain.
 
 ## Keep uncertainty with the answer
 

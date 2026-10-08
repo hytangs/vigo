@@ -90,7 +90,7 @@ export type AgencyRoute = {
   maxDelaySeconds: number | null
   events: number
   alerts: number
-  serviceChanges?: number
+  serviceChanges: number
   headway: 'unknown' | 'changed' | 'matches-schedule'
   comparedPairs?: number
   widestInterval?: { directionId?: number | string; predictedSeconds: number; scheduledSeconds: number; stopId: string; stopName: string } | null

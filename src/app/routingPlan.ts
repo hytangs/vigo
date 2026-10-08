@@ -523,8 +523,8 @@ export function buildRoutingActivity({
       ? routingPlanServiceDateDetail(routingPlan, routingServiceDate)
       : routingPlan.detail,
   )
-  if (routingMode !== 'transit' && routingStreetState === 'missing') return activity('blocked', 'OSM streets required', 'Add an OSM file in City. Walking and driving will be prepared automatically.')
-  if (routingMode !== 'transit' && routingStreetState === 'loading') return activity('preparing', 'Preparing walking and driving', 'OSM preparation is running in Background tasks. You can pick A and B now.')
+  if (routingMode !== 'transit' && routingStreetState === 'missing') return activity('blocked', 'OSM streets required', 'Add an OSM file in City to prepare street routing.')
+  if (routingMode !== 'transit' && routingStreetState === 'loading') return activity('preparing', routingMode === 'drive' ? 'Preparing driving' : 'Preparing walking', 'Track preparation in Background tasks. You can pick your route points now.')
   if (routingMode === 'transit' && storeBackedRouting && !routingStoreReady) return activity('preparing', 'Opening SQLite timetable', `Opening the local routing database for ${routingServiceDate}. You can pick A and B now.`)
   if (hasOrigin && hasDestination && routingStreetState === 'loading') return activity('preparing', 'Preparing street snapshot', 'Opening the sealed OSM street snapshot for A/B access. Your points are saved.')
   if (hasOrigin && hasDestination && routingStreetState === 'missing') return activity('blocked', 'Street snapshot required', 'Load or rebuild the OSM street snapshot to calculate a route between map points.')

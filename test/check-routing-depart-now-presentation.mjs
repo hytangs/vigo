@@ -76,7 +76,7 @@ try {
   }
   const unchanged = structuredClone(detailPlan)
   const details = renderToStaticMarkup(createElement(RoutingDetailPanel, { plan: detailPlan, onClose() {} }))
-  assert.match(details, /<h2>30m<\/h2>/)
+  assert.match(details, /<h2>50m <small>total<\/small><\/h2>/)
   assert.match(details, /Leave 20m after your requested time/)
   assert.match(details, /5m waiting en route/)
   assert.match(details, /5m wait at Station/)

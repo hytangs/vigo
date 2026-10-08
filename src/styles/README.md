@@ -7,7 +7,7 @@ rules to an existing owner instead of creating another `refresh`, `parity`, or
 - `foundation.css` — reset, tokens, and app-level primitives.
 - `shell.css` — top bar, navigation, projects, dialogs, and shared panels.
 - `network.css` — map, service playback, route detail, and sidebox surfaces.
-- `responsive.css` — light-mode compatibility and shell breakpoints.
+- `responsive.css` — shell breakpoints.
 - `components.css` — shared controls and consolidated component refinements.
 - `surfaces.css` — analyze, data, desktop-shell, and workbench surfaces.
 - `theme.css` — the current VIGO visual system and final app-wide treatment.

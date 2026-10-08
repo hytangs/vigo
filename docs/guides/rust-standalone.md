@@ -1,6 +1,6 @@
 # VIGO Rust standalone manual
 
-VIGO 0.4.4 · CLI and HTTP reference · Prepared City format 1
+VIGO 0.5.0 · CLI and HTTP reference · Prepared City format 1
 
 VIGO runs routing and isochrone queries from a single Rust executable. The executable contains the routing kernels, City loader, JSON interface, and HTTP server. It needs no Node, Python, browser, external routing service, or internet connection at query time. SQLite is compiled in. City data is supplied separately and opened read-only.
 

@@ -132,7 +132,7 @@ async function stopApi() {
 }
 
 function runCli(args, options = {}) {
-  if (['route','matrix','reach'].includes(args[0])) args = [...args, '--diagnostics=trace']
+  if (['route','matrix','reach','stream'].includes(args[0])) args = [...args, '--diagnostics=trace']
   return spawnSync(process.execPath, [cliPath, ...args], {
     cwd: repositoryRoot,
     encoding: 'utf8',
@@ -173,16 +173,17 @@ async function httpPlan(apiUrl) {
   const payload = await response.json().catch(() => ({}))
   assert.equal(response.status, 200, `production HTTP route failed: ${JSON.stringify(payload)}`)
   assert.equal(payload?.choices?.length, 1, 'Fixed-departure HTTP must expose its canonical plan as the sole choice.')
-  assert.deepEqual(payload.choices[0], payload.plan, 'HTTP choice zero must be the exact canonical plan.')
-  assert.equal(payload.plan.diagnostics?.searchStats?.heuristicMode, 'none', 'HTTP must not expose heuristic routing controls.')
+  assert.equal(payload.selectedPlanId, payload.choices[0].id)
+  assert.equal(Object.hasOwn(payload, 'plan'), false, 'Studio sends each journey once.')
+  assert.equal(payload.choices[0].diagnostics?.searchStats?.heuristicMode, undefined, 'Studio excludes internal search settings.')
   assert.equal(
-    Object.hasOwn(payload.plan.diagnostics?.searchStats ?? {}, 'heuristicWeight'),
+    Object.hasOwn(payload.choices[0].diagnostics?.searchStats ?? {}, 'heuristicWeight'),
     false,
     'HTTP must not retain the retired heuristic-weight control.',
   )
-  assert.equal(payload.plan.status, 'ready')
-  assert(!Object.hasOwn(payload.plan.diagnostics?.searchStats ?? {}, 'resultCachePolicy'))
-  return payload.plan
+  assert.equal(payload.choices[0].status, 'ready')
+  assert(!Object.hasOwn(payload.choices[0].diagnostics?.searchStats ?? {}, 'resultCachePolicy'))
+  return payload.choices[0]
 }
 
 function cliBatchPlan(cityPath, temporaryRoot) {
@@ -195,11 +196,9 @@ function cliBatchPlan(cityPath, temporaryRoot) {
     `--input=${odPath}`,
     `--output=${csvPath}`,
     '--time=07:55',
-    '--time-preference=depart',
     '--service-day=weekday',
     `--service-date=${serviceDate}`,
     '--max-walk=0.2',
-    '--departure-window=0',
   ])
   assert.equal(result.status, 0, `JS CLI batch failed: ${result.stderr}`)
   const envelope = JSON.parse(result.stdout)
@@ -211,27 +210,25 @@ function cliBatchPlan(cityPath, temporaryRoot) {
 
 function pythonStreamPlan(cityPath) {
   const result = runCli([
-    '_route-stream',
+    'stream',
     `--city=${cityPath}`,
     '--time=07:55',
-    '--time-preference=depart',
     '--service-day=weekday',
     `--service-date=${serviceDate}`,
     '--max-walk=0.2',
-    '--departure-window=0',
   ], {
     input: `${JSON.stringify({
-      id: 'parity',
+      kind: 'route', id: 'parity',
       origin: 'A',
       destination: 'B',
     })}\n`,
   })
   assert.equal(result.status, 0, `Python route stream failed: ${result.stderr}`)
-  const rows = result.stdout.trim().split('\n').map((line) => JSON.parse(line))
+  const rows = result.stdout.trim().split('\n').map((line) => JSON.parse(line).trace)
   assert.equal(rows.length, 1)
   assert.equal(rows[0].schemaVersion, 'vigo.result.route.v1')
-  assert.equal(rows[0].status, 'ok')
-  return rows[0].plan
+  assert.equal(rows[0].status, 'ready')
+  return rows[0].result
 }
 
 assert(fs.existsSync(cliPath), 'Built production CLI is missing. Run npm run build:cli.')
@@ -312,10 +309,10 @@ try {
       })
       const body = await response.json()
       assert.equal(response.status, 200, `${mode} ${timePreference} waypoints: ${JSON.stringify(body)}`)
-      assert.equal(body.plan.status, 'ready', `${mode} ${timePreference}: ${body.plan.detail}`)
-      assert.equal(body.plan.waypoints.length, 1)
-      const firstSegmentEnd = body.plan.legs.filter(leg => leg.orderedSegmentIndex === 0).at(-1).endMinutes
-      const secondSegmentStart = body.plan.legs.find(leg => leg.orderedSegmentIndex === 1).startMinutes
+      assert.equal(body.choices[0].status, 'ready', `${mode} ${timePreference}: ${body.choices[0].detail}`)
+      assert.equal(body.choices[0].waypoints.length, 1)
+      const firstSegmentEnd = body.choices[0].legs.filter(leg => leg.orderedSegmentIndex === 0).at(-1).endMinutes
+      const secondSegmentStart = body.choices[0].legs.find(leg => leg.orderedSegmentIndex === 1).startMinutes
       assert(secondSegmentStart >= firstSegmentEnd - 0.002, 'A following leg cannot leave before reaching the waypoint.')
       if (mode !== 'transit') {
         assert(!Number.isInteger(firstSegmentEnd), 'Fixture must exercise a fractional intermediate clock.')
@@ -327,7 +324,7 @@ try {
         `--service-date=${serviceDate}`, `--time=${timePreference === 'arrive' ? '08:30' : '07:55'}`,
         '--max-walk=0.2'])
       assert.equal(cli.status, 0, `${mode} ${timePreference} CLI waypoints: ${cli.stderr}`)
-      assert.deepEqual(canonicalPlan(JSON.parse(cli.stdout).trace.result), canonicalPlan(body.plan),
+      assert.deepEqual(canonicalPlan(JSON.parse(cli.stdout).trace.result), canonicalPlan(body.choices[0]),
         `${mode} ${timePreference} ordered HTTP/CLI parity`)
     }
   }
@@ -340,13 +337,13 @@ try {
     })
     const body = await response.json()
     assert.equal(response.status, 200)
-    assert.equal(body.plan.status, 'blocked', 'Inactive service must preserve the failed waypoint component.')
+    assert.equal(body.choices[0].status, 'blocked', 'Inactive service must preserve the failed waypoint component.')
     const requestPath = path.join(temporaryRoot, 'blocked-ordered-route.json')
     await fsp.writeFile(requestPath, JSON.stringify(request))
     const cli = runCli(['route', `--city=${projectMetaPath}`, `--request=${requestPath}`,
       '--service-date=2026-07-19', '--time=08:30', '--max-walk=0.2'])
     assert.equal(cli.status, 0, cli.stderr)
-    assert.deepEqual(canonicalPlan(JSON.parse(cli.stdout).trace.result), canonicalPlan(body.plan),
+    assert.deepEqual(canonicalPlan(JSON.parse(cli.stdout).trace.result), canonicalPlan(body.choices[0]),
       `${timePreference} blocked waypoint HTTP/CLI parity`)
   }
   for (const total of [8, 9]) {
@@ -359,7 +356,7 @@ try {
     })
     const body = await response.json()
     assert.equal(response.status, total === 8 ? 200 : 400, JSON.stringify(body))
-    if (total === 8) assert.equal(body.plan.waypoints.length, 6)
+    if (total === 8) assert.equal(body.choices[0].waypoints.length, 6)
   }
 
   const fractionalInput = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-route`, apiUrl), {
@@ -389,7 +386,7 @@ try {
     body: JSON.stringify({ origin: plans.http.origin, destination: plans.http.destination,
       timePreference: 'arrive', arriveMinutes: 510, serviceDate, serviceDay: 'weekday', maxWalkKm: 0.2 }),
   })
-  const arriveReference = (await arriveResponse.json()).plan
+  const arriveReference = (await arriveResponse.json()).choices[0]
   assert.equal(arriveResponse.status, 200)
   assert.equal(arriveReference.status, 'ready')
   for (const timePreference of ['depart', 'arrive']) {
@@ -424,22 +421,22 @@ try {
       })
       const body = await response.json()
       assert.equal(response.status, 200, JSON.stringify(body))
-      assert.equal(body.plan.status, 'ready')
+      assert.equal(body.choices[0].status, 'ready')
       // All services depart at 08:00. Arrive-by has time for the direct trip.
       const direct = timePreference === 'arrive' || maxTransfers === 0
-      assert.deepEqual([body.plan.arriveMinutes, body.plan.transfers], direct ? [492, 0] : [490, 1])
-      const stream = runCli(['_route-stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`,
-        '--max-walk=0.2'], { input: JSON.stringify({ id: 'capped', origin: 'A', destination: 'B',
+      assert.deepEqual([body.choices[0].arriveMinutes, body.choices[0].transfers], direct ? [492, 0] : [490, 1])
+      const stream = runCli(['stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`,
+        '--max-walk=0.2'], { input: JSON.stringify({ kind: 'route', id: 'capped', origin: 'A', destination: 'B',
           timePreference, time: timePreference === 'arrive' ? '08:15' : '07:55', maxTransfers }) + '\n' })
       assert.equal(stream.status, 0, stream.stderr)
-      assert.deepEqual(canonicalPlan(JSON.parse(stream.stdout).plan), canonicalPlan(body.plan))
-      const explicitStream = runCli(['_route-stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`,
-        '--max-walk=0.2', `--max-transfers=${1 - maxTransfers}`], {
+      assert.deepEqual(canonicalPlan(JSON.parse(stream.stdout).trace.result), canonicalPlan(body.choices[0]))
+      const explicitStream = runCli(['stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`,
+        '--max-walk=0.2'], {
         input: JSON.stringify({ id: 'capped-route', kind: 'route', origin: 'A', destination: 'B',
           timePreference, time: timePreference === 'arrive' ? '08:15' : '07:55', maxTransfers }) + '\n',
       })
       assert.equal(explicitStream.status, 0, explicitStream.stderr)
-      assert.deepEqual(canonicalPlan(JSON.parse(explicitStream.stdout).result), canonicalPlan(body.plan),
+      assert.deepEqual(canonicalPlan(JSON.parse(explicitStream.stdout).trace.result), canonicalPlan(body.choices[0]),
         'Each stream route must use its requested transfer cap instead of the process default.')
       const matrixResponse = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-matrix`, apiUrl), {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -448,7 +445,7 @@ try {
       const matrix = (await matrixResponse.json()).matrix
       assert.equal(matrixResponse.status, 200)
       const field = timePreference === 'arrive' ? 'departMinutes' : 'arriveMinutes'
-      assert.equal(matrix.rows[0][field], body.plan[field])
+      assert.equal(matrix.rows[0][field], body.choices[0][field])
     }
   }
 
@@ -459,11 +456,11 @@ try {
     origins: [{ coordinate: [-77.050, 38.900] }], destinations: [{ coordinate: [-77.030, 38.910] }],
     serviceDate, mode: 'transit', time: '20:00', horizonMinutes: 60, maxWalkKm: 0.2,
     requireTransitRide: false, allowLongWalk }))
-  const walkStream = runCli(['_route-stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`], {
+  const walkStream = runCli(['stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`], {
     input: walkQueries.map(q => JSON.stringify(q)).join('\n') + '\n',
   })
   assert.equal(walkStream.status, 0, walkStream.stderr)
-  const walkMatrices = walkStream.stdout.trim().split('\n').map(line => JSON.parse(line))
+  const walkMatrices = walkStream.stdout.trim().split('\n').map(line => JSON.parse(line).trace ?? JSON.parse(line))
   for (const [index, request] of walkQueries.entries()) {
     const expected = request.allowLongWalk ? 'ready' : 'blocked'
     assert.equal(walkMatrices[index].rows[0].status, expected,
@@ -478,30 +475,30 @@ try {
     assert.equal(response.status, 200)
     assert.equal((await response.json()).matrix.rows[0].status, expected)
     const route = { ...request, origin: request.origins[0], destination: request.destinations[0] }
-    delete route.kind; delete route.origins; delete route.destinations
-    const legacy = runCli(['_route-stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`], {
+    route.kind = 'route'; delete route.origins; delete route.destinations
+    const pointStream = runCli(['stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`], {
       input: JSON.stringify(route) + '\n',
     })
-    assert.equal(legacy.status, 0, legacy.stderr)
-    assert.equal(JSON.parse(legacy.stdout).plan.status, expected,
-      'Legacy streamed Route must preserve the same direct-walking limit.')
+    assert.equal(pointStream.status, 0, pointStream.stderr)
+    assert.equal(JSON.parse(pointStream.stdout).trace.result.status, expected,
+      'Streamed Route must preserve the same direct-walking limit.')
   }
-  const streamedReach = runCli(['_route-stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`,
-    '--max-walk=0.2', '--max-transfers=1'], {
+  const streamedReach = runCli(['stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`,
+    '--max-walk=0.2'], {
     input: reachCaps.map((maxTransfers, index) => JSON.stringify({
       id: `reach-cap-${index}`, kind: 'reach', origin: 'A', time: '07:55',
       maxTransfers, cutoffsMinutes: [20], rasterSize: 48, includeStreetEdges: false,
     })).join('\n') + '\n',
   })
   assert.equal(streamedReach.status, 0, streamedReach.stderr)
-  const reachResults = streamedReach.stdout.trim().split('\n').map(line => JSON.parse(line))
+  const reachResults = streamedReach.stdout.trim().split('\n').map(line => JSON.parse(line).trace ?? JSON.parse(line))
   assert.equal(reachResults.length, reachCaps.length)
   for (const [index, result] of reachResults.entries()) {
-    const cap = reachCaps[index] ?? 1
+    const cap = reachCaps[index]
     assert.equal(result.status, 'ready')
     assert.equal(result.query.maxTransfers, cap)
     assert.equal(result.stops.find(stop => stop.stopId === 'B').durationMinutes, cap === 0 ? 17 : 15,
-      'Streamed Reach must override the default cap per request and restore it when the cap is omitted.')
+      'Each Reach request owns its transfer cap; omitting it restores unrestricted boarding.')
   }
 
   for (const minimumTransferBufferMinutes of [0, 2]) {
@@ -513,32 +510,32 @@ try {
     })
     const body = await response.json()
     assert.equal(response.status, 200, JSON.stringify(body))
-    assert.equal(body.plan.arriveMinutes, minimumTransferBufferMinutes ? 492 : 490)
-    assert.equal(body.plan.diagnostics.routingDataProvenance.searchParameters.allowStreetTransfers, false)
-    assert.equal(body.plan.diagnostics.routingDataProvenance.searchParameters.minimumTransferBufferMinutes, minimumTransferBufferMinutes)
-    const input = { id: 'transfer-selection', origin: 'A', destination: 'B', ...selection }
-    const stream = runCli(['_route-stream', `--city=${projectMetaPath}`, '--time=07:55',
+    assert.equal(body.choices[0].arriveMinutes, minimumTransferBufferMinutes ? 492 : 490)
+    assert.equal(body.choices[0].diagnostics.routingDataProvenance.searchParameters.allowStreetTransfers, false)
+    assert.equal(body.choices[0].diagnostics.routingDataProvenance.searchParameters.minimumTransferBufferMinutes, minimumTransferBufferMinutes)
+    const input = { kind: 'route', id: 'transfer-selection', origin: 'A', destination: 'B', ...selection }
+    const stream = runCli(['stream', `--city=${projectMetaPath}`, '--time=07:55',
       `--service-date=${serviceDate}`, '--max-walk=0.2'], { input: JSON.stringify(input) + '\n' })
     assert.equal(stream.status, 0, stream.stderr)
-    assert.deepEqual(canonicalPlan(JSON.parse(stream.stdout).plan), canonicalPlan(body.plan))
+    assert.deepEqual(canonicalPlan(JSON.parse(stream.stdout).trace.result), canonicalPlan(body.choices[0]))
     const selectionPath = path.join(temporaryRoot, 'selection-request.json')
     await fsp.writeFile(selectionPath, JSON.stringify(input))
     const jsonRoute = runCli(['route', `--city=${projectMetaPath}`, `--request=${selectionPath}`,
       '--time=07:55', `--service-date=${serviceDate}`, '--max-walk=0.2'])
     assert.equal(jsonRoute.status, 0, jsonRoute.stderr)
-    assert.deepEqual(canonicalPlan(JSON.parse(jsonRoute.stdout).trace.result), canonicalPlan(body.plan))
+    assert.deepEqual(canonicalPlan(JSON.parse(jsonRoute.stdout).trace.result), canonicalPlan(body.choices[0]))
     const matrixResponse = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-matrix`, apiUrl), {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ ...query, origins: [query.origin], destinations: [query.destination] }),
     })
     const matrix = (await matrixResponse.json()).matrix
     assert.equal(matrixResponse.status, 200)
-    assert.equal(matrix.rows[0].arriveMinutes, body.plan.arriveMinutes)
+    assert.equal(matrix.rows[0].arriveMinutes, body.choices[0].arriveMinutes)
     await fsp.writeFile(selectionPath, JSON.stringify({ origins: ['A'], destinations: ['B'], ...selection }))
     const jsonMatrix = runCli(['matrix', `--city=${projectMetaPath}`, `--request=${selectionPath}`,
       '--time=07:55', `--service-date=${serviceDate}`, '--max-walk=0.2'])
     assert.equal(jsonMatrix.status, 0, jsonMatrix.stderr)
-    assert.equal(JSON.parse(jsonMatrix.stdout).trace.rows[0].arriveMinutes, body.plan.arriveMinutes)
+    assert.equal(JSON.parse(jsonMatrix.stdout).trace.rows[0].arriveMinutes, body.choices[0].arriveMinutes)
   }
 
   for (const timePreference of ['depart', 'arrive']) {
@@ -548,8 +545,8 @@ try {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(short) })
     const body = await response.json()
     assert.equal(response.status, 200, JSON.stringify(body))
-    assert.equal(body.plan.status, 'ready'); assert.equal(body.plan.travelMode, 'walk')
-    assert(body.plan.durationMinutes < 1 && body.plan.legs.every(l => l.type !== 'ride'))
+    assert.equal(body.choices[0].status, 'ready'); assert.equal(body.choices[0].travelMode, 'walk')
+    assert(body.choices[0].durationMinutes < 1 && body.choices[0].legs.every(l => l.type !== 'ride'))
   }
 
   const alternativesResponse = await apiRuntime.fetch(
@@ -579,12 +576,12 @@ try {
     '--time=07:55', `--service-date=${serviceDate}`, '--max-walk=0.2', '--departure-window=10'])
   assert.equal(alternativeBatch.status, 0, alternativeBatch.stderr)
   assert.deepEqual(metrics(JSON.parse(alternativeBatch.stdout).trace.results[0].choices), metrics(alternatives.choices))
-  const alternativeStream = runCli(['_route-stream', `--city=${projectMetaPath}`,
-    '--time=07:55', `--service-date=${serviceDate}`, '--max-walk=0.2', '--departure-window=10'], {
-    input: `${JSON.stringify({ id: 'alternatives', origin: 'A', destination: 'B' })}\n`,
+  const alternativeStream = runCli(['stream', `--city=${projectMetaPath}`,
+    '--time=07:55', `--service-date=${serviceDate}`, '--max-walk=0.2'], {
+    input: `${JSON.stringify({ kind: 'route', id: 'alternatives', origin: 'A', destination: 'B', departureWindowMinutes: 10 })}\n`,
   })
   assert.equal(alternativeStream.status, 0, alternativeStream.stderr)
-  assert.deepEqual(metrics(JSON.parse(alternativeStream.stdout).choices), metrics(alternatives.choices))
+  assert.deepEqual(metrics(JSON.parse(alternativeStream.stdout).trace.choices), metrics(alternatives.choices))
 
   console.log(JSON.stringify({
     schemaVersion: 'vigo.routing.interface-parity.check.v1',
@@ -601,7 +598,7 @@ try {
       productionHttp: 'src/server/vigo-api.mjs -> national-route worker',
       desktop: 'route result -> normalizeReceivedRoutingPlan',
       javascriptBatch: 'public/vigo.mjs route',
-      pythonStream: 'public/vigo.mjs _route-stream',
+      pythonStream: 'public/vigo.mjs stream',
     },
     excludedInterfaceFields: [
       'plan IDs and human labels',

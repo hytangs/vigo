@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { apiJson } from './api'
 import { isActiveTask, type PreparationTask } from './preparation'
 
-export function useStreetPreparation({ active, projectId, identity, refreshKey = '' }: { active: boolean; projectId: string; identity: string; refreshKey?: string }) {
-  const key = `${projectId}:${identity}:${refreshKey}`
+export function useStreetPreparation({ active, projectId, identity, refreshKey = '', prepareDrive = false }: { active: boolean; projectId: string; identity: string; refreshKey?: string; prepareDrive?: boolean }) {
+  const key = `${projectId}:${identity}:${refreshKey}:${prepareDrive}`
   const [state, setState] = useState<{ key: string; task: PreparationTask } | null>(null)
   const [attempt, setAttempt] = useState(0)
   const retry = useCallback(() => setAttempt((value) => value + 1), [])
@@ -21,7 +21,7 @@ export function useStreetPreparation({ active, projectId, identity, refreshKey =
       // Let registration settle before cleanup releases this lease. Aborting
       // the HTTP request could release first and leave a late lease behind.
       acquisition = apiJson<{ job: PreparationTask }>(endpoint, {
-        method: 'POST', body: JSON.stringify({ resident: true, leaseId, retry: forceRetry }),
+        method: 'POST', body: JSON.stringify({ resident: true, leaseId, retry: forceRetry, prepareDrive }),
       })
       return acquisition
     }
@@ -45,7 +45,7 @@ export function useStreetPreparation({ active, projectId, identity, refreshKey =
         if (stopped) return
         commit({ ...(task ?? {
           id: `${projectId}:street-status`, kind: 'street-runtime-prepare', label: 'OpenStreetMap',
-          status: 'queued', createdAt: new Date().toISOString(), phase: 'Preparing walking and driving',
+          status: 'queued', createdAt: new Date().toISOString(), phase: prepareDrive ? 'Preparing walking and driving' : 'Preparing walking',
         }), statusError: error instanceof Error ? error.message : 'Street preparation status is unavailable.' })
         timer = setTimeout(() => { void update(true) }, 5_000)
       }
@@ -61,10 +61,10 @@ export function useStreetPreparation({ active, projectId, identity, refreshKey =
       if (acquisition) void acquisition.then(release, release)
       else void release()
     }
-  }, [active, projectId, key, attempt])
+  }, [active, projectId, key, attempt, prepareDrive])
   const task = !active ? null : state?.key === key ? state.task : {
     id: `${projectId}:street-starting`, kind: 'street-runtime-prepare', label: 'OpenStreetMap',
-    status: 'queued' as const, phase: 'Preparing walking and driving', createdAt: '',
+    status: 'queued' as const, phase: prepareDrive ? 'Preparing walking and driving' : 'Preparing walking', createdAt: '',
   }
   return {
     task, retry,

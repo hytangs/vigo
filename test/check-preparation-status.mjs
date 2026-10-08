@@ -45,7 +45,7 @@ for (const routingMode of ['walk', 'drive']) {
     routingStoreReady: false, hasOrigin: false, hasDestination: false, routingLoading: false,
     routingInputReady: false, routingServiceDate: '2026-09-13' }
   assert.equal(buildRoutingActivity({ ...routing, routingStreetState: 'missing' }).kind, 'blocked')
-  assert.equal(buildRoutingActivity({ ...routing, routingStreetState: 'loading' }).title, 'Preparing walking and driving')
+  assert.equal(buildRoutingActivity({ ...routing, routingStreetState: 'loading' }).title, routingMode === 'drive' ? 'Preparing driving' : 'Preparing walking')
   assert.equal(buildRoutingActivity({ ...routing, routingStreetState: 'ready' }).title, 'Pick origin', 'Prepared street modes must not wait for a GTFS timetable')
 }
 
@@ -87,7 +87,7 @@ try {
   assert.match(panel([job('failed', { kind: 'vehicle-schedules' })]), /Retry preparation/)
   assert.match(panel([job('complete', { kind: 'vehicle-schedules' })]), /Complete/)
   const streets = panel([job('running', { kind: 'street-runtime-prepare', progress: undefined, phase: 'Opening driving street snapshot' })])
-  assert.match(streets, /Walking and driving/)
+  assert.match(streets, /Street routing/)
   assert.match(streets, /Opening driving street snapshot/)
   assert.doesNotMatch(streets, /<progress[^>]*value=/)
   assert.match(panel([job('failed', { kind: 'street-runtime-prepare' })]), /Retry preparation/)

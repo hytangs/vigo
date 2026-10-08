@@ -221,6 +221,7 @@ export default function App() {
   const [routingAllowStreetTransfers, setRoutingAllowStreetTransfers] = useState(true)
   const [routingMinimumTransferBufferMinutes, setRoutingMinimumTransferBufferMinutes] = useState(0)
   const [selectedRoutingPlanId, setSelectedRoutingPlanId] = useState('')
+  const [routingDetailsVisible, setRoutingDetailsVisible] = useState(false)
   const [routingEnabled, setRoutingEnabled] = useState(false)
   const [routingPickIndex, setRoutingPickIndex] = useState<number | null>(null)
   const [routingOrigin, setRoutingOrigin] = useState<RoutingPoint | null>(null)
@@ -343,6 +344,7 @@ export default function App() {
     projectId: selectedProject.id,
     identity: `${selectedProject.osmStreetIndex?.builtAt ?? ''}:${selectedProject.osmStreetIndex?.bytes ?? ''}`,
     refreshKey: activeRouteTool === 'pathfinder' ? routingMode : '',
+    prepareDrive: activeRouteTool === 'pathfinder' && routingMode === 'drive',
   })
   const latestGtfsJob = [...preparationJobs]
     .filter((job) => job.kind === 'national-gtfs-import')
@@ -1242,6 +1244,11 @@ export default function App() {
   }
 
   function activateSearchResult(result: SearchResult) {
+    if (result.routingQuery) {
+      setPage('project')
+      runRoutingSearch(result.routingQuery)
+      return
+    }
     const nextMemory = rememberSearchResult(result.id)
     navigationMemoryRef.current = nextMemory
     setRecentSearchIds(nextMemory.recentSearchIds)
@@ -2165,6 +2172,7 @@ export default function App() {
     if (command.departMinutes !== undefined) setScheduleTimeMinutes(command.departMinutes)
     const mode = command.mode ?? routingMode
     setRoutingMode(mode)
+    if (mode === 'transit' && command.departMinutes !== undefined) setRoutingDataMode('scheduled')
     setRoutingTimePreference(mode === 'transit' ? command.timePreference ?? routingTimePreference : 'depart')
     const applied = reorderRoutingPoints(points as RoutingPoint[])
     if (applied) setQuery('')
@@ -2926,6 +2934,7 @@ export default function App() {
   const storageRecoveryRequired = Boolean(runtimeConfig && !runtimeConfig.setupRequired && !runtimeConfig.offline.storageWritable)
   const routingDetailOpen = page === 'project'
     && activeRouteTool === 'pathfinder'
+    && routingDetailsVisible
     && Boolean(selectedRoutingPlanId)
     && routingPlan?.status === 'ready'
   const sourceDeletionDisabled = isImporting || isOsmImporting || preparationJobs.some((job) => isPreparationJob(job) && isActiveTask(job))
@@ -3225,6 +3234,7 @@ export default function App() {
         onRoutingServiceDateChange={changeRoutingServiceDate}
         onSelectRoutingPlan={(id) => {
           setSelectedRoutingPlanId(id)
+          setRoutingDetailsVisible(true)
         }}
         onToggleRouting={toggleRouting}
         onClearRouting={clearRouting}
@@ -3403,7 +3413,7 @@ export default function App() {
       {routingDetailOpen && routingPlan ? (
         <RoutingDetailPanel
           plan={routingPlan}
-          onClose={() => setSelectedRoutingPlanId('')}
+          onClose={() => setRoutingDetailsVisible(false)}
         />
       ) : null}
       </div>

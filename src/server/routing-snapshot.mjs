@@ -1,6 +1,9 @@
-// JSON metadata and aligned little-endian arrays, independent of V8's private
-// serialization version. Both Node and the packaged runtime read this format.
-const magic = Buffer.from('VIGORS01')
+import { gzipSync, gunzipSync } from 'node:zlib'
+
+// Compress metadata, while leaving numeric arrays aligned and directly
+// readable by the native runtime. Rebuild older snapshots with this runtime.
+const magic = Buffer.from('VIGORS02')
+const maximumHeaderBytes = 512 * 1024 * 1024
 const types = { Uint8Array, Uint32Array, Int32Array, Float64Array }
 const align = value => Math.ceil(value / 8) * 8
 
@@ -13,7 +16,9 @@ export function encodeRoutingSnapshot(metadata, arrays = {}) {
     layout[name] = { type, offset: size, length: array.length }
     size = align(size + array.byteLength)
   }
-  const header = Buffer.from(JSON.stringify({ metadata, arrays: layout }))
+  const rawHeader = Buffer.from(JSON.stringify({ metadata, arrays: layout }))
+  if (rawHeader.length > maximumHeaderBytes) throw new Error('Routing snapshot metadata exceeds its size limit.')
+  const header = gzipSync(rawHeader, { level: 1 })
   const dataOffset = align(16 + header.length)
   const bytes = Buffer.alloc(dataOffset + size)
   magic.copy(bytes)
@@ -30,15 +35,17 @@ export function decodeRoutingSnapshot(bytes) {
   if (new Uint8Array(new Uint16Array([1]).buffer)[0] !== 1) {
     throw new Error('Routing snapshots require a little-endian runtime.')
   }
-  if (bytes.length < 16 || !bytes.subarray(0, 8).equals(magic)) {
-    throw new Error('Unsupported or truncated routing snapshot.')
+  if (bytes.length < 16) throw new Error('Routing snapshot is truncated.')
+  if (!bytes.subarray(0, 8).equals(magic)) {
+    throw new Error('Unsupported routing snapshot. Rebuild the City with VIGO 0.5.0 or later.')
   }
   const headerLength = bytes.readUInt32LE(8)
   const dataOffset = bytes.readUInt32LE(12)
-  if (dataOffset !== align(16 + headerLength) || dataOffset > bytes.length) {
+  if (headerLength > maximumHeaderBytes || dataOffset !== align(16 + headerLength) || dataOffset > bytes.length) {
     throw new Error('Routing snapshot metadata exceeds its file.')
   }
-  const header = JSON.parse(bytes.toString('utf8', 16, 16 + headerLength))
+  const headerBytes = bytes.subarray(16, 16 + headerLength)
+  const header = JSON.parse(gunzipSync(headerBytes, { maxOutputLength: maximumHeaderBytes }).toString('utf8'))
   if (!header?.metadata || !header.arrays || typeof header.arrays !== 'object') {
     throw new Error('Routing snapshot metadata is invalid.')
   }

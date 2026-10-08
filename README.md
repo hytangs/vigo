@@ -7,12 +7,12 @@
   <a href="docs/guides/quickstart.md">Quickstart</a> ·
   <a href="docs/guides/studio.md">Studio</a> ·
   <a href="docs/README.md">Documentation</a> ·
-  <a href="docs/releases/0.4.4.md">Release notes</a>
+  <a href="docs/releases/0.5.0.md">Release notes</a>
 </p>
 
 VIGO turns GTFS timetables and OpenStreetMap streets into a reusable city model. Inspect live service, plan journeys, calculate travel-time matrices, and compare the reach of proposed service changes. Each computed Result retains its request, City identity, warnings, and timing.
 
-**VIGO 0.4.4** includes the final routing and pedestrian-access corrections. See the [release notes](docs/releases/0.4.4.md) and [City rebuild instructions](docs/reference/walking-evidence.md#upgrade-and-check).
+**VIGO 0.5.0** simplifies journey choices, reduces prepared access storage, and opens driving data on demand. See the [release notes](docs/releases/0.5.0.md) and [City rebuild instructions](docs/reference/walking-evidence.md#upgrade-and-check).
 
 VIGO supports multiple GTFS timetables and multiple GTFS-RT endpoints in one City, with explicit source matching, bounded memory admission, and automatic Engine recovery. Native routing powers the desktop and command line. A model connection is optional.
 
@@ -86,6 +86,6 @@ For a CLI/HTTP ZIP without Studio or the Python wrapper, see
 | [CLI quickstart](docs/guides/quickstart.md) · [Studio](docs/guides/studio.md) | [Practical workflows](docs/guides/workflows.md) · [Read a Result](docs/reference/results.md) | [CLI reference](docs/reference/programmatic.md) · [Architecture](docs/development/architecture.md) |
 | [Multiple feeds](docs/guides/multiple-feeds.md) · [Documentation index](docs/README.md) | [Network evidence](docs/guides/network.md) · [Troubleshooting](docs/guides/troubleshooting.md) | [Contributing and checks](.github/CONTRIBUTING.md) |
 
-The [offline guide](docs/guide.html) includes a local Result viewer; the [Developer Guide source](docs/developer-guide/VIGO-0.4.4-Developer-Guide.tex) builds the release PDF.
+The [offline guide](docs/guide.html) includes a local Result viewer; the [Developer Guide source](docs/developer-guide/VIGO-0.5.0-Developer-Guide.tex) builds the release PDF.
 
-API 1.0, City format 1, and Result schema 1 remain unchanged in 0.4.4. VIGO is licensed under [Apache-2.0](LICENSE); see [NOTICE](NOTICE) for attribution.
+API 1.0, City format 1, and Result schema 1 remain unchanged in 0.5.0. VIGO is licensed under [Apache-2.0](LICENSE); see [NOTICE](NOTICE) for attribution.

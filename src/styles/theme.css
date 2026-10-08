@@ -114,7 +114,7 @@
 .sidebox-live,
 .project-dialog,
 .surface-panel {
-  border-radius: 7px;
+  border-radius: var(--control-radius, 8px);
   box-shadow: none;
 }
 
@@ -123,7 +123,7 @@
 .pathfinder-time-field,
 .pathfinder-date-field {
   border-color: var(--border);
-  border-radius: 7px;
+  border-radius: var(--control-radius, 8px);
   background: var(--panel-strong);
 }
 
@@ -269,11 +269,11 @@
 .app-shell.appearance-light {
   --vigo-ink: #0c1624;
   --vigo-lime: #aec43a;
-  --vigo-lime-strong: #718510;
-  --surface-bg: #f3f5f4;
-  --panel: #f6f7f6;
+  --vigo-lime-strong: #526b42;
+  --surface-bg: #f4f5f2;
+  --panel: #f8f9f6;
   --panel-strong: #ffffff;
-  --panel-soft: #f0f2f0;
+  --panel-soft: #eef1ec;
   --border: rgba(12, 22, 36, 0.1);
   --border-strong: rgba(12, 22, 36, 0.16);
   --text-strong: #101418;
@@ -288,8 +288,10 @@
   --danger: #bf4541;
   --shadow-soft: 0 8px 24px rgba(12, 22, 36, 0.06);
   --shadow-lg: 0 22px 60px rgba(12, 22, 36, 0.14);
-  --pq-radius: 7px;
-  --pq-focus: #6f8c17;
+  --pq-radius: 8px;
+  --control-radius: 8px;
+  --surface-radius: 12px;
+  --pq-focus: var(--vigo-lime-strong);
   --pq-surface-raised: #ffffff;
   --pq-surface-hover: #f4f6f3;
   --pq-rail-width: 48px;
@@ -322,11 +324,11 @@
 .app-shell.appearance-dark {
   --vigo-ink: #eff2f5;
   --vigo-lime: #b4c94a;
-  --vigo-lime-strong: #a6ba3f;
-  --surface-bg: #080b0f;
-  --panel: #0f141a;
-  --panel-strong: #121820;
-  --panel-soft: #171e26;
+  --vigo-lime-strong: #b0c69b;
+  --surface-bg: #101512;
+  --panel: #151b17;
+  --panel-strong: #1a211c;
+  --panel-soft: #202821;
   --border: rgba(219, 231, 242, 0.1);
   --border-strong: rgba(219, 231, 242, 0.17);
   --text-strong: #f0f3f5;
@@ -346,11 +348,11 @@
   --pq-surface-hover: #1a222a;
   --workbench-surface: #0f141a;
   --workbench-rule: var(--border);
-  --topbar-surface: #11161c;
-  --rail-surface: #0d1217;
-  --control-surface: #171d24;
-  --control-surface-strong: #1a2129;
-  --hover-surface: #1b232b;
+  --topbar-surface: #151b17;
+  --rail-surface: #121813;
+  --control-surface: #202821;
+  --control-surface-strong: #252e27;
+  --hover-surface: #29352b;
   --active-surface: color-mix(in srgb, var(--vigo-lime-strong) 10%, var(--panel-soft));
   --map-surface: #0d1217;
   --map-control-surface: rgba(17, 22, 29, 0.96);
@@ -579,9 +581,9 @@
 
 .sidebar-section-title strong {
   color: var(--text-muted);
-  font-size: 0.61rem;
-  font-weight: 660;
-  letter-spacing: 0.065em;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
 }
 
 .sidebox {
@@ -993,7 +995,7 @@
 .pathfinder-time-preference button {
   min-height: 31px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--control-radius, 8px);
   color: var(--text-muted);
   background: transparent;
   font-size: 0.69rem;
@@ -1085,7 +1087,7 @@
 .pathfinder-notice {
   margin-top: 3px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--control-radius, 8px);
   background: var(--control-surface);
   box-shadow: none;
 }
@@ -1130,16 +1132,15 @@
 }
 
 .pathfinder-route-list {
-  gap: 0;
-  border-top: 1px solid var(--border);
+  gap: 8px;
+  border-top: 0;
 }
 
 .pathfinder-route-card {
-  gap: 6px;
-  padding: 12px 8px 11px 11px;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
+  gap: 9px;
+  padding: 13px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--surface-radius);
   background: var(--panel-strong);
   box-shadow: none;
 }
@@ -1150,52 +1151,73 @@
   align-items: center;
   gap: 5px;
   color: var(--text-muted);
-  font-size: 0.67rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
   font-style: normal;
-}
-
-.pathfinder-route-rationale em {
-  padding: 2px 5px;
-  border-radius: 999px;
-  color: var(--primary-ink);
-  background: var(--primary-surface);
-  font-size: 0.61rem;
-  font-style: normal;
-  font-weight: 690;
 }
 
 .pathfinder-route-rationale strong {
   color: var(--text-strong);
-  font-size: 0.69rem;
-  font-weight: 660;
+  font-size: 0.75rem;
+  font-weight: 570;
 }
 
 .pathfinder-route-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 5px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .pathfinder-route-metrics > span {
-  min-width: 0;
-  display: grid;
-  gap: 1px;
-  padding: 5px 7px;
-  border-radius: 6px;
-  background: var(--control-surface);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
 }
 
 .pathfinder-route-metrics b {
   color: var(--text-strong);
-  font-size: 0.7rem;
-  font-weight: 680;
+  font-size: 0.79rem;
+  font-weight: 600;
 }
 
 .pathfinder-route-metrics small {
   color: var(--text-muted);
-  font-size: 0.61rem;
-  font-weight: 560;
+  font-size: 0.75rem;
 }
+
+.pathfinder-choice-sort {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: var(--control-radius);
+  background: var(--panel-soft);
+}
+
+.pathfinder-choice-sort button {
+  flex: 1;
+  min-height: 34px;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-soft);
+  background: transparent;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.pathfinder-choice-sort button[aria-pressed="true"] {
+  color: var(--text-strong);
+  background: var(--panel-strong);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
+}
+
+.pathfinder-result-context {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.pathfinder-result-context summary { cursor: pointer; padding: 6px 0; }
+.pathfinder-result-context p { margin: 4px 0 8px; line-height: 1.5; }
 
 .pathfinder-route-card::before {
   width: 2px;
@@ -1211,7 +1233,7 @@
 .pathfinder-route-card.is-active {
   border-color: var(--border);
   background: var(--active-surface);
-  box-shadow: inset 2px 0 0 var(--vigo-lime-strong);
+  box-shadow: inset 3px 0 0 var(--vigo-lime-strong);
 }
 
 .pathfinder-route-card.is-active::before {
@@ -1300,7 +1322,7 @@
 .maplibregl-ctrl-group {
   overflow: hidden;
   border: 1px solid var(--border-strong);
-  border-radius: 7px;
+  border-radius: var(--control-radius, 8px);
   background: var(--map-control-surface);
   box-shadow: var(--shadow-soft);
 }
@@ -1309,13 +1331,13 @@
   background-color: transparent;
 }
 
-.maplibregl-ctrl-attrib {
+.app-shell .maplibregl-ctrl-attrib {
   color: var(--text-muted);
   background: var(--map-control-muted) !important;
 }
 
-.maplibregl-ctrl-attrib a {
-  color: #2f766a;
+.app-shell .maplibregl-ctrl-attrib a {
+  color: inherit;
 }
 
 .app-shell.appearance-light .map-scope-actions {
@@ -1449,7 +1471,7 @@
 
 .surface-switcher-row.is-current {
   background: var(--active-surface);
-  box-shadow: inset 2px 0 0 var(--vigo-lime-strong);
+  box-shadow: inset 3px 0 0 var(--vigo-lime-strong);
 }
 
 .button-primary,
@@ -1542,4 +1564,60 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+/* Map and sidebar surfaces share the same palette in both appearances. */
+.app-shell .map-stage,
+.app-shell .route-map-shell {
+  background: var(--map-surface);
+}
+
+.app-shell .map-stage::before {
+  background: none;
+}
+
+.app-shell .map-live-card {
+  color: var(--text-strong);
+  border-color: var(--border);
+  background: var(--panel-strong);
+  box-shadow: var(--shadow-soft);
+}
+
+.app-shell .sidebox {
+  border-color: var(--border);
+  background: var(--panel-strong);
+}
+
+.app-shell :is(.sidebox-row button, .sidebox-lens-grid button, .sidebox-live, .map-live-card > button) {
+  color: var(--text-muted);
+  border-color: var(--border);
+  background: var(--panel-soft);
+}
+
+.app-shell :is(.sidebox-row button, .sidebox-lens-grid button, .sidebox-live, .map-live-card > button):hover {
+  color: var(--text-strong);
+  background: color-mix(in srgb, var(--accent-2) 7%, var(--panel-strong));
+}
+
+.app-shell :is(.sidebox-row button, .sidebox-lens-grid button).is-active {
+  color: var(--text-strong);
+  border-color: var(--accent-2);
+  background: color-mix(in srgb, var(--accent-2) 10%, var(--panel-strong));
+}
+
+.app-shell :is(.sidebox-time-readout, .sidebox-health-grid div, .map-live-metrics b, .map-vehicle-journey) {
+  border-color: var(--border);
+  background: var(--panel-soft);
+}
+
+.app-shell :is(.sidebox-time-readout strong, .sidebox-insight strong, .map-live-card strong, .map-live-metrics b, .map-vehicle-journey b) {
+  color: var(--text-strong);
+}
+
+.app-shell :is(.sidebox-time-readout small, .sidebox-insight small, .map-live-card > small, .map-live-metrics small, .map-vehicle-journey small) {
+  color: var(--text-muted);
+}
+
+.app-shell .map-vehicle-journey > div + div {
+  border-top-color: var(--border);
 }

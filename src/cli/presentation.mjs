@@ -1,6 +1,7 @@
 import { formatPublicResult } from '../server/native-routing-kernel.mjs'
 
 export function presentationRequest(request, args = new Map()) {
+  if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('A query must be a JSON object')
   const q = { ...request }
   if (args.has('diagnostics')) q.diagnostics = args.get('diagnostics').at(-1)
   for (const [option, key] of [['include-geometry', 'includeGeometry'], ['include-limitations', 'includeLimitations']]) {

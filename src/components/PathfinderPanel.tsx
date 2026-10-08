@@ -14,8 +14,8 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react'
-import { type KeyboardEvent } from 'react'
-import { formatRoutingMinutes, routingDataModeLabel, routingPlanRouteSequence, routingRealtimeDetail } from '../app/presentation'
+import { useState, type KeyboardEvent } from 'react'
+import { formatRoutingMinutes, routingPlanRouteSequence } from '../app/presentation'
 import {
   routingPlanJourneyMinutes,
   routingPlanStartWaitMinutes,
@@ -93,7 +93,7 @@ function routingAccessHintText(hint: RoutingAccessAvailabilityHint) {
   return `${role}: the station-access diagnostic could not complete${hint.detail ? ` (${hint.detail})` : '.'}`
 }
 
-function PathfinderRouteList({
+export function PathfinderRouteList({
   plans,
   selectedPlanId,
   alternativesLoading,
@@ -104,27 +104,36 @@ function PathfinderRouteList({
   alternativesLoading: boolean
   onSelect: (id: string) => void
 }) {
+  const [sort, setSort] = useState<'arrival' | 'transfers' | 'walking'>('arrival')
   const readyPlans = plans
     .filter((plan) => plan.status === 'ready')
     .sort((left, right) => (
-      routingPlanTotalElapsedMinutes(left) - routingPlanTotalElapsedMinutes(right)
+      (left.timePreference === 'arrive'
+        ? right.departMinutes - left.departMinutes
+        : (left.arriveMinutes ?? left.departMinutes + left.durationMinutes)
+          - (right.arriveMinutes ?? right.departMinutes + right.durationMinutes))
       || left.transfers - right.transfers
       || left.walkMinutes - right.walkMinutes
       || left.durationMinutes - right.durationMinutes
       || left.id.localeCompare(right.id)
     ))
   if (!readyPlans.length && !alternativesLoading) return null
-  const displayedPlans = readyPlans.slice(0, 5)
+  const displayedPlans = [...readyPlans].sort((left, right) => {
+    const difference = sort === 'transfers' ? left.transfers - right.transfers
+      : sort === 'walking' ? left.walkMinutes - right.walkMinutes : 0
+    return difference || readyPlans.indexOf(left) - readyPlans.indexOf(right)
+  }).slice(0, 5)
   const earliestTransit = earliestTransitSummary(plans)
 
   function moveSelection(event: KeyboardEvent<HTMLButtonElement>, offset: -1 | 1) {
-    if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft'].includes(event.key)) return
+    if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
     const radios = Array.from(
       event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? [],
     )
     const currentIndex = radios.indexOf(event.currentTarget)
-    const next = radios[(currentIndex + offset + radios.length) % radios.length]
+    const next = event.key === 'Home' ? radios[0] : event.key === 'End' ? radios.at(-1)
+      : radios[(currentIndex + offset + radios.length) % radios.length]
     next?.focus()
     next?.click()
   }
@@ -133,8 +142,7 @@ function PathfinderRouteList({
     <section className="pathfinder-results" aria-label="Route results" aria-busy={alternativesLoading}>
       <div className="pathfinder-results-head">
         <span>
-          <strong>Displayed journeys</strong>
-          {earliestTransit ? <small>{earliestTransit}</small> : null}
+          <strong>Choose a journey</strong>
         </span>
         <b>{readyPlans.length
           ? readyPlans.length > displayedPlans.length
@@ -143,6 +151,13 @@ function PathfinderRouteList({
           : 'Finding journeys'}</b>
       </div>
 
+      {readyPlans.length > 1 ? (
+        <div className="pathfinder-choice-sort" role="group" aria-label="Sort journeys">
+          {([['arrival', readyPlans[0].timePreference === 'arrive' ? 'Leave later' : 'Earliest'], ['transfers', 'Fewer transfers'], ['walking', 'Less walking']] as const).map(([value, label]) => (
+            <button key={value} type="button" aria-pressed={sort === value} onClick={() => setSort(value)}>{label}</button>
+          ))}
+        </div>
+      ) : null}
       {readyPlans.length ? (
         <div className="pathfinder-route-list" role="radiogroup" aria-label="Journey alternatives">
           {displayedPlans.map((plan) => {
@@ -156,10 +171,14 @@ function PathfinderRouteList({
             const lessWalking = fastest.walkMinutes - plan.walkMinutes
             const laterMinutes = (plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)
               - (fastest.arriveMinutes ?? fastest.departMinutes + fastest.durationMinutes)
+            const earlierMinutes = fastest.departMinutes - plan.departMinutes
+            const timeTradeoff = plan.timePreference === 'arrive'
+              ? earlierMinutes >= 0.5 ? `Leave ${formatRoutingMinutes(earlierMinutes)} earlier` : 'Same departure'
+              : laterMinutes >= 0.5 ? `${formatRoutingMinutes(laterMinutes)} later` : 'Same arrival'
             const tradeoff = plan === fastest ? '' : [
               fewerTransfers > 0 ? `${fewerTransfers} fewer transfer${fewerTransfers === 1 ? '' : 's'}` : '',
               lessWalking >= 1 ? `${formatRoutingMinutes(lessWalking)} less walking` : '',
-              laterMinutes >= 0.5 ? `${formatRoutingMinutes(laterMinutes)} later` : '',
+              timeTradeoff,
             ].filter(Boolean).join(' · ')
             const routeSequence = plan.waypoints?.length
               ? [plan.origin, ...plan.waypoints, plan.destination].map((point) => point.label).join(' → ')
@@ -173,22 +192,20 @@ function PathfinderRouteList({
                 onKeyDown={(event) => moveSelection(event, ['ArrowDown', 'ArrowRight'].includes(event.key) ? 1 : -1)}
                 role="radio"
                 aria-checked={selected}
-                aria-label={`${formatScheduleClock(plan.departMinutes)} to ${formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}, ${formatRoutingMinutes(journeyMinutes)} journey, ${formatRoutingMinutes(totalWaitMinutes)} waiting after requested time, ${plan.choiceLabel || 'alternative journey'}, ${plan.transfers} transfers, ${formatRoutingMinutes(plan.walkMinutes)} walking. Inspect journey.`}
+                tabIndex={selected || (!displayedPlans.some(candidate => candidate.id === selectedPlanId) && plan === displayedPlans[0]) ? 0 : -1}
+                aria-label={`${formatScheduleClock(plan.departMinutes)} to ${formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}, ${formatRoutingMinutes(totalElapsedMinutes)} total${plan.timePreference === 'depart' ? ' from requested departure' : ''}, ${plan.transfers} transfer${plan.transfers === 1 ? '' : 's'}, ${formatRoutingMinutes(plan.walkMinutes)} walking. ${tradeoff || (plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival')}. Open journey.`}
               >
                 <span className="pathfinder-route-time">
-                  <strong>{formatScheduleClock(plan.departMinutes)} – {formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</strong>
+                  <strong>{formatScheduleClock(plan.departMinutes)} → {formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</strong>
                   <b title={plan.timePreference === 'depart'
                     ? `${formatRoutingMinutes(totalElapsedMinutes)} from the requested departure, including ${formatRoutingMinutes(startWaitMinutes)} before leaving; ${formatRoutingMinutes(journeyMinutes)} travelling`
                     : 'Time from leaving to arriving'}>{formatRoutingMinutes(totalElapsedMinutes)} total</b>
                 </span>
                 <span className="pathfinder-route-rationale">
-                  <em>{plan.recommended ? 'Top result' : 'Alternative route'}</em>
-                  {plan.travelMode === 'transit' && routingDataModeLabel(plan) ? <span title={routingRealtimeDetail(plan)}>{routingDataModeLabel(plan)}</span> : null}
-                  <strong>{plan.choiceLabel || 'Distinct journey'}</strong>
-                  {tradeoff ? <span>{tradeoff}</span> : null}
+                  <strong>{plan === fastest ? (plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival') : tradeoff || plan.choiceLabel || 'Another route'}</strong>
                   {startWaitMinutes > 0 ? (
                     <span title={`Requested ${formatScheduleClock(plan.departMinutes - startWaitMinutes)} · leaves ${formatRoutingMinutes(startWaitMinutes)} later`}>
-                      Wait {formatRoutingMinutes(totalWaitMinutes)} · leave at {formatScheduleClock(plan.departMinutes)}
+                      Leave {formatRoutingMinutes(startWaitMinutes)} after your requested time
                     </span>
                   ) : totalWaitMinutes > 0 ? <span>Wait {formatRoutingMinutes(totalWaitMinutes)} between legs</span> : null}
                 </span>
@@ -199,7 +216,7 @@ function PathfinderRouteList({
                 </span>
                 <span className="pathfinder-route-footer">
                   <span className="pathfinder-route-sequence">{routeSequence}</span>
-                  <span className="pathfinder-route-open">Inspect <ChevronRight size={13} aria-hidden="true" /></span>
+                  <span className="pathfinder-route-open">Details <ChevronRight size={13} aria-hidden="true" /></span>
                 </span>
               </button>
             )
@@ -207,6 +224,7 @@ function PathfinderRouteList({
         </div>
       ) : null}
 
+      {earliestTransit ? <details className="pathfinder-result-context"><summary>Search details</summary><p>{earliestTransit}</p></details> : null}
       {alternativesLoading ? (
         <div className="pathfinder-alternatives" role="status" aria-live="polite">
           <LoaderCircle size={14} aria-hidden="true" />
@@ -398,8 +416,8 @@ export function SidebarPathfinderBox({
             <button type="button" className={classNames(routingDataMode === 'scheduled' && 'is-active')} aria-pressed={routingDataMode === 'scheduled'} onClick={() => onRoutingDataModeChange('scheduled')}>Scheduled</button>
           </div>
           <p className="pathfinder-points-hint" id="pathfinder-data-mode-help">{routingDataMode === 'scheduled'
-            ? 'Published timetable for your selected date and time. Live feed refreshes do not change the result.'
-            : 'Fresh predictions and cancellations. Trips without an applied update use scheduled times.'}</p>
+            ? 'Published timetable for your chosen date and time.'
+            : 'Live updates where available; scheduled times otherwise.'}</p>
         </div> : null}
         <div className="pathfinder-stage pathfinder-stage-points">
           <div className="pathfinder-stage-actions">

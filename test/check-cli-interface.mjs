@@ -61,6 +61,7 @@ try {
     [['capabilities', '--city', 'unused'], /not an option for capabilities/u],
     [['--version', '--typo'], /Unknown option/u],
     [['constructor', '--help'], /Unknown command/u],
+    [['_route-stream', '--help'], /Unknown command/u],
     [['inspect', '--city'], /requires a value/u],
     [['inspect', '--city='], /requires a non-empty value/u],
     [['inspect', '--city', 'a', '--city', 'b'], /only be supplied once/u],

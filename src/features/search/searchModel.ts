@@ -1,4 +1,6 @@
 import { formatNumber, type MapPreview, type VigoProject } from '../../domain'
+import { parseRoutingCoordinate } from '../../routingPointSequence'
+import { parseRoutingCommand } from '../../routingCommand'
 import { routeListLabel } from '../../app/routePresentation'
 import { findNetworkSearchHits, type NetworkSearchIndex } from '../../routingUi'
 
@@ -11,6 +13,7 @@ export type SearchResult = {
   group: SearchResultGroup
   title: string
   subtitle: string
+  routingQuery?: string
 }
 
 type SearchCommand = SearchResult & {
@@ -184,6 +187,13 @@ export function buildSearchResults({
       ...recent,
       ...searchCommands.map((command) => commandResult(command)),
     ]).slice(0, 12)
+  }
+
+  const routing = parseRoutingCommand(query)
+  if (routing && routing.locationTexts.every(text => parseRoutingCoordinate(text))) {
+    return [{ id: 'command:route-query', kind: 'command', group: 'commands', title: 'Plan this journey',
+      subtitle: `${routing.originText} → ${routing.destinationText}${routing.departMinutes === undefined ? '' : ` · ${routing.timePreference === 'arrive' ? 'Arrive by' : 'Depart at'} ${Math.floor(routing.departMinutes / 60).toString().padStart(2, '0')}:${(routing.departMinutes % 60).toString().padStart(2, '0')}`}`,
+      routingQuery: query }]
   }
 
   const networkResults = findNetworkSearchHits(networkSearchIndex, normalizedQuery, 12).map<SearchResult>((hit) => ({

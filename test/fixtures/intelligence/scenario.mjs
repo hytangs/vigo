@@ -35,8 +35,8 @@ export function intelligenceScenario(directory) {
       if (!cancelled) snapshot.vehicles.push({ id: vehicleId, label: vehicleId, tripId: trip, routeId: route, directionId: 0, startDate: '20260914', timestamp: now, sourceUrl: vehicleSource, stopId: 'B', currentStopSequence: 2, currentStatus: 'IN_TRANSIT_TO', latitude: 42.345, longitude: -71.095, occupancyStatus: route === '66' && t === 1 ? 'FULL' : undefined })
     }
   }
-  snapshot.alerts.push({ id: 'works', sourceUrl: alertSource, header: 'Route 39 delays near Huntington Avenue', description: 'Road work affects Route 39 near Huntington Avenue. No restoration time is available.', routeIds: ['39'], stopIds: ['B'], cause: 'CONSTRUCTION', effect: 'SIGNIFICANT_DELAYS', activePeriods: [{ start: now - 1800, end: now + 3600 }] },
-    { id: 'access', sourceUrl: alertSource, header: 'Park Street elevator unavailable', description: 'Elevator out of service. Ask station staff about accessible alternatives.', routeIds: ['Red'], stopIds: ['E'], cause: 'MAINTENANCE', effect: 'ACCESSIBILITY_ISSUE', activePeriods: [{ start: now - 3600 }] })
+  snapshot.alerts.push({ id: 'works', sourceUrl: alertSource, header: 'Route 39 delays near Huntington Avenue', description: 'Road work affects Route 39 near Huntington Avenue. No restoration time is available.', routeIds: ['39'], stopIds: ['B'], informedEntities: [{ routeId: '39', stopId: 'B' }], cause: 'CONSTRUCTION', effect: 'SIGNIFICANT_DELAYS', activePeriods: [{ start: now - 1800, end: now + 3600 }] },
+    { id: 'access', sourceUrl: alertSource, header: 'Park Street elevator unavailable', description: 'Elevator out of service. Ask station staff about accessible alternatives.', routeIds: ['Red'], stopIds: ['E'], informedEntities: [{ routeId: 'Red', stopId: 'E' }], cause: 'MAINTENANCE', effect: 'ACCESSIBILITY_ISSUE', activePeriods: [{ start: now - 3600 }] })
   db.close()
   const context = new AgencyContext(file, 'Synthetic evaluation network')
   const state = deriveOperationalState(context, snapshot, now)

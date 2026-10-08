@@ -23,8 +23,8 @@ type EarliestTransitEvidence = {
 }
 
 type NationalRouteResponse = {
-  plan: RoutingPlan
-  choices?: RoutingPlan[]
+  choices: RoutingPlan[]
+  selectedPlanId: string
   earliestTransit?: EarliestTransitEvidence
 }
 const noRoutingChoices: RoutingPlan[] = []
@@ -54,10 +54,8 @@ type UseNationalRoutingOptions = {
   routeAllowed: boolean
 }
 
-function normalizeChoices({ plan, choices, earliestTransit }: NationalRouteResponse) {
-  const normalized = choices?.length
-    ? choices.map(normalizeReceivedRoutingPlan)
-    : [normalizeReceivedRoutingPlan(plan)]
+function normalizeChoices({ choices, earliestTransit }: NationalRouteResponse) {
+  const normalized = choices.map(normalizeReceivedRoutingPlan)
   return earliestTransit
     ? normalized.map((candidate) => ({
         ...candidate,

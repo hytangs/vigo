@@ -9,7 +9,7 @@ import {
   routingLegPrimaryLabel,
   routingRealtimeDetail,
 } from '../app/presentation'
-import { routingPlanJourneyMinutes, routingPlanRuntime, routingPlanStartWaitMinutes } from '../app/routingPlan'
+import { routingPlanRuntime, routingPlanStartWaitMinutes, routingPlanTotalElapsedMinutes } from '../app/routingPlan'
 import { classNames } from '../domain'
 import type { RoutingPlan } from '../routingModel'
 import { routingPointRoleLabel } from '../routingPointSequence'
@@ -17,7 +17,7 @@ import { formatScheduleClock } from '../scheduledVehicles'
 import { RoutingFare } from './RoutingFare'
 
 function routingChoiceExplanation(plan: RoutingPlan) {
-  if (plan.choiceLabel === 'Earliest arrival' || plan.choiceLabel === 'Fastest') {
+  if (plan.choiceLabel === 'Earliest arrival') {
     return 'Earliest arrival among the displayed journeys. Equal arrivals prefer fewer transfers, then less walking.'
   }
   if (plan.choiceLabel === 'Fewest transfers') {
@@ -30,29 +30,13 @@ function routingChoiceExplanation(plan: RoutingPlan) {
     return 'Has the shortest leave-to-arrival journey time among the displayed options; waiting after the requested time is shown separately.'
   }
   if (plan.choiceLabel === 'Best balance') return 'Selected from the exact journeys retained for this departure window.'
-  if (plan.travelMode === 'walk') return 'A walk-only path on the local directed pedestrian graph.'
+  if (plan.travelMode === 'walk') return 'Walking directions on the local street network.'
   if (plan.travelMode === 'drive') {
     return plan.diagnostics.roadMetricMode === 'traffic-adjusted'
-      ? 'The fastest path on the local directed road graph under the supplied traffic snapshot.'
-      : 'The fastest free-flow path on the local directed road graph.'
+      ? 'The fastest driving route using the supplied traffic estimates.'
+      : 'The fastest driving route using road speeds without live traffic.'
   }
-  return 'A distinct journey retained by the displayed-choice filter.'
-}
-
-function routingProfileLabel(plan: RoutingPlan) {
-  if (plan.travelMode !== 'transit') return plan.travelMode === 'drive' ? 'OSM drive' : 'OSM walk'
-  if (plan.diagnostics.searchProfile === 'balanced') return 'Transit'
-  if (plan.diagnostics.searchProfile === 'fastest') return 'Earliest arrival'
-  if (plan.diagnostics.searchProfile === 'pareto') return 'Pareto transit'
-  return 'Transit'
-}
-
-function routingCertificationLabel(plan: RoutingPlan) {
-  const certification = plan.diagnostics.paretoCertification as { status?: string } | undefined
-  if (certification?.status === 'passed') return 'Bounded Pareto certification passed'
-  if (plan.travelMode !== 'transit') return 'Directed street path'
-  if (plan.diagnostics.searchProfile === 'balanced') return 'Timetable result'
-  return 'Scalar timetable result'
+  return 'Another journey within your search options.'
 }
 
 function RoutingPointSequence({ plan }: { plan: RoutingPlan }) {
@@ -93,7 +77,7 @@ function RoutingItinerary({ plan }: { plan: RoutingPlan }) {
             {wait > 0 ? <p className="journey-wait"><Clock3 size={13} aria-hidden="true" />{formatRoutingMinutes(wait)} wait at {leg.fromName}</p> : null}
             {immediateVehicleChange ? <p className="journey-caution">No time between vehicles</p> : null}
             <div className="journey-leg-heading"><strong>{title}</strong><span>{formatRoutingLegDuration(leg)}</span></div>
-            {ride ? <><p className="journey-stop">{leg.fromName}</p><p className="journey-leg-meta">{leg.stopCount > 0 ? `${leg.stopCount} scheduled stops` : 'Transit ride'}</p><div className="journey-arrival"><span>{leg.toName}</span><time>{formatScheduleClock(leg.endMinutes)}</time></div></> : <p className="journey-leg-meta">{transfer ? 'Station connection' : `From ${leg.fromName}`}{leg.distanceKm > 0 ? ` · ${leg.distanceKm < 1 ? `${Math.round(leg.distanceKm * 1000)} m` : `${leg.distanceKm.toFixed(1)} km`}` : ''}</p>}
+            {ride ? <><p className="journey-stop">{leg.fromName}</p><p className="journey-leg-meta">{leg.stopCount > 0 ? `${leg.stopCount} scheduled stop${leg.stopCount === 1 ? '' : 's'}` : 'Transit ride'}</p><div className="journey-arrival"><span>{leg.toName}</span><time>{formatScheduleClock(leg.endMinutes)}</time></div></> : <p className="journey-leg-meta">{transfer ? 'Station connection' : `From ${leg.fromName}`}{leg.distanceKm > 0 ? ` · ${leg.distanceKm < 1 ? `${Math.round(leg.distanceKm * 1000)} m` : `${leg.distanceKm.toFixed(1)} km`}` : ''}</p>}
             {leg.stationAccessStatus === 'unverified' ? <p className="journey-caution">Station entrance / platform path unverified</p> : leg.transferSource === 'parent_station_fallback' ? <p className="journey-caution">Assumed station connection time</p> : null}
             {(ride && (leg.sourceEqualTime || leg.geometrySource !== 'shape')) || leg.type === 'drive' ? <details className="journey-leg-evidence"><summary>Path &amp; timing</summary><p>{routingLegDetail(leg)}</p></details> : null}
           </div>
@@ -152,7 +136,7 @@ export function RoutingDetailPanel({
       <header className="routing-detail-head">
         <div>
           <p className="journey-eyebrow">{plan.travelMode === 'transit' ? routingDataModeLabel(plan) || 'Transit' : plan.travelMode === 'drive' ? 'Drive' : 'Walk'} journey</p>
-          <h2>{formatRoutingMinutes(routingPlanJourneyMinutes(plan))}</h2>
+          <h2>{formatRoutingMinutes(routingPlanTotalElapsedMinutes(plan))} <small>total</small></h2>
           <p className="journey-time-range">{formatScheduleClock(plan.departMinutes)} <span aria-hidden="true">→</span> {formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</p>
           <p className="journey-overview">{plan.travelMode === 'transit' ? `${plan.transfers} transfer${plan.transfers === 1 ? '' : 's'} · ` : ''}{plan.travelMode === 'drive' ? `${formatRoutingMinutes(plan.rideMinutes)} driving` : `${formatRoutingMinutes(plan.walkMinutes)} walking`}{plan.waitMinutes > 0 ? ` · ${formatRoutingMinutes(plan.waitMinutes)} waiting en route` : ''}</p>
         </div>
@@ -163,12 +147,9 @@ export function RoutingDetailPanel({
         <details className="routing-details">
           <summary>
             <span>Journey information</span>
-            <b>{routingProfileLabel(plan)}</b>
           </summary>
           <p>{routingChoiceExplanation(plan)}</p>
           <dl>
-            <div><dt>Search profile</dt><dd>{routingProfileLabel(plan)}</dd></div>
-            <div><dt>Certification</dt><dd>{routingCertificationLabel(plan)}</dd></div>
             {serviceDate ? <div><dt>Service date</dt><dd>{serviceDate}</dd></div> : null}
             {plan.diagnostics.routingDataProvenance?.timeZone ? <div><dt>Time zone</dt><dd>{plan.diagnostics.routingDataProvenance.timeZone}</dd></div> : null}
             <div><dt>Access limit</dt><dd>{plan.maxWalkKm.toFixed(1)} km</dd></div>
@@ -176,7 +157,6 @@ export function RoutingDetailPanel({
             {limitations.length ? <div><dt>Declared limits</dt><dd>{limitations.length} attached to this result</dd></div> : null}
             {runtime ? <div><dt>Query timing</dt><dd title={`${runtime.title} This describes only the current request.`}>{runtime.label}</dd></div> : null}
           </dl>
-          <p>Timing and route-choice details describe only this request.</p>
         </details>
       </div>
     </aside>

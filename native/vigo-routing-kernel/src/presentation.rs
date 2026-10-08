@@ -507,12 +507,19 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
                 }
             }
             if let Some(choices) = pick(raw, &["choices", "journeys"]).as_array() {
-                out["alternatives"] = json!(
-                    choices
-                        .iter()
-                        .map(|v| journey(v, geometry))
-                        .collect::<Vec<_>>()
-                );
+                let mut alternatives = Vec::new();
+                for choice in choices {
+                    let candidate = journey(choice, geometry);
+                    if !candidate.is_null()
+                        && candidate != out["journey"]
+                        && !alternatives.contains(&candidate)
+                    {
+                        alternatives.push(candidate);
+                    }
+                }
+                if !alternatives.is_empty() {
+                    out["alternatives"] = json!(alternatives);
+                }
             }
         }
         "matrix" => {
@@ -688,6 +695,14 @@ mod tests {
             out["meta"]["queryFingerprint"]
         );
         assert_ne!(trace["meta"]["requestId"], out["meta"]["requestId"]);
+        let mut with_choices = raw.clone();
+        let mut later = raw.clone();
+        later["arrival"] = json!(90720);
+        with_choices["choices"] = json!([raw.clone(), raw.clone(), later.clone(), later]);
+        let choices = format("route", &q, &with_choices);
+        assert_eq!(choices["journey"], out["journey"]);
+        assert_eq!(choices["alternatives"].as_array().unwrap().len(), 1);
+        assert_eq!(choices["alternatives"][0]["arrivalTime"], "25:12:00");
     }
     #[test]
     fn public_ids_round_trip_and_options_validate() {

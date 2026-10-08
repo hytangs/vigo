@@ -13,7 +13,7 @@ import { createAgencyFixture, observationTime, realtimeFixture, tripUpdate } fro
 
 const now = observationTime * 1000
 const feed = (kind, status = 'fresh', ageSeconds = 0) => ({ kind, status, sourceUrl: `https://example.org/${kind}`, ageSeconds, feedTimestamp: observationTime - ageSeconds })
-const route = (id, changes = {}) => ({ id, name: id, longName: 'River service', color: '#007D77', mode: 3, trips: 20, reportingTrips: 0, maxDelaySeconds: null, events: 0, alerts: 0, headway: 'unknown', widestInterval: null, ...changes })
+const route = (id, changes = {}) => ({ id, name: id, longName: 'River service', color: '#007D77', mode: 3, trips: 20, reportingTrips: 0, maxDelaySeconds: null, events: 0, alerts: 0, serviceChanges: 0, headway: 'unknown', widestInterval: null, ...changes })
 const routes = [
   route('10', { reportingTrips: 2, maxDelaySeconds: 300 }),
   route('2'),
@@ -21,7 +21,7 @@ const routes = [
   route('1', { reportingTrips: 3, maxDelaySeconds: 0 }),
   route('Alert', { alerts: 2 }),
   route('Spacing', { reportingTrips: 2, headway: 'changed' }),
-  route('Cancelled', { reportingTrips: 1 }),
+  route('Cancelled', { reportingTrips: 1, serviceChanges: 1 }),
   route('Info', { events: 900 }),
 ]
 const state = {

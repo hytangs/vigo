@@ -977,14 +977,14 @@
 .pathfinder-route-time strong,
 .pathfinder-route-time b {
   color: var(--text-strong);
-  font-size: 0.72rem;
-  font-weight: 720;
+  font-size: 0.86rem;
+  font-weight: 650;
 }
 
 .pathfinder-route-sequence {
   overflow-wrap: anywhere;
   color: var(--text-muted);
-  font-size: 0.62rem;
+  font-size: 0.76rem;
   line-height: 1.4;
 }
 
@@ -1534,6 +1534,7 @@
 /* The journey is one timeline; route color identifies a leg, never its text. */
 .routing-detail-head { display: grid; grid-template-columns: minmax(0, 1fr) 36px; gap: 16px; padding: 24px 22px 20px; border-bottom: 1px solid var(--border); }
 .routing-detail-head h2 { margin: 10px 0 8px; color: var(--text-strong); font-size: 34px; font-weight: 650; letter-spacing: -.045em; line-height: 1.1; }
+.routing-detail-head h2 small { color: var(--text-muted); font-size: 14px; font-weight: 500; letter-spacing: 0; }
 .routing-detail-head button { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: var(--control-surface); color: var(--text-muted); cursor: pointer; }
 .routing-detail-head button:hover { color: var(--text-strong); background: var(--hover-surface); }
 .journey-eyebrow { margin: 0; color: var(--text-muted); font-size: 12px; font-weight: 600; }

@@ -4,7 +4,7 @@ The VIGO command builds Cities and runs Route, Matrix, Reach, and Compare from s
 
 The [CLI-only package](../guides/cli-only.md) contains the complete command and native kernel without Studio or HTTP. `stream` keeps them resident for mixed Route, Matrix, and Reach requests.
 
-This is the public VIGO Engine interface. The [headless Engine HTTP service](../guides/engine-deployment.md) exposes these same CLI query and Result contracts. Studio uses the same core through an internal application channel; its project-management HTTP endpoints are not a supported external API. Python wraps the command's contracts in the [separate Python package](https://github.com/hytangs/vigo-py). API 1.0, City format 1, and Result schema 1 remain unchanged in 0.4.4; query support is declared by `capabilities` and the [Scenario support table](scenarios.md).
+This is the public VIGO Engine interface. The [headless Engine HTTP service](../guides/engine-deployment.md) exposes these same CLI query and Result contracts. Studio uses the same core through an internal application channel; its project-management HTTP endpoints are not a supported external API. Python wraps the command's contracts in the [separate Python package](https://github.com/hytangs/vigo-py). API 1.0, City format 1, and Result schema 1 remain unchanged in 0.5.0; query support is declared by `capabilities` and the [Scenario support table](scenarios.md).
 
 | Command | Input | Output |
 | --- | --- | --- |

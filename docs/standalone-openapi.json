@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "VIGO Rust standalone API",
-    "version": "0.4.4-development",
+    "version": "0.5.0-development",
     "description": "Prepared City routing and isochrones. Public result schemas are shared with the Node CLI; raw native and trace contracts are separate. Runtime validates mode combinations and native index/array invariants beyond these structural schemas. Bearer auth is optional only when no token is configured on a loopback listener."
   },
   "servers": [

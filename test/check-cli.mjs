@@ -174,8 +174,8 @@ try {
     { id: 'research', origin: 'A', destination: 'B', routingDataMode: 'scheduled', realtimeSnapshot },
     { id: 'bad-mode', origin: 'A', destination: 'B', routingDataMode: 'live' },
     { id: 'live-matrix', kind: 'matrix', origins: ['A'], destinations: ['B'], routingDataMode: 'realtime', realtimeSnapshot },
-  ].map(request => JSON.stringify({ requireTransitRide: true, ...request })).join('\n') + '\n'
-  const modeStream = execFileSync(executable, [...prefix, '_route-stream', `--city=${cityPath}`,
+  ].map(request => JSON.stringify({ kind: 'route', requireTransitRide: true, ...request })).join('\n') + '\n'
+  const modeStream = execFileSync(executable, [...prefix, 'stream', '--diagnostics=trace', `--city=${cityPath}`,
     '--service-date=2026-07-15', '--time=07:55', '--max-walk=0.2'], {
     encoding: 'utf8', input: modeStreamInput,
   }).trim().split('\n').map(line => parseResult(line))
@@ -190,7 +190,7 @@ try {
     { kind: 'unknown' },
     { kind: 'route', mode: 'walk', origin: 'A', destination: 'B' },
   ]
-  const resident = execFileSync(executable, [...prefix, '_route-stream', `--city=${cityPath}`,
+  const resident = execFileSync(executable, [...prefix, 'stream', '--diagnostics=trace', `--city=${cityPath}`,
     '--service-date=2026-07-15'], {
     encoding: 'utf8', input: residentRequests.map(input => JSON.stringify(input)).join('\n') + '\n',
   }).trim().split('\n').map(line => parseResult(line))
@@ -199,10 +199,10 @@ try {
   for (const index of [0, 2, 4]) assert.equal(resident[index].result.durationMinutes, resident[index + 1].result.durationMinutes)
   assert.equal(resident[6].result.arriveMinutes, 510)
   assert.deepEqual(resident[7].surface.values, resident[8].surface.values)
-  assert.deepEqual(modeStream.map(record => record.status), ['ok', 'ok', 'ok', 'error', 'error'])
+  assert.deepEqual(modeStream.map(record => record.status), ['ready', 'blocked', 'ready', 'error', 'error'])
   assert.deepEqual(modeStream.slice(0, 3).map(record => record.query.routingDataMode), ['scheduled', 'realtime', 'scheduled'])
-  assert.deepEqual(modeStream.slice(0, 3).map(record => record.plan.status), ['ready', 'blocked', 'ready'])
-  assert.deepEqual(modeStream[0].plan.diagnostics.routingDataProvenance, modeStream[2].plan.diagnostics.routingDataProvenance)
+  assert.deepEqual(modeStream.slice(0, 3).map(record => record.result.status), ['ready', 'blocked', 'ready'])
+  assert.deepEqual(modeStream[0].result.diagnostics.routingDataProvenance, modeStream[2].result.diagnostics.routingDataProvenance)
   assert.match(modeStream[4].error.message, /currently uses scheduled service/u)
 
   const waypointRequest = path.join(temporaryRoot, 'waypoint-route.json')
@@ -240,7 +240,7 @@ try {
       '--mode=drive', '--time=08:00', '--service-date=2026-07-15']))
     assert.equal(independentDrive.status, 'ready', 'Drive startup must not load the pedestrian hierarchy.')
     assert.equal(independentDrive.result.diagnostics.searchStats.cchSource, 'existing_mmap')
-    const matrices = execFileSync(executable, [...prefix, '_route-stream', `--city=${cityPath}`,
+    const matrices = execFileSync(executable, [...prefix, 'stream', '--diagnostics=trace', `--city=${cityPath}`,
       '--service-date=2026-07-15'], { encoding: 'utf8', input: [0, 1].map(id => JSON.stringify({
         id, kind: 'matrix', mode: 'drive', origins: [{ coordinate: [-77.05, 38.9] }],
         destinations: [{ coordinate: [-77.03, 38.91] }],
@@ -348,7 +348,7 @@ try {
     }
   }
 
-  const streamedMatrices = execFileSync(executable, [...prefix, '_route-stream', `--city=${cityPath}`,
+  const streamedMatrices = execFileSync(executable, [...prefix, 'stream', '--diagnostics=trace', `--city=${cityPath}`,
     '--service-date=2026-07-15'], {
     encoding: 'utf8', maxBuffer: 4 * 1024 * 1024,
     input: [
@@ -358,7 +358,7 @@ try {
       { id: 'afternoon', kind: 'matrix', origins: [{ id: 'school', point: 'A' }],
         destinations: Array.from({ length: 1024 }, (_, i) => ({ id: `point_${i}`, point: 'B' })),
         timePreference: 'depart', time: '07:55', maxWalkKm: 0.2 },
-      { id: 'uncached-route', origin: 'A', destination: 'B', time: '07:55', disableCache: true,
+      { id: 'uncached-route', kind: 'route', origin: 'A', destination: 'B', time: '07:55', disableCache: true,
         horizonMinutes: 240, requireTransitRide: true },
       ...[false, true].map(disableCache => ({ id: `coordinate-matrix-${disableCache}`, kind: 'matrix',
         origins: [{ id: 'home', coordinate: [-77.05, 38.9] }],
@@ -367,9 +367,9 @@ try {
         time: '07:55', maxWalkKm: 0.2, disableCache, requireTransitRide: false, includeJourneys: true, includeGeometry: true })),
     ].map(value => JSON.stringify(value)).join('\n') + '\n',
   }).trim().split('\n').map(line => parseResult(line))
-  assert.deepEqual(streamedMatrices.map(result => result.status), ['ready', 'error', 'ready', 'ok', 'ready', 'ready'])
-  assert.equal(streamedMatrices[3].plan.status, 'ready')
-  assert.equal(streamedMatrices[3].plan.diagnostics.searchStats.nativeStreetPathCacheDisabled, true)
+  assert.deepEqual(streamedMatrices.map(result => result.status), ['ready', 'error', 'ready', 'ready', 'ready', 'ready'])
+  assert.equal(streamedMatrices[3].result.status, 'ready')
+  assert.equal(streamedMatrices[3].result.diagnostics.searchStats.nativeStreetPathCacheDisabled, true)
   assert.equal(streamedMatrices[3].query.horizonMinutes, 240)
   assert.equal(streamedMatrices[3].query.horizonScope, 'timetable_scan')
   assert.equal(streamedMatrices[3].query.requireTransitRide, true)

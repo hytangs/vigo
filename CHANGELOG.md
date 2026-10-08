@@ -1,5 +1,11 @@
 # Version history
 
+## 0.5.0
+
+Clearer journey comparisons, shared interface styling, compact routing snapshots and Studio responses, and driving preparation on demand. See [release notes](docs/releases/0.5.0.md).
+
+Remove old snapshot readers and the hidden `_route-stream` protocol. Use the documented `stream` command and rebuild prepared Cities for the standalone runtime. Python 0.5 requires Engine 0.5.
+
 ## 0.4.4
 
 Correct interior street routing and partial Reach boundaries; add destination-grid and walk-only Reach, prefer faster direct walks by default, and update Studio. See [release notes](docs/releases/0.4.4.md).

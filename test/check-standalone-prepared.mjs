@@ -1,5 +1,6 @@
 // Exercise source-bound snapshot reuse and every fallback on a public City.
 import assert from 'node:assert/strict'
+import { gzipSync, gunzipSync } from 'node:zlib'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -82,13 +83,15 @@ try {
   restore()
   for (const [file, bytes] of originals) {
     const length = bytes.readUInt32LE(8)
-    const header = JSON.parse(bytes.subarray(16, 16 + length))
+    const header = JSON.parse(gunzipSync(bytes.subarray(16, 16 + length)))
     header.arrays.arrivalSeconds.offset = header.arrays.departureSeconds.offset
-    const encoded = Buffer.from(JSON.stringify(header))
-    assert(encoded.length <= length)
-    const invalid = Buffer.from(bytes)
-    invalid.fill(32, 16, 16 + length)
-    encoded.copy(invalid, 16)
+    const encoded = gzipSync(Buffer.from(JSON.stringify(header)))
+    const base = Math.ceil((16 + encoded.length) / 8) * 8
+    const body = bytes.subarray(bytes.readUInt32LE(12))
+    const invalid = Buffer.alloc(base + body.length)
+    bytes.copy(invalid, 0, 0, 8)
+    invalid.writeUInt32LE(encoded.length, 8); invalid.writeUInt32LE(base, 12)
+    encoded.copy(invalid, 16); body.copy(invalid, base)
     fs.writeFileSync(file, invalid)
   }
   assert.equal(query(base).timing.timetableSource, 'source'); checked++

@@ -74,4 +74,7 @@ try {
   const timeout = setTimeout(() => child.kill(), 60_000)
   try { const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve) }); if (code !== 0) throw new Error(`Navigation fixture exited ${code}`) }
   finally { clearTimeout(timeout) }
-} finally { await server.close() }
+} finally {
+  await server.close()
+  await Promise.all(['vite-cache', 'profile'].map(name => fs.rm(path.join(directory, name), { recursive: true, force: true })))
+}

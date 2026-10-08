@@ -109,9 +109,10 @@ try {
   assert.equal(derive(mixed).feeds[1].status, 'stale')
   assert.equal(derive(mixed).counts.matchedTrips, 3)
   const alert = realtimeFixture()
-  alert.alerts.push({ id: 'alert', sourceUrl, severity: 'SEVERE', header: 'River stop closed', routeIds: ['R'], stopIds: ['A'], activePeriods: [{ start: observationTime - 60, end: observationTime + 60 }] })
+  alert.alerts.push({ id: 'alert', sourceUrl, severity: 'SEVERE', header: 'River stop closed', informedEntities: [{ routeId: 'R', stopId: 'A' }], routeIds: ['R'], stopIds: ['A'], activePeriods: [{ start: observationTime - 60, end: observationTime + 60 }] })
   assert.equal(derive(alert).events[0].severity, 'critical')
   alert.alerts[0].stopIds = []
+  alert.alerts[0].informedEntities = [{ routeId: 'R' }]
   context.routes.push({ ...context.routes[0], route_id: 'second\u001fR' })
   const ambiguousAlert = derive(alert).events.find((event) => event.type === 'service-alert')
   assert.deepEqual(ambiguousAlert.routeIds, [])

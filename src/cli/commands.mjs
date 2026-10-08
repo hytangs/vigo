@@ -109,7 +109,6 @@ export const commands = {
   '_build-city': { options: ['gtfs', 'gtfs-scope', 'osm', 'private-access', 'output', 'city-name'] },
   '_build-osm-store': { options: ['osm-pbf', 'output-store'] },
   '_prepare-osm-drive': { options: ['street-store'] },
-  '_route-stream': { options: [...queryOptions, 'data-mode'] },
 }
 
 export function usage(version, command = '') {

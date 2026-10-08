@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { parentPort } from 'node:worker_threads'
 import { haversineKm } from './geometry-utils.mjs'
+import { compactStudioRoutingPlan } from './studio-route-response.mjs'
 
 const workerInstance = crypto.randomUUID()
 const workerStartedAt = Date.now()
@@ -49,21 +50,6 @@ function compactActiveServiceKernelDiagnostics(value) {
   return {
     ...diagnostics,
     calibrationSearchCount: calibrationSearches.length,
-  }
-}
-
-function compactRoutingPlanDiagnostics(plan) {
-  const searchStats = plan?.diagnostics?.searchStats
-  if (!searchStats?.activeServiceKernel) return plan
-  return {
-    ...plan,
-    diagnostics: {
-      ...plan.diagnostics,
-      searchStats: {
-        ...searchStats,
-        activeServiceKernel: compactActiveServiceKernelDiagnostics(searchStats.activeServiceKernel),
-      },
-    },
   }
 }
 
@@ -240,16 +226,12 @@ function compactWorkerResult(operation, result) {
   if (
     operation === 'route'
     || operation === 'street-route'
-  ) return compactRoutingPlanDiagnostics(result)
+  ) return compactStudioRoutingPlan(result)
   if (operation === 'street-route-batch') return compactStreetRouteBatchResult(result)
   if (operation === 'window') {
-    return {
-      ...result,
-      plan: compactRoutingPlanDiagnostics(result?.plan),
-      choices: Array.isArray(result?.choices)
-        ? result.choices.map(compactRoutingPlanDiagnostics)
-        : result?.choices,
-    }
+    const choices = result.choices.map(compactStudioRoutingPlan)
+    return { ...result, choices,
+      plan: choices.find(plan => plan.id === result.plan.id) ?? compactStudioRoutingPlan(result.plan) }
   }
   return result
 }
@@ -677,13 +659,14 @@ parentPort.on('message', async (message) => {
     } else {
       throw new Error(`Unsupported national route-worker operation: ${operation}`)
     }
+    const metrics = runtimeMetrics(result, operation, performance.now() - operationStartedAt)
     result = compactWorkerResult(operation, result)
     parentPort.postMessage({
       type: 'complete',
       id,
       result,
       workerInstance,
-      metrics: runtimeMetrics(result, operation, performance.now() - operationStartedAt),
+      metrics,
     })
   } catch (error) {
     parentPort.postMessage({

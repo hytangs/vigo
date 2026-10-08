@@ -14,7 +14,6 @@ import { StopArrivalBoardView } from './StopArrivalBoard'
 import type { StopBoard } from '../agency/routeOperationsTypes'
 import { publicReply } from '../agency/publicReply.mjs'
 import { journeyContinuityIssue } from '../journeyIntegrity.mjs'
-import { retainedNetworkAssessmentText } from '../agency/serviceAssessmentText.mjs'
 import { placeMapLocation, retainedPlaces } from '../agency/placeResults.mjs'
 
 function answerText(text: string) {
@@ -82,7 +81,7 @@ export function AgencyToolOutput({ result, onSelectEvent, onOpenEntry, onResult 
 }
 
 export function AgencyAnswer({ answer, onResult, onSelectEvent, onOpenEntry }: { answer: QueryAnswer; onResult: (result: ToolResult) => void; onSelectEvent: (event: OperationalEvent) => void; onOpenEntry?: (id: number) => void }) {
-  const displayText = retainedNetworkAssessmentText(answer) || answer.answer
+  const displayText = answer.answer
   const citedComparison = answer.aiGenerated ? answer.trace.find((call, index) => answer.citations?.includes(index + 1) && (call.result.data as { events?: OperationalEvent[] }).events?.some((event) => event.evidence.observedHeadwaySeconds != null)) : null
   const result = citedComparison?.result ?? answer.trace.filter((call) => call.result.ok).at(-1)?.result
   const places = retainedPlaces(answer.trace)

@@ -59,29 +59,3 @@ export function noticeSummary(data, { priorityRouteIds } = {}) {
   return [`${count}${scopeLimit}${selected.length ? ' Selected operational notices:' : ' No operational cause is established by the retained examples.'}`,
     selected.map(line).join('\n'), selected.length ? 'Notice causes apply only to their stated scope. Full text and selectors remain in the evidence.' : 'Full notice text and selectors remain in the evidence.'].filter(Boolean).join('\n\n')
 }
-
-// Old notes retain their exact answers, sources and timestamps. The UI may
-// condense this specific legacy network summary from its recorded evidence;
-// never reinterpret a model-authored answer or claim a new observation.
-export function retainedNetworkAssessmentText(answer) {
-  if (answer.aiGenerated || answer.responseBasis !== 'computed' || answer.trace?.length !== 1) return null
-  const data = answer.trace[0].result?.data
-  if (data?.kind !== 'service_assessment' || data.presentationVersion || !data.sections?.some(section => section.check === 'conditions')
-    || !data.sections.every(section => section.target === 'Network' && ['conditions', 'spacing', 'causes'].includes(section.check))
-    || !data.sections.every(section => answer.answer.includes(section.text))) return null
-  const d = data.inspections?.find(item => item.data?.scope?.allNetwork)?.data
-  if (!d?.coverage || !d.routes || !d.intervals) return null
-  const routes = new Map(d.routes.map(route => [route.route, { id: route.id, name: route.route,
-    measuredTrips: route.reportingTrips, laterTrips: route.laterTrips || 0, earlierTrips: 0,
-    cancelledTrips: route.cancelledTrips || 0, maxDelaySeconds: Number.isFinite(route.maxDelayMinutes) ? route.maxDelayMinutes * 60 : null, widest: null }]))
-  for (const pair of d.intervals) {
-    if (!(pair.predictedMinutes > pair.scheduledMinutes)) continue
-    if (!routes.has(pair.route)) routes.set(pair.route, { id: pair.route, name: pair.route, measuredTrips: 0, laterTrips: 0, earlierTrips: 0, cancelledTrips: 0, widest: null })
-    const route = routes.get(pair.route), increase = (pair.predictedMinutes - pair.scheduledMinutes) * 60
-    if (!route.widest || route.widest.maxIncreaseSeconds < increase) route.widest = { predictedSeconds: pair.predictedMinutes * 60,
-      scheduledSeconds: pair.scheduledMinutes * 60, maxIncreaseSeconds: increase, stopName: pair.stop }
-  }
-  const diagnosis = { routes: [...routes.values()], coverage: d.coverage, window: { minutes: d.predictionWindowMinutes } }
-  const summary = networkPriorityText(diagnosis, 'No priority is established by the retained route and spacing examples.')
-  return [data.preface, `Based on the saved route and spacing examples.\n\n${summary}`, noticeSummary(d, { priorityRouteIds: networkPriorityRoutes(diagnosis).map(route => route.id) })].filter(Boolean).join('\n\n') + ' [1]'
-}

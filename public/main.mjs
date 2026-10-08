@@ -17,6 +17,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 app.setName('VIGO Studio')
 app.setPath('userData', path.join(app.getPath('appData'), 'VIGO'))
+// Bound replaceable web/tile cache independently of City data and saved runs.
+app.commandLine.appendSwitch('disk-cache-size', String(64 * 1024 * 1024))
 
 // Keep one bounded launch trace, without request bodies or City paths. Writes
 // are asynchronous and never gate the window, Engine, or routing requests.

@@ -54,7 +54,6 @@ import {
 } from '../server/national-osm-store.mjs'
 import { buildNativeStreetCchIndex, formatPublicResult } from '../server/native-routing-kernel.mjs'
 import { buildTerminalAccessStore } from '../server/terminal-access-store.mjs'
-import { timingMilliseconds } from '../server/number-utils.mjs'
 import {
   composeOrderedRoutingFailure,
   composeOrderedRoutingPlans,
@@ -494,6 +493,10 @@ async function computeRouteRequest(
       maxWalkKm: options.maxWalkKm,
       maxTransfers: options.maxTransfers,
       departureWindowMinutes: options.departureWindowMinutes,
+      horizonMinutes: options.horizonMinutes,
+      horizonScope: 'timetable_scan',
+      requireTransitRide: request.requireTransitRide === true,
+      disableCache: request.disableCache === true,
       ...(request.allowStreetTransfers !== undefined ? { allowStreetTransfers: request.allowStreetTransfers } : {}),
       ...(request.minimumTransferBufferMinutes !== undefined ? { minimumTransferBufferMinutes: request.minimumTransferBufferMinutes } : {}),
       ...(request.arrivalBufferMinutes !== undefined ? { arrivalBufferMinutes: request.arrivalBufferMinutes } : {}),
@@ -726,7 +729,7 @@ async function writeNdjson(value: unknown, request?: Record<string, unknown>, ar
   await once(process.stdout, 'drain')
 }
 
-async function runRouteStream(args: CliArguments, explicitKinds = false) {
+async function runRouteStream(args: CliArguments) {
   const paths = resolveRuntimePaths(args)
   const { storePath, streetStorePath } = paths
   const defaults = runtimeOptions(args)
@@ -747,15 +750,9 @@ async function runRouteStream(args: CliArguments, explicitKinds = false) {
       const requestStarted = performance.now()
       let id = `request_${sequence}`
       try {
-        const input = JSON.parse(line) as Record<string, unknown>
-        if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Each line must be a JSON object')
+        const input = presentationRequest(JSON.parse(line), args) as Record<string, unknown>
         if (typeof input.id === 'string' && input.id.trim()) id = input.id.trim()
-        if (explicitKinds) {
-          presentationRequest(input, args)
-          if (input.timePreference === 'depart_at') input.timePreference = 'depart'
-          if (input.timePreference === 'arrive_by') input.timePreference = 'arrive'
-        }
-        if (explicitKinds && !['route', 'matrix', 'reach'].includes(String(input.kind))) {
+        if (!['route', 'matrix', 'reach'].includes(String(input.kind))) {
           throw new Error('stream requires kind: route, matrix, or reach on every line')
         }
         if (input.serviceDate !== undefined && input.serviceDate !== defaults.serviceDate) {
@@ -764,163 +761,33 @@ async function runRouteStream(args: CliArguments, explicitKinds = false) {
         if (input.serviceDay !== undefined && input.serviceDay !== defaults.serviceDay) {
           throw new Error('serviceDay must agree with the stream service date')
         }
-        if (input.kind === 'route' || input.kind === 'reach') {
-          // Share validation and materialization with one-shot commands. The
-          // service date belongs to this process; only preparation is reused.
-          const requestArgs = new Map(args)
-          for (const [field, option] of [
-            ['maxWalkKm', 'max-walk'],
-            ['maxTransfers', 'max-transfers'],
-            ['departureWindowMinutes', 'departure-window'],
-          ]) {
-            if (input[field] !== undefined) requestArgs.set(option, [String(input[field])])
-          }
-          const clock = input.time !== undefined ? input.time : input.timeMinutes
-          if (clock !== undefined) {
-            const minutes = parseNdjsonTime(clock, input.time !== undefined ? 'time' : 'timeMinutes')
-            requestArgs.set('time', [`${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`])
-          }
-          const prepare: typeof prepareRuntime = async (_store, _street, _date, _day, mode = 'transit') => ({
-            elapsedMs: await prepareMode(mode),
-          })
-          const result = input.kind === 'route'
-            ? await computeRouteRequest(requestArgs, input, paths, prepare)
-            : await computeReachRequest(requestArgs, input, paths, prepare)
-          await writeNdjson({ ...result, sequence, id, timing: {
-            ...result.timing,
-            endToEndMs: Number((performance.now() - (sequence === 1 ? cliStartedAt : requestStarted)).toFixed(3)),
-          } }, explicitKinds ? input : undefined, args)
-          continue
+        const requestArgs = new Map(args)
+        for (const [field, option] of [['maxWalkKm', 'max-walk'], ['maxTransfers', 'max-transfers'], ['departureWindowMinutes', 'departure-window']]) {
+          if (input[field] !== undefined) requestArgs.set(option, [String(input[field])])
         }
-        if (input.kind !== undefined && input.kind !== 'matrix') throw new Error('Unknown resident query kind')
-        const timePreference = (input.timePreference ?? defaults.timePreference) as RoutingTimePreference
-        if (!['depart', 'arrive'].includes(timePreference)) throw new Error('timePreference must be depart or arrive')
-        const objective = String(input.objective ?? defaults.objective)
-        if (objective !== 'earliest_arrival') {
-          throw new Error('objective must be earliest_arrival')
+        const clock = input.time !== undefined ? input.time : input.timeMinutes
+        if (clock !== undefined) {
+          const minutes = parseNdjsonTime(clock, 'time')
+          requestArgs.set('time', [`${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`])
         }
-        const routingPreference = 'fastest'
-        const { routingDataMode } = normalizeRoutingDataRequest({
-          routingDataMode: input.routingDataMode === undefined ? defaults.routingDataMode : input.routingDataMode,
-          serviceDate: defaults.serviceDate, timePreference,
-          departMinutes: defaults.timeMinutes, arriveMinutes: defaults.timeMinutes,
+        const prepare: typeof prepareRuntime = async (_store, _street, _date, _day, mode = 'transit') => ({
+          elapsedMs: await prepareMode(mode),
         })
-        const timeMinutes = input.time !== undefined
-          ? parseNdjsonTime(input.time, 'time')
-          : input.timeMinutes === undefined
-            ? defaults.timeMinutes
-            : parseNdjsonTime(input.timeMinutes, 'timeMinutes')
-        const maxWalkKm = input.maxWalkKm === undefined
-          ? defaults.maxWalkKm
-          : parseNumber(String(input.maxWalkKm), 'maxWalkKm', 0.01)
-        const maxTransfers = input.maxTransfers === undefined
-          ? defaults.maxTransfers
-          : parseIntegerNumber(String(input.maxTransfers), 'maxTransfers', 0, 31)
-        const horizonMinutes = input.horizonMinutes === undefined
-          ? defaults.horizonMinutes
-          : parseNumber(String(input.horizonMinutes), 'horizonMinutes', 1, 2_880)
-        const departureWindowMinutes = input.departureWindowMinutes === undefined
-          ? defaults.departureWindowMinutes
-          : parseIntegerNumber(String(input.departureWindowMinutes), 'departureWindowMinutes', 0, 30)
-        if (timePreference === 'arrive' && departureWindowMinutes > 0) {
-          throw new Error('departureWindowMinutes is only valid for depart searches')
-        }
-        if (input.kind === 'matrix') {
-          if (departureWindowMinutes !== 0) throw new Error('Matrix does not support departure windows')
+        let result
+        if (input.kind === 'route') result = await computeRouteRequest(requestArgs, input, paths, prepare)
+        else if (input.kind === 'reach') result = await computeReachRequest(requestArgs, input, paths, prepare)
+        else {
+          const options = analyticalRuntimeOptions(requestArgs, 'matrix', input)
           const openMs = await prepareMode(String(input.mode ?? 'transit'))
-          const matrix = computePreparedMatrix(new Map(), input, paths, {
-            ...defaults, routingDataMode, timePreference, objective, routingPreference, timeMinutes, maxWalkKm, maxTransfers,
-          }, stopLookup)
-          await writeNdjson({ ...matrix, sequence, id, timing: {
-            ...matrix.timing,
-            openMs,
-            endToEndMs: Number((performance.now() - (sequence === 1 ? cliStartedAt : requestStarted)).toFixed(3)),
-          } }, explicitKinds ? input : undefined, args)
-          continue
+          const matrix = computePreparedMatrix(requestArgs, input, paths, options, stopLookup)
+          result = { ...matrix, timing: { ...matrix.timing, openMs } }
         }
-        const origin = ndjsonPoint(input.origin, 'Origin', stopLookup)
-        const destination = ndjsonPoint(input.destination, 'Destination', stopLookup)
-        requireStreetStoreForCoordinateEndpoints(streetStorePath, origin, destination, `Request ${id}`)
-        const openMs = await prepareMode('transit')
-        const routed = routeOne(storePath, {
-          routingDataMode,
-          ...(routingDataMode === 'realtime' && input.realtimeSnapshot ? { realtimeSnapshot: input.realtimeSnapshot } : {}),
-          origin,
-          destination,
-          departMinutes: timeMinutes,
-          arriveMinutes: timeMinutes,
-          timePreference,
-          routingPreference,
-          serviceDay: defaults.serviceDay,
-          serviceDate: defaults.serviceDate,
-          allowServiceDateFallback: false,
-          maxWalkKm,
-          maxTransfers,
-          requireTransitRide: input.requireTransitRide,
-          allowLongWalk: input.allowLongWalk,
-          allowStreetTransfers: input.allowStreetTransfers,
-          minimumTransferBufferMinutes: input.minimumTransferBufferMinutes,
-          arrivalBufferMinutes: input.arrivalBufferMinutes,
-          __disableNativeStreetPathCache: input.disableCache === true,
-          horizonMinutes,
-          streetStorePath,
-        }, departureWindowMinutes)
-        const engine = engineDescriptor([routed])
-        await writeNdjson({
-          // Keep the complete plan first so streaming clients can retain its
-          // JSON while decoding the small response envelope separately.
-          plan: routed.plan ?? null,
-          schemaVersion: 'vigo.result.route.v1',
-          ...publicResultMetadata,
-          sequence,
-          id,
-          status: 'ok',
-          routingStatus: routed.plan?.diagnostics?.routingStatus ?? (routed.plan?.status === 'ready' ? 'ready' : 'blocked'),
-          query: {
-            routingDataMode, serviceDate: defaults.serviceDate, timeMinutes, timePreference,
-            objective, maxWalkKm, maxTransfers, departureWindowMinutes,
-            horizonMinutes, requireTransitRide: input.requireTransitRide === true,
-            ...(input.allowStreetTransfers !== undefined ? { allowStreetTransfers: input.allowStreetTransfers } : {}),
-            ...(input.minimumTransferBufferMinutes !== undefined ? { minimumTransferBufferMinutes: input.minimumTransferBufferMinutes } : {}),
-            ...(input.arrivalBufferMinutes !== undefined ? { arrivalBufferMinutes: input.arrivalBufferMinutes } : {}),
-            horizonScope: 'timetable_scan',
-            disableCache: input.disableCache === true,
-          },
-          engine,
-          timing: {
-            openMs,
-            computeMs: Number(routed.elapsedMs.toFixed(3)),
-            endToEndMs: Number((performance.now() - (sequence === 1 ? cliStartedAt : requestStarted)).toFixed(3)),
-            requestMs: Number((performance.now() - requestStarted).toFixed(3)),
-            routeMs: Number(routed.elapsedMs.toFixed(3)),
-            engineQueryMs: timingMilliseconds(
-              routed.plan?.diagnostics.searchStats?.engineQueryMs,
-              null,
-            ),
-            preparationMs: openMs,
-          },
-          routingStore: {
-            storeId: stopLookup.routingStore.storeId,
-            connectionCount: stopLookup.routingStore.connectionCount,
-          },
-          ...(routed.choices ? { choices: routed.choices } : {}),
-          profileSampleCount: routed.profileSampleCount,
-        })
+        await writeNdjson({ ...result, sequence, id, timing: {
+          ...result.timing,
+          endToEndMs: Number((performance.now() - (sequence === 1 ? cliStartedAt : requestStarted)).toFixed(3)),
+        } }, input, args)
       } catch (error) {
-        if (explicitKinds) {
-          await writeNdjson({ ...publicError(error instanceof Error ? error.message : String(error), id), sequence })
-          continue
-        }
-        await writeNdjson({
-          schemaVersion: 'vigo.result.route.v1',
-          ...publicResultMetadata,
-          sequence,
-          id,
-          status: 'error',
-          routingStatus: 'error',
-          timing: { requestMs: Number((performance.now() - requestStarted).toFixed(3)) },
-          error: { message: error instanceof Error ? error.message : String(error) },
-        })
+        await writeNdjson({ ...publicError(error instanceof Error ? error.message : String(error), id), sequence })
       }
     }
   } finally {
@@ -1986,7 +1853,7 @@ try {
     else if (command === 'reach') await runReach(args)
     else if (command === 'matrix') await runMatrix(args)
     else if (command === 'compare') await runCompare(args)
-    else if (command === 'stream' || command === '_route-stream') await runRouteStream(args, command === 'stream')
+    else if (command === 'stream') await runRouteStream(args)
     else await runRoute(args)
   }
 } catch (error) {

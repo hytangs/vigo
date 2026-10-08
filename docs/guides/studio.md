@@ -8,6 +8,8 @@ See the [visual tour](studio-tour.md) for real application captures and [multipl
 
 Select a project from the Studio library and import GTFS and OSM. Rebuild when the source feed or street extract changes. Studio currently stores its projects in a library format; it cannot directly open the movable City directories built by the CLI.
 
+Opening a City prepares walking for transit access and walking routes. The driving network opens when you select Drive or run a driving operation. Background tasks shows preparation progress.
+
 ## Network
 
 Use **Network** for reporting coverage and briefings, **Routes** for trip times, station boards and line views, and **Ask** for evidence-backed questions. Route and station selection is shared across the tabs. The [Network guide](network.md) explains playback, live timing, added service, and model connections.
@@ -16,9 +18,11 @@ Use **Network** for reporting coverage and briefings, **Routes** for trip times,
 
 ### Plan
 
-Pick an origin and destination on the map. **Add point** inserts a via point before the destination; a route supports up to eight points total. Each row shows latitude and longitude. Click the row to repick its location, use the arrows to reorder it, or remove it. **Reverse** reverses the complete sequence. The route form does not search place or station names.
+Pick an origin and destination on the map. **Add point** inserts a via point before the destination; a route supports up to eight points total. Each row shows latitude and longitude. Click the row to repick its location, use the arrows to reorder it, or remove it. **Reverse** reverses the complete sequence. You can also enter a coordinate command in Search VIGO, such as `route 38.90, -77.05 to 38.91, -77.03 at 08:00`, then choose **Plan this journey**. An explicit transit time selects Scheduled mode. Use points and a date covered by your City. The route form does not search place or station names.
 
 Choose a travel mode. Realtime transit departs now; Scheduled exposes the service date, time, and depart-at or arrive-by controls. Transfer caps are disabled while via points are present. Point and option changes update the route; **Rerun route** submits the same coordinates again, and **New route** clears them. Coordinate access and egress follow the OSM street graph. Inspect every returned leg before using its geometry.
+
+Use **Earliest**, **Fewer transfers**, or **Less walking** to sort the returned journeys. Each card shows arrival, total time from your requested departure, transfers, walking, and its tradeoff against the earliest arrival. Sorting keeps the selected journey and does not rerun the search. Arrow keys, Home, and End select another journey; **Details** opens its itinerary.
 
 ### Recent
 
@@ -38,7 +42,7 @@ Scenario drafts and the selected case are saved in Studio's local profile when e
 
 For a stop inserted on an A → B edge shared by several branches, the road path is applied to each affected branch. Each branch retains its untouched published shape and its own A → B runtime, with dwell added at the inserted stop. Load complete branch shapes before building the path.
 
-Matrix is available through the CLI in 0.4.2. Studio does not add a separate Matrix screen.
+Use the CLI or Python API for Matrix queries.
 
 ## City
 

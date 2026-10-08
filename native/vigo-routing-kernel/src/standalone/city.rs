@@ -61,7 +61,8 @@ impl Image {
         // Prepared City artifacts are immutable for the process lifetime.
         let bytes = unsafe { Mmap::map(&file)? };
         let (range, base) = portable_header(&bytes)?;
-        let parsed: Envelope<T> = serde_json::from_slice(&bytes[range])?;
+        let header = portable_metadata(&bytes, range)?;
+        let parsed: Envelope<T> = serde_json::from_slice(&header)?;
         let image = Self {
             header: Value::Object(parsed.header),
             bytes,
@@ -109,7 +110,10 @@ impl Image {
         let bytes = unsafe { Mmap::map(&file)? };
         let (header, base) = if portable {
             let (range, base) = portable_header(&bytes)?;
-            (serde_json::from_slice(&bytes[range])?, base)
+            (
+                serde_json::from_slice(&portable_metadata(&bytes, range)?)?,
+                base,
+            )
         } else {
             if bytes.len() < 4096 {
                 return fail("Truncated street snapshot");
@@ -159,15 +163,33 @@ impl Image {
 }
 
 fn portable_header(bytes: &[u8]) -> Result<(std::ops::Range<usize>, usize)> {
-    if bytes.len() < 16 || &bytes[..8] != b"VIGORS01" {
-        return fail("Invalid routing snapshot magic");
+    if bytes.len() < 16 || &bytes[..8] != b"VIGORS02" {
+        return fail("Unsupported routing snapshot; rebuild City with VIGO 0.5.0 or later");
     }
     let len = u32::from_le_bytes(bytes[8..12].try_into()?) as usize;
     let base = u32::from_le_bytes(bytes[12..16].try_into()?) as usize;
-    if len > bytes.len() - 16 || base < 16 + len || base > bytes.len() {
+    if len > 512 * 1024 * 1024
+        || len > bytes.len() - 16
+        || base != (16 + len).div_ceil(8) * 8
+        || base > bytes.len()
+    {
         return fail("Invalid routing snapshot header");
     }
     Ok((16..16 + len, base))
+}
+
+fn portable_metadata(bytes: &[u8], range: std::ops::Range<usize>) -> Result<Vec<u8>> {
+    // Bound expansion before parsing. Numeric arrays stay in their mmap;
+    // only the compressed JSON header needs a temporary allocation.
+    const LIMIT: u64 = 512 * 1024 * 1024;
+    let mut decoded = Vec::new();
+    flate2::read::GzDecoder::new(&bytes[range])
+        .take(LIMIT + 1)
+        .read_to_end(&mut decoded)?;
+    if decoded.len() as u64 > LIMIT {
+        return fail("Routing snapshot metadata exceeds its size limit");
+    }
+    Ok(decoded)
 }
 
 fn str_path(p: &Path) -> Result<String> {
@@ -331,7 +353,7 @@ impl City {
         let (context, mut access) = Image::open_with_metadata::<AccessContext>(
             &path.join("routing/project.sqlite.access-context.bin"),
         )?;
-        if access.schema_version != "vigo.routing.access-context.v1"
+        if access.schema_version != "vigo.routing.access-context.v2"
             || !access.materialized.stop_access_index.ready
         {
             return fail("A prepared access context is required; rebuild the City");
@@ -873,6 +895,32 @@ fn percent_decode(value: &str) -> Result<String> {
 #[cfg(test)]
 mod identity_tests {
     use super::*;
+
+    #[test]
+    fn compact_snapshot_header_preserves_payload_and_rejects_damage() {
+        use std::io::Write;
+        let metadata = br#"{"metadata":{"name":"synthetic"},"arrays":{}}"#;
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(metadata).unwrap();
+        let compressed = encoder.finish().unwrap();
+        let base = (16 + compressed.len()).div_ceil(8) * 8;
+        let mut bytes = vec![0u8; base];
+        bytes[..8].copy_from_slice(b"VIGORS02");
+        bytes[8..12].copy_from_slice(&(compressed.len() as u32).to_le_bytes());
+        bytes[12..16].copy_from_slice(&(base as u32).to_le_bytes());
+        bytes[16..16 + compressed.len()].copy_from_slice(&compressed);
+        let (range, actual_base) = portable_header(&bytes).unwrap();
+        assert_eq!(actual_base, base);
+        assert_eq!(
+            portable_metadata(&bytes, range.clone()).unwrap().as_slice(),
+            metadata
+        );
+        bytes[range.end - 8] ^= 1;
+        assert!(portable_metadata(&bytes, range).is_err());
+        assert!(portable_header(&bytes[..15]).is_err());
+        bytes[..8].copy_from_slice(b"VIGORS01");
+        assert!(portable_header(&bytes).unwrap_err().to_string().contains("rebuild"));
+    }
 
     #[test]
     fn older_city_optional_counts_match_compiler_identity() {

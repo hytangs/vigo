@@ -1,6 +1,6 @@
 [package]
 name = "vigo-routing-kernel"
-version = "0.4.4"
+version = "0.5.0"
 edition = "2024"
 publish = false
 description = "Native timetable, street-routing, and accessibility kernel for VIGO."
@@ -13,7 +13,7 @@ crate-type = ["cdylib", "rlib"]
 [features]
 default = ["node"]
 node = ["dep:napi", "dep:napi-derive"]
-standalone = ["dep:httparse", "dep:chrono", "dep:chrono-tz"]
+standalone = ["dep:httparse", "dep:chrono", "dep:chrono-tz", "dep:flate2"]
 
 [[bin]]
 name = "vigo"
@@ -34,6 +34,7 @@ httparse = { version = "1.10", optional = true }
 chrono = { version = "0.4", default-features = false, features = ["std"], optional = true }
 chrono-tz = { version = "0.10", optional = true }
 sha2 = "0.10"
+flate2 = { version = "1.1", optional = true }
 
 [profile.release]
 codegen-units = 1

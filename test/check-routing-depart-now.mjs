@@ -85,7 +85,7 @@ try {
   const point = (stopId, lon) => ({ source: 'stop', stopId, coordinate: [lon, 0] })
   const request = { ...live, feedId: 'feed', origin: point('A', 0), destination: point('B', .3), maxWalkKm: .2 }
   runtime = await start('2026-09-19T15:00:50Z')
-  const { plan: currentMinute } = await post('national-route', request)
+  const { choices: [currentMinute] } = await post('national-route', request)
   assert.equal(currentMinute.status, 'ready')
   assert.equal(currentMinute.departMinutes, 481)
   assert.equal(currentMinute.legs.find(leg => leg.type === 'ride').tripId, 'next-departure',
@@ -95,19 +95,19 @@ try {
   const { routing: readiness } = await post('national-ready', request)
   assert.notEqual(readiness.dateOutsideCoverage, true, 'Readiness must use the current agency date before checking saved-date coverage')
   assert.deepEqual(local(readiness.requestedRoutingContext).slice(0, 2), ['2026-09-19', 'saturday'])
-  const { plan } = await post('national-route', request)
+  const { choices: [plan] } = await post('national-route', request)
   assert.equal(plan.status, 'ready')
   assert.equal(plan.timePreference, 'depart')
   assert.equal(plan.departMinutes, 1439)
   assert.equal(plan.diagnostics.routingDataProvenance.serviceDate, '2026-09-19')
   assert.equal(plan.legs.find(leg => leg.type === 'ride').tripId, 'first')
-  const { plan: ordered } = await post('national-route', { ...request, destination: point('C', .6), waypoints: [point('B', .3)] })
+  const { choices: [ordered] } = await post('national-route', { ...request, destination: point('C', .6), waypoints: [point('B', .3)] })
   assert.equal(ordered.status, 'ready')
   assert.equal(ordered.departMinutes, 1439)
   assert.deepEqual(ordered.legs.filter(leg => leg.type === 'ride').map(leg => leg.tripId), ['first', 'second'])
   const replay = { ...request, serviceDate: '2026-09-19', serviceDay: 'saturday', timePreference: 'arrive', arriveMinutes: 1450 }
   delete replay.departNow
-  const { plan: explicitPlan } = await post('national-route', replay)
+  const { choices: [explicitPlan] } = await post('national-route', replay)
   assert.equal(explicitPlan.status, 'ready')
   assert.equal(explicitPlan.timePreference, 'arrive', 'Explicit realtime replay requests retain arrive-by semantics')
   await runtime.stop(); runtime = null
@@ -116,7 +116,7 @@ try {
   assert.equal(outside.dateOutsideCoverage, true)
   assert.deepEqual(local(outside.requestedRoutingContext).slice(0, 2), ['2026-09-21', 'weekday'],
     'Coverage-gated readiness still identifies the actual current agency date and time')
-  const { plan: blocked } = await post('national-route', request)
+  const { choices: [blocked] } = await post('national-route', request)
   assert.equal(blocked.status, 'blocked', 'Depart now must not substitute an earlier available service date')
   assert.equal(blocked.diagnostics.routingDataProvenance.serviceDate, '2026-09-21')
   // Exercise the HTTP boundary with the actual process clock as well.

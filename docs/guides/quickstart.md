@@ -8,7 +8,7 @@ For the desktop workflow, use the [Studio guide](studio.md). Studio imports data
 
 ## 1. Install
 
-VIGO 0.4.4 requires Node.js 24.18 or newer and npm 11.6 or newer.
+VIGO 0.5.0 requires Node.js 24.18 or newer and npm 11.6 or newer.
 Source builds also require the pinned Rust toolchain. Supported targets are macOS Apple Silicon/Intel, Linux ARM64/x64 with glibc, and Windows x64. Use a native build for the target OS and CPU; City data moves between them. See the [platform and City limits](../reference/known-routing-limitations.md).
 
 ```bash
@@ -196,6 +196,6 @@ Check every response status. For an API, use [VIGO Engine](engine-deployment.md)
 
 - [Practical workflows](workflows.md): arrival deadlines, pairwise journeys, and a complete baseline/Scenario comparison.
 - [Troubleshooting](troubleshooting.md): build failures, blocked routes, time semantics, and stale observations.
-- [Developer Guide](../developer-guide/VIGO-0.4.4-Developer-Guide.tex): CLI, Results, Scenario, compatibility, and full Query reference.
+- [Developer Guide](../developer-guide/VIGO-0.5.0-Developer-Guide.tex): CLI, Results, Scenario, compatibility, and full Query reference.
 - [VIGO Studio Guide](studio.md): visual exploration, routing, playback, and analysis.
 - [Core concepts](concepts.md): City, Scenario, Query, and Result.

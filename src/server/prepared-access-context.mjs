@@ -3,18 +3,47 @@ import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { decodeRoutingSnapshot, encodeRoutingSnapshot } from './routing-snapshot.mjs'
 
-const schemaVersion = 'vigo.routing.access-context.v1'
+const schemaVersion = 'vigo.routing.access-context.v2'
 const maximumBytes = 512 * 1024 * 1024
 const mapFields = ['transfers', 'transferShortcuts', 'stationMembers', 'stopRecords']
 const indexMaps = ['cells', 'profilesByStop', 'directProfilesByStop']
 const indexSets = ['directServiceStopIds', 'departureServiceStopIds', 'arrivalServiceStopIds']
+
+// JSON repeats immutable strings and stop objects. Restore the sharing that
+// the in-memory builder had, instead of retaining a copy per transfer/anchor.
+function sharePreparedAccessRecords(value) {
+  const strings = new Map()
+  const intern = text => {
+    if (typeof text !== 'string') return text
+    if (!strings.has(text)) strings.set(text, text)
+    return strings.get(text)
+  }
+  for (const rows of value.transfers.values()) {
+    for (const row of rows) {
+      row.evidence_fingerprint = intern(row.evidence_fingerprint)
+      row.from_stop_id = intern(row.from_stop_id)
+      row.to_stop_id = intern(row.to_stop_id)
+      row.provenance = intern(row.provenance)
+    }
+  }
+  const index = value.stopAccessIndex
+  const canonical = stop => {
+    const record = value.stopRecords.get(stop)
+    if (!record) throw new Error('Prepared access anchor has no stop record.')
+    return record
+  }
+  index.anchors = index.anchors.map(canonical)
+  for (const [key, stops] of index.cells) index.cells.set(key, stops.map(canonical))
+  return value
+}
 
 export function loadPreparedAccessContext(store, accessPolicyIdentity) {
   const snapshotPath = `${store.storePath}.access-context.bin`
   try {
     const stat = fs.statSync(snapshotPath)
     if (!stat.isFile() || stat.size > maximumBytes) throw new Error('Prepared access context exceeds its size limit.')
-    const { metadata, arrays } = decodeRoutingSnapshot(fs.readFileSync(snapshotPath))
+    const snapshot = fs.readFileSync(snapshotPath)
+    const { metadata, arrays } = decodeRoutingSnapshot(snapshot)
     if (metadata.schemaVersion !== schemaVersion
       || metadata.sourceArtifactIdentity !== store.sourceArtifactIdentity
       || metadata.accessPolicyIdentity !== accessPolicyIdentity) throw new Error('Prepared access context is stale.')
@@ -28,9 +57,19 @@ export function loadPreparedAccessContext(store, accessPolicyIdentity) {
       stopAccessIndex: saved.stopAccessIndex,
     }
     for (const name of mapFields) value[name] = new Map(saved[name])
+    for (const [from, rows] of value.transfers) {
+      value.transfers.set(from, rows.map(({ evidenceIndex, ...fields }) => {
+        const evidence = saved.transferEvidence[evidenceIndex]
+        if (!Number.isInteger(evidenceIndex) || evidenceIndex < 0 || evidence === undefined) {
+          throw new Error('Prepared transfer evidence is invalid.')
+        }
+        return { ...fields, from_stop_id: from, evidence_fingerprint: evidence }
+      }))
+    }
     const index = value.stopAccessIndex
     for (const name of indexMaps) index[name] = new Map(index[name])
     for (const name of indexSets) index[name] = new Set(index[name])
+    sharePreparedAccessRecords(value)
     if (value.stopRecords.size !== Number(store.metadata.stopCount) || index.ready !== true
       || index.anchorCount !== index.anchors.length || index.cellCount !== index.cells.size) {
       throw new Error('Prepared access context dimensions are invalid.')
@@ -62,6 +101,19 @@ export function persistPreparedAccessContext(store, accessPolicyIdentity) {
     })
     for (const name of indexMaps) materialized.stopAccessIndex[name] = [...store.stopAccessIndex[name]]
     for (const name of indexSets) materialized.stopAccessIndex[name] = [...store.stopAccessIndex[name]]
+    const evidenceIndices = new Map()
+    materialized.transferEvidence = []
+    materialized.transfers = [...store.transfers].map(([from, rows]) => [from, rows.map(row => {
+      const { evidence_fingerprint = null, from_stop_id, ...fields } = row
+      if (from_stop_id !== from) throw new Error('Prepared transfer origin differs from its group.')
+      if (!evidenceIndices.has(evidence_fingerprint)) {
+        evidenceIndices.set(evidence_fingerprint, materialized.transferEvidence.length)
+        materialized.transferEvidence.push(evidence_fingerprint)
+      }
+      return { ...fields, evidenceIndex: evidenceIndices.get(evidence_fingerprint) }
+    })])
+    materialized.stopAccessIndex.anchors = store.stopAccessIndex.anchors.map(stop => stop.stop_id)
+    materialized.stopAccessIndex.cells = [...store.stopAccessIndex.cells].map(([key, stops]) => [key, stops.map(stop => stop.stop_id)])
     const { stopIds, sources, ...arrays } = store.preparedStationPaths ?? {}
     const bytes = encodeRoutingSnapshot({ schemaVersion, sourceArtifactIdentity: store.sourceArtifactIdentity,
       accessPolicyIdentity, materialized, stationPaths: stopIds ? { stopIds, sources } : null }, arrays)

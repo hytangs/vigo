@@ -30,14 +30,7 @@ export function routeBrowserFreshness(state: AgencyState, now = Date.now(), refr
   const alerts = sourceCurrent('alerts')
   const attentionRouteIds = new Set<string>()
   if (predictions) {
-    const legacyRoutes = new Set(state.routes.filter(route => route.serviceChanges === undefined).map(route => route.id))
-    for (const route of state.routes) if ((route.serviceChanges ?? 0) > 0) attentionRouteIds.add(route.id)
-    // Older saved snapshots lack route aggregates; use only their delivered
-    // events as a fallback. New API rows stay independent of event selection.
-    for (const event of state.events) {
-      if (!['cancellation', 'skipped-stop', 'headway-review'].includes(event.type)) continue
-      for (const id of event.routeIds ?? (event.routeId ? [event.routeId] : [])) if (legacyRoutes.has(id)) attentionRouteIds.add(id)
-    }
+    for (const route of state.routes) if (route.serviceChanges > 0) attentionRouteIds.add(route.id)
   }
   const status = refreshFailed
     ? ['Refresh failed', 'Current route conditions are unavailable until the next successful refresh.']

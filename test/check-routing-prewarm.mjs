@@ -29,7 +29,7 @@ try {
  assert.equal(health.body.routingRuntime.routingAccessPrewarm.started,1,'City residency and Pathfinder must share one exact-context preparation')
  const request={...context,requireTransitRide:true,origin:{stopId:'A',coordinate:[-77.05,38.9]},destination:{stopId:'B',coordinate:[-77.03,38.91]},departMinutes:480,maxWalkKm:0.1}
  const first=await post('national-route',request),repeat=await post('national-route',request)
- assert.equal(first.plan.status,'ready');assert.equal(first.plan.arriveMinutes,510);assert.deepEqual(first.plan.legs,repeat.plan.legs)
+ assert.equal(first.choices[0].status,'ready');assert.equal(first.choices[0].arriveMinutes,510);assert.deepEqual(first.choices[0].legs,repeat.choices[0].legs)
  const live={...context,routingDataMode:'realtime',departNow:true,serviceDate:'1999-01-01',resident:true,leaseId:'test-live'}
  const before=Date.now(),current=await post('routing-residency',live),after=Date.now()
  const actual=current.residency.reachPreparation.serviceDateResolution.requestedServiceDate

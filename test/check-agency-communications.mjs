@@ -18,7 +18,7 @@ try {
   context = new AgencyContext(file, 'City X')
   const snapshot = realtimeFixture([tripUpdate('T1', 300), tripUpdate('T2', 600), tripUpdate('T3', 900)])
   snapshot.feeds.push({ sourceUrl: 'https://example.org/alerts.pb', kind: 'alerts', feedTimestamp: observationTime })
-  snapshot.alerts = [{ id: 'notice', sourceUrl: 'https://example.org/alerts.pb', routeIds: ['R'], stopIds: ['A'], header: 'R diversion', description: 'Road work at River closes the usual stop.', cause: 'CONSTRUCTION', effect: 'DETOUR', url: 'https://agency.example/notices/road-work', activePeriods: [{ start: observationTime - 60, end: observationTime + 600 }] }]
+  snapshot.alerts = [{ id: 'notice', sourceUrl: 'https://example.org/alerts.pb', informedEntities: [{ routeId: 'R', stopId: 'A' }], routeIds: ['R'], stopIds: ['A'], header: 'R diversion', description: 'Road work at River closes the usual stop.', cause: 'CONSTRUCTION', effect: 'DETOUR', url: 'https://agency.example/notices/road-work', activePeriods: [{ start: observationTime - 60, end: observationTime + 600 }] }]
   const state = deriveOperationalState(context, snapshot, observationTime)
   const callTool = createToolRegistry({ context, state, snapshot, adapters: {} })
   const alertResult = await callTool('service_alerts', { routeNames: ['R'] })
