@@ -4,7 +4,9 @@ import { runElectronCheck } from './helpers/electron-check.mjs'
 const module = ts.transpileModule(await readFile(new URL('../src/app/polling.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText.replace('export function', 'function')
 await runElectronCheck(`
 await app.whenReady();
-const window = new BrowserWindow({ show: true, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+// This check exercises timers and request ownership. Desktop occlusion must not
+// suspend its document while the developer uses another app.
+const window = new BrowserWindow({ show: false, webPreferences: { offscreen: true, backgroundThrottling: false, sandbox: true, contextIsolation: true, nodeIntegration: false } });
 await window.loadURL('data:text/html,<title>Polling lifecycle</title>');
 const result = await window.webContents.executeJavaScript(${JSON.stringify(`(async () => {
 ${module}
