@@ -2,6 +2,7 @@ import { boundedCacheGet, boundedCacheSet } from '../weighted-lru-cache.mjs'
 
 import { numeric } from '../number-utils.mjs'
 import { resolveServiceDay } from '../service-day.mjs'
+import { serviceEpochSeconds } from './service-clock.mjs'
 
 export function yyyymmdd(value) {
   return Number(String(value ?? '').replace(/-/g, '')) || 0
@@ -353,4 +354,51 @@ export function lightweightServiceAnchorDateResolution(store, request) {
     request.serviceDay,
     request.allowServiceDateFallback === true,
   )
+}
+
+// Extend a GTFS service slice only when the query can overlap another date.
+// Clocks use elapsed seconds from the requested date's local noon minus 12h.
+export function serviceInstancesForQuery(store, serviceDate, request) {
+  if (!request) return null
+  const arrive = ['arrive', 'arrive_by'].includes(request.timePreference)
+  const minutes = Number(arrive ? request.arriveMinutes ?? request.timeMinutes ?? request.departMinutes ?? 480
+    : request.departMinutes ?? request.timeMinutes ?? 480)
+  const horizon = Number(request.horizonMinutes ?? 480) * 60
+  const start = arrive ? Math.max(0, minutes * 60 - horizon) : minutes * 60
+  const end = arrive ? minutes * 60 : minutes * 60 + horizon
+  const zone = store.agencyTimezones?.[0] ?? 'UTC'
+  const epoch = serviceEpochSeconds(serviceDate, zone)
+  const parsed = parseServiceDate(serviceDate)
+  if (!parsed) throw new Error('Invalid service date')
+  const maximum = store.maximumServiceTimeSeconds ??= Number(store.metadata.maximumServiceTimeSeconds
+    ?? store.db.prepare('SELECT COALESCE(MAX(arrival),0) AS latest FROM connections').get().latest)
+  const days = []
+  for (let delta = -3; delta <= 5; delta++) {
+    const date = formatServiceDate(shiftServiceDate(parsed, delta))
+    const offsetSeconds = serviceEpochSeconds(date, zone) - epoch
+    if (delta && (offsetSeconds > end || offsetSeconds + maximum < start)) continue
+    days.push({ date, offsetSeconds })
+  }
+  if (days.length === 1 && days[0].date === serviceDate) return null
+  return days.flatMap(({ date, offsetSeconds }) => [...servicesForDate(store, date, resolveServiceDay(date))]
+    .map(serviceId => ({ serviceId, offsetSeconds, serviceDate: date })))
+}
+
+// Keep reverse searches before midnight on a nonnegative elapsed-time clock.
+export function earlierArrivalClock(store, request) {
+  if (!['arrive', 'arrive_by'].includes(request.timePreference) || !request.serviceDate) return null
+  const time = Number(request.arriveMinutes ?? request.timeMinutes ?? request.departMinutes)
+  const minimum = Number(request.horizonMinutes ?? 480) + Number(request.arrivalBufferMinutes ?? 0)
+  if (!Number.isFinite(time) || time >= minimum) return null
+  const zone = store.agencyTimezones?.[0] ?? 'UTC'
+  const origin = serviceEpochSeconds(request.serviceDate, zone)
+  let day = parseServiceDate(request.serviceDate), minutes = time
+  while (minutes < minimum) {
+    day = shiftServiceDate(day, -1)
+    minutes = time + (origin - serviceEpochSeconds(formatServiceDate(day), zone)) / 60
+  }
+  return { ...request, serviceDate: formatServiceDate(day), serviceDay: resolveServiceDay(formatServiceDate(day)),
+    arriveMinutes: minutes, timeMinutes: minutes, departMinutes: minutes,
+    ...(request.realtimeSnapshot ? { realtimeSnapshot: { ...request.realtimeSnapshot,
+      tripUpdates: request.realtimeSnapshot.tripUpdates.map(update => ({ ...update, startDate: update.startDate || request.serviceDate })) } } : {}) }
 }

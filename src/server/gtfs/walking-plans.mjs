@@ -990,7 +990,7 @@ export function transitDominatingDirectWalkPlan(
   // the public objective. Depart-at minimizes arrival/duration; arrive-by
   // maximizes the first departure, even when the direct walk lasts longer.
   if (arriveBy) {
-    if (selectedArrival - physicalWalkLowerBoundMinutes <= numeric(transitPlan.departMinutes, Number.NEGATIVE_INFINITY)) return null
+    if (selectedArrival - physicalWalkLowerBoundMinutes < numeric(transitPlan.departMinutes, Number.NEGATIVE_INFINITY) - 1e-9) return null
   } else if (physicalWalkLowerBoundMinutes > numeric(transitPlan.durationMinutes, 0) + 1e-9) return null
   const competitiveWalkMinutes = arriveBy
     ? selectedArrival - numeric(transitPlan.departMinutes, selectedArrival)
@@ -1088,7 +1088,7 @@ export function transitDominatingDirectWalkPlan(
     },
   }
   if (arriveBy) {
-    return walkPlan.departMinutes > numeric(transitPlan.departMinutes, Number.NEGATIVE_INFINITY)
+    return walkPlan.departMinutes >= numeric(transitPlan.departMinutes, Number.NEGATIVE_INFINITY)
       ? walkPlan
       : retainTransitPlan('transit')
   }

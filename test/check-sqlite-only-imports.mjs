@@ -98,6 +98,10 @@ try {
   assert.equal(completed.result.preload.engine, 'rust_exact_connection_scan')
   assert.equal(completed.result.preload.heuristicMode, 'none')
   assert.equal(completed.result.preload.nativeTimetableReady, true)
+  assert(completed.preparation.compiler.processes >= 1)
+  assert(completed.preparation.compiler.peakRssBytes > 0)
+  assert.equal(completed.preparation.compiler.lastProcess.exited, true)
+  assert.throws(() => process.kill(completed.preparation.compiler.lastProcess.pid, 0), { code: 'ESRCH' })
   assert.equal(
     Object.hasOwn(completed.result.preload, 'calibrationSearchCount'),
     false,
@@ -123,6 +127,8 @@ try {
   assert(!relativeFiles.some((file) => /^\.vigo\/(?:transport|index|feeds)\//.test(file)), relativeFiles.join('\n'))
   assert(!relativeFiles.includes('.vigo/osm/walk-network.json'))
   const storedProject = JSON.parse(await fs.readFile(path.join(projectRoot, '.vigo', 'project.json'), 'utf8'))
+  const storedJob = JSON.parse(await fs.readFile(path.join(projectRoot, '.vigo', 'jobs', `${completed.id}.json`), 'utf8'))
+  assert.deepEqual(storedJob.preparation.compiler, completed.preparation.compiler)
   assert(!('routeMetrics' in storedProject.feeds[0]))
   assert(!('stopMetrics' in storedProject.feeds[0]))
   assert(!('mapPreview' in storedProject.feeds[0]))

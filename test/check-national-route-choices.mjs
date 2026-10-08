@@ -44,6 +44,16 @@ function readyPlan({
 }
 
 const centerMinutes = 8 * 60
+const directWalk = { ...readyPlan({ id: 'all-walk', departMinutes: centerMinutes, durationMinutes: 22,
+  transfers: 0, walkMinutes: 22, routes: [] }), travelMode: 'walk' }
+const tinyRide = readyPlan({ id: 'one-short-ride', departMinutes: centerMinutes, durationMinutes: 21.45,
+  transfers: 0, walkMinutes: 20, routes: ['Bus'] })
+assert.equal(nationalChoiceStrictlyDominates(tinyRide, directWalk, centerMinutes), false,
+  'Zero transfers must not erase the difference between zero and one boarding')
+assert(selectNationalDepartureWindowChoices([tinyRide, directWalk], { centerMinutes }).some(plan => plan.travelMode === 'walk'),
+  'Keep the walk when one boarding buys only a small time saving')
+assert.equal(selectNationalDepartureWindowChoices([{ ...tinyRide, arriveMinutes: centerMinutes + 22, durationMinutes: 22 }, directWalk], { centerMinutes })[0].id,
+  'all-walk', 'An exact arrival tie must prefer zero boardings even when the bus involves less walking')
 // Leaving later must not turn an equal-arrival multi-vehicle chain into the
 // recommendation ahead of the lower-boarding point-query optimum.
 const equalArrivalSimple = readyPlan({

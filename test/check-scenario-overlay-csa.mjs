@@ -59,6 +59,7 @@ function overlayQuery(serviceStartSeconds) {
     horizon: 1_000,
     allowPreRideTransfers: false,
     overlayStopCount: 2,
+    overlayBaseStops: [1, 2],
     directionOffsets: [0, 2],
     directionStops: [0, 1],
     directionStopOffsetsSeconds: [0, 100],

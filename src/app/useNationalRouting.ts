@@ -138,15 +138,13 @@ export function useNationalRouting({
     serviceDay: requestServiceDay,
     serviceDate: requestServiceDate,
     allowServiceDateFallback: false,
-    // Compare a direct walk for point-to-point trips. Ordered transit legs
-    // retain their requirement to board a vehicle on each segment.
-    requireTransitRide: mode === 'transit' ? waypoints.length > 0 : undefined,
+    requireTransitRide: mode === 'transit' ? false : undefined,
     maxWalkKm,
     maxTransfers: mode === 'transit' && waypoints.length ? undefined : maxTransfers,
     allowLongWalk,
     allowStreetTransfers,
     minimumTransferBufferMinutes: mode === 'transit' && waypoints.length ? 0 : minimumTransferBufferMinutes,
-    includeEarliestTransit: mode === 'transit',
+    includeEarliestTransit: mode === 'transit' && !waypoints.length,
     objective: 'earliest_arrival',
     maxStreetKm: mode === 'drive' ? 750 : 50,
     departureWindowMinutes: streetMode ? 0 : departureWindowMinutes,

@@ -18,7 +18,7 @@ import { RoutingFare } from './RoutingFare'
 
 function routingChoiceExplanation(plan: RoutingPlan) {
   if (plan.choiceLabel === 'Earliest arrival') {
-    return 'Earliest arrival among the displayed journeys. Equal arrivals prefer fewer transfers, then less walking.'
+    return 'Earliest arrival among the displayed journeys. Equal arrivals prefer fewer vehicles, then less walking.'
   }
   if (plan.choiceLabel === 'Fewest transfers') {
     return 'Uses the fewest transfers among the displayed journeys.'

@@ -233,11 +233,10 @@ export type RoutingPlan = {
     selectedTimeChoice?: boolean
     choiceSupport?: {
       objective:
-        | 'elapsed_plus_weighted_transfers_plus_weighted_walking'
-        | 'elapsed_plus_journey_plus_weighted_transfers_plus_weighted_walking'
+        | 'elapsed_plus_journey_plus_weighted_boardings_plus_weighted_walking'
       elapsedWeight: 1
       journeyWeight?: number
-      transferPenaltyMinutesPerTransfer: number
+      boardingPenaltyMinutesPerBoarding: number
       walkingReluctance: number
       nonnegativeWeightFeasibility: 'exact_half_plane_intersection'
     }

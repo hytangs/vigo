@@ -96,7 +96,7 @@ function fixtureProject(storeMetadata) {
     jobs: [],
     artifacts: [],
     routingStore: {
-      schemaVersion: 'vigo.routing.store.v3',
+      schemaVersion: 'vigo.routing.store.v4',
       status: 'ready',
       fileName: 'project.sqlite',
       storeId: storeMetadata.storeId,
@@ -331,7 +331,7 @@ try {
   for (const timePreference of ['depart', 'arrive']) {
     const request = { origin: orderedPoints[0], waypoints: [orderedPoints[1]], destination: orderedPoints[2],
       mode: 'transit', timePreference, departMinutes: 510, arriveMinutes: 510,
-      serviceDate: '2026-07-19', maxWalkKm: 0.2 }
+      serviceDate: '2026-07-19', maxWalkKm: 0.2, requireTransitRide: true }
     const response = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-route`, apiUrl), {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request),
     })

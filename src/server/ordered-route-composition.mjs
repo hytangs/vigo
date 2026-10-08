@@ -3,6 +3,7 @@ import { numeric as finiteNumber } from './number-utils.mjs'
 import { validateArrivalBuffer } from './arrival-reserve.mjs'
 
 const maximumOrderedRoutingPoints = 8
+const maximumOrderedCandidates = 8
 
 function validCoordinate(value) {
   return Array.isArray(value)
@@ -20,52 +21,6 @@ function sameCoordinate(left, right) {
 function routingPointLabel(point, fallback) {
   const label = String(point?.label ?? '').trim()
   return label || fallback
-}
-
-function orderedTransitRideRequired(request) {
-  return request?.mode === 'transit'
-}
-
-function hasTransitRide(plan) {
-  return (plan?.legs ?? []).some((leg) => leg?.type === 'ride')
-}
-
-function enforceOrderedSegmentMode(plan, request) {
-  if (
-    !orderedTransitRideRequired(request)
-    || plan?.status !== 'ready'
-    || hasTransitRide(plan)
-  ) return plan
-
-  const message = 'This leg resolved to walking only; an ordered Transit route requires at least one scheduled ride on every leg.'
-  return {
-    ...plan,
-    status: 'blocked',
-    travelMode: 'transit',
-    title: 'No transit ride',
-    detail: message,
-    diagnostics: {
-      ...(plan?.diagnostics ?? {}),
-      fallbackReason: plan?.diagnostics?.algorithm ?? 'walk_only_component',
-      failureCode: 'ordered_transit_ride_required',
-      failureCategory: 'routing',
-      failure: {
-        code: 'ordered_transit_ride_required',
-        category: 'routing',
-        message,
-        retryable: true,
-      },
-      orderedTransitRideRequired: true,
-      walkOnlyCandidate: {
-        planId: plan?.id ?? null,
-        durationMinutes: finiteNumber(plan?.durationMinutes),
-        distanceKm: (plan?.legs ?? [])
-          .filter((leg) => leg?.type === 'walk')
-          .reduce((sum, leg) => sum + Math.max(0, finiteNumber(leg?.distanceKm)), 0),
-        algorithm: plan?.diagnostics?.algorithm ?? null,
-      },
-    },
-  }
 }
 
 export function validateOrderedRoutingPoints(origin, waypoints, destination) {
@@ -183,16 +138,11 @@ function timingPrecision(plans) {
 }
 
 function orderedRouteId(plans, points, request) {
-  const pointKey = points
-    .map((point) => `${Number(point.coordinate[0])},${Number(point.coordinate[1])}`)
-    .join(';')
-  return [
-    'ordered',
-    request.mode,
-    request.timePreference,
-    ...plans.map((plan) => plan.id),
-    pointKey,
-  ].join('|')
+  return stablePlanId('ordered', {
+    mode: request.mode, timePreference: request.timePreference,
+    components: plans.map(plan => plan.id),
+    points: points.map(point => point.coordinate.map(Number)),
+  })
 }
 
 function orderedRouteTitle(mode, waypointCount) {
@@ -221,6 +171,55 @@ export function composeOrderedRoutingFailure(failedPlan, failedIndex, points, co
   }
 }
 
+function orderedMetrics(plan, arriveBy) {
+  return [arriveBy ? -plan.departMinutes : plan.arriveMinutes,
+    boardingCount(plan.legs), plan.walkMinutes]
+}
+
+function compareOrdered(left, right, arriveBy) {
+  const a = orderedMetrics(left.plan, arriveBy), b = orderedMetrics(right.plan, arriveBy)
+  return a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
+    || left.plan.durationMinutes - right.plan.durationMinutes
+    || left.plan.id.localeCompare(right.plan.id)
+}
+
+function orderedBoundary(plan, arriveBy) {
+  const leg = arriveBy ? plan.legs[0] : plan.legs.at(-1)
+  // On-board continuity can change the next boarding count. Do not discard
+  // such a state merely because a different trip reaches this point earlier.
+  return leg?.type === 'ride' ? `${leg.tripId}|${arriveBy ? leg.fromStopId : leg.toStopId}` : ''
+}
+
+function orderedFamily(plan) {
+  return JSON.stringify(plan.legs.map(leg => [leg.orderedSegmentIndex, leg.type,
+    leg.routeId, leg.fromStopId, leg.toStopId]))
+}
+
+function orderedFrontier(candidates, arriveBy, final) {
+  const ranked = candidates.sort((a, b) => compareOrdered(a, b, arriveBy))
+  const distinct = [...new Map(ranked.map(candidate => [candidate.plan.id, candidate])).values()]
+  const frontier = distinct.filter((candidate, index) => !distinct.some((other, otherIndex) => {
+    if (index === otherIndex || (!final && orderedBoundary(candidate.plan, arriveBy) !== orderedBoundary(other.plan, arriveBy))) return false
+    const a = orderedMetrics(other.plan, arriveBy), b = orderedMetrics(candidate.plan, arriveBy)
+    return a.every((value, i) => value <= b[i])
+      && (a.some((value, i) => value < b[i]) || otherIndex < index)
+  }))
+  const limit = final ? 5 : maximumOrderedCandidates
+  const selected = []
+  const add = candidate => {
+    if (candidate && !selected.includes(candidate) && selected.length < limit
+      && (!final || !selected.some(other => orderedFamily(other.plan) === orderedFamily(candidate.plan)))) selected.push(candidate)
+  }
+  // Always preserve the earliest-arrival/latest-departure witness. Secondary
+  // extrema keep a later walk available when it catches the same onward ride.
+  add(frontier[0])
+  for (const metric of [1, 2]) add([...frontier].sort((a, b) =>
+    orderedMetrics(a.plan, arriveBy)[metric] - orderedMetrics(b.plan, arriveBy)[metric]
+      || compareOrdered(a, b, arriveBy))[0])
+  for (const candidate of frontier) add(candidate)
+  return selected.sort((a, b) => compareOrdered(a, b, arriveBy))
+}
+
 export async function routeOrderedRoutingSegments(points, request, routeSegment) {
   validateArrivalBuffer(request, points?.length === 2)
   if (!Array.isArray(points) || points.length < 2 || typeof routeSegment !== 'function') {
@@ -232,72 +231,76 @@ export async function routeOrderedRoutingSegments(points, request, routeSegment)
   if (points.length > 2 && request?.mode !== 'walk' && request?.mode !== 'drive' && request?.minimumTransferBufferMinutes > 0) {
     throw new Error('minimumTransferBufferMinutes with ordered transit waypoints is not supported; omit the waypoints or set the buffer to zero.')
   }
-  const componentPlans = new Array(points.length - 1)
-  if (request?.timePreference === 'arrive') {
-    let nextArriveMinutes = Number(request?.arriveMinutes ?? request?.departMinutes ?? 8 * 60)
-    for (let index = points.length - 2; index >= 0; index -= 1) {
+  const arriveBy = request?.timePreference === 'arrive'
+  const initialClock = Number(arriveBy ? request.arriveMinutes ?? request.departMinutes ?? 480 : request.departMinutes ?? 480)
+  const indices = Array.from({ length: points.length - 1 }, (_, index) => index)
+  if (arriveBy) indices.reverse()
+  let states = [{ components: [], plan: null }]
+  let segmentQueries = 0, peakCandidates = 1
+  for (const index of indices) {
+    const queryCache = new Map()
+    const candidates = []
+    let failure
+    for (const state of states) {
+      const clock = state.plan
+        ? arriveBy ? state.plan.departMinutes : state.plan.arriveMinutes
+        : initialClock
       const segmentRequest = {
         ...request,
-        ...(orderedTransitRideRequired(request) ? { requireTransitRide: true } : {}),
         origin: points[index],
         destination: points[index + 1],
-        timePreference: 'arrive',
-        arriveMinutes: nextArriveMinutes,
-        departMinutes: nextArriveMinutes,
+        timePreference: arriveBy ? 'arrive' : 'depart',
+        departMinutes: clock,
+        arriveMinutes: clock,
         departureWindowMinutes: 0,
-        __allowSubMinuteTimes: index < points.length - 2,
+        includeEarliestTransit: false,
+        __allowSubMinuteTimes: state.components.length > 0,
       }
-      const plan = enforceOrderedSegmentMode(
-        await routeSegment(segmentRequest, index),
-        segmentRequest,
-      )
-      componentPlans[index] = plan
-      if (plan?.status !== 'ready') {
-        return { componentPlans, failedIndex: index, failedPlan: plan }
+      if (!queryCache.has(clock)) {
+        queryCache.set(clock, await routeSegment(segmentRequest, index))
+        segmentQueries += 1
       }
-      nextArriveMinutes = Number(plan.departMinutes)
+      const response = queryCache.get(clock)
+      const preferred = response?.plan ?? response
+      const choices = response?.choices?.length ? response.choices : [preferred]
+      failure ??= { componentPlans: state.components, failedIndex: index, failedPlan: preferred }
+      for (const plan of choices) {
+        if (plan?.status !== 'ready') continue
+        if (!Number.isFinite(plan.departMinutes) || !Number.isFinite(plan.arriveMinutes)
+          || plan.arriveMinutes < plan.departMinutes
+          || (arriveBy ? plan.arriveMinutes > clock + 0.001 : plan.departMinutes < clock - 0.001)) {
+          throw new Error('Ordered route component violates its waypoint clock.')
+        }
+        const components = arriveBy ? [plan, ...state.components] : [...state.components, plan]
+        const coveredPoints = arriveBy ? points.slice(index) : points.slice(0, index + 2)
+        candidates.push({ components, plan: composeOrderedRoutingPlans(components, coveredPoints, request) })
+      }
     }
-  } else {
-    let nextDepartMinutes = Number(request?.departMinutes ?? 8 * 60)
-    for (let index = 0; index < points.length - 1; index += 1) {
-      const segmentRequest = {
-        ...request,
-        ...(orderedTransitRideRequired(request) ? { requireTransitRide: true } : {}),
-        origin: points[index],
-        destination: points[index + 1],
-        timePreference: 'depart',
-        departMinutes: nextDepartMinutes,
-        arriveMinutes: nextDepartMinutes,
-        departureWindowMinutes: index === 0 ? request?.departureWindowMinutes : 0,
-        // Intermediate legs inherit the preceding leg's exact clock, including
-        // seconds from street access. Only the caller's initial clock is integral.
-        __allowSubMinuteTimes: index > 0,
-      }
-      const plan = enforceOrderedSegmentMode(
-        await routeSegment(segmentRequest, index),
-        segmentRequest,
-      )
-      componentPlans[index] = plan
-      if (plan?.status !== 'ready') {
-        return { componentPlans, failedIndex: index, failedPlan: plan }
-      }
-      nextDepartMinutes = Number(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)
-    }
+    if (!candidates.length) return failure
+    const final = index === indices.at(-1)
+    states = orderedFrontier(candidates, arriveBy, final)
+    peakCandidates = Math.max(peakCandidates, states.length)
   }
-  return { componentPlans, failedIndex: -1, failedPlan: null }
+  const choices = states.map(({ plan }, index) => ({
+    ...plan, recommended: index === 0,
+    choiceLabel: plan.travelMode === 'walk' ? 'Walk only'
+      : index === 0 ? arriveBy ? 'Latest departure' : 'Earliest arrival' : 'Alternative journey',
+    diagnostics: { ...plan.diagnostics, orderedSearch: {
+      segmentQueries, peakCandidates, candidateLimit: maximumOrderedCandidates,
+      alternatives: 'bounded_waypoint_frontier',
+    } },
+  }))
+  return { componentPlans: states[0].components, choices, failedIndex: -1, failedPlan: null }
 }
 
 export function composeOrderedRoutingPlans(plans, points, request = {}) {
   if (!Array.isArray(plans) || plans.length !== points.length - 1) {
     throw new Error('Ordered route composition requires one plan per adjacent point pair.')
   }
-  const failedIndex = plans.findIndex((plan) => (
-    plan?.status !== 'ready'
-    || (orderedTransitRideRequired(request) && !hasTransitRide(plan))
-  ))
+  const failedIndex = plans.findIndex(plan => plan?.status !== 'ready')
   if (failedIndex >= 0) {
     return composeOrderedRoutingFailure(
-      enforceOrderedSegmentMode(plans[failedIndex], request),
+      plans[failedIndex],
       failedIndex,
       points,
       plans,
@@ -305,10 +308,11 @@ export function composeOrderedRoutingPlans(plans, points, request = {}) {
   }
 
   const dataSources = plans.map(plan => plan.diagnostics?.routingDataProvenance)
+  const commonClock = request.serviceDate && plans.every(plan => plan.diagnostics?.orderedClockDate === request.serviceDate)
   if (dataSources.some(Boolean)) {
     const identities = dataSources.map(data => JSON.stringify(data && [
       data.mode, data.staticTimetableIdentity, data.streetIdentity,
-      data.serviceDate, data.timeZone, data.snapshotId ?? null,
+      commonClock ? request.serviceDate : data.serviceDate, data.timeZone, data.snapshotId ?? null,
     ]))
     if (identities.some(identity => identity !== identities[0])) {
       const error = new Error('Routing data changed between journey legs. Calculate the complete journey again.')
@@ -319,6 +323,7 @@ export function composeOrderedRoutingPlans(plans, points, request = {}) {
   }
   const combinedData = dataSources[0] ? {
     ...dataSources[0],
+    ...(commonClock ? { serviceDate: request.serviceDate, componentServiceDates: dataSources.map(data => data.serviceDate) } : {}),
     requestedTimeMinutes: request.timePreference === 'arrive'
       ? request.arriveMinutes ?? request.timeMinutes ?? request.departMinutes : request.departMinutes,
     componentReproducibilityKeys: dataSources.map(data => data.reproducibilityKey),
@@ -326,6 +331,8 @@ export function composeOrderedRoutingPlans(plans, points, request = {}) {
       components: dataSources.map(data => data.reproducibilityKey) }),
   } : null
   const legs = combinedLegs(plans)
+  const travelMode = legs.some(leg => leg.type === 'ride') ? 'transit'
+    : legs.some(leg => leg.type === 'drive') ? 'drive' : 'walk'
   const first = plans[0]
   const last = plans.at(-1)
   const departMinutes = finiteNumber(first.departMinutes)
@@ -350,11 +357,11 @@ export function composeOrderedRoutingPlans(plans, points, request = {}) {
     ...first,
     id: orderedRouteId(plans, points, request),
     status: 'ready',
-    travelMode: request.mode ?? first.travelMode,
+    travelMode,
     timePreference: request.timePreference ?? first.timePreference,
     choiceLabel: `Ordered ${points.length}-point route`,
     recommended: true,
-    title: orderedRouteTitle(request.mode ?? first.travelMode, waypointCount),
+    title: orderedRouteTitle(travelMode, waypointCount),
     detail: routeLabels.join(' → '),
     departMinutes,
     arriveMinutes,
@@ -371,13 +378,15 @@ export function composeOrderedRoutingPlans(plans, points, request = {}) {
     legs,
     diagnostics: {
       ...last.diagnostics,
+      departureWindow: undefined,
+      departurePresentation: first.diagnostics?.departurePresentation,
       ...(combinedData ? { routingDataProvenance: combinedData } : {}),
       originWalkKm: first.diagnostics?.originWalkKm,
       destinationWalkKm: last.diagnostics?.destinationWalkKm,
       timingPrecision: timingPrecision(plans),
       searchStrategy: 'exact_waypoint_composition',
       algorithm: 'ordered_waypoint_composition',
-      optimality: 'exact_per_leg_for_fixed_user_order',
+      optimality: 'best_objective_within_bounded_waypoint_frontier',
       sequenceOptimization: 'user_order_preserved',
       orderedPointCount: points.length,
       waypointCount,

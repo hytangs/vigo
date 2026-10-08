@@ -173,8 +173,29 @@ for (const replaced of [[0], [1], [0, 1]]) {
 }
 const identityKernel = kernelFor(interchange, 4)
 const identityRequest = overlayRequest([interchange[1]], [0, 2000, 2000], [1], 3)
+const missingIdentities = { ...identityRequest }
+delete missingIdentities.overlayBaseStops
+assert.throws(() => identityKernel.routeOverlayManyCsa(missingIdentities), /overlayBaseStops|overlay_base_stops/)
 for (const overlayBaseStops of [[0], [0, 1, 2, 4], [0, 1, 2, -2]]) {
   assert.throws(() => identityKernel.routeOverlayManyCsa({ ...identityRequest, overlayBaseStops }), /stop identities/)
+}
+
+// Zero-time links between distinct stops are physical transfers, not identity
+// bridges. Only a replacement at the same stop inherits its stop minimum;
+// the request's transfer buffer still applies to every change of vehicle.
+for (const buffer of [0, 10, 11, 60]) for (const certifyJourney of [false, true]) {
+  const identityRulesKernel = kernelFor([interchange[0]], 4, [0, 70, 0, 0], buffer)
+  const request = {
+    ...overlayRequest([interchange[1]], [0, 2000, 2000], [], 2),
+    certifyJourney,
+  }
+  const sameStop = identityRulesKernel.routeOverlayManyCsa(request)
+  assert.equal(sameStop.timetable.bestArrivals[0], Infinity, 'A replacement at stop 1 retains the 70-second minimum and boarding buffer.')
+  const distinctStop = identityRulesKernel.routeOverlayManyCsa({
+    ...request, overlayBaseStops: [0, -1, 2, 3],
+  })
+  assert.equal(distinctStop.timetable.bestArrivals[0], buffer <= 10 ? 300 : Infinity,
+    'A physical transfer keeps its stated duration plus the request-wide transfer buffer.')
 }
 for (const directionArrivalOffsetsSeconds of [[0], [0, -1], [0, 91], [1, 90]]) {
   assert.throws(() => identityKernel.routeOverlayManyCsa({ ...identityRequest, directionArrivalOffsetsSeconds }), /arrivals|direction arrays/)

@@ -746,6 +746,7 @@ export function rasterAreas(values, width, height, bounds, cutoffsMinutes, surfa
 function scenarioRequestRecord(request) {
   return {
     baselineIdentity: request.baselineIdentity,
+    ...(request.feedIds ? { feedIds: request.feedIds } : {}),
     mode: request.mode,
     surfaceSampling: request.surfaceSampling,
     origin: request.origin,
@@ -1029,7 +1030,7 @@ export function validateReachRequest(value) {
   }
   const cutoffsMinutes = [...new Set(
     (Array.isArray(value.cutoffsMinutes) ? value.cutoffsMinutes : [30, 45, 60])
-      .map((cutoff, index) => boundedNumber(cutoff, `cutoffsMinutes[${index}]`, 5, 240)),
+      .map((cutoff, index) => boundedNumber(cutoff, `cutoffsMinutes[${index}]`, 1, 240)),
   )].sort((left, right) => left - right)
   if (!cutoffsMinutes.length || cutoffsMinutes.length > 8) {
     throw badRequest('cutoffsMinutes must contain between one and eight values.')
@@ -1056,6 +1057,7 @@ export function validateReachRequest(value) {
   return {
     baselineIdentity: compactText(value.baselineIdentity, 'unversioned-baseline', 240),
     feedId: compactText(value.feedId, '__city__', 160),
+    ...(Array.isArray(value.feedIds) ? { feedIds: [...new Set(value.feedIds.map(id => compactText(id, '', 160)))].sort() } : {}),
     origin,
     mode,
     surfaceSampling,

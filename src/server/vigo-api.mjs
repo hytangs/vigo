@@ -1,3 +1,4 @@
+import { cityCaseFeedIds, assertCaseRouteSources } from './gtfs/source-selection.mjs'
 import packageJson from '../../package.json' with { type: 'json' }
 import { NationalRouteWorkerPool, makeAbortError, maxNationalRouteWorkerStores } from './runtime/route-worker-pool.mjs'
 
@@ -7,9 +8,10 @@ import fs from 'node:fs/promises'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
+import { jobProgressUpdate } from './runtime/job-progress.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { Duplex, PassThrough } from 'node:stream'
-import { Worker } from 'node:worker_threads'
+import { PreparationProcess } from './runtime/preparation-process.mjs'
 import { vigoCapabilities } from '../capabilities.mjs'
 import { createAgencyService } from './agency-api.mjs'
 import { readGtfsNetworkOverview, readGtfsRouteAnalysis } from './gtfs-analysis-store.mjs'
@@ -27,7 +29,6 @@ import { readLocalBasemap, localBasemapBudgets } from './local-basemap-store.mjs
 import { integralNumber } from './number-utils.mjs'
 import {
   composeOrderedRoutingFailure,
-  composeOrderedRoutingPlans,
   routeOrderedRoutingSegments,
   validateOrderedRoutingPoints,
 } from './ordered-route-composition.mjs'
@@ -1781,7 +1782,7 @@ async function projectRoutingStoreMatchesInputs(projectId, project, inputs) {
 
 function projectRoutingStoreStatusMetadata({ status, sourceFingerprint, current, error } = {}) {
   return {
-    schemaVersion: 'vigo.routing.store.v3',
+    schemaVersion: 'vigo.routing.store.v4',
     status,
     routingEligibility: current?.routingEligibility,
     fileName: 'project.sqlite',
@@ -1803,7 +1804,7 @@ function projectRoutingStoreMetadataFromBuild(result) {
     ? result.routingLimitations
     : []
   return {
-    schemaVersion: result.schemaVersion || 'vigo.routing.store.v3',
+    schemaVersion: result.schemaVersion || 'vigo.routing.store.v4',
     status: 'ready',
     routingEligibility: blockingRoutingFeatures.length
       ? 'unsupported'
@@ -1824,7 +1825,7 @@ function projectRoutingStoreMetadataFromBuild(result) {
 
 function runNationalGtfsMergeWorker({ stores, outputPath, onProgress, job }) {
   return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL('./national-gtfs-worker.mjs', import.meta.url), {
+    const worker = new PreparationProcess(new URL('./national-gtfs-worker.mjs', import.meta.url), {
       workerData: { mode: 'merge', stores, outputPath },
     })
     if (job) {
@@ -1843,6 +1844,7 @@ function runNationalGtfsMergeWorker({ stores, outputPath, onProgress, job }) {
     }
     worker.on('message', (message) => {
       if (job?.cancelRequested) return
+      recordPreparationMemory(job, message)
       if (message?.type === 'progress') {
         onProgress?.(message.progress)
       } else if (message?.type === 'complete') {
@@ -1929,7 +1931,7 @@ async function buildProjectRoutingStore(projectId, { job, requestedServiceDate, 
       job,
       onProgress: (progress) => {
         Object.assign(job, {
-          phase: progress?.phase || 'Combining exact GTFS timetable stores',
+          ...jobProgressUpdate({ ...progress, phase: progress?.phase || 'Combining exact GTFS timetable stores' }, job),
           progress: 0.78 + Math.max(0, Math.min(1, Number(progress?.progress ?? 0))) * 0.14,
           detail: progress?.detail ?? job.detail,
           updatedAt: now(),
@@ -1958,7 +1960,7 @@ async function buildProjectRoutingStore(projectId, { job, requestedServiceDate, 
         (progress) => {
           const fraction = Math.max(0, Math.min(1, Number(progress?.progress ?? 0)))
           Object.assign(job, {
-            phase: progress?.phase || 'Building exact pedestrian stop transfers for the combined timetable',
+            ...jobProgressUpdate({ ...progress, phase: progress?.phase || 'Building exact pedestrian stop transfers for the combined timetable' }, job),
             progress: 0.93 + fraction * 0.055,
             detail: progress?.detail ?? job.detail,
             updatedAt: now(),
@@ -2110,10 +2112,26 @@ function jobIsTerminal(job) {
   return ['complete', 'failed', 'cancelled'].includes(String(job?.status ?? ''))
 }
 
+function recordPreparationMemory(job, message) {
+  if (!job || !message?.preparation?.exited) return
+  const previous = job.__compilerMemory
+  Object.defineProperty(job, '__compilerMemory', {
+    configurable: true,
+    writable: true,
+    enumerable: false,
+    value: {
+      processes: Number(previous?.processes ?? 0) + 1,
+      peakRssBytes: Math.max(Number(previous?.peakRssBytes ?? 0), message.preparation.peakRssBytes),
+      lastProcess: message.preparation,
+    },
+  })
+}
+
 function updateNationalJobTelemetry(job) {
   if (!job || typeof job !== 'object') return
   const observedAt = Date.now()
   const phase = String(job.phase || 'preparation')
+  if (job.work?.phase && job.work.phase !== phase) delete job.work
   const createdAtMs = Date.parse(String(job.createdAt || ''))
   const state = job.__telemetry ?? {
     phase,
@@ -2142,6 +2160,7 @@ function updateNationalJobTelemetry(job) {
       totalMs,
       phaseTimingsMs: { ...phaseTimingsMs },
       completedAt: job.finishedAt || new Date(observedAt).toISOString(),
+      ...(job.__compilerMemory ? { compiler: job.__compilerMemory } : {}),
     }
   }
   Object.defineProperty(job, '__telemetry', {
@@ -2223,7 +2242,7 @@ async function launchNationalImportWorker(projectId, kind, job, workerUrl, worke
       await nationalRouteWorkerPool.retire(streetStoreFile(projectId))
     }
     await persistNationalJob(projectId, job)
-    return new Worker(workerUrl, { workerData })
+    return new PreparationProcess(workerUrl, { workerData })
   } catch (error) {
     releaseNationalImportProject(projectId, kind)
     throw error
@@ -2351,14 +2370,9 @@ async function startNationalGtfsImport(projectId, body) {
   worker.on('message', async (message) => {
     try {
       if (job.cancelRequested) return
+      recordPreparationMemory(job, message)
       if (message?.type === 'progress') {
-        Object.assign(job, {
-          phase: message.progress.phase,
-          progress: Number(message.progress.progress ?? job.progress),
-          detail: message.progress.detail ?? '',
-          rssBytes: Number(message.progress.memory ?? 0),
-          updatedAt: now(),
-        })
+        Object.assign(job, jobProgressUpdate(message.progress, job))
         await persistNationalJobProgress(projectId, job)
       } else if (message?.type === 'complete') {
         terminalMessageReceived = true
@@ -2381,7 +2395,7 @@ async function startNationalGtfsImport(projectId, body) {
             (progress) => {
               const fraction = Math.max(0, Math.min(1, Number(progress?.progress ?? 0)))
               Object.assign(job, {
-                phase: progress?.phase || 'Building exact pedestrian stop transfers',
+                ...jobProgressUpdate({ ...progress, phase: progress?.phase || 'Building exact pedestrian stop transfers' }, job),
                 progress: 0.94 + fraction * 0.055,
                 detail: progress?.detail ?? job.detail,
                 updatedAt: now(),
@@ -2669,8 +2683,9 @@ async function startNationalOsmImport(projectId, body) {
   worker.on('message', async (message) => {
     try {
       if (job.cancelRequested) return
+      recordPreparationMemory(job, message)
       if (message?.type === 'progress') {
-        Object.assign(job, { phase: message.progress.phase, progress: Number(message.progress.progress ?? job.progress), detail: message.progress.detail ?? '', rssBytes: Number(message.progress.memory ?? 0), updatedAt: now() })
+        Object.assign(job, jobProgressUpdate(message.progress, job))
       } else if (message?.type === 'complete') {
         terminalMessageReceived = true
         if (job.cancelRequested) return
@@ -2857,6 +2872,7 @@ async function dispatchLazyNationalTransitRoute(
   routeRequest,
   windowMinutes,
   signal,
+  collectOrderedChoices = false,
 ) {
   const exactCoverageUnavailable = Boolean(
     streetStorePath
@@ -2905,7 +2921,7 @@ async function dispatchLazyNationalTransitRoute(
       }
       return await nationalRouteWorkerPool.dispatch(
         storePath,
-        windowMinutes ? 'window' : 'route',
+        windowMinutes || collectOrderedChoices ? 'window' : 'route',
         routeRequest,
         signal,
       )
@@ -3109,6 +3125,7 @@ async function runSingleNationalRoute(projectId, body, signal, options = {}) {
         ...(requireTransitRide ? { __disableDirectWalkDominance: true } : {}),
         ...(options.allowSubMinuteTimes ? { __allowSubMinuteTimes: true } : {}),
       }
+  if (options.orderedSegment) routeRequest.__orderedSegment = true
   if (mode !== 'transit') {
     // The City's resident worker already owns its pedestrian snapshot. A
     // separate street-keyed worker can wait forever when all slots are leased.
@@ -3132,8 +3149,9 @@ async function runSingleNationalRoute(projectId, body, signal, options = {}) {
     routeRequest,
     windowMinutes,
     signal,
+    options.orderedSegment === true,
   )
-  if (!windowMinutes) {
+  if (!windowMinutes && !options.orderedSegment) {
     responseResult = { plan: routed, choices: [routed] }
   } else {
     const { plans: _samplePlans, ...window } = routed.profile
@@ -3212,14 +3230,14 @@ async function runNationalRoute(projectId, body, signal) {
         segmentRequest,
         signal,
         {
-          requireTransitRide: orderedMode === 'transit',
+          orderedSegment: orderedMode === 'transit',
           allowSubMinuteTimes: orderedRequest.timePreference === 'arrive'
             ? segmentIndex < points.length - 2
             : segmentIndex > 0,
         },
       )
       if (signal?.aborted) throw makeAbortError()
-      return response.plan
+      return response
     },
   )
   if (routed.failedIndex >= 0) {
@@ -3232,8 +3250,7 @@ async function runNationalRoute(projectId, body, signal) {
     return { plan, choices: [plan] }
   }
 
-  const plan = composeOrderedRoutingPlans(routed.componentPlans, points, orderedRequest)
-  return { plan, choices: [plan] }
+  return { plan: routed.choices[0], choices: routed.choices }
 }
 
 async function runScenarioRoadGeometry(projectId, body, signal) {
@@ -3516,7 +3533,7 @@ async function preloadNationalBuiltStore({
       undefined,
       (progress) => {
         Object.assign(job, {
-          phase: progress?.phase || 'Preloading exact timetable kernel',
+          ...jobProgressUpdate({ ...progress, phase: progress?.phase || 'Preloading exact timetable kernel' }, job),
           progress: 0.997 + Math.max(0, Math.min(1, Number(progress?.progress ?? 0))) * 0.002,
           detail: progress?.detail ?? job.detail,
           updatedAt: now(),
@@ -3710,8 +3727,22 @@ async function runNationalStreetMatrix(projectId, body, signal) {
 async function runReach(projectId, body, signal, onProgress, onPreliminary) {
   const project = await readProjectMetadata(projectId)
   const serviceContext = nationalRequestServiceContext(body)
-  const feedId = String(body?.feedId ?? '')
+  const feedIds = cityCaseFeedIds(project, body)
+  const feedId = feedIds ? (project.feeds.length === 1 ? feedIds[0] : '') : String(body?.feedId ?? '')
+  if (feedIds && project.feeds.length > 1 && project.routingStore?.status !== 'ready') {
+    const error = new Error('Wait for the combined City timetable to finish preparing.')
+    error.statusCode = 409
+    throw error
+  }
   const { storePath, feed } = await requireRoutingStore(projectId, project, feedId)
+  const availableScopes = feedIds ? await routingStoreSourceScopes(storePath) : []
+  if (feedIds && project.feeds.length > 1 && feedIds.some(id => !availableScopes.includes(id))) {
+    const error = new Error('The City timetable is out of date. Finish preparing its GTFS sources before running this case.')
+    error.statusCode = 409
+    throw error
+  }
+  const sourceScopes = feedIds && availableScopes.length ? feedIds : undefined
+  assertCaseRouteSources(body?.scenario, feedIds, Boolean(sourceScopes))
   body = normalizeRoutingPointIdentities(storePath, body,
     feed?.id ?? (project.feeds.length === 1 ? project.feeds[0].id : ''))
   const streetPath = project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))
@@ -3726,11 +3757,9 @@ async function runReach(projectId, body, signal, onProgress, onPreliminary) {
     nationalRouteArtifactIdentity(storePath),
     streetPath ? nationalRouteArtifactIdentity(streetPath, 'street') : Promise.resolve(null),
   ])
-  const baselineIdentity = JSON.stringify({
-    appVersion,
-    store: storeIdentity,
-    street: streetIdentity,
-  })
+  const baselineIdentity = crypto.createHash('sha256').update(JSON.stringify({
+    appVersion, store: storeIdentity, street: streetIdentity, feedIds,
+  })).digest('hex')
   const hydratedBody = hydrateScenarioRouteServices(
     storePath,
     storeIdentity,
@@ -3752,6 +3781,7 @@ async function runReach(projectId, body, signal, onProgress, onPreliminary) {
   return computeReachResult({
     ...hydratedBody,
     feedId,
+    feedIds,
     baselineIdentity,
   }, {
     runReach: (rangeRequest) => nationalRouteWorkerPool.dispatch(
@@ -3759,6 +3789,7 @@ async function runReach(projectId, body, signal, onProgress, onPreliminary) {
       'reach',
       {
         ...rangeRequest,
+        sourceScopes,
         streetStorePath: streetPath || undefined,
       },
       signal,
@@ -4180,6 +4211,15 @@ async function route(request, response) {
     return true
   }
 
+  if (request.method === 'GET' && pathname === '/api/storage') {
+    const volume = await fs.statfs(storageRoot)
+    sendJson(response, 200, {
+      capacityBytes: volume.blocks * volume.bsize,
+      availableBytes: volume.bavail * volume.bsize,
+    })
+    return true
+  }
+
   if ((request.method === 'POST' || request.method === 'PATCH') && pathname === '/api/config') {
     sendJson(response, 200, { config: await updateRuntimeConfig(await readBody(request)) })
     return true
@@ -4419,6 +4459,7 @@ async function route(request, response) {
                   phase: String(progress?.phase ?? 'preparation'),
                   progress: latestProgress,
                   detail: String(progress?.detail ?? ''),
+                  work: progress?.work,
                 },
               })
             },

@@ -789,7 +789,7 @@ try {
   assert.equal(result.stopTimeCount, 4)
   assert.equal(result.connectionCount, 2)
   assert.equal(result.shapePointCount, 4)
-  assert.equal(readNationalGtfsStoreMetadata(storePath).schemaVersion, 'vigo.routing.store.v3')
+  assert.equal(readNationalGtfsStoreMetadata(storePath).schemaVersion, 'vigo.routing.store.v4')
   const oversizedSourcePreflight = await runOversizedSourcePreflightFixture(storePath)
   assert.equal(oversizedSourcePreflight.preflight.eligible, false)
   assert.equal(oversizedSourcePreflight.preflight.reason, 'source_connection_guard')
@@ -1080,8 +1080,12 @@ try {
     assert.deepEqual(connected.legs[0].endpointConnector.coordinates[0], endpointRequest.origin.coordinate,
       'Transit output must retain the coordinate connector already charged by the native access search.')
     assert.equal(connected.legs[0].endpointConnector.streetPathVerified, false)
+    assert.deepEqual(connected.legs[0].endpointConnector.coordinates.at(-1), connected.legs[0].coordinates[0],
+      'The off-street connector ends where the mapped access geometry begins.')
     assert.deepEqual(connected.legs.at(-1).endpointConnector.coordinates.at(-1), endpointRequest.destination.coordinate,
       'Egress must expose its connection to the requested coordinate separately from the OSM path.')
+    assert.deepEqual(connected.legs.at(-1).endpointConnector.coordinates[0], connected.legs.at(-1).coordinates.at(-1),
+      'The mapped egress geometry ends where the coordinate connector begins.')
   }
 
   const competitiveWalk = routeNationalGtfsStore(denseAccessStorePath, denseAccessRequest)

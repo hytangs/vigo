@@ -88,6 +88,11 @@ try {
     checks += 5
     const reach = cli(runtime, 'reach', { serviceDate: base.serviceDate, time: base.time, origin: base.origin, rasterSize: 48, cutoffsMinutes: [15, 30], maxWalkKm: .2 })
     assertPublic(reach)
+    const map = cli(runtime, 'reach', { serviceDate: base.serviceDate, time: base.time, origin: base.origin, rasterSize: 48, cutoffsMinutes: [15, 30], maxWalkKm: .2, reachFormat: 'map' })
+    assertPublic(map)
+    assert.deepEqual(map.areas, reach.fullAreas || reach.areas)
+    assert(!Object.hasOwn(map, 'surface') && !Object.hasOwn(map, 'stops') && !Object.hasOwn(map, 'contours'))
+    assert.equal(map.meta.queryFingerprint, reach.meta.queryFingerprint)
     assert.equal(reach.surface.valuesSeconds.length, 48 * 48)
     assert.deepEqual(reach.cutoffsSeconds, [900, 1800])
     assert(reach.surface.valuesSeconds.every(v => v === null || Number.isInteger(v)))

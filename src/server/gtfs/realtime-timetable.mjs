@@ -10,6 +10,7 @@ import crypto from 'node:crypto'
 import { numeric } from '../number-utils.mjs'
 import { compileRealtimeTimetableKernel } from '../realtime-timetable-kernel.mjs'
 import { resolveRealtimeTripTimes } from '../realtime-trip-timing.mjs'
+import { serviceClock as realtimeServiceClock, serviceEpochSeconds } from './service-clock.mjs'
 import { routingDataModeForRequest } from '../routing-data-mode.mjs'
 import { stableJson } from '../routing-plan-identity.mjs'
 
@@ -18,8 +19,6 @@ const realtimeQueryContext = Symbol('vigo.internal.realtime-query-context')
 const realtimeTimetableCache = new WeakMap()
 
 const realtimeTripLookupCache = new WeakMap()
-
-const realtimeTimezoneFormatterCache = new Map()
 
 function normalizeRealtimeSnapshotForRouting(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -52,7 +51,9 @@ function realtimeTripLookup(kernel) {
   const suffix = new Map()
   for (let index = 0; index < kernel.tripIds.length; index += 1) {
     const tripId = String(kernel.tripIds[index] ?? '')
-    exact.set(tripId, index)
+    const exactMatches = exact.get(tripId) ?? []
+    exactMatches.push(index)
+    exact.set(tripId, exactMatches)
     const baseId = tripId.includes('\u001f') ? tripId.split('\u001f').at(-1) : tripId
     const matches = suffix.get(baseId) ?? []
     matches.push(index)
@@ -63,17 +64,19 @@ function realtimeTripLookup(kernel) {
   return lookup
 }
 
-function resolveRealtimeTripIndex(kernel, tripId, sourceScope) {
+function resolveRealtimeTripIndex(kernel, tripId, sourceScope, serviceDate) {
   const normalizedTripId = String(tripId ?? '').trim()
   if (!normalizedTripId) return undefined
   const lookup = realtimeTripLookup(kernel)
   const matches = normalizedTripId.includes('\u001f')
-    ? [lookup.exact.get(normalizedTripId)].filter(index => index !== undefined)
+    ? lookup.exact.get(normalizedTripId) ?? []
     : lookup.suffix.get(normalizedTripId) ?? []
   const scoped = sourceScope == null ? matches : matches.filter(index => (
     String(kernel.tripIds[index]).split('\u001f')[0] === String(sourceScope)
   ))
-  return scoped.length === 1 ? scoped[0] : undefined
+  const dated = scoped.filter(index => !kernel.tripServiceDates?.[index]
+    || realtimeServiceDateToken(kernel.tripServiceDates[index]) === realtimeServiceDateToken(serviceDate))
+  return dated.length === 1 ? dated[0] : undefined
 }
 
 function realtimeTripRelationship(value) {
@@ -86,59 +89,6 @@ function realtimeTripRelationship(value) {
 
 function realtimeServiceDateToken(serviceDate) {
   return String(serviceDate ?? '').replaceAll('-', '')
-}
-
-function realtimeTimezoneFormatter(timezone) {
-  const key = String(timezone || 'UTC')
-  const cached = realtimeTimezoneFormatterCache.get(key)
-  if (cached) return cached
-  let formatter
-  try {
-    formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: key,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hourCycle: 'h23',
-    })
-  } catch {
-    formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'UTC',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hourCycle: 'h23',
-    })
-  }
-  realtimeTimezoneFormatterCache.set(key, formatter)
-  return formatter
-}
-
-// One clock per snapshot build keeps reuse inside its service date/timezone.
-function realtimeServiceClock(serviceDate, timezone) {
-  const date = String(serviceDate ?? '').split('-').map(Number)
-  if (date.length !== 3 || date.some(part => !Number.isInteger(part))) return () => undefined
-  const serviceMidnight = Date.UTC(date[0], date[1] - 1, date[2])
-  const formatter = realtimeTimezoneFormatter(timezone), secondsByEpoch = new Map()
-  return epochSeconds => {
-    const epoch = numeric(epochSeconds, Number.NaN)
-    if (!Number.isFinite(epoch)) return undefined
-    if (secondsByEpoch.has(epoch)) return secondsByEpoch.get(epoch)
-    const parts = {}
-    for (const part of formatter.formatToParts(new Date(epoch * 1000))) {
-      if (part.type !== 'literal') parts[part.type] = Number(part.value)
-    }
-    const dayOffset = Math.round((Date.UTC(parts.year, parts.month - 1, parts.day) - serviceMidnight) / 86_400_000)
-    const seconds = dayOffset * 86_400 + parts.hour * 3_600 + parts.minute * 60 + parts.second
-    secondsByEpoch.set(epoch, seconds)
-    return seconds
-  }
 }
 
 function realtimeStaticTripStopTimes(store, tripId) {
@@ -250,7 +200,7 @@ export function realtimeTimetableForRequest(store, kernel, request, serviceDateR
   const snapshot = context?.snapshot
   if (!snapshot) return null
   const serviceDate = serviceDateResolution.resolvedServiceDate
-  const serviceDateToken = realtimeServiceDateToken(serviceDate)
+  const instanceDates = new Set([serviceDate, ...(kernel.tripServiceDates ?? [])].filter(Boolean).map(realtimeServiceDateToken))
   const previous = context.resolutions.get(kernel)
   if (previous?.serviceDate === serviceDate) return previous.result
   const now = context.nowSeconds
@@ -286,12 +236,12 @@ export function realtimeTimetableForRequest(store, kernel, request, serviceDateR
     stale: !fresh(snapshot.feedTimestamp),
   }
   const replacements = new Map(), canceledTrips = new Set(), trips = []
-  const resolved = snapshot.tripUpdates.map(update => resolveRealtimeTripIndex(kernel, update?.tripId, update?.sourceScope))
+  const resolved = snapshot.tripUpdates.map(update => resolveRealtimeTripIndex(kernel, update?.tripId, update?.sourceScope, update?.startDate || serviceDate))
   const identities = new Map()
   for (let index = 0; index < resolved.length; index++) {
     const trip = resolved[index], update = snapshot.tripUpdates[index]
     if (trip !== undefined && validity[index][0] && validity[index][1]
-      && (!update.startDate || realtimeServiceDateToken(update.startDate) === serviceDateToken)) {
+      && (!update.startDate || instanceDates.has(realtimeServiceDateToken(update.startDate)))) {
       identities.set(trip, (identities.get(trip) ?? 0) + 1)
     }
   }
@@ -299,11 +249,11 @@ export function realtimeTimetableForRequest(store, kernel, request, serviceDateR
   for (let index = 0; index < snapshot.tripUpdates.length; index++) {
     const update = snapshot.tripUpdates[index], tripIndex = resolved[index]
     if (!validity[index][0] || !validity[index][1]) { diagnostics.staleTrips++; continue }
-    if (tripIndex === undefined) { diagnostics.unmatchedTrips++; continue }
-    diagnostics.matchedTripUpdates++
-    if (update.startDate && realtimeServiceDateToken(update.startDate) !== serviceDateToken) {
+    if (update.startDate && !instanceDates.has(realtimeServiceDateToken(update.startDate))) {
       diagnostics.dateMismatches++; continue
     }
+    if (tripIndex === undefined) { diagnostics.unmatchedTrips++; continue }
+    diagnostics.matchedTripUpdates++
     if (identities.get(tripIndex) !== 1) { diagnostics.duplicateTrips++; continue }
     const tripId = kernel.tripIds[tripIndex]
     const sameId = (left, right) => String(left).includes('\u001f')
@@ -319,7 +269,13 @@ export function realtimeTimetableForRequest(store, kernel, request, serviceDateR
       continue
     }
     if (relationship !== 'SCHEDULED') { diagnostics.unsupportedTrips++; continue }
-    const rows = realtimeStaticTripStopTimes(store, tripId)
+    let rows = realtimeStaticTripStopTimes(store, tripId)
+    const instanceDate = kernel.tripServiceDates?.[tripIndex] || serviceDate
+    if (instanceDate !== serviceDate) {
+      const zone = store.agencyTimezones[0] || 'UTC'
+      const offset = serviceEpochSeconds(instanceDate, zone) - serviceEpochSeconds(serviceDate, zone)
+      rows = rows.map(row => ({ ...row, arrival: row.arrival + offset, departure: row.departure + offset }))
+    }
     if (rows.length < 2) { diagnostics.invalidTrips++; continue }
     toServiceSeconds ??= realtimeServiceClock(serviceDate, store.agencyTimezones[0] || 'UTC')
     const timing = resolveRealtimeTripTimes(rows, update, toServiceSeconds,

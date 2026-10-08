@@ -21,6 +21,7 @@ import {
   routeNationalStreetStore,
 } from '../src/server/national-osm-store.mjs'
 import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
+import { transitDominatingDirectWalkPlan } from '../src/server/gtfs/walking-plans.mjs'
 
 const worker = process.argv[2] === '--fixture-worker'
 const root = worker ? process.argv[3] : fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-street-routing-'))
@@ -176,6 +177,11 @@ if (worker) {
   assert.equal(Number(walk.durationMinutes.toFixed(3)), 2.5)
   assert(!Object.hasOwn(walk.diagnostics.searchStats, 'cacheHit'))
   assert.equal(walk.diagnostics.searchStats.accelerated, true)
+  const equalDeparture = transitDominatingDirectWalkPlan({ ...walkRequest, mode: 'transit',
+    timePreference: 'arrive', arriveMinutes: 500, streetStorePath: currentStore }, 1.2,
+  { status: 'ready', travelMode: 'transit', departMinutes: 497.5, durationMinutes: 2.5, diagnostics: {} },
+  { distanceKm: 0.2, coordinates: walk.legs[0].coordinates })
+  assert.equal(equalDeparture.travelMode, 'walk', 'An exact arrive-by departure tie must prefer zero boardings')
 
   const repeatedWalk = routeNationalStreetStore(currentStore, walkRequest)
   assert(!Object.hasOwn(repeatedWalk.diagnostics.searchStats, 'cacheHit'))

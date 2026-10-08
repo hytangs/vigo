@@ -143,7 +143,7 @@ assert.deepEqual(abc.legs.map((leg) => [leg.fromName, leg.toName]), [
   ['Map point B', 'Map point C'],
 ])
 assert.equal(abc.diagnostics.algorithm, 'ordered_waypoint_composition')
-assert.equal(abc.diagnostics.optimality, 'exact_per_leg_for_fixed_user_order')
+assert.equal(abc.diagnostics.optimality, 'best_objective_within_bounded_waypoint_frontier')
 assert.equal(abc.diagnostics.sequenceOptimization, 'user_order_preserved')
 assert.equal(abc.diagnostics.searchStats.componentSearches, 2)
 assert.equal(abc.diagnostics.searchStats.queryMs, 2)
@@ -242,7 +242,7 @@ const walkOnlyBToC = {
     algorithm: 'osm_direct_walk_vs_transit',
   },
 }
-const rejectedWalkOnlyComposition = composeOrderedRoutingPlans(
+const mixedWalkComposition = composeOrderedRoutingPlans(
   [
     transitPlan('transit-a-b-compose', a, b, 480, 490, [throughRide(a, b, 480, 490)]),
     walkOnlyBToC,
@@ -250,9 +250,10 @@ const rejectedWalkOnlyComposition = composeOrderedRoutingPlans(
   [a, b, c],
   { mode: 'transit', timePreference: 'depart' },
 )
-assert.equal(rejectedWalkOnlyComposition.status, 'blocked')
-assert.equal(rejectedWalkOnlyComposition.title, 'No route for leg 2')
-assert.match(rejectedWalkOnlyComposition.detail, /requires at least one scheduled ride/)
+assert.equal(mixedWalkComposition.status, 'ready')
+assert.equal(mixedWalkComposition.travelMode, 'transit')
+assert.equal(mixedWalkComposition.transfers, 0)
+assert.equal(mixedWalkComposition.walkMinutes, 15)
 
 const reversed = [a, b].reverse()
 assert.equal(reversed[0], b)

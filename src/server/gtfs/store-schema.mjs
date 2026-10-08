@@ -16,6 +16,7 @@ export function createRoutingStoreSchema(db) {
       trip_count INTEGER NOT NULL,
       PRIMARY KEY(source_scope, route_type, service_key)
     ) WITHOUT ROWID;
+    CREATE TABLE trip_details(trip_id TEXT PRIMARY KEY, headsign TEXT, short_name TEXT) WITHOUT ROWID;
     CREATE TABLE trip_shapes(trip_id TEXT PRIMARY KEY, shape_id TEXT NOT NULL);
     CREATE TABLE shape_points(shape_id TEXT NOT NULL, sequence INTEGER NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL, PRIMARY KEY(shape_id, sequence)) WITHOUT ROWID;
     CREATE TABLE calendar(service_id TEXT PRIMARY KEY, monday INTEGER, tuesday INTEGER, wednesday INTEGER, thursday INTEGER, friday INTEGER, saturday INTEGER, sunday INTEGER, start_date INTEGER, end_date INTEGER);

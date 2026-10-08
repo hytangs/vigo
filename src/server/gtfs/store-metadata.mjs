@@ -6,9 +6,9 @@ import { performance as nodePerformance } from 'node:perf_hooks'
 import { DatabaseSync } from 'node:sqlite'
 import { stableJson } from '../routing-plan-identity.mjs'
 
-// v3 preserves missing station coordinates and pathway costs as null. Older
-// stores cannot distinguish coerced zero values from explicit source values.
-export const storeSchemaVersion = 'vigo.routing.store.v3'
+// v4 retains source trip headsigns and names. City containers and preparation
+// policies are versioned separately from the application release.
+export const storeSchemaVersion = 'vigo.routing.store.v4'
 
 export const transferSemanticsVersion = 'vigo.routing.transfers.v4'
 
@@ -20,7 +20,7 @@ export const stopAccessRoleIndexVersion = 'vigo.routing.stop-access-roles.v1'
 // brittle and added no useful protection after the store was opened read-only.
 const routingStoreTableNames = Object.freeze([
   'metadata', 'stops', 'routes', 'trips', 'route_services',
-  'trip_shapes', 'shape_points', 'calendar', 'calendar_dates', 'transfers',
+  'trip_details', 'trip_shapes', 'shape_points', 'calendar', 'calendar_dates', 'transfers',
   'frequencies', 'connections', 'stop_modes', 'stop_access_roles',
 ])
 

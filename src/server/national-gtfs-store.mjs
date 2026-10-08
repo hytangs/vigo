@@ -1,3 +1,4 @@
+import { selectedSourceScopes, serviceInSources, scopedServiceResolution } from './gtfs/source-selection.mjs'
 import { estimatedPathwaySeconds } from './gtfs/pathway-cost.mjs'
 import { recoverNativeArriveByBoundary } from './gtfs/arrive-by-reconstruction.mjs'
 import { prepareServiceTransfers, expandTransferSteps } from './gtfs/transfer-paths.mjs'
@@ -56,6 +57,8 @@ import {
   resolveServiceDate,
   serviceDateDiagnostics,
   servicesForDate,
+  serviceInstancesForQuery,
+  earlierArrivalClock,
   yyyymmdd,
 } from './gtfs/service-calendar.mjs'
 import {
@@ -1205,6 +1208,8 @@ export async function buildRoutingStoreFromSchedules({ schedules, outputPath, on
       tripCount,
       stopTimeCount,
       connectionCount,
+      minimumServiceTimeSeconds: Number(db.prepare('SELECT COALESCE(MIN(departure),0) AS earliest FROM connections').get().earliest),
+      maximumServiceTimeSeconds: Number(db.prepare('SELECT COALESCE(MAX(arrival),0) AS latest FROM connections').get().latest),
       connectionPermissionCount: 0,
       boardingAlightingModel: 'sparse-connection-permissions-v1',
       departureIndexState: 'ready',
@@ -1358,7 +1363,10 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
           target.exec('COMMIT; BEGIN IMMEDIATE')
           report(onProgress, `Reading ${name}`, progress, `${batch.toLocaleString()} rows`)
         }
-      }, { budget: zipImportBudget })
+      }, { budget: zipImportBudget, onProgress: (work) => onProgress?.({
+        phase: `Reading ${name}`, progress, work,
+        detail: `${work.rows.toLocaleString()} rows`, memory: process.memoryUsage().rss,
+      }) })
       target.exec('COMMIT')
       counts[name] = result.rows
       profiles.push({ name, present: true, rowCount: result.rows, fields: result.fields })
@@ -1406,9 +1414,11 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
         }
         return [row.route_id, row.route_short_name || '', row.route_long_name || '', numeric(row.route_type, 3), row.route_color || '']
       })
+    const insertTripDetails = db.prepare('INSERT INTO trip_details VALUES(?,?,?)')
     await importTable('trips.txt', 0.14,
       'INSERT INTO trips VALUES(?,?,?,?)',
       (row) => {
+        insertTripDetails.run(row.trip_id, row.trip_headsign || null, row.trip_short_name || null)
         if (String(row.block_id ?? '').trim()) featureInventory.blockTripCount += 1
         const wheelchairAccessible = String(row.wheelchair_accessible ?? '').trim()
         const bikesAllowed = String(row.bikes_allowed ?? '').trim()
@@ -1697,6 +1707,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
           if (frequencyTripIds.has(instance.tripId)) continue
           frequencyTripIds.add(instance.tripId)
           insertFrequencyTrip.run(instance.tripId, trip.route_id, trip.service_id, trip.direction_id)
+          db.prepare('INSERT INTO trip_details SELECT ?,headsign,short_name FROM trip_details WHERE trip_id=?').run(instance.tripId, row.trip_id)
           const shape = tripShapeLookup.get(row.trip_id)?.shape_id
           if (shape) insertFrequencyTripShape.run(instance.tripId, shape)
           exactFrequencyExpandedTripCount += 1
@@ -1791,6 +1802,8 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       stopTimeCount: counts['stop_times.txt'] ?? 0,
       connectionCount,
       connectionPermissionCount: countFeedRows('connection_permissions', 'trip_id'),
+      minimumServiceTimeSeconds: Number(db.prepare('SELECT COALESCE(MIN(departure),0) AS earliest FROM connections').get().earliest),
+      maximumServiceTimeSeconds: Number(db.prepare('SELECT COALESCE(MAX(arrival),0) AS latest FROM connections').get().latest),
       boardingAlightingModel: 'sparse-connection-permissions-v1',
       departureIndexState: forCity ? 'deferred' : 'ready',
       stopAccessRoleIndexVersion,
@@ -1942,6 +1955,8 @@ function mergedGtfsMetadata(db, descriptors, metadataByStore, nearbyTransfers, f
     tripCount: count('trips'),
     stopTimeCount: metadataByStore.reduce((sum, metadata) => sum + Number(metadata.stopTimeCount ?? 0), 0),
     connectionCount: count('connections'),
+    minimumServiceTimeSeconds: Number(db.prepare('SELECT COALESCE(MIN(departure),0) AS earliest FROM connections').get().earliest),
+    maximumServiceTimeSeconds: Number(db.prepare('SELECT COALESCE(MAX(arrival),0) AS latest FROM connections').get().latest),
     connectionPermissionCount: count('connection_permissions'),
     boardingAlightingModel: 'sparse-connection-permissions-v1',
     departureIndexState: forCity ? 'deferred' : 'ready',
@@ -2037,6 +2052,8 @@ export async function mergeNationalGtfsStores({ stores, outputPath, onProgress, 
             SELECT ${prefixSql} || route_id, short_name, long_name, route_type, color FROM ${alias}.routes;
           INSERT INTO trips
             SELECT ${prefixSql} || trip_id, ${prefixSql} || route_id, ${prefixSql} || service_id, direction_id FROM ${alias}.trips;
+          INSERT INTO trip_details
+            SELECT ${prefixSql} || trip_id, headsign, short_name FROM ${alias}.trip_details;
           INSERT INTO trip_shapes
             SELECT ${prefixSql} || trip_id, ${prefixSql} || shape_id FROM ${alias}.trip_shapes;
           INSERT INTO shape_points
@@ -3153,7 +3170,7 @@ function exactStationAccessCandidate(stop, accessPriority) {
     exactStopAccess: true,
     walkSource: 'station-selection',
     accessPriority,
-    expandServiceMembers: true,
+    expandServiceMembers: false,
   }
 }
 
@@ -3780,10 +3797,21 @@ function prepareAccessStops(
     boundedCacheSet(store.accessStopsCache, cacheKey, [], 20_000)
     return []
   }
+  if (selectedStop?.location_type === 1) {
+    // A station centroid is a coordinate, not a free alias for every platform.
+    // Its access path must pay the same street and pathway costs as a map point.
+    if (!streetStorePath) {
+      const error = new Error('Parent-station selection requires prepared street and station access.')
+      error.code = 'VIGO_STATION_ACCESS_UNSUPPORTED'
+      throw error
+    }
+    const selected = preparePointAccessStops(store, { coordinate: [selectedStop.lon, selectedStop.lat], source: 'map' },
+      maxWalkKm, streetStorePath, streetStorageIdentity, accessRole)
+    boundedCacheSet(store.accessStopsCache, cacheKey, selected, 20_000)
+    return selected
+  }
   if (selectedStop) {
-    const stationId = selectedStop.location_type === 1
-      ? selectedStop.stop_id
-      : String(selectedStop.parent_station ?? '').trim()
+    const stationId = ''
     const memberIds = stationId
       ? [stationId, ...(store.stationMembers.get(stationId) ?? [])]
       : [selectedStop.stop_id]
@@ -3949,7 +3977,7 @@ function accessAvailabilityHint(
 
 export function inspectNationalGtfsAccessCandidates(storePath, point, options = {}) {
   const store = openNationalStore(storePath)
-  const maxWalkKm = Math.max(0.2, Math.min(5, numeric(options.maxWalkKm, 1.6)))
+  const maxWalkKm = endpointWalkLimitKm(options.maxWalkKm)
   const explicitStopId = explicitRoutingStopId(point)
   const accessRole = options.accessRole === 'destination' ? 'destination' : 'origin'
   const before = stopAccessIndexDiagnostics(store)
@@ -4007,18 +4035,26 @@ export function inspectNationalGtfsAccessCandidates(storePath, point, options = 
   }
 }
 
-function activateServices(store, serviceDate, serviceDay = 'weekday') {
-  const serviceCalendarKey = `${serviceDate}|${serviceDay}`
+function activateServices(store, serviceDate, serviceDay = 'weekday', request = null) {
+  const sourceScopes = selectedSourceScopes(store, request)
+  const allInstances = serviceInstancesForQuery(store, serviceDate, request)
+  const instances = sourceScopes && allInstances ? allInstances.filter(entry => serviceInSources(entry.serviceId, sourceScopes)) : allInstances
+  const instanceKey = instances ? JSON.stringify(instances) : ''
+  const sourceKey = sourceScopes ? JSON.stringify([...sourceScopes].sort()) : ''
+  const serviceCalendarKey = `${serviceDate}|${serviceDay}|${sourceKey}${instanceKey ? `|${instanceKey}` : ''}`
   if (
     store.activeServiceCalendarKey === serviceCalendarKey
     && store.activeServices instanceof Set
   ) return store.activeServices
-  const services = servicesForDate(store, serviceDate, serviceDay)
+  const allServices = instances ? new Set(instances.map(v => v.serviceId)) : servicesForDate(store, serviceDate, serviceDay)
+  const services = sourceScopes ? new Set([...allServices].filter(id => serviceInSources(id, sourceScopes))) : allServices
+  store.activeSourceScopes = sourceScopes
+  store.activeServiceInstances = instances
   if (store.activeServiceCalendarKey === serviceCalendarKey) {
     store.activeServices = services
     return services
   }
-  const serviceSetKey = `services:${[...services].sort().join('\u001f')}`
+  const serviceSetKey = instanceKey ? `calendar-window:${serviceDate}:${instanceKey}` : `services:${[...services].sort().join('\u001f')}`
   // Calendar dates are resolved before this identity is computed, including
   // calendar_dates additions/removals. Equivalent dates may therefore reuse
   // one immutable timetable kernel, while any exception that changes the
@@ -4429,7 +4465,8 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
   const startedAt = performance.now()
   const memoryBefore = process.memoryUsage()
   const snapshotPath = activeServiceKernelSnapshotPath(store, serviceKey)
-  const persistedKernel = loadPersistedActiveServiceKernel(store, serviceKey, snapshotPath)
+  const persistedKernel = store.activeServiceInstances ? { persistenceState: 'calendar_window_memory_only' }
+    : loadPersistedActiveServiceKernel(store, serviceKey, snapshotPath)
   if (persistedKernel.kernel) {
     const kernel = persistedKernel.kernel
     Object.assign(kernel, {
@@ -4518,6 +4555,7 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
       `).get().count)
       builder.close()
       builder = null
+      if (store.activeServiceInstances) activeSegmentCount *= new Set(store.activeServiceInstances.map(v => v.offsetSeconds)).size
     }
     if (
       activeServiceKernelMaxSegments > 0
@@ -4546,7 +4584,7 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
     const {
       stopIds, stopIndex, departureSeconds, arrivalSeconds, fromStop, toStop, sequence,
       segmentTrip, segmentRun, continuityBreak, canBoard, canAlight, tripStart,
-      tripIds, routeIds, serviceIds, directionIds, runCount, stopCount,
+      tripIds, routeIds, serviceIds, directionIds, tripServiceDates, runCount, stopCount,
     } = readServiceTimetable(store, services, activeSegmentCount)
     activeSegmentCount = departureSeconds.length
     if (activeSegmentCount === 0) return skipped('no_active_segments', 'The active services contain no routable connections.')
@@ -4599,6 +4637,7 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
       routeIds,
       serviceIds,
       directionIds,
+      tripServiceDates,
       departureOffset,
       departureOrder,
       transferOffset,
@@ -4620,7 +4659,9 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
     }
 
     const nativeTimetableKernel = preloadNativeTimetableKernel(kernel)
-    const persistence = persistActiveServiceKernel(kernel, snapshotPath, store.storePath)
+    const persistence = store.activeSourceScopes ? { persistenceState: 'source_selection_memory_only' }
+      : store.activeServiceInstances ? { persistenceState: 'calendar_window_memory_only' }
+      : persistActiveServiceKernel(kernel, snapshotPath, store.storePath)
     const memoryAfter = process.memoryUsage()
     const buildMs = Number((performance.now() - startedAt).toFixed(3))
     kernel.buildMs = buildMs
@@ -5479,7 +5520,12 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
       routeFeatureId: first.route_id, routeId: first.route_id,
       routeType: route.route_type,
       routeShortName: route.short_name || route.long_name || first.route_id, routeColor: route.color || undefined,
-      tripId: first.trip_id, directionId: first.direction_id || undefined,
+      tripId: first.trip_id, directionId: first.direction_id || undefined, serviceId: first.service_id,
+      serviceDate: kernel.tripServiceDates?.[step.kernelTripIndex] || request.serviceDate,
+      headsign: store.db.prepare('SELECT headsign FROM trip_details WHERE trip_id=?').get(first.trip_id)?.headsign ?? null,
+      intermediateStops: connections.slice(0, -1).map((c, i) => ({ stopId: c.to_stop_id,
+        name: stopLookup.get(c.to_stop_id)?.name ?? c.to_stop_id, arrival: c.arrival,
+        departure: connections[i + 1].from_stop_id === c.to_stop_id ? connections[i + 1].departure : null })),
       startMinutes: minuteCoordinate(first.departure), endMinutes: minuteCoordinate(last.arrival),
       durationMinutes: secondsToMinutes(last.arrival - first.departure), distanceKm: geometry.distanceKm,
       stopIds: [first.from_stop_id, ...connections.map((connection) => connection.to_stop_id)],
@@ -6056,7 +6102,7 @@ function routeNationalGtfsStreetReach(storePath, request, options = {}) {
     throw new Error('Reach analysis requires a valid origin coordinate.')
   }
   const departureMinutes = integralRoutingMinute(request.departMinutes, 'departMinutes')
-  const maxWalkKm = Math.max(0.2, Math.min(5, numeric(request.maxWalkKm, 1.2)))
+  const maxWalkKm = endpointWalkLimitKm(request.maxWalkKm)
   const walkSpeedKph = Math.max(1, Math.min(8, numeric(
     request.walkSpeedKph,
     nationalRoutingAccessPolicy.walkingSpeedKph,
@@ -6088,12 +6134,12 @@ function routeNationalGtfsStreetReach(storePath, request, options = {}) {
     error.features = store.blockingRoutingFeatures
     throw error
   }
-  const serviceDateResolution = resolveServiceDate(
+  const serviceDateResolution = scopedServiceResolution(store, resolveServiceDate(
     store,
     request.serviceDate,
     request.serviceDay,
     false,
-  )
+  ), request)
   if (requiredServiceCoverageIncomplete(request, serviceDateResolution)) {
     const error = new Error('Reach analysis requires complete service coverage for the selected date.')
     error.code = 'coverage_incomplete'
@@ -6103,6 +6149,7 @@ function routeNationalGtfsStreetReach(storePath, request, options = {}) {
     store,
     serviceDateResolution.resolvedServiceDate,
     request.serviceDay,
+    request,
   )
   const residentStarted = performance.now()
   const activeKernel = ensureActiveServiceKernel(store, services).kernel
@@ -6698,6 +6745,13 @@ export function routeNationalGtfsMatrix(storePath, request) {
   request = normalizeScheduledAnalysisRequest(request, 'Matrix')
   const reserve = arrivalReserve(request)
   if (reserve) return withArrivalReserve(routeNationalGtfsMatrix(storePath, reserve.request), reserve, true)
+  const earlier = earlierArrivalClock(openNationalStore(storePath), request)
+  if (earlier) {
+    const result = routeNationalGtfsMatrix(storePath, earlier)
+    result.diagnostics ??= {}
+    result.diagnostics.clockDate = earlier.serviceDate
+    return result
+  }
   request = { ...request, __disableNativeStreetPathCache: request.__disableNativeStreetPathCache === true || request.disableCache === true }
   validateTransitRideRequirement(request)
   validateMaximumTransfers(request.maxTransfers)
@@ -6860,13 +6914,13 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
     arriveBy ? 'arriveMinutes' : 'departMinutes',
   )
   const anchor = Math.round(anchorMinutes * 60)
-  const maxWalkKm = Math.max(0.2, Math.min(5, numeric(request.maxWalkKm, 1.6)))
+  const maxWalkKm = endpointWalkLimitKm(request.maxWalkKm)
   const matrixHorizonMinutes = routingHorizonMinutes(request)
   const departure = arriveBy ? Math.max(0, anchor - matrixHorizonMinutes * 60) : anchor
   const horizon = arriveBy ? anchor : anchor + matrixHorizonMinutes * 60
   const blockedTimes = { departMinutes: arriveBy ? null : anchorMinutes, arriveMinutes: arriveBy ? anchorMinutes : null, durationMinutes: null }
   const representativeSnapshot = request.allowServiceDateFallback === true && request.serviceDateFallbackPolicy === 'representative-snapshot'
-  const serviceDateResolution = resolveServiceDate(store, request.serviceDate, request.serviceDay, representativeSnapshot)
+  const serviceDateResolution = scopedServiceResolution(store, resolveServiceDate(store, request.serviceDate, request.serviceDay, representativeSnapshot), request)
   if (store.blockingRoutingFeatures.length) {
     return {
       schemaVersion: 'vigo.routing.matrix.v1',
@@ -6915,7 +6969,7 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
       },
     }
   }
-  const services = activateServices(store, serviceDateResolution.resolvedServiceDate, request.serviceDay)
+  const services = activateServices(store, serviceDateResolution.resolvedServiceDate, request.serviceDay, request)
   const activeKernel = timetableForTransferSelection(store, ensureActiveServiceKernel(store, services).kernel, request)
   if (!activeKernel) {
     if (['no_active_segments', 'no_active_services'].includes(store.activeServiceKernelStatus?.reason)) {
@@ -6993,14 +7047,16 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
       departure, horizon, arriveBy, maxTransfers: request.maxTransfers, includeJourneys: request.includeJourneys,
     })
   } else {
-    const destinationSeedSets = uniqueDestinations.map((point) => activeServiceKernelAccessSeeds(activeKernel,
-      preparePointAccessStops(store, point, maxWalkKm, request.streetStorePath, streetStorageIdentity, 'destination', disableCache)))
-    const originSeedSets = uniqueOrigins.map((point) => activeServiceKernelAccessSeeds(activeKernel,
-      preparePointAccessStops(store, point, maxWalkKm, request.streetStorePath, streetStorageIdentity, 'origin', disableCache)))
+    const destinationAccess = uniqueDestinations.map((point) =>
+      preparePointAccessStops(store, point, maxWalkKm, request.streetStorePath, streetStorageIdentity, 'destination', disableCache))
+    const originAccess = uniqueOrigins.map((point) =>
+      preparePointAccessStops(store, point, maxWalkKm, request.streetStorePath, streetStorageIdentity, 'origin', disableCache))
+    const destinationSeedSets = destinationAccess.map((stops) => activeServiceKernelAccessSeeds(activeKernel, stops))
+    const originSeedSets = originAccess.map((stops) => activeServiceKernelAccessSeeds(activeKernel, stops))
     search = routeNativeTimetableMatrix(activeKernel, {
       originSeedSets, destinationSeedSets, maxTransfers: request.maxTransfers,
-      allowPreRideTransfers: uniqueOrigins.map((point) => !request.streetStorePath || Boolean(explicitRoutingStopId(point))),
-      allowPostRideTransfers: uniqueDestinations.map((point) => !request.streetStorePath || Boolean(explicitRoutingStopId(point))),
+      allowPreRideTransfers: originAccess.map(allowsTerminalTransfers),
+      allowPostRideTransfers: destinationAccess.map(allowsTerminalTransfers),
       departure, horizon, arriveBy, includeJourneys: request.includeJourneys,
     })
   }
@@ -7088,7 +7144,7 @@ function routeNationalGtfsArriveByStore(
   const deadline = Math.round(targetMinutes * 60)
   const horizonSeconds = routingHorizonMinutes(request) * 60
   const earliest = Math.max(0, deadline - horizonSeconds)
-  const maxWalkKm = Math.max(0.2, Math.min(5, numeric(request.maxWalkKm, 1.6)))
+  const maxWalkKm = endpointWalkLimitKm(request.maxWalkKm)
   const serviceDateResolution = resolveServiceDate(
     store,
     request.serviceDate,
@@ -7102,7 +7158,7 @@ function routeNationalGtfsArriveByStore(
     return { ...blocked, timePreference: 'arrive', choiceLabel: 'No complete timetable' }
   }
   const serviceActivationStartedAt = performance.now()
-  const services = activateServices(store, serviceDateResolution.resolvedServiceDate, request.serviceDay)
+  const services = activateServices(store, serviceDateResolution.resolvedServiceDate, request.serviceDay, request)
   const serviceActivationMs = Number((performance.now() - serviceActivationStartedAt).toFixed(3))
   if (!services.size) {
     const retry = fallbackRetryRequest(store, request)
@@ -7310,7 +7366,7 @@ function routeNationalGtfsArriveByStore(
     return { ...blocked, timePreference: 'arrive', choiceLabel: 'No arrive-by itinerary' }
   }
   const allowPreRideTransfers =
-    !request.streetStorePath || Boolean(explicitRoutingStopId(request.origin))
+    allowsTerminalTransfers(originStops)
 
   const planMeetsArriveByDeadline = (plan) => {
     if (plan.status !== 'ready') return false
@@ -7793,10 +7849,23 @@ export function addNationalGtfsFares(storePath, plan) {
   return addGtfsFares(openNationalStore(storePath).db, plan)
 }
 
+function endpointWalkLimitKm(value, fallback = 1.2) {
+  const distance = value == null ? fallback : Number(value)
+  if (!Number.isFinite(distance) || distance < 0 || distance > 100) throw new Error('maxWalkKm must be between 0 and 100.')
+  return distance
+}
+
 export function routeNationalGtfsStore(storePath, request) {
   request = normalizeRoutingDataRequest(request)
   const reserve = arrivalReserve(request)
   if (reserve) return withArrivalReserve(routeNationalGtfsStore(storePath, reserve.request), reserve)
+  const earlier = earlierArrivalClock(openNationalStore(storePath), request)
+  if (earlier) {
+    const result = routeNationalGtfsStore(storePath, earlier)
+    result.diagnostics ??= {}
+    result.diagnostics.clockDate = earlier.serviceDate
+    return result
+  }
   validateTransitRideRequirement(request)
   validateMaximumTransfers(request.maxTransfers)
   validateTransferSelection(request)
@@ -7810,7 +7879,7 @@ export function routeNationalGtfsStore(storePath, request) {
     )
   }
   const routeStartedAt = performance.now()
-  const maxWalkKm = Math.max(0.2, Math.min(5, numeric(request.maxWalkKm, 1.6)))
+  const maxWalkKm = endpointWalkLimitKm(request.maxWalkKm)
   request = withRealtimeQueryContext(request)
   const resolvedStorePath = path.resolve(storePath)
   if (!request.routingDataMode && !nationalStoreCache.has(resolvedStorePath)) {
@@ -7959,7 +8028,8 @@ export function routeNationalGtfsStore(storePath, request) {
     }
     const horizon = departure + normalizedHorizonMinutes * 60
     const requestedServiceCalendarKey = `${serviceDateResolution.resolvedServiceDate}|${request.serviceDay ?? 'weekday'}`
-    const residentFusedKernel = store.activeServiceCalendarKey === requestedServiceCalendarKey
+    const residentFusedKernel = !serviceInstancesForQuery(store, serviceDateResolution.resolvedServiceDate, request)
+      && store.activeServiceCalendarKey === requestedServiceCalendarKey
       ? currentActiveServiceKernel(store)
       : null
     const residentRealtimeTimetable = residentFusedKernel
@@ -8152,7 +8222,7 @@ export function routeNationalGtfsStore(storePath, request) {
       return decorateResult(accessFrontierDirectWalk.plan)
     }
     const serviceActivationStartedAt = performance.now()
-    const services = activateServices(store, serviceDateResolution.resolvedServiceDate, request.serviceDay)
+    const services = activateServices(store, serviceDateResolution.resolvedServiceDate, request.serviceDay, request)
     const serviceActivationMs = Number((performance.now() - serviceActivationStartedAt).toFixed(3))
     if (!services.size) {
       const retry = fallbackRetryRequest(store, request)
@@ -8189,7 +8259,7 @@ export function routeNationalGtfsStore(storePath, request) {
       let realtimeTimetable = null
       try {
         const allowPreRideTransfers = (
-          !request.streetStorePath || Boolean(explicitRoutingStopId(origin))
+          allowsTerminalTransfers(originStops)
         )
         realtimeTimetable = fusedCoordinateTimetable?.realtimeTimetable
           ?? realtimeTimetableForRequest(store, activeKernel, request, serviceDateResolution)
@@ -8615,7 +8685,7 @@ export function routeNationalGtfsStore(storePath, request) {
 }
 
 function routeNationalGtfsParetoAlternatives(storePath, request, centerMinutes, requestedCount = 5) {
-  const preferredWalkKm = Math.max(0.2, Math.min(5, numeric(request.maxWalkKm, 1.6)))
+  const preferredWalkKm = endpointWalkLimitKm(request.maxWalkKm)
   const alternativeWalkKm = Math.max(preferredWalkKm, Math.min(5, numeric(request.alternativeMaxWalkKm, preferredWalkKm)))
   if (
     request.timePreference === 'arrive'
@@ -8814,6 +8884,48 @@ function routeNationalGtfsParetoAlternatives(storePath, request, centerMinutes, 
   }
 }
 
+// A waypoint needs alternatives at its exact clock, not another departure
+// window. The caller keeps a bounded frontier of complete journey prefixes.
+export function routeNationalGtfsOrderedSegment(storePath, request) {
+  const store = openNationalStore(storePath)
+  const earlier = earlierArrivalClock(store, request)
+  if (earlier) {
+    const offset = earlier.arriveMinutes - Number(request.arriveMinutes ?? request.departMinutes)
+    const result = routeNationalGtfsOrderedSegment(storePath, earlier)
+    const shift = plan => ({ ...plan,
+      id: stablePlanId('ordered-clock', { id: plan.id, date: request.serviceDate, offset }),
+      departMinutes: plan.departMinutes - offset, arriveMinutes: plan.arriveMinutes - offset,
+      legs: plan.legs.map(leg => ({ ...leg, startMinutes: leg.startMinutes - offset, endMinutes: leg.endMinutes - offset })),
+      diagnostics: { ...plan.diagnostics, orderedClockDate: request.serviceDate, clockDate: request.serviceDate },
+    })
+    result.choices = result.choices.map(shift)
+    result.plan = result.choices[0] ?? shift(result.plan)
+    return result
+  }
+  request = withRealtimeQueryContext(normalizeRoutingDataRequest(request))
+  const decorate = plan => {
+    plan = attachRoutingDataProvenance(plan, store, request)
+    plan.diagnostics.orderedClockDate = request.serviceDate
+    return plan
+  }
+  if (request.timePreference !== 'arrive') {
+    const result = routeNationalGtfsDepartureWindow(storePath, { ...request, departureWindowMinutes: 0 })
+    result.choices = result.choices.map(decorate)
+    result.plan = result.choices[0] ?? result.plan
+    return result
+  }
+  const plan = decorate(routeNationalGtfsStore(storePath, request))
+  const choices = [plan]
+  if (plan.status === 'ready' && plan.legs.some(leg => leg.type === 'ride')) {
+    const walk = directWalkAlternativePlan(request, endpointWalkLimitKm(request.maxWalkKm), directWalkEndToEndLimitKm(request)).plan
+    if (walk) {
+      walk.diagnostics = { ...walk.diagnostics, realtimeRouting: plan.diagnostics?.realtimeRouting }
+      choices.push(decorate(walk))
+    }
+  }
+  return { plan, choices, profile: { routeSearches: 1 } }
+}
+
 export function routeNationalGtfsDepartureWindow(storePath, request) {
   request = normalizeRoutingDataRequest(request)
   validateTransitRideRequirement(request)
@@ -8822,7 +8934,9 @@ export function routeNationalGtfsDepartureWindow(storePath, request) {
   request = withResolvedServiceDay(request)
   request = withRealtimeQueryContext(request)
   const windowStartedAt = performance.now()
-  const centerMinutes = integralRoutingMinute(request.departMinutes, 'departMinutes')
+  const centerMinutes = request.__allowSubMinuteTimes === true && request.__orderedSegment === true
+    ? Number(request.departMinutes)
+    : integralRoutingMinute(request.departMinutes, 'departMinutes')
   const windowMinutes = integralRoutingMinute(
     request.departureWindowMinutes,
     'departureWindowMinutes',
@@ -8836,8 +8950,8 @@ export function routeNationalGtfsDepartureWindow(storePath, request) {
   const startMinutes = Math.max(0, centerMinutes - beforeMinutes)
   const endMinutes = centerMinutes + afterMinutes
   const sampleMinutes = []
-  for (let minute = startMinutes; minute <= endMinutes + 1e-9; minute += stepMinutes) sampleMinutes.push(Number(minute.toFixed(3)))
-  const maxWalkKm = Math.max(0.2, Math.min(5, numeric(request.maxWalkKm, 1.6)))
+  for (let minute = startMinutes; minute <= endMinutes + 1e-9; minute += stepMinutes) sampleMinutes.push(minute)
+  const maxWalkKm = endpointWalkLimitKm(request.maxWalkKm)
   let store = openNationalStore(storePath)
   if (currentStaticTopologySourceStorageIdentity(store) !== store.sourceStorageIdentity) {
     invalidateNationalStore(storePath)

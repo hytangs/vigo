@@ -1,4 +1,5 @@
 export { RoutingDetailPanel } from './JourneyItinerary'
+import { OperationProgress } from './OperationProgress'
 import {
   AlertTriangle,
   ArrowDown,
@@ -46,6 +47,16 @@ const travelModeChoices = [
   ['walk', 'Walk'],
   ['drive', 'Drive'],
 ] as const satisfies ReadonlyArray<readonly [RoutingTravelMode, string]>
+
+function boardings(plan: RoutingPlan) {
+  // Rank by the same vehicle changes shown on the card. Presentation legs
+  // can be split or summarized without changing the journey's transfer count.
+  return plan.legs.some(leg => leg.type === 'ride') ? plan.transfers + 1 : 0
+}
+
+function timeDifference(minutes: number) {
+  return minutes < 1 ? `${Math.max(1, Math.round(minutes * 60))}s` : formatRoutingMinutes(minutes)
+}
 
 function routingAccessHints(plan: RoutingPlan | null) {
   const availability = plan?.diagnostics.accessAvailability
@@ -112,14 +123,14 @@ export function PathfinderRouteList({
         ? right.departMinutes - left.departMinutes
         : (left.arriveMinutes ?? left.departMinutes + left.durationMinutes)
           - (right.arriveMinutes ?? right.departMinutes + right.durationMinutes))
-      || left.transfers - right.transfers
+      || boardings(left) - boardings(right)
       || left.walkMinutes - right.walkMinutes
       || left.durationMinutes - right.durationMinutes
       || left.id.localeCompare(right.id)
     ))
   if (!readyPlans.length && !alternativesLoading) return null
   const displayedPlans = [...readyPlans].sort((left, right) => {
-    const difference = sort === 'transfers' ? left.transfers - right.transfers
+    const difference = sort === 'transfers' ? boardings(left) - boardings(right)
       : sort === 'walking' ? left.walkMinutes - right.walkMinutes : 0
     return difference || readyPlans.indexOf(left) - readyPlans.indexOf(right)
   }).slice(0, 5)
@@ -173,16 +184,17 @@ export function PathfinderRouteList({
               - (fastest.arriveMinutes ?? fastest.departMinutes + fastest.durationMinutes)
             const earlierMinutes = fastest.departMinutes - plan.departMinutes
             const timeTradeoff = plan.timePreference === 'arrive'
-              ? earlierMinutes >= 0.5 ? `Leave ${formatRoutingMinutes(earlierMinutes)} earlier` : 'Same departure'
-              : laterMinutes >= 0.5 ? `${formatRoutingMinutes(laterMinutes)} later` : 'Same arrival'
+              ? earlierMinutes > 0.01 ? `Leave ${timeDifference(earlierMinutes)} earlier` : 'Same departure'
+              : laterMinutes > 0.01 ? `${timeDifference(laterMinutes)} later` : 'Same arrival'
             const tradeoff = plan === fastest ? '' : [
+              plan.travelMode === 'walk' ? 'Walk only' : '',
               fewerTransfers > 0 ? `${fewerTransfers} fewer transfer${fewerTransfers === 1 ? '' : 's'}` : '',
               lessWalking >= 1 ? `${formatRoutingMinutes(lessWalking)} less walking` : '',
               timeTradeoff,
             ].filter(Boolean).join(' · ')
-            const routeSequence = plan.waypoints?.length
-              ? [plan.origin, ...plan.waypoints, plan.destination].map((point) => point.label).join(' → ')
-              : routingPlanRouteSequence(plan) || plan.detail
+            const routeSequence = [plan.travelMode === 'walk' ? 'Walk only' : routingPlanRouteSequence(plan) || plan.detail,
+              plan.waypoints?.length ? `via ${plan.waypoints.length} stop${plan.waypoints.length === 1 ? '' : 's'}` : '',
+            ].filter(Boolean).join(' · ')
             return (
               <button
                 key={plan.id}
@@ -202,7 +214,7 @@ export function PathfinderRouteList({
                     : 'Time from leaving to arriving'}>{formatRoutingMinutes(totalElapsedMinutes)} total</b>
                 </span>
                 <span className="pathfinder-route-rationale">
-                  <strong>{plan === fastest ? (plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival') : tradeoff || plan.choiceLabel || 'Another route'}</strong>
+                  <strong>{plan === fastest ? `${plan.travelMode === 'walk' ? 'Walk only · ' : ''}${plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival'}` : tradeoff || plan.choiceLabel || 'Another route'}</strong>
                   {startWaitMinutes > 0 ? (
                     <span title={`Requested ${formatScheduleClock(plan.departMinutes - startWaitMinutes)} · leaves ${formatRoutingMinutes(startWaitMinutes)} later`}>
                       Leave {formatRoutingMinutes(startWaitMinutes)} after your requested time
@@ -212,7 +224,7 @@ export function PathfinderRouteList({
                 <span className="pathfinder-route-metrics" aria-hidden="true">
                   {plan.travelMode === 'transit' ? <span><b>{plan.transfers}</b><small>transfer{plan.transfers === 1 ? '' : 's'}</small></span> : null}
                   <span><b>{formatRoutingMinutes(plan.walkMinutes)}</b><small>{plan.travelMode === 'drive' ? 'access' : 'walk'}</small></span>
-                  <span><b>{formatRoutingMinutes(plan.rideMinutes)}</b><small>{plan.travelMode === 'drive' ? 'drive' : 'ride'}</small></span>
+                  {plan.travelMode !== 'walk' ? <span><b>{formatRoutingMinutes(plan.rideMinutes)}</b><small>{plan.travelMode === 'drive' ? 'drive' : 'ride'}</small></span> : <span><b>0</b><small>vehicles</small></span>}
                 </span>
                 <span className="pathfinder-route-footer">
                   <span className="pathfinder-route-sequence">{routeSequence}</span>
@@ -530,7 +542,7 @@ export function SidebarPathfinderBox({
       ) : preparingExactSchedule ? (
         <div className="pathfinder-notice is-loading" role="status" aria-live="polite">
           <LoaderCircle className="is-spinning" size={16} />
-          <span><strong>Opening timetable</strong><small>{routingActivity.detail}</small></span>
+          <span><strong>Opening timetable</strong><small>{routingActivity.detail}</small><OperationProgress phase="Opening timetable" compact /></span>
         </div>
       ) : missingExactSchedule ? (
         <div className="pathfinder-notice is-warning">
@@ -571,7 +583,7 @@ export function SidebarPathfinderBox({
       ) : showRoutingActivity ? (
         <div className="pathfinder-notice is-loading" role="status" aria-live="polite">
           <LoaderCircle className="is-spinning" size={16} />
-          <span><strong>{routingActivity.title}</strong><small>{routingActivity.detail}</small></span>
+          <span><strong>{routingActivity.title}</strong><small>{routingActivity.detail}</small><OperationProgress phase={routingActivity.title} compact /></span>
         </div>
       ) : showRoutingBlock ? (
         <div className="pathfinder-notice is-error" role="alert">

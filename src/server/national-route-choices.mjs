@@ -152,7 +152,7 @@ export function nationalRoutingReturnedRideCycle(plan, { stationGroupForStopId }
 
 function compareFastestChoice(left, right, centerMinutes) {
   return choiceTotalElapsedMinutes(left, centerMinutes) - choiceTotalElapsedMinutes(right, centerMinutes)
-    || choiceMetric(left, 'transfers') - choiceMetric(right, 'transfers')
+    || nationalRideBoardingSummary(left).boardingCount - nationalRideBoardingSummary(right).boardingCount
     || choiceMetric(left, 'walkMinutes') - choiceMetric(right, 'walkMinutes')
     || choiceJourneyMinutes(left) - choiceJourneyMinutes(right)
     || Math.abs(choiceMetric(left, 'departMinutes') - centerMinutes) - Math.abs(choiceMetric(right, 'departMinutes') - centerMinutes)
@@ -161,7 +161,7 @@ function compareFastestChoice(left, right, centerMinutes) {
 }
 
 function compareFewestTransfersChoice(left, right, centerMinutes) {
-  return choiceMetric(left, 'transfers') - choiceMetric(right, 'transfers')
+  return nationalRideBoardingSummary(left).boardingCount - nationalRideBoardingSummary(right).boardingCount
     || choiceTotalElapsedMinutes(left, centerMinutes) - choiceTotalElapsedMinutes(right, centerMinutes)
     || choiceJourneyMinutes(left) - choiceJourneyMinutes(right)
     || choiceMetric(left, 'walkMinutes') - choiceMetric(right, 'walkMinutes')
@@ -173,7 +173,7 @@ function compareLeastWalkingChoice(left, right, centerMinutes) {
   return choiceMetric(left, 'walkMinutes') - choiceMetric(right, 'walkMinutes')
     || choiceTotalElapsedMinutes(left, centerMinutes) - choiceTotalElapsedMinutes(right, centerMinutes)
     || choiceJourneyMinutes(left) - choiceJourneyMinutes(right)
-    || choiceMetric(left, 'transfers') - choiceMetric(right, 'transfers')
+    || nationalRideBoardingSummary(left).boardingCount - nationalRideBoardingSummary(right).boardingCount
     || Math.abs(choiceMetric(left, 'departMinutes') - centerMinutes) - Math.abs(choiceMetric(right, 'departMinutes') - centerMinutes)
     || compareChoiceIdentity(left, right)
 }
@@ -183,8 +183,8 @@ export function nationalChoiceStrictlyDominates(left, right, centerMinutes) {
   const rightDuration = choiceTotalElapsedMinutes(right, centerMinutes)
   const leftJourney = choiceJourneyMinutes(left)
   const rightJourney = choiceJourneyMinutes(right)
-  const leftTransfers = choiceMetric(left, 'transfers')
-  const rightTransfers = choiceMetric(right, 'transfers')
+  const leftTransfers = nationalRideBoardingSummary(left).boardingCount
+  const rightTransfers = nationalRideBoardingSummary(right).boardingCount
   const leftWalk = choiceMetric(left, 'walkMinutes')
   const rightWalk = choiceMetric(right, 'walkMinutes')
   const noWorse = (
@@ -206,12 +206,12 @@ function satisfiesLinearChoiceConstraints(point, constraints) {
   if (
     !point
     || point.journeyWeight < 0
-    || point.transferPenaltyMinutes < 0
+    || point.boardingPenaltyMinutes < 0
     || point.walkingReluctance < 0
   ) return false
-  for (const { journeyCoefficient, transferCoefficient, walkCoefficient, upperBound } of constraints) {
+  for (const { journeyCoefficient, boardingCoefficient, walkCoefficient, upperBound } of constraints) {
     const value = journeyCoefficient * point.journeyWeight
-      + transferCoefficient * point.transferPenaltyMinutes
+      + boardingCoefficient * point.boardingPenaltyMinutes
       + walkCoefficient * point.walkingReluctance
     const numericalTolerance = Number.EPSILON * 64 * Math.max(
       1,
@@ -224,20 +224,20 @@ function satisfiesLinearChoiceConstraints(point, constraints) {
 }
 
 function intersectionOfChoiceConstraints(left, middle, right) {
-  const { journeyCoefficient: a, transferCoefficient: b, walkCoefficient: c, upperBound: x } = left
-  const { journeyCoefficient: d, transferCoefficient: e, walkCoefficient: f, upperBound: y } = middle
-  const { journeyCoefficient: g, transferCoefficient: h, walkCoefficient: i, upperBound: z } = right
+  const { journeyCoefficient: a, boardingCoefficient: b, walkCoefficient: c, upperBound: x } = left
+  const { journeyCoefficient: d, boardingCoefficient: e, walkCoefficient: f, upperBound: y } = middle
+  const { journeyCoefficient: g, boardingCoefficient: h, walkCoefficient: i, upperBound: z } = right
   // Cramer's rule, with the same operation order and tolerance as the matrix
   // form. Avoid allocating four matrices for every candidate intersection.
   const determinant = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
   if (Math.abs(determinant) <= Number.EPSILON * 128) return null
   const point = {
     journeyWeight: (x * (e * i - f * h) - b * (y * i - f * z) + c * (y * h - e * z)) / determinant,
-    transferPenaltyMinutes: (a * (y * i - f * z) - x * (d * i - f * g) + c * (d * z - y * g)) / determinant,
+    boardingPenaltyMinutes: (a * (y * i - f * z) - x * (d * i - f * g) + c * (d * z - y * g)) / determinant,
     walkingReluctance: (a * (e * z - y * h) - b * (d * z - y * g) + x * (d * h - e * g)) / determinant,
   }
   return Number.isFinite(point.journeyWeight)
-    && Number.isFinite(point.transferPenaltyMinutes)
+    && Number.isFinite(point.boardingPenaltyMinutes)
     && Number.isFinite(point.walkingReluctance) ? point : null
 }
 
@@ -246,7 +246,7 @@ function intersectionOfChoiceConstraints(left, middle, right) {
  *
  *   elapsed
  *     + journeyWeight * journey
- *     + transferPenalty * transfers
+ *     + boardingPenalty * boardings
  *     + walkingReluctance * walk
  *
  * over the supplied exact Pareto set for at least one nonnegative weight
@@ -256,25 +256,25 @@ function intersectionOfChoiceConstraints(left, middle, right) {
  */
 export function nationalChoiceSupportedBurdenWeights(candidate, choices, centerMinutes) {
   const constraints = [
-    { journeyCoefficient: -1, transferCoefficient: 0, walkCoefficient: 0, upperBound: 0 },
-    { journeyCoefficient: 0, transferCoefficient: -1, walkCoefficient: 0, upperBound: 0 },
-    { journeyCoefficient: 0, transferCoefficient: 0, walkCoefficient: -1, upperBound: 0 },
+    { journeyCoefficient: -1, boardingCoefficient: 0, walkCoefficient: 0, upperBound: 0 },
+    { journeyCoefficient: 0, boardingCoefficient: -1, walkCoefficient: 0, upperBound: 0 },
+    { journeyCoefficient: 0, boardingCoefficient: 0, walkCoefficient: -1, upperBound: 0 },
   ]
   const candidateElapsed = choiceTotalElapsedMinutes(candidate, centerMinutes)
   const candidateJourney = choiceJourneyMinutes(candidate)
-  const candidateTransfers = choiceMetric(candidate, 'transfers')
+  const candidateTransfers = nationalRideBoardingSummary(candidate).boardingCount
   const candidateWalk = choiceMetric(candidate, 'walkMinutes')
   for (const other of choices ?? []) {
     if (other === candidate) continue
     constraints.push({
       journeyCoefficient: candidateJourney - choiceJourneyMinutes(other),
-      transferCoefficient: candidateTransfers - choiceMetric(other, 'transfers'),
+      boardingCoefficient: candidateTransfers - nationalRideBoardingSummary(other).boardingCount,
       walkCoefficient: candidateWalk - choiceMetric(other, 'walkMinutes'),
       upperBound: choiceTotalElapsedMinutes(other, centerMinutes) - candidateElapsed,
     })
   }
 
-  const origin = { journeyWeight: 0, transferPenaltyMinutes: 0, walkingReluctance: 0 }
+  const origin = { journeyWeight: 0, boardingPenaltyMinutes: 0, walkingReluctance: 0 }
   if (satisfiesLinearChoiceConstraints(origin, constraints)) return origin
   for (let leftIndex = 0; leftIndex < constraints.length; leftIndex += 1) {
     const left = constraints[leftIndex]
@@ -409,11 +409,11 @@ export function selectNationalDepartureWindowChoices(plans, { centerMinutes, lim
         ...plan.diagnostics,
         selectedTimeChoice,
         choiceSupport: {
-          objective: 'elapsed_plus_journey_plus_weighted_transfers_plus_weighted_walking',
+          objective: 'elapsed_plus_journey_plus_weighted_boardings_plus_weighted_walking',
           elapsedWeight: 1,
           journeyWeight: supportWeights.get(plan)?.journeyWeight ?? 0,
-          transferPenaltyMinutesPerTransfer:
-            supportWeights.get(plan)?.transferPenaltyMinutes ?? 0,
+          boardingPenaltyMinutesPerBoarding:
+            supportWeights.get(plan)?.boardingPenaltyMinutes ?? 0,
           walkingReluctance: supportWeights.get(plan)?.walkingReluctance ?? 0,
           nonnegativeWeightFeasibility: 'exact_half_plane_intersection',
         },

@@ -135,6 +135,7 @@ try {
   function route(overlay, departure, from = 0, to = overlay.stops.length - 1) {
     const { stops, ...arrays } = overlay
     return kernel.routeOverlayManyCsa({ ...arrays, overlayStopCount: stops.length,
+      overlayBaseStops: stops.map(() => -1),
       originStops: [2 + from], originWalkSeconds: [0], destinationOffsets: [0, 1], destinationStops: [2 + to],
       destinationWalkSeconds: [0], excludedTrips: [], departure, horizon: departure + 3600,
       allowPreRideTransfers: false, supplementalTransferOffsets: Array(3 + stops.length).fill(0),

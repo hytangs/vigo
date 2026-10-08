@@ -405,8 +405,10 @@ parentPort.on('message', async (message) => {
         nativeCoordinateAccess: routing.nativeCoordinateAccess ?? null,
       }
     } else if (operation === 'window') {
-      const { routeNationalGtfsDepartureWindow, addNationalGtfsFares } = await loadGtfsModule()
-      const routed = routeNationalGtfsDepartureWindow(storePath, request)
+      const { routeNationalGtfsDepartureWindow, routeNationalGtfsOrderedSegment, addNationalGtfsFares } = await loadGtfsModule()
+      const routed = request.__orderedSegment
+        ? routeNationalGtfsOrderedSegment(storePath, request)
+        : routeNationalGtfsDepartureWindow(storePath, request)
       const earliestTransit = earliestTransitEvidenceFromPlans(routed.profile?.plans)
       const { plans: _samplePlans, ...profile } = routed.profile
       result = {
