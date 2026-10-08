@@ -1,9 +1,8 @@
-import path from 'node:path'
 import { runElectronCheck } from './helpers/electron-check.mjs'
 
 // Studio runs its API inside an Electron utility process. Exercise that exact
 // parent runtime, including native GTFS/OSM compilers and child termination.
-const entry = path.resolve(import.meta.dirname, 'check-preparation-process.mjs')
+const entry = new URL('./check-preparation-process.mjs', import.meta.url).href
 await runElectronCheck(`
   const { utilityProcess } = await import('electron');
   const { writeFile } = await import('node:fs/promises');
