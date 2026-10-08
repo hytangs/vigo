@@ -58,6 +58,11 @@ def main():
         assert capabilities["standalone"] is True
         assert args.node, "Node is required only for building test fixtures and running comparison checks"
         node = str(Path(args.node).resolve())
+        audit_module = (ROOT / "scripts/lib/package-audit.mjs").as_uri()
+        subprocess.run([node, "--input-type=module", "-e",
+                        f"import {{ auditPackageFiles }} from {json.dumps(audit_module)}; "
+                        "console.log(JSON.stringify(await auditPackageFiles(process.argv[1], "
+                        "{ forbiddenRoots: [process.argv[2]] })));", directory, str(ROOT)], check=True)
         for suite in ("check-standalone.mjs", "check-standalone-prepared.mjs", "check-standalone-parity.mjs", "check-standalone-station-access.mjs", "check-standalone-http.mjs", "check-standalone-docs.mjs"):
             subprocess.run([node, str(ROOT / "test" / suite)], cwd=ROOT,
                            env={**os.environ, "VIGO_STANDALONE_PATH": str(binary),
