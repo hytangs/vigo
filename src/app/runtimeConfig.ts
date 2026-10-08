@@ -43,11 +43,10 @@ export type SetupDraft = {
 }
 
 export type ProjectDialogState =
-  | { mode: 'create'; name: string; region: string }
-  | { mode: 'rename'; projectId: string; name: string; region: string }
-  | { mode: 'delete'; projectId: string; name: string; region: string }
+  | { mode: 'create'; name: string }
+  | { mode: 'rename'; projectId: string; name: string }
+  | { mode: 'delete'; projectId: string; name: string }
 
 export type ProjectDraft = {
   name: string
-  region: string
 }

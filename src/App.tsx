@@ -1,5 +1,6 @@
 import { ProjectsPage, StorageRecovery } from './components/studio/CityLibrary'
-import { BundlePanel, DataReadinessRail, EmptyOperationsStart, FeedTables, ImportPanel } from './components/studio/CitySources'
+import { EmptyOperationsStart } from './components/studio/CitySources'
+import { CityDataSources } from './components/studio/CityDataSources'
 import { RouteSurface } from './components/studio/RouteSurface'
 import { VigoSidebar } from './components/studio/StudioSidebar'
 import { quietMapLabel, type MapScope } from './components/studio/presentation'
@@ -37,6 +38,7 @@ import { createScenarioRoadGeometryRequest } from './app/scenarioRoadGeometryReq
 import { type RoutingDepartureWindowMinutes } from './app/uiOptions'
 import { useNationalRouting } from './app/useNationalRouting'
 import { useScenarioDrafts } from './app/useScenarioDrafts'
+import { caseFeedSelection, useCityDataGroups } from './app/useCityDataGroups'
 import { useStreetPreparation } from './app/useStreetPreparation'
 import { AgencyPanel } from './components/AgencyPanel'
 import { AnalyzePanel, type AnalyzeMode, type ComparisonFeedOption } from './components/AnalyzePanel'
@@ -186,10 +188,13 @@ export default function App() {
   const [accent, setAccent] = useState<AppAccent>('blue')
   const [basemap, setBasemap] = useState<Basemap>('offline')
   const [projects, setProjects] = useState<VigoProject[]>([])
+  const [projectsLoadState, setProjectsLoadState] = useState<'loading' | 'ready' | 'failed'>('loading')
+  const projectsLoadSequence = useRef(0)
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [openedNetworkProjectId, setOpenedNetworkProjectId] = useState('')
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [runtimeConfig, setRuntimeConfig] = useState<VigoRuntimeConfig | null>(null)
+  const preferenceSaveRef = useRef<Promise<void>>(Promise.resolve())
   const [setupOpen, setSetupOpen] = useState(false)
   const [setupBusy, setSetupBusy] = useState(false)
   const [setupError, setSetupError] = useState('')
@@ -241,6 +246,8 @@ export default function App() {
   const [scenarioProgress, setScenarioProgress] = useState<ApiProgress | null>(null)
   const [scenarioError, setScenarioError] = useState('')
   const [scenarioCutoffMinutes, setScenarioCutoffMinutes] = useState(45)
+  const [reachMaxWalkKm, setReachMaxWalkKm] = useState(1.2)
+  const [reachMaxTransfers, setReachMaxTransfers] = useState<number | undefined>()
   const [scenarioWalkSpeedKph, setScenarioWalkSpeedKph] = useState(4.8)
   const [reachSurfaceSampling, setReachSurfaceSampling] = useState<'street' | 'cell-center'>('street')
   const [scenarioView, setScenarioView] = useState<ScenarioView>('comparison')
@@ -338,9 +345,11 @@ export default function App() {
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? emptyCityProject(health?.storageRoot),
     [projects, selectedProjectId, health?.storageRoot],
   )
+  const cityDataGroups = useCityDataGroups(selectedProject, scenarioStorageKey(selectedProject), scenarioDrafts)
+  useEffect(() => { invalidateAnalyzeResult() }, [cityDataGroups.value, invalidateAnalyzeResult])
   const preparationJobs = selectedProject.jobs.map((job) => preparationJobUpdates[job.id] ?? job)
   const streetPreparation = useStreetPreparation({
-    active: page === 'project' && selectedProject.osmStreetIndex?.status === 'ready' && !isOsmImporting,
+    active: page === 'project' && activeRouteTool !== 'data' && selectedProject.osmStreetIndex?.status === 'ready' && !isOsmImporting,
     projectId: selectedProject.id,
     identity: `${selectedProject.osmStreetIndex?.builtAt ?? ''}:${selectedProject.osmStreetIndex?.bytes ?? ''}`,
     refreshKey: activeRouteTool === 'pathfinder' ? routingMode : '',
@@ -352,7 +361,7 @@ export default function App() {
   const visiblePreparationTasks = preparationTasks(preparationJobs,
     [
       ...Object.entries(pendingPreparations).filter(([key]) => key.startsWith(`${selectedProject.id}:`)).map(([, task]) => task),
-      ...(cityPreviewLoadingProjectId === selectedProject.id ? [{ id: `${selectedProject.id}:loading`, kind: 'city-data-load', label: selectedProject.name, status: 'running' as const, phase: 'Loading transit feeds and map data', createdAt: selectedProject.updatedAt }] : []),
+      ...(cityPreviewLoadingProjectId === selectedProject.id ? [{ id: `${selectedProject.id}:loading`, kind: 'city-data-load', label: selectedProject.name, status: 'running' as const, phase: 'Loading transit feeds and map data', createdAt: '' }] : []),
       ...(streetPreparation.task ? [streetPreparation.task] : []),
     ],
     preparationErrors)
@@ -436,7 +445,7 @@ export default function App() {
     scheduleTimeMinutes,
     routingMaxWalkKm,
   ].join(':')
-  const cityRoutingActive = page === 'project' && Boolean(nationalRoutingFeed)
+  const cityRoutingActive = page === 'project' && activeRouteTool !== 'data' && Boolean(nationalRoutingFeed)
   const storeBackedRouting = Boolean(nationalRoutingFeed)
   const routingServiceDay = serviceDayForCalendarDate(routingServiceDate)
   const mapPointRoutingNeedsStreetGraph = routingMode !== 'transit' || Boolean(
@@ -488,6 +497,7 @@ export default function App() {
   useEffect(() => {
     if (
       page !== 'project'
+      || activeRouteTool === 'data' && dataSection === 'preferences'
       || activeFeedId !== bundleFeedId
       || readyBundleFeedCount < 2
       || selectedProject.routingStore?.status === 'ready'
@@ -524,6 +534,8 @@ export default function App() {
     }
   }, [
     activeFeedId,
+    activeRouteTool,
+    dataSection,
     page,
     readyBundleFeedCount,
     routingMergeSourceIdentity,
@@ -672,7 +684,8 @@ export default function App() {
     const controller = new AbortController()
     const taskKey = `${projectId}:vehicle-schedules`
     scheduleLoadRequestsRef.current.set(taskKey, scheduleLoadRequest)
-    const task: PreparationTask = { id: taskKey, kind: 'vehicle-schedules', label: `${label} · ${serviceDate}`, status: 'running', progress: 0, phase: `Loading full-day schedules · 0/${requests.length} routes`, createdAt: new Date().toISOString() }
+    const task: PreparationTask = { id: taskKey, kind: 'vehicle-schedules', label: `${label} · ${serviceDate}`, status: 'running', progress: 0,
+      work: { completed: 0, total: requests.length, unit: 'routes' }, phase: 'Loading full-day schedules', createdAt: new Date().toISOString() }
     setPendingPreparations(current => ({ ...current, [taskKey]: task }))
     setScheduleLoadStatus(task.phase || '')
     const worker = new Worker(new URL('./app/networkSchedules.worker.ts', import.meta.url), { type: 'module' })
@@ -688,7 +701,7 @@ export default function App() {
       const { type, completed, failures, results } = event.data
       if (type === 'error') { fail(event.data.error || 'Could not load vehicle schedules.'); return }
       const done = type === 'complete'
-      const phase = !done ? `Loading full-day schedules · ${completed}/${requests.length} routes`
+      const phase = !done ? 'Loading full-day schedules'
         : failures ? `${failures} route schedules unavailable; ${completed - failures} loaded` : `Full-day schedule ready · ${completed} routes`
       // No partial timetable enters project/map state. Publish the entire day once.
       if (done && results) {
@@ -698,6 +711,7 @@ export default function App() {
       }
       setScheduleLoadStatus(phase)
       setPendingPreparations(current => ({ ...current, [taskKey]: { ...task, phase, progress: completed / requests.length,
+        work: { completed, total: requests.length, unit: 'routes' }, updatedAt: new Date().toISOString(),
         status: !done ? 'running' : failures ? 'failed' : 'complete' } }))
     }
     worker.postMessage({ endpoint: new URL(`/api/projects/${encodeURIComponent(projectId)}/gtfs-route-analysis`, window.location.href).href, requests, serviceDate })
@@ -723,6 +737,7 @@ export default function App() {
   const activeScenario = scenarioDrafts.find(
     (entry) => entry.id === activeScenarioId,
   ) ?? scenarioDrafts[0]
+  const activeCaseFeeds = caseFeedSelection(cityDataGroups.value, activeScenarioId, selectedProject)
   const activeScenarioChange = activeScenario?.interventions.find(
     (entry) => entry.id === activeScenarioChangeId,
   ) ?? activeScenario?.interventions[0]
@@ -837,11 +852,15 @@ export default function App() {
   }
 
   async function loadProjects() {
+    const sequence = ++projectsLoadSequence.current
+    setProjectsLoadState('loading')
     try {
       const [healthResult, projectsResult] = await Promise.all([
         apiJson<HealthResponse>('/api/health'),
         apiJson<{ projects: VigoProject[] }>('/api/projects'),
       ])
+      if (sequence !== projectsLoadSequence.current) return
+      setProjectsLoadState('ready')
       const config = healthResult.config ?? null
       setHealth(healthResult)
       setRuntimeConfig(config)
@@ -879,10 +898,12 @@ export default function App() {
         setPage('projects')
       }
     } catch (error) {
+      if (sequence !== projectsLoadSequence.current) return
+      setProjectsLoadState('failed')
       setApiError(error instanceof Error ? error.message : 'Local API unavailable')
       try {
         const configResult = await apiJson<{ config: VigoRuntimeConfig }>('/api/config')
-        setRuntimeConfig(configResult.config)
+        if (sequence === projectsLoadSequence.current) setRuntimeConfig(configResult.config)
       } catch {
         // If the local runtime never started there is no frontend surface to recover from.
       }
@@ -1015,10 +1036,11 @@ export default function App() {
   ])
 
   useEffect(() => {
+    if (activeRouteTool === 'data' && dataSection === 'preferences') return
     if (page !== 'project' || !selectedProject.id || !needsProjectDetail(selectedProject)) return
     if (cityPreviewLoadingProjectId === selectedProject.id) return
     beginCitySelection(selectedProject.id)
-  }, [page, selectedProject.id, cityPreviewLoadingProjectId])
+  }, [page, activeRouteTool, dataSection, selectedProject.id, cityPreviewLoadingProjectId])
 
   useEffect(() => {
     if (page === 'project') scrollWorkbenchToTop()
@@ -1499,10 +1521,11 @@ export default function App() {
     setActiveScenarioChangeId(selected?.interventions[0]?.id ?? '')
   }
 
-  function addScenario() {
+  function addScenario(groupId = cityDataGroups.value.cases[activeScenarioId] ?? cityDataGroups.value.groups[0]?.id ?? '') {
     if (scenarioDrafts.length >= 6) return
     invalidateAnalyzeResult()
     const next = newScenarioDraft(scenarioDrafts.length)
+    cityDataGroups.assignCase(next.id, groupId)
     setScenarioStopPlacement(null)
     setScenarioDrafts((current) => [...current, next])
     setActiveScenarioId(next.id)
@@ -2007,11 +2030,12 @@ export default function App() {
               departMinutes: scheduleTimeMinutes,
               serviceDate: routingServiceDate,
               serviceDay: routingServiceDay,
-              maxWalkKm: routingMaxWalkKm,
+              maxWalkKm: reachMaxWalkKm,
+              maxTransfers: reachMaxTransfers,
               walkSpeedKph: scenarioWalkSpeedKph,
               surfaceSampling: reachSurfaceSampling,
               rasterSize: desktopReachRasterSize,
-              cutoffsMinutes: [...new Set([15, 30, 45, 60, 75, 90, scenarioCutoffMinutes])].sort((left, right) => left - right),
+              cutoffsMinutes: [scenarioCutoffMinutes],
               includePreliminary: false,
               includeStreetEdges,
               scenario: {
@@ -2099,6 +2123,11 @@ export default function App() {
 
   async function runSurfaceAnalysis(includeStreetEdges = scenarioRenderMode === 'streets') {
     if (!analysisOrigin || !nationalRoutingFeed) return
+    const selection = caseFeedSelection(cityDataGroups.value, activeScenarioId, selectedProject)
+    if (cityDataGroups.readFailed || selection.error) {
+      setScenarioError(cityDataGroups.error || selection.error)
+      return
+    }
     const draft = activeScenarioDraft()
     if ('error' in draft) {
       setScenarioError(draft.error ?? 'Configure the active case before running it.')
@@ -2118,16 +2147,17 @@ export default function App() {
           method: 'POST',
           signal: controller.signal,
           body: JSON.stringify({
-            feedId: nationalRoutingFeed.id,
+            feedIds: selection.feedIds,
             origin: analysisOrigin,
             departMinutes: scheduleTimeMinutes,
             serviceDate: routingServiceDate,
             serviceDay: routingServiceDay,
-            maxWalkKm: routingMaxWalkKm,
+            maxWalkKm: reachMaxWalkKm,
+            maxTransfers: reachMaxTransfers,
             walkSpeedKph: scenarioWalkSpeedKph,
             surfaceSampling: reachSurfaceSampling,
             rasterSize: desktopReachRasterSize,
-            cutoffsMinutes: [...new Set([15, 30, 45, 60, 75, 90, scenarioCutoffMinutes])].sort((left, right) => left - right),
+            cutoffsMinutes: [scenarioCutoffMinutes],
             // The final baseline surface is rendered after transit/routing
             // seeds are known. Avoid spending a second full OSM traversal on
             // a provisional walk-only surface for every scenario run.
@@ -2188,22 +2218,20 @@ export default function App() {
 
   async function persistRuntimePreferences(next: Partial<Pick<VigoRuntimeConfig, 'appearance' | 'basemap' | 'accent'>>) {
     if (!runtimeConfig) return
-
-    try {
+    // Serialize partial changes so rapid theme/map choices cannot overwrite
+    // each other or restore an earlier library folder.
+    const save = preferenceSaveRef.current.then(async () => {
       const result = await apiJson<{ config: VigoRuntimeConfig }>('/api/config', {
         method: 'PATCH',
-        body: JSON.stringify({
-          storageRoot: runtimeConfig.storageRoot,
-          appearance: next.appearance ?? appearance,
-          accent: next.accent ?? accent,
-          basemap: next.basemap ?? basemap,
-        }),
+        body: JSON.stringify(next),
       })
       setRuntimeConfig(result.config)
       setHealth((current) => current ? { ...current, storageRoot: result.config.storageRoot, config: result.config, offline: result.config.offline } : current)
-    } catch (error) {
-      setApiError(error instanceof Error ? `Could not save the City setting: ${error.message}` : 'Could not save the City setting.')
-    }
+    }).catch((error) => {
+      setApiError(error instanceof Error ? `Could not save the setting: ${error.message}` : 'Could not save the setting.')
+    })
+    preferenceSaveRef.current = save
+    await save
   }
 
   function changeAppearance(nextAppearance: Appearance) {
@@ -2223,14 +2251,14 @@ export default function App() {
 
   function openCreateProjectDialog() {
     setProjectDialogError('')
-    setProjectDialog({ mode: 'create', name: '', region: 'Regional bundle' })
+    setProjectDialog({ mode: 'create', name: '' })
   }
 
   function openRenameProjectDialog(projectId: string) {
     const project = projects.find((item) => item.id === projectId)
     if (!project) return
     setProjectDialogError('')
-    setProjectDialog({ mode: 'rename', projectId, name: project.name, region: project.region })
+    setProjectDialog({ mode: 'rename', projectId, name: project.name })
   }
 
   function closeProjectDialog() {
@@ -2255,7 +2283,6 @@ export default function App() {
     }
 
     const name = draft.name.trim()
-    const region = draft.region.trim() || 'Unassigned region'
 
     if (!name) {
       setProjectDialogError('City name is required.')
@@ -2266,17 +2293,17 @@ export default function App() {
     setProjectDialogError('')
 
     if (projectDialog.mode === 'create') {
-      await createProject({ name, region })
+      await createProject({ name })
     } else {
-      await renameProject(projectDialog.projectId, { name, region })
+      await renameProject(projectDialog.projectId, { name })
     }
   }
 
-  async function createProject({ name, region }: ProjectDraft) {
+  async function createProject({ name }: ProjectDraft) {
     try {
       const result = await apiJson<{ project: VigoProject }>('/api/projects', {
         method: 'POST',
-        body: JSON.stringify({ name, region }),
+        body: JSON.stringify({ name }),
       })
       replaceProject(result.project)
       openProject(result.project.id)
@@ -2292,7 +2319,7 @@ export default function App() {
     }
   }
 
-  async function renameProject(projectId: string, { name, region }: ProjectDraft) {
+  async function renameProject(projectId: string, { name }: ProjectDraft) {
     const project = projects.find((item) => item.id === projectId)
     if (!project) {
       setProjectDialogBusy(false)
@@ -2302,7 +2329,7 @@ export default function App() {
     try {
       const result = await apiJson<{ project: VigoProject }>(`/api/projects/${encodeURIComponent(projectId)}`, {
         method: 'PATCH',
-        body: JSON.stringify({ name, region }),
+        body: JSON.stringify({ name }),
       })
       replaceProject(result.project)
       setProjectDialog(null)
@@ -2323,7 +2350,7 @@ export default function App() {
 
     if (options.confirm !== false) {
       setProjectDialogError('')
-      setProjectDialog({ mode: 'delete', projectId, name: project.name, region: project.region })
+      setProjectDialog({ mode: 'delete', projectId, name: project.name })
       return false
     }
 
@@ -2384,8 +2411,7 @@ export default function App() {
           if (!current[jobId]) return current
           const next = { ...current }; delete next[jobId]; return next
         })
-        const progress = Math.round(Number(result.job.progress ?? 0) * 100)
-        if (selectedPreparationProjectRef.current === projectId) onProgress([result.job.phase, progress ? `${progress}%` : '', result.job.detail].filter(Boolean).join(' / '))
+        if (selectedPreparationProjectRef.current === projectId) onProgress([result.job.phase, result.job.detail].filter(Boolean).join(' · '))
         if (result.job.status === 'failed' || result.job.status === 'cancelled') {
           await refreshImportedProject(projectId, false).catch(() => {})
           throw new Error(result.job.error || (result.job.status === 'cancelled' ? 'Preparation cancelled.' : failureLabel))
@@ -2813,6 +2839,8 @@ export default function App() {
   }
 
   function openPathfinderView() {
+    if (!hasOperationsData(selectedProject)) return
+    setOpenedNetworkProjectId(selectedProject.id)
     setActiveRouteTool('pathfinder')
     setMapScope('route')
     setRoutingEnabled(false)
@@ -2863,6 +2891,8 @@ export default function App() {
   }
 
   function openAnalyzeView() {
+    if (!hasOperationsData(selectedProject)) return
+    setOpenedNetworkProjectId(selectedProject.id)
     setActiveRouteTool('analyze')
     setMapScope('network')
     setRoutingEnabled(false)
@@ -2878,11 +2908,7 @@ export default function App() {
   function openSettingsView() {
     const nextProjectId = selectedProjectId
       || preferredProjectId(projects, navigationMemoryRef.current.lastProjectId)
-    if (!nextProjectId) {
-      setSetupOpen(true)
-      return
-    }
-    if (page !== 'project' || selectedProjectId !== nextProjectId) {
+    if (nextProjectId && (page !== 'project' || selectedProjectId !== nextProjectId)) {
       applyCitySelection(nextProjectId)
     }
     setPage('project')
@@ -2971,7 +2997,7 @@ export default function App() {
             <VigoBrandMark />
           </button>
           <div className="topbar-brand-copy">
-            <b>{page === 'projects' ? 'Cities' : quietMapLabel(selectedProject.name)}</b>
+            <b>{page === 'projects' ? 'Cities' : activeRouteTool === 'data' && dataSection === 'preferences' ? 'Settings' : quietMapLabel(selectedProject.name)}</b>
           </div>
         </div>
 
@@ -3018,7 +3044,7 @@ export default function App() {
           <PrimaryNav
             page={page}
             activeRouteTool={activeRouteTool}
-            hasActiveData={hasActiveOperationsData}
+            hasActiveData={hasOperationsData(selectedProject)}
             onOpenNetwork={openNetworkView}
             onOpenRouting={openPathfinderView}
             onOpenAnalyze={openAnalyzeView}
@@ -3039,7 +3065,8 @@ export default function App() {
             origin={analysisOrigin}
             serviceDate={routingServiceDate}
             departMinutes={scheduleTimeMinutes}
-            maxWalkKm={routingMaxWalkKm}
+            maxWalkKm={reachMaxWalkKm}
+            maxTransfers={reachMaxTransfers}
             walkSpeedKph={scenarioWalkSpeedKph}
             surfaceSampling={reachSurfaceSampling}
             onSurfaceSamplingChange={(value) => {
@@ -3050,19 +3077,20 @@ export default function App() {
             cutoffMinutes={scenarioCutoffMinutes}
             renderMode={scenarioRenderMode}
             cases={scenarioDrafts}
+            caseGroupLabel={activeCaseFeeds.group?.name ?? 'Choose feed group'}
             feeds={comparisonFeedOptions}
             comparisonFeedIds={comparisonFeedIds}
             activeCaseId={activeScenarioId}
             activeInterventionId={activeScenarioChange?.id ?? ''}
             stopPlacement={activeScenarioStopPlacement}
-            routes={preview.routes}
+            routes={analyzeMode === 'single' ? preview.routes.filter(route => activeCaseFeeds.feedIds.includes(entityFeedScope(route.id))) : preview.routes}
             stops={preview.stops}
             routeAnalysisLoading={Boolean(routeAnalysisRouteId)}
             routeAnalysisError={routeAnalysisError}
             view={scenarioView}
             loading={scenarioLoading}
             progress={scenarioProgress}
-            error={scenarioError || draftStorageError}
+            error={scenarioError || draftStorageError || (analyzeMode === 'single' ? cityDataGroups.error || activeCaseFeeds.error : '')}
             analysis={reachResult}
             comparison={reachComparison}
             serviceDecomposition={serviceDecomposition}
@@ -3082,7 +3110,11 @@ export default function App() {
               invalidateAnalyzeResult()
             }}
             onMaxWalkKmChange={(value) => {
-              changeRoutingMaxWalkKm(value)
+              setReachMaxWalkKm(value)
+              invalidateAnalyzeResult()
+            }}
+            onMaxTransfersChange={(value) => {
+              setReachMaxTransfers(value)
               invalidateAnalyzeResult()
             }}
             onWalkSpeedChange={(value) => {
@@ -3119,7 +3151,7 @@ export default function App() {
                 : current.filter((candidate) => candidate !== feedId))
             }}
             onSelectCase={selectScenario}
-            onAddCase={addScenario}
+            onAddCase={() => addScenario()}
             onRemoveCase={removeScenario}
             onAddIntervention={addScenarioChange}
             onSelectIntervention={(interventionId) => {
@@ -3253,10 +3285,19 @@ export default function App() {
       ) : page === 'projects' ? (
         <ProjectsPage
           projects={projects}
+          loading={projectsLoadState === 'loading'}
+          loadFailed={projectsLoadState === 'failed'}
           selectedProject={selectedProject}
           query={query}
+          onQueryChange={setQuery}
           previewLoading={cityPreviewLoading}
           onOpenProject={openProject}
+          onOpenProjectData={(id) => {
+            applyCitySelection(id)
+            setPage('project')
+            setDataSection('feeds')
+            setActiveRouteTool('data')
+          }}
           onOpenSettings={openSettingsView}
           onCreateProject={openCreateProjectDialog}
           onRenameProject={openRenameProjectDialog}
@@ -3287,19 +3328,18 @@ export default function App() {
           onCityReset={applyCityReset}
           onCityRemoved={(projectId) => deleteProject(projectId, { confirm: false })}
           feeds={(
-            <div className="data-feed-layout">
-              <DataReadinessRail project={selectedProject} activeFeed={activeFeed} />
-              <ImportPanel staticFeeds={selectedProject.feeds} {...importPanelProps} />
-              <BundlePanel
-                deletingDisabled={sourceDeletionDisabled}
-                onSourceDeleted={applyCityReset}
-                project={selectedProject}
-                activeFeedId={activeFeedId}
-                activeFeed={activeFeed}
-                onSelectFeed={selectFeed}
-              />
-              <FeedTables activeFeed={activeFeed} />
-            </div>
+            <CityDataSources
+              key={selectedProject.id}
+              project={selectedProject}
+              grouping={cityDataGroups}
+              cases={scenarioDrafts}
+              deletingDisabled={sourceDeletionDisabled}
+              onSourceDeleted={applyCityReset}
+              onAddCase={addScenario}
+              onRenameCase={(id, name) => setScenarioDrafts(current => current.map(entry => entry.id === id ? { ...entry, name } : entry))}
+              onOpenCase={id => { selectScenario(id); setActiveFeedId(bundleFeedId); setAnalyzeMode('single'); openAnalyzeView() }}
+              {...importPanelProps}
+            />
           )}
         />
       ) : (

@@ -4,8 +4,10 @@ import {
   CircleDot,
   Database,
   Eraser,
+  Expand,
   LoaderCircle,
   MapPin,
+  Minimize2,
   Pencil,
   Plus,
   Radar,
@@ -22,6 +24,8 @@ import { scopedRouteServiceKey } from '../routeServices'
 import type { RoutingPoint } from '../routingModel'
 import { ResultMetric } from './UiPrimitives'
 import { AnalysisOriginPicker } from './AnalysisOriginPicker'
+import { OperationProgress } from './OperationProgress'
+import { AnalysisNumberField, ReachSettings } from './ReachSettings'
 import {
   reachDifferenceCapMinutes,
   reachDifferenceGradient,
@@ -66,12 +70,14 @@ type AnalyzePanelProps = {
   serviceDate: string
   departMinutes: number
   maxWalkKm: number
+  maxTransfers?: number
   walkSpeedKph: number
   surfaceSampling?: 'street' | 'cell-center'
   onSurfaceSamplingChange?: (value: 'street' | 'cell-center') => void
   cutoffMinutes: number
   renderMode: ScenarioRenderMode
   cases: ScenarioDraft[]
+  caseGroupLabel?: string
   feeds: ComparisonFeedOption[]
   comparisonFeedIds: string[]
   activeCaseId: string
@@ -98,6 +104,7 @@ type AnalyzePanelProps = {
   onServiceDateChange: (value: string) => void
   onDepartMinutesChange: (value: number) => void
   onMaxWalkKmChange: (value: number) => void
+  onMaxTransfersChange?: (value: number | undefined) => void
   onWalkSpeedChange: (value: number) => void
   onCutoffChange: (value: number) => void
   onRenderModeChange: (mode: ScenarioRenderMode) => void
@@ -141,11 +148,6 @@ const interventionOptions = [
   ['remove-line', 'Remove line'],
 ] as const satisfies ReadonlyArray<readonly [ScenarioChangeKind, string]>
 const interventionLabels = Object.fromEntries(interventionOptions)
-const walkBudgetOptions = [0.4, 0.6, 0.8, 1.2, 1.6, 2, 3, 4, 5] as const
-const walkSpeedOptions = [3, 3.6, 4.2, 4.8, 5.4, 6] as const
-const cutoffOptions = [10, 15, 20, 30, 45, 60, 75, 90, 120] as const
-const lineHeadwayOptions = [4, 5, 8, 10, 12, 15, 20, 30, 60] as const
-const lineSpeedOptions = [12, 15, 20, 25, 30, 40, 60, 80] as const
 const serviceStartOptions = [0, 300, 360, 420, 480, 540, 600, 720] as const
 const serviceEndOptions = [1080, 1200, 1320, 1440, 1500, 1560, 1680] as const
 const scenarioViewOptions = [
@@ -236,7 +238,7 @@ function ReachSurfaceLegend({
         {difference ? (
           <><span>{reachDifferenceCapMinutes}+ min slower</span><span>same</span><span>{reachDifferenceCapMinutes}+ min faster</span></>
         ) : (
-          <><span>0 min</span><span>{Math.round(cutoffMinutes / 2)} min</span><span>{cutoffMinutes} min</span></>
+          <><span>0 min</span><span>{Number((cutoffMinutes / 2).toFixed(2))} min</span><span>{cutoffMinutes} min</span></>
         )}
       </div>
     </div>
@@ -312,7 +314,7 @@ export function ReachMetricCards({
       <ResultMetric value={stops === null ? 'Unavailable' : formatNumber(stops)} label={`stops reached by ${cutoffMinutes} min`} detail={stops === null ? 'Update Reach to compute this cutoff.' : undefined} />
       <details className="reach-supporting-metrics"><summary>Network details</summary>
         <ResultMetric value={typeof network?.reachedEdgeLengthKm === 'number' && Number.isFinite(network.reachedEdgeLengthKm) ? `${reachDecimal(network.reachedEdgeLengthKm, 1)} km` : 'Unavailable'} label={`OSM streets · full ${analysis.summary.maximumCutoffMinutes} min window`} />
-        <ResultMetric value={`${walkBudgetKm.toFixed(1)} km`} label="final-walk budget" />
+        <ResultMetric value={`${walkBudgetKm} km`} label="final-walk budget" />
       </details>
     </div>
   )
@@ -592,12 +594,14 @@ export function AnalyzePanel({
   serviceDate,
   departMinutes,
   maxWalkKm,
+  maxTransfers,
   walkSpeedKph,
   surfaceSampling = 'street',
   onSurfaceSamplingChange,
   cutoffMinutes,
   renderMode,
   cases,
+  caseGroupLabel,
   feeds,
   comparisonFeedIds,
   activeCaseId,
@@ -624,6 +628,7 @@ export function AnalyzePanel({
   onServiceDateChange,
   onDepartMinutesChange,
   onMaxWalkKmChange,
+  onMaxTransfersChange,
   onWalkSpeedChange,
   onCutoffChange,
   onRenderModeChange,
@@ -655,6 +660,11 @@ export function AnalyzePanel({
   const [newInterventionKind, setNewInterventionKind] = useState<ScenarioChangeKind>('add-line')
   const [routeQuery, setRouteQuery] = useState('')
   const [scenarioEditorOpen, setScenarioEditorOpen] = useState(false)
+  const [panelExpanded, setPanelExpanded] = useState(false)
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
+    return () => cancelAnimationFrame(frame)
+  }, [panelExpanded])
   const activeCase = cases.find((entry) => entry.id === activeCaseId) ?? cases[0]
   const interventions = activeCase?.interventions ?? []
   const activeIntervention = interventions.find((entry) => entry.id === activeInterventionId)
@@ -782,7 +792,7 @@ export function AnalyzePanel({
   }
 
   return (
-    <section className="sidebar-section reach-surface" aria-label="Reach analysis controls">
+    <section className={classNames('sidebar-section reach-surface', panelExpanded && 'is-expanded')} aria-label="Reach analysis controls">
       <form onSubmit={submit}>
         <div className="reach-analysis-switch">
           <div className="studio-tabs reach-mode-tabs" role="group" aria-label="Analyze mode">
@@ -803,6 +813,11 @@ export function AnalyzePanel({
               <span>Compare</span>
             </button>
           </div>
+          <button type="button" className="reach-expand" aria-label={panelExpanded ? 'Compact analysis controls' : 'Expand analysis controls'}
+            title={panelExpanded ? 'Compact controls' : 'Expand controls'} aria-expanded={panelExpanded}
+            onClick={() => setPanelExpanded(value => !value)}>
+            {panelExpanded ? <Minimize2 size={16} /> : <Expand size={16} />}
+          </button>
         </div>
 
 
@@ -879,40 +894,10 @@ export function AnalyzePanel({
           </div>
         </div>
 
-        <details className="studio-disclosure reach-advanced">
-          <summary>
-            <span>Analysis settings</span>
-            <b>{cutoffMinutes} min · {maxWalkKm} km final walk</b>
-          </summary>
-          <div className="reach-field-grid">
-            <label className="reach-field">
-              <span>Maximum final walk</span>
-              <select value={maxWalkKm} onChange={(event) => onMaxWalkKmChange(Number(event.currentTarget.value))}>
-                {walkBudgetOptions.map((value) => <option key={value} value={value}>{value} km</option>)}
-              </select>
-            </label>
-            <label className="reach-field">
-              <span>Walk speed</span>
-              <select disabled={surfaceSampling === 'cell-center'} value={walkSpeedKph} onChange={(event) => onWalkSpeedChange(Number(event.currentTarget.value))}>
-                {walkSpeedOptions.map((value) => <option key={value} value={value}>{value} km/h</option>)}
-              </select>
-            </label>
-            {onSurfaceSamplingChange && <label className="reach-field">
-              <span>Area calculation</span>
-              <select value={surfaceSampling} onChange={(event) => onSurfaceSamplingChange(event.currentTarget.value as 'street' | 'cell-center')}>
-                <option value="street">Reachable streets</option>
-                <option value="cell-center" disabled={hasScenarioChanges}>Routes to grid points</option>
-              </select>
-              <small>{surfaceSampling === 'cell-center' ? 'Routes to each grid point; uses the City walking speed of 4.8 km/h.' : 'Follows reachable portions of streets; supports planned service changes.'}</small>
-            </label>}
-            <label className="reach-field">
-              <span>Time cutoff</span>
-              <select value={cutoffMinutes} onChange={(event) => onCutoffChange(Number(event.currentTarget.value))}>
-                {cutoffOptions.map((value) => <option key={value} value={value}>{value} min</option>)}
-              </select>
-            </label>
-          </div>
-        </details>
+        <ReachSettings cutoffMinutes={cutoffMinutes} maxWalkKm={maxWalkKm} walkSpeedKph={walkSpeedKph}
+          maxTransfers={maxTransfers} surfaceSampling={surfaceSampling} hasScenarioChanges={hasScenarioChanges}
+          onCutoffChange={onCutoffChange} onMaxWalkKmChange={onMaxWalkKmChange} onWalkSpeedChange={onWalkSpeedChange}
+          onMaxTransfersChange={onMaxTransfersChange} onSurfaceSamplingChange={onSurfaceSamplingChange} />
 
         {mode === 'single' ? (
           <details
@@ -942,7 +927,7 @@ export function AnalyzePanel({
               </div>
 
         {mode === 'single' ? <div className="reach-case-tabs" role="group" aria-label="Comparison cases">
-          {cases.map((entry, index) => (
+          {cases.map((entry) => (
             <button
               key={entry.id}
               type="button"
@@ -950,12 +935,13 @@ export function AnalyzePanel({
               className={classNames(entry.id === activeCase?.id && 'is-active')}
               onClick={() => onSelectCase(entry.id)}
             >
-              Case {String.fromCharCode(65 + index)}
+              {entry.name}
               <small>{entry.interventions.length}</small>
             </button>
           ))}
         </div> : null}
 
+        {mode === 'single' && caseGroupLabel ? <button type="button" className="city-case-group-link" onClick={onOpenData}>Feed group · {caseGroupLabel}</button> : null}
         {mode === 'single' && activeCase && cases.length > 1 ? (
           <button
             type="button"
@@ -1265,31 +1251,13 @@ export function AnalyzePanel({
                             {keepsScheduledTrips(intervention) ? <small>Keep every trip on the selected service date. Stop edits change travel times without adding departures.</small> : null}
                           </label>
                         ) : null}
-                        <div className="reach-field-grid">
+                        <div className="reach-service-settings">
                           {!keepsScheduledTrips(intervention) ? (
-                            <label className="reach-field">
-                              <span>Headway</span>
-                              <select
-                                value={intervention.headwayMinutes}
-                                onChange={(event) => onUpdateIntervention(intervention.id, {
-                                  headwayMinutes: Number(event.currentTarget.value),
-                                })}
-                              >
-                                {lineHeadwayOptions.map((value) => <option key={value} value={value}>{value} min</option>)}
-                              </select>
-                            </label>
+                            <AnalysisNumberField label="Time between services" value={intervention.headwayMinutes} min={2} max={180} unit="min"
+                              onChange={value => { if (value !== undefined) onUpdateIntervention(intervention.id, { headwayMinutes: value }) }} />
                           ) : null}
-                          <label className="reach-field">
-                            <span>Average speed</span>
-                            <select
-                              value={intervention.averageSpeedKph}
-                              onChange={(event) => onUpdateIntervention(intervention.id, {
-                                averageSpeedKph: Number(event.currentTarget.value),
-                              })}
-                            >
-                              {lineSpeedOptions.map((value) => <option key={value} value={value}>{value} km/h</option>)}
-                            </select>
-                          </label>
+                          <AnalysisNumberField label="Average speed" value={intervention.averageSpeedKph} min={4} max={160} unit="km/h"
+                            onChange={value => { if (value !== undefined) onUpdateIntervention(intervention.id, { averageSpeedKph: value }) }} />
                         </div>
                         {!keepsScheduledTrips(intervention) ? (
                           <>
@@ -1375,15 +1343,8 @@ export function AnalyzePanel({
               {loading ? 'Computing the complete reached-street surface…' : setupHint}
             </small>
           ) : null}
-          {loading && progress ? (
-            <div className="reach-analysis-progress" aria-live="polite">
-              <span>
-                <strong>{progress.phase}</strong>
-                <b>{Math.round(progress.progress * 100)}%</b>
-              </span>
-              <progress max={1} value={progress.progress} aria-label={`${progress.phase} progress`} />
-              {progress.detail ? <small>{progress.detail}</small> : null}
-            </div>
+          {loading ? (
+            <OperationProgress phase={progress?.phase || 'Starting analysis'} detail={progress?.detail} work={progress?.work} profile={`reach:${mode}`} />
           ) : null}
         </div>
 

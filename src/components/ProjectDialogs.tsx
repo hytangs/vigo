@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
-import { CheckCircle2, Server, XCircle } from 'lucide-react'
+import { CheckCircle2, Server, X, XCircle } from 'lucide-react'
 import { requestDesktopHomeFolder } from '../app/desktopBridge'
 import type {
   ProjectDialogState,
@@ -78,16 +78,16 @@ export function ProjectEditorDialog({
 }) {
   const nameRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLFormElement>(null)
-  const [draft, setDraft] = useState<ProjectDraft>({ name: '', region: '' })
+  const [draft, setDraft] = useState<ProjectDraft>({ name: '' })
   const dialogKey = state && state.mode !== 'create' ? `${state.mode}:${state.projectId}` : state?.mode ?? ''
 
   useEffect(() => {
     if (!state) {
-      setDraft({ name: '', region: '' })
+      setDraft({ name: '' })
       return
     }
 
-    setDraft({ name: state.mode === 'delete' ? '' : state.name, region: state.region })
+    setDraft({ name: state.mode === 'delete' ? '' : state.name })
   }, [dialogKey])
 
   useDialogKeyboard({
@@ -108,21 +108,22 @@ export function ProjectEditorDialog({
       <button type="button" className="project-dialog-backdrop" aria-label="Close City editor" onClick={onClose} disabled={busy} />
       <form
         ref={dialogRef}
-        className="project-dialog"
+        className="project-dialog city-editor"
         role="dialog"
         aria-modal="true"
         aria-labelledby="project-editor-title"
+        aria-busy={busy}
         aria-describedby={error ? 'project-editor-error' : undefined}
         onSubmit={(event) => {
           event.preventDefault()
-          onSubmit(draft)
+          if (busy || (isDelete ? draft.name !== state.name : !draft.name.trim())) return
+          onSubmit({ name: isDelete ? draft.name : draft.name.trim() })
         }}
       >
         <header>
-          <span>{isCreate ? 'New City' : isDelete ? 'City data' : 'City identity'}</span>
           <h2 id="project-editor-title">{isCreate ? 'Create City' : isDelete ? 'Delete City' : 'Rename City'}</h2>
           <button type="button" aria-label="Close City editor" onClick={onClose} disabled={busy}>
-            <XCircle size={16} />
+            <X size={18} aria-hidden="true" />
           </button>
         </header>
 
@@ -133,20 +134,14 @@ export function ProjectEditorDialog({
             ref={nameRef}
             value={draft.name}
             onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-            placeholder={isDelete ? state.name : 'Regional Signal Lab'}
+            placeholder={isDelete ? state.name : 'e.g. Boston'}
+            autoComplete="off"
+            required
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? 'project-editor-error' : undefined}
             disabled={busy}
           />
         </label>
-
-        {!isDelete ? <label>
-          <span>Region</span>
-          <input
-            value={draft.region}
-            onChange={(event) => setDraft((current) => ({ ...current, region: event.target.value }))}
-            placeholder="Sample transit corridor"
-            disabled={busy}
-          />
-        </label> : null}
 
         {error ? <p id="project-editor-error" className="project-dialog-error" role="alert">{error}</p> : null}
 
@@ -155,7 +150,7 @@ export function ProjectEditorDialog({
             Cancel
           </button>
           <button type="submit" className="project-dialog-primary" disabled={busy || (isDelete ? draft.name !== state.name : !draft.name.trim())}>
-            {busy ? (isDelete ? 'Deleting…' : 'Saving...') : isCreate ? 'Create City' : isDelete ? 'Delete City' : 'Save identity'}
+            {busy ? (isDelete ? 'Deleting…' : isCreate ? 'Creating…' : 'Saving…') : isCreate ? 'Create City' : isDelete ? 'Delete City' : 'Save name'}
           </button>
         </footer>
       </form>

@@ -220,14 +220,6 @@
   background: var(--panel-strong);
 }
 
-.surface-switcher-row:hover {
-  border-color: transparent;
-}
-
-.surface-switcher-row.is-current {
-  border-color: transparent;
-}
-
 .project-dialog-backdrop {
   background: rgba(15, 23, 42, 0.26);
   backdrop-filter: blur(4px);
@@ -1454,25 +1446,6 @@
 }
 
 /* Project library stays list-first rather than using dashboard cards. */
-.project-page.project-switcher {
-  background: var(--panel-strong);
-}
-
-.surface-switcher-row {
-  border-color: var(--border);
-  border-radius: 0;
-  background: var(--panel-strong);
-  box-shadow: none;
-}
-
-.surface-switcher-row:hover {
-  background: var(--hover-surface);
-}
-
-.surface-switcher-row.is-current {
-  background: var(--active-surface);
-  box-shadow: inset 3px 0 0 var(--vigo-lime-strong);
-}
 
 .button-primary,
 .project-dialog-primary {

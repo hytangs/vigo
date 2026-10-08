@@ -107,7 +107,7 @@ function cityResult(project: VigoProject, group: SearchResultGroup = 'cities'): 
     kind: 'city',
     group,
     title: project.name,
-    subtitle: `${formatNumber(project.summary.routes)} services · ${project.region || 'Local City'}`,
+    subtitle: `${formatNumber(project.summary.routes)} services · ${formatNumber(project.summary.stops)} stops`,
   }
 }
 
@@ -153,7 +153,7 @@ function recentResult(
 }
 
 function cityMatchScore(project: VigoProject, query: string) {
-  const fields = [project.name, project.region, project.id].map(normalize)
+  const fields = [project.name, project.id].map(normalize)
   if (fields.some((value) => value === query)) return 3
   if (fields.some((value) => value.startsWith(query))) return 2
   if (fields.some((value) => value.includes(query))) return 1

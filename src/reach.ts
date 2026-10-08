@@ -527,6 +527,7 @@ export type ReachResult = {
   schemaVersion: 'vigo.result.reach.v1'
   request: {
     baselineIdentity: string
+    feedIds?: string[]
     mode?: 'walk' | 'transit'
     surfaceSampling?: 'street' | 'cell-center'
     origin: {

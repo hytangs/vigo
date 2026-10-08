@@ -20,11 +20,12 @@ flushSync(()=>createRoot(document.getElementById('root')).render(React.createEle
 }))));
 window.checkNavigation=async()=>{
  // DOM and layout assertions must not wait on a hidden window's paint loop.
+ for(const selector of ['.city-live-disclosure','.city-example-disclosure'])document.querySelector(selector).open=true;
  if(document.querySelectorAll('input[type=file]').length<2)throw Error('Source inputs missing');
  for(const selector of ['.drop-zone','.osm-import-strip button','.realtime-fields input','.realtime-actions button','.network-import-example']){
   const element=document.querySelector(selector);element.scrollIntoView({block:'center'});
   const r=element.getBoundingClientRect();
-  if(r.width<=0||r.height<=0||!element.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)))throw Error('Control clipped: '+selector);
+  if(r.width<=0||r.height<=0||!element.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)))throw Error('Control clipped: '+JSON.stringify({selector,width:innerWidth,height:innerHeight,rect:r.toJSON(),hit:document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.outerHTML,scroll:document.querySelector('.empty-intake').scrollTop}));
  }
  const outer=document.querySelector('.surface-source-intake').getBoundingClientRect();
  const panel=document.querySelector('.import-panel').getBoundingClientRect();

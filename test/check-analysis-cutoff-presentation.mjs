@@ -71,11 +71,11 @@ try {
   const preservedPanel = panel(change)
   assert.match(preservedPanel, /value="preserve-trips" selected=""/)
   assert.match(preservedPanel, /Keep scheduled departures/)
-  assert.doesNotMatch(preservedPanel, /<span>Headway<|<span>Service begins<|<span>Service ends<|<strong>Add reverse service</,
+  assert.doesNotMatch(preservedPanel, /<span>Time between services<|<span>Service begins<|<span>Service ends<|<strong>Add reverse service</,
     'Existing and legacy line edits must hide frequency, span and reverse-service settings by default.')
   const frequencyPanel = panel({ ...change, scheduleMode: 'frequency' })
-  for (const text of ['Headway', 'Service begins', 'Service ends', 'Add reverse service']) assert(frequencyPanel.includes(text))
-  assert.match(panel({ ...change, kind: 'add-line' }), /<span>Headway</, 'New lines still expose their departure schedule.')
+  for (const text of ['Time between services', 'Service begins', 'Service ends', 'Add reverse service']) assert(frequencyPanel.includes(text))
+  assert.match(panel({ ...change, kind: 'add-line' }), /<span>Time between services</, 'New lines still expose their departure schedule.')
   console.log('Scenario controls default to the original timetable, including saved drafts; explicit frequency mode exposes schedule settings.')
   console.log('Reach cutoff presentation: 45/90-minute scopes, formatted full-window street length, scenario counts, later transit reach, exact custom cutoff and missing/preliminary evidence passed.')
 } finally { await server.close(); await rm(directory, { recursive: true, force: true }) }

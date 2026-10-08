@@ -6,7 +6,7 @@ import react from '@vitejs/plugin-react'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { preparationState, preparationTasks, taskPercent, updateProjectJob } from '../src/app/preparation.ts'
+import { preparationState, preparationTasks, updateProjectJob } from '../src/app/preparation.ts'
 import { buildRoutingActivity } from '../src/app/routingPlan.ts'
 
 const job = (status, patch = {}) => ({
@@ -23,10 +23,6 @@ assert.equal(preparationState(false, [job('cancelled')], kinds).label, 'Cancelle
 assert.equal(preparationState(true, [job('complete')], kinds).status, 'ready')
 assert.equal(preparationState(true, [job('failed')], kinds).status, 'ready', 'A failed replacement must not erase an existing ready network')
 assert.equal(preparationState(false, [job('complete')], kinds).status, 'missing', 'Historical completion alone cannot establish current readiness')
-assert.equal(taskPercent(job('queued')), undefined)
-assert.equal(taskPercent(job('running', { progress: undefined })), undefined)
-assert.equal(taskPercent(job('running', { progress: 1 })), 99, 'Only server completion can show 100%')
-assert.equal(taskPercent(job('complete')), 100)
 const recent = preparationTasks([
   job('failed', { id: 'old', createdAt: '2026-09-12T10:00:00Z' }), job('running'),
   job('running', { id: 'merge', kind: 'national-gtfs-merge' }),
@@ -76,11 +72,12 @@ try {
   const comparing = render({ mode: 'compare', streetGraphAvailable: true, preparationTasks: [job('running', { kind: 'national-gtfs-import' })] })
   assert.match(comparing, /Data is being prepared/)
   const panel = (tasks) => renderToStaticMarkup(createElement(BackgroundTasks, { tasks, open: true }))
-  assert.match(panel([job('running')]), /value="45"/)
+  assert.match(panel([job('running', { work: { completed: 45, total: 100, unit: 'rows' } })]), /value="45"/)
+  assert.doesNotMatch(panel([job('running', { progress: .99 })]), /<progress[^>]*value=/, 'Weighted import milestones must not pretend to measure completed work')
   assert.doesNotMatch(panel([job('running', { progress: undefined })]), /<progress[^>]*value=/)
   assert.match(panel([job('running', { statusError: 'Connection lost' })]), /Reconnect to task/)
   assert.doesNotMatch(panel([job('failed')]), /Reconnect to task/)
-  const schedules = panel([job('running', { kind: 'vehicle-schedules', label: 'Boston · 2026-09-16', phase: 'Loading schedules · 45/100 routes' })])
+  const schedules = panel([job('running', { kind: 'vehicle-schedules', label: 'Boston · 2026-09-16', phase: 'Loading schedules · 45/100 routes', work: { completed: 45, total: 100, unit: 'routes' } })])
   assert.match(schedules, /Static vehicle schedules/)
   assert.match(schedules, /Loading schedules · 45\/100 routes/)
   assert.match(schedules, /value="45"/)

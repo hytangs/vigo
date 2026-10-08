@@ -32,6 +32,11 @@ try {
     body: JSON.stringify({ name: 'Reset fixture', region: 'Test region' }),
   }), 201, 'create City')
   const projectId = created.project.id
+  const disk = await jsonResponse(await apiRuntime.fetch('/api/storage'), 200, 'inspect library volume')
+  const actualVolume = await fs.statfs(projectsRoot)
+  assert.equal(disk.capacityBytes, actualVolume.blocks * actualVolume.bsize)
+  assert(Number.isFinite(disk.availableBytes) && disk.availableBytes >= 0 && disk.availableBytes <= disk.capacityBytes)
+  assert.deepEqual(Object.keys(disk).sort(), ['availableBytes', 'capacityBytes'])
   const projectRoot = path.join(projectsRoot, projectId)
   const metaRoot = path.join(projectRoot, '.vigo')
   const projectFile = path.join(metaRoot, 'project.json')
@@ -54,7 +59,7 @@ try {
   }
   await fs.writeFile(projectFile, JSON.stringify(emptyProject))
   const routingStore = {
-    schemaVersion: 'vigo.routing.store.v3',
+    schemaVersion: 'vigo.routing.store.v4',
     status: 'ready',
     fileName: 'fixture.sqlite',
     bytes: 4_096,

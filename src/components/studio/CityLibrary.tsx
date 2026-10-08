@@ -1,18 +1,24 @@
 import { quietMapLabel } from './presentation'
 
-import { AlertTriangle, Database, FolderOpen, FolderPlus, Pencil, RefreshCw, Settings, Trash2 } from 'lucide-react'
-import { hasOperationsData, orderedProjects } from '../../app/projectState'
+import { AlertTriangle, ArrowUpRight, Check, Database, FolderOpen, FolderPlus, Map, Pencil, RefreshCw, Search, Settings, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { orderedProjects } from '../../app/projectState'
+import { cityReadiness } from '../../app/cityReadiness'
 import type { VigoRuntimeConfig } from '../../app/runtimeConfig'
-import { statusFromStoreStatus, type ActivityStatus } from '../../app/status'
 import { classNames, formatNumber, type VigoProject } from '../../domain'
-import { IconButton, StatusBadge } from '../UiPrimitives'
+import { IconButton } from '../UiPrimitives'
+import { OperationProgress } from '../OperationProgress'
 
 export function ProjectsPage({
   projects,
+  loading = false,
+  loadFailed = false,
   selectedProject,
   query,
+  onQueryChange,
   previewLoading,
   onOpenProject,
+  onOpenProjectData,
   onOpenSettings,
   onCreateProject,
   onRenameProject,
@@ -20,79 +26,83 @@ export function ProjectsPage({
   onRefresh,
 }: {
   projects: VigoProject[]
+  loading?: boolean
+  loadFailed?: boolean
   selectedProject: VigoProject
   query: string
+  onQueryChange: (query: string) => void
   previewLoading: boolean
   onOpenProject: (id: string) => void
+  onOpenProjectData: (id: string) => void
   onOpenSettings: () => void
   onCreateProject: () => void
   onRenameProject: (id: string) => void
   onDeleteProject: (id: string) => void
   onRefresh: () => void
 }) {
+  const [filter, setFilter] = useState<'all' | 'ready' | 'setup'>('all')
   const normalizedQuery = query.trim().toLowerCase()
   const visibleProjects = orderedProjects(projects).filter((project) => {
+    const ready = cityReadiness(project).state === 'ready'
+    if (filter === 'ready' && !ready || filter === 'setup' && ready) return false
     if (!normalizedQuery) return true
-    return [project.id, project.name, project.region, project.storagePath].some((value) => value.toLowerCase().includes(normalizedQuery))
+    return [project.id, project.name, project.storagePath].some((value) => value.toLowerCase().includes(normalizedQuery))
   })
 
   return (
-    <section className="project-page project-switcher" aria-labelledby="surface-switcher-title">
-      <header className="surface-switcher-head">
+    <section className="city-library" aria-labelledby="city-library-title">
+      <header className="city-library-head">
         <div>
-          <span className="eyebrow">Cities</span>
-          <h1 id="surface-switcher-title">Choose a City</h1>
-          <p>Open a City or create one from GTFS and OSM.</p>
+          <span className="eyebrow">Your workspace</span>
+          <h1 id="city-library-title">Cities</h1>
+          <p>A place for every network you explore.</p>
         </div>
-        <div className="surface-switcher-actions">
-          <IconButton label="Refresh Cities" onClick={onRefresh}>
-            <RefreshCw size={15} />
-          </IconButton>
-          <IconButton label="Open settings" onClick={onOpenSettings}>
-            <Settings size={15} />
-          </IconButton>
-          <button type="button" className="button button-primary" onClick={onCreateProject}>
+        <div className="city-library-actions">
+          <button type="button" className="button button-secondary" onClick={onOpenSettings}><Settings size={16} />Settings</button>
+          <button type="button" className="button button-primary" onClick={onCreateProject} disabled={!projects.length && (loading || loadFailed)}>
             <FolderPlus size={15} />
             <span>New City</span>
           </button>
         </div>
       </header>
-
+      {projects.length > 0 ? <div className="city-library-toolbar">
+        <label className="city-library-search"><Search size={17} aria-hidden="true" /><input type="search" aria-label="Search Cities" placeholder="Find a City" value={query} onChange={event => onQueryChange(event.target.value)} /></label>
+        <div className="city-library-filters" role="group" aria-label="Filter Cities">
+          {([['all', 'All'], ['ready', 'Prepared'], ['setup', 'In progress']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}
+        </div>
+        <IconButton label="Refresh Cities" onClick={onRefresh} disabled={loading}><RefreshCw size={16} /></IconButton>
+      </div> : null}
+      {loading ? <div className="city-library-loading" role="status"><OperationProgress phase="Loading Cities" /></div> : loadFailed ? (
+        <div className="city-library-loading" role="alert">
+          <p>Couldn’t load your Cities. Retry to read the saved library.</p>
+          <button type="button" className="button button-secondary" onClick={onRefresh}>Retry loading Cities</button>
+        </div>
+      ) : null}
       {visibleProjects.length ? (
-        <div className="surface-switcher-list">
+        <div className="city-library-list" aria-label="City library">
           {visibleProjects.map((project) => {
-            const hasData = hasOperationsData(project)
             const isSelected = project.id === selectedProject.id
-            const readiness = project.routingStore?.status === 'ready'
-              ? 'Indexed locally'
-              : hasData
-                ? 'GTFS available'
-                : 'No GTFS data'
-            const readinessStatus: ActivityStatus = project.routingStore
-              ? statusFromStoreStatus(project.routingStore.status)
-              : hasData
-                ? 'stale'
-                : 'idle'
+            const readiness = cityReadiness(project)
             return (
-              <article key={project.id} className={classNames('surface-switcher-row', isSelected && 'is-current')}>
+              <article key={project.id} className={classNames('city-library-card', isSelected && 'is-current')} aria-label={project.name}>
+                <div className="city-card-top"><Map size={23} strokeWidth={1.5} aria-hidden="true" /><span className="city-state" data-state={readiness.state}>{readiness.state === 'ready' ? <Check size={13} /> : null}{readiness.label}</span></div>
                 <button
                   type="button"
-                  className="surface-switcher-open"
-                  onClick={() => onOpenProject(project.id)}
-                  aria-label={hasData ? `Open ${project.name} network` : `Set up ${project.name}`}
-                  aria-current={isSelected ? 'page' : undefined}
+                  className="city-card-open"
+                  onClick={() => readiness.state === 'ready' ? onOpenProject(project.id) : onOpenProjectData(project.id)}
+                  aria-label={`${readiness.state === 'ready' ? 'Open' : 'Set up'} ${project.name}`}
                 >
-                  <span className={classNames('surface-readiness-dot', hasData && 'is-ready')} aria-hidden="true" />
-                  <span className="surface-switcher-copy">
-                    <strong title={project.name}>{quietMapLabel(project.name)}</strong>
-                    <small title={project.region}>{project.region}</small>
-                  </span>
-                  <span className="surface-switcher-status">
-                    <StatusBadge status={readinessStatus} label={readiness} />
-                    <small>{formatNumber(project.summary.feeds)} feed{project.summary.feeds === 1 ? '' : 's'} · {formatNumber(project.summary.routes)} route records</small>
-                  </span>
+                  <strong>{quietMapLabel(project.name)}</strong>
+                  <span className="city-card-enter">{readiness.detail}<ArrowUpRight size={17} /></span>
                 </button>
-                <div className="surface-switcher-row-actions" aria-label={`Manage ${project.name}`}>
+                <div className="city-card-sources" aria-label="Prepared sources">
+                  <span data-ready={readiness.transitReady}><span aria-hidden="true" />Timetables {readiness.transitReady ? 'ready' : project.routingStore?.status === 'building' ? 'preparing' : project.routingStore?.status === 'failed' ? 'failed' : 'needed'}</span>
+                  <span data-ready={readiness.streetsReady}><span aria-hidden="true" />Streets {readiness.streetsReady ? 'ready' : project.osmStreetIndex?.status === 'building' ? 'preparing' : project.osmStreetIndex?.status === 'failed' ? 'failed' : 'needed'}</span>
+                </div>
+                <footer className="city-card-footer">
+                  <small>{formatNumber(project.summary.feeds)} feed{project.summary.feeds === 1 ? '' : 's'} · {formatNumber(project.summary.stops)} stops</small>
+                <div className="city-card-actions" aria-label={`Manage ${project.name}`}>
+                  <IconButton label={`Data for ${project.name}`} onClick={() => onOpenProjectData(project.id)}><Database size={15} /></IconButton>
                   <IconButton label={`Rename ${project.name}`} onClick={() => onRenameProject(project.id)}>
                     <Pencil size={14} />
                   </IconButton>
@@ -100,27 +110,25 @@ export function ProjectsPage({
                     <Trash2 size={14} />
                   </IconButton>
                 </div>
+                </footer>
               </article>
             )
           })}
           {previewLoading ? (
-            <div className="surface-switcher-loading" role="status" aria-live="polite">
-              <span />
+            <div className="city-library-loading" role="status" aria-live="polite">
               Opening City…
             </div>
           ) : null}
         </div>
-      ) : (
-        <div className="project-empty-state">
-          <Database size={24} />
-          <strong>{normalizedQuery ? 'No matching City' : 'No Cities yet'}</strong>
-          <span>{normalizedQuery ? 'Try a different name.' : 'Create a City, then add GTFS and OSM.'}</span>
-          <button type="button" className="button button-primary" onClick={onCreateProject}>
-            <FolderPlus size={15} />
-            New City
-          </button>
+      ) : !loading && !loadFailed ? (
+        <div className="city-library-empty">
+          <Map size={36} strokeWidth={1.2} />
+          <h2>{projects.length ? 'No matching Cities' : 'Your next journey starts here'}</h2>
+          <p>{projects.length ? 'Try another name or show all Cities.' : 'Create a City and add its transit timetable and street network.'}</p>
+          {projects.length ? <button type="button" className="button button-secondary" onClick={() => { setFilter('all'); onQueryChange('') }}>Clear filters</button> : <button type="button" className="button button-primary" onClick={onCreateProject}><FolderPlus size={16} />Create your first City</button>}
         </div>
-      )}
+      ) : null}
+      <footer className="city-library-note"><FolderOpen size={14} />Stored on this computer<span>{!projects.length && (loading || loadFailed) ? loading ? 'Loading…' : 'Not loaded' : `${projects.length} ${projects.length === 1 ? 'City' : 'Cities'}`}</span></footer>
     </section>
   )
 }

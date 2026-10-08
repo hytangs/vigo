@@ -22,13 +22,6 @@ export function preparationTasks(jobs: JobRecord[], pending: PreparationTask[], 
     .sort((a, b) => Number(isActiveTask(b)) - Number(isActiveTask(a)))
 }
 
-export function taskPercent(task: PreparationTask) {
-  if (task.status === 'complete') return 100
-  if (task.status === 'queued' || !Number.isFinite(task.progress)) return undefined
-  // A worker may finish its phase before the server publishes the final store.
-  return Math.min(99, Math.max(0, Math.floor(Number(task.progress) * 100)))
-}
-
 export function preparationState(ready: boolean, tasks: PreparationTask[], kinds: string[], building = false) {
   const relevant = tasks.filter((task) => kinds.includes(task.kind))
   const active = relevant.find(isActiveTask)

@@ -293,6 +293,16 @@ try {
     body: JSON.stringify({ ...boundaryRequest, maxTransfers: -1 }),
   })
   assert.equal(invalidCap.status, 400, 'An invalid Reach transfer cap must fail at the HTTP boundary.')
+  for (const cutoff of [1.25, 37.25]) {
+    const precise = await endpoint('reach', { ...boundaryRequest, maxTransfers: 0, maxWalkKm: 0.35, walkSpeedKph: 4.65,
+      cutoffsMinutes: [cutoff], rasterSize: 48, includePreliminary: false, includeStreetEdges: false })
+    assert.deepEqual(precise.result.request.cutoffsMinutes, [cutoff], 'Custom time budgets must not be rounded or expanded.')
+    assert.equal(precise.result.summary.maximumCutoffMinutes, cutoff)
+    assert.equal(precise.result.request.maxWalkKm, 0.35)
+    assert.equal(precise.result.request.walkSpeedKph, 4.65)
+    assert.equal(precise.result.request.maxTransfers, 0)
+    assert.equal(precise.result.summary.transitStopsByCutoff[0].cutoffMinutes, cutoff)
+  }
   const editedReplacement = { ...replacement, timeModel: 'infer-road', segmentDistancesKm: [1, 1],
     addedStopDwellMinutes: 0.35, stops: [
       { id: 'O', stopId: 'O', baselineStopIndex: 0, coordinate: [8, 47], editStatus: 'baseline' },

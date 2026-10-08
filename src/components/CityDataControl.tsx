@@ -1,4 +1,4 @@
-import { HardDrive, ShieldAlert, Trash2 } from 'lucide-react'
+import { HardDrive, RefreshCw, ShieldAlert, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { apiJson } from '../app/api'
 import { formatBytes } from '../app/presentation'
@@ -74,6 +74,7 @@ export function CityDataControl({
   const [confirmation, setConfirmation] = useState('')
   const [error, setError] = useState('')
   const [status, setStatus] = useState('')
+  const [refresh, setRefresh] = useState(0)
 
   const targetProject = useMemo(
     () => projects.find((project) => project.id === targetProjectId) ?? null,
@@ -99,6 +100,8 @@ export function CityDataControl({
     }
 
     let current = true
+    const controller = new AbortController()
+    setPreview(null)
     setLoading(true)
     setError('')
     setStatus('')
@@ -106,6 +109,7 @@ export function CityDataControl({
     setConfirmation('')
     apiJson<{ data: CityDataPreview }>(
       `/api/projects/${encodeURIComponent(targetProjectId)}/city-data`,
+      { signal: controller.signal },
     ).then((result) => {
       if (current) setPreview(result.data)
     }).catch((reason) => {
@@ -119,11 +123,12 @@ export function CityDataControl({
 
     return () => {
       current = false
+      controller.abort()
     }
-  }, [targetProjectId])
+  }, [targetProjectId, targetProject?.updatedAt, refresh])
 
   async function resetCityData() {
-    if (!preview || confirmationAction !== 'deep-clean' || confirmation !== preview.city.name || workingAction) return
+    if (!canConfirm || !preview || confirmationAction !== 'deep-clean') return
     setWorkingAction('deep-clean')
     setError('')
     setStatus('')
@@ -152,7 +157,7 @@ export function CityDataControl({
   }
 
   async function removeCity() {
-    if (!preview || confirmationAction !== 'remove' || confirmation !== preview.city.name || workingAction) return
+    if (!canConfirm || !preview || confirmationAction !== 'remove') return
     setWorkingAction('remove')
     setError('')
     setStatus('')
@@ -171,11 +176,11 @@ export function CityDataControl({
     }
   }
 
-  const canConfirm = Boolean(preview && confirmation === preview.city.name && !workingAction)
+  const canConfirm = Boolean(preview && preview.city.id === targetProjectId && confirmation === preview.city.name && !workingAction && !loading && !preview.activeImport)
 
   return (
     <div className="city-data-control">
-      <label className="data-control-label" htmlFor="city-data-target">
+      <div className="city-storage-picker"><label className="data-control-label" htmlFor="city-data-target">
         <span>City</span>
         <select
           id="city-data-target"
@@ -187,7 +192,7 @@ export function CityDataControl({
             <option key={project.id} value={project.id}>{project.name}</option>
           ))}
         </select>
-      </label>
+      </label><button type="button" className="settings-icon-button" aria-label="Refresh City storage" disabled={loading || Boolean(workingAction)} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={16} /></button></div>
 
       {loading ? (
         <div className="city-data-loading" role="status">
@@ -202,7 +207,7 @@ export function CityDataControl({
               <strong>{formatBytes(preview.managedBytes)}</strong>
             </div>
             <div>
-              <span>Files to remove</span>
+              <span>Stored files</span>
               <strong>{preview.fileCount.toLocaleString()}</strong>
             </div>
             <div>
@@ -211,21 +216,23 @@ export function CityDataControl({
             </div>
           </div>
 
+          <div className="city-storage-bar" aria-hidden="true">{cleanupCategories.map(({ key }) => <span key={key} data-category={key} style={{ flexGrow: preview.categories[key].bytes }} />)}</div>
           <ul className="city-data-breakdown" aria-label="Managed data breakdown">
             {cleanupCategories.map(({ key, label }) => (
               <li key={key}>
-                <span>{label}</span>
+                <span><i data-category={key} aria-hidden="true" />{label}</span>
                 <strong>{formatBytes(preview.categories[key].bytes)}</strong>
               </li>
             ))}
           </ul>
-
+          <p className="settings-note">File sizes may differ from disk space used on compressed or shared storage.</p>
+          <details className="city-maintenance" key={targetProjectId}>
+          <summary>Reset or remove this City</summary>
           <div className="city-data-action">
             <span>
               <strong>Reset imported data</strong>
               <small>
-                Removes every VIGO-managed timetable, street index, job, artifact, and staging file.
-                The City identity and files outside its VIGO data folder stay in place.
+                Removes timetables, streets, and build data. Keeps the City name and your original files outside its data folder.
               </small>
             </span>
             <button
@@ -322,6 +329,7 @@ export function CityDataControl({
               </div>
             </div>
           ) : null}
+          </details>
         </>
       ) : null}
 
