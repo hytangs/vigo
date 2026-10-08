@@ -96,12 +96,19 @@ window.checkControlsLayout = async (dark, overlay) => {
   const info = query('.maplibregl-ctrl-attrib-button'), credits = query('.maplibregl-ctrl-attrib')
   clickable(info, `${innerWidth}px ${overlay}: attribution`)
   if (!credits.open) info.click()
+  // MapLibre can collapse credits during resize. Opening <details> exposes
+  // previously skipped content; let Chromium restyle its inherited theme
+  // before measuring it, and finish the controls' finite color transitions.
+  await frames()
+  await Promise.all(query('.map-stage').getAnimations({ subtree: true })
+    .filter(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime))
+    .map(animation => animation.finished.catch(() => {})))
   const rect = credits.getBoundingClientRect(), canvas = query('.map-stage').getBoundingClientRect()
   assert(rect.left >= canvas.left && rect.right <= canvas.right + 1 && rect.height < canvas.height,
     `${innerWidth}px credits do not wrap within map: ${JSON.stringify(rect)}`)
   const style = getComputedStyle(credits), linkStyle = getComputedStyle(credits.querySelector('a'))
   const ratio = contrast(linkStyle.color, style.backgroundColor)
-  assert(ratio >= 4.5, `${dark ? 'Dark' : 'Light'} attribution contrast is ${ratio}`)
+  assert(ratio >= 4.5, `${dark ? 'Dark' : 'Light'} attribution contrast is ${ratio} (${linkStyle.color} on ${style.backgroundColor}; ${innerWidth}px ${overlay})`)
   const group = getComputedStyle(query('.maplibregl-ctrl-group'))
   assert(group.backgroundColor === style.backgroundColor, 'Navigation lost theme background to lazy map stylesheet')
   const infoStyle = getComputedStyle(info, '::before')

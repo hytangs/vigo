@@ -67,21 +67,28 @@ const server = await createServer({ root, cacheDir: path.join(directory, 'vite-c
 await server.listen()
 const main = path.join(directory, 'main.cjs')
 await fs.writeFile(main, `const {app,BrowserWindow}=require('electron');const fs=require('node:fs');
-const {layoutFrame,resizeLayout}=require(${JSON.stringify(path.join(root, 'test/helpers/layout-frame.cjs'))});
+const {layoutFrame}=require(${JSON.stringify(path.join(root, 'test/helpers/layout-frame.cjs'))});
 app.disableHardwareAcceleration();
+app.on('window-all-closed',()=>{});
 app.setPath('userData',${JSON.stringify(path.join(directory, 'profile'))});
 app.whenReady().then(async()=>{try{
- const window=new BrowserWindow({show:false,width:1280,height:900,webPreferences:{offscreen:true,backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
- await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/navigation-fixture.html`)});
- await window.webContents.executeJavaScript('new Promise((resolve,reject)=>{const timer=setInterval(()=>{if(window.checkNavigation){clearInterval(timer);resolve()}},20);setTimeout(()=>{clearInterval(timer);reject(Error("Fixture timed out"))},15000)})');
  const results=[];
+ // Offscreen Chromium can report the new innerWidth before its existing
+ // document adopts all responsive rules. Load each viewport at its final
+ // content size so this test measures a complete layout, not a resize race.
  for(const [width,height] of [[320,640],[390,844],[760,708],[760,400],[761,900],[1280,900]]){
-  await resizeLayout(window,width,height);
-  results.push(await window.webContents.executeJavaScript('window.checkNavigation()'));
+  const window=new BrowserWindow({show:false,width,height,useContentSize:true,webPreferences:{offscreen:true,backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
+  await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/navigation-fixture.html`)});
+  await window.webContents.executeJavaScript('new Promise((resolve,reject)=>{const timer=setInterval(()=>{if(window.checkNavigation){clearInterval(timer);resolve()}},20);setTimeout(()=>{clearInterval(timer);reject(Error("Fixture timed out"))},15000)})');
+  await layoutFrame(window);
+  const result=await window.webContents.executeJavaScript('window.checkNavigation()');
+  if(result.width!==width||result.height!==height)throw Error('Navigation fixture content size does not match requested viewport');
+  results.push(result);
+  const screenshot=await layoutFrame(window);
+  if(screenshot.isEmpty())throw Error('Layout fixture screenshot is empty');
+  fs.writeFileSync(${JSON.stringify(path.join(directory, 'navigation-'))}+width+'x'+height+'.png',screenshot.toPNG());
+  window.destroy();
  }
- const screenshot=await layoutFrame(window);
- if(screenshot.isEmpty())throw Error('Layout fixture screenshot is empty');
- fs.writeFileSync(${JSON.stringify(path.join(directory, 'navigation.png'))},screenshot.toPNG());
  console.log(JSON.stringify({passed:true,results}));app.exit(0);
 }catch(error){console.error(error);app.exit(1)}});`)
 try {
