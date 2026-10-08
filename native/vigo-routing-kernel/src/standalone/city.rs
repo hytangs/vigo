@@ -919,7 +919,12 @@ mod identity_tests {
         assert!(portable_metadata(&bytes, range).is_err());
         assert!(portable_header(&bytes[..15]).is_err());
         bytes[..8].copy_from_slice(b"VIGORS01");
-        assert!(portable_header(&bytes).unwrap_err().to_string().contains("rebuild"));
+        assert!(
+            portable_header(&bytes)
+                .unwrap_err()
+                .to_string()
+                .contains("rebuild")
+        );
     }
 
     #[test]

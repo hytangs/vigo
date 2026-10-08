@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 const root = path.resolve(import.meta.dirname, '..')
+await fs.mkdir(path.join(root, 'temp'), { recursive: true })
 const directory = await fs.mkdtemp(path.join(root, 'temp', 'journey-options-'))
 const fixture = `import React,{useState} from 'react';import {createRoot} from 'react-dom/client';import {flushSync} from 'react-dom';
 import {buildSearchResults} from '/src/features/search/searchModel.ts';
