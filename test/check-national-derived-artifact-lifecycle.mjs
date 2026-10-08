@@ -74,7 +74,7 @@ function createFixture() {
     CREATE INDEX route_services_trip_rank ON route_services(source_scope, trip_count DESC, route_type, service_key);
 
     INSERT INTO metadata VALUES
-      ('schemaVersion', '"vigo.routing.store.v3"'),
+      ('schemaVersion', '"vigo.routing.store.v4"'),
       ('storeId', '"derived-lifecycle-fixture"'),
       ('serviceModel', '"exact-date"'),
       ('transferSemanticsVersion', '"vigo.routing.transfers.v4"'),

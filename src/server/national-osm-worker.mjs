@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { parentPort, workerData } from 'node:worker_threads'
+import { preparationInput, publishPreparation } from './runtime/preparation-channel.mjs'
 import {
   buildNationalOsmStore,
   compactNationalOsmRuntimeStore,
@@ -10,6 +10,7 @@ import {
   normalizeNativeMilliseconds,
 } from './native-routing-kernel.mjs'
 
+const workerData = await preparationInput()
 let lastPublishedProgress = 0
 
 function publishProgress(update) {
@@ -25,7 +26,7 @@ function publishProgress(update) {
       : Math.min(0.96, Math.max(0, rawProgress) * 0.96),
   )
   lastPublishedProgress = progress
-  parentPort?.postMessage({
+  publishPreparation({
     type: 'progress',
     progress: {
       ...update,
@@ -86,7 +87,7 @@ try {
   const cch = compactCch(buildNativeStreetCchIndex(workerData.outputPath))
   if (!cch.ready) throw new Error('The Rust pedestrian CCH did not load after it was built.')
 
-  parentPort?.postMessage({
+  publishPreparation({
     type: 'complete',
     result: {
       ...result,
@@ -98,5 +99,5 @@ try {
     },
   })
 } catch (error) {
-  parentPort?.postMessage({ type: 'failed', error: error instanceof Error ? error.stack || error.message : String(error) })
+  publishPreparation({ type: 'failed', error: error instanceof Error ? error.stack || error.message : String(error) })
 }

@@ -504,6 +504,7 @@ export async function streamGtfsZipCsv(archive, entry, onRow, options = {}) {
 
   const decoder = new TextDecoder('utf-8', { fatal: true })
   let stdoutBytes = 0
+  let lastProgressAt = -Infinity
   let lineBuffer = ''
   let pendingRecord = ''
   let headers = null
@@ -597,6 +598,10 @@ export async function streamGtfsZipCsv(archive, entry, onRow, options = {}) {
         throw new Error(`GTFS ${tableName} is not valid UTF-8.`, { cause: error })
       }
       consumeText(decoded)
+      if (options.onProgress && (performance.now() - lastProgressAt >= 200 || stdoutBytes === entry.uncompressedBytes)) {
+        lastProgressAt = performance.now()
+        options.onProgress({ completed: stdoutBytes, total: entry.uncompressedBytes, unit: 'bytes', rows })
+      }
     }
     let decodedTail
     try {

@@ -5,8 +5,9 @@ const calls = [], updates = []
 let finish, walkReady = false, driveReady = false
 const pool = {
   isStreetPrepared: (_store, drive) => drive ? driveReady : walkReady,
-  dispatch(_store, operation, request) {
+  dispatch(_store, operation, request, _signal, onProgress) {
     calls.push({ operation, request })
+    onProgress?.({ phase: request.prepareDrive ? 'Opening driving index' : 'Opening walking index', work: { completed: 10, total: 20, unit: 'blocks' } })
     return new Promise(resolve => { finish = () => {
       walkReady = true
       if (request.prepareDrive) driveReady = true
@@ -20,6 +21,8 @@ const walking = manager.start(input)
 await tick()
 assert.equal(calls.length, 1)
 assert.equal(calls[0].request.prepareDrive, false)
+assert.equal(walking.phase, 'Opening walking index')
+assert.equal(walking.work.completed, 10, 'Walking preparation must forward measured progress')
 finish(); await tick()
 assert.equal(calls.length, 1, 'Opening a City must not allocate the driving network')
 assert.equal(walking.status, 'complete')
@@ -30,6 +33,8 @@ assert.notStrictEqual(driving, walking, 'Selecting Drive upgrades walking-only r
 await tick(); finish(); await tick()
 assert.equal(calls.at(-1).request.prepareDrive, true)
 assert.equal(driving.status, 'running')
+assert.equal(driving.phase, 'Opening driving index')
+assert.equal(driving.work.total, 20)
 assert.strictEqual(manager.start(input), driving, 'Concurrent views share ongoing preparation')
 finish(); await tick()
 assert.equal(driving.status, 'complete')

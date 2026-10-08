@@ -1,19 +1,21 @@
-import { parentPort, workerData } from 'node:worker_threads'
+import { preparationInput, publishPreparation } from './runtime/preparation-channel.mjs'
 import { buildNationalGtfsStore, mergeNationalGtfsStores } from './national-gtfs-store.mjs'
+
+const workerData = await preparationInput()
 
 try {
   const result = workerData?.mode === 'merge'
     ? await mergeNationalGtfsStores({
         stores: workerData.stores,
         outputPath: workerData.outputPath,
-        onProgress: (progress) => parentPort?.postMessage({ type: 'progress', progress }),
+        onProgress: (progress) => publishPreparation({ type: 'progress', progress }),
         removeSourcesAfterMerge: false,
       })
     : await buildNationalGtfsStore({
         ...workerData,
-        onProgress: (progress) => parentPort?.postMessage({ type: 'progress', progress }),
+        onProgress: (progress) => publishPreparation({ type: 'progress', progress }),
       })
-  parentPort?.postMessage({ type: 'complete', result })
+  publishPreparation({ type: 'complete', result })
 } catch (error) {
-  parentPort?.postMessage({ type: 'failed', error: error instanceof Error ? error.stack || error.message : String(error) })
+  publishPreparation({ type: 'failed', error: error instanceof Error ? error.stack || error.message : String(error) })
 }

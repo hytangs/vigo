@@ -90,7 +90,7 @@ try {
   const prepared = prepareNationalGtfsStore(storePath)
   assert.deepEqual(prepared.storeAdmission, {
     status: 'admitted',
-    schemaVersion: 'vigo.routing.store.v3',
+    schemaVersion: 'vigo.routing.store.v4',
     requiredTableCount: 14,
     requiredIndexCount: 13,
     departureIndexState: 'ready',

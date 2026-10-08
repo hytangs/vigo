@@ -302,6 +302,7 @@ export async function buildNationalOsmStore({
   outputPath,
   onProgress,
   buildDrivingProfile = process.env.VIGO_BUILD_DRIVE_ACCELERATOR === '1',
+  includeDriving = true,
 }) {
   const started = performance.now()
   const source = await fs.stat(pbfPath)
@@ -363,7 +364,8 @@ export async function buildNationalOsmStore({
       for (const groupBytes of block.groups) forEachPrimitiveEntity(block, groupBytes, {
         relation: (relation) => basemapWriter.selectRelation(relation, wayTags(relation, block.strings), block.strings),
       })
-    }, ({ progress }) => onProgress?.({ phase: 'Selecting local water geometry', progress: progress * 0.03,
+    }, ({ progress, bytesRead, totalBytes }) => onProgress?.({ phase: 'Selecting local water geometry', progress: progress * 0.03,
+      work: { completed: bytesRead, total: totalBytes, unit: 'bytes' },
       memory: process.memoryUsage().rss }), (bytes) => relationHasher.update(bytes))
     const relationSourceFingerprint = relationHasher.digest('hex')
     // Resolve every supported way, but avoid writing unrelated building/land-use
@@ -391,13 +393,14 @@ export async function buildNationalOsmStore({
         forEachPrimitiveEntity(block, groupBytes, {
           way: (way) => {
             const tags = wayTags(way, block.strings)
-            if (!nationalOsmWayWalkable(tags) && !drivable(tags) && !basemapWriter.needsWay(way, tags)) return
+            if (!nationalOsmWayWalkable(tags) && !(includeDriving && drivable(tags)) && !basemapWriter.needsWay(way, tags)) return
             for (const nodeId of way.refs) requireNode(nodeId)
           },
         })
       }
     }, ({ progress, bytesRead, totalBytes }) => onProgress?.({
       phase: 'Selecting street node references', progress: 0.03 + progress * 0.09,
+      work: { completed: bytesRead, total: totalBytes, unit: 'bytes' },
       detail: `${requiredNodeCount.toLocaleString()} referenced nodes`,
       bytesRead, totalBytes, memory: process.memoryUsage().rss,
     }), (bytes) => selectionHasher.update(bytes))
@@ -432,7 +435,7 @@ export async function buildNationalOsmStore({
             const tags = wayTags(way, block.strings)
             basemapWriter.addWay(way, tags, getNode)
             const isWalkable = nationalOsmWayWalkable(tags)
-            const isDrivable = drivable(tags)
+            const isDrivable = includeDriving && drivable(tags)
             if (!isWalkable && !isDrivable) return
             const walkDirections = isWalkable
               ? nationalOsmWalkDirections(tags)
@@ -513,6 +516,7 @@ export async function buildNationalOsmStore({
       }
     }, ({ progress, bytesRead, totalBytes }) => onProgress?.({
       phase: wayCount || driveWayCount ? 'Indexing pedestrian and driving streets' : 'Reading OSM nodes',
+      work: { completed: bytesRead, total: totalBytes, unit: 'bytes' },
       progress: 0.12 + progress * 0.76,
       detail: `${nodeCount.toLocaleString()} nodes / ${edgeCount.toLocaleString()} walk + ${driveEdgeCount.toLocaleString()} drive edges`,
       bytesRead,
@@ -588,7 +592,8 @@ export async function buildNationalOsmStore({
       driveNodeStoredCount,
       driveEdgeCount,
       driveWayCount,
-      drivingWeightModel: 'osm-maxspeed-or-highway-default-free-flow-seconds-v1',
+      preparedModes: includeDriving ? ['walk', 'drive'] : ['walk'],
+      drivingWeightModel: includeDriving ? 'osm-maxspeed-or-highway-default-free-flow-seconds-v1' : null,
       roadClassCatalog: driveRoadClassCatalog,
       directionRestrictedWayCount,
       directionExcludedWayCount,
@@ -2200,10 +2205,10 @@ export function compactNationalOsmRuntimeStore(storePath, options = {}) {
       ON CONFLICT(key) DO UPDATE SET value=excluded.value
     `)
     setMetadata.run('storageLayout', JSON.stringify(runtimeStreetStoreStorageLayout))
-    setMetadata.run('driveIndexState', JSON.stringify('snapshot'))
+    setMetadata.run('driveIndexState', JSON.stringify(drivePreparation ? 'snapshot' : 'not_prepared'))
     setMetadata.run('driveNodeStorage', JSON.stringify('snapshot-only-v1'))
     setMetadata.run('driveCchPersistence', JSON.stringify('persisted'))
-    setMetadata.run('runtimeSnapshotVersion', JSON.stringify({ walk: streetAcceleratorSnapshotVersion, drive: driveAcceleratorSnapshotVersion }))
+    setMetadata.run('runtimeSnapshotVersion', JSON.stringify({ walk: streetAcceleratorSnapshotVersion, drive: drivePreparation ? driveAcceleratorSnapshotVersion : null }))
     database.exec('COMMIT')
     database.exec('VACUUM')
   } catch (error) {

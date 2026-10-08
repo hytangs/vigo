@@ -23,6 +23,10 @@ export function createStreetPreparationManager({ pool, onJob = () => {} }) {
       result: { modes: { walk: false, drive: false } },
     }
     const publish = (patch) => {
+      if (patch.phase && patch.phase !== job.phase) {
+        job.work = undefined
+        job.phaseStartedAt = new Date().toISOString()
+      }
       Object.assign(job, patch, { updatedAt: new Date().toISOString() })
       onJob(job)
     }
@@ -36,7 +40,7 @@ export function createStreetPreparationManager({ pool, onJob = () => {} }) {
       publish({ status: 'running' })
       const walking = await pool.dispatch(workerStorePath, 'prepare-street', {
         streetStorePath: storePath, prepareDrive: false,
-      }, controller.signal)
+      }, controller.signal, (progress) => publish({ phase: progress.phase, detail: progress.detail, work: progress.work }))
       if (!walking?.streetStore?.ready || !walking.streetStore.accelerated) {
         throw new Error('Walking street preparation did not finish.')
       }
@@ -54,7 +58,7 @@ export function createStreetPreparationManager({ pool, onJob = () => {} }) {
       const result = await pool.dispatch(workerStorePath, 'prepare-street', {
         streetStorePath: storePath, prepareDrive: true,
       }, controller.signal, (progress) => publish({
-        phase: progress.phase, detail: progress.detail,
+        phase: progress.phase, detail: progress.detail, work: progress.work,
         ...(progress.modes ? { result: { modes: { ...progress.modes, walk: true } } } : {}),
       }))
       if (!result?.streetStore?.ready || !result.streetStore.accelerated
