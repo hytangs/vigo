@@ -26,6 +26,7 @@ jobs:
       - run: npm run check:public
       - run: npm run typecheck
       - run: npm run check:security
+      - run: npm run check:package-publication
       - run: npm run check:rust-routing-targets
       - run: cargo fmt --manifest-path native/vigo-routing-kernel/Cargo.toml -- --check
       - run: cargo test --manifest-path native/vigo-routing-kernel/Cargo.toml

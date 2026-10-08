@@ -3,12 +3,45 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import sys
+import subprocess
 from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("package_standalone", Path(__file__).resolve().parents[1] / "scripts/package-standalone.py")
 package = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(package)
+
+# The Node binding is published through a sibling temporary file. Concurrent
+# native packaging must ignore that generated file, while still detecting
+# changed or newly added compiler inputs and embedded documentation.
+with tempfile.TemporaryDirectory() as folder:
+    root = Path(folder)
+    (root / ".gitignore").write_bytes((package.ROOT / ".gitignore").read_bytes())
+    crate = root / "native/vigo-routing-kernel"
+    crate.mkdir(parents=True)
+    source = crate / "lib.rs"
+    source.write_text("original source")
+    docs = root / "docs/standalone.html"
+    docs.parent.mkdir()
+    docs.write_text("original embedded documentation")
+    run = lambda command, **kw: subprocess.run(command, cwd=root, check=True, **kw)
+    run(["git", "init", "--quiet"])
+    with patch.object(package, "ROOT", root):
+        baseline = package.source_fingerprint(run)
+        staged_binding = crate / "vigo-routing-kernel.node.123.tmp"
+        staged_binding.write_bytes(b"generated binding")
+        assert package.source_fingerprint(run) == baseline
+        staged_binding.unlink()
+        assert package.source_fingerprint(run) == baseline
+        source.write_text("changed source")
+        assert package.source_fingerprint(run) != baseline
+        source.write_text("original source")
+        docs.write_text("changed embedded documentation")
+        assert package.source_fingerprint(run) != baseline
+        docs.write_text("original embedded documentation")
+        (crate / "new.rs").write_text("new compiler input")
+        assert package.source_fingerprint(run) != baseline
+print("Package identity excludes temporary bindings and detects changed or new source inputs.")
 
 for failure in (None, 1, 2, 3, 4, 5, 6):
     with tempfile.TemporaryDirectory() as folder:

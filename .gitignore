@@ -19,6 +19,7 @@ tsconfig.tsbuildinfo
 native/*/target/
 native/*/vendor/*/target/
 native/*/*.node
+native/*/*.node.*.tmp
 
 # Unified generated web and CLI output
 public/assets/
