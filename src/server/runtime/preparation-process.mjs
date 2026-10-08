@@ -22,7 +22,8 @@ export class PreparationProcess extends EventEmitter {
       else this.emit('message', message)
     })
     this.child.on('error', error => this.emit('error', error))
-    this.child.once('exit', (code, signal) => {
+    const finish = (code, signal) => {
+      if (this.exited) return
       this.exited = true
       this.resolveExit(code ?? 1)
       if (!this.stopping && terminal && (code === 0 || terminal.type === 'failed')) {
@@ -31,7 +32,11 @@ export class PreparationProcess extends EventEmitter {
         } })
       }
       this.emit('exit', code ?? 1, signal)
-    })
+    }
+    this.child.once('exit', finish)
+    // Failed spawns never emit exit. Close still settles cancellation and
+    // cleanup; the guard keeps ordinary exits from being published twice.
+    this.child.once('close', finish)
     this.child.send(workerData, error => { if (error) this.emit('error', error) })
   }
 

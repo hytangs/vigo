@@ -17,6 +17,6 @@ await runElectronCheck(`
   worker.stderr.on('data', chunk => { output += chunk; });
   const code = await new Promise(resolve => worker.once('exit', resolve));
   assert.equal(code, 0, output);
-  assert.match(output, /"checks":7/);
+  assert.match(output, /"checks":8/);
 `)
 console.log('Studio utility process: preparation succeeds and compiler processes exit.')
