@@ -1,13 +1,52 @@
-use super::{Snap, snaps_for_coordinate};
+use super::{ReciprocalEdgeSnap, Snap, SnapWorkspace, snaps_for_coordinate, street_attachment_with_workspace};
 #[cfg(not(feature = "node"))]
 use crate::standalone_types as napi;
 use crate::street_snapshot::Snapshot;
+use cch::paged::PagedVec;
 use napi::bindgen_prelude::*;
 #[cfg(feature = "node")]
 use napi_derive::napi;
 use rayon::prelude::*;
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, HashMap, VecDeque};
+
+/// Exact graph-only attachments, after scenario-specific station exits have
+/// been resolved. This cache can follow the shared immutable street graph.
+#[derive(Default)]
+pub(super) struct SurfaceSnapCache {
+    entries: HashMap<(u64, u64), (Vec<Snap>, Option<ReciprocalEdgeSnap>)>,
+    order: VecDeque<(u64, u64)>,
+    snap_bytes: usize,
+}
+impl SurfaceSnapCache {
+    fn attach(&mut self, snapshot: &Snapshot, reciprocal: &[u8], workspace: &mut SnapWorkspace,
+        lon: f64, lat: f64) -> napi::Result<(Vec<Snap>, Option<ReciprocalEdgeSnap>)> {
+        let key = (lon.to_bits(), lat.to_bits());
+        if let Some(value) = self.entries.get(&key) { return Ok(value.clone()); }
+        let value = street_attachment_with_workspace(snapshot, reciprocal, workspace, lon, lat)?;
+        // Oversized fallback attachments are returned without retention.
+        if value.0.len() <= 8 {
+            if self.entries.len() == 16_384
+                && let Some(old) = self.order.pop_front()
+                && let Some(retired) = self.entries.remove(&old) {
+                self.snap_bytes -= retired.0.capacity() * std::mem::size_of::<Snap>();
+            }
+            let cached = value.clone();
+            self.snap_bytes += cached.0.capacity() * std::mem::size_of::<Snap>();
+            self.entries.insert(key, cached);
+            self.order.push_back(key);
+        }
+        Ok(value)
+    }
+    #[cfg(feature = "standalone")]
+    pub(super) fn is_empty(&self) -> bool { self.entries.is_empty() }
+    pub(super) fn byte_length(&self) -> usize {
+        self.entries.capacity() * (std::mem::size_of::<(u64, u64)>()
+            + std::mem::size_of::<(Vec<Snap>, Option<ReciprocalEdgeSnap>)>() + 1)
+            + self.snap_bytes
+            + self.order.capacity() * std::mem::size_of::<(u64, u64)>()
+    }
+}
 use std::time::Instant;
 
 const DURATION_EPSILON_MINUTES: f64 = 1e-9;
@@ -63,6 +102,10 @@ pub struct StreetSurfaceEdge {
 #[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StreetSurfaceResult {
+    pub seed_ns: f64,
+    pub propagation_ns: f64,
+    pub envelope_ns: f64,
+    pub raster_ns: f64,
     pub values: Vec<f64>,
     pub full_surface_values: Option<Vec<f64>>,
     pub full_surface_bounds: Option<Vec<f64>>,
@@ -243,7 +286,7 @@ fn validate_common_limits(
 
 #[allow(clippy::too_many_arguments)]
 fn push_surface_label(
-    frontier_heads: &mut [u32],
+    frontier_heads: &mut PagedVec<u32>,
     labels: &mut Vec<SurfaceLabel>,
     queue: &mut BinaryHeap<LabelQueueEntry>,
     seed_arrivals_minutes: &[f64],
@@ -284,8 +327,11 @@ fn push_surface_label(
         node_label = label.frontier_next;
     }
     let mut node_label = frontier_heads[node as usize];
+    let mut previous: Option<usize> = None;
     while node_label != u32::MAX {
-        let label = &mut labels[node_label as usize];
+        let index = node_label as usize;
+        let label = &mut labels[index];
+        let next = label.frontier_next;
         let dominates = label.active
             && if independent_terminal_walk {
                 seed_arrival_minutes
@@ -297,8 +343,17 @@ fn push_surface_label(
             };
         if dominates {
             label.active = false;
+            // Queue entries still refer to this label, but future dominance
+            // checks need only the live frontier, not every retired label.
+            if let Some(previous) = previous {
+                labels[previous].frontier_next = next;
+            } else {
+                frontier_heads[node as usize] = next;
+            }
+        } else {
+            previous = Some(index);
         }
-        node_label = label.frontier_next;
+        node_label = next;
     }
     let label_index = labels.len();
     labels.push(SurfaceLabel {
@@ -403,9 +458,10 @@ mod surface;
 pub(super) fn street_surface(
     snapshot: &Snapshot,
     reciprocal_edge_flags: &[u8],
+    snaps: &mut SurfaceSnapCache,
     input: StreetSurfaceInput,
 ) -> napi::Result<StreetSurfaceResult> {
-    surface::compute(snapshot, reciprocal_edge_flags, input)
+    surface::compute(snapshot, reciprocal_edge_flags, snaps, input)
 }
 
 #[derive(Clone, Copy)]

@@ -79,6 +79,7 @@ pub mod customize;
 pub mod graph;
 pub mod order;
 pub mod path;
+pub mod paged;
 pub mod query;
 pub mod structure;
 mod writer;

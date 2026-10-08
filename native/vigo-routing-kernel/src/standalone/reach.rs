@@ -240,8 +240,6 @@ impl City {
                 overlay_members = overlay
                     .input
                     .overlay_base_stops
-                    .as_deref()
-                    .unwrap_or(&[])
                     .iter()
                     .map(|&stop| {
                         usize::try_from(stop)
@@ -393,6 +391,9 @@ impl City {
             && !flag(q, "includeNodes", false)?
         {
             let areas = areas(values, size, size, &bounds, &cutoffs);
+            if q["reachFormat"] == "map" {
+                return Ok(json!({"kind":"reach","mode":mode,"cutoffsMinutes":cutoffs,"areas":areas,"mapBounds":bounds,"diagnostics":{"transit":transit},"warnings":self.metadata["routingLimitations"]}));
+            }
             let contours = contours(values, size, size, &bounds, &cutoffs);
             let reached = values.iter().filter(|v| v.is_finite()).count();
             return Ok(
@@ -435,6 +436,12 @@ impl City {
             .full_surface_values
             .as_ref()
             .unwrap_or(&result.values);
+        if q["reachFormat"] == "map" {
+            return Ok(json!({"kind":"reach","mode":mode,"cutoffsMinutes":cutoffs,
+                "areas":areas(full_values,size,size,full_bounds,&cutoffs),"mapBounds":full_bounds,
+                "diagnostics":{"transit":transit,"surface":{"queryNs":result.query_ns,"seedNs":result.seed_ns,"propagationNs":result.propagation_ns,"envelopeNs":result.envelope_ns,"rasterNs":result.raster_ns}},
+                "warnings":self.metadata["routingLimitations"]}));
+        }
         let area_features = areas(&result.values, size, size, &bounds, &cutoffs);
         let full_areas = areas(full_values, size, size, full_bounds, &cutoffs);
         let contour_features = contours(&result.values, size, size, &bounds, &cutoffs);
@@ -444,7 +451,7 @@ impl City {
             "surface":{"sampling":sampling,"width":size,"height":size,"bounds":bounds,"values":result.values,"fullBounds":full_bounds,"fullValues":full_values,"nodes":result.node_evidence,
                 "edges":if include_edges {json!({"schemaVersion":"vigo.standalone.street-edges.v2","encoding":"indexed-json","count":result.edge_evidence_ids.as_ref().map_or(0,Vec::len),"nodeCount":result.edge_evidence_nodes.as_ref().map_or(0,|v|v.len()/2),"nodes":result.edge_evidence_nodes,"endpoints":result.edge_evidence_endpoints,"edgeIds":result.edge_evidence_ids,"durationMinutes":result.edge_evidence_durations,"fromDurationMinutes":result.edge_evidence_start_durations,"startFractions":result.edge_evidence_start_fractions,"endFractions":result.edge_evidence_end_fractions,"walkDistanceM":result.edge_evidence_walk_distances,"transitArrivalMinutes":result.edge_evidence_transit_arrivals})}else{Value::Null}},
             "areas":area_features,"fullAreas":full_areas,"contours":contour_features,"fullContours":full_contours,
-            "diagnostics":{"transit":transit,"surface":{"queryNs":result.query_ns,"reachedPixels":result.reached_pixels,"reachedEdgeCount":result.reached_edge_count,"reachedEdgeLengthM":result.reached_edge_length_m,"edgeEvidenceTruncated":result.edge_evidence_truncated,"nodeEvidenceTruncated":result.node_evidence_truncated}},"warnings":self.metadata["routingLimitations"]}),
+            "diagnostics":{"transit":transit,"surface":{"queryNs":result.query_ns,"seedNs":result.seed_ns,"propagationNs":result.propagation_ns,"envelopeNs":result.envelope_ns,"rasterNs":result.raster_ns,"settledLabels":result.settled_labels,"retainedLabels":result.retained_labels,"relaxedEdges":result.relaxed_edges,"reachedPixels":result.reached_pixels,"reachedEdgeCount":result.reached_edge_count,"reachedEdgeLengthM":result.reached_edge_length_m,"edgeEvidenceTruncated":result.edge_evidence_truncated,"nodeEvidenceTruncated":result.node_evidence_truncated}},"warnings":self.metadata["routingLimitations"]}),
         )
     }
 }

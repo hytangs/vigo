@@ -76,7 +76,32 @@ try {
   assert.equal(afterBodyTimeout.status, 200, 'Body timeout must not poison routing')
   await afterBodyTimeout.arrayBuffer()
   checks++
+  const liveInfo = await fetch(`${origin}/v1/info`, { headers })
+  assert.equal(liveInfo.status, 200)
+  assert((await liveInfo.json()).memory)
+  checks++
   if (process.platform !== 'win32') {
+    const stopped = Number(execFileSync('pgrep', ['-P', String(server.pid)], { encoding: 'utf8' }).trim())
+    process.kill(stopped, 'SIGSTOP')
+    const pending = fetch(`${origin}/v1/route`, { method: 'POST', headers,
+      body: JSON.stringify({ ...JSON.parse(body), id: 'cancel-test' }) })
+    let accepted = false
+    for (let n = 0; n < 20 && !accepted; n++) {
+      const cancel = await fetch(`${origin}/v1/requests/cancel-test`, { method: 'DELETE', headers })
+      accepted = cancel.status === 202
+      await cancel.arrayBuffer()
+      if (!accepted) await new Promise(resolve => setTimeout(resolve, 5))
+    }
+    assert(accepted, 'Named request must be cancelable')
+    const canceled = await pending
+    assert.equal(canceled.status, 499)
+    assert.equal((await canceled.json()).error.code, 'query_canceled')
+    const cancellationRecoveredBy = Date.now() + 5000
+    while ((await fetch(`${origin}/readyz`)).status !== 200) {
+      assert(Date.now() < cancellationRecoveredBy); await new Promise(resolve => setTimeout(resolve, 25))
+    }
+    assert.throws(() => process.kill(stopped, 0), { code: 'ESRCH' })
+    checks += 3
     // Stop only the child of the exact server this test created. A deadline
     // must terminate actual native work, replace the worker, and recover.
     const children = execFileSync('pgrep', ['-P', String(server.pid)], { encoding: 'utf8' }).trim().split(/\s+/).map(Number)

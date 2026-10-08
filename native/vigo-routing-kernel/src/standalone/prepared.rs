@@ -40,6 +40,7 @@ impl City {
         services: &BTreeSet<String>,
         key: String,
         buffer: u32,
+        complete_service_coverage: bool,
     ) -> Result<Timetable> {
         let mut sorted: Vec<_> = services.iter().map(String::as_str).collect();
         // Array.sort in the City compiler compares UTF-16 code units.
@@ -129,11 +130,14 @@ impl City {
             kernel,
             index,
             stop_ids: saved.stop_ids,
+            trip_service_dates: vec![String::new(); saved.trip_ids.len()],
             trip_ids: saved.trip_ids,
             route_ids: saved.route_ids,
             key,
             realtime: Value::Null,
             preparation: "prepared_snapshot",
+            complete_service_coverage,
+            coverage_end: None,
         })
     }
 }

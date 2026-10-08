@@ -130,13 +130,31 @@ impl Default for ShapeCache {
         Self {
             entries: VecDeque::new(),
             bytes: 0,
-            maximum_bytes: 64 * 1024 * 1024,
-            maximum_entries: 1024,
+            maximum_bytes: std::env::var("VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(64 * 1024 * 1024usize)
+                .min(256 * 1024 * 1024),
+            maximum_entries: std::env::var("VIGO_SHAPE_GEOMETRY_CACHE_MAX_ENTRIES")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1024usize)
+                .min(4096),
         }
     }
 }
 
 impl ShapeCache {
+    pub(crate) fn partition_budget(&mut self, residents: usize) {
+        self.maximum_bytes /= residents.max(1);
+    }
+    pub(crate) fn retained_bytes(&self) -> usize {
+        self.bytes + self.entries.capacity() * std::mem::size_of::<(String, CompiledShape, usize)>()
+    }
+    pub(crate) fn diagnostics(&self) -> Value {
+        json!({"entries":self.entries.len(),"estimatedBytes":self.retained_bytes(),
+            "maximumBytes":self.maximum_bytes,"maximumEntries":self.maximum_entries})
+    }
     fn take(&mut self, id: &str) -> Option<CompiledShape> {
         let index = self.entries.iter().rposition(|entry| entry.0 == id)?;
         let (_, shape, bytes) = self.entries.remove(index)?;
@@ -145,19 +163,23 @@ impl ShapeCache {
     }
 
     fn put(&mut self, id: String, shape: CompiledShape) {
-        let bytes = id.capacity()
-            + shape.estimated_bytes()
-            + std::mem::size_of::<(String, CompiledShape, usize)>();
+        let bytes = id.capacity() + shape.estimated_bytes();
         if bytes > self.maximum_bytes || self.maximum_entries == 0 {
             return;
         }
-        while self.bytes + bytes > self.maximum_bytes || self.entries.len() >= self.maximum_entries
-        {
-            let (_, _, removed) = self.entries.pop_front().unwrap();
-            self.bytes -= removed;
-        }
         self.bytes += bytes;
         self.entries.push_back((id, shape, bytes));
+        while self.retained_bytes() > self.maximum_bytes
+            || self.entries.len() > self.maximum_entries
+        {
+            let Some((_, _, removed)) = self.entries.pop_front() else {
+                break;
+            };
+            self.bytes -= removed;
+            if self.entries.is_empty() {
+                self.entries.shrink_to_fit();
+            }
+        }
     }
 }
 
@@ -316,6 +338,20 @@ impl City {
                     }
                 };
                 v["route"] = route.clone();
+                let details = self.db.prepare_cached("SELECT t.service_id,t.direction_id,d.headsign,d.short_name FROM trips t LEFT JOIN trip_details d ON d.trip_id=t.trip_id WHERE t.trip_id=?")?
+                    .query_row([trip_id], |r| Ok(json!({"service":r.get::<_,String>(0)?,"direction":r.get::<_,Option<String>>(1)?,
+                        "headsign":r.get::<_,Option<String>>(2)?,"shortName":r.get::<_,Option<String>>(3)?}))).optional()?.unwrap_or(Value::Null);
+                v["serviceId"] = details["service"].clone();
+                v["serviceDate"] = json!(
+                    t.trip_service_dates
+                        .get(trip as usize)
+                        .filter(|s| !s.is_empty())
+                        .map(String::as_str)
+                        .unwrap_or(&t.key[..10])
+                );
+                v["directionId"] = details["direction"].clone();
+                v["headsign"] = details["headsign"].clone();
+                v["tripShortName"] = details["shortName"].clone();
                 let (indexes, first, last) = t.kernel.ride_stop_sequence(
                     trip,
                     leg.board_sequence.ok_or("Missing board sequence")?,
@@ -324,6 +360,13 @@ impl City {
                 let ids: Vec<_> = indexes.iter().map(|&i| &t.stop_ids[i as usize]).collect();
                 v["stopIds"] = json!(&ids[first..=last]);
                 v["stopCount"] = json!(last - first);
+                let calls = t.kernel.ride_calls(trip);
+                v["intermediateStops"] = json!(calls[first + 1..last].iter().map(|c| {
+                    let id = &t.stop_ids[c.stop as usize];
+                    let stop = self.stop(id)?;
+                    Ok(json!({"stopId":id,"name":stop.name,"coordinate":[stop.lon,stop.lat],
+                        "arrival":c.arrival,"departure":c.departure}))
+                }).collect::<Result<Vec<Value>>>()?);
                 if geometry {
                     let trip_coordinates: Vec<_> = ids
                         .iter()

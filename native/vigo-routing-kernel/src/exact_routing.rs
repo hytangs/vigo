@@ -589,6 +589,9 @@ struct DriveMatrixCandidate {
 #[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct DriveKernelDiagnostics {
+    pub source_array_bytes: f64,
+    pub borrowed_source_bytes: f64,
+    pub zero_copy_arrays: bool,
     pub cch_arc_count: u32,
     pub node_count: u32,
     pub edge_count: u32,
@@ -648,10 +651,11 @@ fn blocked_drive_result(
 #[cfg_attr(feature = "node", napi)]
 pub struct DriveKernel {
     node_count: usize,
-    edge_offsets: Vec<u32>,
-    edge_targets: Vec<u32>,
-    edge_distance_units: Vec<u32>,
-    edge_time_units: Vec<u32>,
+    borrowed_source_bytes: usize,
+    edge_offsets: Uint32Array,
+    edge_targets: Uint32Array,
+    edge_distance_units: Uint32Array,
+    edge_time_units: Uint32Array,
     traffic_edge_time_units: Vec<u32>,
     traffic_snapshot_key: Option<String>,
     traffic_updated_edges: u32,
@@ -667,6 +671,37 @@ pub struct DriveKernel {
 }
 
 impl DriveKernel {
+    #[cfg(feature = "standalone")]
+    pub(crate) fn memory_ledger(&self) -> serde_json::Value {
+        fn metric(m: &cch::Metric) -> usize { (m.forward.capacity() + m.backward.capacity()) * 4 }
+        fn structure(s: &cch::Cch) -> usize {
+            [&s.rank,&s.order,&s.elimination_tree_parent,&s.up_first_out,&s.up_head,&s.up_tail,&s.down_first_out,&s.down_head,&s.down_to_up,&s.input_arc_to_cch_arc,&s.forward_input_arc_of_cch,&s.backward_input_arc_of_cch,&s.first_extra_forward_input_arc_of_cch,&s.extra_forward_input_arc_of_cch,&s.first_extra_backward_input_arc_of_cch,&s.extra_backward_input_arc_of_cch].into_iter().map(Vec::capacity).sum::<usize>() * 4
+        }
+        let mut network = (self.edge_offsets.capacity() + self.edge_targets.capacity()
+            + self.edge_distance_units.capacity() + self.edge_time_units.capacity()) * 4;
+        let mut workspace = (self.node_head.capacity() + self.node_generation.capacity() + self.target_generation.capacity()) * 4
+            + (self.target_snap_distance_units.capacity() + self.target_snap_time_units.capacity()) * 8
+            + self.labels.capacity() * std::mem::size_of::<DriveLabel>()
+            + self.queue.capacity() * std::mem::size_of::<MinEntry>();
+        let mut traffic = self.traffic_edge_time_units.capacity() * 4;
+        let mapped = match &self.cch {
+            DriveCch::Persisted(c) => {
+                workspace += c.path_query.as_ref().map_or(0, cch::PathQuery::byte_length);
+                traffic += c.traffic_metric.as_ref().map_or(0, metric)
+                    + c.customization_structure.as_ref().map_or(0, structure);
+                c.structure.mmap_bytes().len() + c.time_metric.mmap_bytes().len() + c.distance_metric.mmap_bytes().len()
+            },
+            DriveCch::InMemory(c) => {
+                network += structure(c.path_query.structure()) + metric(&c.time_metric) + metric(&c.distance_metric);
+                traffic += c.traffic_metric.as_ref().map_or(0, metric);
+                0
+            }
+        };
+        serde_json::json!({"networkHeapBytes":network,"workspaceHeapBytes":workspace,
+            "trafficHeapBytes":traffic,"mappedFileBytes":mapped,"source":self.cch.source(),
+            "inMemoryPathScratchCounted":false})
+    }
+
     fn release_fallback_workspace(&mut self) {
         if self.labels.capacity() > RETAINED_DRIVE_LABEL_CAPACITY {
             self.labels = Vec::with_capacity(65_536);
@@ -740,8 +775,8 @@ impl DriveKernel {
             });
         }
 
-        self.traffic_edge_time_units
-            .clone_from(&self.edge_time_units);
+        self.traffic_edge_time_units.clear();
+        self.traffic_edge_time_units.extend_from_slice(&self.edge_time_units);
         let mut updated_edges = 0_u32;
         for (&edge, &weight) in traffic.edge_indices.iter().zip(&traffic.edge_time_units) {
             let edge = edge as usize;
@@ -1036,6 +1071,7 @@ impl DriveKernel {
 #[cfg_attr(feature = "node", napi)]
 impl DriveKernel {
     #[cfg_attr(feature = "node", napi(constructor))]
+    #[cfg_attr(not(feature = "node"), allow(clippy::useless_conversion))]
     pub fn new(input: DriveKernelInput) -> napi::Result<Self> {
         let node_count = input.node_count as usize;
         let edge_count = input.edge_targets.len();
@@ -1060,18 +1096,25 @@ impl DriveKernel {
                 "Rust drive kernel arrays are inconsistent.",
             ));
         }
-        let edge_offsets = input.edge_offsets.to_vec();
-        let edge_targets = input.edge_targets.to_vec();
-        let (edge_distance_units, edge_time_units) = match (
-            input.edge_distance_units.as_ref(),
-            input.edge_time_units.as_ref(),
-            input.edge_distances.as_ref(),
-            input.edge_travel_times.as_ref(),
+        let borrowed_source_bytes = if cfg!(feature = "node") {
+            (input.edge_offsets.len() + input.edge_targets.len()
+                + input.edge_distance_units.as_ref().map_or(0, |a|a.len())
+                + input.edge_time_units.as_ref().map_or(0, |a|a.len())) * 4
+        } else { 0 };
+        // Node keeps the immutable typed views alive; standalone moves the
+        // owned vectors. Neither interface needs a second full graph copy.
+        let edge_offsets = input.edge_offsets;
+        let edge_targets = input.edge_targets;
+        let (edge_distance_units, edge_time_units): (Uint32Array, Uint32Array) = match (
+            input.edge_distance_units,
+            input.edge_time_units,
+            input.edge_distances,
+            input.edge_travel_times,
         ) {
             (Some(distances), Some(times), None, None)
                 if distances.len() == edge_count && times.len() == edge_count =>
             {
-                (distances.to_vec(), times.to_vec())
+                (distances, times)
             }
             (None, None, Some(distances), Some(times))
                 if distances.len() == edge_count && times.len() == edge_count =>
@@ -1105,7 +1148,7 @@ impl DriveKernel {
                         )
                     })
                     .collect::<napi::Result<Vec<_>>>()?;
-                (distance_units, time_units)
+                (distance_units.into(), time_units.into())
             }
             _ => {
                 return Err(Error::from_reason(
@@ -1129,6 +1172,7 @@ impl DriveKernel {
         let traffic_edge_time_units = Vec::new();
         Ok(Self {
             node_count,
+            borrowed_source_bytes,
             edge_offsets,
             edge_targets,
             edge_distance_units,
@@ -1151,6 +1195,11 @@ impl DriveKernel {
     #[cfg_attr(feature = "node", napi)]
     pub fn diagnostics(&self) -> DriveKernelDiagnostics {
         DriveKernelDiagnostics {
+            source_array_bytes: ((self.edge_offsets.len() + self.edge_targets.len()
+                + self.edge_distance_units.len() + self.edge_time_units.len()) * 4) as f64,
+            borrowed_source_bytes: self.borrowed_source_bytes as f64,
+            zero_copy_arrays: self.borrowed_source_bytes == (self.edge_offsets.len() + self.edge_targets.len()
+                + self.edge_distance_units.len() + self.edge_time_units.len()) * 4,
             cch_arc_count: match &self.cch {
                 DriveCch::InMemory(index) => index.path_query.structure().up_head.len() as u32,
                 DriveCch::Persisted(index) => index.structure.cch_arc_count() as u32,
@@ -1764,5 +1813,25 @@ impl DriveKernel {
             traffic_metric_reused: traffic.metric_reused,
             algorithm: "rust_cch_drive_time_matrix_v1".to_owned(),
         })
+    }
+}
+
+#[cfg(all(test, not(feature = "node")))]
+mod ownership_tests {
+    use super::*;
+    #[test]
+    fn drive_admission_moves_integer_arrays_without_copying() {
+        let input = DriveKernelInput {
+            node_count: 2, node_lats: vec![38.,38.], node_lons: vec![0.,0.001],
+            edge_offsets: vec![0,1,1], edge_targets: vec![1],
+            edge_distance_units: Some(vec![100]), edge_time_units: Some(vec![100]),
+            edge_distances: None, edge_travel_times: None,
+            cch_structure_path: None, cch_time_metric_path: None, cch_distance_metric_path: None,
+        };
+        let pointers = [input.edge_offsets.as_ptr(), input.edge_targets.as_ptr(),
+            input.edge_distance_units.as_ref().unwrap().as_ptr(), input.edge_time_units.as_ref().unwrap().as_ptr()];
+        let kernel = DriveKernel::new(input).unwrap();
+        assert_eq!(pointers, [kernel.edge_offsets.as_ptr(), kernel.edge_targets.as_ptr(),
+            kernel.edge_distance_units.as_ptr(), kernel.edge_time_units.as_ptr()]);
     }
 }

@@ -123,6 +123,18 @@ fn leg(v: &Value, geometry: bool) -> Value {
             out["route"]["name"] = v["route"]["longName"].clone();
         }
         out["trip"] = identifier(&v["tripId"]);
+        out["service"] = identifier(&v["serviceId"]);
+        out["serviceDate"] = v["serviceDate"].clone();
+        out["directionId"] = v["directionId"].clone();
+        out["headsign"] = v["headsign"].clone();
+        out["tripShortName"] = v["tripShortName"].clone();
+        out["route"]["shortName"] = pick(&v["route"], &["shortName"]).clone();
+        out["route"]["longName"] = pick(&v["route"], &["longName"]).clone();
+        if let Some(stops) = v["intermediateStops"].as_array() {
+            out["intermediateStops"] = json!(stops.iter().map(|s| json!({"stop":identifier(&s["stopId"]),
+                "name":s["name"],"coordinate":s["coordinate"],"arrivalTime":clock(&integer(&s["arrival"])),
+                "departureTime":clock(&integer(&s["departure"]))})).collect::<Vec<_>>());
+        }
         out["quality"] = json!({"geometry":source,"schedule":if v["sourceEqualTime"] == true || v["bridgedUntimedGapCount"].as_f64().unwrap_or(0.) > 0. {"source_time_limitations"} else {"timetable"}});
         if let Some(fare) = v.get("fare") {
             out["fare"] = fare.clone();
@@ -169,6 +181,15 @@ fn leg(v: &Value, geometry: bool) -> Value {
                 }
             }
             out["components"] = json!(components);
+        }
+    }
+    if v["endpointConnector"].is_object() {
+        out["endpointConnector"] = v["endpointConnector"].clone();
+        if !geometry {
+            out["endpointConnector"]
+                .as_object_mut()
+                .unwrap()
+                .remove("coordinates");
         }
     }
     if geometry && v["coordinates"].is_array() {
@@ -256,6 +277,12 @@ pub fn validate(request: &Value) -> Result<(), String> {
             .any(|s| v == s)
     }) {
         return Err("diagnostics must be none, summary, profile, or trace".into());
+    }
+    if request.get("reachFormat").is_some_and(|v| v != "full" && v != "map") {
+        return Err("reachFormat must be full or map".into());
+    }
+    if request["reachFormat"] == "map" && (request["includeStreetEdges"] == true || request["includeNodes"] == true) {
+        return Err("Street edges and nodes require reachFormat full".into());
     }
     for key in ["includeGeometry", "includeLimitations"] {
         if request.get(key).is_some_and(|v| !v.is_boolean()) {
@@ -424,6 +451,7 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
             "kind",
             "diagnostics",
             "includeGeometry",
+            "reachFormat",
             "includeLimitations",
         ] {
             o.remove(k);
@@ -495,6 +523,9 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
             }
             if out["journey"].is_null() {
                 out["status"] = json!("not_found");
+                if plan["access"].is_object() {
+                    out["access"] = plan["access"].clone();
+                }
                 out["reason"] = json!({"code":pick(plan,&["reason"]).as_str().unwrap_or("no_path"),"message":"No journey found within the requested constraints."});
             } else {
                 let inferred = out["journey"]["legs"]
@@ -505,6 +536,9 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
                 if inferred {
                     out["warnings"] = json!([{"code":"station_path_inferred","message":"Part of this journey uses inferred station access; physical passage is not fully verified."}]);
                 }
+            }
+            if raw["window"].is_object() {
+                out["alternativeSearch"] = raw["window"].clone();
             }
             if let Some(choices) = pick(raw, &["choices", "journeys"]).as_array() {
                 let mut alternatives = Vec::new();
@@ -542,6 +576,9 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
                             .collect::<Vec<_>>()
                     );
                 }
+            }
+            if raw["access"].is_object() {
+                out["access"] = raw["access"].clone();
             }
             if raw["durationsMinutes"].is_array() {
                 out["durationsSeconds"] = convert_minutes(&raw["durationsMinutes"]);
@@ -583,6 +620,15 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
             }
         }
         "reach" => {
+            out["cutoffsSeconds"] = convert_minutes(pick(raw, &["cutoffsMinutes"]));
+            if out["cutoffsSeconds"].is_null() {
+                out["cutoffsSeconds"] = convert_minutes(&q["cutoffsMinutes"]);
+            }
+            if request["reachFormat"] == "map" {
+                out["areas"] = pick(raw, &["fullAreas", "areas"]).clone();
+                out["bounds"] = pick(raw, &["mapBounds"]).clone();
+                if out["bounds"].is_null() { out["bounds"] = pick(&raw["surface"], &["fullBounds", "bounds"]).clone(); }
+            } else {
             for key in ["stops", "scenarioStops"] {
                 if let Some(a) = raw[key].as_array() {
                     out[key] = json!(
@@ -597,10 +643,6 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
                 }
             }
 
-            out["cutoffsSeconds"] = convert_minutes(pick(raw, &["cutoffsMinutes"]));
-            if out["cutoffsSeconds"].is_null() {
-                out["cutoffsSeconds"] = convert_minutes(&q["cutoffsMinutes"]);
-            }
             for key in ["contours", "areas", "fullContours", "fullAreas"] {
                 if let Some(v) = raw.get(key) {
                     out[key] = v.clone();
@@ -616,10 +658,11 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
                     out["surface"][key] = s[key].clone();
                 }
             }
+            }
         }
         "info" | "inspect" => {
             out = json!({"schema":"vigo.info.v1","status":"ok","name":raw["name"],"revision":revision,
-                "counts":raw["counts"],"sources":public_sources(&raw["sources"]),"datasetLimitations":pick(raw,&["datasetLimitations","warnings"]),"engineVersion":env!("CARGO_PKG_VERSION")});
+                "memory":raw["memory"],"counts":raw["counts"],"sources":public_sources(&raw["sources"]),"datasetLimitations":pick(raw,&["datasetLimitations","warnings"]),"engineVersion":env!("CARGO_PKG_VERSION")});
             if out["counts"].is_null() {
                 out["counts"] = json!({"routes":raw["routing"]["routeCount"],"stops":raw["routing"]["stopCount"],"trips":raw["routing"]["tripCount"],"connections":raw["routing"]["connectionCount"],"streetNodes":raw["streets"]["nodeCount"],"streetEdges":raw["streets"]["edgeCount"]});
             }
@@ -662,6 +705,23 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
     }
     if let Some(id) = request.get("id") {
         out["id"] = id.clone();
+    }
+    if kind == "route" {
+        let date = raw
+            .get("clockDate")
+            .filter(|d| d.is_string())
+            .or_else(|| plan["diagnostics"].get("clockDate"))
+            .or_else(|| out["query"].get("serviceDate"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        if out["journey"].is_object() {
+            out["journey"]["clockDate"] = date.clone();
+        }
+        if let Some(choices) = out.get_mut("alternatives").and_then(Value::as_array_mut) {
+            for choice in choices {
+                choice["clockDate"] = date.clone();
+            }
+        }
     }
     out
 }
@@ -715,7 +775,13 @@ mod tests {
 }
 
 pub fn error(message: &str) -> Value {
-    let (code, public_message) = if message.starts_with("Unknown stop") {
+    let (code, public_message) = if message.starts_with("Wheelchair routing is unsupported")
+        || message.starts_with("Driving is not prepared")
+    {
+        ("unsupported_mode", message)
+    } else if message.starts_with("Unknown scenarioId") {
+        ("scenario_not_found", message)
+    } else if message.starts_with("Unknown stop") {
         (
             "stop_not_found",
             "A requested stop is not present in this City.",

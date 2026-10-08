@@ -11,12 +11,25 @@ use std::collections::HashMap;
 #[cfg_attr(feature = "node", napi(object))]
 #[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+pub struct ServiceInstance {
+    pub service_id: String,
+    pub offset_seconds: i32,
+    pub service_date: String,
+}
+
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct ServiceTimetableInput {
     pub store_path: String,
     pub stop_ids: Vec<String>,
     pub service_ids: Vec<String>,
     pub has_connection_permissions: bool,
     pub segment_count: Option<u32>,
+    pub service_instances: Option<Vec<ServiceInstance>>,
+    /// Include departures through this service-clock second. Used only for
+    /// scheduled slices; realtime preparation needs the unfiltered source.
+    pub maximum_departure_seconds: Option<u32>,
 }
 
 #[cfg_attr(feature = "node", napi(object))]
@@ -39,6 +52,7 @@ pub struct ServiceTimetableResult {
     pub route_ids: Vec<String>,
     pub service_ids: Vec<String>,
     pub direction_ids: Vec<String>,
+    pub trip_service_dates: Vec<String>,
     pub run_count: u32,
     pub stop_count: u32,
 }
@@ -69,13 +83,27 @@ pub fn read_service_timetable(input: ServiceTimetableInput) -> Result<ServiceTim
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map_err(source_error)?;
-    db.execute_batch("PRAGMA mmap_size=0; PRAGMA cache_size=-8192; PRAGMA temp_store=MEMORY; CREATE TEMP TABLE active_kernel_services(service_id TEXT PRIMARY KEY) WITHOUT ROWID;").map_err(source_error)?;
+    db.execute_batch("PRAGMA mmap_size=0; PRAGMA cache_size=-8192; PRAGMA temp_store=MEMORY; CREATE TEMP TABLE active_kernel_services(service_id TEXT,offset_seconds INTEGER,service_date TEXT,PRIMARY KEY(service_id,offset_seconds)) WITHOUT ROWID;").map_err(source_error)?;
     {
         let mut insert = db
-            .prepare("INSERT OR IGNORE INTO active_kernel_services VALUES(?)")
+            .prepare("INSERT OR IGNORE INTO active_kernel_services VALUES(?,?,?)")
             .map_err(source_error)?;
-        for id in &input.service_ids {
-            insert.execute([id]).map_err(source_error)?;
+        if let Some(instances) = &input.service_instances {
+            for instance in instances {
+                insert
+                    .execute(rusqlite::params![
+                        instance.service_id,
+                        instance.offset_seconds,
+                        instance.service_date
+                    ])
+                    .map_err(source_error)?;
+            }
+        } else {
+            for id in &input.service_ids {
+                insert
+                    .execute(rusqlite::params![id, 0, ""])
+                    .map_err(source_error)?;
+            }
         }
     }
     let permission = if input.has_connection_permissions {
@@ -87,11 +115,11 @@ pub fn read_service_timetable(input: ServiceTimetableInput) -> Result<ServiceTim
         ("", "1,1")
     };
     let sql = format!(
-        "SELECT c.departure,c.arrival,c.trip_id,c.route_id,c.service_id,c.direction_id,c.from_stop_id,c.to_stop_id,c.stop_sequence,{} FROM connections c JOIN active_kernel_services a ON a.service_id=c.service_id {} ORDER BY c.trip_id,c.stop_sequence",
+        "SELECT c.departure+a.offset_seconds,c.arrival+a.offset_seconds,c.trip_id,c.route_id,c.service_id,c.direction_id,c.from_stop_id,c.to_stop_id,c.stop_sequence,{},a.service_date FROM connections c JOIN active_kernel_services a ON a.service_id=c.service_id {} WHERE c.departure+a.offset_seconds>=0 AND c.departure+a.offset_seconds<=?1 ORDER BY a.offset_seconds,c.trip_id,c.stop_sequence",
         permission.1, permission.0
     );
     let mut statement = db.prepare(&sql).map_err(source_error)?;
-    let mut rows = statement.query([]).map_err(source_error)?;
+    let mut rows = statement.query([input.maximum_departure_seconds.unwrap_or(u32::MAX)]).map_err(source_error)?;
     let expected = input.segment_count.map(|count| count as usize);
     let capacity = expected.unwrap_or(8192);
     let mut stop_ids = input.stop_ids;
@@ -115,6 +143,7 @@ pub fn read_service_timetable(input: ServiceTimetableInput) -> Result<ServiceTim
     let mut route_ids = Vec::<String>::new();
     let mut service_ids = Vec::<String>::new();
     let mut direction_ids = Vec::new();
+    let mut trip_service_dates = Vec::<String>::new();
     let mut run_count = 0;
     let mut previous_to = String::new();
     let mut previous_route = String::new();
@@ -142,7 +171,11 @@ pub fn read_service_timetable(input: ServiceTimetableInput) -> Result<ServiceTim
         let from_id = text(6)?;
         let to_id = text(7)?;
         let sequence_value = number(8)?;
-        let new_trip = trip_ids.last().is_none_or(|id| id != trip_id);
+        let service_date = text(11)?;
+        let new_trip = trip_ids.last().is_none_or(|id| id != trip_id)
+            || trip_service_dates
+                .last()
+                .is_none_or(|day| day != service_date);
         let unsafe_gap = !new_trip
             && previous_to != from_id
             && !(sequence_value - previous_sequence > 1.0
@@ -152,6 +185,7 @@ pub fn read_service_timetable(input: ServiceTimetableInput) -> Result<ServiceTim
         if new_trip {
             trip_start.push(departure.len() as u32);
             trip_ids.push(trip_id.to_owned());
+            trip_service_dates.push(service_date.to_owned());
             route_ids.push(route_id.to_owned());
             service_ids.push(service_id.to_owned());
             direction_ids.push(
@@ -205,5 +239,6 @@ pub fn read_service_timetable(input: ServiceTimetableInput) -> Result<ServiceTim
         route_ids,
         service_ids,
         direction_ids,
+        trip_service_dates,
     })
 }

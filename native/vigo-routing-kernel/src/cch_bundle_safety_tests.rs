@@ -71,20 +71,21 @@ fn rejects_semantically_invalid_cch_rank() {
 }
 
 // Exercise persistence through the public CCH API, including parallel input
-// arcs and repeated traffic customization. Expected distances come directly
-// from the original directed graph, independently of contraction or storage.
+// arcs, zero-cost edges, isolated nodes and repeated traffic customization.
+// Validate reconstructed paths against the original directed graph as well
+// as independently computed distances, after persisting both index and metric.
 #[test]
 fn compact_indexes_preserve_routes_and_traffic_updates() {
-    use cch::{Cch, INF_WEIGHT, distance_matrix, graph::Graph};
+    use cch::{Cch, INF_WEIGHT, PathQuery, distance_matrix, graph::Graph};
     for n in [0_usize, 1, 7, 25, 72] {
         let mut offsets = vec![0];
         let mut head = Vec::new();
         let mut weights = Vec::new();
         for u in 0..n {
             for v in 0..n {
-                if u != v && (u.abs_diff(v) == 1 || (u * 17 + v * 13) % 19 == 0) {
+                if u != v && u + 1 < n && v + 1 < n && (u + 1 == v || (u * 17 + v * 13) % 19 == 0) {
                     head.push(v as u32);
-                    weights.push(1 + (u * 7 + v * 3) as u32 % 40);
+                    weights.push((u * 7 + v * 3) as u32 % 9);
                     if (u + v) % 3 == 0 {
                         head.push(v as u32);
                         weights.push(90);
@@ -102,6 +103,7 @@ fn compact_indexes_preserve_routes_and_traffic_updates() {
         let cch = Cch::build(&graph, &order);
         let full = temporary_path("drive.cch-struct");
         let query = temporary_path("walk.cch-struct");
+        let metric_path = temporary_path("cch-metric");
         cch.save_struct(&full).unwrap();
         cch.save_query_struct(&query).unwrap();
         let restored = Cch::load_struct(&full).unwrap();
@@ -129,7 +131,11 @@ fn compact_indexes_preserve_routes_and_traffic_updates() {
             fs::metadata(&query).unwrap().len(),
             104 + n as u64 * 16 + cch.cch_arc_count() as u64 * 12
         );
-        for generation in 0..4 {
+        let mapped_view = mapped.view();
+        let mut paths = PathQuery::new(&mapped_view);
+        // Reuse the path workspace through closures, traffic changes and a
+        // return to the first metric, so stale shortcut witnesses are exposed.
+        for generation in [0, 1, 2, 3, 0] {
             let weights: Vec<_> = graph
                 .weight
                 .iter()
@@ -146,8 +152,11 @@ fn compact_indexes_preserve_routes_and_traffic_updates() {
             let original = cch.customize(&weights);
             assert_eq!(metric.forward, original.forward);
             assert_eq!(metric.backward, original.backward);
+            metric.save(&metric_path).unwrap();
+            let mapped_metric = MetricBundle::open(&metric_path).unwrap();
+            let metric_view = mapped_metric.view();
             let nodes: Vec<_> = (0..n as u32).collect();
-            let actual = distance_matrix(&mapped.view(), &metric.view(), &nodes, &nodes);
+            let actual = distance_matrix(&mapped_view, &metric_view, &nodes, &nodes);
             for source in 0..n {
                 let mut distance = vec![INF_WEIGHT; n];
                 let mut visited = vec![false; n];
@@ -170,11 +179,36 @@ fn compact_indexes_preserve_routes_and_traffic_updates() {
                     }
                 }
                 assert_eq!(&actual[source * n..(source + 1) * n], distance);
+                for (target, &expected) in distance.iter().enumerate() {
+                    let path = paths.path(&metric_view, source as u32, target as u32);
+                    if expected == INF_WEIGHT {
+                        assert!(path.is_none(), "path to unreachable {source}->{target}");
+                        continue;
+                    }
+                    let path = path.expect("reachable pair must reconstruct");
+                    assert_eq!(path.first().copied(), Some(source as u32));
+                    assert_eq!(path.last().copied(), Some(target as u32));
+                    let cost = path.windows(2).fold(0_u32, |cost, edge| {
+                        let u = edge[0] as usize;
+                        let weight = (graph.first_out[u] as usize..graph.first_out[u + 1] as usize)
+                            .filter(|&arc| graph.head[arc] == edge[1])
+                            .map(|arc| weights[arc])
+                            .min()
+                            .expect("reconstructed edge must exist in its directed orientation");
+                        assert!(weight < INF_WEIGHT, "path must not traverse a closed edge");
+                        cost.saturating_add(weight)
+                    });
+                    assert_eq!(
+                        cost, expected,
+                        "path cost {source}->{target}, metric {generation}"
+                    );
+                }
             }
         }
         drop(mapped);
         fs::remove_file(full).unwrap();
         fs::remove_file(query).unwrap();
+        fs::remove_file(metric_path).unwrap();
     }
 }
 

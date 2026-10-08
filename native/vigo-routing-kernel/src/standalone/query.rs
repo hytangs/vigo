@@ -38,6 +38,11 @@ pub(crate) struct Options {
 }
 impl Options {
     pub fn parse(q: &Value) -> Result<Self> {
+        // A validated arrival request may be rebased onto an earlier service
+        // date. The largest supported horizon, reserve and window fit here.
+        Self::parse_limited(q, 5759.)
+    }
+    fn parse_limited(q: &Value, maximum_minutes: f64) -> Result<Self> {
         let time = if let Some(s) = q["time"].as_str() {
             let pieces: Vec<_> = s.split(':').collect();
             if !(2..=3).contains(&pieces.len()) {
@@ -50,14 +55,14 @@ impl Options {
             } else {
                 0
             };
-            if hour > 71 || minute > 59 || second > 59 {
+            if f64::from(hour) > (maximum_minutes / 60.).floor() || minute > 59 || second > 59 {
                 return fail("Invalid time");
             }
             f64::from(hour * 3600 + minute * 60 + second)
         } else if q.get("timeMinutes").is_some() {
-            number(q, "timeMinutes", 0., 0., 4319.)? * 60.
+            number(q, "timeMinutes", 0., 0., maximum_minutes)? * 60.
         } else if q["time"].is_number() {
-            number(q, "time", 0., 0., 4319.)? * 60.
+            number(q, "time", 0., 0., maximum_minutes)? * 60.
         } else {
             return fail("time (HH:MM) or timeMinutes is required");
         };
@@ -124,11 +129,91 @@ impl City {
                 &request["after"],
             )?);
         }
+        // A reverse search can start on the preceding civil date. Use a
+        // nonnegative internal clock, and expose its date alongside the times.
+        if matches!(command, "route" | "matrix" | "reach" | "isochrone") {
+            Options::parse_limited(&query, 4319.)?;
+        }
+        let clock_date = if matches!(command, "route" | "matrix") {
+            self.shift_early_arrival(&mut query)?
+        } else {
+            None
+        };
+        let previous_timetable = self.timetable.as_ref().map(|t| (t.key.clone(),t.coverage_end));
         let mut raw = self.execute(command, &query)?;
+        if previous_timetable != self.timetable.as_ref().map(|t| (t.key.clone(),t.coverage_end)) {
+            super::release_preparation_memory();
+        }
+        if let Some(date) = clock_date {
+            raw["clockDate"] = json!(date);
+        }
         if request["includeLimitations"] == true {
             raw["warnings"] = self.metadata["routingLimitations"].clone();
         }
-        Ok(crate::presentation::format(command, request, &raw))
+        let result = crate::presentation::format(command, request, &raw);
+        super::memory::record_output(command, &raw, &result);
+        drop(raw);
+        if matches!(command, "reach" | "isochrone" | "matrix") {
+            super::release_preparation_memory();
+        }
+        Ok(result)
+    }
+    fn shift_early_arrival(&self, query: &mut Value) -> Result<Option<String>> {
+        use chrono::{NaiveDate, TimeZone};
+        let opt = Options::parse(query)?;
+        if !opt.arrive {
+            return Ok(None);
+        }
+        let horizon = number(query, "horizonMinutes", 480., 1., 2880.)? * 60.;
+        let reserve = number(query, "arrivalBufferMinutes", 0., 0., 120.)? * 60.;
+        let window = number(query, "windowMinutes", 0., 0., 240.)? * 60.;
+        if opt.time >= horizon + reserve + window {
+            return Ok(None);
+        }
+        let Some(text) = query["serviceDate"].as_str() else {
+            return Ok(None);
+        };
+        let original_date = text.to_owned();
+        let mut date = Self::validated_service_date(query)?;
+        if let Some(updates) = query
+            .get_mut("realtimeSnapshot")
+            .and_then(|s| s.get_mut("tripUpdates"))
+            .and_then(Value::as_array_mut)
+        {
+            for update in updates {
+                if update.get("startDate").is_none() && update["trip"].get("startDate").is_none() {
+                    update["startDate"] = json!(original_date);
+                }
+            }
+        }
+        let zone: chrono_tz::Tz = self.metadata["agencyTimezones"]
+            .as_array()
+            .and_then(|a| a.first())
+            .and_then(Value::as_str)
+            .unwrap_or("UTC")
+            .parse()?;
+        let epoch = |day: NaiveDate| -> Result<i64> {
+            Ok(zone
+                .from_local_datetime(&day.and_hms_opt(12, 0, 0).unwrap())
+                .single()
+                .ok_or("Ambiguous service noon")?
+                .timestamp()
+                - 43200)
+        };
+        let initial = epoch(date)?;
+        let mut time = opt.time;
+        while time < horizon + reserve + window {
+            date = date
+                .pred_opt()
+                .ok_or("Arrival search precedes supported dates")?;
+            time = opt.time + (initial - epoch(date)?) as f64;
+        }
+        let object = query.as_object_mut().unwrap();
+        object.remove("time");
+        object.remove("serviceDay");
+        object.insert("timeMinutes".into(), json!(time / 60.));
+        object.insert("serviceDate".into(), json!(date.to_string()));
+        Ok(Some(date.to_string()))
     }
     pub fn execute(&mut self, command: &str, request: &Value) -> Result<Value> {
         if !request.is_object() {
@@ -241,29 +326,10 @@ impl City {
         if let Some(id) = &point.stop {
             let t = self.timetable.as_ref().ok_or("Timetable is not active")?;
             let selected = self.stop(id)?;
-            let station = if selected.location == 1 {
-                id.as_str()
-            } else {
-                &selected.parent
-            };
-            let mut ids = vec![if station.is_empty() {
-                id.as_str()
-            } else {
-                station
-            }];
-            if !station.is_empty() {
-                for (id, members) in &self.access.materialized.station_members {
-                    if id == station {
-                        ids.extend(members.iter().map(String::as_str));
-                    }
-                }
+            if selected.location == 1 {
+                return self.street_candidates(point, role, opt, self.padding, self.overhead);
             }
-            let mut stops: Vec<u32> = ids
-                .iter()
-                .filter_map(|id| t.index.get(*id).copied())
-                .collect();
-            stops.sort_unstable();
-            stops.dedup();
+            let stops: Vec<u32> = t.index.get(id).copied().into_iter().collect();
             if stops.is_empty() {
                 return fail("Stop missing from timetable");
             }
@@ -275,6 +341,91 @@ impl City {
             });
         }
         self.street_candidates(point, role, opt, self.padding, self.overhead)
+    }
+    fn access_status(
+        &mut self,
+        point: &Point,
+        role: &str,
+        candidates: &Candidates,
+        opt: &Options,
+        probe: bool,
+    ) -> Result<Value> {
+        let mut status = json!({"coordinate":point.coordinate,"role":role,"maximumWalkMeters":opt.walk_m,
+            "candidateCount":candidates.stops.len(),"code":"available"});
+        if !candidates.stops.is_empty() {
+            return Ok(status);
+        }
+        if point.stop.is_some() {
+            status["code"] = json!("station_access_unavailable");
+            return Ok(status);
+        }
+        let b = &self.street_bounds;
+        if b["west"].as_f64().is_some_and(|v| point.coordinate[0] < v)
+            || b["east"].as_f64().is_some_and(|v| point.coordinate[0] > v)
+            || b["south"].as_f64().is_some_and(|v| point.coordinate[1] < v)
+            || b["north"].as_f64().is_some_and(|v| point.coordinate[1] > v)
+        {
+            status["code"] = json!("outside_coverage");
+            status["coverageBounds"] = b.clone();
+            return Ok(status);
+        }
+        let (snaps, _) = street_attachment_with_workspace(
+            &self.street.snapshot,
+            self.street.snapshot.reciprocal_edge_flags(),
+            &mut SnapWorkspace::default(),
+            point.coordinate[0],
+            point.coordinate[1],
+        )?;
+        if snaps.is_empty() {
+            status["code"] = json!("no_street_attachment");
+            return Ok(status);
+        }
+        if let Some(profile) = &self.street.profile {
+            let components = self.street.snapshot.i32_array("componentByNode")?;
+            let (connected, _) = street_attachment_in_components(
+                &self.street.snapshot,
+                self.street.snapshot.reciprocal_edge_flags(),
+                &mut SnapWorkspace::default(),
+                point.coordinate[0],
+                point.coordinate[1],
+                Some(&profile.public_components),
+            )?;
+            if connected.is_empty()
+                && snaps.iter().all(|s| {
+                    !profile
+                        .public_components
+                        .contains(&components[s.node as usize])
+                })
+            {
+                status["code"] = json!("disconnected_street_attachment");
+                return Ok(status);
+            }
+        }
+        status["code"] = json!("none_within_walk_budget");
+        if probe && opt.walk_m < 5000. {
+            let mut wider = Options::parse(
+                &json!({"timeMinutes":opt.time/60.,"maxWalkKm":(opt.walk_m*2.).max(opt.walk_m+500.).min(5000.)/1000.}),
+            )?;
+            wider.disable_cache = opt.disable_cache;
+            wider.walk_speed = opt.walk_speed;
+            let result =
+                self.street_candidates(point, role, &wider, self.padding, self.overhead)?;
+            status["probeWalkMeters"] = json!(wider.walk_m);
+            if !result.stops.is_empty() {
+                status["code"] = json!("outside_selected_budget");
+                status["suggestedWalkMeters"] = json!(
+                    result
+                        .evidence
+                        .as_ref()
+                        .unwrap()
+                        .distances_m
+                        .iter()
+                        .copied()
+                        .fold(f64::INFINITY, f64::min)
+                );
+            }
+        }
+        Ok(status)
     }
     pub(crate) fn street_candidates(
         &mut self,
@@ -448,6 +599,9 @@ impl City {
         (unique, indices)
     }
     pub fn route(&mut self, q: &Value) -> Result<Value> {
+        self.route_options(q, false)
+    }
+    fn route_options(&mut self, q: &Value, collect: bool) -> Result<Value> {
         let opt = Options::parse(q)?;
         let origin = self.point(&q["origin"])?;
         let destination = self.point(&q["destination"])?;
@@ -505,6 +659,33 @@ impl City {
             .journeys
             .take()
             .and_then(|mut rows| rows.pop().flatten());
+        let mut choices = vec![];
+        if collect && let Some(j) = journey.as_ref() {
+            let candidates = super::point::alternatives(
+                &mut self.timetable.as_mut().unwrap().kernel,
+                &Self::matrix_input(
+                    std::slice::from_ref(&a),
+                    std::slice::from_ref(&b),
+                    &opt,
+                    true,
+                ),
+                j,
+                15. * 60.,
+            )?;
+            for candidate in candidates {
+                let mut choice = self.materialize(
+                    &candidate,
+                    [&origin, &destination],
+                    true,
+                    &opt,
+                    [&a, &b],
+                    None,
+                )?;
+                choice["status"] = json!("ready");
+                choice["mode"] = json!("transit");
+                choices.push(choice);
+            }
+        }
         let mut output = if let Some(j) = journey.as_ref() {
             let mut j = self.materialize(j, [&origin, &destination], true, &opt, [&a, &b], None)?;
             j["status"] = json!("ready");
@@ -525,13 +706,26 @@ impl City {
                     } else {
                         walk["arrivalMinutes"].as_f64() <= output["arrivalMinutes"].as_f64()
                     });
+            if collect && walk["status"] == "ready" {
+                choices.push(walk.clone());
+            }
             if wins {
                 output = walk;
             }
         }
+        if collect {
+            if output["status"] == "ready" {
+                choices.push(output.clone());
+            }
+            output["choices"] = json!(super::alternatives::select(choices, opt.arrive, 5));
+        }
         output["diagnostics"] = json!({"search":{"startSeconds":opt.start,"endSeconds":opt.end,"horizonScope":"timetable_scan","maxTransfers":q["maxTransfers"],"allowStreetTransfers":q.get("allowStreetTransfers").unwrap_or(&Value::Bool(true)),"minimumTransferBufferMinutes":q.get("minimumTransferBufferMinutes").unwrap_or(&json!(0))},"native":result});
         output["diagnostics"]["originAccess"] = a.diagnostics(&origin)?;
         output["diagnostics"]["destinationAccess"] = b.diagnostics(&destination)?;
+        if output["status"] == "blocked" {
+            output["access"] = json!({"origin":self.access_status(&origin,"origin",&a,&opt,true)?,
+                "destination":self.access_status(&destination,"destination",&b,&opt,true)?});
+        }
         output["serviceDate"] = q["serviceDate"].clone();
         output["diagnostics"]["realtime"] = self.timetable.as_ref().unwrap().realtime.clone();
         output["warnings"] = self.metadata["routingLimitations"].clone();
@@ -559,92 +753,88 @@ impl City {
         let mut points = vec![q["origin"].clone()];
         points.extend(via.iter().cloned());
         points.push(q["destination"].clone());
-        let mut pieces = vec![];
-        let mut time = opt.time / 60.;
+        let mut states = vec![super::ordered::Candidate::start(opt.time / 60.)];
+        let mut searches = 0;
         let indices: Vec<usize> = if opt.arrive {
             (0..points.len() - 1).rev().collect()
         } else {
             (0..points.len() - 1).collect()
         };
-        for i in indices {
-            let mut request = q.clone();
-            let m = request.as_object_mut().unwrap();
-            for k in ["via", "waypoints", "time", "windowMinutes"] {
-                m.remove(k);
+        for (step, i) in indices.iter().copied().enumerate() {
+            let mut cache = std::collections::HashMap::<u64, Vec<std::sync::Arc<Value>>>::new();
+            let mut candidates = vec![];
+            let mut failure = None;
+            for state in &states {
+                let key = state.clock.to_bits();
+                if let std::collections::hash_map::Entry::Vacant(entry) = cache.entry(key) {
+                    let mut request = q.clone();
+                    let m = request.as_object_mut().unwrap();
+                    for k in ["via", "waypoints", "time", "windowMinutes"] { m.remove(k); }
+                    m.insert("timeMinutes".into(), json!(state.clock));
+                    m.insert("origin".into(), points[i].clone());
+                    m.insert("destination".into(), points[i + 1].clone());
+                    let mut result = self.route_options(&request, true)?;
+                    searches += 1;
+                    let choices = result.as_object_mut().unwrap().remove("choices")
+                        .and_then(|v| v.as_array().cloned()).unwrap_or_else(|| vec![result.clone()]);
+                    failure.get_or_insert(result);
+                    entry.insert(choices.into_iter().filter(|v| v["status"] == "ready")
+                        .map(std::sync::Arc::new).collect());
+                }
+                for piece in &cache[&key] {
+                    candidates.push(state.extend(piece.clone(), opt.arrive));
+                }
             }
-            m.insert("timeMinutes".into(), json!(time));
-            m.insert("origin".into(), points[i].clone());
-            m.insert("destination".into(), points[i + 1].clone());
-            if q["mode"].as_str().unwrap_or("transit") == "transit" {
-                m.insert("requireTransitRide".into(), json!(true));
+            if candidates.is_empty() {
+                return Ok(json!({"status":"blocked","reason":"via_leg_blocked","legIndex":i,"leg":failure}));
             }
-            let r = self.route(&request)?;
-            if r["status"] != "ready" {
-                return Ok(
-                    json!({"status":"blocked","reason":"via_leg_blocked","legIndex":i,"leg":r}),
-                );
-            }
-            time = r[if opt.arrive {
-                "departureMinutes"
-            } else {
-                "arrivalMinutes"
-            }]
-            .as_f64()
-            .ok_or("Missing route time")?;
-            pieces.push(r);
+            states = super::ordered::select(candidates, opt.arrive, step + 1 == indices.len());
         }
-        if opt.arrive {
-            pieces.reverse();
-        }
-        let departure = pieces[0]["departureMinutes"].as_f64().unwrap();
-        let arrival = pieces.last().unwrap()["arrivalMinutes"].as_f64().unwrap();
-        Ok(
-            json!({"status":"ready","mode":q.get("mode").unwrap_or(&json!("transit")),"departureMinutes":departure,"arrivalMinutes":arrival,"durationMinutes":arrival-departure,"segments":pieces,"via":via}),
-        )
+        let choices: Vec<Value> = states.iter().map(|state| state.finish(&json!(via))).collect();
+        let mut result = choices[0].clone();
+        result["choices"] = json!(choices);
+        result["diagnostics"]["orderedSearch"] = json!({"segmentQueries":searches,
+            "candidateLimit":super::ordered::LIMIT,"alternatives":"bounded_waypoint_frontier"});
+        Ok(result)
     }
     fn route_window(&mut self, q: &Value, window: f64) -> Result<Value> {
         let opt = Options::parse(q)?;
-        if opt.arrive {
-            return fail("Departure windows require depart_at");
-        }
         let step = number(q, "windowStepMinutes", 1., 1., 60.)?;
         let mut choices = vec![];
-        let mut signatures = std::collections::HashSet::new();
-        let mut minute = 0.;
-        while minute <= window {
+        let mut first = None;
+        let mut searches = 0;
+        for sample in 0..=(window / step).floor() as u32 {
+            let seconds =
+                opt.time + if opt.arrive { -1. } else { 1. } * f64::from(sample) * step * 60.;
+            if !(0. ..=345_540.).contains(&seconds) {
+                continue;
+            }
             let mut request = q.clone();
             request.as_object_mut().unwrap().remove("time");
-            request["timeMinutes"] = json!(opt.time / 60. + minute);
+            request["timeMinutes"] = json!(seconds / 60.);
             request["windowMinutes"] = json!(0);
-            let result = self.route(&request)?;
-            if result["status"] == "ready" {
-                let signature = serde_json::to_string(&json!([
-                    result["legs"].as_array().map(|legs| legs
-                        .iter()
-                        .map(|l| json!([l["tripId"], l["fromStop"], l["toStop"]]))
-                        .collect::<Vec<_>>()),
-                    result["arrivalMinutes"]
-                ]))?;
-                if signatures.insert(signature) {
-                    choices.push(result);
-                }
+            let mut result = self.route_options(&request, true)?;
+            searches += 1;
+            if let Some(items) = result
+                .as_object_mut()
+                .unwrap()
+                .remove("choices")
+                .and_then(|v| v.as_array().cloned())
+            {
+                choices.extend(items);
             }
-            minute += step;
+            if first.is_none() {
+                first = Some(result);
+            }
         }
-        choices.sort_by(|a, b| {
-            a["arrivalMinutes"]
-                .as_f64()
-                .partial_cmp(&b["arrivalMinutes"].as_f64())
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        choices.truncate(5);
-        let mut result = choices
-            .first()
-            .cloned()
-            .unwrap_or(json!({"status":"blocked","reason":"no_path"}));
+        let choices = super::alternatives::select(choices, opt.arrive, 5);
+        // An unsuccessful window retains the original endpoint evidence and
+        // failure class instead of fabricating a generic timetable failure.
+        let mut result = choices.first().cloned().unwrap_or_else(|| first.unwrap());
         result["choices"] = json!(choices);
-        result["window"] =
-            json!({"minutes":window,"stepMinutes":step,"searches":(window/step).floor() as u32+1});
+        result["window"] = json!({"minutes":window,"stepMinutes":step,"searches":searches,
+            "coverage":"sampled","direction":if opt.arrive {"earlier_arrival_deadlines"} else {"later_departures"},
+            "arrivalSlackMinutes":15,"maximumJourneys":5});
         Ok(result)
     }
     pub fn matrix(&mut self, q: &Value) -> Result<Value> {
@@ -821,7 +1011,30 @@ impl City {
                 }
             }
         }
+        let mut origin_access = serde_json::Map::new();
+        for (i, point) in origins.iter().enumerate() {
+            let candidates = &a[origin_indices[i]];
+            if candidates.stops.is_empty() {
+                origin_access.insert(
+                    i.to_string(),
+                    self.access_status(point, "origin", candidates, &opt, false)?,
+                );
+            }
+        }
+        let mut destination_access = serde_json::Map::new();
+        for (i, point) in destinations.iter().enumerate() {
+            let candidates = &b[destination_indices[i]];
+            if candidates.stops.is_empty() {
+                destination_access.insert(
+                    i.to_string(),
+                    self.access_status(point, "destination", candidates, &opt, false)?,
+                );
+            }
+        }
         let mut output = json!({"kind":"matrix","mode":mode,"originCount":origins.len(),"destinationCount":destinations.len(),"durationsMinutes":durations.chunks(destinations.len()).collect::<Vec<_>>(),"diagnostics":result,"warnings":self.metadata["routingLimitations"]});
+        if !origin_access.is_empty() || !destination_access.is_empty() {
+            output["access"] = json!({"origins":origin_access,"destinations":destination_access});
+        }
         // Moving Values into rows avoids cloning every leg twice (once for
         // chunking and once through json!'s borrowed serializer).
         output["journeys"] = journeys.map_or(Value::Null, |journeys| {
@@ -1444,6 +1657,7 @@ fn validate_request(command: &str, q: &Value) -> Result<()> {
             "journeyFormat",
         ],
         "reach" | "isochrone" => &[
+            "reachFormat",
             "origin",
             "cutoffsMinutes",
             "rasterSize",
@@ -1459,6 +1673,11 @@ fn validate_request(command: &str, q: &Value) -> Result<()> {
         "compare" => &["before", "after"],
         _ => &[],
     };
+    if q.get("wheelchair").is_some() || q.get("wheelchairAccessible").is_some() {
+        return fail(
+            "Wheelchair routing is unsupported: accessible boarding and station paths are not modeled",
+        );
+    }
     for key in q.as_object().unwrap().keys() {
         if !common.contains(&key.as_str()) && !specific.contains(&key.as_str()) {
             return fail(format!("Unknown {command} option: {key}"));

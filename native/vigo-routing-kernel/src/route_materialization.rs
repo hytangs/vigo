@@ -119,6 +119,13 @@ pub struct ShapeGeometrySource {
     db: Option<Connection>,
 }
 
+#[cfg(feature = "standalone")]
+impl ShapeGeometrySource {
+    pub(crate) fn sqlite_heap_bytes(&self) -> usize {
+        self.db.as_ref().map_or(0, crate::standalone::memory::sqlite_bytes)
+    }
+}
+
 fn source_error(error: impl std::fmt::Display) -> Error {
     Error::from_reason(format!("Native shape geometry: {error}"))
 }

@@ -3,6 +3,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { Worker } from 'node:worker_threads'
+import { once } from 'node:events'
 import {
   normalizeNativeMilliseconds,
   orientNativeStreetPathCoordinates,
@@ -607,6 +609,7 @@ try {
     horizon: 1_000,
     allowPreRideTransfers: false,
     overlayStopCount: 2,
+    overlayBaseStops: [-1, -1],
     directionOffsets: [0, 2],
     directionStops: [0, 1],
     directionStopOffsetsSeconds: [0, 100],
@@ -708,6 +711,28 @@ try {
     cchDistanceMetricPath: driveCchDistanceMetricPath,
   })
   assert.equal(reloadedDriveKernel.diagnostics().cchSource, 'existing_mmap')
+  const integerTimes = new Uint32Array([100, 500, 100])
+  const integerDrive = new DriveKernel({
+    nodeCount: 3, nodeLats: new Float64Array([38, 38, 38]), nodeLons: new Float64Array([0, .001, .002]),
+    edgeOffsets: new Uint32Array([0, 2, 3, 3]), edgeTargets: new Uint32Array([1, 1, 2]),
+    edgeDistanceUnits: new Uint32Array([600, 100, 200]), edgeTimeUnits: integerTimes,
+    cchStructurePath: driveCchStructurePath, cchTimeMetricPath: driveCchTimeMetricPath,
+    cchDistanceMetricPath: driveCchDistanceMetricPath,
+  })
+  assert.equal(integerDrive.diagnostics().sourceArrayBytes, 52)
+  assert.equal(integerDrive.diagnostics().borrowedSourceBytes, 52)
+  assert.equal(integerDrive.diagnostics().zeroCopyArrays, true)
+  assert.equal(driveKernel.diagnostics().borrowedSourceBytes, 28)
+  assert.equal(driveKernel.diagnostics().zeroCopyArrays, false, 'Converted floating weights are separate owned arrays')
+  const integerQuery = { originNodes: [0], originSnapMeters: [0], targetNodes: [2], targetSnapMeters: [0], maximumDistanceMeters: 20 }
+  const slowInteger = integerDrive.routeExact({ ...integerQuery,
+    traffic: { snapshotKey: 'borrowed-traffic', edgeIndices: [0], edgeTimeUnits: [900] } })
+  assert.equal(slowInteger.durationSeconds, 6)
+  assert.deepEqual([...integerTimes], [100, 500, 100], 'Traffic must never mutate borrowed base weights')
+  const clearInteger = integerDrive.routeExact(integerQuery)
+  assert.equal(clearInteger.durationSeconds, certifiedDrive.durationSeconds)
+  assert.equal(clearInteger.distanceMeters, certifiedDrive.distanceMeters)
+  assert.deepEqual(clearInteger.nodeIndices, certifiedDrive.nodeIndices)
   const incompleteDriveCchStructure = path.join(temporaryDirectory, 'drive-incomplete.cch.structure')
   fs.copyFileSync(driveCchStructurePath, incompleteDriveCchStructure)
   assert.throws(
@@ -727,6 +752,17 @@ try {
   )
   const kernel = new CoordinateKernel(snapshotPath)
   const surfaceKernel = new CoordinateKernel(snapshotPath)
+  assert.equal(kernel.diagnostics().sharedStreetOwners, 2,
+    'Independent kernels must share one immutable snapshot while retaining separate query state')
+  const sibling = new Worker(new URL('./helpers/shared-street-worker.mjs', import.meta.url), {
+    workerData: { bindingPath, snapshotPath },
+  })
+  try {
+    const [shared] = await once(sibling, 'message')
+    assert.equal(shared.sharedStreetOwners, 3, 'Node isolates must share the same native immutable owner')
+    assert.equal(kernel.diagnostics().sharedStreetOwners, 3)
+  } finally { await sibling.terminate() }
+  assert.equal(kernel.diagnostics().sharedStreetOwners, 2, 'A retired worker must release its strong network reference')
   const surfaceProfile = {
     profileKey: 'directed-station-egress',
     memberLons: [0.003, 0.001], memberLats: [38, 38],
@@ -1004,8 +1040,8 @@ try {
   assert.equal(Math.round(projectedPath.originSnapDistanceM), 111)
   assert.deepEqual(
     projectedPath.coordinates,
-    [0, 37.999, 0.001, 37.999],
-    'A reciprocal pedestrian edge projection must beat a nearer same-component detour vertex.',
+    [0, 38, 0, 37.999, 0.001, 37.999],
+    'Geometry includes the charged connector and selected reciprocal edge.',
   )
   const recoveredProjectedPath = reciprocalKernel.routePath({
     originLon: -0.00085,
@@ -1372,8 +1408,10 @@ try {
     originLon: 0, originLat: 38.0001,
     destinationLon: 0, destinationLat: 38.0001, maximumWalkM: 400,
   })
-  assert.deepEqual(farSideAccess.originMemberIndices, [],
-    'A stop between disconnected streets cannot join both components.')
+  assert.deepEqual(farSideAccess.originMemberIndices, [0],
+    'An anonymous endpoint recovers to the nearby public transit network; the stop keeps one fixed attachment.')
+  assert(farSideAccess.originDistancesM[0] > barrierEndpoints.originDistancesM[0],
+    'Recovery must charge its off-network connector.')
   const disconnectedPointPath = barrierKernel.routePath({
     originLon: 0,
     originLat: 38,
@@ -1384,9 +1422,35 @@ try {
   })
   assert.equal(
     disconnectedPointPath.found,
-    false,
-    'A virtual query point on a short component must not seed an adjacent disconnected component.',
+    true,
+    'An endpoint can attach to a nearby transit-connected component without joining the graphs.',
   )
+  for (const disableCache of [false, true]) {
+    const recovered = barrierKernel.routeStreetMatrix({ originCoordinates: [0, 38],
+      destinationCoordinates: [0.001, 38.0001], maximumDistanceM: 400, disableCache })
+    assert(Math.abs(recovered.distancesM[0] - disconnectedPointPath.distanceM) < 0.001)
+  }
+  assert.equal(barrierKernel.routePath({ originLon: 0, originLat: 38, destinationLon: 0.001,
+    destinationLat: 38.0001, maximumDistanceM: 90, maximumPoints: 32 }).found, false,
+    'The connector is part of the physical walking budget.')
+  const outsideRadius = barrierKernel.routeEndpoint({ longitude: 0.0005, latitude: 38.0008,
+    maximumWalkM: 400, role: 'origin', disableCache: true })
+  assert.equal(outsideRadius.memberIndices.length, 0, 'Recovery never expands beyond 80 metres.')
+  assert.deepEqual(disconnectedPointPath.coordinates.slice(-2), [0.001, 38.0001],
+    'Geometry must include the charged off-network endpoint connector.')
+  const recoverySurface = { bounds: [-0.001, 37.999, 0.002, 38.001], width: 48, height: 48,
+    seedCoordinates: [0, 38.0001], seedDurationsMinutes: [0], maximumWalkM: 120,
+    walkSpeedKph: 4.8, maximumDurationMinutes: 3, independentTerminalWalk: false,
+    includeNodes: true, nodeEvidenceLimit: 10, includeEdges: true, edgeEvidenceLimit: 20,
+    expandBoundsToReachedEdges: false }
+  for (const seedMemberIndices of [undefined, [-1]]) {
+    const recovered = barrierKernel.streetSurface({ ...recoverySurface, seedMemberIndices })
+    assert(recovered.nodeEvidence.length > 0)
+    assert(recovered.nodeEvidence.every(n => n.latitude === 38 && n.walkDistanceM > 11 && n.durationMinutes > 0),
+      'Anonymous range seeds recover to the same network and pay the connector cost.')
+    assert.equal(barrierKernel.streetSurface({ ...recoverySurface, seedMemberIndices, maximumWalkM: 5 }).edgeEvidence.length, 0,
+      'A connector over the walking budget must not seed a reachable surface.')
+  }
   const linkedMembers = Array.from({ length: 21 }, (_, index) => index)
   barrierKernel.setAccessProfile({
     profileKey: 'directed-station-footpaths-v1',
@@ -1406,6 +1470,9 @@ try {
     transferPathDistancesM: linkedMembers.slice(1).map(() => 10),
     transferOsmCertified: linkedMembers.slice(1).map(() => 0),
   })
+  assert.equal(barrierKernel.routeAccessMemberPath({ originMemberIndex: 0, destinationMemberIndex: 1,
+    maximumDistanceM: 400, maximumPoints: 32 }).found, false,
+    'Endpoint recovery must never turn into an inferred stop-to-stop transfer.')
   const fromBottom = barrierKernel.routeEndpoints({
     originLon: 0, originLat: 38, destinationLon: 0, destinationLat: 38,
     maximumWalkM: 50,
@@ -1447,7 +1514,7 @@ try {
     projectedEdgeAnchorFrontierDistanceM:
       frontierEndpoints.originDistancesM[0],
     disconnectedBarrierComponent: 'verified',
-    disconnectedPointFragmentRecovery: 'rejected',
+    disconnectedPointFragmentRecovery: 'bounded-endpoint-only',
     constrainedDriveParetoLabels: constrainedDrive.generatedLabels,
     certifiedDriveFallbackUsed: certifiedDrive.fallbackUsed,
     persistedAccessProfileBytes: persistedProfile.snapshotBytes,

@@ -8,6 +8,7 @@ import { spawn, execFileSync } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { once } from 'node:events'
 import JSZip from 'jszip'
+import { serviceEpochSeconds } from '../src/server/gtfs/service-clock.mjs'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -76,8 +77,11 @@ try {
         assert.equal(r.status, p.status, `status: ${JSON.stringify({ rust: r.status, reference: p.status })}`)
         if (p.status !== 'ready') return
         assert.equal(r.mode, p.travelMode)
-        close(r.departureMinutes, p.departMinutes, 'departure')
-        close(r.arrivalMinutes, p.arriveMinutes, 'arrival')
+        const absolute = (minutes, date) => minutes + serviceEpochSeconds(date, 'America/New_York') / 60
+        const rustDate = r.clockDate ?? input.serviceDate
+        const nodeDate = p.diagnostics?.clockDate ?? input.serviceDate
+        close(absolute(r.departureMinutes, rustDate), absolute(p.departMinutes, nodeDate), 'departure instant')
+        close(absolute(r.arrivalMinutes, rustDate), absolute(p.arriveMinutes, nodeDate), 'arrival instant')
         assert.equal(r.transfers, p.transfers, 'transfers')
         assert.deepEqual(r.legs.filter(l => l.kind === 'ride').map(l => l.tripId), p.legs.filter(l => l.type === 'ride').map(l => l.tripId), 'selected trips')
         for (const ride of r.legs.filter(l => l.kind === 'ride')) {
@@ -139,7 +143,7 @@ try {
     }
     for (const invalid of [{ arrivalBufferMinutes: -1 }, { arrivalBufferMinutes: '5' },
       { arrivalBufferMinutes: 5, timePreference: 'depart_at' }, { arrivalBufferMinutes: 5, mode: 'walk' },
-      { arrivalBufferMinutes: 5, horizonMinutes: 5 }, { arrivalBufferMinutes: 5, timeMinutes: 4 },
+      { arrivalBufferMinutes: 5, horizonMinutes: 5 },
       { arrivalBufferMinutes: 5, waypoints: [point('X')] }]) {
       const input = { ...base, timePreference: 'arrive_by', timeMinutes: 515, ...invalid }
       const a = await rust(input)
@@ -148,6 +152,7 @@ try {
         assert(a.error, JSON.stringify(a)); assert(b.error, JSON.stringify(b))
       })
     }
+    await route({ arrivalBufferMinutes: 5, timeMinutes: 4, timePreference: 'arrive_by' }, 'arrival reserve crosses midnight')
     for (const serviceDate of ['2026-07-16', '2026-07-18', '2026-07-19']) {
       await route({ serviceDate }, `calendar ${serviceDate}`)
     }

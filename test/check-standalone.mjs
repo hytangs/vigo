@@ -83,8 +83,14 @@ try {
     const via = run('route', { ...coordinate, mode: 'transit', via: [{ stopId: 'X' }],
       timePreference, time: timePreference === 'arrive_by' ? '08:30' : base.time, requireTransitRide: false })
     assert.equal(via.status, 'ready')
-    assert(via.segments.every(segment => segment.legs.some(leg => leg.kind === 'ride')),
-      'Ordered Transit requires a boarding on each leg, including when point defaults allow walking.')
+    assert(via.segments.some(segment => segment.mode === 'walk'),
+      'Ordered Transit must allow a walking segment instead of forcing a boarding.')
+    const allWalk = run('route', { ...coordinate, mode: 'walk', via: [{ stopId: 'X' }],
+      timePreference, time: timePreference === 'arrive_by' ? '08:30' : base.time })
+    assert(timePreference === 'arrive_by' ? via.departureMinutes >= allWalk.departureMinutes
+      : via.arrivalMinutes <= allWalk.arrivalMinutes, 'The selected multi-stop result must be no worse in time than walking')
+    assert(via.choices.some(choice => choice.mode === 'walk'), 'Retain the complete walking option')
+    assert(via.diagnostics.orderedSearch.segmentQueries <= 9)
   }
   assert(run('route', { ...base, windowMinutes: 10 }).choices.length > 0)
   const matrix = run('matrix', { serviceDate: base.serviceDate, time: base.time, origins: [base.origin, { stopId: 'X' }], destinations: [base.destination], maxWalkKm: .2, includeJourneys: true })

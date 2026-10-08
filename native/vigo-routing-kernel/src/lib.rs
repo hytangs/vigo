@@ -59,6 +59,7 @@ mod route_materialization;
 pub use route_materialization::{ShapeGeometry, ShapeGeometrySource, stable_key_suffix};
 mod snapshot_validation;
 mod street_kernel;
+mod shared_streets;
 mod street_snapshot;
 use street_kernel::open_street_cch_bundles;
 mod timetable;
@@ -84,15 +85,21 @@ const NO_PROFILE_KEY: u32 = u32::MAX;
 // A whole Matrix group may reuse its endpoint preparation for direct walking.
 // The existing per-role byte limit remains the controlling memory bound.
 const MAXIMUM_ENDPOINT_CACHE_ENTRIES: usize = MAXIMUM_MATRIX_PAIRS;
-const MAXIMUM_ENDPOINT_CACHE_BYTES: usize = 64 * 1024 * 1024;
+static MAXIMUM_ENDPOINT_CACHE_BYTES: LazyLock<usize> = LazyLock::new(|| {
+    std::env::var("VIGO_ENDPOINT_CACHE_MAX_BYTES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(64 * 1024 * 1024usize)
+        .min(256 * 1024 * 1024)
+});
 const MAXIMUM_MATRIX_PAIRS: usize = 100_000;
 // The scaled spherical metric is an exact lower-bound certificate for every
 // path inside the bounded latitude band; it prunes work but never guides order.
 const POINT_PATH_METRIC_LOWER_BOUND_FACTOR: f64 = 1.0;
 const ACCESS_PROFILE_SNAPSHOT_MAGIC: [u8; 8] = *b"VIGOAP04";
-// Version 5 invalidates stop snaps and buckets made with the former
-// both-endpoints-within-radius restriction.
-const ACCESS_PROFILE_SNAPSHOT_VERSION: u32 = 5;
+// Version 6 stores nonempty CCH buckets behind a bitmap rank directory.
+// Earlier prepared access profiles must be rebuilt.
+const ACCESS_PROFILE_SNAPSHOT_VERSION: u32 = 6;
 const ACCESS_PROFILE_SNAPSHOT_HEADER_BYTES: usize = 80;
 const MAXIMUM_ACCESS_PROFILE_SNAPSHOT_BYTES: u64 = 4_u64 * 1024 * 1024 * 1024;
 // One-tenth-millimetre quantization keeps even thousand-edge walks within
@@ -259,8 +266,8 @@ impl TileWorkspace {
             generation: 0,
             target_generation: 0,
             local_len: 0,
-            queue: BinaryHeap::with_capacity(16_384),
-            point_queue: BinaryHeap::with_capacity(16_384),
+            queue: BinaryHeap::new(),
+            point_queue: BinaryHeap::new(),
         }
     }
 
@@ -418,11 +425,11 @@ struct DynamicCchQuery {
     // Zero means untouched; finite distances are stored as distance + 1.
     // This keeps construction backed by lazy zero pages without adding a
     // second random generation-array read to every hot CCH relaxation.
-    distances: Vec<u32>,
-    distance_sources: Vec<u32>,
+    distances: cch::paged::PagedVec<u32>,
+    distance_sources: cch::paged::PagedVec<u32>,
     distance_touched: Vec<u32>,
-    source_generations: Vec<u32>,
-    target_generations: Vec<u32>,
+    source_generations: cch::paged::PagedVec<u32>,
+    target_generations: cch::paged::PagedVec<u32>,
     generation: u32,
     forward_nodes: Vec<u32>,
     target_nodes: Vec<u32>,
@@ -441,11 +448,11 @@ struct DynamicCchQuery {
 impl DynamicCchQuery {
     fn new(node_count: usize) -> Self {
         Self {
-            distances: vec![0; node_count],
-            distance_sources: vec![0; node_count],
+            distances: cch::paged::PagedVec::new(node_count, 0),
+            distance_sources: cch::paged::PagedVec::new(node_count, 0),
             distance_touched: Vec::new(),
-            source_generations: vec![0; node_count],
-            target_generations: vec![0; node_count],
+            source_generations: cch::paged::PagedVec::new(node_count, 0),
+            target_generations: cch::paged::PagedVec::new(node_count, 0),
             generation: 0,
             forward_nodes: Vec::new(),
             target_nodes: Vec::new(),
@@ -462,7 +469,12 @@ impl DynamicCchQuery {
         }
     }
 
-    fn begin(&mut self) -> u32 {
+    fn begin(&mut self, node_count: usize) -> u32 {
+        // In a scenario collection only the active caller needs these arrays.
+        // Admission and idle scenarios keep an empty workspace.
+        if self.distances.len() != node_count || self.byte_length() > 64 * 1024 * 1024 {
+            *self = Self::new(node_count);
+        }
         for node in self.distance_touched.drain(..) {
             self.distances[node as usize] = 0;
         }
@@ -538,7 +550,7 @@ impl DynamicCchQuery {
         sources: &[(u32, u32)],
         targets: &[u32],
     ) -> &[u32] {
-        let generation = self.begin();
+        let generation = self.begin(cch.node_count() as usize);
         if sources.is_empty() || targets.is_empty() {
             self.output.resize(targets.len(), cch::INF_WEIGHT);
             return &self.output;
@@ -639,7 +651,7 @@ impl DynamicCchQuery {
         maximum_distance: u32,
         target_count: usize,
     ) -> (&[u32], &[u32], &[u32]) {
-        let generation = self.begin();
+        let generation = self.begin(cch.node_count() as usize);
         if sources.is_empty() || target_count == 0 {
             return (
                 &self.bucket_output_targets,
@@ -670,7 +682,6 @@ impl DynamicCchQuery {
             }
         }
         self.forward_nodes.sort_unstable();
-        let bucket_offsets = buckets.offsets();
         let bucket_entries = buckets.entries();
         for offset in 0..self.forward_nodes.len() {
             let node = self.forward_nodes[offset];
@@ -692,8 +703,7 @@ impl DynamicCchQuery {
                     );
                 }
             }
-            let bucket_start = bucket_offsets[node as usize] as usize;
-            let bucket_end = bucket_offsets[node as usize + 1] as usize;
+            let (bucket_start, bucket_end) = buckets.range(node as usize);
             for entry in &bucket_entries[bucket_start..bucket_end] {
                 let candidate = distance.saturating_add(entry.distance);
                 if candidate > maximum_distance {
@@ -735,11 +745,11 @@ impl DynamicCchQuery {
     }
 
     fn byte_length(&self) -> usize {
-        self.distances.capacity() * size_of::<u32>()
-            + self.distance_sources.capacity() * size_of::<u32>()
+        self.distances.byte_length()
+            + self.distance_sources.byte_length()
             + self.distance_touched.capacity() * size_of::<u32>()
-            + self.source_generations.capacity() * size_of::<u32>()
-            + self.target_generations.capacity() * size_of::<u32>()
+            + self.source_generations.byte_length()
+            + self.target_generations.byte_length()
             + self.forward_nodes.capacity() * size_of::<u32>()
             + self.target_nodes.capacity() * size_of::<u32>()
             + self.target_ends.capacity() * size_of::<u32>()
@@ -833,7 +843,7 @@ fn visit_cch_target_ancestors<F>(
     backward_weights: &[u32],
     target: u32,
     maximum_distance: u32,
-    distances: &mut [u32],
+    distances: &mut cch::paged::PagedVec<u32>,
     touched: &mut Vec<u32>,
     mut visit: F,
 ) where
@@ -879,9 +889,10 @@ fn build_cch_target_buckets(
     maximum_distance: u32,
 ) -> napi::Result<CchTargetBuckets> {
     let node_count = cch.node_count() as usize;
-    let mut distances = vec![cch::INF_WEIGHT; node_count];
+    let mut distances = cch::paged::PagedVec::new(node_count, cch::INF_WEIGHT);
     let mut touched = Vec::<u32>::new();
-    let mut counts = vec![0_u32; node_count];
+    let mut counts = cch::paged::PagedVec::new(node_count, 0_u32);
+    let mut nodes = Vec::new();
     for &target in targets {
         visit_cch_target_ancestors(
             cch,
@@ -890,28 +901,39 @@ fn build_cch_target_buckets(
             maximum_distance,
             &mut distances,
             &mut touched,
-            |node, _| counts[node as usize] = counts[node as usize].saturating_add(1),
+            |node, _| {
+                if counts[node as usize] == 0 { nodes.push(node); }
+                counts[node as usize] += 1;
+            },
         );
     }
-    let mut offsets = Vec::<u32>::with_capacity(node_count + 1);
-    offsets.push(0);
-    for count in counts {
-        let next = offsets
-            .last()
-            .copied()
-            .unwrap_or(0_u32)
-            .checked_add(count)
-            .ok_or_else(|| Error::from_reason("Street CCH target bucket index exceeds u32."))?;
-        offsets.push(next);
+    nodes.sort_unstable();
+    // Each group of 64 ranks stores a bitmap and a prefix count. A lookup
+    // needs one popcount, followed by compact nonempty-bucket offsets.
+    let blocks = node_count.div_ceil(64);
+    let directory_len = 1 + blocks * 3;
+    let mut offsets = vec![0_u32; directory_len];
+    offsets[0] = node_count as u32;
+    for &node in &nodes {
+        let slot = 1 + node as usize / 64 * 3;
+        offsets[slot + 1 + (node as usize % 64) / 32] |= 1 << (node % 32);
     }
-    let mut entries = vec![
-        CchBucketEntry {
-            target_index: 0,
-            distance: cch::INF_WEIGHT,
-        };
-        *offsets.last().unwrap_or(&0) as usize
-    ];
-    let mut cursors = offsets[..node_count].to_vec();
+    let mut rank = 0;
+    for block in 0..blocks {
+        let slot = 1 + block * 3;
+        offsets[slot] = rank;
+        rank += offsets[slot + 1].count_ones() + offsets[slot + 2].count_ones();
+    }
+    let mut cursors = cch::paged::PagedVec::new(node_count, 0_u32);
+    offsets.push(0);
+    for &node in &nodes {
+        let start = *offsets.last().unwrap();
+        cursors[node as usize] = start;
+        offsets.push(start.checked_add(counts[node as usize])
+            .ok_or_else(|| Error::from_reason("Street CCH target bucket index exceeds u32."))?);
+    }
+    let mut entries = vec![CchBucketEntry { target_index: 0, distance: cch::INF_WEIGHT };
+        *offsets.last().unwrap() as usize];
     for (target_index, &target) in targets.iter().enumerate() {
         visit_cch_target_ancestors(
             cch,
@@ -930,9 +952,9 @@ fn build_cch_target_buckets(
             },
         );
     }
-    for node in 0..node_count {
-        let start = offsets[node] as usize;
-        let end = offsets[node + 1] as usize;
+    for rank in 0..nodes.len() {
+        let start = offsets[directory_len + rank] as usize;
+        let end = offsets[directory_len + rank + 1] as usize;
         entries[start..end].sort_unstable_by(|left, right| {
             left.distance
                 .cmp(&right.distance)
@@ -1032,6 +1054,18 @@ impl CchTargetBuckets {
         std::mem::size_of_val(self.offsets()) + std::mem::size_of_val(self.entries())
     }
 
+    #[inline]
+    fn range(&self, node: usize) -> (usize, usize) {
+        let offsets = self.offsets();
+        let slot = 1 + node / 64 * 3;
+        let bit = node % 64;
+        let mask = u64::from(offsets[slot + 1]) | (u64::from(offsets[slot + 2]) << 32);
+        if mask & (1_u64 << bit) == 0 { return (0, 0); }
+        let rank = offsets[slot] as usize + (mask & ((1_u64 << bit) - 1)).count_ones() as usize;
+        let first = 1 + (offsets[0] as usize).div_ceil(64) * 3 + rank;
+        (offsets[first] as usize, offsets[first + 1] as usize)
+    }
+
     fn validate(
         &self,
         node_count: usize,
@@ -1040,13 +1074,26 @@ impl CchTargetBuckets {
     ) -> std::result::Result<(), String> {
         let offsets = self.offsets();
         let entries = self.entries();
-        if Some(offsets.len()) != node_count.checked_add(1)
-            || offsets.first() != Some(&0)
-            || offsets.last().copied() != Some(entries.len() as u32)
-            || offsets.windows(2).any(|pair| pair[0] > pair[1])
-            || self.maximum_distance != expected_maximum_distance
-        {
+        let directory_len = 1 + node_count.div_ceil(64) * 3;
+        if offsets.len() < directory_len + 1 || offsets[0] as usize != node_count
+            || self.maximum_distance != expected_maximum_distance {
             return Err("Persisted street CCH target buckets are inconsistent.".to_owned());
+        }
+        let mut rank = 0;
+        for block in 0..node_count.div_ceil(64) {
+            let slot = 1 + block * 3;
+            let mask = u64::from(offsets[slot + 1]) | (u64::from(offsets[slot + 2]) << 32);
+            let remaining = node_count - block * 64;
+            if offsets[slot] != rank || (remaining < 64 && mask >> remaining != 0) {
+                return Err("Persisted street CCH bucket bitmap is inconsistent.".to_owned());
+            }
+            rank += mask.count_ones();
+        }
+        let compact = &offsets[directory_len..];
+        if compact.len() != rank as usize + 1 || compact[0] != 0
+            || compact.last().copied() != Some(entries.len() as u32)
+            || compact.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return Err("Persisted street CCH bucket offsets are inconsistent.".to_owned());
         }
         if entries.iter().any(|entry| {
             entry.target_index as usize >= target_count
@@ -1065,8 +1112,8 @@ struct StreetCchIndex {
     // routing request.
     path_query: Option<cch::PathQuery<'static>>,
     path_view: Option<Box<cch::bundle::CchView<'static>>>,
-    structure: cch::CchBundle,
-    metric: cch::MetricBundle,
+    structure: Arc<cch::CchBundle>,
+    metric: Arc<cch::MetricBundle>,
     forward_query: DynamicCchQuery,
     reverse_query: DynamicCchQuery,
     origin_member_workspace: CchMemberWorkspace,
@@ -1175,9 +1222,21 @@ struct AccessProfile {
     target_nodes: Vec<u32>,
     target_offsets: Vec<u32>,
     targets: Vec<Target>,
+    // Derived after preparing/loading a profile; never changes persisted stop snaps.
+    #[serde(skip)]
+    public_components: HashSet<i32>,
 }
 
 impl AccessProfile {
+    fn index_public_components(&mut self, snapshot: &Snapshot) -> napi::Result<()> {
+        let components = snapshot.i32_array("componentByNode")?;
+        self.public_components = HashSet::new();
+        for &node in &self.target_nodes {
+            self.public_components.insert(components[node as usize]);
+        }
+        Ok(())
+    }
+
     fn byte_length(&self) -> usize {
         self.anchor_lons.capacity() * size_of::<f64>()
             + self.anchor_lats.capacity() * size_of::<f64>()
@@ -1212,6 +1271,7 @@ impl AccessProfile {
             + self.target_nodes.capacity() * size_of::<u32>()
             + self.target_offsets.capacity() * size_of::<u32>()
             + self.targets.capacity() * size_of::<Target>()
+            + self.public_components.capacity() * (size_of::<i32>() + size_of::<u8>())
     }
 
     fn member_anchor_indices(&self, member: usize) -> &[u32] {
@@ -2769,6 +2829,7 @@ pub struct StopTransferGraphResult {
 #[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct KernelDiagnostics {
+    pub shared_street_owners: u32,
     pub snapshot_version: u32,
     pub snapshot_bytes: f64,
     pub node_count: u32,
@@ -2935,17 +2996,18 @@ impl SnapWorkspace {
 #[cfg_attr(feature = "node", napi)]
 pub struct CoordinateKernel {
     street_cch_load: Option<StreetCchLoadResult>,
-    snapshot: Snapshot,
+    snapshot: Arc<Snapshot>,
     origin_workspace: TileWorkspace,
     destination_workspace: TileWorkspace,
     origin_snap_workspace: SnapWorkspace,
     destination_snap_workspace: SnapWorkspace,
+    surface_snap_cache: street_analysis::SurfaceSnapCache,
     origin_access_reduction_workspace: AccessReductionWorkspace,
     destination_access_reduction_workspace: AccessReductionWorkspace,
     path_workspace: TileWorkspace,
     reverse_path_workspace: TileWorkspace,
     street_cch: Option<StreetCchIndex>,
-    terminal_access: Option<TerminalAccessGraph>,
+    terminal_access: Option<Arc<TerminalAccessGraph>>,
     profile: Option<AccessProfile>,
     query_token: u32,
     last_origin_frontier: Option<Arc<FrontierSearch>>,
@@ -2953,6 +3015,7 @@ pub struct CoordinateKernel {
     origin_cache: HashMap<EndpointCacheKey, Arc<FrontierSearch>>,
     origin_cache_order: VecDeque<EndpointCacheKey>,
     origin_cache_bytes: usize,
+    endpoint_cache_budget: usize,
     destination_cache: HashMap<EndpointCacheKey, Arc<FrontierSearch>>,
     destination_cache_order: VecDeque<EndpointCacheKey>,
     destination_cache_bytes: usize,
@@ -2963,22 +3026,22 @@ impl CoordinateKernel {
     #[cfg_attr(feature = "node", napi(constructor))]
     pub fn new(snapshot_path: String) -> napi::Result<Self> {
         let _ = LazyLock::force(&ENDPOINT_ACCESS_POOL);
-        let snapshot = Snapshot::open(&snapshot_path)?;
+        let snapshot = shared_streets::snapshot(&snapshot_path)?;
         #[cfg(unix)]
         prefetch_street_snapshot(snapshot_path);
-        Ok(Self::from_snapshot(snapshot))
+        Ok(Self::from_shared_snapshot(snapshot))
     }
 
     #[cfg_attr(feature = "node", napi(factory))]
     pub fn open_prepared(snapshot_path: String, input: StreetCchLoadInput) -> napi::Result<Self> {
         let started = Instant::now();
         let (snapshot, bundles) = join_endpoint_access(
-            || Snapshot::open(&snapshot_path),
+            || shared_streets::snapshot(&snapshot_path),
             || open_street_cch_bundles(&input),
         );
-        let mut kernel = Self::from_snapshot(snapshot?);
+        let mut kernel = Self::from_shared_snapshot(snapshot?);
         let (structure, metric) = bundles?;
-        let mut loaded = kernel.install_street_cch(structure, metric)?;
+        let mut loaded = kernel.install_shared_street_cch(structure, metric)?;
         loaded.load_ns = started.elapsed().as_nanos() as f64;
         kernel.street_cch_load = Some(loaded);
         Ok(kernel)
@@ -2996,7 +3059,7 @@ impl CoordinateKernel {
     ) -> napi::Result<StreetCchLoadResult> {
         let started = Instant::now();
         let (structure, metric) = open_street_cch_bundles(&input)?;
-        let mut result = self.install_street_cch(structure, metric)?;
+        let mut result = self.install_shared_street_cch(structure, metric)?;
         result.load_ns = started.elapsed().as_nanos() as f64;
         self.street_cch_load = Some(result.clone());
         Ok(result)
@@ -3004,8 +3067,7 @@ impl CoordinateKernel {
 
     #[cfg_attr(feature = "node", napi)]
     pub fn configure_terminal_access(&mut self, path: String) -> napi::Result<()> {
-        let graph = TerminalAccessGraph::open(&self.snapshot, Path::new(&path))?;
-        self.terminal_access = Some(graph);
+        self.terminal_access = Some(shared_streets::terminal(&self.snapshot, &path)?);
         self.clear_endpoint_caches();
         Ok(())
     }
@@ -3296,7 +3358,12 @@ impl CoordinateKernel {
             target_nodes,
             target_offsets,
             targets,
+            public_components: HashSet::new(),
         });
+        self.profile
+            .as_mut()
+            .expect("installed profile")
+            .index_public_components(&self.snapshot)?;
         if let Some(index) = &mut self.street_cch {
             index.origin_buckets = None;
             index.destination_buckets = None;
@@ -3456,6 +3523,8 @@ impl CoordinateKernel {
                 ));
             }
         }
+        let mut profile = profile;
+        profile.index_public_components(&self.snapshot)?;
         self.profile = Some(profile);
         self.last_origin_frontier = None;
         self.last_destination_frontier = None;
@@ -3648,7 +3717,7 @@ impl CoordinateKernel {
                 || {
                     let result = cached_cch_frontier_search(
                         snapshot,
-                        self.terminal_access.as_ref(),
+                        self.terminal_access.as_deref(),
                         self.snapshot.reciprocal_edge_flags(),
                         &mut self.origin_workspace,
                         &mut self.origin_snap_workspace,
@@ -3661,6 +3730,7 @@ impl CoordinateKernel {
                         &mut self.origin_cache,
                         &mut self.origin_cache_order,
                         &mut self.origin_cache_bytes,
+                        self.endpoint_cache_budget,
                         input.origin_lon,
                         input.origin_lat,
                         input.maximum_walk_m,
@@ -3684,7 +3754,7 @@ impl CoordinateKernel {
                 || {
                     let result = cached_cch_frontier_search(
                         snapshot,
-                        self.terminal_access.as_ref(),
+                        self.terminal_access.as_deref(),
                         self.snapshot.reciprocal_edge_flags(),
                         &mut self.destination_workspace,
                         &mut self.destination_snap_workspace,
@@ -3697,6 +3767,7 @@ impl CoordinateKernel {
                         &mut self.destination_cache,
                         &mut self.destination_cache_order,
                         &mut self.destination_cache_bytes,
+                        self.endpoint_cache_budget,
                         input.destination_lon,
                         input.destination_lat,
                         input.maximum_walk_m,
@@ -3722,7 +3793,7 @@ impl CoordinateKernel {
             let origin_result = (|| {
                 let result = cached_frontier_search(
                     snapshot,
-                    self.terminal_access.as_ref(),
+                    self.terminal_access.as_deref(),
                     self.snapshot.reciprocal_edge_flags(),
                     &mut self.origin_workspace,
                     &mut self.origin_snap_workspace,
@@ -3730,6 +3801,7 @@ impl CoordinateKernel {
                     &mut self.origin_cache,
                     &mut self.origin_cache_order,
                     &mut self.origin_cache_bytes,
+                    self.endpoint_cache_budget,
                     input.origin_lon,
                     input.origin_lat,
                     input.maximum_walk_m,
@@ -3753,7 +3825,7 @@ impl CoordinateKernel {
             let destination_result = (|| {
                 let result = cached_frontier_search(
                     snapshot,
-                    self.terminal_access.as_ref(),
+                    self.terminal_access.as_deref(),
                     self.snapshot.reciprocal_edge_flags(),
                     &mut self.destination_workspace,
                     &mut self.destination_snap_workspace,
@@ -3761,6 +3833,7 @@ impl CoordinateKernel {
                     &mut self.destination_cache,
                     &mut self.destination_cache_order,
                     &mut self.destination_cache_bytes,
+                    self.endpoint_cache_budget,
                     input.destination_lon,
                     input.destination_lat,
                     input.maximum_walk_m,
@@ -4062,12 +4135,21 @@ impl CoordinateKernel {
                     .and_then(|f| f.terminal_attachment.as_deref()),
                 input.maximum_walk_m,
             );
-            let path_result = street_path_result(
+            let mut path_result = street_path_result(
                 &self.snapshot,
-                self.terminal_access.as_ref(),
+                self.terminal_access.as_deref(),
                 path,
                 160,
                 path_started,
+            )?;
+            edge_attachment::include_path_endpoints(
+                &self.snapshot,
+                &mut path_result,
+                [&origin_snaps, &destination_snaps],
+                [
+                    [input.origin_lon, input.origin_lat],
+                    [input.destination_lon, input.destination_lat],
+                ],
             )?;
             direct_walk_access_dominates = path_result.found
                 && path_result.distance_m / 1_000.0 / walking_speed_kph * 3_600.0
@@ -4616,7 +4698,7 @@ impl CoordinateKernel {
 
     #[cfg_attr(feature = "node", napi)]
     pub fn street_surface(
-        &self,
+        &mut self,
         mut input: StreetSurfaceInput,
     ) -> napi::Result<StreetSurfaceResult> {
         if let Some(members) = input.seed_member_indices.take() {
@@ -4652,9 +4734,19 @@ impl CoordinateKernel {
             for (seed, member) in members.into_iter().enumerate() {
                 let arrival = input.seed_durations_minutes[seed];
                 if member == -1 {
-                    coordinates.extend_from_slice(&input.seed_coordinates[seed * 2..seed * 2 + 2]);
-                    durations.push(arrival);
-                    distances.push(0.0);
+                    let (point, distance) = edge_attachment::surface_endpoint(
+                        &self.snapshot,
+                        self.terminal_access.as_deref(),
+                        self.profile.as_ref(),
+                        [
+                            input.seed_coordinates[seed * 2],
+                            input.seed_coordinates[seed * 2 + 1],
+                        ],
+                        input.maximum_walk_m,
+                    )?;
+                    coordinates.extend_from_slice(&point);
+                    durations.push(arrival + distance * 60.0 / (input.walk_speed_kph * 1000.0));
+                    distances.push(distance);
                     continue;
                 }
                 if member < 0 || member as usize >= profile.member_lons.len() {
@@ -4700,10 +4792,38 @@ impl CoordinateKernel {
             input.seed_coordinates = coordinates;
             input.seed_durations_minutes = durations;
             input.seed_walk_distances_m = Some(distances);
+        } else if input.seed_coordinates.len() == input.seed_durations_minutes.len() * 2 {
+            let mut distances = input
+                .seed_walk_distances_m
+                .take()
+                .unwrap_or_else(|| vec![0.0; input.seed_durations_minutes.len()]);
+            if distances.len() != input.seed_durations_minutes.len() {
+                return Err(Error::from_reason(
+                    "Street surface walking distances are inconsistent.",
+                ));
+            }
+            for (seed, walked) in distances.iter_mut().enumerate() {
+                let (point, distance) = edge_attachment::surface_endpoint(
+                    &self.snapshot,
+                    self.terminal_access.as_deref(),
+                    self.profile.as_ref(),
+                    [
+                        input.seed_coordinates[seed * 2],
+                        input.seed_coordinates[seed * 2 + 1],
+                    ],
+                    input.maximum_walk_m,
+                )?;
+                input.seed_coordinates[seed * 2..seed * 2 + 2].copy_from_slice(&point);
+                input.seed_durations_minutes[seed] +=
+                    distance * 60.0 / (input.walk_speed_kph * 1000.0);
+                *walked += distance;
+            }
+            input.seed_walk_distances_m = Some(distances);
         }
         street_analysis::street_surface(
             &self.snapshot,
             self.snapshot.reciprocal_edge_flags(),
+            &mut self.surface_snap_cache,
             input,
         )
     }
@@ -4896,7 +5016,7 @@ impl CoordinateKernel {
         let result = match (cch, reverse_direction) {
             (Some(index), true) => cached_cch_frontier_search(
                 &self.snapshot,
-                self.terminal_access.as_ref(),
+                self.terminal_access.as_deref(),
                 self.snapshot.reciprocal_edge_flags(),
                 &mut self.destination_workspace,
                 &mut self.destination_snap_workspace,
@@ -4909,6 +5029,7 @@ impl CoordinateKernel {
                 &mut self.destination_cache,
                 &mut self.destination_cache_order,
                 &mut self.destination_cache_bytes,
+                self.endpoint_cache_budget,
                 input.longitude,
                 input.latitude,
                 input.maximum_walk_m,
@@ -4917,7 +5038,7 @@ impl CoordinateKernel {
             )?,
             (Some(index), false) => cached_cch_frontier_search(
                 &self.snapshot,
-                self.terminal_access.as_ref(),
+                self.terminal_access.as_deref(),
                 self.snapshot.reciprocal_edge_flags(),
                 &mut self.origin_workspace,
                 &mut self.origin_snap_workspace,
@@ -4930,6 +5051,7 @@ impl CoordinateKernel {
                 &mut self.origin_cache,
                 &mut self.origin_cache_order,
                 &mut self.origin_cache_bytes,
+                self.endpoint_cache_budget,
                 input.longitude,
                 input.latitude,
                 input.maximum_walk_m,
@@ -4938,7 +5060,7 @@ impl CoordinateKernel {
             )?,
             (None, true) => cached_frontier_search(
                 &self.snapshot,
-                self.terminal_access.as_ref(),
+                self.terminal_access.as_deref(),
                 self.snapshot.reciprocal_edge_flags(),
                 &mut self.destination_workspace,
                 &mut self.destination_snap_workspace,
@@ -4946,6 +5068,7 @@ impl CoordinateKernel {
                 &mut self.destination_cache,
                 &mut self.destination_cache_order,
                 &mut self.destination_cache_bytes,
+                self.endpoint_cache_budget,
                 input.longitude,
                 input.latitude,
                 input.maximum_walk_m,
@@ -4954,7 +5077,7 @@ impl CoordinateKernel {
             )?,
             (None, false) => cached_frontier_search(
                 &self.snapshot,
-                self.terminal_access.as_ref(),
+                self.terminal_access.as_deref(),
                 self.snapshot.reciprocal_edge_flags(),
                 &mut self.origin_workspace,
                 &mut self.origin_snap_workspace,
@@ -4962,6 +5085,7 @@ impl CoordinateKernel {
                 &mut self.origin_cache,
                 &mut self.origin_cache_order,
                 &mut self.origin_cache_bytes,
+                self.endpoint_cache_budget,
                 input.longitude,
                 input.latitude,
                 input.maximum_walk_m,
@@ -5145,14 +5269,56 @@ impl CoordinateKernel {
         } else {
             path
         };
-        Ok(MaterializePathResult {
-            coordinates: flatten_access_path(
-                &self.snapshot,
-                self.terminal_access.as_ref(),
-                &path,
-                input.maximum_points.max(2) as usize,
-            )?,
-        })
+        let mut coordinates = flatten_access_path(
+            &self.snapshot,
+            self.terminal_access.as_deref(),
+            &path,
+            input.maximum_points.max(2) as usize,
+        )?;
+        edge_attachment::include_endpoint_geometry(
+            &self.snapshot,
+            &mut coordinates,
+            &frontier.source_snaps,
+            [frontier.source_longitude, frontier.source_latitude],
+            frontier.reverse_direction,
+            false,
+        )?;
+        if coordinates.len() >= 2
+            && let Some(profile) = self.profile.as_ref()
+        {
+            let end = if frontier.reverse_direction {
+                0
+            } else {
+                coordinates.len() - 2
+            };
+            let terminal = [coordinates[end], coordinates[end + 1]];
+            let lons = self.snapshot.f64_array("nodeLons")?;
+            let lats = self.snapshot.f64_array("nodeLats")?;
+            let anchor = profile
+                .member_anchor_indices(input.member_index as usize)
+                .iter()
+                .filter_map(|&a| {
+                    profile.anchor_snaps[a as usize]
+                        .iter()
+                        .filter(|snap| {
+                            [lons[snap.node as usize], lats[snap.node as usize]] == terminal
+                        })
+                        .map(|snap| (a as usize, snap.distance_m))
+                        .min_by(|a, b| a.1.total_cmp(&b.1))
+                })
+                .min_by(|a, b| a.1.total_cmp(&b.1));
+            if let Some((a, _)) = anchor {
+                edge_attachment::include_endpoint_geometry(
+                    &self.snapshot,
+                    &mut coordinates,
+                    &profile.anchor_snaps[a],
+                    [profile.anchor_lons[a], profile.anchor_lats[a]],
+                    !frontier.reverse_direction,
+                    true,
+                )?;
+            }
+        }
+        Ok(MaterializePathResult { coordinates })
     }
 
     #[cfg_attr(feature = "node", napi)]
@@ -5180,7 +5346,8 @@ impl CoordinateKernel {
         )?;
         let (origins, origin_access) = terminal_endpoint_snaps(
             &self.snapshot,
-            self.terminal_access.as_ref(),
+            self.terminal_access.as_deref(),
+            self.profile.as_ref(),
             origins,
             input.origin_lon,
             input.origin_lat,
@@ -5189,7 +5356,8 @@ impl CoordinateKernel {
         )?;
         let (destinations, destination_access) = terminal_endpoint_snaps(
             &self.snapshot,
-            self.terminal_access.as_ref(),
+            self.terminal_access.as_deref(),
+            self.profile.as_ref(),
             destinations,
             input.destination_lon,
             input.destination_lat,
@@ -5229,13 +5397,23 @@ impl CoordinateKernel {
             destination_access.as_deref(),
             input.maximum_distance_m,
         );
-        street_path_result(
+        let mut result = street_path_result(
             &self.snapshot,
-            self.terminal_access.as_ref(),
+            self.terminal_access.as_deref(),
             path,
             input.maximum_points,
             started,
-        )
+        )?;
+        edge_attachment::include_path_endpoints(
+            &self.snapshot,
+            &mut result,
+            [&origins, &destinations],
+            [
+                [input.origin_lon, input.origin_lat],
+                [input.destination_lon, input.destination_lat],
+            ],
+        )?;
+        Ok(result)
     }
 
     #[cfg_attr(feature = "node", napi)]
@@ -5300,7 +5478,7 @@ impl CoordinateKernel {
         )?;
         street_path_result(
             &self.snapshot,
-            self.terminal_access.as_ref(),
+            self.terminal_access.as_deref(),
             path,
             input.maximum_points,
             started,
@@ -5420,10 +5598,12 @@ impl CoordinateKernel {
         let workspace_bytes = self.origin_workspace.byte_length()
             + self.destination_workspace.byte_length()
             + self.path_workspace.byte_length()
-            + self.reverse_path_workspace.byte_length();
+            + self.reverse_path_workspace.byte_length()
+            + self.surface_snap_cache.byte_length();
         let cch_resident_bytes = self.street_cch.as_ref().map_or(0, |index| {
             index.forward_query.byte_length()
                 + index.reverse_query.byte_length()
+                + index.path_query.as_ref().map_or(0, cch::PathQuery::byte_length)
                 + index.origin_member_workspace.byte_length()
                 + index.destination_member_workspace.byte_length()
                 + index
@@ -5436,6 +5616,7 @@ impl CoordinateKernel {
                     .map_or(0, CchTargetBuckets::byte_length)
         });
         KernelDiagnostics {
+            shared_street_owners: Arc::strong_count(&self.snapshot) as u32,
             snapshot_version: self.snapshot.header.version,
             snapshot_bytes: self.snapshot.mmap.len() as f64,
             node_count: self.snapshot.header.node_count as u32,
@@ -5451,7 +5632,15 @@ impl CoordinateKernel {
     #[cfg_attr(feature = "node", napi)]
     pub fn profile_diagnostics(&self) -> ProfileDiagnostics {
         let endpoint_cache_entries = self.origin_cache.len() + self.destination_cache.len();
-        let endpoint_cache_bytes = self.origin_cache_bytes + self.destination_cache_bytes;
+        let endpoint_cache_bytes = frontier_cache_bytes(
+            &self.origin_cache,
+            &self.origin_cache_order,
+            self.origin_cache_bytes,
+        ) + frontier_cache_bytes(
+            &self.destination_cache,
+            &self.destination_cache_order,
+            self.destination_cache_bytes,
+        );
         match &self.profile {
             Some(profile) => {
                 let snapped_member_count = (0..profile.member_lons.len())
@@ -5512,7 +5701,7 @@ impl CoordinateKernel {
                     endpoint_cache_entries: endpoint_cache_entries as u32,
                     endpoint_cache_estimated_bytes: endpoint_cache_bytes as f64,
                     endpoint_cache_maximum_entries_per_role: MAXIMUM_ENDPOINT_CACHE_ENTRIES as u32,
-                    endpoint_cache_maximum_bytes_per_role: MAXIMUM_ENDPOINT_CACHE_BYTES as f64,
+                    endpoint_cache_maximum_bytes_per_role: self.endpoint_cache_budget as f64,
                 }
             }
             None => ProfileDiagnostics {
@@ -5535,7 +5724,7 @@ impl CoordinateKernel {
                 endpoint_cache_entries: endpoint_cache_entries as u32,
                 endpoint_cache_estimated_bytes: endpoint_cache_bytes as f64,
                 endpoint_cache_maximum_entries_per_role: MAXIMUM_ENDPOINT_CACHE_ENTRIES as u32,
-                endpoint_cache_maximum_bytes_per_role: MAXIMUM_ENDPOINT_CACHE_BYTES as f64,
+                endpoint_cache_maximum_bytes_per_role: self.endpoint_cache_budget as f64,
             },
         }
     }
@@ -5629,24 +5818,35 @@ impl AccessProfile {
     }
 }
 
+fn frontier_cache_bytes(
+    cache: &HashMap<EndpointCacheKey, Arc<FrontierSearch>>,
+    order: &VecDeque<EndpointCacheKey>,
+    values: usize,
+) -> usize {
+    values
+        + cache.capacity() * (size_of::<EndpointCacheKey>() + size_of::<Arc<FrontierSearch>>() + 1)
+        + order.capacity() * size_of::<EndpointCacheKey>()
+}
 fn insert_frontier_cache(
     cache: &mut HashMap<EndpointCacheKey, Arc<FrontierSearch>>,
     order: &mut VecDeque<EndpointCacheKey>,
     cache_bytes: &mut usize,
+    budget: usize,
     key: EndpointCacheKey,
     value: Arc<FrontierSearch>,
 ) {
     let value_bytes = value.byte_length();
-    if value_bytes > MAXIMUM_ENDPOINT_CACHE_BYTES {
+    if budget == 0 || value_bytes > budget {
         return;
     }
-    if let Some(cached) = cache.get_mut(&key) {
-        *cache_bytes = cache_bytes.saturating_sub(cached.byte_length()) + value_bytes;
-        *cached = value;
-        return;
+    if let Some(old) = cache.insert(key, value) {
+        *cache_bytes = cache_bytes.saturating_sub(old.byte_length());
+    } else {
+        order.push_back(key);
     }
-    while cache.len() >= MAXIMUM_ENDPOINT_CACHE_ENTRIES
-        || cache_bytes.saturating_add(value_bytes) > MAXIMUM_ENDPOINT_CACHE_BYTES
+    *cache_bytes += value_bytes;
+    while cache.len() > MAXIMUM_ENDPOINT_CACHE_ENTRIES
+        || frontier_cache_bytes(cache, order, *cache_bytes) > budget
     {
         let Some(oldest) = order.pop_front() else {
             break;
@@ -5654,10 +5854,11 @@ fn insert_frontier_cache(
         if let Some(removed) = cache.remove(&oldest) {
             *cache_bytes = cache_bytes.saturating_sub(removed.byte_length());
         }
+        if cache.is_empty() {
+            cache.shrink_to_fit();
+            order.shrink_to_fit();
+        }
     }
-    cache.insert(key, value);
-    order.push_back(key);
-    *cache_bytes = cache_bytes.saturating_add(value_bytes);
 }
 
 struct CachedFrontier {
@@ -5712,6 +5913,7 @@ fn cached_frontier_search(
     cache: &mut HashMap<EndpointCacheKey, Arc<FrontierSearch>>,
     order: &mut VecDeque<EndpointCacheKey>,
     cache_bytes: &mut usize,
+    budget: usize,
     longitude: f64,
     latitude: f64,
     maximum_walk_m: f64,
@@ -5738,6 +5940,7 @@ fn cached_frontier_search(
     let (snaps, attachment) = terminal_endpoint_snaps(
         snapshot,
         terminal_access,
+        Some(profile),
         snaps,
         longitude,
         latitude,
@@ -5769,7 +5972,7 @@ fn cached_frontier_search(
     )?;
     let search_ns = search_started.elapsed().as_nanos() as f64;
     if !disable_cache {
-        insert_frontier_cache(cache, order, cache_bytes, key, Arc::clone(&frontier));
+        insert_frontier_cache(cache, order, cache_bytes, budget, key, Arc::clone(&frontier));
     }
     Ok(CachedFrontier {
         frontier,
@@ -5795,6 +5998,7 @@ fn cached_cch_frontier_search(
     cache: &mut HashMap<EndpointCacheKey, Arc<FrontierSearch>>,
     order: &mut VecDeque<EndpointCacheKey>,
     cache_bytes: &mut usize,
+    budget: usize,
     longitude: f64,
     latitude: f64,
     maximum_walk_m: f64,
@@ -5821,6 +6025,7 @@ fn cached_cch_frontier_search(
     let (snaps, attachment) = terminal_endpoint_snaps(
         snapshot,
         terminal_access,
+        Some(profile),
         snaps,
         longitude,
         latitude,
@@ -5874,7 +6079,7 @@ fn cached_cch_frontier_search(
     )?;
     let search_ns = search_started.elapsed().as_nanos() as f64;
     if !disable_cache {
-        insert_frontier_cache(cache, order, cache_bytes, key, Arc::clone(&frontier));
+        insert_frontier_cache(cache, order, cache_bytes, budget, key, Arc::clone(&frontier));
     }
     Ok(CachedFrontier {
         frontier,
@@ -6185,6 +6390,24 @@ fn street_attachment_with_workspace(
     longitude: f64,
     latitude: f64,
 ) -> napi::Result<(Vec<Snap>, Option<ReciprocalEdgeSnap>)> {
+    street_attachment_in_components(
+        snapshot,
+        reciprocal_edge_flags,
+        workspace,
+        longitude,
+        latitude,
+        None,
+    )
+}
+
+fn street_attachment_in_components(
+    snapshot: &Snapshot,
+    reciprocal_edge_flags: &[u8],
+    workspace: &mut SnapWorkspace,
+    longitude: f64,
+    latitude: f64,
+    components: Option<&HashSet<i32>>,
+) -> napi::Result<(Vec<Snap>, Option<ReciprocalEdgeSnap>)> {
     if !longitude.is_finite() || !latitude.is_finite() {
         return Err(Error::from_reason(
             "Coordinate longitude and latitude must be finite.",
@@ -6197,7 +6420,14 @@ fn street_attachment_with_workspace(
         RECOVERY_SNAP_RADIUS_M,
         std::mem::take(&mut workspace.candidate_nodes),
     )?;
-    let nearest = ordered.first().copied();
+    let component_ids = snapshot.i32_array("componentByNode")?;
+    let eligible = |node: u32| components.is_none_or(|c| c.contains(&component_ids[node as usize]));
+    // Recovery is bounded by the edge snap radius, not the more permissive
+    // vertex-search radius. Remote vertices are still used to discover edges.
+    let nearest = ordered
+        .iter()
+        .find(|s| eligible(s.node) && (components.is_none() || s.distance_m <= SNAP_RADIUS_M))
+        .copied();
     let lons = snapshot.f64_array("nodeLons")?;
     let lats = snapshot.f64_array("nodeLats")?;
     snapshot.for_each_long_edge(longitude, latitude, |nodes| {
@@ -6228,20 +6458,23 @@ fn street_attachment_with_workspace(
         &mut workspace.evaluated_from_nodes,
         std::mem::take(&mut workspace.projected_edges),
     )?;
-    let edge = projected.iter().min_by(|left, right| {
-        left.projection_distance_m
-            .total_cmp(&right.projection_distance_m)
-            .then_with(|| {
-                (
-                    left.left.node.min(left.right.node),
-                    left.left.node.max(left.right.node),
-                )
-                    .cmp(&(
-                        right.left.node.min(right.right.node),
-                        right.left.node.max(right.right.node),
-                    ))
-            })
-    });
+    let edge = projected
+        .iter()
+        .filter(|edge| eligible(edge.left.node) && eligible(edge.right.node))
+        .min_by(|left, right| {
+            left.projection_distance_m
+                .total_cmp(&right.projection_distance_m)
+                .then_with(|| {
+                    (
+                        left.left.node.min(left.right.node),
+                        left.left.node.max(left.right.node),
+                    )
+                        .cmp(&(
+                            right.left.node.min(right.right.node),
+                            right.left.node.max(right.right.node),
+                        ))
+                })
+        });
     let projection = edge
         .filter(|edge| nearest.is_none_or(|n| edge.projection_distance_m < n.distance_m))
         .copied();
@@ -7974,6 +8207,7 @@ fn run_point_path_vertices(
 fn terminal_endpoint_snaps(
     snapshot: &Snapshot,
     graph: Option<&TerminalAccessGraph>,
+    profile: Option<&AccessProfile>,
     snaps: Vec<Snap>,
     longitude: f64,
     latitude: f64,
@@ -7984,6 +8218,35 @@ fn terminal_endpoint_snaps(
         Some(graph) => graph.attach(snapshot, &snaps, longitude, latitude, maximum, reverse)?,
         None => None,
     };
+    if let Some(profile) = profile {
+        let components = snapshot.i32_array("componentByNode")?;
+        let already_public = snaps.iter().any(|s| {
+            profile
+                .public_components
+                .contains(&components[s.node as usize])
+        });
+        // Prefer a mapped terminal path. Never bypass a restricted endpoint or
+        // its directed exit by treating it as a free public-network connector.
+        let mapped_access = attachment.as_ref().is_some_and(|a| {
+            !a.boundary_snaps.is_empty()
+                || a.original_snaps
+                    .iter()
+                    .any(|s| s.node as usize >= snapshot.header.node_count)
+        });
+        if !already_public && !mapped_access && !profile.public_components.is_empty() {
+            let (recovered, _) = street_attachment_in_components(
+                snapshot,
+                snapshot.reciprocal_edge_flags(),
+                &mut SnapWorkspace::default(),
+                longitude,
+                latitude,
+                Some(&profile.public_components),
+            )?;
+            if !recovered.is_empty() {
+                return Ok((recovered, None));
+            }
+        }
+    }
     let snaps = attachment
         .as_ref()
         .map_or(snaps, |a| a.boundary_snaps.clone());

@@ -1,6 +1,6 @@
 use super::{Result, access::AccessContext, fail, flag, number};
 use crate::*;
-use chrono::{Datelike, NaiveDate};
+use chrono::{Datelike, NaiveDate, TimeZone};
 use memmap2::Mmap;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
@@ -46,6 +46,7 @@ pub(crate) struct Image {
     base: usize,
 }
 impl Image {
+    pub(crate) fn mapped_bytes(&self) -> usize { self.bytes.len() }
     // Parse large metadata directly into its native projection; unknown fields
     // are validated as JSON and skipped instead of retained as Value trees.
     pub(crate) fn open_with_metadata<T: serde::de::DeserializeOwned>(
@@ -286,9 +287,12 @@ pub(crate) struct Timetable {
     pub index: HashMap<String, u32>,
     pub trip_ids: Vec<String>,
     pub route_ids: Vec<String>,
+    pub trip_service_dates: Vec<String>,
     pub key: String,
     pub realtime: Value,
     pub preparation: &'static str,
+    pub complete_service_coverage: bool,
+    pub coverage_end: Option<u32>,
 }
 pub(crate) struct Drive {
     pub kernel: DriveKernel,
@@ -303,6 +307,8 @@ pub struct City {
     pub(crate) db: Connection,
     pub(crate) manifest: Value,
     pub(crate) metadata: Value,
+    pub(crate) street_bounds: Value,
+    pub(crate) street_directory: PathBuf,
     pub(crate) context: Image,
     pub(crate) access: AccessContext,
     pub(crate) stops: Vec<Stop>,
@@ -311,6 +317,8 @@ pub struct City {
     pub(crate) street: CoordinateKernel,
     pub(crate) drive: Option<Drive>,
     pub(crate) timetable: Option<Timetable>,
+    pub(crate) query_workspace: Option<crate::timetable::TimetableQueryWorkspace>,
+    pub(crate) timetable_preparations: u64,
     pub(crate) speed: f64,
     pub(crate) padding: f64,
     pub(crate) overhead: f64,
@@ -325,7 +333,11 @@ pub struct City {
 }
 impl City {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        Self::open_shared(path.as_ref(), &[])
+    }
+    pub(crate) fn open_shared(path: &Path, residents: &[(&Path, &CoordinateKernel)]) -> Result<Self> {
         let path = fs::canonicalize(path)?;
+        let street_directory = fs::canonicalize(path.join("osm"))?;
         let manifest = read_json(&path.join("network.json"))?;
         if manifest["schemaVersion"] != "vigo.city.v1" {
             return fail("Expected a prepared vigo.city.v1 City");
@@ -347,7 +359,16 @@ impl City {
             let (k, v) = row?;
             metadata[k] = serde_json::from_str(&v).unwrap_or(Value::String(v));
         }
-        if metadata["schemaVersion"] != "vigo.routing.store.v3"
+        if metadata["maximumServiceTimeSeconds"].as_f64().is_none()
+            || metadata["minimumServiceTimeSeconds"].as_f64().is_none() {
+            let (minimum, maximum) = db.query_row(
+                "SELECT COALESCE(MIN(departure),0),COALESCE(MAX(arrival),0) FROM connections",
+                [], |r| Ok((r.get::<_, f64>(0)?,r.get::<_, f64>(1)?)),
+            )?;
+            metadata["minimumServiceTimeSeconds"] = json!(minimum);
+            metadata["maximumServiceTimeSeconds"] = json!(maximum);
+        }
+        if metadata["schemaVersion"] != "vigo.routing.store.v4"
             || metadata["transferSemanticsVersion"] != "vigo.routing.transfers.v4"
         {
             return fail("Rebuild City with the current routing/transfer format");
@@ -444,6 +465,17 @@ impl City {
             .filter(|s| s.location != 1 && (eligible.contains(s.id.as_str()) || s.location != 0))
             .map(|s| s.id.clone())
             .collect();
+        let street_db = Connection::open_with_flags(
+            path.join("osm/street-index.sqlite"),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )?;
+        let basemap: String = street_db.query_row(
+            "SELECT value FROM metadata WHERE key='localBasemap'",
+            [],
+            |r| r.get(0),
+        )?;
+        let street_bounds = serde_json::from_str::<Value>(&basemap)?["bounds"].clone();
+        drop(street_db);
         let street_path = path.join("osm/street-index.sqlite.street-accelerator-v7.bin");
         let street_header = Image::open(&street_path, false)?;
         if street_header.header["identity"]["schemaVersion"] != "vigo.street.store.v6" {
@@ -451,18 +483,25 @@ impl City {
                 "Street pedestrian restrictions are stale; rebuild the City from the source OSM PBF",
             );
         }
-        let (structure_path, metric_path, _) = cch_files(&street_path, "street")?;
-        let mut street = CoordinateKernel::open_prepared(
-            str_path(&street_path)?,
-            StreetCchLoadInput {
-                structure_path,
-                metric_path,
-            },
-        )?;
+        let mut street = if let Some((_, street)) = residents
+            .iter()
+            .find(|(directory, _)| *directory == street_directory)
+        {
+            street.share_streets()?
+        } else {
+            let (structure_path, metric_path, _) = cch_files(&street_path, "street")?;
+            CoordinateKernel::open_prepared(
+                str_path(&street_path)?,
+                StreetCchLoadInput {
+                    structure_path,
+                    metric_path,
+                },
+            )?
+        };
         let terminal = path.join("osm/street-index.sqlite.terminal-access-v1.json");
-        if terminal.exists() {
+        if terminal.exists() && street.terminal_access.is_none() {
             street.configure_terminal_access(str_path(&terminal)?)?;
-        } else if ["endpoints", "authorized_endpoints"]
+        } else if !terminal.exists() && ["endpoints", "authorized_endpoints"]
             .iter()
             .any(|m| manifest["streetStore"]["terminalAccess"]["model"] == *m)
         {
@@ -524,6 +563,8 @@ impl City {
             db,
             manifest,
             metadata,
+            street_bounds,
+            street_directory,
             context,
             access,
             stops,
@@ -532,6 +573,8 @@ impl City {
             street,
             drive: None,
             timetable: None,
+            query_workspace: None,
+            timetable_preparations: 0,
             speed,
             padding,
             overhead,
@@ -540,7 +583,18 @@ impl City {
         })
     }
     pub fn info(&self) -> Value {
-        json!({"schemaVersion":"vigo.standalone.city.v1","name":self.manifest["name"],"revisionId":self.manifest["revisionId"],"sources":self.manifest["sources"],"runtime":"rust","routing":self.manifest["routingStore"],"streets":self.manifest["streetStore"],"warnings":self.metadata["routingLimitations"]})
+        let mut access =
+            serde_json::to_value(self.street.profile_diagnostics()).unwrap_or(Value::Null);
+        if let Some(object) = access.as_object_mut() {
+            object.remove("profileKey");
+        }
+        json!({"schemaVersion":"vigo.standalone.city.v1","name":self.manifest["name"],"revisionId":self.manifest["revisionId"],"sources":self.manifest["sources"],"runtime":"rust","routing":self.manifest["routingStore"],"streets":self.manifest["streetStore"],"warnings":self.metadata["routingLimitations"],"memory":{
+            "ledger":self.memory_ledger(),"sharedStreetOwners":self.street.shared_street_owners(),"street":self.street.diagnostics(),"access":access,
+            "timetable":self.timetable.as_ref().map(|t| t.kernel.diagnostics()),
+            "timetablePreparations":self.timetable_preparations,
+            "timetableCoverageEndSeconds":self.timetable.as_ref().and_then(|t|t.coverage_end),
+            "geometry":self.shape_cache.diagnostics(),"driveLoaded":self.drive.is_some(),
+            "scope":"estimated retained native allocations and mapped file sizes; not RSS or container peak"}})
     }
     pub(crate) fn stop(&self, id: &str) -> Result<&Stop> {
         self.stop_index
@@ -548,14 +602,7 @@ impl City {
             .map(|&i| &self.stops[i])
             .ok_or_else(|| format!("Unknown stopId: {id}").into())
     }
-    pub(crate) fn activate(&mut self, request: &Value) -> Result<()> {
-        let date_text = request["serviceDate"]
-            .as_str()
-            .ok_or("serviceDate (YYYY-MM-DD) is required for transit")?;
-        let date = NaiveDate::parse_from_str(date_text, "%Y-%m-%d")?;
-        if date.format("%Y-%m-%d").to_string() != date_text || !(1..=9999).contains(&date.year()) {
-            return fail("Invalid serviceDate");
-        }
+    fn services_on(&self, date: NaiveDate) -> Result<BTreeSet<String>> {
         let day = [
             "monday",
             "tuesday",
@@ -570,29 +617,6 @@ impl City {
         } else {
             "weekday"
         };
-        if request.get("serviceDay").is_some_and(|v| v != service_day) {
-            return fail("serviceDay disagrees with serviceDate");
-        }
-        let allow = flag(request, "allowStreetTransfers", true)?;
-        let buffer = number(request, "minimumTransferBufferMinutes", 0., 0., 60.)?;
-        if buffer.fract() != 0. {
-            return fail("minimumTransferBufferMinutes must be an integer");
-        }
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs_f64();
-        let realtime_key = format!(
-            "{:x}",
-            Sha256::digest(serde_json::to_vec(&json!([
-                request["realtimeSnapshot"],
-                super::realtime::validity(request, now)
-            ]))?)
-        );
-        let complete_coverage = flag(request, "requireCompleteServiceCoverage", false)?;
-        let key = format!("{date_text}:{allow}:{buffer}:{realtime_key}:{complete_coverage}");
-        if self.timetable.as_ref().is_some_and(|t| t.key == key) {
-            return Ok(());
-        }
         let date_number = date.year() * 10000 + date.month() as i32 * 100 + date.day() as i32;
         let sql = format!(
             "SELECT service_id FROM calendar WHERE {day}=1 AND start_date<=?1 AND end_date>=?1"
@@ -619,7 +643,157 @@ impl City {
         if services.is_empty() && self.metadata["serviceModel"] == "weekday-template" {
             services.insert(service_day.to_owned());
         }
-        if flag(request, "requireCompleteServiceCoverage", false)? {
+        Ok(services)
+    }
+    fn service_instances(
+        &self,
+        request: &Value,
+        date: NaiveDate,
+        coverage_end: Option<u32>,
+    ) -> Result<Option<Vec<ServiceInstance>>> {
+        if request.get("time").is_none() && request.get("timeMinutes").is_none() {
+            return Ok(None);
+        }
+        let opt = super::query::Options::parse(request)?;
+        let zone: chrono_tz::Tz = self.metadata["agencyTimezones"]
+            .as_array()
+            .and_then(|a| a.first())
+            .and_then(Value::as_str)
+            .unwrap_or("UTC")
+            .parse()?;
+        let epoch = |day: NaiveDate| -> Result<i64> {
+            Ok(zone
+                .from_local_datetime(&day.and_hms_opt(12, 0, 0).unwrap())
+                .single()
+                .ok_or("Ambiguous service noon")?
+                .timestamp()
+                - 43200)
+        };
+        let origin = epoch(date)?;
+        let maximum = self.metadata["maximumServiceTimeSeconds"]
+            .as_f64()
+            .unwrap_or(0.);
+        let minimum = if coverage_end.is_some() {
+            self.metadata["minimumServiceTimeSeconds"].as_f64().unwrap_or(0.)
+        } else { 0. };
+        let mut days = vec![];
+        for delta in -3..=5 {
+            let Some(day) = date.checked_add_signed(chrono::Duration::days(delta)) else {
+                continue;
+            };
+            let offset = epoch(day)? - origin;
+            // Keep the previous service days' overnight tails throughout the
+            // clock date. Otherwise changing depart/arrive horizons repeatedly
+            // discards and rebuilds an almost identical timetable.
+            if delta != 0 && ((offset as f64) + minimum > coverage_end.map_or(opt.end, f64::from) || (offset as f64) + maximum < 0.) {
+                continue;
+            }
+            days.push((day, offset as i32));
+        }
+        if days.len() == 1 && days[0].0 == date {
+            return Ok(None);
+        }
+        let mut instances = vec![];
+        for (day, offset_seconds) in days {
+            for service_id in self.services_on(day)? {
+                instances.push(ServiceInstance {
+                    service_id,
+                    offset_seconds,
+                    service_date: day.to_string(),
+                });
+            }
+        }
+        Ok(Some(instances))
+    }
+    pub(crate) fn validated_service_date(request: &Value) -> Result<NaiveDate> {
+        let date_text = request["serviceDate"]
+            .as_str()
+            .ok_or("serviceDate (YYYY-MM-DD) is required for transit")?;
+        let date = NaiveDate::parse_from_str(date_text, "%Y-%m-%d")?;
+        if date.format("%Y-%m-%d").to_string() != date_text || !(1..=9999).contains(&date.year()) {
+            return fail("Invalid serviceDate");
+        }
+        let day = [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        ][date.weekday().num_days_from_monday() as usize];
+        let service_day = if day == "saturday" || day == "sunday" {
+            day
+        } else {
+            "weekday"
+        };
+        if request.get("serviceDay").is_some_and(|v| v != service_day) {
+            return fail("serviceDay disagrees with serviceDate");
+        }
+        Ok(date)
+    }
+    pub(crate) fn activate(&mut self, request: &Value) -> Result<()> {
+        let date = Self::validated_service_date(request)?;
+        let date_text = request["serviceDate"].as_str().unwrap();
+        let allow = flag(request, "allowStreetTransfers", true)?;
+        let buffer = number(request, "minimumTransferBufferMinutes", 0., 0., 60.)?;
+        if buffer.fract() != 0. {
+            return fail("minimumTransferBufferMinutes must be an integer");
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs_f64();
+        let complete_coverage = flag(request, "requireCompleteServiceCoverage", false)?;
+        // Ordinary morning/evening requests share a stable prefix through
+        // 06:00 the next day. Longer searches grow it in six-hour blocks;
+        // narrower queries reuse the already loaded superset. Clipping avoids
+        // loading an entire next day for a horizon that only reaches midnight.
+        let clocked = request.get("time").is_some() || request.get("timeMinutes").is_some();
+        let coverage_end = if clocked && request.get("realtimeSnapshot").is_none() {
+            Some(((super::query::Options::parse(request)?.end.max(108_000.) / 21_600.).ceil() * 21_600.) as u32)
+        } else { None };
+        // A resident scheduled prefix already establishes the active services.
+        // Resolve calendars only when it grows or the service date changes.
+        let (key, instances) = if coverage_end.is_some() {
+            (format!("{date_text}:{allow}:{buffer}:scheduled"), None)
+        } else {
+            let instances = self.service_instances(request, date, None)?;
+            let days_key = instances.as_ref().map(|a| {
+                a.iter()
+                    .map(|v| (&v.service_date, v.offset_seconds))
+                    .collect::<BTreeSet<_>>()
+            });
+            let realtime_key = format!(
+                "{:x}",
+                Sha256::digest(serde_json::to_vec(&json!([
+                    request["realtimeSnapshot"],
+                    super::realtime::validity(request, now)
+                ]))?)
+            );
+            (format!("{date_text}:{allow}:{buffer}:{realtime_key}:{days_key:?}"), instances)
+        };
+        if self.timetable.as_ref().is_some_and(|t| t.key == key
+            && coverage_end.is_none_or(|end| t.coverage_end.is_some_and(|saved| saved >= end))) {
+            if complete_coverage && !self.timetable.as_ref().unwrap().complete_service_coverage {
+                return fail("Incomplete service coverage across source feeds on the requested date");
+            }
+            self.install_query_workspace();
+            return Ok(());
+        }
+        let instances = if coverage_end.is_some() {
+            self.service_instances(request, date, coverage_end)?
+        } else {
+            instances
+        };
+        // One active service slice per City. Release its mutable workspace
+        // before constructing a replacement, including after a failed switch.
+        if self.query_workspace.is_none() {
+            self.query_workspace = self.timetable.as_mut().map(|t| t.kernel.take_query_workspace());
+        }
+        self.timetable = None;
+        self.timetable_preparations += 1;
+        let services = self.services_on(date)?;
+        let complete_service_coverage = {
             let all: Vec<String> = self
                 .db
                 .prepare(
@@ -635,18 +809,20 @@ impl City {
                 .iter()
                 .filter_map(|id| id.split_once('\u{1f}').map(|p| p.0))
                 .collect();
-            if scopes.len() > 1 && !scopes.is_subset(&active) {
-                return fail(
-                    "Incomplete service coverage across source feeds on the requested date",
-                );
-            }
+            scopes.len() <= 1 || scopes.is_subset(&active)
+        };
+        if complete_coverage && !complete_service_coverage {
+            return fail("Incomplete service coverage across source feeds on the requested date");
         }
         if allow
+            && instances.is_none()
             && request.get("realtimeSnapshot").is_none()
-            && let Ok(timetable) =
-                self.prepared_timetable(&services, key.clone(), buffer as u32 * 60)
+            && let Ok(mut timetable) =
+                self.prepared_timetable(&services, key.clone(), buffer as u32 * 60, complete_service_coverage)
         {
+            timetable.coverage_end = coverage_end;
             self.timetable = Some(timetable);
+            self.install_query_workspace();
             return Ok(());
         }
         let has_permissions: bool = self.db.query_row(
@@ -660,6 +836,8 @@ impl City {
             service_ids: services.into_iter().collect(),
             has_connection_permissions: has_permissions,
             segment_count: None,
+            service_instances: instances,
+            maximum_departure_seconds: coverage_end,
         })?;
         let realtime = super::realtime::apply(&mut source, request, &self.metadata, now)?;
         let index: HashMap<String, u32> = source
@@ -831,13 +1009,33 @@ impl City {
             index,
             trip_ids: source.trip_ids,
             route_ids: source.route_ids,
+            trip_service_dates: source.trip_service_dates,
             key,
             realtime,
             preparation: "source",
+            complete_service_coverage,
+            coverage_end,
         });
+        self.install_query_workspace();
         Ok(())
     }
+    fn install_query_workspace(&mut self) {
+        if let (Some(timetable), Some(query)) = (&mut self.timetable, self.query_workspace.take()) {
+            timetable.kernel.install_query_workspace(query);
+        }
+    }
+    pub(crate) fn take_query_workspace(&mut self) -> Option<crate::timetable::TimetableQueryWorkspace> {
+        self.query_workspace.take().or_else(|| self.timetable.as_mut().map(|t| t.kernel.take_query_workspace()))
+    }
     pub(crate) fn load_drive(&mut self) -> Result<()> {
+        if self.manifest["modes"]
+            .as_array()
+            .is_some_and(|m| !m.iter().any(|v| v == "drive"))
+        {
+            return fail(
+                "Driving is not prepared in this City; rebuild with street-modes walk,drive",
+            );
+        }
         if self.drive.is_some() {
             return Ok(());
         }

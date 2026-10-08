@@ -92,6 +92,15 @@ impl TerminalAttachment {
 }
 
 impl TerminalAccessGraph {
+    #[cfg(feature = "standalone")]
+    pub(crate) fn heap_bytes(&self) -> usize {
+        (self.lons.capacity() + self.lats.capacity()) * 8
+            + (self.public_nodes.capacity() + self.public_to_local.capacity()) * 4
+            + (self.forward.capacity() + self.reverse.capacity()) * size_of::<Vec<(u32,f64)>>()
+            + self.forward.iter().chain(&self.reverse).map(|v| v.capacity() * size_of::<(u32,f64)>()).sum::<usize>()
+            + self.boundary.capacity() + self.cells.capacity() * (size_of::<((i32,i32), Vec<u32>)>() + 1)
+            + self.cells.values().map(|v| v.capacity() * 4).sum::<usize>()
+    }
     pub(crate) fn open(snapshot: &Snapshot, path: &Path) -> napi::Result<Self> {
         // Parsing a contiguous slice avoids per-byte reader overhead for the
         // immutable regional graph. Release the input bytes after decoding.

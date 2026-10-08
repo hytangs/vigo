@@ -1,6 +1,5 @@
 //! Time and distance constrained street intervals, including partial edges.
 use super::*;
-use crate::{SnapWorkspace, street_attachment_with_workspace};
 
 #[derive(Clone, Copy)]
 struct Segment {
@@ -42,19 +41,22 @@ impl Segment {
 struct Candidate {
     segment: Segment,
     next: u32,
-    active: bool,
 }
 
 struct Profiles {
-    heads: Vec<u32>,
+    heads: PagedVec<u32>,
     records: Vec<Candidate>,
+    free: Vec<u32>,
+    edges: Vec<u32>,
 }
 
 impl Profiles {
     fn new(edges: usize) -> Self {
         Self {
-            heads: vec![u32::MAX; edges],
+            heads: PagedVec::new(edges, u32::MAX),
             records: Vec::new(),
+            free: Vec::new(),
+            edges: Vec::new(),
         }
     }
 
@@ -68,52 +70,71 @@ impl Profiles {
                         && a.at(0.0) <= b.at(0.0) + DURATION_EPSILON_MINUTES)
         };
         let mut i = self.heads[segment.edge];
+        let first_on_edge = i == u32::MAX;
         while i != u32::MAX {
             let record = &self.records[i as usize];
-            if record.active && dominates(record.segment, segment) {
+            if dominates(record.segment, segment) {
                 return;
             }
             i = record.next;
         }
         let mut i = self.heads[segment.edge];
+        let mut previous: Option<usize> = None;
         while i != u32::MAX {
-            let record = &mut self.records[i as usize];
-            if record.active && dominates(segment, record.segment) {
-                record.active = false;
+            let record = &self.records[i as usize];
+            let next = record.next;
+            if dominates(segment, record.segment) {
+                if let Some(previous) = previous {
+                    self.records[previous].next = next;
+                } else {
+                    self.heads[segment.edge] = next;
+                }
+                self.free.push(i);
+            } else {
+                previous = Some(i as usize);
             }
-            i = record.next;
+            i = next;
         }
         let next = self.heads[segment.edge];
-        self.heads[segment.edge] = self.records.len() as u32;
-        self.records.push(Candidate {
-            segment,
-            next,
-            active: true,
-        });
+        if first_on_edge { self.edges.push(segment.edge as u32); }
+        // No queue references edge candidates. Reuse retired records in place
+        // instead of retaining their geometry for the rest of the query.
+        let candidate = Candidate { segment, next };
+        let index = if let Some(index) = self.free.pop() {
+            self.records[index as usize] = candidate;
+            index
+        } else {
+            let index = self.records.len() as u32;
+            self.records.push(candidate);
+            index
+        };
+        self.heads[segment.edge] = index;
     }
 
-    fn envelope(self, graph: &StreetGraph<'_>, input: &StreetSurfaceInput) -> Vec<Segment> {
-        let mut records: Vec<_> = self
-            .records
-            .into_iter()
-            .filter(|r| r.active)
-            .map(|r| r.segment)
-            .collect();
-        records.sort_by(|a, b| {
-            a.edge
-                .cmp(&b.edge)
-                .then_with(|| a.start.total_cmp(&b.start))
-                .then_with(|| a.seed.cmp(&b.seed))
-        });
-        let mut result: Vec<Segment> = Vec::with_capacity(records.len());
-        let mut first = 0;
-        while first < records.len() {
-            let mut last = first + 1;
-            while last < records.len() && records[last].edge == records[first].edge {
-                last += 1;
+    fn envelope(mut self, graph: &StreetGraph<'_>, input: &StreetSurfaceInput) -> Vec<Segment> {
+        // Order only the touched edge IDs. Sorting all 64-byte candidate
+        // records needlessly moves geometry for the entire reached network.
+        self.edges.sort_unstable();
+        let mut result: Vec<Segment> = Vec::with_capacity(self.edges.len());
+        let mut group = Vec::new();
+        let mut cuts = Vec::new();
+        for edge in self.edges {
+            group.clear();
+            let mut index = self.heads[edge as usize];
+            while index != u32::MAX {
+                let record = &self.records[index as usize];
+                group.push(record.segment);
+                index = record.next;
             }
-            let group = &records[first..last];
-            let mut cuts: Vec<f64> = group.iter().flat_map(|r| [r.start, r.end]).collect();
+            // Restore insertion order for exact ties in the stable sort.
+            group.reverse();
+            group.sort_by(|a,b| a.start.total_cmp(&b.start).then_with(|| a.seed.cmp(&b.seed)));
+            if group.len() == 1 {
+                result.push(group[0]);
+                continue;
+            }
+            cuts.clear();
+            cuts.extend(group.iter().flat_map(|r| [r.start, r.end]));
             cuts.sort_by(f64::total_cmp);
             cuts.dedup();
             for pair in cuts.windows(2) {
@@ -158,7 +179,6 @@ impl Profiles {
                     result.push(clipped);
                 }
             }
-            first = last;
         }
         result
     }
@@ -240,6 +260,7 @@ fn raster_segment(
 pub(super) fn compute(
     snapshot: &Snapshot,
     reciprocal_edge_flags: &[u8],
+    snaps: &mut SurfaceSnapCache,
     input: StreetSurfaceInput,
 ) -> napi::Result<StreetSurfaceResult> {
     let started = Instant::now();
@@ -283,7 +304,7 @@ pub(super) fn compute(
     let (width, height) = (input.width as usize, input.height as usize);
     let mut values = vec![f64::INFINITY; width * height];
     let mut labels = Vec::<SurfaceLabel>::new();
-    let mut heads = vec![u32::MAX; graph.node_lats.len()];
+    let mut heads = PagedVec::new(graph.node_lats.len(), u32::MAX);
     let mut queue = BinaryHeap::<LabelQueueEntry>::new();
     let mut profiles = Profiles::new(graph.edge_targets.len());
     let mut diagnostics = SearchDiagnostics::default();
@@ -297,7 +318,7 @@ pub(super) fn compute(
             .as_ref()
             .map_or(0.0, |d| d[seed]);
         let arrival = input.seed_durations_minutes[seed];
-        let (snaps, projection) = street_attachment_with_workspace(
+        let (snaps, projection) = snaps.attach(
             snapshot,
             reciprocal_edge_flags,
             &mut workspace,
@@ -354,6 +375,8 @@ pub(super) fn compute(
             diagnostics.snapped_seeds = diagnostics.snapped_seeds.saturating_add(1);
         }
     }
+    let seed_ns = started.elapsed().as_nanos() as f64;
+    let propagation_started = Instant::now();
     while let Some(entry) = queue.pop() {
         if !labels[entry.label_index].active {
             continue;
@@ -395,7 +418,11 @@ pub(super) fn compute(
             }
         }
     }
+    let propagation_ns = propagation_started.elapsed().as_nanos() as f64;
+    let envelope_started = Instant::now();
     let segments = profiles.envelope(&graph, &input);
+    let envelope_ns = envelope_started.elapsed().as_nanos() as f64;
+    let raster_started = Instant::now();
     let reached_edge_count = segments
         .iter()
         .map(|s| s.edge)
@@ -580,6 +607,10 @@ pub(super) fn compute(
         relaxed_edges: diagnostics.relaxed_edges,
         retained_labels: diagnostics.retained_labels,
         query_ns: started.elapsed().as_nanos() as f64,
+        seed_ns,
+        propagation_ns,
+        envelope_ns,
+        raster_ns: raster_started.elapsed().as_nanos() as f64,
         node_evidence,
         node_evidence_truncated,
         reached_edge_count,

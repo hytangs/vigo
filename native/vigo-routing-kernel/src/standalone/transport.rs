@@ -1,4 +1,4 @@
-use super::{City, Result, capabilities, fail};
+use super::{Result, capabilities, collection::Runtime, fail};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -15,6 +15,8 @@ const HELP: &str = "VIGO — standalone Rust routing and isochrones
   vigo reach --city ./city --request reach.json
   vigo compare --city ./city --request comparison.json
   vigo stream --city ./city < requests.ndjson
+  vigo serve --city ./scenario-set --port 8080
+  vigo route --city ./scenario-set --scenario no-build --request route.json
   vigo info --city ./city
   vigo capabilities
   vigo native --city ./city --request kernel-query.json
@@ -113,6 +115,7 @@ fn run() -> Result<()> {
     }
     let known = [
         "city",
+        "scenario",
         "request",
         "output",
         "pretty",
@@ -148,6 +151,16 @@ fn run() -> Result<()> {
         }
         let allowed = match key.as_str() {
             "city" => command != "capabilities",
+            "scenario" => [
+                "info",
+                "route",
+                "matrix",
+                "reach",
+                "isochrone",
+                "native",
+                "stream",
+            ]
+            .contains(&command.as_str()),
             "host" | "port" | "max-body-bytes" | "request-timeout-ms" | "query-timeout-ms"
             | "max-connections" | "max-queue" => command == "serve",
             "request" => ["route", "matrix", "reach", "isochrone", "compare", "native"]
@@ -182,12 +195,9 @@ fn run() -> Result<()> {
     if command == "serve" {
         return super::http::serve(&city_path, &options);
     }
-    let mut city = City::open(&city_path)?;
+    let mut city = Runtime::open(&city_path)?;
     if command == "_worker" {
-        println!(
-            "{}",
-            serde_json::json!({"ready":true,"info":crate::presentation::format("info", &json!({}), &city.info())})
-        );
+        println!("{}", serde_json::json!({"ready":true,"info":city.info()}));
         io::stdout().flush()?;
     }
     if command == "stream" || command == "_worker" {
@@ -323,6 +333,7 @@ fn apply_flags(q: &mut Value, o: &HashMap<String, String>) -> Result<()> {
         return fail("Request must be a JSON object");
     }
     for (cli, key) in [
+        ("scenario", "scenarioId"),
         ("service-date", "serviceDate"),
         ("time", "time"),
         ("mode", "mode"),

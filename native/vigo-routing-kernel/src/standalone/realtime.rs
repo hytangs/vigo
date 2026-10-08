@@ -1,6 +1,6 @@
 use super::{Result, fail};
 use crate::*;
-use chrono::{NaiveDate, TimeZone, Timelike};
+use chrono::{NaiveDate, TimeZone};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
@@ -49,17 +49,17 @@ pub(crate) fn apply(
     let clock = |epoch: i64| -> Result<f64> {
         let tz = zone
             .ok_or("Absolute realtime timestamps require realtimeSnapshot.timezone (IANA name)")?;
-        let t = tz
-            .timestamp_opt(epoch, 0)
+        // GTFS uses local noon minus twelve elapsed hours, including DST days.
+        let noon = tz
+            .from_local_datetime(&date.and_hms_opt(12, 0, 0).unwrap())
             .single()
-            .ok_or("Invalid realtime epoch")?;
-        Ok((t.date_naive() - date).num_days() as f64 * 86400.
-            + t.num_seconds_from_midnight() as f64)
+            .ok_or("Service date has no unambiguous local noon")?;
+        Ok((epoch - (noon.timestamp() - 43_200)) as f64)
     };
-    let mut exact = HashMap::new();
+    let mut exact: HashMap<&str, Vec<usize>> = HashMap::new();
     let mut local: HashMap<&str, Vec<usize>> = HashMap::new();
     for (i, id) in source.trip_ids.iter().enumerate() {
-        exact.insert(id.as_str(), i);
+        exact.entry(id.as_str()).or_default().push(i);
         local
             .entry(id.rsplit('\u{1f}').next().unwrap())
             .or_default()
@@ -72,23 +72,30 @@ pub(crate) fn apply(
         let id = update["tripId"]
             .as_str()
             .or_else(|| update["trip"]["tripId"].as_str())?;
-        if id.contains('\u{1f}') {
-            let index = exact.get(id).copied()?;
-            if update["sourceScope"]
-                .as_str()
-                .is_some_and(|scope| id.split('\u{1f}').next() != Some(scope))
-            {
-                return None;
-            }
-            return Some(index);
-        }
-        let matches: Vec<_> = local
-            .get(id)
+        let candidates = if id.contains('\u{1f}') {
+            exact.get(id)
+        } else {
+            local.get(id)
+        };
+        let matches: Vec<_> = candidates
             .into_iter()
             .flatten()
             .copied()
             .filter(|&i| {
-                update["sourceScope"]
+                let instance_date = source
+                    .trip_service_dates
+                    .get(i)
+                    .filter(|s| !s.is_empty())
+                    .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+                    .unwrap_or(date);
+                let supplied_date = update
+                    .get("startDate")
+                    .or_else(|| update.get("trip").and_then(|t| t.get("startDate")));
+                (if supplied_date.is_some() {
+                    date_matches(update, &instance_date)
+                } else {
+                    instance_date == date
+                }) && update["sourceScope"]
                     .as_str()
                     .is_none_or(|scope| source.trip_ids[i].split('\u{1f}').next() == Some(scope))
             })
@@ -98,7 +105,6 @@ pub(crate) fn apply(
     let mut counts = HashMap::new();
     for update in updates {
         if record_fresh(snapshot, update, now)
-            && date_matches(update, &date)
             && let Some(trip) = resolve(update)
         {
             *counts.entry(trip).or_insert(0) += 1;
@@ -110,7 +116,12 @@ pub(crate) fn apply(
             increment(&mut diagnostics, "staleTrips");
             continue;
         }
-        if !date_matches(update, &date) {
+        if !date_matches(update, &date)
+            && !source.trip_service_dates.iter().any(|text| {
+                NaiveDate::parse_from_str(text, "%Y-%m-%d")
+                    .is_ok_and(|day| date_matches(update, &day))
+            })
+        {
             increment(&mut diagnostics, "dateMismatches");
             continue;
         }
@@ -506,6 +517,7 @@ mod tests {
             can_alight: vec![1; 4],
             trip_start: vec![0, 4],
             trip_ids: vec!["main".into()],
+            trip_service_dates: vec![String::new()],
             route_ids: vec!["R".into()],
             service_ids: vec!["day".into()],
             direction_ids: vec!["0".into()],

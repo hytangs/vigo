@@ -279,7 +279,8 @@ impl CoordinateKernel {
                     }
                     terminal_endpoint_snaps(
                         &self.snapshot,
-                        self.terminal_access.as_ref(),
+                        self.terminal_access.as_deref(),
+                        self.profile.as_ref(),
                         snaps_for_coordinate(
                             &self.snapshot,
                             reciprocal_edge_flags,
@@ -309,7 +310,8 @@ impl CoordinateKernel {
                     }
                     terminal_endpoint_snaps(
                         &self.snapshot,
-                        self.terminal_access.as_ref(),
+                        self.terminal_access.as_deref(),
+                        self.profile.as_ref(),
                         snaps_for_coordinate(
                             &self.snapshot,
                             reciprocal_edge_flags,

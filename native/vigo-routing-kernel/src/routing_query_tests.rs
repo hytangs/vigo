@@ -1,5 +1,34 @@
 use super::*;
 
+#[test]
+fn sparse_buckets_cross_bitmap_boundaries_and_reject_corruption() {
+    let nodes = 137;
+    let mut graph = cch::graph::Graph { first_out: vec![0], head: Vec::new(), weight: Vec::new() };
+    for node in 0..nodes {
+        if node + 1 < nodes { graph.head.push(node + 1); graph.weight.push(3); }
+        if node > 0 && node % 9 != 0 { graph.head.push(node - 1); graph.weight.push(7); }
+        graph.first_out.push(graph.head.len() as u32);
+    }
+    let structure = cch::Cch::build(&graph, &cch::degree_order(&graph));
+    let metric = structure.customize(&graph.weight);
+    let targets: Vec<_> = (0..nodes).step_by(3).collect();
+    let mut buckets = build_cch_target_buckets(&structure.view(), metric.view().backward, &targets, 75).unwrap();
+    buckets.validate(nodes as usize, targets.len(), 75).unwrap();
+    let mut query = DynamicCchQuery::new(0);
+    for source in 0..nodes {
+        let expected = reference_distances(&graph, &[(source, 0)]);
+        let (indices, distances, _) = query.range_targets(&structure.view(), metric.view().forward,
+            &buckets, &[(source, 0)], 75, targets.len());
+        let mut actual = vec![cch::INF_WEIGHT; targets.len()];
+        for (&index, &distance) in indices.iter().zip(distances) { actual[index as usize] = distance; }
+        assert_eq!(actual, targets.iter().map(|&t| if expected[t as usize] <= 75 { expected[t as usize] } else { cch::INF_WEIGHT }).collect::<Vec<_>>());
+    }
+    if let CchBucketStorage::Owned { offsets, .. } = &mut buckets.storage {
+        offsets[1 + 2 * 3 + 2] |= 1 << 31; // Beyond node_count in the last bitmap.
+    }
+    assert!(buckets.validate(nodes as usize, targets.len(), 75).is_err());
+}
+
 fn fixture(seed: u32) -> cch::graph::Graph {
     let mut state = seed;
     let mut first_out = vec![0];
@@ -56,7 +85,7 @@ fn reusable_cch_targets_match_dijkstra_after_empty_queries_and_epoch_wrap() {
         let structure = cch::Cch::build(&graph, &cch::degree_order(&graph));
         let metric = structure.customize(&graph.weight);
         let view = structure.view();
-        let mut query = DynamicCchQuery::new(31);
+        let mut query = DynamicCchQuery::new(0);
         for round in 0..9 {
             if round == 4 {
                 query.generation = u32::MAX;

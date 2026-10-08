@@ -51,9 +51,17 @@ pub(super) fn certify(
         if start == end || excluded[base.segment_trip[start] as usize] {
             continue;
         }
-        let times = &base.departure_seconds[start..end];
-        let first = start + times.partition_point(|time| f64::from(*time) < input.departure);
-        let last = start + times.partition_point(|time| f64::from(*time) <= last_departure);
+        let bound = |value: f64, inclusive: bool| {
+            let (mut lo, mut hi) = (start, end);
+            while lo < hi {
+                let mid = lo + (hi - lo) / 2;
+                let time = f64::from(base.departure_seconds[mid]);
+                if time < value || (inclusive && time == value) { lo = mid + 1; } else { hi = mid; }
+            }
+            lo
+        };
+        let first = bound(input.departure, false);
+        let last = bound(last_departure, true);
         if first == last {
             continue;
         }
@@ -153,13 +161,10 @@ pub(super) fn certify(
     forbidden.resize(stop_count, 0);
     let mut minimum = base.same_stop_transfer_minimum.to_vec();
     minimum.resize(stop_count, 0);
-    if let Some(identities) = &input.overlay_base_stops {
-        for (local, original) in identities.iter().enumerate() {
-            if *original >= 0 {
-                forbidden[base.stop_count + local] = base.forbidden_same_stop[*original as usize];
-                minimum[base.stop_count + local] =
-                    base.same_stop_transfer_minimum[*original as usize];
-            }
+    for (local, original) in input.overlay_base_stops.iter().enumerate() {
+        if *original >= 0 {
+            forbidden[base.stop_count + local] = base.forbidden_same_stop[*original as usize];
+            minimum[base.stop_count + local] = base.same_stop_transfer_minimum[*original as usize];
         }
     }
     let mut kernel = TimetableKernel::new(TimetableKernelInput {
@@ -185,7 +190,7 @@ pub(super) fn certify(
         same_stop_transfer_minimum: Some(minimum.into()),
         minimum_transfer_buffer_seconds: Some(base.minimum_transfer_buffer_seconds),
     })?;
-    kernel.profile_workspace.identity_transfer_edges = identity_transfers;
+    kernel.query.profile_workspace.identity_transfer_edges = identity_transfers;
     let candidates = input
         .destination_candidate_indices
         .clone()

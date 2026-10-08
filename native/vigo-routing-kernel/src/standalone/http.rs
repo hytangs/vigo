@@ -1,15 +1,15 @@
 //! Bounded HTTP/1.1 transport. Timetable work runs in a supervised copy of the
 //! same executable so deadlines can actually stop computation and reclaim it.
-use super::{Result, capabilities, fail, transport::error};
+use super::{Result, capabilities, fail, transport::error as json_error};
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     env,
     io::{BufRead, BufReader, Read, Write},
     net::{IpAddr, TcpListener, TcpStream},
     process::{Child, Command, Stdio},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::{self, Receiver, SyncSender, TrySendError},
     },
@@ -17,10 +17,43 @@ use std::{
     time::{Duration, Instant},
 };
 
+// The supervisor owns only the encoded response, never a second journey or
+// raster object tree. Deserialization below validates/skips nested fields.
+struct EncodedOutput {
+    bytes: Vec<u8>,
+    failed: bool,
+    compute_us: Option<f64>,
+}
+impl EncodedOutput {
+    fn read(bytes: Vec<u8>) -> std::result::Result<Self, String> {
+        #[derive(serde::Deserialize, Default)]
+        #[serde(rename_all = "camelCase")]
+        struct Meta { compute_us: Option<f64> }
+        fn present<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<bool, D::Error> {
+            <serde::de::IgnoredAny as serde::Deserialize>::deserialize(d).map(|_| true)
+        }
+        #[derive(serde::Deserialize)]
+        struct Envelope {
+            #[serde(default, deserialize_with = "present")]
+            error: bool,
+            #[serde(default)]
+            meta: Option<Meta>,
+        }
+        let envelope: Envelope = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        Ok(Self { bytes, failed: envelope.error, compute_us: envelope.meta.and_then(|v| v.compute_us) })
+    }
+}
+enum BodyData { Json(Value), Encoded(EncodedOutput) }
+struct Body { data: BodyData, queue_us: Option<u64> }
+impl From<Value> for Body {
+    fn from(value: Value) -> Self { Self { data: BodyData::Json(value), queue_us: None } }
+}
+fn error(error: impl std::fmt::Display) -> Body { json_error(error).into() }
+
 struct Worker {
     child: Child,
     input: SyncSender<Vec<u8>>,
-    output: Receiver<std::result::Result<Value, String>>,
+    output: Receiver<std::result::Result<EncodedOutput, String>>,
 }
 impl Drop for Worker {
     fn drop(&mut self) {
@@ -64,7 +97,7 @@ impl Worker {
                 {
                     Ok(0) => break,
                     Ok(n) if n <= 64 * 1024 * 1024 => {
-                        serde_json::from_slice(&line).map_err(|e| e.to_string())
+                        EncodedOutput::read(line)
                     }
                     Ok(_) => Err("Worker output exceeds 64 MiB".into()),
                     Err(e) => Err(e.to_string()),
@@ -83,29 +116,62 @@ impl Worker {
             .output
             .recv_timeout(timeout)
             .map_err(|_| "City worker startup timed out or exited")??;
+        let startup: Value = serde_json::from_slice(&startup.bytes)?;
         if startup["ready"] != true {
             return fail("City worker did not become ready");
         }
         Ok((worker, startup["info"].clone()))
     }
-    fn query(&mut self, q: &Value, timeout: Duration) -> Result<Value> {
+    fn query(&mut self, q: &Value, timeout: Duration, canceled: &AtomicBool) -> Result<EncodedOutput> {
         let deadline = Instant::now() + timeout;
         let mut bytes = serde_json::to_vec(q)?;
         bytes.push(b'\n');
         self.input
             .try_send(bytes)
             .map_err(|_| "City worker input is unavailable")?;
-        Ok(self
-            .output
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .map_err(|_| "Query deadline exceeded or City worker exited")??)
+        loop {
+            if canceled.load(Ordering::Acquire) {
+                return fail("Query canceled");
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return fail("Query deadline exceeded");
+            }
+            match self
+                .output
+                .recv_timeout(remaining.min(Duration::from_millis(20)))
+            {
+                Ok(value) => return Ok(value?),
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(_) => return fail("City worker exited"),
+            }
+        }
     }
 }
 struct Job {
     queued_at: Instant,
     query: Value,
     deadline: Instant,
-    response: SyncSender<(u16, Value)>,
+    response: SyncSender<(u16, Body)>,
+    canceled: Arc<AtomicBool>,
+}
+// Route requests and small matrices can pass waiting analytical jobs. A bounded
+// burst is followed by the oldest analytical job, so a sustained
+// route stream cannot starve Reach. Running queries are never interrupted.
+fn short_query(query: &Value) -> bool {
+    match query["kind"].as_str() {
+        Some("route" | "info") => true,
+        Some("matrix") => query["origins"].as_array().zip(query["destinations"].as_array())
+            .is_some_and(|(a,b)| a.len().saturating_mul(b.len()) <= 1024),
+        _ => false,
+    }
+}
+fn next_job(pending: &mut VecDeque<Job>, short_streak: &mut usize, short_time: Duration) -> Job {
+    let desired_short = *short_streak < 32 && short_time < Duration::from_millis(250);
+    let index = pending.iter().position(|job| short_query(&job.query) == desired_short).unwrap_or(0);
+    let job = pending.remove(index).expect("nonempty pending queue");
+    *short_streak = if short_query(&job.query) { (*short_streak + 1).min(32) } else { 0 };
+    job
 }
 struct State {
     token: Option<String>,
@@ -113,8 +179,10 @@ struct State {
     io_timeout: Duration,
     query_timeout: Duration,
     sender: SyncSender<Job>,
+    queue_limit: usize,
+    queued: AtomicUsize,
     ready: AtomicBool,
-    info: Value,
+    requests: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
 fn setting(
     o: &HashMap<String, String>,
@@ -165,15 +233,21 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
         io_timeout,
         query_timeout,
         sender,
+        queue_limit: queue,
+        queued: AtomicUsize::new(0),
         ready: AtomicBool::new(true),
-        info,
+        requests: Mutex::new(HashMap::new()),
     });
     let supervisor = state.clone();
     let city = city.to_owned();
     thread::spawn(move || {
         let mut worker = Some(worker);
+        let mut pending = VecDeque::new();
+        let mut short_streak = 0;
+        let mut short_time = Duration::ZERO;
         loop {
-            let job = match receiver.recv_timeout(Duration::from_millis(250)) {
+            if pending.is_empty() {
+                let job = match receiver.recv_timeout(Duration::from_millis(250)) {
                 Ok(job) => job,
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -190,7 +264,16 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                     }
                     continue;
                 }
-            };
+                };
+                pending.push_back(job);
+            }
+            while let Ok(job) = receiver.try_recv() { pending.push_back(job); }
+            let job = next_job(&mut pending, &mut short_streak, short_time);
+            if queue > 0 { supervisor.queued.fetch_sub(1, Ordering::AcqRel); }
+            if job.canceled.load(Ordering::Acquire) {
+                let _ = job.response.send((499, error("Query canceled")));
+                continue;
+            }
             if Instant::now() >= job.deadline {
                 let _ = job.response.send((504, error("Query expired in queue")));
                 continue;
@@ -200,26 +283,35 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                 supervisor.ready.store(worker.is_some(), Ordering::Release);
             }
             let queue_us = job.queued_at.elapsed().as_micros() as u64;
+            let compute_started = Instant::now();
             let mut response = match worker.as_mut() {
                 None => (503, error("City worker is unavailable")),
                 Some(w) => match w.query(
                     &job.query,
                     job.deadline.saturating_duration_since(Instant::now()),
+                    &job.canceled,
                 ) {
-                    Ok(v) => (if v.get("error").is_some() { 400 } else { 200 }, v),
+                    Ok(v) => (if v.failed { 400 } else { 200 }, Body { data: BodyData::Encoded(v), queue_us: None }),
                     Err(_) => {
                         supervisor.ready.store(false, Ordering::Release);
                         drop(worker.take());
                         (
-                            504,
-                            error(
-                                "Query deadline exceeded or City worker exited; worker discarded",
-                            ),
+                            if job.canceled.load(Ordering::Acquire) {
+                                499
+                            } else {
+                                504
+                            },
+                            error(if job.canceled.load(Ordering::Acquire) {
+                                "Query canceled; worker discarded"
+                            } else {
+                                "Query deadline exceeded or City worker exited; worker discarded"
+                            }),
                         )
                     }
                 },
             };
-            response.1["_httpQueueUs"] = json!(queue_us);
+            short_time = if short_query(&job.query) { short_time.saturating_add(compute_started.elapsed()) } else { Duration::ZERO };
+            response.1.queue_us = Some(queue_us);
             let _ = job.response.send(response);
             if worker.is_none() {
                 worker = Worker::open(&city, startup_timeout).ok().map(|v| v.0);
@@ -231,7 +323,7 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
     eprintln!(
         "VIGO Rust listening on {} (City: {})",
         server.local_addr()?,
-        state.info["name"]
+        info["name"]
     );
     let active = Arc::new(AtomicUsize::new(0));
     for stream in server.incoming() {
@@ -244,7 +336,7 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
             .is_err()
         {
             stream.set_write_timeout(Some(Duration::from_millis(50)))?;
-            let _ = respond(&mut stream, 503, &error("Connection capacity reached"));
+            let _ = respond(&mut stream, 503, error("Connection capacity reached"));
             continue;
         }
         let active = active.clone();
@@ -272,7 +364,7 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                 ))
             });
             let _ = match response {
-                Response::Json((status, value)) => respond(&mut stream, status, &value),
+                Response::Json((status, value)) => respond(&mut stream, status, value),
                 Response::Static(content_type, bytes) => {
                     respond_bytes(&mut stream, 200, content_type, bytes)
                 }
@@ -298,7 +390,7 @@ fn remaining(stream: &TcpStream, deadline: Instant) -> std::io::Result<()> {
     stream.set_read_timeout(Some(remaining))
 }
 enum Response {
-    Json((u16, Value)),
+    Json((u16, Body)),
     Static(&'static str, &'static [u8]),
 }
 fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
@@ -365,7 +457,7 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
             ));
         }
     }
-    (|| -> std::io::Result<(u16, Value)> {
+    (|| -> std::io::Result<(u16, Body)> {
     if method == "GET" && ["/healthz", "/readyz"].contains(&path) {
         let ready = state.ready.load(Ordering::Acquire);
         return Ok((
@@ -374,7 +466,7 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
             } else {
                 200
             },
-            json!({"status":if ready {"ready"} else {"recovering"},"runtime":"rust","version":env!("CARGO_PKG_VERSION")}),
+            json!({"status":if ready {"ready"} else {"recovering"},"runtime":"rust","version":env!("CARGO_PKG_VERSION")}).into(),
         ));
     }
     if state.token.as_ref().is_some_and(|t| {
@@ -386,10 +478,19 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
         return Ok((401, error("Bearer authentication required")));
     }
     if method == "GET" && path == "/v1/capabilities" {
-        return Ok((200, capabilities()));
+        return Ok((200, capabilities().into()));
     }
     if method == "GET" && path == "/v1/info" {
-        return Ok((200, state.info.clone()));
+        return dispatch(state, json!({"kind":"info"}));
+    }
+    if method == "DELETE" && path.starts_with("/v1/requests/") {
+        let id = path.trim_start_matches("/v1/requests/");
+        let requests = state.requests.lock().map_err(|_| invalid())?;
+        if let Some(canceled) = requests.get(id) {
+            canceled.store(true, Ordering::Release);
+            return Ok((202, json!({"status":"canceling","requestId":id}).into()));
+        }
+        return Ok((404, error("No active request with this ID")));
     }
     if method != "POST"
         || ![
@@ -517,37 +618,87 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
     }
     if let Err(e) = crate::presentation::validate(&query) { return Ok((400, error(e))); }
     query["kind"] = json!(kind);
-    let (sender, receiver) = mpsc::sync_channel(1);
-    let deadline = Instant::now() + state.query_timeout;
-    let job = Job {
-        queued_at: Instant::now(),
-        query,
-        deadline,
-        response: sender,
-    };
-    match state.sender.try_send(job) {
-        Err(TrySendError::Full(_)) => return Ok((503, error("Query queue is full"))),
-        Err(TrySendError::Disconnected(_)) => {
-            return Ok((503, error("Query worker is unavailable")));
-        }
-        Ok(()) => {}
-    }
-    Ok(receiver
-        .recv_timeout(state.query_timeout + Duration::from_millis(100))
-        .unwrap_or_else(|_| (504, error("Query deadline exceeded"))))
+    dispatch(state, query)
     })().map(Response::Json)
 }
-fn respond(stream: &mut TcpStream, status: u16, value: &Value) -> std::io::Result<()> {
-    let mut value = value.clone();
-    let queue_us = value
-        .as_object_mut()
-        .and_then(|v| v.remove("_httpQueueUs"))
-        .and_then(|v| v.as_u64());
+fn dispatch(state: &State, query: Value) -> std::io::Result<(u16, Body)> {
+    let canceled = Arc::new(AtomicBool::new(false));
+    let id = query["id"].as_str().map(str::to_owned);
+    if let Some(id) = &id {
+        if id.is_empty()
+            || id.len() > 128
+            || !id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+        {
+            return Ok((
+                400,
+                error(
+                    "Request id must contain 1 to 128 letters, digits, hyphens, underscores or periods",
+                ),
+            ));
+        }
+        let mut requests = state.requests.lock().map_err(|_| invalid())?;
+        if requests.contains_key(id) {
+            return Ok((409, error("Request id is already active")));
+        }
+        requests.insert(id.clone(), canceled.clone());
+    }
+    let run = || {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let job = Job {
+            queued_at: Instant::now(),
+            query,
+            deadline: Instant::now() + state.query_timeout,
+            response: sender,
+            canceled: canceled.clone(),
+        };
+        // Count both the channel and the supervisor's pending jobs under one
+        // admission limit. A zero-capacity channel remains a direct handoff.
+        if state.queue_limit > 0 && state.queued.fetch_update(Ordering::AcqRel, Ordering::Acquire,
+            |n| (n < state.queue_limit).then_some(n + 1)).is_err() {
+            return (503, error("Query queue is full"));
+        }
+        if let Err(e) = state.sender.try_send(job) {
+            if state.queue_limit > 0 { state.queued.fetch_sub(1, Ordering::AcqRel); }
+            return match e {
+                TrySendError::Full(_) => (503, error("Query queue is full")),
+                TrySendError::Disconnected(_) => (503, error("Query worker is unavailable")),
+            };
+        }
+        receiver
+            .recv_timeout(state.query_timeout + Duration::from_millis(100))
+            .unwrap_or_else(|_| {
+                canceled.store(true, Ordering::Release);
+                (504, error("Query deadline exceeded"))
+            })
+    };
+    let result = run();
+    if let Some(id) = id {
+        state.requests.lock().map_err(|_| invalid())?.remove(&id);
+    }
+    Ok(result)
+}
+
+fn respond(stream: &mut TcpStream, status: u16, body: Body) -> std::io::Result<()> {
+    let queue_us = body.queue_us;
+    let mut value = match body.data {
+        BodyData::Json(value) => value,
+        BodyData::Encoded(output) => {
+            let mut timing = String::from("Server-Timing: serialize;dur=0");
+            if let Some(us) = queue_us { timing.push_str(&format!(", queue;dur={:.3}", us as f64 / 1000.)); }
+            if let Some(us) = output.compute_us { timing.push_str(&format!(", compute;dur={:.3}", us / 1000.)); }
+            timing.push_str("\r\n");
+            return respond_with_headers(stream, status, "application/json; charset=utf-8", &output.bytes, &timing);
+        }
+    };
     if value["error"]["code"] == "invalid_request" {
         let code = match status {
             401 => "unauthorized",
             404 => "endpoint_not_found",
             408 => "request_timeout",
+            409 => "request_id_conflict",
+            499 => "query_canceled",
             413 => "request_too_large",
             431 => "headers_too_large",
             503 => "service_unavailable",
@@ -632,5 +783,42 @@ impl Read for DeadlineReader<'_> {
     fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
         remaining(self.stream, self.deadline)?;
         self.stream.read(buffer)
+    }
+}
+
+#[cfg(test)]
+mod scheduling_tests {
+    use super::*;
+    #[test]
+    fn response_forwarding_validates_without_rebuilding_the_body() {
+        let bytes = br#"{"journey":{"legs":[{"geometry":[1,2.123456789,3]}]},"meta":{"computeUs":1234},"status":"ok"}"#.to_vec();
+        let pointer = bytes.as_ptr();
+        let response = EncodedOutput::read(bytes).unwrap();
+        assert_eq!(response.bytes.as_ptr(), pointer);
+        assert!(!response.failed);
+        assert_eq!(response.compute_us, Some(1234.));
+        assert!(EncodedOutput::read(br#"{"error":null}"#.to_vec()).unwrap().failed);
+        assert!(EncodedOutput::read(br#"{"journey":[1,broken]}"#.to_vec()).is_err());
+    }
+    #[test]
+    fn routes_pass_waiting_surfaces_without_starving_them() {
+        let mut queue = VecDeque::new();
+        let mut push = |kind: &str, id: usize| {
+            let (response, _) = mpsc::sync_channel(1);
+            queue.push_back(Job { queued_at: Instant::now(), query: json!({"kind":kind,"id":id}),
+                deadline: Instant::now() + Duration::from_secs(60), response,
+                canceled: Arc::new(AtomicBool::new(false)) });
+        };
+        for id in 0..3 { push("reach", id); }
+        for id in 3..72 { push("route", id); }
+        let mut streak = 0; let mut order = Vec::new();
+        while !queue.is_empty() { order.push(next_job(&mut queue, &mut streak, Duration::ZERO).query["id"].as_u64().unwrap()); }
+        assert_eq!(order, (3..35).chain([0]).chain(35..67).chain([1]).chain(67..72).chain([2]).collect::<Vec<_>>());
+    }
+    #[test]
+    fn only_bounded_matrices_join_the_route_queue() {
+        assert!(short_query(&json!({"kind":"matrix","origins":[1],"destinations":vec![0;1024]})));
+        assert!(!short_query(&json!({"kind":"matrix","origins":[1,2],"destinations":vec![0;1024]})));
+        assert!(!short_query(&json!({"kind":"native","operation":"street.surface"})));
     }
 }

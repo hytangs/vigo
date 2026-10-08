@@ -11,6 +11,7 @@
 //! `unpack_backward_arc`.
 
 use crate::INF_WEIGHT;
+use crate::paged::PagedVec;
 use crate::bundle::{CchView, INVALID_ID, MetricView};
 
 // ---------------------------------------------------------------------------
@@ -131,10 +132,9 @@ fn unpack_arc(
 
 /// Reusable, buffer-recycling node-path query against a single CCH.
 ///
-/// [`node_path`] (the free fn) allocates ~6 `node_count`-sized scratch buffers
-/// and rebuilds the inverse-rank `order` array on **every** call. For repeated
-/// queries that per-call setup dominates. `PathQuery` pays that cost ONCE in
-/// [`PathQuery::new`] (allocate buffers, compute `order`, validate the CCH),
+/// [`node_path`] allocates dense scratch and rebuilds the inverse-rank order
+/// on every call. `PathQuery` computes that order once and allocates search
+/// pages only when reached by a query,
 /// then answers each [`PathQuery::path`] reusing the buffers with a cheap
 /// *touched-only* reset — restoring just the entries the previous query
 /// dirtied, never the whole `node_count`-sized arrays.
@@ -170,6 +170,13 @@ impl<'a> PathQuery<'a> {
             cch,
             state: PathQueryState::new(cch),
         }
+    }
+
+    /// Retained buffer capacity, excluding the borrowed graph and allocator overhead.
+    #[must_use]
+    pub fn byte_length(&self) -> usize {
+        let s = &self.state;
+        s.scratch_bytes() + s.order.capacity() * std::mem::size_of::<u32>()
     }
 
     /// Return the shortest path, recycling the previous query's buffers.
@@ -233,17 +240,17 @@ struct PathQueryState {
     order: Vec<u32>,
     /// Distances XOR-encoded with INF_WEIGHT: zero means unreachable.
     /// Zero-filled allocation avoids touching every graph page on a cold query.
-    fwd_dist: Vec<u32>,
+    fwd_dist: PagedVec<u32>,
     /// Forward predecessors, read only for reached nodes. The source is
     /// explicitly marked INVALID_ID when each query starts.
-    fwd_pred: Vec<u32>,
+    fwd_pred: PagedVec<u32>,
     /// Forward search-space membership; `node_count`-sized, all `false` between
     /// queries.
-    in_forward_search_space: Vec<bool>,
+    in_forward_search_space: PagedVec<bool>,
     /// Backward distances use the same zero-as-unreachable encoding.
-    bwd_dist: Vec<u32>,
+    bwd_dist: PagedVec<u32>,
     /// Backward predecessors; the target is explicitly marked INVALID_ID.
-    bwd_pred: Vec<u32>,
+    bwd_pred: PagedVec<u32>,
     /// Nodes whose `fwd_*` entries were dirtied by the last query — exactly the
     /// set the next reset must restore. Cleared each query.
     fwd_touched: Vec<u32>,
@@ -255,28 +262,36 @@ struct PathQueryState {
 }
 
 impl PathQueryState {
-    /// Allocate scratch buffers and compute the inverse-rank `order` for queries
-    /// against `cch`. Do this once, then call [`Self::path`] repeatedly.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `cch` is malformed — specifically if any `up_head` value is not
-    /// a valid node id (`>= node_count`). A `CchView` from
-    /// [`Cch::build`](crate::Cch::build) or a [`CchBundle`](crate::CchBundle)
-    /// always satisfies this. This single validation lets [`Self::path`]'s hot
-    /// relaxation loops index the distance/pred arrays with `get_unchecked`
-    /// soundly (mirrors [`ElimTreeQuery::new`](crate::ElimTreeQuery)).
+    fn scratch_bytes(&self) -> usize {
+        self.fwd_dist.byte_length() + self.fwd_pred.byte_length()
+            + self.bwd_dist.byte_length() + self.bwd_pred.byte_length()
+            + self.in_forward_search_space.byte_length()
+            + (self.fwd_touched.capacity() + self.bwd_touched.capacity()
+                + self.up_path.capacity()) * std::mem::size_of::<u32>()
+    }
+
+    // Bound accumulated regional coverage between queries. A large individual
+    // query can use more scratch; its pages are released before the next one.
+    fn trim_scratch(&mut self) {
+        if self.scratch_bytes() > 32 * 1024 * 1024 {
+            self.fwd_dist.fill(0);
+            self.fwd_pred.fill(0);
+            self.bwd_dist.fill(0);
+            self.bwd_pred.fill(0);
+            self.in_forward_search_space.fill(false);
+            self.fwd_touched = Vec::new();
+            self.bwd_touched = Vec::new();
+            self.up_path = Vec::new();
+        }
+    }
+
+    /// Allocate the sparse page tables and the inverse-rank order once.
+    /// Panics if the CCH contains an invalid up-arc head or rank.
     #[must_use]
     #[allow(clippy::cast_possible_truncation)] // v < node_count ≤ u32::MAX by CCH invariant
     fn new(cch: &CchView<'_>) -> Self {
         let n = cch.node_count() as usize;
-        // The hot relaxation loops in `path` use `get_unchecked`/`_mut` to access
-        // `fwd_dist[y]`/`fwd_pred[y]`/`bwd_dist[y]`/`bwd_pred[y]` where `y` is an
-        // `up_head` value. Those arrays are sized to `node_count` below, so the
-        // accesses are sound iff every up-arc head is `< node_count`. A
-        // well-formed CCH guarantees this; validate it once here (O(arc_count),
-        // amortized to ~0 over many queries) so the unchecked accesses are sound
-        // for any `CchView`, however it was constructed.
+        // Reject malformed structures before the first query.
         assert!(
             cch.up_head
                 .iter()
@@ -292,11 +307,11 @@ impl PathQueryState {
 
         Self {
             order,
-            fwd_dist: vec![0; n],
-            fwd_pred: vec![0; n],
-            in_forward_search_space: vec![false; n],
-            bwd_dist: vec![0; n],
-            bwd_pred: vec![0; n],
+            fwd_dist: PagedVec::new(n, 0),
+            fwd_pred: PagedVec::new(n, 0),
+            in_forward_search_space: PagedVec::new(n, false),
+            bwd_dist: PagedVec::new(n, 0),
+            bwd_pred: PagedVec::new(n, 0),
             fwd_touched: Vec::new(),
             bwd_touched: Vec::new(),
             up_path: Vec::new(),
@@ -332,6 +347,7 @@ impl PathQueryState {
 
     #[allow(clippy::many_single_char_names)]
     fn prepare_source(&mut self, cch: &CchView<'_>, metric: &MetricView, source: u32) {
+        self.trim_scratch();
         // Cheap touched-only reset: restore exactly the entries the previous
         // query dirtied (NOT the whole node_count-sized arrays). `order` is
         // invariant and never reset.
@@ -375,15 +391,10 @@ impl PathQueryState {
                     for (&yv, &w) in heads.iter().zip(weights) {
                         let y = yv as usize;
                         let cand = dx.saturating_add(w);
-                        // SAFETY: `y` is an `up_head` value — a valid CCH node id
-                        // `< node_count == fwd_dist.len() == fwd_pred.len()`,
-                        // established once by the structural validation in
-                        // `PathQuery::new`.
-                        let slot = unsafe { fwd_dist.get_unchecked_mut(y) };
+                        let slot = &mut fwd_dist[y];
                         if cand < (*slot ^ INF_WEIGHT) {
                             *slot = cand ^ INF_WEIGHT;
-                            // SAFETY: same as above — `y < node_count`.
-                            unsafe { *fwd_pred.get_unchecked_mut(y) = x };
+                            fwd_pred[y] = x;
                             touched.push(yv);
                         }
                     }
@@ -446,15 +457,10 @@ impl PathQueryState {
                     for (&yv, &w) in heads.iter().zip(weights) {
                         let y = yv as usize;
                         let cand = dx.saturating_add(w);
-                        // SAFETY: `y` is an `up_head` value — a valid CCH node id
-                        // `< node_count == bwd_dist.len() == bwd_pred.len()`,
-                        // established once by the structural validation in
-                        // `PathQuery::new`.
-                        let slot = unsafe { bwd_dist.get_unchecked_mut(y) };
+                        let slot = &mut bwd_dist[y];
                         if cand < (*slot ^ INF_WEIGHT) {
                             *slot = cand ^ INF_WEIGHT;
-                            // SAFETY: same as above — `y < node_count`.
-                            unsafe { *bwd_pred.get_unchecked_mut(y) = x };
+                            bwd_pred[y] = x;
                             touched.push(yv);
                         }
                     }

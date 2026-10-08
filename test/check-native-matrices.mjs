@@ -101,6 +101,28 @@ try {
     maximumBoardings: 2, allowPreRideTransfers: false, retainFullFrontier: true,
     enableDirectWalkDominance: false, disableCache: true,
   }
+  // A short walk around a corner still traverses both projected edge pieces.
+  // The fast transit-query exit, street Route and Matrix must share that path.
+  const cornerOrigin = [0.00296, 38.0008], cornerDestination = [0.0032, 38.00098]
+  const cornerGeometry = [cornerOrigin, [0.003, 38.0008], [0.003, 38.001],
+    [0.0032, 38.001], cornerDestination].flat()
+  for (const reverse of [false, true]) for (const disableCache of [false, true]) {
+    const [origin, destination] = reverse ? [cornerDestination, cornerOrigin] : [cornerOrigin, cornerDestination]
+    const query = { ...scalarRequest, originLon: origin[0], originLat: origin[1],
+      destinationLon: destination[0], destinationLat: destination[1], enableDirectWalkDominance: true, disableCache }
+    const fast = street.routeEndpointsTimetableScalar(timetable, query)
+    assert.equal(fast.directWalkAccessDominates, true)
+    const direct = street.routePath({ ...query, maximumDistanceM: 400, maximumPoints: 160 })
+    const matrix = street.routeStreetMatrix({ originCoordinates: origin, destinationCoordinates: destination,
+      maximumDistanceM: 400, disableCache })
+    assert.deepEqual(fast.directWalkPath.coordinates, direct.coordinates,
+      'The fast short-walk branch must retain the same edge projections as direct routing.')
+    const expected = reverse ? Array.from({ length: cornerGeometry.length / 2 }, (_, i) =>
+      cornerGeometry.slice(cornerGeometry.length - 2 - 2 * i, cornerGeometry.length - 2 * i)).flat() : cornerGeometry
+    assert.equal(direct.coordinates.length, expected.length)
+    direct.coordinates.forEach((value, i) => assert(Math.abs(value - expected[i]) < 1e-10))
+    assert(Math.abs(fast.directWalkPath.distanceM - matrix.distancesM[0]) < .0002)
+  }
   for (const arriveBy of [false, true]) {
     const request = { ...scalarRequest, ...(arriveBy ? { arriveByEarliest: 0, arriveByDeadline: 1000 } : {}) }
     const ready = street.routeEndpointsTimetableScalar(timetable, request)

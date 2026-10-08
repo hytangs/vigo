@@ -4,7 +4,38 @@
 use super::*;
 
 #[cfg(all(feature = "standalone", not(feature = "node")))]
+pub(crate) struct RideCall {
+    pub stop: u32,
+    pub arrival: Option<u32>,
+    pub departure: Option<u32>,
+}
+
+#[cfg(all(feature = "standalone", not(feature = "node")))]
 impl TimetableKernel {
+    pub(crate) fn ride_calls(&self, trip: u32) -> Vec<RideCall> {
+        let trip = trip as usize;
+        let mut calls: Vec<RideCall> = vec![];
+        for i in self.trip_start[trip] as usize..self.trip_start[trip + 1] as usize {
+            if let Some(last) = calls
+                .last_mut()
+                .filter(|last| last.stop == self.from_stop[i])
+            {
+                last.departure = Some(self.departure_seconds[i]);
+            } else {
+                calls.push(RideCall {
+                    stop: self.from_stop[i],
+                    arrival: None,
+                    departure: Some(self.departure_seconds[i]),
+                });
+            }
+            calls.push(RideCall {
+                stop: self.to_stop[i],
+                arrival: Some(self.arrival_seconds[i]),
+                departure: None,
+            });
+        }
+        calls
+    }
     pub(crate) fn ride_departure(&self, trip: u32, board: f64) -> napi::Result<f64> {
         let trip = trip as usize;
         if trip + 1 < self.trip_start.len() {
@@ -245,6 +276,19 @@ pub(super) struct JourneyWorkspace {
 }
 
 impl JourneyWorkspace {
+    #[cfg(feature = "standalone")]
+    pub(super) fn rebind(&mut self, stops: usize, runs: usize) {
+        self.labels.clear();
+        for stop in self.boarding_stops.drain(..) {
+            self.boarding_labels[stop].clear();
+        }
+        self.labels.fronts.resize_with((stops * 4).max(self.labels.fronts.len()), Vec::new);
+        self.boarding_labels.resize_with(stops.max(self.boarding_labels.len()), Vec::new);
+        self.run_generation.resize(runs.max(self.run_generation.len()), 0);
+        self.run_generation.fill(0);
+        self.run_epoch = 0;
+        self.runs.clear();
+    }
     fn new(stops: usize, runs: usize) -> Self {
         Self {
             labels: Labels {
@@ -299,13 +343,13 @@ impl TimetableKernel {
         output: TimetableMatrixQueryResult,
     ) -> napi::Result<TimetableMatrixQueryResult> {
         let mut workspace = self
-            .journey_workspace
+            .query.journey_workspace
             .take()
             .unwrap_or_else(|| JourneyWorkspace::new(self.stop_count, self.run_count));
         let result = self.matrix_journeys_with_workspace(input, output, &mut workspace);
         // Restore even after a capacity/error return; the next source clears
         // every touched frontier before it can observe a previous query.
-        self.journey_workspace = Some(workspace);
+        self.query.journey_workspace = Some(workspace);
         result
     }
 
@@ -925,7 +969,7 @@ mod workspace_tests {
     #[test]
     fn journey_scratch_recovers_after_error_and_generation_wrap() {
         let mut kernel = kernel();
-        assert!(kernel.journey_workspace.is_none());
+        assert!(kernel.query.journey_workspace.is_none());
         for reverse in [false, true, false] {
             let mut bound = kernel.route_matrix_csa(query(reverse, false)).unwrap();
             bound.times[0] += if reverse { -1.0 } else { 1.0 };
@@ -934,7 +978,7 @@ mod workspace_tests {
                     .matrix_journeys(&query(reverse, true), bound)
                     .is_err()
             );
-            let workspace = kernel.journey_workspace.as_mut().unwrap();
+            let workspace = kernel.query.journey_workspace.as_mut().unwrap();
             workspace.run_epoch = u32::MAX;
             workspace.run_generation.fill(1);
             let result = kernel.route_matrix_csa(query(reverse, true)).unwrap();
