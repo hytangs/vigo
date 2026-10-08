@@ -373,7 +373,7 @@ export type FeedSummary = {
   stopMetrics: StopMetric[]
   mapPreview?: MapPreview
   routingStore?: {
-    schemaVersion: 'vigo.routing.store.v3'
+    schemaVersion: 'vigo.routing.store.v4'
     status: 'building' | 'ready' | 'failed'
     routingEligibility?: 'exact' | 'qualified' | 'unsupported'
     fileName: string
@@ -395,6 +395,9 @@ export type JobRecord = {
   status: 'queued' | 'running' | 'complete' | 'failed' | 'cancelled'
   progress: number
   createdAt: string
+  updatedAt?: string
+  phaseStartedAt?: string
+  work?: { completed: number; total?: number; unit: string }
   phase?: string
   detail?: string
   error?: string
@@ -407,6 +410,16 @@ export type JobRecord = {
     totalMs: number
     phaseTimingsMs: Record<string, number>
     completedAt: string
+    compiler?: {
+      processes: number
+      peakRssBytes: number
+      lastProcess: {
+        pid: number
+        exited: boolean
+        peakRssBytes: number
+        memory: { rss: number; heapTotal: number; heapUsed: number; external: number; arrayBuffers: number }
+      }
+    }
   }
   phaseTimingsMs?: Record<string, number>
   finishedAt?: string
@@ -492,12 +505,12 @@ export type Basemap = 'none' | 'offline' | 'minimal' | 'streets' | 'dark' | 'ter
 export type NetworkLens = 'network' | 'shape' | 'service' | 'transfer' | 'risk'
 
 export const basemapLabels: Record<Basemap, string> = {
-  none: 'No basemap',
-  offline: 'Local OSM',
-  minimal: 'CARTO Positron',
-  streets: 'OpenStreetMap Standard',
-  dark: 'CARTO Dark Matter',
-  terrain: 'CARTO Voyager',
+  none: 'No background',
+  offline: 'Local map',
+  minimal: 'Light map',
+  streets: 'Street map',
+  dark: 'Dark map',
+  terrain: 'Detailed map',
 }
 
 export const basemapShortLabels: Record<Basemap, string> = {
@@ -506,16 +519,16 @@ export const basemapShortLabels: Record<Basemap, string> = {
   minimal: 'Light',
   streets: 'OSM',
   dark: 'Dark',
-  terrain: 'Voyager',
+  terrain: 'Detailed',
 }
 
 export const basemapDescriptions: Record<Basemap, string> = {
-  none: 'Clean analysis canvas with no geographic backdrop.',
-  offline: 'A quiet offline map of main roads, rivers, lakes, and coastline from this City’s OSM import.',
-  minimal: 'Quiet light OSM-derived context for route and stop review.',
-  streets: 'Standard OpenStreetMap context; requires a network connection.',
-  dark: 'Dark OSM-derived context for this City.',
-  terrain: 'Modern, higher-contrast OSM-derived context with more place detail.',
+  none: 'Show only your network and routes.',
+  offline: 'Roads and water from this City. Works offline.',
+  minimal: 'A light backdrop from OpenFreeMap. Requires internet.',
+  streets: 'Street detail from OpenStreetMap. Requires internet.',
+  dark: 'A dark backdrop from OpenFreeMap. Requires internet.',
+  terrain: 'More place detail from OpenFreeMap. Requires internet.',
 }
 
 export const networkLensLabels: Record<NetworkLens, string> = {

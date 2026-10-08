@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Activity, AlertCircle, CheckCircle2, Clock3, LoaderCircle, X } from 'lucide-react'
-import { isActiveTask, taskPercent, type PreparationTask } from '../app/preparation'
+import { isActiveTask, type PreparationTask } from '../app/preparation'
+import { OperationProgress } from './OperationProgress'
 
 export function BackgroundTasks({ tasks, open, onOpenChange, onOpenData, onReconnect }: {
   tasks: PreparationTask[]
@@ -39,17 +40,19 @@ export function BackgroundTasks({ tasks, open, onOpenChange, onOpenData, onRecon
           {!tasks.length ? <p>No data preparation tasks yet. Add GTFS schedules and OSM streets in City.</p> : (
             <ul>{tasks.map((task) => {
               const working = isActiveTask(task)
-              const percent = taskPercent(task)
               const status = task.statusError ? 'Updates paused' : task.status === 'complete' ? 'Complete' : task.status === 'failed' ? 'Failed' : task.status === 'cancelled' ? 'Cancelled' : task.status === 'queued' ? 'Queued' : 'Processing'
               return <li key={task.id} className={`background-task ${task.status === 'failed' ? 'is-failed' : task.status === 'complete' ? 'is-complete' : ''}`}>
                 <div className="background-task-heading">
                   {task.statusError || task.status === 'failed' ? <AlertCircle size={16} /> : task.status === 'complete' ? <CheckCircle2 size={16} /> : working ? <LoaderCircle size={16} className="task-spinner" /> : <Clock3 size={16} />}
                   <strong>{task.kind === 'vehicle-schedules' ? 'Static vehicle schedules' : task.kind === 'street-runtime-prepare' ? 'Street routing' : task.kind === 'city-data-load' ? 'Loading City' : task.kind === 'national-osm-import' ? 'OSM street networks' : task.kind === 'national-gtfs-merge' ? 'Combining transit feeds' : 'GTFS schedules'}</strong>
-                  <span>{status}{working && !task.statusError && percent !== undefined ? ` · ${percent}%` : ''}</span>
+                  <span>{status}</span>
                 </div>
                 <small className="background-task-source">{task.label}</small>
                 <p>{task.statusError || task.error || task.phase || status}</p>
-                {working && !task.statusError ? <progress max={100} value={percent} aria-label={`${task.label} preparation progress`} /> : null}
+                {working || task.status === 'complete' ? <OperationProgress key={`${task.id}:${task.createdAt}`} phase={task.phase || status} work={task.work}
+                  profile={`${task.kind}:${task.label}`} startedAt={task.createdAt} phaseStartedAt={task.phaseStartedAt} updatedAt={task.updatedAt}
+                  finishedAt={task.finishedAt}
+                  complete={task.status === 'complete'} paused={Boolean(task.statusError)} compact /> : null}
                 {task.detail && task.detail !== task.error ? <small>{task.detail}</small> : null}
                 {task.statusError ? <button type="button" onClick={() => onReconnect(task)}>Reconnect to task</button> : null}
                 {!task.statusError && ['street-runtime-prepare', 'vehicle-schedules'].includes(task.kind) && task.status === 'failed' ? <button type="button" onClick={() => onReconnect(task)}>Retry preparation</button> : null}

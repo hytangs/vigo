@@ -50,23 +50,30 @@ async function throwApiError(response: Response): Promise<never> {
 }
 
 export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
-  })
-
-  if (!response.ok) await throwApiError(response)
-
-  return response.json() as Promise<T>
+  const timeoutMs = /^\/api\/(health|config|projects|storage)(?:\?|$)/.test(path) && (!init?.method || init.method === 'GET') ? 15_000 : 120_000
+  const timeout = new AbortController()
+  const timer = setTimeout(() => timeout.abort(), timeoutMs)
+  try {
+    const response = await fetch(path, {
+      ...init,
+      signal: init?.signal ? AbortSignal.any([init.signal, timeout.signal]) : timeout.signal,
+      headers: { 'Content-Type': 'application/json', ...init?.headers },
+    })
+    if (!response.ok) await throwApiError(response)
+    return await response.json() as T
+  } catch (error) {
+    if (timeout.signal.aborted && !init?.signal?.aborted) {
+      throw new Error(`VIGO did not respond within ${timeoutMs / 1000} seconds. Check the City folder and Background tasks before retrying.`, { cause: error })
+    }
+    throw error
+  } finally { clearTimeout(timer) }
 }
 
 export type ApiProgress = {
   phase: string
   progress: number
   detail: string
+  work?: { completed: number; total?: number; unit: string }
 }
 
 export async function apiProgressJson<T>(
@@ -75,67 +82,80 @@ export async function apiProgressJson<T>(
   onProgress: (progress: ApiProgress) => void,
   onPreliminary?: (event: T) => void,
 ): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/x-ndjson',
-      ...init.headers,
-    },
-  })
-  if (!response.ok) await throwApiError(response)
-  if (!response.body) throw new Error('The analysis progress stream is unavailable.')
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let lineParts: string[] = []
-  let result: T | undefined
-  const consume = (line: string) => {
-    if (!line.trim()) return
-    const event = JSON.parse(line) as {
-      type?: string
-      progress?: ApiProgress
-      error?: string
-    } & T
-    if (event.type === 'progress' && event.progress) {
-      onProgress(event.progress)
-      return
-    }
-    if (event.type === 'error') throw new Error(event.error || 'Analysis failed.')
-    if (event.type === 'preliminary') {
-      onPreliminary?.(event)
-      return
-    }
-    if (event.type === 'complete') result = event
-  }
-
-  const consumeChunk = (chunk: string) => {
-    let start = 0
-    let newline = chunk.indexOf('\n', start)
-    while (newline >= 0) {
-      lineParts.push(chunk.slice(start, newline))
-      consume(lineParts.join(''))
-      lineParts = []
-      if (result) return
-      start = newline + 1
-      newline = chunk.indexOf('\n', start)
-    }
-    if (start < chunk.length) lineParts.push(chunk.slice(start))
-  }
-
+  const idle = new AbortController()
+  let timer: ReturnType<typeof setTimeout>
+  const resetIdle = () => { clearTimeout(timer); timer = setTimeout(() => idle.abort(), 120_000) }
+  resetIdle()
   try {
-    while (!result) {
-      const next = await reader.read()
-      consumeChunk(decoder.decode(next.value, { stream: !next.done }))
-      if (next.done) break
+    const response = await fetch(path, {
+      ...init,
+      signal: init.signal ? AbortSignal.any([init.signal, idle.signal]) : idle.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/x-ndjson',
+        ...init.headers,
+      },
+    })
+    if (!response.ok) await throwApiError(response)
+    if (!response.body) throw new Error('The analysis progress stream is unavailable.')
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let lineParts: string[] = []
+    let result: T | undefined
+    const consume = (line: string) => {
+      if (!line.trim()) return
+      const event = JSON.parse(line) as {
+        type?: string
+        progress?: ApiProgress
+        error?: string
+      } & T
+      if (event.type === 'progress' && event.progress) {
+        onProgress(event.progress)
+        return
+      }
+      if (event.type === 'error') throw new Error(event.error || 'Analysis failed.')
+      if (event.type === 'preliminary') {
+        onPreliminary?.(event)
+        return
+      }
+      if (event.type === 'complete') result = event
     }
-    if (!result) consume(lineParts.join(''))
-    if (!result) throw new Error('The analysis stream ended before returning a surface.')
-    return result
-  } finally {
-    // A terminal event finishes the request. Parse or callback failures must
-    // also close the response so the server can cancel its remaining work.
-    await reader.cancel().catch(() => {})
-    reader.releaseLock()
-  }
+
+    const consumeChunk = (chunk: string) => {
+      let start = 0
+      let newline = chunk.indexOf('\n', start)
+      while (newline >= 0) {
+        lineParts.push(chunk.slice(start, newline))
+        consume(lineParts.join(''))
+        lineParts = []
+        if (result) return
+        start = newline + 1
+        newline = chunk.indexOf('\n', start)
+      }
+      if (start < chunk.length) lineParts.push(chunk.slice(start))
+    }
+
+    try {
+      while (!result) {
+        const next = await reader.read()
+        resetIdle()
+        consumeChunk(decoder.decode(next.value, { stream: !next.done }))
+        if (next.done) break
+      }
+      if (!result) consume(lineParts.join(''))
+      if (!result) throw new Error('The analysis stream ended before returning a surface.')
+      return result
+    } finally {
+      // A terminal event finishes the request. Parse or callback failures must
+      // also close the response so the server can cancel its remaining work.
+      await reader.cancel().catch(() => {})
+      reader.releaseLock()
+    }
+  } catch (error) {
+    if (idle.signal.aborted && !init.signal?.aborted) {
+      throw new Error('VIGO stopped responding for two minutes. Check Background tasks, then retry the analysis.', { cause: error })
+    }
+    throw error
+  } finally { clearTimeout(timer!) }
 }
