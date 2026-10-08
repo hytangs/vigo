@@ -13,8 +13,13 @@ import { resolveRealtimeTripTimes } from '../src/server/realtime-trip-timing.mjs
 
 assert.deepEqual(realtimeRequestFromSources(mbtaRealtimeSources), { sources: mbtaRealtimeSources })
 assert.equal(realtimeSources({ sources: [{ url: 'https://transit.example/updates', kind: 'tripUpdates' }] }).length, 1, 'Trip predictions do not require a vehicle feed.')
-assert.equal(realtimeSources({ url: mbtaRealtimeSources[0].url }).length, 3, 'Saved MBTA connections migrate.')
-assert.equal(realtimeSources({ url: `https://viz.rt.gtfs.zone/#rt_tu=${encodeURIComponent(mbtaRealtimeSources[1].url)}` })[0].kind, 'tripUpdates')
+for (const request of [
+  { url: mbtaRealtimeSources[0].url },
+  { url: `https://viz.rt.gtfs.zone/#rt_tu=${encodeURIComponent(mbtaRealtimeSources[1].url)}` },
+  { urls: { vehicles: mbtaRealtimeSources[0].url } },
+  { sources: mbtaRealtimeSources, url: mbtaRealtimeSources[0].url },
+]) assert.throws(() => realtimeSources(request), error => error.statusCode === 400 && /Use sources/.test(error.message))
+assert.deepEqual(realtimeSources({ sources: [mbtaRealtimeSources[0]] }), [mbtaRealtimeSources[0]], 'A single endpoint must not silently enable other feeds.')
 assert.equal(realtimeSources({ sources: [mbtaRealtimeSources[0], mbtaRealtimeSources[0]] }).length, 1)
 for (const url of ['', 'invalid', 'file:///tmp/feed.pb', 'https://user:secret@transit.example/feed']) {
   assert.throws(() => realtimeSources({ sources: [{ url }] }))

@@ -77,7 +77,7 @@ function Fixture() {
           routingOrigin={showOrigin ? origin : null} routingWaypoints={[]} routingDestination={inspection.point ?? journey?.destination} routingPlan={inspection.plan ?? journey}
           routingFocus={!analysisFocus} agencyFocus={false} analysisFocus={analysisFocus} reachResult={analysis} reachComparison={comparison} serviceDecomposition={null}
           scenarioView="baseline" scenarioRenderMode="area" scenarioCutoffMinutes={37.25} scenarioSketchStops={[]} scenarioSketchGeometry={[]}
-          scenarioPointPicking={false} cityPreviewLoading={false} routingActivity={{ kind: 'idle', title: '', detail: '', status: 'idle' }}
+          scenarioPointPicking={false} cityPreviewLoading={false} routingActivity={{ kind: 'idle', title: '', detail: '' }}
           onInspectReachPoint={inspection.inspect} analysisInspector={<ReachPointInspector inspection={inspection} />}
           onMapScopeChange={noop} onVehicleModeChange={noop} onScheduleTimeChange={noop} onScheduleServiceDateChange={noop}
           onSelectRoute={noop} onSelectStop={() => { throw Error('Hidden stops must not intercept destination selection') }} />

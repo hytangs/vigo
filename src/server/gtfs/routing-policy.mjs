@@ -141,7 +141,7 @@ export function transferDurationSeconds(transfer) {
 // Explicit pathway traversal times retain their source meaning (e.g. lifts).
 export function stationTransferDurationSeconds(transfer, from, to, speedKph = walkingSpeedKph) {
   const minimum = transferDurationSeconds(transfer)
-  if (!['gtfs_transfer', 'schedule_transfer'].includes(transfer?.provenance)
+  if (transfer?.provenance !== 'gtfs_transfer'
     || Number(transfer.transfer_type) === 3 || !from || !to) return minimum
   const coordinates = [from.lon, from.lat, to.lon, to.lat]
   if (!coordinates.every(Number.isFinite)) return minimum

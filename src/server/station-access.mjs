@@ -2,7 +2,7 @@ import { compileNativeStationPaths } from './native-routing-kernel.mjs'
 import { haversineKm } from './geometry-utils.mjs'
 import { stationTransferDurationSeconds } from './gtfs/routing-policy.mjs'
 
-const isPathway = source => source === 'gtfs_pathway' || source === 'schedule_pathway'
+const isPathway = source => source === 'gtfs_pathway'
 
 // Declared station traversal time need not equal street walking time (for
 // example, a moving walkway). Preserve both priced components and the directed

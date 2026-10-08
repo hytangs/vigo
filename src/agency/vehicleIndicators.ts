@@ -48,10 +48,6 @@ export function vehicleAlert(vehicle: RealtimeVehicle, snapshot: RealtimeSnapsho
   return vehicleAlerts(vehicle, snapshot, events, kind, now)[0]
 }
 
-export function vehicleGap(vehicle: RealtimeVehicle, snapshot: RealtimeSnapshot, events: OperationalEvent[], now = Date.now() / 1000) {
-  return vehicleAlert(vehicle, snapshot, events, 'spacing', now)
-}
-
 export function bunchingPartner(vehicle: RealtimeVehicle, snapshot: RealtimeSnapshot, event?: OperationalEvent, now = Date.now() / 1000) {
   if (event?.type !== 'bunching' || event.severity === 'info' || !event.evidence.leadingVehicleId || !event.evidence.tripIds?.[0]) return undefined
   if (!uniqueCurrentVehicle(vehicle, snapshot, now) || !eventFresh(event, now)) return undefined

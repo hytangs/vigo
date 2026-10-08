@@ -1,3 +1,4 @@
+import { buildScheduleFixture } from './helpers/schedule-fixture.mjs'
 import { withRealtimeQueryContext } from '../src/server/gtfs/realtime-timetable.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
@@ -9,7 +10,6 @@ import { buildNationalOsmStore, compactNationalOsmRuntimeStore, disposeNationalO
 import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
 import {
   buildNationalGtfsCityStore,
-  buildRoutingStoreFromSchedules,
   disposeNationalGtfsStore,
   routeNationalGtfsStore,
 } from '../src/server/national-gtfs-store.mjs'
@@ -52,7 +52,7 @@ async function build(name, stops, trips, feedId = 'fixture') {
   await fs.writeFile(schedulePath, JSON.stringify({
     stops, routes: [{ id: 'R', shortName: 'R', routeType: 3, scheduledTrips: trips }], transferRules: [],
   }))
-  await buildRoutingStoreFromSchedules({ schedules: [{ feedId, schedulePath }], outputPath: storePath })
+  await buildScheduleFixture({ schedules: [{ feedId, schedulePath }], outputPath: storePath })
   stores.push(storePath)
   return storePath
 }
@@ -514,7 +514,7 @@ try {
       schedules.push({ feedId, schedulePath })
     }
     const store = path.join(folder, 'feed-identities.sqlite')
-    await buildRoutingStoreFromSchedules({ schedules, outputPath: store })
+    await buildScheduleFixture({ schedules, outputPath: store })
     stores.push(store)
     const realtimeSnapshot = snapshot([update(namespaced('T', 'feed-b'), { delaySeconds: 300 })])
     const a = routeNationalGtfsStore(store, request(point('A', 0, 'feed-a'), point('D', .3, 'feed-a'), { realtimeSnapshot }))

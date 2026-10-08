@@ -1,9 +1,10 @@
+import { buildScheduleFixture } from './helpers/schedule-fixture.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import { buildRoutingStoreFromSchedules, disposeNationalGtfsStore, routeNationalGtfsStore, routeNationalGtfsMatrix, routeNationalGtfsReach } from '../src/server/national-gtfs-store.mjs'
+import { disposeNationalGtfsStore, routeNationalGtfsStore, routeNationalGtfsMatrix, routeNationalGtfsReach } from '../src/server/national-gtfs-store.mjs'
 import { routeNationalStreetStore, routeNationalStreetMatrix } from '../src/server/national-osm-store.mjs'
 import { recoverNativeArriveByBoundary } from '../src/server/gtfs/arrive-by-reconstruction.mjs'
 
@@ -33,7 +34,7 @@ try {
       }],
     })),
   }) + '\n')
-  await buildRoutingStoreFromSchedules({ schedules: [{ feedId: 'boundary', schedulePath }], outputPath: storePath })
+  await buildScheduleFixture({ schedules: [{ feedId: 'boundary', schedulePath }], outputPath: storePath })
   const forward = routeNationalGtfsStore(storePath, { ...query, timePreference: 'depart', departMinutes: 485 })
   assert.equal(forward.arriveMinutes, 490, 'Independent forward witness proves the later departure feasible')
   assert.equal(routeNationalGtfsStore(storePath, query).departMinutes, 485)

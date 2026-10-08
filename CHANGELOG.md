@@ -8,6 +8,8 @@ Use the native HTTP service with verified container deployment and slim CLI pack
 
 Remove old snapshot readers and the hidden `_route-stream` protocol. Use the documented `stream` command and rebuild prepared Cities for the standalone runtime. Python 0.5 requires Engine 0.5.
 
+Remove the retired JSON timetable compiler and weekday-template routing. Build current Cities from GTFS; legacy template stores now fail admission in both Node and Rust. Live-feed connections require explicit `sources` instead of old `url`/`urls` aliases. Remove unused status UI and duplicate routing-status classifiers, and include grouped-feed and City data interaction checks in the standard suites.
+
 ## 0.4.4
 
 Correct interior street routing and partial Reach boundaries; add destination-grid and walk-only Reach, prefer faster direct walks by default, and update Studio. See [release notes](docs/history.md#vigo-044).

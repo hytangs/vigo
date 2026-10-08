@@ -1,5 +1,4 @@
 import type { ServiceDay } from '../domain'
-import type { ActivityStatus } from './status'
 import type { RoutingExecutionStatus, RoutingPlan, RoutingTravelMode } from '../routingModel'
 
 export type RoutingServiceCoverage = {
@@ -27,19 +26,8 @@ export type RoutingServiceDateSuggestion = {
 
 export type RoutingActivity = {
   kind: 'idle' | 'preparing' | 'loading' | 'ready' | 'blocked' | 'error' | 'unsupported'
-  status: ActivityStatus
   title: string
   detail: string
-}
-
-const routingActivityStatuses: Record<RoutingActivity['kind'], ActivityStatus> = {
-  idle: 'idle',
-  preparing: 'preparing',
-  loading: 'preparing',
-  ready: 'ready',
-  blocked: 'blocked',
-  error: 'error',
-  unsupported: 'blocked',
 }
 
 type RoutingPlanRuntime = {
@@ -492,7 +480,6 @@ export function buildRoutingActivity({
     detail: string,
   ): RoutingActivity => ({
     kind,
-    status: routingActivityStatuses[kind],
     title,
     detail,
   })

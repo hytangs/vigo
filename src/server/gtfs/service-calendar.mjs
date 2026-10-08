@@ -9,7 +9,7 @@ export function yyyymmdd(value) {
   return Number(String(value ?? '').replace(/-/g, '')) || 0
 }
 
-export function activeServiceIds(db, date, serviceModel = 'exact-date', serviceDay = 'weekday') {
+export function activeServiceIds(db, date) {
   const dateNumber = yyyymmdd(date)
   const parsed = parseServiceDate(date)
   if (!dateNumber || !parsed) throw new Error('A valid service date is required for national routing.')
@@ -18,10 +18,6 @@ export function activeServiceIds(db, date, serviceModel = 'exact-date', serviceD
   for (const row of db.prepare('SELECT service_id, exception_type FROM calendar_dates WHERE date=?').all(dateNumber)) {
     if (row.exception_type === 1) services.add(row.service_id)
     else if (row.exception_type === 2) services.delete(row.service_id)
-  }
-  if (!services.size && serviceModel === 'weekday-template') {
-    const templateColumn = serviceDay === 'saturday' ? 'saturday' : serviceDay === 'sunday' ? 'sunday' : 'monday'
-    for (const row of db.prepare(`SELECT service_id FROM calendar WHERE ${templateColumn}=1`).all()) services.add(row.service_id)
   }
   return services
 }
@@ -65,7 +61,7 @@ export function servicesForDate(store, serviceDate, serviceDay = 'weekday') {
   const serviceKey = `${serviceDate}|${serviceDay}`
   const cached = store.servicesByDate.get(serviceKey)
   if (cached) return cached
-  const services = activeServiceIds(store.db, serviceDate, store.serviceModel, serviceDay)
+  const services = activeServiceIds(store.db, serviceDate)
   boundedCacheSet(store.servicesByDate, serviceKey, services, 512)
   return services
 }
@@ -166,64 +162,6 @@ function resolveServiceDateUncached(store, requestedServiceDate, serviceDay = 'w
   const requestedDate = parseServiceDate(requestedServiceDate)
   if (!requestedDate) throw new Error('A valid service date is required for national routing.')
   const requested = formatServiceDate(requestedDate)
-  if (store.serviceModel === 'weekday-template') {
-    const exactRequestedServices = activeServiceIds(store.db, requested, 'exact-date', serviceDay)
-    const templateServices = exactRequestedServices.size ? exactRequestedServices : servicesForDate(store, requested, serviceDay)
-    const expectedScopes = new Set(store.sourceScopes)
-    const requestedScopeCount = activeServiceScopes(exactRequestedServices, expectedScopes).size
-    const exact = {
-      requestedServiceDate: requested,
-      resolvedServiceDate: requested,
-      serviceDateFallbackApplied: false,
-      serviceDateTemplateApplied: exactRequestedServices.size === 0 && templateServices.size > 0,
-      requestedServiceScopeCount: requestedScopeCount,
-      resolvedServiceScopeCount: requestedScopeCount,
-      availableServiceScopeCount: expectedScopes.size,
-      services: templateServices,
-    }
-    if (exactRequestedServices.size || !allowFallback) return exact
-    const cacheKey = `weekday-template|${requested}|${serviceDay}`
-    const cached = boundedCacheGet(store.serviceDateResolutionCache, cacheKey)
-    if (cached) return cached
-    let best = null
-    for (const candidate of serviceDateCandidates(store, requested)) {
-      const services = activeServiceIds(store.db, candidate, 'exact-date', serviceDay)
-      if (!services.size) continue
-      const candidateDate = parseServiceDate(candidate)
-      const distanceDays = Math.abs(candidateDate.getTime() - requestedDate.getTime()) / 86_400_000
-      if (
-        best
-        && (distanceDays > best.distanceDays
-          || (distanceDays === best.distanceDays && services.size < best.services.size)
-          || (distanceDays === best.distanceDays && services.size === best.services.size && candidate <= best.resolvedServiceDate))
-      ) continue
-      best = {
-        requestedServiceDate: requested,
-        resolvedServiceDate: candidate,
-        serviceDateFallbackApplied: candidate !== requested,
-        serviceDateTemplateApplied: false,
-        requestedServiceScopeCount: requestedScopeCount,
-        resolvedServiceScopeCount: activeServiceScopes(services, expectedScopes).size,
-        availableServiceScopeCount: expectedScopes.size,
-        services,
-        distanceDays,
-      }
-    }
-    const resolution = best
-      ? {
-        requestedServiceDate: best.requestedServiceDate,
-        resolvedServiceDate: best.resolvedServiceDate,
-        serviceDateFallbackApplied: best.serviceDateFallbackApplied,
-        serviceDateTemplateApplied: best.serviceDateTemplateApplied,
-        requestedServiceScopeCount: best.requestedServiceScopeCount,
-        resolvedServiceScopeCount: best.resolvedServiceScopeCount,
-        availableServiceScopeCount: best.availableServiceScopeCount,
-        services: best.services,
-      }
-      : exact
-    boundedCacheSet(store.serviceDateResolutionCache, cacheKey, resolution, 256)
-    return resolution
-  }
   const requestedServices = servicesForDate(store, requested, serviceDay)
   const expectedScopes = new Set(store.sourceScopes)
   const requestedScopeCount = activeServiceScopes(requestedServices, expectedScopes).size
@@ -231,7 +169,6 @@ function resolveServiceDateUncached(store, requestedServiceDate, serviceDay = 'w
     requestedServiceDate: requested,
     resolvedServiceDate: requested,
     serviceDateFallbackApplied: false,
-    serviceDateTemplateApplied: false,
     requestedServiceScopeCount: requestedScopeCount,
     resolvedServiceScopeCount: requestedScopeCount,
     availableServiceScopeCount: expectedScopes.size,
@@ -263,7 +200,6 @@ function resolveServiceDateUncached(store, requestedServiceDate, serviceDay = 'w
       requestedServiceDate: requested,
       resolvedServiceDate: candidate,
       serviceDateFallbackApplied: candidate !== requested,
-      serviceDateTemplateApplied: false,
       requestedServiceScopeCount: requestedScopeCount,
       resolvedServiceScopeCount: scopeCount,
       availableServiceScopeCount: expectedScopes.size,
@@ -275,7 +211,6 @@ function resolveServiceDateUncached(store, requestedServiceDate, serviceDay = 'w
     requestedServiceDate: best.requestedServiceDate,
     resolvedServiceDate: best.resolvedServiceDate,
     serviceDateFallbackApplied: best.serviceDateFallbackApplied,
-    serviceDateTemplateApplied: best.serviceDateTemplateApplied,
     requestedServiceScopeCount: best.requestedServiceScopeCount,
     resolvedServiceScopeCount: best.resolvedServiceScopeCount,
     availableServiceScopeCount: best.availableServiceScopeCount,
@@ -317,7 +252,6 @@ export function serviceDateDiagnostics(resolution) {
     requestedServiceDate: resolution.requestedServiceDate,
     resolvedServiceDate: resolution.resolvedServiceDate,
     serviceDateFallbackApplied: resolution.serviceDateFallbackApplied,
-    serviceDateTemplateApplied: resolution.serviceDateTemplateApplied === true,
     requestedServiceScopeCount: resolution.requestedServiceScopeCount,
     resolvedServiceScopeCount: resolution.resolvedServiceScopeCount,
     availableServiceScopeCount: resolution.availableServiceScopeCount,
@@ -340,7 +274,6 @@ export function lightweightServiceAnchorDateResolution(store, request) {
       requestedServiceDate,
       resolvedServiceDate: requestedServiceDate,
       serviceDateFallbackApplied: false,
-      serviceDateTemplateApplied: false,
       requestedServiceScopeCount: 0,
       resolvedServiceScopeCount: 0,
       availableServiceScopeCount: 0,

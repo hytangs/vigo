@@ -1,8 +1,9 @@
+import { buildScheduleFixture } from './helpers/schedule-fixture.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { buildRoutingStoreFromSchedules, disposeNationalGtfsStore, routeNationalGtfsStore, routeNationalGtfsMatrix, prepareNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
+import { disposeNationalGtfsStore, routeNationalGtfsStore, routeNationalGtfsMatrix, prepareNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
 import { nationalRoutingAccessPolicy, nationalRoutingAccessPolicyIdentity, stationTransferDurationSeconds } from '../src/server/gtfs/routing-policy.mjs'
 import { stableJson } from '../src/server/routing-plan-identity.mjs'
 import { decodeRoutingSnapshot, encodeRoutingSnapshot } from '../src/server/routing-snapshot.mjs'
@@ -40,7 +41,7 @@ try {
         { stopId: to, sequence: 2, arrivalMinutes: arrival, departureMinutes: arrival },
       ] }] })) }
   await fs.writeFile(schedulePath, JSON.stringify(schedule))
-  await buildRoutingStoreFromSchedules({ schedules: [{ feedId: scope, schedulePath }], outputPath: storePath })
+  await buildScheduleFixture({ schedules: [{ feedId: scope, schedulePath }], outputPath: storePath })
   const request = { origin: point('O'), destination: point('D'), departMinutes: 478,
     serviceDate: '2026-07-15', serviceDay: 'weekday', maxWalkKm: .05,
     requireTransitRide: true, maxTransfers: 1, horizonMinutes: 60, disableCache: true }

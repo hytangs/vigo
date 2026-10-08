@@ -1,3 +1,4 @@
+import { routingResultStatus } from './gtfs/route-results.mjs'
 import { cityCaseFeedIds, assertCaseRouteSources } from './gtfs/source-selection.mjs'
 import packageJson from '../../package.json' with { type: 'json' }
 import { NationalRouteWorkerPool, makeAbortError, maxNationalRouteWorkerStores } from './runtime/route-worker-pool.mjs'
@@ -3987,16 +3988,6 @@ function apiErrorPayload(error) {
   }
 }
 
-function routingStatusForPlan(plan) {
-  if (plan?.status === 'ready') return 'ready'
-  const code = String(plan?.diagnostics?.failure?.code ?? plan?.diagnostics?.failureCode ?? '')
-  const category = String(plan?.diagnostics?.failure?.category ?? plan?.diagnostics?.failureCategory ?? '')
-  if (code.includes('stale') || code.includes('artifact')) return 'stale'
-  if (code.includes('cancel')) return 'cancelled'
-  if (category === 'unsupported_feature' || code.includes('unsupported')) return 'unsupported'
-  return 'blocked'
-}
-
 function decorateRoutingPlan(plan) {
   if (!plan || typeof plan !== 'object') return plan
   const diagnostics = plan.diagnostics ?? {}
@@ -4004,7 +3995,7 @@ function decorateRoutingPlan(plan) {
     ...plan,
     diagnostics: {
       ...diagnostics,
-      routingStatus: diagnostics.routingStatus ?? routingStatusForPlan(plan),
+      routingStatus: diagnostics.routingStatus ?? routingResultStatus(plan),
       routingStatusSchemaVersion: routingStatusSchemaVersion,
     },
   }

@@ -60,7 +60,6 @@ import {
   servicesForDate,
   serviceInstancesForQuery,
   earlierArrivalClock,
-  yyyymmdd,
 } from './gtfs/service-calendar.mjs'
 import {
   buildStopAccessIndex,
@@ -1060,191 +1059,6 @@ function linkNearbyTransferStops(db, options = {}) {
       }
   }
   return { candidateCount, inferredTransferCount: 0, stopCount: stopPoints.length }
-}
-
-function scopedId(scope, value) {
-  return `${scope}\u001f${String(value ?? '')}`
-}
-
-function calendarWeekdays(trip) {
-  const explicit = Array.isArray(trip.serviceCalendar?.weekdays) ? trip.serviceCalendar.weekdays : []
-  if (explicit.length) return new Set(explicit.map(Number))
-  const days = new Set()
-  for (const serviceDay of trip.serviceDays ?? []) {
-    if (serviceDay === 'weekday') [1, 2, 3, 4, 5].forEach((day) => days.add(day))
-    else if (serviceDay === 'saturday') days.add(6)
-    else if (serviceDay === 'sunday') days.add(0)
-  }
-  return days.size ? days : new Set([0, 1, 2, 3, 4, 5, 6])
-}
-
-export async function buildRoutingStoreFromSchedules({ schedules, outputPath, onProgress }) {
-  const startedAt = performance.now()
-  if (!Array.isArray(schedules) || !schedules.length) throw new Error('At least one persisted routing schedule is required.')
-  const orderedSchedules = schedules
-    .map((descriptor, index) => ({
-      ...descriptor,
-      feedId: String(descriptor.feedId || `feed-${index + 1}`),
-      schedulePath: path.resolve(descriptor.schedulePath),
-    }))
-    .sort((left, right) => left.feedId.localeCompare(right.feedId) || left.schedulePath.localeCompare(right.schedulePath))
-  if (new Set(orderedSchedules.map((descriptor) => descriptor.feedId)).size !== orderedSchedules.length) {
-    throw new Error('Persisted routing schedule feed IDs must be unique.')
-  }
-  await fsp.mkdir(path.dirname(outputPath), { recursive: true })
-  const tempPath = `${outputPath}.building`
-  await fsp.rm(tempPath, { force: true })
-  const db = new DatabaseSync(tempPath)
-  configureBuildDatabase(db)
-  createRoutingStoreSchema(db)
-  const insertStop = db.prepare('INSERT OR REPLACE INTO stops VALUES(?,?,?,?,?,?,?)')
-  const insertRoute = db.prepare('INSERT OR IGNORE INTO routes VALUES(?,?,?,?,?)')
-  const insertTrip = db.prepare('INSERT OR IGNORE INTO trips VALUES(?,?,?,?)')
-  const insertCalendar = db.prepare('INSERT OR IGNORE INTO calendar VALUES(?,?,?,?,?,?,?,?,?,?)')
-  const insertCalendarDate = db.prepare('INSERT OR REPLACE INTO calendar_dates VALUES(?,?,?)')
-  const insertConnection = db.prepare('INSERT OR IGNORE INTO connections VALUES(?,?,?,?,?,?,?,?,?)')
-  const insertTransfer = db.prepare('INSERT OR IGNORE INTO transfers VALUES(?,?,?,?)')
-  const insertTransferProvenance = db.prepare('INSERT OR IGNORE INTO transfer_provenance VALUES(?,?,?,NULL,NULL)')
-  let routeCount = 0
-  let stopCount = 0
-  let tripCount = 0
-  let stopTimeCount = 0
-  let connectionCount = 0
-  let transferCount = 0
-  let sourceBytes = 0
-  const sourceHasher = crypto.createHash('sha256')
-  sourceHasher.update('vigo.routing.schedule-sources.v1\u0000')
-  try {
-    for (let scheduleIndex = 0; scheduleIndex < orderedSchedules.length; scheduleIndex += 1) {
-      const descriptor = orderedSchedules[scheduleIndex]
-      const scope = descriptor.feedId
-      report(onProgress, 'Reading persisted timetable', scheduleIndex / orderedSchedules.length * 0.55, path.basename(descriptor.schedulePath))
-      const scheduleSource = await fsp.readFile(descriptor.schedulePath, 'utf8')
-      sourceBytes += Buffer.byteLength(scheduleSource)
-      sourceHasher.update(`${scope}\u0000${scheduleSource.length}\u0000`)
-      sourceHasher.update(scheduleSource)
-      sourceHasher.update('\u0000')
-      const schedule = JSON.parse(scheduleSource)
-      runTransaction(db, () => {
-        for (const stop of schedule.stops ?? []) {
-          const stopId = scopedId(scope, stop.id)
-          const parentStation = stop.parentStationId ? scopedId(scope, stop.parentStationId) : null
-          insertStop.run(stopId, stop.name || stop.id, numeric(stop.lat, null), numeric(stop.lon, null), parentStation, numeric(stop.locationType, 0), stop.platformCode || null)
-          stopCount += 1
-        }
-      })
-      let batchRows = 0
-      db.exec('BEGIN IMMEDIATE')
-      for (const route of schedule.routes ?? []) {
-        const routeId = scopedId(scope, route.routeId || route.id)
-        const insertedRoute = insertRoute.run(routeId, route.shortName || '', route.longName || '', numeric(route.routeType, 3), String(route.color || '').replace(/^#/, ''))
-        routeCount += Number(insertedRoute.changes ?? 0)
-        for (const trip of route.scheduledTrips ?? []) {
-          const tripId = scopedId(scope, trip.tripId)
-          const serviceId = scopedId(scope, trip.serviceId || `${trip.patternId || route.id}:service`)
-          const insertedTrip = insertTrip.run(tripId, routeId, serviceId, trip.directionId ?? route.directionId ?? null)
-          if (!Number(insertedTrip.changes ?? 0)) continue
-          tripCount += 1
-          const weekdays = calendarWeekdays(trip)
-          insertCalendar.run(serviceId, Number(weekdays.has(1)), Number(weekdays.has(2)), Number(weekdays.has(3)), Number(weekdays.has(4)), Number(weekdays.has(5)), Number(weekdays.has(6)), Number(weekdays.has(0)), yyyymmdd(trip.serviceCalendar?.startDate) || 19000101, yyyymmdd(trip.serviceCalendar?.endDate) || 29991231)
-          for (const date of trip.serviceCalendar?.addedDates ?? []) insertCalendarDate.run(serviceId, yyyymmdd(date), 1)
-          for (const date of trip.serviceCalendar?.removedDates ?? []) insertCalendarDate.run(serviceId, yyyymmdd(date), 2)
-          const times = trip.stopTimes ?? []
-          stopTimeCount += times.length
-          for (let index = 1; index < times.length; index += 1) {
-            const from = times[index - 1]
-            const to = times[index]
-            const departure = numeric(from.departureMinutes ?? from.arrivalMinutes, NaN) * 60
-            const arrival = numeric(to.arrivalMinutes ?? to.departureMinutes, NaN) * 60
-            if (!Number.isFinite(departure) || !Number.isFinite(arrival) || arrival < departure) continue
-            insertConnection.run(Math.round(departure), Math.round(arrival), tripId, routeId, serviceId, trip.directionId ?? route.directionId ?? null, scopedId(scope, from.stopId), scopedId(scope, to.stopId), numeric(from.sequence, index))
-            connectionCount += 1
-            batchRows += 1
-            if (batchRows >= 250_000) {
-              db.exec('COMMIT; BEGIN IMMEDIATE')
-              batchRows = 0
-              report(onProgress, 'Compiling transit connections', 0.55 + Math.min(0.25, connectionCount / Math.max(1, schedule.stopTimeCount ?? stopTimeCount) * 0.25), `${connectionCount.toLocaleString()} connections`)
-            }
-          }
-        }
-      }
-      db.exec('COMMIT')
-      runTransaction(db, () => {
-        for (const transfer of schedule.transferRules ?? []) {
-          const fromStopId = scopedId(scope, transfer.fromStopId)
-          const toStopId = scopedId(scope, transfer.toStopId)
-          const result = insertTransfer.run(fromStopId, toStopId, numeric(transfer.transferType, 0), numeric(transfer.minTransferTimeSeconds, 0))
-          if (Number(result.changes ?? 0)) insertTransferProvenance.run(fromStopId, toStopId, 'schedule_transfer')
-          transferCount += Number(result.changes ?? 0)
-        }
-        for (const pathway of schedule.pathways ?? []) {
-          const fromStopId = scopedId(scope, pathway.fromStopId)
-          const toStopId = scopedId(scope, pathway.toStopId)
-          const result = insertTransfer.run(fromStopId, toStopId, 0, Math.max(0, numeric(pathway.traversalTimeSeconds, 0)))
-          if (Number(result.changes ?? 0)) insertTransferProvenance.run(fromStopId, toStopId, 'schedule_pathway')
-          transferCount += Number(result.changes ?? 0)
-          if (pathway.isBidirectional) {
-            const reverse = insertTransfer.run(toStopId, fromStopId, 0, Math.max(0, numeric(pathway.traversalTimeSeconds, 0)))
-            if (Number(reverse.changes ?? 0)) insertTransferProvenance.run(toStopId, fromStopId, 'schedule_pathway')
-            transferCount += Number(reverse.changes ?? 0)
-          }
-        }
-      })
-    }
-
-    report(onProgress, 'Linking nearby interchanges', 0.82)
-    const nearbyTransfers = linkNearbyTransferStops(db)
-    report(onProgress, 'Building routing indexes', 0.9)
-    createRoutingStoreIndexes(db)
-    const sourceFingerprint = sourceHasher.digest('hex')
-    const metadata = {
-      schemaVersion: storeSchemaVersion,
-      storeId: sourceFingerprint.slice(0, 20),
-      sourceFingerprint,
-      sourceFile: orderedSchedules.map((item) => path.basename(item.schedulePath)).join(', '),
-      sourceBytes,
-      builtAt: new Date().toISOString(),
-      routeCount,
-      stopCount,
-      tripCount,
-      stopTimeCount,
-      connectionCount,
-      minimumServiceTimeSeconds: Number(db.prepare('SELECT COALESCE(MIN(departure),0) AS earliest FROM connections').get().earliest),
-      maximumServiceTimeSeconds: Number(db.prepare('SELECT COALESCE(MAX(arrival),0) AS latest FROM connections').get().latest),
-      connectionPermissionCount: 0,
-      boardingAlightingModel: 'sparse-connection-permissions-v1',
-      departureIndexState: 'ready',
-      stopAccessRoleIndexVersion,
-      stopAccessRoleCount: Number(db.prepare('SELECT COUNT(*) AS count FROM stop_access_roles').get()?.count ?? 0),
-      calendarDateCount: Number(db.prepare('SELECT COUNT(*) AS count FROM calendar_dates').get().count),
-      transferCount,
-      frequencyCount: 0,
-      shapePointCount: 0,
-      routeServiceCatalogVersion: routeServiceCatalogSchemaVersion,
-      routeServiceCatalogBuiltAt: new Date().toISOString(),
-      serviceModel: 'weekday-template',
-      blockingRoutingFeatures: [],
-      routingLimitations: [],
-      transferSemanticsVersion,
-      transferGeneration: {
-        strategy: 'source_literal_only',
-        exact: true,
-        maxDistanceKm: nearbyTransferMaxDistanceKm,
-        radialCandidateCount: nearbyTransfers.candidateCount,
-        inferredTransferCount: 0,
-      },
-    }
-    runTransaction(db, () => {
-      const insert = db.prepare('INSERT OR REPLACE INTO metadata VALUES(?,?)')
-      for (const [key, value] of Object.entries(metadata)) insert.run(key, JSON.stringify(value))
-    })
-    const { staticTopology, outputStats } = await finalizeRoutingStoreBuild(db, tempPath, outputPath, onProgress)
-    report(onProgress, 'Routing store ready', 1, `${Math.round(outputStats.size / 1024 / 1024).toLocaleString()} MB`)
-    return { ...metadata, staticTopology, path: outputPath, bytes: outputStats.size, buildSeconds: Number(((performance.now() - startedAt) / 1000).toFixed(3)) }
-  } catch (error) {
-    await cleanupFailedRoutingStoreBuild([db], tempPath, outputPath)
-    throw error
-  }
 }
 
 export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress, forCity = false, wheelchair = false }) {
@@ -2502,7 +2316,7 @@ export function expandParentStationTransfers(rawTransfers, stopRecords, stationM
       declaredPathwayStops.add(rawTransfer.from_stop_id)
       declaredPathwayStops.add(rawTransfer.to_stop_id)
     }
-    if (['gtfs_transfer', 'schedule_transfer'].includes(rawTransfer.provenance)
+    if (rawTransfer.provenance === 'gtfs_transfer'
       && Number(rawTransfer.transfer_type) === 2
       && (numeric(stopRecords.get(rawTransfer.from_stop_id)?.location_type, 0) === 1
         || numeric(stopRecords.get(rawTransfer.to_stop_id)?.location_type, 0) === 1)) {
@@ -5193,7 +5007,7 @@ function activeServiceKernelTransferWorkPhases(scalarSearch, certifierSearch = n
 function materializeActiveServiceKernelBlockedPlan(store, search, context) {
   if (!search?.supported || search.status !== 'blocked') return null
   const {
-    request, departureMinutes, horizon, maxWalkKm, serviceDateResolution, services,
+    request, departureMinutes, maxWalkKm, serviceDateResolution, services,
     startedAt, accessPreparationMs, serviceActivationMs, serviceKernelPreparationMs = 0,
     realtimeTimetable = null,
   } = context
@@ -7221,7 +7035,7 @@ function routeNationalGtfsArriveByStore(
     store,
     request.serviceDate,
     request.serviceDay,
-    request.__serviceDateFallbackRetry === true || (store.serviceModel === 'weekday-template' && request.allowServiceDateFallback === true),
+    request.__serviceDateFallbackRetry === true,
   )
   if (requiredServiceCoverageIncomplete(request, serviceDateResolution)) {
     const retry = fallbackRetryRequest(store, request)
@@ -8087,7 +7901,7 @@ export function routeNationalGtfsStore(storePath, request) {
       store,
       request.serviceDate,
       request.serviceDay,
-      request.__serviceDateFallbackRetry === true || (store.serviceModel === 'weekday-template' && request.allowServiceDateFallback === true),
+      request.__serviceDateFallbackRetry === true,
     )
     if (requiredServiceCoverageIncomplete(request, serviceDateResolution)) {
       const retry = fallbackRetryRequest(store, request)

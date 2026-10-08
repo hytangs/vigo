@@ -1,17 +1,5 @@
 import { type ReactNode } from 'react'
 import { classNames } from '../domain'
-import { activityStatusMeta, type ActivityStatus } from '../app/status'
-
-const statusClassNames: Record<ActivityStatus, string> = {
-  idle: 'is-idle',
-  preparing: 'is-preparing',
-  ready: 'is-ready',
-  stale: 'is-stale',
-  blocked: 'is-blocked',
-  error: 'is-error',
-  cancelled: 'is-cancelled',
-}
-
 export function VigoBrandMark() {
   return (
     <span className="vigo-brand-mark" aria-hidden="true">
@@ -45,27 +33,6 @@ export function IconButton({
     >
       {children}
     </button>
-  )
-}
-
-export function StatusBadge({
-  status,
-  label,
-  title,
-}: {
-  status: ActivityStatus
-  label?: string
-  title?: string
-}) {
-  const meta = activityStatusMeta(status)
-  return (
-    <span
-      className={classNames('status-badge', statusClassNames[status])}
-      data-status={status}
-      title={title}
-    >
-      {label ?? meta.label}
-    </span>
   )
 }
 

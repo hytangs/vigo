@@ -1,9 +1,9 @@
+import { buildScheduleFixture } from './helpers/schedule-fixture.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import {
-  buildRoutingStoreFromSchedules,
   disposeNationalGtfsStore,
   routeNationalGtfsStore,
 } from '../src/server/national-gtfs-store.mjs'
@@ -48,7 +48,7 @@ await fs.writeFile(schedulePath, JSON.stringify({
   transferRules: [],
 }))
 
-await buildRoutingStoreFromSchedules({
+await buildScheduleFixture({
   schedules: [{ feedId: 'fixture', schedulePath }],
   outputPath: storePath,
 })
@@ -288,7 +288,7 @@ for (const minTransferTimeSeconds of [60, 61, 120, Infinity]) {
     fromStopId: 'B', toStopId: 'B', transferType: minTransferTimeSeconds === Infinity ? 3 : 2,
     ...(Number.isFinite(minTransferTimeSeconds) ? { minTransferTimeSeconds } : {}),
   }] }))
-  await buildRoutingStoreFromSchedules({ schedules: [{ feedId: 'fixture', schedulePath: transferSchedule }], outputPath: transferStore })
+  await buildScheduleFixture({ schedules: [{ feedId: 'fixture', schedulePath: transferSchedule }], outputPath: transferStore })
   const anchored = { ...request, maxWalkKm: 0.2,
     origin: { coordinate: [0, 0], source: 'stop', stopId: 'fixture\u001fA' },
     destination: { coordinate: [0.2, 0], source: 'stop', stopId: 'fixture\u001fC' },
@@ -337,7 +337,7 @@ for (const minimum of [0, 180, 181, Infinity]) {
       ...(minimum === 0 ? [{ fromStopId: 'B', toStopId: 'B', transferType: 2, minTransferTimeSeconds: 400 }] : []),
     ],
   }))
-  await buildRoutingStoreFromSchedules({ schedules: [{ feedId: 'fixture', schedulePath: interchangePath }], outputPath: interchangeStore })
+  await buildScheduleFixture({ schedules: [{ feedId: 'fixture', schedulePath: interchangePath }], outputPath: interchangeStore })
   for (const updated of [[], ['bus'], ['train'], ['bus', 'train']]) {
     const plan = routeNationalGtfsStore(interchangeStore, { ...request, departMinutes: 480, maxWalkKm: .2,
       origin: { coordinate: [0, 0], source: 'stop', stopId: 'fixture\u001fA' },
@@ -363,7 +363,7 @@ await fs.writeFile(dwellSchedule, JSON.stringify({
     stopTimes: calls.map(([stopId, arrivalMinutes, departureMinutes], i) => ({ stopId, sequence: i + 1, arrivalMinutes, departureMinutes })),
   })) }], transferRules: [],
 }))
-await buildRoutingStoreFromSchedules({ schedules: [{ feedId: 'fixture', schedulePath: dwellSchedule }], outputPath: dwellStore })
+await buildScheduleFixture({ schedules: [{ feedId: 'fixture', schedulePath: dwellSchedule }], outputPath: dwellStore })
 const stopPoint = (id, i) => ({ coordinate: [i * 0.1, 0], source: 'stop', stopId: `fixture\u001f${id}` })
 const dwellRequest = { ...request, maxWalkKm: 0.2, origin: stopPoint('A', 0), destination: stopPoint('D', 3),
   realtimeSnapshot: realtime([{ tripId: 'dwell', startDate: '20260821', delaySeconds: 0 }]),

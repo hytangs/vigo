@@ -47,7 +47,7 @@ export async function inspectOperationalService({ context, state, snapshot, dire
   const atStop = row => !stopSet.size || stopSet.has(row.stopId)
   const selected = (state.measurements?.departures ?? []).filter(row => tripSelected(row) && atStop(row))
   const reports = state.trips.filter(tripSelected)
-  const selectedRoutes = scope.routeIds.length ? scope.routeIds : [...new Set([...selected, ...reports.filter(row => !stopSet.size)].map(row => row.routeId).filter(Boolean))]
+  const selectedRoutes = scope.routeIds.length ? scope.routeIds : [...new Set([...selected, ...(stopSet.size ? [] : reports)].map(row => row.routeId).filter(Boolean))]
   const aspect = args.aspect || 'diagnosis'
   if (!['diagnosis', 'outlook'].includes(aspect)) return inspectService({ context, state, snapshot, directory }, {
     ...scope, routeIds: allNetwork ? [...context.routeIndex.keys()] : selectedRoutes, aspect,

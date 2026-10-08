@@ -89,7 +89,7 @@ export type RoutingLeg = {
   travelMode?: RoutingTravelMode
   scheduleMode?: Exclude<RoutingScheduleMode, 'none'>
   walkSource?: RoutingWalkSource
-  transferSource?: 'gtfs_transfer' | 'gtfs_pathway' | 'schedule_transfer' | 'schedule_pathway' | 'osm_certified_radial' | 'parent_station_fallback'
+  transferSource?: 'gtfs_transfer' | 'gtfs_pathway' | 'osm_certified_radial' | 'parent_station_fallback'
   streetPathVerified?: boolean
   streetSegmentVerified?: boolean
   stationAccessStatus?: 'source_path' | 'unverified'

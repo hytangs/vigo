@@ -1,10 +1,11 @@
+import { buildScheduleFixture } from './helpers/schedule-fixture.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import {
-  buildRoutingStoreFromSchedules, disposeNationalGtfsStore, prepareNationalGtfsRoutingContext,
+  disposeNationalGtfsStore, prepareNationalGtfsRoutingContext,
   routeNationalGtfsStore, routeNationalGtfsDepartureWindow, routeNationalGtfsMatrix,
   ensureNationalGtfsOsmStopTransfers, prepareNationalGtfsNativeCoordinateAccess,
 } from '../src/server/national-gtfs-store.mjs'
@@ -48,7 +49,7 @@ const schedule = {
 
 try {
   await fs.writeFile(schedulePath, JSON.stringify(schedule))
-  await buildRoutingStoreFromSchedules({ schedules: [{ feedId: scope, schedulePath }], outputPath: storePath })
+  await buildScheduleFixture({ schedules: [{ feedId: scope, schedulePath }], outputPath: storePath })
   const defaultPlan = routeNationalGtfsStore(storePath, request)
   assert.equal(defaultPlan.status, 'ready')
   assert.deepEqual(rides(defaultPlan), shortcut)
@@ -149,7 +150,7 @@ try {
       route('Early', [['X', 606], ['D', 610]]), route('Exact', [['X', 607], ['D', 615]])],
   }
   await fs.writeFile(schedulePath, JSON.stringify(sameStopSchedule))
-  await buildRoutingStoreFromSchedules({ schedules: [{ feedId: scope, schedulePath }], outputPath: bufferStorePath })
+  await buildScheduleFixture({ schedules: [{ feedId: scope, schedulePath }], outputPath: bufferStorePath })
   const sameStopRequest = { ...request, departMinutes: 600, destination: point('D', .2) }
   for (const [minimumTransferBufferMinutes, expectedRides, arrival] of [
     [0, ['Through', 'Early'], 610], [2, ['Through', 'Exact'], 615],
@@ -174,7 +175,7 @@ try {
   osmSchedule.transferRules.shift()
   osmSchedule.routes[1] = route('Blue', [['B1', 617], ['D', 626]])
   await fs.writeFile(schedulePath, JSON.stringify(osmSchedule))
-  await buildRoutingStoreFromSchedules({ schedules: [{ feedId: scope, schedulePath }], outputPath: osmStorePath })
+  await buildScheduleFixture({ schedules: [{ feedId: scope, schedulePath }], outputPath: osmStorePath })
   const street = new DatabaseSync(streetStorePath)
   street.exec(`
     CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);

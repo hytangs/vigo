@@ -106,7 +106,7 @@ function retimeTrip(service, rows, coordinates) {
 
 /** Expand only actual active GTFS trips. Equal start/end times emit one native run. */
 export function hydrateScheduledScenarioService(storePath, service, tripIds, request) {
-  const serviceDay = resolveServiceDay(request.serviceDate, request.serviceDay)
+  resolveServiceDay(request.serviceDate, request.serviceDay)
   if (tripIds.length > 50_000) throw invalid('A scheduled replacement is limited to 50000 trips.')
   const sourceScope = String(service.sourceRouteId ?? '').split(/::|\u001f/)
   const localFeedId = sourceScope.length > 1 ? sourceScope[0] : request.feedId ?? ''
@@ -114,8 +114,7 @@ export function hydrateScheduledScenarioService(storePath, service, tripIds, req
   const db = new DatabaseSync(storePath, { readOnly: true })
   try {
     const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name))
-    const metadata = tables.has('metadata') ? db.prepare("SELECT value FROM metadata WHERE key='serviceModel'").get() : undefined
-    const services = activeServiceIds(db, request.serviceDate, metadata ? JSON.parse(metadata.value) : 'exact-date', serviceDay)
+    const services = activeServiceIds(db, request.serviceDate)
     const permissions = tables.has('connection_permissions')
     const lookup = db.prepare(`SELECT connection.*,
       ${permissions ? 'COALESCE(permission.can_board, 1)' : '1'} AS can_board,

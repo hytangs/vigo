@@ -15,17 +15,8 @@ body,
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   --space-1: 4px;
-  --space-2: 8px;
   --radius-md: 10px;
   --radius-lg: 14px;
-  --radius-pill: 999px;
-  --status-ready: var(--success);
-  --status-preparing: var(--accent-2);
-  --status-stale: var(--warn);
-  --status-blocked: var(--warn);
-  --status-error: var(--danger);
-  --status-idle: var(--text-muted);
-  --status-cancelled: var(--text-muted);
 }
 
 .app-frame {

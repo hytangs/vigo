@@ -1,3 +1,4 @@
+import { buildScheduleFixture } from './helpers/schedule-fixture.mjs'
 import { matrixItineraryReference } from './helpers/matrix-itinerary-reference.mjs'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
@@ -6,7 +7,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import JSZip from 'jszip'
 import { DatabaseSync } from 'node:sqlite'
-import { buildNationalGtfsStore, buildNationalStaticTopologySidecar, buildRoutingStoreFromSchedules, disposeNationalGtfsStore, ensureNationalGtfsStopAccessRoles, inspectNationalGtfsAccessCandidates, mergeNationalGtfsStores, nationalFeedSummary, prepareNationalGtfsRoutingContext, readNationalGtfsPreview, readNationalGtfsStoreMetadata, routeNationalGtfsDepartureWindow, routeNationalGtfsMatrix as matrixWithDefaultWalking, routeNationalGtfsStore as routeWithDefaultWalking } from '../src/server/national-gtfs-store.mjs'
+import { buildNationalGtfsStore, buildNationalStaticTopologySidecar, disposeNationalGtfsStore, ensureNationalGtfsStopAccessRoles, inspectNationalGtfsAccessCandidates, mergeNationalGtfsStores, nationalFeedSummary, prepareNationalGtfsRoutingContext, readNationalGtfsPreview, readNationalGtfsStoreMetadata, routeNationalGtfsDepartureWindow, routeNationalGtfsMatrix as matrixWithDefaultWalking, routeNationalGtfsStore as routeWithDefaultWalking } from '../src/server/national-gtfs-store.mjs'
 import {
   buildNationalOsmWalkStore,
   compactNationalOsmRuntimeStore,
@@ -523,7 +524,7 @@ try {
     transferRules: [],
   }
   await fs.writeFile(shortTransitSchedulePath, JSON.stringify(shortTransitSchedule))
-  await buildRoutingStoreFromSchedules({
+  await buildScheduleFixture({
     schedules: [{ feedId: 'short', schedulePath: shortTransitSchedulePath }],
     outputPath: shortTransitStorePath,
   })
@@ -548,7 +549,7 @@ try {
     transferRules: [],
   }
   await fs.writeFile(accessBoundSchedulePath, JSON.stringify(accessBoundSchedule))
-  await buildRoutingStoreFromSchedules({
+  await buildScheduleFixture({
     schedules: [{ feedId: 'access-bound', schedulePath: accessBoundSchedulePath }],
     outputPath: accessBoundStorePath,
   })
@@ -652,7 +653,7 @@ try {
     transferRules: [],
   }
   await fs.writeFile(denseAccessSchedulePath, JSON.stringify(denseSchedule))
-  await buildRoutingStoreFromSchedules({
+  await buildScheduleFixture({
     schedules: [{ feedId: 'dense', schedulePath: denseAccessSchedulePath }],
     outputPath: denseAccessStorePath,
   })
@@ -726,7 +727,7 @@ try {
     transferRules: [],
   }
   await fs.writeFile(completeEgressSchedulePath, JSON.stringify(completeEgressSchedule))
-  await buildRoutingStoreFromSchedules({
+  await buildScheduleFixture({
     schedules: [{ feedId: 'egress', schedulePath: completeEgressSchedulePath }],
     outputPath: completeEgressStorePath,
   })
@@ -1029,25 +1030,12 @@ try {
   const weekdayTemplateStore = new DatabaseSync(weekdayTemplateStorePath)
   weekdayTemplateStore.prepare("UPDATE metadata SET value='\"weekday-template\"' WHERE key='serviceModel'").run()
   weekdayTemplateStore.close()
-  await buildNationalStaticTopologySidecar({
-    storePath: weekdayTemplateStorePath,
-    outputPath: `${weekdayTemplateStorePath}.static-topology.sqlite`,
-    minimumFreeBytes: 128 * 1024 * 1024,
-  })
-  const weekdayTemplateFallback = routeNationalGtfsStore(weekdayTemplateStorePath, {
-    origin: { coordinate: [8.0000, 47.0000], label: 'Template origin', source: 'map' },
-    destination: { coordinate: [8.0200, 47.0200], label: 'Template destination', source: 'map' },
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2027-07-11',
-    allowServiceDateFallback: true,
-    maxWalkKm: 0.25,
-  })
-  assert.equal(weekdayTemplateFallback.status, 'ready')
-  assert.equal(weekdayTemplateFallback.diagnostics.requestedServiceDate, '2027-07-11')
-  assert.equal(weekdayTemplateFallback.diagnostics.resolvedServiceDate, '2026-07-12')
-  assert.equal(weekdayTemplateFallback.diagnostics.serviceDateFallbackApplied, true)
-  assert.match(weekdayTemplateFallback.detail, /timetable for 2026-07-12 \(fallback from 2027-07-11\)/)
+  assert.throws(() => routeNationalGtfsStore(weekdayTemplateStorePath, {
+    origin: { coordinate: [8, 47], source: 'map' },
+    destination: { coordinate: [8.02, 47.02], source: 'map' },
+    serviceDate: '2027-07-11', allowServiceDateFallback: true,
+  }), error => error.code === 'VIGO_ROUTING_STORE_ADMISSION_FAILED'
+    && error.reason === 'service_model_mismatch', 'Retired weekday templates must be rebuilt, not silently activated.')
 
   const denseAccessRequest = {
     origin: { coordinate: [0, 0], label: 'Dense access origin', source: 'map' },
@@ -1594,7 +1582,7 @@ try {
       })),
       transferRules: [],
     }))
-    await buildRoutingStoreFromSchedules({ schedules: [{ feedId: 'walk-window', schedulePath }], outputPath: windowStorePath })
+    await buildScheduleFixture({ schedules: [{ feedId: 'walk-window', schedulePath }], outputPath: windowStorePath })
     try {
       const query = {
         ...transitReadyWholeLegWalkRequest,
@@ -2780,7 +2768,7 @@ try {
       }],
     }],
   }))
-  await buildRoutingStoreFromSchedules({
+  await buildScheduleFixture({
     schedules: [{ feedId: 'matrix-horizon', schedulePath: matrixHorizonSchedulePath }],
     outputPath: matrixHorizonStorePath,
   })
@@ -2893,7 +2881,7 @@ try {
       },
     ],
   }))
-  await buildRoutingStoreFromSchedules({
+  await buildScheduleFixture({
     schedules: [{ feedId: 'matrix-id', schedulePath: matrixIdentitySchedulePath }],
     outputPath: matrixIdentityStorePath,
   })
@@ -2994,7 +2982,7 @@ try {
       }],
     }],
   }))
-  await buildRoutingStoreFromSchedules({
+  await buildScheduleFixture({
     schedules: [{ feedId: 'matrix-cycle', schedulePath: matrixCycleSchedulePath }],
     outputPath: matrixCycleStorePath,
   })
@@ -3160,7 +3148,7 @@ try {
   await fs.writeFile(schedulePaths[1], JSON.stringify(schedule('B', 'B',
     { id: 'interchange-b', name: 'Interchange B', lat: 47.0102, lon: 8.0102 },
     { id: 'destination', name: 'Destination', lat: 47.02, lon: 8.02 }, 500, 510)))
-  const migrated = await buildRoutingStoreFromSchedules({
+  const migrated = await buildScheduleFixture({
     schedules: [{ feedId: 'feed-a', schedulePath: schedulePaths[0] }, { feedId: 'feed-b', schedulePath: schedulePaths[1] }],
     outputPath: migratedStorePath,
   })
@@ -3175,7 +3163,7 @@ try {
   migratedTransferStore.prepare(`
     INSERT INTO transfer_provenance(
       from_stop_id, to_stop_id, provenance, evidence_fingerprint, path_distance_m
-    ) VALUES(?,?,'schedule_transfer',NULL,NULL)
+    ) VALUES(?,?,'gtfs_transfer',NULL,NULL)
   `).run('feed-a\u001finterchange-a', 'feed-b\u001finterchange-b')
   migratedTransferStore.close()
   await rebuildFixtureRoutingDerivedArtifacts(migratedStorePath)

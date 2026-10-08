@@ -12,26 +12,13 @@ function endpoint(value) {
   return url
 }
 
-// Accept saved connections from earlier versions at this one boundary. New
-// connections always use explicit endpoint roles and optional static-feed IDs.
+// Current requests identify each endpoint explicitly; do not infer additional
+// feeds or reinterpret saved viewer URLs from older connection formats.
 export function realtimeSources(request) {
-  let sources = request?.sources
-  if (sources === undefined) {
-    let urls = request?.urls
-    if (!urls && request?.url) {
-      const url = endpoint(request.url)
-      if (url.hostname === 'viz.rt.gtfs.zone') {
-        const params = new URLSearchParams(url.hash.replace(/^#/, ''))
-        urls = { vehicles: params.get('rt_vp'), tripUpdates: params.get('rt_tu'), alerts: params.get('rt_al') }
-      } else if (url.hostname === 'cdn.mbta.com' && /^\/realtime\/(Alerts|TripUpdates|VehiclePositions)\.pb$/i.test(url.pathname)) {
-        urls = Object.fromEntries([['vehicles', 'VehiclePositions'], ['tripUpdates', 'TripUpdates'], ['alerts', 'Alerts']]
-          .map(([kind, name]) => [kind, new URL(`/realtime/${name}.pb`, url.origin).href]))
-      } else sources = [{ url: url.href, kind: 'feed' }]
-    }
-    if (urls) sources = Object.entries({ vehicles: urls.vehicles ?? urls.vehiclePositions ?? urls.rt_vp,
-      tripUpdates: urls.tripUpdates ?? urls.trip_updates ?? urls.rt_tu, alerts: urls.alerts ?? urls.rt_al })
-      .filter(([, url]) => url).map(([kind, url]) => ({ kind, url }))
+  if (request && typeof request === 'object' && ('url' in request || 'urls' in request)) {
+    throw invalid('Use sources: [{ url, kind, sourceScope? }] for GTFS-RT endpoints. Reconnect saved connections using this format.')
   }
+  const sources = request?.sources
   if (!Array.isArray(sources) || !sources.length || sources.length > maximumRealtimeSources) {
     throw invalid(`Configure 1 to ${maximumRealtimeSources} GTFS-RT endpoints.`)
   }

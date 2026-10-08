@@ -1,10 +1,10 @@
+import { buildScheduleFixture } from './helpers/schedule-fixture.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { DatabaseSync } from 'node:sqlite'
 import {
-  buildRoutingStoreFromSchedules,
   disposeNationalGtfsStore,
   inspectNationalGtfsAccessCandidates,
   prepareNationalGtfsStore,
@@ -107,7 +107,7 @@ const schedule = {
 
 try {
   await fs.writeFile(schedulePath, `${JSON.stringify(schedule)}\n`)
-  await buildRoutingStoreFromSchedules({
+  await buildScheduleFixture({
     schedules: [{ feedId: scope, schedulePath }],
     outputPath: storePath,
   })

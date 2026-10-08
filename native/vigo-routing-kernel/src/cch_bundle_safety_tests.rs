@@ -1,14 +1,18 @@
 use cch::{CchBundle, MetricBundle};
 use std::fs;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn temporary_path(suffix: &str) -> std::path::PathBuf {
+    // SystemTime can return the same tick to parallel tests, even in nanos.
+    static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
+    let sequence = NEXT_FILE.fetch_add(1, Ordering::Relaxed);
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock must follow Unix epoch")
         .as_nanos();
     std::env::temp_dir().join(format!(
-        "vigo-cch-safety-{}-{unique}.{suffix}",
+        "vigo-cch-safety-{}-{unique}-{sequence}.{suffix}",
         std::process::id()
     ))
 }

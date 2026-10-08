@@ -104,6 +104,10 @@ function admitRoutingStoreVersion(storePath, metadata) {
     throw routingStoreAdmissionError(storePath, 'schema_version_mismatch',
       `metadata.schemaVersion is ${JSON.stringify(metadata.schemaVersion)}.`)
   }
+  if (!['exact-date', 'exact-date-multi-feed'].includes(metadata.serviceModel)) {
+    throw routingStoreAdmissionError(storePath, 'service_model_mismatch',
+      `Unsupported service model ${JSON.stringify(metadata.serviceModel)}; rebuild from GTFS.`)
+  }
   if (metadata.transferSemanticsVersion !== transferSemanticsVersion) {
     throw routingStoreAdmissionError(
       storePath,

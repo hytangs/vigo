@@ -383,6 +383,12 @@ impl City {
         {
             return fail("Rebuild City with the current routing/transfer format");
         }
+        if !matches!(
+            metadata["serviceModel"].as_str(),
+            Some("exact-date" | "exact-date-multi-feed")
+        ) {
+            return fail("Rebuild City from GTFS; only exact-date service models are supported");
+        }
         if metadata["blockingRoutingFeatures"]
             .as_array()
             .is_some_and(|x| !x.is_empty())
@@ -645,11 +651,6 @@ impl City {
             "saturday",
             "sunday",
         ][date.weekday().num_days_from_monday() as usize];
-        let service_day = if day == "saturday" || day == "sunday" {
-            day
-        } else {
-            "weekday"
-        };
         let date_number = date.year() * 10000 + date.month() as i32 * 100 + date.day() as i32;
         let sql = format!(
             "SELECT service_id FROM calendar WHERE {day}=1 AND start_date<=?1 AND end_date>=?1"
@@ -672,9 +673,6 @@ impl City {
             } else if kind == 2 {
                 services.remove(&id);
             }
-        }
-        if services.is_empty() && self.metadata["serviceModel"] == "weekday-template" {
-            services.insert(service_day.to_owned());
         }
         Ok(services)
     }

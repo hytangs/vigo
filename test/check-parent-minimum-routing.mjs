@@ -1,10 +1,11 @@
+import { buildScheduleFixture } from './helpers/schedule-fixture.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { buildRoutingStoreFromSchedules,disposeNationalGtfsStore,expandParentStationTransfers,prepareNationalGtfsStore,routeNationalGtfsStore,routeNationalGtfsMatrix } from '../src/server/national-gtfs-store.mjs'
+import { disposeNationalGtfsStore,expandParentStationTransfers,prepareNationalGtfsStore,routeNationalGtfsStore,routeNationalGtfsMatrix } from '../src/server/national-gtfs-store.mjs'
 import { decodeRoutingSnapshot,encodeRoutingSnapshot } from '../src/server/routing-snapshot.mjs'
 import { nationalRoutingAccessPolicy,nationalRoutingAccessPolicyIdentity,walkSeconds } from '../src/server/gtfs/routing-policy.mjs'
 import { stableJson } from '../src/server/routing-plan-identity.mjs'
@@ -14,7 +15,7 @@ const members=new Map([['P',['P','A']],['Q',['Q','B']]])
 const parent=(seconds,provenance='gtfs_transfer')=>({from_stop_id:'P',to_stop_id:'Q',transfer_type:2,min_transfer_time:seconds,provenance})
 const osm=(from='A',to='B')=>({from_stop_id:from,to_stop_id:to,transfer_type:2,min_transfer_time:1,provenance:'osm_certified_radial',path_distance_m:29.466})
 const edge=(rows,from='A',to='B')=>expandParentStationTransfers(rows,stops,members).transfers.get(from).find(e=>e.to_stop_id===to)
-for(const provenance of ['gtfs_transfer','schedule_transfer'])for(const rows of [[parent(180,provenance),osm()],[osm(),parent(180,provenance)]]) {
+for(const provenance of ['gtfs_transfer','gtfs_transfer'])for(const rows of [[parent(180,provenance),osm()],[osm(),parent(180,provenance)]]) {
   const e=edge(rows.values())
   assert.equal(e.min_transfer_time,180,'Parent minimum survives faster OSM in either order and with a one-use iterator')
   assert.equal(e.parentStationMinimumSeconds,180)
@@ -41,7 +42,7 @@ try {
       tripId,serviceId:'WK',serviceDays:['weekday'],stopTimes:[{stopId:from,sequence:1,arrivalMinutes:departure,departureMinutes:departure},
         {stopId:to,sequence:2,arrivalMinutes:arrival,departureMinutes:arrival}]}]}))}
   await fs.writeFile(schedulePath,JSON.stringify(schedule)+'\n')
-  await buildRoutingStoreFromSchedules({schedules:[{feedId:scope,schedulePath}],outputPath:storePath})
+  await buildScheduleFixture({schedules:[{feedId:scope,schedulePath}],outputPath:storePath})
   const db=new DatabaseSync(storePath)
   try {
     db.prepare('INSERT INTO transfers VALUES(?,?,2,1)').run(id('A'),id('B'))

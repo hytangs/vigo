@@ -25,7 +25,7 @@ export function createRoutingStoreSchema(db) {
     CREATE TABLE transfer_provenance(
       from_stop_id TEXT NOT NULL,
       to_stop_id TEXT NOT NULL,
-      provenance TEXT NOT NULL CHECK(provenance IN ('gtfs_transfer', 'gtfs_pathway', 'gtfs_pathway_estimated', 'schedule_transfer', 'schedule_pathway', 'osm_certified_radial')),
+      provenance TEXT NOT NULL CHECK(provenance IN ('gtfs_transfer', 'gtfs_pathway', 'gtfs_pathway_estimated', 'osm_certified_radial')),
       evidence_fingerprint TEXT,
       path_distance_m REAL,
       CHECK(

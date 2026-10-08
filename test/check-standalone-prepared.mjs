@@ -1,5 +1,6 @@
 // Exercise source-bound snapshot reuse and every fallback on a public City.
 import assert from 'node:assert/strict'
+import { DatabaseSync } from 'node:sqlite'
 import { gzipSync, gunzipSync } from 'node:zlib'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -144,6 +145,16 @@ try {
   metadata.sourceArtifactIdentity += '-stale'
   fs.writeFileSync(accessFile, encodeRoutingSnapshot(metadata, arrays))
   assert.equal(spawnSync(binary, ['info', '--city', city], { env }).status, 2); checked++
+  // A current envelope cannot revive the retired weekday-template compiler.
+  const database = new DatabaseSync(path.join(routing, 'project.sqlite'))
+  for (const model of ['weekday-template', 'unknown', null]) {
+    database.prepare("UPDATE metadata SET value=? WHERE key='serviceModel'").run(JSON.stringify(model))
+    const rejected = spawnSync(binary, ['info', '--city', city], { env, encoding: 'utf8' })
+    assert.equal(rejected.status, 2)
+    assert.match(rejected.stderr, /only exact-date service models/)
+    checked++
+  }
+  database.close()
   console.log(JSON.stringify({ checked, status: 'passed' }))
 } finally {
   fs.rmSync(directory, { recursive: true, force: true })

@@ -84,7 +84,7 @@ function lastEocdOffset(tail, absoluteTailOffset, fileSize) {
   return -1
 }
 
-async function centralDirectoryLocation(handle, fileSize, tail, tailOffset, eocdOffset) {
+async function centralDirectoryLocation(handle, tail, tailOffset, eocdOffset) {
   const diskNumber = tail.readUInt16LE(eocdOffset + 4)
   const directoryDisk = tail.readUInt16LE(eocdOffset + 6)
   const entriesOnDisk = tail.readUInt16LE(eocdOffset + 8)
@@ -284,7 +284,6 @@ export async function inspectGtfsZip(zipPath, options = {}) {
     if (relativeEocdOffset < 0) throw new Error('GTFS ZIP end record is missing or malformed.')
     const location = await centralDirectoryLocation(
       handle,
-      stats.size,
       tail,
       tailOffset,
       relativeEocdOffset,

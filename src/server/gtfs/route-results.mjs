@@ -30,7 +30,6 @@ export function incompleteServiceCoveragePlan(request, departureMinutes, maxWalk
 
 function timetableDetail(durationMinutes, resolution) {
   if (resolution?.scheduleMode === 'realtime-adjusted') return `${Math.round(durationMinutes)} min / live predictions and scheduled times`
-  if (resolution?.serviceDateTemplateApplied) return `${Math.round(durationMinutes)} min / representative timetable template`
   if (!resolution?.serviceDateFallbackApplied) return `${Math.round(durationMinutes)} min / exact local timetable`
   return `${Math.round(durationMinutes)} min / timetable for ${resolution.resolvedServiceDate} (fallback from ${resolution.requestedServiceDate})`
 }

@@ -1,10 +1,7 @@
 import { realtimeSources, type RealtimeSource } from '../shared/realtime-sources.mjs'
 export { realtimeSources, maximumRealtimeSources, type RealtimeSource } from '../shared/realtime-sources.mjs'
 
-export type RealtimeInspectRequest =
-  | { sources: RealtimeSource[] }
-  | { url: string }
-  | { urls: { vehicles?: string; tripUpdates?: string; alerts?: string } }
+export type RealtimeInspectRequest = { sources: RealtimeSource[] }
 
 export const realtimeRefreshMs = 60_000
 export const mbtaRealtimeSources: RealtimeSource[] = [

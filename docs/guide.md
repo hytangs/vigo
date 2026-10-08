@@ -856,7 +856,7 @@ node public/vigo.mjs build \
   --gtfs ./rail.zip --gtfs-scope rail \
   --gtfs ./bus.zip --gtfs-scope bus \
   --osm ./region.osm.pbf \
-  --out ./city
+  --output ./city
 ```
 
 A scope identifies a **source feed**, not a route number. The merged store namespaces stops, routes, trips, services, and transfer references so identical IDs in different feeds cannot overwrite one another. Use the same scope names when rebuilding the same sources. Removing a source in Studio rebuilds the surviving combined store.
@@ -875,6 +875,8 @@ Before combining feeds:
 3. Select its matching **Timetable** when the City has multiple static sources.
 4. Choose **Add feed** for each additional endpoint, then **Connect live**.
 5. Expand **Feed status** to inspect individual failures and freshness.
+
+VIGO 0.5.0 accepts live-feed requests as `{ "sources": [{ "url": "https://operator.example/trip-updates.pb", "kind": "tripUpdates" }] }`. The old top-level `url` and `urls` formats are rejected; reconnect those saved connections through the feed editor. A single MBTA endpoint no longer implicitly enables the other two endpoints.
 
 Trip Updates can be connected without Vehicle Positions. The MBTA preset fills three public endpoints; select the MBTA timetable when using it in a combined City. A failed endpoint does not discard successful endpoints. Reimporting or merging a timetable invalidates the active retained observation until a fresh fetch binds to the new City. Old records from a failed endpoint are not carried into a newly received snapshot.
 

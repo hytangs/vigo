@@ -6,10 +6,7 @@ use serde_json::{Value, json};
 use std::collections::HashSet;
 
 fn pathway(source: &str) -> bool {
-    matches!(
-        source,
-        "gtfs_pathway" | "gtfs_pathway_estimated" | "schedule_pathway"
-    )
+    matches!(source, "gtfs_pathway" | "gtfs_pathway_estimated")
 }
 
 // Endpoint frontiers belong to one coordinate query. Point queries retain both
@@ -377,7 +374,7 @@ impl City {
                 !sources.is_empty()
                     && sources
                         .iter()
-                        .all(|s| matches!(s.as_str(), Some("gtfs_pathway" | "schedule_pathway")))
+                        .all(|s| matches!(s.as_str(), Some("gtfs_pathway")))
             });
             leg["stationAccessStatus"] = json!(if source_path {
                 "source_path"

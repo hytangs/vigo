@@ -1,3 +1,4 @@
+import { routingResultStatus } from '../server/gtfs/route-results.mjs'
 import { wheelchairDescription, validateWheelchairRequest } from '../server/wheelchair-policy.mjs'
 import fs from 'node:fs'
 import { createHash } from 'node:crypto'
@@ -225,19 +226,7 @@ function routeSequence(plan: RoutingPlan | undefined) {
 
 function decorateCliRoutingPlan(plan: RoutingPlan | undefined) {
   if (!plan) return plan
-  const code = String(plan.diagnostics.failure?.code ?? plan.diagnostics.failureCode ?? '')
-  const category = String(plan.diagnostics.failure?.category ?? plan.diagnostics.failureCategory ?? '')
-  const routingStatus: RoutingExecutionStatus = plan.diagnostics.routingStatus ?? (
-    plan.status === 'ready'
-      ? 'ready'
-      : code.includes('stale') || code.includes('artifact')
-        ? 'stale'
-        : code.includes('cancel')
-          ? 'cancelled'
-          : category === 'unsupported_feature' || code.includes('unsupported')
-            ? 'unsupported'
-            : 'blocked'
-  )
+  const routingStatus: RoutingExecutionStatus = plan.diagnostics.routingStatus ?? routingResultStatus(plan)
   return {
     ...plan,
     diagnostics: {

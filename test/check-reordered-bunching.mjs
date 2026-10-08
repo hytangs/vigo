@@ -5,7 +5,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { AgencyContext } from '../src/agency/agencyContext.mjs'
 import { deriveOperationalState } from '../src/agency/realtimeIntelligence.mjs'
-import { vehicleGap } from '../src/agency/vehicleIndicators.ts'
+import { vehicleAlert } from '../src/agency/vehicleIndicators.ts'
 
 import { eventSentences } from '../src/agency/communications.mjs'
 import { summarizeEvidence } from '../src/agency/evidenceSummary.mjs'
@@ -46,7 +46,7 @@ try {
   assert.equal(state.measurements.intervals.some(row => row.tripIds.join() === 'T1,T3'), false, 'Do not count this as a complete scheduled headway')
   const live = { ...state, mapOperationalEvents: state.events, tripHistory: {}, history: [] }
   for (const id of ['vehicle-T1', 'vehicle-T3', 'vehicle-T4']) {
-    assert.equal(vehicleGap(snapshot.vehicles.find(vehicle => vehicle.id === id), snapshot, live.mapOperationalEvents, now)?.severity, 'critical', `${id} receives the indicator from computed operational events`)
+    assert.equal(vehicleAlert(snapshot.vehicles.find(vehicle => vehicle.id === id), snapshot, live.mapOperationalEvents, 'spacing', now)?.severity, 'critical', `${id} receives the indicator from computed operational events`)
   }
   const displayed = frame(live.mapOperationalEvents)
   for (const id of ['vehicle-T1', 'vehicle-T3', 'vehicle-T4']) assert.match(displayed.vehicles.find(vehicle => vehicle.id === id).indicatorLabel, /↔/)

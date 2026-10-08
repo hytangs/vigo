@@ -13,7 +13,7 @@ export function prepareServiceTransfers(store) {
     from: Uint32Array.from(edges, e => index.get(e.from_stop_id)),
     to: Uint32Array.from(edges, e => index.get(e.to_stop_id)),
     seconds: Uint32Array.from(edges, e => e.min_transfer_time),
-    pathway: Uint8Array.from(edges, e => ['gtfs_pathway', 'gtfs_pathway_estimated', 'schedule_pathway'].includes(e.provenance) ? 1 : 0),
+    pathway: Uint8Array.from(edges, e => ['gtfs_pathway', 'gtfs_pathway_estimated'].includes(e.provenance) ? 1 : 0),
     forbiddenFrom: Uint32Array.from(forbidden, ([a]) => index.get(a)),
     forbiddenTo: Uint32Array.from(forbidden, ([, b]) => index.get(b)),
   })
@@ -24,7 +24,7 @@ export function prepareServiceTransfers(store) {
     const direct = store.transfers.get(from)?.find(e => e.to_stop_id === to)
     const minimum = store.transferMinimums?.get(from)?.find(e => e.to_stop_id === to)?.min_transfer_time
       ?? direct?.parentStationMinimumSeconds
-      ?? (['gtfs_transfer', 'schedule_transfer'].includes(direct?.provenance) ? direct.min_transfer_time : 0)
+      ?? (direct?.provenance === 'gtfs_transfer' ? direct.min_transfer_time : 0)
     const seconds = Math.max(paths.seconds[i], Math.trunc(minimum || 0))
     if (direct && Math.trunc(direct.min_transfer_time) <= seconds) continue
     const steps = Array.from(paths.pathEdges.subarray(paths.pathOffsets[i], paths.pathOffsets[i + 1]), edge => ({

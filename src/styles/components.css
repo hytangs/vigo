@@ -1093,63 +1093,6 @@
   }
 }
 
-/* Shared preparation primitives: one status vocabulary and one result metric shape. */
-.status-badge {
-  min-width: max-content;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid color-mix(in srgb, var(--status-idle) 28%, var(--border));
-  border-radius: var(--radius-pill);
-  color: var(--status-idle);
-  background: color-mix(in srgb, var(--status-idle) 8%, transparent);
-  font-size: 0.58rem;
-  font-weight: 780;
-  letter-spacing: 0.045em;
-  line-height: 1.1;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.status-badge.is-ready {
-  color: var(--status-ready);
-  border-color: color-mix(in srgb, var(--status-ready) 35%, var(--border));
-  background: color-mix(in srgb, var(--status-ready) 10%, transparent);
-}
-
-.status-badge.is-preparing {
-  color: var(--status-preparing);
-  border-color: color-mix(in srgb, var(--status-preparing) 35%, var(--border));
-  background: color-mix(in srgb, var(--status-preparing) 10%, transparent);
-}
-
-.status-badge.is-stale {
-  color: var(--status-stale);
-  border-color: color-mix(in srgb, var(--status-stale) 35%, var(--border));
-  background: color-mix(in srgb, var(--status-stale) 10%, transparent);
-}
-
-.status-badge.is-blocked {
-  color: var(--status-blocked);
-  border-color: color-mix(in srgb, var(--status-blocked) 35%, var(--border));
-  background: color-mix(in srgb, var(--status-blocked) 10%, transparent);
-}
-
-.status-badge.is-error {
-  color: var(--status-error);
-  border-color: color-mix(in srgb, var(--status-error) 35%, var(--border));
-  background: color-mix(in srgb, var(--status-error) 10%, transparent);
-}
-
-.status-badge.is-idle {
-  color: var(--status-idle);
-}
-
-.status-badge.is-cancelled {
-  color: var(--status-cancelled);
-}
-
 .result-metric {
   min-width: 0;
   display: grid;

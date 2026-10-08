@@ -1,9 +1,9 @@
+import { buildScheduleFixture } from './helpers/schedule-fixture.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import {
-  buildRoutingStoreFromSchedules,
   disposeNationalGtfsStore,
   prepareNationalGtfsRoutingContext,
   routeNationalGtfsStore,
@@ -65,7 +65,7 @@ const schedule = {
 
 try {
   await fs.writeFile(schedulePath, `${JSON.stringify(schedule)}\n`)
-  await buildRoutingStoreFromSchedules({
+  await buildScheduleFixture({
     schedules: [{ feedId: scope, schedulePath }],
     outputPath: storePath,
   })
@@ -88,7 +88,7 @@ try {
   assert.equal(plan.transfers, 1)
   assert.equal(plan.arriveMinutes, 620)
   const transfer = plan.legs.find((leg) => leg.walkSource === 'transfer')
-  assert.equal(transfer.transferSource, 'schedule_transfer')
+  assert.equal(transfer.transferSource, 'gtfs_transfer')
   assert.equal(transfer.durationMinutes, 5)
   assert.equal(transfer.streetPathVerified, false)
 
