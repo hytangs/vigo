@@ -77,7 +77,7 @@ try {
     [['reach', '--horizon=30'], /not an option for reach/u],
     [['reach', '--data-mode=realtime'], /not an option for reach/u],
     [['stream'], /requires --city/u],
-    [['stream', '--city=x'], /requires --service-date/u],
+    [['stream', '--city=x'], /network.json is missing/u],
     [['stream', '--city=x', '--service-date=2026-07-15', '--request=-'], /not an option for stream/u],
     [['route', '--street-edges'], /not an option for route/u],
     [['matrix', '--data-mode=realtime'], /not an option for matrix/u],

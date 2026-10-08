@@ -57,7 +57,7 @@ try {
   disposeAllNationalGtfsStores()
   assert((await pool.prepare(realtimeStore, { context })).activeServiceKernel.ready)
   const realtimeSnapshot = { feedTimestamp: Math.floor(Date.now() / 1000), tripUpdates: Array.from({ length: 5000 }, (_, i) => ({ tripId: `T${i}`, startDate: '20260914', delaySeconds: 60 })) }
-  await assert.rejects(pool.dispatch(realtimeStore, 'route', { ...request, routingDataMode: 'realtime', realtimeSnapshot }), { code: 'VIGO_REALTIME_MEMORY_LIMIT' })
+  await assert.rejects(pool.dispatch(realtimeStore, 'route', { ...request, routingDataMode: 'realtime', realtimeSnapshot }), { code: 'VIGO_REALTIME_MEMORY_LIMIT', statusCode: 503 })
   assert.equal((await pool.dispatch(realtimeStore, 'route', request)).status, 'ready', 'An oversized reconstruction must leave scheduled routing usable.')
   await pool.retire(realtimeStore)
   const [prepared, shared] = await Promise.all([pool.prepare(store, { context }), pool.prepare(store, { context })])

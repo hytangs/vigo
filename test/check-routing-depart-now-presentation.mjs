@@ -81,7 +81,7 @@ try {
   assert.match(details, /5m waiting en route/)
   assert.match(details, /5m wait at Station/)
   assert.match(details, /Orange Line/)
-  assert.match(details, /Station entrance \/ platform path unverified/)
+  assert.doesNotMatch(details, /Station entrance \/ platform path unverified/)
   assert.match(details, /Arrive at Destination/)
   assert.doesNotMatch(details, /Why this journey is shown|sidebox-itinerary-summary|label="Ready"/)
   assert.deepEqual(detailPlan, unchanged, 'Itinerary presentation never mutates routing results')

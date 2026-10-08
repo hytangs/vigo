@@ -4,11 +4,13 @@
 
 Clearer journey comparisons, shared interface styling, compact routing snapshots and Studio responses, and driving preparation on demand. See [release notes](docs/releases/0.5.0.md).
 
+Use the native HTTP service with verified container deployment and slim CLI packages. Validate benchmark responses by endpoint, preserve capacity errors, restore cold-store walking proofs, and recover complete packages after replacement failures. Correct missed Reach grid crossings and walking comparisons; retain raw routing evidence separately from display estimates.
+
 Remove old snapshot readers and the hidden `_route-stream` protocol. Use the documented `stream` command and rebuild prepared Cities for the standalone runtime. Python 0.5 requires Engine 0.5.
 
 ## 0.4.4
 
-Correct interior street routing and partial Reach boundaries; add destination-grid and walk-only Reach, prefer faster direct walks by default, and update Studio. See [release notes](docs/releases/0.4.4.md).
+Correct interior street routing and partial Reach boundaries; add destination-grid and walk-only Reach, prefer faster direct walks by default, and update Studio. See [release notes](docs/history.md#vigo-044).
 
 Exclude bus-platform area outlines from the linear street graph, while retaining mapped platform centre lines. Discover nearby reciprocal street segments even when both endpoints lie outside the vertex search. Street stores now use schema v6; rebuild older Cities from their source inputs to apply the graph correction and regenerate access profiles and street transfers.
 
@@ -32,7 +34,7 @@ Read access and barrier tags on both dense and ordinary OSM nodes, correct signe
 
 Preserve missing GTFS interior-node coordinates, keep their directed pathway topology, and mark incomplete station geometry in both runtimes instead of drawing a detour through `(0, 0)`. The routing store moves to schema v3; rebuild old Cities from source. Exclude pathways with no usable traversal cost while preserving declared station connectivity; never invent zero-second interior links.
 
-Add explicit arrival reserves for arrive-by Transit Route and Matrix in both runtimes. Preserve the original search start and actual journey clocks, expose both deadlines, and label margins as uncalibrated. Improve capped coordinate arrive-by with a certified unrestricted bound and exact fallback. Reject invalid native run continuity/time ordering and repair standalone stop-sequence materialization for selected bridge alightings. See [travel-time uncertainty](docs/reference/travel-time-uncertainty.md).
+Add explicit arrival reserves for arrive-by Transit Route and Matrix in both runtimes. Preserve the original search start and actual journey clocks, expose both deadlines, and label margins as uncalibrated. Improve capped coordinate arrive-by with a certified unrestricted bound and exact fallback. Reject invalid native run continuity/time ordering and repair standalone stop-sequence materialization for selected bridge alightings. See [travel-time uncertainty](docs/guide.md#travel-time-uncertainty).
 
 Reuse the selected coordinate access/egress path when its query token is still current, and skip impossible transit scans when an endpoint has no access. Preserve full journey detail, directed station evidence, and the exact fallback for expired matrix frontiers. Start the CLI tutorials in Boston with MBTA and OpenStreetMap downloads, Harvard Square–South Station queries, arrive-by, matrices, and resident streaming.
 
@@ -44,7 +46,7 @@ Use the shared exact point certifiers in standalone Rust and eliminate repeated 
 
 Load validated prepared service timetables in standalone Rust, retain only the access-context fields it uses, and keep endpoint evidence in native structures until response construction. Share street-path source sweeps across candidate destinations, retain bounded exact shape alignments, and reuse stream encoding buffers. Keep full Rust journey detail by default and offer explicit compact timed matrix witnesses for analytical callers.
 
-Correct standalone station-walking evidence to follow the selected entrance/pathway and distinguish verified street segments from unresolved station interiors. Add extracted-package, source-parity, and failure-recovery checks. API 1.0, City format 1, and Result schema 1 remain unchanged; see the [freeze notes](docs/releases/0.4.3.md) for scope and release limits.
+Correct standalone station-walking evidence to follow the selected entrance/pathway and distinguish verified street segments from unresolved station interiors. Add extracted-package, source-parity, and failure-recovery checks. API 1.0, City format 1, and Result schema 1 remain unchanged; see the [freeze notes](docs/history.md#vigo-043) for scope and release limits.
 
 Keep active GTFS departures when editing an existing Reach branch unless a frequency change is explicitly selected. Return complete-network Reach surfaces and optional directed street-edge evidence. Include a verified direct walk as a point-to-point competitor within the shared walking budget.
 

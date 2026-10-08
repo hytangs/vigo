@@ -71,17 +71,35 @@ pub(super) fn select(mut choices: Vec<Value>, arrive: bool, maximum: usize) -> V
         frontier.push(candidate);
     }
     frontier.sort_by(|a, b| order(a, b, arrive));
-    if frontier.len() <= maximum { return frontier; }
-    if maximum == 0 { return vec![]; }
+    if frontier.len() <= maximum {
+        return frontier;
+    }
+    if maximum == 0 {
+        return vec![];
+    }
     let mut selected = vec![0];
     for metric in [boardings, walking] {
-        if selected.len() == maximum { break; }
-        let index = (0..frontier.len()).min_by(|a,b| metric(&frontier[*a]).total_cmp(&metric(&frontier[*b]))).unwrap();
-        if !selected.contains(&index) { selected.push(index); }
+        if selected.len() == maximum {
+            break;
+        }
+        let index = (0..frontier.len())
+            .min_by(|a, b| metric(&frontier[*a]).total_cmp(&metric(&frontier[*b])))
+            .unwrap();
+        if !selected.contains(&index) {
+            selected.push(index);
+        }
     }
     for index in 0..frontier.len() {
-        if selected.len() == maximum { break; }
-        if !selected.contains(&index) { selected.push(index); }
+        if selected.len() == maximum {
+            break;
+        }
+        if !selected.contains(&index) {
+            selected.push(index);
+        }
     }
-    frontier.into_iter().enumerate().filter_map(|(i,v)| selected.contains(&i).then_some(v)).collect()
+    frontier
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, v)| selected.contains(&i).then_some(v))
+        .collect()
 }

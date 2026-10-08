@@ -46,7 +46,9 @@ pub(crate) struct Image {
     base: usize,
 }
 impl Image {
-    pub(crate) fn mapped_bytes(&self) -> usize { self.bytes.len() }
+    pub(crate) fn mapped_bytes(&self) -> usize {
+        self.bytes.len()
+    }
     // Parse large metadata directly into its native projection; unknown fields
     // are validated as JSON and skipped instead of retained as Value trees.
     pub(crate) fn open_with_metadata<T: serde::de::DeserializeOwned>(
@@ -335,7 +337,10 @@ impl City {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         Self::open_shared(path.as_ref(), &[])
     }
-    pub(crate) fn open_shared(path: &Path, residents: &[(&Path, &CoordinateKernel)]) -> Result<Self> {
+    pub(crate) fn open_shared(
+        path: &Path,
+        residents: &[(&Path, &CoordinateKernel)],
+    ) -> Result<Self> {
         let path = fs::canonicalize(path)?;
         let street_directory = fs::canonicalize(path.join("osm"))?;
         let manifest = read_json(&path.join("network.json"))?;
@@ -360,10 +365,12 @@ impl City {
             metadata[k] = serde_json::from_str(&v).unwrap_or(Value::String(v));
         }
         if metadata["maximumServiceTimeSeconds"].as_f64().is_none()
-            || metadata["minimumServiceTimeSeconds"].as_f64().is_none() {
+            || metadata["minimumServiceTimeSeconds"].as_f64().is_none()
+        {
             let (minimum, maximum) = db.query_row(
                 "SELECT COALESCE(MIN(departure),0),COALESCE(MAX(arrival),0) FROM connections",
-                [], |r| Ok((r.get::<_, f64>(0)?,r.get::<_, f64>(1)?)),
+                [],
+                |r| Ok((r.get::<_, f64>(0)?, r.get::<_, f64>(1)?)),
             )?;
             metadata["minimumServiceTimeSeconds"] = json!(minimum);
             metadata["maximumServiceTimeSeconds"] = json!(maximum);
@@ -501,9 +508,10 @@ impl City {
         let terminal = path.join("osm/street-index.sqlite.terminal-access-v1.json");
         if terminal.exists() && street.terminal_access.is_none() {
             street.configure_terminal_access(str_path(&terminal)?)?;
-        } else if !terminal.exists() && ["endpoints", "authorized_endpoints"]
-            .iter()
-            .any(|m| manifest["streetStore"]["terminalAccess"]["model"] == *m)
+        } else if !terminal.exists()
+            && ["endpoints", "authorized_endpoints"]
+                .iter()
+                .any(|m| manifest["streetStore"]["terminalAccess"]["model"] == *m)
         {
             return fail("Missing terminal-access artifact for private endpoints City");
         }
@@ -674,8 +682,12 @@ impl City {
             .as_f64()
             .unwrap_or(0.);
         let minimum = if coverage_end.is_some() {
-            self.metadata["minimumServiceTimeSeconds"].as_f64().unwrap_or(0.)
-        } else { 0. };
+            self.metadata["minimumServiceTimeSeconds"]
+                .as_f64()
+                .unwrap_or(0.)
+        } else {
+            0.
+        };
         let mut days = vec![];
         for delta in -3..=5 {
             let Some(day) = date.checked_add_signed(chrono::Duration::days(delta)) else {
@@ -685,7 +697,10 @@ impl City {
             // Keep the previous service days' overnight tails throughout the
             // clock date. Otherwise changing depart/arrive horizons repeatedly
             // discards and rebuilds an almost identical timetable.
-            if delta != 0 && ((offset as f64) + minimum > coverage_end.map_or(opt.end, f64::from) || (offset as f64) + maximum < 0.) {
+            if delta != 0
+                && ((offset as f64) + minimum > coverage_end.map_or(opt.end, f64::from)
+                    || (offset as f64) + maximum < 0.)
+            {
                 continue;
             }
             days.push((day, offset as i32));
@@ -750,8 +765,13 @@ impl City {
         // loading an entire next day for a horizon that only reaches midnight.
         let clocked = request.get("time").is_some() || request.get("timeMinutes").is_some();
         let coverage_end = if clocked && request.get("realtimeSnapshot").is_none() {
-            Some(((super::query::Options::parse(request)?.end.max(108_000.) / 21_600.).ceil() * 21_600.) as u32)
-        } else { None };
+            Some(
+                ((super::query::Options::parse(request)?.end.max(108_000.) / 21_600.).ceil()
+                    * 21_600.) as u32,
+            )
+        } else {
+            None
+        };
         // A resident scheduled prefix already establishes the active services.
         // Resolve calendars only when it grows or the service date changes.
         let (key, instances) = if coverage_end.is_some() {
@@ -770,12 +790,19 @@ impl City {
                     super::realtime::validity(request, now)
                 ]))?)
             );
-            (format!("{date_text}:{allow}:{buffer}:{realtime_key}:{days_key:?}"), instances)
+            (
+                format!("{date_text}:{allow}:{buffer}:{realtime_key}:{days_key:?}"),
+                instances,
+            )
         };
-        if self.timetable.as_ref().is_some_and(|t| t.key == key
-            && coverage_end.is_none_or(|end| t.coverage_end.is_some_and(|saved| saved >= end))) {
+        if self.timetable.as_ref().is_some_and(|t| {
+            t.key == key
+                && coverage_end.is_none_or(|end| t.coverage_end.is_some_and(|saved| saved >= end))
+        }) {
             if complete_coverage && !self.timetable.as_ref().unwrap().complete_service_coverage {
-                return fail("Incomplete service coverage across source feeds on the requested date");
+                return fail(
+                    "Incomplete service coverage across source feeds on the requested date",
+                );
             }
             self.install_query_workspace();
             return Ok(());
@@ -788,7 +815,10 @@ impl City {
         // One active service slice per City. Release its mutable workspace
         // before constructing a replacement, including after a failed switch.
         if self.query_workspace.is_none() {
-            self.query_workspace = self.timetable.as_mut().map(|t| t.kernel.take_query_workspace());
+            self.query_workspace = self
+                .timetable
+                .as_mut()
+                .map(|t| t.kernel.take_query_workspace());
         }
         self.timetable = None;
         self.timetable_preparations += 1;
@@ -817,8 +847,12 @@ impl City {
         if allow
             && instances.is_none()
             && request.get("realtimeSnapshot").is_none()
-            && let Ok(mut timetable) =
-                self.prepared_timetable(&services, key.clone(), buffer as u32 * 60, complete_service_coverage)
+            && let Ok(mut timetable) = self.prepared_timetable(
+                &services,
+                key.clone(),
+                buffer as u32 * 60,
+                complete_service_coverage,
+            )
         {
             timetable.coverage_end = coverage_end;
             self.timetable = Some(timetable);
@@ -1024,8 +1058,14 @@ impl City {
             timetable.kernel.install_query_workspace(query);
         }
     }
-    pub(crate) fn take_query_workspace(&mut self) -> Option<crate::timetable::TimetableQueryWorkspace> {
-        self.query_workspace.take().or_else(|| self.timetable.as_mut().map(|t| t.kernel.take_query_workspace()))
+    pub(crate) fn take_query_workspace(
+        &mut self,
+    ) -> Option<crate::timetable::TimetableQueryWorkspace> {
+        self.query_workspace.take().or_else(|| {
+            self.timetable
+                .as_mut()
+                .map(|t| t.kernel.take_query_workspace())
+        })
     }
     pub(crate) fn load_drive(&mut self) -> Result<()> {
         if self.manifest["modes"]

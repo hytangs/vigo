@@ -253,7 +253,7 @@ export function readLocalBasemap(storePath, bounds, options = {}) {
     // Sort only small metadata rows; fetch geometry after admission to the
     // response budget instead of carrying polygon JSON through SQLite's sorter.
     const readGeometry = db.prepare('SELECT geometry FROM map_features WHERE id=?')
-    for (const road of [false, true]) {
+    for (const road of options.waterOnly ? [false] : [false, true]) {
       const rows = db.prepare(`SELECT feature.id,feature.kind,feature.road_class,feature.vertices ${spatialSql} AND ${road ? "feature.kind='road'" : "feature.kind IN ('water','river')"}
         ORDER BY feature.rank,feature.area DESC,feature.id LIMIT ?`)
       for (const row of rows.iterate(...spatialArgs(bounds, lod, road ? 3 : 1, road ? 7 : 2, zoom), (road ? limit : waterFeatureLimit) + 1)) {

@@ -25,6 +25,9 @@ try {
     server.once('exit', code => { clearTimeout(timer); reject(new Error(`Server exited ${code}: ${text}`)) })
   })
   const origin = `http://127.0.0.1:${port}`
+  assert.equal(execFileSync(binary, ['health', '--port', String(port)], { env: { PATH: '', VIGO_CITY: '/nonexistent' }, encoding: 'utf8', timeout: 5000 }).trim(), 'ready')
+  assert.equal(execFileSync(binary, ['health'], { env: { PATH: '', PORT: String(port) }, encoding: 'utf8', timeout: 5000 }).trim(), 'ready')
+  checks += 2
   const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' }
   const post = () => fetch(`${origin}/v1/route`, { method: 'POST', headers, body })
   const health = () => fetch(`${origin}/healthz`)

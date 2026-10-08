@@ -139,9 +139,17 @@ impl City {
         } else {
             None
         };
-        let previous_timetable = self.timetable.as_ref().map(|t| (t.key.clone(),t.coverage_end));
+        let previous_timetable = self
+            .timetable
+            .as_ref()
+            .map(|t| (t.key.clone(), t.coverage_end));
         let mut raw = self.execute(command, &query)?;
-        if previous_timetable != self.timetable.as_ref().map(|t| (t.key.clone(),t.coverage_end)) {
+        if previous_timetable
+            != self
+                .timetable
+                .as_ref()
+                .map(|t| (t.key.clone(), t.coverage_end))
+        {
             super::release_preparation_memory();
         }
         if let Some(date) = clock_date {
@@ -769,28 +777,44 @@ impl City {
                 if let std::collections::hash_map::Entry::Vacant(entry) = cache.entry(key) {
                     let mut request = q.clone();
                     let m = request.as_object_mut().unwrap();
-                    for k in ["via", "waypoints", "time", "windowMinutes"] { m.remove(k); }
+                    for k in ["via", "waypoints", "time", "windowMinutes"] {
+                        m.remove(k);
+                    }
                     m.insert("timeMinutes".into(), json!(state.clock));
                     m.insert("origin".into(), points[i].clone());
                     m.insert("destination".into(), points[i + 1].clone());
                     let mut result = self.route_options(&request, true)?;
                     searches += 1;
-                    let choices = result.as_object_mut().unwrap().remove("choices")
-                        .and_then(|v| v.as_array().cloned()).unwrap_or_else(|| vec![result.clone()]);
+                    let choices = result
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("choices")
+                        .and_then(|v| v.as_array().cloned())
+                        .unwrap_or_else(|| vec![result.clone()]);
                     failure.get_or_insert(result);
-                    entry.insert(choices.into_iter().filter(|v| v["status"] == "ready")
-                        .map(std::sync::Arc::new).collect());
+                    entry.insert(
+                        choices
+                            .into_iter()
+                            .filter(|v| v["status"] == "ready")
+                            .map(std::sync::Arc::new)
+                            .collect(),
+                    );
                 }
                 for piece in &cache[&key] {
                     candidates.push(state.extend(piece.clone(), opt.arrive));
                 }
             }
             if candidates.is_empty() {
-                return Ok(json!({"status":"blocked","reason":"via_leg_blocked","legIndex":i,"leg":failure}));
+                return Ok(
+                    json!({"status":"blocked","reason":"via_leg_blocked","legIndex":i,"leg":failure}),
+                );
             }
             states = super::ordered::select(candidates, opt.arrive, step + 1 == indices.len());
         }
-        let choices: Vec<Value> = states.iter().map(|state| state.finish(&json!(via))).collect();
+        let choices: Vec<Value> = states
+            .iter()
+            .map(|state| state.finish(&json!(via)))
+            .collect();
         let mut result = choices[0].clone();
         result["choices"] = json!(choices);
         result["diagnostics"]["orderedSearch"] = json!({"segmentQueries":searches,

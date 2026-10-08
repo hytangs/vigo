@@ -3,16 +3,18 @@ export { removeLocalBasemap, setLocalBasemapData } from './localBasemapSource'
 
 import { type ExpressionSpecification, type LayerSpecification, type Map as MapLibreMap, type StyleSpecification } from 'maplibre-gl'
 import type { Appearance, Basemap } from '../domain'
+import { darkBasemapLayer, darkMapLand, darkMapWater } from './darkBasemap'
 
 export function baseCanvasColor(basemap: Basemap, appearance: Appearance) {
+  if (basemap === 'dark') return darkMapLand
   if (appearance === 'light') {
     if (basemap === 'none') return '#f2f5f6'
     if (basemap === 'offline') return '#f4f2ec'
     return '#e6eef5'
   }
-  if (basemap === 'none') return '#050a0f'
-  if (basemap === 'offline') return '#19262d'
-  return '#070c12'
+  if (basemap === 'none') return '#101512'
+  if (basemap === 'offline') return darkMapLand
+  return '#151b17'
 }
 
 function firstVigoLayerId(map: MapLibreMap) {
@@ -93,7 +95,7 @@ function installVectorBasemap(map: MapLibreMap, state: OnlineBasemapState, style
   }
   const before = firstVigoLayerId(map)
   for (const original of style.layers) {
-    const layer = { ...original, id: `vigo-basemap-${original.id}` }
+    const layer = { ...(state.basemap === 'dark' ? darkBasemapLayer(original) : original), id: `vigo-basemap-${original.id}` }
     if ('source' in layer) layer.source = sourceIds.get(layer.source as string)!
     map.addLayer(layer, before)
     state.layers.push(layer.id)
@@ -133,8 +135,8 @@ function roadWidth(scale: number): ExpressionSpecification {
 
 export function localBasemapLayers(appearance: Appearance): LayerSpecification[] {
   const light = appearance === 'light'
-  const water = light ? '#acd0d8' : '#103b4a'
-  const shore = light ? '#91bbc5' : '#28515d'
+  const water = light ? '#acd0d8' : darkMapWater
+  const shore = light ? '#91bbc5' : '#30463d'
   return [
     {
       id: 'vigo-local-water', type: 'fill', source: 'vigo-local-basemap',
@@ -163,7 +165,7 @@ export function localBasemapLayers(appearance: Appearance): LayerSpecification[]
         'line-join': 'round',
       },
       paint: {
-        'line-color': light ? '#d0cdc3' : '#111d23',
+        'line-color': light ? '#d0cdc3' : '#2c382f',
         'line-opacity': light ? 0.75 : 0.8,
         'line-width': roadWidth(1.45),
       },
@@ -178,7 +180,7 @@ export function localBasemapLayers(appearance: Appearance): LayerSpecification[]
         'line-join': 'round',
       },
       paint: {
-        'line-color': ['match', ['get', 'roadClass'], ['motorway', 'trunk'], light ? '#ebd8ab' : '#8a8d7c', 'primary', light ? '#fffdf5' : '#65767a', light ? '#ffffff' : '#475c65'],
+        'line-color': ['match', ['get', 'roadClass'], ['motorway', 'trunk'], light ? '#ebd8ab' : '#536053', 'primary', light ? '#fffdf5' : '#455346', light ? '#ffffff' : '#3c4b40'],
         'line-opacity': light ? 0.98 : 0.9,
         'line-width': roadWidth(1),
       },

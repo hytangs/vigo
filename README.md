@@ -4,9 +4,9 @@
 
 <p align="center">
   <strong>Build a City. Follow its service. Find a journey.</strong><br>
-  <a href="docs/guides/quickstart.md">Quickstart</a> ·
-  <a href="docs/guides/studio.md">Studio</a> ·
-  <a href="docs/README.md">Documentation</a> ·
+  <a href="docs/guide.md#vigo-cli-quickstart">Quickstart</a> ·
+  <a href="docs/guide.md#vigo-studio-desktop-guide">Studio</a> ·
+  <a href="docs/guide.md#build-a-network-answer-a-transport-question">Documentation</a> ·
   <a href="docs/releases/0.5.0.md">Release notes</a>
 </p>
 
@@ -16,9 +16,7 @@ VIGO turns GTFS timetables and OpenStreetMap streets into a reusable city model.
 
 VIGO supports multiple GTFS timetables and multiple GTFS-RT endpoints in one City, with explicit source matching, bounded memory admission, and automatic Engine recovery. Native routing powers the desktop and command line. A model connection is optional.
 
-![VIGO Studio showing Boston's real MBTA network](docs/assets/studio-network.png)
-
-*Captured from the running application with public MBTA data. [Screenshots, sources and reproduction steps](docs/guides/studio-tour.md).*
+**[Read the documentation](docs/guide.html)** · [Quickstart](docs/guide.md#vigo-cli-quickstart) · [Rust CLI and HTTP](docs/standalone.html) · [Python](https://github.com/hytangs/vigo-py)
 
 ## What you can do
 
@@ -34,8 +32,8 @@ VIGO supports multiple GTFS timetables and multiple GTFS-RT endpoints in one Cit
 
 ## Choose an interface
 
-- **VIGO Rust standalone:** one executable for CLI, resident streaming, and a localhost or hosted HTTP service. No Node runtime is required. See [Boston tutorial, Rust query contract, and deployment](docs/guides/rust-standalone.md).
-- **VIGO Engine:** the `vigo` command and shared native runtime in this repository. The [CLI-only archive](docs/guides/cli-only.md) retains routing, matrices, isochrones, scenarios, and resident streaming in two runtime files. Build a City once, then run Route, Matrix, or Reach.
+- **VIGO native engine:** one executable for CLI, resident streaming, and a localhost or hosted HTTP service. No Node runtime is required. See [Boston tutorial, Rust query contract, and deployment](docs/guides/rust-standalone.md).
+- **VIGO Node CLI:** build Cities from GTFS and OSM, and run queries using the shared native kernel. The [CLI-only archive](docs/guides/cli-only.md) retains routing, matrices, isochrones, scenarios, and resident streaming in two runtime files. Build a City once, then run Route, Matrix, or Reach.
 - **VIGO Studio:** a desktop workspace for network inspection, journeys, and scenario analysis. Its project library is separate from CLI City directories.
 - **VIGO Python:** automate Engine through the [separate Python package](https://github.com/hytangs/vigo-py).
 
@@ -43,7 +41,7 @@ VIGO supports multiple GTFS timetables and multiple GTFS-RT endpoints in one Cit
 GTFS + OSM → City → optional Scenario → Route | Matrix | Reach → Result
 ```
 
-Compare operates on compatible Results. Planned transit changes apply to Reach; supplied traffic applies to Drive Route and Matrix. Realtime transit Route processes supported, matched Trip Updates. Transit Matrix and Reach remain scheduled. See [query support](docs/guides/concepts.md#choose-a-supported-combination) and [routing limits](docs/reference/known-routing-limitations.md).
+Compare operates on compatible Results. Planned transit changes apply to Reach; supplied traffic applies to Drive Route and Matrix. Realtime transit Route processes supported, matched Trip Updates. Transit Matrix and Reach remain scheduled. See [query support](docs/guide.md#choose-a-supported-combination) and [routing limits](docs/guide.md#known-limits).
 
 ## Get started
 
@@ -57,7 +55,7 @@ npm run build
 npm run studio
 ```
 
-In Studio, create a City and import one or more static GTFS ZIPs and an overlapping OSM PBF. [Match live feeds to their timetables](docs/guides/multiple-feeds.md) when adding GTFS-Realtime connections for live inspection. A model connection is optional. For a complete command-line example, follow the [quickstart](docs/guides/quickstart.md).
+In Studio, create a City and import one or more static GTFS ZIPs and an overlapping OSM PBF. [Match live feeds to their timetables](docs/guide.md#combine-timetables-and-live-feeds) when adding GTFS-Realtime connections for live inspection. A model connection is optional. For a complete command-line example, follow the [quickstart](docs/guide.md#vigo-cli-quickstart).
 
 | Command | Purpose |
 | --- | --- |
@@ -73,19 +71,19 @@ Native targets are macOS 13.5+ on ARM64/x64, Linux glibc on ARM64/x64, and Windo
 
 VIGO is pre-release software. A computed journey is a result within the supplied timetable and street model; a prediction is not an observed passage. Missing reports remain unknown. Reach measures travel time; measuring access to jobs or people requires opportunity data and a stated measure.
 
-Ask sends questions and selected evidence to the configured inference endpoint. Model and web connections are separate. Inspect the answer's sources and **Model & data** record. Ask does not authorize dispatch or publish rider messages. See the [Network guide](docs/guides/network.md) and [security policy](SECURITY.md).
+Ask sends questions and selected evidence to the configured inference endpoint. Model and web connections are separate. Inspect the answer's sources and **Model & data** record. Ask does not authorize dispatch or publish rider messages. See the [Network guide](docs/guide.md#network-routes-and-ask) and [security policy](SECURITY.md).
 
 ## Documentation
 
 For the smallest command-line distribution, see [VIGO CLI](docs/guides/cli-only.md).
 For a CLI/HTTP ZIP without Studio or the Python wrapper, see
-[Engine packaging and deployment](docs/guides/engine-deployment.md).
+[Engine packaging and deployment](docs/guide.md#deploy-the-routing-engine).
 
 | Start | Understand | Go deeper |
 | --- | --- | --- |
-| [CLI quickstart](docs/guides/quickstart.md) · [Studio](docs/guides/studio.md) | [Practical workflows](docs/guides/workflows.md) · [Read a Result](docs/reference/results.md) | [CLI reference](docs/reference/programmatic.md) · [Architecture](docs/development/architecture.md) |
-| [Multiple feeds](docs/guides/multiple-feeds.md) · [Documentation index](docs/README.md) | [Network evidence](docs/guides/network.md) · [Troubleshooting](docs/guides/troubleshooting.md) | [Contributing and checks](.github/CONTRIBUTING.md) |
+| [CLI quickstart](docs/guide.md#vigo-cli-quickstart) · [Studio](docs/guide.md#vigo-studio-desktop-guide) | [Practical workflows](docs/guide.md#work-with-a-city) · [Read a Result](docs/reference/results.md) | [CLI reference](docs/guide.md#command-line) · [Architecture](docs/developer.md#architecture) |
+| [Multiple feeds](docs/guide.md#combine-timetables-and-live-feeds) · [Documentation index](docs/guide.md#build-a-network-answer-a-transport-question) | [Network evidence](docs/guide.md#network-routes-and-ask) · [Troubleshooting](docs/guide.md#troubleshooting-1) | [Contributing and checks](.github/CONTRIBUTING.md) |
 
-The [offline guide](docs/guide.html) includes a local Result viewer; the [Developer Guide source](docs/developer-guide/VIGO-0.5.0-Developer-Guide.tex) builds the release PDF.
+The [offline guide](docs/guide.html) includes search, a local Result viewer, and printing. It is generated from the Markdown pages so examples and reference stay in sync.
 
 API 1.0, City format 1, and Result schema 1 remain unchanged in 0.5.0. VIGO is licensed under [Apache-2.0](LICENSE); see [NOTICE](NOTICE) for attribution.

@@ -8,6 +8,7 @@ import { once } from 'node:events'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { renderPublicText } from '../src/server/native-routing-kernel.mjs'
 import { standaloneBinary } from './helpers/standalone-runtime.mjs'
+import { classifyResponse } from '../scripts/lib/benchmark-response.mjs'
 const root = path.resolve(import.meta.dirname, '..')
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-public-results-'))
 const city = path.join(directory, 'city')
@@ -15,7 +16,7 @@ const servers = []
 let checks = 0
 const base = { serviceDate: '2026-07-15', time: '07:55', origin: { stop: { feed: null, id: 'A' } }, destination: { stop: { feed: null, id: 'B' } }, maxWalkKm: .2, requireTransitRide: true }
 const forbidden = ['memberIndices', 'pathMemberIndices', 'queryToken', 'linkFromStopKeys', 'originAccess', 'accessReductionNs', '4294967295', '\\u001f']
-function assertPublic(result) {
+function assertPublic(result, request = result.query) {
   assert.match(result.schema, /^vigo\.(route|matrix|reach)\.v1$/)
   assert(['ok', 'not_found'].includes(result.status))
   const encoded = JSON.stringify(result)
@@ -24,6 +25,8 @@ function assertPublic(result) {
   assert(!Object.hasOwn(result, 'diagnostics'))
   assert(!Object.hasOwn(result, 'timing'))
   assert.match(result.meta.queryFingerprint, /^[a-f0-9]{64}$/)
+  assert.deepEqual(classifyResponse({ ...request, kind: result.schema.split('.')[1] }, 200, result), { outcome: result.status },
+    'Benchmark validation must accept production public output from both runtimes.')
   checks++
 }
 try {
@@ -69,10 +72,12 @@ try {
     checks++
     assert(trace.journey.legs.some(l => l.geometry?.coordinates?.length > 1))
     assert.equal(trace.journey.arrivalTime, result.journey.arrivalTime)
-    assert.equal(cli(runtime, 'route', { ...base, maxTransfers: 0 }).status, 'not_found')
+    const noJourney = cli(runtime, 'route', { ...base, maxTransfers: 0 })
+    assert.equal(noJourney.status, 'not_found')
+    assertPublic(noJourney)
     assert.equal(cli(runtime, 'route', { ...base, serviceDate: '2026-07-19' }).status, 'not_found')
     const matrix = cli(runtime, 'matrix', { serviceDate: base.serviceDate, time: base.time, origins: [base.origin], destinations: [base.destination], maxWalkKm: .2, requireTransitRide: true, includeJourneys: true })
-    assertPublic(matrix)
+    assertPublic(matrix, { origins: [base.origin], destinations: [base.destination] })
     assert.deepEqual(matrix.durationsSeconds, [[2100]])
     const { requireTransitRide, ...defaultQuery } = base
     const defaultRoute = cli(runtime, 'route', defaultQuery)
@@ -87,9 +92,9 @@ try {
     assert.deepEqual(defaultMatrix.durationsSeconds, [[defaultRoute.journey.durationSeconds]])
     checks += 5
     const reach = cli(runtime, 'reach', { serviceDate: base.serviceDate, time: base.time, origin: base.origin, rasterSize: 48, cutoffsMinutes: [15, 30], maxWalkKm: .2 })
-    assertPublic(reach)
+    assertPublic(reach, { rasterSize: 48 })
     const map = cli(runtime, 'reach', { serviceDate: base.serviceDate, time: base.time, origin: base.origin, rasterSize: 48, cutoffsMinutes: [15, 30], maxWalkKm: .2, reachFormat: 'map' })
-    assertPublic(map)
+    assertPublic(map, { reachFormat: 'map' })
     assert.deepEqual(map.areas, reach.fullAreas || reach.areas)
     assert(!Object.hasOwn(map, 'surface') && !Object.hasOwn(map, 'stops') && !Object.hasOwn(map, 'contours'))
     assert.equal(map.meta.queryFingerprint, reach.meta.queryFingerprint)
@@ -100,13 +105,12 @@ try {
     checks += 12
   }
   assert.equal(results[0].journey.arrivalTime, results[1].journey.arrivalTime)
-  for (const runtime of ['rust', 'node']) {
-    const child = runtime === 'rust' ? spawn(standaloneBinary, ['serve', '--city', city, '--port', '0'], { env: { ...process.env, VIGO_API_TOKEN: 'public-contract-test-token' } })
-      : spawn(process.execPath, ['public/engine-http.mjs'], { cwd: root, env: { ...process.env, VIGO_CITY_DIR: city, VIGO_ENGINE_PORT: '0', VIGO_ENGINE_API_TOKEN: 'public-contract-test-token' } })
+  {
+    const child = spawn(standaloneBinary, ['serve', '--city', city, '--port', '0'], { env: { ...process.env, VIGO_API_TOKEN: 'public-contract-test-token' } })
     servers.push(child)
     const port = await new Promise((resolve, reject) => {
       let log = ''; const timer = setTimeout(() => reject(new Error(`Server startup timed out: ${log}`)), 15000)
-      const read = data => { log += data; const match = log.match(/listening on 127\.0\.0\.1:(\d+)/) ?? log.match(/"port":(\d+)/); if (match) { clearTimeout(timer); resolve(Number(match[1])) } }
+      const read = data => { log += data; const match = log.match(/listening on 127\.0\.0\.1:(\d+)/); if (match) { clearTimeout(timer); resolve(Number(match[1])) } }
       child.stdout.on('data', read); child.stderr.on('data', read)
       child.once('exit', code => { clearTimeout(timer); reject(new Error(`Server exit ${code}: ${log}`)) })
     })
@@ -131,7 +135,7 @@ try {
     assert.equal((await unauthenticated.json()).error.code, 'unauthorized')
     checks += 2
   }
-  console.log(`Public result contract: ${checks} checks passed across Rust, Node, CLI and HTTP.`)
+  console.log(`Public result contract: ${checks} checks passed across both CLIs and native HTTP.`)
 } finally {
   for (const child of servers) if (child.exitCode === null) { const closed = once(child, 'exit'); child.kill(); await closed }
   fs.rmSync(directory, { recursive: true, force: true })

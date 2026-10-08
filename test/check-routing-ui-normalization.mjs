@@ -113,7 +113,7 @@ const stationWarningPlan = normalizeReceivedRoutingPlan(plan('station-warning', 
 assert.equal(stationWarningPlan.legs[0].stationAccessStatus, 'unverified', 'Merging a street walk with a station walk must retain the warning.')
 assert.deepEqual(stationWarningPlan.legs[0].stationAccessStopIds, ['P'])
 assert.equal(stationWarningPlan.legs[0].streetPathVerified, false)
-assert.match(routingLegDetail(stationWarningPlan.legs[0]), /entrance\/platform path unverified/)
+assert.equal(routingLegDetail(stationWarningPlan.legs[0]), '2m walk')
 assert.equal(routingPlanRouteSequence(normalizedExactStopPlan), 'Line A -> Line B -> Line C')
 assert.deepEqual(
   normalizedExactStopPlan.legs.filter((leg) => leg.type === 'walk').map(routingLegPrimaryLabel),

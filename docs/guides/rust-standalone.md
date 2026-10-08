@@ -388,7 +388,7 @@ and native operations. `diagnostics.timeReserves` records both deadlines and
 `calibratedProbability: false`. Route and journey clocks retain their actual
 modeled times; Matrix scalar durations include the reserve. Combine with
 `minimumTransferBufferMinutes` for time at intermediate changes. See
-[Travel-time uncertainty](https://github.com/hytangs/vigo/blob/main/docs/reference/travel-time-uncertainty.md) for the Boston
+[Travel-time uncertainty](https://github.com/hytangs/vigo/blob/main/docs/guide.md#travel-time-uncertainty) for the Boston
 example and calibration requirements; a margin is not a probability guarantee.
 
 ## 6. Route
@@ -1316,6 +1316,9 @@ The environment variables for the Rust runtime are:
 | `PORT` | Default HTTP port; overridden by `--port` |
 | `VIGO_API_TOKEN` | Bearer token; nonempty values protect data endpoints, including loopback |
 | `RAYON_NUM_THREADS` | Optional native parallel thread count |
+| `VIGO_MAX_RESIDENT_SCENARIOS` | Maximum resident scenario views |
+| `VIGO_ENDPOINT_CACHE_MAX_BYTES` | Shared endpoint-cache budget |
+| `VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES` | Shared geometry-cache budget |
 
 A non-loopback bind requires a token at least 16 characters long. Set it through your deployment secret mechanism and send `Authorization: Bearer ...`. The static manual/specification and health endpoints remain public; they contain no query or City data. The token is not a CLI argument and the service does not persist tokens or query bodies.
 
@@ -1334,16 +1337,19 @@ Terminate HTTPS at a reverse proxy or hosting platform. Give its upstream timeou
 
 ### Container
 
-Build from the repository root:
+Build the native service image from the repository root:
 
 ```sh
-docker build -f deploy/rust/Dockerfile -t vigo-rust:local .
-docker run --rm --read-only --cap-drop ALL \
-  -p 127.0.0.1:8080:8080 \
-  -e VIGO_API_TOKEN -v "$VIGO_CITY:/city:ro" vigo-rust:local
+docker build -f deploy/Dockerfile -t vigo:0.5.0 .
+export VIGO_IMAGE=vigo:0.5.0
+export VIGO_CITY=/absolute/path/to/prepared-city
+# Set VIGO_API_TOKEN through your deployment secret store.
+docker compose -f deploy/compose.yml up -d --wait
 ```
 
-The final image is `scratch`, containing the static musl executable and licenses, running as UID/GID 65532. The documentation is embedded in the executable. Give this user read and traversal access to the mounted City. `deploy/rust/compose.yaml` provides equivalent mounting, token, read-only, and restart settings. Check [Compatibility](#20-validation-and-compatibility) for platform validation status.
+The image runs as UID/GID 65532 on Debian glibc, with the native executable and its embedded documentation. Compose mounts the City read-only and defaults to 2 CPUs, 2 GiB, a bounded query queue, bounded caches, and limited log storage. The built-in `vigo health` command checks worker readiness without loading a City or requiring an external runtime. Give UID 65532 read and traversal access to the City.
+
+See the [deployment guide](https://github.com/hytangs/vigo/blob/main/docs/guide.md#deploy-the-routing-engine) for the complete configuration and container acceptance check.
 
 ### Process manager
 

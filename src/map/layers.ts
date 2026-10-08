@@ -169,8 +169,8 @@ export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
           'scenario', '#35d0a1',
           '#6da8ff',
         ] as ExpressionSpecification,
-        'line-width': 2,
-        'line-opacity': 0.92,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.6, 12, 1, 16, 1.4] as ExpressionSpecification,
+        'line-opacity': 0.8,
       },
     })
   }
@@ -298,8 +298,8 @@ export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
         source: `${layerPrefix}-contours`,
         paint: {
           'line-color': color,
-          'line-width': 2.4,
-          'line-opacity': 0.96,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.6, 12, 1, 16, 1.4] as ExpressionSpecification,
+          'line-opacity': 0.8,
         },
       })
     }

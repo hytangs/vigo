@@ -1,3 +1,4 @@
+import { addMapControls } from './app/mapControls'
 import {
   baseCanvasColor,
   ensureLocalBasemapLayers,
@@ -138,6 +139,7 @@ export type VigoMapProps = {
   onSelectRoute: (id: string, options?: { inspect?: boolean }) => void
   onSelectStop: (id: string, options?: { inspect?: boolean }) => void
   onRoutingPoint?: (point: RoutingPoint) => void
+  onInspectReachPoint?: (point: RoutingPoint) => void
 }
 
 function scheduleMapFrameUpdate(
@@ -434,6 +436,7 @@ export function VigoMap({
   onOpenTrip,
   onSelectStop,
   onRoutingPoint,
+  onInspectReachPoint,
 }: VigoMapProps) {
   // An absent overlay stays the same input across unrelated parent renders.
   const routingWaypoints = suppliedWaypoints.length ? suppliedWaypoints : emptyRoutingPoints
@@ -491,21 +494,25 @@ export function VigoMap({
   const performanceProfile = useMemo(() => providedPerformanceProfile ?? buildNetworkPerformanceProfile(preview), [preview, providedPerformanceProfile])
   const routingFocus = focusMode === 'routing'
   const scenarioFocus = focusMode === 'scenario'
+  const queryFocus = routingFocus || scenarioFocus
   const highlightRouteGroup = focusMode === 'route' && preview.routes.length > 0
-  const effectiveLayers = useMemo(() => ({
-    ...layers,
-    routes: routingFocus || scenarioFocus ? false : focusMode === 'route' ? true : layers.routes,
-    segments: routingFocus || scenarioFocus ? false : layers.segments,
-    // Keep transit stops available while a Reach case is being
-    // configured. Once a surface is ready, the result itself is represented
-    // only by its area or street-path layer; settled OSM nodes stay internal.
-    stops: routingFocus ? false : scenarioFocus ? !reachResult : layers.stops,
-    transfers: routingFocus || scenarioFocus ? false : layers.transfers,
-    coverage: routingFocus || scenarioFocus ? false : layers.coverage,
-    scenario: routingFocus || scenarioFocus ? false : layers.scenario,
-    access: routingFocus || scenarioFocus ? false : layers.access,
-  }), [focusMode, layers, routingFocus, reachResult, scenarioFocus])
-  const routesGeoJson = useMemo(() => routeFeatures(preview, selectedRouteId, highlightRouteGroup), [highlightRouteGroup, preview, selectedRouteId])
+  // Route and Accessibility share a quiet map, including before any query.
+  // Network browsing preferences never add background transit to either view.
+  const effectiveLayers = useMemo<LayerState>(() => queryFocus
+    ? { routes: false, segments: false, stops: false, transfers: false, coverage: false, scenario: false, access: false }
+    : { ...layers, routes: focusMode === 'route' || layers.routes }, [focusMode, layers, queryFocus])
+  const layerPresentation = {
+    layers: effectiveLayers,
+    routingVisible: routingEnabled || Boolean(routingPlan) || queryFocus,
+    reachResultVisible: scenarioFocus,
+    reachComparisonCount: reachComparison?.length ?? 0,
+  }
+  const layerPresentationRef = useRef(layerPresentation)
+  layerPresentationRef.current = layerPresentation
+  const routesGeoJson = useMemo(
+    () => effectiveLayers.routes || effectiveLayers.scenario ? routeFeatures(preview, selectedRouteId, highlightRouteGroup) : emptyCollection,
+    [effectiveLayers.routes, effectiveLayers.scenario, highlightRouteGroup, preview, selectedRouteId],
+  )
   const segmentsGeoJson = useMemo(() => (effectiveLayers.segments ? segmentFeatures(preview, performanceProfile) : emptyCollection), [effectiveLayers.segments, performanceProfile, preview])
   const stopsGeoJson = useMemo(
     () => (
@@ -513,13 +520,12 @@ export function VigoMap({
       || effectiveLayers.transfers
       || effectiveLayers.coverage
       || effectiveLayers.access
-      || scenarioFocus
         ? stopFeatures(preview, selectedRouteId, selectedStopId, performanceProfile)
         : emptyCollection
     ),
-    [effectiveLayers.access, effectiveLayers.coverage, effectiveLayers.stops, effectiveLayers.transfers, performanceProfile, preview, scenarioFocus, selectedRouteId, selectedStopId],
+    [effectiveLayers.access, effectiveLayers.coverage, effectiveLayers.stops, effectiveLayers.transfers, performanceProfile, preview, selectedRouteId, selectedStopId],
   )
-  const accessGeoJson = useMemo(() => accessFeatures(preview, selectedStopId), [preview, selectedStopId])
+  const accessGeoJson = useMemo(() => effectiveLayers.access ? accessFeatures(preview, selectedStopId) : emptyCollection, [effectiveLayers.access, preview, selectedStopId])
   const vehicleGeoJson = useMemo(
     () => effectiveLayers.routes
       ? serviceVehicleFeatures(vehicleFrame, preview, selectedRouteId)
@@ -656,13 +662,13 @@ export function VigoMap({
     stopSelectionRef.current = { projectId, selectedRouteId, selectedStopId }
     // Search and Agency evidence share map selection. A route's automatically
     // selected first stop should not open a board over a vehicle or route card.
-    if (previous.projectId !== projectId || previous.selectedRouteId !== selectedRouteId || previous.selectedStopId === selectedStopId || routingEnabled || scenarioFocus) return
+    if (previous.projectId !== projectId || previous.selectedRouteId !== selectedRouteId || previous.selectedStopId === selectedStopId || routingEnabled || queryFocus) return
     const stop = findNetworkStop(preview.stops, selectedStopId)
     if (stop) {
       setLiveSelection({ tone: 'stop', stopId: stop.id, eyebrow: 'Stop arrivals', title: stop.name, subtitle: '', metrics: [] })
       mapRef.current?.easeTo({ center: stopLngLat(stop), zoom: Math.max(mapRef.current.getZoom(), 14), duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450 })
     }
-  }, [projectId, selectedRouteId, selectedStopId, preview, routingEnabled, scenarioFocus])
+  }, [projectId, selectedRouteId, selectedStopId, preview, routingEnabled, queryFocus])
 
   useEffect(() => {
     const container = containerRef.current
@@ -694,7 +700,7 @@ export function VigoMap({
     const analysisBounds = scenarioFocus && focusedAnalysis
       ? focusedAnalysis.surface.displayBounds ?? focusedAnalysis.surface.raster.bounds
       : null
-    const initialRoutingBounds = routingEnabled || Boolean(routingPlan) || scenarioFocus
+    const initialRoutingBounds = routingEnabled || Boolean(routingPlan) || queryFocus
       ? mapContentBounds(routingGeoJson, routingPinsGeoJson)
       : null
     const initialBounds: LngLatBoundsLike | null = analysisBounds
@@ -771,13 +777,9 @@ export function VigoMap({
       if (mapRemovedRef.current || mapReadyRef.current) return
       try {
         mapReadyRef.current = true
-        ensureLayers(map)
-        ensureLayers(map, comparisonEntries.length)
-        applyLayerVisibility(map, effectiveLayers, {
-          routingVisible: routingEnabled || Boolean(routingPlan) || scenarioFocus,
-          reachResultVisible: scenarioFocus,
-          reachComparisonCount: comparisonEntries.length,
-        })
+        const presentation = layerPresentationRef.current
+        ensureLayers(map, presentation.reachComparisonCount)
+        applyLayerVisibility(map, presentation.layers, presentation)
         applyNetworkLensPaint(map, networkLens)
         const tracker = mapTelemetryRef.current
         if (tracker && markMapLoaded(tracker, performance.now())) reportPhase('map-load')
@@ -802,8 +804,7 @@ export function VigoMap({
     map.on('load', handleMapLoad)
     map.on('idle', retryMapReady)
     try {
-      map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right')
-      map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left')
+      addMapControls(map)
     } catch (error) {
       map.off('error', handleMapError)
       map.off('sourcedata', handleSourceData)
@@ -881,6 +882,8 @@ export function VigoMap({
     const update = () => {
       try {
         ensureLayers(map)
+        const presentation = layerPresentationRef.current
+        applyLayerVisibility(map, presentation.layers, presentation)
         const tracker = mapTelemetryRef.current
         if (tracker && tracker.key === mapTelemetryKey) {
           const adoptedAt = performance.now()
@@ -894,7 +897,7 @@ export function VigoMap({
         setMapSourceData(source(map, 'vigo-segments'), segmentsGeoJson)
         setMapSourceData(source(map, 'vigo-stops'), stopsGeoJson)
         setMapSourceData(source(map, 'vigo-access'), accessGeoJson)
-        const showRoutingPlan = routingEnabled || Boolean(routingPlan) || scenarioFocus
+        const showRoutingPlan = presentation.routingVisible
         setMapSourceData(source(map, 'vigo-routing'), showRoutingPlan ? routingGeoJson : emptyCollection)
         setMapSourceData(source(map, 'vigo-routing-pins'), showRoutingPlan ? routingPinsGeoJson : emptyCollection)
         const shouldFit = fitSignature !== lastFitSignatureRef.current
@@ -1198,11 +1201,9 @@ export function VigoMap({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReadyRef.current) return
-    applyLayerVisibility(map, effectiveLayers, {
-      routingVisible: routingEnabled || Boolean(routingPlan) || scenarioFocus,
-      reachResultVisible: scenarioFocus,
-    })
-  }, [effectiveLayers, routingEnabled, routingPlan, scenarioFocus])
+    const presentation = layerPresentationRef.current
+    applyLayerVisibility(map, presentation.layers, presentation)
+  }, [effectiveLayers, reachComparison, routingEnabled, routingPlan, scenarioFocus])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1334,6 +1335,12 @@ export function VigoMap({
         }
       }
 
+      if (scenarioFocus) {
+        setLiveSelection(null)
+        onInspectReachPoint?.(routingPointForMapClick(event))
+        return
+      }
+
       const selectServiceVehicle = (vehicle: ServiceVehicleFrame['vehicles'][number]) => {
         setLiveSelection({ tone: 'vehicle', ...vehicle.card, ...(vehicle.source === 'live' ? { vehicleId: vehicle.id, vehicleSourceUrl: vehicle.sourceUrl } : {}) })
       }
@@ -1451,6 +1458,11 @@ export function VigoMap({
         map.getCanvas().style.cursor = 'grab'
         return
       }
+      if (scenarioFocus) {
+        clearHoverTooltip()
+        map.getCanvas().style.cursor = onInspectReachPoint ? 'crosshair' : ''
+        return
+      }
       const layersToQuery = ['vigo-vehicle-headings', 'vigo-vehicles', 'vigo-selected-route', 'vigo-routes', 'vigo-selected-segments', 'vigo-segments'].filter((layerId) => map.getLayer(layerId))
       const features = layersToQuery.length ? map.queryRenderedFeatures(event.point, { layers: layersToQuery }) : []
       const vehicleHit = features.find(feature => (feature.layer.id === 'vigo-vehicles' || feature.layer.id === 'vigo-vehicle-headings') && textProperty(feature.properties, 'vehicleId'))
@@ -1480,7 +1492,14 @@ export function VigoMap({
         }
       } else clearHoverTooltip()
     }
-    map.getCanvas().style.cursor = routingEnabled || (scenarioFocus && scenarioPointPicking) ? 'crosshair' : ''
+    const inspectMapCenter = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' || !scenarioFocus || scenarioPointPicking || !onInspectReachPoint) return
+      event.preventDefault()
+      const center = map.getCenter()
+      onInspectReachPoint({ coordinate: [center.lng, center.lat], label: 'Map center', source: 'map' })
+    }
+    map.getCanvas().style.cursor = routingEnabled || (scenarioFocus && (scenarioPointPicking || onInspectReachPoint)) ? 'crosshair' : ''
+    map.getCanvas().addEventListener('keydown', inspectMapCenter)
     map.on('click', handleClick)
     map.on('mousemove', handleMove)
     map.on('movestart', clearHoverTooltip)
@@ -1492,9 +1511,10 @@ export function VigoMap({
       map.off('mousemove', handleMove)
       map.off('movestart', clearHoverTooltip)
       map.getCanvas().removeEventListener('mouseleave', clearHoverTooltip)
+      map.getCanvas().removeEventListener('keydown', inspectMapCenter)
       map.getCanvas().style.cursor = ''
     }
-  }, [effectiveLayers.routes, effectiveLayers.segments, onRoutingPoint, onSelectRoute, onSelectStop, preview, routingEnabled, scenarioFocus, scenarioPointPicking, selectedRouteId, vehicleFrame])
+  }, [effectiveLayers.routes, effectiveLayers.segments, onRoutingPoint, onInspectReachPoint, onSelectRoute, onSelectStop, preview, routingEnabled, scenarioFocus, scenarioPointPicking, selectedRouteId, vehicleFrame])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1539,7 +1559,7 @@ export function VigoMap({
           </small>
         </div>
       ) : null}
-      {liveSelection && (showStopDetails || !liveSelection.stopId) ? (
+      {liveSelection && !queryFocus && (showStopDetails || !liveSelection.stopId) ? (
         <div className={classNames('map-live-card', `is-${liveSelection.tone}`, Boolean(liveSelection.vehicleId && projectId) && 'has-vehicle-timing', Boolean(liveSelection.stopId && projectId) && 'has-stop-arrivals')}>
           <button type="button" aria-label="Clear map selection" onClick={() => setLiveSelection(null)}>
             <X size={13} strokeWidth={2.6} aria-hidden="true" />

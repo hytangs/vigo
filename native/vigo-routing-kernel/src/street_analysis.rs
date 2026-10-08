@@ -1,4 +1,6 @@
-use super::{ReciprocalEdgeSnap, Snap, SnapWorkspace, snaps_for_coordinate, street_attachment_with_workspace};
+use super::{
+    ReciprocalEdgeSnap, Snap, SnapWorkspace, snaps_for_coordinate, street_attachment_with_workspace,
+};
 #[cfg(not(feature = "node"))]
 use crate::standalone_types as napi;
 use crate::street_snapshot::Snapshot;
@@ -19,16 +21,25 @@ pub(super) struct SurfaceSnapCache {
     snap_bytes: usize,
 }
 impl SurfaceSnapCache {
-    fn attach(&mut self, snapshot: &Snapshot, reciprocal: &[u8], workspace: &mut SnapWorkspace,
-        lon: f64, lat: f64) -> napi::Result<(Vec<Snap>, Option<ReciprocalEdgeSnap>)> {
+    fn attach(
+        &mut self,
+        snapshot: &Snapshot,
+        reciprocal: &[u8],
+        workspace: &mut SnapWorkspace,
+        lon: f64,
+        lat: f64,
+    ) -> napi::Result<(Vec<Snap>, Option<ReciprocalEdgeSnap>)> {
         let key = (lon.to_bits(), lat.to_bits());
-        if let Some(value) = self.entries.get(&key) { return Ok(value.clone()); }
+        if let Some(value) = self.entries.get(&key) {
+            return Ok(value.clone());
+        }
         let value = street_attachment_with_workspace(snapshot, reciprocal, workspace, lon, lat)?;
         // Oversized fallback attachments are returned without retention.
         if value.0.len() <= 8 {
             if self.entries.len() == 16_384
                 && let Some(old) = self.order.pop_front()
-                && let Some(retired) = self.entries.remove(&old) {
+                && let Some(retired) = self.entries.remove(&old)
+            {
                 self.snap_bytes -= retired.0.capacity() * std::mem::size_of::<Snap>();
             }
             let cached = value.clone();
@@ -39,10 +50,14 @@ impl SurfaceSnapCache {
         Ok(value)
     }
     #[cfg(feature = "standalone")]
-    pub(super) fn is_empty(&self) -> bool { self.entries.is_empty() }
+    pub(super) fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
     pub(super) fn byte_length(&self) -> usize {
-        self.entries.capacity() * (std::mem::size_of::<(u64, u64)>()
-            + std::mem::size_of::<(Vec<Snap>, Option<ReciprocalEdgeSnap>)>() + 1)
+        self.entries.capacity()
+            * (std::mem::size_of::<(u64, u64)>()
+                + std::mem::size_of::<(Vec<Snap>, Option<ReciprocalEdgeSnap>)>()
+                + 1)
             + self.snap_bytes
             + self.order.capacity() * std::mem::size_of::<(u64, u64)>()
     }
@@ -434,21 +449,106 @@ fn rasterize_surface_edge(
     let from_y = (north - from_latitude) / (north - south) * height as f64;
     let to_x = (to_longitude - west) / (east - west) * width as f64;
     let to_y = (north - to_latitude) / (north - south) * height as f64;
-    let steps = ((to_x - from_x).abs().max((to_y - from_y).abs()).ceil() as usize)
-        .saturating_mul(2)
-        .max(1);
-    for step in 0..=steps {
-        let fraction = step as f64 / steps as f64;
-        let longitude = from_longitude + (to_longitude - from_longitude) * fraction;
-        let latitude = from_latitude + (to_latitude - from_latitude) * fraction;
-        let duration_minutes = constant_duration_minutes
-            .unwrap_or(from_duration_minutes + edge_duration_minutes * fraction);
-        if duration_minutes > maximum_duration_minutes + DURATION_EPSILON_MINUTES {
+    // Fixed-distance samples can miss a brief grid-corner crossing and create
+    // false no-data holes. Split at every crossed grid line instead.
+    let duration_at = |fraction: f64| {
+        constant_duration_minutes
+            .unwrap_or(from_duration_minutes + edge_duration_minutes * fraction)
+    };
+    let mut fractions = vec![0.0, 1.0];
+    for (from, to, size) in [(from_x, to_x, width), (from_y, to_y, height)] {
+        if from == to {
             continue;
         }
+        let first = from.min(to).ceil().max(0.0) as usize;
+        let last = from.max(to).floor().min(size as f64) as usize;
+        for boundary in first..=last {
+            let fraction = (boundary as f64 - from) / (to - from);
+            if fraction > 0.0 && fraction < 1.0 {
+                fractions.push(fraction);
+            }
+        }
+    }
+    fractions.sort_unstable_by(f64::total_cmp);
+    fractions.dedup();
+    let mut record = |position: f64, duration_minutes: f64| {
+        if duration_minutes > maximum_duration_minutes + DURATION_EPSILON_MINUTES {
+            return;
+        }
+        let longitude = from_longitude + (to_longitude - from_longitude) * position;
+        let latitude = from_latitude + (to_latitude - from_latitude) * position;
         if let Some(cell) = raster_cell(bounds, width, height, longitude, latitude) {
             values[cell] = values[cell].min(duration_minutes);
         }
+    };
+    for &fraction in &fractions {
+        record(fraction, duration_at(fraction));
+    }
+    for interval in fractions.windows(2) {
+        // Midpoint identifies the cell; entry time gives its earliest arrival.
+        record(
+            (interval[0] + interval[1]) / 2.0,
+            duration_at(interval[0]).min(duration_at(interval[1])),
+        );
+    }
+}
+
+#[cfg(test)]
+mod raster_coverage_tests {
+    use super::*;
+
+    fn raster(from: [f64; 2], to: [f64; 2], cutoff: f64, constant: Option<f64>) -> Vec<f64> {
+        let mut values = vec![f64::INFINITY; 9];
+        rasterize_surface_edge(
+            &mut values,
+            &[0.0, 0.0, 3.0, 3.0],
+            3,
+            3,
+            RasterSurfaceEdge {
+                from_longitude: from[0],
+                from_latitude: 3.0 - from[1],
+                to_longitude: to[0],
+                to_latitude: 3.0 - to[1],
+                from_duration_minutes: 10.0,
+                edge_duration_minutes: 10.0,
+                maximum_duration_minutes: cutoff,
+                constant_duration_minutes: constant,
+            },
+        );
+        values
+    }
+
+    #[test]
+    fn brief_corner_crossing_is_not_a_hole() {
+        let values = raster([0.1, 0.1], [2.9, 2.8], 30.0, None);
+        assert!(values[1].is_finite());
+        assert!((values[1] - (10.0 + 10.0 * 0.9 / 2.8)).abs() < 1e-9);
+        assert_eq!(values[2], f64::INFINITY);
+        let reverse = raster([2.9, 2.8], [0.1, 0.1], 30.0, None);
+        assert_eq!(
+            values.iter().map(|v| v.is_finite()).collect::<Vec<_>>(),
+            reverse.iter().map(|v| v.is_finite()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn clipping_cutoff_and_constant_times_are_preserved() {
+        let horizontal = raster([-2.0, 0.5], [5.0, 0.5], 30.0, Some(7.0));
+        assert_eq!(&horizontal[..3], &[7.0, 7.0, 7.0]);
+        assert!(horizontal[3..].iter().all(|v| !v.is_finite()));
+        let vertical = raster([0.5, 0.1], [0.5, 2.9], 14.0, None);
+        assert!(vertical[0].is_finite() && vertical[3].is_finite());
+        assert!(!vertical[6].is_finite());
+        assert!(
+            raster([0.1, 0.1], [2.9, 2.8], 6.0, Some(7.0))
+                .iter()
+                .all(|v| !v.is_finite())
+        );
+        assert!(
+            raster([-2.0, 0.1], [-1.0, 2.8], 30.0, None)
+                .iter()
+                .all(|v| !v.is_finite())
+        );
     }
 }
 

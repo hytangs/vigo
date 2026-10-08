@@ -11,12 +11,14 @@ import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 import { standaloneBinary as binary } from './helpers/standalone-runtime.mjs'
-const manual = fs.readFileSync(path.join(root, 'docs/guides/rust-standalone.md'), 'utf8')
-const html = fs.readFileSync(path.join(root, 'docs/standalone.html'), 'utf8')
-const spec = JSON.parse(fs.readFileSync(path.join(root, 'docs/standalone-openapi.json'), 'utf8'))
+const packagedDocs = process.env.VIGO_STANDALONE_DOCS_DIR
+const docsDirectory = packagedDocs ? path.resolve(packagedDocs) : path.join(root, 'docs')
+const manual = fs.readFileSync(path.join(docsDirectory, packagedDocs ? 'README.md' : 'guides/rust-standalone.md'), 'utf8')
+const html = fs.readFileSync(path.join(docsDirectory, 'standalone.html'), 'utf8')
+const spec = JSON.parse(fs.readFileSync(path.join(docsDirectory, 'standalone-openapi.json'), 'utf8'))
 const python = process.env.VIGO_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
 execFileSync(python, ['test/check-standalone-docs-portability.py'], { cwd: root })
-execFileSync(python, ['scripts/build-standalone-docs.py', '--check'], { cwd: root })
+if (!packagedDocs) execFileSync(python, ['scripts/build-standalone-docs.py', '--check'], { cwd: root })
 assert.equal(spec.openapi, '3.1.0')
 const schemas = spec.components.schemas
 function walk(value) {
@@ -266,7 +268,7 @@ try {
   // Optional retained output lets maintainers check examples with a full JSON
   // Schema validator without adding one to the executable or test dependency tree.
   if (process.env.VIGO_DOCS_EVIDENCE) fs.writeFileSync(process.env.VIGO_DOCS_EVIDENCE, JSON.stringify({ examples, nativeContractCases, outputCases, checks, nativeOperations:operations.length }, null, 2))
-  console.log(`Standalone documentation passed (${checks} example/HTTP checks, ${examples.length} copyable JSON examples, ${operations.length} native contracts, all CLI flags, offline links, generated-file freshness).`)
+  console.log(`Standalone documentation passed (${checks} example/HTTP checks, ${examples.length} copyable JSON examples, ${operations.length} native contracts, all CLI flags, offline links, ${packagedDocs ? 'extracted package' : 'generated-file freshness'}).`)
 } finally {
   if (server && server.exitCode === null) { server.kill(); await once(server, 'exit') }
   fs.rmSync(directory, { recursive: true, force: true, maxRetries:20, retryDelay:50 })

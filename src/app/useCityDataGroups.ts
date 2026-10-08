@@ -41,6 +41,7 @@ export function caseFeedSelection(value: CityDataGroups, caseId: string, project
   const error = !group ? 'Choose a feed group for this case in City data.'
     : !feedIds.length ? `Add a timetable to ${group.name} in City data.`
     : feedIds.some(id => !project.feeds.some(feed => feed.id === id)) ? `${group.name} contains a removed timetable. Update it in City data.`
+    : feedIds.some(id => project.feeds.find(feed => feed.id === id)?.routingStore?.routingEligibility === 'unsupported') ? `${group.name} contains unsupported timetable data.`
     : feedIds.some(id => project.feeds.find(feed => feed.id === id)?.routingStore?.status !== 'ready') ? `Wait for the timetables in ${group.name} to finish preparing.`
     : ''
   return { group, feedIds, error }

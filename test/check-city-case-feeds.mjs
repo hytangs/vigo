@@ -97,6 +97,25 @@ try {
     assert.equal(response.body.result.diagnostics.reach.timetable.residentTrips, feeds.length, 'API did not carry group membership into the native query.')
   }
   const changed = await send(['bus', 'rail'], { scenario: { excludedRouteIds: ['rail::R'] } })
+  const pointRoute = feedIds => api.requestJson(`/api/projects/${projectId}/national-route`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...query,
+      feedIds, destination: point('C'), allowLongWalk: false, routingDataMode: 'scheduled', departureWindowMinutes: 0 }),
+  })
+  for (const feedIds of [['bus', 'rail'], ['express'], ['bus'], ['bus', 'rail']]) {
+    const response = await pointRoute(feedIds)
+    assert.equal(response.status, 200, JSON.stringify(response.body))
+    const plan = response.body.choices[0]
+    if (feedIds.length === 2) {
+      assert.equal(plan.status, 'ready', JSON.stringify(plan))
+      assert(Math.abs(plan.arriveMinutes - 492) < .01, 'Point inspection borrowed an unselected express trip.')
+    } else if (feedIds[0] === 'bus') assert.equal(plan.status, 'blocked', 'Point routing crossed into an unselected rail feed.')
+    else {
+      assert.equal(plan.status, 'ready')
+      assert(plan.arriveMinutes < 492, 'Selected express trip was not used.')
+    }
+  }
+  assert.equal((await pointRoute([])).status, 400)
+  assert.equal((await pointRoute(['missing'])).status, 400)
   assert.equal(changed.status, 200, JSON.stringify(changed.body))
   assert.equal(changed.body.result.diagnostics.scenarioReach.timetable.residentTrips, 2)
   assert.equal(changed.body.result.diagnostics.scenarioReach.search.excludedTrips, 1)

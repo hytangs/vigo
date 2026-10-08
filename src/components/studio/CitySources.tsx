@@ -15,6 +15,8 @@ export type CityImportProps = {
   gtfsJob?: JobRecord
   osmJob?: JobRecord
   importMessage: string
+  gtfsError?: string
+  osmError?: string
   osmStreetReady: boolean
   osmStreetMessage: string
   realtimeSnapshot: RealtimeSnapshot | null
@@ -34,7 +36,7 @@ export type CityImportProps = {
 }
 
 export function ImportPanel(props: CityImportProps & { library?: (chooseGtfs: () => void) => ReactNode }) {
-  const { staticFeeds, osmDelete, isImporting, isOsmImporting, gtfsJob, osmJob, importMessage,
+  const { staticFeeds, osmDelete, isImporting, isOsmImporting, gtfsJob, osmJob, importMessage, gtfsError, osmError,
     osmStreetReady, osmStreetMessage, realtimeSnapshot, realtimeMessage, realtimeRequest, isRealtimeLoading,
     onFiles, onNationalGtfsPath, onNationalOsmPath, onOsmFiles, onConnectRealtime, onDisconnectRealtime,
     onCancelGtfs, onRetryGtfs, onCancelOsm, onRetryOsm, library } = props
@@ -52,23 +54,23 @@ export function ImportPanel(props: CityImportProps & { library?: (chooseGtfs: ()
     if (!isImporting && event.dataTransfer.files.length) onFiles(event.dataTransfer.files)
   }
   return <section className="import-panel city-data-import" aria-label="City sources" onDragOver={event => event.preventDefault()} onDrop={handleDrop}>
-    <input ref={fileRef} hidden type="file" multiple accept=".zip,application/zip" onChange={event => {
+    <input ref={fileRef} hidden type="file" accept=".zip,application/zip" onChange={event => {
       if (event.currentTarget.files) onFiles(event.currentTarget.files)
       event.currentTarget.value = ''
     }} />
     {library ? library(chooseGtfs) : <button type="button" className={classNames('drop-zone', isImporting && 'is-working')} onClick={chooseGtfs} disabled={isImporting}>
-      <FileArchive size={22} /><span><strong>Add timetable</strong><span>Choose or drop GTFS ZIP files</span></span>
+      <FileArchive size={22} /><span><strong>Add timetable</strong><span>Choose or drop a GTFS ZIP</span></span>
     </button>}
-    {isImporting || gtfsFailed ? <div className="city-import-status" role="status">
-      <span>{importMessage || (isImporting ? 'Preparing timetable…' : 'Timetable preparation did not finish.')}</span>
-      <button type="button" className="import-job-action" onClick={isImporting ? onCancelGtfs : onRetryGtfs}>
-        {isImporting ? <XCircle size={14} /> : <RefreshCw size={14} />}{isImporting ? 'Cancel' : 'Retry'}
+    {isImporting || gtfsFailed || gtfsError ? <div className="city-import-status" role="status">
+      <span>{gtfsError || importMessage || (isImporting ? 'Preparing timetable…' : 'Timetable preparation did not finish.')}</span>
+      <button type="button" className="import-job-action" onClick={isImporting ? onCancelGtfs : gtfsError ? chooseGtfs : onRetryGtfs}>
+        {isImporting ? <XCircle size={14} /> : <RefreshCw size={14} />}{isImporting ? 'Cancel' : gtfsError ? 'Choose file' : 'Retry'}
       </button>
     </div> : null}
     <section className="city-shared-data" aria-label="Shared City data">
       <div className={classNames('osm-import-strip', osmStreetReady && 'has-osm')}>
         <Navigation2 size={19} aria-hidden="true" />
-        <span className="city-shared-copy"><strong>Street network</strong><small>{isOsmImporting ? 'Preparing…' : osmFailed ? 'Needs attention' : osmStreetReady ? 'Shared by all groups' : 'Add an OSM PBF'}</small></span>
+        <span className="city-shared-copy"><strong>Street network</strong><small>{isOsmImporting ? 'Preparing…' : osmFailed || osmError ? 'Needs attention' : osmStreetReady ? 'Shared by all groups' : 'Add an OSM PBF'}</small></span>
         <button type="button" onClick={chooseOsm} disabled={isOsmImporting}>{osmStreetReady ? 'Replace' : 'Add streets'}</button>
         {osmDelete}
         <input ref={osmFileRef} hidden type="file" accept=".osm.pbf,.pbf,application/octet-stream" onChange={event => {
@@ -76,9 +78,9 @@ export function ImportPanel(props: CityImportProps & { library?: (chooseGtfs: ()
           event.currentTarget.value = ''
         }} />
       </div>
-      {isOsmImporting || osmFailed ? <div className="city-import-status" role="status"><span>{osmStreetMessage || 'Preparing street network…'}</span>
-        <button type="button" className="import-job-action" onClick={isOsmImporting ? onCancelOsm : onRetryOsm}>
-          {isOsmImporting ? <XCircle size={14} /> : <RefreshCw size={14} />}{isOsmImporting ? 'Cancel' : 'Retry'}
+      {isOsmImporting || osmFailed || osmError ? <div className="city-import-status" role="status"><span>{osmError || osmStreetMessage || 'Preparing street network…'}</span>
+        <button type="button" className="import-job-action" onClick={isOsmImporting ? onCancelOsm : osmError ? chooseOsm : onRetryOsm}>
+          {isOsmImporting ? <XCircle size={14} /> : <RefreshCw size={14} />}{isOsmImporting ? 'Cancel' : osmError ? 'Choose file' : 'Retry'}
         </button>
       </div> : null}
       <details className="city-live-disclosure">

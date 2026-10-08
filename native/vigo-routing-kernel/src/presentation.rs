@@ -278,10 +278,15 @@ pub fn validate(request: &Value) -> Result<(), String> {
     }) {
         return Err("diagnostics must be none, summary, profile, or trace".into());
     }
-    if request.get("reachFormat").is_some_and(|v| v != "full" && v != "map") {
+    if request
+        .get("reachFormat")
+        .is_some_and(|v| v != "full" && v != "map")
+    {
         return Err("reachFormat must be full or map".into());
     }
-    if request["reachFormat"] == "map" && (request["includeStreetEdges"] == true || request["includeNodes"] == true) {
+    if request["reachFormat"] == "map"
+        && (request["includeStreetEdges"] == true || request["includeNodes"] == true)
+    {
         return Err("Street edges and nodes require reachFormat full".into());
     }
     for key in ["includeGeometry", "includeLimitations"] {
@@ -627,37 +632,39 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
             if request["reachFormat"] == "map" {
                 out["areas"] = pick(raw, &["fullAreas", "areas"]).clone();
                 out["bounds"] = pick(raw, &["mapBounds"]).clone();
-                if out["bounds"].is_null() { out["bounds"] = pick(&raw["surface"], &["fullBounds", "bounds"]).clone(); }
+                if out["bounds"].is_null() {
+                    out["bounds"] = pick(&raw["surface"], &["fullBounds", "bounds"]).clone();
+                }
             } else {
-            for key in ["stops", "scenarioStops"] {
-                if let Some(a) = raw[key].as_array() {
-                    out[key] = json!(
-                        a.iter()
-                            .map(|v| {
-                                let mut p = point(v);
-                                p["durationSeconds"] = seconds(v, &[], &["durationMinutes"]);
-                                p
-                            })
-                            .collect::<Vec<_>>()
-                    );
+                for key in ["stops", "scenarioStops"] {
+                    if let Some(a) = raw[key].as_array() {
+                        out[key] = json!(
+                            a.iter()
+                                .map(|v| {
+                                    let mut p = point(v);
+                                    p["durationSeconds"] = seconds(v, &[], &["durationMinutes"]);
+                                    p
+                                })
+                                .collect::<Vec<_>>()
+                        );
+                    }
                 }
-            }
 
-            for key in ["contours", "areas", "fullContours", "fullAreas"] {
-                if let Some(v) = raw.get(key) {
-                    out[key] = v.clone();
+                for key in ["contours", "areas", "fullContours", "fullAreas"] {
+                    if let Some(v) = raw.get(key) {
+                        out[key] = v.clone();
+                    }
                 }
-            }
-            let s = &raw["surface"];
-            out["surface"] = json!({"width":s["width"],"height":s["height"],"bounds":s["bounds"],"valuesSeconds":convert_minutes(&s["values"])});
-            if s["fullValues"].is_array() {
-                out["fullSurface"] = json!({"width":s["width"],"height":s["height"],"bounds":s["fullBounds"],"valuesSeconds":convert_minutes(&s["fullValues"])});
-            }
-            for key in ["edges", "nodes"] {
-                if !s[key].is_null() {
-                    out["surface"][key] = s[key].clone();
+                let s = &raw["surface"];
+                out["surface"] = json!({"width":s["width"],"height":s["height"],"bounds":s["bounds"],"valuesSeconds":convert_minutes(&s["values"])});
+                if s["fullValues"].is_array() {
+                    out["fullSurface"] = json!({"width":s["width"],"height":s["height"],"bounds":s["fullBounds"],"valuesSeconds":convert_minutes(&s["fullValues"])});
                 }
-            }
+                for key in ["edges", "nodes"] {
+                    if !s[key].is_null() {
+                        out["surface"][key] = s[key].clone();
+                    }
+                }
             }
         }
         "info" | "inspect" => {

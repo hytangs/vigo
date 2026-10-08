@@ -10,12 +10,12 @@ const directory = await fs.mkdtemp(path.join(root, 'temp', 'city-data-runtime-')
 const fixture = `import '/test/fixtures/city-data.tsx';`
 const server = await createServer({ root, cacheDir: path.join(directory, 'vite-cache'), configFile: false, plugins: [react(), {
   name: 'navigation-fixture',
-  resolveId(id) { if (id === '/navigation-fixture.js' || id === '/app-settings-fixture.js') return id },
-  load(id) { if (id === '/navigation-fixture.js') return fixture; if (id === '/app-settings-fixture.js') return `import '/test/fixtures/app-settings.tsx';` },
+  resolveId(id) { if (id === '/navigation-fixture.js' || id === '/case-request-fixture.js') return id },
+  load(id) { if (id === '/navigation-fixture.js') return fixture; if (id === '/case-request-fixture.js') return `import '/test/fixtures/city-case-request.tsx';` },
   configureServer(vite) { vite.middlewares.use(async (req, res, next) => {
-    if (!['/navigation-fixture.html', '/app-settings-fixture.html'].includes(req.url)) return next()
+    if (!['/navigation-fixture.html', '/case-request-fixture.html'].includes(req.url)) return next()
     res.setHeader('Content-Type', 'text/html')
-    res.end(await vite.transformIndexHtml(req.url, '<div id="root"></div><script type="module" src="'+(req.url === '/app-settings-fixture.html' ? '/app-settings-fixture.js' : '/navigation-fixture.js')+'"></script>'))
+    res.end(await vite.transformIndexHtml(req.url, '<div id="root"></div><script type="module" src="'+(req.url === '/case-request-fixture.html' ? '/case-request-fixture.js' : '/navigation-fixture.js')+'"></script>'))
   }) },
 }], server: { host: '127.0.0.1', port: 0 }, optimizeDeps: { include: ['react', 'react-dom/client'] } })
 await server.listen()
@@ -44,7 +44,10 @@ app.whenReady().then(async()=>{try{
  fs.writeFileSync(${JSON.stringify(path.join(directory, 'city-cases.png'))},(await layoutFrame(window)).toPNG());
  await window.webContents.executeJavaScript('window.checkDataLayout("feeds",true)');
  fs.writeFileSync(${JSON.stringify(path.join(directory, 'city-data-dark.png'))},(await layoutFrame(window)).toPNG());
- console.log(JSON.stringify({passed:true,behavior,results}));app.exit(0);
+ await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/case-request-fixture.html`)});
+ await window.webContents.executeJavaScript('new Promise((resolve,reject)=>{const timer=setInterval(()=>{if(window.checkCaseRequest){clearInterval(timer);resolve()}},20);setTimeout(()=>{clearInterval(timer);reject(Error("Case request fixture timed out"))},15000)})');
+ const caseRequests=await window.webContents.executeJavaScript('window.checkCaseRequest()');
+ console.log(JSON.stringify({passed:true,behavior,caseRequests,results}));app.exit(0);
 }catch(error){console.error(error);app.exit(1)}});`)
 try {
   const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE

@@ -3,6 +3,7 @@ import { boundedCacheGet, boundedCacheSet } from '../weighted-lru-cache.mjs'
 import { numeric } from '../number-utils.mjs'
 import { resolveServiceDay } from '../service-day.mjs'
 import { serviceEpochSeconds } from './service-clock.mjs'
+import { routingHorizonMinutes } from './routing-policy.mjs'
 
 export function yyyymmdd(value) {
   return Number(String(value ?? '').replace(/-/g, '')) || 0
@@ -388,7 +389,7 @@ export function serviceInstancesForQuery(store, serviceDate, request) {
 export function earlierArrivalClock(store, request) {
   if (!['arrive', 'arrive_by'].includes(request.timePreference) || !request.serviceDate) return null
   const time = Number(request.arriveMinutes ?? request.timeMinutes ?? request.departMinutes)
-  const minimum = Number(request.horizonMinutes ?? 480) + Number(request.arrivalBufferMinutes ?? 0)
+  const minimum = routingHorizonMinutes(request) + Number(request.arrivalBufferMinutes ?? 0)
   if (!Number.isFinite(time) || time >= minimum) return null
   const zone = store.agencyTimezones?.[0] ?? 'UTC'
   const origin = serviceEpochSeconds(request.serviceDate, zone)

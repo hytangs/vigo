@@ -4,7 +4,7 @@
 
 Public `v1` schemas preserve required fields, their types, units, and meanings. Removing or renaming a field, changing its units, or changing a status meaning requires a new schema version. Additional optional fields may be introduced; clients should ignore unknown fields. `trace`, native kernel structures, and Studio's internal worker messages are outside this stability policy. Result schema versions are independent of prepared City formats.
 
-The 0.5.0 public schemas replace the older result envelopes; there is no legacy-envelope adapter. See [upgrading](../guides/upgrading.md) for the City rebuild and rollback procedure.
+The 0.5.0 public schemas replace the older result envelopes; there is no legacy-envelope adapter. See [upgrading](../guide.md#upgrade-and-rollback) for the City rebuild and rollback procedure.
 
 ## Reading a result
 
@@ -26,7 +26,7 @@ Route includes available GeoJSON `geometry` on each leg by default, preserving t
 
 `quality.streetGeometry` distinguishes verified street evidence from unverified geometry. `quality.stationPath` is `source_path` or `inferred` when station access is present. A verified street segment does not certify a complete entrance-to-platform path. `components` separates street and station access costs and identifies their source types. Transit `quality.schedule: "timetable"` means modeled timetable times, not observed punctuality or a guarantee that every source timestamp was measured.
 
-Route warnings describe qualifications that affect the returned journey. Dataset/model limitations live in `vigo info` (Rust), `vigo inspect` (Node), or `GET /v1/info`; send `includeLimitations: true` when needed alongside a query. No warnings does not certify complete source coverage. Unsupported GTFS semantics remain documented in [known limits](known-routing-limitations.md).
+Route warnings describe qualifications that affect the returned journey. Dataset/model limitations live in `vigo info` (Rust), `vigo inspect` (Node), or `GET /v1/info`; send `includeLimitations: true` when needed alongside a query. No warnings does not certify complete source coverage. Unsupported GTFS semantics remain documented in [known limits](../guide.md#known-limits).
 
 ## Diagnostics
 
@@ -57,7 +57,7 @@ For a map, request `reachFormat: "map"`. The result contains `areas` and `bounds
 
 Public saved results can be compared without rerunning routing. Changes are after minus before, in seconds. Route reports duration and transfer changes; Matrix and Reach report common, faster, slower, unchanged, newly reachable and no-longer-reachable counts. Means use only mutually reachable entries and are `null` when none exist. Matrix requires identical ordered endpoints; Reach requires the same grid. Callers must align other experimental assumptions.
 
-Existing consumers of `result`, `plan`, top-level `legs`, `durationMinutes`, or `surface.values` must migrate to the public fields. For research tools that still require the original witness, explicitly request `diagnostics: "trace"` and read `trace`. The private Node worker protocol remains unchanged. Low-level `native` operations retain their separately documented contracts.
+For a source-data audit, request `diagnostics: "trace"` and retain the original witness under `trace`. Low-level `native` operations have a separate field reference.
 
 ## Keep a reproducible run
 

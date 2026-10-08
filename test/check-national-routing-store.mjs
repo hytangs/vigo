@@ -25,6 +25,7 @@ import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 import { finalizeCurrentStreetFixture } from './helpers/street-fixture.mjs'
 import { processFixtureDirectory } from './helpers/fixture-process.mjs'
 import { blockedPlan } from '../src/server/gtfs/route-results.mjs'
+import { reachPointRouteRequest } from '../src/app/reachInspection.ts'
 import { directWalkAlternativePlan } from '../src/server/gtfs/walking-plans.mjs'
 import { disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
 
@@ -1520,6 +1521,22 @@ try {
     shortTransitStorePath,
     transitReadyWholeLegWalkRequest,
   )
+  // Exercise the actual Reach click request against a real street/timetable
+  // fixture: a cap on each transit endpoint must not force a slower ride.
+  const reachQuery = {
+    ...transitReadyWholeLegWalkRequest,
+    ...reachPointRouteRequest({ result: { request: transitReadyWholeLegWalkRequest } },
+      transitReadyWholeLegWalkRequest.destination, 'fixture'),
+  }
+  const reachWalk = routeNationalGtfsStore(shortTransitStorePath, reachQuery)
+  const cappedReach = routeNationalGtfsStore(shortTransitStorePath, { ...reachQuery, allowLongWalk: false })
+  assert.equal(cappedReach.status, 'ready')
+  assert.equal(cappedReach.travelMode, 'transit')
+  assert.equal(reachWalk.travelMode, 'walk', 'Reach inspection must compare the full direct walk.')
+  assert(reachWalk.arriveMinutes < cappedReach.arriveMinutes, 'Reach must select the earlier walking arrival.')
+  assert(reachWalk.legs[0].distanceKm > reachQuery.maxWalkKm)
+  assert.equal(reachWalk.legs[0].walkSource, 'osm')
+  assert.equal(reachWalk.maxWalkKm, cappedReach.maxWalkKm, 'Transit endpoint limits must remain unchanged.')
   assert.equal(transitReadyWholeLegWalk.status, 'ready')
   assert.equal(
     transitReadyWholeLegWalk.travelMode,

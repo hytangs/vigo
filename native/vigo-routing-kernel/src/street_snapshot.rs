@@ -50,10 +50,19 @@ impl Snapshot {
     #[cfg(feature = "standalone")]
     pub(crate) fn heap_bytes(&self) -> usize {
         self.long_edges_by_cell.capacity() * (size_of::<((i32, i32), Vec<[u32; 2]>)>() + 1)
-            + self.long_edges_by_cell.values().map(|v| v.capacity() * 8).sum::<usize>()
+            + self
+                .long_edges_by_cell
+                .values()
+                .map(|v| v.capacity() * 8)
+                .sum::<usize>()
             + self.unindexed_long_edges.capacity() * size_of::<([u32; 2], [f64; 4])>()
             + self.header.arrays.capacity() * (size_of::<(String, ArrayDescriptor)>() + 1)
-            + self.header.arrays.iter().map(|(k,v)| k.capacity() + v.type_name.capacity()).sum::<usize>()
+            + self
+                .header
+                .arrays
+                .iter()
+                .map(|(k, v)| k.capacity() + v.type_name.capacity())
+                .sum::<usize>()
     }
     pub(crate) fn open(snapshot_path: &str) -> napi::Result<Self> {
         let file = File::open(snapshot_path).map_err(|error| {

@@ -36,6 +36,17 @@ assert.equal(updated[0].feeds, projects[0].feeds, 'Job updates must retain feed 
 assert.equal(updateProjectJob(updated, 'a', job('complete'))[0].jobs.length, 1)
 assert.equal(projects[0].jobs.length, 0)
 
+for (const routingMode of ['transit', 'walk', 'drive']) {
+  const routing = { routingMode, routingError: '', routingPlan: null, storeBackedRouting: true,
+    routingStoreReady: true, hasOrigin: true, hasDestination: true, routingLoading: false,
+    routingInputReady: true, routingStreetState: 'ready', routingServiceDate: '2026-09-13' }
+  assert.equal(buildRoutingActivity(routing).kind, 'idle', 'Ready inputs without an active request must not disable retry with a permanent spinner')
+  assert.equal(buildRoutingActivity({ ...routing, routingLoading: true }).kind, 'loading')
+  assert.equal(buildRoutingActivity({ ...routing, routingPlan: {
+    status: 'blocked', title: 'No scheduled path', detail: 'No path within the selected limits.', diagnostics: {},
+  } }).kind, 'blocked', 'A finished no-path result must remain visible')
+}
+
 for (const routingMode of ['walk', 'drive']) {
   const routing = { routingMode, routingError: '', routingPlan: null, storeBackedRouting: false,
     routingStoreReady: false, hasOrigin: false, hasDestination: false, routingLoading: false,

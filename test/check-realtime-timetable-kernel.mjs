@@ -93,8 +93,9 @@ assert.equal(cancellationWins.activeSegmentCount, 2)
 const broken = compileRealtimeTimetableKernel({ ...base, continuityBreak: u8([0, 0, 1, 0]) })
 assert.deepEqual([...broken.segmentRun], [0, 1, 2, 3], 'Static discontinuities survive realtime reconstruction')
 assert.deepEqual([...broken.departureOrder], [0, 1, 3, 2])
-// Absolute event clocks remain local to the snapshot's service date/timezone.
-// Repeated arrival/departure epochs must preserve DST and overnight offsets.
+// GTFS service time is elapsed from local noon minus 12 hours, not wall time.
+// On 2026-11-01 New York noon is 17:00Z, so the origin is 05:00Z.
+// The two 01:30 wall clocks must remain distinct (00:30 and 01:30 GTFS time).
 const db = new DatabaseSync(':memory:')
 db.exec('CREATE TABLE stop_times(trip_id TEXT, stop_id TEXT, stop_sequence INTEGER, arrival INTEGER, departure INTEGER, can_board INTEGER, can_alight INTEGER)')
 const insert = db.prepare('INSERT INTO stop_times VALUES(?,?,?,?,?,1,1)')
@@ -103,7 +104,7 @@ const lookup = db.prepare('SELECT * FROM stop_times WHERE trip_id=? ORDER BY sto
 try {
   for (const [timezone, serviceDate, absolute, seconds] of [
     ['America/New_York', '2026-03-08', '2026-03-08T03:30:00-04:00', 12600],
-    ['America/New_York', '2026-11-01', '2026-11-01T01:30:00-04:00', 5400],
+    ['America/New_York', '2026-11-01', '2026-11-01T01:30:00-04:00', 1800],
     ['America/New_York', '2026-11-01', '2026-11-01T01:30:00-05:00', 5400],
     ['UTC', '2026-09-21', '2026-09-22T00:30:00Z', 88200],
     ['UTC', '2026-09-22', '2026-09-22T00:30:00Z', 1800],

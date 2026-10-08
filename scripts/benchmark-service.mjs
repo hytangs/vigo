@@ -5,6 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { createHash } from 'node:crypto'
 import { parseArgs } from 'node:util'
+import { classifyResponse, classifyTransportError, withDeadline } from './lib/benchmark-response.mjs'
 
 const { values } = parseArgs({ options: {
   url: { type: 'string' }, requests: { type: 'string' }, output: { type: 'string' },
@@ -51,18 +52,16 @@ async function replay(repetitions) {
       const started = performance.now()
       const deadline = AbortSignal.timeout(timeout)
       try {
-        const response = await fetch(address(`/v1/${body.kind}`), { method: 'POST', headers, body: JSON.stringify(body), signal: deadline })
-        const text = await response.text()
+        const { response, text } = await withDeadline(async () => {
+          const response = await fetch(address(`/v1/${body.kind}`), { method: 'POST', headers, body: JSON.stringify(body), signal: deadline })
+          return { response, text: await response.text() }
+        }, deadline)
         let result
         try { result = JSON.parse(text) }
         catch { /* Gateways may send text or HTML; retain the HTTP outcome. */ }
-        const httpFailure = response.status === 429 ? 'overloaded' : response.status === 503 ? 'unavailable' : response.status === 504 ? 'timeout' : !response.ok ? 'http_error' : null
-        const validResult = result !== null && typeof result === 'object' && !Array.isArray(result) && typeof result.status === 'string'
-        const outcome = httpFailure ?? (!validResult ? 'invalid_response'
-          : result.status === 'ok' ? 'ok' : result.status === 'not_found' ? 'not_found' : 'query_error')
-        samples[index] = { queryIndex, kind: body.kind, outcome, http: response.status, ms: performance.now() - started, bytes: Buffer.byteLength(text),
-          ...(outcome !== 'ok' && outcome !== 'not_found' ? { error: result?.error ?? (httpFailure ? `HTTP ${response.status}` : validResult ? 'Unexpected public result status' : 'Response is not a public result object') } : {}) }
-      } catch (error) { samples[index] = { queryIndex, kind: body.kind, outcome: deadline.aborted ? 'timeout' : 'transport_error', ms: performance.now() - started, error: error.message } }
+        samples[index] = { queryIndex, kind: body.kind, ...classifyResponse(body, response.status, result),
+          http: response.status, ms: performance.now() - started, bytes: Buffer.byteLength(text) }
+      } catch (error) { samples[index] = { queryIndex, kind: body.kind, outcome: classifyTransportError(error, deadline), ms: performance.now() - started, error: error.message } }
     }
   }))
   return samples
@@ -85,7 +84,8 @@ async function storage(directory) {
 const report = { schema: 'vigo.benchmark.v1', startedAt: new Date().toISOString(),
   client: { os: process.platform, architecture: process.arch, node: process.version, cpu: os.cpus()[0]?.model },
   workload: { sha256: createHash('sha256').update(raw).digest('hex'), requests: queries.length, rounds, concurrency, warmupRounds: warmup },
-  measurement: 'Caller HTTP wall time, including response transfer and JSON parsing; nearest-rank median and p95. Warmup is retained separately. Server memory is not inferred from the client process.' }
+  measurement: 'Caller HTTP wall time, including response transfer, JSON parsing and endpoint-specific structural validation; nearest-rank median and p95. Warmup is retained separately. Server memory is not inferred from the client process.',
+  validation: 'Public v1 output structure and request dimensions; not route optimality, City accuracy or external-network correctness.' }
 try {
   report.health = await info('/healthz')
   if (report.health.unavailable === 404) report.health = await info('/health')

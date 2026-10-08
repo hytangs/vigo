@@ -466,7 +466,6 @@ export function buildRoutingActivity({
   hasDestination,
   routingStreetState,
   routingLoading,
-  routingInputReady,
   routingServiceDate,
   routingMode = 'transit',
   routingServiceDateAvailability = 'unknown',
@@ -528,7 +527,7 @@ export function buildRoutingActivity({
   if (routingMode === 'transit' && storeBackedRouting && !routingStoreReady) return activity('preparing', 'Opening SQLite timetable', `Opening the local routing database for ${routingServiceDate}. You can pick A and B now.`)
   if (hasOrigin && hasDestination && routingStreetState === 'loading') return activity('preparing', 'Preparing street snapshot', 'Opening the sealed OSM street snapshot for A/B access. Your points are saved.')
   if (hasOrigin && hasDestination && routingStreetState === 'missing') return activity('blocked', 'Street snapshot required', 'Load or rebuild the OSM street snapshot to calculate a route between map points.')
-  if (hasOrigin && hasDestination && (routingLoading || (storeBackedRouting && routingInputReady))) return routingMode === 'transit'
+  if (hasOrigin && hasDestination && routingLoading) return routingMode === 'transit'
     ? activity('loading', 'Finding exact journey', `Searching ${routingServiceDate} timetable service and OSM access paths.`)
     : activity('loading', `Finding exact ${routingMode} route`, `Searching the directed OSM ${routingMode} network.`)
   if (hasOrigin && hasDestination) return activity('idle', 'No path yet', `A and B are saved for ${routingServiceDate}. Adjust time or walking distance and try again.`)

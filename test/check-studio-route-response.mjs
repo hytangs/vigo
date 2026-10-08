@@ -24,4 +24,9 @@ assert(JSON.stringify(compact).length < JSON.stringify(result).length / 20)
 const blocked = { id: 'none', status: 'blocked', diagnostics: { failure: { code: 'unsupported_feature', category: 'unsupported_feature' } } }
 assert.deepEqual(compactStudioRoutingPlan(blocked), blocked)
 assert.deepEqual(compactStudioRoutingResponse({ plan: blocked, choices: [blocked] }).choices, [blocked])
+const noAlternatives = { plan: blocked, choices: [], earliestTransit: { status: 'none' } }
+assert.deepEqual(compactStudioRoutingResponse(noAlternatives), {
+  choices: [blocked], selectedPlanId: blocked.id, earliestTransit: { status: 'none' },
+}, 'A departure window without alternatives must retain the blocked primary result')
+assert.deepEqual(noAlternatives.choices, [], 'Fallback projection cannot mutate engine alternatives')
 console.log('Compact Studio output preserves journeys, warnings, request times and failure status without duplicate primary or cache inventories.')

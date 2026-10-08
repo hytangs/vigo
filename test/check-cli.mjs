@@ -462,8 +462,8 @@ try {
     { id: 'recovery', kind: 'route', origin: 'A', destination: 'B', time: '07:55' },
   ]
   const streamed = execFileSync(executable, [...prefix, 'stream', '--diagnostics=trace', `--city=${cityPath}`,
-    '--service-date=2026-07-15', '--max-walk=0.2'], {
-    encoding: 'utf8', input: streamQueries.map(query => JSON.stringify({ ...(['route', 'matrix'].includes(query.kind) ? { requireTransitRide: true } : {}), ...query })).join('\n') + '\n',
+    '--max-walk=0.2'], {
+    encoding: 'utf8', input: streamQueries.map(query => JSON.stringify({ serviceDate: '2026-07-15', ...(['route', 'matrix'].includes(query.kind) ? { requireTransitRide: true } : {}), ...query })).join('\n') + '\n',
     maxBuffer: 8 * 1024 * 1024,
   }).trim().split('\n').map(line => parseResult(line))
   assert.deepEqual(streamed.map(result => result.id), streamQueries.map(query => query.id))

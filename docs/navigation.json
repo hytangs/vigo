@@ -1,0 +1,322 @@
+{
+  "output": "docs/guide.html",
+  "version_file": "package.json",
+  "product": "VIGO",
+  "label": "Engine & Studio",
+  "description": "VIGO 0.5.0 documentation. Build a City, query journeys, matrices and reachable areas, and operate your routing service.",
+  "logo": "public/vigo-wordmark.png",
+  "links": [
+    {
+      "label": "Rust / HTTP",
+      "href": "standalone.html"
+    },
+    {
+      "label": "Python",
+      "href": "https://github.com/hytangs/vigo-py/tree/main/docs"
+    },
+    {
+      "label": "GitHub",
+      "href": "https://github.com/hytangs/vigo"
+    }
+  ],
+  "pages": [
+    {
+      "id": "overview",
+      "source": "docs/guide.md",
+      "title": "Overview",
+      "group": "Getting started",
+      "section": "build-a-network-answer-a-transport-question"
+    },
+    {
+      "id": "quickstart",
+      "source": "docs/guide.md",
+      "title": "Build your first City",
+      "group": "Getting started",
+      "section": "vigo-cli-quickstart"
+    },
+    {
+      "id": "installation",
+      "source": "docs/guides/cli-only.md",
+      "title": "Install the CLI",
+      "group": "Getting started"
+    },
+    {
+      "id": "concepts",
+      "source": "docs/guide.md",
+      "title": "Core concepts",
+      "group": "Getting started",
+      "section": "core-concepts"
+    },
+    {
+      "id": "workflows",
+      "source": "docs/guide.md",
+      "title": "Practical workflows",
+      "group": "Getting started",
+      "section": "work-with-a-city"
+    },
+    {
+      "id": "route",
+      "source": "docs/guide.md",
+      "title": "Route",
+      "group": "Queries and results",
+      "section": "route-1"
+    },
+    {
+      "id": "matrix",
+      "source": "docs/guide.md",
+      "title": "Matrix",
+      "group": "Queries and results",
+      "section": "matrix-1"
+    },
+    {
+      "id": "reach",
+      "source": "docs/guide.md",
+      "title": "Reach",
+      "group": "Queries and results",
+      "section": "reach-and-isochrones"
+    },
+    {
+      "id": "scenarios",
+      "source": "docs/guide.md",
+      "title": "Scenarios",
+      "group": "Queries and results",
+      "section": "scenario-semantics"
+    },
+    {
+      "id": "results",
+      "source": "docs/reference/results.md",
+      "title": "Read a Result",
+      "group": "Queries and results"
+    },
+    {
+      "id": "viewer",
+      "source": "docs/guide.md",
+      "title": "Result viewer",
+      "group": "Queries and results",
+      "tool": "viewer",
+      "section": "inspect-a-saved-result"
+    },
+    {
+      "id": "feeds",
+      "source": "docs/guide.md",
+      "title": "GTFS and live feeds",
+      "group": "Network and evidence",
+      "section": "combine-timetables-and-live-feeds"
+    },
+    {
+      "id": "realtime",
+      "source": "docs/guide.md",
+      "title": "Realtime and traffic",
+      "group": "Network and evidence",
+      "section": "realtime-journey-routing"
+    },
+    {
+      "id": "streets",
+      "source": "docs/guide.md",
+      "title": "Street routing",
+      "group": "Network and evidence",
+      "section": "street-routing"
+    },
+    {
+      "id": "walking",
+      "source": "docs/reference/walking-evidence.md",
+      "title": "Walking evidence",
+      "group": "Network and evidence"
+    },
+    {
+      "id": "uncertainty",
+      "source": "docs/guide.md",
+      "title": "Time reserves",
+      "group": "Network and evidence",
+      "section": "travel-time-uncertainty"
+    },
+    {
+      "id": "fares",
+      "source": "docs/guide.md",
+      "title": "Fares",
+      "group": "Network and evidence",
+      "section": "published-fares-on-itineraries"
+    },
+    {
+      "id": "limits",
+      "source": "docs/guide.md",
+      "title": "Known limits",
+      "group": "Network and evidence",
+      "section": "known-limits"
+    },
+    {
+      "id": "studio",
+      "source": "docs/guide.md",
+      "title": "Desktop setup",
+      "group": "Studio",
+      "section": "vigo-studio-desktop-guide"
+    },
+    {
+      "id": "network",
+      "source": "docs/guide.md",
+      "title": "Inspect service",
+      "group": "Studio",
+      "section": "network-routes-and-ask"
+    },
+    {
+      "id": "cli",
+      "source": "docs/guide.md",
+      "title": "Command line",
+      "group": "Reference and operation",
+      "section": "command-line"
+    },
+    {
+      "id": "deployment",
+      "source": "docs/guide.md",
+      "title": "Deploy Engine",
+      "group": "Reference and operation",
+      "section": "deploy-the-routing-engine"
+    },
+    {
+      "id": "upgrade",
+      "source": "docs/guide.md",
+      "title": "Upgrade and rollback",
+      "group": "Reference and operation",
+      "section": "upgrade-and-rollback"
+    },
+    {
+      "id": "troubleshooting",
+      "source": "docs/guide.md",
+      "title": "Troubleshooting",
+      "group": "Reference and operation",
+      "section": "troubleshooting-1"
+    },
+    {
+      "id": "release",
+      "source": "docs/releases/0.5.0.md",
+      "title": "What’s new in 0.5.0",
+      "group": "Reference and operation"
+    },
+    {
+      "id": "developers",
+      "source": "docs/developer.md",
+      "title": "Developer resources",
+      "group": "Reference and operation",
+      "section": "developer-resources"
+    },
+    {
+      "id": "architecture",
+      "source": "docs/developer.md",
+      "title": "Architecture",
+      "group": "Developer resources",
+      "nav": false,
+      "parent": "developers",
+      "section": "architecture"
+    },
+    {
+      "id": "local-basemap",
+      "source": "docs/developer.md",
+      "title": "Local OSM basemap",
+      "group": "Developer resources",
+      "nav": false,
+      "parent": "developers",
+      "section": "local-osm-basemap"
+    },
+    {
+      "id": "performance",
+      "source": "docs/developer.md",
+      "title": "Measuring performance",
+      "group": "Developer resources",
+      "nav": false,
+      "parent": "developers",
+      "section": "measuring-performance"
+    },
+    {
+      "id": "query-performance",
+      "source": "docs/developer.md",
+      "title": "Timetable query performance",
+      "group": "Developer resources",
+      "nav": false,
+      "parent": "developers",
+      "section": "timetable-query-performance"
+    },
+    {
+      "id": "routing-accuracy",
+      "source": "docs/developer.md",
+      "title": "Checking routing accuracy",
+      "group": "Developer resources",
+      "nav": false,
+      "parent": "developers",
+      "section": "checking-routing-accuracy"
+    },
+    {
+      "id": "runtime-recovery",
+      "source": "docs/developer.md",
+      "title": "Runtime limits and recovery",
+      "group": "Developer resources",
+      "nav": false,
+      "parent": "developers",
+      "section": "runtime-limits-and-recovery"
+    },
+    {
+      "id": "agency-operations",
+      "source": "docs/developer.md",
+      "title": "Agency operations prototype",
+      "group": "Developer resources",
+      "nav": false,
+      "parent": "developers",
+      "section": "agency-operations-prototype"
+    },
+    {
+      "id": "lamp-runtime-study",
+      "source": "docs/developer.md",
+      "title": "Saved LAMP running-time studies",
+      "group": "Developer resources",
+      "nav": false,
+      "parent": "developers",
+      "section": "saved-lamp-running-time-studies"
+    },
+    {
+      "id": "network-service-assessment",
+      "source": "docs/developer.md",
+      "title": "Network service assessment",
+      "group": "Developer resources",
+      "nav": false,
+      "parent": "developers",
+      "section": "network-service-assessment"
+    },
+    {
+      "id": "operational-replay",
+      "source": "docs/developer.md",
+      "title": "One bus, one control point",
+      "group": "Developer resources",
+      "nav": false,
+      "parent": "developers",
+      "section": "one-bus-one-control-point"
+    },
+    {
+      "id": "gtfs-support",
+      "source": "docs/developer.md",
+      "title": "GTFS support",
+      "group": "Developer resources",
+      "nav": false,
+      "parent": "developers",
+      "section": "gtfs-support-matrix"
+    },
+    {
+      "id": "benchmarking",
+      "source": "docs/developer.md",
+      "title": "Service benchmarking",
+      "group": "Developer resources",
+      "nav": false,
+      "parent": "developers",
+      "section": "reproduce-a-service-workload"
+    }
+  ],
+  "readers": [
+    {
+      "source": "docs/guides/rust-standalone.md",
+      "output": "docs/standalone.html"
+    },
+    {
+      "source": "docs/reference/rust-standalone-native.md",
+      "output": "docs/standalone.html",
+      "default": "native-fields"
+    }
+  ]
+}

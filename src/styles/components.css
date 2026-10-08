@@ -369,9 +369,9 @@
 
 @container route-map (max-width: 620px) {
   .map-scope-control {
-    top: 64px;
+    top: 12px;
     right: auto;
-    left: 12px;
+    left: 64px;
   }
 }
 

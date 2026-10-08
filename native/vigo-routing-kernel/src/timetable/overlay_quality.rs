@@ -56,7 +56,11 @@ pub(super) fn certify(
             while lo < hi {
                 let mid = lo + (hi - lo) / 2;
                 let time = f64::from(base.departure_seconds[mid]);
-                if time < value || (inclusive && time == value) { lo = mid + 1; } else { hi = mid; }
+                if time < value || (inclusive && time == value) {
+                    lo = mid + 1;
+                } else {
+                    hi = mid;
+                }
             }
             lo
         };

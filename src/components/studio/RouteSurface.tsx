@@ -1,6 +1,6 @@
 import { liveVehicleDiagnostics, type MapScope } from './presentation'
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { OperationalEvent } from '../../agency/types'
 import { apiJson } from '../../app/api'
 import { buildCityPreviewLod } from '../../app/cityPreview'
@@ -114,6 +114,8 @@ export function RouteSurface({
   routingPlan,
   routingFocus,
   analysisFocus,
+  analysisInspector,
+  onInspectReachPoint,
   reachResult,
   reachComparison,
   serviceDecomposition,
@@ -164,6 +166,8 @@ export function RouteSurface({
   routingPlan: RoutingPlan | null
   routingFocus: boolean
   analysisFocus: boolean
+  analysisInspector?: ReactNode
+  onInspectReachPoint?: (point: RoutingPoint) => void
   reachResult: ReachResult | null
   reachComparison: ReachComparisonResult[] | null
   serviceDecomposition: ServiceEdgeDecomposition | null
@@ -186,27 +190,14 @@ export function RouteSurface({
   onSelectStop: (id: string, options?: { inspect?: boolean }) => void
 }) {
   const isNetworkMap = mapScope === 'network' || !selectedRoute
+  const queryFocus = routingFocus || analysisFocus
   const scheduledNetwork = isNetworkMap && agencyFocus && vehicleMode === 'schedule' && !routingFocus && !analysisFocus
   const routingCanvasPreview = useMemo<MapPreview>(() => ({ routes: [], stops: visiblePreview.stops, stopPairs: [] }), [visiblePreview.stops])
   const cityMapPreview = useMemo(
-    () => buildCityPreviewLod(visiblePreview, selectedRouteId, undefined, selectedStopId),
-    [selectedRouteId, selectedStopId, visiblePreview],
+    () => queryFocus ? routingCanvasPreview : buildCityPreviewLod(visiblePreview, selectedRouteId, undefined, selectedStopId),
+    [queryFocus, routingCanvasPreview, selectedRouteId, selectedStopId, visiblePreview],
   )
-  const mapPreview = routingFocus || analysisFocus ? routingCanvasPreview : isNetworkMap || scheduledNetwork ? cityMapPreview : focusedPreview
-  const mapLayers = useMemo<LayerState>(() => (
-    routingFocus || analysisFocus
-      ? {
-        ...layers,
-        routes: false,
-        segments: false,
-        stops: true,
-        transfers: false,
-        coverage: false,
-        scenario: false,
-        access: false,
-      }
-      : layers
-  ), [analysisFocus, layers, routingFocus])
+  const mapPreview = queryFocus ? routingCanvasPreview : isNetworkMap || scheduledNetwork ? cityMapPreview : focusedPreview
   const selectedMapRouteId = routingFocus || analysisFocus || isNetworkMap || scheduledNetwork ? '' : selectedRouteId
   const performanceProfile = useMemo(
     () => buildNetworkPerformanceProfile(routingFocus || analysisFocus ? visiblePreview : mapPreview, { precise: !isNetworkMap && !routingFocus && !analysisFocus }),
@@ -323,7 +314,7 @@ export function RouteSurface({
           localBasemapRevision={localBasemapRevision}
           preview={mapPreview}
           feedName={feed.name}
-          layers={mapLayers}
+          layers={layers}
           networkLens={networkLens}
           basemap={basemap}
           appearance={appearance}
@@ -352,7 +343,9 @@ export function RouteSurface({
           onSelectRoute={onSelectRoute}
           onSelectStop={onSelectStop}
           onRoutingPoint={onRoutingPoint}
+          onInspectReachPoint={onInspectReachPoint}
         />}
+        {analysisInspector}
         {!agencyFocus && !routingFocus && !analysisFocus ? (
           <MapScopeControl
             mapScope={isNetworkMap ? 'network' : 'route'}

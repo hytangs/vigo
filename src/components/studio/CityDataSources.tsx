@@ -79,7 +79,7 @@ export function CityDataSources({ project, grouping, cases, deletingDisabled, on
         </div>
         <div className="city-data-actions">
           {selected ? <button type="button" className="city-data-text-action" disabled={grouping.readFailed} onClick={() => setEditor(selected)}>Edit group</button> : null}
-          {view === 'feeds' ? <button type="button" className="button button-secondary" onClick={chooseGtfs} disabled={importProps.isImporting}><Plus size={15} />Add GTFS</button>
+          {view === 'feeds' ? <button type="button" className="button button-secondary" onClick={() => { setFilter(''); chooseGtfs() }} disabled={importProps.isImporting}><Plus size={15} />Add GTFS</button>
             : <button type="button" className="button button-secondary" disabled={grouping.readFailed || cases.length >= 6 || !groups.length} onClick={() => onAddCase(selected?.id ?? groups[0].id)}><Plus size={15} />Add case</button>}
         </div>
       </header>
@@ -87,7 +87,7 @@ export function CityDataSources({ project, grouping, cases, deletingDisabled, on
         {feeds.map(feed => {
           const memberships = groups.filter(group => group.feedIds.includes(feed.id))
           const state = feed.routingStore?.routingEligibility === 'unsupported' ? 'Unsupported data'
-            : feed.routingStore?.status === 'ready' ? 'Ready' : feed.routingStore?.status === 'failed' ? 'Needs attention' : 'Preparing'
+            : feed.routingStore?.status === 'ready' ? 'Ready' : feed.routingStore?.status === 'failed' ? 'Needs attention' : feed.routingStore?.status === 'building' ? 'Preparing' : 'Not prepared'
           return <details className="city-feed-entry" key={feed.id}>
             <summary><span className="city-data-row-icon"><Layers size={18} /></span><span className="city-feed-copy"><strong>{feed.name}</strong>
               <small>{memberships.length ? memberships.map(group => group.name).join(' · ') : 'No group'}</small></span>

@@ -3,6 +3,7 @@ mod access;
 mod alternatives;
 mod city;
 mod collection;
+mod health;
 mod http;
 mod materialize;
 pub(crate) mod memory;
@@ -26,10 +27,20 @@ pub(crate) fn allocator_memory() -> Value {
     {
         #[repr(C)]
         struct Mallinfo {
-            arena: usize, ordblks: usize, smblks: usize, hblks: usize, hblkhd: usize,
-            usmblks: usize, fsmblks: usize, uordblks: usize, fordblks: usize, keepcost: usize,
+            arena: usize,
+            ordblks: usize,
+            smblks: usize,
+            hblks: usize,
+            hblkhd: usize,
+            usmblks: usize,
+            fsmblks: usize,
+            uordblks: usize,
+            fordblks: usize,
+            keepcost: usize,
         }
-        unsafe extern "C" { fn mallinfo2() -> Mallinfo; }
+        unsafe extern "C" {
+            fn mallinfo2() -> Mallinfo;
+        }
         // glibc reports allocator-owned blocks; mapped data files are excluded.
         let stats = unsafe { mallinfo2() };
         return json!({"allocatedBytes":stats.uordblks + stats.hblkhd,
@@ -45,9 +56,13 @@ pub(crate) fn allocator_memory() -> Value {
 pub(crate) fn release_preparation_memory() {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     {
-        unsafe extern "C" { fn malloc_trim(pad: usize) -> std::ffi::c_int; }
+        unsafe extern "C" {
+            fn malloc_trim(pad: usize) -> std::ffi::c_int;
+        }
         // glibc's allocator owns these pages and performs its own locking.
-        unsafe { malloc_trim(0); }
+        unsafe {
+            malloc_trim(0);
+        }
     }
 }
 pub(crate) fn fail<T>(message: impl Into<String>) -> Result<T> {
@@ -73,7 +88,7 @@ pub(crate) fn flag(v: &Value, key: &str, default: bool) -> Result<bool> {
 }
 pub fn capabilities() -> Value {
     json!({"schemaVersion":"vigo.standalone.capabilities.v1", "version":env!("CARGO_PKG_VERSION"),
-        "runtime":"rust", "standalone":true, "commands":["info","route","matrix","reach","compare","native","stream","serve","capabilities"],
+        "runtime":"rust", "standalone":true, "commands":["info","route","matrix","reach","compare","native","stream","serve","health","capabilities"],
         "modes":["transit","walk","drive"], "timePreferences":["depart_at","arrive_by"],
         "scenarioCollections":{"format":"vigo.scenarios.v1","selector":"scenarioId","sharedStreets":true,"boundedResidency":true},"wheelchair":false,"cityFormat":"vigo.city.v1","routingStoreFormat":"vigo.routing.store.v4", "requestSchema":"vigo.standalone.query.v1",
         "route":{"realtime":true,"transferControls":true,"waypoints":true,"departureWindows":true,"arrivalWindows":true,"alternatives":{"coverage":"sampled","maximum":5},"transitShapes":true,"fareAnnotations":false},

@@ -18,7 +18,7 @@ def main():
     parser.add_argument("archive", type=Path, nargs="?")
     parser.add_argument("--node", default=os.environ.get("VIGO_STANDALONE_TEST_NODE") or shutil.which("node"))
     args = parser.parse_args()
-    archives = [args.archive] if args.archive else list((ROOT / "release/rust").glob("*.tar.gz"))
+    archives = [args.archive] if args.archive else list(Path(os.environ.get("VIGO_STANDALONE_RELEASE_DIR", ROOT / "release/rust")).glob("*.tar.gz"))
     assert len(archives) == 1, "Specify exactly one archive to verify"
     archive = archives[0].resolve()
     expected = archive.with_name(archive.name + ".sha256").read_text(encoding="utf-8").split()[0]
@@ -60,7 +60,8 @@ def main():
         node = str(Path(args.node).resolve())
         for suite in ("check-standalone.mjs", "check-standalone-prepared.mjs", "check-standalone-parity.mjs", "check-standalone-station-access.mjs", "check-standalone-http.mjs", "check-standalone-docs.mjs"):
             subprocess.run([node, str(ROOT / "test" / suite)], cwd=ROOT,
-                           env={**os.environ, "VIGO_STANDALONE_PATH": str(binary)}, check=True)
+                           env={**os.environ, "VIGO_STANDALONE_PATH": str(binary),
+                                "VIGO_STANDALONE_DOCS_DIR": str(destination)}, check=True)
     print(json.dumps({"archive": str(archive), "sha256": expected, "payloadFiles": len(allowed),
                       "extractedRuntimeChecks": "passed", "runtime": "rust"}, indent=2))
 

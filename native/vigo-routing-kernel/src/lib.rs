@@ -57,9 +57,9 @@ type IntegerHashSet<T> = HashSet<T, BuildHasherDefault<IntegerHasher>>;
 mod coordinate_matrix;
 mod route_materialization;
 pub use route_materialization::{ShapeGeometry, ShapeGeometrySource, stable_key_suffix};
+mod shared_streets;
 mod snapshot_validation;
 mod street_kernel;
-mod shared_streets;
 mod street_snapshot;
 use street_kernel::open_street_cch_bundles;
 mod timetable;
@@ -902,7 +902,9 @@ fn build_cch_target_buckets(
             &mut distances,
             &mut touched,
             |node, _| {
-                if counts[node as usize] == 0 { nodes.push(node); }
+                if counts[node as usize] == 0 {
+                    nodes.push(node);
+                }
                 counts[node as usize] += 1;
             },
         );
@@ -929,11 +931,19 @@ fn build_cch_target_buckets(
     for &node in &nodes {
         let start = *offsets.last().unwrap();
         cursors[node as usize] = start;
-        offsets.push(start.checked_add(counts[node as usize])
-            .ok_or_else(|| Error::from_reason("Street CCH target bucket index exceeds u32."))?);
+        offsets.push(
+            start
+                .checked_add(counts[node as usize])
+                .ok_or_else(|| Error::from_reason("Street CCH target bucket index exceeds u32."))?,
+        );
     }
-    let mut entries = vec![CchBucketEntry { target_index: 0, distance: cch::INF_WEIGHT };
-        *offsets.last().unwrap() as usize];
+    let mut entries = vec![
+        CchBucketEntry {
+            target_index: 0,
+            distance: cch::INF_WEIGHT
+        };
+        *offsets.last().unwrap() as usize
+    ];
     for (target_index, &target) in targets.iter().enumerate() {
         visit_cch_target_ancestors(
             cch,
@@ -1060,7 +1070,9 @@ impl CchTargetBuckets {
         let slot = 1 + node / 64 * 3;
         let bit = node % 64;
         let mask = u64::from(offsets[slot + 1]) | (u64::from(offsets[slot + 2]) << 32);
-        if mask & (1_u64 << bit) == 0 { return (0, 0); }
+        if mask & (1_u64 << bit) == 0 {
+            return (0, 0);
+        }
         let rank = offsets[slot] as usize + (mask & ((1_u64 << bit) - 1)).count_ones() as usize;
         let first = 1 + (offsets[0] as usize).div_ceil(64) * 3 + rank;
         (offsets[first] as usize, offsets[first + 1] as usize)
@@ -1075,8 +1087,10 @@ impl CchTargetBuckets {
         let offsets = self.offsets();
         let entries = self.entries();
         let directory_len = 1 + node_count.div_ceil(64) * 3;
-        if offsets.len() < directory_len + 1 || offsets[0] as usize != node_count
-            || self.maximum_distance != expected_maximum_distance {
+        if offsets.len() < directory_len + 1
+            || offsets[0] as usize != node_count
+            || self.maximum_distance != expected_maximum_distance
+        {
             return Err("Persisted street CCH target buckets are inconsistent.".to_owned());
         }
         let mut rank = 0;
@@ -1090,9 +1104,11 @@ impl CchTargetBuckets {
             rank += mask.count_ones();
         }
         let compact = &offsets[directory_len..];
-        if compact.len() != rank as usize + 1 || compact[0] != 0
+        if compact.len() != rank as usize + 1
+            || compact[0] != 0
             || compact.last().copied() != Some(entries.len() as u32)
-            || compact.windows(2).any(|pair| pair[0] >= pair[1]) {
+            || compact.windows(2).any(|pair| pair[0] >= pair[1])
+        {
             return Err("Persisted street CCH bucket offsets are inconsistent.".to_owned());
         }
         if entries.iter().any(|entry| {
@@ -5603,7 +5619,10 @@ impl CoordinateKernel {
         let cch_resident_bytes = self.street_cch.as_ref().map_or(0, |index| {
             index.forward_query.byte_length()
                 + index.reverse_query.byte_length()
-                + index.path_query.as_ref().map_or(0, cch::PathQuery::byte_length)
+                + index
+                    .path_query
+                    .as_ref()
+                    .map_or(0, cch::PathQuery::byte_length)
                 + index.origin_member_workspace.byte_length()
                 + index.destination_member_workspace.byte_length()
                 + index
@@ -5972,7 +5991,14 @@ fn cached_frontier_search(
     )?;
     let search_ns = search_started.elapsed().as_nanos() as f64;
     if !disable_cache {
-        insert_frontier_cache(cache, order, cache_bytes, budget, key, Arc::clone(&frontier));
+        insert_frontier_cache(
+            cache,
+            order,
+            cache_bytes,
+            budget,
+            key,
+            Arc::clone(&frontier),
+        );
     }
     Ok(CachedFrontier {
         frontier,
@@ -6079,7 +6105,14 @@ fn cached_cch_frontier_search(
     )?;
     let search_ns = search_started.elapsed().as_nanos() as f64;
     if !disable_cache {
-        insert_frontier_cache(cache, order, cache_bytes, budget, key, Arc::clone(&frontier));
+        insert_frontier_cache(
+            cache,
+            order,
+            cache_bytes,
+            budget,
+            key,
+            Arc::clone(&frontier),
+        );
     }
     Ok(CachedFrontier {
         frontier,

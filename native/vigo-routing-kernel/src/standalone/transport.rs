@@ -10,6 +10,7 @@ use std::{
 const HELP: &str = "VIGO — standalone Rust routing and isochrones
 
   vigo serve --city ./city --host 0.0.0.0 --port 8080
+  vigo health --port 8080
   vigo route --city ./city --request route.json
   vigo matrix --city ./city --request matrix.json
   vigo reach --city ./city --request reach.json
@@ -107,6 +108,7 @@ fn run() -> Result<()> {
         "native",
         "stream",
         "serve",
+        "health",
         "_worker",
     ]
     .contains(&command.as_str())
@@ -150,7 +152,7 @@ fn run() -> Result<()> {
             return fail(format!("Unknown option --{key}"));
         }
         let allowed = match key.as_str() {
-            "city" => command != "capabilities",
+            "city" => !["capabilities", "health"].contains(&command.as_str()),
             "scenario" => [
                 "info",
                 "route",
@@ -161,12 +163,13 @@ fn run() -> Result<()> {
                 "stream",
             ]
             .contains(&command.as_str()),
-            "host" | "port" | "max-body-bytes" | "request-timeout-ms" | "query-timeout-ms"
-            | "max-connections" | "max-queue" => command == "serve",
+            "host" | "port" => ["serve", "health"].contains(&command.as_str()),
+            "max-body-bytes" | "request-timeout-ms" | "query-timeout-ms" | "max-connections"
+            | "max-queue" => command == "serve",
             "request" => ["route", "matrix", "reach", "isochrone", "compare", "native"]
                 .contains(&command.as_str()),
             "output" | "pretty" | "format" => {
-                !["serve", "stream", "_worker"].contains(&command.as_str())
+                !["serve", "health", "stream", "_worker"].contains(&command.as_str())
             }
             "service-date" => ["route", "matrix", "reach", "isochrone", "native", "stream"]
                 .contains(&command.as_str()),
@@ -186,6 +189,9 @@ fn run() -> Result<()> {
     }
     if command == "capabilities" {
         return output(&capabilities(), &options);
+    }
+    if command == "health" {
+        return super::health::run(&options);
     }
     let city_path = options
         .get("city")

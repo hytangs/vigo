@@ -680,6 +680,7 @@ parentPort.on('message', async (message) => {
           : error.stack || error.message
         : String(error),
       errorCode: error?.code,
+      errorStatusCode: error?.statusCode,
       errorContext: error?.activeServiceKernel
         ? { activeServiceKernel: error.activeServiceKernel }
         : undefined,

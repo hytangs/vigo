@@ -1,6 +1,6 @@
-mod source;
 #[cfg(not(feature = "node"))]
 mod columns;
+mod source;
 #[cfg(feature = "standalone")]
 pub(crate) use columns::TimetableBlockPool;
 #[cfg(not(feature = "node"))]
@@ -3170,7 +3170,11 @@ fn build_exact_deadline_corridor(
                     let mut hi = end;
                     while start < hi {
                         let mid = start + (hi - start) / 2;
-                        if sequence[mid] < first_boarding[run] { start = mid + 1; } else { hi = mid; }
+                        if sequence[mid] < first_boarding[run] {
+                            start = mid + 1;
+                        } else {
+                            hi = mid;
+                        }
                     }
                 }
             }
@@ -3332,16 +3336,24 @@ impl TimetableQueryWorkspace {
         }
     }
     pub(crate) fn byte_length(&self) -> usize {
-        self.workspace.byte_length() + self.many_workspace.byte_length()
-            + self.forward_workspace.byte_length() + self.profile_workspace.byte_length()
-            + self.journey_workspace.as_ref().map_or(0, journeys::JourneyWorkspace::byte_length)
+        self.workspace.byte_length()
+            + self.many_workspace.byte_length()
+            + self.forward_workspace.byte_length()
+            + self.profile_workspace.byte_length()
+            + self
+                .journey_workspace
+                .as_ref()
+                .map_or(0, journeys::JourneyWorkspace::byte_length)
     }
     #[cfg(feature = "standalone")]
     fn rebind(&mut self, stops: usize, runs: usize, trips: usize) {
         // Epochs must invalidate all labels, even when two schedules have the
         // same dimensions. Scalar continuation belongs to one request only.
         let w = &mut self.workspace;
-        w.ensure_dimensions(stops.max(w.active_stop_generation.len()), runs.max(w.run_generation.len()));
+        w.ensure_dimensions(
+            stops.max(w.active_stop_generation.len()),
+            runs.max(w.run_generation.len()),
+        );
         // These tags index physical stops/runs, not the expanded boarding
         // layers retained in the other arrays. Reverse pruning uses their
         // exact dimensions to map a layered state back to its base stop.
@@ -3350,7 +3362,8 @@ impl TimetableQueryWorkspace {
         w.epoch = u32::MAX;
         let w = &mut self.many_workspace;
         w.ensure_dimensions(stops, runs);
-        w.excluded_trip_generation.resize(trips.max(w.excluded_trip_generation.len()), 0);
+        w.excluded_trip_generation
+            .resize(trips.max(w.excluded_trip_generation.len()), 0);
         w.epoch = u32::MAX;
         let w = &mut self.profile_workspace;
         let states = (stops * STATE_STRIDE).max(w.transfer_generation.len());
@@ -3361,19 +3374,27 @@ impl TimetableQueryWorkspace {
         w.run_generation.resize(runs.max(w.run_generation.len()), 0);
         w.epoch = u32::MAX;
         let w = &mut self.forward_workspace;
-        for layer in &mut w.run_layers { layer.resize(runs, 0); }
-        w.layer_earliest.resize((MAX_PROFILE_BOARDINGS + 1) * stops, u32::MAX);
-        w.layer_ride_earliest.resize((MAX_PROFILE_BOARDINGS + 1) * stops, u32::MAX);
+        for layer in &mut w.run_layers {
+            layer.resize(runs, 0);
+        }
+        w.layer_earliest
+            .resize((MAX_PROFILE_BOARDINGS + 1) * stops, u32::MAX);
+        w.layer_ride_earliest
+            .resize((MAX_PROFILE_BOARDINGS + 1) * stops, u32::MAX);
         w.stop_layer_mask.resize(stops, 0);
         w.run_layer_mask.resize(runs, 0);
         w.scalar_runs.resize(runs.div_ceil(u64::BITS as usize), 0);
         w.scalar_first_boarding.resize(runs, u32::MAX);
         w.scalar_identity = None;
-        if let Some(w) = &mut self.journey_workspace { w.rebind(stops, runs); }
+        if let Some(w) = &mut self.journey_workspace {
+            w.rebind(stops, runs);
+        }
     }
 }
 impl Default for TimetableQueryWorkspace {
-    fn default() -> Self { Self::new(0, 0, 0) }
+    fn default() -> Self {
+        Self::new(0, 0, 0)
+    }
 }
 impl TimetableKernel {
     #[cfg(feature = "standalone")]
@@ -3394,11 +3415,33 @@ impl TimetableKernel {
     }
     #[cfg(feature = "standalone")]
     pub(crate) fn source_block_references(&self) -> usize {
-        self.departure_seconds.block_references() + self.arrival_seconds.block_references() + self.from_stop.block_references() + self.to_stop.block_references() + self.sequence.block_references() + self.segment_trip.block_references() + self.segment_run.block_references() + self.trip_start.block_references() + self.continuity_break.block_references() + self.can_board.block_references() + self.can_alight.block_references()
+        self.departure_seconds.block_references()
+            + self.arrival_seconds.block_references()
+            + self.from_stop.block_references()
+            + self.to_stop.block_references()
+            + self.sequence.block_references()
+            + self.segment_trip.block_references()
+            + self.segment_run.block_references()
+            + self.trip_start.block_references()
+            + self.continuity_break.block_references()
+            + self.can_board.block_references()
+            + self.can_alight.block_references()
     }
     #[cfg(feature = "standalone")]
     pub(crate) fn owned_source_bytes(&self) -> usize {
-        self.departure_seconds.allocated_bytes() + self.arrival_seconds.allocated_bytes() + self.from_stop.allocated_bytes() + self.to_stop.allocated_bytes() + self.sequence.allocated_bytes() + self.segment_trip.allocated_bytes() + self.segment_run.allocated_bytes() + self.trip_start.allocated_bytes() + self.continuity_break.allocated_bytes() + self.can_board.allocated_bytes() + self.can_alight.allocated_bytes() + self.forbidden_same_stop.capacity() + self.same_stop_transfer_minimum.capacity() * 4
+        self.departure_seconds.allocated_bytes()
+            + self.arrival_seconds.allocated_bytes()
+            + self.from_stop.allocated_bytes()
+            + self.to_stop.allocated_bytes()
+            + self.sequence.allocated_bytes()
+            + self.segment_trip.allocated_bytes()
+            + self.segment_run.allocated_bytes()
+            + self.trip_start.allocated_bytes()
+            + self.continuity_break.allocated_bytes()
+            + self.can_board.allocated_bytes()
+            + self.can_alight.allocated_bytes()
+            + self.forbidden_same_stop.capacity()
+            + self.same_stop_transfer_minimum.capacity() * 4
     }
     #[cfg(feature = "standalone")]
     pub(crate) fn take_query_workspace(&mut self) -> TimetableQueryWorkspace {
@@ -3406,7 +3449,11 @@ impl TimetableKernel {
     }
     #[cfg(feature = "standalone")]
     pub(crate) fn install_query_workspace(&mut self, mut query: TimetableQueryWorkspace) {
-        query.rebind(self.stop_count, self.run_count, self.trip_start.len().saturating_sub(1));
+        query.rebind(
+            self.stop_count,
+            self.run_count,
+            self.trip_start.len().saturating_sub(1),
+        );
         self.query = query;
     }
 }
@@ -3616,7 +3663,8 @@ impl TimetableKernel {
         for stop in 0..stop_count {
             exit_event_offset[stop + 1] += exit_event_offset[stop];
         }
-        let exit_events: Vec<ExitEvent> = exit_records.into_iter().map(|(_, event)| event).collect();
+        let exit_events: Vec<ExitEvent> =
+            exit_records.into_iter().map(|(_, event)| event).collect();
         let exit_events = exit_events.into_boxed_slice().into_vec();
         scan_times.shrink_to_fit();
         scan_time_offsets.shrink_to_fit();
@@ -3851,13 +3899,14 @@ impl TimetableKernel {
             reverse_transfer_edges: _,
             exit_event_offset: _,
             exit_events: _,
-            query: TimetableQueryWorkspace {
-            workspace,
-            many_workspace: _,
-            forward_workspace,
-            profile_workspace: _,
-            journey_workspace: _,
-            },
+            query:
+                TimetableQueryWorkspace {
+                    workspace,
+                    many_workspace: _,
+                    forward_workspace,
+                    profile_workspace: _,
+                    journey_workspace: _,
+                },
         } = self;
         forward_workspace.scalar_identity = None;
         forward_workspace.scalar_first_boarding.fill(u32::MAX);
@@ -4509,13 +4558,14 @@ impl TimetableKernel {
             reverse_transfer_edges,
             exit_event_offset: _,
             exit_events: _,
-            query: TimetableQueryWorkspace {
-            workspace,
-            many_workspace: _,
-            forward_workspace: _,
-            profile_workspace: _,
-            journey_workspace: _,
-            },
+            query:
+                TimetableQueryWorkspace {
+                    workspace,
+                    many_workspace: _,
+                    forward_workspace: _,
+                    profile_workspace: _,
+                    journey_workspace: _,
+                },
         } = self;
         let epoch = workspace.begin_query();
 
@@ -4993,10 +5043,9 @@ impl TimetableKernel {
                 .iter()
                 .chain(&input.destination_walk_seconds)
                 .any(|seconds| !seconds.is_finite() || *seconds < 0.0)
-            || input
-                .excluded_trips
-                .iter()
-                .any(|trip| *trip as usize >= self.query.many_workspace.excluded_trip_generation.len())
+            || input.excluded_trips.iter().any(|trip| {
+                *trip as usize >= self.query.many_workspace.excluded_trip_generation.len()
+            })
             || !input.earliest.is_finite()
             || input.earliest < 0.0
             || !input.deadline.is_finite()
@@ -5283,10 +5332,9 @@ impl TimetableKernel {
                 .iter()
                 .chain(input.destination_walk_seconds.iter())
                 .any(|seconds| !seconds.is_finite() || *seconds < 0.0)
-            || input
-                .excluded_trips
-                .iter()
-                .any(|trip| *trip as usize >= self.query.many_workspace.excluded_trip_generation.len())
+            || input.excluded_trips.iter().any(|trip| {
+                *trip as usize >= self.query.many_workspace.excluded_trip_generation.len()
+            })
             || !input.departure.is_finite()
             || !input.horizon.is_finite()
             || input.departure < 0.0
@@ -5340,13 +5388,14 @@ impl TimetableKernel {
             reverse_transfer_edges,
             exit_event_offset: _,
             exit_events: _,
-            query: TimetableQueryWorkspace {
-            workspace: destination_workspace,
-            many_workspace,
-            forward_workspace: _,
-            profile_workspace: _,
-            journey_workspace: _,
-            },
+            query:
+                TimetableQueryWorkspace {
+                    workspace: destination_workspace,
+                    many_workspace,
+                    forward_workspace: _,
+                    profile_workspace: _,
+                    journey_workspace: _,
+                },
         } = self;
         // A single Matrix target also supplies the capped point-query anchor.
         // Retain a feasible terminal bound so that scan stops once remaining
@@ -5807,10 +5856,9 @@ impl TimetableKernel {
                 .iter()
                 .chain(input.destination_walk_seconds.iter())
                 .any(|seconds| !seconds.is_finite() || *seconds < 0.0)
-            || input
-                .excluded_trips
-                .iter()
-                .any(|trip| *trip as usize >= self.query.many_workspace.excluded_trip_generation.len())
+            || input.excluded_trips.iter().any(|trip| {
+                *trip as usize >= self.query.many_workspace.excluded_trip_generation.len()
+            })
             || !input.departure.is_finite()
             || !input.horizon.is_finite()
             || input.departure < 0.0
@@ -5873,13 +5921,14 @@ impl TimetableKernel {
             reverse_transfer_edges: _,
             exit_event_offset: _,
             exit_events: _,
-            query: TimetableQueryWorkspace {
-            workspace: _,
-            many_workspace,
-            forward_workspace: _,
-            profile_workspace: _,
-            journey_workspace: _,
-            },
+            query:
+                TimetableQueryWorkspace {
+                    workspace: _,
+                    many_workspace,
+                    forward_workspace: _,
+                    profile_workspace: _,
+                    journey_workspace: _,
+                },
         } = self;
         let maximum_layer = boarding_layers(input.maximum_boardings)?;
         let first_layer = usize::from(input.maximum_boardings.is_some());
@@ -6543,13 +6592,14 @@ impl TimetableKernel {
             reverse_transfer_edges,
             exit_event_offset,
             exit_events,
-            query: TimetableQueryWorkspace {
-            workspace: destination_workspace,
-            many_workspace: _,
-            forward_workspace,
-            profile_workspace,
-            journey_workspace: _,
-            },
+            query:
+                TimetableQueryWorkspace {
+                    workspace: destination_workspace,
+                    many_workspace: _,
+                    forward_workspace,
+                    profile_workspace,
+                    journey_workspace: _,
+                },
         } = self;
         let destination_epoch = destination_workspace.begin_query();
         destination_workspace.allow_post_ride_transfers =

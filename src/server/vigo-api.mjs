@@ -3029,13 +3029,32 @@ async function earliestTransitEvidence(
   }
 }
 
+async function requireCaseRoutingStore(projectId, project, body) {
+  const feedIds = cityCaseFeedIds(project, body)
+  const feedId = feedIds ? (project.feeds.length === 1 ? feedIds[0] : '') : String(body?.feedId ?? '')
+  if (feedIds && project.feeds.length > 1 && project.routingStore?.status !== 'ready') {
+    const error = new Error('Wait for the combined City timetable to finish preparing.')
+    error.statusCode = 409
+    throw error
+  }
+  const selection = await requireRoutingStore(projectId, project, feedId)
+  const availableScopes = feedIds ? await routingStoreSourceScopes(selection.storePath) : []
+  if (feedIds && project.feeds.length > 1 && feedIds.some(id => !availableScopes.includes(id))) {
+    const error = new Error('The City timetable is out of date. Finish preparing its GTFS sources before running this case.')
+    error.statusCode = 409
+    throw error
+  }
+  return { ...selection, feedId, feedIds, sourceScopes: feedIds && availableScopes.length ? feedIds : undefined }
+}
+
 async function runSingleNationalRoute(projectId, body, signal, options = {}) {
   body = normalizeRoutingDataRequest(body)
   const project = await readProjectMetadata(projectId)
   const mode = ['walk', 'drive'].includes(body?.mode) ? body.mode : 'transit'
   const feedId = String(body?.feedId ?? '')
-  const selection = mode === 'transit' ? await requireRoutingStore(projectId, project, feedId) : null
+  const selection = mode === 'transit' ? await requireCaseRoutingStore(projectId, project, body) : null
   const storePath = selection?.storePath ?? await streetWorkerStore(projectId, project, feedId)
+  if (selection?.feedIds) body = { ...body, sourceScopes: selection.sourceScopes }
   body = resolveStoreDepartNow(storePath, body)
   const serviceContext = nationalRequestServiceContext(body)
   if (selection) body = normalizeRoutingPointIdentities(storePath, body,
@@ -3727,21 +3746,7 @@ async function runNationalStreetMatrix(projectId, body, signal) {
 async function runReach(projectId, body, signal, onProgress, onPreliminary) {
   const project = await readProjectMetadata(projectId)
   const serviceContext = nationalRequestServiceContext(body)
-  const feedIds = cityCaseFeedIds(project, body)
-  const feedId = feedIds ? (project.feeds.length === 1 ? feedIds[0] : '') : String(body?.feedId ?? '')
-  if (feedIds && project.feeds.length > 1 && project.routingStore?.status !== 'ready') {
-    const error = new Error('Wait for the combined City timetable to finish preparing.')
-    error.statusCode = 409
-    throw error
-  }
-  const { storePath, feed } = await requireRoutingStore(projectId, project, feedId)
-  const availableScopes = feedIds ? await routingStoreSourceScopes(storePath) : []
-  if (feedIds && project.feeds.length > 1 && feedIds.some(id => !availableScopes.includes(id))) {
-    const error = new Error('The City timetable is out of date. Finish preparing its GTFS sources before running this case.')
-    error.statusCode = 409
-    throw error
-  }
-  const sourceScopes = feedIds && availableScopes.length ? feedIds : undefined
+  const { storePath, feed, feedId, feedIds, sourceScopes } = await requireCaseRoutingStore(projectId, project, body)
   assertCaseRouteSources(body?.scenario, feedIds, Boolean(sourceScopes))
   body = normalizeRoutingPointIdentities(storePath, body,
     feed?.id ?? (project.feeds.length === 1 ? project.feeds[0].id : ''))
@@ -3784,6 +3789,8 @@ async function runReach(projectId, body, signal, onProgress, onPreliminary) {
     feedIds,
     baselineIdentity,
   }, {
+    readDisplayWater: ([west, south, east, north]) => readLocalBasemap(streetPath,
+      { west, south, east, north }, { zoom: 15, waterOnly: true }),
     runReach: (rangeRequest) => nationalRouteWorkerPool.dispatch(
       storePath,
       'reach',

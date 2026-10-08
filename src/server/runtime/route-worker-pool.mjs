@@ -543,7 +543,10 @@ class NationalRouteWorkerClient {
     } else {
       this.failedJobs += 1
       const error = new Error(message?.error ?? 'National route worker failed.')
-      error.statusCode = message?.errorCode === 'VIGO_NATIVE_STREET_CCH_REQUIRED' ? 409 : 400
+      error.statusCode = Number.isInteger(message?.errorStatusCode)
+        && message.errorStatusCode >= 400 && message.errorStatusCode <= 599
+        ? message.errorStatusCode
+        : message?.errorCode === 'VIGO_NATIVE_STREET_CCH_REQUIRED' ? 409 : 400
       if (message?.errorCode) error.code = message.errorCode
       if (message?.errorContext?.activeServiceKernel) {
         error.activeServiceKernel = message.errorContext.activeServiceKernel

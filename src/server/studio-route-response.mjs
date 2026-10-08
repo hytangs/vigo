@@ -13,7 +13,9 @@ export function compactStudioRoutingPlan(plan) {
 }
 
 export function compactStudioRoutingResponse(result) {
-  const choices = result.choices
+  // Departure-window searches retain the blocked primary result separately
+  // when there are no feasible alternatives. Keep its explanation in Studio.
+  const choices = result.choices.length ? result.choices : result.plan ? [result.plan] : []
   return {
     choices: choices.map(compactStudioRoutingPlan),
     selectedPlanId: result.plan?.id ?? choices[0]?.id,

@@ -96,7 +96,9 @@ impl Profiles {
             i = next;
         }
         let next = self.heads[segment.edge];
-        if first_on_edge { self.edges.push(segment.edge as u32); }
+        if first_on_edge {
+            self.edges.push(segment.edge as u32);
+        }
         // No queue references edge candidates. Reuse retired records in place
         // instead of retaining their geometry for the rest of the query.
         let candidate = Candidate { segment, next };
@@ -128,7 +130,11 @@ impl Profiles {
             }
             // Restore insertion order for exact ties in the stable sort.
             group.reverse();
-            group.sort_by(|a,b| a.start.total_cmp(&b.start).then_with(|| a.seed.cmp(&b.seed)));
+            group.sort_by(|a, b| {
+                a.start
+                    .total_cmp(&b.start)
+                    .then_with(|| a.seed.cmp(&b.seed))
+            });
             if group.len() == 1 {
                 result.push(group[0]);
                 continue;

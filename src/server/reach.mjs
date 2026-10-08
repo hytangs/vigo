@@ -1,3 +1,5 @@
+import { rasterBoundaryAreas, boundaryContoursFromAreas } from './reach-boundaries.mjs'
+import { blockInteriorEstimates } from './reach-blocks.mjs'
 import { resolveServiceDay } from './service-day.mjs'
 import { integralNumber, timingMilliseconds } from './number-utils.mjs'
 
@@ -743,6 +745,37 @@ export function rasterAreas(values, width, height, bounds, cutoffsMinutes, surfa
   }))
 }
 
+function displayBoundarySurfaces(baseline, scenario, request, readWater) {
+  const blockEstimates = {}
+  const build = (raster, surface) => {
+    const size = request.rasterSize
+    const estimates = request.surfaceSampling === 'street' && readWater
+      ? blockInteriorEstimates(raster.areaValues, size, size, raster.areaBounds, readWater(raster.areaBounds), request.walkSpeedKph)
+      : new Float64Array(raster.areaValues.length).fill(Infinity)
+    blockEstimates[surface] = { width: size, height: size, bounds: raster.areaBounds,
+      values: encodeRaster(estimates), scale: rasterScale, nodata: rasterNoData }
+    const displayValues = Float64Array.from(raster.areaValues, (value, index) => Math.min(value, estimates[index]))
+    return rasterBoundaryAreas(displayValues, size, size, raster.areaBounds, request.cutoffsMinutes, surface)
+  }
+  const baselineAreas = build(baseline, 'baseline')
+  const scenarioAreas = scenario.areaValues === baseline.areaValues
+    ? featureCollection(baselineAreas.features.map(feature => ({
+        ...feature,
+        id: `scenario-area-${feature.properties.cutoffMinutes}`,
+        properties: { ...feature.properties, surface: 'scenario', id: `scenario-area-${feature.properties.cutoffMinutes}` },
+      })))
+    : build(scenario, 'scenario')
+  blockEstimates.scenario ??= blockEstimates.baseline
+  return {
+    blockEstimates,
+    areas: { baseline: baselineAreas, scenario: scenarioAreas },
+    contours: {
+      baseline: boundaryContoursFromAreas(baselineAreas),
+      scenario: boundaryContoursFromAreas(scenarioAreas),
+    },
+  }
+}
+
 function scenarioRequestRecord(request) {
   return {
     baselineIdentity: request.baselineIdentity,
@@ -871,42 +904,11 @@ async function preliminaryWalkSurface(
         scenario: encoded,
       },
       displayBounds: raster.bounds,
-      contours: {
-        baseline: rasterContours(
-          raster.values,
-          request.rasterSize,
-          request.rasterSize,
-          raster.bounds,
-          request.cutoffsMinutes,
-          'baseline',
-        ),
-        scenario: rasterContours(
-          raster.values,
-          request.rasterSize,
-          request.rasterSize,
-          raster.bounds,
-          request.cutoffsMinutes,
-          'scenario',
-        ),
-      },
-      areas: {
-        baseline: rasterAreas(
-          raster.values,
-          request.rasterSize,
-          request.rasterSize,
-          raster.bounds,
-          [maximumCutoff],
-          'baseline',
-        ),
-        scenario: rasterAreas(
-          raster.values,
-          request.rasterSize,
-          request.rasterSize,
-          raster.bounds,
-          [maximumCutoff],
-          'scenario',
-        ),
-      },
+      ...displayBoundarySurfaces(
+        { areaValues: raster.values, areaBounds: raster.bounds },
+        { areaValues: raster.values, areaBounds: raster.bounds },
+        request,
+      ),
       ...(packedEdges ? {
         edges: {
           baseline: packedEdges,
@@ -968,6 +970,10 @@ async function preliminaryWalkSurface(
 
 function scenarioLimitations(request, hasScenarioChanges) {
   const limitations = [
+    {
+      code: 'interpolated_display_boundary',
+      detail: 'Map boundaries interpolate street times. Small enclosed blocks may include conservative walking estimates (at most 120 m from bordering samples, 350 m across, 0.04 km²), excluding known water. Missing or truncated water coverage disables block estimates. These are not verified interior paths or parcel boundaries. Area totals still count street-sampled cells; destination clicks run a separate journey query.',
+    },
     {
       code: request.surfaceSampling === 'cell-center' ? 'coordinate_cell_centers' : 'street_network_cell_sampling',
       detail: request.surfaceSampling === 'cell-center' ? 'Each raster value routes to the coordinate at that cell center on the requested fixed grid.' : 'Surface cells use arrival times interpolated along reachable directed OSM edges; cells outside those edges remain no-data, so no straight-line travel is invented across network gaps.',
@@ -1156,6 +1162,7 @@ export async function computeReachResult(
   {
     runReach,
     buildPreliminaryStreetRaster,
+    readDisplayWater,
     onProgress,
     onPreliminary,
   } = {},
@@ -1420,42 +1427,7 @@ export async function computeReachResult(
         scenario: scenarioAreaMetrics,
       },
       ...(packedEdges ? { edges: packedEdges } : {}),
-      contours: {
-        baseline: rasterContours(
-          baselineRaster.areaValues,
-          request.rasterSize,
-          request.rasterSize,
-          baselineRaster.areaBounds,
-          request.cutoffsMinutes,
-          'baseline',
-        ),
-        scenario: rasterContours(
-          scenarioRaster.areaValues,
-          request.rasterSize,
-          request.rasterSize,
-          scenarioRaster.areaBounds,
-          request.cutoffsMinutes,
-          'scenario',
-        ),
-      },
-      areas: {
-        baseline: rasterAreas(
-          baselineRaster.areaValues,
-          request.rasterSize,
-          request.rasterSize,
-          baselineRaster.areaBounds,
-          request.cutoffsMinutes,
-          'baseline',
-        ),
-        scenario: rasterAreas(
-          scenarioRaster.areaValues,
-          request.rasterSize,
-          request.rasterSize,
-          scenarioRaster.areaBounds,
-          request.cutoffsMinutes,
-          'scenario',
-        ),
-      },
+      ...displayBoundarySurfaces(baselineRaster, scenarioRaster, request, readDisplayWater),
     },
     scenario: {
       id: request.scenario.id,

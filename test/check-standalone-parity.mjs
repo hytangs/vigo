@@ -153,6 +153,18 @@ try {
       })
     }
     await route({ arrivalBufferMinutes: 5, timeMinutes: 4, timePreference: 'arrive_by' }, 'arrival reserve crosses midnight')
+    {
+      const query = { ...base, kind: 'matrix', timePreference: 'arrive', timeMinutes: 4, arrivalBufferMinutes: 5,
+        origins: [point('A')], destinations: [point('B')], includeJourneys: true }
+      delete query.origin; delete query.destination
+      const ref = await legacy(query)
+      const actual = await rust(query)
+      check(`${policy} Matrix arrival reserve crosses midnight`, () => {
+        assert(!ref.error, JSON.stringify(ref.error)); assert(!actual.error, JSON.stringify(actual.error))
+        for (const row of ref.rows) close(actual.durationsMinutes[row.originIndex][row.destinationIndex], row.durationMinutes, 'cross-midnight matrix duration')
+        assert.deepEqual(actual.diagnostics.timeReserves, ref.diagnostics.timeReserves)
+      })
+    }
     for (const serviceDate of ['2026-07-16', '2026-07-18', '2026-07-19']) {
       await route({ serviceDate }, `calendar ${serviceDate}`)
     }

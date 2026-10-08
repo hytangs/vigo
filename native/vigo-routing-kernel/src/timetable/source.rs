@@ -119,7 +119,9 @@ pub fn read_service_timetable(input: ServiceTimetableInput) -> Result<ServiceTim
         permission.1, permission.0
     );
     let mut statement = db.prepare(&sql).map_err(source_error)?;
-    let mut rows = statement.query([input.maximum_departure_seconds.unwrap_or(u32::MAX)]).map_err(source_error)?;
+    let mut rows = statement
+        .query([input.maximum_departure_seconds.unwrap_or(u32::MAX)])
+        .map_err(source_error)?;
     let expected = input.segment_count.map(|count| count as usize);
     let capacity = expected.unwrap_or(8192);
     let mut stop_ids = input.stop_ids;

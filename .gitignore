@@ -11,6 +11,8 @@ Vigo Projects/
 release/
 
 # Build and tool caches
+__pycache__/
+*.py[cod]
 .vite/
 temp/
 tsconfig.tsbuildinfo
@@ -22,7 +24,7 @@ native/*/*.node
 public/assets/
 public/index.html
 public/vigo.mjs
-public/engine-http.mjs
+public/.vigo-*.mjs
 output/
 
 # Logs and scratch output

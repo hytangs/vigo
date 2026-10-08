@@ -91,7 +91,7 @@ try {
   assert.deepEqual(prepared.storeAdmission, {
     status: 'admitted',
     schemaVersion: 'vigo.routing.store.v4',
-    requiredTableCount: 14,
+    requiredTableCount: 15,
     requiredIndexCount: 13,
     departureIndexState: 'ready',
     metadataRows: prepared.storeAdmission.metadataRows,
@@ -134,6 +134,9 @@ try {
 
   const staleV1Path = await mutatedCopy('stale-v1', 'DROP TABLE stop_modes;')
   assertAdmissionRejected(staleV1Path, 'required_table_missing')
+
+  const missingTripDetailsPath = await mutatedCopy('missing-trip-details', 'DROP TABLE trip_details;')
+  assertAdmissionRejected(missingTripDetailsPath, 'required_table_missing')
 
   for (const version of ['vigo.routing.transfers.v1', 'vigo.routing.transfers.v2']) {
     const oldPath = await mutatedCopy(version, `UPDATE metadata SET value='"${version}"' WHERE key='transferSemanticsVersion';`)

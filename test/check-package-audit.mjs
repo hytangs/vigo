@@ -8,6 +8,7 @@ import { auditPackageFiles, publicationContentFindings } from '../scripts/lib/pa
 for (const encoding of ['utf8', 'utf16le']) {
   const scan = text => publicationContentFindings(Buffer.from(text, encoding), { forbiddenRoots: ['/build'] })
   assert.deepEqual(scan('/rustc/revision/library/core/src/fmt/builders.rs'), [])
+  assert.deepEqual(scan('vigo-benchmark-check'), [], 'Match private workspace names, not public benchmark words')
   for (const text of ['/build/src/lib.rs', '/build\u0000', '"/build"', '/build']) {
     assert.deepEqual(scan(text), ['embedded developer path'])
   }

@@ -6743,9 +6743,10 @@ function routeNationalGtfsStreetReach(storePath, request, options = {}) {
 
 export function routeNationalGtfsMatrix(storePath, request) {
   request = normalizeScheduledAnalysisRequest(request, 'Matrix')
-  const reserve = arrivalReserve(request)
-  if (reserve) return withArrivalReserve(routeNationalGtfsMatrix(storePath, reserve.request), reserve, true)
-  const earlier = earlierArrivalClock(openNationalStore(storePath), request)
+  validateArrivalBuffer(request)
+  const earlier = ['arrive', 'arrive_by'].includes(request.timePreference) && request.serviceDate
+    ? earlierArrivalClock(openNationalStore(storePath), request)
+    : null
   if (earlier) {
     const result = routeNationalGtfsMatrix(storePath, earlier)
     result.diagnostics ??= {}
@@ -6753,6 +6754,8 @@ export function routeNationalGtfsMatrix(storePath, request) {
     return result
   }
   request = { ...request, __disableNativeStreetPathCache: request.__disableNativeStreetPathCache === true || request.disableCache === true }
+  const reserve = arrivalReserve(request)
+  if (reserve) return withArrivalReserve(routeNationalGtfsMatrix(storePath, reserve.request), reserve, true)
   validateTransitRideRequirement(request)
   validateMaximumTransfers(request.maxTransfers)
   validateTransferSelection(request)
@@ -7857,15 +7860,20 @@ function endpointWalkLimitKm(value, fallback = 1.2) {
 
 export function routeNationalGtfsStore(storePath, request) {
   request = normalizeRoutingDataRequest(request)
-  const reserve = arrivalReserve(request)
-  if (reserve) return withArrivalReserve(routeNationalGtfsStore(storePath, reserve.request), reserve)
-  const earlier = earlierArrivalClock(openNationalStore(storePath), request)
+  validateArrivalBuffer(request)
+  // Departure queries must retain the cold-store direct-walk proof below.
+  // Opening the full store here disables it and needlessly loads transit state.
+  const earlier = ['arrive', 'arrive_by'].includes(request.timePreference) && request.serviceDate
+    ? earlierArrivalClock(openNationalStore(storePath), request)
+    : null
   if (earlier) {
     const result = routeNationalGtfsStore(storePath, earlier)
     result.diagnostics ??= {}
     result.diagnostics.clockDate = earlier.serviceDate
     return result
   }
+  const reserve = arrivalReserve(request)
+  if (reserve) return withArrivalReserve(routeNationalGtfsStore(storePath, reserve.request), reserve)
   validateTransitRideRequirement(request)
   validateMaximumTransfers(request.maxTransfers)
   validateTransferSelection(request)
@@ -8640,6 +8648,9 @@ export function routeNationalGtfsStore(storePath, request) {
           ...store.activeServiceKernelStatus,
           lastQueryError: error instanceof Error ? (error.stack ?? error.message) : String(error),
         }
+        // A capacity refusal does not mean the resident timetable is missing.
+        // Preserve its retryable status and code across the worker boundary.
+        if (error?.statusCode === 503) throw error
       }
     }
 

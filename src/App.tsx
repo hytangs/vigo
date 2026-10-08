@@ -37,6 +37,8 @@ import { scenarioStorageKey } from './app/scenarioDraftStorage'
 import { createScenarioRoadGeometryRequest } from './app/scenarioRoadGeometryRequest'
 import { type RoutingDepartureWindowMinutes } from './app/uiOptions'
 import { useNationalRouting } from './app/useNationalRouting'
+import { useReachInspection } from './app/useReachInspection'
+import { ReachPointInspector } from './components/ReachPointInspector'
 import { useScenarioDrafts } from './app/useScenarioDrafts'
 import { caseFeedSelection, useCityDataGroups } from './app/useCityDataGroups'
 import { useStreetPreparation } from './app/useStreetPreparation'
@@ -116,6 +118,7 @@ import {
 import { buildNetworkSearchIndex, buildRoutingPointFromMap, parseRoutingCommand } from './routingUi'
 import { type ServiceVehicleMode } from './serviceVehicles'
 const desktopReachRasterSize = 128
+const desktopStreetReachRasterSize = 384
 
 function newScenarioChange(
   kind: ScenarioChangeKind,
@@ -445,6 +448,11 @@ export default function App() {
     scheduleTimeMinutes,
     routingMaxWalkKm,
   ].join(':')
+  const reachInspection = useReachInspection({
+    active: page === 'project' && activeRouteTool === 'analyze',
+    projectId: selectedProjectId, feedId: nationalRoutingFeed?.id ?? '',
+    result: reachResult, comparison: reachComparison,
+  })
   const cityRoutingActive = page === 'project' && activeRouteTool !== 'data' && Boolean(nationalRoutingFeed)
   const storeBackedRouting = Boolean(nationalRoutingFeed)
   const routingServiceDay = serviceDayForCalendarDate(routingServiceDate)
@@ -2034,7 +2042,7 @@ export default function App() {
               maxTransfers: reachMaxTransfers,
               walkSpeedKph: scenarioWalkSpeedKph,
               surfaceSampling: reachSurfaceSampling,
-              rasterSize: desktopReachRasterSize,
+              rasterSize: reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize,
               cutoffsMinutes: [scenarioCutoffMinutes],
               includePreliminary: false,
               includeStreetEdges,
@@ -2156,7 +2164,7 @@ export default function App() {
             maxTransfers: reachMaxTransfers,
             walkSpeedKph: scenarioWalkSpeedKph,
             surfaceSampling: reachSurfaceSampling,
-            rasterSize: desktopReachRasterSize,
+            rasterSize: reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize,
             cutoffsMinutes: [scenarioCutoffMinutes],
             // The final baseline surface is rendered after transit/routing
             // seeds are known. Avoid spending a second full OSM traversal on
@@ -2553,14 +2561,6 @@ export default function App() {
     }
   }, [preparationJobs.filter((job) => isPreparationJob(job) && isActiveTask(job)).map((job) => job.id).sort().join('|'), selectedProject.id])
 
-  function replaceExistingSchedule(fileName: string) {
-    if (!selectedProject.feeds.length) return false
-    return window.confirm(
-      `Replace every timetable in ${selectedProject.name} with ${fileName}?\n\n`
-      + 'Choose Cancel to keep the current feeds and add this as another scope.',
-    )
-  }
-
   async function uploadProjectSourceFile(
     file: File,
     action: 'national-gtfs-upload' | 'national-osm-upload',
@@ -2602,7 +2602,6 @@ export default function App() {
       const job = await startPreparation('national-gtfs-import', file.name, () => uploadProjectSourceFile(
         file,
         'national-gtfs-upload',
-        replaceExistingSchedule(file.name),
       ))
       setGtfsImportJobId(job.id)
       const completed = await waitForImportJob(selectedProject.id, job.id, setImportMessage, 'GTFS indexing failed')
@@ -2618,9 +2617,6 @@ export default function App() {
 
   async function handleNationalGtfsPath(sourcePath: string) {
     if (!sourcePath || isImporting) return
-    const replaceProjectSchedule = replaceExistingSchedule(
-      sourcePath.split(/[\\/]/).pop() || 'this GTFS feed',
-    )
     setIsImporting(true)
     setImportMessage('Starting local GTFS index')
     try {
@@ -2628,7 +2624,7 @@ export default function App() {
         method: 'POST',
         body: JSON.stringify({
           sourcePath,
-          replaceProjectSchedule,
+          replaceProjectSchedule: false,
           preloadServiceDate: routingServiceDate,
           preloadServiceDay: routingServiceDay,
         }),
@@ -2971,6 +2967,8 @@ export default function App() {
     gtfsJob: gtfsImportJob,
     osmJob: osmImportJob,
     importMessage,
+    gtfsError: pendingPreparations[`${selectedProject.id}:national-gtfs-import`]?.error,
+    osmError: pendingPreparations[`${selectedProject.id}:national-osm-import`]?.error,
     osmStreetReady: selectedProject.osmStreetIndex?.status === 'ready',
     osmStreetMessage,
     realtimeSnapshot,
@@ -3379,13 +3377,19 @@ export default function App() {
           vehicleMode={vehicleMode}
           scheduleTimeMinutes={scheduleTimeMinutes}
           scheduleServiceDate={routingServiceDate}
-          routingEnabled={activeRouteTool === 'agency' ? false : routingEnabled}
+          routingEnabled={activeRouteTool === 'pathfinder' && routingEnabled}
           routingOrigin={activeRouteTool === 'agency' ? agencyPlan?.origin ?? null : activeRouteTool === 'analyze' ? analysisOrigin : routingOrigin}
           routingWaypoints={activeRouteTool === 'agency' ? agencyPlan?.waypoints ?? emptyRoutingPoints : activeRouteTool === 'analyze' ? emptyRoutingPoints : routingWaypoints}
-          routingDestination={activeRouteTool === 'agency' ? agencyPlan?.destination ?? null : activeRouteTool === 'analyze' ? null : routingDestination}
-          routingPlan={activeRouteTool === 'agency' ? agencyPlan : activeRouteTool === 'analyze' ? null : routingPlan}
+          routingDestination={activeRouteTool === 'agency' ? agencyPlan?.destination ?? null : activeRouteTool === 'analyze' ? reachInspection.point : routingDestination}
+          routingPlan={activeRouteTool === 'agency' ? agencyPlan : activeRouteTool === 'analyze' ? reachInspection.plan : routingPlan}
           routingFocus={activeRouteTool === 'pathfinder' || activeRouteTool === 'agency' && Boolean(agencyPlan)}
           analysisFocus={activeRouteTool === 'analyze' || activeRouteTool === 'agency' && Boolean(agencyReach)}
+          analysisInspector={activeRouteTool === 'analyze' ? <>
+            {!reachInspection.point && reachInspection.sources.length > 0 && !scenarioPointPicking
+              ? <div className="reach-map-hint">Click a place to see travel time and the journey</div> : null}
+            <ReachPointInspector inspection={reachInspection} />
+          </> : undefined}
+          onInspectReachPoint={activeRouteTool === 'analyze' && reachInspection.sources.length ? reachInspection.inspect : undefined}
           reachResult={activeRouteTool === 'agency' ? agencyReach : activeRouteTool === 'analyze' ? reachResult : null}
           reachComparison={activeRouteTool === 'analyze' ? reachComparison : null}
           serviceDecomposition={activeRouteTool === 'analyze' ? serviceDecomposition : null}

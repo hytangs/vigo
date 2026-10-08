@@ -222,7 +222,7 @@
 .agency-notebook-list small { color: var(--text-muted); font-size: 12px; }
 .agency-notebook-list strong { margin-top: 5px; font-size: 14px; font-weight: 550; }
 .agency-method-text { white-space: pre-wrap; font-size: 12px; line-height: 1.8; margin-top: 16px; color: var(--text-muted); }
-.agency-map-context { position: absolute; z-index: 5; top: 16px; left: 16px; right: 56px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 4px 20px var(--shadow-color); pointer-events: none; }
+.agency-map-context { position: absolute; z-index: 5; top: 16px; left: 64px; right: 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 4px 20px var(--shadow-color); pointer-events: none; }
 .agency-map-context button { pointer-events: auto; white-space: nowrap; }
 .agency-map-context > div:first-child { min-width: 0; overflow-wrap: anywhere; }
 .agency-map-context span, .agency-map-context small { display: block; }

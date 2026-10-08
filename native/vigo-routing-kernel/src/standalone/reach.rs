@@ -392,7 +392,9 @@ impl City {
         {
             let areas = areas(values, size, size, &bounds, &cutoffs);
             if q["reachFormat"] == "map" {
-                return Ok(json!({"kind":"reach","mode":mode,"cutoffsMinutes":cutoffs,"areas":areas,"mapBounds":bounds,"diagnostics":{"transit":transit},"warnings":self.metadata["routingLimitations"]}));
+                return Ok(
+                    json!({"kind":"reach","mode":mode,"cutoffsMinutes":cutoffs,"areas":areas,"mapBounds":bounds,"diagnostics":{"transit":transit},"warnings":self.metadata["routingLimitations"]}),
+                );
             }
             let contours = contours(values, size, size, &bounds, &cutoffs);
             let reached = values.iter().filter(|v| v.is_finite()).count();

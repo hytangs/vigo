@@ -57,7 +57,7 @@ export function routingLegPrimaryLabel(leg: RoutingPlan['legs'][number]) {
 
 export function routingLegDetail(leg: RoutingPlan['legs'][number]) {
   if (leg.stationAccessStatus === 'unverified') {
-    return `${formatRoutingMinutes(leg.durationMinutes)} walk · station entrance/platform path unverified`
+    return `${formatRoutingMinutes(leg.durationMinutes)} walk`
   }
   if (leg.transferSource === 'parent_station_fallback') {
     return `${formatRoutingMinutes(leg.durationMinutes)} station connection · assumed transfer time`

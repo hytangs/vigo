@@ -4,53 +4,95 @@ use super::*;
 pub(super) fn open_street_cch_bundles(
     input: &StreetCchLoadInput,
 ) -> napi::Result<(Arc<cch::CchBundle>, Arc<cch::MetricBundle>)> {
-    Ok((shared_streets::structure(&input.structure_path)?, shared_streets::metric(&input.metric_path)?))
+    Ok((
+        shared_streets::structure(&input.structure_path)?,
+        shared_streets::metric(&input.metric_path)?,
+    ))
 }
 
 impl CoordinateKernel {
     #[cfg(feature = "standalone")]
     pub(crate) fn memory_ledger(&self) -> serde_json::Value {
         let mut mapped = self.snapshot.mmap.len();
-        let mut workspace = self.origin_workspace.byte_length() + self.destination_workspace.byte_length()
-            + self.path_workspace.byte_length() + self.reverse_path_workspace.byte_length();
+        let mut workspace = self.origin_workspace.byte_length()
+            + self.destination_workspace.byte_length()
+            + self.path_workspace.byte_length()
+            + self.reverse_path_workspace.byte_length();
         let mut access = self.profile.as_ref().map_or(0, AccessProfile::byte_length);
         let mut access_mapped = 0;
         if let Some(index) = &self.street_cch {
             mapped += index.structure.mmap_bytes().len() + index.metric.mmap_bytes().len();
-            workspace += index.forward_query.byte_length() + index.reverse_query.byte_length()
-                + index.path_query.as_ref().map_or(0, cch::PathQuery::byte_length)
-                + index.origin_member_workspace.byte_length() + index.destination_member_workspace.byte_length();
+            workspace += index.forward_query.byte_length()
+                + index.reverse_query.byte_length()
+                + index
+                    .path_query
+                    .as_ref()
+                    .map_or(0, cch::PathQuery::byte_length)
+                + index.origin_member_workspace.byte_length()
+                + index.destination_member_workspace.byte_length();
             let mut seen = HashSet::new();
-            for bucket in [&index.origin_buckets, &index.destination_buckets].into_iter().flatten() {
+            for bucket in [&index.origin_buckets, &index.destination_buckets]
+                .into_iter()
+                .flatten()
+            {
                 match &bucket.storage {
-                    CchBucketStorage::Owned { offsets, entries } => access += offsets.capacity() * 4 + entries.capacity() * size_of::<CchBucketEntry>(),
+                    CchBucketStorage::Owned { offsets, entries } => {
+                        access += offsets.capacity() * 4
+                            + entries.capacity() * size_of::<CchBucketEntry>()
+                    }
                     CchBucketStorage::Mapped { mmap, .. } => {
-                        if seen.insert(Arc::as_ptr(mmap)) { access_mapped += mmap.len(); }
+                        if seen.insert(Arc::as_ptr(mmap)) {
+                            access_mapped += mmap.len();
+                        }
                     }
                 }
             }
         }
-        for w in [&self.origin_snap_workspace, &self.destination_snap_workspace] {
-            workspace += w.evaluated_from_nodes.capacity() * 5 + w.candidate_nodes.capacity() * size_of::<Snap>()
+        for w in [
+            &self.origin_snap_workspace,
+            &self.destination_snap_workspace,
+        ] {
+            workspace += w.evaluated_from_nodes.capacity() * 5
+                + w.candidate_nodes.capacity() * size_of::<Snap>()
                 + w.projected_edges.capacity() * size_of::<ReciprocalEdgeSnap>();
         }
-        for w in [&self.origin_access_reduction_workspace, &self.destination_access_reduction_workspace] {
-            workspace += (w.source_generation.capacity() + w.source_touched.capacity() + w.direct_station_generation.capacity()
-                + w.direct_station_touched.capacity() + w.linked_station_generation.capacity() + w.linked_station_touched.capacity()
-                + w.selected_generation.capacity() + w.selected_touched.capacity()) * 4
+        for w in [
+            &self.origin_access_reduction_workspace,
+            &self.destination_access_reduction_workspace,
+        ] {
+            workspace += (w.source_generation.capacity()
+                + w.source_touched.capacity()
+                + w.direct_station_generation.capacity()
+                + w.direct_station_touched.capacity()
+                + w.linked_station_generation.capacity()
+                + w.linked_station_touched.capacity()
+                + w.selected_generation.capacity()
+                + w.selected_touched.capacity())
+                * 4
                 + (w.sources.capacity() + w.direct_stations.capacity()) * size_of::<DirectSource>()
-                + w.linked_stations.capacity() * size_of::<LinkedSource>() + w.selected.capacity() * size_of::<AccessLabel>();
+                + w.linked_stations.capacity() * size_of::<LinkedSource>()
+                + w.selected.capacity() * size_of::<AccessLabel>();
         }
         let mut cache = self.surface_snap_cache.byte_length();
         let mut frontiers = HashSet::new();
-        for (entries, order) in [(&self.origin_cache, &self.origin_cache_order), (&self.destination_cache, &self.destination_cache_order)] {
+        for (entries, order) in [
+            (&self.origin_cache, &self.origin_cache_order),
+            (&self.destination_cache, &self.destination_cache_order),
+        ] {
             cache += frontier_cache_bytes(entries, order, 0);
             for value in entries.values() {
-                if frontiers.insert(Arc::as_ptr(value)) { cache += value.byte_length(); }
+                if frontiers.insert(Arc::as_ptr(value)) {
+                    cache += value.byte_length();
+                }
             }
         }
-        for value in [&self.last_origin_frontier, &self.last_destination_frontier].into_iter().flatten() {
-            if frontiers.insert(Arc::as_ptr(value)) { cache += value.byte_length(); }
+        for value in [&self.last_origin_frontier, &self.last_destination_frontier]
+            .into_iter()
+            .flatten()
+        {
+            if frontiers.insert(Arc::as_ptr(value)) {
+                cache += value.byte_length();
+            }
         }
         serde_json::json!({"sharedMappedFileBytes":mapped,
             "sharedHeapBytes":self.snapshot.heap_bytes() + self.terminal_access.as_ref().map_or(0, |g|g.heap_bytes()),
@@ -144,24 +186,40 @@ impl CoordinateKernel {
                 target.path_view = source.path_view.take();
             }
             if !source.forward_query.distances.is_empty() {
-                target.forward_query = std::mem::replace(&mut source.forward_query, DynamicCchQuery::new(0));
+                target.forward_query =
+                    std::mem::replace(&mut source.forward_query, DynamicCchQuery::new(0));
             }
             if !source.reverse_query.distances.is_empty() {
-                target.reverse_query = std::mem::replace(&mut source.reverse_query, DynamicCchQuery::new(0));
+                target.reverse_query =
+                    std::mem::replace(&mut source.reverse_query, DynamicCchQuery::new(0));
             }
             for (target, source) in [
-                (&mut target.origin_member_workspace, &mut source.origin_member_workspace),
-                (&mut target.destination_member_workspace, &mut source.destination_member_workspace),
+                (
+                    &mut target.origin_member_workspace,
+                    &mut source.origin_member_workspace,
+                ),
+                (
+                    &mut target.destination_member_workspace,
+                    &mut source.destination_member_workspace,
+                ),
             ] {
-                if !source.distances.is_empty() { *target = std::mem::replace(source, CchMemberWorkspace::new()); }
+                if !source.distances.is_empty() {
+                    *target = std::mem::replace(source, CchMemberWorkspace::new());
+                }
             }
             // Each operation begins a fresh generation. Persistent endpoint
             // witnesses own their predecessor arrays and do not borrow these.
             for (target, source) in [
                 (&mut self.origin_workspace, &mut donor.origin_workspace),
-                (&mut self.destination_workspace, &mut donor.destination_workspace),
+                (
+                    &mut self.destination_workspace,
+                    &mut donor.destination_workspace,
+                ),
                 (&mut self.path_workspace, &mut donor.path_workspace),
-                (&mut self.reverse_path_workspace, &mut donor.reverse_path_workspace),
+                (
+                    &mut self.reverse_path_workspace,
+                    &mut donor.reverse_path_workspace,
+                ),
             ] {
                 if !source.distances.is_empty() {
                     *target = std::mem::replace(source, TileWorkspace::new());

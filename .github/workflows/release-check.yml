@@ -9,6 +9,9 @@ permissions:
   contents: read
 
 jobs:
+  deployment:
+    uses: ./.github/workflows/deployment-check.yml
+
   build:
     strategy:
       fail-fast: false
@@ -29,6 +32,7 @@ jobs:
       - run: cargo test --no-default-features --features standalone --manifest-path native/vigo-routing-kernel/Cargo.toml
       - run: cargo clippy --all-targets --no-default-features --features standalone --manifest-path native/vigo-routing-kernel/Cargo.toml -- -D warnings
       - run: npm run check:standalone
+      - run: python test/check-package-publication.py
       - name: Package and verify standalone Rust
         run: python scripts/package-standalone.py
       - run: python test/check-standalone-package.py
@@ -44,18 +48,6 @@ jobs:
         if: runner.os == 'Linux'
       - run: npm run check:studio-runtime
         if: runner.os != 'Linux'
-      - name: Build and archive headless Engine
-        id: engine
-        run: npm run package:engine
-      - run: npm run check:engine-package
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: engine-${{ matrix.os }}
-          path: |
-            ${{ steps.engine.outputs.archive-path }}
-            ${{ steps.engine.outputs.archive-path }}.sha256
-          compression-level: 0
-          if-no-files-found: error
       - name: Build and archive CLI only
         id: cli
         run: npm run package:cli
@@ -85,16 +77,19 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version-file: .nvmrc
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends texlive-xetex texlive-latex-extra texlive-fonts-recommended fonts-texgyre
-      - run: npm run docs:developer-guide
+      - run: npm run check:docs
+      - run: python3 scripts/build-standalone-docs.py --check
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: developer-guide
-          path: output/pdf/*.pdf
+          name: documentation
+          path: |
+            docs/guide.html
+            docs/standalone.html
+            docs/standalone-openapi.json
           if-no-files-found: error
 
   attest:
-    needs: [build, docs]
+    needs: [build, docs, deployment]
     runs-on: ubuntu-24.04
     permissions:
       contents: read

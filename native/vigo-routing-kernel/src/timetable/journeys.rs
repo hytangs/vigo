@@ -282,9 +282,13 @@ impl JourneyWorkspace {
         for stop in self.boarding_stops.drain(..) {
             self.boarding_labels[stop].clear();
         }
-        self.labels.fronts.resize_with((stops * 4).max(self.labels.fronts.len()), Vec::new);
-        self.boarding_labels.resize_with(stops.max(self.boarding_labels.len()), Vec::new);
-        self.run_generation.resize(runs.max(self.run_generation.len()), 0);
+        self.labels
+            .fronts
+            .resize_with((stops * 4).max(self.labels.fronts.len()), Vec::new);
+        self.boarding_labels
+            .resize_with(stops.max(self.boarding_labels.len()), Vec::new);
+        self.run_generation
+            .resize(runs.max(self.run_generation.len()), 0);
         self.run_generation.fill(0);
         self.run_epoch = 0;
         self.runs.clear();
@@ -343,7 +347,8 @@ impl TimetableKernel {
         output: TimetableMatrixQueryResult,
     ) -> napi::Result<TimetableMatrixQueryResult> {
         let mut workspace = self
-            .query.journey_workspace
+            .query
+            .journey_workspace
             .take()
             .unwrap_or_else(|| JourneyWorkspace::new(self.stop_count, self.run_count));
         let result = self.matrix_journeys_with_workspace(input, output, &mut workspace);

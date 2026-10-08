@@ -1353,6 +1353,60 @@
 
 .reach-budget-scale { display: flex; justify-content: space-between; margin-top: -6px; }
 
+.reach-map-hint {
+  position: absolute;
+  z-index: 4;
+  top: 12px;
+  left: 64px;
+  right: 12px;
+  width: fit-content;
+  max-width: calc(100% - 76px);
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text);
+  background: var(--panel-strong);
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+
+.reach-point-inspector {
+  position: absolute;
+  z-index: 8;
+  top: 12px;
+  right: 12px;
+  width: min(360px, calc(100% - 76px));
+  max-height: calc(100% - 60px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--panel-strong);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+.reach-point-inspector > header { display: flex; align-items: start; justify-content: space-between; gap: 8px; padding: 16px 16px 12px; border-bottom: 1px solid var(--border); }
+.reach-point-inspector > header > div { min-width: 0; }
+.reach-point-inspector > header span { color: var(--text-muted); font-size: 12px; }
+.reach-point-inspector h2 { margin: 4px 0 0; font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.reach-point-inspector .icon-button { flex: 0 0 auto; width: 28px; height: 28px; }
+.reach-point-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px; display: grid; gap: 14px; scrollbar-width: thin; }
+.reach-point-time { display: grid; gap: 4px; }
+.reach-point-time strong { font-size: 25px; font-weight: 550; letter-spacing: -0.025em; }
+.reach-point-time span, .reach-point-context, .reach-point-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
+.reach-point-estimates { display: grid; gap: 8px; margin: 0; font-size: 12px; line-height: 1.5; }
+.reach-point-estimates > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.reach-point-estimates dt { color: var(--text-muted); }
+.reach-point-estimates dd { margin: 0; font-variant-numeric: tabular-nums; }
+.reach-point-journey { border-top: 1px solid var(--border); }
+.reach-point-journey > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 0 0; cursor: pointer; list-style: none; font-size: 13px; font-weight: 550; }
+.reach-point-journey > summary::-webkit-details-marker { display: none; }
+.reach-point-journey[open] > summary > svg { transform: rotate(90deg); }
+.reach-point-journey .journey-itinerary { margin-top: 18px; }
+
 .reach-render-mode-head {
   grid-template-columns: minmax(0, auto) minmax(0, 1fr);
   align-items: end;
@@ -1855,6 +1909,7 @@
 
 .route-map-shell .map-live-card {
   top: 72px;
+  max-width: calc(100% - 76px);
 }
 
 .sidebar-panel.is-analyze {
@@ -2382,7 +2437,7 @@
     top: 8px;
     right: 8px;
     bottom: 8px;
-    width: min(360px, calc(100% - 16px));
+    width: min(360px, calc(100% - 72px));
     border: 1px solid var(--border);
     border-radius: 10px;
   }

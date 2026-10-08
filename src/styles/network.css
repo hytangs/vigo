@@ -85,7 +85,7 @@
 
 .map-basemap-status {
   position: absolute;
-  top: 62px;
+  top: 132px;
   left: 12px;
   z-index: 4;
   display: inline-flex;
@@ -445,8 +445,8 @@
 }
 
 .service-state-panel.is-live .service-mode-switch button.is-active {
-  color: #031411;
-  background: #6be0c3;
+  color: var(--primary-ink);
+  background: var(--accent);
 }
 
 .service-state-panel.is-schedule .service-mode-switch button.is-active {
@@ -469,7 +469,7 @@
 }
 
 .service-state-panel.is-live .service-state-readout svg {
-  color: #6be0c3;
+  color: var(--success);
 }
 
 .service-state-readout.tone-watch svg {
@@ -477,7 +477,7 @@
 }
 
 .service-state-readout.tone-empty svg {
-  color: #9aa9ba;
+  color: var(--text-muted);
 }
 
 .service-state-readout > span {
@@ -587,8 +587,8 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #48c8a7;
-  box-shadow: 0 0 0 4px rgba(72, 200, 167, 0.12);
+  background: var(--success);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 12%, transparent);
 }
 
 .service-live-meta span.is-stale i {

@@ -123,7 +123,10 @@ const releaseWorkflow = fs.readFileSync(
 const [releaseBuildSection, releaseAttestationSection = ''] = releaseWorkflow.split(/\r?\n  attest:\r?\n/u)
 assert(!releaseBuildSection.includes('id-token: write'), 'The release build job must not receive an OIDC token.')
 assert(!releaseBuildSection.includes('attestations: write'), 'The release build job must not receive attestation write access.')
-assert(releaseAttestationSection.includes('needs: [build, docs]'), 'Attestation must consume the completed read-only build artifact.')
+const attestationDependencies = releaseAttestationSection.match(/^    needs: \[([^\]]+)\]/mu)?.[1].split(',').map(value => value.trim()) ?? []
+for (const job of ['build', 'docs', 'deployment']) {
+  assert(attestationDependencies.includes(job), `Attestation must wait for ${job} verification.`)
+}
 assert(releaseAttestationSection.includes('id-token: write'), 'The isolated attestation job requires OIDC access.')
 assert(releaseAttestationSection.includes('attestations: write'), 'The isolated attestation job requires attestation write access.')
 

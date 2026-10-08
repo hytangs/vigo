@@ -44,17 +44,16 @@ impl Candidate {
                 (previous.as_ref(), piece.as_ref())
             };
             if let (Some(a), Some(b)) = (boundary_leg(left, false), boundary_leg(right, true))
-                    && a["kind"] == "ride"
-                    && b["kind"] == "ride"
-                    && !a["tripId"].is_null()
-                    && a["tripId"] == b["tripId"]
-                    && a["toStopId"] == b["fromStopId"]
-                    && (a["arrival"].as_f64().unwrap_or(-1.)
-                        - b["departure"].as_f64().unwrap_or(-2.))
+                && a["kind"] == "ride"
+                && b["kind"] == "ride"
+                && !a["tripId"].is_null()
+                && a["tripId"] == b["tripId"]
+                && a["toStopId"] == b["fromStopId"]
+                && (a["arrival"].as_f64().unwrap_or(-1.) - b["departure"].as_f64().unwrap_or(-2.))
                     .abs()
-                        < 0.001
-                {
-                    next.boardings -= 1.;
+                    < 0.001
+            {
+                next.boardings -= 1.;
             }
         }
         if arrive {

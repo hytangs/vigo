@@ -569,6 +569,10 @@ export type ReachResult = {
   }
   surface: {
     raster: ScenarioRaster
+    blockEstimates?: Partial<Record<ScenarioSurface, {
+      width: number; height: number; bounds: [number, number, number, number]
+      values: string; scale: number; nodata: number
+    }>>
     displayBounds?: [number, number, number, number]
     areaMetrics?: {
       baseline: ScenarioAreaMetrics

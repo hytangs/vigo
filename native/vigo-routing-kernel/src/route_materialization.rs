@@ -122,7 +122,9 @@ pub struct ShapeGeometrySource {
 #[cfg(feature = "standalone")]
 impl ShapeGeometrySource {
     pub(crate) fn sqlite_heap_bytes(&self) -> usize {
-        self.db.as_ref().map_or(0, crate::standalone::memory::sqlite_bytes)
+        self.db
+            .as_ref()
+            .map_or(0, crate::standalone::memory::sqlite_bytes)
     }
 }
 

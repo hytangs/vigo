@@ -138,7 +138,10 @@ impl Runtime {
                 let result = city.execute_public(kind, &query);
                 c.query_workspace = city.take_query_workspace();
                 if let Some(timetable) = &mut city.timetable
-                    && timetable.kernel.share_source_columns(&mut c.timetable_blocks) {
+                    && timetable
+                        .kernel
+                        .share_source_columns(&mut c.timetable_blocks)
+                {
                     c.timetable_blocks.prune();
                     super::release_preparation_memory();
                 }
@@ -176,12 +179,21 @@ impl Collection {
                 self.evictions += 1;
             }
             self.timetable_blocks.prune();
-            let residents: Vec<_> = self.cities.iter()
+            let residents: Vec<_> = self
+                .cities
+                .iter()
                 .map(|(_, city)| (city.street_directory.as_path(), &city.street))
-                .chain(retired_street.iter().map(|(directory, street)| (directory.as_path(), street)))
+                .chain(
+                    retired_street
+                        .iter()
+                        .map(|(directory, street)| (directory.as_path(), street)),
+                )
                 .collect();
             let mut city = City::open_shared(Path::new(path), &residents)?;
-            let capacity = self.manifest.maximum_resident_scenarios.min(self.manifest.scenarios.len());
+            let capacity = self
+                .manifest
+                .maximum_resident_scenarios
+                .min(self.manifest.scenarios.len());
             city.street.partition_cache_budget(capacity);
             city.shape_cache.partition_budget(capacity);
             if let Some((_, previous)) = self.cities.back_mut() {
@@ -202,25 +214,34 @@ impl Collection {
             .map(|(_, city)| &city.street_directory)
             .collect();
         let mut shared = HashSet::new();
-        let mut network = self.timetable_blocks.unique_bytes() + self.timetable_blocks.index_bytes();
-        let mut workspaces = self.query_workspace.as_ref().map_or(0, crate::timetable::TimetableQueryWorkspace::byte_length);
+        let mut network =
+            self.timetable_blocks.unique_bytes() + self.timetable_blocks.index_bytes();
+        let mut workspaces = self
+            .query_workspace
+            .as_ref()
+            .map_or(0, crate::timetable::TimetableQueryWorkspace::byte_length);
         let (mut caches, mut sqlite, mut mapped) = (0, 0, 0);
         for (_, city) in &self.cities {
             let ledger = city.memory_ledger();
             let n = |v: &Value, key: &str| v[key].as_u64().unwrap_or(0) as usize;
             let street = &ledger["street"];
             if shared.insert(&city.street_directory) {
-                network += n(street,"sharedHeapBytes"); mapped += n(street,"sharedMappedFileBytes");
+                network += n(street, "sharedHeapBytes");
+                mapped += n(street, "sharedMappedFileBytes");
             }
-            network += n(street,"accessHeapBytes") + n(&ledger,"cityDictionaryHeapBytes")
-                + n(&ledger,"timetableSourceOwnedHeapBytes") + n(&ledger,"timetableIndexHeapBytes");
-            workspaces += n(street,"workspaceHeapBytes") + n(&ledger,"timetableWorkspaceHeapBytes");
-            caches += n(street,"cacheHeapBytes") + n(&ledger,"cityCacheHeapBytes");
-            sqlite += n(&ledger,"sqliteHeapBytes");
-            mapped += n(street,"accessMappedFileBytes") + n(&ledger,"contextMappedFileBytes");
+            network += n(street, "accessHeapBytes")
+                + n(&ledger, "cityDictionaryHeapBytes")
+                + n(&ledger, "timetableSourceOwnedHeapBytes")
+                + n(&ledger, "timetableIndexHeapBytes");
+            workspaces +=
+                n(street, "workspaceHeapBytes") + n(&ledger, "timetableWorkspaceHeapBytes");
+            caches += n(street, "cacheHeapBytes") + n(&ledger, "cityCacheHeapBytes");
+            sqlite += n(&ledger, "sqliteHeapBytes");
+            mapped += n(street, "accessMappedFileBytes") + n(&ledger, "contextMappedFileBytes");
             if let Some(drive) = ledger.get("drive") {
-                network += n(drive,"networkHeapBytes") + n(drive,"trafficHeapBytes");
-                workspaces += n(drive,"workspaceHeapBytes"); mapped += n(drive,"mappedFileBytes");
+                network += n(drive, "networkHeapBytes") + n(drive, "trafficHeapBytes");
+                workspaces += n(drive, "workspaceHeapBytes");
+                mapped += n(drive, "mappedFileBytes");
             }
         }
         let memory = json!({"networkHeapBytes":network,"workspaceHeapBytes":workspaces,"cacheHeapBytes":caches,

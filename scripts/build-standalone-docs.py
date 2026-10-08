@@ -6,8 +6,12 @@ import html
 import json
 from pathlib import Path
 import re
+import sys
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(ROOT / 'scripts'))
+from docs_renderer import markdown, slug
 SOURCE = ROOT / 'docs/guides/rust-standalone.md'
 VERSION = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))['version']
 OPERATIONS = {
@@ -413,115 +417,6 @@ def specification(native):
         'security':[{'bearerAuth':[]}],'paths':paths,'components':{'securitySchemes':{'bearerAuth':{'type':'http','scheme':'bearer'}},'schemas':schemas}}
 
 
-def slug(title):
-    return re.sub(r'[^\w\-\s]', '', re.sub(r'<[^>]*>', '',title.lower())).replace(' ','-')
-
-
-def inline(source):
-    tokens=[]
-    def keep(value):
-        tokens.append(value); return f'\x00{len(tokens)-1}\x00'
-    def code(match):
-        value=html.escape(match[1])
-        if re.fullmatch(r'[A-Za-z][A-Za-z0-9_.<>,]*',match[1]):
-            pieces=re.split(r'(?<=[a-z0-9])(?=[A-Z])|(?<=[._<>,])',match[1])
-            value='<wbr>'.join(html.escape(piece) for piece in pieces)
-        return keep('<code>'+value+'</code>')
-    source=re.sub(r'`([^`]+)`',code,source)
-    source=html.escape(source)
-    source=re.sub(r'\[([^\]]+)\]\(([^)]+)\)',lambda m:'<a href="'+m[2]+'">'+m[1]+'</a>',source)
-    source=re.sub(r'\*\*([^*]+)\*\*',r'<strong>\1</strong>',source)
-    return re.sub(r'\x00(\d+)\x00',lambda m:tokens[int(m[1])],source)
-
-
-def code_block(source, language):
-    if language in ('json', 'ndjson'):
-        pieces=[]; offset=0
-        for match in re.finditer(r'"(?:\\.|[^"\\])*"|(?<![\w.])-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\b(?:true|false|null)\b',source):
-            pieces.append(html.escape(source[offset:match.start()]))
-            token=match[0]
-            kind='key' if token.startswith('"') and re.match(r'\s*:',source[match.end():]) else 'string' if token.startswith('"') else 'literal'
-            pieces.append(f'<span class="syntax-{kind}">{html.escape(token)}</span>')
-            offset=match.end()
-        pieces.append(html.escape(source[offset:])); body=''.join(pieces)
-    else: body=html.escape(source)
-    return '<div class="code-block"><button class="copy" type="button" aria-label="Copy code">Copy</button><pre tabindex="0"><code>'+body+'</code></pre></div>'
-
-
-def markdown(source, used=None, page_key=''):
-    used=used if used is not None else {}
-    lines=source.splitlines(); output=[]; i=0
-    while i<len(lines):
-        line=lines[i]
-        if not line.strip() or line.startswith('<!--'): i+=1; continue
-        if line.startswith('```'):
-            platform=re.match(r'^```(\w+) platform=(unix|windows)$',line)
-            if platform:
-                alternatives=[]
-                while i<len(lines):
-                    match=re.match(r'^```(\w+) platform=(unix|windows)$',lines[i])
-                    if not match: break
-                    body=[]; i+=1
-                    while i<len(lines) and not lines[i].startswith('```'): body.append(lines[i]); i+=1
-                    alternatives.append((match[2],match[1],'\n'.join(body))); i+=1
-                    while i<len(lines) and not lines[i].strip(): i+=1
-                number=used.get('_platform_groups',0)+1; used['_platform_groups']=number
-                prefix=f'platform-{number}'; buttons=[]; panels=[]
-                for n,(system,language,body) in enumerate(alternatives):
-                    label='macOS / Linux' if system=='unix' else 'Windows'
-                    identifier=f'{prefix}-{system}'
-                    buttons.append(f'<button type="button" role="tab" id="{identifier}" aria-controls="{identifier}-panel" aria-selected="{str(n==0).lower()}" tabindex="{0 if n==0 else -1}">{label}</button>')
-                    panels.append(f'<div role="tabpanel" id="{identifier}-panel" aria-labelledby="{identifier}"'+(' hidden' if n else '')+'>'+code_block(body,language)+'</div>')
-                output.append('<div class="platform-group"><div class="platform-tabs" role="tablist" aria-label="Operating system">'+''.join(buttons)+'</div>'+''.join(panels)+'</div>')
-                continue
-            lang=line[3:].split(' ')[0]; body=[]; i+=1
-            while i<len(lines) and not lines[i].startswith('```'): body.append(lines[i]); i+=1
-            output.append(code_block('\n'.join(body),lang)); i+=1; continue
-        heading=re.match(r'^(#{1,6})\s+(.+)$',line)
-        if heading:
-            level=len(heading[1]); title=heading[2]; identifier=slug(title)
-            n=used.get(identifier,0); used[identifier]=n+1
-            if n: identifier+='-'+str(n)
-            output.append(f'<h{level} id="{identifier}">{inline(title)}</h{level}>'); i+=1; continue
-        if line.startswith('|'):
-            rows=[]
-            while i<len(lines) and lines[i].startswith('|'):
-                cells=re.split(r'(?<!\\)\|',lines[i].strip().strip('|'))
-                if not all(re.fullmatch(r'\s*:?-+:?\s*',c) for c in cells): rows.append([inline(c.strip().replace('\\|','|')) for c in cells])
-                i+=1
-            table_class=''
-            if rows[0][:2] == ['JSON field', 'Rust / JSON type'] and rows[0][-1] == 'Meaning':
-                # Keep each description with its field and omit empty notes.
-                # The Markdown dictionary retains the original four columns.
-                rows=[['JSON field', 'Rust type', rows[0][2]]]+[
-                    [field+('<p class="field-description">'+description+'</p>' if description!='—' else ''),typ,required]
-                    for field,typ,required,description in rows[1:]
-                ]
-                table_class=' class="field-table"'
-            head=''.join('<th scope="col">'+c+'</th>' for c in rows[0])
-            body=[]
-            for row in rows[1:]:
-                code=re.search(r'<code>(.*?)</code>',row[0])
-                attributes=''
-                if code and page_key:
-                    label=html.unescape(re.sub(r'<[^>]+>','',code[1]))
-                    identifier=page_key+'--'+slug(label)
-                    n=used.get(identifier,0); used[identifier]=n+1
-                    if n: identifier+='-'+str(n)
-                    attributes=f' id="{identifier}" data-search-label="{html.escape(label,quote=True)}" tabindex="-1"'
-                cells=''.join('<td data-column="'+html.escape(rows[0][n],quote=True)+'">'+cell+'</td>' for n,cell in enumerate(row))
-                body.append('<tr'+attributes+'>'+cells+'</tr>')
-            body=''.join(body)
-            output.append('<div class="table-wrap"><table'+table_class+'><thead><tr>'+head+'</tr></thead><tbody>'+body+'</tbody></table></div>'); continue
-        if line.startswith('- '):
-            items=[]
-            while i<len(lines) and lines[i].startswith('- '): items.append('<li>'+inline(lines[i][2:])+'</li>'); i+=1
-            output.append('<ul>'+''.join(items)+'</ul>'); continue
-        paragraph=[line]; i+=1
-        while i<len(lines) and lines[i].strip() and not re.match(r'^(#|```|\||- |<!--)',lines[i]): paragraph.append(lines[i]); i+=1
-        output.append('<p>'+inline(' '.join(paragraph))+'</p>')
-    return '\n'.join(output)
-
 
 PAGE_NAMES = [
     ('quickstart', 'Quickstart'), ('installation', 'Installation'), ('city-data', 'City data'),
@@ -542,7 +437,7 @@ PAGE_GROUPS = [
     ('Routing', ['route', 'via-and-windows', 'matrix', 'reach', 'scenarios', 'compare', 'realtime']),
     ('Results', ['results']+[key for key,_ in OUTPUT_PAGES]),
     ('Reference', ['cli', 'points-and-time', 'streaming', 'http-api', 'clients', 'native-api', 'native-fields']),
-    ('Operations', ['deployment', 'troubleshooting', 'walking-evidence', 'validation', 'audit-record']),
+    ('Operations', ['runtime-behavior', 'deployment', 'troubleshooting', 'walking-evidence', 'validation', 'audit-record']),
 ]
 
 
@@ -550,9 +445,11 @@ def page(source,native,audit,walking):
     source=source.replace('../standalone.html','#overview').replace('../standalone-openapi.json','standalone-openapi.json').replace('../reference/rust-standalone-audit.md','#audit-record').replace('../reference/rust-standalone-native.md','#native-fields')
     source=source.replace('../reference/walking-evidence.md','#walking-evidence')
     source=source.replace('../reference/results.md','#results')
-    _,*parts=re.split(r'(?=^## \d+\. )',source,flags=re.M)
+    preamble,*parts=re.split(r'(?=^## \d+\. )',source,flags=re.M)
     assert len(parts)==len(PAGE_NAMES), 'Give every manual chapter a page and navigation label'
     pages={}
+    runtime_body=preamble.split('## Shared scenario collections',1)[1]
+    pages['runtime-behavior']={'title':'Runtime and scenario collections','label':'Runtime and collections','body':'## Shared scenario collections\n'+runtime_body}
     overview=f'''VIGO runs transit, walking, and driving queries from a standalone Rust executable. Use the command line for individual jobs or serve a prepared City over HTTP.
 
 ## Start with Boston
@@ -604,7 +501,7 @@ This manual covers VIGO {VERSION}. See [Compatibility](#validation) for supporte
         title=heading[3:]
         pages[slug(title)]={'title':title,'label':title,'body':body,'parent':'native-fields'}
     pages['audit-record']={'title':'Test record','label':'Test record','body':audit.split('\n',1)[1]}
-    walking=walking.replace('../guides/quickstart.md','#city-data').replace('../guides/rust-standalone.md','#city-data')
+    walking=walking.replace('../guide.md#vigo-cli-quickstart','#city-data').replace('../guides/rust-standalone.md','#city-data')
     pages['walking-evidence']={'title':'Walking evidence','label':'Walking evidence','body':walking.split('\n',1)[1]}
     order=[key for _,keys in PAGE_GROUPS for key in keys]
     type_order=[slug(part.splitlines()[0][3:]) for part in types]
@@ -635,12 +532,12 @@ This manual covers VIGO {VERSION}. See [Compatibility](#validation) for supporte
         headings=re.findall(r'<h2 id="([^"]+)">(.+?)</h2>',body)
         outline='<aside class="page-outline" aria-label="On this page"><p>On this page</p><nav>'+''.join(f'<a href="#{identifier}">{title}</a>' for identifier,title in headings)+'</nav></aside>' if len(headings)>1 else ''
         articles.append(f'<article class="doc-page" id="page-{key}" data-page="{key}" data-title="{html.escape(p["title"],quote=True)}" data-nav="{p.get("parent",key)}"{hidden}>{legacy}{breadcrumb}<h1 id="{key}" tabindex="-1">{page_title(p)}</h1>{outline}<div class="page-body">{body}</div><nav class="pagination" aria-label="Page navigation">{"".join(pagination)}</nav></article>')
-    css=(ROOT/'scripts/standalone-docs.css').read_text(encoding='utf-8')
-    javascript=(ROOT/'scripts/standalone-docs.js').read_text(encoding='utf-8')
+    css=(ROOT/'scripts/docs.css').read_text(encoding='utf-8')
+    javascript=(ROOT/'scripts/docs.js').read_text(encoding='utf-8')
     logo=base64.b64encode((ROOT/'public/vigo-wordmark.png').read_bytes()).decode()
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="description" content="VIGO documentation: routing, matrices, isochrones, and deployment."><title>Documentation — VIGO</title><style>{css}</style></head>
-<body><a class="skip" href="#content">Skip to content</a><header class="site-header"><a class="brand" href="#overview" aria-label="VIGO documentation"><img src="data:image/png;base64,{logo}" alt="VIGO" width="148" height="28"></a><span class="site-title">Documentation</span><div class="header-actions"><a href="standalone-openapi.json" download>API schema</a><button id="print" type="button">Print page</button></div></header>
+<body data-product="VIGO Rust"><a class="skip" href="#content">Skip to content</a><header class="site-header"><a class="brand" href="#overview" aria-label="VIGO documentation"><img src="data:image/png;base64,{logo}" alt="VIGO" width="148" height="28"></a><span class="site-title">Rust &amp; HTTP <span class="version">{VERSION}</span></span><div class="header-actions"><a href="standalone-openapi.json" download>API schema</a><button id="print" type="button">Print page</button></div></header>
 <details class="sidebar" id="navigation" open><summary>Contents</summary><div class="sidebar-body"><div class="search-box"><label class="sr-only" for="search">Search documentation</label><input id="search" type="search" placeholder="Search documentation" autocomplete="off" aria-controls="search-results"></div><div id="search-results" hidden><p id="search-status" role="status"></p><div id="search-links"></div></div><nav id="chapters" aria-label="Documentation">{''.join(nav)}</nav></div></details>
 <main id="content" tabindex="-1">{''.join(articles)}</main><span id="copy-status" class="sr-only" role="status"></span><noscript><style>.doc-page[hidden],.platform-group [role="tabpanel"][hidden]{{display:block!important}}.pagination,.platform-tabs,.page-outline{{display:none}}</style></noscript><script>{javascript}</script></body></html>\n'''
 
@@ -651,8 +548,8 @@ def main():
     public_results=(ROOT/'docs/reference/results.md').read_text(encoding='utf-8')
     # This reference is embedded in a single-file manual served by the binary;
     # its source-relative Markdown link is not available beside that manual.
-    public_results=public_results.replace('(known-routing-limitations.md)', '(https://github.com/hytangs/vigo/blob/main/docs/reference/known-routing-limitations.md)')
-    public_results=public_results.replace('(../guides/upgrading.md)', '(https://github.com/hytangs/vigo/blob/main/docs/guides/upgrading.md)')
+    public_results=public_results.replace('(../guide.md#known-limits)', '(https://github.com/hytangs/vigo/blob/main/docs/guide.md#known-limits)')
+    public_results=public_results.replace('(../guide.md#upgrade-and-rollback)', '(https://github.com/hytangs/vigo/blob/main/docs/guide.md#upgrade-and-rollback)')
     source=source.replace('<!-- PUBLIC_RESULTS -->', '\n'.join('##'+line if line.startswith('#') else line for line in public_results.splitlines()[1:]))
     audit=(ROOT/'docs/reference/rust-standalone-audit.md').read_text(encoding='utf-8')
     walking=(ROOT/'docs/reference/walking-evidence.md').read_text(encoding='utf-8')

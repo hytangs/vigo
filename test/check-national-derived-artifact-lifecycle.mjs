@@ -31,6 +31,7 @@ function createFixture() {
     CREATE TABLE stops(stop_id TEXT PRIMARY KEY, name TEXT NOT NULL, lat REAL, lon REAL, parent_station TEXT, location_type INTEGER, platform_code TEXT);
     CREATE TABLE routes(route_id TEXT PRIMARY KEY, short_name TEXT, long_name TEXT, route_type INTEGER, color TEXT);
     CREATE TABLE trips(trip_id TEXT PRIMARY KEY, route_id TEXT NOT NULL, service_id TEXT NOT NULL, direction_id TEXT);
+    CREATE TABLE trip_details(trip_id TEXT PRIMARY KEY, headsign TEXT, short_name TEXT) WITHOUT ROWID;
     CREATE TABLE route_services(
       source_scope TEXT NOT NULL, route_type INTEGER NOT NULL, service_key TEXT NOT NULL,
       representative_route_id TEXT NOT NULL, short_name TEXT, long_name TEXT, color TEXT,

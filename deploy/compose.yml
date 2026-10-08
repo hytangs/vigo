@@ -1,32 +1,49 @@
 services:
   engine:
-    image: ${VIGO_ENGINE_IMAGE:?Set a verified Engine image or digest}
+    image: ${VIGO_IMAGE:?Set VIGO_IMAGE to the image you built and verified}
     init: true
     restart: unless-stopped
     read_only: true
-    user: ${VIGO_ENGINE_UID:-1000}:${VIGO_ENGINE_GID:-1000}
+    user: "65532:65532"
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     pids_limit: 64
-    cpus: ${VIGO_ENGINE_CPUS:-2}
-    mem_limit: ${VIGO_ENGINE_MEMORY:-3g}
+    cpus: ${VIGO_CPUS:-2}
+    mem_limit: ${VIGO_MEMORY:-2g}
     stop_grace_period: 10s
     ports:
-      - 127.0.0.1:${VIGO_ENGINE_LOCAL_PORT:-8080}:8080
-    tmpfs:
-      - /tmp:rw,nosuid,noexec,size=64m
+      - "127.0.0.1:${VIGO_LOCAL_PORT:-8080}:8080"
     volumes:
       - type: bind
-        source: ${VIGO_CITY_DIR:?Set a prepared City directory}
-        target: /data/city
+        source: ${VIGO_CITY:?Set VIGO_CITY to an absolute prepared City or scenario collection directory}
+        target: /city
+        read_only: true
         bind:
           create_host_path: false
     environment:
-      VIGO_ENGINE_HOST: 0.0.0.0
-      VIGO_ENGINE_PORT: 8080
-      VIGO_CITY_DIR: /data/city
-      VIGO_ENGINE_API_TOKEN: ${VIGO_ENGINE_API_TOKEN:?Set a secret bearer token}
-      VIGO_ENGINE_MAX_WORKERS: ${VIGO_ENGINE_MAX_WORKERS:-2}
-      VIGO_ENGINE_QUEUE_LIMIT: ${VIGO_ENGINE_QUEUE_LIMIT:-16}
-      VIGO_ENGINE_TIMEOUT_MS: ${VIGO_ENGINE_TIMEOUT_MS:-120000}
-      RAYON_NUM_THREADS: ${VIGO_ENGINE_THREADS:-2}
+      VIGO_CITY: /city
+      PORT: "8080"
+      VIGO_API_TOKEN: ${VIGO_API_TOKEN:?Set a bearer token of at least 16 characters}
+      RAYON_NUM_THREADS: ${VIGO_THREADS:-2}
+      VIGO_MAX_RESIDENT_SCENARIOS: ${VIGO_MAX_RESIDENT_SCENARIOS:-2}
+      VIGO_ENDPOINT_CACHE_MAX_BYTES: ${VIGO_ENDPOINT_CACHE_MAX_BYTES:-8388608}
+      VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES: ${VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES:-8388608}
+    command:
+      - serve
+      - --host
+      - 0.0.0.0
+      - --max-queue
+      - "${VIGO_MAX_QUEUE:-8}"
+      - --max-connections
+      - "${VIGO_MAX_CONNECTIONS:-16}"
+      - --max-body-bytes
+      - "${VIGO_MAX_BODY_BYTES:-8388608}"
+      - --request-timeout-ms
+      - "${VIGO_REQUEST_TIMEOUT_MS:-10000}"
+      - --query-timeout-ms
+      - "${VIGO_QUERY_TIMEOUT_MS:-30000}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"

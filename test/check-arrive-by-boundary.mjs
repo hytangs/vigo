@@ -63,9 +63,14 @@ try {
     assert.throws(() => routeNationalGtfsStore(storePath, { ...query, arrivalBufferMinutes }), /arrivalBufferMinutes/)
     assert.throws(() => routeNationalGtfsMatrix(storePath, { ...matrixRequest, arrivalBufferMinutes }), /arrivalBufferMinutes/)
   }
-  for (const invalid of [{ timePreference: 'depart' }, { horizonMinutes: 5 }, { arriveMinutes: 4 }, { waypoints: [query.origin] }]) {
+  for (const invalid of [{ timePreference: 'depart' }, { horizonMinutes: 5 }, { waypoints: [query.origin] }]) {
     assert.throws(() => routeNationalGtfsStore(storePath, { ...query, arrivalBufferMinutes: 5, ...invalid }), /arrivalBufferMinutes/)
   }
+  const midnight = routeNationalGtfsStore(storePath, { ...query, arriveMinutes: 4, arrivalBufferMinutes: 5 })
+  assert.equal(midnight.status, 'blocked', 'A midnight reserve is a valid query even when this fixture has no overnight service')
+  assert.equal(midnight.diagnostics.clockDate, '2026-07-14')
+  assert.equal(midnight.diagnostics.timeReserves.requestedArrivalMinutes, 1444)
+  assert.equal(midnight.diagnostics.timeReserves.planningArrivalMinutes, 1439)
   for (const route of [routeNationalGtfsReach, routeNationalStreetStore, routeNationalStreetMatrix]) {
     assert.throws(() => route(storePath, { ...query, arrivalBufferMinutes: 5 }), /arrivalBufferMinutes/)
   }

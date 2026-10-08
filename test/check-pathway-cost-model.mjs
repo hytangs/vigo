@@ -65,21 +65,19 @@ try {
         if (ready && includeJourneys) assert(JSON.stringify(matrix).includes('gtfs_pathway_estimated'), `Witness ${runtime}/${arrive}: ${JSON.stringify(matrix).slice(0,1600)}`)
       }
     }
-    // Check production HTTP entry points against the CLI results for the same
+    // Check the native HTTP service against the CLI results for the same
     // newly imported City, including blocked outcomes and public provenance.
-    for (const runtime of ['node', 'rust']) {
+    {
+      const runtime = 'rust'
       const token = 'synthetic-pathway-test-token'
-      const server = runtime === 'rust'
-        ? spawn(standaloneBinary, ['serve', '--city', city, '--port', '0'], { env: { ...process.env, VIGO_API_TOKEN: token } })
-        : spawn(process.execPath, ['public/engine-http.mjs'], { cwd: root,
-          env: { ...process.env, VIGO_CITY_DIR: city, VIGO_ENGINE_PORT: '0', VIGO_ENGINE_API_TOKEN: token } })
+      const server = spawn(standaloneBinary, ['serve', '--city', city, '--port', '0'], { env: { ...process.env, VIGO_API_TOKEN: token } })
       try {
         const port = await new Promise((resolve, reject) => {
           let log = ''
           const timer = setTimeout(() => reject(new Error(`Pathway HTTP startup timed out: ${log}`)), 15000)
           const read = data => {
             log += data
-            const match = log.match(/listening on 127\.0\.0\.1:(\d+)/) ?? log.match(/"port":(\d+)/)
+            const match = log.match(/listening on 127\.0\.0\.1:(\d+)/)
             if (match) { clearTimeout(timer); resolve(Number(match[1])) }
           }
           server.stdout.on('data', read); server.stderr.on('data', read)
@@ -127,6 +125,6 @@ try {
       }
     }
   }
-  console.log(`Pathway HTTP: ${httpChecks} Route/Matrix checks passed across Node and Rust.`)
+  console.log(`Pathway HTTP: ${httpChecks} Route/Matrix checks passed through the native service.`)
   console.log('Pathway import/routing: stair counts, gates, published precedence, missing costs and direction pass in Node and Rust.')
 } finally { fs.rmSync(folder, { recursive: true, force: true }) }

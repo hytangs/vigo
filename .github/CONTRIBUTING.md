@@ -1,13 +1,13 @@
 # Contributing to VIGO
 
-This repository contains Engine and Studio. Keep language bindings, private datasets, notebooks, generated data, release archives, and local workspaces outside it. Follow the [quickstart](../docs/guides/quickstart.md) to install and build.
+This repository contains Engine and Studio. Keep language bindings, private datasets, notebooks, generated data, release archives, and local workspaces outside it. Follow the [quickstart](../docs/guide.md#vigo-cli-quickstart) to install and build.
 
 The current release line is [VIGO 0.5.0](../docs/releases/0.5.0.md).
 
 ## Make a change
 
 1. Discuss substantial behavior changes in an issue. Keep patches focused and preserve unrelated work.
-2. Keep graph search and timetable propagation in Rust. UI, HTTP, and CLI code validate inputs and shape results; see [architecture](../docs/development/architecture.md).
+2. Keep graph search and timetable propagation in Rust. UI, HTTP, and CLI code validate inputs and shape results; see [architecture](../docs/developer.md#architecture).
 3. Add a focused fixture for changed behavior, cancellation, failure, or source identity. Update the canonical guide when the public contract changes.
 4. Before removing old code or fixtures, trace imports, dynamic loading, scripts, and retained research consumers. A historical name is not evidence of dead code.
 5. Preserve dependency licenses and attribution. Do not commit caches, native build output, `node_modules`, or `release/`.
@@ -24,11 +24,11 @@ Use the relevant lane while developing, then run `npm test` before submitting. R
 | Transit / streets / Reach | `npm run check:routing` · `npm run check:rust-routing-kernel` |
 | Network, realtime inspection, Ask | `npm run check:agency` · `npm run check:gtfs` |
 | CLI contract and City portability | `npm run check:cli` |
-| Printable guide | `npm run docs:developer-guide` (XeLaTeX) |
+| Documentation readers | `npm run docs:build` · `npm run docs:standalone` · `npm run check:docs` |
 
-`check:docs` validates local links, document anchors, assets, documented npm scripts, and guide/package versions across Markdown and HTML. Keep the docs index connected to current guides; preserve version history in release notes and the changelog.
+`check:docs` verifies the generated reader is current and validates local links, document anchors, assets, documented npm scripts, and guide/package versions across Markdown and HTML. Keep the docs index connected to current guides; preserve version history in release notes and the changelog.
 
-Place workflows in `docs/guides/`, query and data contracts in `docs/reference/`, implementation and verification guidance in `docs/development/`, and retained studies in `docs/research/`. Keep the root documentation directory for its index and offline guide; put images beside the topic that uses them.
+Use `docs/guide.md` for user documentation, `docs/developer.md` for implementation and research guidance, and `docs/history.md` for dated records. The remaining CLI, standalone, and shared reference sources feed packaged documentation. Add chapters to these canonical files rather than creating a Markdown file for every topic.
 
 Actual-model evaluations are opt-in, never part of deterministic tests. `npm run evaluate:intelligence -- --output intelligence.jsonl` exercises the configured provider; `node scripts/evaluate-network-briefing.mjs --output briefing.json` evaluates a synthetic briefing. The latter requires a new output path and `VIGO_AGENCY_LLM_*` settings; use `--variant stale` for expired evidence. Retain provider, input, and revision provenance, and distinguish these runs from live service evidence.
 
@@ -40,4 +40,4 @@ Run `npm run check:release` before a release-affecting change. On each supported
 
 `check:public` also tests the host archiver with a small fixture. Archive paths belong to `scripts/lib/studio-paths.mjs`; pass the produced file directly to the uploader instead of duplicating filename rules in CI. The release workflow verifies supported OS/CPU targets and City portability. A local pass establishes only that host's results.
 
-Tests validate the declared model and interfaces, not observed service, passenger impact, operational feasibility, or general model quality. See [accuracy](../docs/development/routing-accuracy.md) and [security reporting](../SECURITY.md).
+Tests validate the declared model and interfaces, not observed service, passenger impact, operational feasibility, or general model quality. See [accuracy](../docs/developer.md#checking-routing-accuracy) and [security reporting](../SECURITY.md).
