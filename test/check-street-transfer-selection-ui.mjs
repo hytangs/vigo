@@ -25,9 +25,10 @@ window.fetch=async (url,options)=>{
   const allowed=request.allowStreetTransfers;
   // Deliberately ignore abort: obsolete responses must still be rejected by the hook.
   await new Promise(resolve=>setTimeout(resolve,allowed?10:100));
-  return Response.json({plan:{id:(allowed?'allowed':'station')+':'+request.minimumTransferBufferMinutes,status:'blocked',travelMode:'transit',timePreference:'depart',
+  const plan={id:(allowed?'allowed':'station')+':'+request.minimumTransferBufferMinutes,status:'blocked',travelMode:'transit',timePreference:'depart',
     maxWalkKm:1.2,departMinutes:480,durationMinutes:0,walkMinutes:0,rideMinutes:0,waitMinutes:0,transfers:0,
-    title:'Fixture result',detail:'Fixture result',origin,destination,legs:[],diagnostics:{serviceDay:'weekday'}}});
+    title:'Fixture result',detail:'Fixture result',origin,destination,legs:[],diagnostics:{serviceDay:'weekday'}};
+  return Response.json({choices:[plan],selectedPlanId:plan.id});
 };
 function Fixture(){
  const [allowStreetTransfers,setAllowStreetTransfers]=useState(true);
