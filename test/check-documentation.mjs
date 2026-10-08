@@ -15,7 +15,8 @@ assert.equal(read('native/vigo-routing-kernel/Cargo.lock').match(/name = "vigo-r
 
 function walk(directory) {
   return fs.readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap(entry => {
-    const file = path.join(directory, entry.name)
+    // Documentation IDs and links use forward slashes on every host.
+    const file = path.posix.join(directory, entry.name)
     return entry.isDirectory() ? walk(file) : [file]
   })
 }
@@ -67,7 +68,7 @@ for (const [file, source] of sources) {
     if (!target || /^(?:[a-z][\w+.-]*:|\/\/)/iu.test(target)) continue
     const [pathname, fragment] = target.split('#', 2)
     const absolute = pathname ? path.resolve(root, path.dirname(file), decodeURIComponent(pathname.split('?')[0])) : path.join(root, file)
-    const relative = path.relative(root, absolute)
+    const relative = path.relative(root, absolute).split(path.sep).join('/')
     assert(relative && !relative.startsWith('..') && !path.isAbsolute(relative), `${file} links outside the repository: ${target}`)
     assert(fs.existsSync(absolute), `${file} has a broken local link: ${target}`)
     linkedFiles.add(relative)
