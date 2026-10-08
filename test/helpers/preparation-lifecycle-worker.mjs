@@ -1,4 +1,7 @@
 import { preparationInput, publishPreparation } from '../../src/server/runtime/preparation-channel.mjs'
+import assert from 'node:assert/strict'
+
+if (process.versions.electron) assert.equal(process.env.ELECTRON_RUN_AS_NODE, '1')
 
 const { mode } = await preparationInput()
 globalThis.compilerScratch = Buffer.alloc(64 * 1024 * 1024, 17)

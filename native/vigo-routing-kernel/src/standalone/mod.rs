@@ -43,8 +43,8 @@ pub(crate) fn allocator_memory() -> Value {
         }
         // glibc reports allocator-owned blocks; mapped data files are excluded.
         let stats = unsafe { mallinfo2() };
-        return json!({"allocatedBytes":stats.uordblks + stats.hblkhd,
-            "reusableArenaBytes":stats.fordblks,"scope":"native worker glibc allocations, excluding mapped data files"});
+        json!({"allocatedBytes":stats.uordblks + stats.hblkhd,
+            "reusableArenaBytes":stats.fordblks,"scope":"native worker glibc allocations, excluding mapped data files"})
     }
     #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
     Value::Null

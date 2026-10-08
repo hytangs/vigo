@@ -10,6 +10,9 @@ export class PreparationProcess extends EventEmitter {
       stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
       serialization: 'advanced',
       execArgv: process.execArgv.filter(arg => !arg.startsWith('--inspect')),
+      // Utility-process forks must run the compiler as Node, not start a new
+      // Chromium process (which also requires a GUI/sandbox on Linux).
+      env: { ...process.env, ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}) },
     })
     this.pid = this.child.pid
     this.stopping = false

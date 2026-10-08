@@ -56,6 +56,16 @@ try {
     osm: { path: path.basename(osmPath), sha256: digest(osmPath) }, scenarios }))
   const collection = path.join(directory, 'collection')
   await cli('build-scenarios', '--spec', source, '--output', collection)
+  // Prepared snapshots are private (0600) by default. This public fixture is
+  // explicitly exported to the service UID, as the deployment guide requires.
+  // Native Linux bind mounts enforce these modes; desktop file sharing may not.
+  for (const folder of [city, collection]) {
+    fs.chmodSync(folder, 0o755)
+    for (const entry of fs.readdirSync(folder, { recursive: true, withFileTypes: true })) {
+      if (entry.isSymbolicLink()) continue // Shared streets are visited at their actual directory.
+      fs.chmodSync(path.join(entry.parentPath, entry.name), entry.isDirectory() ? 0o755 : 0o644)
+    }
+  }
   for (const folder of [city, collection]) {
     env.VIGO_CITY = folder
     const before = inventory(folder)
@@ -150,6 +160,11 @@ try {
   checks += 2
   console.log(JSON.stringify({ status: 'passed', image, imageId: verifiedImage, checks, cpus: 2, memoryLimitBytes: 2 * 1024 ** 3,
     fixtures: ['prepared-city', 'shared-scenario-collection'], readOnly: true, restart: 'verified' }, null, 2))
+} catch (error) {
+  // Preserve startup evidence before cleanup removes the failed container.
+  const logs = await compose('logs', '--no-color', '--tail', '50').catch(() => null)
+  if (logs) console.error(logs.stdout, logs.stderr)
+  throw error
 } finally {
   env.VIGO_CITY ||= directory
   await compose('down', '--timeout', '5').catch(error => console.error(error.message))
