@@ -77,12 +77,15 @@ app.whenReady().then(async()=>{try{
  // document adopts all responsive rules. Load each viewport at its final
  // content size so this test measures a complete layout, not a resize race.
  for(const [width,height] of [[320,640],[390,844],[760,708],[760,400],[761,900],[1280,900]]){
-  const window=new BrowserWindow({show:false,width,height,useContentSize:true,webPreferences:{offscreen:true,backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
+  const window=new BrowserWindow({show:false,frame:false,width,height,useContentSize:true,webPreferences:{offscreen:true,backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
+  window.removeMenu();
+  // Normalize native window metrics before loading the responsive document.
+  window.setContentSize(width,height);
   await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/navigation-fixture.html`)});
   await window.webContents.executeJavaScript('new Promise((resolve,reject)=>{const timer=setInterval(()=>{if(window.checkNavigation){clearInterval(timer);resolve()}},20);setTimeout(()=>{clearInterval(timer);reject(Error("Fixture timed out"))},15000)})');
   await layoutFrame(window);
   const result=await window.webContents.executeJavaScript('window.checkNavigation()');
-  if(result.width!==width||result.height!==height)throw Error('Navigation fixture content size does not match requested viewport');
+  if(result.width!==width||result.height!==height)throw Error('Navigation fixture content size does not match requested viewport: '+JSON.stringify({width,height,actual:result}));
   results.push(result);
   const screenshot=await layoutFrame(window);
   if(screenshot.isEmpty())throw Error('Layout fixture screenshot is empty');
