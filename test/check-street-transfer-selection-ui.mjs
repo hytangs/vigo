@@ -72,8 +72,10 @@ try {
   await server.listen()
   const url = `http://127.0.0.1:${server.httpServer.address().port}/selection-fixture.html`
   await runElectronCheck(`
+    const {layoutFrame,resizeLayout}=await import(${JSON.stringify(new URL('./helpers/layout-frame.cjs', import.meta.url).href)});
+    app.disableHardwareAcceleration();
     await app.whenReady();
-    const window=new BrowserWindow({show:false,width:390,height:1000,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
+    const window=new BrowserWindow({show:false,frame:false,useContentSize:true,width:390,height:1000,webPreferences:{offscreen:true,backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
     await window.loadURL(${JSON.stringify(url)});
     const read=code=>window.webContents.executeJavaScript(code);
     await until(()=>read('document.getElementById("selection-result")?.textContent==="allowed:0"'));
@@ -91,12 +93,12 @@ try {
     assert.equal(await read('window.selectionRequests.at(-1).minimumTransferBufferMinutes'),2);
     assert.equal(await read('document.getElementById("pathfinder-transfer-buffer").value'),'2');
     for(const width of [320,390]){
-      window.setContentSize(width,1000); await wait(50);
+      await resizeLayout(window,width,1000);
       assert(await read('document.documentElement.scrollWidth<=innerWidth+1'),'Route options must fit a narrow window');
     }
-    window.setContentSize(390,1000); await wait(50);
+    await resizeLayout(window,390,1000);
     await read('document.querySelector(".pathfinder-options").scrollIntoView()');
-    await (await import('node:fs/promises')).writeFile(${JSON.stringify(screenshotPath)},(await window.webContents.capturePage()).toPNG());
+    await (await import('node:fs/promises')).writeFile(${JSON.stringify(screenshotPath)},(await layoutFrame(window)).toPNG());
     await read('{const select=document.getElementById("pathfinder-transfer-buffer");select.value="0";select.dispatchEvent(new Event("change",{bubbles:true}))}');
     await until(()=>read('document.getElementById("selection-result").textContent==="station:0"'));
     await read('document.getElementById("pathfinder-street-transfers").click()');
