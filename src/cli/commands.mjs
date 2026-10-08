@@ -10,6 +10,10 @@ export const options = {
   gtfs: ['PATH', 'GTFS ZIP; repeat for multiple sources', 'repeat'],
   'gtfs-scope': ['VALUE', 'Unique source scope; one per --gtfs', 'repeat'],
   osm: ['PATH', 'OSM .pbf covering the City'],
+  spec: ['PATH', 'Scenario source manifest JSON'],
+  'prepare-date': ['YYYY-MM-DD', 'Precompile this service date; repeat for other dates', 'repeat'],
+  'streets-from': ['PATH', 'Reuse identical immutable streets from a prepared City'],
+  'street-modes': ['VALUE', 'walk or walk,drive (default); walk omits all driving artifacts'],
   'private-access': ['VALUE', 'public (default) or endpoints for authorized access'],
   output: ['PATH', 'Save the result; JSON is also printed (use - for stdout only)'],
   replace: ['', 'Replace an existing City', 'boolean'],
@@ -26,7 +30,7 @@ export const options = {
   'max-walk': ['KM', 'Physical walking budget (default: 1.2)'],
   'max-transfers': ['N', 'Maximum transit changes, 0–31 (default: unrestricted)'],
   horizon: ['MIN', 'Transit search horizon, 1–2880 (default: 480)'],
-  cutoffs: ['MINUTES', 'Reach limits, comma-separated, 5–240 (default: 15,30,45,60)'],
+  cutoffs: ['MINUTES', 'Reach limits, comma-separated, 1–240; decimals allowed (default: 15,30,45,60)'],
   'extent-radius': ['KM', 'Requested Reach raster radius, 1–40 (default: 8)'],
   'raster-size': ['N', `Reach grid: ${supportedReachRasterSizes.join(', ')} (default: 96)`],
   'walk-speed': ['KPH', 'Reach walking speed, 1–8 (default: 4.8)'],
@@ -45,10 +49,17 @@ export const options = {
 const queryOptions = ['format', 'diagnostics', 'include-geometry', 'include-limitations', 'city', 'request', 'output', 'mode', 'time', 'time-preference', 'objective',
   'service-date', 'service-day', 'max-walk', 'max-transfers', 'horizon', 'departure-window']
 export const commands = {
+  'build-scenarios': {
+    summary: 'Prepare a portable scenario collection with one shared street network.',
+    usage: ['--spec scenarios.source.json --output ./scenario-set'],
+    options: ['spec', 'output'],
+    notes: ['Queries use the standalone Rust runtime with scenarioId. Street data is prepared once.',
+      'Source paths are relative to the spec. Input SHA-256 values, if supplied, must match.'],
+  },
   build: {
     summary: 'Compile GTFS and OSM into a reusable City.',
     usage: ['--gtfs feed.zip --osm region.osm.pbf --output ./city [--replace]'],
-    options: ['gtfs', 'gtfs-scope', 'osm', 'output', 'private-access', 'replace'],
+    options: ['gtfs', 'gtfs-scope', 'osm', 'output', 'private-access', 'street-modes', 'streets-from', 'prepare-date', 'replace'],
     notes: ['--output is the City directory. Existing Cities require --replace.',
       'Progress goes to stderr; the completed City manifest goes to stdout.'],
   },
@@ -91,14 +102,14 @@ export const commands = {
   },
   stream: {
     summary: 'Run Route, Matrix, and Reach as NDJSON in one resident process.',
-    usage: ['--city ./city --service-date YYYY-MM-DD < queries.ndjson > results.ndjson'],
+    usage: ['--city ./city [--service-date YYYY-MM-DD] < queries.ndjson > results.ndjson'],
     options: ['diagnostics', 'include-geometry', 'include-limitations', 'city', 'service-date', 'service-day', 'time', 'max-walk'],
     notes: ['Send one JSON object per line with kind: "route", "matrix", or "reach" and an optional id.',
       'Example: {"id":"trip-1","kind":"route","origin":"A","destination":"B","time":"08:00"}',
-      'One City and service date per process. Query fields supply mode, time, and other options.',
+      'One City per process. Each query may select its serviceDate, mode, time, and other options.',
       'One response per nonblank line, in input order; status "error" identifies a failed request.',
       'A failed request does not stop later requests. Read every response status, even on exit 0.',
-      'Close stdin to finish. Prepared modes are reused; timing.openMs is 0 after preparation.'],
+      'Close stdin to finish. Prepared modes are reused; measure caller time separately from meta.computeUs.'],
   },
   compare: {
     summary: 'Compare two saved results without rerunning the engine.',
@@ -106,8 +117,8 @@ export const commands = {
     options: ['before', 'after', 'output'],
     notes: ['Both results must be from the same query family. Reach results must use the same grid.'],
   },
-  '_build-city': { options: ['gtfs', 'gtfs-scope', 'osm', 'private-access', 'output', 'city-name'] },
-  '_build-osm-store': { options: ['osm-pbf', 'output-store'] },
+  '_build-city': { options: ['gtfs', 'gtfs-scope', 'osm', 'private-access', 'street-modes', 'streets-from', 'prepare-date', 'output', 'city-name'] },
+  '_build-osm-store': { options: ['osm-pbf', 'output-store', 'street-modes'] },
   '_prepare-osm-drive': { options: ['street-store'] },
 }
 
@@ -121,7 +132,7 @@ export function usage(version, command = '') {
     '', 'Help:', '  vigo help COMMAND    Command options and request examples',
     '  vigo COMMAND -h      Same as --help', '  vigo --version       Same as -V',
     '', 'Clean JSON goes to stdout. Add --diagnostics summary, profile, or trace. Use --request - for piped JSON.',
-    'Exit 0: result produced (including blocked results). Exit 2: invalid input or failure.', '',
+    'Exit 0: result produced (including not_found results). Exit 2: invalid input or failure.', '',
   ].join('\n')
   const definition = commands[command]
   if (!definition?.usage) throw new Error(`No public help for ${command}`)

@@ -74,7 +74,6 @@ export function validateInvocation(command, args) {
     else if (command === 'compare') { requireOption('before'); requireOption('after') }
     else requireOption('city')
   }
-  if (command === 'stream') requireOption('service-date')
   if (['route', 'matrix', 'reach'].includes(command)) {
     if (command === 'route') {
       if (args.has('input') && args.has('request')) fail('Use either --request JSON or --input CSV, not both')

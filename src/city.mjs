@@ -31,7 +31,7 @@ export function validateCityDirectory(directory) {
   }
   const manifest = JSON.parse(fs.readFileSync(path.join(resolved, 'network.json'), 'utf8'))
   if (manifest?.schemaVersion !== 'vigo.city.v1') {
-    throw new Error('This City was built by an unsupported VIGO version.')
+    throw new Error(`Unsupported City format ${JSON.stringify(manifest?.schemaVersion)}; expected vigo.city.v1. Rebuild from the original GTFS and OSM into a new directory.`)
   }
   const routingPath = path.join(resolved, 'routing', 'project.sqlite')
   readNationalGtfsStoreMetadata(routingPath)

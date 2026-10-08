@@ -51,6 +51,24 @@ try {
   assert.equal(validateCityDirectory(output).marker, 'old')
   fs.rmSync(outdated, { recursive: true, force: true })
 
+  // Upgrades must reject old formats before moving the working City.
+  for (const format of ['manifest', 'routing']) {
+    const candidate = createCityStagingDirectory(output)
+    writePackage(candidate, 'unsupported')
+    if (format === 'manifest') {
+      fs.writeFileSync(path.join(candidate, 'network.json'), JSON.stringify({ schemaVersion: 'vigo.city.v0' }))
+    } else {
+      const db = new DatabaseSync(path.join(candidate, 'routing/project.sqlite'))
+      db.prepare('UPDATE metadata SET value=? WHERE key=?').run('"vigo.routing.store.v3"', 'schemaVersion')
+      db.close()
+    }
+    const before = fs.readFileSync(path.join(output, 'network.json'))
+    assert.throws(() => publishCity(candidate, output, { replace: true }), /[Rr]ebuild/)
+    assert.deepEqual(fs.readFileSync(path.join(output, 'network.json')), before)
+    assert.equal(validateCityDirectory(output).marker, 'old')
+    fs.rmSync(candidate, { recursive: true, force: true })
+  }
+
   const staged = createCityStagingDirectory(output)
   writePackage(staged, 'new')
   publishCity(staged, output, { replace: true })

@@ -17,6 +17,7 @@ export const supportedReachRasterSizes = Object.freeze([
 
 export const publicCliCommands = Object.freeze([
   'build',
+  'build-scenarios',
   'capabilities',
   'inspect',
   'route',

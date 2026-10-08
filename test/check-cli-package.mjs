@@ -43,6 +43,7 @@ try {
     extracted.add(file)
   }
   assert.deepEqual(extracted, allowed)
+  assert.doesNotMatch(await fs.readFile(path.join(runtime, 'README.md'), 'utf8'), /\]\(\.\.?\//u, 'Extracted documentation cannot rely on the source tree')
   const manifest = JSON.parse(await fs.readFile(path.join(runtime, 'manifest.json'), 'utf8'))
   assert.equal(manifest.schemaVersion, 'vigo.cli.package.v1')
   assert.equal(manifest.platform, process.platform)

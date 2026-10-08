@@ -31,7 +31,9 @@ try {
   assert.match(city.builtAt, /^\d{4}-\d{2}-\d{2}T/u)
   assert.match(city.revisionId, /^\d{8}T\d{6}-\d{3}Z$/u)
   assert.equal(city.name, 'fixture-city')
-  assert.deepEqual(city.inputs.gtfs.map((source) => Object.keys(source).sort()), [['name', 'scope']])
+  assert.match(city.inputs.gtfs[0].sha256, /^[a-f0-9]{64}$/)
+  assert(city.inputs.gtfs[0].bytes > 0)
+  assert.deepEqual(city.inputs.gtfs.map((source) => Object.keys(source).sort()), [['bytes', 'name', 'scope', 'sha256']])
   assert.deepEqual(Object.keys(city.inputs.osmPbf), ['name'])
   assert.equal(city.routingStore.connectionCount, 2)
   assert.equal(city.streetStore.edgeCount, 4)
@@ -401,7 +403,7 @@ try {
   ], { stdio: 'inherit' })
 
   const reachRequest = path.join(temporaryRoot, 'reach.json')
-  fs.writeFileSync(reachRequest, JSON.stringify({ origin: 'A', cutoffsMinutes: [5, 15, 40], extentRadiusKm: 2, rasterSize: 48 }))
+  fs.writeFileSync(reachRequest, JSON.stringify({ origin: 'A', cutoffsMinutes: [1.25, 15, 40], extentRadiusKm: 2, rasterSize: 48 }))
   const reachPath = path.join(temporaryRoot, 'reach-result.json')
   const reach = parseResult(run([
     'reach', `--city=${cityPath}`, `--request=${reachRequest}`, `--output=${reachPath}`,
@@ -409,6 +411,7 @@ try {
   ]))
   assert.equal(reach.schemaVersion, 'vigo.result.reach.v1')
   assert.equal(reach.kind, 'reach')
+  assert.deepEqual(reach.query.cutoffsMinutes, [1.25, 15, 40], 'CLI preserves exact cutoffs, including budgets below five minutes')
   assert.equal(reach.query.routingDataMode, 'scheduled')
   assert.equal(reach.surface.values.length, 48 * 48)
   assert.equal(reach.contours.type, 'FeatureCollection')
@@ -450,7 +453,7 @@ try {
     { id: 'numeric-clock', kind: 'route', origin: 'A', destination: 'B', time: 475 },
     { id: 'minutes-clock', kind: 'route', origin: 'A', destination: 'B', timeMinutes: 475 },
     { id: 'matrix', kind: 'matrix', origins: ['A'], destinations: ['B'], time: '07:55' },
-    { id: 'surface', kind: 'reach', origin: 'A', cutoffsMinutes: [5, 15, 40], extentRadiusKm: 2,
+    { id: 'surface', kind: 'reach', origin: 'A', cutoffsMinutes: [1.25, 15, 40], extentRadiusKm: 2,
       rasterSize: 48, includeStreetEdges: true, maxWalkKm: 1.2, time: '07:55' },
     { id: 'wrong-date', kind: 'route', origin: 'A', destination: 'B', serviceDate: '2026-07-16' },
     { id: 'missing-kind', origin: 'A', destination: 'B' },
@@ -465,15 +468,15 @@ try {
   }).trim().split('\n').map(line => parseResult(line))
   assert.deepEqual(streamed.map(result => result.id), streamQueries.map(query => query.id))
   assert.deepEqual(streamed.map(result => result.sequence), streamQueries.map((_, index) => index + 1))
-  assert.deepEqual(streamed.map(result => result.status), ['ready', 'ready', 'ready', 'ready', 'error', 'error', 'error', 'error', 'ready'])
+  assert.deepEqual(streamed.map(result => result.status), ['ready', 'ready', 'ready', 'ready', 'ready', 'error', 'error', 'error', 'ready'])
   for (const index of [0, 1, 8]) assert.equal(streamed[index].result.durationMinutes, route.result.durationMinutes)
   assert.equal(streamed[2].rows[0].durationMinutes, route.result.durationMinutes)
   assert.deepEqual(streamed[3].surface.values, streetReach.surface.values)
   assert.deepEqual(streamed[3].surface.edges, streetReach.surface.edges)
   assert.deepEqual(streamed[3].fullContours, streetReach.fullContours)
   assert.deepEqual(streamed[3].fullAreas, streetReach.fullAreas)
-  for (const index of [1, 2, 3, 8]) assert.equal(streamed[index].timing.openMs, 0, 'Mixed queries reuse the resident transit preparation.')
-  assert.match(streamed[4].error.message, /one service date/u)
+  for (const index of [1, 2, 3]) assert.equal(streamed[index].timing.openMs, 0, 'Mixed queries reuse the resident transit preparation.')
+  assert.equal(streamed[4].query.serviceDate, '2026-07-16')
   assert.match(streamed[5].error.message, /requires kind/u)
   assert.match(streamed[6].error.message, /must be a boolean/u)
   assert.match(streamed[7].error.message, /expected HH:MM/u)

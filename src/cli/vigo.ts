@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { createHash } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
@@ -38,11 +39,13 @@ import {
   readNationalGtfsStoreMetadata,
   routeNationalGtfsReach,
   routeNationalGtfsDepartureWindow,
+  routeNationalGtfsOrderedSegment,
   addNationalGtfsFares,
   routeNationalGtfsMatrix,
   routeNationalGtfsStore,
 } from '../server/national-gtfs-store.mjs'
 import {
+  readNationalOsmStoreMetadata,
   buildNationalOsmDriveStore,
   buildNationalOsmStore,
   compactNationalOsmRuntimeStore,
@@ -56,7 +59,6 @@ import { buildNativeStreetCchIndex, formatPublicResult } from '../server/native-
 import { buildTerminalAccessStore } from '../server/terminal-access-store.mjs'
 import {
   composeOrderedRoutingFailure,
-  composeOrderedRoutingPlans,
   routeOrderedRoutingSegments,
   validateOrderedRoutingPoints,
 } from '../server/ordered-route-composition.mjs'
@@ -330,7 +332,7 @@ function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {
   const serviceDate = normalizeServiceDate(value(args, 'service-date'))
   if (!serviceDate) throw new Error('--service-date is required for exact timetable routing')
   const serviceDay = resolveServiceDay(serviceDate, value(args, 'service-day')) as ServiceDay
-  const maxWalkKm = parseNumber(value(args, 'max-walk', String(request.maxWalkKm ?? 1.2)), 'max-walk', 0.01)
+  const maxWalkKm = parseNumber(value(args, 'max-walk', String(request.maxWalkKm ?? 1.2)), 'max-walk', 0)
   const horizonMinutes = boundedAnalyticalNumber(args, request, 'horizon', 'horizonMinutes', 480, 1, 2_880)
   const maxTransfers = args.has('max-transfers') || request.maxTransfers !== undefined
     ? parseIntegerNumber(value(args, 'max-transfers', String(request.maxTransfers)), 'max-transfers', 0, 31)
@@ -446,11 +448,7 @@ async function computeRouteRequest(
   })
   const routeSegment = async (segmentRequest: Record<string, any>) => (
     mode === 'transit'
-      ? routeOne(
-          storePath,
-          segmentRequest,
-          Number(segmentRequest.departureWindowMinutes ?? 0),
-        ).plan
+      ? routeNationalGtfsOrderedSegment(storePath, { ...segmentRequest, __orderedSegment: true })
       : routeNationalStreetStore(streetStorePath!, segmentRequest) as RoutingPlan
   )
   let routed: RouteResult
@@ -460,7 +458,8 @@ async function computeRouteRequest(
     routed = {
       plan: components.failedIndex >= 0
         ? composeOrderedRoutingFailure(components.failedPlan, components.failedIndex, points, components.componentPlans)
-        : composeOrderedRoutingPlans(components.componentPlans, points, baseRequest),
+        : components.choices[0],
+      choices: components.choices,
       profileSampleCount: components.componentPlans.length,
       elapsedMs: performance.now() - queryStarted,
     }
@@ -732,12 +731,11 @@ async function writeNdjson(value: unknown, request?: Record<string, unknown>, ar
 async function runRouteStream(args: CliArguments) {
   const paths = resolveRuntimePaths(args)
   const { storePath, streetStorePath } = paths
-  const defaults = runtimeOptions(args)
-  const preparedModes = new Set<string>()
-  const prepareMode = async (mode: string) => {
-    if (preparedModes.has(mode)) return 0
-    const prepared = await prepareRuntime(storePath, streetStorePath, defaults.serviceDate, defaults.serviceDay, mode)
-    preparedModes.add(mode)
+  const preparedModes = new Map<string, string>()
+  const prepareMode = async (mode: string, serviceDate: string, serviceDay: ServiceDay) => {
+    if (preparedModes.get(mode) === serviceDate) return 0
+    const prepared = await prepareRuntime(storePath, streetStorePath, serviceDate, serviceDay, mode)
+    preparedModes.set(mode, serviceDate)
     return prepared.elapsedMs
   }
   const stopLookup = openStopLookup(storePath)
@@ -755,13 +753,9 @@ async function runRouteStream(args: CliArguments) {
         if (!['route', 'matrix', 'reach'].includes(String(input.kind))) {
           throw new Error('stream requires kind: route, matrix, or reach on every line')
         }
-        if (input.serviceDate !== undefined && input.serviceDate !== defaults.serviceDate) {
-          throw new Error('A stream has one service date; start another process for a different serviceDate')
-        }
-        if (input.serviceDay !== undefined && input.serviceDay !== defaults.serviceDay) {
-          throw new Error('serviceDay must agree with the stream service date')
-        }
         const requestArgs = new Map(args)
+        if (typeof input.serviceDate === 'string') requestArgs.set('service-date', [input.serviceDate])
+        if (typeof input.serviceDay === 'string') requestArgs.set('service-day', [input.serviceDay])
         for (const [field, option] of [['maxWalkKm', 'max-walk'], ['maxTransfers', 'max-transfers'], ['departureWindowMinutes', 'departure-window']]) {
           if (input[field] !== undefined) requestArgs.set(option, [String(input[field])])
         }
@@ -770,15 +764,15 @@ async function runRouteStream(args: CliArguments) {
           const minutes = parseNdjsonTime(clock, 'time')
           requestArgs.set('time', [`${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`])
         }
-        const prepare: typeof prepareRuntime = async (_store, _street, _date, _day, mode = 'transit') => ({
-          elapsedMs: await prepareMode(mode),
+        const prepare: typeof prepareRuntime = async (_store, _street, date, day, mode = 'transit') => ({
+          elapsedMs: await prepareMode(mode, date, day),
         })
         let result
         if (input.kind === 'route') result = await computeRouteRequest(requestArgs, input, paths, prepare)
         else if (input.kind === 'reach') result = await computeReachRequest(requestArgs, input, paths, prepare)
         else {
           const options = analyticalRuntimeOptions(requestArgs, 'matrix', input)
-          const openMs = await prepareMode(String(input.mode ?? 'transit'))
+          const openMs = await prepareMode(String(input.mode ?? 'transit'), options.serviceDate, options.serviceDay)
           const matrix = computePreparedMatrix(requestArgs, input, paths, options, stopLookup)
           result = { ...matrix, timing: { ...matrix.timing, openMs } }
         }
@@ -1056,9 +1050,9 @@ function reachCutoffs(args: CliArguments, request: Record<string, unknown>) {
   const cutoffs = [...new Set(source.map(Number))].sort((left, right) => left - right)
   if (
     !cutoffs.length
-    || cutoffs.some((cutoff) => !Number.isFinite(cutoff) || cutoff < 5 || cutoff > 240)
+    || cutoffs.some((cutoff) => !Number.isFinite(cutoff) || cutoff < 1 || cutoff > 240)
   ) {
-    throw new Error('Reach cutoffs must be finite minutes between 5 and 240')
+    throw new Error('Reach cutoffs must be finite minutes between 1 and 240')
   }
   return cutoffs
 }
@@ -1326,10 +1320,10 @@ function startJsonCompiler(command: string, compilerArguments: string[], label: 
   }
 }
 
-function startOsmCompiler(osmPbf: string, outputPath: string) {
+function startOsmCompiler(osmPbf: string, outputPath: string, streetModes: string) {
   return startJsonCompiler(
     '_build-osm-store',
-    [`--osm-pbf=${osmPbf}`, `--output-store=${outputPath}`],
+    [`--osm-pbf=${osmPbf}`, `--output-store=${outputPath}`, `--street-modes=${streetModes}`],
     'OSM compiler',
   )
 }
@@ -1349,6 +1343,7 @@ async function runOsmCompiler(args: CliArguments) {
   const result = await buildNationalOsmStore({
     pbfPath: osmPbf,
     outputPath,
+    includeDriving: value(args, 'street-modes', 'walk,drive') === 'walk,drive',
     onProgress: buildProgress('osm'),
   })
   process.stdout.write(JSON.stringify(result))
@@ -1363,6 +1358,95 @@ async function runOsmDriveCompiler(args: CliArguments) {
     ensureIndexes: false,
   })
   process.stdout.write(JSON.stringify(result))
+}
+
+async function fileDigest(file: string) {
+  const hash = createHash('sha256')
+  for await (const bytes of fs.createReadStream(file)) hash.update(bytes)
+  return hash.digest('hex')
+}
+
+async function runBuildScenarios(args: CliArguments) {
+  const specPath = path.resolve(value(args, 'spec'))
+  const spec = await readJsonObject(specPath, 'Scenario specification')
+  const outputValue = value(args, 'output')
+  if (!outputValue.trim()) throw new Error('build-scenarios requires --output')
+  const output = path.resolve(outputValue)
+  if (fs.existsSync(output)) throw new Error('Scenario collection already exists; build to a new directory.')
+  if (spec.schemaVersion !== 'vigo.scenarios.source.v1' || !Array.isArray(spec.scenarios)
+      || spec.scenarios.length < 1 || spec.scenarios.length > 128) throw new Error('Expected vigo.scenarios.source.v1 with 1 to 128 scenarios.')
+  const base = path.dirname(specPath)
+  const resolveInput = async (input: { path: string; sha256?: string }, label: string) => {
+    if (typeof input?.path !== 'string') throw new Error(`${label} requires a path.`)
+    const file = path.resolve(base, input.path)
+    const sha256 = await fileDigest(file)
+    if (input.sha256 && input.sha256 !== sha256) throw new Error(`${label} SHA-256 mismatch.`)
+    return { path: file, sha256 }
+  }
+  const osm = await resolveInput(spec.osm as { path: string; sha256?: string }, 'OSM')
+  const streetModes = spec.streetModes ?? 'walk'
+  if (!['walk', 'walk,drive'].includes(String(streetModes))) throw new Error('streetModes must be walk or walk,drive')
+  const maximumResidentScenarios = spec.maximumResidentScenarios ?? 2
+  if (!Number.isInteger(maximumResidentScenarios) || Number(maximumResidentScenarios) < 1 || Number(maximumResidentScenarios) > 16) throw new Error('maximumResidentScenarios must be between 1 and 16')
+  const prepareDates = spec.prepareDates ?? []
+  if (!Array.isArray(prepareDates) || prepareDates.length > 32 || prepareDates.some(date => typeof date !== 'string' || normalizeServiceDate(date) !== date)) throw new Error('prepareDates must contain up to 32 ISO service dates')
+  const seen = new Set<string>()
+  const scenarios = []
+  // Validate every source before doing expensive preparation.
+  for (const item of spec.scenarios as Array<{ id: string; name?: string; feeds: Array<{ path: string; sha256?: string; scope: string }> }>) {
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(item.id) || seen.has(item.id)) throw new Error('Scenario IDs must be unique letters, digits, hyphens or underscores.')
+    seen.add(item.id)
+    if (!Array.isArray(item.feeds) || !item.feeds.length) throw new Error(`Scenario ${item.id} needs feeds.`)
+    const feeds = []
+    for (const feed of item.feeds) feeds.push({ ...await resolveInput(feed, `${item.id} GTFS`), scope: feed.scope })
+    scenarios.push({ id: item.id, name: item.name ?? item.id, feeds })
+  }
+  const defaultScenario = String(spec.defaultScenario ?? scenarios[0].id)
+  if (!seen.has(defaultScenario)) throw new Error('Unknown defaultScenario.')
+  const staged = createCityStagingDirectory(output)
+  try {
+    fs.mkdirSync(path.join(staged, 'cities'))
+    let firstCity = ''
+    for (const scenario of scenarios) {
+      const cityPath = path.join(staged, 'cities', scenario.id)
+      const compilerStage = createCityStagingDirectory(cityPath)
+      const compiler = startJsonCompiler('_build-city', [
+        ...scenario.feeds.map(feed => `--gtfs=${feed.path}`),
+        ...scenario.feeds.map(feed => `--gtfs-scope=${feed.scope}`),
+        ...prepareDates.map(date => `--prepare-date=${date}`),
+        `--osm=${osm.path}`, `--street-modes=${streetModes}`, '--private-access=public',
+        ...(firstCity ? [`--streets-from=${firstCity}`] : []),
+        `--output=${compilerStage}`, `--city-name=${scenario.name}`,
+      ], `Scenario ${scenario.id}`)
+      const result = await compiler.outcome
+      if (result.error) throw result.error
+      publishCity(compilerStage, cityPath)
+      if (!firstCity) {
+        const shared = path.join(staged, 'streets', osm.sha256)
+        fs.mkdirSync(path.dirname(shared))
+        fs.renameSync(path.join(cityPath, 'osm'), shared)
+        fs.symlinkSync(path.relative(cityPath, shared), path.join(cityPath, 'osm'), 'dir')
+        firstCity = cityPath
+      }
+    }
+    const manifest = { schemaVersion: 'vigo.scenarios.v1', name: spec.name ?? path.basename(output),
+      defaultScenario, maximumResidentScenarios,
+      scenarios: scenarios.map(({ id, name }) => ({ id, name, city: `cities/${id}` })) }
+    fs.writeFileSync(path.join(staged, 'scenarios.json'), JSON.stringify(manifest, null, 2) + '\n')
+    const files: Array<{ path: string; bytes: number; sha256: string }> = []
+    async function inventory(directory: string) {
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+        const file = path.join(directory, entry.name)
+        if (entry.isSymbolicLink()) continue // Shared streets are inventoried once.
+        if (entry.isDirectory()) await inventory(file)
+        else files.push({ path: path.relative(staged, file).split(path.sep).join('/'), bytes: fs.statSync(file).size, sha256: await fileDigest(file) })
+      }
+    }
+    await inventory(staged)
+    fs.writeFileSync(path.join(staged, 'checksums.json'), JSON.stringify({ schemaVersion: 'vigo.checksums.v1', algorithm: 'sha256', files }, null, 2) + '\n')
+    fs.renameSync(staged, output)
+    process.stdout.write(JSON.stringify({ ...manifest, storageBytes: files.reduce((sum, file) => sum + file.bytes, 0), sharedStreetCopies: 1 }, null, 2) + '\n')
+  } finally { fs.rmSync(staged, { recursive: true, force: true }) }
 }
 
 async function runBuildCity(args: CliArguments) {
@@ -1384,8 +1468,11 @@ async function runBuildCity(args: CliArguments) {
     const compiler = startJsonCompiler('_build-city', [
       ...values(args, 'gtfs').map((input) => `--gtfs=${input}`),
       ...values(args, 'gtfs-scope').map((scope) => `--gtfs-scope=${scope}`),
+      ...values(args, 'prepare-date').map(date => `--prepare-date=${date}`),
       `--osm=${value(args, 'osm')}`,
       `--private-access=${value(args, 'private-access', 'public')}`,
+      `--street-modes=${value(args, 'street-modes', 'walk,drive')}`,
+      ...(value(args, 'streets-from') ? [`--streets-from=${path.resolve(value(args, 'streets-from'))}`] : []),
       `--output=${stagingDirectory}`,
       `--city-name=${path.basename(outputDirectory)}`,
     ], 'City compiler')
@@ -1400,6 +1487,8 @@ async function runBuildCity(args: CliArguments) {
 }
 
 async function runCityCompiler(args: CliArguments) {
+  const streetModes = value(args, 'street-modes', 'walk,drive')
+  if (!['walk', 'walk,drive'].includes(streetModes)) throw new Error('street-modes must be walk or walk,drive')
   const privateAccess = value(args, 'private-access', 'public')
   if (!['public', 'endpoints'].includes(privateAccess)) throw new Error('private-access must be public or endpoints')
   const gtfsValues = values(args, 'gtfs')
@@ -1417,6 +1506,14 @@ async function runCityCompiler(args: CliArguments) {
     throw new Error('GTFS scopes must be unique; pass one --gtfs-scope for each feed')
   }
   const osmPbf = requiredRawInput(value(args, 'osm'), 'OSM PBF', /(?:\.osm)?\.pbf$/iu)
+  const osmSha256 = await fileDigest(osmPbf)
+  const sharedCityPath = value(args, 'streets-from') ? path.resolve(value(args, 'streets-from')) : null
+  const sharedCity = sharedCityPath ? validateCityDirectory(sharedCityPath) : null
+  if (sharedCity && (privateAccess !== 'public' || sharedCity.streetStore?.terminalAccess?.model !== 'public'
+      || sharedCity.sources?.osm?.sha256 !== osmSha256 || sharedCity.preparationPolicy !== 'vigo.city.prepare.v2'
+      || sharedCity.modes?.includes('drive') !== (streetModes === 'walk,drive'))) {
+    throw new Error('Shared streets require matching OSM bytes, prepared modes, public access and preparation policy.')
+  }
   const outputValue = value(args, 'output')
   if (!outputValue.trim()) throw new Error('build requires --output')
   const outputDirectory = path.resolve(outputValue)
@@ -1426,7 +1523,7 @@ async function runCityCompiler(args: CliArguments) {
   const gtfsInputBytes = gtfs.reduce((sum, feed) => sum + fs.statSync(feed.path).size, 0)
   const osmInputBytes = fs.statSync(osmPbf).size
   const rawConcurrency = rawCompilerConcurrency(gtfsInputBytes, osmInputBytes)
-  const parallelRawBuild = rawConcurrency.enabled
+  const parallelRawBuild = !sharedCity && rawConcurrency.enabled
 
   const stagingDirectory = outputDirectory
   if (fs.readdirSync(stagingDirectory).length) {
@@ -1435,7 +1532,10 @@ async function runCityCompiler(args: CliArguments) {
   const stagingRouting = path.join(stagingDirectory, 'routing')
   const stagingOsm = path.join(stagingDirectory, 'osm')
   fs.mkdirSync(stagingRouting, { recursive: true })
-  fs.mkdirSync(stagingOsm, { recursive: true })
+  if (sharedCityPath) {
+    const sharedStreetPath = fs.realpathSync(path.join(sharedCityPath, 'osm'))
+    fs.symlinkSync(path.relative(fs.realpathSync(stagingDirectory), sharedStreetPath), stagingOsm, 'dir')
+  } else fs.mkdirSync(stagingOsm, { recursive: true })
 
   const started = performance.now()
   let gtfsBuildMs = 0
@@ -1451,7 +1551,7 @@ async function runCityCompiler(args: CliArguments) {
   const cityProgress = buildProgress('city')
   try {
     const stagedStreetStore = path.join(stagingOsm, 'street-index.sqlite')
-    if (parallelRawBuild) osmCompiler = startOsmCompiler(osmPbf, stagedStreetStore)
+    if (parallelRawBuild) osmCompiler = startOsmCompiler(osmPbf, stagedStreetStore, streetModes)
     const stagedRoutingStore = path.join(stagingRouting, 'project.sqlite')
     const gtfsStarted = performance.now()
     await buildNationalGtfsCityStore({
@@ -1462,7 +1562,9 @@ async function runCityCompiler(args: CliArguments) {
     gtfsBuildMs = performance.now() - gtfsStarted
 
     let streetResult: Record<string, unknown>
-    if (osmCompiler) {
+    if (sharedCityPath) {
+      streetResult = readNationalOsmStoreMetadata(path.join(sharedCityPath, 'osm', 'street-index.sqlite')) as Record<string, unknown>
+    } else if (osmCompiler) {
       const outcome = await osmCompiler.outcome
       if (outcome.error) throw outcome.error
       streetResult = outcome.result
@@ -1472,12 +1574,13 @@ async function runCityCompiler(args: CliArguments) {
       streetResult = await buildNationalOsmStore({
         pbfPath: osmPbf,
         outputPath: stagedStreetStore,
+        includeDriving: streetModes === 'walk,drive',
         onProgress: buildProgress('osm'),
       }) as Record<string, unknown>
       osmBuildMs = performance.now() - osmStarted
     }
 
-    if (Number(streetResult.driveEdgeCount ?? 0) > 0) {
+    if (!sharedCity && Number(streetResult.driveEdgeCount ?? 0) > 0) {
       cityProgress({ phase: 'Preparing driving routes' })
       // Seal the source graph only after the driving snapshot is complete.
       osmDriveCompiler = startOsmDriveCompiler(stagedStreetStore)
@@ -1493,7 +1596,9 @@ async function runCityCompiler(args: CliArguments) {
     // native routing preparation. The raw SQLite graph is compiler-only.
     const osmRuntimeCompactionStarted = performance.now()
     cityProgress({ phase: 'Saving street data' })
-    const osmRuntimeCompaction = compactNationalOsmRuntimeStore(stagedStreetStore, { requireDrive: true })
+    const osmRuntimeCompaction = sharedCity
+      ? { afterBytes: sharedCity.streetStore.bytes, storageLayout: sharedCity.streetStore.storageLayout, bytesSaved: 0, drive: null }
+      : compactNationalOsmRuntimeStore(stagedStreetStore, { requireDrive: true })
     osmRuntimeCompactionMs = performance.now() - osmRuntimeCompactionStarted
 
     const nativeStreet = prepareNationalOsmNativeStore(stagedStreetStore)
@@ -1502,7 +1607,10 @@ async function runCityCompiler(args: CliArguments) {
     }
     const streetCchStarted = performance.now()
     cityProgress({ phase: 'Preparing street routing' })
-    const streetCch = buildNativeStreetCchIndex(stagedStreetStore)
+    const streetCch = sharedCity ? { ...sharedCity.streetStore.streetCch,
+      structurePath: path.join(stagingOsm, sharedCity.streetStore.streetCch.structureFile),
+      metricPath: path.join(stagingOsm, sharedCity.streetStore.streetCch.metricFile),
+    } : buildNativeStreetCchIndex(stagedStreetStore)
     streetCchBuildMs = performance.now() - streetCchStarted
     // Finalize SQLite before binding transfer topology and access snapshots
     // to its generation. No compaction may follow derived-index preparation.
@@ -1532,6 +1640,16 @@ async function runCityCompiler(args: CliArguments) {
     const topology = inspectNationalStaticTopologySidecar(stagedRoutingStore)
     if (!topology.ready) throw new Error(`City topology is not current: ${topology.reason}.`)
 
+    for (const rawDate of values(args, 'prepare-date')) {
+      const serviceDate = normalizeServiceDate(rawDate)
+      if (!serviceDate) throw new Error('prepare-date requires an ISO service date')
+      cityProgress({ phase: `Preparing timetable for ${serviceDate}` })
+      const prepared = prepareNationalGtfsRoutingContext(stagedRoutingStore, {
+        serviceDate, serviceDay: resolveServiceDay(serviceDate), allowServiceDateFallback: false,
+      })
+      if (!prepared.activeServiceKernel.ready) throw new Error(`Timetable preparation failed for ${serviceDate}`)
+    }
+
     // Release cached readers now; native mappings are released on process exit
     // before the parent publishes the complete City.
     disposeNationalGtfsStore(stagedRoutingStore)
@@ -1540,12 +1658,12 @@ async function runCityCompiler(args: CliArguments) {
     const routingMetadata = readNationalGtfsStoreMetadata(stagedRoutingStore)
     const builtAt = new Date().toISOString()
     const sources = {
-      gtfs: gtfs.map((feed) => ({
-        name: path.basename(feed.path),
-        scope: feed.scope,
-      })),
+      gtfs: await Promise.all(gtfs.map(async (feed) => ({
+        name: path.basename(feed.path), scope: feed.scope,
+        sha256: await fileDigest(feed.path), bytes: fs.statSync(feed.path).size,
+      }))),
       osm: {
-        name: path.basename(osmPbf),
+        name: path.basename(osmPbf), sha256: osmSha256, bytes: osmInputBytes,
       },
     }
     const summary = {
@@ -1553,6 +1671,9 @@ async function runCityCompiler(args: CliArguments) {
       productVersion: packageJson.version,
       apiVersion,
       cityFormatVersion,
+      preparationPolicy: 'vigo.city.prepare.v2',
+      modes: streetModes === 'walk' ? ['transit', 'walk'] : ['transit', 'walk', 'drive'],
+      validation: { schemaVersion: 'vigo.preparation.validation.v1', routingLimitations: routingMetadata.routingLimitations ?? [], blockingRoutingFeatures: routingMetadata.blockingRoutingFeatures ?? [], excludedTripCount: routingMetadata.featureInventory?.excludedTripCount ?? 0 },
       kind: 'city',
       name: value(args, 'city-name', path.basename(outputDirectory)),
       revisionId: cityRevisionId(builtAt),
@@ -1848,6 +1969,7 @@ try {
     else if (command === '_build-osm-store') await runOsmCompiler(args)
     else if (command === '_prepare-osm-drive') await runOsmDriveCompiler(args)
     else if (command === 'build') await runBuildCity(args)
+    else if (command === 'build-scenarios') await runBuildScenarios(args)
     else if (command === 'capabilities') writeProductInfo()
     else if (command === 'inspect') runInspect(args)
     else if (command === 'reach') await runReach(args)
