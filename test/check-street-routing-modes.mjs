@@ -529,7 +529,7 @@ if (worker) {
     assert.equal(prepared.result.streetStore.drive.ready, true)
     assert.equal(prepared.result.streetStore.drive.accelerated, true)
     assert.notEqual(prepared.result.streetStore.drive.deferred, true)
-    assert.deepEqual(backgroundStages.map((stage) => stage.phase), ['Opening walking street snapshot', 'Opening driving street snapshot'])
+    assert.deepEqual(backgroundStages.map((stage) => stage.phase), ['Preparing walking network', 'Preparing driving network'])
     for (const request of [walkRequest, driveRequest]) {
       const routed = await requestBackgroundWorker(`background-${request.mode}`, 'street-route', request)
       assert.equal(routed.result.status, 'ready')

@@ -17,7 +17,19 @@ const env = { PATH: process.platform === 'win32' ? path.join(process.env.SystemR
   VIGO_CONFIG_DIR: path.join(isolated, 'config'), VIGO_PROJECTS_DIR: path.join(isolated, 'cities'),
   ELECTRON_RUN_AS_NODE: '1', VIGO_NATIVE_ROUTING_KERNEL: packaged.nativeKernel }
 try {
-  fs.cpSync(sourcePackage.directory, packaged.directory, { recursive: true, verbatimSymlinks: true, mode: fs.constants.COPYFILE_FICLONE })
+  // A relocated app still has independent paths/inodes when APFS shares its
+  // immutable file blocks. Avoid another full Electron copy on small disks.
+  let cloned = false
+  if (process.platform === 'darwin') {
+    fs.mkdirSync(path.dirname(packaged.directory), { recursive: true })
+    try {
+      execFileSync('/bin/cp', ['-cR', sourcePackage.directory, packaged.directory], { stdio: 'pipe' })
+      cloned = true
+    } catch {
+      fs.rmSync(packaged.directory, { recursive: true, force: true })
+    }
+  }
+  if (!cloned) fs.cpSync(sourcePackage.directory, packaged.directory, { recursive: true, verbatimSymlinks: true, mode: fs.constants.COPYFILE_FICLONE })
   const audit = await auditPackageFiles(path.dirname(path.dirname(packaged.program)), { forbiddenRoots: [root] })
   console.log(JSON.stringify({ packageAudit: audit }))
   const capabilities = JSON.parse(execFileSync(packaged.executable, [packaged.program, 'capabilities'], { env, cwd: isolated, encoding: 'utf8', timeout: 30_000 }))
