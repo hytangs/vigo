@@ -1,7 +1,7 @@
 import { localBasemapRemovalPending, removeLocalBasemap } from './localBasemapSource'
 export { removeLocalBasemap, setLocalBasemapData } from './localBasemapSource'
 
-import { type ExpressionSpecification, type LayerSpecification, type Map as MapLibreMap } from 'maplibre-gl'
+import { type ExpressionSpecification, type LayerSpecification, type Map as MapLibreMap, type StyleSpecification } from 'maplibre-gl'
 import type { Appearance, Basemap } from '../domain'
 
 export function baseCanvasColor(basemap: Basemap, appearance: Appearance) {
@@ -31,30 +31,98 @@ export function localBasemapFeatureLimit(zoom: number) {
   return 4_500
 }
 
-type RasterBasemapDefinition = {
-  tiles: string[]
-  attribution: string
+const vectorBasemapUrls: Partial<Record<Basemap, string>> = {
+  minimal: 'https://tiles.openfreemap.org/styles/positron',
+  dark: 'https://tiles.openfreemap.org/styles/fiord',
+  terrain: 'https://tiles.openfreemap.org/styles/liberty',
 }
 
-const cartoSubdomains = ['a', 'b', 'c', 'd']
+type OnlineBasemapState = {
+  basemap?: Basemap
+  request?: AbortController
+  pending?: Promise<void>
+  layers: string[]
+  sources: string[]
+  sprites: string[]
+}
 
-const rasterBasemaps: Partial<Record<Basemap, RasterBasemapDefinition>> = {
-  minimal: {
-    tiles: cartoSubdomains.map((subdomain) => `https://${subdomain}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png`),
-    attribution: '© OpenStreetMap contributors © CARTO',
-  },
-  streets: {
-    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-    attribution: '© OpenStreetMap contributors',
-  },
-  dark: {
-    tiles: cartoSubdomains.map((subdomain) => `https://${subdomain}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png`),
-    attribution: '© OpenStreetMap contributors © CARTO',
-  },
-  terrain: {
-    tiles: cartoSubdomains.map((subdomain) => `https://${subdomain}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png`),
-    attribution: '© OpenStreetMap contributors © CARTO',
-  },
+const onlineBasemaps = new WeakMap<MapLibreMap, OnlineBasemapState>()
+// Only three small style documents are retained; tiles remain in MapLibre's cache.
+const vectorStyles = new Map<string, StyleSpecification>()
+
+function onlineBasemapState(map: MapLibreMap) {
+  let state = onlineBasemaps.get(map)
+  if (!state) {
+    state = { layers: [], sources: [], sprites: [] }
+    onlineBasemaps.set(map, state)
+    const current = state
+    map.once('remove', () => {
+      current.request?.abort()
+      onlineBasemaps.delete(map)
+    })
+  }
+  return state
+}
+
+function clearOnlineBasemap(map: MapLibreMap, state: OnlineBasemapState) {
+  state.request?.abort()
+  state.request = undefined
+  state.pending = undefined
+  state.basemap = undefined
+  for (const id of state.layers.reverse()) if (map.getLayer(id)) map.removeLayer(id)
+  for (const id of state.sources) if (map.getSource(id)) map.removeSource(id)
+  for (const id of state.sprites) map.removeSprite(id)
+  state.layers = []
+  state.sources = []
+  state.sprites = []
+}
+
+function installVectorBasemap(map: MapLibreMap, state: OnlineBasemapState, style: StyleSpecification) {
+  const sourceIds = new Map(Object.keys(style.sources).map(id => [id, id === 'openmaptiles' ? 'osm' : `osm-${id}`]))
+  // Keep local glyph rendering: provider fonts need not include VIGO's label fonts.
+  if (typeof style.sprite === 'string') {
+    // Keep the provider's expressions intact, including zoom-dependent icons.
+    // VIGO's runtime images use their own vigo- names.
+    map.addSprite('default', style.sprite)
+    state.sprites.push('default')
+  }
+  for (const [id, source] of Object.entries(style.sources)) {
+    const sourceId = sourceIds.get(id)!
+    map.addSource(sourceId, source)
+    state.sources.push(sourceId)
+  }
+  const before = firstVigoLayerId(map)
+  for (const original of style.layers) {
+    const layer = { ...original, id: `vigo-basemap-${original.id}` }
+    if ('source' in layer) layer.source = sourceIds.get(layer.source as string)!
+    map.addLayer(layer, before)
+    state.layers.push(layer.id)
+  }
+}
+
+async function loadVectorBasemap(map: MapLibreMap, state: OnlineBasemapState, url: string, request: AbortController) {
+  const timeout = setTimeout(() => request.abort(new Error('Background map request timed out')), 15_000)
+  try {
+    let style = vectorStyles.get(url)
+    if (!style) {
+      const response = await fetch(url, { signal: request.signal, credentials: 'omit' })
+      if (!response.ok) throw new Error(`Background map returned HTTP ${response.status}`)
+      style = await response.json() as StyleSpecification
+      if (style.version !== 8 || !style.sources?.openmaptiles || !Array.isArray(style.layers)) {
+        throw new Error('Invalid background map style')
+      }
+      vectorStyles.set(url, style)
+    }
+    // A late response must not restore an old background or touch a disposed map.
+    if (request.signal.aborted || state.request !== request) return
+    installVectorBasemap(map, state, style)
+  } catch (error) {
+    if (state.request !== request || !onlineBasemaps.has(map)) return
+    clearOnlineBasemap(map, state)
+    map.fire('error', { sourceId: 'osm', error: error instanceof Error ? error : new Error(String(error)) })
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 function roadWidth(scale: number): ExpressionSpecification {
@@ -138,44 +206,30 @@ export function syncBasemap(map: MapLibreMap, basemap: Basemap, appearance: Appe
     map.setPaintProperty('vigo-offline-bg', 'background-color', baseCanvasColor(basemap, appearance))
   }
 
+  const state = onlineBasemapState(map)
+  if (state.basemap !== basemap) clearOnlineBasemap(map, state)
+
   if (basemap === 'none' || basemap === 'offline') {
-    if (map.getLayer('osm')) map.removeLayer('osm')
-    if (map.getSource('osm')) map.removeSource('osm')
     if (basemap === 'none') removeLocalBasemap(map)
     else applyLocalBasemapPaint(map, appearance)
     return
   }
 
   removeLocalBasemap(map)
-  const definition = rasterBasemaps[basemap]
-  if (!definition) return
-  const currentRasterSource = map.getStyle().sources.osm as { tiles?: string[] } | undefined
-  if (currentRasterSource?.tiles?.[0] !== definition.tiles[0]) {
-    if (map.getLayer('osm')) map.removeLayer('osm')
-    if (map.getSource('osm')) map.removeSource('osm')
+  if (state.basemap === basemap) return state.pending
+  state.basemap = basemap
+  const styleUrl = vectorBasemapUrls[basemap]
+  if (styleUrl) {
+    state.request = new AbortController()
+    state.pending = loadVectorBasemap(map, state, styleUrl, state.request)
+    return state.pending
   }
 
-  if (!map.getSource('osm')) {
-    map.addSource('osm', {
-      type: 'raster',
-      tiles: definition.tiles,
-      tileSize: 256,
-      attribution: definition.attribution,
-    })
-  }
-
-  if (!map.getLayer('osm')) {
-    map.addLayer({
-      id: 'osm',
-      type: 'raster',
-      source: 'osm',
-      paint: {
-        'raster-opacity': 1,
-        'raster-fade-duration': 0,
-      },
-    }, firstVigoLayerId(map))
-  }
-
-  map.setPaintProperty('osm', 'raster-opacity', 1)
-  map.setPaintProperty('osm', 'raster-fade-duration', 0)
+  map.addSource('osm', {
+    type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256,
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
+  })
+  state.sources.push('osm')
+  map.addLayer({ id: 'osm', type: 'raster', source: 'osm', paint: { 'raster-opacity': 1, 'raster-fade-duration': 0 } }, firstVigoLayerId(map))
+  state.layers.push('osm')
 }
