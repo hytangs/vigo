@@ -6,6 +6,7 @@ export const options = {
   diagnostics: ["LEVEL", "none (default), summary, profile, or trace"],
   "include-geometry": ["", "Include journey GeoJSON", "boolean"],
   "include-limitations": ["", "Include dataset limitations", "boolean"],
+  wheelchair: ['', 'Use a strict wheelchair City (build prepares this profile)', 'boolean'],
   city: ['PATH', 'Complete VIGO City directory'],
   gtfs: ['PATH', 'GTFS ZIP; repeat for multiple sources', 'repeat'],
   'gtfs-scope': ['VALUE', 'Unique source scope; one per --gtfs', 'repeat'],
@@ -46,7 +47,7 @@ export const options = {
   'street-store': ['PATH', ''],
 }
 
-const queryOptions = ['format', 'diagnostics', 'include-geometry', 'include-limitations', 'city', 'request', 'output', 'mode', 'time', 'time-preference', 'objective',
+const queryOptions = ['format', 'diagnostics', 'include-geometry', 'include-limitations', 'city', 'request', 'output', 'wheelchair', 'mode', 'time', 'time-preference', 'objective',
   'service-date', 'service-day', 'max-walk', 'max-transfers', 'horizon', 'departure-window']
 export const commands = {
   'build-scenarios': {
@@ -59,7 +60,7 @@ export const commands = {
   build: {
     summary: 'Compile GTFS and OSM into a reusable City.',
     usage: ['--gtfs feed.zip --osm region.osm.pbf --output ./city [--replace]'],
-    options: ['gtfs', 'gtfs-scope', 'osm', 'output', 'private-access', 'street-modes', 'streets-from', 'prepare-date', 'replace'],
+    options: ['gtfs', 'gtfs-scope', 'osm', 'output', 'wheelchair', 'private-access', 'street-modes', 'streets-from', 'prepare-date', 'replace'],
     notes: ['--output is the City directory. Existing Cities require --replace.',
       'Progress goes to stderr; the completed City manifest goes to stdout.'],
   },
@@ -103,7 +104,7 @@ export const commands = {
   stream: {
     summary: 'Run Route, Matrix, and Reach as NDJSON in one resident process.',
     usage: ['--city ./city [--service-date YYYY-MM-DD] < queries.ndjson > results.ndjson'],
-    options: ['diagnostics', 'include-geometry', 'include-limitations', 'city', 'service-date', 'service-day', 'time', 'max-walk'],
+    options: ['diagnostics', 'include-geometry', 'include-limitations', 'city', 'wheelchair', 'service-date', 'service-day', 'time', 'max-walk'],
     notes: ['Send one JSON object per line with kind: "route", "matrix", or "reach" and an optional id.',
       'Example: {"id":"trip-1","kind":"route","origin":"A","destination":"B","time":"08:00"}',
       'One City per process. Each query may select its serviceDate, mode, time, and other options.',
@@ -117,8 +118,8 @@ export const commands = {
     options: ['before', 'after', 'output'],
     notes: ['Both results must be from the same query family. Reach results must use the same grid.'],
   },
-  '_build-city': { options: ['gtfs', 'gtfs-scope', 'osm', 'private-access', 'street-modes', 'streets-from', 'prepare-date', 'output', 'city-name'] },
-  '_build-osm-store': { options: ['osm-pbf', 'output-store', 'street-modes'] },
+  '_build-city': { options: ['gtfs', 'gtfs-scope', 'osm', 'wheelchair', 'private-access', 'street-modes', 'streets-from', 'prepare-date', 'output', 'city-name'] },
+  '_build-osm-store': { options: ['osm-pbf', 'output-store', 'street-modes', 'wheelchair'] },
   '_prepare-osm-drive': { options: ['street-store'] },
 }
 

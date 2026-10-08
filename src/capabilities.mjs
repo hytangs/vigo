@@ -96,6 +96,7 @@ const queryFamilies = Object.freeze([
 
 export const capabilityCatalog = Object.freeze({
   schemaVersion: capabilitySchemaVersion,
+  wheelchair: Object.freeze({ supported: true, requiresCityProfile: 'wheelchair-strict-v1', unknownData: 'exclude', modes: ['transit', 'walk'], dataMode: 'scheduled' }),
   city: Object.freeze({ privateAccess: Object.freeze(['public', 'endpoints']) }),
   product: Object.freeze({
     name: 'VIGO',

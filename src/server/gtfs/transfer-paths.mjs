@@ -22,7 +22,8 @@ export function prepareServiceTransfers(store) {
   for (let i = 0; i < paths.from.length; i++) {
     const from = ids[paths.from[i]], to = ids[paths.to[i]]
     const direct = store.transfers.get(from)?.find(e => e.to_stop_id === to)
-    const minimum = direct?.parentStationMinimumSeconds
+    const minimum = store.transferMinimums?.get(from)?.find(e => e.to_stop_id === to)?.min_transfer_time
+      ?? direct?.parentStationMinimumSeconds
       ?? (['gtfs_transfer', 'schedule_transfer'].includes(direct?.provenance) ? direct.min_transfer_time : 0)
     const seconds = Math.max(paths.seconds[i], Math.trunc(minimum || 0))
     if (direct && Math.trunc(direct.min_transfer_time) <= seconds) continue

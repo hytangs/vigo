@@ -1524,3 +1524,57 @@ The documentation check verifies generated HTML/specification, links/contracts, 
 ### Update the documentation
 
 For maintenance, edit this Markdown source and regenerate the offline manual/OpenAPI with `npm run docs:standalone`. Native field schemas are derived from the Rust public structs. Check generated files before packaging so the embedded documentation describes the same executable.
+
+
+## Wheelchair routing
+
+Prepare a separate wheelchair City with the preparation CLI:
+
+```sh
+vigo build --gtfs feed.zip --osm region.osm.pbf --output wheelchair-city --wheelchair
+```
+
+The Engine CLI and HTTP service use that City for Route, Matrix and Reach. Add
+`"wheelchair": true` to the request, or `--wheelchair` to an Engine CLI query.
+Omitting the option inherits the City's profile. Ordinary Cities reject a true
+request; wheelchair Cities reject false, Drive, realtime transit and query-time
+scenario overlays. Compile changed inputs into a new wheelchair City.
+Serve the prepared wheelchair City using the same `serve --city wheelchair-city`
+command and authenticated `/v1/route`, `/v1/matrix` and `/v1/reach` endpoints.
+
+The `wheelchair-strict-v1` profile requires GTFS `wheelchair_accessible=1` for
+vehicles and `wheelchair_boarding=1` for boarding/alighting, including published
+parent inheritance. An accessible vehicle can pass an inaccessible stop without
+boarding or alighting. Unknown values are excluded. Search considers accessible
+alternatives directly, including later vehicles; it does not filter a completed
+unrestricted journey.
+
+OSM ways require `wheelchair=yes` and ordinary pedestrian permission. Steps,
+escalators, mapped inaccessible or limited nodes, raised kerbs, unverified
+barriers and conditional accessibility are excluded. Published widths below
+0.9 m and inclines above 8.3% are excluded. Untagged shape vertices inherit the
+way's accessibility. These are fixed profile limits, not a personalized chair
+model.
+
+Station paths require either a positive published `wheelchair_traversal_time`
+(the MBTA extension) or step-free mode with published width at least 0.9 m,
+slope at most 0.083 in magnitude and a traversal cost. Elevator paths do not
+require slope. Explicit stairs and escalators remain excluded even if a
+contradictory wheelchair time is present. Direction is preserved. Missing paths
+do not generate parent-station shortcuts. Generic transfer recommendations do
+not establish accessible paths. For transit access, station platforms are reached from declared
+accessible entrances and paths, rather than snapped directly from the street.
+
+Every successful or no-route response carries `accessibility`, including the
+profile and its limitations. Coordinate-to-network attachments are geometric;
+door-to-street access is not verified. Live elevator outages, temporary barriers
+and individual chair dimensions are not modeled. Strict source requirements
+can leave sparse coverage or no route. A no-route result is not evidence that
+no accessible real-world trip exists.
+
+Source semantics: [GTFS Schedule](https://gtfs.org/documentation/schedule/reference/),
+[MBTA pathways](https://github.com/mbta/gtfs-documentation/blob/master/reference/gtfs.md#pathwaystxt),
+and [OSM wheelchair tags](https://wiki.openstreetmap.org/wiki/Key:wheelchair).
+The public synthetic regression is `npm run check:wheelchair`; it checks
+accessible alternatives through both CLIs and authenticated HTTP, as well as
+Matrix, Reach, reverse routing and profile mismatch rejection.

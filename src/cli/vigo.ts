@@ -1,3 +1,4 @@
+import { wheelchairDescription, validateWheelchairRequest } from '../server/wheelchair-policy.mjs'
 import fs from 'node:fs'
 import { createHash } from 'node:crypto'
 import os from 'node:os'
@@ -312,6 +313,7 @@ function resolveRuntimePaths(args: CliArguments) {
     city: {
       name: manifest.name ?? path.basename(cityPath),
       revisionId: manifest.revisionId ?? null,
+      accessibility: manifest.accessibility as { profile: string } | undefined,
     },
   }
 }
@@ -390,6 +392,10 @@ async function computeRouteRequest(
   prepare: typeof prepareRuntime = prepareRuntime,
 ) {
   const { storePath, streetStorePath, city } = paths
+  validateWheelchairRequest(city.accessibility?.profile, { ...request,
+    mode: value(args, 'mode', String(request.mode ?? 'transit')),
+    ...(args.has('data-mode') ? { routingDataMode: value(args, 'data-mode') } : {}),
+  })
   if (request.scenario) throw new Error('Planned transit Scenarios are supported by Reach, not Route.')
   const options = runtimeOptions(args, request)
   const mode = String(value(args, 'mode', String(request.mode ?? 'transit')))
@@ -526,6 +532,8 @@ async function runRouteRequest(args: CliArguments) {
 async function runRoute(args: CliArguments) {
   if (args.has('request')) return runRouteRequest(args)
   const { storePath, streetStorePath, city } = resolveRuntimePaths(args)
+  validateWheelchairRequest(city.accessibility?.profile, { ...presentationRequest({}, args),
+    mode: value(args, 'mode', 'transit'), routingDataMode: value(args, 'data-mode', 'scheduled') })
   const inputValue = value(args, 'input')
   const outputValue = value(args, 'output')
   const odPath = path.resolve(inputValue)
@@ -905,6 +913,10 @@ function computePreparedMatrix(
   const preparationStarted = performance.now()
   validateAnalysisDataMode(options, 'matrix', value(args, 'mode', String(request.mode ?? 'transit')), request)
   const { storePath, streetStorePath, city } = paths
+  validateWheelchairRequest(city.accessibility?.profile, { ...request,
+    mode: value(args, 'mode', String(request.mode ?? 'transit')),
+    ...(args.has('data-mode') ? { routingDataMode: value(args, 'data-mode') } : {}),
+  })
   assertMatrixSize(Array.isArray(request.origins) ? request.origins.length : 0,
     Array.isArray(request.destinations) ? request.destinations.length : 0)
   if (request.scenario) throw new Error('Planned transit Scenarios are supported by Reach, not Matrix.')
@@ -1063,6 +1075,10 @@ async function computeReachRequest(
   prepare: typeof prepareRuntime = prepareRuntime,
 ) {
   const { storePath, streetStorePath, city } = paths
+  validateWheelchairRequest(city.accessibility?.profile, { ...request,
+    mode: value(args, 'mode', String(request.mode ?? 'transit')),
+    ...(args.has('data-mode') ? { routingDataMode: value(args, 'data-mode') } : {}),
+  })
   if (!streetStorePath) throw new Error('reach requires a City with streets')
   const scenarioState = request.scenario as Record<string, unknown> | undefined
   if (request.traffic || request.live || scenarioState?.traffic || scenarioState?.live) {
@@ -1320,10 +1336,10 @@ function startJsonCompiler(command: string, compilerArguments: string[], label: 
   }
 }
 
-function startOsmCompiler(osmPbf: string, outputPath: string, streetModes: string) {
+function startOsmCompiler(osmPbf: string, outputPath: string, streetModes: string, wheelchair = false) {
   return startJsonCompiler(
     '_build-osm-store',
-    [`--osm-pbf=${osmPbf}`, `--output-store=${outputPath}`, `--street-modes=${streetModes}`],
+    [`--osm-pbf=${osmPbf}`, `--output-store=${outputPath}`, `--street-modes=${streetModes}`, `--wheelchair=${wheelchair}`],
     'OSM compiler',
   )
 }
@@ -1344,6 +1360,7 @@ async function runOsmCompiler(args: CliArguments) {
     pbfPath: osmPbf,
     outputPath,
     includeDriving: value(args, 'street-modes', 'walk,drive') === 'walk,drive',
+    wheelchair: enabled(args, 'wheelchair'),
     onProgress: buildProgress('osm'),
   })
   process.stdout.write(JSON.stringify(result))
@@ -1471,7 +1488,8 @@ async function runBuildCity(args: CliArguments) {
       ...values(args, 'prepare-date').map(date => `--prepare-date=${date}`),
       `--osm=${value(args, 'osm')}`,
       `--private-access=${value(args, 'private-access', 'public')}`,
-      `--street-modes=${value(args, 'street-modes', 'walk,drive')}`,
+      `--street-modes=${value(args, 'street-modes', enabled(args, 'wheelchair') ? 'walk' : 'walk,drive')}`,
+      `--wheelchair=${enabled(args, 'wheelchair')}`,
       ...(value(args, 'streets-from') ? [`--streets-from=${path.resolve(value(args, 'streets-from'))}`] : []),
       `--output=${stagingDirectory}`,
       `--city-name=${path.basename(outputDirectory)}`,
@@ -1487,9 +1505,12 @@ async function runBuildCity(args: CliArguments) {
 }
 
 async function runCityCompiler(args: CliArguments) {
-  const streetModes = value(args, 'street-modes', 'walk,drive')
+  const wheelchair = enabled(args, 'wheelchair')
+  const streetModes = value(args, 'street-modes', wheelchair ? 'walk' : 'walk,drive')
+  if (wheelchair && streetModes !== 'walk') throw new Error('Wheelchair Cities require --street-modes walk')
   if (!['walk', 'walk,drive'].includes(streetModes)) throw new Error('street-modes must be walk or walk,drive')
   const privateAccess = value(args, 'private-access', 'public')
+  if (wheelchair && privateAccess !== 'public') throw new Error('Wheelchair Cities require public access')
   if (!['public', 'endpoints'].includes(privateAccess)) throw new Error('private-access must be public or endpoints')
   const gtfsValues = values(args, 'gtfs')
   const scopeValues = values(args, 'gtfs-scope')
@@ -1510,6 +1531,7 @@ async function runCityCompiler(args: CliArguments) {
   const sharedCityPath = value(args, 'streets-from') ? path.resolve(value(args, 'streets-from')) : null
   const sharedCity = sharedCityPath ? validateCityDirectory(sharedCityPath) : null
   if (sharedCity && (privateAccess !== 'public' || sharedCity.streetStore?.terminalAccess?.model !== 'public'
+      || Boolean(sharedCity.accessibility) !== wheelchair
       || sharedCity.sources?.osm?.sha256 !== osmSha256 || sharedCity.preparationPolicy !== 'vigo.city.prepare.v2'
       || sharedCity.modes?.includes('drive') !== (streetModes === 'walk,drive'))) {
     throw new Error('Shared streets require matching OSM bytes, prepared modes, public access and preparation policy.')
@@ -1551,11 +1573,11 @@ async function runCityCompiler(args: CliArguments) {
   const cityProgress = buildProgress('city')
   try {
     const stagedStreetStore = path.join(stagingOsm, 'street-index.sqlite')
-    if (parallelRawBuild) osmCompiler = startOsmCompiler(osmPbf, stagedStreetStore, streetModes)
+    if (parallelRawBuild) osmCompiler = startOsmCompiler(osmPbf, stagedStreetStore, streetModes, wheelchair)
     const stagedRoutingStore = path.join(stagingRouting, 'project.sqlite')
     const gtfsStarted = performance.now()
     await buildNationalGtfsCityStore({
-      feeds: gtfs,
+      feeds: gtfs, wheelchair,
       outputPath: stagedRoutingStore,
       onProgress: buildProgress('gtfs'),
     })
@@ -1574,7 +1596,7 @@ async function runCityCompiler(args: CliArguments) {
       streetResult = await buildNationalOsmStore({
         pbfPath: osmPbf,
         outputPath: stagedStreetStore,
-        includeDriving: streetModes === 'walk,drive',
+        includeDriving: streetModes === 'walk,drive', wheelchair,
         onProgress: buildProgress('osm'),
       }) as Record<string, unknown>
       osmBuildMs = performance.now() - osmStarted
@@ -1668,6 +1690,7 @@ async function runCityCompiler(args: CliArguments) {
     }
     const summary = {
       schemaVersion: 'vigo.city.v1',
+      ...(wheelchair ? { accessibility: wheelchairDescription } : {}),
       productVersion: packageJson.version,
       apiVersion,
       cityFormatVersion,
@@ -1804,6 +1827,7 @@ function runInspect(args: CliArguments) {
     path: cityPath,
     revisionId: city.revisionId ?? null,
     builtAt: city.builtAt ?? null,
+    ...(city.accessibility ? { accessibility: city.accessibility } : {}),
     sources: {
       gtfs: Array.isArray(city.sources?.gtfs)
         ? city.sources.gtfs.map((source: Record<string, unknown>) => ({

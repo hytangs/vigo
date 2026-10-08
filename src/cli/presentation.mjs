@@ -4,16 +4,18 @@ export function presentationRequest(request, args = new Map()) {
   if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('A query must be a JSON object')
   const q = { ...request }
   if (args.has('diagnostics')) q.diagnostics = args.get('diagnostics').at(-1)
-  for (const [option, key] of [['include-geometry', 'includeGeometry'], ['include-limitations', 'includeLimitations']]) {
-    if (args.has(option)) q[key] = ['true', 'yes', '1'].includes(args.get(option).at(-1))
+  for (const [option, key] of [['wheelchair', 'wheelchair'], ['include-geometry', 'includeGeometry'], ['include-limitations', 'includeLimitations']]) {
+    if (args.has(option)) q[key] = ['true', 'yes', '1'].includes(String(args.get(option).at(-1)).toLowerCase())
   }
   if (q.diagnostics !== undefined && !['none', 'summary', 'profile', 'trace'].includes(q.diagnostics)) throw new Error('diagnostics must be none, summary, profile, or trace')
-  for (const key of ['includeGeometry', 'includeLimitations']) if (q[key] !== undefined && typeof q[key] !== 'boolean') throw new Error(`${key} must be boolean`)
+  for (const key of ['wheelchair', 'includeGeometry', 'includeLimitations']) if (q[key] !== undefined && typeof q[key] !== 'boolean') throw new Error(`${key} must be boolean`)
   return q
 }
 
 export function publicResult(result, request = {}, args = new Map()) {
-  return formatPublicResult(result.kind ?? 'route', presentationRequest(request, args), result)
+  const formatted = formatPublicResult(result.kind ?? 'route', presentationRequest(request, args), result)
+  if (result.city?.accessibility) formatted.accessibility = result.city.accessibility
+  return formatted
 }
 
 export function normalizePublicPoint(value) {

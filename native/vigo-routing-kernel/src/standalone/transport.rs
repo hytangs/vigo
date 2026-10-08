@@ -78,6 +78,7 @@ fn run() -> Result<()> {
             "help",
             "include-geometry",
             "include-limitations",
+            "wheelchair",
         ]
         .contains(&raw)
         {
@@ -125,6 +126,7 @@ fn run() -> Result<()> {
         "diagnostics",
         "include-geometry",
         "include-limitations",
+        "wheelchair",
         "host",
         "port",
         "max-body-bytes",
@@ -355,6 +357,7 @@ fn apply_flags(q: &mut Value, o: &HashMap<String, String>) -> Result<()> {
     for (cli, key) in [
         ("include-geometry", "includeGeometry"),
         ("include-limitations", "includeLimitations"),
+        ("wheelchair", "wheelchair"),
     ] {
         if o.contains_key(cli) {
             q[key] = json!(enabled(o, cli)?);

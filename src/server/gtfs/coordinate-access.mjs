@@ -234,7 +234,9 @@ function physicalStopAccessProfile(store, streetStorePath, version) {
     const location = numeric(stop.location_type, 0)
     // A feed with entrances and declared pathways owns access to its platforms.
     // Snapping straight to a platform would bypass missing or one-way links.
-    if (location === 2 || (location === 0 && !entranceStations.has(stop.parent_station))) {
+    if ((stop.wheelchair_boarding === undefined || stop.wheelchair_boarding === 1)
+      && (location === 2 || (location === 0 && !entranceStations.has(stop.parent_station)
+        && !(store.metadata.accessibility?.profile && stop.parent_station)))) {
       anchorLons.push(stop.lon)
       anchorLats.push(stop.lat)
       anchorMemberIndices.push(memberIndex)

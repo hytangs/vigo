@@ -158,7 +158,10 @@ impl City {
         if request["includeLimitations"] == true {
             raw["warnings"] = self.metadata["routingLimitations"].clone();
         }
-        let result = crate::presentation::format(command, request, &raw);
+        let mut result = crate::presentation::format(command, request, &raw);
+        if !self.metadata["accessibility"].is_null() {
+            result["accessibility"] = self.metadata["accessibility"].clone();
+        }
         super::memory::record_output(command, &raw, &result);
         drop(raw);
         if matches!(command, "reach" | "isochrone" | "matrix") {
@@ -223,11 +226,47 @@ impl City {
         object.insert("serviceDate".into(), json!(date.to_string()));
         Ok(Some(date.to_string()))
     }
+    fn validate_wheelchair_request(&self, request: &Value) -> Result<()> {
+        if request.get("wheelchair").is_some_and(|v| !v.is_boolean()) {
+            return fail("wheelchair must be boolean");
+        }
+        let active = self.metadata["accessibility"]["profile"] == "wheelchair-strict-v1";
+        if request["wheelchair"] == true && !active {
+            return fail("Wheelchair routing requires a City built with --wheelchair");
+        }
+        if active {
+            if request
+                .get("scenario")
+                .is_some_and(|value| !value.is_null())
+            {
+                return fail(
+                    "Wheelchair routing requires a prepared City; query-time scenario accessibility is not modeled",
+                );
+            }
+            if request["wheelchair"] == false {
+                return fail("This wheelchair City cannot provide unrestricted routes");
+            }
+            if request["mode"] == "drive" {
+                return fail("Wheelchair routing supports transit and walk, not drive");
+            }
+            if request
+                .get("routingDataMode")
+                .or_else(|| request.get("dataMode"))
+                .is_some_and(|mode| mode != "scheduled")
+            {
+                return fail(
+                    "Wheelchair routing currently requires scheduled service; live accessibility changes are not modeled",
+                );
+            }
+        }
+        Ok(())
+    }
     pub fn execute(&mut self, command: &str, request: &Value) -> Result<Value> {
         if !request.is_object() {
             return fail("Request must be a JSON object");
         }
         validate_request(command, request)?;
+        self.validate_wheelchair_request(request)?;
         let started = Instant::now();
         let reserved = arrival_reserve(command, request)?;
         let effective = reserved.as_ref().map_or(request, |(query, _)| query);
@@ -1640,6 +1679,7 @@ fn arrival_reserve(command: &str, q: &Value) -> Result<Option<(Value, Value)>> {
 fn validate_request(command: &str, q: &Value) -> Result<()> {
     let common = [
         "kind",
+        "wheelchair",
         "id",
         "serviceDate",
         "serviceDay",
@@ -1697,11 +1737,6 @@ fn validate_request(command: &str, q: &Value) -> Result<()> {
         "compare" => &["before", "after"],
         _ => &[],
     };
-    if q.get("wheelchair").is_some() || q.get("wheelchairAccessible").is_some() {
-        return fail(
-            "Wheelchair routing is unsupported: accessible boarding and station paths are not modeled",
-        );
-    }
     for key in q.as_object().unwrap().keys() {
         if !common.contains(&key.as_str()) && !specific.contains(&key.as_str()) {
             return fail(format!("Unknown {command} option: {key}"));

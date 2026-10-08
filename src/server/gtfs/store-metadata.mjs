@@ -271,6 +271,7 @@ export function staticTopologySourceFingerprint(metadata) {
 export function staticTopologySourceIdentity(metadata) {
   return stableJson({
     identityVersion: staticTopologySourceIdentityVersion,
+    ...(metadata.accessibility ? { accessibility: metadata.accessibility.profile } : {}),
     storeId: metadata.storeId ?? null,
     schemaVersion: metadata.schemaVersion ?? null,
     connectionCount: Number(metadata.connectionCount ?? -1),

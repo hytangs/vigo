@@ -2,7 +2,7 @@ use super::{Result, access::AccessContext, fail, flag, number};
 use crate::*;
 use chrono::{Datelike, NaiveDate, TimeZone};
 use memmap2::Mmap;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -21,6 +21,9 @@ fn routing_source_identity(metadata: &Value) -> Value {
         "transferGeneration",
     ] {
         identity[key] = metadata[key].clone();
+    }
+    if !metadata["accessibility"].is_null() {
+        identity["accessibility"] = metadata["accessibility"]["profile"].clone();
     }
     // Match the City compiler's staticTopologySourceIdentity defaults. Older
     // valid Cities can omit optional counts; their persisted identity uses -1,
@@ -476,6 +479,24 @@ impl City {
             path.join("osm/street-index.sqlite"),
             OpenFlags::SQLITE_OPEN_READ_ONLY,
         )?;
+        let street_profile: Option<String> = street_db
+            .query_row(
+                "SELECT value FROM metadata WHERE key='accessibility'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let street_accessibility: Value = street_profile
+            .map(|v| serde_json::from_str(&v))
+            .transpose()?
+            .unwrap_or(Value::Null);
+        let profile = &metadata["accessibility"]["profile"];
+        if profile != &manifest["accessibility"]["profile"]
+            || profile != &street_accessibility["profile"]
+            || (!profile.is_null() && profile != "wheelchair-strict-v1")
+        {
+            return fail("City accessibility profiles do not match; rebuild the complete City");
+        }
         let basemap: String = street_db.query_row(
             "SELECT value FROM metadata WHERE key='localBasemap'",
             [],
@@ -526,6 +547,10 @@ impl City {
             || key_parts[3].parse::<usize>()? != members.len()
         {
             return fail("Prepared coordinate access profile identity is stale");
+        }
+        if street_header.header["identity"]["accessibility"] != metadata["accessibility"]["profile"]
+        {
+            return fail("Street snapshot accessibility profile does not match the City");
         }
         let fingerprint = street_header.header["identity"]["sourceFingerprint"]
             .as_str()
@@ -596,7 +621,7 @@ impl City {
         if let Some(object) = access.as_object_mut() {
             object.remove("profileKey");
         }
-        json!({"schemaVersion":"vigo.standalone.city.v1","name":self.manifest["name"],"revisionId":self.manifest["revisionId"],"sources":self.manifest["sources"],"runtime":"rust","routing":self.manifest["routingStore"],"streets":self.manifest["streetStore"],"warnings":self.metadata["routingLimitations"],"memory":{
+        json!({"schemaVersion":"vigo.standalone.city.v1","name":self.manifest["name"],"revisionId":self.manifest["revisionId"],"sources":self.manifest["sources"],"runtime":"rust","accessibility":self.metadata["accessibility"],"routing":self.manifest["routingStore"],"streets":self.manifest["streetStore"],"warnings":self.metadata["routingLimitations"],"memory":{
             "ledger":self.memory_ledger(),"sharedStreetOwners":self.street.shared_street_owners(),"street":self.street.diagnostics(),"access":access,
             "timetable":self.timetable.as_ref().map(|t| t.kernel.diagnostics()),
             "timetablePreparations":self.timetable_preparations,

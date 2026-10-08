@@ -34,10 +34,14 @@ export function validateCityDirectory(directory) {
     throw new Error(`Unsupported City format ${JSON.stringify(manifest?.schemaVersion)}; expected vigo.city.v1. Rebuild from the original GTFS and OSM into a new directory.`)
   }
   const routingPath = path.join(resolved, 'routing', 'project.sqlite')
-  readNationalGtfsStoreMetadata(routingPath)
+  const routing = readNationalGtfsStoreMetadata(routingPath)
   const topology = inspectNationalStaticTopologySidecar(routingPath)
   if (!topology.ready) throw new Error(`The City routing topology must be rebuilt: ${topology.reason}.`)
   const street = readNationalOsmStoreMetadata(path.join(resolved, 'osm', 'street-index.sqlite'))
+  const profiles = [manifest, routing, street].map(value => value.accessibility?.profile ?? null)
+  if (new Set(profiles).size !== 1 || (profiles[0] !== null && profiles[0] !== 'wheelchair-strict-v1')) {
+    throw new Error('City accessibility profiles do not match; rebuild the complete City.')
+  }
   if (street.storageLayout !== 'runtime-snapshots-v1') {
     throw new Error('The City street index must be rebuilt into sealed runtime snapshots.')
   }

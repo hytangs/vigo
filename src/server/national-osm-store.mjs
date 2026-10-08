@@ -1,3 +1,4 @@
+import { wheelchairDescription, wheelchairWayAllowed, wheelchairNodeAllowed } from './wheelchair-policy.mjs'
 import fs from 'node:fs/promises'
 import fsSync from 'node:fs'
 import crypto from 'node:crypto'
@@ -303,7 +304,11 @@ export async function buildNationalOsmStore({
   onProgress,
   buildDrivingProfile = process.env.VIGO_BUILD_DRIVE_ACCELERATOR === '1',
   includeDriving = true,
+  wheelchair = false,
 }) {
+  if (wheelchair && includeDriving) throw new Error('Wheelchair Cities require walk street preparation')
+  const wayAllowed = tags => nationalOsmWayWalkable(tags) && (!wheelchair || wheelchairWayAllowed(tags))
+  const nodeAllowed = tags => nationalOsmNodeWalkable(tags) && (!wheelchair || wheelchairNodeAllowed(tags))
   const started = performance.now()
   const source = await fs.stat(pbfPath)
   const tempPath = `${outputPath}.building`
@@ -393,7 +398,7 @@ export async function buildNationalOsmStore({
         forEachPrimitiveEntity(block, groupBytes, {
           way: (way) => {
             const tags = wayTags(way, block.strings)
-            if (!nationalOsmWayWalkable(tags) && !(includeDriving && drivable(tags)) && !basemapWriter.needsWay(way, tags)) return
+            if (!wayAllowed(tags) && !(includeDriving && drivable(tags)) && !basemapWriter.needsWay(way, tags)) return
             for (const nodeId of way.refs) requireNode(nodeId)
           },
         })
@@ -413,7 +418,7 @@ export async function buildNationalOsmStore({
               validateNodeId(node.id)
               nodeCount += 1
               if (isRequiredNode(node.id)) {
-                if (!nationalOsmNodeWalkable(wayTags(node, block.strings))) blockedWalkNodes.add(node.id)
+                if (!nodeAllowed(wayTags(node, block.strings))) blockedWalkNodes.add(node.id)
                 const [lon, lat] = coordinate(block, node.lat, node.lon)
                 insertNode.run(node.id, lat, lon)
                 transactionRows += 1
@@ -425,7 +430,7 @@ export async function buildNationalOsmStore({
               validateNodeId(dense.ids[index])
               nodeCount += 1
               if (!isRequiredNode(dense.ids[index])) continue
-              if (!nationalOsmNodeWalkable(denseNodeTags(dense, index, block.strings))) blockedWalkNodes.add(dense.ids[index])
+              if (!nodeAllowed(denseNodeTags(dense, index, block.strings))) blockedWalkNodes.add(dense.ids[index])
               const [lon, lat] = coordinate(block, dense.lats[index], dense.lons[index])
               insertNode.run(dense.ids[index], lat, lon)
               transactionRows += 1
@@ -434,7 +439,7 @@ export async function buildNationalOsmStore({
           way: (way) => {
             const tags = wayTags(way, block.strings)
             basemapWriter.addWay(way, tags, getNode)
-            const isWalkable = nationalOsmWayWalkable(tags)
+            const isWalkable = wayAllowed(tags)
             const isDrivable = includeDriving && drivable(tags)
             if (!isWalkable && !isDrivable) return
             const walkDirections = isWalkable
@@ -576,8 +581,10 @@ export async function buildNationalOsmStore({
     // during every walk/transit build only inflates cold work and disk use.
     // SQLite analyzes the indexes that are actually present.
     db.exec('ANALYZE;')
+    if (wheelchair && edgeCount === 0) throw new Error('No streets meet the strict wheelchair profile in this OSM source (wheelchair=yes and no known barriers required).')
     const metadata = {
       schemaVersion: streetStoreSchemaVersion,
+      ...(wheelchair ? { accessibility: wheelchairDescription } : {}),
       sourceModel: 'pbf',
       sourceFingerprint,
       sourceFile: path.basename(pbfPath),
@@ -1001,6 +1008,7 @@ function removeObsoleteStreetAcceleratorSnapshots(storePath) {
 function streetAcceleratorStoreIdentity(state) {
   return {
     identityVersion: 'source-metadata-v1',
+    ...(state.metadata.accessibility ? { accessibility: state.metadata.accessibility.profile } : {}),
     schemaVersion: state.metadata.schemaVersion ?? null,
     sourceFingerprint: state.metadata.sourceFingerprint ?? null,
     sourceBytes: state.metadata.sourceBytes ?? null,

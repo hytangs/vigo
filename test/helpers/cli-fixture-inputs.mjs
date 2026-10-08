@@ -50,9 +50,9 @@ function writePrimitiveBlock(block, pbf) {
   pbf.writeMessage(2, writePrimitiveGroup, block.group)
 }
 
-function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffset, platformOutline) {
+function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffset, platformOutline, wheelchair) {
   const raw = pbfMessage(writePrimitiveBlock, {
-    strings: ['', 'highway', 'residential', 'footway', 'service', 'access', 'private', 'foot', 'platform', 'area', 'yes'],
+    strings: ['', 'highway', 'residential', 'footway', 'service', 'access', 'private', 'foot', 'platform', 'area', 'yes', 'wheelchair'],
     group: {
       nodes: [
         { id: 1, lat: 389_000_000, lon: -770_500_000 },
@@ -72,7 +72,7 @@ function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffs
         ] : []),
       ].map((node) => ({ ...node, id: node.id + nodeIdOffset })),
       ways: [
-        { id: 10, keys: [1], values: [2], refs: [1, 1, 1] },
+        { id: 10, keys: wheelchair ? [1, 11] : [1], values: wheelchair ? [2, 10] : [2], refs: [1, 1, 1] },
         ...(platformOutline ? [{ id: 14, keys: [1, 9], values: [8, 10], refs: [10, 1, 1, 1, -3] }] : []),
         ...(terminalAccess ? [
           { id: 11, keys: [1], values: [3], refs: [4, 1] },
@@ -95,7 +95,7 @@ function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffs
   ]))
 }
 
-export async function writeCliFixtureInputs(directory, { terminalAccess = false, unreferencedNodes = 0, nodeIdOffset = 0, platformOutline = false } = {}) {
+export async function writeCliFixtureInputs(directory, { terminalAccess = false, unreferencedNodes = 0, nodeIdOffset = 0, platformOutline = false, wheelchair = false } = {}) {
   const gtfsPath = path.join(directory, 'fixture.zip')
   const osmPath = path.join(directory, 'fixture.osm.pbf')
   const zip = new JSZip()
@@ -108,6 +108,6 @@ export async function writeCliFixtureInputs(directory, { terminalAccess = false,
   addTable('stop_times.txt', 'trip_id,arrival_time,departure_time,stop_id,stop_sequence\nT1,08:00:00,08:00:00,A,1\nT1,08:10:00,08:10:00,X,2\nT2,08:15:00,08:15:00,X,1\nT2,08:30:00,08:30:00,B,2\n')
   addTable('calendar.txt', 'service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nWKD,1,1,1,1,1,0,0,20260101,20261231\n')
   fs.writeFileSync(gtfsPath, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
-  writeOsmFixture(osmPath, terminalAccess, unreferencedNodes, nodeIdOffset, platformOutline)
+  writeOsmFixture(osmPath, terminalAccess, unreferencedNodes, nodeIdOffset, platformOutline, wheelchair)
   return { gtfsPath, osmPath }
 }

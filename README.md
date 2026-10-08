@@ -87,3 +87,5 @@ For a CLI/HTTP ZIP without Studio or the Python wrapper, see
 The [offline guide](docs/guide.html) includes search, a local Result viewer, and printing. It is generated from the Markdown pages so examples and reference stay in sync.
 
 API 1.0, City format 1, and Result schema 1 remain unchanged in 0.5.0. VIGO is licensed under [Apache-2.0](LICENSE); see [NOTICE](NOTICE) for attribution.
+
+Wheelchair routing is available through a [separately prepared strict profile](docs/guides/rust-standalone.md#wheelchair-routing) for the CLI and API service.

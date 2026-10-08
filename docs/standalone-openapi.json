@@ -6769,8 +6769,7 @@
           },
           "wheelchair": {
             "type": "boolean",
-            "default": false,
-            "description": "true returns unsupported_mode; no accessible routing model is provided."
+            "description": "Require wheelchair-strict-v1 City preparation. Omission inherits the City profile; false rejects a wheelchair City. Scheduled transit and walk only; unknown source accessibility is excluded. Results disclose geometric endpoint attachments and unmodeled live facility outages."
           },
           "serviceDate": {
             "type": "string",
@@ -7012,8 +7011,7 @@
           },
           "wheelchair": {
             "type": "boolean",
-            "default": false,
-            "description": "true returns unsupported_mode; no accessible routing model is provided."
+            "description": "Require wheelchair-strict-v1 City preparation. Omission inherits the City profile; false rejects a wheelchair City. Scheduled transit and walk only; unknown source accessibility is excluded. Results disclose geometric endpoint attachments and unmodeled live facility outages."
           },
           "serviceDate": {
             "type": "string",
@@ -7642,8 +7640,7 @@
           },
           "wheelchair": {
             "type": "boolean",
-            "default": false,
-            "description": "true returns unsupported_mode; no accessible routing model is provided."
+            "description": "Require wheelchair-strict-v1 City preparation. Omission inherits the City profile; false rejects a wheelchair City. Scheduled transit and walk only; unknown source accessibility is excluded. Results disclose geometric endpoint attachments and unmodeled live facility outages."
           },
           "serviceDate": {
             "type": "string",
@@ -8913,6 +8910,29 @@
               "drive"
             ]
           },
+          "accessibility": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "const": "wheelchair-strict-v1"
+              },
+              "unknownData": {
+                "const": "exclude"
+              },
+              "limitations": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "profile",
+              "unknownData",
+              "limitations"
+            ],
+            "additionalProperties": true
+          },
           "query": {
             "type": "object"
           },
@@ -9032,6 +9052,29 @@
               "walk",
               "drive"
             ]
+          },
+          "accessibility": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "const": "wheelchair-strict-v1"
+              },
+              "unknownData": {
+                "const": "exclude"
+              },
+              "limitations": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "profile",
+              "unknownData",
+              "limitations"
+            ],
+            "additionalProperties": true
           },
           "query": {
             "type": "object"
@@ -9497,6 +9540,29 @@
               "walk",
               "drive"
             ]
+          },
+          "accessibility": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "const": "wheelchair-strict-v1"
+              },
+              "unknownData": {
+                "const": "exclude"
+              },
+              "limitations": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "profile",
+              "unknownData",
+              "limitations"
+            ],
+            "additionalProperties": true
           },
           "query": {
             "type": "object"

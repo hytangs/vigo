@@ -114,7 +114,7 @@ try {
   assert.match(bad.error.message, /Unknown scenarioId/)
   const unsupported = await query({ ...base, wheelchair: true })
   assert.equal(unsupported.status, 'error')
-  assert.match(unsupported.error.message, /Wheelchair.*unsupported/)
+  assert.match(unsupported.error.message, /Wheelchair.*built with --wheelchair/)
   const date = await query({ ...base, serviceDate: '2026-07-19' })
   assert.equal(date.status, 'not_found')
   const weekday = await query({ ...base })

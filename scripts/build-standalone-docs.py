@@ -248,7 +248,7 @@ def specification(native):
     schemas['Clock'] = {'oneOf':[{'type':'string','pattern':r'^\d{1,2}:\d{1,2}(:\d{1,2})?$'},number(0,4319)], 'description':'Service-day HH:MM[:SS], hours 0..71, minutes/seconds 0..59; or numeric minutes.'}
     common = {
         'diagnostics':text('none','summary','profile','trace',default='none'), 'includeGeometry':boolean(), 'includeLimitations':boolean(),
-        'kind':text(), 'id':{}, 'scenarioId':text(description='Member of the loaded scenario collection; omitted selects its default.'), 'wheelchair':{**boolean(False),'description':'true returns unsupported_mode; no accessible routing model is provided.'}, 'serviceDate':{'type':'string','format':'date'}, 'serviceDay':text('weekday','saturday','sunday'),
+        'kind':text(), 'id':{}, 'scenarioId':text(description='Member of the loaded scenario collection; omitted selects its default.'), 'wheelchair':{'type':'boolean','description':'Require wheelchair-strict-v1 City preparation. Omission inherits the City profile; false rejects a wheelchair City. Scheduled transit and walk only; unknown source accessibility is excluded. Results disclose geometric endpoint attachments and unmodeled live facility outages.'}, 'serviceDate':{'type':'string','format':'date'}, 'serviceDay':text('weekday','saturday','sunday'),
         'time':ref('Clock'), 'timeMinutes':number(0,4319), 'timePreference':text('depart_at','arrive_by','depart','arrive',default='depart_at'),
         'mode':text('transit','walk','drive',default='transit'), 'maxWalkKm':number(0,100,1.2), 'maxStreetKm':number(.05,1000,50),
         'maxTransfers':number(0,31,integer=True), 'horizonMinutes':number(1,2880,480), 'allowStreetTransfers':boolean(True),
@@ -385,6 +385,7 @@ def specification(native):
         'boardings':seconds,'transfers':seconds,'legs':array(ref('PublicLeg'))},
         ['departureTime','arrivalTime','durationSeconds','walkingSeconds','waitingSeconds','ridingSeconds','boardings','transfers','legs'],strict=False)
     public_common = {'schema':text(),'status':text('ok','not_found'),'mode':text('transit','walk','drive'),
+        'accessibility':obj({'profile':{'const':'wheelchair-strict-v1'},'unknownData':{'const':'exclude'},'limitations':array(text())},['profile','unknownData','limitations'],strict=False),
         'query':{'type':'object'},'meta':obj({'engineVersion':text(),'cityRevision':{'type':['string','null']},'requestId':{},
             'queryFingerprint':text(),'computeUs':nullable_seconds,'computeScope':text()},
             ['engineVersion','cityRevision','requestId','queryFingerprint','computeUs','computeScope'],strict=False),

@@ -9,8 +9,8 @@ import { forEachPbfBlock, forEachPrimitiveEntity } from '../src/server/osm-pbf-r
 
 const encode = (write, value) => { const p = new PbfWriter(); write(value, p); return Buffer.from(p.finish()) }
 const delta = values => values.map((v, i) => v - (values[i - 1] ?? 0))
-function fixture(dense, nodeTags, corrupt) {
-  const strings = ['', 'highway', 'residential', ...new Set(Object.entries(nodeTags).flat())]
+function fixture(dense, nodeTags, corrupt, wheelchair = false) {
+  const strings = ['', 'highway', 'residential', ...new Set(Object.entries(nodeTags).flat()), 'wheelchair', 'yes']
   const keys = Object.keys(nodeTags).map(k => strings.indexOf(k)), vals = Object.values(nodeTags).map(v => strings.indexOf(v))
   const ids = [5100000001, 5100000002, 5100000003, 5100000004]
   const lons = [0, 10000, 20000, 30000]
@@ -29,7 +29,7 @@ function fixture(dense, nodeTags, corrupt) {
         if (i === 1) { p.writePackedVarint(2, keys); p.writePackedVarint(3, vals) }
       }, null)
       p.writeMessage(3, (_, p) => {
-        p.writeVarintField(1, 10); p.writePackedVarint(2, [1]); p.writePackedVarint(3, [2]); p.writePackedSVarint(8, delta(ids))
+        p.writeVarintField(1, 10); p.writePackedVarint(2, wheelchair ? [1, strings.indexOf('wheelchair')] : [1]); p.writePackedVarint(3, wheelchair ? [2, strings.indexOf('yes')] : [2]); p.writePackedSVarint(8, delta(ids))
       }, null)
     }, null)
   }, null)
@@ -69,6 +69,18 @@ try {
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM edges LEFT JOIN walk_nodes ON from_node=node_id WHERE node_id IS NULL').get().n, 0,
       'A segment after a rejected node must still insert its first walk vertex.')
     assert.equal(JSON.parse(db.prepare("SELECT value FROM metadata WHERE key='blockedWalkNodeCount'").get().value), blocked ? 1 : 0)
+    db.close()
+  }
+  for (const dense of [false, true]) for (const [name, tags, blocked] of [
+    ['raised-kerb', { kerb: 'raised' }, true], ['narrow', { width: '70 cm', wheelchair: 'yes' }, true],
+    ['unknown-bollard', { barrier: 'bollard' }, true], ['accessible-gate', { barrier: 'gate', wheelchair: 'yes', foot: 'yes' }, false],
+  ]) {
+    const pbfPath = path.join(folder, `wheelchair-${dense}-${name}.pbf`), outputPath = `${pbfPath}.sqlite`
+    await fs.writeFile(pbfPath, fixture(dense, tags, null, true))
+    await buildNationalOsmStore({ pbfPath, outputPath, wheelchair: true, includeDriving: false })
+    const db = new DatabaseSync(outputPath, { readOnly: true })
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM edges').get().n, blocked ? 2 : 6)
+    assert.equal(JSON.parse(db.prepare("SELECT value FROM metadata WHERE key='accessibility'").get().value).profile, 'wheelchair-strict-v1')
     db.close()
   }
   for (const corrupt of ['delimiter', 'string']) {

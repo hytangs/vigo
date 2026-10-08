@@ -1,3 +1,4 @@
+import { wheelchairProfile, wheelchairDescription, wheelchairBoardingValues, wheelchairPathwaySeconds } from './wheelchair-policy.mjs'
 import { selectedSourceScopes, serviceInSources, scopedServiceResolution } from './gtfs/source-selection.mjs'
 import { estimatedPathwaySeconds } from './gtfs/pathway-cost.mjs'
 import { recoverNativeArriveByBoundary } from './gtfs/arrive-by-reconstruction.mjs'
@@ -1246,13 +1247,13 @@ export async function buildRoutingStoreFromSchedules({ schedules, outputPath, on
   }
 }
 
-export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress, forCity = false }) {
-  return importGtfsFeed({ zipPath, outputPath, onProgress, forCity })
+export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress, forCity = false, wheelchair = false }) {
+  return importGtfsFeed({ zipPath, outputPath, onProgress, forCity, wheelchair })
 }
 
 // City feeds share the final database. Namespace references at the CSV boundary
 // so the same validation and connection compiler serve both build paths.
-async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false, sharedDatabase = null, scope = '' }) {
+async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false, sharedDatabase = null, scope = '', wheelchair = false }) {
   const startedAt = performance.now()
   const archive = await inspectGtfsZip(zipPath)
   const sourceFingerprint = await sha256File(zipPath)
@@ -1328,6 +1329,12 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     excludedTripCount: 0,
     excludedTransferCount: 0,
   }
+  const wheelchairStops = new Map()
+  let boardingAccessibility = new Map()
+  if (wheelchair) db.exec(`
+    CREATE TABLE IF NOT EXISTS wheelchair_stops(stop_id TEXT PRIMARY KEY, boarding INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS wheelchair_transfer_minimum(from_stop_id TEXT NOT NULL, to_stop_id TEXT NOT NULL, min_transfer_time INTEGER NOT NULL, PRIMARY KEY(from_stop_id,to_stop_id));
+  `)
   const excludedTripIds = new Set()
   const zipImportBudget = createGtfsZipImportBudget()
   const importTable = async (name, progress, insertSql, values) => {
@@ -1398,12 +1405,19 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
         if (wheelchairBoarding && numeric(wheelchairBoarding, 0) !== 0) {
           featureInventory.stopWheelchairBoardingRuleCount += 1
         }
+        if (wheelchair) wheelchairStops.set(row.stop_id, { parent: row.parent_station,
+          boarding: requiredGtfsEnum(row.wheelchair_boarding, [0, 1, 2], 'wheelchair_boarding', row.stop_id, 0) })
         if (locationType === 2) featureInventory.stationEntranceCount += 1
         if (String(row.level_id ?? '').trim()) featureInventory.stationLevelRuleCount += 1
         const latitude = String(row.stop_lat ?? '').trim() ? numeric(row.stop_lat, null) : null
         const longitude = String(row.stop_lon ?? '').trim() ? numeric(row.stop_lon, null) : null
         return [row.stop_id, row.stop_name ?? '', latitude, longitude, row.parent_station || null, locationType, row.platform_code || null]
       })
+    if (wheelchair) {
+      boardingAccessibility = wheelchairBoardingValues(wheelchairStops)
+      const insert = db.prepare('INSERT INTO wheelchair_stops VALUES(?,?)')
+      runTransaction(db, () => { for (const [id, boarding] of boardingAccessibility) insert.run(id, boarding) })
+    }
     await importTable('routes.txt', 0.09,
       'INSERT INTO routes VALUES(?,?,?,?,?)',
       (row) => {
@@ -1421,6 +1435,10 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
         insertTripDetails.run(row.trip_id, row.trip_headsign || null, row.trip_short_name || null)
         if (String(row.block_id ?? '').trim()) featureInventory.blockTripCount += 1
         const wheelchairAccessible = String(row.wheelchair_accessible ?? '').trim()
+        if (wheelchair && requiredGtfsEnum(row.wheelchair_accessible, [0, 1, 2], 'wheelchair_accessible', row.trip_id, 0) !== 1) {
+          excludedTripIds.add(row.trip_id)
+          featureInventory.wheelchairExcludedTripCount = (featureInventory.wheelchairExcludedTripCount ?? 0) + 1
+        }
         const bikesAllowed = String(row.bikes_allowed ?? '').trim()
         if (wheelchairAccessible && numeric(wheelchairAccessible, 0) !== 0) {
           featureInventory.tripWheelchairAccessibleRuleCount += 1
@@ -1511,6 +1529,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       SELECT from_stop_id, to_stop_id, 'gtfs_transfer', NULL, NULL FROM transfers
       WHERE ? = '' OR substr(from_stop_id, 1, length(?)) = ?
     `).run(prefix, prefix, prefix)
+    if (wheelchair) db.exec(`INSERT OR IGNORE INTO wheelchair_transfer_minimum SELECT from_stop_id,to_stop_id,min_transfer_time FROM transfers WHERE transfer_type=2`)
     await importTable('frequencies.txt', 0.29,
       'INSERT INTO frequencies VALUES(?,?,?,?,?)',
       (row) => {
@@ -1568,8 +1587,8 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
           row.stop_id,
           arrival,
           departure,
-          restrictedPickup ? 0 : 1,
-          restrictedDropOff ? 0 : 1,
+          restrictedPickup || (wheelchair && boardingAccessibility.get(row.stop_id) !== 1) ? 0 : 1,
+          restrictedDropOff || (wheelchair && boardingAccessibility.get(row.stop_id) !== 1) ? 0 : 1,
           pickupType,
           dropOffType,
         ]
@@ -1581,6 +1600,11 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       report(onProgress, 'Reading pathways.txt', 0.31)
       const insertPathway = db.prepare('INSERT OR IGNORE INTO transfers VALUES(?,?,0,?)')
       const insertPathwayProvenance = db.prepare('INSERT OR IGNORE INTO transfer_provenance VALUES(?,?,?,NULL,?)')
+      const existingPathway = wheelchair ? db.prepare(`SELECT min_transfer_time,transfer_type,provenance FROM transfers
+        JOIN transfer_provenance USING(from_stop_id,to_stop_id) WHERE from_stop_id=? AND to_stop_id=?`) : null
+      const wheelchairMinimum = wheelchair ? db.prepare('SELECT min_transfer_time FROM wheelchair_transfer_minimum WHERE from_stop_id=? AND to_stop_id=?') : null
+      const replacePathway = wheelchair ? db.prepare('INSERT OR REPLACE INTO transfers VALUES(?,?,0,?)') : null
+      const replacePathwayProvenance = wheelchair ? db.prepare("INSERT OR REPLACE INTO transfer_provenance VALUES(?,?,'gtfs_pathway',NULL,?)") : null
       const pathwayStop = db.prepare('SELECT lon, lat FROM stops WHERE stop_id=?')
       let pathwayBatch = 0
       db.exec('BEGIN IMMEDIATE')
@@ -1594,23 +1618,36 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
           }
           const publishedSeconds = optionalCost(row.traversal_time, 'traversal_time')
           const estimatedSeconds = publishedSeconds == null ? estimatedPathwaySeconds(row) : null
-          const seconds = publishedSeconds ?? estimatedSeconds
-          const provenance = estimatedSeconds == null ? 'gtfs_pathway' : 'gtfs_pathway_estimated'
+          const seconds = wheelchair ? wheelchairPathwaySeconds(row) : publishedSeconds ?? estimatedSeconds
+          if (wheelchair && seconds == null) featureInventory.wheelchairExcludedPathwayCount = (featureInventory.wheelchairExcludedPathwayCount ?? 0) + 1
+          const provenance = wheelchair || estimatedSeconds == null ? 'gtfs_pathway' : 'gtfs_pathway_estimated'
           const from = pathwayStop.get(row.from_stop_id)
           const to = pathwayStop.get(row.to_stop_id)
           const chord = from && to && [from.lon, from.lat, to.lon, to.lat].every(Number.isFinite)
             ? haversineKm([from.lon, from.lat], [to.lon, to.lat]) * 1000 : null
           // Co-located station levels do not establish a zero-time connection.
-          const distanceM = optionalCost(row.length, 'length') ?? (chord > 0 ? chord : null)
+          const distanceM = wheelchair && seconds == null ? null : optionalCost(row.length, 'length') ?? (chord > 0 ? chord : null)
           if (seconds == null && distanceM == null) {
             featureInventory.unpricedPathwayCount = (featureInventory.unpricedPathwayCount ?? 0) + 1
           }
-          const forward = insertPathway.run(row.from_stop_id, row.to_stop_id, seconds)
-          if (Number(forward.changes ?? 0)) insertPathwayProvenance.run(row.from_stop_id, row.to_stop_id, provenance, distanceM)
-          if (numeric(row.is_bidirectional, 0) === 1) {
-            const reverse = insertPathway.run(row.to_stop_id, row.from_stop_id, seconds)
-            if (Number(reverse.changes ?? 0)) insertPathwayProvenance.run(row.to_stop_id, row.from_stop_id, provenance, distanceM)
+          const addPathway = (fromId, toId) => {
+            if (wheelchair) {
+              const existing = existingPathway.get(fromId, toId)
+              if (existing?.transfer_type === 3) return
+              const minimum = wheelchairMinimum.get(fromId, toId)?.min_transfer_time ?? 0
+              const duration = seconds == null ? null : Math.max(seconds, minimum ?? 0)
+              // Parallel stairs must not erase an elevator, regardless of row order.
+              if (existing?.provenance === 'gtfs_pathway' && existing.min_transfer_time != null
+                && (duration == null || existing.min_transfer_time <= duration)) return
+              replacePathway.run(fromId, toId, duration)
+              replacePathwayProvenance.run(fromId, toId, distanceM)
+            } else {
+              const inserted = insertPathway.run(fromId, toId, seconds)
+              if (Number(inserted.changes ?? 0)) insertPathwayProvenance.run(fromId, toId, provenance, distanceM)
+            }
           }
+          addPathway(row.from_stop_id, row.to_stop_id)
+          if (numeric(row.is_bidirectional, 0) === 1) addPathway(row.to_stop_id, row.from_stop_id)
           featureInventory.pathwayCount += 1
           if ([row.wheelchair_traversal_time, row.stair_count, row.max_slope, row.min_width].some((value) => String(value ?? '').trim())) {
             featureInventory.pathwayAccessibilityRuleCount += 1
@@ -1772,12 +1809,12 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       'block_id is retained as an operational limitation; VIGO does not infer passenger in-seat continuation from it.')
     limitFeature('timed_transfer_guarantee', featureInventory.timedTransferCount,
       'Timed-transfer guarantee rows are excluded from the generic stop-pair transfer graph.')
-    limitFeature('pathway_accessibility', featureInventory.pathwayAccessibilityRuleCount,
+    limitFeature('pathway_accessibility', wheelchair ? 0 : featureInventory.pathwayAccessibilityRuleCount,
       'Pathway direction and traversal time are used, but accessibility attributes are not query constraints.')
     limitFeature('unpriced_pathways', featureInventory.unpricedPathwayCount ?? 0,
       'Pathways without traversal time, length, or distinct located endpoints are excluded. Their declared station connectivity still suppresses inferred shortcuts.')
-    limitFeature('wheelchair_accessibility', featureInventory.stopWheelchairBoardingRuleCount + featureInventory.tripWheelchairAccessibleRuleCount,
-      'Stop wheelchair_boarding and trip wheelchair_accessible values are inventoried, but VIGO does not yet expose a wheelchair-constrained routing request.')
+    limitFeature('wheelchair_accessibility', wheelchair ? 0 : featureInventory.stopWheelchairBoardingRuleCount + featureInventory.tripWheelchairAccessibleRuleCount,
+      'Stop wheelchair_boarding and trip wheelchair_accessible values require a separately prepared wheelchair City to constrain routing.')
     limitFeature('bicycle_accessibility', featureInventory.tripBikesAllowedRuleCount,
       'Trip bikes_allowed values are inventoried, but VIGO does not yet expose a bicycle-constrained routing request.')
     limitFeature('station_entrances', featureInventory.stationEntranceCount,
@@ -1789,6 +1826,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       : db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count)
     const storeId = sourceFingerprint.slice(0, 20)
     const metadata = {
+      ...(wheelchair ? { accessibility: wheelchairDescription } : {}),
       schemaVersion: storeSchemaVersion,
       storeId,
       sourceFingerprint,
@@ -1858,7 +1896,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
   }
 }
 
-export async function buildNationalGtfsCityStore({ feeds, outputPath, onProgress }) {
+export async function buildNationalGtfsCityStore({ feeds, outputPath, onProgress, wheelchair = false }) {
   if (!Array.isArray(feeds) || !feeds.length) throw new Error('At least one GTFS feed is required.')
   const descriptors = feeds.map((feed) => ({ scope: String(feed.scope ?? '').trim(), zipPath: path.resolve(feed.path) }))
     .sort((left, right) => left.scope.localeCompare(right.scope))
@@ -1866,7 +1904,7 @@ export async function buildNationalGtfsCityStore({ feeds, outputPath, onProgress
     throw new Error('GTFS scopes must be non-empty and unique.')
   }
   if (descriptors.length === 1) {
-    return buildNationalGtfsStore({ zipPath: descriptors[0].zipPath, outputPath, onProgress, forCity: true })
+    return buildNationalGtfsStore({ zipPath: descriptors[0].zipPath, outputPath, onProgress, forCity: true, wheelchair })
   }
   const started = performance.now()
   await fsp.mkdir(path.dirname(outputPath), { recursive: true })
@@ -1879,7 +1917,7 @@ export async function buildNationalGtfsCityStore({ feeds, outputPath, onProgress
     const metadataByStore = []
     for (const feed of descriptors) {
       metadataByStore.push(await importGtfsFeed({
-        zipPath: feed.zipPath, outputPath, sharedDatabase: db, scope: feed.scope, forCity: true,
+        zipPath: feed.zipPath, outputPath, sharedDatabase: db, scope: feed.scope, forCity: true, wheelchair,
         onProgress: onProgress ? (event) => onProgress({ ...event, phase: `${feed.scope}: ${event.phase}` }) : undefined,
       }))
     }
@@ -1945,6 +1983,7 @@ function mergedGtfsMetadata(db, descriptors, metadataByStore, nearbyTransfers, f
   })
   return {
     schemaVersion: storeSchemaVersion,
+    ...(metadataByStore[0].accessibility ? { accessibility: metadataByStore[0].accessibility } : {}),
     storeId: `merged-${descriptors.map((descriptor) => descriptor.scope).sort().join('+')}`,
     sourceFingerprint,
     sourceFile: descriptors.map((descriptor, index) => `${descriptor.scope}:${metadataByStore[index].sourceFile}`).join(', '),
@@ -2014,6 +2053,7 @@ export async function mergeNationalGtfsStores({ stores, outputPath, onProgress, 
     } finally {
       source.close()
     }
+    if (metadata.accessibility) throw new Error('Build wheelchair Cities from the original GTFS feeds; merging prepared wheelchair stores is unsupported.')
     if (metadata.serviceModel !== 'exact-date') {
       throw new Error(`Routing store is not an exact-date raw GTFS store: ${descriptor.storePath}`)
     }
@@ -2412,7 +2452,7 @@ function nearestStops(store, coordinate, maxWalkKm, limit = 12) {
   return nearestStopsFromIndex(store, coordinate, maxWalkKm, limit)
 }
 
-export function expandParentStationTransfers(rawTransfers, stopRecords, stationMembers) {
+export function expandParentStationTransfers(rawTransfers, stopRecords, stationMembers, wheelchair = false) {
   const parentMinimumRules = []
   const declaredPathwayStops = new Set()
   const targetMaps = new Map()
@@ -2454,6 +2494,8 @@ export function expandParentStationTransfers(rawTransfers, stopRecords, stationM
         || numeric(stopRecords.get(rawTransfer.to_stop_id)?.location_type, 0) === 1)) {
       parentMinimumRules.push(rawTransfer)
     }
+    if (wheelchair && rawTransfer.provenance === 'gtfs_transfer' && Number(rawTransfer.transfer_type) !== 3
+      && rawTransfer.from_stop_id !== rawTransfer.to_stop_id) continue
     const transfer = rawTransfer.provenance === 'osm_certified_radial'
       ? {
           ...rawTransfer,
@@ -2541,7 +2583,10 @@ function buildNationalStoreAccessMaterialization(store) {
   `
   const stationMembers = new Map()
   const stopRecords = new Map()
+  const wheelchair = store.metadata.accessibility?.profile === wheelchairProfile
+  const accessibility = wheelchair ? new Map(db.prepare('SELECT stop_id,boarding FROM wheelchair_stops').all().map(row => [row.stop_id, row.boarding])) : null
   for (const stop of db.prepare('SELECT stop_id, name, lat, lon, parent_station, location_type FROM stops ORDER BY stop_id').all()) {
+    if (wheelchair) stop.wheelchair_boarding = accessibility.get(stop.stop_id) ?? 0
     stopRecords.set(stop.stop_id, stop)
     if (stop.parent_station) {
       const list = stationMembers.get(stop.parent_station) ?? []
@@ -2560,8 +2605,10 @@ function buildNationalStoreAccessMaterialization(store) {
   } = expandParentStationTransfers(
     db.prepare(`${transferSelect} WHERE transfer.transfer_type != 3`).iterate(),
     stopRecords,
-    stationMembers,
+    stationMembers, wheelchair,
   )
+  // Never invent connections or snap through a station interior in this profile.
+  if (wheelchair) for (const stop of stopRecords.values()) declaredPathwayStops.add(stop.stop_id)
   const forbiddenTransferExpansion = expandParentStationTransfers(
     db.prepare(`${transferSelect} WHERE transfer.transfer_type = 3`).iterate(),
     stopRecords,
@@ -2579,6 +2626,14 @@ function buildNationalStoreAccessMaterialization(store) {
     error.code = 'resident_stop_access_index_required'
     throw error
   }
+  const transferMinimums = wheelchair ? expandParentStationTransfers(
+    db.prepare("SELECT from_stop_id,to_stop_id,min_transfer_time,2 AS transfer_type,'gtfs_transfer' AS provenance FROM wheelchair_transfer_minimum").iterate(),
+    stopRecords, stationMembers,
+  ).transfers : new Map()
+  for (const [from, minima] of transferMinimums) for (const rule of minima) {
+    const edge = transfers.get(from)?.find(edge => edge.to_stop_id === rule.to_stop_id)
+    if (edge) edge.min_transfer_time = Math.max(edge.min_transfer_time, rule.min_transfer_time)
+  }
   const materialized = {
     transfers,
     declaredPathwayStops,
@@ -2590,7 +2645,7 @@ function buildNationalStoreAccessMaterialization(store) {
     stopRecords,
     stopAccessIndex,
   }
-  materialized.transferShortcuts = prepareServiceTransfers(materialized)
+  materialized.transferShortcuts = prepareServiceTransfers({ ...materialized, transferMinimums })
   return materialized
 }
 
