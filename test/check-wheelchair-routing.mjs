@@ -129,6 +129,7 @@ try {
     + 'A,Alpha,38.9,-77.05,0,,1\nX,Bus,38.905,-77.04,0,,1\nS,Station,38.905,-77.04,1,,1\nE,Entrance,38.905,-77.04,2,S,0\nP,Platform,38.905,-77.0398,0,S,0\nB,Bravo,38.91,-77.03,0,,1\n')
   zip.file('trips.txt', 'route_id,service_id,trip_id,direction_id,wheelchair_accessible\nR1,WKD,T1,0,1\nR2,WKD,T2,0,1\n')
   zip.file('stop_times.txt', 'trip_id,arrival_time,departure_time,stop_id,stop_sequence\nT1,08:00:00,08:00:00,A,1\nT1,08:10:00,08:10:00,X,2\nT2,08:15:00,08:15:00,P,1\nT2,08:30:00,08:30:00,B,2\n')
+  const stationStops = await zip.file('stops.txt').async('string')
   const stairs = 'stairs,E,P,2,1,5,5\n', elevator = 'lift,E,P,5,0,60,60\n'
   for (const [variant, paths, ready] of [
     ['elevator-first', elevator + stairs, true], ['elevator-last', stairs + elevator, true],
@@ -136,10 +137,13 @@ try {
     ['unknown-path', 'path,E,P,1,1,5,\n', false],
     ['minimum-after-stairs', stairs + elevator, false],
     ['minimum-before-stairs', elevator + stairs, false],
-    ['generic-transfer-only', '', false],
+    ['generic-transfer-only', '', false], ['proved-street', '', true], ['street-minimum', '', false],
   ]) {
-    if (variant.startsWith('minimum')) zip.file('transfers.txt', 'from_stop_id,to_stop_id,transfer_type,min_transfer_time\nE,P,2,600\n')
-    else if (variant === 'generic-transfer-only') zip.file('transfers.txt', 'from_stop_id,to_stop_id,transfer_type,min_transfer_time\nX,P,0,0\n')
+    zip.file('stops.txt', variant === 'proved-street' || variant === 'street-minimum'
+      ? stationStops.replace('P,Platform,38.905,-77.0398,0,S,0', 'P,Bus,38.905,-77.0398,0,,1') : stationStops)
+    if (variant === 'street-minimum') zip.file('transfers.txt', 'from_stop_id,to_stop_id,transfer_type,min_transfer_time\nX,P,2,600\n')
+    else if (variant.startsWith('minimum')) zip.file('transfers.txt', 'from_stop_id,to_stop_id,transfer_type,min_transfer_time\nE,P,2,600\n')
+    else if (['generic-transfer-only', 'proved-street'].includes(variant)) zip.file('transfers.txt', 'from_stop_id,to_stop_id,transfer_type,min_transfer_time\nX,P,0,0\n')
     else zip.remove('transfers.txt')
     zip.file('pathways.txt', 'pathway_id,from_stop_id,to_stop_id,pathway_mode,is_bidirectional,traversal_time,wheelchair_traversal_time\n' + paths)
     fs.writeFileSync(gtfsPath, await zip.generateAsync({ type: 'nodebuffer' }))

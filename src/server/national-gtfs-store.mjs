@@ -1667,6 +1667,20 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     }
 
     assertNoBrokenGtfsReferences(db)
+    if (wheelchair) {
+      // Generic transfer rows are timing rules, not wheelchair path evidence.
+      // Retain their minima separately, then free the pair for an independently
+      // proved street connection. Keeping an unproved row here would make the
+      // OSM compiler's INSERT OR IGNORE discard that physical evidence.
+      db.exec(`
+        DELETE FROM transfers WHERE transfer_type!=3 AND from_stop_id!=to_stop_id
+          AND EXISTS(SELECT 1 FROM transfer_provenance AS p
+            WHERE p.from_stop_id=transfers.from_stop_id AND p.to_stop_id=transfers.to_stop_id
+              AND p.provenance='gtfs_transfer');
+        DELETE FROM transfer_provenance WHERE NOT EXISTS(SELECT 1 FROM transfers AS t
+          WHERE t.from_stop_id=transfer_provenance.from_stop_id AND t.to_stop_id=transfer_provenance.to_stop_id);
+      `)
+    }
     report(onProgress, 'Ordering stop times', 0.72)
     stage.exec('CREATE INDEX stop_times_trip_sequence ON stop_times(trip_id, stop_sequence);')
     const tripLookup = db.prepare('SELECT route_id, service_id, direction_id FROM trips WHERE trip_id=?')
