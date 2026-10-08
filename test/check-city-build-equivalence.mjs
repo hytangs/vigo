@@ -90,9 +90,8 @@ try {
   await assert.rejects(fs.stat(changingStreet), { code: 'ENOENT' })
   await assert.rejects(fs.stat(`${changingStreet}.building`), { code: 'ENOENT' })
   const zip = await JSZip.loadAsync(await fs.readFile(inputs.gtfsPath))
-  // The legacy importer accepts an empty stop ID; namespacing must preserve
-  // that row too, while an empty parent_station remains an absent reference.
-  zip.file('stops.txt', 'stop_id,stop_name,stop_lat,stop_lon,parent_station,location_type\nS,Station,38.905,-77.040,,1\nA,Alpha,38.900,-77.050,,0\nX,Transfer,38.905,-77.040,S,0\nB,Bravo,38.910,-77.030,,0\nE,Entrance,38.9051,-77.0401,S,2\n,Empty ID,38.920,-77.020,,0\n')
+  // Empty parent_station means no parent; it must not become a scoped ID.
+  zip.file('stops.txt', 'stop_id,stop_name,stop_lat,stop_lon,parent_station,location_type\nS,Station,38.905,-77.040,,1\nA,Alpha,38.900,-77.050,,0\nX,Transfer,38.905,-77.040,S,0\nB,Bravo,38.910,-77.030,,0\nE,Entrance,38.9051,-77.0401,S,2\n')
   zip.file('trips.txt', 'route_id,service_id,trip_id,direction_id,shape_id\nR1,WKD,T1,0, curve \nR2,WKD,T2,0,curve\nR1,WKD,F,0,curve\nR1,WKD,I,0,curve\n')
   zip.file('shapes.txt', 'shape_id,shape_pt_sequence,shape_pt_lat,shape_pt_lon\ncurve,3,38.910,-77.030\ncurve,1,38.900,-77.050\ncurve,2,38.905,-77.040\n')
   zip.file('calendar_dates.txt', 'service_id,date,exception_type\nWKD,20260704,2\nWKD,20260705,1\n')
@@ -101,6 +100,21 @@ try {
   zip.file('transfers.txt', 'from_stop_id,to_stop_id,transfer_type,min_transfer_time,from_route_id\nX,B,2,90,  \nB,A,3,0,\nA,X,2,60,R1\n')
   zip.file('pathways.txt', 'pathway_id,from_stop_id,to_stop_id,pathway_mode,is_bidirectional,length,traversal_time\np,E,X,1,1,45,\nq,A,X,1,0,100,80\n')
   await fs.writeFile(inputs.gtfsPath, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
+  const validStops = await zip.file('stops.txt').async('string')
+  for (const missingId of ['', '   ']) {
+    zip.file('stops.txt', validStops + `${missingId},Missing ID,38.920,-77.020,,0\n`)
+    const invalidZip = path.join(root, 'missing-stop-id.zip')
+    await fs.writeFile(invalidZip, await zip.generateAsync({ type: 'nodebuffer' }))
+    for (const scoped of [false, true]) {
+      const invalidStore = path.join(root, `missing-stop-id-${scoped}.sqlite`)
+      await assert.rejects(scoped
+        ? buildNationalGtfsCityStore({ feeds: [{ scope: 'first', path: invalidZip }, { scope: 'second', path: inputs.gtfsPath }], outputPath: invalidStore })
+        : buildNationalGtfsStore({ zipPath: invalidZip, outputPath: invalidStore }), /non-empty stop_id/)
+      await assert.rejects(fs.stat(invalidStore), { code: 'ENOENT' })
+      await assert.rejects(fs.stat(`${invalidStore}.building`), { code: 'ENOENT' })
+    }
+  }
+  zip.file('stops.txt', validStops)
   const raw = path.join(root, 'raw.sqlite')
   await buildNationalGtfsStore({ zipPath: inputs.gtfsPath, outputPath: raw })
   assert.equal(inspectNationalStaticTopologySidecar(raw).ready, true, 'Standalone raw builds still publish complete topology.')

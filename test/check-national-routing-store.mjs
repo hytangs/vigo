@@ -17,9 +17,7 @@ import {
   prepareNationalOsmNativeStore,
 } from '../src/server/national-osm-store.mjs'
 import {
-  clipNationalShapeCoordinates,
   clipNationalShapeCoordinatesThroughStops,
-  deduplicateNationalRouteCoordinates,
 } from '../src/server/national-route-geometry.mjs'
 import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
@@ -148,10 +146,9 @@ assert.equal(
   'Separate-sidewalk metadata must not suppress the pedestrian way itself.',
 )
 assert.deepEqual(
-  clipNationalShapeCoordinates(
+  clipNationalShapeCoordinatesThroughStops(
     [[0, 0], [0.01, 0], [0.02, 0], [0.03, 0]],
-    [0.009, 0],
-    [0.021, 0],
+    [[0.009, 0], [0.021, 0]],
   ),
   [[0.009, 0], [0.01, 0], [0.02, 0], [0.021, 0]],
   'Shape clipping belongs to the post-search geometry module and must preserve boarding and alighting coordinates.',
@@ -165,22 +162,6 @@ assert.deepEqual(
   [[0.001, 0], [0.002, 0], [0.001, 0.0001]],
   'Intermediate scheduled stops must disambiguate the correct monotone section of a looped GTFS shape.',
 )
-assert.deepEqual(
-  deduplicateNationalRouteCoordinates([
-    [0, 0],
-    [1, 1],
-    [1, 1],
-    [2, 2],
-  ]),
-  [[0, 0], [1, 1], [2, 2]],
-  'Route geometry must not retain redundant consecutive interior positions.',
-)
-assert.deepEqual(
-  deduplicateNationalRouteCoordinates([[1, 1], [1, 1]]),
-  [[1, 1], [1, 1]],
-  'A zero-length route line must retain the two GeoJSON positions.',
-)
-
 const folder = await processFixtureDirectory(import.meta.url, 'vigo-national-store-')
 const zipPath = path.join(folder, 'fixture.zip')
 const storePath = path.join(folder, 'fixture.sqlite')

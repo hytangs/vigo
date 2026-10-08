@@ -4,15 +4,15 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createNativeShapeGeometry, createNativeShapeGeometrySource, alignNativeShapeStops, clipNativeShapeCoordinates } from '../src/server/native-routing-kernel.mjs'
-import { nationalRideGeometry, clipNationalShapeCoordinatesThroughStops, deduplicateNationalRouteCoordinates } from '../src/server/national-route-geometry.mjs'
+import { nationalRideGeometry, clipNationalShapeCoordinatesThroughStops } from '../src/server/national-route-geometry.mjs'
 import { lineDistanceKm } from '../src/server/geometry-utils.mjs'
 
 // Combining cleanup with distance must preserve degenerate lines, signed zero,
 // edge summation order, and the caller's stop coordinates.
-for (const points of [
-  [[0, 0], [0, 0]],
-  [[0, 0], [1, 0], [1, 0], [0, 0]],
-  [[-0, 0], [0, -0], [1, 1], [2, 3]],
+for (const [points, expected] of [
+  [[[0, 0], [0, 0]], [[0, 0], [0, 0]]],
+  [[[0, 0], [1, 0], [1, 0], [0, 0]], [[0, 0], [1, 0], [0, 0]]],
+  [[[-0, 0], [0, -0], [1, 1], [2, 3]], [[-0, 0], [1, 1], [2, 3]]],
 ]) {
   const saved = structuredClone(points)
   const lookup = new Map(points.map(([lon, lat], i) => [String(i), { lon, lat }]))
@@ -20,7 +20,6 @@ for (const points of [
     trip_id: 'unshaped', from_stop_id: String(i), to_stop_id: String(i + 1),
   }))
   const actual = nationalRideGeometry({}, connections, lookup)
-  const expected = deduplicateNationalRouteCoordinates(points)
   assert.deepEqual(actual.coordinates, expected)
   assert.equal(actual.distanceKm, lineDistanceKm(expected))
   assert.deepEqual(points, saved)

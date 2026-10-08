@@ -62,8 +62,8 @@ try {
     const city = path.join(folder, 'city')
     execFileSync(process.execPath, ['public/vigo.mjs', 'build', `--gtfs=${inputs.gtfsPath}`, `--osm=${inputs.osmPath}`, '--private-access=endpoints', `--output=${city}`], { cwd: root, env, stdio: ['ignore', 'ignore', 'pipe'] })
     const rust = resident(binary, ['stream', '--city', city], runtimeEnv)
-    const legacy = resident(process.execPath, ['public/vigo.mjs', 'stream', '--city', city, '--service-date=2026-07-15'], env)
-    const dates = new Map([['2026-07-15', legacy]])
+    const nodeRuntime = resident(process.execPath, ['public/vigo.mjs', 'stream', '--city', city, '--service-date=2026-07-15'], env)
+    const dates = new Map([['2026-07-15', nodeRuntime]])
     async function route(q, label) {
       const input = { ...base, ...q }
       if (!dates.has(input.serviceDate)) dates.set(input.serviceDate, resident(process.execPath, ['public/vigo.mjs', 'stream', '--city', city, `--service-date=${input.serviceDate}`], env))

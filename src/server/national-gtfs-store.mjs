@@ -1214,6 +1214,9 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     await importTable('stops.txt', 0.05,
       'INSERT INTO stops VALUES(?,?,?,?,?,?,?)',
       (row) => {
+        if (!String(row.stop_id ?? '').slice(prefix.length).trim()) {
+          throw new Error('GTFS stops.txt requires a non-empty stop_id.')
+        }
         const locationType = numeric(row.location_type, 0)
         const wheelchairBoarding = String(row.wheelchair_boarding ?? '').trim()
         if (wheelchairBoarding && numeric(wheelchairBoarding, 0) !== 0) {

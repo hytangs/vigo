@@ -10,6 +10,8 @@ Remove old snapshot readers and the hidden `_route-stream` protocol. Use the doc
 
 Remove the retired JSON timetable compiler and weekday-template routing. Build current Cities from GTFS; legacy template stores now fail admission in both Node and Rust. Live-feed connections require explicit `sources` instead of old `url`/`urls` aliases. Remove unused status UI and duplicate routing-status classifiers, and include grouped-feed and City data interaction checks in the standard suites.
 
+Reject blank GTFS stop IDs in raw and multi-feed builds. Remove test-only production wrappers and obsolete helper tests; check the current geometry and safe-fetch implementations directly.
+
 ## 0.4.4
 
 Correct interior street routing and partial Reach boundaries; add destination-grid and walk-only Reach, prefer faster direct walks by default, and update Studio. See [release notes](docs/history.md#vigo-044).

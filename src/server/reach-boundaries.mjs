@@ -115,10 +115,6 @@ function stitchContourSegments(segments) {
   return lines
 }
 
-export function rasterBoundaryContours(values, width, height, bounds, cutoffsMinutes, surface) {
-  return boundaryContoursFromAreas(rasterBoundaryAreas(values, width, height, bounds, cutoffsMinutes, surface))
-}
-
 export function boundaryContoursFromAreas(areas) {
   return featureCollection(areas.features.map(feature => ({
     ...feature,

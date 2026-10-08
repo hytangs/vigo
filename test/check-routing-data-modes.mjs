@@ -189,7 +189,7 @@ try {
     assert.deepEqual(semanticResult(again), semanticResult(scheduled))
   })
 
-  await check('legacy omitted modes preserve snapshot inference and scheduled compatibility', () => {
+  await check('Studio requests infer data mode from snapshot presence', () => {
     const scheduled = routeNationalGtfsStore(storePath, request())
     assert.equal(ride(scheduled).endMinutes, 640)
     assertProvenance(scheduled, 'scheduled', false)

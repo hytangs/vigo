@@ -75,10 +75,6 @@ async function resolveSafeRealtimeTarget(
   return { parsedUrl, addresses }
 }
 
-export async function assertSafeRealtimeUrl(sourceUrl, options) {
-  return (await resolveSafeRealtimeTarget(sourceUrl, options)).parsedUrl
-}
-
 // DNS promises are not cancellable, but waiting for them must be. The same
 // signal/deadline covers validation, every redirect, and the response body.
 function abortable(promise, signal) {

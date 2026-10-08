@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import './check-reach-blocks.mjs'
-import { rasterBoundaryAreas as rasterAreas, rasterBoundaryContours as rasterContours } from '../src/server/reach-boundaries.mjs'
+import { rasterBoundaryAreas as rasterAreas, boundaryContoursFromAreas } from '../src/server/reach-boundaries.mjs'
 import { createSsrTestServer } from './helpers/ssr-test-server.mjs'
 
 const polygonsOf = collection => collection.features.flatMap(feature => feature.geometry.type === 'Polygon'
@@ -19,7 +19,7 @@ function checkSurface(values, width, height, cutoff = 1, bounds = [0, 0, width, 
   const original = [...values]
   const areas = rasterAreas(values, width, height, bounds, [cutoff], 'baseline')
   const polygons = polygonsOf(areas)
-  const contours = rasterContours(values, width, height, bounds, [cutoff], 'baseline')
+  const contours = boundaryContoursFromAreas(areas)
   assert.deepEqual(contours.features.flatMap(feature => feature.geometry.coordinates), polygons.flat(), 'Fill and outline must use identical closed boundaries')
   assert.deepEqual([...values], original, 'Display interpolation must not change travel times or missing cells')
   for (const polygon of polygons) for (const [index, ring] of polygon.entries()) {

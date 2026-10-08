@@ -1,20 +1,8 @@
 import { createNativeShapeGeometry, createNativeShapeGeometrySource, alignNativeShapeStops, clipNativeShapeCoordinates } from './native-routing-kernel.mjs'
 import {
-  appendDistinctCoordinates,
   haversineKm,
 } from './geometry-utils.mjs'
 import { numeric } from './number-utils.mjs'
-
-export function deduplicateNationalRouteCoordinates(coordinates) {
-  const source = Array.isArray(coordinates) ? coordinates : []
-  const distinct = appendDistinctCoordinates([], source)
-  // A degenerate source edge still needs two GeoJSON positions. Preserve
-  // that explicit zero-length line while removing redundant interior points
-  // from every drawable route geometry.
-  return distinct.length === 1 && source.length >= 2
-    ? [distinct[0], distinct[0]]
-    : distinct
-}
 
 function shapeIdForTrip(store, tripId) {
   const normalizedTripId = String(tripId ?? '').trim()
@@ -159,10 +147,6 @@ function clipPreparedShapeCoordinatesThroughStops(preparedShape, stopCoordinates
 export function clipNationalShapeCoordinatesThroughStops(shapeCoordinates, stopCoordinates) {
   const native = createNativeShapeGeometry(shapeCoordinates ?? [])
   return clipPreparedShapeCoordinatesThroughStops({ native }, stopCoordinates)
-}
-
-export function clipNationalShapeCoordinates(shapeCoordinates, fromCoordinate, toCoordinate) {
-  return clipNationalShapeCoordinatesThroughStops(shapeCoordinates, [fromCoordinate, toCoordinate])
 }
 
 // The caller owns this newly materialized array. Compact sampled duplicates
