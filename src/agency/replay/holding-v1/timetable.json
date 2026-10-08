@@ -2,7 +2,7 @@
   "feed_info": [
     {
       "feed_publisher_name": "VIGO synthetic replay",
-      "feed_publisher_url": "https://github.com/vigo-developers/vigo-agency",
+      "feed_publisher_url": "https://github.com/hytangs/vigo",
       "feed_lang": "en",
       "feed_version": "SYN-HOLD-1",
       "feed_start_date": "20260914",
@@ -13,7 +13,7 @@
     {
       "agency_id": "X",
       "agency_name": "Synthetic City X",
-      "agency_url": "https://github.com/vigo-developers/vigo-agency",
+      "agency_url": "https://github.com/hytangs/vigo",
       "agency_timezone": "UTC"
     }
   ],

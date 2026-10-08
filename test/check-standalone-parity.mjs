@@ -93,7 +93,7 @@ try {
     }
     for (const timePreference of ['depart_at', 'arrive_by']) {
       const short = { ...base, origin: coord(-77.048, 38.901), destination: coord(-77.0479, 38.90105), timePreference, allowLongWalk: false, requireTransitRide: undefined }
-      const n = await legacy({ ...short, timePreference: timePreference === 'arrive_by' ? 'arrive' : 'depart' })
+      const n = await nodeRuntime({ ...short, timePreference: timePreference === 'arrive_by' ? 'arrive' : 'depart' })
       const r = await rust(short)
       check(`${policy} very short ${timePreference} walks by default`, () => {
         const p = n.result ?? n.plan
@@ -129,7 +129,7 @@ try {
         await route(q, `arrival reserve ${arrivalBufferMinutes}, transfer reserve ${minimumTransferBufferMinutes}`)
         const matrix = { ...q, kind: 'matrix', origins: [point('A'), point('B')], destinations: [point('B')], includeJourneys: true }
         delete matrix.origin; delete matrix.destination
-        const ref = await legacy({ ...matrix, timePreference: 'arrive' })
+        const ref = await nodeRuntime({ ...matrix, timePreference: 'arrive' })
         const actual = await rust(matrix)
         check(`${policy} reserved Matrix ${arrivalBufferMinutes}/${minimumTransferBufferMinutes}`, () => {
           assert(!ref.error, JSON.stringify(ref.error)); assert(!actual.error, JSON.stringify(actual.error))
@@ -147,7 +147,7 @@ try {
       { arrivalBufferMinutes: 5, waypoints: [point('X')] }]) {
       const input = { ...base, timePreference: 'arrive_by', timeMinutes: 515, ...invalid }
       const a = await rust(input)
-      const b = await legacy({ ...input, timePreference: input.timePreference === 'arrive_by' ? 'arrive' : 'depart' })
+      const b = await nodeRuntime({ ...input, timePreference: input.timePreference === 'arrive_by' ? 'arrive' : 'depart' })
       check(`${policy} invalid arrival reserve ${JSON.stringify(invalid)}`, () => {
         assert(a.error, JSON.stringify(a)); assert(b.error, JSON.stringify(b))
       })
@@ -157,7 +157,7 @@ try {
       const query = { ...base, kind: 'matrix', timePreference: 'arrive', timeMinutes: 4, arrivalBufferMinutes: 5,
         origins: [point('A')], destinations: [point('B')], includeJourneys: true }
       delete query.origin; delete query.destination
-      const ref = await legacy(query)
+      const ref = await nodeRuntime(query)
       const actual = await rust(query)
       check(`${policy} Matrix arrival reserve crosses midnight`, () => {
         assert(!ref.error, JSON.stringify(ref.error)); assert(!actual.error, JSON.stringify(actual.error))
@@ -173,7 +173,7 @@ try {
         for (const requireTransitRide of [true, false]) {
           const q = { ...base, kind: 'matrix', origins: [point('A'), point('Y'), coord(-77.049, 38.9005), point('B')], destinations: [point('B'), point('A')], mode, timePreference, timeMinutes: 510, includeJourneys: mode === 'transit', requireTransitRide }
           delete q.origin; delete q.destination
-          const ref = await legacy({ ...q, timePreference: timePreference === 'arrive_by' ? 'arrive' : 'depart' })
+          const ref = await nodeRuntime({ ...q, timePreference: timePreference === 'arrive_by' ? 'arrive' : 'depart' })
           const r = await rust(q)
           check(`${policy} Matrix ${mode} ${timePreference} ride=${requireTransitRide}`, () => {
             assert(!ref.error, JSON.stringify(ref.error)); assert(!r.error, JSON.stringify(r.error))
@@ -220,7 +220,7 @@ try {
       const q = { ...base, kind: 'reach', origin: coord(-77.049, 38.9005), walkSpeedKph, timeMinutes: 478, cutoffsMinutes: [15, 30, 45], extentRadiusKm: 2, rasterSize: 48, includeStreetEdges: true }
       delete q.destination
       delete q.requireTransitRide
-      const ref = await legacy(q)
+      const ref = await nodeRuntime(q)
       const r = await rust({ ...q, bounds: ref.surface?.bounds })
       check(`${policy} Reach walking speed ${walkSpeedKph}`, () => {
         assert(!ref.error, JSON.stringify(ref.error)); assert(!r.error, JSON.stringify(r.error))
@@ -242,7 +242,7 @@ try {
       const q = { ...base, kind: 'reach', cutoffsMinutes: [15, 30, 45], extentRadiusKm: 2, rasterSize: 48, scenario }
       delete q.destination
       delete q.requireTransitRide
-      const ref = await legacy(q)
+      const ref = await nodeRuntime(q)
       const r = await rust({ ...q, bounds: ref.surface?.bounds })
       check(`${policy} Reach scenario ${JSON.stringify(scenario)}`, () => {
         assert(!ref.error, JSON.stringify(ref.error)); assert(!r.error, JSON.stringify(r.error))

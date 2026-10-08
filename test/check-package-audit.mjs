@@ -27,6 +27,7 @@ try {
     ['app.lock', ['C:', 'Users', 'build-owner', 'source'].join('\\\\'), /developer path/],
     ['app.bin', Buffer.from(['C:', 'Users', 'build-owner', 'source'].join('\\'), 'utf16le'), /developer path/],
     ['app.tex', 'vigo-' + 'bench/results', /private workspace/],
+    ['app.json', 'https://github.com/example/vigo-' + 'agency', /private workspace/],
     ['app.js', 'sk-' + 'x'.repeat(32), /possible embedded credential/],
     ['app.js', 'ghp_' + 'x'.repeat(32), /possible embedded credential/],
     ['app.js', 'github_pat_' + 'x'.repeat(32), /possible embedded credential/],

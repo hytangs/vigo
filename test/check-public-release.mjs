@@ -104,6 +104,34 @@ if (process.env.GITHUB_REF_TYPE === 'tag') {
 assert(fs.existsSync(path.join(root, 'docs', 'releases', `${packageJson.version}.md`)), 'Current release notes are missing.')
 assert.equal(packageJson.license, 'Apache-2.0', 'Public package must use Apache-2.0.')
 
+// Every external build dependency must resolve from a public registry. Local
+// Rust dependencies are allowed only when their complete sources ship here.
+const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'))
+for (const [name, entry] of Object.entries(lock.packages)) {
+  if (!name) continue
+  assert.equal(entry.link, undefined, `Linked dependency is not allowed: ${name}`)
+  const resolved = new URL(entry.resolved)
+  assert.equal(resolved.origin, 'https://registry.npmjs.org', `Non-public npm source: ${name}`)
+  assert.equal(resolved.username + resolved.password + resolved.search, '', `Credential-bearing npm source: ${name}`)
+  assert.match(entry.integrity, /^sha(?:256|384|512)-/u, `Dependency integrity is missing: ${name}`)
+}
+for (const file of files.filter(file => file.endsWith('/Cargo.toml'))) {
+  const text = fs.readFileSync(path.join(root, file), 'utf8')
+  assert(!/\b(?:git|registry)\s*=/u.test(text), `Non-registry Cargo dependency: ${file}`)
+  for (const [, relative] of text.matchAll(/\bpath\s*=\s*"([^"]+)"/gu)) {
+    const resolved = path.resolve(root, path.dirname(file), relative)
+    const local = path.relative(root, resolved).split(path.sep).join('/')
+    assert(!local.startsWith('../') && !path.isAbsolute(local), `External Cargo path: ${file}`)
+    assert(files.includes(local) || files.includes(`${local}/Cargo.toml`), `Untracked Cargo path: ${file}`)
+  }
+}
+for (const file of files.filter(file => file.endsWith('/Cargo.lock'))) {
+  const text = fs.readFileSync(path.join(root, file), 'utf8')
+  for (const [, source] of text.matchAll(/^source = "([^"]+)"/gmu)) {
+    assert.equal(source, 'registry+https://github.com/rust-lang/crates.io-index', `Non-public Cargo source: ${file}`)
+  }
+}
+
 const workflowFiles = files.filter((file) => file.startsWith('.github/workflows/'))
 for (const file of workflowFiles) {
   const source = fs.readFileSync(path.join(root, file), 'utf8')
@@ -139,6 +167,7 @@ console.log(JSON.stringify({
   excludedPrivateData: true,
   excludedExperimentScripts: true,
   excludedLanguageBindings: true,
+  publicDependencySources: true,
   immutableWorkflowActions: true,
   isolatedReleaseAttestation: true,
 }, null, 2))

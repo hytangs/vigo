@@ -1,6 +1,6 @@
 # Walking costs and source evidence
 
-VIGO 0.4.3 corrects underestimated stop-transfer walking times, omitted OSM node restrictions, and missing station coordinates coerced to `(0, 0)`. These corrections apply to both Node Engine and standalone Rust through their shared prepared City data. Rebuild Cities produced by earlier 0.4.3 candidates as described below.
+VIGO 0.5.0 enforces stop-transfer walking floors, OSM node restrictions, and explicit missing station coordinates. Both Node Engine and standalone Rust use the same prepared City data. Rebuild pre-0.5.0 Cities from the original GTFS and OSM inputs as described below.
 
 ## Time and connectivity are separate
 

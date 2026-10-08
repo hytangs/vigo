@@ -11,7 +11,7 @@ export function publicationContentFindings(data, { forbiddenRoots = [] } = {}) {
   const rules = [
     [/\/(?:Users|home|Volumes)\/[^/\s"']+/u, 'embedded developer path'],
     [/\b[A-Za-z]:[\\/]+(?:Users|Documents and Settings)[\\/]+[^\\/\s"']+/iu, 'embedded developer path'],
-    [/vigo-(?:bench|paper)\b|\/private\/var\/folders\/|https:\/\/github\.com\/hytangs\/vigo-dev(?:\.git)?|r[a]pidonkey/iu, 'private workspace reference'],
+    [/vigo-(?:bench|paper)\b|\/private\/var\/folders\/|https:\/\/github\.com\/[^/\s]+\/vigo-(?:dev|agency)(?:\.git)?\b|r[a]pidonkey/iu, 'private workspace reference'],
     [/-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----|\b(?:sk-|crsr_)[A-Za-z0-9_-]{24,}|\bgh(?:p|o|s|r|u)_[A-Za-z0-9]{20,}\b|\bgithub_pat_[A-Za-z0-9_]{20,}\b|\bAKIA[0-9A-Z]{16}\b|\bxox[baprs]-[A-Za-z0-9-]{20,}/u, 'possible embedded credential'],
   ]
   const findings = new Set()

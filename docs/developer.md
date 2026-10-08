@@ -434,8 +434,8 @@ The independent suite validates the generated graph and timetable models under t
 
 ## Runtime limits and recovery
 
-These safeguards are included in the final VIGO 0.4.2 freeze. API 1.0, City
-format 1, and Result schema 1 are unchanged.
+The following admission limits and recovery behavior apply to VIGO 0.5.0.
+See [public results](reference/results.md) for the current result schemas.
 
 ### Memory and request admission
 
