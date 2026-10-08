@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createNativeShapeGeometry, createNativeShapeGeometrySource, alignNativeShapeStops } from '../src/server/native-routing-kernel.mjs'
-import { nationalRideGeometry, clipNationalShapeCoordinatesThroughStops, clipPackedShapeCoordinates, deduplicateNationalRouteCoordinates } from '../src/server/national-route-geometry.mjs'
+import { createNativeShapeGeometry, createNativeShapeGeometrySource, alignNativeShapeStops, clipNativeShapeCoordinates } from '../src/server/native-routing-kernel.mjs'
+import { nationalRideGeometry, clipNationalShapeCoordinatesThroughStops, deduplicateNationalRouteCoordinates } from '../src/server/national-route-geometry.mjs'
 import { lineDistanceKm } from '../src/server/geometry-utils.mjs'
 
 // Combining cleanup with distance must preserve degenerate lines, signed zero,
@@ -122,9 +122,10 @@ const repeatedLeg = () => nationalRideGeometry(repeatedStore, [{
 }], stops)
 assert.equal(repeatedLeg().geometrySource, 'shape')
 const retainedShape = repeatedStore.shapeGeometryCache.get('repeated')
-assert.equal(retainedShape.distinctIndices.byteLength, coordinates.length * 4)
+assert.equal(retainedShape.coordinates, undefined)
+assert.equal(retainedShape.distinctIndices, undefined)
 assert.equal(repeatedStore.shapeGeometryCacheBytes,
-  retainedShape.coordinates.byteLength + retainedShape.distinctIndices.byteLength + retainedShape.native.estimatedBytes + 256)
+  retainedShape.native.estimatedBytes + 256)
 repeatedStore.shapeGeometryCacheMaxBytes = repeatedStore.shapeGeometryCacheBytes - 1
 repeatedLeg()
 assert.equal(repeatedStore.shapeGeometryCache.size, 0)
@@ -149,7 +150,7 @@ try {
   assert.equal(native.pointCount, coordinates.length)
   assert.equal(source.readShape('missing'), null)
   assert.equal(source.readShape('single'), null)
-  assert.deepEqual(clipPackedShapeCoordinates(native.packedCoordinates, 0, coordinates.length - 1), coordinates)
+  assert.deepEqual(clipNativeShapeCoordinates(native, 0, coordinates.length - 1), coordinates)
   assert.deepEqual(Array.from(alignNativeShapeStops(native, coordinates)), [0, 1, 2, 3, 4, 5])
   const sourceStore = { ...store, activeServiceKernel: { ...kernel }, nativeShapeSource: source,
     shapeGeometryCache: new Map(), shapeGeometryCacheBytes: 0, shapeGeometryCacheMaxBytes: 1 }
@@ -159,7 +160,7 @@ try {
   source.close()
   source.close()
   assert.throws(() => source.readShape('loop'), /closed/)
-  assert.deepEqual(clipPackedShapeCoordinates(native.packedCoordinates, 3, 5), coordinates.slice(3))
+  assert.deepEqual(clipNativeShapeCoordinates(native, 3, 5), coordinates.slice(3))
 } finally {
   fs.rmSync(directory, { recursive: true, force: true })
 }

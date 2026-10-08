@@ -25,8 +25,8 @@ function exerciseNative(directory) {
   const retained = [kernel]
   for (let i = 0; i < 2048; i++) {
     const geometry = new binding.ShapeGeometry(new Float64Array([0, 38, .001, 38]))
-    const rendered = geometry.renderCoordinates()
-    assert.equal(rendered.coordinates.length, 4)
+    const rendered = new Float64Array(4)
+    assert.equal(geometry.clipCoordinates(0, 1, rendered), 2)
     retained.push(geometry, rendered, geometry.alignStops(new Float64Array([0, 38, .001, 38])))
   }
   globalThis.nativeLifecycleRetention = retained

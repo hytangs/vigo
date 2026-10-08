@@ -4485,7 +4485,7 @@ impl CoordinateKernel {
         let temporary_structure = temporary_access_profile_path(structure_path);
         let temporary_metric = temporary_access_profile_path(metric_path);
         let persistence_result = (|| -> std::result::Result<(u64, u64), String> {
-            cch.save_struct(&temporary_structure)
+            cch.save_query_struct(&temporary_structure)
                 .map_err(|error| error.to_string())?;
             metric
                 .save(&temporary_metric)

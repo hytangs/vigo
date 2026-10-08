@@ -21,8 +21,8 @@ const nativeEndpointWorkspaceReservationM = Math.max(
   100,
   Math.min(5_000, Number(process.env.VIGO_NATIVE_ENDPOINT_WORKSPACE_M) || 1_600),
 )
-const nativeStreetCchFormat = 'street-cch-v1-u10000'
-const nativeDriveCchFormat = 'drive-cch-v1-t100-d100'
+const nativeStreetCchFormat = 'street-cch-v2-u10000'
+const nativeDriveCchFormat = 'drive-cch-v2-t100-d100'
 const nativeCchManifestSchema = 'vigo.native-cch-manifest.v1'
 let nativeBinding
 let nativeBindingError
@@ -228,6 +228,27 @@ export function createNativeShapeGeometrySource(storePath) {
 export function alignNativeShapeStops(shape, coordinates) {
   const indices = shape.alignStops(packCoordinates(coordinates))
   return indices.length ? indices : null
+}
+
+// Clipping is synchronous and invokes no JS callbacks. Reuse one small output
+// buffer per worker; each returned point array belongs to its caller.
+const shapeRenderScratch = new Float64Array(512 * 2)
+const shapeFromScratch = new Float64Array(2)
+const shapeToScratch = new Float64Array(2)
+export function clipNativeShapeCoordinates(shape, start, end, from = null, to = null, limit = 512) {
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start
+    || end >= shape.pointCount || !Number.isInteger(limit) || limit < 2 || limit > 0xffffffff) {
+    throw new Error('Invalid shape clipping bounds.')
+  }
+  if ((from && (from.length !== 2 || !from.every(Number.isFinite)))
+    || (to && (to.length !== 2 || !to.every(Number.isFinite)))) throw new Error('Invalid shape endpoint.')
+  const packed = limit === 512 ? shapeRenderScratch : new Float64Array(limit * 2)
+  if (from) shapeFromScratch.set(from)
+  if (to) shapeToScratch.set(to)
+  const count = shape.clipCoordinates(start, end, packed, from ? shapeFromScratch : null, to ? shapeToScratch : null)
+  const points = []
+  for (let i = 0; i < count; i++) points.push([packed[i * 2], packed[i * 2 + 1]])
+  return points
 }
 
 export function nativeStableKeySuffix(value) {

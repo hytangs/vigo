@@ -22,7 +22,7 @@ try {
 
   publishCchManifest({
     kind: 'street',
-    format: 'street-cch-v1-u10000',
+    format: 'street-cch-v2-u10000',
     sourcePath,
     manifestPath,
     structurePath,
@@ -31,7 +31,7 @@ try {
   })
   const manifest = validateCchManifest({
     kind: 'street',
-    format: 'street-cch-v1-u10000',
+    format: 'street-cch-v2-u10000',
     sourcePath,
     manifestPath,
     structurePath,
@@ -64,7 +64,7 @@ try {
   )))
   assert.doesNotThrow(() => validateCchManifest({
     kind: 'street',
-    format: 'street-cch-v1-u10000',
+    format: 'street-cch-v2-u10000',
     ...relocated,
     metrics: { walk: relocated.metricPath },
     nodeCount: 2,
@@ -75,7 +75,7 @@ try {
   assert.throws(
     () => validateCchManifest({
       kind: 'street',
-      format: 'street-cch-v1-u10000',
+      format: 'street-cch-v2-u10000',
       sourcePath,
       manifestPath,
       structurePath,

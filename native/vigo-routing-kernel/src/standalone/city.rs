@@ -222,7 +222,12 @@ fn member_file(dir: &Path, entry: &Value) -> Result<String> {
 fn cch_files(path: &Path, kind: &str) -> Result<(String, String, Option<String>)> {
     let image = Image::open(path, false)?;
     let dir = path.parent().ok_or("Missing snapshot directory")?;
-    let prefix = format!("{}.", path.file_name().unwrap().to_string_lossy());
+    let format = if kind == "street" {
+        "street-cch-v2-u10000"
+    } else {
+        "drive-cch-v2-t100-d100"
+    };
+    let prefix = format!("{}.{format}.", path.file_name().unwrap().to_string_lossy());
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -230,7 +235,10 @@ fn cch_files(path: &Path, kind: &str) -> Result<(String, String, Option<String>)
             continue;
         }
         let m = read_json(&entry.path())?;
-        if m["schemaVersion"] != "vigo.native-cch-manifest.v1" || m["kind"] != kind {
+        if m["schemaVersion"] != "vigo.native-cch-manifest.v1"
+            || m["kind"] != kind
+            || m["format"] != format
+        {
             continue;
         }
         if [

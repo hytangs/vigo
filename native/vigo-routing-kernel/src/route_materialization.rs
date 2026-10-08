@@ -189,19 +189,12 @@ impl ShapeGeometrySource {
 #[cfg_attr(feature = "node", napi)]
 pub struct ShapeGeometry {
     points: Vec<[f64; 2]>,
+    distinct_indices: Option<Vec<u32>>,
     prefix: Vec<f64>,
     nodes: Vec<ShapeNode>,
     candidates: HashMap<(u64, u64), Vec<Candidate>>,
     candidate_order: VecDeque<(u64, u64)>,
     candidate_bytes: usize,
-}
-
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
-pub struct ShapeRenderCoordinates {
-    pub coordinates: Float64Array,
-    pub distinct_indices: Option<Uint32Array>,
 }
 
 #[cfg_attr(feature = "node", napi)]
@@ -216,38 +209,61 @@ impl ShapeGeometry {
         self.points.len() as u32
     }
 
-    // One compact coordinate column per prepared shape, rather than crossing
-    // Node-API and allocating a native output buffer for every selected leg.
-    // Its bytes are accounted separately by the owning JS store.
-    #[cfg_attr(feature = "node", napi(getter))]
-    pub fn packed_coordinates(&self) -> Float64Array {
-        self.points
-            .iter()
-            .flatten()
-            .copied()
-            .collect::<Vec<_>>()
-            .into()
-    }
-
-    /// Compile the source-order distinct-point projection once with the
-    /// coordinate column. Shapes without consecutive duplicates need no index.
-    /// Both returned columns are owned and budgeted by the JS routing store.
-    #[cfg_attr(feature = "node", napi)]
-    pub fn render_coordinates(&self) -> ShapeRenderCoordinates {
-        let mut coordinates = Vec::with_capacity(self.points.len() * 2);
-        let mut distinct: Option<Vec<u32>> = None;
-        for (index, point) in self.points.iter().enumerate() {
-            coordinates.extend_from_slice(point);
-            if index > 0 && *point == self.points[index - 1] {
-                distinct.get_or_insert_with(|| (0..index as u32).collect());
-            } else if let Some(indices) = &mut distinct {
-                indices.push(index as u32);
+    /// Export a bounded leg into a caller-owned scratch buffer. Full source
+    /// coordinates stay native, and no new external buffer is allocated.
+    #[cfg(feature = "node")]
+    #[napi]
+    pub fn clip_coordinates(
+        &self,
+        env: napi::Env,
+        start: u32,
+        end: u32,
+        mut output: Float64ArraySlice<'_>,
+        from: Option<Float64Array>,
+        to: Option<Float64Array>,
+    ) -> Result<u32> {
+        use napi::JsValue;
+        let endpoint = |value: Option<Float64Array>| -> Result<Option<[f64; 2]>> {
+            match value {
+                Some(v) if v.len() == 2 && v.iter().all(|x| x.is_finite()) => {
+                    Ok(Some([v[0], v[1]]))
+                }
+                None => Ok(None),
+                _ => Err(Error::from_reason(
+                    "Shape endpoint must contain two finite coordinates.",
+                )),
             }
+        };
+        // Copy endpoints before borrowing output; callers may pass views of
+        // the same ArrayBuffer for these arguments.
+        let from = endpoint(from)?;
+        let to = endpoint(to)?;
+        let mut buffer = std::ptr::null_mut();
+        let mut ordinary = false;
+        // SAFETY: Node-API supplies valid handles for this synchronous call.
+        // Read the actual backing buffer, without invoking property getters.
+        // A SharedArrayBuffer could be modified concurrently and is rejected.
+        let valid = unsafe {
+            napi::sys::napi_get_typedarray_info(
+                env.raw(),
+                output.raw(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut buffer,
+                std::ptr::null_mut(),
+            ) == napi::sys::Status::napi_ok
+                && napi::sys::napi_is_arraybuffer(env.raw(), buffer, &mut ordinary)
+                    == napi::sys::Status::napi_ok
+        };
+        if !valid || !ordinary {
+            return Err(Error::from_reason(
+                "Shape output requires an ordinary ArrayBuffer.",
+            ));
         }
-        ShapeRenderCoordinates {
-            coordinates: coordinates.into(),
-            distinct_indices: distinct.map(|indices| indices.into_boxed_slice().into_vec().into()),
-        }
+        // SAFETY: output is not shared, endpoints have been copied, and the
+        // remainder of this call neither invokes JS nor retains the slice.
+        self.clip_into(start, end, unsafe { output.as_mut() }, from, to)
     }
 
     /// Returns source-order point indices, or an empty array when no monotone
@@ -263,6 +279,10 @@ impl ShapeGeometry {
     #[cfg_attr(feature = "node", napi(getter))]
     pub fn estimated_bytes(&self) -> f64 {
         (self.points.capacity() * std::mem::size_of::<[f64; 2]>()
+            + self
+                .distinct_indices
+                .as_ref()
+                .map_or(0, |v| v.capacity() * 4)
             + self.prefix.capacity() * std::mem::size_of::<f64>()
             + self.nodes.capacity() * std::mem::size_of::<ShapeNode>()
             + self.candidates.capacity() * 64
@@ -272,6 +292,63 @@ impl ShapeGeometry {
 }
 
 impl ShapeGeometry {
+    #[cfg(feature = "node")]
+    fn clip_into(
+        &self,
+        start: u32,
+        end: u32,
+        output: &mut [f64],
+        from: Option<[f64; 2]>,
+        to: Option<[f64; 2]>,
+    ) -> Result<u32> {
+        let maximum_points = output.len() / 2;
+        let start = start as usize;
+        let end = end as usize;
+        if start > end || end >= self.points.len() || maximum_points < 2 {
+            return Err(Error::from_reason("Invalid shape clipping bounds."));
+        }
+        let indices = self.distinct_indices.as_deref();
+        let begin = indices.map_or(start + 1, |v| v.partition_point(|&i| i as usize <= start));
+        let finish = indices.map_or(end + 1, |v| v.partition_point(|&i| i as usize <= end));
+        let source_count = 1 + finish - begin;
+        let last = if source_count == 1 {
+            start
+        } else {
+            indices.map_or(end, |v| v[finish - 1] as usize)
+        };
+        let has_from = usize::from(from.is_some());
+        let skip_first = usize::from(from.is_some_and(|p| p == self.points[start]));
+        let has_to = usize::from(to.is_some_and(|p| p != self.points[last]));
+        let count = source_count + has_from - skip_first + has_to;
+        let stride = (count - 1).div_ceil(maximum_points - 1).max(1);
+        let mut written = 0;
+        let mut append = |position: usize| {
+            let point = if let Some(point) = from.filter(|_| position == 0) {
+                point
+            } else {
+                let source = position + skip_first - has_from;
+                if source >= source_count {
+                    to.expect("present endpoint")
+                } else {
+                    // Preserve signed zero when a slice begins inside a run.
+                    let index = if source == 0 {
+                        start
+                    } else {
+                        indices.map_or(start + source, |v| v[begin + source - 1] as usize)
+                    };
+                    self.points[index]
+                }
+            };
+            output[written * 2..written * 2 + 2].copy_from_slice(&point);
+            written += 1;
+        };
+        for position in (0..count - 1).step_by(stride) {
+            append(position);
+        }
+        append(count - 1);
+        Ok(written as u32)
+    }
+
     #[cfg(all(feature = "standalone", not(feature = "node")))]
     pub(crate) fn coordinate_slice(
         &self,
@@ -301,8 +378,20 @@ impl ShapeGeometry {
             prefix[i] = prefix[i - 1] + haversine_km(points[i - 1], points[i]);
         }
         let nodes = shape_nodes(&points);
+        let mut distinct_indices: Option<Vec<u32>> = None;
+        for index in 1..points.len() {
+            if points[index] == points[index - 1] {
+                distinct_indices.get_or_insert_with(|| (0..index as u32).collect());
+            } else if let Some(indices) = &mut distinct_indices {
+                indices.push(index as u32);
+            }
+        }
+        if let Some(indices) = &mut distinct_indices {
+            indices.shrink_to_fit();
+        }
         Ok(Self {
             points,
+            distinct_indices,
             prefix,
             nodes,
             candidates: HashMap::new(),

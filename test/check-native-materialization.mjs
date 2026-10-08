@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
-import { createNativeShapeGeometry, alignNativeShapeStops } from '../src/server/native-routing-kernel.mjs'
-import { clipPackedShapeCoordinates } from '../src/server/national-route-geometry.mjs'
+import { createNativeShapeGeometry, alignNativeShapeStops, clipNativeShapeCoordinates } from '../src/server/native-routing-kernel.mjs'
 import { stableKeySuffix, stablePlanId } from '../src/server/routing-plan-identity.mjs'
 import { alignPreparedShapeStopIndices, shapeDistancePrefix } from './helpers/shape-alignment-reference.mjs'
 
@@ -75,9 +74,6 @@ for (const count of [1, 2, 15, 511, 512, 513, 1023, 4097]) {
 for (const shape of clippingShapes) {
   const native = createNativeShapeGeometry(shape)
   assert.equal(native.pointCount, shape.length)
-  const columns = native.renderCoordinates()
-  assert.deepEqual(columns.coordinates, native.packedCoordinates)
-  assert.equal(columns.distinctIndices == null, distinct(shape).length === shape.length)
   const slices = [[0, shape.length - 1]]
   for (let i = 0; i < 24; i += 1) {
     const start = Math.floor(random() * shape.length)
@@ -90,8 +86,7 @@ for (const shape of clippingShapes) {
           const points = distinct([...(from ? [from] : []), ...shape.slice(start, end + 1), ...(to ? [to] : [])])
           const stride = Math.max(1, Math.ceil((points.length - 1) / (limit - 1)))
           const expected = points.filter((_, i) => i % stride === 0 || i === points.length - 1)
-          assert.deepEqual(clipPackedShapeCoordinates(columns.coordinates, start, end, from, to, limit), expected)
-          assert.deepEqual(clipPackedShapeCoordinates(columns.coordinates, start, end, from, to, limit, columns.distinctIndices ?? null), expected)
+          assert.deepEqual(clipNativeShapeCoordinates(native, start, end, from, to, limit), expected)
           clippingCases += 1
         }
       }
@@ -110,3 +105,15 @@ assert.equal(cached.estimatedBytes, populatedBytes, 'Repeated coordinates must r
 for (let i = 0; i < 5000; i += 1) alignNativeShapeStops(cached, [[i / 1e8, 0], [0.001, 0]])
 assert(cached.estimatedBytes < baseBytes + 2048 * 512, 'Candidate reuse must stay bounded after eviction.')
 console.log(JSON.stringify({ check: 'native-materialization', status: 'passed', identifiers: identifiers.length, alignments, clippingCases }))
+
+// The scratch buffer never escapes into returned point arrays. Native writes
+// reject shared backing stores and tolerate aliased input endpoint views.
+const scratchShape = createNativeShapeGeometry([[0, 0], [1, 1]])
+assert.throws(() => scratchShape.clipCoordinates(0, 1, new Float64Array(new SharedArrayBuffer(32))), /ordinary ArrayBuffer/)
+assert.throws(() => scratchShape.clipCoordinates(0, 1, new Float64Array(2)), /bounds/)
+const scratch = new Float64Array([2, 2, 3, 3, 0, 0, 0, 0])
+assert.equal(scratchShape.clipCoordinates(0, 1, scratch, scratch.subarray(0, 2), scratch.subarray(2, 4)), 4)
+assert.deepEqual(Array.from(scratch), [2, 2, 0, 0, 1, 1, 3, 3])
+const owned = clipNativeShapeCoordinates(scratchShape, 0, 1)
+clipNativeShapeCoordinates(scratchShape, 0, 1, [3, 3], [4, 4])
+assert.deepEqual(owned, [[0, 0], [1, 1]])

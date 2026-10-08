@@ -251,8 +251,8 @@ async function prepareStreetStore(request, onProgress) {
     prepareNationalOsmDriveStore,
     prepareNationalOsmNativeStore,
   } = await loadOsmModule()
-  onProgress?.({ phase: 'Opening walking street snapshot', detail: 'Loading the pedestrian routing network', modes: { walk: false, drive: false } })
-  const prepared = prepareNationalOsmNativeStore(streetStorePath)
+  onProgress?.({ phase: 'Preparing walking network', detail: 'Opening the street network and preparing its routing index', modes: { walk: false, drive: false } })
+  const prepared = prepareNationalOsmNativeStore(streetStorePath, { prepareCch: true })
   if (!prepared.ready || !prepared.accelerated) {
     const error = new Error(
       `Pedestrian accelerator unavailable (${prepared.reason ?? 'unknown reason'}). Rebuild the OpenStreetMap street index.`,
@@ -260,13 +260,13 @@ async function prepareStreetStore(request, onProgress) {
     error.code = 'VIGO_STREET_ACCELERATOR_REQUIRED'
     throw error
   }
-  // Transit-only preparation needs pedestrian access. City warm-up explicitly
-  // loads both modes in the resident worker for later street queries.
+  // Preparation may build a missing current index from the admitted street
+  // snapshot. Queries themselves remain read-only, and driving stays deferred.
   if (request?.mode === 'drive' || request?.prepareDrive === true) {
-    onProgress?.({ phase: 'Opening driving street snapshot', detail: 'Walking ready · loading the directed driving network', modes: { walk: true, drive: false } })
+    onProgress?.({ phase: 'Preparing driving network', detail: 'Walking ready · opening the driving network and its routing index', modes: { walk: true, drive: false } })
   }
   const drive = request?.mode === 'drive' || request?.prepareDrive === true
-    ? prepareNationalOsmDriveStore(streetStorePath)
+    ? prepareNationalOsmDriveStore(streetStorePath, { prepareCch: true })
     : {
         ready: true,
         deferred: true,

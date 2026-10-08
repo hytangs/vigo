@@ -24,3 +24,7 @@ RoutingKit. The original RoutingKit copyright and license notice:
     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
     AND ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED. See the RoutingKit
     LICENSE for the full text.
+
+VIGO modifications replace the original v1 structure serialization with a v2
+query prefix and optional compressed customization mappings. The original
+algorithm attribution and licenses above continue to apply.

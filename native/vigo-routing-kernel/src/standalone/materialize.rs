@@ -130,8 +130,8 @@ impl Default for ShapeCache {
         Self {
             entries: VecDeque::new(),
             bytes: 0,
-            maximum_bytes: 256 * 1024 * 1024,
-            maximum_entries: 4096,
+            maximum_bytes: 64 * 1024 * 1024,
+            maximum_entries: 1024,
         }
     }
 }
@@ -481,14 +481,19 @@ mod tests {
         cache.put("a".into(), shape());
         cache.put("b".into(), shape());
         let mut a = cache.take("a").unwrap();
-        let points = a.geometry.packed_coordinates();
-        let stops: Vec<_> = points.chunks_exact(2).map(|p| [p[0], p[1]]).collect();
+        let points = a.geometry.coordinate_slice(0..=1).unwrap().to_vec();
+        let stops = points.clone();
         assert_eq!(a.align(&stops).unwrap(), vec![0, 1]);
         cache.put("a".into(), a);
         cache.put("c".into(), shape());
         assert!(cache.take("b").is_none());
         assert_eq!(
-            cache.take("a").unwrap().geometry.packed_coordinates(),
+            cache
+                .take("a")
+                .unwrap()
+                .geometry
+                .coordinate_slice(0..=1)
+                .unwrap(),
             points
         );
         assert!(cache.take("c").is_some());

@@ -6,6 +6,7 @@ import { totalmem } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 import {
   disposeNativeRoutingKernel,
+  buildNativeStreetCchIndex,
   nativeStreetCchPrepared,
   prepareNativeDriveKernel,
   prepareNativeRoutingKernel,
@@ -1637,7 +1638,7 @@ function prepareNationalOsmDriveProfile(state, storePath, options, startedAt) {
   const nativeDriveKernel = accelerator && options.prepareNative !== false
     ? prepareNativeDriveKernel(accelerator, {
         persistCch: state.metadata.driveCchPersistence !== 'ephemeral',
-        requirePrepared: state.runtimeSnapshotOnly && state.metadata.driveCchPersistence === 'persisted',
+        requirePrepared: options.prepareCch !== true && state.runtimeSnapshotOnly && state.metadata.driveCchPersistence === 'persisted',
       })
     : null
   return {
@@ -2012,7 +2013,7 @@ export function sampleNationalOsmWalkNodes(storePath, options = {}) {
  * Coordinate transit workers use this path so the same street snapshot is not
  * retained once by V8 and again by native code.
  */
-export function prepareNationalOsmNativeStore(storePath) {
+export function prepareNationalOsmNativeStore(storePath, options = {}) {
   const startedAt = performance.now()
   const resolvedPath = path.resolve(storePath)
   let db
@@ -2028,7 +2029,11 @@ export function prepareNationalOsmNativeStore(storePath) {
       )
     }
     const { admission } = admitRuntimeSnapshotStore(db, resolvedPath, metadata, startedAt)
-    const native = prepareNativeRoutingKernel(resolvedPath)
+    let native = prepareNativeRoutingKernel(resolvedPath)
+    if (options.prepareCch === true && !native.streetCch?.ready) {
+      buildNativeStreetCchIndex(resolvedPath)
+      native = prepareNativeRoutingKernel(resolvedPath)
+    }
     return {
       ...native,
       reason: 'ready',

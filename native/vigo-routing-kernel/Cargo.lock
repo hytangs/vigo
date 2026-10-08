@@ -52,6 +52,7 @@ dependencies = [
 name = "cch"
 version = "0.3.0"
 dependencies = [
+ "flate2",
  "memmap2",
  "rayon",
 ]

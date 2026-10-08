@@ -100,3 +100,11 @@ Report reserved bytes separately from resident memory: operating systems can
 back zero-filled allocations lazily, and allocator retention can obscure RSS
 changes after buffers are released. A normal CCH query should not allocate the
 constrained-search workspace merely to keep a kernel resident.
+
+### Compact street indexes and geometry
+
+The v2 hierarchy stores seven aligned query columns. Its size without customization data is `104 + 16 * nodes + 12 * hierarchy_arcs` bytes. Walking indexes use exactly this layout. Driving appends gzip-compressed input mappings for traffic updates; normal queries map the query columns without decoding the mappings. Inverse rank and arc tails are reconstructed only when customization needs them. Serialization uses a fixed 16 KiB buffer.
+
+Transit shape coordinates and their distinct-point index remain native. Each selected Studio leg writes at most 512 points into an 8 KiB worker-local scratch buffer, then copies those points into its owned response. No full shape is exported or retained in JavaScript. The exhaustive clipping checks include loops, duplicate runs, signed zero, endpoint preservation, aliased endpoint views, and repeated buffer reuse. Shared output buffers are rejected at the native boundary.
+
+Measure shape-cache bytes, temporary allocation, and whole-request latency separately. Reducing duplicate coordinates need not reduce timetable search time, and a hierarchy file reduction is not the same percentage reduction in the complete City.

@@ -42,10 +42,11 @@ assembles its stops, legs, and geometry into the returned Result. **Admission**
 validates whether input data can be used; **prewarming** prepares it before a
 query, and **resident** state stays in memory for reuse.
 
-Rust reads selected GTFS shapes directly into numeric buffers, indexes and
-aligns them, and hashes plan identities. JavaScript samples the selected shape
-range from compact coordinate columns and distinct-position indices, assembles
-itinerary objects, and handles store lifetime, orchestration, and public interfaces.
+Rust reads, indexes, aligns, and clips selected GTFS shapes in one native cache.
+A reusable 8 KiB output buffer holds the sampled leg; JavaScript copies only its
+displayed points into itinerary objects. Both runtimes default to a 64 MiB
+shape-cache budget and at most 1,024 shapes. JavaScript handles store lifetime,
+orchestration, and public interfaces.
 
 | Operation | Implementation boundary |
 | --- | --- |

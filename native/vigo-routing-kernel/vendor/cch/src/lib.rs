@@ -9,8 +9,8 @@
 //! [`Metric::save`]), then **serve** zero-copy: open bundles ([`CchBundle`] /
 //! [`MetricBundle`]) and answer shortest-path distance / distance-matrix queries
 //! ([`distance_matrix`]) with shortcut path-unpacking ([`node_path`]). The
-//! construction and bundle format are bit-identical to `RoutingKit`, so bundles
-//! interoperate with existing artifacts.
+//! query prefix is memory-mappable; customization mappings are compressed and
+//! loaded only for metric updates.
 //!
 //! Customization runs in parallel internally (via [rayon](https://docs.rs/rayon)).
 //! For a one-off metric, [`Cch::customize`] is a thin wrapper that is all you
