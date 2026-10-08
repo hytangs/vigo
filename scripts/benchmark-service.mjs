@@ -49,17 +49,20 @@ async function replay(repetitions) {
     while (next < samples.length) {
       const index = next++, queryIndex = index % queries.length, body = queries[queryIndex]
       const started = performance.now()
+      const deadline = AbortSignal.timeout(timeout)
       try {
-        const response = await fetch(address(`/v1/${body.kind}`), { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(timeout) })
+        const response = await fetch(address(`/v1/${body.kind}`), { method: 'POST', headers, body: JSON.stringify(body), signal: deadline })
         const text = await response.text()
         let result
         try { result = JSON.parse(text) }
-        catch { samples[index] = { queryIndex, kind: body.kind, outcome: 'invalid_response', http: response.status, ms: performance.now() - started, bytes: Buffer.byteLength(text), error: 'Response is not valid JSON' }; continue }
-        const outcome = response.status === 429 ? 'overloaded' : response.status === 503 ? 'unavailable' : response.status === 504 ? 'timeout' : !response.ok ? 'http_error'
-          : result.status === 'ok' ? 'ok' : result.status === 'not_found' ? 'not_found' : 'query_error'
+        catch { /* Gateways may send text or HTML; retain the HTTP outcome. */ }
+        const httpFailure = response.status === 429 ? 'overloaded' : response.status === 503 ? 'unavailable' : response.status === 504 ? 'timeout' : !response.ok ? 'http_error' : null
+        const validResult = result !== null && typeof result === 'object' && !Array.isArray(result) && typeof result.status === 'string'
+        const outcome = httpFailure ?? (!validResult ? 'invalid_response'
+          : result.status === 'ok' ? 'ok' : result.status === 'not_found' ? 'not_found' : 'query_error')
         samples[index] = { queryIndex, kind: body.kind, outcome, http: response.status, ms: performance.now() - started, bytes: Buffer.byteLength(text),
-          ...(outcome !== 'ok' && outcome !== 'not_found' ? { error: result.error ?? 'Unexpected public result status' } : {}) }
-      } catch (error) { samples[index] = { queryIndex, kind: body.kind, outcome: 'transport_error', ms: performance.now() - started, error: error.message } }
+          ...(outcome !== 'ok' && outcome !== 'not_found' ? { error: result?.error ?? (httpFailure ? `HTTP ${response.status}` : validResult ? 'Unexpected public result status' : 'Response is not a public result object') } : {}) }
+      } catch (error) { samples[index] = { queryIndex, kind: body.kind, outcome: deadline.aborted ? 'timeout' : 'transport_error', ms: performance.now() - started, error: error.message } }
     }
   }))
   return samples
