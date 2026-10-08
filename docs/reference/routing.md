@@ -95,7 +95,7 @@ a separate query.
 
 The engine adds no implicit boarding buffer. Same-stop vehicle changes honor published GTFS minimum transfer times and forbidden transfers; staying aboard does not incur a transfer minimum. Explicit transfer edges retain their durations without an added boarding margin or a 60-second floor. Native diagnostics report `transferBoardSlackSeconds: 0`. A published platform-to-platform transfer rule takes precedence over the station walking fallback.
 
-VIGO 0.4.2 exposes `earliest_arrival`. Equal-arrival journeys prefer fewer boardings, then less walking, then a stable final order. VIGO does not expose an undefined “balanced” preference. Arrive-by first maximizes departure time; among journeys leaving at that boundary and arriving by the deadline, it minimizes boardings, then walking, then actual arrival. A slightly later on-time arrival can therefore avoid unnecessary transfers. If the reverse boundary cannot initially be materialized, the engine reconstructs a forward witness at that same departure using the complete access frontier. A remaining mismatch is a query error; an earlier feasible transit departure is not certified as latest. An independently verified opt-in direct walk may dominate the reverse transit bound.
+VIGO exposes `earliest_arrival`. Equal-arrival journeys prefer fewer boardings, then less walking, then a stable final order. VIGO does not expose an undefined “balanced” preference. Arrive-by first maximizes departure time; among journeys leaving at that boundary and arriving by the deadline, it minimizes boardings, then walking, then actual arrival. A slightly later on-time arrival can therefore avoid unnecessary transfers. If the reverse boundary cannot initially be materialized, the engine reconstructs a forward witness at that same departure using the complete access frontier. A remaining mismatch is a query error; an earlier feasible transit departure is not certified as latest. An independently verified direct walk may dominate the reverse transit bound.
 
 Departure-window queries also return up to five distinct journey choices in
 `choices`, including slower services that reduce transfers or walking. For each
@@ -108,12 +108,21 @@ scheduled alternative search to an adjusted timetable.
 
 Depart-at transit, arrive-by transit, walking, driving, waypoints, and batch requests remain Route variants. Desktop and CLI Route support realtime transit. CLI callers supply `realtimeSnapshot` and select `--data-mode realtime`; scheduled mode remains the CLI default. See [data modes and provenance](realtime-routing.md). See the [realtime limits](known-routing-limitations.md#realtime).
 
+Ordered Transit routes can walk any segment, including the whole journey.
+Selection compares complete journeys by arrival time (or latest departure),
+then boardings and walking. A later walk to a waypoint can replace a short
+ride when both catch the same onward vehicle. Up to eight partial journeys
+are retained at each waypoint and up to five complete choices are returned;
+this bounded alternative search does not enumerate every possible itinerary.
+Equal continuation clocks reuse a segment query, and waypoint clocks retain
+seconds. `requireTransitRide: true` explicitly requires a ride on each segment.
+
 ## Transfer and access rules
 
 Use `maxTransfers` in a JSON request or `--max-transfers=N` in the CLI. Studio exposes Maximum transfers under Route options.
 `0` permits at most one boarding; `1` permits at most two. Values must be
 integers from 0 through 31. Omit the option for no additional limit. Staying
-aboard the same trip is not a transfer. Walk-only results require an explicit opt-in.
+aboard the same trip is not a transfer. Walking competes unless `requireTransitRide: true` is supplied.
 The cap constrains the native search, including alternatives and arrive-by;
 a slower feasible route is searched when the unrestricted winner exceeds it.
 A finite cap with ordered transit waypoints is currently unsupported.

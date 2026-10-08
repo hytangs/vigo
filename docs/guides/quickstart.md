@@ -2,7 +2,7 @@
 
 Start with **Boston and Cambridge**: download the MBTA timetable and OpenStreetMap streets, prepare them once, then route from **Harvard Square to South Station**. You will save Route, Matrix, and Reach results. A “City” means the compiled data folder, called `boston/` here.
 
-This tutorial uses the **Node CLI**, including its raw-data compiler. For the single Rust executable, follow the [Rust Boston quickstart](rust-standalone.md#1-quickstart); it loads the same prepared Boston directory, with a different request/result interface.
+This tutorial uses the **Node CLI**, including its raw-data compiler. For the single Rust executable, follow the [Rust Boston quickstart](rust-standalone.md#1-quickstart); it loads the same prepared Boston directory, with the same public result schemas and its own CLI options.
 
 For the desktop workflow, use the [Studio guide](studio.md). Studio imports data into its own project library; it does not open the CLI City directory created below.
 
@@ -110,7 +110,7 @@ vigo route --city ./boston --request ./route.json \
 
 ## 4. Inspect the Result
 
-Read `status` first, then `result.departMinutes`, `result.arriveMinutes`, and `result.legs`. Clocks are minutes after local service-day midnight; 540 means 09:00. A `ready` result has a journey; `blocked` means no journey under the requested date, walking limit, transfer cap, and time horizon. Check warnings and station/walking qualifications too.
+Read `status` first, then `journey.departureTime`, `journey.arrivalTime`, and `journey.legs`. Clocks use local service-day `HH:MM:SS`; durations use seconds. An `ok` result has a journey; `not_found` means no journey under the requested date, walking limit, transfer cap, and time horizon. Check warnings and station/walking qualifications too.
 
 Trip IDs and journey times depend on the downloaded feed. This is scheduled routing; these commands do not fetch live delays. The [offline Result viewer](../guide.html#viewer) opens the exported JSON. [Read and retain a Result](../reference/results.md) explains the full record.
 
@@ -150,7 +150,7 @@ vigo matrix \
   --output ./matrix-result.json
 ```
 
-Inspect every row's `status`. A ready Matrix can contain blocked pairs; missing travel times are not zero. Add more unique origins or destinations to expand the same request.
+Read `durationsSeconds[originIndex][destinationIndex]` and, when requested, the corresponding `journeys` entry. Unreachable pairs are `null`; missing travel times are not zero. Add more unique origins or destinations to expand the same request.
 
 ## 6. Run Reach
 

@@ -34,9 +34,9 @@ vigo route --city ./boston --request ./journey.json \
   --output ./journey-result.json
 ```
 
-Check `status`, then the chronological `result.legs`. Transit requires a boarding by default. A blocked journey can reflect the date, timetable, access network, or constraints; it does not automatically mean the physical locations are disconnected. Use [blocked-Route diagnostics](../reference/routing.md#result) to identify the next check.
+Check `status`, then the chronological `journey.legs`. Walking competes with transit; set `requireTransitRide: true` to require a boarding. A `not_found` result can reflect the date, timetable, access network, or constraints; it does not automatically mean the physical locations are disconnected. Use [blocked-Route diagnostics](../reference/routing.md#result) to identify the next check.
 
-For a walking journey, use `"mode": "walk"` with coordinate endpoints. For an arrive-by transit journey, add `--time-preference arrive` and set `--time` to the deadline. For alternatives around a departure, use `--departure-window 10` to sample within ten minutes either side of the requested time; inspect `choices` and the [Route contract](../reference/routing.md) before treating that list as a continuous timetable profile.
+For a walking journey, use `"mode": "walk"` with coordinate endpoints. For an arrive-by transit journey, add `--time-preference arrive` and set `--time` to the deadline. For alternatives around a departure, use `--departure-window 10` to sample within ten minutes either side of the requested time; inspect `alternatives` and the [Route contract](../reference/routing.md) before treating that list as a continuous timetable profile.
 
 ## Reach one destination by a deadline
 

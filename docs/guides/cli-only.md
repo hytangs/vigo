@@ -147,15 +147,15 @@ vigo reach --city ./boston --request reach.json --service-date "$SERVICE_DATE" \
 The Result contains:
 
 - `stops` and `scenarioStops`: reached scheduled and planned-service stops.
-- `surface.values` with `surface.bounds`: the requested grid, with JSON `null`
+- `surface.valuesSeconds` with `surface.bounds`: the requested grid, with JSON `null`
   for unreached cells; `contours`: GeoJSON isolines; and `areas`: reachable-cell
   Polygon/MultiPolygon GeoJSON for that grid.
-- `surface.fullValues` with `surface.fullBounds`, plus `fullContours` and `fullAreas`: the
+- `fullSurface.valuesSeconds` with `fullSurface.bounds`, plus `fullContours` and `fullAreas`: the
   complete reached-network envelope when the native engine returns it.
 - `surface.edges`: the complete indexed directed-street bundle when
   `--street-edges` or JSON `includeStreetEdges: true` is set. Edges use the
-  `vigo.street.edge-bundle.v1` format; they are not a GeoJSON FeatureCollection.
-- `diagnostics`: timetable, transit availability, and surface diagnostics.
+  `vigo.street.edge-bundle.v2` format; they are not a GeoJSON FeatureCollection.
+- `diagnostics` and `profile`: optional details when explicitly requested.
 
 Cutoffs accept 5–240 minutes; extent accepts 1–40 km; grid sizes are 48, 64, 96,
 128, 192, 256, 384, 512, and 1024. The requested extent bounds the comparison
@@ -213,25 +213,23 @@ vigo stream --city ./boston --service-date "$SERVICE_DATE" \
   < queries.ndjson > results.ndjson
 ```
 
-One process owns one City and service date. Each line requires `kind` and may
+One process owns one City. Each line requires `kind` and may
 override query options using JSON fields such as `mode`, `timePreference`,
 `maxWalkKm`, `maxTransfers`, `horizonMinutes`, or `departureWindowMinutes`.
 `time` accepts `HH:MM` or integral service-day minutes; `timeMinutes` accepts
-integral minutes. A different `serviceDate` or inconsistent `serviceDay` is
-rejected. Start another process for another City/date.
+integral minutes. Each request can select its `serviceDate`; the runtime prepares or reuses that service timetable. An inconsistent `serviceDay` is rejected. Start another process for another City.
 
 Responses preserve input order and carry `id` and `sequence`. Blank lines are
 ignored. A bad line returns `status: "error"` and later lines still run. Read
 every response status: request errors do not turn a completed stream into a
-nonzero process exit. Prepared modes are reused; `timing.openMs` is zero after
-preparation. This measures preparation reuse, not total request time. Closing
+nonzero process exit. Prepared modes are reused. `meta.computeUs` reports the documented compute boundary; measure caller wall time separately. Closing
 stdin ends the process; interrupting it cancels the session.
 
 ## Output and limits
 
 Single queries print JSON to stdout; `--output` also saves it. `--request -`
 reads one JSON object from stdin (16 MiB limit). Diagnostics and build progress
-go to stderr. A valid `blocked` result exits 0; invalid command input or an
+go to stderr. A valid `not_found` result exits 0; invalid command input or an
 execution failure exits 2. CSV batches write rows to the output file and print
 a JSON summary. Retain City identity, request, warnings, and timings with
 results. `capabilities` declares the current feature combinations.
@@ -262,6 +260,6 @@ used only by the test driver; runtime commands have no external npm dependency.
 
 ## Public output
 
-Route, Matrix and Reach use the [public result contract](../reference/results.md). Interactive Route output is a short itinerary; use `--format json` for structured output in a terminal. Pipes and files remain JSON. Add `--diagnostics summary`, `profile`, or `trace` only when needed; diagnostic requests use JSON so the requested evidence stays visible. Geometry is opt-in with `--include-geometry`.
+Route, Matrix and Reach use the [public result contract](../reference/results.md). Interactive Route output is a short itinerary; use `--format json` for structured output in a terminal. Pipes and files remain JSON. Add `--diagnostics summary`, `profile`, or `trace` only when needed; diagnostic requests use JSON so the requested evidence stays visible. Route includes available geometry by default; `--include-geometry=false` omits it. Matrix journey geometry is opt-in with `--include-geometry`.
 
 CSV batches retain their explicitly named CSV units and return a small `vigo.batch.v1` completion summary on stdout. Full per-query witnesses are available with `--diagnostics trace`.

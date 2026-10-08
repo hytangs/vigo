@@ -32,12 +32,13 @@ VIGO models the City revision and Query it is given. It does not certify real-wo
   schema v6 excludes their outlines from the linear walking graph; mapped
   footways and GTFS station pathways provide access. Routing freely across
   polygon interiors is not modeled. Older Cities require a source rebuild.
-- A coordinate has one physical street attachment. If its closest attachment
-  lies in a disconnected pedestrian component, a geometrically nearby stop can
-  remain unreachable even with a larger walking budget. VIGO does not switch to
-  a farther component merely because that component produces a transit route.
-  Check endpoint connectors, permissions and missing source links before
-  interpreting a blocked result or accepting a route from a different graph.
+- Stops keep one physical street attachment. An anonymous endpoint on an
+  unanchored fragment can recover to the nearest transit-connected component
+  within 80 m, including the full connector cost. This does not add graph links
+  or prove access through intervening buildings, fences, water, or different
+  levels. Mapped restricted endpoint paths retain their directed permissions.
+  See [coordinate attachment](street-routing.md#coordinate-network-attachment).
+
 - Authorized private endpoint access is an opt-in City build model; see [Street routing](street-routing.md). It does not establish individual permissions, gate hours, or missing connections.
 - Drive does not yet model all turn restrictions, signals, or intersection delay.
 - Traffic must be supplied by the caller; VIGO does not fetch a provider.

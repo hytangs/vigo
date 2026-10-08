@@ -30,13 +30,22 @@ try {
   await fs.mkdir(payload)
   for (const [source, destination] of [
     ['public/vigo.mjs', 'vigo.mjs'],
-    ...(!cliOnly ? [['public/engine-http.mjs', 'engine-http.mjs']] : []),
+    ...(!cliOnly ? [['public/engine-http.mjs', 'engine-http.mjs'], ['scripts/benchmark-service.mjs', 'benchmark-service.mjs']] : []),
     ['native/vigo-routing-kernel/vigo-routing-kernel.node', 'vigo-routing-kernel.node'],
     ['LICENSE', 'LICENSE'], ['NOTICE', 'NOTICE'],
     ['native/vigo-routing-kernel/vendor/cch/LICENSE', 'CCH-LICENSE'],
     ['native/vigo-routing-kernel/vendor/cch/NOTICE', 'CCH-NOTICE'],
     [cliOnly ? 'docs/guides/cli-only.md' : 'docs/guides/engine-deployment.md', 'README.md'],
   ]) await fs.copyFile(path.join(root, source), path.join(payload, destination))
+  // The extracted README has no adjacent source documentation tree.
+  const readmePath = path.join(payload, 'README.md')
+  const readme = await fs.readFile(readmePath, 'utf8')
+  await fs.writeFile(readmePath, readme.replace(/\]\(([^)]+)\)/gu, (match, target) => {
+    if (/^(?:[a-z][\w+.-]*:|\/\/|#)/iu.test(target)) return match
+    const reference = path.posix.normalize(`docs/guides/${target}`)
+    if (reference.startsWith('../') || reference.startsWith('/')) throw new Error('README link escapes the repository')
+    return `](https://github.com/hytangs/vigo/blob/main/${reference})`
+  }))
   if (!cliOnly && process.platform === 'linux') {
     await fs.copyFile(path.join(root, 'deploy', 'runtime.Dockerfile'), path.join(payload, 'Dockerfile'))
     await fs.copyFile(path.join(root, 'deploy', 'compose.yml'), path.join(payload, 'compose.yml'))

@@ -244,7 +244,7 @@ def specification(native):
     schemas['Clock'] = {'oneOf':[{'type':'string','pattern':r'^\d{1,2}:\d{1,2}(:\d{1,2})?$'},number(0,4319)], 'description':'Service-day HH:MM[:SS], hours 0..71, minutes/seconds 0..59; or numeric minutes.'}
     common = {
         'diagnostics':text('none','summary','profile','trace',default='none'), 'includeGeometry':boolean(), 'includeLimitations':boolean(),
-        'kind':text(), 'id':{}, 'serviceDate':{'type':'string','format':'date'}, 'serviceDay':text('weekday','saturday','sunday'),
+        'kind':text(), 'id':{}, 'scenarioId':text(description='Member of the loaded scenario collection; omitted selects its default.'), 'wheelchair':{**boolean(False),'description':'true returns unsupported_mode; no accessible routing model is provided.'}, 'serviceDate':{'type':'string','format':'date'}, 'serviceDay':text('weekday','saturday','sunday'),
         'time':ref('Clock'), 'timeMinutes':number(0,4319), 'timePreference':text('depart_at','arrive_by','depart','arrive',default='depart_at'),
         'mode':text('transit','walk','drive',default='transit'), 'maxWalkKm':number(0,100,1.2), 'maxStreetKm':number(.05,1000,50),
         'maxTransfers':number(0,31,integer=True), 'horizonMinutes':number(1,2880,480), 'allowStreetTransfers':boolean(True),
@@ -293,7 +293,7 @@ def specification(native):
     reach_common['surfaceSampling'] = text('street','cell-center',default='street')
     reach_common['mode'] = text('transit','walk',default='transit')
     reach_common['timePreference'] = text('depart_at','depart',default='depart_at')
-    schemas['ReachRequest'] = obj({**reach_common,'origin':ref('Point'),'cutoffsMinutes':{**array(number(1,240),1,16),'default':[15,30,45,60]},'rasterSize':number(16,1024,96,integer=True),
+    schemas['ReachRequest'] = obj({'reachFormat':text('full','map',default='full'),**reach_common,'origin':ref('Point'),'cutoffsMinutes':{**array(number(1,240),1,16),'default':[15,30,45,60]},'rasterSize':number(16,1024,96,integer=True),
         'extentRadiusKm':number(1,40,8),'bounds':array(number(),4,4),'includeStreetEdges':boolean(),'includeNodes':boolean(),'scenario':ref('Scenario')},['origin'],allOf=[clock_rule,transit_date,mode_rule])
     schemas['CompareRequest'] = obj({'kind':text(),'id':{},'before':ref('ReachResult'),'after':ref('ReachResult')},['before','after'])
     cases = [obj({'operation':{'const':'timetable.identifiers'},'serviceDate':{'type':'string','format':'date'},'kind':text(),'id':{}},['operation','serviceDate'],strict=False)]
@@ -373,10 +373,10 @@ def specification(native):
     schemas['PublicIdentifier'] = obj({'feed':{'type':['string','null']},'id':text()},['feed','id'])
     schemas['PublicEndpoint'] = obj({'stop':ref('PublicIdentifier'),'name':text(),'coordinate':ref('Coordinate')},strict=False)
     schemas['PublicLeg'] = obj({'type':text('walk','transit','drive'),'from':ref('PublicEndpoint'),'to':ref('PublicEndpoint'),
-        'departureTime':text(),'arrivalTime':text(),'durationSeconds':seconds,'distanceMeters':seconds,'quality':{'type':'object'},
+        'departureTime':text(),'arrivalTime':text(),'durationSeconds':seconds,'distanceMeters':seconds,'quality':{'type':'object'},'trip':ref('PublicIdentifier'),'service':ref('PublicIdentifier'),'serviceDate':text(),'headsign':nullable(text()),'directionId':nullable(text()),'intermediateStops':array({'type':'object'}),
         'geometry':obj({'type':{'const':'LineString'},'coordinates':array(ref('Coordinate'))},['type','coordinates'])},
         ['type','from','to','departureTime','arrivalTime','durationSeconds','quality'],strict=False)
-    schemas['PublicJourney'] = obj({'departureTime':text(),'arrivalTime':text(),'durationSeconds':seconds,
+    schemas['PublicJourney'] = obj({'clockDate':text(description='Date anchoring all elapsed service clocks in this journey, including overnight arrive-by searches.'),'departureTime':text(),'arrivalTime':text(),'durationSeconds':seconds,
         **{k:nullable_seconds for k in ['walkingSeconds','waitingSeconds','ridingSeconds','drivingSeconds']},
         'boardings':seconds,'transfers':seconds,'legs':array(ref('PublicLeg'))},
         ['departureTime','arrivalTime','durationSeconds','walkingSeconds','waitingSeconds','ridingSeconds','boardings','transfers','legs'],strict=False)
@@ -385,11 +385,11 @@ def specification(native):
             'queryFingerprint':text(),'computeUs':nullable_seconds,'computeScope':text()},
             ['engineVersion','cityRevision','requestId','queryFingerprint','computeUs','computeScope'],strict=False),
         'diagnostics':{'type':'object'},'profile':{'type':'object'},'trace':{'type':'object'},'warnings':array({'type':'object'}),'datasetLimitations':{},'id':{}}
-    schemas['RouteResult'] = obj({**public_common,'schema':{'const':'vigo.route.v1'},'journey':nullable(ref('PublicJourney')),'reason':{'type':'object'},'alternatives':array(nullable(ref('PublicJourney')))},['schema','status','query','meta','journey'],strict=False)
+    schemas['RouteResult'] = obj({**public_common,'schema':{'const':'vigo.route.v1'},'journey':nullable(ref('PublicJourney')),'reason':{'type':'object'},'alternativeSearch':{'type':'object'},'access':{'type':'object'},'alternatives':array(nullable(ref('PublicJourney')))},['schema','status','query','meta','journey'],strict=False)
     schemas['MatrixResult'] = obj({**public_common,'schema':{'const':'vigo.matrix.v1'},'durationsSeconds':array(array(nullable_seconds)),'journeys':array(array(nullable(ref('PublicJourney'))))},['schema','status','query','meta','durationsSeconds'],strict=False)
     public_surface = obj({'width':seconds,'height':seconds,'bounds':array(number(),4,4),'valuesSeconds':array(nullable_seconds)},['width','height','bounds','valuesSeconds'],strict=False)
-    schemas['ReachResult'] = obj({**public_common,'schema':{'const':'vigo.reach.v1'},'surface':public_surface,'fullSurface':public_surface,'cutoffsSeconds':array(seconds),
-        **{k:{'type':'object'} for k in ['areas','contours','fullAreas','fullContours']}},['schema','status','query','meta','surface','cutoffsSeconds'],strict=False)
+    schemas['ReachResult'] = obj({**public_common,'schema':{'const':'vigo.reach.v1'},'surface':public_surface,'fullSurface':public_surface,'bounds':array(number(),4,4),'cutoffsSeconds':array(seconds),
+        **{k:{'type':'object'} for k in ['areas','contours','fullAreas','fullContours']}},['schema','status','query','meta','cutoffsSeconds'],strict=False,anyOf=[{'required':['surface']},{'required':['areas','bounds']}])
     schemas['CompareRequest'] = obj({'before':{'oneOf':[ref(k+'Result') for k in ['Route','Matrix','Reach']]},'after':{'oneOf':[ref(k+'Result') for k in ['Route','Matrix','Reach']]}},['before','after'],strict=False)
     schemas['CompareResult'] = obj({'schema':{'const':'vigo.compare.v1'},'status':{'const':'ok'},'durationChangeSeconds':{'type':['integer','null']},'meanChangeSeconds':{'type':['number','null']},'counts':{'type':'object'}},['schema','status'],strict=False)
     paths = {}
@@ -397,7 +397,8 @@ def specification(native):
         return {'description':description,'content':{'application/json':{'schema':ref(schema)}}}
     for kind in ['route','matrix','reach','compare','native']:
         title=kind.title()
-        paths['/v1/'+kind]={'post':{'operationId':kind,'summary':title,'parameters':[{'in':'query','name':'diagnostics','schema':text('none','summary','profile','trace'),'description':'Optional diagnostic detail; default none.'},{'in':'query','name':'includeGeometry','schema':{'type':'boolean'}},{'in':'query','name':'includeLimitations','schema':{'type':'boolean'}}],'requestBody':{'required':True,'content':{'application/json':{'schema':ref(title+'Request')}}},'responses':{'200':response(title+'Result'),'400':response('Error','Invalid request'),'401':response('Error','Bearer authentication failed'),'408':response('Error','Request read deadline'),'413':response('Error','Body limit'),'417':response('Error','Unsupported Expect header'),'431':response('Error','Header limit'),'503':response('Error','Capacity or worker unavailable'),'504':response('Error','Query deadline or worker failed')}}}
+        paths['/v1/'+kind]={'post':{'operationId':kind,'summary':title,'parameters':[{'in':'query','name':'diagnostics','schema':text('none','summary','profile','trace'),'description':'Optional diagnostic detail; default none.'},{'in':'query','name':'includeGeometry','schema':{'type':'boolean'}},{'in':'query','name':'includeLimitations','schema':{'type':'boolean'}}],'requestBody':{'required':True,'content':{'application/json':{'schema':ref(title+'Request')}}},'responses':{'200':response(title+'Result'),'400':response('Error','Invalid request'),'401':response('Error','Bearer authentication failed'),'408':response('Error','Request read deadline'),'409':response('Error','Request ID already active'),'499':response('Error','Request canceled'),'413':response('Error','Body limit'),'417':response('Error','Unsupported Expect header'),'431':response('Error','Header limit'),'503':response('Error','Capacity or worker unavailable'),'504':response('Error','Query deadline or worker failed')}}}
+    paths['/v1/requests/{id}']={'delete':{'operationId':'cancelRequest','summary':'Cancel an active or queued named request','parameters':[{'name':'id','in':'path','required':True,'schema':text()}],'responses':{'202':{'description':'Cancellation requested; running work is terminated and its worker replaced.'},'404':response('Error','No active request with this ID'),'401':response('Error','Bearer authentication failed')}}}
     paths['/v1/isochrone']={'post':{**paths['/v1/reach']['post'],'operationId':'isochrone','summary':'Alias of Reach'}}
     for kind in ['info','capabilities']:
         paths['/v1/'+kind]={'get':{'operationId':kind,'summary':kind.title(),'responses':{'200':{'description':'Runtime metadata; inspect capabilities for supported combinations.','content':{'application/json':{'schema':{'type':'object'}}}},'401':response('Error','Bearer authentication failed')}}}
@@ -651,6 +652,7 @@ def main():
     # This reference is embedded in a single-file manual served by the binary;
     # its source-relative Markdown link is not available beside that manual.
     public_results=public_results.replace('(known-routing-limitations.md)', '(https://github.com/hytangs/vigo/blob/main/docs/reference/known-routing-limitations.md)')
+    public_results=public_results.replace('(../guides/upgrading.md)', '(https://github.com/hytangs/vigo/blob/main/docs/guides/upgrading.md)')
     source=source.replace('<!-- PUBLIC_RESULTS -->', '\n'.join('##'+line if line.startswith('#') else line for line in public_results.splitlines()[1:]))
     audit=(ROOT/'docs/reference/rust-standalone-audit.md').read_text(encoding='utf-8')
     walking=(ROOT/'docs/reference/walking-evidence.md').read_text(encoding='utf-8')

@@ -10,6 +10,27 @@ Street Matrix sweeps from the smaller endpoint set. Many-to-one requests use the
 reverse directed CCH metric; origin and destination access permissions retain
 their original roles.
 
+## Coordinate network attachment
+
+A free coordinate first attaches to its nearest pedestrian vertex or reciprocal
+edge. If that attachment belongs to a component with no public transit-access
+anchor, the query can recover to the nearest anchored component within 80 m.
+This applies to arbitrary coordinates without place-name exceptions. The
+connector and partial-edge distance count toward walking time and limits;
+point and transit-access geometry include the charged connector. Anonymous
+reach seeds use the same recovery and retain that cost.
+
+Stops retain their prepared physical anchors. Query recovery never adds a
+street edge or a stop-to-stop transfer between disconnected components. A
+mapped authorized terminal path takes precedence, and a restricted endpoint
+cannot use recovery to bypass its directed exit. Recovery requires a prepared
+transit access profile; a bare street kernel retains nearest-street attachment.
+
+An off-network connector is a modeling assumption, not evidence of a surveyed
+entrance or a barrier-free crossing. Recovery is bounded; an isolated place
+with no eligible street inside the radius remains unreachable. Components with
+anchors can still have direction or timetable constraints that prevent a trip.
+
 ## Authorized endpoint access
 
 Build defaults to public pedestrian access. `access=private` without a pedestrian

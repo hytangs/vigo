@@ -1,5 +1,13 @@
 # Public results
 
+## Version policy
+
+Public `v1` schemas preserve required fields, their types, units, and meanings. Removing or renaming a field, changing its units, or changing a status meaning requires a new schema version. Additional optional fields may be introduced; clients should ignore unknown fields. `trace`, native kernel structures, and Studio's internal worker messages are outside this stability policy. Result schema versions are independent of prepared City formats.
+
+The 0.5.0 public schemas replace the older result envelopes; there is no legacy-envelope adapter. See [upgrading](../guides/upgrading.md) for the City rebuild and rollback procedure.
+
+## Reading a result
+
 The CLI, resident stream, and HTTP services use one public result contract. Read `status` first: `ok` contains the result, `not_found` means no journey satisfies this request, and `error` means the request failed. A valid no-journey response exits 0 and uses HTTP 200.
 
 Route returns `schema: "vigo.route.v1"`, `query`, `journey`, and `meta`. Matrix and Reach use `vigo.matrix.v1` and `vigo.reach.v1`. The schema version and `meta.engineVersion` are separate identities.
@@ -42,6 +50,8 @@ Use `--diagnostics summary`, a JSON `diagnostics` field, or `?diagnostics=summar
 Matrix returns `durationsSeconds[origin][destination]`, with ordered endpoints in `query`. Unreachable cells are `null`, never zero. Optional `journeys` follows the same ordering. Arrive-by duration is the requested deadline minus latest departure; a nested journey can arrive earlier and have a shorter elapsed duration.
 
 Reach returns `surface.valuesSeconds`, grid bounds and dimensions, `cutoffsSeconds`, GeoJSON contours/areas, and `fullSurface` when available. Cell order is unchanged: row-major, northwest first. Unreachable cells remain `null`. GeoJSON cutoff properties and explicitly requested street/node evidence retain their documented unit-labelled fields; these analytical evidence formats are separate from journey durations. Raw search chains are only in trace.
+
+For a map, request `reachFormat: "map"`. The result contains `areas` and `bounds` for the full reached extent, without raster values, stop lists or duplicate contours. Its polygons equal `fullAreas` in the default `reachFormat: "full"` response. Use the full response for grid comparisons and request `includeNodes` or `includeEdges` only with that format.
 
 ## Compare saved results
 

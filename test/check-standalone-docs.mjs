@@ -70,7 +70,11 @@ try {
   assert.equal(examples.length, 11, 'Update documented example coverage deliberately')
   assert.equal(examples[0].result.arrivalMinutes, 510)
   const excerpt = JSON.parse(manual.match(/```json response=quickstart\n([\s\S]*?)\n```/)[1])
-  for (const [key, value] of Object.entries(excerpt)) assert.deepEqual(examples[0].result[key], value, `Quickstart response field ${key}`)
+  const quickstartPublic = JSON.parse(execFileSync(binary, ['route', '--city', city, '--request', '-'], { input: JSON.stringify(examples[0].request), env, encoding: 'utf8' }))
+  for (const [key, value] of Object.entries(excerpt)) {
+    if (key === 'journey') for (const [field, expected] of Object.entries(value)) assert.deepEqual(quickstartPublic.journey[field], expected, `Quickstart journey ${field}`)
+    else assert.deepEqual(quickstartPublic[key], value, `Quickstart response field ${key}`)
+  }
   checks++
   const identifiers = examples.find(e => e.request.operation === 'timetable.identifiers').result.result
   const origin = identifiers.stopIds.indexOf('A'), destination = identifiers.stopIds.indexOf('B')

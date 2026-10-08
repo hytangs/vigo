@@ -1,7 +1,7 @@
 # VIGO Engine package and deployment
 
 The Engine ZIP contains the minified CLI, a small HTTP service, the shared Rust
-kernel, licenses, and a file-hash manifest. It excludes Studio, Electron, the
+kernel, a workload benchmark, licenses, and a file-hash manifest. It excludes Studio, Electron, the
 Python wrapper, Node itself, source/test files, and City data. The JavaScript
 layer remains necessary for input validation, preparation, and Result assembly.
 No routing implementation is copied into a separate deployment fork.
@@ -37,6 +37,19 @@ The CLI, resident NDJSON, City, and Result contracts are the same as the full
 VIGO distribution. No npm install, Python, Rust compiler, or desktop application
 is required after extraction. The caller supplies its own City and request files.
 
+Replay a retained NDJSON workload against a running service with the included
+`benchmark-service.mjs`:
+
+```sh
+node benchmark-service.mjs --url http://127.0.0.1:8080 \
+  --requests queries.ndjson --output results.json --rounds 20 --concurrency 4
+```
+
+Each request line needs `kind: "route"`, `"matrix"`, or `"reach"`. Set
+`VIGO_API_TOKEN` for the benchmark client to authenticate. The server's token
+setting remains `VIGO_ENGINE_API_TOKEN`. See [measurement boundaries](benchmarking.md)
+and [upgrade and rollback](upgrading.md) before comparing or replacing a service.
+
 ## HTTP queries
 
 Configure one complete City directory for the service:
@@ -52,9 +65,9 @@ configuration variables. The service exposes:
 | --- | --- | --- |
 | GET | `/health` | Process/native startup readiness and worker count |
 | GET | `/v1/capabilities` | Public Engine capability JSON |
-| POST | `/v1/route` | CLI Route Result, with `result` and optional `choices` |
-| POST | `/v1/matrix` | CLI Matrix Result, with `rows` |
-| POST | `/v1/reach` | CLI Reach Result, with `surface` and `contours` |
+| POST | `/v1/route` | `vigo.route.v1`, with `journey` and optional `alternatives` |
+| POST | `/v1/matrix` | `vigo.matrix.v1`, with `durationsSeconds` and optional `journeys` |
+| POST | `/v1/reach` | `vigo.reach.v1`, with `surface`, `areas`, and `contours` |
 
 POST JSON uses the corresponding CLI JSON request, plus `serviceDate` and
 `time` (`HH:MM` or integral service-day minutes). A matching `serviceDay` is

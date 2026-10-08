@@ -399,6 +399,10 @@ Source: `native/vigo-routing-kernel/src/street_analysis.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
+| `seedNs` | `f64` | Always | — |
+| `propagationNs` | `f64` | Always | — |
+| `envelopeNs` | `f64` | Always | — |
+| `rasterNs` | `f64` | Always | — |
 | `values` | `Vec<f64>` | Always | Elapsed minutes on the requested raster, flattened by row from the northwest corner. Null marks an unreached cell. |
 | `fullSurfaceValues` | `Option<Vec<f64>>` | Always | Elapsed minutes on the recomputed raster, using fullSurfaceBounds and the requested dimensions. Null when no separate raster is returned. |
 | `fullSurfaceBounds` | `Option<Vec<f64>>` | Always | Recomputed raster bounds in west, south, east, north order; can be smaller or larger than requested. Null when no separate raster is returned. |
@@ -664,7 +668,7 @@ Source: `native/vigo-routing-kernel/src/timetable.rs`.
 | `horizon` | `f64` | Yes | Latest scan clock in service-day seconds, not a duration. |
 | `allowPreRideTransfers` | `bool` | Yes | Allow transfer-graph movement before first boarding; per-origin arrays for grouped queries. |
 | `overlayStopCount` | `u32` | Yes | Number of overlay-local stops appended to the resident domain. |
-| `overlayBaseStops` | `Option<Vec<i32>>` | No | Resident identity for each overlay stop, or -1 for a new scenario stop. Realtime replacements inherit the original station's transfer rules. |
+| `overlayBaseStops` | `Vec<i32>` | Yes | Resident identity for each overlay stop, or -1 for a new scenario stop. Realtime replacements inherit the original station's transfer rules. |
 | `directionOffsets` | `Vec<u32>` | Yes | Cumulative boundaries grouping each planned direction/run stop list. |
 | `directionStops` | `Vec<u32>` | Yes | Packed stop indices in the overlay-local domain. |
 | `directionStopOffsetsSeconds` | `Vec<f64>` | Yes | Departure offsets from each planned run start. |

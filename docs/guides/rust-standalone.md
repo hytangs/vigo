@@ -8,6 +8,56 @@ This manual describes the **standalone Rust interface**. Requests retain `vigo.s
 
 Read this manual in the [searchable offline reader](../standalone.html). The [OpenAPI specification](../standalone-openapi.json) contains the HTTP request contracts and native input/output types. The [audit record](../reference/rust-standalone-audit.md) describes tested coverage and remaining boundaries.
 
+## Shared scenario collections
+
+A collection serves several transit scenarios against one immutable street graph. Prepare it with `node public/vigo.mjs build-scenarios --spec scenarios.source.json --output scenario-set`, then point `vigo serve --city scenario-set` or `vigo stream --city scenario-set` at the result. Each request selects a `scenarioId`; omission selects `defaultScenario`. The one-shot CLI also accepts `--scenario ID`.
+
+```json
+{
+  "schemaVersion": "vigo.scenarios.source.v1",
+  "name": "Regional alternatives",
+  "osm": { "path": "region.osm.pbf" },
+  "streetModes": "walk",
+  "prepareDates": ["2026-10-05"],
+  "defaultScenario": "baseline",
+  "maximumResidentScenarios": 2,
+  "scenarios": [
+    { "id": "baseline", "name": "Baseline", "feeds": [{ "path": "baseline.zip", "scope": "agency" }] },
+    { "id": "proposal", "name": "Proposal", "feeds": [{ "path": "proposal.zip", "scope": "agency" }] }
+  ]
+}
+```
+
+Source paths are relative to the manifest. Optional `sha256` values pin each input. The compiler prepares street data once and creates relative references to it. Move the collection as one directory. Its checksum inventory records physical files once. `prepareDates` precompiles up to 32 service dates, reusing identical service sets; other dates remain queryable through the source timetable. A single-City build accepts repeated `--prepare-date` options.
+
+Resident Cities share immutable street arrays and CCH indexes by canonical path. Timetable source columns share equal immutable blocks across resident scenarios. A hash selects candidates, and every reuse checks all values; changes occupy independent blocks without an overlay chain. Blocks use weak ownership in the collection so retiring a service day releases its unique data. Stop and trip identities, search indexes, endpoint caches and realtime state remain scenario-specific. The collection still stores separate transit databases and prepared access profiles.
+
+Scheduled timetables retain a service-clock prefix through at least 06:00 the next day. Longer requests extend that prefix in six-hour blocks; narrower requests reuse it. Future days are read only through the loaded departure bound. Realtime uses the unfiltered source so an update can move a later trip into the query window. `GET /v1/info` reports `timetablePreparations` and `timetableCoverageEndSeconds` for each resident scenario.
+
+One timetable query workspace belongs to the sequential worker and is lent to the selected scenario. Boarding layers, predecessors and generation tags are rebound to its stop and run dimensions; results never cross scenarios. Reusable street-search buffers move with the active request. Exact street attachments for Reach are shared only after scenario-specific station exits are resolved, with a limit of 16,384 coordinates per street graph.
+
+The least recently used City is evicted before opening another when `maximumResidentScenarios` is reached, retaining the street graph even with a one-City budget. `VIGO_MAX_RESIDENT_SCENARIOS` overrides this count from 1 to 16; this bounds resident scenarios, not total bytes. `GET /v1/info` reports current residency, unique timetable block bytes, column-view bytes and query-workspace bytes without opening every scenario. Timetable `sourceArrayBytes` measures logical column contents, including shared values; do not sum it as exclusive memory.
+
+The collection's `memory` ledger separates network allocations, query workspaces, caches, SQLite allocations and mapped file lengths. Its `trackedHeapBytes` counts shared street and timetable owners once. Each City's `memory.ledger` provides the component breakdown. Vector capacities are counted; hash-table and JSON-container overheads are estimates. Mapped file lengths are not resident memory. Record process-tree PSS/anonymous memory and cgroup file cache alongside the ledger; active-query temporaries, serialized responses and the application UI have separate lifetimes.
+
+Set `VIGO_MEMORY_ACCOUNTING=1` for a diagnostic run to include the last query's raw/public result-tree capacities and their overlap. This walks result objects and is disabled by default; use a separate run for latency measurements.
+
+Node routing workers in one process share admitted immutable street snapshots and CCH files, while keeping mutable query state separate. Admission uses canonical paths and file identities. Weak references release retired networks; replacing a prepared file gives new readers a new owner. Prepared files must remain immutable while mapped. Studio GTFS/OSM import and merge run in disposable child processes. Completion reaches the serving process only after the compiler exits, so compiler allocator arenas cannot remain in the server. Preparation job records retain the compiler process count, largest process RSS peak and last process exit snapshot.
+
+The Node driving kernel retains typed views of its immutable integer road arrays; callers must not mutate them while the kernel exists. The standalone constructor moves owned arrays. Traffic updates use separate mutable weights and leave the base graph intact. `sourceArrayBytes` is logical array storage, shared with JavaScript when `zeroCopyArrays` is true, and must not be added twice.
+
+The HTTP supervisor forwards the worker's validated JSON bytes without constructing another journey or raster object tree. The 64 MiB response limit still applies. `Server-Timing`'s `serialize` entry measures supervisor serialization; forwarded results report zero there, and serialization in the query worker remains part of end-to-end HTTP time.
+
+The endpoint and shape cache byte budgets apply to the whole collection: each resident receives a share of the configured budget. The defaults allow 64 MiB for each endpoint role and 64 MiB for shape geometry across all residents. Set `VIGO_ENDPOINT_CACHE_MAX_BYTES` and `VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES` to change those totals. Street search and isochrone lookup pages are allocated only where a query writes. Path scratch above 32 MiB and each dynamic CCH workspace above 64 MiB are discarded before the next query; the inverse street order is retained separately. Access-profile format 6 uses bitmap ranks and offsets for nonempty buckets, and requires rebuilding earlier prepared profiles. On Linux with glibc, freed temporary pages are returned after timetable preparation, Matrix, and Reach. Measure the working set for your region and workload; timetable data and mapped street pages remain outside the result-cache budgets.
+
+Calendar queries include services on adjacent dates when their trips overlap the search interval. GTFS clocks use local noon minus twelve elapsed hours, including daylight-saving changes. `journey.clockDate` anchors every journey and leg clock; a transit leg's `serviceDate` identifies its actual operating date. Hours can exceed 23.
+
+A named HTTP request (`id` containing up to 128 letters, digits, hyphens, underscores or periods) can be canceled through `DELETE /v1/requests/{id}`. The cancellation returns 202; the original request returns 499. Running work is terminated and its worker replaced; queued work is skipped. Retrying an ID while it is active returns 409.
+
+Waiting routes and matrices of at most 1,024 cells receive up to 32 turns or 250 ms of worker time before the oldest waiting analytical request. FIFO order is preserved within each group, and one admission limit covers both groups. This prevents a submitted batch of Reach jobs from monopolizing the waiting queue. The worker completes its current query before switching; a long running query still contributes to latency.
+
+For map display, Reach accepts `reachFormat: "map"`. It returns the full reached-area polygons as `areas`, their `bounds`, and the usual query metadata, without stop lists, duplicate contour representations or raster values. The polygons match `fullAreas` from `reachFormat: "full"`, which remains the default for analysis and raster comparisons. Output selection does not change the search.
+
 ## 1. Quickstart
 
 Start in **Boston**: route from **Harvard Square in Cambridge to South Station in Boston**, then ask when to leave to arrive by 09:00. A “City” is simply the prepared data directory that VIGO opens; here it is `./boston`.
@@ -343,7 +393,7 @@ example and calibration requirements; a margin is not a probability guarantee.
 
 ## 6. Route
 
-Route finds a journey between an `origin` and a `destination` at a chosen time. Transit queries also require a service date. A valid query with no journey returns `status: "blocked"`.
+Route finds a journey between an `origin` and a `destination` at a chosen time. Transit queries also require a service date. A valid query with no journey returns `status: "not_found"`.
 
 ### Reference fixture
 
@@ -366,19 +416,22 @@ Its response excerpt (legs, metadata, and diagnostics omitted):
 
 ```json response=quickstart
 {
-  "status": "ready",
+  "schema": "vigo.route.v1",
+  "status": "ok",
   "mode": "transit",
-  "departureMinutes": 475,
-  "arrivalMinutes": 510,
-  "durationMinutes": 35,
-  "transfers": 1,
-  "walkMinutes": 0,
-  "rideMinutes": 25,
-  "waitMinutes": 10
+  "journey": {
+    "departureTime": "07:55:00",
+    "arrivalTime": "08:30:00",
+    "durationSeconds": 2100,
+    "transfers": 1,
+    "walkingSeconds": 0,
+    "ridingSeconds": 1500,
+    "waitingSeconds": 600
+  }
 }
 ```
 
-The journey departs at `07:55` and arrives at `08:30`, with 25 minutes riding and 10 minutes waiting. `transfers: 1` means two boardings. Times ending in `Minutes` use minutes; the native `departure` and `arrival` fields, when present, use service-day seconds. See [Results and errors](#13-public-results-and-diagnostics) for the full response structure.
+The journey departs at `07:55` and arrives at `08:30`, with 25 minutes riding and 10 minutes waiting. `transfers: 1` means two boardings. Public journey durations are integer seconds, and journey clocks are local service-day `HH:MM:SS`. See [Results and errors](#13-public-results-and-diagnostics) for the full response structure.
 
 ### Transit
 
@@ -485,7 +538,7 @@ Supply `origins` and `destinations` arrays with at least one point each. Use poi
 
 ### Read the matrix
 
-`durationsMinutes[row][column]` gives minutes from the shared departure to arrival for depart-at, or from the latest departure to the shared deadline for arrive-by. In the latter case, it can exceed the accompanying journey's duration when the journey arrives before the deadline. JSON `null` means unreachable. Walk/Drive matrices additionally return `distancesMeters` in the same layout. See [Matrix output](#matrix-output) for indexing, examples, and journey details.
+`durationsSeconds[row][column]` gives seconds from the shared departure to arrival for depart-at, or from the latest departure to the shared deadline for arrive-by. In the latter case, it can exceed the accompanying journey's duration when the journey arrives before the deadline. JSON `null` means unreachable. See [Matrix output](#matrix-output) for indexing, examples, and journey details.
 
 ### Include journeys
 
@@ -535,14 +588,14 @@ Cell-center sampling uses the Matrix walking allowance and fixed requested bound
 
 ### Read the surface
 
-`surface.values` is a flat row-major array starting at the **northwest** corner. For width `w`, cell index is `y*w+x`. Null means no finite value was retained; numeric zero is valid. Given bounds `[west,south,east,north]`, cell centers are:
+`surface.valuesSeconds` is a flat row-major array of elapsed seconds starting at the **northwest** corner. For width `w`, cell index is `y*w+x`. Null means no finite value was retained; numeric zero is valid. Given bounds `[west,south,east,north]`, cell centers are:
 
 ```text
 longitude = west + (x + 0.5) / width  * (east - west)
 latitude  = north - (y + 0.5) / height * (north - south)
 ```
 
-`surface.fullValues` uses `surface.fullBounds` and the same dimensions, with bounds recomputed from reached street evidence when available. Those bounds can be smaller or larger than the requested view. Never interpret full values using the requested bounds. `areas`/`fullAreas` are GeoJSON FeatureCollections of MultiPolygons; `contours`/`fullContours` contain MultiLineStrings. Features carry `cutoffMinutes`. Areas preserve holes and disconnected components; isolines interpolate the raster rather than inventing a convex hull through unreachable space. Raster resolution affects presentation and area estimates. See [Reach output](#reach-output) for decoding and interpretation.
+`fullSurface.valuesSeconds` uses `fullSurface.bounds` and the same dimensions, with bounds recomputed from reached street evidence when available. Those bounds can be smaller or larger than the requested view. Never interpret full values using the requested bounds. `areas`/`fullAreas` are GeoJSON FeatureCollections of MultiPolygons; `contours`/`fullContours` contain MultiLineStrings. Features carry `cutoffMinutes`. Areas preserve holes and disconnected components; isolines interpolate the raster rather than inventing a convex hull through unreachable space. Raster resolution affects presentation and area estimates. See [Reach output](#reach-output) for decoding and interpretation.
 
 ### Street evidence
 
@@ -800,7 +853,7 @@ CLI failures exit 2 and write a JSON error on stderr:
 {"error":{"code":"invalid_request","message":"serviceDate (YYYY-MM-DD) is required for transit"}}
 ```
 
-The code `invalid_request` is currently generic, including transport failures. Use HTTP status and the message together; do not build categories by assuming every such code means invalid input. A computed blocked Route exits 0 and uses HTTP 200. Stream puts per-line errors on stdout and can continue; errors have no normal result timing or City wrapper. See [HTTP status codes](#status-codes) for 400, 503, and 504 handling.
+Public errors use `schema: "vigo.error.v1"` and `status: "error"`. Transport failures use codes such as `unauthorized`, `request_timeout`, `query_timeout`, and `service_unavailable`; read the code together with HTTP status. A public `not_found` Route exits 0 and uses HTTP 200. Stream puts per-line errors on stdout and can continue; errors have no normal result timing or City wrapper. See [HTTP status codes](#status-codes) for 400, 503, and 504 handling.
 
 ### Route output
 
@@ -1179,7 +1232,7 @@ Keep a City loaded while sending a sequence of JSON queries through standard inp
 
 One-shot commands open a City for each invocation. `stream` keeps a City resident and reads one object per line. Every line requires `kind`; an optional `id` is echoed even for query errors. Output is one compact JSON object per line, in input order. Blank lines are ignored. There is no startup handshake or `sequence` field in the public Rust stream.
 
-Transit can reuse a prepared service snapshot only when its source database, access policy, active services, transfer projection, dictionaries, and array layout validate. Missing or invalid optional timetable snapshots fall back to source preparation without writing City files. Realtime and disabled street transfers use source preparation. For repeated calls, keep `stream` or `serve` resident; measure fresh-process startup separately from warm query time. The runtime retains immutable shape/alignment data in a bounded cache (4,096 shapes, 256 MiB of estimated storage, matching the Node interface) and shares same-request endpoint evidence even when answer caches are disabled. The shape limit is an upper bound, not reserved memory; it trades a larger possible resident footprint for less repeated geometry preparation.
+Transit can reuse a prepared service snapshot only when its source database, access policy, active services, transfer projection, dictionaries, and array layout validate. Missing or invalid optional timetable snapshots fall back to source preparation without writing City files. Realtime and disabled street transfers use source preparation. For repeated calls, keep `stream` or `serve` resident; measure fresh-process startup separately from warm query time. The runtime retains immutable shape/alignment data in a bounded cache (1,024 shapes and 64 MiB by default; configurable through `VIGO_SHAPE_GEOMETRY_CACHE_MAX_ENTRIES` and `VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES`) and shares same-request endpoint evidence even when answer caches are disabled. The shape limit is an upper bound, not reserved memory; it trades a larger possible resident footprint for less repeated geometry preparation.
 
 Full Matrix journeys also share immutable ride and walking evidence within the request, bounded to 4,096 entries and 16 MiB of estimated storage. The key retains the selected endpoint candidates, stop/sequence identities and walking cost; each occurrence keeps its own service clocks. Geometry is unchanged. This storage is discarded after the matrix, including when the query fails. Disabling request caches does not disable this sharing inside one batch.
 
@@ -1277,7 +1330,7 @@ curl --fail-with-body http://127.0.0.1:8080/v1/route \
   -H 'Content-Type: application/json' --data-binary @route.json
 ```
 
-Terminate HTTPS at a reverse proxy or hosting platform. Give its upstream timeout room for the chosen query deadline plus request/response transfer. Mount City data read-only and set process/container memory and CPU limits according to measured workloads. Scale with multiple service processes/containers, each with its own resident City memory. There is no globally shared queue, distributed cache, tenant management, or server-side request persistence.
+Terminate HTTPS at a reverse proxy or hosting platform. Give its upstream timeout room for the chosen query deadline plus request/response transfer. Mount City data read-only and set process/container memory and CPU limits according to measured workloads. Scale with multiple service processes/containers, each with its own resident collection and bounded query queue. There is no globally shared queue, distributed cache, tenant management, or server-side request persistence.
 
 ### Container
 

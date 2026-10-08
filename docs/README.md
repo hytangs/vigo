@@ -23,6 +23,8 @@ New to Engine? Follow the [quickstart](guides/quickstart.md), choose a [workflow
 | Understand City, Scenario, Query, and Result | [Core concepts](guides/concepts.md) |
 | Plan an arrival, compute a matrix, or test service change | [Practical workflows](guides/workflows.md) |
 | Understand status, uncertainty, and comparison | [Read and retain a Result](reference/results.md) |
+| Upgrade, rebuild an older City, and keep a rollback copy | [Upgrade and rollback](guides/upgrading.md) |
+| Measure your own service workload | [Reproducible service benchmarks](guides/benchmarking.md) |
 | Diagnose installation, data, or unexpected results | [Troubleshooting](guides/troubleshooting.md) |
 | Identify the current local build and archive older install copies | [Local build housekeeping](guides/local-builds.md) |
 | Automate VIGO | [CLI reference](reference/programmatic.md) · [Engine deployment](guides/engine-deployment.md) · [Python package](https://github.com/hytangs/vigo-py) |

@@ -106,6 +106,26 @@
               }
             }
           },
+          "409": {
+            "description": "Request ID already active",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "499": {
+            "description": "Request canceled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "413": {
             "description": "Body limit",
             "content": {
@@ -236,6 +256,26 @@
           },
           "408": {
             "description": "Request read deadline",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request ID already active",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "499": {
+            "description": "Request canceled",
             "content": {
               "application/json": {
                 "schema": {
@@ -382,6 +422,26 @@
               }
             }
           },
+          "409": {
+            "description": "Request ID already active",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "499": {
+            "description": "Request canceled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "413": {
             "description": "Body limit",
             "content": {
@@ -512,6 +572,26 @@
           },
           "408": {
             "description": "Request read deadline",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request ID already active",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "499": {
+            "description": "Request canceled",
             "content": {
               "application/json": {
                 "schema": {
@@ -658,6 +738,26 @@
               }
             }
           },
+          "409": {
+            "description": "Request ID already active",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "499": {
+            "description": "Request canceled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "413": {
             "description": "Body limit",
             "content": {
@@ -700,6 +800,47 @@
           },
           "504": {
             "description": "Query deadline or worker failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/requests/{id}": {
+      "delete": {
+        "operationId": "cancelRequest",
+        "summary": "Cancel an active or queued named request",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Cancellation requested; running work is terminated and its worker replaced."
+          },
+          "404": {
+            "description": "No active request with this ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication failed",
             "content": {
               "application/json": {
                 "schema": {
@@ -788,6 +929,26 @@
           },
           "408": {
             "description": "Request read deadline",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request ID already active",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "499": {
+            "description": "Request canceled",
             "content": {
               "application/json": {
                 "schema": {
@@ -3234,19 +3395,12 @@
             "description": "Number of overlay-local stops appended to the resident domain."
           },
           "overlayBaseStops": {
-            "anyOf": [
-              {
-                "type": "array",
-                "items": {
-                  "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 2147483647
-                }
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
             "description": "Resident identity for each overlay stop, or -1 for a new scenario stop. Realtime replacements inherit the original station's transfer rules."
           },
           "directionOffsets": {
@@ -3448,6 +3602,7 @@
           "horizon",
           "allowPreRideTransfers",
           "overlayStopCount",
+          "overlayBaseStops",
           "directionOffsets",
           "directionStops",
           "directionStopOffsetsSeconds",
@@ -4545,6 +4700,30 @@
       "StreetSurfaceResult": {
         "type": "object",
         "properties": {
+          "seedNs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "propagationNs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "envelopeNs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "rasterNs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "values": {
             "type": "array",
             "items": {
@@ -4797,6 +4976,10 @@
           }
         },
         "required": [
+          "seedNs",
+          "propagationNs",
+          "envelopeNs",
+          "rasterNs",
           "values",
           "fullSurfaceValues",
           "fullSurfaceBounds",
@@ -6580,6 +6763,15 @@
             "type": "string"
           },
           "id": {},
+          "scenarioId": {
+            "type": "string",
+            "description": "Member of the loaded scenario collection; omitted selects its default."
+          },
+          "wheelchair": {
+            "type": "boolean",
+            "default": false,
+            "description": "true returns unsupported_mode; no accessible routing model is provided."
+          },
           "serviceDate": {
             "type": "string",
             "format": "date"
@@ -6814,6 +7006,15 @@
             "type": "string"
           },
           "id": {},
+          "scenarioId": {
+            "type": "string",
+            "description": "Member of the loaded scenario collection; omitted selects its default."
+          },
+          "wheelchair": {
+            "type": "boolean",
+            "default": false,
+            "description": "true returns unsupported_mode; no accessible routing model is provided."
+          },
           "serviceDate": {
             "type": "string",
             "format": "date"
@@ -7017,19 +7218,12 @@
             "description": "Number of overlay-local stops appended to the resident domain."
           },
           "overlayBaseStops": {
-            "anyOf": [
-              {
-                "type": "array",
-                "items": {
-                  "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 2147483647
-                }
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
             "description": "Resident identity for each overlay stop, or -1 for a new scenario stop. Realtime replacements inherit the original station's transfer rules."
           },
           "directionOffsets": {
@@ -7204,6 +7398,7 @@
         "required": [
           "stops",
           "overlayStopCount",
+          "overlayBaseStops",
           "directionOffsets",
           "directionStops",
           "directionStopOffsetsSeconds",
@@ -7411,6 +7606,14 @@
       "ReachRequest": {
         "type": "object",
         "properties": {
+          "reachFormat": {
+            "type": "string",
+            "enum": [
+              "full",
+              "map"
+            ],
+            "default": "full"
+          },
           "diagnostics": {
             "type": "string",
             "enum": [
@@ -7433,6 +7636,15 @@
             "type": "string"
           },
           "id": {},
+          "scenarioId": {
+            "type": "string",
+            "description": "Member of the loaded scenario collection; omitted selects its default."
+          },
+          "wheelchair": {
+            "type": "boolean",
+            "default": false,
+            "description": "true returns unsupported_mode; no accessible routing model is provided."
+          },
           "serviceDate": {
             "type": "string",
             "format": "date"
@@ -8771,6 +8983,12 @@
           "reason": {
             "type": "object"
           },
+          "alternativeSearch": {
+            "type": "object"
+          },
+          "access": {
+            "type": "object"
+          },
           "alternatives": {
             "type": "array",
             "items": {
@@ -9413,6 +9631,14 @@
             ],
             "additionalProperties": true
           },
+          "bounds": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
           "cutoffsSeconds": {
             "type": "array",
             "items": {
@@ -9438,10 +9664,22 @@
           "status",
           "query",
           "meta",
-          "surface",
           "cutoffsSeconds"
         ],
-        "additionalProperties": true
+        "additionalProperties": true,
+        "anyOf": [
+          {
+            "required": [
+              "surface"
+            ]
+          },
+          {
+            "required": [
+              "areas",
+              "bounds"
+            ]
+          }
+        ]
       },
       "CompareResult": {
         "type": "object",
@@ -9854,6 +10092,41 @@
           "quality": {
             "type": "object"
           },
+          "trip": {
+            "$ref": "#/components/schemas/PublicIdentifier"
+          },
+          "service": {
+            "$ref": "#/components/schemas/PublicIdentifier"
+          },
+          "serviceDate": {
+            "type": "string"
+          },
+          "headsign": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "directionId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "intermediateStops": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
           "geometry": {
             "type": "object",
             "properties": {
@@ -9888,6 +10161,10 @@
       "PublicJourney": {
         "type": "object",
         "properties": {
+          "clockDate": {
+            "type": "string",
+            "description": "Date anchoring all elapsed service clocks in this journey, including overnight arrive-by searches."
+          },
           "departureTime": {
             "type": "string"
           },

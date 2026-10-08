@@ -95,7 +95,7 @@ try {
   const archive = await fs.readFile(archivePath)
   assert.equal((await fs.readFile(`${archivePath}.sha256`, 'utf8')).split(' ')[0], digest(archive))
   const zip = await JSZip.loadAsync(archive, { checkCRC32: true })
-  const allowed = new Set(['vigo.mjs', 'engine-http.mjs', 'vigo-routing-kernel.node', 'LICENSE', 'NOTICE',
+  const allowed = new Set(['vigo.mjs', 'engine-http.mjs', 'benchmark-service.mjs', 'vigo-routing-kernel.node', 'LICENSE', 'NOTICE',
     'CCH-LICENSE', 'CCH-NOTICE', 'THIRD-PARTY-NOTICES', 'README.md', 'manifest.json',
     ...(process.platform === 'linux' ? ['Dockerfile', 'compose.yml'] : [])])
   await fs.mkdir(runtime)
@@ -125,6 +125,8 @@ try {
   const capabilities = await cli(['capabilities'])
   assert(['route', 'matrix', 'reach'].every(id => capabilities.queries.some(query => query.id === id && query.resident)))
   assert.match((await run(engineNode, [path.join(runtime, 'engine-http.mjs'), '--help'], { cwd: runtime, env: environment })).stdout, /\/v1\/route/)
+  assert.match((await run(engineNode, [path.join(runtime, 'benchmark-service.mjs'), '--help'], { cwd: runtime, env: environment })).stdout, /--requests/)
+  assert.doesNotMatch(await fs.readFile(path.join(runtime, 'README.md'), 'utf8'), /\]\(\.\.?\//u, 'Extracted documentation cannot rely on the source tree')
 
   const { gtfsPath, osmPath } = await writeCliFixtureInputs(temporary)
   const feed = await JSZip.loadAsync(await fs.readFile(gtfsPath))
@@ -169,6 +171,18 @@ try {
   const httpReach = await post('reach', { ...reachQuery, ...common })
   assert.equal(httpReach.status, 200, JSON.stringify(httpReach.body))
   assert.deepEqual(httpReach.body.surface.valuesSeconds, reach.surface.valuesSeconds)
+  const workloadPath = path.join(temporary, 'workload.ndjson'), benchmarkPath = path.join(temporary, 'benchmark.json')
+  await fs.writeFile(workloadPath, [
+    { ...query, ...common, kind: 'route' }, { ...matrixQuery, ...common, kind: 'matrix' }, { ...reachQuery, ...common, kind: 'reach' },
+  ].map(query => JSON.stringify(query)).join('\n'))
+  await run(engineNode, [path.join(runtime, 'benchmark-service.mjs'), '--url', activeServer.url,
+    '--requests', workloadPath, '--output', benchmarkPath, '--rounds', '2', '--concurrency', '2'],
+  { cwd: temporary, env: { ...environment, VIGO_API_TOKEN: token } })
+  const benchmark = JSON.parse(await fs.readFile(benchmarkPath, 'utf8'))
+  assert.equal(benchmark.failures, 0)
+  assert.equal(benchmark.samples.length, 6)
+  assert.equal(benchmark.health.status, 'ready')
+  for (const kind of ['route', 'matrix', 'reach']) assert.equal(benchmark.groups[`${kind}:ok`].count, 2)
   const otherDate = await post('route', { ...query, ...common, serviceDate: '2026-07-16' })
   assert.equal(otherDate.status, 200)
   assert.equal((await (await fetch(`${activeServer.url}/health`)).json()).residentWorkers, 1)

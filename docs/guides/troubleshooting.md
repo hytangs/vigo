@@ -1,5 +1,7 @@
 # Troubleshooting
 
+For a version change, follow the [upgrade and rollback procedure](upgrading.md) before replacing a working City.
+
 Identify which stage failed: installation, City build/open, request validation, computation, or interpretation. Preserve the failing command and its output before changing inputs.
 
 ## Check the runtime and City
@@ -66,7 +68,13 @@ Keep service date, source scope, trip identity, feed timestamp, and record times
 
 ## Results or comparisons look unexpected
 
-Matrix's top-level `ready` can include blocked rows. Arrive-by Matrix duration includes destination waiting. Compare can omit unmatched Matrix IDs and does not enforce all request identities. Reach comparisons require identical grids, and finite-cell means exclude unreachable cells. The [Result guide](../reference/results.md) explains these cases before you change the routing inputs.
+Matrix's `ok` status can include unreachable cells, represented by `null`. Arrive-by Matrix duration includes destination waiting. Public Matrix comparison requires identical ordered endpoints; Reach comparison requires identical grids. Means exclude unreachable cells. The [Result guide](../reference/results.md) explains the output fields.
+
+## A loading indicator is not advancing
+
+Background tasks show measured bytes or records for steps with a known total. The percentage belongs to that step, not the entire import. Native indexing and other work without a total use an indeterminate bar, elapsed time, and the age of the last progress update. A time estimate describes the current step and disappears when its rate is stale or previous runs vary too much. Local step history is bounded to 32 entries with eight samples each; it contains timings, not routing results.
+
+If updates pause, use **Reconnect to task**. The task may still be running, so check its status before importing the same source again. Errors opening the City library or settings time out instead of leaving an indefinite loading screen. Confirm that the City folder is readable and writable and that macOS has granted the requested folder access.
 
 For a path that appears to jump to a platform, inspect its station-path and coordinate-snap qualifications. A visible line is not sufficient evidence of a physical entrance connection. See [station and street limits](../reference/known-routing-limitations.md).
 
