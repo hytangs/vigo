@@ -13,7 +13,8 @@ const root = path.resolve(import.meta.dirname, '..')
 import { standaloneBinary as binary } from './helpers/standalone-runtime.mjs'
 const packagedDocs = process.env.VIGO_STANDALONE_DOCS_DIR
 const docsDirectory = packagedDocs ? path.resolve(packagedDocs) : path.join(root, 'docs')
-const manual = fs.readFileSync(path.join(docsDirectory, packagedDocs ? 'README.md' : 'guides/rust-standalone.md'), 'utf8')
+// Packaged Markdown uses the platform newline; parse the same examples on Windows.
+const manual = fs.readFileSync(path.join(docsDirectory, packagedDocs ? 'README.md' : 'guides/rust-standalone.md'), 'utf8').replace(/\r\n/g, '\n')
 const html = fs.readFileSync(path.join(docsDirectory, 'standalone.html'), 'utf8')
 const spec = JSON.parse(fs.readFileSync(path.join(docsDirectory, 'standalone-openapi.json'), 'utf8'))
 const python = process.env.VIGO_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
