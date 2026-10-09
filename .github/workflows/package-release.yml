@@ -1,0 +1,65 @@
+name: Release archives only
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Require a matching version tag
+        shell: bash
+        run: |
+          test "$GITHUB_REF_TYPE" = tag
+          node --input-type=module -e 'import fs from "node:fs"; const version=JSON.parse(fs.readFileSync("package.json")).version; if (process.env.GITHUB_REF_NAME !== `v${version}`) throw new Error("Release tag must match package version")'
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Build runtime and Studio
+        run: npm run build
+      - name: Package standalone Rust
+        run: python scripts/package-standalone.py
+      - name: Verify extracted standalone archive
+        run: python test/check-standalone-package.py
+      - name: Package CLI
+        id: cli
+        run: node scripts/package-cli.mjs
+      - run: npm run check:cli-package
+      - name: Package Studio
+        run: npm run package:studio
+      - run: npm run check:packaged
+      - name: Archive Studio
+        id: studio
+        run: npm run archive:studio
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-${{ matrix.os }}
+          path: |
+            release/rust/*.tar.gz
+            release/rust/*.tar.gz.sha256
+            ${{ steps.cli.outputs.archive-path }}
+            ${{ steps.cli.outputs.archive-path }}.sha256
+            ${{ steps.studio.outputs.archive-path }}
+            ${{ steps.studio.outputs.archive-path }}.sha256
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: matrix.os == 'ubuntu-24.04'
+        with:
+          name: release-documentation
+          path: |
+            docs/guide.html
+            docs/standalone.html
+            docs/standalone-openapi.json
+          if-no-files-found: error
