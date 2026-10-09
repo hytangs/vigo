@@ -1365,8 +1365,9 @@
 }
 
 .app-shell .map-stage .maplibregl-ctrl-attrib-button {
-  top: 3px;
-  left: 3px;
+  top: 2px;
+  left: 2px;
+  right: auto;
   width: 26px;
   height: 26px;
   color: var(--text);
@@ -1375,11 +1376,14 @@
 
 .app-shell .map-stage .maplibregl-ctrl-attrib-button::before {
   content: 'i';
+  position: absolute;
+  inset: 0;
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
-  margin: 5px;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  margin: auto;
   border: 1.5px solid currentColor;
   border-radius: 50%;
   font: 700 12px/1 Georgia, serif;
