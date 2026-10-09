@@ -308,6 +308,7 @@ Use `vigo route --help` for the general command overview. `--name value` and `--
 | `--request FILE` | Route, Matrix, Reach, Compare, Native | JSON file; `-` reads stdin |
 | `--output FILE` | One-shot JSON commands | Save result; `-` means stdout |
 | `--pretty` | One-shot JSON commands | Indent JSON |
+| `--stream-output public\|detailed` | Stream | Public results by default; detailed internal wrapper envelope when explicitly selected |
 | `--service-date YYYY-MM-DD` | Route, Matrix, Reach, Native, Stream | Set or override service date |
 | `--time HH:MM[:SS]` | Route, Matrix, Reach, Stream | Set clock; replaces JSON `timeMinutes` |
 | `--mode transit\|walk\|drive` | Route, Matrix, Reach, Stream | Reach supports transit/walk only |
@@ -804,11 +805,13 @@ Default output is a compact journey or analysis result. See the [public result c
 - `status: "ok"` means a result, `not_found` means no admissible journey, and `error` means failure.
 - `meta` separates engine version, City revision, request identity, query fingerprint, and measured compute time.
 
+Stream consumers may select `--stream-output=detailed` after checking that `capabilities.output.streamFormats` includes `detailed`. This returns the internal `vigo.stream.detail.v1` envelope without constructing the public projection; its `trace` contains the routing outcome. This format is an unstable wrapper interface. See the public result reference for envelope and error semantics.
+
 <!-- PUBLIC_RESULTS -->
 
 ### Trace reference (debug only)
 
-The rest of this section documents the **internal object under `trace`**, obtained only with `diagnostics: "trace"`. These raw fields are retained for debugging and old research tooling, not the default public schema. All old response excerpts below refer to `trace`. For native operations the raw result remains the direct response. CLI examples in earlier sections use the clean default; old exact field excerpts are trace excerpts.
+The rest of this section documents the **internal object under `trace`**, obtained with `diagnostics: "trace"` or `stream --stream-output=detailed`. These raw fields are retained for debugging and old research tooling, not the default public schema. All old response excerpts below refer to `trace`. For native operations the raw result remains the direct response. CLI examples in earlier sections use the clean default; old exact field excerpts are trace excerpts.
 
 
 Read the outcome first, then the journey or analysis data. Keep units, array ordering, and evidence provenance alongside the values when storing or displaying a result.
