@@ -1254,7 +1254,31 @@ fn relax_connection_scan(
 
 #[cfg(test)]
 mod scalar_objective_tests {
-    use super::scalar_objective_better;
+    use super::*;
+
+    #[test]
+    fn forward_layers_are_lazy_and_reset_across_depth_and_dimension_changes() {
+        let mut workspace = ForwardWorkspace::new(1000, 2000);
+        assert!(workspace.run_layers.is_empty());
+        assert!(workspace.layer_earliest.is_empty());
+        assert!(workspace.layer_ride_earliest.is_empty());
+        assert!(workspace.byte_length() < 30_000);
+        for (stops, runs, depth) in [(1000, 2000, 1), (1000, 2000, 32), (7, 9, 2), (1000, 2000, 4)] {
+            workspace.stop_layer_mask.resize(stops, 0);
+            workspace.run_layer_mask.resize(runs, 0);
+            begin_forward_run_envelope_csa(&mut workspace, stops, runs, depth,
+                &[0], &[0.0], 10.0, 100, false, &vec![0; stops + 1], &[]);
+            assert_eq!(workspace.run_layers.len(), depth);
+            assert!(workspace.run_layers.iter().all(|layer| layer.len() == runs && layer.iter().all(|value| *value == 0)));
+            assert_eq!(workspace.layer_earliest.len(), (depth + 1) * stops);
+            assert_eq!(workspace.layer_earliest[0], 10);
+            assert!(workspace.layer_earliest[1..].iter().all(|value| *value == u32::MAX));
+            workspace.layer_earliest.fill(0);
+            workspace.layer_ride_earliest.fill(0);
+            workspace.run_layers[0].fill(1);
+        }
+    }
+
 
     #[test]
     fn orders_arrival_then_boardings_then_walking_and_keeps_stable_ties() {
@@ -2570,12 +2594,10 @@ impl ScalarEnvelopeIdentity {
 impl ForwardWorkspace {
     fn new(stop_count: usize, run_count: usize) -> Self {
         Self {
-            run_layers: (0..MAX_PROFILE_BOARDINGS)
-                .map(|_| vec![0; run_count])
-                .collect(),
+            run_layers: Vec::new(),
             changed_stops: Vec::new(),
-            layer_earliest: vec![u32::MAX; (MAX_PROFILE_BOARDINGS + 1) * stop_count],
-            layer_ride_earliest: vec![u32::MAX; (MAX_PROFILE_BOARDINGS + 1) * stop_count],
+            layer_earliest: Vec::new(),
+            layer_ride_earliest: Vec::new(),
             stop_layer_mask: vec![0; stop_count],
             run_layer_mask: vec![0; run_count],
             scalar_runs: vec![0; run_count.div_ceil(u64::BITS as usize)],
@@ -2588,15 +2610,15 @@ impl ForwardWorkspace {
     fn byte_length(&self) -> usize {
         self.run_layers
             .iter()
-            .map(|layer| layer.len() * std::mem::size_of::<u8>())
+            .map(|layer| layer.capacity() * std::mem::size_of::<u8>())
             .sum::<usize>()
             + self.changed_stops.capacity() * std::mem::size_of::<usize>()
-            + self.layer_earliest.len() * std::mem::size_of::<u32>()
-            + self.layer_ride_earliest.len() * std::mem::size_of::<u32>()
-            + self.stop_layer_mask.len() * std::mem::size_of::<u32>()
-            + self.run_layer_mask.len() * std::mem::size_of::<u32>()
-            + self.scalar_runs.len() * std::mem::size_of::<u64>()
-            + self.scalar_first_boarding.len() * std::mem::size_of::<u32>()
+            + self.layer_earliest.capacity() * std::mem::size_of::<u32>()
+            + self.layer_ride_earliest.capacity() * std::mem::size_of::<u32>()
+            + self.stop_layer_mask.capacity() * std::mem::size_of::<u32>()
+            + self.run_layer_mask.capacity() * std::mem::size_of::<u32>()
+            + self.scalar_runs.capacity() * std::mem::size_of::<u64>()
+            + self.scalar_first_boarding.capacity() * std::mem::size_of::<u32>()
             + self
                 .scalar_identity
                 .as_ref()
@@ -2748,10 +2770,14 @@ fn begin_forward_run_envelope_csa(
     transfer_offset: &[u32],
     transfer_edges: &[TransferEdge],
 ) -> ForwardRunEnvelope {
-    debug_assert_eq!(
-        workspace.layer_earliest.len(),
-        (MAX_PROFILE_BOARDINGS + 1) * stop_count
-    );
+    // Most scalar queries reuse their universal envelope and never need
+    // layered forward storage. Allocate only the requested boarding depth.
+    workspace.run_layers.resize_with(boarding_upper_bound, Vec::new);
+    for layer in &mut workspace.run_layers {
+        layer.resize(run_count, 0);
+    }
+    workspace.layer_earliest.resize((boarding_upper_bound + 1) * stop_count, u32::MAX);
+    workspace.layer_ride_earliest.resize((boarding_upper_bound + 1) * stop_count, u32::MAX);
     debug_assert_eq!(workspace.run_layer_mask.len(), run_count);
     workspace.layer_earliest.fill(u32::MAX);
     workspace.layer_ride_earliest.fill(u32::MAX);
@@ -3377,10 +3403,10 @@ impl TimetableQueryWorkspace {
         for layer in &mut w.run_layers {
             layer.resize(runs, 0);
         }
-        w.layer_earliest
-            .resize((MAX_PROFILE_BOARDINGS + 1) * stops, u32::MAX);
-        w.layer_ride_earliest
-            .resize((MAX_PROFILE_BOARDINGS + 1) * stops, u32::MAX);
+        // Layered arrays are resized and reset by the next forward search.
+        // A scalar-only scenario must not allocate all possible layers.
+        w.layer_earliest.clear();
+        w.layer_ride_earliest.clear();
         w.stop_layer_mask.resize(stops, 0);
         w.run_layer_mask.resize(runs, 0);
         w.scalar_runs.resize(runs.div_ceil(u64::BITS as usize), 0);

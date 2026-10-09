@@ -2270,9 +2270,20 @@ export function disposeNativeRoutingKernel(storePath) {
 
 // One versioned projection is implemented in Rust for every public transport.
 export function formatPublicResult(kind, request, result) {
+  return JSON.parse(serializePublicResult(kind, request, result))
+}
+
+// Keep the shared Rust projection, but do not round-trip the lossless trace
+// through serde and then parse/stringify the complete reply again for NDJSON.
+export function serializePublicResult(kind, request, result) {
   const binding = loadNativeBinding()
   if (typeof binding.formatPublicResult !== 'function') throw new Error('Native kernel needs rebuilding for the public result schema')
-  return JSON.parse(binding.formatPublicResult(JSON.stringify({ kind, request, result })))
+  if (request?.diagnostics === 'trace' && ['route', 'matrix', 'reach', 'isochrone'].includes(kind)) {
+    const raw = JSON.stringify(result)
+    const projection = binding.formatPublicResult(`{"kind":${JSON.stringify(kind)},"request":${JSON.stringify({ ...request, diagnostics: 'profile' })},"result":${raw}}`)
+    return `${projection.slice(0, -1)},"trace":${raw}}`
+  }
+  return binding.formatPublicResult(JSON.stringify({ kind, request, result }))
 }
 
 export function renderPublicText(result) {

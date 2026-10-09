@@ -92,7 +92,6 @@ impl TerminalAttachment {
 }
 
 impl TerminalAccessGraph {
-    #[cfg(feature = "standalone")]
     pub(crate) fn heap_bytes(&self) -> usize {
         (self.lons.capacity() + self.lats.capacity()) * 8
             + (self.public_nodes.capacity() + self.public_to_local.capacity()) * 4

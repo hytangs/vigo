@@ -427,7 +427,6 @@ struct DynamicCchQuery {
     // second random generation-array read to every hot CCH relaxation.
     distances: cch::paged::PagedVec<u32>,
     distance_sources: cch::paged::PagedVec<u32>,
-    distance_touched: Vec<u32>,
     source_generations: cch::paged::PagedVec<u32>,
     target_generations: cch::paged::PagedVec<u32>,
     generation: u32,
@@ -450,7 +449,6 @@ impl DynamicCchQuery {
         Self {
             distances: cch::paged::PagedVec::new(node_count, 0),
             distance_sources: cch::paged::PagedVec::new(node_count, 0),
-            distance_touched: Vec::new(),
             source_generations: cch::paged::PagedVec::new(node_count, 0),
             target_generations: cch::paged::PagedVec::new(node_count, 0),
             generation: 0,
@@ -475,9 +473,10 @@ impl DynamicCchQuery {
         if self.distances.len() != node_count || self.byte_length() > 64 * 1024 * 1024 {
             *self = Self::new(node_count);
         }
-        for node in self.distance_touched.drain(..) {
-            self.distances[node as usize] = 0;
-        }
+        self.distances.recycle(0);
+        self.distance_sources.recycle(0);
+        self.source_generations.recycle(0);
+        self.target_generations.recycle(0);
         self.generation = self.generation.wrapping_add(1);
         if self.generation == 0 {
             self.source_generations.fill(0);
@@ -503,7 +502,6 @@ impl DynamicCchQuery {
         let encoded_distance = distance.min(cch::INF_WEIGHT).saturating_add(1);
         let slot = &mut self.distances[node_index];
         if *slot == 0 {
-            self.distance_touched.push(node);
             *slot = encoded_distance;
             return;
         }
@@ -519,7 +517,6 @@ impl DynamicCchQuery {
         let encoded_distance = distance.min(cch::INF_WEIGHT).saturating_add(1);
         let slot = &mut self.distances[node_index];
         if *slot == 0 {
-            self.distance_touched.push(node);
             *slot = encoded_distance;
             self.distance_sources[node_index] = source;
             return;
@@ -747,7 +744,6 @@ impl DynamicCchQuery {
     fn byte_length(&self) -> usize {
         self.distances.byte_length()
             + self.distance_sources.byte_length()
-            + self.distance_touched.capacity() * size_of::<u32>()
             + self.source_generations.byte_length()
             + self.target_generations.byte_length()
             + self.forward_nodes.capacity() * size_of::<u32>()
@@ -5604,6 +5600,12 @@ impl CoordinateKernel {
         })
     }
 
+    /// Native retained allocations; mapped files are reported separately.
+    #[cfg_attr(feature = "node", napi)]
+    pub fn memory_usage_json(&self) -> String {
+        self.memory_ledger().to_string()
+    }
+
     #[cfg_attr(feature = "node", napi)]
     pub fn diagnostics(&self) -> KernelDiagnostics {
         let profile_bytes = self
@@ -8441,3 +8443,8 @@ pub fn render_public_text(input: String) -> Result<Option<String>> {
         serde_json::from_str(&input).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(presentation::text(&value))
 }
+
+// Keep the vendored scratch regression tests in the supported native test suite.
+#[cfg(test)]
+#[path = "../vendor/cch/src/paged.rs"]
+mod paged_scratch_tests;

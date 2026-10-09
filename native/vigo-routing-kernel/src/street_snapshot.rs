@@ -47,7 +47,6 @@ pub(crate) struct Snapshot {
 }
 
 impl Snapshot {
-    #[cfg(feature = "standalone")]
     pub(crate) fn heap_bytes(&self) -> usize {
         self.long_edges_by_cell.capacity() * (size_of::<((i32, i32), Vec<[u32; 2]>)>() + 1)
             + self

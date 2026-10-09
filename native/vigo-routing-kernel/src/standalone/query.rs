@@ -113,6 +113,12 @@ impl City {
             .min((opt.end - opt.start) / 3600. * opt.walk_speed.unwrap_or(self.speed) * 1000.))
     }
     pub fn execute_public(&mut self, command: &str, request: &Value) -> Result<Value> {
+        self.execute_output(command, request, false)
+    }
+    pub fn execute_detailed(&mut self, command: &str, request: &Value) -> Result<Value> {
+        self.execute_output(command, request, true)
+    }
+    fn execute_output(&mut self, command: &str, request: &Value, detailed: bool) -> Result<Value> {
         crate::presentation::validate(request)?;
         let mut query = request.clone();
         crate::presentation::normalize_points(&mut query)?;
@@ -158,12 +164,36 @@ impl City {
         if request["includeLimitations"] == true {
             raw["warnings"] = self.metadata["routingLimitations"].clone();
         }
-        let mut result = crate::presentation::format(command, request, &raw);
+        if detailed {
+            let mut result = json!({"schema":"vigo.stream.detail.v1","status":"ok"});
+            result["trace"] = raw;
+            super::memory::record_output(command, &Value::Null, &result);
+            if matches!(command, "reach" | "isochrone" | "matrix") {
+                super::release_preparation_memory();
+            }
+            return Ok(result);
+        }
+        // The trace is an owned result, not a second tree to retain beside
+        // it. Project its public fields first, then move the raw tree once.
+        let trace = request["diagnostics"] == "trace"
+            && matches!(command, "route" | "matrix" | "reach" | "isochrone");
+        let mut projection_request;
+        let projection = if trace {
+            projection_request = request.clone();
+            projection_request["diagnostics"] = json!("profile");
+            &projection_request
+        } else { request };
+        let mut result = crate::presentation::format(command, projection, &raw);
         if !self.metadata["accessibility"].is_null() {
             result["accessibility"] = self.metadata["accessibility"].clone();
         }
-        super::memory::record_output(command, &raw, &result);
-        drop(raw);
+        if trace {
+            result["trace"] = raw;
+            super::memory::record_output(command, &Value::Null, &result);
+        } else {
+            super::memory::record_output(command, &raw, &result);
+            drop(raw);
+        }
         if matches!(command, "reach" | "isochrone" | "matrix") {
             super::release_preparation_memory();
         }

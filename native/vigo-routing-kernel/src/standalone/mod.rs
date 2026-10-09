@@ -98,7 +98,7 @@ pub fn capabilities() -> Value {
         "http":{"boundedConnections":true,"boundedQueue":true,"workerTerminationOnDeadline":true,"maxRequestBytes":8388608,"maxWorkerResponseBytes":67108864},
         "compatibility":{"studioResultEnvelope":false,"automaticEditorBranchRetiming":false},
         "nativeOperations":["timetable.identifiers","timetable.route","timetable.arrive_by","timetable.matrix","timetable.many","timetable.arrive_by_many","timetable.pareto","timetable.overlay","access.endpoint","access.endpoints","street.path","street.matrix","street.surface","street.connectors","drive.route","drive.matrix","realtime.compile"],
-        "output":{"schemas":["vigo.route.v1","vigo.matrix.v1","vigo.reach.v1"],"diagnostics":["none","summary","profile","trace"],"durationUnit":"seconds","clock":"service-day HH:MM:SS; hours can exceed 23","geometry":"opt-in includeGeometry","trace":"unstable internal ABI"},
+        "output":{"streamFormats":["public","detailed"],"schemas":["vigo.route.v1","vigo.matrix.v1","vigo.reach.v1"],"diagnostics":["none","summary","profile","trace"],"durationUnit":"seconds","clock":"service-day HH:MM:SS; hours can exceed 23","geometry":"opt-in includeGeometry","trace":"unstable internal ABI"},
         "dataPreparation":"Load a prepared City. Raw GTFS/OSM import remains a separate build step."})
 }
 pub fn compare(before: &Value, after: &Value) -> Result<Value> {

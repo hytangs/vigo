@@ -40,6 +40,31 @@ try {
   }
   const results = []
   for (const runtime of ['rust', 'node']) {
+    // The wrapper transport must preserve the complete detailed result while
+    // omitting the public projection. Errors remain framed and recoverable.
+    const wireRequests = [
+      { ...base, id: 'route', kind: 'route' },
+      { serviceDate: base.serviceDate, time: base.time, id: 'matrix', kind: 'matrix', origins: [base.origin], destinations: [base.destination], includeJourneys: true },
+      { serviceDate: base.serviceDate, time: base.time, id: 'reach', kind: 'reach', origin: base.origin, cutoffsMinutes: [15], rasterSize: 48 },
+      { ...base, id: 'blocked', kind: 'route', time: '29:50' },
+    ]
+    const wire = wireRequests.map(q => JSON.stringify(q)).join('\n') + '\n{bad json\n' + JSON.stringify({ ...base, id: 'recovery', kind: 'route' }) + '\n'
+    const stream = options => execFileSync(runtime === 'node' ? process.execPath : standaloneBinary,
+      [...(runtime === 'node' ? ['public/vigo.mjs'] : []), 'stream', '--city', city, ...options],
+      { cwd: root, input: wire, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }).trim().split('\n').map(line => JSON.parse(line))
+    const traced = stream(['--diagnostics=trace'])
+    const detailed = stream(['--stream-output=detailed'])
+    const semantic = value => Array.isArray(value) ? value.map(semantic) : value && typeof value === 'object'
+      ? Object.fromEntries(Object.entries(value).filter(([key]) => !['timing', 'diagnostics', 'profile', 'meta', 'nativeStreetQueryMs'].includes(key)).map(([key, item]) => [key, semantic(item)])) : value
+    assert.equal(detailed.length, traced.length)
+    for (let index = 0; index < traced.length; index++) {
+      if (traced[index].status === 'error') { assert.equal(detailed[index].status, 'error'); continue }
+      assert.equal(detailed[index].schema, 'vigo.stream.detail.v1')
+      assert.equal(detailed[index].id, traced[index].id)
+      assert(!Object.hasOwn(detailed[index], 'journey'))
+      assert.deepEqual(semantic(detailed[index].trace), semantic(traced[index].trace))
+      checks++
+    }
     const result = cli(runtime, 'route', base)
     assertPublic(result)
     assert.equal(result.journey.arrivalTime, '08:30:00')

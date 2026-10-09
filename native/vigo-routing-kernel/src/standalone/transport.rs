@@ -24,6 +24,7 @@ const HELP: &str = "VIGO — standalone Rust routing and isochrones
 
 Use --format text|json (automatic terminal view by default).
 Use --request - for stdin; --output FILE saves JSON; --pretty indents JSON.
+Stream: --stream-output public|detailed (default: public; detailed is an internal ABI)
 Output: --diagnostics none|summary|profile|trace (default: none)
         --include-geometry --include-limitations
 Common flags: --service-date YYYY-MM-DD --time HH:MM --mode transit|walk|drive
@@ -124,6 +125,7 @@ fn run() -> Result<()> {
         "pretty",
         "format",
         "diagnostics",
+        "stream-output",
         "include-geometry",
         "include-limitations",
         "wheelchair",
@@ -155,6 +157,7 @@ fn run() -> Result<()> {
         }
         let allowed = match key.as_str() {
             "city" => !["capabilities", "health"].contains(&command.as_str()),
+            "stream-output" => command == "stream",
             "scenario" => [
                 "info",
                 "route",
@@ -209,6 +212,10 @@ fn run() -> Result<()> {
         io::stdout().flush()?;
     }
     if command == "stream" || command == "_worker" {
+        let stream_output = options.get("stream-output").map(String::as_str).unwrap_or("public");
+        if !["public", "detailed"].contains(&stream_output) {
+            return fail("stream-output must be public or detailed");
+        }
         let stdin = io::stdin();
         let mut reader = stdin.lock();
         // Bound serialization scratch even for huge matrices. Larger chunks
@@ -236,7 +243,11 @@ fn run() -> Result<()> {
                     let kind = q["kind"].as_str().unwrap_or("").to_owned();
                     let id = q.get("id").cloned();
                     let mut result = apply_flags(&mut q, &options)
-                        .and_then(|()| city.execute_public(&kind, &q))
+                        .and_then(|()| if stream_output == "detailed" {
+                            city.execute_detailed(&kind, &q)
+                        } else {
+                            city.execute_public(&kind, &q)
+                        })
                         .unwrap_or_else(error);
                     if let Some(id) = id {
                         result["id"] = id;

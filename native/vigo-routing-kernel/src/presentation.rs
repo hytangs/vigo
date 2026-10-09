@@ -572,6 +572,11 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
             if let Some(choices) = pick(raw, &["choices", "journeys"]).as_array() {
                 let mut alternatives = Vec::new();
                 for choice in choices {
+                    // Node's detailed response retains the selected plan in
+                    // choices too. It cannot become a distinct alternative.
+                    if choice == plan {
+                        continue;
+                    }
                     let candidate = route_journey(choice, q, geometry);
                     if !candidate.is_null()
                         && candidate != out["journey"]

@@ -11,7 +11,6 @@ pub(super) fn open_street_cch_bundles(
 }
 
 impl CoordinateKernel {
-    #[cfg(feature = "standalone")]
     pub(crate) fn memory_ledger(&self) -> serde_json::Value {
         let mut mapped = self.snapshot.mmap.len();
         let mut workspace = self.origin_workspace.byte_length()
@@ -97,7 +96,11 @@ impl CoordinateKernel {
         serde_json::json!({"sharedMappedFileBytes":mapped,
             "sharedHeapBytes":self.snapshot.heap_bytes() + self.terminal_access.as_ref().map_or(0, |g|g.heap_bytes()),
             "accessHeapBytes":access,"accessMappedFileBytes":access_mapped,
-            "workspaceHeapBytes":workspace,"cacheHeapBytes":cache})
+            "workspaceHeapBytes":workspace,"cacheHeapBytes":cache,
+            "cchForwardScratchBytes":self.street_cch.as_ref().map_or(0, |i|i.forward_query.byte_length()),
+            "cchReverseScratchBytes":self.street_cch.as_ref().map_or(0, |i|i.reverse_query.byte_length()),
+            "cchPathScratchBytes":self.street_cch.as_ref().and_then(|i|i.path_query.as_ref()).map_or(0, cch::PathQuery::byte_length),
+            "tileScratchBytes":self.origin_workspace.byte_length()+self.destination_workspace.byte_length()+self.path_workspace.byte_length()+self.reverse_path_workspace.byte_length()})
     }
     pub(super) fn install_shared_street_cch(
         &mut self,

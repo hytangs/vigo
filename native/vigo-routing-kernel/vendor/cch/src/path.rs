@@ -236,7 +236,7 @@ impl OwnedPathQuery {
 
 struct PathQueryState {
     /// Inverse rank: `order[rank[v]] = v`. Computed once in [`Self::new`] and
-    /// never mutated thereafter (invariant; not part of the touched reset).
+    /// never mutated thereafter (invariant; not part of the page reset).
     order: Vec<u32>,
     /// Distances XOR-encoded with INF_WEIGHT: zero means unreachable.
     /// Zero-filled allocation avoids touching every graph page on a cold query.
@@ -251,11 +251,6 @@ struct PathQueryState {
     bwd_dist: PagedVec<u32>,
     /// Backward predecessors; the target is explicitly marked INVALID_ID.
     bwd_pred: PagedVec<u32>,
-    /// Nodes whose `fwd_*` entries were dirtied by the last query — exactly the
-    /// set the next reset must restore. Cleared each query.
-    fwd_touched: Vec<u32>,
-    /// Nodes whose `bwd_*` entries were dirtied by the last query.
-    bwd_touched: Vec<u32>,
     /// Reconstruction scratch holding the forward elim-path `[meeting, .., s]`.
     /// Reused across queries; capacity grows monotonically.
     up_path: Vec<u32>,
@@ -266,8 +261,7 @@ impl PathQueryState {
         self.fwd_dist.byte_length() + self.fwd_pred.byte_length()
             + self.bwd_dist.byte_length() + self.bwd_pred.byte_length()
             + self.in_forward_search_space.byte_length()
-            + (self.fwd_touched.capacity() + self.bwd_touched.capacity()
-                + self.up_path.capacity()) * std::mem::size_of::<u32>()
+            + self.up_path.capacity() * std::mem::size_of::<u32>()
     }
 
     // Bound accumulated regional coverage between queries. A large individual
@@ -279,8 +273,6 @@ impl PathQueryState {
             self.bwd_dist.fill(0);
             self.bwd_pred.fill(0);
             self.in_forward_search_space.fill(false);
-            self.fwd_touched = Vec::new();
-            self.bwd_touched = Vec::new();
             self.up_path = Vec::new();
         }
     }
@@ -312,8 +304,6 @@ impl PathQueryState {
             in_forward_search_space: PagedVec::new(n, false),
             bwd_dist: PagedVec::new(n, 0),
             bwd_pred: PagedVec::new(n, 0),
-            fwd_touched: Vec::new(),
-            bwd_touched: Vec::new(),
             up_path: Vec::new(),
         }
     }
@@ -348,16 +338,10 @@ impl PathQueryState {
     #[allow(clippy::many_single_char_names)]
     fn prepare_source(&mut self, cch: &CchView<'_>, metric: &MetricView, source: u32) {
         self.trim_scratch();
-        // Cheap touched-only reset: restore exactly the entries the previous
-        // query dirtied (NOT the whole node_count-sized arrays). `order` is
-        // invariant and never reset.
-        for &nd in &self.fwd_touched {
-            let i = nd as usize;
-            self.fwd_dist[i] = 0;
-            self.fwd_pred[i] = INVALID_ID;
-            self.in_forward_search_space[i] = false;
-        }
-        self.fwd_touched.clear();
+        // Preserve the immutable order but release pages from earlier origins.
+        self.fwd_dist.recycle(0);
+        self.fwd_pred.recycle(INVALID_ID);
+        self.in_forward_search_space.recycle(false);
 
         // Hoist borrowed slices so the inner relaxation loops index plain
         // `&[u32]`s and slice each node's arc range once — letting the compiler
@@ -374,11 +358,9 @@ impl PathQueryState {
         // marking the forward search space. Mirrors routingkit's `run()`.
         self.fwd_dist[s as usize] = INF_WEIGHT;
         self.fwd_pred[s as usize] = INVALID_ID;
-        self.fwd_touched.push(s);
         {
             let fwd_dist = &mut self.fwd_dist;
             let fwd_pred = &mut self.fwd_pred;
-            let touched = &mut self.fwd_touched;
             let mut x = s;
             loop {
                 self.in_forward_search_space[x as usize] = true;
@@ -395,7 +377,6 @@ impl PathQueryState {
                         if cand < (*slot ^ INF_WEIGHT) {
                             *slot = cand ^ INF_WEIGHT;
                             fwd_pred[y] = x;
-                            touched.push(yv);
                         }
                     }
                 }
@@ -404,7 +385,6 @@ impl PathQueryState {
                     break;
                 }
                 x = parent;
-                touched.push(x);
             }
         }
     }
@@ -420,12 +400,9 @@ impl PathQueryState {
         if source == target {
             return Some(vec![source]);
         }
-        for &nd in &self.bwd_touched {
-            let i = nd as usize;
-            self.bwd_dist[i] = 0;
-            self.bwd_pred[i] = INVALID_ID;
-        }
-        self.bwd_touched.clear();
+        // Forward scratch is shared by every target of this prepared source.
+        self.bwd_dist.recycle(0);
+        self.bwd_pred.recycle(INVALID_ID);
         let up_first_out = cch.up_first_out;
         let up_head = cch.up_head;
         let elim = cch.elimination_tree_parent;
@@ -439,13 +416,11 @@ impl PathQueryState {
         // byte-identical to `get_node_path`.
         self.bwd_dist[t as usize] = INF_WEIGHT;
         self.bwd_pred[t as usize] = INVALID_ID;
-        self.bwd_touched.push(t);
         let mut meeting = INVALID_ID;
         let mut best = INF_WEIGHT;
         {
             let bwd_dist = &mut self.bwd_dist;
             let bwd_pred = &mut self.bwd_pred;
-            let touched = &mut self.bwd_touched;
             let mut x = t;
             loop {
                 let dx = bwd_dist[x as usize] ^ INF_WEIGHT;
@@ -461,7 +436,6 @@ impl PathQueryState {
                         if cand < (*slot ^ INF_WEIGHT) {
                             *slot = cand ^ INF_WEIGHT;
                             bwd_pred[y] = x;
-                            touched.push(yv);
                         }
                     }
                 }
@@ -481,7 +455,6 @@ impl PathQueryState {
                     break;
                 }
                 x = parent;
-                touched.push(x);
             }
         }
 

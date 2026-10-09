@@ -11,7 +11,7 @@ import { createInterface } from 'node:readline'
 import Papa from 'papaparse'
 import packageJson from '../../package.json'
 import { CliUsageError, parseArguments, validateInvocation, value, values, enabled } from './arguments.mjs'
-import { publicResult, presentationRequest, normalizePublicPoint, publicError } from './presentation.mjs'
+import { publicResult, publicResultJson, presentationRequest, normalizePublicPoint, publicError } from './presentation.mjs'
 import { commands, usage } from './commands.mjs'
 import { handleOutputErrors, readJsonObject, writeJsonResult, writeOutputFile } from './io.mjs'
 import { assertMatrixSize } from '../server/matrix-size.mjs'
@@ -720,15 +720,14 @@ function serializeNdjson(value: unknown) {
 }
 
 async function writeNdjson(value: unknown, request?: Record<string, unknown>, args?: CliArguments) {
-  if (request) {
-    const raw = value as Record<string, unknown>
-    value = { ...publicResult(value, request, args), ...(raw.sequence === undefined ? {} : { sequence: raw.sequence }) }
-  }
-  if (process.stdout.write(`${serializeNdjson(value)}\n`)) return
+  const serialized = request ? publicResultJson(value, request, args) : serializeNdjson(value)
+  if (process.stdout.write(`${serialized}\n`)) return
   await once(process.stdout, 'drain')
 }
 
 async function runRouteStream(args: CliArguments) {
+  const streamOutput = value(args, 'stream-output', 'public')
+  if (!['public', 'detailed'].includes(streamOutput)) throw new Error('stream-output must be public or detailed')
   const paths = resolveRuntimePaths(args)
   const { storePath, streetStorePath } = paths
   const preparedModes = new Map<string, string>()
@@ -776,10 +775,15 @@ async function runRouteStream(args: CliArguments) {
           const matrix = computePreparedMatrix(requestArgs, input, paths, options, stopLookup)
           result = { ...matrix, timing: { ...matrix.timing, openMs } }
         }
-        await writeNdjson({ ...result, sequence, id, timing: {
+        const detailed = { ...result, sequence, id, timing: {
           ...result.timing,
           endToEndMs: Number((performance.now() - (sequence === 1 ? cliStartedAt : requestStarted)).toFixed(3)),
-        } }, input, args)
+        } }
+        if (streamOutput === 'detailed') {
+          await writeNdjson({ schema: 'vigo.stream.detail.v1', id, sequence, status: 'ok', trace: detailed })
+        } else {
+          await writeNdjson(detailed, input, args)
+        }
       } catch (error) {
         await writeNdjson({ ...publicError(error instanceof Error ? error.message : String(error), id), sequence })
       }

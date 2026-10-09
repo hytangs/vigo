@@ -64,3 +64,9 @@ For a source-data audit, request `diagnostics: "trace"` and retain the original 
 Errors use `schema: "vigo.error.v1"`, `status: "error"`, and `error.code` / `error.message`. Handle stable codes and HTTP status, not OS error text. Keep the City, original query, executable version, supplied observations/scenario, and result together when retaining a reproducible run.
 
 Untimed GTFS stairs and gates using routing estimates expose `quality.stationTime: "estimated"` on the walk. Their diagnostic provenance is `gtfs_pathway_estimated`; these costs are not published or measured traversal times.
+
+### Detailed wrapper transport
+
+`stream --stream-output=detailed` sends a `vigo.stream.detail.v1` envelope containing `id`, `status: "ok"`, and `trace`, without constructing a second public result. The `trace` is the same complete internal result provided by `--diagnostics=trace`; it remains an unstable internal ABI. Envelope `ok` means execution completed: inspect the detailed result's routing status to distinguish a journey from a valid blocked outcome. Failures retain the standard `vigo.error.v1` envelope and do not stop subsequent requests.
+
+Clients must check `capabilities.output.streamFormats` for `detailed` before selecting this transport. VIGO-py negotiates it automatically and falls back to the full public trace response on earlier compatible runtimes. The default stream output remains the public result schema.

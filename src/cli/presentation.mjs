@@ -1,4 +1,4 @@
-import { formatPublicResult } from '../server/native-routing-kernel.mjs'
+import { formatPublicResult, serializePublicResult } from '../server/native-routing-kernel.mjs'
 
 export function presentationRequest(request, args = new Map()) {
   if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('A query must be a JSON object')
@@ -16,6 +16,16 @@ export function publicResult(result, request = {}, args = new Map()) {
   const formatted = formatPublicResult(result.kind ?? 'route', presentationRequest(request, args), result)
   if (result.city?.accessibility) formatted.accessibility = result.city.accessibility
   return formatted
+}
+
+export function publicResultJson(result, request = {}, args = new Map()) {
+  const serialized = serializePublicResult(result.kind ?? 'route', presentationRequest(request, args), result)
+  const extra = {
+    ...(result.city?.accessibility ? { accessibility: result.city.accessibility } : {}),
+    ...(result.sequence === undefined ? {} : { sequence: result.sequence }),
+  }
+  const suffix = JSON.stringify(extra).slice(1, -1)
+  return suffix ? `${serialized.slice(0, -1)},${suffix}}` : serialized
 }
 
 export function normalizePublicPoint(value) {
