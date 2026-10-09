@@ -66,7 +66,9 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: studio-${{ matrix.os }}
-          path: ${{ steps.package.outputs.archive-path }}
+          path: |
+            ${{ steps.package.outputs.archive-path }}
+            ${{ steps.package.outputs.archive-path }}.sha256
           compression-level: 0
           if-no-files-found: error
 
