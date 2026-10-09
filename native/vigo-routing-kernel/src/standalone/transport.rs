@@ -212,7 +212,10 @@ fn run() -> Result<()> {
         io::stdout().flush()?;
     }
     if command == "stream" || command == "_worker" {
-        let stream_output = options.get("stream-output").map(String::as_str).unwrap_or("public");
+        let stream_output = options
+            .get("stream-output")
+            .map(String::as_str)
+            .unwrap_or("public");
         if !["public", "detailed"].contains(&stream_output) {
             return fail("stream-output must be public or detailed");
         }
@@ -243,10 +246,12 @@ fn run() -> Result<()> {
                     let kind = q["kind"].as_str().unwrap_or("").to_owned();
                     let id = q.get("id").cloned();
                     let mut result = apply_flags(&mut q, &options)
-                        .and_then(|()| if stream_output == "detailed" {
-                            city.execute_detailed(&kind, &q)
-                        } else {
-                            city.execute_public(&kind, &q)
+                        .and_then(|()| {
+                            if stream_output == "detailed" {
+                                city.execute_detailed(&kind, &q)
+                            } else {
+                                city.execute_public(&kind, &q)
+                            }
                         })
                         .unwrap_or_else(error);
                     if let Some(id) = id {

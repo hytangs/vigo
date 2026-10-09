@@ -1263,22 +1263,46 @@ mod scalar_objective_tests {
         assert!(workspace.layer_earliest.is_empty());
         assert!(workspace.layer_ride_earliest.is_empty());
         assert!(workspace.byte_length() < 30_000);
-        for (stops, runs, depth) in [(1000, 2000, 1), (1000, 2000, 32), (7, 9, 2), (1000, 2000, 4)] {
+        for (stops, runs, depth) in [
+            (1000, 2000, 1),
+            (1000, 2000, 32),
+            (7, 9, 2),
+            (1000, 2000, 4),
+        ] {
             workspace.stop_layer_mask.resize(stops, 0);
             workspace.run_layer_mask.resize(runs, 0);
-            begin_forward_run_envelope_csa(&mut workspace, stops, runs, depth,
-                &[0], &[0.0], 10.0, 100, false, &vec![0; stops + 1], &[]);
+            begin_forward_run_envelope_csa(
+                &mut workspace,
+                stops,
+                runs,
+                depth,
+                &[0],
+                &[0.0],
+                10.0,
+                100,
+                false,
+                &vec![0; stops + 1],
+                &[],
+            );
             assert_eq!(workspace.run_layers.len(), depth);
-            assert!(workspace.run_layers.iter().all(|layer| layer.len() == runs && layer.iter().all(|value| *value == 0)));
+            assert!(
+                workspace
+                    .run_layers
+                    .iter()
+                    .all(|layer| layer.len() == runs && layer.iter().all(|value| *value == 0))
+            );
             assert_eq!(workspace.layer_earliest.len(), (depth + 1) * stops);
             assert_eq!(workspace.layer_earliest[0], 10);
-            assert!(workspace.layer_earliest[1..].iter().all(|value| *value == u32::MAX));
+            assert!(
+                workspace.layer_earliest[1..]
+                    .iter()
+                    .all(|value| *value == u32::MAX)
+            );
             workspace.layer_earliest.fill(0);
             workspace.layer_ride_earliest.fill(0);
             workspace.run_layers[0].fill(1);
         }
     }
-
 
     #[test]
     fn orders_arrival_then_boardings_then_walking_and_keeps_stable_ties() {
@@ -2772,12 +2796,18 @@ fn begin_forward_run_envelope_csa(
 ) -> ForwardRunEnvelope {
     // Most scalar queries reuse their universal envelope and never need
     // layered forward storage. Allocate only the requested boarding depth.
-    workspace.run_layers.resize_with(boarding_upper_bound, Vec::new);
+    workspace
+        .run_layers
+        .resize_with(boarding_upper_bound, Vec::new);
     for layer in &mut workspace.run_layers {
         layer.resize(run_count, 0);
     }
-    workspace.layer_earliest.resize((boarding_upper_bound + 1) * stop_count, u32::MAX);
-    workspace.layer_ride_earliest.resize((boarding_upper_bound + 1) * stop_count, u32::MAX);
+    workspace
+        .layer_earliest
+        .resize((boarding_upper_bound + 1) * stop_count, u32::MAX);
+    workspace
+        .layer_ride_earliest
+        .resize((boarding_upper_bound + 1) * stop_count, u32::MAX);
     debug_assert_eq!(workspace.run_layer_mask.len(), run_count);
     workspace.layer_earliest.fill(u32::MAX);
     workspace.layer_ride_earliest.fill(u32::MAX);

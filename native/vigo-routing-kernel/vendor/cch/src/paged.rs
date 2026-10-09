@@ -52,10 +52,11 @@ impl<T: Copy> PagedVec<T> {
     pub fn recycle(&mut self, value: T) {
         let limit = (1024 * 1024 / (PAGE * std::mem::size_of::<T>()).max(1)).max(1);
         for index in self.populated.drain(..) {
-            if let Some(page) = self.pages[index].take() {
-                if self.spare.len() < limit {
-                    self.spare.push(page);
-                }
+            if let Some(page) = self.pages[index]
+                .take()
+                .filter(|_| self.spare.len() < limit)
+            {
+                self.spare.push(page);
             }
         }
         self.default = value;
@@ -133,6 +134,8 @@ mod tests {
     #[test]
     fn distant_writes_allocate_only_touched_pages_and_reset() {
         let mut values = PagedVec::new(10_000_003, u32::MAX);
+        assert_eq!(values.len(), 10_000_003);
+        assert!(!values.is_empty());
         let empty = values.byte_length();
         assert_eq!(values[9_999_999], u32::MAX);
         assert_eq!(values.byte_length(), empty);

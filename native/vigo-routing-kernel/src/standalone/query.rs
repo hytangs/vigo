@@ -182,7 +182,9 @@ impl City {
             projection_request = request.clone();
             projection_request["diagnostics"] = json!("profile");
             &projection_request
-        } else { request };
+        } else {
+            request
+        };
         let mut result = crate::presentation::format(command, projection, &raw);
         if !self.metadata["accessibility"].is_null() {
             result["accessibility"] = self.metadata["accessibility"].clone();

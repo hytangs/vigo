@@ -122,7 +122,13 @@ impl Runtime {
     }
     fn execute_output(&mut self, kind: &str, request: &Value, detailed: bool) -> Result<Value> {
         match self {
-            Self::Single(city) => if detailed { city.execute_detailed(kind, request) } else { city.execute_public(kind, request) },
+            Self::Single(city) => {
+                if detailed {
+                    city.execute_detailed(kind, request)
+                } else {
+                    city.execute_public(kind, request)
+                }
+            }
             Self::Collection(c) => {
                 if kind == "info" && request.get("scenarioId").is_none() {
                     return Ok(c.info());
@@ -141,7 +147,11 @@ impl Runtime {
                 c.select(&id)?;
                 let city = &mut c.cities.back_mut().unwrap().1;
                 city.query_workspace = c.query_workspace.take();
-                let result = if detailed { city.execute_detailed(kind, &query) } else { city.execute_public(kind, &query) };
+                let result = if detailed {
+                    city.execute_detailed(kind, &query)
+                } else {
+                    city.execute_public(kind, &query)
+                };
                 c.query_workspace = city.take_query_workspace();
                 if let Some(timetable) = &mut city.timetable
                     && timetable
