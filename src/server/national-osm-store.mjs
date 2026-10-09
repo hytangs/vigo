@@ -3,7 +3,6 @@ import fs from 'node:fs/promises'
 import fsSync from 'node:fs'
 import crypto from 'node:crypto'
 import path from 'node:path'
-import { totalmem } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 import {
   disposeNativeRoutingKernel,
@@ -47,7 +46,6 @@ const streetStoreIndexTables = Object.freeze({
 })
 const drivingStoreTableNames = Object.freeze(['drive_nodes', 'drive_edges'])
 const drivingStoreIndexTables = Object.freeze({ drive_edges_from: 'drive_edges' })
-const streetAcceleratorMemoryGuardMinimumEdges = 50_000
 const streetAcceleratorMaximumEdges = Math.max(100_000, Number(process.env.VIGO_STREET_ACCELERATOR_MAX_EDGES) || 40_000_000)
 const streetAcceleratorMaximumStoreBytes = Math.max(128 * 1024 * 1024, Number(process.env.VIGO_STREET_ACCELERATOR_MAX_STORE_BYTES) || 12_000_000_000)
 const streetAcceleratorAutomaticBuildMaximumEdges = Math.min(streetAcceleratorMaximumEdges, 8_000_000)
@@ -55,9 +53,6 @@ const streetAcceleratorAutomaticBuildMaximumStoreBytes = Math.min(
   streetAcceleratorMaximumStoreBytes,
   1_500_000_000,
 )
-const streetAcceleratorOfflineBuildMinimumMemoryBytes = 8 * 1024 * 1024 * 1024
-const streetAcceleratorLargeGraphMinimumMemoryBytes = 16 * 1024 * 1024 * 1024
-const streetAcceleratorLargeGraphThresholdEdges = 12_000_000
 const streetAcceleratorSpatialCellDegrees = 0.002
 const streetAcceleratorMaximumSpatialCells = 4_000_000
 const streetAcceleratorSnapshotMagic = 'vigo.street.accelerator'
@@ -316,7 +311,7 @@ export async function buildNationalOsmStore({
   await fs.rm(tempPath, { force: true })
   const db = new DatabaseSync(tempPath)
   db.exec(`
-    PRAGMA page_size=${buildSqlitePageSize}; PRAGMA journal_mode=OFF; PRAGMA locking_mode=EXCLUSIVE; PRAGMA synchronous=OFF; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-${buildSqliteCacheKiB};
+    PRAGMA page_size=${buildSqlitePageSize}; PRAGMA journal_mode=OFF; PRAGMA locking_mode=EXCLUSIVE; PRAGMA synchronous=OFF; PRAGMA temp_store=FILE; PRAGMA cache_size=-${buildSqliteCacheKiB};
     CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE nodes(node_id INTEGER PRIMARY KEY, lat REAL NOT NULL, lon REAL NOT NULL);
     CREATE TABLE walk_nodes(node_id INTEGER PRIMARY KEY, lat REAL NOT NULL, lon REAL NOT NULL);
@@ -650,16 +645,12 @@ export async function buildNationalOsmStore({
       disposeNationalOsmStore(outputPath)
     }
     const output = await fs.stat(outputPath)
-    const acceleratorMemoryRequirement = edgeCount > streetAcceleratorLargeGraphThresholdEdges
-      ? streetAcceleratorLargeGraphMinimumMemoryBytes
-      : edgeCount >= streetAcceleratorMemoryGuardMinimumEdges
-        ? streetAcceleratorOfflineBuildMinimumMemoryBytes
-        : 0
+    // Offline preparation can trade disk I/O and lookup time for memory.
+    // Never omit a required runtime artifact merely because host RAM is small.
     const walkAcceleratorEligible = (
       edgeCount > 0
       && edgeCount <= streetAcceleratorMaximumEdges
       && output.size <= streetAcceleratorMaximumStoreBytes
-      && totalmem() >= acceleratorMemoryRequirement
     )
     let walkAccelerator = {
       ready: false,
@@ -670,9 +661,7 @@ export async function buildNationalOsmStore({
           ? 'edge_budget'
           : output.size > streetAcceleratorMaximumStoreBytes
             ? 'store_size_budget'
-            : totalmem() < acceleratorMemoryRequirement
-              ? 'memory_budget'
-              : 'unavailable',
+            : 'unavailable',
     }
     if (walkAcceleratorEligible) {
       onProgress?.({
@@ -689,6 +678,9 @@ export async function buildNationalOsmStore({
         persist: true,
       })
       disposeNationalOsmStore(outputPath)
+    }
+    if (!walkAccelerator.ready || walkAccelerator.snapshotStatus !== 'written') {
+      throw new Error(`Pedestrian accelerator preparation failed: ${walkAccelerator.error || walkAccelerator.reason || walkAccelerator.snapshotStatus}. Source street tables have been retained at ${outputPath}.`)
     }
     onProgress?.({ phase: 'Street index ready', progress: 1, detail: `${Math.round(output.size / 1024 / 1024).toLocaleString()} MB`, memory: process.memoryUsage().rss })
     return {
@@ -1188,6 +1180,25 @@ function loadStreetAcceleratorSnapshot(state) {
   }
 }
 
+function compactNodeLookup(nodeIds) {
+  let order = Uint32Array.from({ length: nodeIds.length }, (_, index) => index)
+  order.sort((a, b) => nodeIds[a] - nodeIds[b])
+  return {
+    get(id) {
+      let lo = 0
+      let hi = order.length
+      while (lo < hi) {
+        const mid = (lo + hi) >>> 1
+        const value = nodeIds[order[mid]]
+        if (value < id) lo = mid + 1
+        else hi = mid
+      }
+      return lo < order.length && nodeIds[order[lo]] === id ? order[lo] : undefined
+    },
+    clear() { order = null; nodeIds = null },
+  }
+}
+
 function buildStreetAccelerator(state, force = false, persist = true) {
   if (state.accelerator) return state.accelerator
   if (
@@ -1224,10 +1235,7 @@ function buildStreetAccelerator(state, force = false, persist = true) {
     sourceNodeLats = null
     sourceNodeLons = null
     const { nodeIds, nodeLats, nodeLons } = spatialNodes
-    let nodeIndexById = new Map()
-    for (let nodeIndex = 0; nodeIndex < nodeIds.length; nodeIndex += 1) {
-      nodeIndexById.set(nodeIds[nodeIndex], nodeIndex)
-    }
+    const nodeIndexById = compactNodeLookup(nodeIds)
     const edgeOffsets = new Uint32Array(nodeCount + 1)
     let validEdgeCount = 0
     for (const edge of state.db.prepare('SELECT from_node,to_node,distance_m FROM edges ORDER BY from_node,to_node').iterate()) {
@@ -1281,7 +1289,10 @@ function buildStreetAccelerator(state, force = false, persist = true) {
     }, { buildMs: Number((performance.now() - startedAt).toFixed(3)), source: 'built' })
     state.accelerator = accelerator
     state.acceleratorError = ''
-    if (persist) persistStreetAccelerator(state, accelerator)
+    if (persist && !persistStreetAccelerator(state, accelerator)) {
+      state.accelerator = null
+      throw new Error(state.acceleratorSnapshotError || 'Could not persist pedestrian accelerator')
+    }
     return accelerator
   } catch (error) {
     state.acceleratorError = error instanceof Error ? error.message : String(error)
@@ -1507,17 +1518,18 @@ function buildDriveAccelerator(state, { force = false, persist = true } = {}) {
     const edgeCapacity = Number(state.db.prepare('SELECT COUNT(*) AS count FROM drive_edges').get().count)
     const nodeLats = new Float64Array(nodeCount)
     const nodeLons = new Float64Array(nodeCount)
-    const nodeIndexById = new Map()
+    const nodeIds = new Float64Array(nodeCount)
     let nodeCursor = 0
     for (const node of state.db.prepare(
       `SELECT node_id,lat,lon FROM ${driveNodeSourceSql} ORDER BY node_id`,
     ).iterate()) {
       nodeLats[nodeCursor] = node.lat
       nodeLons[nodeCursor] = node.lon
-      nodeIndexById.set(node.node_id, nodeCursor)
+      nodeIds[nodeCursor] = node.node_id
       nodeCursor += 1
     }
     if (nodeCursor !== nodeCount) throw new Error(`Drive accelerator read ${nodeCursor} of ${nodeCount} nodes.`)
+    const nodeIndexById = compactNodeLookup(nodeIds)
 
     const edgeOffsets = new Uint32Array(nodeCount + 1)
     const edgeTargets = new Uint32Array(edgeCapacity)
@@ -1573,7 +1585,10 @@ function buildDriveAccelerator(state, { force = false, persist = true } = {}) {
     }, { buildMs: Number((performance.now() - startedAt).toFixed(3)), source: 'built' })
     state.driveAccelerator = accelerator
     state.driveAcceleratorError = ''
-    if (persist) persistDriveAccelerator(state, accelerator)
+    if (persist && !persistDriveAccelerator(state, accelerator)) {
+      state.driveAccelerator = null
+      throw new Error(state.driveAcceleratorSnapshotError || 'Could not persist driving accelerator')
+    }
     return accelerator
   } catch (error) {
     state.driveAcceleratorError = error instanceof Error ? error.message : String(error)
@@ -2179,6 +2194,22 @@ export function compactNationalOsmRuntimeStore(storePath, options = {}) {
       bytesSaved: 0,
       drive: { ready: true, source: 'snapshot' },
     }
+  }
+  const walkPath = streetAcceleratorSnapshotPath(resolvedPath)
+  try {
+    const fd = fsSync.openSync(walkPath, 'r')
+    try {
+      const headerBytes = Buffer.alloc(streetAcceleratorSnapshotHeaderBytes)
+      if (fsSync.readSync(fd, headerBytes, 0, headerBytes.length, 0) !== headerBytes.length)
+        throw new Error('truncated snapshot header')
+      const header = JSON.parse(headerBytes.toString('utf8').trim())
+      if (header.magic !== streetAcceleratorSnapshotMagic || header.version !== streetAcceleratorSnapshotVersion
+        || header.byteLength !== fsSync.fstatSync(fd).size
+        || !streetAcceleratorIdentityMatches(header.identity, { metadata: metadataBefore }))
+        throw new Error('snapshot does not match the source graph')
+    } finally { fsSync.closeSync(fd) }
+  } catch (error) {
+    throw new Error(`Cannot seal street store: pedestrian accelerator is not persisted (${error.message}). Source graph retained at ${resolvedPath}; rerun street preparation before sealing.`)
   }
   if (Number(metadataBefore.driveEdgeCount ?? 0) > 0) {
     drivePreparation = buildNationalOsmDriveStore(resolvedPath, {

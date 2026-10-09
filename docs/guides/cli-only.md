@@ -31,6 +31,25 @@ vigo build --gtfs feed.zip --osm region.osm.pbf --output ./city
 vigo inspect --city ./city
 ```
 
+For transit and walking only, add `--street-modes walk` to avoid compiling driving data.
+Low-memory builds use disk-backed SQLite temporary work and compact numeric node
+lookups. They can take longer; keep the output and temporary directory on a local
+Linux filesystem (inside WSL, prefer the Linux filesystem to `/mnt/c`). Leave
+space for the source database, temporary sorts and the completed City. The CLI
+reports progress during long import phases and respects container memory limits
+when deciding whether GTFS and OSM compilation may overlap. Import and native
+street-preparation stages run in separate processes so each releases its working
+memory before the next stage. Regional native CCH preprocessing can still exceed
+2 GiB without swap: configure disk-backed swap for the offline builder, or build
+on a larger machine and copy the complete City to the serving machine. Runtime
+RAM limits and build working-memory requirements are separate.
+
+Street preparation must successfully write the walking accelerator before the
+source graph is sealed. Missing or unwritable snapshots fail preparation rather
+than publishing a City that cannot open. These changes preserve the published
+0.5 data layout; they do not require a new City format. Older downloaded 0.5.0
+CLI archives do not acquire builder fixes merely because the version is the same.
+
 The City is a whole directory, not the inspection JSON. Rebuild older prepared Cities using 0.5.0. Use [multiple feeds](../guide.md#combine-timetables-and-live-feeds) to combine agencies with explicit source scopes.
 
 ## Run a query

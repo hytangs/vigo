@@ -1250,23 +1250,27 @@ function defaultGtfsScope(filePath: string, index: number) {
 
 function buildProgress(scope: string) {
   let previousPhase = ''
+  let previousAt = -Infinity
   return (event: Record<string, unknown>) => {
     const phase = String(event.phase ?? 'Building')
-    if (phase === previousPhase && Number(event.progress ?? 0) < 1) return
+    const now = performance.now()
+    if (phase === previousPhase && Number(event.progress ?? 0) < 1 && now - previousAt < 10_000) return
     previousPhase = phase
+    previousAt = now
     const detail = String(event.detail ?? '').trim()
     process.stderr.write(`[${scope}] ${phase}${detail ? `: ${detail}` : ''}\n`)
   }
 }
 
 function rawCompilerConcurrency(gtfsBytes: number, osmBytes: number) {
+  const memoryLimitBytes = Math.min(os.totalmem(), process.constrainedMemory() || Infinity)
   const estimatedPeakWorkingBytes = rawCompilerFixedWorkingSetBytes
     + osmBytes * rawOsmWorkingSetMultiplier
     + gtfsBytes * rawGtfsWorkingSetMultiplier
-  const hostMemoryGuardBytes = os.totalmem() * 0.55
+  const hostMemoryGuardBytes = memoryLimitBytes * 0.55
   const freeMemoryGuardBytes = Math.min(
     estimatedPeakWorkingBytes * 0.75,
-    os.totalmem() * 0.02,
+    memoryLimitBytes * 0.02,
   )
   const freeMemoryAtBuildStartBytes = os.freemem()
   const loadAverageAtBuildStart = os.loadavg()
@@ -1274,10 +1278,11 @@ function rawCompilerConcurrency(gtfsBytes: number, osmBytes: number) {
   const loadAverageGuardPassed = loadAverageAtBuildStart[1] <= loadAverageGuard
   return {
     enabled: os.cpus().length >= 4
-      && os.totalmem() >= 8 * 1024 * 1024 * 1024
+      && memoryLimitBytes >= 8 * 1024 * 1024 * 1024
       && estimatedPeakWorkingBytes <= hostMemoryGuardBytes
       && freeMemoryAtBuildStartBytes >= freeMemoryGuardBytes
       && loadAverageGuardPassed,
+    memoryLimitBytes,
     estimatedPeakWorkingBytes,
     hostMemoryGuardBytes,
     freeMemoryAtBuildStartBytes,
@@ -1315,7 +1320,9 @@ function startJsonCompiler(command: string, compilerArguments: string[], label: 
       if (settled) return
       settled = true
       if (code !== 0) {
-        reject(new Error(`${label} exited with ${signal ?? code}.`))
+        reject(new Error(`${label} exited with ${signal ?? code}.${signal === 'SIGKILL'
+          ? ' Check the Linux/WSL or container OOM log. Large offline builds may need disk-backed swap or a larger build machine; serving a prepared City has a separate memory budget.'
+          : ''}`))
         return
       }
       try {
@@ -1346,6 +1353,28 @@ function startOsmDriveCompiler(storePath: string) {
     [`--street-store=${storePath}`],
     'OSM drive compiler',
   )
+}
+
+async function runGtfsCompiler(args: CliArguments) {
+  const files = values(args, 'gtfs')
+  const scopes = values(args, 'gtfs-scope')
+  if (!files.length || files.length !== scopes.length || !value(args, 'output-store'))
+    throw new Error('_build-gtfs-store requires feeds, matching scopes and output-store')
+  const result = await buildNationalGtfsCityStore({
+    feeds: files.map((file, i) => ({ path: file, scope: scopes[i] })),
+    wheelchair: enabled(args, 'wheelchair'),
+    outputPath: value(args, 'output-store'), onProgress: buildProgress('gtfs'),
+  })
+  process.stdout.write(JSON.stringify(result))
+}
+
+async function runStreetRoutingCompiler(args: CliArguments) {
+  const store = value(args, 'street-store')
+  if (!store) throw new Error('_prepare-osm-routing requires street-store')
+  const prepared = prepareNationalOsmNativeStore(store)
+  if (!prepared.ready) throw new Error(`Native street snapshot preparation failed: ${prepared.error ?? prepared.reason}`)
+  process.stdout.write(JSON.stringify(buildNativeStreetCchIndex(store),
+    (_, value) => typeof value === 'bigint' ? value.toString() : value))
 }
 
 async function runOsmCompiler(args: CliArguments) {
@@ -1571,6 +1600,8 @@ async function runCityCompiler(args: CliArguments) {
   let gtfsRuntimeCompactionMs = 0
   let osmCompiler: ReturnType<typeof startOsmCompiler> | null = null
   let osmDriveCompiler: ReturnType<typeof startOsmDriveCompiler> | null = null
+  let gtfsCompiler: ReturnType<typeof startJsonCompiler> | null = null
+  let streetRoutingCompiler: ReturnType<typeof startJsonCompiler> | null = null
   let osmDrivePreparation: Record<string, unknown> | null = null
   const cityProgress = buildProgress('city')
   try {
@@ -1578,30 +1609,25 @@ async function runCityCompiler(args: CliArguments) {
     if (parallelRawBuild) osmCompiler = startOsmCompiler(osmPbf, stagedStreetStore, streetModes, wheelchair)
     const stagedRoutingStore = path.join(stagingRouting, 'project.sqlite')
     const gtfsStarted = performance.now()
-    await buildNationalGtfsCityStore({
-      feeds: gtfs, wheelchair,
-      outputPath: stagedRoutingStore,
-      onProgress: buildProgress('gtfs'),
-    })
+    // Process boundaries release importer heaps and native allocations before
+    // the next build stage; GC cannot account for native CCH working memory.
+    gtfsCompiler = startJsonCompiler('_build-gtfs-store', [
+      ...gtfs.flatMap(feed => [`--gtfs=${feed.path}`, `--gtfs-scope=${feed.scope}`]),
+      `--wheelchair=${wheelchair}`, `--output-store=${stagedRoutingStore}`,
+    ], 'GTFS compiler')
+    const gtfsOutcome = await gtfsCompiler.outcome
+    if (gtfsOutcome.error) throw gtfsOutcome.error
     gtfsBuildMs = performance.now() - gtfsStarted
 
     let streetResult: Record<string, unknown>
     if (sharedCityPath) {
       streetResult = readNationalOsmStoreMetadata(path.join(sharedCityPath, 'osm', 'street-index.sqlite')) as Record<string, unknown>
-    } else if (osmCompiler) {
+    } else {
+      osmCompiler ??= startOsmCompiler(osmPbf, stagedStreetStore, streetModes, wheelchair)
       const outcome = await osmCompiler.outcome
       if (outcome.error) throw outcome.error
       streetResult = outcome.result
       osmBuildMs = performance.now() - osmCompiler.startedAt
-    } else {
-      const osmStarted = performance.now()
-      streetResult = await buildNationalOsmStore({
-        pbfPath: osmPbf,
-        outputPath: stagedStreetStore,
-        includeDriving: streetModes === 'walk,drive', wheelchair,
-        onProgress: buildProgress('osm'),
-      }) as Record<string, unknown>
-      osmBuildMs = performance.now() - osmStarted
     }
 
     if (!sharedCity && Number(streetResult.driveEdgeCount ?? 0) > 0) {
@@ -1625,16 +1651,21 @@ async function runCityCompiler(args: CliArguments) {
       : compactNationalOsmRuntimeStore(stagedStreetStore, { requireDrive: true })
     osmRuntimeCompactionMs = performance.now() - osmRuntimeCompactionStarted
 
-    const nativeStreet = prepareNationalOsmNativeStore(stagedStreetStore)
-    if (!nativeStreet.ready) {
-      throw new Error(`Native street snapshot preparation failed: ${nativeStreet.error ?? nativeStreet.reason}`)
-    }
     const streetCchStarted = performance.now()
     cityProgress({ phase: 'Preparing street routing' })
-    const streetCch = sharedCity ? { ...sharedCity.streetStore.streetCch,
-      structurePath: path.join(stagingOsm, sharedCity.streetStore.streetCch.structureFile),
-      metricPath: path.join(stagingOsm, sharedCity.streetStore.streetCch.metricFile),
-    } : buildNativeStreetCchIndex(stagedStreetStore)
+    let streetCch
+    if (sharedCity) {
+      streetCch = { ...sharedCity.streetStore.streetCch,
+        structurePath: path.join(stagingOsm, sharedCity.streetStore.streetCch.structureFile),
+        metricPath: path.join(stagingOsm, sharedCity.streetStore.streetCch.metricFile),
+      }
+    } else {
+      streetRoutingCompiler = startJsonCompiler('_prepare-osm-routing',
+        [`--street-store=${stagedStreetStore}`], 'Street routing compiler')
+      const outcome = await streetRoutingCompiler.outcome
+      if (outcome.error) throw outcome.error
+      streetCch = outcome.result as ReturnType<typeof buildNativeStreetCchIndex>
+    }
     streetCchBuildMs = performance.now() - streetCchStarted
     // Finalize SQLite before binding transfer topology and access snapshots
     // to its generation. No compaction may follow derived-index preparation.
@@ -1798,6 +1829,12 @@ async function runCityCompiler(args: CliArguments) {
     fs.writeFileSync(path.join(stagingDirectory, 'network.json'), `${JSON.stringify(summary, null, 2)}\n`)
     process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`)
   } finally {
+    for (const compiler of [gtfsCompiler, streetRoutingCompiler]) {
+      if (compiler?.child.exitCode === null) {
+        compiler.child.kill()
+        await compiler.outcome
+      }
+    }
     if (osmCompiler?.child.exitCode === null) {
       osmCompiler.child.kill()
       await osmCompiler.outcome
@@ -1993,6 +2030,8 @@ try {
     validateInvocation(command, args)
     if (command === '_build-city') await runCityCompiler(args)
     else if (command === '_build-osm-store') await runOsmCompiler(args)
+    else if (command === '_build-gtfs-store') await runGtfsCompiler(args)
+    else if (command === '_prepare-osm-routing') await runStreetRoutingCompiler(args)
     else if (command === '_prepare-osm-drive') await runOsmDriveCompiler(args)
     else if (command === 'build') await runBuildCity(args)
     else if (command === 'build-scenarios') await runBuildScenarios(args)

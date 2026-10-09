@@ -122,6 +122,8 @@ export const commands = {
   },
   '_build-city': { options: ['gtfs', 'gtfs-scope', 'osm', 'wheelchair', 'private-access', 'street-modes', 'streets-from', 'prepare-date', 'output', 'city-name'] },
   '_build-osm-store': { options: ['osm-pbf', 'output-store', 'street-modes', 'wheelchair'] },
+  '_build-gtfs-store': { options: ['gtfs', 'gtfs-scope', 'output-store', 'wheelchair'] },
+  '_prepare-osm-routing': { options: ['street-store'] },
   '_prepare-osm-drive': { options: ['street-store'] },
 }
 
