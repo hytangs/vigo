@@ -47,6 +47,10 @@ pub fn identifier(v: &Value) -> Value {
         None => json!({"feed":null,"id":s}),
     }
 }
+fn coordinate(v: &Value) -> bool {
+    v.as_array()
+        .is_some_and(|a| a.len() == 2 && a.iter().all(|x| x.as_f64().is_some_and(f64::is_finite)))
+}
 fn point(v: &Value) -> Value {
     let mut p = json!({});
     if v["stop"].is_object() {
@@ -58,12 +62,12 @@ fn point(v: &Value) -> Value {
     if let Some(s) = v.get("stopId") {
         p["stop"] = identifier(s);
     }
-    for key in ["coordinate", "name"] {
-        if let Some(x) = v.get(key).filter(|x| !x.is_null()) {
-            p[key] = x.clone();
-        }
+    if let Some(name) = v.get("name").filter(|x| !x.is_null()) {
+        p["name"] = name.clone();
     }
-    if v.is_array() {
+    if coordinate(&v["coordinate"]) {
+        p["coordinate"] = v["coordinate"].clone();
+    } else if coordinate(v) {
         p["coordinate"] = v.clone();
     }
     p
@@ -131,9 +135,17 @@ fn leg(v: &Value, geometry: bool) -> Value {
         out["route"]["shortName"] = pick(&v["route"], &["shortName"]).clone();
         out["route"]["longName"] = pick(&v["route"], &["longName"]).clone();
         if let Some(stops) = v["intermediateStops"].as_array() {
-            out["intermediateStops"] = json!(stops.iter().map(|s| json!({"stop":identifier(&s["stopId"]),
-                "name":s["name"],"coordinate":s["coordinate"],"arrivalTime":clock(&integer(&s["arrival"])),
-                "departureTime":clock(&integer(&s["departure"]))})).collect::<Vec<_>>());
+            out["intermediateStops"] = json!(
+                stops
+                    .iter()
+                    .map(|s| {
+                        let mut stop = point(s);
+                        stop["arrivalTime"] = clock(&integer(&s["arrival"]));
+                        stop["departureTime"] = clock(&integer(&s["departure"]));
+                        stop
+                    })
+                    .collect::<Vec<_>>()
+            );
         }
         out["quality"] = json!({"geometry":source,"schedule":if v["sourceEqualTime"] == true || v["bridgedUntimedGapCount"].as_f64().unwrap_or(0.) > 0. {"source_time_limitations"} else {"timetable"}});
         if let Some(fare) = v.get("fare") {
@@ -192,7 +204,13 @@ fn leg(v: &Value, geometry: bool) -> Value {
                 .remove("coordinates");
         }
     }
-    if geometry && v["coordinates"].is_array() {
+    // Missing station-node coordinates are valid source data, but not valid
+    // GeoJSON. Do not bridge missing vertices or invent an interior path.
+    if geometry
+        && v["coordinates"]
+            .as_array()
+            .is_some_and(|a| a.len() >= 2 && a.iter().all(coordinate))
+    {
         out["geometry"] = json!({"type":"LineString","coordinates":v["coordinates"]});
     }
     out
@@ -254,6 +272,28 @@ fn journey(v: &Value, geometry: bool) -> Value {
         out["transfers"] = integer(t);
     }
     out
+}
+fn route_journey(v: &Value, q: &Value, geometry: bool) -> Value {
+    let mut result = journey(v, geometry);
+    complete_journey_endpoints(&mut result, &q["origin"], &q["destination"]);
+    result
+}
+fn complete_journey_endpoints(result: &mut Value, origin: &Value, destination: &Value) {
+    if let Some(legs) = result.get_mut("legs").and_then(Value::as_array_mut)
+        && !legs.is_empty()
+    {
+        for (index, side, endpoint) in [(0, "from", origin), (legs.len() - 1, "to", destination)] {
+            let current = &mut legs[index][side];
+            if current["stop"].is_null() && !coordinate(&current["coordinate"]) {
+                let resolved = point(endpoint);
+                for (key, value) in resolved.as_object().unwrap() {
+                    if current[key].is_null() {
+                        current[key] = value.clone();
+                    }
+                }
+            }
+        }
+    }
 }
 fn digest(v: &Value) -> String {
     format!("{:x}", Sha256::digest(serde_json::to_vec(v).unwrap()))
@@ -509,23 +549,7 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
     }
     match kind {
         "route" => {
-            out["journey"] = journey(plan, geometry);
-            if let Some(legs) = out
-                .get_mut("journey")
-                .and_then(|j| j.get_mut("legs"))
-                .and_then(Value::as_array_mut)
-                && legs.len() == 1
-                && ["walk", "drive"]
-                    .iter()
-                    .any(|kind| legs[0]["type"] == *kind)
-            {
-                if legs[0]["from"] == json!({}) {
-                    legs[0]["from"] = point(&q["origin"]);
-                }
-                if legs[0]["to"] == json!({}) {
-                    legs[0]["to"] = point(&q["destination"]);
-                }
-            }
+            out["journey"] = route_journey(plan, q, geometry);
             if out["journey"].is_null() {
                 out["status"] = json!("not_found");
                 if plan["access"].is_object() {
@@ -548,7 +572,7 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
             if let Some(choices) = pick(raw, &["choices", "journeys"]).as_array() {
                 let mut alternatives = Vec::new();
                 for choice in choices {
-                    let candidate = journey(choice, geometry);
+                    let candidate = route_journey(choice, q, geometry);
                     if !candidate.is_null()
                         && candidate != out["journey"]
                         && !alternatives.contains(&candidate)
@@ -621,6 +645,20 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
                 out["durationsSeconds"] = json!(durations);
                 if has_journeys {
                     out["journeys"] = json!(journeys);
+                }
+            }
+            let endpoints = out["query"].clone();
+            if let Some(rows) = out.get_mut("journeys").and_then(Value::as_array_mut) {
+                for (i, row) in rows.iter_mut().enumerate() {
+                    if let Some(cells) = row.as_array_mut() {
+                        for (j, cell) in cells.iter_mut().enumerate() {
+                            complete_journey_endpoints(
+                                cell,
+                                &endpoints["origins"][i],
+                                &endpoints["destinations"][j],
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -736,6 +774,42 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn missing_station_coordinates_and_walking_alternatives() {
+        let q = json!({"origin":{"coordinate":[-77.,39.]},"destination":{"stopId":"B"}});
+        let walk = json!({"status":"ready","departureMinutes":480,"arrivalMinutes":510,
+            "legs":[{"kind":"walk","departureMinutes":480,"arrivalMinutes":510,
+                "coordinates":[[-77.,39.],[-77.01,39.01]]}]});
+        let mut transit = json!({"status":"ready","departureMinutes":480,"arrivalMinutes":500,
+            "legs":[{"kind":"ride","fromStopId":"A","toStopId":"B",
+                "from":{"coordinate":[null,null]},"to":{"coordinate":[-77.01,39.01]},
+                "coordinates":[[-77.,39.],[null,null],[-77.01,39.01]],
+                "intermediateStops":[{"stopId":"interior","name":"Concourse","coordinate":[null,null],"arrival":29400,"departure":29400}],
+                "departureMinutes":480,"arrivalMinutes":500}]});
+        transit["choices"] = json!([transit.clone(), walk.clone(), walk.clone()]);
+        let result = format("route", &q, &transit);
+        let ride = &result["journey"]["legs"][0];
+        assert_eq!(ride["from"]["stop"]["id"], "A");
+        assert!(ride["from"].get("coordinate").is_none());
+        assert!(ride.get("geometry").is_none());
+        assert_eq!(ride["intermediateStops"][0]["stop"]["id"], "interior");
+        assert!(ride["intermediateStops"][0].get("coordinate").is_none());
+        assert_eq!(result["alternatives"].as_array().unwrap().len(), 1);
+        let alternative = &result["alternatives"][0]["legs"][0];
+        assert_eq!(alternative["from"], point(&q["origin"]));
+        assert_eq!(alternative["to"], point(&q["destination"]));
+        assert_eq!(
+            alternative["geometry"]["coordinates"],
+            walk["legs"][0]["coordinates"]
+        );
+        let mut walking_primary = walk.clone();
+        walking_primary["choices"] = json!([walk]);
+        assert!(
+            format("route", &q, &walking_primary)
+                .get("alternatives")
+                .is_none()
+        );
+    }
     #[test]
     fn clean_journey_and_opt_in_trace() {
         let q =

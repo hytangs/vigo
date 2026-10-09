@@ -9,16 +9,18 @@ const bounds = value => Array.isArray(value) && value.length === 4 && value.ever
   && value[0] < value[2] && value[1] < value[3]
 const message = value => object(value) && text(value.code) && text(value.message)
 const reference = value => object(value) && text(value.id) && (value.feed === null || text(value.feed))
-const point = value => object(value) && (reference(value.stop)
-  || Array.isArray(value.coordinate) && value.coordinate.length === 2 && value.coordinate.every(Number.isFinite))
+const pointCoordinate = value => Array.isArray(value) && value.length === 2 && value.every(Number.isFinite)
+const point = value => object(value) && (!Object.hasOwn(value, 'coordinate') || pointCoordinate(value.coordinate))
+  && (reference(value.stop) || pointCoordinate(value.coordinate))
 
 function journey(value) {
   return object(value) && clock(value.departureTime) && clock(value.arrivalTime)
     && ['durationSeconds', 'walkingSeconds', 'waitingSeconds', 'ridingSeconds', 'boardings', 'transfers'].every(key => seconds(value[key]))
     && (!Object.hasOwn(value, 'drivingSeconds') || seconds(value.drivingSeconds))
     && Array.isArray(value.legs) && value.legs.every(leg => object(leg)
-      && ['walk', 'transit', 'drive'].includes(leg.type) && object(leg.from) && object(leg.to)
+      && ['walk', 'transit', 'drive'].includes(leg.type) && point(leg.from) && point(leg.to)
       && clock(leg.departureTime) && clock(leg.arrivalTime) && seconds(leg.durationSeconds)
+      && (!Object.hasOwn(leg, 'geometry') || object(leg.geometry) && leg.geometry.type === 'LineString' && line(leg.geometry.coordinates))
       // The public formatter retains unknown source route metadata as null.
       && (leg.type !== 'transit' || object(leg.route) && (leg.route.id === null || reference(leg.route.id)) && reference(leg.trip)))
 }

@@ -87,9 +87,21 @@ try {
     assert(defaultRoute.journey.durationSeconds < result.journey.durationSeconds)
     assert(defaultRoute.journey.legs.every(leg => leg.type === 'walk'))
     assert(defaultRoute.journey.legs.every(leg => leg.geometry?.coordinates?.length >= 2))
+    if (runtime === 'rust') {
+      const window = cli(runtime, 'route', { ...defaultQuery, windowMinutes: 5 })
+      assertPublic(window)
+      for (const candidate of [window.journey, ...(window.alternatives ?? [])]) {
+        if (candidate.legs.length === 1 && candidate.legs[0].type === 'walk') {
+          assert.deepEqual(candidate.legs[0].from.stop, base.origin.stop)
+          assert.deepEqual(candidate.legs[0].to.stop, base.destination.stop)
+        }
+      }
+    }
     const defaultMatrix = cli(runtime, 'matrix', { serviceDate: base.serviceDate, time: base.time, origins: [base.origin], destinations: [base.destination], maxWalkKm: .2, includeJourneys: true })
     assertPublic(defaultMatrix)
     assert.deepEqual(defaultMatrix.durationsSeconds, [[defaultRoute.journey.durationSeconds]])
+    assert.deepEqual(defaultMatrix.journeys[0][0].legs[0].from.stop, base.origin.stop)
+    assert.deepEqual(defaultMatrix.journeys[0][0].legs[0].to.stop, base.destination.stop)
     checks += 5
     const reach = cli(runtime, 'reach', { serviceDate: base.serviceDate, time: base.time, origin: base.origin, rasterSize: 48, cutoffsMinutes: [15, 30], maxWalkKm: .2 })
     assertPublic(reach, { rasterSize: 48 })
