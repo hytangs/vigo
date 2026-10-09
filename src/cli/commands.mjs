@@ -53,9 +53,10 @@ export const commands = {
   'build-scenarios': {
     summary: 'Prepare a portable scenario collection with one shared street network.',
     usage: ['--spec scenarios.source.json --output ./scenario-set'],
-    options: ['spec', 'output'],
+    options: ['spec', 'output', 'wheelchair'],
     notes: ['Queries use the standalone Rust runtime with scenarioId. Street data is prepared once.',
-      'Source paths are relative to the spec. Input SHA-256 values, if supplied, must match.'],
+      'Source paths are relative to the spec. Input SHA-256 values, if supplied, must match.',
+      'Use --wheelchair or wheelchair: true in the spec for a strict wheelchair collection.'],
   },
   build: {
     summary: 'Compile GTFS and OSM into a reusable City.',

@@ -133,6 +133,23 @@ try {
   assert.equal(removedRouteOption.status, 2)
   assert(removedRouteOption.stderr.includes('--objective=earliest_arrival'))
 
+  const windowRequest = path.join(temporaryRoot, 'window-route.json')
+  const windowArgs = ['route', `--city=${cityPath}`, `--request=${windowRequest}`,
+    '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2']
+  const windowBase = { origin: 'A', destination: 'B', requireTransitRide: true }
+  fs.writeFileSync(windowRequest, JSON.stringify({ ...windowBase, departureWindowMinutes: 5 }))
+  const windowRoute = parseResult(run(windowArgs))
+  assert.equal(windowRoute.query.departureWindowMinutes, 5)
+  assert.equal(windowRoute.result.diagnostics.departureWindow.sampleCount, 11)
+  assert.equal(parseResult(run([...windowArgs, '--departure-window=0'])).query.departureWindowMinutes, 0)
+  assert.equal(invoke([...windowArgs, '--time-preference=arrive']).status, 2)
+  for (const unsupported of [{ windowMinutes: 5 }, { windowStepMinutes: 1 }]) {
+    fs.writeFileSync(windowRequest, JSON.stringify({ ...windowBase, ...unsupported }))
+    const response = invoke(windowArgs)
+    assert.equal(response.status, 2)
+    assert.match(response.stderr, /require the standalone Rust CLI/)
+  }
+
   const modeRequest = path.join(temporaryRoot, 'mode-route.json')
   const realtimeSnapshot = {
     sourceUrl: 'https://example.test/cli-trip-updates.pb',

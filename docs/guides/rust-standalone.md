@@ -12,6 +12,8 @@ Read this manual in the [searchable offline reader](../standalone.html). The [Op
 
 A collection serves several transit scenarios against one immutable street graph. Prepare it with `node public/vigo.mjs build-scenarios --spec scenarios.source.json --output scenario-set`, then point `vigo serve --city scenario-set` or `vigo stream --city scenario-set` at the result. Each request selects a `scenarioId`; omission selects `defaultScenario`. The one-shot CLI also accepts `--scenario ID`.
 
+For wheelchair routing, add `"wheelchair": true` to the source specification or pass `build-scenarios --wheelchair`. Every member and the shared street graph then use `wheelchair-strict-v1`; unknown accessibility is excluded. Wheelchair collections require `streetModes: "walk"`. Conflicting CLI/spec values and non-boolean specification values are rejected before compilation. Use a separate regular collection when both profiles are needed.
+
 ```json
 {
   "schemaVersion": "vigo.scenarios.source.v1",
@@ -498,9 +500,13 @@ Supply `via` (alias `waypoints`) as an ordered array of at most 16 points. Do no
 
 Transit via requests require a boarding on every segment. They reject an explicit `maxTransfers` or a nonzero transfer buffer because independent segment composition cannot certify the transfer boundary. No dwell/visit duration is added at a via point.
 
-### Departure windows
+### Journey windows
 
-`windowMinutes` accepts 0–240 (default 0). A positive value samples depart-at searches from the requested time, inclusive, at `windowStepMinutes` intervals (1–60, default 1). The result retains up to five distinct choices and records `window.minutes`, `stepMinutes`, and `searches`. This is a sampled search, not a continuous all-departures guarantee. Arrive-by windows are rejected. A nonempty via list takes precedence and removes window sampling from its segments; do not combine the two when you need departure alternatives.
+`windowMinutes` accepts 0–240 (default 0). A positive value samples searches at `windowStepMinutes` intervals (1–60, default 1), including the requested time. Depart-at searches move toward later departures; arrive-by searches move toward earlier arrival deadlines. Results retain up to five distinct, nondominated journeys, sorted by earliest arrival for depart-at or latest departure for arrive-by, then fewer boardings and less walking. The primary journey is in `journey`, with the remaining choices in `alternatives`.
+
+`alternativeSearch` records `minutes`, `stepMinutes`, `searches`, and `direction` (`later_departures` or `earlier_arrival_deadlines`). This is a sampled search with a 15-minute arrival/departure slack, not a continuous all-departures guarantee. A nonempty via list takes precedence and removes window sampling from its segments; do not combine the two when you need window alternatives.
+
+These fields are supported by the standalone Rust CLI and its HTTP service. The Node CLI instead supports `--departure-window` or JSON `departureWindowMinutes` for a centered depart-at profile of ±0–30 minutes. It rejects the standalone window fields, and rejects positive centered profiles with arrive-by, rather than silently running a point query.
 
 ```json query=route
 {

@@ -547,6 +547,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__); parser.add_argument('--check',action='store_true'); args=parser.parse_args()
     source=SOURCE.read_text(encoding='utf-8'); native,native_md=native_contracts()
     public_results=(ROOT/'docs/reference/results.md').read_text(encoding='utf-8')
+    public_results=public_results.replace('(../guides/rust-standalone.md#journey-windows)', '(#journey-windows)')
     # This reference is embedded in a single-file manual served by the binary;
     # its source-relative Markdown link is not available beside that manual.
     public_results=public_results.replace('(../guide.md#known-limits)', '(https://github.com/hytangs/vigo/blob/main/docs/guide.md#known-limits)')

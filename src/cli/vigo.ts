@@ -308,6 +308,9 @@ function resolveRuntimePaths(args: CliArguments) {
 }
 
 function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {}) {
+  if (Object.hasOwn(request, 'windowMinutes') || Object.hasOwn(request, 'windowStepMinutes')) {
+    throw new Error('windowMinutes and windowStepMinutes require the standalone Rust CLI or /v1/route service. The Node CLI supports departureWindowMinutes (a centered departure profile).')
+  }
   if (args.has('routing-preference') || Object.hasOwn(request, 'routingPreference')) {
     throw new Error('Unknown routing option; use --objective=earliest_arrival')
   }
@@ -328,7 +331,7 @@ function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {
   const maxTransfers = args.has('max-transfers') || request.maxTransfers !== undefined
     ? parseIntegerNumber(value(args, 'max-transfers', String(request.maxTransfers)), 'max-transfers', 0, 31)
     : undefined
-  const departureWindowMinutes = parseIntegerNumber(value(args, 'departure-window', '0'), 'departure-window', 0, 30)
+  const departureWindowMinutes = parseIntegerNumber(value(args, 'departure-window', String(request.departureWindowMinutes ?? 0)), 'departure-window', 0, 30)
   if (timePreference === 'arrive' && departureWindowMinutes > 0) {
     throw new Error('--departure-window is a centered departure profile; omit it for arrive-by search')
   }
@@ -1381,6 +1384,11 @@ async function runBuildScenarios(args: CliArguments) {
   if (fs.existsSync(output)) throw new Error('Scenario collection already exists; build to a new directory.')
   if (spec.schemaVersion !== 'vigo.scenarios.source.v1' || !Array.isArray(spec.scenarios)
       || spec.scenarios.length < 1 || spec.scenarios.length > 128) throw new Error('Expected vigo.scenarios.source.v1 with 1 to 128 scenarios.')
+  if (spec.wheelchair !== undefined && typeof spec.wheelchair !== 'boolean') throw new Error('wheelchair must be boolean')
+  const wheelchair = args.has('wheelchair') ? enabled(args, 'wheelchair') : spec.wheelchair === true
+  if (args.has('wheelchair') && spec.wheelchair !== undefined && wheelchair !== spec.wheelchair) {
+    throw new Error('--wheelchair conflicts with wheelchair in the scenario specification')
+  }
   const base = path.dirname(specPath)
   const resolveInput = async (input: { path: string; sha256?: string }, label: string) => {
     if (typeof input?.path !== 'string') throw new Error(`${label} requires a path.`)
@@ -1392,6 +1400,7 @@ async function runBuildScenarios(args: CliArguments) {
   const osm = await resolveInput(spec.osm as { path: string; sha256?: string }, 'OSM')
   const streetModes = spec.streetModes ?? 'walk'
   if (!['walk', 'walk,drive'].includes(String(streetModes))) throw new Error('streetModes must be walk or walk,drive')
+  if (wheelchair && streetModes !== 'walk') throw new Error('Wheelchair collections require streetModes walk')
   const maximumResidentScenarios = spec.maximumResidentScenarios ?? 2
   if (!Number.isInteger(maximumResidentScenarios) || Number(maximumResidentScenarios) < 1 || Number(maximumResidentScenarios) > 16) throw new Error('maximumResidentScenarios must be between 1 and 16')
   const prepareDates = spec.prepareDates ?? []
@@ -1420,7 +1429,7 @@ async function runBuildScenarios(args: CliArguments) {
         ...scenario.feeds.map(feed => `--gtfs=${feed.path}`),
         ...scenario.feeds.map(feed => `--gtfs-scope=${feed.scope}`),
         ...prepareDates.map(date => `--prepare-date=${date}`),
-        `--osm=${osm.path}`, `--street-modes=${streetModes}`, '--private-access=public',
+        `--osm=${osm.path}`, `--street-modes=${streetModes}`, `--wheelchair=${wheelchair}`, '--private-access=public',
         ...(firstCity ? [`--streets-from=${firstCity}`] : []),
         `--output=${compilerStage}`, `--city-name=${scenario.name}`,
       ], `Scenario ${scenario.id}`)

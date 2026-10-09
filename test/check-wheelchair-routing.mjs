@@ -99,9 +99,39 @@ try {
     const result = run(merged, 'route', { ...base, origin: { stop: { id: 'A', feed } }, destination: { stop: { id: 'B', feed } }, wheelchair: true })
     assert.equal(result.journey.arrivalTime, '08:30:00')
   }
+  // Scenario compilation must preserve the same profile in every City and
+  // their shared street graph; a spec flag must never be silently ignored.
+  const collection = path.join(folder, 'collection')
+  const specPath = path.join(folder, 'scenarios.json')
+  const spec = { schemaVersion: 'vigo.scenarios.source.v1', wheelchair: true,
+    osm: { path: osmPath }, scenarios: ['first', 'second'].map(id => ({ id, feeds: [{ path: gtfsPath, scope: 'test' }] })) }
+  const compileCollection = (output, extra = []) => execFileSync(process.execPath,
+    ['public/vigo.mjs', 'build-scenarios', '--spec', specPath, '--output', output, ...extra],
+    { cwd: root, stdio: 'pipe', timeout: 60000 })
+  fs.writeFileSync(specPath, JSON.stringify(spec))
+  compileCollection(collection)
+  for (const scenarioId of ['first', 'second']) {
+    assert.equal(JSON.parse(fs.readFileSync(path.join(collection, 'cities', scenarioId, 'network.json'))).accessibility.profile, 'wheelchair-strict-v1')
+    const result = run(collection, 'route', { ...base, scenarioId, wheelchair: true })
+    assert.equal(result.journey.arrivalTime, '08:30:00')
+    assert.equal(result.accessibility.profile, 'wheelchair-strict-v1')
+    assert.equal(result.scenarioId, scenarioId)
+    assert.throws(() => run(collection, 'route', { ...base, scenarioId, wheelchair: false }), /Command failed/)
+  }
+  for (const [change, flags] of [[{ wheelchair: 'true' }, []], [{ streetModes: 'walk,drive' }, []], [{}, ['--wheelchair=false']]]) {
+    fs.writeFileSync(specPath, JSON.stringify({ ...spec, ...change }))
+    const invalid = path.join(folder, 'invalid-collection')
+    assert.throws(() => compileCollection(invalid, flags), /Command failed/)
+    assert(!fs.existsSync(invalid))
+  }
+  const flagSpec = { ...spec, wheelchair: undefined, scenarios: [spec.scenarios[0]] }
+  fs.writeFileSync(specPath, JSON.stringify(flagSpec))
+  const flagCollection = path.join(folder, 'flag-collection')
+  compileCollection(flagCollection, ['--wheelchair'])
+  assert.equal(run(flagCollection, 'route', { ...base, wheelchair: true }).journey.arrivalTime, '08:30:00')
   // HTTP exercises the same constrained search and keeps serving after errors.
   const token = 'synthetic-wheelchair-test-token'
-  server = spawn(standaloneBinary, ['serve', '--city', accessible, '--port', '0'], { env: { ...process.env, VIGO_API_TOKEN: token } })
+  server = spawn(standaloneBinary, ['serve', '--city', collection, '--port', '0'], { env: { ...process.env, VIGO_API_TOKEN: token } })
   const port = await new Promise((resolve, reject) => {
     let log = ''
     const timer = setTimeout(() => reject(new Error(`HTTP startup timeout: ${log}`)), 15000)
