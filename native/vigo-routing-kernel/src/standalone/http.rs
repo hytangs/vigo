@@ -1,7 +1,7 @@
 //! Bounded HTTP/1.1 transport. Timetable work runs in a supervised copy of the
 //! same executable so deadlines can actually stop computation and reclaim it.
 use super::{Result, capabilities, fail, transport::error as json_error};
-use serde_json::{Value, json};
+use serde_json::{Value, json, value::RawValue};
 use std::{
     collections::{HashMap, VecDeque},
     env,
@@ -16,6 +16,166 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+
+// Bound retained wire data independently of connection and queue counts. A
+// request lease covers upload, queuing and worker dispatch; response leases
+// remain live until the socket writer finishes, including slow readers.
+const REQUEST_BYTES: usize = 64 * 1024 * 1024;
+const RESPONSE_BYTES: usize = 128 * 1024 * 1024;
+const WORKER_LINE_BYTES: usize = 8 * 1024 * 1024;
+#[derive(Default)]
+struct ByteBudget(AtomicUsize);
+struct ByteLease {
+    budget: Arc<ByteBudget>,
+    bytes: usize,
+}
+impl ByteBudget {
+    fn reserve(self: &Arc<Self>, bytes: usize, limit: usize) -> Option<ByteLease> {
+        self.0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+                used.checked_add(bytes).filter(|&total| total <= limit)
+            })
+            .ok()?;
+        Some(ByteLease {
+            budget: self.clone(),
+            bytes,
+        })
+    }
+}
+impl Drop for ByteLease {
+    fn drop(&mut self) {
+        self.budget.0.fetch_sub(self.bytes, Ordering::AcqRel);
+    }
+}
+
+// Keep nested request fields encoded. Only the single worker expands a query
+// into a Value tree; queued matrices and unknown nested fields cannot multiply
+// their decoded heap cost across HTTP threads.
+struct Request {
+    bytes: Vec<u8>,
+    id: Option<String>,
+    short: bool,
+}
+fn array_len(raw: Option<&&RawValue>) -> Option<usize> {
+    struct Count;
+    impl<'de> serde::de::Visitor<'de> for Count {
+        type Value = usize;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("an array")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> std::result::Result<usize, A::Error> {
+            let mut n = 0usize;
+            while seq.next_element::<serde::de::IgnoredAny>()?.is_some() {
+                n += 1;
+            }
+            Ok(n)
+        }
+    }
+    let mut parser = serde_json::Deserializer::from_str(raw?.get());
+    serde::de::Deserializer::deserialize_seq(&mut parser, Count).ok()
+}
+impl Request {
+    fn read(body: &[u8], kind: &str, parameters: &str) -> std::result::Result<Self, String> {
+        let mut fields: HashMap<String, &RawValue> =
+            serde_json::from_slice(body).map_err(|_| "Request must be a valid JSON object")?;
+        let mut flags = json!({});
+        for key in [
+            "diagnostics",
+            "reachFormat",
+            "includeStreetEdges",
+            "includeNodes",
+            "includeGeometry",
+            "includeLimitations",
+        ] {
+            if let Some(raw) = fields.get(key) {
+                // These options are scalar and short. Do not decode arbitrarily
+                // large objects supplied in their place.
+                if raw.get().len() > 128 {
+                    return Err(format!("Invalid {key}"));
+                }
+                flags[key] = serde_json::from_str(raw.get()).map_err(|e| e.to_string())?;
+            }
+        }
+        for pair in parameters.split('&').filter(|p| !p.is_empty()) {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            let key = if key == "vigo_diagnostics" {
+                "diagnostics"
+            } else {
+                key
+            };
+            let value = match key {
+                "diagnostics" => json!(value),
+                "includeGeometry" | "includeLimitations" => match value {
+                    "true" => json!(true),
+                    "false" => json!(false),
+                    _ => return Err("Output query flags must be true or false".into()),
+                },
+                _ => return Err("Unknown URL query option".into()),
+            };
+            if flags.get(key).is_some_and(|old| old != &value) {
+                return Err("Conflicting body and URL output options".into());
+            }
+            flags[key] = value;
+        }
+        crate::presentation::validate(&flags)?;
+        let id = fields.get("id").map(|raw| {
+            if raw.get().len() > 770 { return Err("Invalid request id".to_owned()); }
+            let id: String = serde_json::from_str(raw.get()).map_err(|_| "Request id must be a string")?;
+            if id.is_empty() || id.len() > 128 || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b)) {
+                return Err("Request id must contain 1 to 128 letters, digits, hyphens, underscores or periods".into());
+            }
+            Ok(id)
+        }).transpose()?;
+        let short = matches!(kind, "route" | "info")
+            || kind == "matrix"
+                && array_len(fields.get("origins"))
+                    .zip(array_len(fields.get("destinations")))
+                    .is_some_and(|(a, b)| a.saturating_mul(b) <= 1024);
+        let kind = serde_json::value::to_raw_value(kind).map_err(|e| e.to_string())?;
+        fields.insert("kind".into(), &kind);
+        let options: Vec<_> = flags
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.clone(), serde_json::value::to_raw_value(v).unwrap()))
+            .collect();
+        for (k, v) in &options {
+            fields.insert(k.clone(), v);
+        }
+        // Match the ingress reservation instead of retaining Vec's geometric
+        // growth slack in every queued request.
+        let mut bytes = Vec::with_capacity(body.len() + 1024);
+        serde_json::to_writer(&mut bytes, &fields).map_err(|e| e.to_string())?;
+        // RawValue retains whitespace, including newlines. Compact only outside
+        // strings so pretty JSON remains one worker-protocol line.
+        let (mut quoted, mut escaped) = (false, false);
+        bytes.retain(|&b| {
+            if quoted {
+                if escaped {
+                    escaped = false;
+                } else if b == b'\\' {
+                    escaped = true;
+                } else if b == b'"' {
+                    quoted = false;
+                }
+                true
+            } else if b == b'"' {
+                quoted = true;
+                true
+            } else {
+                !b.is_ascii_whitespace()
+            }
+        });
+        bytes.push(b'\n');
+        if bytes.len() > WORKER_LINE_BYTES {
+            return Err("Normalized request exceeds worker line limit".into());
+        }
+        Ok(Self { bytes, id, short })
+    }
+}
 
 // The supervisor owns only the encoded response, never a second journey or
 // raster object tree. Deserialization below validates/skips nested fields.
@@ -56,12 +216,14 @@ enum BodyData {
 struct Body {
     data: BodyData,
     queue_us: Option<u64>,
+    _lease: Option<ByteLease>,
 }
 impl From<Value> for Body {
     fn from(value: Value) -> Self {
         Self {
             data: BodyData::Json(value),
             queue_us: None,
+            _lease: None,
         }
     }
 }
@@ -141,13 +303,11 @@ impl Worker {
     }
     fn query(
         &mut self,
-        q: &Value,
+        bytes: Vec<u8>,
         timeout: Duration,
         canceled: &AtomicBool,
     ) -> Result<EncodedOutput> {
         let deadline = Instant::now() + timeout;
-        let mut bytes = serde_json::to_vec(q)?;
-        bytes.push(b'\n');
         self.input
             .try_send(bytes)
             .map_err(|_| "City worker input is unavailable")?;
@@ -172,7 +332,8 @@ impl Worker {
 }
 struct Job {
     queued_at: Instant,
-    query: Value,
+    query: Request,
+    _lease: Option<ByteLease>,
     deadline: Instant,
     response: SyncSender<(u16, Body)>,
     canceled: Arc<AtomicBool>,
@@ -180,24 +341,14 @@ struct Job {
 // Route requests and small matrices can pass waiting analytical jobs. A bounded
 // burst is followed by the oldest analytical job, so a sustained
 // route stream cannot starve Reach. Running queries are never interrupted.
-fn short_query(query: &Value) -> bool {
-    match query["kind"].as_str() {
-        Some("route" | "info") => true,
-        Some("matrix") => query["origins"]
-            .as_array()
-            .zip(query["destinations"].as_array())
-            .is_some_and(|(a, b)| a.len().saturating_mul(b.len()) <= 1024),
-        _ => false,
-    }
-}
 fn next_job(pending: &mut VecDeque<Job>, short_streak: &mut usize, short_time: Duration) -> Job {
     let desired_short = *short_streak < 32 && short_time < Duration::from_millis(250);
     let index = pending
         .iter()
-        .position(|job| short_query(&job.query) == desired_short)
+        .position(|job| job.query.short == desired_short)
         .unwrap_or(0);
     let job = pending.remove(index).expect("nonempty pending queue");
-    *short_streak = if short_query(&job.query) {
+    *short_streak = if job.query.short {
         (*short_streak + 1).min(32)
     } else {
         0
@@ -214,6 +365,8 @@ struct State {
     queued: AtomicUsize,
     ready: AtomicBool,
     requests: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    request_bytes: Arc<ByteBudget>,
+    response_bytes: Arc<ByteBudget>,
 }
 fn setting(
     o: &HashMap<String, String>,
@@ -268,6 +421,8 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
         queued: AtomicUsize::new(0),
         ready: AtomicBool::new(true),
         requests: Mutex::new(HashMap::new()),
+        request_bytes: Arc::default(),
+        response_bytes: Arc::default(),
     });
     let supervisor = state.clone();
     let city = city.to_owned();
@@ -322,17 +477,24 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
             let mut response = match worker.as_mut() {
                 None => (503, error("City worker is unavailable")),
                 Some(w) => match w.query(
-                    &job.query,
+                    job.query.bytes,
                     job.deadline.saturating_duration_since(Instant::now()),
                     &job.canceled,
                 ) {
-                    Ok(v) => (
-                        if v.failed { 400 } else { 200 },
-                        Body {
-                            data: BodyData::Encoded(v),
-                            queue_us: None,
-                        },
-                    ),
+                    Ok(v) => match supervisor
+                        .response_bytes
+                        .reserve(v.bytes.capacity(), RESPONSE_BYTES)
+                    {
+                        Some(lease) => (
+                            if v.failed { 400 } else { 200 },
+                            Body {
+                                data: BodyData::Encoded(v),
+                                queue_us: None,
+                                _lease: Some(lease),
+                            },
+                        ),
+                        None => (503, error("Response memory capacity reached")),
+                    },
                     Err(_) => {
                         supervisor.ready.store(false, Ordering::Release);
                         drop(worker.take());
@@ -351,7 +513,7 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                     }
                 },
             };
-            short_time = if short_query(&job.query) {
+            short_time = if job.query.short {
                 short_time.saturating_add(compute_started.elapsed())
             } else {
                 Duration::ZERO
@@ -526,7 +688,7 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
         return Ok((200, capabilities().into()));
     }
     if method == "GET" && path == "/v1/info" {
-        return dispatch(state, json!({"kind":"info"}));
+        return dispatch(state, Request::read(b"{}", "info", "").map_err(|_| invalid())?, None);
     }
     if method == "DELETE" && path.starts_with("/v1/requests/") {
         let id = path.trim_start_matches("/v1/requests/");
@@ -571,6 +733,11 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
     if length.is_some_and(|n| n > state.maximum) {
         return Ok((413, error("Request body exceeds configured limit")));
     }
+    // Reserve before accepting/uploading the body, even for chunked framing.
+    // Leave small normalization headroom for endpoint kind and URL flags.
+    let Some(lease) = state.request_bytes.reserve(length.unwrap_or(state.maximum).saturating_add(1024), REQUEST_BYTES) else {
+        return Ok((503, error("Request memory capacity reached")));
+    };
     if let Some(expect) = get("Expect")? {
         if !expect.eq_ignore_ascii_case(b"100-continue") {
             return Ok((417, error("Unsupported expectation")));
@@ -640,49 +807,22 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
             body.extend_from_slice(&chunk[..n]);
         }
     }
-    let mut query: Value = match serde_json::from_slice(&body) {
-        Ok(v) => v,
-        Err(_) => return Ok((400, error("Request must be valid JSON"))),
+    let query = match Request::read(&body, &kind, parameters) {
+        Ok(query) => query,
+        Err(e) => return Ok((400, error(e))),
     };
-    if !query.is_object() {
-        return Ok((400, error("Request must be a JSON object")));
-    }
-    for pair in parameters.split('&').filter(|p| !p.is_empty()) {
-        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        let key = if key == "vigo_diagnostics" { "diagnostics" } else { key };
-        let value = match key {
-            "diagnostics" => json!(value),
-            "includeGeometry" | "includeLimitations" => match value {
-                "true" => json!(true), "false" => json!(false),
-                _ => return Ok((400, error("Output query flags must be true or false"))),
-            },
-            _ => return Ok((400, error("Unknown URL query option"))),
-        };
-        if query.get(key).is_some_and(|old| old != &value) { return Ok((400, error("Conflicting body and URL output options"))); }
-        query[key] = value;
-    }
-    if let Err(e) = crate::presentation::validate(&query) { return Ok((400, error(e))); }
-    query["kind"] = json!(kind);
-    dispatch(state, query)
+    drop(body);
+    dispatch(state, query, Some(lease))
     })().map(Response::Json)
 }
-fn dispatch(state: &State, query: Value) -> std::io::Result<(u16, Body)> {
+fn dispatch(
+    state: &State,
+    query: Request,
+    lease: Option<ByteLease>,
+) -> std::io::Result<(u16, Body)> {
     let canceled = Arc::new(AtomicBool::new(false));
-    let id = query["id"].as_str().map(str::to_owned);
+    let id = query.id.clone();
     if let Some(id) = &id {
-        if id.is_empty()
-            || id.len() > 128
-            || !id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-        {
-            return Ok((
-                400,
-                error(
-                    "Request id must contain 1 to 128 letters, digits, hyphens, underscores or periods",
-                ),
-            ));
-        }
         let mut requests = state.requests.lock().map_err(|_| invalid())?;
         if requests.contains_key(id) {
             return Ok((409, error("Request id is already active")));
@@ -694,6 +834,7 @@ fn dispatch(state: &State, query: Value) -> std::io::Result<(u16, Body)> {
         let job = Job {
             queued_at: Instant::now(),
             query,
+            _lease: lease,
             deadline: Instant::now() + state.query_timeout,
             response: sender,
             canceled: canceled.clone(),
@@ -874,7 +1015,15 @@ mod scheduling_tests {
             let (response, _) = mpsc::sync_channel(1);
             queue.push_back(Job {
                 queued_at: Instant::now(),
-                query: json!({"kind":kind,"id":id}),
+                query: Request::read(
+                    serde_json::to_string(&json!({"id":id.to_string()}))
+                        .unwrap()
+                        .as_bytes(),
+                    kind,
+                    "",
+                )
+                .unwrap(),
+                _lease: None,
                 deadline: Instant::now() + Duration::from_secs(60),
                 response,
                 canceled: Arc::new(AtomicBool::new(false)),
@@ -890,8 +1039,11 @@ mod scheduling_tests {
         let mut order = Vec::new();
         while !queue.is_empty() {
             order.push(
-                next_job(&mut queue, &mut streak, Duration::ZERO).query["id"]
-                    .as_u64()
+                next_job(&mut queue, &mut streak, Duration::ZERO)
+                    .query
+                    .id
+                    .unwrap()
+                    .parse::<usize>()
                     .unwrap(),
             );
         }
@@ -907,15 +1059,46 @@ mod scheduling_tests {
         );
     }
     #[test]
-    fn only_bounded_matrices_join_the_route_queue() {
-        assert!(short_query(
-            &json!({"kind":"matrix","origins":[1],"destinations":vec![0;1024]})
-        ));
-        assert!(!short_query(
-            &json!({"kind":"matrix","origins":[1,2],"destinations":vec![0;1024]})
-        ));
-        assert!(!short_query(
-            &json!({"kind":"native","operation":"street.surface"})
-        ));
+    fn encoded_queries_preserve_values_and_priority() {
+        for (origins, short) in [(1, true), (2, false)] {
+            let body = serde_json::to_vec_pretty(
+                &json!({"origins":vec![0;origins],"destinations":vec![0;1024], "text":"a\n\\\" b"}),
+            )
+            .unwrap();
+            let query = Request::read(&body, "matrix", "includeGeometry=false").unwrap();
+            assert_eq!(query.short, short);
+            assert_eq!(query.bytes.iter().filter(|&&b| b == b'\n').count(), 1);
+            let value: Value = serde_json::from_slice(&query.bytes).unwrap();
+            assert_eq!(value["text"], "a\n\\\" b");
+            assert_eq!(value["includeGeometry"], false);
+        }
+        assert!(
+            !Request::read(br#"{"operation":"street.surface"}"#, "native", "")
+                .unwrap()
+                .short
+        );
+        assert!(Request::read(br#"{"id":7}"#, "route", "").is_err());
+        assert!(
+            Request::read(
+                br#"{"includeGeometry":true}"#,
+                "route",
+                "includeGeometry=false"
+            )
+            .is_err()
+        );
+        assert!(Request::read(b"[]", "route", "").is_err());
+    }
+    #[test]
+    fn byte_budget_rejects_overflow_and_reclaims_every_lease() {
+        let budget = Arc::new(ByteBudget::default());
+        let first = budget.reserve(4, 10).unwrap();
+        let second = budget.reserve(6, 10).unwrap();
+        assert!(budget.reserve(1, 10).is_none());
+        assert!(budget.reserve(usize::MAX, usize::MAX).is_none());
+        drop(first);
+        assert!(budget.reserve(5, 10).is_none());
+        drop(second);
+        assert_eq!(budget.0.load(Ordering::Acquire), 0);
+        assert!(budget.reserve(10, 10).is_some());
     }
 }

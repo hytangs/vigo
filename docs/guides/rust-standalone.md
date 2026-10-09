@@ -1289,6 +1289,8 @@ The executable runs an HTTP front end and a supervised child worker. The worker 
 | `--max-connections` | 32 | 2–256 |
 | `--max-queue` | 8 | 0–128 waiting jobs |
 
+Queued HTTP requests retain encoded JSON; only the worker expands nested query fields. Across connections, uploads and queued requests share a 64 MiB encoded-byte admission budget (including normalization headroom). Chunked uploads reserve their configured maximum before reading. Pending response buffers share a 128 MiB budget until socket writes finish. Capacity exhaustion returns 503, including before `100 Continue` for rejected uploads. These bounds cover transport buffers, not total process RSS or the City working set; response reading can additionally hold one worker result of up to 64 MiB. Closing, canceling, or expiring a request releases its reservation when its retained work is discarded.
+
 Headers are limited to 16 KiB and 64 header entries. Worker output is limited to 64 MiB per result. Response writing has a 10-second deadline; startup allows up to 60 seconds for a City worker. Oversized responses or worker exits can appear as 504, so split high-detail matrices/rasters rather than retrying the same oversized query indefinitely.
 
 ### Status codes
@@ -1303,7 +1305,7 @@ Headers are limited to 16 KiB and 64 header entries. Worker output is limited to
 | 413 | Request body over limit |
 | 417 | Unsupported Expect header |
 | 431 | Header byte limit |
-| 503 | Connection/queue capacity or worker unavailable; readiness also uses this |
+| 503 | Connection/queue/buffer capacity or worker unavailable; readiness also uses this |
 | 504 | Query deadline, worker failure, or response-channel failure |
 
 The service logs its listening address to stderr. Health routes avoid the computation queue but still share the connection limit. Use bounded retries with backoff for 503; for 504 first reduce the workload or inspect worker logs. Do not treat a transport error as an unreachable trip.

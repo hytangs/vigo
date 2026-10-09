@@ -18,12 +18,13 @@ try {
   const { gtfsPath, osmPath } = await writeCliFixtureInputs(directory)
   execFileSync(process.execPath, ['public/vigo.mjs', 'build', `--gtfs=${gtfsPath}`, `--osm=${osmPath}`, `--output=${city}`], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] })
   server = spawn(binary, ['serve', '--city', city, '--port', '0', '--max-body-bytes', '1048576', '--request-timeout-ms', '250', '--query-timeout-ms', '250', '--max-connections', '4', '--max-queue', '2'], { env: { PATH: '', VIGO_API_TOKEN: token, RAYON_NUM_THREADS: '2' } })
-  port = await new Promise((resolve, reject) => {
+  const listeningPort = () => new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('HTTP startup timed out')), 15000)
     let text = ''
     server.stderr.on('data', data => { text += data; const m = text.match(/listening on 127\.0\.0\.1:(\d+)/); if (m) { clearTimeout(timer); resolve(Number(m[1])) } })
     server.once('exit', code => { clearTimeout(timer); reject(new Error(`Server exited ${code}: ${text}`)) })
   })
+  port = await listeningPort()
   const origin = `http://127.0.0.1:${port}`
   assert.equal(execFileSync(binary, ['health', '--port', String(port)], { env: { PATH: '', VIGO_CITY: '/nonexistent' }, encoding: 'utf8', timeout: 5000 }).trim(), 'ready')
   assert.equal(execFileSync(binary, ['health'], { env: { PATH: '', PORT: String(port) }, encoding: 'utf8', timeout: 5000 }).trim(), 'ready')
@@ -164,6 +165,37 @@ try {
     assert.throws(() => process.kill(worker, 0), { code: 'ESRCH' }, 'Timed-out process must be reaped')
     checks += 2
   }
+  // Aggregate admission must reject large uploads before 100 Continue, and
+  // closing them must release capacity. No large test buffers are allocated.
+  server.kill(); await once(server, 'exit')
+  server = spawn(binary, ['serve', '--city', city, '--port', '0', '--request-timeout-ms', '3000', '--max-connections', '16'],
+    { env: { PATH: '', VIGO_API_TOKEN: token, RAYON_NUM_THREADS: '2' } })
+  port = await listeningPort()
+  const uploads = []
+  try {
+    for (let n = 0; n < 7; n++) {
+      const socket = net.connect(port, '127.0.0.1')
+      uploads.push(socket)
+      socket.on('error', () => {})
+      await once(socket, 'connect')
+      const continued = once(socket, 'data')
+      socket.write(prefix + 'Content-Length: 8388608\r\nExpect: 100-continue\r\n\r\n')
+      assert.match(String((await continued)[0]), /^HTTP\/1\.1 100 Continue/)
+    }
+    await status(prefix + 'Content-Length: 8388608\r\nExpect: 100-continue\r\n\r\n', 503)
+    const healthy = await fetch(`http://127.0.0.1:${port}/healthz`)
+    assert.equal(healthy.status, 200); await healthy.arrayBuffer(); checks++
+  } finally {
+    for (const socket of uploads) socket.destroy()
+  }
+  // Wait for the closed sockets to be observed, then exercise pretty JSON and
+  // escaped strings through the encoded worker handoff.
+  await new Promise(resolve => setTimeout(resolve, 50))
+  const pretty = JSON.stringify({ ...JSON.parse(body), origin: { stopId: 'A', name: 'A \"quoted\" \\ stop\nnext' } }, null, 2)
+  const formatted = await fetch(`http://127.0.0.1:${port}/v1/route?includeGeometry=false`, { method: 'POST', headers, body: pretty })
+  assert.equal(formatted.status, 200)
+  assert.equal((await formatted.json()).trace.arrivalMinutes, 510); checks++
+  await status(prefix + 'Content-Length: 8388608\r\nExpect: 100-continue\r\n\r\n', 100)
   console.log(`Standalone HTTP checks passed (${checks} checks: framing, slow bodies, bounds, worker termination and recovery).`)
 } finally {
   if (server && server.exitCode === null) { server.kill(); await once(server, 'exit') }
