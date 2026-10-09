@@ -4,7 +4,7 @@ import packageJson from '../../package.json' with { type: 'json' }
 import { NationalRouteWorkerPool, makeAbortError, maxNationalRouteWorkerStores } from './runtime/route-worker-pool.mjs'
 
 import crypto from 'node:crypto'
-import { createReadStream, existsSync } from 'node:fs'
+import { constants, createReadStream, existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import http from 'node:http'
 import os from 'node:os'
@@ -105,6 +105,7 @@ let runtimeConfig = {
   updatedAt: '',
 }
 let storageRoot = normalizeUserPath(runtimeConfig.storageRoot)
+let storageAccessRequired = process.platform === 'darwin' && !envStorageRoot
 
 function storageStateFile() {
   return path.join(storageRoot, '.vigo-storage.json')
@@ -254,6 +255,9 @@ async function loadRuntimeConfig() {
       basemap: normalizeBasemap(stored.basemap),
     }
     storageRoot = runtimeConfig.storageRoot
+    // Reading config is safe; do not probe a saved external library until the
+    // user opens it. macOS may treat each ad-hoc build as a new application.
+    storageAccessRequired = process.platform === 'darwin'
   } catch {
     storageRoot = normalizeUserPath(runtimeConfig.storageRoot)
   }
@@ -280,6 +284,7 @@ async function canWriteDirectory(directory) {
 }
 
 async function setupRequired() {
+  if (storageAccessRequired) return !configLoadedFromDisk
   if (envStorageRoot || configLoadedFromDisk || await exists(storageStateFile())) return false
   const projects = await listProjectsRaw({ hydrate: false })
   return projects.length === 0
@@ -287,7 +292,15 @@ async function setupRequired() {
 
 async function offlineStatus() {
   const appIndex = staticRoot ? path.join(staticRoot, 'index.html') : ''
-  const storage = await canWriteDirectory(storageRoot)
+  let storage = { ok: false, error: 'Open your saved library folder to allow access. Existing Cities remain in that folder.' }
+  if (!storageAccessRequired) {
+    try {
+      await fs.access(storageRoot, constants.R_OK | constants.W_OK)
+      storage = { ok: true, error: undefined }
+    } catch (error) {
+      storage = { ok: false, error: error instanceof Error ? error.message : 'Storage folder is unavailable.' }
+    }
+  }
 
   return {
     localServer: true,
@@ -304,9 +317,10 @@ async function offlineStatus() {
 async function configStatus() {
   return {
     schemaVersion: configSchemaVersion,
-    configured: Boolean(envStorageRoot || configLoadedFromDisk || await exists(storageStateFile())),
+    configured: Boolean(envStorageRoot || configLoadedFromDisk || !storageAccessRequired && await exists(storageStateFile())),
     setupRequired: await setupRequired(),
     storageRoot,
+    storageAccessRequired,
     defaultStorageRoot: defaultStorageRoot(),
     configFile,
     canChangeStorageRoot: !envStorageRoot,
@@ -318,49 +332,76 @@ async function configStatus() {
 }
 
 async function updateRuntimeConfig(body = {}) {
-  const requestedStorageRoot = envStorageRoot
-    ? storageRoot
-    : normalizeUserPath(body.storageRoot ?? storageRoot)
-  const writable = await canWriteDirectory(requestedStorageRoot)
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    const error = new Error('Configuration must be a JSON object.')
+    error.statusCode = 400
+    throw error
+  }
+  const selectsFolder = Object.hasOwn(body, 'storageRoot')
+  if (selectsFolder && (typeof body.storageRoot !== 'string' || !body.storageRoot.trim())) {
+    const error = new Error('storageRoot must be a non-empty folder path.')
+    error.statusCode = 400
+    throw error
+  }
+  const timestamp = now()
+  const nextConfig = {
+    ...runtimeConfig,
+    appearance: normalizeAppearance(body.appearance ?? runtimeConfig.appearance),
+    accent: normalizeAccent(body.accent ?? runtimeConfig.accent),
+    basemap: normalizeBasemap(body.basemap ?? runtimeConfig.basemap),
+    updatedAt: timestamp,
+  }
+  if (!selectsFolder) {
+    if (!envStorageRoot) await saveRuntimeConfig(nextConfig)
+    runtimeConfig = nextConfig
+    return configStatus()
+  }
 
+  const requestedStorageRoot = envStorageRoot ? storageRoot : normalizeUserPath(body.storageRoot)
+  const writable = await canWriteDirectory(requestedStorageRoot)
   if (!writable.ok) {
     const error = new Error(writable.error || 'Storage folder is not writable.')
     error.statusCode = 400
     throw error
   }
-
+  const openingLibrary = storageAccessRequired || requestedStorageRoot !== storageRoot
   if (requestedStorageRoot !== storageRoot) {
     await nationalRouteWorkerPool.closeAll()
     nationalRoutingServiceCoverageCache.clear()
     nationalPreviewRefreshes.clear()
     gtfsRouteAnalysisCache.clear()
   }
+  nextConfig.storageRoot = requestedStorageRoot
+  nextConfig.configuredAt = runtimeConfig.configuredAt || timestamp
+  if (!envStorageRoot) await saveRuntimeConfig(nextConfig)
+  runtimeConfig = nextConfig
   storageRoot = requestedStorageRoot
-  const timestamp = now()
-  runtimeConfig = {
-    schemaVersion: configSchemaVersion,
-    storageRoot,
-    appearance: normalizeAppearance(body.appearance ?? runtimeConfig.appearance),
-    accent: normalizeAccent(body.accent ?? runtimeConfig.accent),
-    basemap: normalizeBasemap(body.basemap ?? runtimeConfig.basemap),
-    configuredAt: runtimeConfig.configuredAt || timestamp,
-    updatedAt: timestamp,
+  storageAccessRequired = false
+  if (openingLibrary) {
+    stagingCleanupCompleted = false
+    const cleanup = removeAbandonedStaging()
+    storageMaintenance = cleanup.catch(() => {})
+    await cleanup
   }
-
-  if (!envStorageRoot) {
-    await saveRuntimeConfig(runtimeConfig)
-  }
-
   await markStorageInitialized('configure-storage')
-
   return configStatus()
 }
 
+function assertStorageAccess() {
+  if (!storageAccessRequired) return
+  const error = new Error('Open the saved City library folder before accessing its contents.')
+  error.statusCode = 409
+  error.code = 'storage_access_required'
+  throw error
+}
+
 async function ensureStorage() {
+  assertStorageAccess()
   await fs.mkdir(storageRoot, { recursive: true })
 }
 
 function projectDir(projectId) {
+  assertStorageAccess()
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(projectId)) {
     const error = new Error('Project id is invalid.')
     error.statusCode = 400
@@ -1210,6 +1251,7 @@ async function normalizeProjectStoreMetadata(projectId, project) {
 }
 
 async function listProjectsRaw({ hydrate = true } = {}) {
+  if (storageAccessRequired) return []
   await ensureStorage()
   const entries = await fs.readdir(storageRoot, { withFileTypes: true })
   const projectReads = entries.filter((entry) => entry.isDirectory()).map(async (entry) => {
@@ -4041,7 +4083,13 @@ async function readBody(request) {
 
   if (!byteLength) return {}
 
-  return JSON.parse(Buffer.concat(chunks, byteLength).toString('utf8'))
+  try {
+    return JSON.parse(Buffer.concat(chunks, byteLength).toString('utf8'))
+  } catch {
+    const error = new Error('Request body must be valid JSON.')
+    error.statusCode = 400
+    throw error
+  }
 }
 
 function requestPathname(request) {
@@ -4180,10 +4228,10 @@ async function route(request, response) {
   // a storage-root change, import retry, or City deletion.
   const routingRequest = request.method === 'POST'
     && /^\/api\/projects\/[^/]+\/(national-route|national-ready|national-matrix|national-street-matrix|reach|scenario-road-geometry|routing-residency|street-residency)$/.test(pathname)
-  if (!routingRequest && !['GET', 'HEAD', 'OPTIONS'].includes(request.method)) await startupMaintenance
+  if (!routingRequest && !['GET', 'HEAD', 'OPTIONS'].includes(request.method)) await storageMaintenance
 
   if (request.method === 'GET' && pathname === '/api/health') {
-    await ensureStorage()
+    await storageInitialization
     const config = await configStatus()
     sendJson(response, 200, {
       ok: true,
@@ -4210,6 +4258,7 @@ async function route(request, response) {
   }
 
   if (request.method === 'GET' && pathname === '/api/storage') {
+    assertStorageAccess()
     const volume = await fs.statfs(storageRoot)
     sendJson(response, 200, {
       capacityBytes: volume.blocks * volume.bsize,
@@ -4679,7 +4728,8 @@ if (!['tcp', 'memory'].includes(apiTransport)) {
 }
 assertLocalBindHost({ host, transport: apiTransport, unsafeNonLoopback })
 
-const startupMaintenance = ensureStorage().then(removeAbandonedStaging).catch((error) => {
+const storageInitialization = storageAccessRequired ? Promise.resolve() : ensureStorage().catch(() => {})
+let storageMaintenance = storageInitialization.then(() => storageAccessRequired ? undefined : removeAbandonedStaging()).catch((error) => {
   console.warn(`VIGO staging cleanup skipped: ${error instanceof Error ? error.message : String(error)}`)
 })
 

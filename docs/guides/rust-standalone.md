@@ -1500,7 +1500,7 @@ Drive Reach and realtime transit Matrix/Reach are not supported. City compilatio
 
 ### Platform and build records
 
-The packaged [test record](../reference/rust-standalone-audit.md) reports the macOS ARM64 run. CI defines runtime checks for Linux x64/ARM64, macOS Intel/ARM64, and Windows x64; use the completed results for the exact build and target you deploy. Linux containers and Windows binaries were not executed in the recorded local audit. The Docker and systemd examples are deployment recipes, not additional test results.
+The packaged [test record](../reference/rust-standalone-audit.md) reports the macOS ARM64 run. CI defines runtime checks for Linux x64/ARM64, macOS ARM64, and Windows x64; use the completed results for the exact build and target you deploy. Linux containers and Windows binaries were not executed in the recorded local audit. The Docker and systemd examples are deployment recipes, not additional test results.
 
 `manifest.json` records the target, source commit, uncommitted-change flag, source digest, and file hashes. Packages built from uncommitted source are marked `dirty: true` and remain development artifacts. Keep the manifest with deployments so a result can be traced to its executable and source.
 

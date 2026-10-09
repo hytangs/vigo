@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
-import { ProjectsPage } from '../../src/components/studio/CityLibrary'
+import { ProjectsPage, StorageRecovery } from '../../src/components/studio/CityLibrary'
 import { CityPanel } from '../../src/components/CityPanel'
 import { cityReadiness } from '../../src/app/cityReadiness'
 import { emptyCityProject } from '../../src/app/projectState'
@@ -16,7 +16,7 @@ const projects = ['Boston', 'Washington', 'Anchorage'].map((name, index) => ({
   osmStreetIndex: index === 1 ? null : { status: index === 2 ? 'building' : 'ready' },
   jobs: index === 2 ? [{ status: 'running', kind: 'national-osm-import' }] : [],
 }))
-let requests = [], resets = [], opened = '', managed = '', failScan = false, slowScan = false
+let requests = [], resets = [], opened = '', managed = '', failScan = false, slowScan = false, libraryOpened = false
 const originalFetch = window.fetch
 window.fetch = async (input, options = {}) => {
   const url = String(input)
@@ -43,7 +43,7 @@ function Fixture() {
   return <main className={`app-shell appearance-${appearance} accent-graphite ${view === 'cities' ? 'page-projects' : 'page-project view-data'}`}>
     <header className="topbar" style={{ margin: 0, display: 'flex', justifyContent: 'space-between', padding: '12px 24px' }}><b>VIGO <span style={{ fontWeight: 400 }}>· Interface fixture</span></b><button type="button" className="button button-secondary" onClick={() => setView(view === 'cities' ? 'settings' : 'cities')}>{view === 'cities' ? 'Settings' : 'Cities'}</button></header>
     <div className="app-frame" style={{ display: 'block', overflow: 'auto' }}>
-      {view === 'cities' ? <ProjectsPage projects={empty ? [] : projects} selectedProject={projects[0]} query={query} onQueryChange={setQuery} previewLoading={false} onOpenProject={id => { opened = id }} onOpenProjectData={id => { managed = id }} onOpenSettings={() => setView('settings')} onCreateProject={noop} onRenameProject={noop} onDeleteProject={noop} onRefresh={noop} />
+      {view === 'library-access' ? <StorageRecovery config={{ ...config, storageAccessRequired: true, offline: { ...config.offline, storageWritable: false, storageError: 'Open your saved library folder. Existing Cities remain there.' } }} busy={false} error="" onChooseFolder={() => { libraryOpened = true }} onUseDefault={noop} /> : view === 'cities' ? <ProjectsPage projects={empty ? [] : projects} selectedProject={projects[0]} query={query} onQueryChange={setQuery} previewLoading={false} onOpenProject={id => { opened = id }} onOpenProjectData={id => { managed = id }} onOpenSettings={() => setView('settings')} onCreateProject={noop} onRenameProject={noop} onDeleteProject={noop} onRefresh={noop} />
         : <CityPanel projects={empty ? [] : projects} projectId="boston" projectName="Boston" projectRegion="Massachusetts" feedCount={1} routeCount={20} stopCount={400} appearance={appearance} basemap={basemap} localBasemapAvailable runtimeConfig={config} health={{ ok: true, version: '0.5.0' }} busy={false} error="" section={section} onSectionChange={setSection} onChooseFolder={noop} onAppearanceChange={setAppearance} onBasemapChange={setBasemap} onCityReset={noop} onCityRemoved={async () => true} feeds={<p>City sources fixture</p>} />}
     </div>
   </main>
@@ -54,6 +54,13 @@ const click = selector => { const node = document.querySelector(selector); asser
 const settle = async () => { await new Promise(resolve => setTimeout(resolve, 30)); flushSync(() => {}) }
 const select = value => flushSync(() => { const node = document.querySelector('#city-data-target'); node.value = value; node.dispatchEvent(new Event('change', { bubbles: true })) })
 window.checkCities = async () => {
+  flushSync(() => window.fixture.setView('library-access'))
+  assert(document.getElementById('storage-recovery-title')?.textContent === 'Open your City library', 'Permission gate must not claim the saved library is broken')
+  assert(!libraryOpened, 'Opening a saved library must require an action')
+  assert(document.querySelector('.storage-recovery small')?.textContent === config.storageRoot, 'Keep the saved library location visible')
+  click('.storage-recovery .button-primary')
+  assert(libraryOpened, 'Open library button must request folder selection')
+
   flushSync(() => { window.fixture.setView('cities'); window.fixture.setEmpty(false); window.fixture.setQuery('') })
   assert(document.querySelectorAll('.city-state[data-state=ready]').length === 1, 'Missing streets advertised as prepared')
   click('[aria-label="Set up Washington"]'); assert(managed === 'washington', 'Partial City does not lead to setup')

@@ -65,7 +65,7 @@ In Studio, create a City and import one or more static GTFS ZIPs and an overlapp
 | `npm run check:cli-package` | Verify the extracted CLI and its complete command contracts |
 | `npm test` | Public-repository and engine checks |
 
-Native targets are macOS 13.5+ on ARM64/x64, Linux glibc on ARM64/x64, and Windows x64. Linux release builds use Ubuntu 24.04. Studio requires WebGL 2; Engine does not need a graphics device. Packaged Studio communicates with Engine in memory without a local TCP listener.
+Native targets are macOS 13.5+ on Apple Silicon, Linux glibc on ARM64/x64, and Windows x64. Linux release builds use Ubuntu 24.04. Studio requires WebGL 2; Engine does not need a graphics device. Packaged Studio communicates with Engine in memory without a local TCP listener.
 
 ## Evidence and limits
 

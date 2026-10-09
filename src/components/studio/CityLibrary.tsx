@@ -151,14 +151,14 @@ export function StorageRecovery({
       <AlertTriangle size={22} />
       <div>
         <span className="eyebrow">City library</span>
-        <h1 id="storage-recovery-title">VIGO cannot write to its City library</h1>
+        <h1 id="storage-recovery-title">{config.storageAccessRequired ? 'Open your City library' : 'VIGO cannot write to its City library'}</h1>
         <p>{config.offline.storageError || 'The configured folder is unavailable or read-only.'}</p>
         <small title={config.storageRoot}>{config.storageRoot}</small>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         <div className="storage-recovery-actions">
           <button type="button" className="button button-primary" onClick={onChooseFolder} disabled={busy}>
             <FolderOpen size={15} />
-            Locate folder
+            {config.storageAccessRequired ? 'Open library folder' : 'Locate folder'}
           </button>
           <button type="button" className="button button-secondary" onClick={onUseDefault} disabled={busy}>
             Use default folder

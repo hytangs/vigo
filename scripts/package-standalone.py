@@ -62,6 +62,8 @@ def main():
     rustc = str(Path(cargo).with_name("rustc"))
     run = lambda command, **kw: subprocess.run(command, cwd=ROOT, check=True, **kw)
     target = args.target or next(line.removeprefix("host: ") for line in run([rustc, "-vV"], capture_output=True, encoding="utf-8").stdout.splitlines() if line.startswith("host: "))
+    if target == "x86_64-apple-darwin":
+        raise RuntimeError("Intel macOS is not a supported VIGO target; use Apple Silicon.")
     manifest = str(CRATE / "Cargo.toml")
     common = ["--manifest-path", manifest, "--locked", "--no-default-features", "--features", "standalone"]
     env = os.environ.copy()

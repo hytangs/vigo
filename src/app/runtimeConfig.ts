@@ -18,6 +18,7 @@ export type VigoRuntimeConfig = {
   configured: boolean
   setupRequired: boolean
   storageRoot: string
+  storageAccessRequired?: boolean
   defaultStorageRoot: string
   configFile: string
   canChangeStorageRoot: boolean

@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process'
 import os from 'node:os'
+import { rustRoutingTarget } from './lib/rust-routing-targets.mjs'
 import path from 'node:path'
+
+if (!rustRoutingTarget(process.platform, process.arch)) throw new Error(`Unsupported VIGO target: ${process.platform}:${process.arch}`)
 
 const root = path.resolve(import.meta.dirname, '..')
 const cargo = String(process.env.VIGO_CARGO ?? '').trim()

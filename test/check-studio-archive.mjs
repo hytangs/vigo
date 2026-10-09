@@ -13,7 +13,6 @@ try {
   const releaseRoot = path.join(root, 'release files')
   for (const [platform, architecture, suffix] of [
     ['darwin', 'arm64', 'mac-arm64.zip'],
-    ['darwin', 'x64', 'mac-x64.zip'],
     ['linux', 'arm64', 'linux-arm64.tar.gz'],
     ['linux', 'x64', 'linux-x64.tar.gz'],
     ['win32', 'x64', 'windows-x64.zip'],

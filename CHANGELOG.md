@@ -12,6 +12,8 @@ Remove the retired JSON timetable compiler and weekday-template routing. Build c
 
 Reject blank GTFS stop IDs in raw and multi-feed builds. Remove test-only production wrappers and obsolete helper tests; check the current geometry and safe-fetch implementations directly.
 
+Keep the Documents City folder while deferring macOS library access until the user opens it. Remove background write probes, reject invalid folder selections and malformed JSON, and retire Intel macOS build and CI targets.
+
 ## 0.4.4
 
 Correct interior street routing and partial Reach boundaries; add destination-grid and walk-only Reach, prefer faster direct walks by default, and update Studio. See [release notes](docs/history.md#vigo-044).

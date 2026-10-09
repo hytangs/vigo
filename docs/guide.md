@@ -57,7 +57,7 @@ For the desktop workflow, use the [Studio guide](#vigo-studio-desktop-guide). St
 ### 1. Install
 
 VIGO 0.5.0 requires Node.js 24.18 or newer and npm 11.6 or newer.
-Source builds also require the pinned Rust toolchain. Supported targets are macOS Apple Silicon/Intel, Linux ARM64/x64 with glibc, and Windows x64. Use a native build for the target OS and CPU; City data moves between them. See the [platform and City limits](#known-limits).
+Source builds also require the pinned Rust toolchain. Supported targets are macOS Apple Silicon, Linux ARM64/x64 with glibc, and Windows x64. Use a native build for the target OS and CPU; City data moves between them. See the [platform and City limits](#known-limits).
 
 ```bash
 git clone https://github.com/hytangs/vigo.git
@@ -1253,7 +1253,7 @@ VIGO models the City revision and Query it is given. It does not certify real-wo
 ### City reuse and platforms
 
 - Studio maps require WebGL 2. Engine and Python queries do not require a graphics device.
-- Supported native targets are macOS 13.5+ on Apple Silicon/Intel, Linux glibc on ARM64/x64, and Windows x64. Linux release builds use Ubuntu 24.04. The Node native packages require glibc on Linux; the [standalone Rust container](guides/rust-standalone.md#container) uses musl. Neither distribution provides 32-bit or native Windows ARM64 binaries.
+- Supported native targets are macOS 13.5+ on Apple Silicon, Linux glibc on ARM64/x64, and Windows x64. Linux release builds use Ubuntu 24.04. The Node native packages require glibc on Linux; the [standalone Rust container](guides/rust-standalone.md#container) uses musl. Neither distribution provides 32-bit or native Windows ARM64 binaries.
 - Copy the entire City directory; street indexes and prepared files are part of it. The native runtime executable is specific to OS/CPU, while City data is portable across the supported 64-bit targets.
 - Older Cities with ephemeral Drive CCH still rebuild that hierarchy on fresh-process startup; rebuilding the City from source enables persisted Drive CCH.
 - An incompatible timetable cache requires preparation. New active-service patterns, changed walking policy, or evicted snapshots also require preparation. Missing/corrupt required street indexes are errors, not permission to query a different graph; restore the complete City or rebuild it from source.
@@ -1335,6 +1335,8 @@ The City, other sources, saved notebooks, and your original input files are reta
 #### Preferences
 
 Choose appearance, storage location, and map preferences. Runtime detail appears only when it helps diagnose a problem.
+
+The default City folder remains `~/Documents/Vigo Projects`. On macOS, opening Studio does not scan or test-write the library. Choose **Open library folder** to select your saved folder before accessing its Cities; macOS may ask permission at that point. Existing City files stay in place. Changing appearance does not open the library. Locally rebuilt apps use ad-hoc signatures, so an updated build can require macOS authorization again when you open a protected folder.
 
 **Local OSM** is the default for new settings. It draws main roads, rivers, lakes, and coastal water from the City's imported PBF in light or dark appearance, with no tile service, API key, or network connection. Residential streets, service lanes, paths, buildings, and labels are omitted to keep routes and analysis clear. Your saved basemap preference is retained.
 

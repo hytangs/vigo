@@ -144,7 +144,7 @@ app.whenReady().then(async()=>{
  } catch(error) {console.error(error);app.exit(1);}
 });`)
   const ciFlags = process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : []
-  // Apple Silicon runners expose Metal. Intel macOS, Windows and Linux CI
+  // Apple Silicon runners expose Metal. Windows and Linux CI
   // runners use the bundled CPU renderer for this trusted, offline fixture.
   const nativeGraphics = process.platform === 'darwin' && process.arch === 'arm64'
     && process.env.VIGO_TEST_SOFTWARE_RENDERING !== '1'
