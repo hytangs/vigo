@@ -1,6 +1,6 @@
 # Python reference
 
-Install the package and runtime using the [README](../README.md). Examples use a complete City; substitute its exact stop IDs, coordinates, and covered service dates. For complete scripts, use [Workflows](workflows.md).
+Install the package and runtime using the [README](../README.md). Examples use a complete City; substitute its exact stop IDs, coordinates, and covered service dates. For complete scripts, use [Workflows](guide.md#workflows).
 
 [Open](#open-a-city) · [Build](#build-a-city) · [Points and time](#points-and-time) · [Route](#route) · [Matrix](#matrix) · [Reach](#reach) · [Scenario](#scenario) · [Result](#result) · [Job](#job) · [Errors](#errors)
 
@@ -61,7 +61,7 @@ Use `street_modes="walk"` for a walking/transit-only City; the default `"walk,dr
 
 Pass `replace=True` only when you intend to replace an existing City.
 Pass `progress=True` to show Build stages and elapsed time with the optional
-`tqdm` dependency. It defaults to `False`; see [Runtime and loading](runtime.md)
+`tqdm` dependency. It defaults to `False`; see [Runtime and loading](guide.md#runtime-and-loading)
 for installation and separate raw-build, first-query, and reopening timings.
 
 For travelers authorized to use internal roads at their own origin and destination,
@@ -71,7 +71,7 @@ the public middle of a journey and transit transfers cannot use private shortcut
 It assumes endpoint authorization and does not infer ownership or gate hours.
 The runtime must advertise endpoint access before Build.
 
-`timeout` here bounds the build command. The returned City uses the default 120-second Query timeout; reopen it with `vigo.open(..., timeout=...)` when longer Query limits are needed. Runtime discovery and capability checks have their own limits. See [Runtime and loading](runtime.md).
+`timeout` here bounds the build command. The returned City uses the default 120-second Query timeout; reopen it with `vigo.open(..., timeout=...)` when longer Query limits are needed. Runtime discovery and capability checks have their own limits. See [Runtime and loading](guide.md#runtime-and-loading).
 
 ## Points and time
 
@@ -86,7 +86,7 @@ The runtime must advertise endpoint access before Build.
 
 Point mappings use the Engine fields `stop`, `stopId`, or `coordinate`. Use `[longitude, latitude]` or a `coordinate` mapping for coordinates. Python does not interpret `stop_id`, `lat`, `lon`, or `lng` as point aliases.
 
-A numeric pair is one coordinate point, not two Matrix endpoints. A mapping with a point key such as `stop`, `stopId`, or `coordinate` is one point, not an ID-to-point set. Use descriptive, unique caller IDs for Matrix sets. The complete [Engine point contract](https://github.com/hytangs/vigo/blob/main/docs/reference/routing.md) describes stop access semantics.
+A numeric pair is one coordinate point, not two Matrix endpoints. A mapping with a point key such as `stop`, `stopId`, or `coordinate` is one point, not an ID-to-point set. Use descriptive, unique caller IDs for Matrix sets. The complete [Engine point contract](https://github.com/hytangs/vigo/blob/main/docs/guide.md#route-1) describes stop access semantics.
 
 Time arguments accept `HH:MM`, `datetime.time`, or `datetime.datetime`. A datetime supplies its date unless an explicit `service_date` overrides it. Datetime timezone information is not converted; seconds are omitted. Pass a clock already expressed in the feed's local service time.
 
@@ -131,7 +131,7 @@ requests = [
 results = city.run(requests)
 ```
 
-`City.run(query)` and `Scenario.run(query)` are the execution primitives. `city.route(...)`, `city.matrix(...)`, and `city.reach(...)` are convenience constructors with exactly the same behavior. A sequence executes in input order and returns a list; it stops at the first exception. Use an explicit [batch loop](workflows.md#retain-every-batch-outcome) to retain failures individually.
+`City.run(query)` and `Scenario.run(query)` are the execution primitives. `city.route(...)`, `city.matrix(...)`, and `city.reach(...)` are convenience constructors with exactly the same behavior. A sequence executes in input order and returns a list; it stops at the first exception. Use an explicit [batch loop](guide.md#retain-every-batch-outcome) to retain failures individually.
 
 Depart-at minimizes arrival time, then boardings, then walking. Arrive-by maximizes departure time; among journeys leaving at that boundary and arriving by the deadline, it minimizes boardings, then walking, then actual arrival.
 
@@ -142,7 +142,7 @@ Depart-at minimizes arrival time, then boardings, then walking. Arrive-by maximi
 waypoints is currently unsupported. The runtime must advertise transfer-cap
 support; Python rejects this option when its capability is absent.
 
-With the bundled engine, Route, Matrix, and Reach reuse resident processes by service date. Route answers themselves are recomputed. See [process lifetime](runtime.md#keep-a-city-open) for concurrency and resource lifetime.
+With the bundled engine, Route, Matrix, and Reach reuse resident processes by service date. Route answers themselves are recomputed. See [process lifetime](guide.md#keep-a-city-open) for concurrency and resource lifetime.
 
 For transit Route and Matrix measurements, `disable_cache=True` disables
 street-access frontier and reconstructed walking-path caches. It keeps the
@@ -171,7 +171,7 @@ for row in matrix.rows:
 
 Use `mode="walk"` or `mode="drive"` for street matrices.
 
-The Matrix Result is `ready` when the computation completes; some or all of its rows may still be blocked. Count row outcomes before aggregating durations. See [Matrix results](results.md#matrix).
+The Matrix Result is `ready` when the computation completes; some or all of its rows may still be blocked. Count row outcomes before aggregating durations. See [Matrix results](guide.md#matrix-1).
 
 `origins` and `destinations` accept a point, a mapping of caller IDs to points, or a sequence of points. Matrix shares Route's mode, date, time constraint, walking budget, objective, transfer cap, transit requirement, horizon, and cache control. It defaults to an `08:00` departure when neither time constraint is supplied. Matrix has no waypoints or departure window.
 
@@ -216,7 +216,7 @@ Reach accepts `origin`, `service_date`, and `depart_at` (default `"08:00"`). It 
 | `mode` | `"transit"` | `"transit"` or `"walk"`; walking requires advertised runtime support |
 | `surface_sampling` | `"street"` | `"street"` for reachable network edges, or `"cell-center"` for coordinate cell centers |
 | `include_street_edges` | `False` | Include reached street edges in the surface; adds output size |
-| `cutoffs_minutes` | `(15, 30, 45, 60)` | Increasing cutoffs, each 5–240 minutes |
+| `cutoffs_minutes` | `(15, 30, 45, 60)` | Increasing cutoffs, each 1–240 minutes |
 | `max_walk_km` | `1.2` | Transit access and terminal walking budget |
 | `walk_speed_kph` | `4.8` | Walking speed, 1–8 kph |
 | `extent_radius_km` | `8` | Computation radius, 1–40 km |
@@ -250,9 +250,9 @@ Use the word Accessibility only when a separate analysis combines travel impedan
 | `live` | Unavailable through Python |
 | Combined planned, live, or traffic states | Unsupported |
 
-`services` accepts mappings following the Engine's [service change contract](https://github.com/hytangs/vigo/blob/main/docs/reference/scenarios.md). `without_routes` accepts exact route IDs. `traffic` is a supplied snapshot; constructing a Scenario does not fetch observations or establish their validity. The runtime validates the snapshot when executing a supported query. Python sends traffic in explicit realtime mode for Drive Route and Matrix; scheduled transit remains separate.
+`services` accepts mappings following the Engine's [service change contract](https://github.com/hytangs/vigo/blob/main/docs/guide.md#scenario-semantics). `without_routes` accepts exact route IDs. `traffic` is a supplied snapshot; constructing a Scenario does not fetch observations or establish their validity. The runtime validates the snapshot when executing a supported query. Python sends traffic in explicit realtime mode for Drive Route and Matrix; scheduled transit remains separate.
 
-Nested Scenario inputs are copied and frozen. `expires_at` is an optional datetime checked before execution; expired Scenarios raise `VigoError`. A Scenario does not alter the City's baseline. Follow the [service proposal workflow](workflows.md#compare-a-service-proposal) for a complete example.
+Nested Scenario inputs are copied and frozen. `expires_at` is an optional datetime checked before execution; expired Scenarios raise `VigoError`. A Scenario does not alter the City's baseline. Follow the [service proposal workflow](guide.md#compare-a-service-proposal) for a complete example.
 
 Inspect support before running a context-dependent Query:
 
@@ -282,7 +282,11 @@ result.export("result.json")
 
 Route Results add `duration_minutes` and `legs`. Matrix Results add `rows` and `iter_rows()`. Iteration copies only the rows consumed and yields independently mutable dictionaries. The complete Engine response is already in memory; this is not streaming computation. CSV export reads stored rows directly without creating a second matrix. Both Route and Reach support `to_geojson()`. `value` exposes the family-specific answer; `to_dict()` returns the complete Engine payload.
 
-See [Results](results.md) for fields, export formats, row outcomes, and comparison limits. `vigo.compare(before, after)` and `before.compare(after)` return a comparison Result without rerunning the Queries. Matrix comparisons require `originId` and `destinationId` on every row and match those IDs rather than row positions. The caller must align the study inputs; comparison does not validate all Query assumptions.
+`iter_journeys()` yields one summary per Route or Matrix row, including blocked rows, without legs or geometry. `hasJourney` and `legCount` distinguish omitted itineraries from empty ones. `iter_legs(include_geometry=False)` yields one record per supplied leg; Matrix queries need `include_journeys=True`. Both retain native field names and units, add `journeyIndex`, `cityRevisionId`, `scenario`, and `resultStatus`, and return independent records. Leg records also carry `legIndex`, row status, and available origin/destination IDs and indices. `journeyIndex` is local to one Result; add a study ID when combining Results. Reach and comparison Results raise `TypeError` for these methods.
+
+See [Results](guide.md#results) for fields, export formats, row outcomes, and comparison limits. `vigo.compare(before, after)` and `before.compare(after)` return a comparison Result without rerunning the Queries. Matrix comparisons require `originId` and `destinationId` on every row and match those IDs rather than row positions. The caller must align the study inputs; comparison does not validate all Query assumptions.
+
+`result.export_tables(directory, include_geometry=False)` writes `journeys.csv`, `legs.csv` and `record.json`. It discovers optional columns in one pass and writes them in a second without materializing an extra table. Nested fields are JSON encoded; missing values are blank. Empty tables retain their respective journey and leg headers. Serialization finishes before existing export files are replaced, so serialization errors leave an earlier export intact. Use a separate directory per Result when concurrent readers need a consistent multi-file snapshot.
 
 `Result.status` is only `ready` or `blocked`. A blocked Result is a valid computation with no usable journey or surface. Cancellation and execution failures belong to `Job.status` or exceptions, not Result status.
 
@@ -306,7 +310,7 @@ with vigo.open("./boston") as city:
 
 `Job.cancel()` cancels queued work only. A running Query finishes normally.
 `Job.wait(timeout=...)` bounds the wait for the background result; it does not cancel the Query.
-See [Runtime and loading](runtime.md) for process reuse and timing boundaries.
+See [Runtime and loading](guide.md#runtime-and-loading) for process reuse and timing boundaries.
 
 ## Errors
 
@@ -323,9 +327,9 @@ Python constructor misuse can also raise ordinary `TypeError` or `ValueError`; e
 
 `vigo.resolve_runtime(runtime=None, *, verify=True)` returns `RuntimeInfo` with `product_version`, `api_version`, `source`, `path`, `command`, and `capabilities`. Use the default verification for Query execution. `verify=False` only resolves a candidate command and returns no verified capabilities; it is not a compatibility check.
 
-A runtime argument can be a `RuntimeInfo`, a path to a supported runtime layout or executable, or a sequence of command arguments. See [Runtime and loading](runtime.md#select-a-runtime) for selection, compatibility, and platform requirements.
+A runtime argument can be a `RuntimeInfo`, a path to a supported runtime layout or executable, or a sequence of command arguments. See [Runtime and loading](guide.md#select-a-runtime) for selection, compatibility, and platform requirements.
 
-[Documentation](README.md) · [Workflows](workflows.md) · [Troubleshooting](troubleshooting.md)
+[Documentation](guide.md#routing-from-python-without-rebuilding-the-network) · [Workflows](guide.md#workflows) · [Troubleshooting](guide.md#troubleshooting)
 
 The Python wrapper negotiates the resident CLI’s detailed stream format when advertised. It preserves the same complete `Result` while avoiding a second public projection. Earlier compatible 0.5 runtimes continue to use `--diagnostics=trace`.
 

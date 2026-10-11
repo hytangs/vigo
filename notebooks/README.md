@@ -4,10 +4,10 @@ These notebooks use the public `vigo` package and contain no stored output. They
 
 | Notebook | Purpose | Read alongside |
 | --- | --- | --- |
-| [01 Build a City](01_build_city.ipynb) | Build once from GTFS and OSM | [Runtime and loading](../docs/runtime.md) |
+| [01 Build a City](01_build_city.ipynb) | Build once from GTFS and OSM | [Runtime and loading](../docs/guide.md#runtime-and-loading) |
 | [02 Route](02_route.ipynb) | Run Route and batch Query objects | [Route reference](../docs/reference.md#route) |
-| [03 Matrix](03_matrix.ipynb) | Query one or many origins | [Matrix workflow](../docs/workflows.md#calculate-travel-times-to-a-common-destination) |
-| [04 Reach](04_reach.ipynb) | Export a Reach Result | [Results](../docs/results.md#reach) |
+| [03 Matrix](03_matrix.ipynb) | Query one or many origins | [Matrix workflow](../docs/guide.md#calculate-travel-times-to-a-common-destination) |
+| [04 Reach](04_reach.ipynb) | Export a Reach Result | [Results](../docs/guide.md#reach-1) |
 
 Install VIGO in the notebook kernel's Python environment using the [installation guide](../README.md#install). A platform wheel includes its runtime; a source install needs a compatible Engine. Build a City in notebook 01 or reuse an existing complete City, then run the other notebooks independently. Check `sys.executable` and `vigo.__file__` if the notebook imports a different environment from your terminal.
 

@@ -1,85 +1,73 @@
 # VIGO Python
 
-Build a transport model once. Query journeys, travel-time matrices, and reachable areas from Python.
+**Build transport networks and query journeys, travel-time matrices, and reachable areas from Python.**
 
-The package imports as `vigo` and uses the shared [VIGO Engine](https://github.com/hytangs/vigo). Studio provides the desktop interface; Python provides the same City and Query model for scripts and notebooks. Version 0.5.0 requires Engine 0.5 and uses its documented resident `stream` protocol for Route, Matrix, and Reach. Rebuild prepared Cities with Engine 0.5.
+VIGO Python wraps the [VIGO engine](https://github.com/hytangs/vigo). Keep a City open, run queries against its prepared network, and export results for analysis. The package imports as `vigo`.
 
-```text
-GTFS + OSM -> City -> Route | Matrix | Reach -> Result
-                       ^
-                 optional Scenario
-```
+[Quickstart](docs/guide.md#your-first-python-query) · [API reference](docs/reference.md) · [Guide](docs/guide.md) · [Examples](examples/decompose_result.py) · [Notebooks](notebooks/README.md)
 
 ## Install
 
-Use Python 3.10 or newer. For a self-contained install, select the platform wheel built for your OS and CPU:
+Requires Python 3.10 or newer. Install the VIGO platform wheel matching your operating system and CPU, substituting its actual filename:
 
 ```bash
-python -m pip install /path/to/vigo-0.5.0-py3-none-PLATFORM.whl
+python -m pip install /path/to/vigo-0.5.1-py3-none-PLATFORM.whl
 ```
 
-The platform wheel includes Node, the headless Engine bundle, and the Rust routing kernel. No Studio, system Node, runtime download, or runtime configuration is needed. The installation works offline when the wheel is available locally. Select the actual wheel filename in place of `PLATFORM`.
+Platform wheels include the headless engine, Node, and the Rust kernel. They need no Studio installation or system Node. [Build a platform wheel](CONTRIBUTING.md#build-a-headless-wheel) from the public repositories, or use a source installation with an existing Engine through `runtime=`, `VIGO_RUNTIME`, or `VIGO_APP`.
 
-Source installs remain lightweight and require an explicit compatible Engine installation. Maintainers can [build a self-contained wheel](CONTRIBUTING.md#build-a-headless-wheel) from the two public repositories. External runtimes remain available through `runtime=`, `VIGO_RUNTIME`, or `VIGO_APP`.
+VIGO Python **0.5.1 requires Engine 0.5**. Existing 0.5 Cities remain compatible. See [runtime selection](docs/guide.md#runtime-and-loading) and [release notes](docs/releases/0.5.1.md).
 
-See [Runtime and loading](docs/runtime.md) for platform requirements, runtime selection, and process reuse.
+## Open a City and query
 
-For faster decoding of large Matrix and Reach responses, install the optional
-`speed` extra: `python -m pip install ".[speed]"` from a source checkout, or
-append `[speed]` to the quoted platform wheel path when installing it. This adds
-`orjson`; the base package still works without Python dependencies.
-
-## Open and query
-
-Use a complete City built from GTFS and OSM. Stop IDs must exist in that City; coordinates use `[longitude, latitude]`.
+Use a complete prepared City. Coordinates are `[longitude, latitude]`; choose locations and a service date covered by your inputs.
 
 ```python
 import vigo
 
-with vigo.open("./boston") as city:
+with vigo.open("./city") as city:
     result = city.route(
         [-71.062, 42.356],
         [-71.058, 42.349],
         depart_at="08:00",
-        service_date="2026-09-04",
+        service_date="2026-07-15",
     )
     if result.status == "ready":
         print(result.duration_minutes)
-    else:
-        print("No journey under these inputs and constraints.")
     result.export("route.json")
+    result.export_tables("route-tables")
 ```
 
-Replace the paths, points, and example date with values covered by your data. Transit queries compare a feasible direct walk by default. Use `require_transit_ride=True` to require a vehicle boarding, or `mode="walk"` for walking. Keep the City open for repeated queries; the context manager releases its resident processes when finished.
+A `blocked` result means no usable journey under the supplied inputs and constraints. Invalid requests and execution failures raise exceptions. Transit compares direct walking by default; set `require_transit_ride=True` to require a boarding.
 
-## Build a City
+Keep the City open for repeated queries. With a compatible 0.5.1 engine, idle resident processes are reused across service dates; the context manager releases them when finished.
+
+## Build once
 
 ```python
-import vigo
-
-with vigo.build("./boston", gtfs="./mbta.zip", osm="./massachusetts.osm.pbf") as city:
-    print(city.name, city.revision_id, city.built_at)
+with vigo.build("./city", gtfs="./data/transit.zip", osm="./data/streets.osm.pbf") as city:
+    print(city.name, city.revision_id)
 ```
 
-Build once, then reopen the complete directory with `vigo.open("./boston")`. Raw GTFS and OSM files are no longer needed for querying. An existing City is replaced only with `replace=True`.
+Reopen the complete directory with `vigo.open("./city")`. Replacing an existing City requires `replace=True`. Optional `tqdm` support adds build progress; optional `orjson` support accelerates decoding. See [installation options](docs/guide.md#runtime-and-loading).
 
-For live build stages and elapsed time, install `tqdm` and pass `progress=True`
-to `vigo.build()`. See
-[Runtime and loading](docs/runtime.md) for progress and complete Build timing.
+## Analyze and export
 
-## Documentation
-
-| Task | Guide |
+| Method | Output |
 | --- | --- |
-| Choose the right Query | [Documentation](docs/README.md) · [Concepts](docs/concepts.md) |
-| Run a study or automate repeated work | [Workflows](docs/workflows.md) · [Notebooks](notebooks/README.md) |
-| Look up arguments and defaults | [Python reference](docs/reference.md) |
-| Interpret, compare, and export answers | [Results](docs/results.md) |
-| Configure or diagnose execution | [Runtime](docs/runtime.md) · [Troubleshooting](docs/troubleshooting.md) |
-| Develop the wrapper or build wheels | [Contributing](CONTRIBUTING.md) |
+| `city.route(...)` | A journey with timed legs |
+| `city.matrix(origins, destinations, ...)` | Travel times and per-pair outcomes; optional journeys and geometry |
+| `city.reach(origin, ...)` | A travel-time surface and contours |
+| `result.iter_journeys()` | Journey summaries, including blocked Matrix rows |
+| `result.iter_legs()` | Individual legs with journey and OD identifiers; geometry is optional |
+| `result.export_tables(directory)` | Journey and leg CSVs plus query provenance |
 
-A `blocked` Result is a valid computation with no usable journey or surface. Matrix outcomes belong to individual rows; a completed Matrix can include blocked pairs. Invalid requests and execution failures raise exceptions. VIGO 0.4 is pre-release software; results describe the supplied timetable and street model.
+For Matrix leg analysis, request `include_journeys=True`. Iterators copy only consumed records; table exports write one record at a time and finish serialization before replacing existing files. The complete engine response is already resident in the Result. [Analysis recipe](docs/guide.md#decompose-journeys-for-analysis) · [CSV example](examples/decompose_result.py)
 
-Planned-service Scenarios support Reach; supplied traffic supports Drive Route/Matrix. Live transit is unavailable through this Python API. Read the engine's [routing limits](https://github.com/hytangs/vigo/blob/main/docs/reference/known-routing-limitations.md), particularly station access, unsupported GTFS semantics, and street coverage.
+Planned-service scenarios support Reach, and supplied traffic supports driving Route and Matrix. Live transit is not exposed through this Python API. See [supported workflows](docs/guide.md#workflows) and the [API reference](docs/reference.md).
 
-Licensed under the [Apache License 2.0](LICENSE).
+## Documentation and development
+
+The [offline reader](docs/index.html) includes search and printable documentation. See [contributing](CONTRIBUTING.md) for tests, engine integration, and wheel builds, or [troubleshooting](docs/guide.md#troubleshooting) for runtime problems.
+
+Licensed under [Apache-2.0](LICENSE).

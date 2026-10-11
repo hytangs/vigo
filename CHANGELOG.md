@@ -1,14 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.5.1
+
+- Reuse idle Engine processes across dates when per-request dates are advertised; retain legacy date-specific streams for older compatible engines.
+- Add `Result.export_tables()` with bounded additional memory, JSON-encoded nested CSV fields and headers for empty outputs. Stage serialization before replacing existing files.
+- Add `Result.iter_journeys()` and `Result.iter_legs()` for analysis tables, retaining blocked outcomes, Matrix identifiers and scenario provenance. Geometry is optional in leg records.
+- Add a runnable Result-to-CSV example and pandas decomposition recipe.
+- Align the Python package version with VIGO 0.5.1; Engine API and City/Result schemas remain unchanged.
+
+### Additional changes
 
 - Remove the unused production one-shot query helper and use one query stream for Route, Matrix, and Reach.
 - Require the current Engine API and trace capabilities; remove obsolete point-shape handling, index-only Matrix comparison, and non-JSON Result-copy fallback.
-
 - Align with Engine 0.5 walking Reach, surface sampling, reached street edges, and structured Matrix stop references.
 - Reduce Result copy overhead, add incremental `iter_rows()`, and export CSV without duplicating the matrix.
 - Add optional `speed` installation extra for accelerated resident-response JSON decoding and a reproducible wrapper benchmark.
-
 - Compare direct walking by default in Route and Matrix; `require_transit_ride=True` retains a boarding requirement.
 - Isolate packaged Studio runtime launches from host Node options, module paths, and library injection settings, as for bundled headless runtimes.
 - Preserve detailed journey results consistently in resident and one-shot calls to engines that use the compact public result format.

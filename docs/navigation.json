@@ -1,0 +1,171 @@
+{
+  "output": "docs/index.html",
+  "version_file": "pyproject.toml",
+  "product": "VIGO Python",
+  "label": "Python",
+  "description": "VIGO Python 0.5.1 documentation. Build and reuse transport networks from Python with Route, Matrix, Reach and Scenario.",
+  "logo": "docs/assets/vigo-wordmark.png",
+  "links": [
+    {
+      "label": "Engine",
+      "href": "https://github.com/hytangs/vigo/tree/main/docs"
+    },
+    {
+      "label": "GitHub",
+      "href": "https://github.com/hytangs/vigo-py"
+    }
+  ],
+  "pages": [
+    {
+      "id": "overview",
+      "source": "docs/guide.md",
+      "title": "Overview",
+      "group": "Getting started",
+      "section": "routing-from-python-without-rebuilding-the-network"
+    },
+    {
+      "id": "quickstart",
+      "source": "docs/guide.md",
+      "title": "Your first query",
+      "group": "Getting started",
+      "section": "your-first-python-query"
+    },
+    {
+      "id": "concepts",
+      "source": "docs/guide.md",
+      "title": "Core concepts",
+      "group": "Getting started",
+      "section": "vigo-concepts"
+    },
+    {
+      "id": "workflows",
+      "source": "docs/guide.md",
+      "title": "Practical workflows",
+      "group": "Getting started",
+      "section": "workflows"
+    },
+    {
+      "id": "open-a-city",
+      "source": "docs/reference.md",
+      "title": "Open a City",
+      "group": "Python API",
+      "section": "open-a-city"
+    },
+    {
+      "id": "build-a-city",
+      "source": "docs/reference.md",
+      "title": "Build a City",
+      "group": "Python API",
+      "section": "build-a-city"
+    },
+    {
+      "id": "points-and-time",
+      "source": "docs/reference.md",
+      "title": "Points and time",
+      "group": "Python API",
+      "section": "points-and-time"
+    },
+    {
+      "id": "route",
+      "source": "docs/reference.md",
+      "title": "Route",
+      "group": "Python API",
+      "section": "route"
+    },
+    {
+      "id": "matrix",
+      "source": "docs/reference.md",
+      "title": "Matrix",
+      "group": "Python API",
+      "section": "matrix"
+    },
+    {
+      "id": "reach",
+      "source": "docs/reference.md",
+      "title": "Reach",
+      "group": "Python API",
+      "section": "reach"
+    },
+    {
+      "id": "scenario",
+      "source": "docs/reference.md",
+      "title": "Scenario",
+      "group": "Python API",
+      "section": "scenario"
+    },
+    {
+      "id": "result",
+      "source": "docs/reference.md",
+      "title": "Result",
+      "group": "Python API",
+      "section": "result"
+    },
+    {
+      "id": "job",
+      "source": "docs/reference.md",
+      "title": "Job",
+      "group": "Python API",
+      "section": "job"
+    },
+    {
+      "id": "errors",
+      "source": "docs/reference.md",
+      "title": "Errors",
+      "group": "Python API",
+      "section": "errors"
+    },
+    {
+      "id": "runtime-information",
+      "source": "docs/reference.md",
+      "title": "Runtime information",
+      "group": "Python API",
+      "section": "runtime-information"
+    },
+    {
+      "id": "results",
+      "source": "docs/guide.md",
+      "title": "Results and exports",
+      "group": "Work with confidence",
+      "section": "results"
+    },
+    {
+      "id": "runtime",
+      "source": "docs/guide.md",
+      "title": "Runtime and performance",
+      "group": "Work with confidence",
+      "section": "runtime-and-loading"
+    },
+    {
+      "id": "troubleshooting",
+      "source": "docs/guide.md",
+      "title": "Troubleshooting",
+      "group": "Work with confidence",
+      "section": "troubleshooting"
+    },
+    {
+      "id": "notebooks",
+      "source": "notebooks/README.md",
+      "title": "Notebooks",
+      "group": "Resources"
+    },
+    {
+      "id": "release",
+      "source": "docs/releases/0.5.1.md",
+      "title": "What’s new in 0.5.1",
+      "group": "Resources"
+    },
+    {
+      "id": "contributing",
+      "source": "CONTRIBUTING.md",
+      "title": "Contributing",
+      "group": "Resources"
+    },
+    {
+      "id": "decompose",
+      "source": "docs/guide.md",
+      "title": "Decompose journey outputs",
+      "group": "Analysis",
+      "section": "decompose-journeys-for-analysis"
+    }
+  ]
+}

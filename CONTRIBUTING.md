@@ -17,6 +17,7 @@ python -m pip install -e ".[progress]" pytest ruff mypy
 python -m pytest -q
 python -m ruff check vigo tests scripts
 python -m mypy vigo
+python scripts/build-docs.py --check
 python scripts/check-notebooks.py
 python scripts/check-public-release.py
 python -m pip wheel . --no-deps --wheel-dir dist
@@ -31,7 +32,9 @@ The normal tests use controlled process fixtures and check wrapper behavior. Not
 
 ## Documentation changes
 
-Keep the [README](README.md) short and runnable, the [documentation index](docs/README.md) organized by task, and the [reference](docs/reference.md) authoritative for Python argument names and defaults. Put complete examples in [Workflows](docs/workflows.md), interpretation in [Results](docs/results.md), and shared transport semantics in the Engine documentation.
+Keep the [README](README.md) short and runnable, the [guide](docs/guide.md) organized by task, and the [reference](docs/reference.md) authoritative for Python argument names and defaults. Put complete examples in [Workflows](docs/guide.md#workflows), interpretation in [Results](docs/guide.md#results), and shared transport semantics in the Engine documentation.
+
+The offline reader is generated from Markdown. After editing a page or `docs/navigation.json`, run `python scripts/build-docs.py`; CI rejects stale output. Search, navigation, copy buttons, and print styles work locally without a server.
 
 Check examples against `vigo/model.py`, `vigo/runtime.py`, and public integration tests. Compile Python code blocks, verify relative links and section anchors, and run notebook/public-source checks. Examples must identify required City inputs and covered dates; do not present an illustrative coordinate pair as a verified journey. Keep notebook outputs empty and private studies out of this repository.
 

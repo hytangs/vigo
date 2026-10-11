@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TEXT_SUFFIXES = {".md", ".py", ".sh", ".toml", ".yml", ".yaml", ".mjs", ".json", ".ipynb"}
+TEXT_SUFFIXES = {".md", ".py", ".sh", ".toml", ".yml", ".yaml", ".mjs", ".json", ".ipynb", ".html", ".css", ".js"}
 PRIVATE_PATTERNS = (
     re.compile(r"/(?:Users|home)/[^/\s]+/"),
     re.compile(r"[A-Za-z]:\\Users\\[^\\\s]+\\"),
