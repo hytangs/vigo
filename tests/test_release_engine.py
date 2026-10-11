@@ -1,0 +1,22 @@
+"""A compatible development engine is not necessarily the intended release engine."""
+import runpy
+from pathlib import Path
+
+import pytest
+
+validate = runpy.run_path(str(Path(__file__).resolve().parents[1] / "scripts/check-release-engine.py"))["validate"]
+
+
+def test_exact_release_pin() -> None:
+    validate("a" * 40, "a" * 40, "0.5.1", "0.5.1", "v0.5.1")
+
+
+@pytest.mark.parametrize("pin,actual,engine,tag", [
+    ("main", "a" * 40, "0.5.1", "v0.5.1"),
+    ("a" * 40, "b" * 40, "0.5.1", "v0.5.1"),
+    ("a" * 40, "a" * 40, "0.5.0", "v0.5.1"),
+    ("a" * 40, "a" * 40, "0.5.1", "v0.5.0"),
+])
+def test_rejects_unintended_release_engine(pin: str, actual: str, engine: str, tag: str) -> None:
+    with pytest.raises(ValueError):
+        validate(pin, actual, engine, "0.5.1", tag)

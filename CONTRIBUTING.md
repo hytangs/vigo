@@ -78,7 +78,7 @@ Staging refuses to overwrite an existing staging directory. Use a new `--output`
 
 Set `VIGO_TEST_INPUTS` to the synthetic fixture directory when checking the wheel to exercise real Build, Route, Matrix, Reach, traffic, and export behavior from an isolated installed package. This check uses the bundled runtime with an empty PATH and intentionally invalid host Node/kernel settings. The optional progress display is tested separately with `tqdm` installed.
 
-Linux wheels use the glibc 2.39 floor of their Ubuntu 24.04 builders. macOS wheels target macOS 14 or newer. Run the platform CI before claiming support on machines that were not tested locally. Release builds consume the engine ref in repository variable `VIGO_ENGINE_REF` (default `main`); tag builds require that variable to contain the reviewed 40-character engine commit SHA. Publish the engine changes before running the Python release workflow.
+Linux wheels use the glibc 2.39 floor of their Ubuntu 24.04 builders. macOS wheels target macOS 14 or newer. Run the platform CI before claiming support on machines that were not tested locally. Release builds consume the engine ref in repository variable `VIGO_ENGINE_REF` (default `main`); tag builds require that variable to contain the reviewed 40-character engine commit SHA. The release gate verifies the checked-out commit and requires the engine version, Python version, and release tag to agree. Publish the engine changes before running the Python release workflow.
 
 ## Pull requests
 
