@@ -24,8 +24,8 @@ try {
   fs.writeFileSync(inputs.gtfsPath, await zip.generateAsync({type:'nodebuffer'}))
   const city = path.join(dir,'city')
   execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${inputs.gtfsPath}`,`--osm=${inputs.osmPath}`,'--street-modes=walk',`--output=${city}`],{cwd:root,stdio:['ignore','ignore','pipe']})
-  function resident(exe,args) {
-    const child=spawn(exe,args,{cwd:root}); children.push(child)
+  function resident(exe,args,env={}) {
+    const child=spawn(exe,args,{cwd:root,env:{...process.env,...env}}); children.push(child)
     let errors=''; child.stderr.on('data',b=>{errors+=b})
     const lines=createInterface({input:child.stdout})[Symbol.asyncIterator]()
     return async q=>{child.stdin.write(JSON.stringify(q)+'\n'); let timer
@@ -64,6 +64,60 @@ try {
     const cli=JSON.parse(execFileSync(standaloneBinary,['route','--city',city,'--request','-'],{input:JSON.stringify(q),encoding:'utf8'}))
     assert.deepEqual(cli.journey,rust.journey)
   }
+  // Revisit dates with different calendars, holiday exceptions, overnight tails
+  // and DST. Each cache hit must match a runtime that reconstructs the schedule.
+  const cached=resident(standaloneBinary,['stream','--city',city],{VIGO_TIMETABLE_CACHE_BYTES:String(128*1024*1024)})
+  const uncached=resident(standaloneBinary,['stream','--city',city],{VIGO_TIMETABLE_CACHE_BYTES:'0'})
+  const dates=cases.map(([serviceDate,time,timePreference])=>({kind:'route',origin:{stopId:'A'},destination:{stopId:'B'},serviceDate,time,timePreference,horizonMinutes:90,maxWalkKm:0,requireTransitRide:true}))
+  for(const q of dates) assert.deepEqual((await cached(q)).journey,(await uncached(q)).journey)
+  const prepared=(await cached({kind:'info'})).memory.timetablePreparations
+  for(const q of [...dates].reverse().concat(dates)) {
+    assert.deepEqual((await cached(q)).journey,(await uncached(q)).journey,'Date reuse must preserve complete journeys')
+  }
+  const retained=(await cached({kind:'info'})).memory
+  assert.equal(retained.timetablePreparations,prepared,'Resident dates must not be prepared again')
+  assert(retained.timetableCache.hits>0)
+  assert(retained.timetableCache.retainedBytes<=retained.timetableCache.budgetBytes)
+  assert(retained.ledger.inactiveTimetableHeapBytes>0)
+  assert(retained.calendarIndexBytes>0, 'Calendar rules are indexed once per City')
+  assert(retained.timetableSharedColumns.uniqueBytes>0)
+  assert(retained.timetableSharedColumns.references>retained.timetableSharedColumns.uniqueBlocks,
+    'Retained service dates share equal immutable columns')
+  assert.equal((await uncached({kind:'info'})).memory.timetableSharedColumns.uniqueBlocks,0,
+    'Retention-disabled queries keep the contiguous source layout')
+  assert.equal((await uncached({kind:'info'})).memory.timetableCache.entries,0)
+  // Transfer policies are part of identity, even on the same date.
+  for(const q of [dates[0],{...dates[0],allowStreetTransfers:false},{...dates[0],minimumTransferBufferMinutes:5},dates[0]]) {
+    assert.deepEqual((await cached(q)).journey,(await uncached(q)).journey)
+  }
+  // A tiny budget must bypass retention without changing routing.
+  const tiny=resident(standaloneBinary,['stream','--city',city],{VIGO_TIMETABLE_CACHE_BYTES:'1'})
+  for(const q of [dates[0],dates[1],dates[0]]) assert.deepEqual((await tiny(q)).journey,(await uncached(q)).journey)
+  const bypass=(await tiny({kind:'info'})).memory
+  assert.equal(bypass.timetableCache.entries,0)
+  assert.equal(bypass.timetablePreparations,3)
+  // A budget sized for one weekday timetable evicts by bytes before the entry limit.
+  const probe=resident(standaloneBinary,['stream','--city',city],{VIGO_TIMETABLE_CACHE_BYTES:String(128*1024*1024)})
+  const weekdays=[14,15,16].map(day=>({...dates[0],serviceDate:`2026-07-${day}`}))
+  await probe(weekdays[0]); await probe(weekdays[1])
+  const oneDayBytes=(await probe({kind:'info'})).memory.timetableCache.retainedBytes
+  assert(oneDayBytes>0)
+  const bounded=resident(standaloneBinary,['stream','--city',city],{VIGO_TIMETABLE_CACHE_BYTES:String(oneDayBytes)})
+  for(const q of weekdays) assert.deepEqual((await bounded(q)).journey,(await uncached(q)).journey)
+  const byteEviction=(await bounded({kind:'info'})).memory
+  assert.equal(byteEviction.timetableCache.entries,1)
+  assert.equal(byteEviction.timetableCache.evictions,1)
+  assert(byteEviction.timetableCache.retainedBytes<=oneDayBytes)
+  assert.deepEqual((await bounded(weekdays[0])).journey,(await uncached(weekdays[0])).journey)
+  assert.equal((await bounded({kind:'info'})).memory.timetablePreparations,4)
+  // More than eight inactive dates evicts the least recently used timetable.
+  for(let day=14;day<=23;day++) await cached({...dates[0],serviceDate:`2026-07-${day}`})
+  const evicted=(await cached({kind:'info'})).memory
+  assert.equal(evicted.timetableCache.entries,8)
+  assert(evicted.timetableCache.evictions>0)
+  const oldest={...dates[0],serviceDate:'2026-07-14'}
+  assert.deepEqual((await cached(oldest)).journey,(await uncached(oldest)).journey)
+  assert.equal((await cached({kind:'info'})).memory.timetablePreparations,evicted.timetablePreparations+1)
   // Broad and narrow windows on one day must share the same loaded prefix.
   // Compare complete journeys against fresh standalone processes at every step.
   const cacheBase={kind:'route',origin:{stopId:'A'},destination:{stopId:'B'},serviceDate:'2026-07-10',

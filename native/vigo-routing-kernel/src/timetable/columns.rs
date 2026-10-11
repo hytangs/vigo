@@ -20,6 +20,18 @@ impl<T> From<Vec<T>> for Column<T> {
     }
 }
 impl<T> Column<T> {
+    // Charge shared blocks in full for eviction admission, even when another
+    // scenario also references them. Owner-level diagnostics count them once.
+    #[cfg(feature = "standalone")]
+    pub(super) fn shared_retained_bytes(&self) -> usize {
+        match self {
+            Self::Owned(_) => 0,
+            Self::Shared { blocks, .. } => blocks
+                .iter()
+                .map(|block| block.len() * size_of::<T>() + 2 * size_of::<usize>())
+                .sum(),
+        }
+    }
     pub(super) fn len(&self) -> usize {
         match self {
             Self::Owned(v) => v.len(),

@@ -81,6 +81,42 @@ fn fallback_seconds(coordinates: &[f64], from: usize, to: usize, speed: f64) -> 
 pub fn prepare_timetable_indexes(
     input: TimetablePreparationInput,
 ) -> Result<TimetablePreparationResult> {
+    prepare_timetable_indexes_view(TimetablePreparationView {
+        departure_seconds: &input.departure_seconds,
+        from_stop: &input.from_stop,
+        can_board: &input.can_board,
+        retained_stops: &input.retained_stops,
+        coordinates: &input.coordinates,
+        transfer_from: &input.transfer_from,
+        transfer_to: &input.transfer_to,
+        transfer_seconds: &input.transfer_seconds,
+        forbidden_from: &input.forbidden_from,
+        forbidden_to: &input.forbidden_to,
+        station_offset: &input.station_offset,
+        station_members: &input.station_members,
+        walking_speed_kph: input.walking_speed_kph,
+    })
+}
+
+pub(crate) struct TimetablePreparationView<'a> {
+    pub departure_seconds: &'a [u32],
+    pub from_stop: &'a [u32],
+    pub can_board: &'a [u8],
+    pub retained_stops: &'a [u8],
+    pub coordinates: &'a [f64],
+    pub transfer_from: &'a [u32],
+    pub transfer_to: &'a [u32],
+    pub transfer_seconds: &'a [f64],
+    pub forbidden_from: &'a [u32],
+    pub forbidden_to: &'a [u32],
+    pub station_offset: &'a [u32],
+    pub station_members: &'a [u32],
+    pub walking_speed_kph: f64,
+}
+
+pub(crate) fn prepare_timetable_indexes_view(
+    input: TimetablePreparationView<'_>,
+) -> Result<TimetablePreparationResult> {
     let stops = input.retained_stops.len();
     let segments = input.departure_seconds.len();
     if stops >= u32::MAX as usize
@@ -141,9 +177,9 @@ pub fn prepare_timetable_indexes(
 
     let (departure_offset, departure_order) = departure_index(
         stops,
-        &input.from_stop,
-        &input.departure_seconds,
-        &input.can_board,
+        input.from_stop,
+        input.departure_seconds,
+        input.can_board,
     )?;
 
     let forbidden: HashSet<(u32, u32)> = input
@@ -206,7 +242,7 @@ pub fn prepare_timetable_indexes(
                 row.push((
                     to,
                     fallback_seconds(
-                        &input.coordinates,
+                        input.coordinates,
                         from as usize,
                         to as usize,
                         input.walking_speed_kph,

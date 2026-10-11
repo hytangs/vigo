@@ -129,6 +129,26 @@ try {
       assert(query({ ...q, ...patch }).error); checked++
     }
   }
+  // Repeated coordinates reuse both transit and direct-walking materialization.
+  // Mixed exact-stop and coordinate endpoints remain distinct routing contracts.
+  for (const timePreference of ['depart_at', 'arrive_by']) {
+    const a = {coordinate: [-77.05, 38.9]}, b = {coordinate: [-77.03, 38.91]}
+    const origins = [a, a, base.origin, b], destinations = [b, b, a]
+    const request = {kind:'matrix', mode:'transit', serviceDate:base.serviceDate,
+      time:'08:30', timePreference, origins, destinations, includeJourneys:true,
+      includeGeometry:true, maxStreetKm:5, allowLongWalk:true}
+    const full = query(request)
+    const unique = query({...request, origins:[a,base.origin,b], destinations:[b,a]})
+    assert.deepEqual(full.diagnostics.matrixReuse,
+      {requestedPairs:12, searchPairs:6, uniqueOrigins:3, uniqueDestinations:2})
+    for (const [i, source] of [0,0,1,2].entries()) {
+      for (const [j, target] of [0,0,1].entries()) {
+        assert.equal(full.durationsMinutes[i][j], unique.durationsMinutes[source][target])
+        assert.deepEqual(full.journeys[i][j], unique.journeys[source][target])
+      }
+    }
+    checked++
+  }
   // A required stale access context is an error, not an optional-sidecar miss.
   const accessFile = path.join(routing, 'project.sqlite.access-context.bin')
   const { metadata, arrays } = decodeRoutingSnapshot(fs.readFileSync(accessFile))

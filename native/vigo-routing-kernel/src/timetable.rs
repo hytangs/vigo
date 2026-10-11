@@ -3504,6 +3504,22 @@ impl TimetableKernel {
         std::mem::take(&mut self.query)
     }
     #[cfg(feature = "standalone")]
+    pub(crate) fn retained_schedule_bytes(&self) -> usize {
+        self.owned_source_bytes()
+            + self.diagnostics().native_index_bytes as usize
+            + self.departure_seconds.shared_retained_bytes()
+            + self.arrival_seconds.shared_retained_bytes()
+            + self.from_stop.shared_retained_bytes()
+            + self.to_stop.shared_retained_bytes()
+            + self.sequence.shared_retained_bytes()
+            + self.segment_trip.shared_retained_bytes()
+            + self.segment_run.shared_retained_bytes()
+            + self.trip_start.shared_retained_bytes()
+            + self.continuity_break.shared_retained_bytes()
+            + self.can_board.shared_retained_bytes()
+            + self.can_alight.shared_retained_bytes()
+    }
+    #[cfg(feature = "standalone")]
     pub(crate) fn install_query_workspace(&mut self, mut query: TimetableQueryWorkspace) {
         query.rebind(
             self.stop_count,

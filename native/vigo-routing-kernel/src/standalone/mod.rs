@@ -1,6 +1,7 @@
 //! Standalone City runtime. No Node, JavaScript evaluator, or external service.
 mod access;
 mod alternatives;
+mod calendar;
 mod city;
 mod collection;
 mod health;
@@ -14,6 +15,7 @@ mod query;
 mod reach;
 mod realtime;
 mod scenario;
+mod timetable_cache;
 mod transport;
 mod walking;
 pub use city::City;

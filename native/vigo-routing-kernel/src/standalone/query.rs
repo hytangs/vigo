@@ -145,19 +145,21 @@ impl City {
         } else {
             None
         };
-        let previous_timetable = self
-            .timetable
-            .as_ref()
-            .map(|t| (t.key.clone(), t.coverage_end));
-        let mut raw = self.execute(command, &query)?;
-        if previous_timetable
-            != self
-                .timetable
-                .as_ref()
-                .map(|t| (t.key.clone(), t.coverage_end))
-        {
-            super::release_preparation_memory();
-        }
+        let previous_preparations = self.timetable_preparations;
+        let previous_evictions = self.timetable_cache.evictions;
+        let execution = self.execute(command, &query);
+        let release_memory = previous_preparations != self.timetable_preparations
+            || previous_evictions != self.timetable_cache.evictions
+            || matches!(command, "reach" | "isochrone" | "matrix");
+        let mut raw = match execution {
+            Ok(raw) => raw,
+            Err(error) => {
+                if release_memory {
+                    super::release_preparation_memory();
+                }
+                return Err(error);
+            }
+        };
         if let Some(date) = clock_date {
             raw["clockDate"] = json!(date);
         }
@@ -168,7 +170,7 @@ impl City {
             let mut result = json!({"schema":"vigo.stream.detail.v1","status":"ok"});
             result["trace"] = raw;
             super::memory::record_output(command, &Value::Null, &result);
-            if matches!(command, "reach" | "isochrone" | "matrix") {
+            if release_memory {
                 super::release_preparation_memory();
             }
             return Ok(result);
@@ -196,7 +198,7 @@ impl City {
             super::memory::record_output(command, &raw, &result);
             drop(raw);
         }
-        if matches!(command, "reach" | "isochrone" | "matrix") {
+        if release_memory {
             super::release_preparation_memory();
         }
         Ok(result)

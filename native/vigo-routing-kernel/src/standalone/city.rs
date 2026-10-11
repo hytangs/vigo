@@ -322,8 +322,11 @@ pub struct City {
     pub(crate) street: CoordinateKernel,
     pub(crate) drive: Option<Drive>,
     pub(crate) timetable: Option<Timetable>,
+    pub(crate) timetable_cache: super::timetable_cache::TimetableCache,
     pub(crate) query_workspace: Option<crate::timetable::TimetableQueryWorkspace>,
     pub(crate) timetable_preparations: u64,
+    pub(crate) calendar: std::sync::OnceLock<super::calendar::CalendarIndex>,
+    pub(crate) timetable_blocks: Option<TimetableBlockPool>,
     pub(crate) speed: f64,
     pub(crate) padding: f64,
     pub(crate) overhead: f64,
@@ -612,8 +615,11 @@ impl City {
             street,
             drive: None,
             timetable: None,
+            timetable_cache: super::timetable_cache::TimetableCache::from_env()?,
             query_workspace: None,
             timetable_preparations: 0,
+            calendar: Default::default(),
+            timetable_blocks: Some(Default::default()),
             speed,
             padding,
             overhead,
@@ -631,6 +637,14 @@ impl City {
             "ledger":self.memory_ledger(),"sharedStreetOwners":self.street.shared_street_owners(),"street":self.street.diagnostics(),"access":access,
             "timetable":self.timetable.as_ref().map(|t| t.kernel.diagnostics()),
             "timetablePreparations":self.timetable_preparations,
+            "calendarIndexBytes":self.calendar.get().map_or(0, |c| c.heap_bytes()),
+            "timetableSharedColumns":self.timetable_blocks.as_ref().map(|p| json!({
+                "uniqueBytes":p.unique_bytes(), "indexBytes":p.index_bytes(),
+                "uniqueBlocks":p.unique_blocks(),
+                "references":self.timetable.iter().chain(self.timetable_cache.entries()).map(|t| t.kernel.source_block_references()).sum::<usize>()})),
+            "timetableCache":{"entries":self.timetable_cache.entries().count(),
+                "retainedBytes":self.timetable_cache.bytes,"budgetBytes":self.timetable_cache.budget,
+                "hits":self.timetable_cache.hits,"evictions":self.timetable_cache.evictions},
             "timetableCoverageEndSeconds":self.timetable.as_ref().and_then(|t|t.coverage_end),
             "geometry":self.shape_cache.diagnostics(),"driveLoaded":self.drive.is_some(),
             "scope":"estimated retained native allocations and mapped file sizes; not RSS or container peak"}})
@@ -641,40 +655,15 @@ impl City {
             .map(|&i| &self.stops[i])
             .ok_or_else(|| format!("Unknown stopId: {id}").into())
     }
-    fn services_on(&self, date: NaiveDate) -> Result<BTreeSet<String>> {
-        let day = [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday",
-            "saturday",
-            "sunday",
-        ][date.weekday().num_days_from_monday() as usize];
-        let date_number = date.year() * 10000 + date.month() as i32 * 100 + date.day() as i32;
-        let sql = format!(
-            "SELECT service_id FROM calendar WHERE {day}=1 AND start_date<=?1 AND end_date>=?1"
-        );
-        let mut services: BTreeSet<String> = self
-            .db
-            .prepare(&sql)?
-            .query_map([date_number], |r| r.get(0))?
-            .collect::<std::result::Result<_, _>>()?;
-        for row in self
-            .db
-            .prepare("SELECT service_id,exception_type FROM calendar_dates WHERE date=?1")?
-            .query_map([date_number], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, i32>(1)?))
-            })?
-        {
-            let (id, kind) = row?;
-            if kind == 1 {
-                services.insert(id);
-            } else if kind == 2 {
-                services.remove(&id);
-            }
+    fn calendar(&self) -> Result<&super::calendar::CalendarIndex> {
+        if self.calendar.get().is_none() {
+            let index = super::calendar::CalendarIndex::load(&self.db)?;
+            let _ = self.calendar.set(index);
         }
-        Ok(services)
+        Ok(self.calendar.get().unwrap())
+    }
+    fn services_on(&self, date: NaiveDate) -> Result<BTreeSet<String>> {
+        Ok(self.calendar()?.services_on(date))
     }
     fn service_instances(
         &self,
@@ -830,40 +819,27 @@ impl City {
             self.install_query_workspace();
             return Ok(());
         }
+        if let Some(index) = self.timetable_cache.find(&key, coverage_end) {
+            if complete_coverage && !self.timetable_cache.get(index).complete_service_coverage {
+                return fail(
+                    "Incomplete service coverage across source feeds on the requested date",
+                );
+            }
+            let timetable = self.timetable_cache.take(index);
+            self.retire_timetable();
+            self.timetable = Some(timetable);
+            self.install_query_workspace();
+            return Ok(());
+        }
         let instances = if coverage_end.is_some() {
             self.service_instances(request, date, coverage_end)?
         } else {
             instances
         };
-        // One active service slice per City. Release its mutable workspace
-        // before constructing a replacement, including after a failed switch.
-        if self.query_workspace.is_none() {
-            self.query_workspace = self
-                .timetable
-                .as_mut()
-                .map(|t| t.kernel.take_query_workspace());
-        }
-        self.timetable = None;
+        self.retire_timetable();
         self.timetable_preparations += 1;
         let services = self.services_on(date)?;
-        let complete_service_coverage = {
-            let all: Vec<String> = self
-                .db
-                .prepare(
-                    "SELECT service_id FROM calendar UNION SELECT service_id FROM calendar_dates",
-                )?
-                .query_map([], |r| r.get(0))?
-                .collect::<std::result::Result<_, _>>()?;
-            let scopes: HashSet<&str> = all
-                .iter()
-                .filter_map(|id| id.split_once('\u{1f}').map(|p| p.0))
-                .collect();
-            let active: HashSet<&str> = services
-                .iter()
-                .filter_map(|id| id.split_once('\u{1f}').map(|p| p.0))
-                .collect();
-            scopes.len() <= 1 || scopes.is_subset(&active)
-        };
+        let complete_service_coverage = self.calendar()?.complete(&services);
         if complete_coverage && !complete_service_coverage {
             return fail("Incomplete service coverage across source feeds on the requested date");
         }
@@ -991,19 +967,19 @@ impl City {
             }
             station_offset.push(station_members.len() as u32);
         }
-        let mut p = prepare_timetable_indexes(TimetablePreparationInput {
-            departure_seconds: source.departure_seconds.clone(),
-            from_stop: source.from_stop.clone(),
-            can_board: source.can_board.clone(),
-            retained_stops: retained,
-            coordinates: coords,
-            transfer_from,
-            transfer_to,
-            transfer_seconds,
-            forbidden_from,
-            forbidden_to,
-            station_offset,
-            station_members,
+        let mut p = crate::prepare_timetable_indexes_view(crate::TimetablePreparationView {
+            departure_seconds: &source.departure_seconds,
+            from_stop: &source.from_stop,
+            can_board: &source.can_board,
+            retained_stops: &retained,
+            coordinates: &coords,
+            transfer_from: &transfer_from,
+            transfer_to: &transfer_to,
+            transfer_seconds: &transfer_seconds,
+            forbidden_from: &forbidden_from,
+            forbidden_to: &forbidden_to,
+            station_offset: &station_offset,
+            station_members: &station_members,
             walking_speed_kph: self.speed,
         })?;
         if !allow {
@@ -1076,7 +1052,35 @@ impl City {
         self.install_query_workspace();
         Ok(())
     }
+    fn retire_timetable(&mut self) {
+        if let Some(mut timetable) = self.timetable.take() {
+            let workspace = timetable.kernel.take_query_workspace();
+            if self.query_workspace.is_none() {
+                self.query_workspace = Some(workspace);
+            }
+            if self.timetable_cache.budget > 0
+                && timetable.key.ends_with(":scheduled")
+                && let Some(pool) = &mut self.timetable_blocks
+            {
+                timetable.kernel.share_source_columns(pool);
+            }
+            let released = self.timetable_cache.insert(timetable);
+            if released && let Some(pool) = &mut self.timetable_blocks {
+                pool.prune();
+            }
+        }
+    }
     fn install_query_workspace(&mut self) {
+        if let Some(pool) = &mut self.timetable_blocks {
+            // Keep the first-date hot path contiguous. Sharing starts only
+            // when another date is retained and may reuse these columns.
+            if self.timetable_cache.entries().next().is_some()
+                && let Some(timetable) = &mut self.timetable
+                && timetable.kernel.share_source_columns(pool)
+            {
+                pool.prune();
+            }
+        }
         if let (Some(timetable), Some(query)) = (&mut self.timetable, self.query_workspace.take()) {
             timetable.kernel.install_query_workspace(query);
         }

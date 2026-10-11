@@ -43,6 +43,7 @@ pub(crate) struct Collection {
     evictions: usize,
     query_workspace: Option<crate::timetable::TimetableQueryWorkspace>,
     timetable_blocks: crate::timetable::TimetableBlockPool,
+    timetable_budget: usize,
 }
 impl Runtime {
     pub(crate) fn open(path: &str) -> Result<Self> {
@@ -104,6 +105,7 @@ impl Runtime {
             evictions: 0,
             query_workspace: None,
             timetable_blocks: Default::default(),
+            timetable_budget: super::timetable_cache::TimetableCache::from_env()?.budget,
         };
         collection.select(&default_id)?;
         Ok(Self::Collection(Box::new(collection)))
@@ -206,12 +208,14 @@ impl Collection {
                 )
                 .collect();
             let mut city = City::open_shared(Path::new(path), &residents)?;
+            city.timetable_blocks = None; // The collection owns the shared pool.
             let capacity = self
                 .manifest
                 .maximum_resident_scenarios
                 .min(self.manifest.scenarios.len());
             city.street.partition_cache_budget(capacity);
             city.shape_cache.partition_budget(capacity);
+            city.timetable_cache.budget = 0;
             if let Some((_, previous)) = self.cities.back_mut() {
                 city.street.reuse_street_scratch(&mut previous.street);
             }
@@ -221,6 +225,16 @@ impl Collection {
             self.cities.push_back((id.to_owned(), city));
             self.opens += 1;
         }
+        // Only the selected City can grow its cache on this sequential worker.
+        // Other residents keep their charged bytes; unused capacity follows
+        // demand instead of being stranded in equal per-scenario partitions.
+        let selected = self.cities.len() - 1;
+        let mut available = self.timetable_budget;
+        for (_, city) in self.cities.iter_mut().take(selected) {
+            available -= city.timetable_cache.bytes;
+            city.timetable_cache.budget = city.timetable_cache.bytes;
+        }
+        self.cities.back_mut().unwrap().1.timetable_cache.budget = available;
         Ok(&mut self.cities.back_mut().unwrap().1)
     }
     fn info(&self) -> Value {
@@ -270,11 +284,13 @@ impl Collection {
             "scenarios":self.manifest.scenarios.iter().map(|s| json!({"id":s.id,"name":s.name})).collect::<Vec<_>>(),
             "residency":{"maximumScenarios":self.manifest.maximum_resident_scenarios,"loadedScenarios":self.cities.len(),
                 "timetableQueryWorkspaces":usize::from(self.query_workspace.is_some()),
+                "inactiveTimetableBudgetBytes":self.cities.iter().map(|(_,c)| c.timetable_cache.budget).sum::<usize>(),
+                "inactiveTimetableRetainedBytes":self.cities.iter().map(|(_,c)| c.timetable_cache.bytes).sum::<usize>(),
                 "timetableSharedBlockBytes":self.timetable_blocks.unique_bytes(),
                 "timetableBlockIndexBytes":self.timetable_blocks.index_bytes(),
                 "timetableUniqueBlocks":self.timetable_blocks.unique_blocks(),
-                "timetableBlockReferences":self.cities.iter().filter_map(|(_, city)| city.timetable.as_ref()).map(|tt| tt.kernel.source_block_references()).sum::<usize>(),
-                "timetableColumnViewBytes":self.cities.iter().filter_map(|(_, city)| city.timetable.as_ref()).map(|tt| tt.kernel.owned_source_bytes()).sum::<usize>(),
+                "timetableBlockReferences":self.cities.iter().flat_map(|(_, city)| city.timetable.iter().chain(city.timetable_cache.entries())).map(|tt| tt.kernel.source_block_references()).sum::<usize>(),
+                "timetableColumnViewBytes":self.cities.iter().flat_map(|(_, city)| city.timetable.iter().chain(city.timetable_cache.entries())).map(|tt| tt.kernel.owned_source_bytes()).sum::<usize>(),
                 "timetableWorkspaceBytes":self.query_workspace.as_ref().map_or(0, crate::timetable::TimetableQueryWorkspace::byte_length),
                 "sharedStreetGraphs":streets.len(),"cityOpens":self.opens,"evictions":self.evictions,
                 "scenarios":self.cities.iter().map(|(id, city)| json!({"id":id,"memory":city.info()["memory"]})).collect::<Vec<_>>()}})

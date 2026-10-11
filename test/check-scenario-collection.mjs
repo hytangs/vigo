@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { execFileSync, spawn } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
 import { createInterface } from 'node:readline'
 import JSZip from 'jszip'
@@ -109,6 +109,66 @@ try {
   assert(info.residency.scenarios.reduce((n,s) => n + s.memory.access.endpointCacheMaximumBytesPerRole,0) <= 65536,
     'The endpoint budget applies to the entire collection, not independently to every scenario')
   assert(info.residency.scenarios.reduce((n,s) => n + s.memory.geometry.maximumBytes,0) <= 65536)
+  if(residents>=8) {
+    // Three dates across all eight resident scenarios share the same street
+    // owner and query workspace, retaining only inactive schedule data.
+    const dateJourneys=new Map()
+    for(const serviceDate of ['2026-07-15','2026-07-16','2026-07-17']) {
+      for(const scenario of scenarios) {
+        const q={...coordinates,serviceDate,scenarioId:scenario.id}
+        const fresh=JSON.parse(execFileSync(standaloneBinary,['route','--city',path.join(collection,'cities',scenario.id),'--request','-'],
+          {input:JSON.stringify({...q,scenarioId:undefined}),encoding:'utf8'}))
+        dateJourneys.set(`${scenario.id}:${serviceDate}`,fresh.journey)
+        assert.deepEqual((await query(q)).journey,fresh.journey)
+      }
+    }
+    const warm=(await query({kind:'info'})).residency.scenarios
+    for(const serviceDate of ['2026-07-15','2026-07-16','2026-07-17','2026-07-15']) {
+      for(const scenario of scenarios) assert.deepEqual((await query({...coordinates,serviceDate,scenarioId:scenario.id})).journey,
+        dateJourneys.get(`${scenario.id}:${serviceDate}`))
+    }
+    const reused=await query({kind:'info'})
+    for(const scenario of reused.residency.scenarios) {
+      assert.equal(scenario.memory.timetablePreparations,warm.find(s=>s.id===scenario.id).memory.timetablePreparations)
+      assert(scenario.memory.timetableCache.hits>0)
+      assert(scenario.memory.timetableCache.retainedBytes<=scenario.memory.timetableCache.budgetBytes)
+    }
+    assert.equal(reused.residency.timetableQueryWorkspaces,1)
+    assert.equal(reused.residency.sharedStreetGraphs,1)
+    const configuredBudget=Number(process.env.VIGO_TIMETABLE_CACHE_BYTES ?? 128*1024*1024)
+    assert(reused.residency.inactiveTimetableBudgetBytes<=configuredBudget)
+    assert(reused.residency.inactiveTimetableRetainedBytes<=configuredBudget)
+    assert.equal(reused.residency.inactiveTimetableRetainedBytes,
+      reused.residency.scenarios.reduce((sum,s)=>sum+s.memory.timetableCache.retainedBytes,0))
+  }
+  // A busy scenario may borrow unused collection capacity even when one
+  // timetable exceeds the old equal share. Admission still bounds the total.
+  const sequence = [base, {...base,serviceDate:'2026-07-16'}, {kind:'info'}]
+  const probe = spawnSync(standaloneBinary, ['stream','--city',path.join(collection,'cities','s0')],
+    {input:sequence.map(q=>JSON.stringify(q)).join('\n')+'\n',encoding:'utf8',
+      env:{...process.env,VIGO_TIMETABLE_CACHE_BYTES:String(128*1024*1024)}})
+  assert.equal(probe.status,0,probe.stderr)
+  const dayBytes = JSON.parse(probe.stdout.trim().split('\n').at(-1)).memory.timetableCache.retainedBytes
+  assert(dayBytes>0)
+  const budget = dayBytes*2
+  const requests = [
+    {...base,scenarioId:'s0'}, {...base,scenarioId:'s0',serviceDate:'2026-07-16'},
+    {...base,scenarioId:'s0'}, {kind:'info'},
+    {...base,scenarioId:'s1'}, {...base,scenarioId:'s1',serviceDate:'2026-07-16'},
+    {kind:'info'},
+  ]
+  const borrowed = spawnSync(standaloneBinary,['stream','--city',collection],
+    {input:requests.map(q=>JSON.stringify(q)).join('\n')+'\n',encoding:'utf8',
+      env:{...process.env,VIGO_MAX_RESIDENT_SCENARIOS:'8',VIGO_TIMETABLE_CACHE_BYTES:String(budget)}})
+  assert.equal(borrowed.status,0,borrowed.stderr)
+  const answers = borrowed.stdout.trim().split('\n').map(line=>JSON.parse(line))
+  const busy = answers[3].residency.scenarios.find(s=>s.id==='s0').memory
+  assert.equal(busy.timetablePreparations,2)
+  assert.equal(busy.timetableCache.hits,1)
+  for (const result of [answers[3],answers[6]]) {
+    assert.equal(result.residency.inactiveTimetableBudgetBytes,budget)
+    assert(result.residency.inactiveTimetableRetainedBytes<=budget)
+  }
   const bad = await query({ ...base, scenarioId: 'missing' })
   assert.equal(bad.status, 'error')
   assert.match(bad.error.message, /Unknown scenarioId/)

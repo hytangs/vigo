@@ -150,16 +150,29 @@ impl City {
             + self.metadata.heap_bytes()
             + self.street_bounds.heap_bytes()
             + self.context.header.heap_bytes()
-            + tt.map_or(0, Heap::heap_bytes);
-        let cache = self.shape_cache.retained_bytes()
+            + tt.map_or(0, Heap::heap_bytes)
+            + self.calendar.get().map_or(0, |c| c.heap_bytes());
+        let inactive_timetables = self
+            .timetable_cache
+            .entries()
+            .map(|t| {
+                t.heap_bytes()
+                    + t.kernel.owned_source_bytes()
+                    + t.kernel.diagnostics().native_index_bytes as usize
+            })
+            .sum::<usize>();
+        let cache = inactive_timetables
+            + self.shape_cache.retained_bytes()
             + self.route_metadata.heap_bytes()
             + self.trip_shape_ids.heap_bytes();
         json!({"street":street,"cityDictionaryHeapBytes":dictionary,
-            "timetableSourceOwnedHeapBytes":tt.map_or(0, |t|t.kernel.owned_source_bytes()),
+            "timetableSourceOwnedHeapBytes":tt.map_or(0, |t|t.kernel.owned_source_bytes())
+                + self.timetable_blocks.as_ref().map_or(0, |p| p.unique_bytes() + p.index_bytes()),
             "timetableIndexHeapBytes":tt.map_or(0, |t|t.kernel.diagnostics().native_index_bytes as usize),
             "timetableWorkspaceHeapBytes":tt.map_or(0, |t|t.kernel.diagnostics().workspace_bytes as usize)
                 + self.query_workspace.as_ref().map_or(0, crate::timetable::TimetableQueryWorkspace::byte_length),
-            "cityCacheHeapBytes":cache,"sqliteHeapBytes":sqlite_bytes(&self.db) + self.shapes.sqlite_heap_bytes(),
+            "cityCacheHeapBytes":cache,"inactiveTimetableHeapBytes":inactive_timetables,
+            "sqliteHeapBytes":sqlite_bytes(&self.db) + self.shapes.sqlite_heap_bytes(),
             "contextMappedFileBytes":self.context.mapped_bytes(),"lastOutput":output_ledger(),
             "drive":self.drive.as_ref().map(|d| d.memory_ledger()),
             "scope":"retained capacities; hash/JSON container overhead estimated; mappings are file lengths, not RSS; active-query temporaries and transport/UI allocations measured separately"})
