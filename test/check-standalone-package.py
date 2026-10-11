@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
@@ -18,9 +19,21 @@ def main():
     parser.add_argument("archive", type=Path, nargs="?")
     parser.add_argument("--node", default=os.environ.get("VIGO_STANDALONE_TEST_NODE") or shutil.which("node"))
     args = parser.parse_args()
-    archives = [args.archive] if args.archive else list(Path(os.environ.get("VIGO_STANDALONE_RELEASE_DIR", ROOT / "release/rust")).glob("*.tar.gz"))
-    assert len(archives) == 1, "Specify exactly one archive to verify"
-    archive = archives[0].resolve()
+    if args.archive:
+        archive = args.archive.resolve()
+    else:
+        targets = {
+            ("Darwin", "arm64"): "aarch64-apple-darwin",
+            ("Linux", "aarch64"): "aarch64-unknown-linux-gnu",
+            ("Linux", "x86_64"): "x86_64-unknown-linux-gnu",
+            ("Windows", "AMD64"): "x86_64-pc-windows-msvc",
+        }
+        target = targets.get((platform.system(), platform.machine()))
+        assert target, "Specify an archive for this platform"
+        version = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
+        release = Path(os.environ.get("VIGO_STANDALONE_RELEASE_DIR", ROOT / "release/rust"))
+        archive = (release / f"VIGO-Rust-{version}-{target}.tar.gz").resolve()
+    assert archive.is_file(), f"Build the current standalone package first: {archive.name}"
     expected = archive.with_name(archive.name + ".sha256").read_text(encoding="utf-8").split()[0]
     assert hashlib.sha256(archive.read_bytes()).hexdigest() == expected, "Archive digest mismatch"
     executable = "vigo.exe" if os.name == "nt" else "vigo"
