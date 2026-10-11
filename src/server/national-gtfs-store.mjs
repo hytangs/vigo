@@ -291,7 +291,7 @@ const activeServiceKernelSchemaVersion = 'vigo.routing.active-service-kernel.v15
 const activeServiceTransferProjectionVersion = 'single_edge_service_ingress.v7-station-chain'
 const activeServiceKernelContextCacheMaxEntries = Math.max(
   1,
-  Math.min(8, Math.floor(Number(process.env.VIGO_ACTIVE_KERNEL_CONTEXT_CACHE_MAX_ENTRIES ?? 2) || 0)),
+  Math.min(8, Math.floor(Number(process.env.VIGO_ACTIVE_KERNEL_CONTEXT_CACHE_MAX_ENTRIES ?? 4) || 0)),
 )
 const activeServiceKernelContextCacheMaxBytes = Math.max(
   activeServiceKernelCacheBudgetBytes,

@@ -733,6 +733,16 @@ async function runRouteStream(args: CliArguments) {
   const preparedModes = new Map<string, string>()
   const prepareMode = async (mode: string, serviceDate: string, serviceDay: ServiceDay) => {
     if (preparedModes.get(mode) === serviceDate) return 0
+    if (preparedModes.has(mode)) {
+      // The resident City already owns the street graph and stop transfers.
+      // A date switch only selects the applicable timetable.
+      const started = performance.now()
+      if (mode === 'transit') prepareNationalGtfsRoutingContext(storePath, {
+        serviceDate, serviceDay, streetStorePath, allowServiceDateFallback: false,
+      })
+      preparedModes.set(mode, serviceDate)
+      return Number((performance.now() - started).toFixed(3))
+    }
     const prepared = await prepareRuntime(storePath, streetStorePath, serviceDate, serviceDay, mode)
     preparedModes.set(mode, serviceDate)
     return prepared.elapsedMs
