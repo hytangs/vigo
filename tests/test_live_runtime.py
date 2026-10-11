@@ -52,6 +52,22 @@ class LiveRuntimeTest(unittest.TestCase):
         cls.city.close()
         cls.temporary.cleanup()
 
+    def test_dates_reuse_one_idle_engine_process(self) -> None:
+        if self.city.runtime.capabilities.get("output", {}).get("requestServiceDate") is not True:
+            self.skipTest("runtime does not advertise per-request service dates")
+        self.city.close()
+        process_ids = set()
+        for date in ("2026-07-15", "2026-07-18", "2026-07-19", "2026-07-15"):
+            route = self.city.route("A", "B", depart_at="07:55", service_date=date)
+            self.assertEqual(route.query["serviceDate"], date)
+            with vigo.open(self.city.path, runtime=self.city.runtime) as fresh:
+                expected = fresh.route("A", "B", depart_at="07:55", service_date=date)
+            self.assertEqual(route.status, expected.status)
+            self.assertEqual(route.duration_minutes, expected.duration_minutes)
+            process_ids.update(stream._process.pid for stream in self.city._streams.values())
+        self.assertEqual(len(process_ids), 1)
+        self.assertEqual(len(self.city._streams), 1)
+
     def test_route_matrix_parity_for_each_mode(self) -> None:
         for mode in ("transit", "walk", "drive"):
             with self.subTest(mode=mode):
@@ -120,7 +136,7 @@ class LiveRuntimeTest(unittest.TestCase):
         for mode, waypoints in (("transit", []), ("walk", []), ("drive", []), ("walk", ["X"])):
             with self.subTest(mode=mode, waypoints=waypoints):
                 resident = self.city.route("A", "B", mode=mode, waypoints=waypoints, **options)
-                current = self.city._streams["2026-07-15"]
+                current = next(s for s in self.city._streams.values() if s._request_date == "2026-07-15")
                 if stream is not None:
                     self.assertIs(current, stream)
                 stream = current
@@ -140,7 +156,7 @@ class LiveRuntimeTest(unittest.TestCase):
         for field in ("values", "width", "height", "bounds", "schemaVersion"):
             self.assertEqual(resident.value[field], one_shot["surface"][field])
         self.assertEqual(resident.to_geojson(), one_shot["contours"])
-        self.assertIs(self.city._streams["2026-07-15"], stream)
+        self.assertIs(next(s for s in self.city._streams.values() if s._request_date == "2026-07-15"), stream)
         self.assertEqual(resident.timing["openMs"], 0)
 
     def test_traffic_changes_drive_route_and_matrix_without_leaking(self) -> None:
@@ -210,10 +226,10 @@ class LiveRuntimeTest(unittest.TestCase):
             {f"point_{i}": "A" for i in range(1024)}, {"hub": "B"},
             arrive_by="08:30", service_date="2026-07-15", max_walk_km=0.2,
         )
-        stream = self.city._streams["2026-07-15"]
+        stream = next(s for s in self.city._streams.values() if s._request_date == "2026-07-15")
         point = self.city.route("A", "B", arrive_by="08:30", service_date="2026-07-15", max_walk_km=0.2)
         repeated = self.city.matrix({"a": "A"}, {"b": "B"}, depart_at="07:55", service_date="2026-07-15", max_walk_km=0.2)
-        self.assertIs(self.city._streams["2026-07-15"], stream)
+        self.assertIs(next(s for s in self.city._streams.values() if s._request_date == "2026-07-15"), stream)
         self.assertEqual(repeated.timing["openMs"], 0)
         self.assertEqual(result.query["timePreference"], "arrive")
         self.assertEqual(len(result.rows), 1024)

@@ -255,6 +255,8 @@ def _point_rows(values: PointSet, label: str) -> list[dict[str, Any]]:
 class _QueryStream:
     def __init__(self, city: City, service_date: str, timeout: float) -> None:
         self._timeout = timeout
+        self._request_date = service_date
+        self._per_request_date = city.runtime.capabilities.get("output", {}).get("requestServiceDate") is True
         self._lock = threading.Lock()
         self._sequence = 0
         self._closed = False
@@ -272,8 +274,10 @@ class _QueryStream:
                 "stream",
                 *output_options,
                 f"--city={city.path}",
-                f"--service-date={service_date}",
-                f"--service-day={_service_day(service_date)}",
+                *([] if self._per_request_date else [
+                    f"--service-date={service_date}",
+                    f"--service-day={_service_day(service_date)}",
+                ]),
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -362,6 +366,8 @@ class _QueryStream:
             self._sequence += 1
             request_id = f"python_{self._sequence}"
             message = {**request, "id": request_id}
+            if self._per_request_date:
+                message["serviceDate"] = self._request_date
             assert self._process.stdin is not None
             encoded = (json.dumps(message, allow_nan=False, separators=(",", ":")) + "\n").encode("utf-8")
             if len(encoded) > _MAX_REQUEST_BYTES:
@@ -826,6 +832,10 @@ class City:
 
     @contextmanager
     def _stream(self, service_date: str) -> Iterator[_QueryStream]:
+        if self.runtime.capabilities.get("output", {}).get("requestServiceDate") is True:
+            with self._shared_stream(service_date) as shared:
+                yield shared
+            return
         deadline = time.monotonic() + self.timeout
         with self._lock:
             while True:
@@ -863,6 +873,40 @@ class City:
         finally:
             with self._lock:
                 self._stream_users.remove(service_date)
+                self._lock.notify_all()
+
+    @contextmanager
+    def _shared_stream(self, service_date: str) -> Iterator[_QueryStream]:
+        """Lease an idle Engine process; grow only for overlapping queries."""
+        deadline = time.monotonic() + self.timeout
+        with self._lock:
+            while True:
+                if not self._closing_streams:
+                    idle = [key for key in self._streams if key not in self._stream_users]
+                    key = next((key for key in idle if self._streams[key]._request_date == service_date),
+                               idle[-1] if idle else None)
+                    if key is None and len(self._streams) < self._stream_limit:
+                        key = f"resident-{len(self._streams)}"
+                    if key is not None:
+                        stream = self._streams.get(key)
+                        if stream is None or not stream.alive:
+                            if stream is not None:
+                                stream.close()
+                            stream = _QueryStream(self, service_date, self.timeout)
+                        stream._request_date = service_date
+                        self._streams.pop(key, None)
+                        self._streams[key] = stream
+                        self._stream_users.add(key)
+                        break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise VigoTimeoutError("Timed out waiting for an available VIGO Query process")
+                self._lock.wait(timeout=remaining)
+        try:
+            yield stream
+        finally:
+            with self._lock:
+                self._stream_users.remove(key)
                 self._lock.notify_all()
 
     def _execute(self, query: Query, scenario: Scenario | None) -> Result:
