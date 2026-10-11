@@ -68,6 +68,42 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertEqual(len(process_ids), 1)
         self.assertEqual(len(self.city._streams), 1)
 
+    def test_analysis_tables_match_engine_journeys(self) -> None:
+        options = {"depart_at": "07:55", "service_date": "2026-07-15", "max_walk_km": 0.2}
+        route = self.city.route("A", "B", **options)
+        matrix = self.city.matrix(["A"], ["B"], include_journeys=True, **options)
+        for result in (route, matrix):
+            summaries = list(result.iter_journeys())
+            self.assertEqual(len(summaries), 1)
+            self.assertTrue(summaries[0]["hasJourney"])
+            legs = list(result.iter_legs())
+            self.assertEqual(len(legs), summaries[0]["legCount"])
+            self.assertTrue(legs)
+            self.assertTrue(all("coordinates" not in leg for leg in legs))
+            self.assertTrue(all(leg["cityRevisionId"] == self.city.revision_id for leg in legs))
+            original = result.value if result.kind == "route" else result.rows[0]["journey"]
+            self.assertEqual([leg.get("durationMinutes") for leg in legs],
+                             [leg.get("durationMinutes") for leg in original["legs"]])
+
+    def test_repeated_matrix_pairs_preserve_rows_and_journeys(self) -> None:
+        for geometry in (False, True):
+            with self.subTest(geometry=geometry):
+                options = {"depart_at": "07:55", "service_date": "2026-07-15",
+                           "max_walk_km": 0.2, "include_journeys": True,
+                           "include_geometry": geometry}
+                expected = self.city.matrix(["A"], ["B"], **options).rows[0]
+                result = self.city.matrix({"a1": "A", "a2": "A"},
+                                          {"b1": "B", "b2": "B"}, **options)
+                rows = result.rows
+                self.assertEqual(len(rows), 4)
+                self.assertEqual([(row["originId"], row["destinationId"]) for row in rows],
+                                 [("a1", "b1"), ("a1", "b2"), ("a2", "b1"), ("a2", "b2")])
+                for row in rows:
+                    self.assertEqual(row["durationMinutes"], expected["durationMinutes"])
+                    self.assertEqual(row["journey"]["legs"], expected["journey"]["legs"])
+                rows[0]["journey"]["legs"][0]["durationMinutes"] = -100
+                self.assertNotEqual(rows[1]["journey"]["legs"][0]["durationMinutes"], -100)
+
     def test_route_matrix_parity_for_each_mode(self) -> None:
         for mode in ("transit", "walk", "drive"):
             with self.subTest(mode=mode):

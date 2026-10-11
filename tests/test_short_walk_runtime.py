@@ -29,6 +29,19 @@ class ShortWalkRuntimeTest(unittest.TestCase):
                 matrix = city.matrix([origin], [destination], include_journeys=True, **options)
                 self.assertAlmostEqual(matrix.rows[0]["durationMinutes"], route.duration_minutes, delta=0.001)
                 self.assertEqual(matrix.rows[0]["journey"]["legs"][0]["type"], "walk")
+                detailed = city.matrix([origin, origin], [destination, destination],
+                                       include_journeys=True, include_geometry=True, **options)
+                rows = detailed.rows
+                self.assertEqual(len(rows), 4)
+                for row in rows:
+                    leg = row["journey"]["legs"][0]
+                    self.assertEqual(leg["coordinates"], rows[0]["journey"]["legs"][0]["coordinates"])
+                    self.assertEqual(leg["fromName"], f"Origin {row['originId']}")
+                    self.assertEqual(leg["toName"], f"Destination {row['destinationId']}")
+                    self.assertAlmostEqual(row["durationMinutes"], route.duration_minutes, delta=0.001)
+                self.assertTrue(rows[0]["journey"]["legs"][0]["coordinates"])
+                rows[0]["journey"]["legs"][0]["coordinates"][0][0] = 99
+                self.assertNotEqual(rows[1]["journey"]["legs"][0]["coordinates"][0][0], 99)
                 transit = city.route(origin, destination, require_transit_ride=True, **options)
                 if transit.status == "ready":
                     self.assertTrue(any(leg["type"] == "ride" for leg in transit.legs))

@@ -22,6 +22,7 @@ from types import MappingProxyType
 from typing import Any, TypeGuard, TypeVar, overload
 
 from ._json import copy_json, loads
+from ._tables import write_result_tables
 from .runtime import (
     API_VERSION,
     CITY_FORMAT_VERSION,
@@ -500,6 +501,70 @@ class Result:
         for row in self._payload.get("rows", ()):
             yield copy_json(row)
 
+    def _journey_items(self) -> Iterator[tuple[int, Mapping[str, Any], Mapping[str, Any] | None]]:
+        if self.kind == "route":
+            journey = self._payload.get("result")
+            yield 0, {"status": self.status}, journey if isinstance(journey, Mapping) else None
+        elif self.kind == "matrix":
+            for index, row in enumerate(self._payload.get("rows", ())):
+                journey = row.get("journey")
+                yield index, row, journey if isinstance(journey, Mapping) else None
+        else:
+            raise TypeError("journey and leg tables require a Route or Matrix Result")
+
+    def _journey_identity(self, index: int) -> dict[str, Any]:
+        return {"journeyIndex": index, "cityRevisionId": self.city_revision_id,
+                "scenario": self.scenario_name, "resultStatus": self.status}
+
+    def iter_journeys(self) -> Iterator[dict[str, Any]]:
+        """Yield one summary per Route or Matrix row, including blocked outcomes.
+
+        Excludes legs and geometry. ``hasJourney`` distinguishes a missing
+        itinerary from an itinerary with zero legs. Engine field units are
+        unchanged; ``journeyIndex`` is local to this Result.
+        """
+        for record in self._journey_records():
+            yield copy_json(record)
+
+    def _journey_records(self) -> Iterator[dict[str, Any]]:
+        # Internal export views borrow nested values; public iterators copy them.
+        for index, row, journey in self._journey_items():
+            summary = {key: value for key, value in (journey or {}).items()
+                       if key not in {"legs", "coordinates", "geometry"}}
+            summary.update({key: value for key, value in row.items()
+                            if key not in {"journey", "legs", "coordinates", "geometry"}})
+            summary.update(self._journey_identity(index))
+            has_journey = (journey is not None and row.get("status") != "blocked"
+                           and journey.get("status") != "blocked")
+            summary["hasJourney"] = has_journey
+            summary["legCount"] = len(journey.get("legs", ())) if has_journey and journey is not None else None
+            yield summary
+
+    def iter_legs(self, *, include_geometry: bool = False) -> Iterator[dict[str, Any]]:
+        """Yield independently mutable leg records with journey provenance.
+
+        Matrix requires ``include_journeys=True`` at query time to supply legs.
+        Missing itineraries produce no leg records; inspect ``iter_journeys()``
+        to retain those outcomes. Geometry is omitted before copying by default.
+        """
+        for record in self._leg_records(include_geometry=include_geometry):
+            yield copy_json(record)
+
+    def _leg_records(self, *, include_geometry: bool = False) -> Iterator[dict[str, Any]]:
+        for index, row, journey in self._journey_items():
+            if journey is None or row.get("status") == "blocked" or journey.get("status") == "blocked":
+                continue
+            identity = {key: row[key] for key in
+                        ("originId", "destinationId", "originIndex", "destinationIndex") if key in row}
+            identity.update(self._journey_identity(index))
+            identity["status"] = row.get("status", journey.get("status"))
+            for leg_index, leg in enumerate(journey.get("legs", ())):
+                record = {key: value for key, value in leg.items()
+                          if include_geometry or key not in {"coordinates", "geometry"}}
+                record.update(identity)
+                record["legIndex"] = leg_index
+                yield record
+
     @property
     def duration_minutes(self) -> float | None:
         route = self._payload.get("result") if self.kind == "route" else None
@@ -577,6 +642,24 @@ class Result:
         else:
             raise ValueError("use .json, .geojson, or Matrix .csv")
         return destination
+
+    def export_tables(self, directory: str | os.PathLike[str], *, include_geometry: bool = False) -> Path:
+        """Write journey/leg CSVs and provenance with one record at a time.
+
+        Two passes discover optional columns without retaining a second table.
+        Nested fields are JSON encoded; absent values remain blank in CSV.
+        The original Engine response is already resident in this Result.
+        Serialization completes before existing files are replaced. Use a new
+        directory per Result when readers need a consistent three-file snapshot.
+        """
+        if self.kind not in {"route", "matrix"}:
+            raise TypeError("journey and leg tables require a Route or Matrix Result")
+        return write_result_tables(
+            Path(directory).expanduser().resolve(),
+            self._journey_records,
+            lambda: self._leg_records(include_geometry=include_geometry),
+            self.record,
+        )
 
     def compare(self, other: Result) -> Result:
         return compare(self, other)
