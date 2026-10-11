@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -24,6 +25,10 @@ try {
   const env = { ...process.env, VIGO_RELEASE_ROOT: releaseRoot, GITHUB_OUTPUT: outputFile }
   const command = path.join(repositoryRoot, 'scripts/archive-desktop.mjs')
   const run = () => execFileSync(process.execPath, [command], { cwd: root, env, encoding: 'utf8', timeout: 60_000 })
+  const checkChecksum = () => assert.equal(
+    readFileSync(`${packaged.archive}.sha256`, 'utf8'),
+    `${createHash('sha256').update(readFileSync(packaged.archive)).digest('hex')}  ${path.basename(packaged.archive)}\n`,
+  )
 
   // Exercise the real OS archiver and CI output, without building Electron first.
   mkdirSync(packaged.application, { recursive: true })
@@ -31,6 +36,7 @@ try {
   run()
   assert.equal(readFileSync(outputFile, 'utf8'), `archive-path=${packaged.archive}\n`)
   assert(existsSync(packaged.archive), 'The path passed to the uploader must exist')
+  checkChecksum()
 
   // A retry must replace the archive, including its contents.
   writeFileSync(path.join(packaged.application, 'fixture.txt'), 'replacement archive')
@@ -44,6 +50,7 @@ try {
     assert.equal(await zip.file(entry)?.async('string'), 'replacement archive')
   }
   assert.equal(readFileSync(outputFile, 'utf8'), `archive-path=${packaged.archive}\n`)
+  checkChecksum()
 
   // Missing input must not emit a stale path to an earlier successful archive.
   rmSync(packaged.application, { recursive: true })
@@ -55,7 +62,7 @@ try {
 
   const workflow = readFileSync(path.join(repositoryRoot, '.github/workflows/release-check.yml'), 'utf8')
   assert.match(workflow, /id: package\s+run: npm run release:studio/u)
-  assert.match(workflow, /path: \$\{\{ steps\.package\.outputs\.archive-path \}\}/u)
+  assert.match(workflow, /path: \|\s+\$\{\{ steps\.package\.outputs\.archive-path \}\}\s+\$\{\{ steps\.package\.outputs\.archive-path \}\}\.sha256/u)
   console.log(`Studio archive creation, replacement, and upload path passed on ${process.platform}:${process.arch}.`)
 } finally {
   rmSync(root, { recursive: true, force: true })

@@ -33,6 +33,7 @@ def main():
             assert len(files) == len(allowed)
             assert {PurePosixPath(member.name).name for member in files} == allowed
             prefix = PurePosixPath(files[0].name).parts[0]
+            assert prefix == archive.name.removesuffix(".tar.gz"), "Archive root must match the versioned package name"
             assert len([m for m in members if m.isdir()]) == 1
             for member in members:
                 parts = PurePosixPath(member.name).parts

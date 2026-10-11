@@ -111,9 +111,9 @@ def main():
     embedded_docs = {name: (ROOT / "docs" / name).read_bytes()
                      for name in ("standalone.html", "standalone-openapi.json")}
     image = binary.read_bytes()
-    for name, contents in embedded_docs.items():
+    for document_name, contents in embedded_docs.items():
         if contents not in image:
-            raise RuntimeError(f"{name} changed during compilation or the executable is stale. Rebuild before packaging.")
+            raise RuntimeError(f"{document_name} changed during compilation or the executable is stale. Rebuild before packaging.")
     if source_hash != source_fingerprint(run):
         raise RuntimeError("Native sources changed during compilation. Rebuild before packaging.")
     record = {"schemaVersion": "vigo.standalone.package.v1", "version": version, "target": target, "runtime": "rust", "externalRuntimeRequired": False, "cityDataIncluded": False, "sourceCommit": run(["git", "rev-parse", "HEAD"], capture_output=True, encoding="utf-8").stdout.strip(), "dirty": bool(run(["git", "status", "--porcelain"], capture_output=True, encoding="utf-8").stdout.strip()), "sourceTreeSha256": source_hash, "binaryBytes": len(image), "binarySha256": hashlib.sha256(image).hexdigest()}
