@@ -2475,6 +2475,9 @@ async function startNationalGtfsImport(projectId, body) {
           requestedServiceDate: body?.preloadServiceDate,
           requestedServiceDay: body?.preloadServiceDay,
         })
+        // Keep the job running until cleanup finishes. Once complete is visible,
+        // publish its preparation record synchronously before another poll.
+        await removeUploadedSource()
         Object.assign(job, {
           status: 'complete', phase: 'Routing store ready', progress: 1,
           detail: `${Number(projectRouting.routingStore?.connectionCount ?? message.result.connectionCount).toLocaleString()} combined connections`,
@@ -2493,7 +2496,6 @@ async function startNationalGtfsImport(projectId, body) {
           finishedAt: now(),
           updatedAt: now(),
         })
-        await removeUploadedSource()
         await persistNationalJob(projectId, job)
         releaseNationalImportProject(projectId, 'gtfs')
       } else if (message?.type === 'failed') {
@@ -2762,13 +2764,13 @@ async function startNationalOsmImport(projectId, body) {
         await Promise.all(projectNationalRoutingStorePaths(projectId, project).map((storePath) => (
           nationalRouteWorkerPool.retire(storePath)
         )))
+        await removeUploadedSource()
         Object.assign(job, { status: 'complete', phase: 'Street index ready', progress: 1, detail: `${message.result.edgeCount.toLocaleString()} walk + ${message.result.driveEdgeCount.toLocaleString()} drive edges`, result: { ...message.result, sourceFile: sourceName }, finishedAt: now(), updatedAt: now() })
         // The import worker exits with its memory. Warm pedestrian access;
         // driving stays on disk until a driving query needs it.
         void prepareProjectStreets(projectId, project).catch((error) => {
           console.warn(`Unable to start street preparation for ${projectId}:`, error.message)
         })
-        await removeUploadedSource()
       } else if (message?.type === 'failed') {
         terminalMessageReceived = true
         Object.assign(job, { status: 'failed', phase: 'Street indexing failed', error: message.error ?? 'Unknown OSM error', finishedAt: now(), updatedAt: now() })

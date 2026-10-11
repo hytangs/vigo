@@ -59,7 +59,7 @@ async function waitForJob(runtime, projectId, jobId) {
     ), 200, 'poll GTFS SQLite build')
     if (latest.job.status === 'complete') return latest.job
     if (latest.job.status === 'failed') assert.fail(`GTFS SQLite build failed: ${latest.job.error}`)
-    await new Promise((resolve) => setTimeout(resolve, 30))
+    await new Promise((resolve) => setTimeout(resolve, 1))
   }
   assert.fail(`GTFS SQLite build timed out: ${JSON.stringify(latest)}`)
 }
