@@ -989,9 +989,6 @@ impl City {
             .unwrap()
             .kernel
             .route_matrix_csa(Self::matrix_input(&a, &b, &opt, include))?;
-        if let Some(cells) = &cells {
-            result.times = cells.iter().map(|&i| result.times[i]).collect();
-        }
         let mut durations: Vec<f64> = result
             .times
             .iter()
@@ -1036,34 +1033,20 @@ impl City {
                     .collect::<Result<Vec<_>>>()
             })
             .transpose()?;
-        if let (Some(cells), Some(rows)) = (&cells, &mut journeys) {
-            let mut uses = vec![0usize; rows.len()];
-            for &i in cells {
-                uses[i] += 1;
-            }
-            *rows = cells
-                .iter()
-                .map(|&i| {
-                    uses[i] -= 1;
-                    if uses[i] == 0 {
-                        std::mem::take(&mut rows[i])
-                    } else {
-                        rows[i].clone()
-                    }
-                })
-                .collect();
-        }
         if !flag(q, "requireTransitRide", false)? {
             let walk = self.street.route_street_matrix(StreetMatrixInput {
-                origin_coordinates: origins.iter().flat_map(|p| p.coordinate).collect(),
-                destination_coordinates: destinations.iter().flat_map(|p| p.coordinate).collect(),
+                origin_coordinates: search_origins.iter().flat_map(|p| p.coordinate).collect(),
+                destination_coordinates: search_destinations
+                    .iter()
+                    .flat_map(|p| p.coordinate)
+                    .collect(),
                 maximum_distance_m: self.direct_walk_limit(q, &opt)?,
                 disable_cache: Some(opt.disable_cache),
             })?;
             for (i, &distance) in walk.distances_m.iter().enumerate() {
                 let minutes = distance / self.speed * 3.6 / 60.;
-                let exact = origins[i / destinations.len()].stop.is_some()
-                    || destinations[i % destinations.len()].stop.is_some();
+                let exact = search_origins[i / search_width].stop.is_some()
+                    || search_destinations[i % search_width].stop.is_some();
                 if !(exact && !durations[i].is_finite())
                     && minutes.is_finite()
                     && minutes <= durations[i]
@@ -1082,8 +1065,8 @@ impl City {
                             leg["distanceMeters"] = json!(distance);
                         }
                         if include_geometry {
-                            let origin = &origins[i / destinations.len()];
-                            let destination = &destinations[i % destinations.len()];
+                            let origin = &search_origins[i / search_width];
+                            let destination = &search_destinations[i % search_width];
                             let path = self.street.route_path(StreetPathInput {
                                 origin_lon: origin.coordinate[0],
                                 origin_lat: origin.coordinate[1],
@@ -1108,6 +1091,29 @@ impl City {
                 }
             }
         }
+        // Resolve both transit and direct walking once per distinct pair.
+        // Expand only finished answers, retaining the caller's original order.
+        if let Some(cells) = &cells {
+            result.times = cells.iter().map(|&i| result.times[i]).collect();
+            durations = cells.iter().map(|&i| durations[i]).collect();
+        }
+        if let (Some(cells), Some(rows)) = (&cells, &mut journeys) {
+            let mut uses = vec![0usize; rows.len()];
+            for &i in cells {
+                uses[i] += 1;
+            }
+            *rows = cells
+                .iter()
+                .map(|&i| {
+                    uses[i] -= 1;
+                    if uses[i] == 0 {
+                        std::mem::take(&mut rows[i])
+                    } else {
+                        rows[i].clone()
+                    }
+                })
+                .collect();
+        }
         let mut origin_access = serde_json::Map::new();
         for (i, point) in origins.iter().enumerate() {
             let candidates = &a[origin_indices[i]];
@@ -1129,6 +1135,11 @@ impl City {
             }
         }
         let mut output = json!({"kind":"matrix","mode":mode,"originCount":origins.len(),"destinationCount":destinations.len(),"durationsMinutes":durations.chunks(destinations.len()).collect::<Vec<_>>(),"diagnostics":result,"warnings":self.metadata["routingLimitations"]});
+        output["diagnostics"]["matrixReuse"] = json!({
+            "requestedPairs":origins.len() * destinations.len(),
+            "searchPairs":search_origins.len() * search_destinations.len(),
+            "uniqueOrigins":search_origins.len(),
+            "uniqueDestinations":search_destinations.len()});
         if !origin_access.is_empty() || !destination_access.is_empty() {
             output["access"] = json!({"origins":origin_access,"destinations":destination_access});
         }

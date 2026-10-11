@@ -425,12 +425,24 @@ struct RasterSurfaceEdge {
     constant_duration_minutes: Option<f64>,
 }
 
+#[cfg(test)]
 fn rasterize_surface_edge(
     values: &mut [f64],
     bounds: &[f64],
     width: usize,
     height: usize,
     edge: RasterSurfaceEdge,
+) {
+    rasterize_surface_edge_scratch(values, bounds, width, height, edge, &mut Vec::new());
+}
+
+fn rasterize_surface_edge_scratch(
+    values: &mut [f64],
+    bounds: &[f64],
+    width: usize,
+    height: usize,
+    edge: RasterSurfaceEdge,
+    fractions: &mut Vec<f64>,
 ) {
     let RasterSurfaceEdge {
         from_longitude,
@@ -455,7 +467,8 @@ fn rasterize_surface_edge(
         constant_duration_minutes
             .unwrap_or(from_duration_minutes + edge_duration_minutes * fraction)
     };
-    let mut fractions = vec![0.0, 1.0];
+    fractions.clear();
+    fractions.extend([0.0, 1.0]);
     for (from, to, size) in [(from_x, to_x, width), (from_y, to_y, height)] {
         if from == to {
             continue;
@@ -481,7 +494,7 @@ fn rasterize_surface_edge(
             values[cell] = values[cell].min(duration_minutes);
         }
     };
-    for &fraction in &fractions {
+    for &fraction in fractions.iter() {
         record(fraction, duration_at(fraction));
     }
     for interval in fractions.windows(2) {

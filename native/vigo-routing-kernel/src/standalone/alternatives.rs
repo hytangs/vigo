@@ -1,4 +1,4 @@
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::cmp::Ordering;
 
 fn number(v: &Value, name: &str) -> f64 {
@@ -22,47 +22,76 @@ pub(super) fn walking(v: &Value) -> f64 {
     })
 }
 fn identity(v: &Value) -> String {
-    json!(v["legs"].as_array().map(|a| {
-        a.iter()
-            .filter(|l| l["kind"] == "ride")
-            .map(|l| {
-                json!([
-                    l["routeId"],
-                    l["directionId"],
-                    l["tripId"],
-                    l["fromStopId"],
-                    l["toStopId"],
-                    l["departure"],
-                    l["arrival"]
-                ])
+    let rides = v["legs"].as_array().map(|legs| {
+        legs.iter()
+            .filter(|leg| leg["kind"] == "ride")
+            .map(|leg| {
+                [
+                    &leg["routeId"],
+                    &leg["directionId"],
+                    &leg["tripId"],
+                    &leg["fromStopId"],
+                    &leg["toStopId"],
+                    &leg["departure"],
+                    &leg["arrival"],
+                ]
             })
             .collect::<Vec<_>>()
-    }))
-    .to_string()
+    });
+    // Borrow the identity fields: geometry and presentation data are not copied.
+    serde_json::to_string(&rides).expect("JSON values serialize")
 }
-fn order(a: &Value, b: &Value, arrive: bool) -> Ordering {
+struct Candidate {
+    value: Value,
+    arrival: f64,
+    departure: f64,
+    boardings: f64,
+    walking: f64,
+    identity: String,
+}
+impl Candidate {
+    fn new(value: Value) -> Self {
+        Self {
+            arrival: number(&value, "arrivalMinutes"),
+            departure: number(&value, "departureMinutes"),
+            boardings: boardings(&value),
+            walking: walking(&value),
+            identity: identity(&value),
+            value,
+        }
+    }
+}
+fn order(a: &Candidate, b: &Candidate, arrive: bool) -> Ordering {
     let primary = if arrive {
-        number(b, "departureMinutes").total_cmp(&number(a, "departureMinutes"))
+        b.departure.total_cmp(&a.departure)
     } else {
-        number(a, "arrivalMinutes").total_cmp(&number(b, "arrivalMinutes"))
+        a.arrival.total_cmp(&b.arrival)
     };
     primary
-        .then_with(|| boardings(a).total_cmp(&boardings(b)))
-        .then_with(|| walking(a).total_cmp(&walking(b)))
-        .then_with(|| number(a, "arrivalMinutes").total_cmp(&number(b, "arrivalMinutes")))
-        .then_with(|| identity(a).cmp(&identity(b)))
+        .then_with(|| a.boardings.total_cmp(&b.boardings))
+        .then_with(|| a.walking.total_cmp(&b.walking))
+        .then_with(|| a.arrival.total_cmp(&b.arrival))
+        .then_with(|| a.identity.cmp(&b.identity))
 }
-fn dominates(a: &Value, b: &Value, arrive: bool) -> bool {
-    let arrival = number(a, "arrivalMinutes") <= number(b, "arrivalMinutes");
-    let departure = !arrive || number(a, "departureMinutes") >= number(b, "departureMinutes");
-    arrival && departure && boardings(a) <= boardings(b) && walking(a) <= walking(b)
+fn dominates(a: &Candidate, b: &Candidate, arrive: bool) -> bool {
+    a.arrival <= b.arrival
+        && (!arrive || a.departure >= b.departure)
+        && a.boardings <= b.boardings
+        && a.walking <= b.walking
 }
-pub(super) fn select(mut choices: Vec<Value>, arrive: bool, maximum: usize) -> Vec<Value> {
-    choices.retain(|v| v["status"] == "ready");
+pub(super) fn select(choices: Vec<Value>, arrive: bool, maximum: usize) -> Vec<Value> {
+    if maximum == 0 {
+        return vec![];
+    }
+    let mut choices: Vec<_> = choices
+        .into_iter()
+        .filter(|v| v["status"] == "ready")
+        .map(Candidate::new)
+        .collect();
     choices.sort_by(|a, b| order(a, b, arrive));
     let mut signatures = std::collections::HashSet::new();
-    choices.retain(|v| signatures.insert(identity(v)));
-    let mut frontier: Vec<Value> = vec![];
+    choices.retain(|v| signatures.insert(v.identity.clone()));
+    let mut frontier: Vec<Candidate> = vec![];
     for candidate in choices {
         if frontier.iter().any(|v| dominates(v, &candidate, arrive)) {
             continue;
@@ -72,13 +101,10 @@ pub(super) fn select(mut choices: Vec<Value>, arrive: bool, maximum: usize) -> V
     }
     frontier.sort_by(|a, b| order(a, b, arrive));
     if frontier.len() <= maximum {
-        return frontier;
-    }
-    if maximum == 0 {
-        return vec![];
+        return frontier.into_iter().map(|v| v.value).collect();
     }
     let mut selected = vec![0];
-    for metric in [boardings, walking] {
+    for metric in [|v: &Candidate| v.boardings, |v: &Candidate| v.walking] {
         if selected.len() == maximum {
             break;
         }
@@ -100,6 +126,72 @@ pub(super) fn select(mut choices: Vec<Value>, arrive: bool, maximum: usize) -> V
     frontier
         .into_iter()
         .enumerate()
-        .filter_map(|(i, v)| selected.contains(&i).then_some(v))
+        .filter_map(|(i, v)| selected.contains(&i).then_some(v.value))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn journey(id: &str, departure: f64, arrival: f64, rides: f64, walk: f64) -> Value {
+        json!({"status": "ready", "id": id, "departureMinutes": departure,
+            "arrivalMinutes": arrival, "boardings": rides, "walkMinutes": walk,
+            "legs": [{"kind": "ride", "tripId": id}]})
+    }
+
+    fn ids(choices: Vec<Value>) -> Vec<String> {
+        choices
+            .iter()
+            .map(|v| v["id"].as_str().unwrap().to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn window_duplicates_keep_best_departure_and_arrival_choices() {
+        let choices = vec![
+            journey("a", 10., 30., 2., 5.),
+            journey("a", 15., 30., 2., 5.),
+            journey("b", 20., 35., 2., 5.),
+            journey("dominated", 5., 40., 3., 6.),
+            json!({"status": "blocked"}),
+        ];
+        let depart = select(choices.clone(), false, 5);
+        assert_eq!(depart.len(), 1);
+        assert_eq!(depart[0]["departureMinutes"], 10.);
+        let arrive = select(choices, true, 5);
+        assert_eq!(ids(arrive.clone()), ["b", "a"]);
+        assert_eq!(arrive[1]["departureMinutes"], 15.);
+    }
+
+    #[test]
+    fn leg_metrics_and_identity_break_ties_consistently() {
+        let mut a = journey("a", 10., 30., 1., 2.);
+        a.as_object_mut().unwrap().remove("boardings");
+        a.as_object_mut().unwrap().remove("walkMinutes");
+        a["legs"].as_array_mut().unwrap().push(json!({
+            "kind": "walk", "durationMinutes": 2.
+        }));
+        let b = journey("b", 10., 30., 1., 2.);
+        for arrive in [false, true] {
+            assert_eq!(ids(select(vec![b.clone(), a.clone()], arrive, 5)), ["a"]);
+        }
+    }
+
+    #[test]
+    fn limited_choices_preserve_fastest_fewest_rides_and_least_walking() {
+        let choices = vec![
+            journey("fastest", 0., 20., 3., 10.),
+            journey("balanced", 0., 25., 2., 7.),
+            journey("fewest", 0., 30., 1., 9.),
+            journey("least-walk", 0., 35., 2., 1.),
+        ];
+        assert!(select(choices.clone(), false, 0).is_empty());
+        assert_eq!(ids(select(choices.clone(), false, 1)), ["fastest"]);
+        assert_eq!(
+            ids(select(choices, false, 3)),
+            ["fastest", "fewest", "least-walk"]
+        );
+    }
 }

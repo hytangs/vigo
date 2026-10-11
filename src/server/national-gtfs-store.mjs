@@ -1,3 +1,4 @@
+import { MatrixJourneyCache } from './gtfs/matrix-materialization.mjs'
 import { wheelchairProfile, wheelchairDescription, wheelchairBoardingValues, wheelchairPathwaySeconds } from './wheelchair-policy.mjs'
 import { selectedSourceScopes, serviceInSources, scopedServiceResolution } from './gtfs/source-selection.mjs'
 import { estimatedPathwaySeconds } from './gtfs/pathway-cost.mjs'
@@ -6669,6 +6670,9 @@ export function routeNationalGtfsMatrix(storePath, request) {
     walkingSpeedKph,
     maxDistanceKm: Math.min(directWalkEndToEndLimitKm(request), horizonMinutes / 60 * walkingSpeedKph),
   })
+  const walkingJourneys = new MatrixJourneyCache({ enabled:
+    result.diagnostics.uniqueOrigins < request.origins.length
+    || result.diagnostics.uniqueDestinations < request.destinations.length })
   let selectedWalkPairs = 0
   for (let index = 0; index < result.rows.length; index += 1) {
     const row = result.rows[index]
@@ -6700,10 +6704,12 @@ export function routeNationalGtfsMatrix(storePath, request) {
           endMinutes: row.arriveMinutes, durationMinutes: row.durationMinutes, distanceKm }] }
       if (request.includeGeometry === true) {
         const origin = request.origins[row.originIndex], destination = request.destinations[row.destinationIndex]
-        const path = streetPathBetween(request.streetStorePath, origin.coordinate, destination.coordinate,
-          directWalkEndToEndLimitKm(request))
-        if (!path) throw new Error('Matrix selected walk could not be materialized.')
-        row.journey = materializeDirectWalkCandidate({ ...request, origin, destination }, request.maxWalkKm, path)
+        row.journey = walkingJourneys.materialize(origin, destination, () => {
+          const path = streetPathBetween(request.streetStorePath, origin.coordinate, destination.coordinate,
+            directWalkEndToEndLimitKm(request))
+          if (!path) throw new Error('Matrix selected walk could not be materialized.')
+          return materializeDirectWalkCandidate({ ...request, origin, destination }, request.maxWalkKm, path)
+        })
       }
     }
     delete row.failureCode
@@ -6716,6 +6722,8 @@ export function routeNationalGtfsMatrix(storePath, request) {
   result.diagnostics.directWalk = {
     matrixEngine: sharedWalk?.algorithm ?? walks.diagnostics.matrixEngine,
     selectedPairs: selectedWalkPairs,
+    materializedJourneys: walkingJourneys.materializations,
+    reusedJourneys: walkingJourneys.reuses,
     maximumDistanceKm: sharedWalk?.maximumDistanceKm ?? walks.diagnostics.maximumDistanceKm,
     queryMs: sharedWalk?.queryMs ?? walks.diagnostics.queryMs,
     reusedEndpointSnaps: sharedWalk?.reusedEndpointSnaps ?? 0,
@@ -6949,6 +6957,8 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
       departure, horizon, arriveBy, includeJourneys: request.includeJourneys,
     })
   }
+  const materializedJourneys = new MatrixJourneyCache({ enabled:
+    uniqueOrigins.length < origins.length || uniqueDestinations.length < destinations.length })
   const rows = new Array(origins.length * destinations.length)
   let rowIndex = 0
   for (let originIndex = 0; originIndex < origins.length; originIndex += 1) {
@@ -6964,11 +6974,12 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
         arriveMinutes: arriveBy ? anchorMinutes : (ready ? minuteCoordinate(time) : null),
         durationMinutes: ready ? secondsToMinutes(arriveBy ? anchor - time : time - anchor) : null,
         ...(request.includeJourneys === true ? { journey: search.journeys?.[cell]
-          ? request.includeGeometry === true
-            ? materializeMatrixJourney(store, activeKernel, search.journeys[cell], {
-              request: { ...request, origin: origins[originIndex], destination: destinations[destinationIndex] },
-              maxWalkKm, streetStorageIdentity, horizon, services, serviceDateResolution, startedAt: performance.now(),
-            }) : matrixJourney(store, activeKernel, search.journeys[cell]) : null } : {}),
+          ? materializedJourneys.materialize(origins[originIndex], destinations[destinationIndex], () =>
+            request.includeGeometry === true
+              ? materializeMatrixJourney(store, activeKernel, search.journeys[cell], {
+                request: { ...request, origin: origins[originIndex], destination: destinations[destinationIndex] },
+                maxWalkKm, streetStorageIdentity, horizon, services, serviceDateResolution, startedAt: performance.now(),
+              }) : matrixJourney(store, activeKernel, search.journeys[cell])) : null } : {}),
       }
       rowIndex += 1
     }
@@ -6992,6 +7003,8 @@ function routeNationalGtfsTransitMatrix(storePath, request) {
       pairs: rows.length,
       uniqueOrigins: uniqueOrigins.length,
       uniqueDestinations: uniqueDestinations.length,
+      materializedJourneys: materializedJourneys.materializations,
+      reusedJourneys: materializedJourneys.reuses,
       forwardSearches: search.forwardSearches,
       reverseSearches: search.reverseSearches,
       coordinateAccessExecution: coordinateOnly ? 'rust_fused_matrix' : 'endpoint_adapter',

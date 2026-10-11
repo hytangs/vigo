@@ -1,5 +1,5 @@
 use super::query::{Candidates, Options, Point, haversine};
-use super::{City, Result};
+use super::{City, Result, memory::Heap};
 use crate::{ShapeGeometry, TimetableMatrixJourney, TimetableMatrixLeg};
 use rusqlite::OptionalExtension;
 use serde_json::{Value, json};
@@ -18,6 +18,7 @@ enum LegKey {
 #[derive(Default)]
 pub(crate) struct MatrixMaterializationCache {
     entries: HashMap<LegKey, Value>,
+    trip_details: HashMap<String, Value>,
     bytes: usize,
 }
 impl MatrixMaterializationCache {
@@ -48,21 +49,34 @@ impl MatrixMaterializationCache {
             )
         }
     }
-    fn insert(&mut self, key: LegKey, value: &Value) {
-        fn size(value: &Value) -> usize {
-            std::mem::size_of::<Value>()
-                + match value {
-                    Value::String(s) => s.capacity(),
-                    Value::Array(a) => a.iter().map(size).sum(),
-                    Value::Object(o) => o.iter().map(|(k, v)| k.capacity() + 128 + size(v)).sum(),
-                    _ => 0,
-                }
+    const MAX_BYTES: usize = 16 * 1024 * 1024;
+
+    fn reserve(&mut self, bytes: usize) -> bool {
+        if bytes > Self::MAX_BYTES.saturating_sub(self.bytes) {
+            return false;
         }
-        let bytes = size(value) + 128;
-        if self.entries.len() < 4096 && bytes <= (16 * 1024 * 1024usize).saturating_sub(self.bytes)
-        {
-            self.bytes += bytes;
+        self.bytes += bytes;
+        true
+    }
+
+    fn insert(&mut self, key: LegKey, value: &Value) {
+        if self.entries.len() >= 4096 || self.entries.contains_key(&key) {
+            return;
+        }
+        let bytes = value.heap_bytes() + std::mem::size_of::<(LegKey, Value)>() + 128;
+        if self.reserve(bytes) {
             self.entries.insert(key, value.clone());
+        }
+    }
+
+    fn insert_trip_details(&mut self, trip_id: &str, value: &Value) {
+        if self.trip_details.len() >= 1024 || self.trip_details.contains_key(trip_id) {
+            return;
+        }
+        let bytes =
+            value.heap_bytes() + trip_id.len() + std::mem::size_of::<(String, Value)>() + 128;
+        if self.reserve(bytes) {
+            self.trip_details.insert(trip_id.to_owned(), value.clone());
         }
     }
 }
@@ -338,9 +352,19 @@ impl City {
                     }
                 };
                 v["route"] = route.clone();
-                let details = self.db.prepare_cached("SELECT t.service_id,t.direction_id,d.headsign,d.short_name FROM trips t LEFT JOIN trip_details d ON d.trip_id=t.trip_id WHERE t.trip_id=?")?
+                let details = if let Some(value) =
+                    cache.as_ref().and_then(|c| c.trip_details.get(trip_id))
+                {
+                    value.clone()
+                } else {
+                    let value = self.db.prepare_cached("SELECT t.service_id,t.direction_id,d.headsign,d.short_name FROM trips t LEFT JOIN trip_details d ON d.trip_id=t.trip_id WHERE t.trip_id=?")?
                     .query_row([trip_id], |r| Ok(json!({"service":r.get::<_,String>(0)?,"direction":r.get::<_,Option<String>>(1)?,
                         "headsign":r.get::<_,Option<String>>(2)?,"shortName":r.get::<_,Option<String>>(3)?}))).optional()?.unwrap_or(Value::Null);
+                    if let Some(cache) = cache.as_mut() {
+                        cache.insert_trip_details(trip_id, &value);
+                    }
+                    value
+                };
                 v["serviceId"] = details["service"].clone();
                 v["serviceDate"] = json!(
                     t.trip_service_dates
@@ -509,6 +533,28 @@ mod tests {
         );
         assert!(cache.entries.is_empty());
         assert_eq!(cache.bytes, 0);
+    }
+
+    #[test]
+    fn matrix_metadata_and_legs_share_one_budget_without_duplicate_charges() {
+        let mut cache = MatrixMaterializationCache::default();
+        let details = json!({"headsign":"Downtown"});
+        cache.insert_trip_details("trip", &details);
+        let metadata_bytes = cache.bytes;
+        cache.insert_trip_details("trip", &details);
+        assert_eq!(cache.bytes, metadata_bytes);
+        cache.insert(LegKey::Ride(0, None, None, 0, 0), &Value::Null);
+        let both_bytes = cache.bytes;
+        cache.insert(LegKey::Ride(0, None, None, 0, 0), &Value::Null);
+        assert_eq!(cache.bytes, both_bytes);
+        assert!(both_bytes > metadata_bytes);
+        // Neither store can bypass the budget consumed by the other.
+        let oversized = json!("x".repeat(MatrixMaterializationCache::MAX_BYTES - both_bytes));
+        cache.insert_trip_details("large", &oversized);
+        cache.insert(LegKey::Ride(1, None, None, 0, 0), &oversized);
+        assert_eq!(cache.trip_details.len(), 1);
+        assert_eq!(cache.entries.len(), 1);
+        assert_eq!(cache.bytes, both_bytes);
     }
 
     fn shape() -> CompiledShape {

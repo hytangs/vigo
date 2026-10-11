@@ -235,15 +235,16 @@ fn reachable_segment(
 fn raster_segment(
     values: &mut [f64],
     bounds: &[f64],
-    width: usize,
-    height: usize,
+    size: [usize; 2],
     graph: &StreetGraph<'_>,
     input: &StreetSurfaceInput,
     segment: Segment,
+    fractions: &mut Vec<f64>,
 ) {
+    let [width, height] = size;
     let from = segment.coordinate(graph, segment.start);
     let to = segment.coordinate(graph, segment.end);
-    rasterize_surface_edge(
+    rasterize_surface_edge_scratch(
         values,
         bounds,
         width,
@@ -260,6 +261,7 @@ fn raster_segment(
                 .independent_terminal_walk
                 .then(|| input.seed_durations_minutes[segment.seed as usize]),
         },
+        fractions,
     );
 }
 
@@ -482,18 +484,27 @@ pub(super) fn compute(
     let mut full_values = input
         .expand_bounds_to_reached_edges
         .then(|| vec![f64::INFINITY; width * height]);
+    let mut raster_fractions = Vec::with_capacity(8);
     for &segment in &segments {
         raster_segment(
             &mut values,
             &input.bounds,
-            width,
-            height,
+            [width, height],
             &graph,
             &input,
             segment,
+            &mut raster_fractions,
         );
         if let Some(full) = full_values.as_mut() {
-            raster_segment(full, &full_bounds, width, height, &graph, &input, segment);
+            raster_segment(
+                full,
+                &full_bounds,
+                [width, height],
+                &graph,
+                &input,
+                segment,
+                &mut raster_fractions,
+            );
         }
     }
     let mut node_evidence = HashMap::<u32, (f64, f64)>::new();
