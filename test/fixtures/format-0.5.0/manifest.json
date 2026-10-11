@@ -1,0 +1,20 @@
+{
+  "baseline": "published VIGO 0.5.0",
+  "sourceCommit": "c8da84fff7812d570fd5985cbcbcb83885587bf6",
+  "synthetic": true,
+  "serviceDate": "2026-07-15",
+  "files": {
+    "city.tar.gz": {
+      "bytes": 21739,
+      "sha256": "1ac4cddbf745265b4de4d1b019ef6034681b72c82a889bed19760246fd5f816b"
+    },
+    "fixture.osm.pbf": {
+      "bytes": 224,
+      "sha256": "1f08be1101519cba0bc989d0f6942defc76ad723ddae74dbf1c897a810a2ad06"
+    },
+    "fixture.zip": {
+      "bytes": 1097,
+      "sha256": "f551b1cae5b94c507e25268a30b25497242f67663b12621f1908ad2686e75383"
+    }
+  }
+}

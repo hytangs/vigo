@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   deployment:
@@ -32,6 +33,8 @@ jobs:
       - run: cargo test --no-default-features --features standalone --manifest-path native/vigo-routing-kernel/Cargo.toml
       - run: cargo clippy --all-targets --no-default-features --features standalone --manifest-path native/vigo-routing-kernel/Cargo.toml -- -D warnings
       - run: npm run check:standalone
+        env:
+          GH_TOKEN: ${{ github.token }}
       - run: python test/check-package-publication.py
       - name: Package and verify standalone Rust
         run: python scripts/package-standalone.py

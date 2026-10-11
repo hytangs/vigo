@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   container:
@@ -56,6 +57,8 @@ jobs:
         if: runner.os != 'Linux'
       - run: npm run build
       - run: npm run check:standalone
+        env:
+          GH_TOKEN: ${{ github.token }}
       - run: npm run package:cli
       - run: npm run check:cli-package
       - run: node test/check-city-portability.mjs --write temp/portable-city.zip

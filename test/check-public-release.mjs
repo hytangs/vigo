@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -81,12 +82,24 @@ const bannedExtensions = new Set([
   '.zip',
 ])
 
+// The compatibility contract retains exactly these published synthetic inputs.
+// Their frozen hashes exempt them from the general private-data extension ban.
+const frozenInputs = new Map([
+  ['test/fixtures/format-0.5.0/fixture.osm.pbf', '1f08be1101519cba0bc989d0f6942defc76ad723ddae74dbf1c897a810a2ad06'],
+  ['test/fixtures/format-0.5.0/fixture.zip', 'f551b1cae5b94c507e25268a30b25497242f67663b12621f1908ad2686e75383'],
+])
+
 for (const file of files) {
   const absolute = path.join(root, file)
   assert(!fs.lstatSync(absolute).isSymbolicLink(), `Symlink is not allowed in public source: ${file}`)
   assert(!bannedRoots.some((prefix) => file.startsWith(prefix)), `Excluded public path is present: ${file}`)
   assert(!bannedFiles.has(file), `Internal experiment or repair script is present: ${file}`)
-  assert(!bannedExtensions.has(path.extname(file).toLowerCase()), `Generated or private data file is present: ${file}`)
+  if (frozenInputs.has(file)) {
+    assert.equal(createHash('sha256').update(fs.readFileSync(absolute)).digest('hex'), frozenInputs.get(file),
+      `Frozen synthetic input changed: ${file}`)
+  } else {
+    assert(!bannedExtensions.has(path.extname(file).toLowerCase()), `Generated or private data file is present: ${file}`)
+  }
   assert(!/(?:^|\/)\.env(?:\.|$)/u.test(file), `Environment file is present: ${file}`)
   assert(!/(?:^|\/)(?:debug|scratch)(?:[._-]|$)/iu.test(file), `Debug or scratch file is present: ${file}`)
 }
