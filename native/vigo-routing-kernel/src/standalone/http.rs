@@ -342,6 +342,13 @@ struct Job {
 // burst is followed by the oldest analytical job, so a sustained
 // route stream cannot starve Reach. Running queries are never interrupted.
 fn next_job(pending: &mut VecDeque<Job>, short_streak: &mut usize, short_time: Duration) -> Job {
+    let now = Instant::now();
+    if let Some(index) = pending
+        .iter()
+        .position(|job| job.canceled.load(Ordering::Acquire) || job.deadline <= now)
+    {
+        return pending.remove(index).expect("expired pending job");
+    }
     let desired_short = *short_streak < 32 && short_time < Duration::from_millis(250);
     let index = pending
         .iter()
@@ -1058,6 +1065,45 @@ mod scheduling_tests {
                 .collect::<Vec<_>>()
         );
     }
+    #[test]
+    fn expired_work_is_reclaimed_without_consuming_priority_burst() {
+        let mut pending = VecDeque::new();
+        for (kind, expired, canceled) in [
+            ("route", false, false),
+            ("reach", true, false),
+            ("route", false, true),
+        ] {
+            let (response, _) = mpsc::sync_channel(1);
+            pending.push_back(Job {
+                queued_at: Instant::now(),
+                query: Request::read(b"{}", kind, "").unwrap(),
+                _lease: None,
+                deadline: if expired {
+                    Instant::now()
+                } else {
+                    Instant::now() + Duration::from_secs(60)
+                },
+                response,
+                canceled: Arc::new(AtomicBool::new(canceled)),
+            });
+        }
+        let mut streak = 5;
+        assert!(next_job(&mut pending, &mut streak, Duration::ZERO).deadline <= Instant::now());
+        assert_eq!(streak, 5);
+        assert!(
+            next_job(&mut pending, &mut streak, Duration::ZERO)
+                .canceled
+                .load(Ordering::Acquire)
+        );
+        assert_eq!(streak, 5);
+        assert!(
+            next_job(&mut pending, &mut streak, Duration::ZERO)
+                .query
+                .short
+        );
+        assert_eq!(streak, 6);
+    }
+
     #[test]
     fn encoded_queries_preserve_values_and_priority() {
         for (origins, short) in [(1, true), (2, false)] {

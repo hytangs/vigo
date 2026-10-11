@@ -16,8 +16,6 @@ export function ReachPointInspector({ inspection }: { inspection: ReturnType<typ
   const scenario = reachHasServiceChanges(result) ? reachPointSample(result, point.coordinate, 'scenario') : null
   const cutoff = Math.max(...request.cutoffsMinutes)
   const elapsed = plan?.status === 'ready' ? (plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes) - request.departMinutes : null
-  const longerDirectWalk = plan?.status === 'ready' && plan.travelMode === 'walk'
-    && plan.legs.reduce((sum, leg) => sum + (leg.distanceKm ?? 0), 0) > request.maxWalkKm
   const sampleLabel = (sample: typeof baseline) => sample.status === 'sampled' ? `≈ ${minutes(sample.minutes)}${sample.estimatedBlock ? ' · block estimate' : ''}`
     : sample.status === 'outside' ? 'Outside map extent' : 'No sampled street here'
   return <aside className="reach-point-inspector" aria-label="Travel time to selected point">
@@ -42,7 +40,6 @@ export function ReachPointInspector({ inspection }: { inspection: ReturnType<typ
       <p className="reach-point-context">{request.serviceDate} · depart {formatScheduleClock(request.departMinutes)}</p>
       {baseline.status === 'sampled' && baseline.estimatedBlock || scenario?.status === 'sampled' && scenario.estimatedBlock
         ? <p className="reach-point-note">Block shading estimates access from surrounding streets. The journey checks your selected point separately.</p> : null}
-      {longerDirectWalk ? <p className="reach-point-note">This direct walk exceeds the map’s {request.maxWalkKm} km final-walk limit. Journey results also compare walking the whole way.</p> : null}
       {scenario ? <p className="reach-point-note">The journey below uses scheduled service. Planned changes are included in the scenario map estimate.</p> : null}
       {plan && typeof plan.diagnostics.walkingSpeedKph === 'number' && Math.abs(plan.diagnostics.walkingSpeedKph - (request.walkSpeedKph ?? 4.8)) > 0.001
         ? <p className="reach-point-note">Journey walking: {plan.diagnostics.walkingSpeedKph} km/h. Map walking: {request.walkSpeedKph} km/h.</p> : null}

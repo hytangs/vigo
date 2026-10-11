@@ -54,9 +54,8 @@ export function reachPointRouteRequest(source: ReachInspectionSource, destinatio
     departMinutes: request.departMinutes, serviceDate: request.serviceDate, serviceDay: request.serviceDay,
     maxWalkKm: request.maxWalkKm, maxTransfers: request.maxTransfers,
     allowServiceDateFallback: false, objective: 'earliest_arrival', departureWindowMinutes: 0,
-    // The final-walk cap controls transit access, not an entire walking journey.
-    // Let graph-verified direct walking compete with a slower transit detour.
-    allowLongWalk: true, requireTransitRide: false,
+    // Inspect destinations under the map's walking limit, including direct walks.
+    allowLongWalk: false, requireTransitRide: false,
     // Point routing's transfer graph uses the City's prepared walking speed.
     // Do not submit an unsupported speed or silently ignore a scenario overlay.
   }

@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { Worker } from 'node:worker_threads'
+import { takeRoutingJob, maximumPointBypasses } from './routing-job-queue.mjs'
 import { resolveServiceDay } from '../service-day.mjs'
 import { boundedInteger, memoryCapacityBytes, runtimeCapacityError } from './resource-limits.mjs'
 
@@ -145,6 +146,7 @@ class NationalRouteWorkerClient {
     this.generation = 0
     this.sequence = 0
     this.queue = []
+    this.queueFairness = { bypasses: 0 }
     this.active = null
     this.restarting = false
     this.closed = false
@@ -282,6 +284,7 @@ class NationalRouteWorkerClient {
       active: Boolean(this.active),
       activeOperation: this.active?.operation,
       queued: this.queue.length,
+      maximumPointBypasses,
       restarting: this.restarting,
       generation: this.generation,
       workerInstance: this.workerInstance || undefined,
@@ -412,7 +415,7 @@ class NationalRouteWorkerClient {
       queueMicrotask(() => this.#pump())
       return
     }
-    const job = this.queue.shift()
+    const job = takeRoutingJob(this.queue, this.queueFairness)
     this.active = job
     job.startedAt = Date.now()
     job.deadlineTimer = setTimeout(() => {
@@ -657,6 +660,7 @@ class NationalRouteWorkerClient {
 
   #becameIdle() {
     if (!this.isIdle) return
+    this.queueFairness.bypasses = 0
     this.onIdle(this)
     this.#scheduleIdleTimer()
   }

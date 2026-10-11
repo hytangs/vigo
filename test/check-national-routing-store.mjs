@@ -1491,21 +1491,21 @@ try {
     transitReadyWholeLegWalkRequest,
   )
   // Exercise the actual Reach click request against a real street/timetable
-  // fixture: a cap on each transit endpoint must not force a slower ride.
+  // fixture: inspection must not replace a capped transit journey with a long walk.
   const reachQuery = {
     ...transitReadyWholeLegWalkRequest,
     ...reachPointRouteRequest({ result: { request: transitReadyWholeLegWalkRequest } },
       transitReadyWholeLegWalkRequest.destination, 'fixture'),
   }
-  const reachWalk = routeNationalGtfsStore(shortTransitStorePath, reachQuery)
-  const cappedReach = routeNationalGtfsStore(shortTransitStorePath, { ...reachQuery, allowLongWalk: false })
+  const cappedReach = routeNationalGtfsStore(shortTransitStorePath, reachQuery)
+  const unrestrictedReach = routeNationalGtfsStore(shortTransitStorePath, { ...reachQuery, allowLongWalk: true })
+  assert.equal(unrestrictedReach.status, 'ready')
+  assert.equal(unrestrictedReach.travelMode, 'walk')
   assert.equal(cappedReach.status, 'ready')
-  assert.equal(cappedReach.travelMode, 'transit')
-  assert.equal(reachWalk.travelMode, 'walk', 'Reach inspection must compare the full direct walk.')
-  assert(reachWalk.arriveMinutes < cappedReach.arriveMinutes, 'Reach must select the earlier walking arrival.')
-  assert(reachWalk.legs[0].distanceKm > reachQuery.maxWalkKm)
-  assert.equal(reachWalk.legs[0].walkSource, 'osm')
-  assert.equal(reachWalk.maxWalkKm, cappedReach.maxWalkKm, 'Transit endpoint limits must remain unchanged.')
+  assert.equal(cappedReach.travelMode, 'transit', 'Reach inspection must reject direct walks beyond the map walking limit.')
+  assert(unrestrictedReach.arriveMinutes < cappedReach.arriveMinutes, 'The faster long walk must still be excluded from Reach inspection.')
+  assert(unrestrictedReach.legs[0].distanceKm > reachQuery.maxWalkKm)
+  assert.equal(cappedReach.maxWalkKm, unrestrictedReach.maxWalkKm, 'Transit endpoint limits must remain unchanged.')
   assert.equal(transitReadyWholeLegWalk.status, 'ready')
   assert.equal(
     transitReadyWholeLegWalk.travelMode,
@@ -1911,6 +1911,23 @@ try {
     'With zero endpoint overhead, each departure sample must compete with the timetable before a walk fallback is accepted.',
   )
   assert(shortWalkWindow.profile.plans.every((candidate) => candidate.travelMode === 'walk' && candidate.status === 'ready'))
+
+  for (const timePreference of ['depart', 'arrive']) {
+    const repeatedWalk = routeNationalGtfsMatrix(storePath, {
+      ...shortWalkRequest, timePreference, arriveMinutes: 510,
+      origins: [structuredClone(shortWalkRequest.origin), structuredClone(shortWalkRequest.origin)],
+      destinations: [structuredClone(shortWalkRequest.destination), structuredClone(shortWalkRequest.destination)],
+      includeJourneys: true, includeGeometry: true,
+    })
+    assert.equal(repeatedWalk.diagnostics.directWalk.selectedPairs, 4, JSON.stringify({timePreference, repeatedWalk}))
+    assert.equal(repeatedWalk.diagnostics.directWalk.materializedJourneys, 1)
+    assert.equal(repeatedWalk.diagnostics.directWalk.reusedJourneys, 3)
+    for (const row of repeatedWalk.rows) {
+      assert.deepEqual(row.journey.legs, repeatedWalk.rows[0].journey.legs)
+    }
+    repeatedWalk.rows[0].journey.legs[0].coordinates[0][0] = 99
+    assert.notEqual(repeatedWalk.rows[1].journey.legs[0].coordinates[0][0], 99)
+  }
 
   const disconnectedShortWalk = routeNationalGtfsStore(storePath, {
     ...shortWalkRequest,
@@ -2669,6 +2686,22 @@ try {
       if (includeGeometry) assert(row.journey.legs.every((leg) => Array.isArray(leg.coordinates)))
       if (timePreference === 'arrive') assert(row.journey.arriveMinutes <= arriveMatrixRequest.arriveMinutes)
     }
+  }
+  for (const timePreference of ['depart', 'arrive']) for (const includeGeometry of [false, true]) {
+    const request = { ...arriveMatrixRequest, timePreference, departMinutes: 480,
+      origins: [alpha, alpha, alpha], destinations: [charlie, charlie],
+      includeJourneys: true, includeGeometry }
+    const repeated = routeNationalGtfsMatrix(storePath, request)
+    const unique = routeNationalGtfsMatrix(storePath, { ...request, origins: [alpha], destinations: [charlie] })
+    assert.equal(repeated.diagnostics.materializedJourneys, 1)
+    assert.equal(repeated.diagnostics.reusedJourneys, 5)
+    for (const row of repeated.rows) {
+      assert.equal(row.durationMinutes, unique.rows[0].durationMinutes)
+      assert.deepEqual(row.journey.legs, unique.rows[0].journey.legs)
+    }
+    repeated.rows[0].journey.legs[0].durationMinutes = -100
+    assert.notEqual(repeated.rows[1].journey.legs[0].durationMinutes, -100,
+      'Repeated Matrix rows must remain independently mutable')
   }
   for (const row of arriveMatrix.rows) {
     const point = routeNationalGtfsStore(storePath, { ...arriveMatrixRequest,

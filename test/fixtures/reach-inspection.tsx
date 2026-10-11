@@ -41,7 +41,10 @@ function planFor(body, kind = 'transit') {
       { type: 'ride', routeId: 'R', routeShortName: 'R', routeColor: '#da291c', fromName: 'First Street', toName: 'Second Street', startMinutes: 487, endMinutes: 503, durationMinutes: 16, distanceKm: 2, stopCount: 5, geometrySource: 'shape', tripId: 'T', coordinates: [at(.2), at(.8)] },
       { type: 'walk', fromName: 'Second Street', toName: body.destination.label, startMinutes: 503, endMinutes: 505, durationMinutes: 2, distanceKm: .16, walkSource: 'osm', coordinates: [at(.8), b] },
     ] }
-  if (kind === 'walk') base.legs = [{ ...base.legs[0], coordinates: [a,b], toName: body.destination.label, endMinutes: 505, durationMinutes: 20, distanceKm: 1.6 }]
+  if (kind === 'walk') {
+    Object.assign(base, { arriveMinutes: 487, durationMinutes: 2, walkMinutes: 2, rideMinutes: 0 })
+    base.legs = [{ ...base.legs[0], coordinates: [a,b], toName: body.destination.label, endMinutes: 487, durationMinutes: 2, distanceKm: .16 }]
+  }
   if (kind === 'blocked') return { ...base, status: 'blocked', travelMode: 'transit', arriveMinutes: undefined, legs: [], detail: 'No route meets the walking and ride limits.' }
   return base
 }
@@ -146,7 +149,7 @@ window.checkReachInspection = async () => {
   assert(JSON.stringify(requests[0].body.destination.coordinate)===JSON.stringify(a),'Click precision was lost')
   assert(JSON.stringify(requests[0].body.feedIds)==='["bus","rail"]','Route did not retain timetable group')
   assert(requests[0].body.maxTransfers===0&&requests[0].body.maxWalkKm===.35&&requests[0].body.departMinutes===480,'Analysis limits or time changed')
-  assert(requests[0].body.allowLongWalk===true&&requests[0].body.requireTransitRide===false,'Final-walk cap incorrectly excluded direct walking from the journey comparison')
+  assert(requests[0].body.allowLongWalk===false&&requests[0].body.requireTransitRide===false,'Reach inspection must cap direct walking while retaining short walks')
   click(b);await until(()=>requests.length===2)
   assert(requests[0].signal.aborted,'Superseded query was not cancelled')
   requests[1].respond('transit');await until(()=>window.inspection.plan?.status==='ready')
@@ -169,7 +172,7 @@ window.checkReachInspection = async () => {
   flushSync(()=>document.querySelector('.reach-point-inspector .button').click());await until(()=>requests.length===6);requests[5].respond('walk')
   await until(()=>window.inspection.plan?.travelMode==='walk')
   assert(window.inspection.plan.status==='ready','Walking journey rejected')
-  assert(document.querySelector('.reach-point-scroll').textContent.includes('exceeds the map’s 0.35 km final-walk limit'),'Longer direct walk was presented as matching the map walking limit')
+  assert(!document.querySelector('.reach-point-scroll').textContent.includes('walking the whole way'),'Reach inspection still advertises the removed long-walk fallback')
   flushSync(()=>window.inspection.close());assert(!document.querySelector('.reach-point-inspector'),'Close left inspector open')
   map.getCanvas().dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}))
   await until(()=>requests.length===7);requests[6].respond('transit');await until(()=>window.inspection.plan?.status==='ready')
