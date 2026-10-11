@@ -1,91 +1,85 @@
-<p align="center">
-  <img src="public/github-social-preview.png" width="440" alt="VIGO — transport networks, routing and analysis">
-</p>
+# VIGO
 
-<p align="center">
-  <strong>Build a City. Follow its service. Find a journey.</strong><br>
-  <a href="docs/guide.md#vigo-cli-quickstart">Quickstart</a> ·
-  <a href="docs/guide.md#vigo-studio-desktop-guide">Studio</a> ·
-  <a href="docs/guide.md#build-a-network-answer-a-transport-question">Documentation</a> ·
-  <a href="docs/releases/0.5.0.md">Release notes</a>
-</p>
+**Transit routing, travel-time matrices, and accessibility maps from GTFS and OpenStreetMap.**
 
-VIGO turns GTFS timetables and OpenStreetMap streets into a reusable city model. Inspect live service, plan journeys, calculate travel-time matrices, and compare the reach of proposed service changes. Each computed Result retains its request, City identity, warnings, and timing.
+Build a reusable **City**, then query transit, walking, or driving journeys, calculate origin–destination matrices, and map reachable areas. VIGO combines a Rust routing engine with a command-line compiler, an HTTP service, a desktop workspace, and a separate Python package.
 
-**VIGO 0.5.0** simplifies journey choices, reduces prepared access storage, and opens driving data on demand. See the [release notes](docs/releases/0.5.0.md) and [City rebuild instructions](docs/reference/walking-evidence.md#upgrade-and-check).
+[Documentation](docs/guide.md) · [Rust CLI & HTTP](docs/guides/rust-standalone.md) · [Python](https://github.com/hytangs/vigo-py) · [Downloads](https://github.com/hytangs/vigo/releases)
 
-VIGO supports multiple GTFS timetables and multiple GTFS-RT endpoints in one City, with explicit source matching, bounded memory admission, and automatic Engine recovery. Native routing powers the desktop and command line. A model connection is optional.
+## Choose your interface
 
-**[Read the documentation](docs/guide.html)** · [Quickstart](docs/guide.md#vigo-cli-quickstart) · [Rust CLI and HTTP](docs/standalone.html) · [Python](https://github.com/hytangs/vigo-py)
+| Interface | Use it for | Start here |
+| --- | --- | --- |
+| **Native engine** | Route, Matrix, and Reach queries from one executable; resident streams and HTTP services | [Rust guide](docs/guides/rust-standalone.md) |
+| **Command-line compiler** | Build Cities from GTFS ZIPs and OSM PBFs; prepare scenarios and run queries | [CLI quickstart](docs/guide.md#vigo-cli-quickstart) |
+| **VIGO Studio** | Inspect networks and live service, plan journeys, and explore scenarios visually | [Desktop guide](docs/guide.md#vigo-studio-desktop-guide) |
+| **VIGO Python** | Automate studies, run batches, and export journey and leg tables | [Python repository](https://github.com/hytangs/vigo-py) |
 
-## What you can do
+The native executable queries prepared Cities without Node.js. The compiler imports source data. Studio includes its runtime; Python platform wheels include a headless runtime.
 
-| Task | Where to start |
-| --- | --- |
-| Inspect reporting coverage, alerts, and service briefings | Studio **Network** |
-| Follow a route, trip, vehicle, or station board | Studio **Network → Routes**, map and line views |
-| Investigate service with a configured model and saved sources | Studio **Network → Ask** |
-| Plan a transit, walking, or driving journey | Studio **Route** or `vigo route` |
-| Calculate travel times between sets of locations | `vigo matrix` |
-| Map travel time from an origin and test planned service | Studio **Analyze** or `vigo reach` |
-| Import or remove GTFS and OSM sources | Studio **City → Data sources** |
+## Build a City and find a journey
 
-## Choose an interface
-
-- **VIGO native engine:** one executable for CLI, resident streaming, and a localhost or hosted HTTP service. No Node runtime is required. See [Boston tutorial, Rust query contract, and deployment](docs/guides/rust-standalone.md).
-- **VIGO Node CLI:** build Cities from GTFS and OSM, and run queries using the shared native kernel. The [CLI-only archive](docs/guides/cli-only.md) retains routing, matrices, isochrones, scenarios, and resident streaming in two runtime files. Build a City once, then run Route, Matrix, or Reach.
-- **VIGO Studio:** a desktop workspace for network inspection, journeys, and scenario analysis. Its project library is separate from CLI City directories.
-- **VIGO Python:** automate Engine through the [separate Python package](https://github.com/hytangs/vigo-py).
-
-```text
-GTFS + OSM → City → optional Scenario → Route | Matrix | Reach → Result
-```
-
-Compare operates on compatible Results. Planned transit changes apply to Reach; supplied traffic applies to Drive Route and Matrix. Realtime transit Route processes supported, matched Trip Updates. Transit Matrix and Reach remain scheduled. See [query support](docs/guide.md#choose-a-supported-combination) and [routing limits](docs/guide.md#known-limits).
-
-## Get started
-
-Download a matching desktop archive from [GitHub Releases](https://github.com/hytangs/vigo/releases), or build from source. Packaged Studio includes its runtime; source builds require Node.js 24.18+, npm 11.6+, and the pinned Rust toolchain with a native linker.
+For a source installation, use Node.js 24.18 or newer, npm 11.6 or newer, and the repository's pinned Rust toolchain with a native linker:
 
 ```bash
 git clone https://github.com/hytangs/vigo.git
 cd vigo
 npm ci
-npm run build
-npm run studio
+npm run build:cli-runtime
+
+node public/vigo.mjs build \
+  --gtfs ./data/transit.zip \
+  --osm ./data/streets.osm.pbf \
+  --output ./city
 ```
 
-In Studio, create a City and import one or more static GTFS ZIPs and an overlapping OSM PBF. [Match live feeds to their timetables](docs/guide.md#combine-timetables-and-live-feeds) when adding GTFS-Realtime connections for live inspection. A model connection is optional. For a complete command-line example, follow the [quickstart](docs/guide.md#vigo-cli-quickstart).
+Save this as `route.json`. Replace the coordinates and date with locations and service coverage from your inputs:
 
-| Command | Purpose |
-| --- | --- |
-| `npm run dev` | Browser development with the local engine |
-| `npm run build:studio` | Build and package the desktop application |
-| `npm run package:cli` | Build the CLI-only archive without Studio or HTTP |
-| `npm run check:cli-package` | Verify the extracted CLI and its complete command contracts |
-| `npm test` | Public-repository and engine checks |
+```json
+{
+  "origin": {"coordinate": [-71.062, 42.356]},
+  "destination": {"coordinate": [-71.058, 42.349]},
+  "serviceDate": "2026-07-15",
+  "time": "08:00",
+  "mode": "transit"
+}
+```
 
-Native targets are macOS 13.5+ on Apple Silicon, Linux glibc on ARM64/x64, and Windows x64. Linux release builds use Ubuntu 24.04. Studio requires WebGL 2; Engine does not need a graphics device. Packaged Studio communicates with Engine in memory without a local TCP listener.
+```bash
+node public/vigo.mjs route --city ./city --request route.json
+```
 
-## Evidence and limits
+Keep a resident `stream` or `serve` process open for repeated queries. The native executable accepts the same prepared City and its [documented query contract](docs/guides/rust-standalone.md). See the [Boston tutorial](docs/guides/rust-standalone.md#3-prepare-and-manage-city-data) for source downloads and a complete deployment workflow.
 
-VIGO is pre-release software. A computed journey is a result within the supplied timetable and street model; a prediction is not an observed passage. Missing reports remain unknown. Reach measures travel time; measuring access to jobs or people requires opportunity data and a stated measure.
+## What VIGO computes
 
-Ask sends questions and selected evidence to the configured inference endpoint. Model and web connections are separate. Inspect the answer's sources and **Model & data** record. Ask does not authorize dispatch or publish rider messages. See the [Network guide](docs/guide.md#network-routes-and-ask) and [security policy](SECURITY.md).
+- **Route:** departure-time and arrive-by journeys, walking access, transfer controls, and sampled alternatives.
+- **Matrix:** travel times between origin and destination sets, with optional journeys and geometry.
+- **Reach:** travel-time surfaces and isochrones for walking and transit, including supported planned-service scenarios.
+- **Compare:** changes between compatible Reach results.
 
-## Documentation
+Scheduled transit supports Route, Matrix, and Reach. Supported realtime Trip Updates apply to transit Route; supplied traffic applies to driving Route and Matrix. [Query support](docs/guide.md#choose-a-supported-combination) describes the available combinations. Wheelchair routing uses a [separately prepared strict profile](docs/guides/rust-standalone.md#wheelchair-routing).
 
-For the smallest command-line distribution, see [VIGO CLI](docs/guides/cli-only.md).
-For a CLI/HTTP ZIP without Studio or the Python wrapper, see
-[Engine packaging and deployment](docs/guide.md#deploy-the-routing-engine).
+## VIGO 0.5.1
 
-| Start | Understand | Go deeper |
-| --- | --- | --- |
-| [CLI quickstart](docs/guide.md#vigo-cli-quickstart) · [Studio](docs/guide.md#vigo-studio-desktop-guide) | [Practical workflows](docs/guide.md#work-with-a-city) · [Read a Result](docs/reference/results.md) | [CLI reference](docs/guide.md#command-line) · [Architecture](docs/developer.md#architecture) |
-| [Multiple feeds](docs/guide.md#combine-timetables-and-live-feeds) · [Documentation index](docs/guide.md#build-a-network-answer-a-transport-question) | [Network evidence](docs/guide.md#network-routes-and-ask) · [Troubleshooting](docs/guide.md#troubleshooting-1) | [Contributing and checks](.github/CONTRIBUTING.md) |
+This version reduces repeated preparation and output work:
 
-The [offline guide](docs/guide.html) includes search, a local Result viewer, and printing. It is generated from the Markdown pages so examples and reference stay in sync.
+- Indexed service calendars and shared timetable columns across retained dates.
+- Bounded date retention, with unused collection cache capacity available to the active scenario.
+- Shared Matrix computation through walking and geometry reconstruction for repeated endpoints.
+- Lower allocation overhead in Reach, journey materialization, and alternative selection.
+- Per-request service dates for Python resident-process reuse.
 
-API 1.0, City format 1, and Result schema 1 remain unchanged in 0.5.0. VIGO is licensed under [Apache-2.0](LICENSE); see [NOTICE](NOTICE) for attribution.
+Published 0.5 Cities remain readable without rebuilding. API 1.0, City format 1, and Result schema 1 are unchanged. [Release notes](docs/releases/0.5.1.md) · [Prepared-data compatibility](docs/reference/format-0.5.0.md)
 
-Wheelchair routing is available through a [separately prepared strict profile](docs/guides/rust-standalone.md#wheelchair-routing) for the CLI and API service.
+## Develop and contribute
+
+```bash
+npm run build        # Build the engine, CLI, and Studio assets
+npm run studio       # Open Studio
+npm test             # Run public-source and engine checks
+```
+
+See [contributing](.github/CONTRIBUTING.md) for focused checks and packaging, [architecture](docs/developer.md#architecture) for implementation, and the [security policy](SECURITY.md) for reporting vulnerabilities. The [offline guide](docs/guide.html) includes search and a Result viewer.
+
+VIGO is licensed under [Apache-2.0](LICENSE). See [NOTICE](NOTICE) for attribution.

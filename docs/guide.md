@@ -1,17 +1,17 @@
-# VIGO 0.5.0 guide
+# VIGO 0.5.1 guide
 
 Canonical source for the [documentation reader](guide.html). Edit the relevant chapter, then rebuild the reader.
 
 ## Build a network. Answer a transport question.
 
-VIGO 0.5.0 turns GTFS timetables and OpenStreetMap streets into a reusable City. Find journeys, calculate travel-time matrices, and measure the reach of a network from the command line, an HTTP service, or Studio.
+VIGO 0.5.1 turns GTFS timetables and OpenStreetMap streets into a reusable City. Find journeys, calculate travel-time matrices, and measure the reach of a network from the command line, an HTTP service, or Studio.
 
 ### Start with your workflow
 
 - **[Build your first City](#vigo-cli-quickstart)** Download public Boston inputs, prepare the network, and run a complete request.
 - **[Run a routing service](guides/rust-standalone.md)** Open a prepared City with the standalone Rust executable and serve JSON over HTTP.
 - **[Explore in Studio](#vigo-studio-desktop-guide)** Manage sources, inspect service, plan journeys, and compare reachable areas.
-- **[Work in Python](https://github.com/hytangs/vigo-py/tree/main/docs)** Build and reuse a City in scripts and notebooks with VIGO Python 0.5.0.
+- **[Work in Python](https://github.com/hytangs/vigo-py/tree/main/docs)** Build and reuse a City in scripts and notebooks with VIGO Python 0.5.1.
 
 ### Choose the right interface
 
@@ -44,7 +44,7 @@ Use the [offline documentation reader](guide.html) to search these pages, copy e
 
 ### Development and release
 
-[What's new in 0.5.0](releases/0.5.0.md) · [Developer resources](developer.md#developer-resources) · [Changelog](../CHANGELOG.md) · [Security](../SECURITY.md)
+[What's new in 0.5.1](releases/0.5.1.md) · [Developer resources](developer.md#developer-resources) · [Changelog](../CHANGELOG.md) · [Security](../SECURITY.md)
 
 ## VIGO CLI quickstart
 
@@ -56,7 +56,7 @@ For the desktop workflow, use the [Studio guide](#vigo-studio-desktop-guide). St
 
 ### 1. Install
 
-VIGO 0.5.0 requires Node.js 24.18 or newer and npm 11.6 or newer.
+VIGO 0.5.1 requires Node.js 24.18 or newer and npm 11.6 or newer.
 Source builds also require the pinned Rust toolchain. Supported targets are macOS Apple Silicon, Linux ARM64/x64 with glibc, and Windows x64. Use a native build for the target OS and CPU; City data moves between them. See the [platform and City limits](#known-limits).
 
 ```bash
@@ -776,7 +776,7 @@ Scenarios do not edit imported GTFS or OSM. A complete alternative feed creates 
 
 Multiple nonconflicting planned changes may coexist. Conflicts require an explicit resolution. A Scenario never moves automatically to another City revision, and expired live state cannot be queried.
 
-VIGO 0.5.0 supports planned service changes in Reach, supplied traffic in Drive Route and Drive Matrix, and realtime Route from supported Trip Updates. CLI Route accepts a top-level `realtimeSnapshot` with `--data-mode realtime`; this is separate from the planned-service `scenario` object. Transit Matrix and Reach remain scheduled. Drive traffic requires a top-level `traffic` object and explicit realtime mode; Matrix selects that mode with `routingDataMode: "realtime"` in JSON. See the [support table](#choose-a-supported-combination) and [realtime limits](#realtime). Inspect supported combinations with `vigo capabilities`. Unsupported CLI requests exit nonzero with an explanation.
+VIGO 0.5.1 supports planned service changes in Reach, supplied traffic in Drive Route and Drive Matrix, and realtime Route from supported Trip Updates. CLI Route accepts a top-level `realtimeSnapshot` with `--data-mode realtime`; this is separate from the planned-service `scenario` object. Transit Matrix and Reach remain scheduled. Drive traffic requires a top-level `traffic` object and explicit realtime mode; Matrix selects that mode with `routingDataMode: "realtime"` in JSON. See the [support table](#choose-a-supported-combination) and [realtime limits](#realtime). Inspect supported combinations with `vigo capabilities`. Unsupported CLI requests exit nonzero with an explanation.
 
 ### Planned service
 
@@ -829,7 +829,7 @@ Compare reports after-minus-before time changes for cells reachable in both surf
 
 ## Inspect a saved Result
 
-Open a JSON response from VIGO 0.5.0's public Engine CLI or HTTP API. This viewer shows its status and main answer, followed by the complete source JSON.
+Open a JSON response from VIGO 0.5.1's public Engine CLI or HTTP API. This viewer shows its status and main answer, followed by the complete source JSON.
 
 ### Read the public fields
 
@@ -876,7 +876,7 @@ Before combining feeds:
 4. Choose **Add feed** for each additional endpoint, then **Connect live**.
 5. Expand **Feed status** to inspect individual failures and freshness.
 
-VIGO 0.5.0 accepts live-feed requests as `{ "sources": [{ "url": "https://operator.example/trip-updates.pb", "kind": "tripUpdates" }] }`. The old top-level `url` and `urls` formats are rejected; reconnect those saved connections through the feed editor. A single MBTA endpoint no longer implicitly enables the other two endpoints.
+VIGO 0.5.1 accepts live-feed requests as `{ "sources": [{ "url": "https://operator.example/trip-updates.pb", "kind": "tripUpdates" }] }`. The old top-level `url` and `urls` formats are rejected; reconnect those saved connections through the feed editor. A single MBTA endpoint no longer implicitly enables the other two endpoints.
 
 Trip Updates can be connected without Vehicle Positions. The MBTA preset fills three public endpoints; select the MBTA timetable when using it in a combined City. A failed endpoint does not discard successful endpoints. Reimporting or merging a timetable invalidates the active retained observation until a fresh fetch binds to the new City. Old records from a failed endpoint are not carried into a newly received snapshot.
 
@@ -1261,7 +1261,7 @@ VIGO models the City revision and Query it is given. It does not certify real-wo
 
 ### Scenario
 
-- Planned transit service changes are supported for Reach in VIGO 0.5.0.
+- Planned transit service changes are supported for Reach in VIGO 0.5.1.
 - Supplied traffic is supported for Drive Route and Drive Matrix.
 - Other combinations are rejected. The capability catalog describes their availability; the CLI exits nonzero for unsupported requests.
 
@@ -1553,7 +1553,7 @@ Use the native `vigo` executable for HTTP, resident streaming, and command-line 
 From the repository root with Docker installed:
 
 ```sh
-docker build -f deploy/Dockerfile -t vigo:0.5.0 .
+docker build -f deploy/Dockerfile -t vigo:0.5.1 .
 ```
 
 The image contains the Rust executable, embedded API documentation, license notices, and a Debian glibc runtime. It runs as UID/GID 65532. The compiler version matches `rust-toolchain.toml`; City data, JavaScript dependencies, desktop bundles, and local build caches are excluded from the build context.
@@ -1563,7 +1563,7 @@ Run the container checks before using the image:
 ```sh
 npm ci
 npm run build:cli-runtime
-npm run check:deployment -- --image vigo:0.5.0
+npm run check:deployment -- --image vigo:0.5.1
 ```
 
 These checks build public synthetic inputs and exercise the actual Compose service: a read-only City, authentication, Route, Matrix, Reach, scenario switching, readiness, and restart. They also check resource limits and confirm that queries do not change City files. CI runs them on Linux x64 and ARM64. Measure your own City and request mix before choosing production limits; the small fixture does not establish a metropolitan memory or latency result.
@@ -1573,7 +1573,7 @@ These checks build public synthetic inputs and exercise the actual Compose servi
 Make the City directory and its files readable by UID 65532. Keep every referenced directory inside the mounted City or scenario collection; mounting a collection preserves its shared street data.
 
 ```sh
-export VIGO_IMAGE=vigo:0.5.0
+export VIGO_IMAGE=vigo:0.5.1
 export VIGO_CITY=/absolute/path/to/prepared-city
 # Set VIGO_API_TOKEN through your shell or deployment secret store (16+ characters).
 docker compose -f deploy/compose.yml up -d --wait
@@ -1633,7 +1633,7 @@ Keep the running application and its prepared City together until the replacemen
 
 ### Prepared City policy
 
-VIGO 0.5.0 accepts only the prepared artifact formats advertised or admitted by its runtime. The outer `vigo.city.v1` manifest is not sufficient: timetable, transfer, street, access, and accelerator formats are checked separately. Older incompatible artifacts are rejected. Editing a format marker cannot migrate their contents.
+VIGO 0.5.1 accepts only the prepared artifact formats advertised or admitted by its runtime. The outer `vigo.city.v1` manifest is not sufficient: timetable, transfer, street, access, and accelerator formats are checked separately. Older incompatible artifacts are rejected. Editing a format marker cannot migrate their contents.
 
 There is no backward-compatibility or in-place conversion requirement for pre-0.5.0 Cities. Rebuild from the original sources into a **different output directory**:
 

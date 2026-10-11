@@ -1,5 +1,17 @@
 # Version history
 
+## 0.5.1
+
+- Reduce first-date timetable sorting with trip-block reads, preserving canonical connection order and existing City files.
+- Prioritize queued Studio point queries with bounded waiting for analytical jobs; preserve preparation order and existing memory limits.
+- Index service calendars once and share equal immutable timetable columns across retained dates. Preserve published 0.5 City compatibility.
+- Retain up to eight inactive scheduled timetables within a configurable byte budget; let active scenarios borrow unused collection capacity.
+- Reuse Matrix work for repeated endpoints through direct walking and geometry reconstruction in both native and Node runtimes. Cache candidate ranking and duplicate-detection data during alternative selection.
+- Reduce preparation copies, reuse Reach raster scratch, and bound Matrix metadata caches. Reclaim canceled or expired queued HTTP requests before dispatch.
+- Reuse resident CLI network state across date changes, retain up to four service contexts within its existing byte budget, and advertise per-request dates for Python process reuse.
+
+See [0.5.1 release notes](docs/releases/0.5.1.md) for configuration and diagnostics.
+
 ## 0.5.0
 
 Clearer journey comparisons, shared interface styling, compact routing snapshots and Studio responses, and driving preparation on demand. See [release notes](docs/releases/0.5.0.md).

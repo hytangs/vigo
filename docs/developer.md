@@ -1,4 +1,4 @@
-# VIGO 0.5.0 developer guide
+# VIGO 0.5.1 developer guide
 
 Canonical source for the [documentation reader](guide.html). Edit the relevant chapter, then rebuild the reader.
 
@@ -434,7 +434,7 @@ The independent suite validates the generated graph and timetable models under t
 
 ## Runtime limits and recovery
 
-The following admission limits and recovery behavior apply to VIGO 0.5.0.
+The following admission limits and recovery behavior apply to VIGO 0.5.1.
 See [public results](reference/results.md) for the current result schemas.
 
 ### Memory and request admission
@@ -464,6 +464,11 @@ and a worker watchdog requests termination when an operation exceeds its deadlin
 memory pressure the pool avoids adding a second City until an unleased idle
 worker can be retired. Worker diagnostics expose limits and pending counts.
 Shutdown wakes waiting requests and permanently closes the pool.
+
+Within queued query work, Studio prioritizes point Route, departure-window, and street Route requests.
+An older analytical job runs after at most four point-query bypasses. Preparation
+and unknown operations preserve their queue order, and running native work is
+not preempted. Worker diagnostics expose `maximumPointBypasses`.
 
 These are admission and retention safeguards, not a hard whole-process memory
 limit. V8's worker heap limit excludes native arrays and mapped street data.

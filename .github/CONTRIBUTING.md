@@ -2,7 +2,7 @@
 
 This repository contains Engine and Studio. Keep language bindings, private datasets, notebooks, generated data, release archives, and local workspaces outside it. Follow the [quickstart](../docs/guide.md#vigo-cli-quickstart) to install and build.
 
-The current release line is [VIGO 0.5.0](../docs/releases/0.5.0.md).
+The current release line is [VIGO 0.5.1](../docs/releases/0.5.1.md).
 
 ## Make a change
 

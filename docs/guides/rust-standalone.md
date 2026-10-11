@@ -1,6 +1,6 @@
 # VIGO Rust standalone manual
 
-VIGO 0.5.0 · CLI and HTTP reference · Prepared City format 1
+VIGO 0.5.1 · CLI and HTTP reference · Prepared City format 1
 
 VIGO runs routing and isochrone queries from a single Rust executable. The executable contains the routing kernels, City loader, JSON interface, and HTTP server. It needs no Node, Python, browser, external routing service, or internet connection at query time. SQLite is compiled in. City data is supplied separately and opened read-only.
 
@@ -32,9 +32,13 @@ For wheelchair routing, add `"wheelchair": true` to the source specification or 
 
 Source paths are relative to the manifest. Optional `sha256` values pin each input. The compiler prepares street data once and creates relative references to it. Move the collection as one directory. Its checksum inventory records physical files once. `prepareDates` precompiles up to 32 service dates, reusing identical service sets; other dates remain queryable through the source timetable. A single-City build accepts repeated `--prepare-date` options.
 
-Resident Cities share immutable street arrays and CCH indexes by canonical path. Timetable source columns share equal immutable blocks across resident scenarios. A hash selects candidates, and every reuse checks all values; changes occupy independent blocks without an overlay chain. Blocks use weak ownership in the collection so retiring a service day releases its unique data. Stop and trip identities, search indexes, endpoint caches and realtime state remain scenario-specific. The collection still stores separate transit databases and prepared access profiles.
+Resident Cities share immutable street arrays and CCH indexes by canonical path. Timetable source columns share equal immutable blocks across resident scenarios. A hash selects candidates, and every reuse checks all values; changes occupy independent blocks without an overlay chain. The collection holds weak references to shared blocks, so evicting their last timetable view releases the data. Stop and trip identities, search indexes, endpoint caches and realtime state remain scenario-specific. The collection still stores separate transit databases and prepared access profiles.
 
 Scheduled timetables retain a service-clock prefix through at least 06:00 the next day. Longer requests extend that prefix in six-hour blocks; narrower requests reuse it. Future days are read only through the loaded departure bound. Realtime uses the unfiltered source so an update can move a later trip into the query window. `GET /v1/info` reports `timetablePreparations` and `timetableCoverageEndSeconds` for each resident scenario.
+
+Cold startup opens the City and prepares the first requested service date. Timetable preparation reads trip-sized groups and restores the canonical date order in native arrays; it does not require a new City format or extra disk index. Keep `stream` or `serve` resident to reuse this work across requests.
+
+Each standalone City also retains up to eight inactive scheduled timetables, with a default 128 MiB budget set by `VIGO_TIMETABLE_CACHE_BYTES`. Returning to a retained date and transfer policy reuses its prepared arrays and indexes. Entries use exact dates and sufficient time coverage, preserving calendar exceptions, overnight service and timezone offsets. Least recently used entries are evicted; oversized entries and realtime snapshots are not retained. Set the budget to `0` to disable date retention. This is an additional budget, separate from the active timetable, street data and preparation temporaries. A standalone City receives the full budget. In a scenario collection, retained entries keep their byte allocation and the selected scenario can borrow unused capacity from the collection budget. This avoids a fixed per-scenario share; it does not evict another resident's retained dates to make room. Separate workers each have their own budget. Shared blocks are charged in full for cache admission. `memory.timetableCache` reports entries, charged `retainedBytes`, `budgetBytes`, hits and evictions. Collection residency reports aggregate `inactiveTimetableBudgetBytes` and `inactiveTimetableRetainedBytes`. Retained-date activation does not trigger Linux preparation-memory trimming unless retention evicts another timetable. Matrix and Reach still reclaim their temporary allocations after completion. The owner-level memory ledger includes inactive timetables and counts shared blocks once. Calendar rules load once per City as weekday masks plus dated exceptions. Standalone Cities also share equal immutable source-column blocks across retained dates; date-specific scan indexes remain separate. The first-date layout stays contiguous until another date is retained. `memory.calendarIndexBytes` and `memory.timetableSharedColumns` expose the index and shared storage.
 
 One timetable query workspace belongs to the sequential worker and is lent to the selected scenario. Boarding layers, predecessors and generation tags are rebound to its stop and run dimensions; results never cross scenarios. Reusable street-search buffers move with the active request. Exact street attachments for Reach are shared only after scenario-specific station exits are resolved, with a limit of 16,384 coordinates per street graph.
 
@@ -1328,6 +1332,7 @@ The environment variables for the Rust runtime are:
 | `VIGO_API_TOKEN` | Bearer token; nonempty values protect data endpoints, including loopback |
 | `RAYON_NUM_THREADS` | Optional native parallel thread count |
 | `VIGO_MAX_RESIDENT_SCENARIOS` | Maximum resident scenario views |
+| `VIGO_TIMETABLE_CACHE_BYTES` | Inactive scheduled-timetable budget per City or collection; default 134217728 bytes, `0` disables retention |
 | `VIGO_ENDPOINT_CACHE_MAX_BYTES` | Shared endpoint-cache budget |
 | `VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES` | Shared geometry-cache budget |
 
@@ -1351,8 +1356,8 @@ Terminate HTTPS at a reverse proxy or hosting platform. Give its upstream timeou
 Build the native service image from the repository root:
 
 ```sh
-docker build -f deploy/Dockerfile -t vigo:0.5.0 .
-export VIGO_IMAGE=vigo:0.5.0
+docker build -f deploy/Dockerfile -t vigo:0.5.1 .
+export VIGO_IMAGE=vigo:0.5.1
 export VIGO_CITY=/absolute/path/to/prepared-city
 # Set VIGO_API_TOKEN through your deployment secret store.
 docker compose -f deploy/compose.yml up -d --wait
@@ -1589,3 +1594,9 @@ and [OSM wheelchair tags](https://wiki.openstreetmap.org/wiki/Key:wheelchair).
 The public synthetic regression is `npm run check:wheelchair`; it checks
 accessible alternatives through both CLIs and authenticated HTTP, as well as
 Matrix, Reach, reverse routing and profile mismatch rejection.
+
+### Matrix reuse
+
+Transit Matrix keeps repeated endpoints grouped through transit search, direct walking and journey geometry, then expands completed answers into the requested row and column order. Exact-stop and coordinate endpoints retain their respective routing semantics. Trace diagnostics expose `matrixReuse.requestedPairs`, `searchPairs`, `uniqueOrigins` and `uniqueDestinations`. The 65,536-pair response limit still applies; this reuse does not approximate or merge distinct endpoints.
+
+Run `node scripts/benchmark-service-reuse.mjs --reference /path/to/baseline-vigo --samples 31 --output comparison.json` to compare two executables on a generated public fixture. The check compares complete answers and reports date preparation, retained-date switches, repeated and distinct Matrix pairs. Engine execution time and the detailed-output round trip are recorded separately. This small fixture tests reuse and regressions; metropolitan scaling needs a separate workload.
