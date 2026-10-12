@@ -15,6 +15,18 @@ export function formatRoutingLegDuration(leg: RoutingPlan['legs'][number]) {
   return formatRoutingMinutes(leg.durationMinutes)
 }
 
+/** The leg's published GTFS route colour as `#rrggbb`, when it has a valid one. */
+export function routingLegColor(leg: RoutingPlan['legs'][number]) {
+  return leg.type === 'ride' && /^#?[\da-f]{6}$/i.test(leg.routeColor ?? '') ? `#${leg.routeColor!.replace('#', '')}` : undefined
+}
+
+/** Black or white, whichever reads better on a `#rrggbb` route colour. */
+export function routingLegTextColor(color: string) {
+  const [red, green, blue] = [1, 3, 5].map((offset) => parseInt(color.slice(offset, offset + 2), 16) / 255)
+    .map((channel) => channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.179 ? '#0b0f12' : '#ffffff'
+}
+
 function formatDistanceKm(distanceKm: number) {
   if (!Number.isFinite(distanceKm) || distanceKm <= 0) return '0 m'
   if (distanceKm < 1) return `${Math.round(distanceKm * 1000)} m`

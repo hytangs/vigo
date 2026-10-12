@@ -147,13 +147,20 @@ export function StorageRecovery({
   onUseDefault: () => void
 }) {
   return (
-    <section className="storage-recovery" role="alert" aria-labelledby="storage-recovery-title">
-      <AlertTriangle size={22} />
-      <div>
+    <section className="storage-recovery" aria-labelledby="storage-recovery-title" aria-busy={busy}>
+      <div className="storage-recovery-panel">
+        <div className="storage-recovery-icon" aria-hidden="true">
+          {config.storageAccessRequired ? <FolderOpen size={26} strokeWidth={1.5} /> : <AlertTriangle size={26} strokeWidth={1.5} />}
+        </div>
         <span className="eyebrow">City library</span>
-        <h1 id="storage-recovery-title">{config.storageAccessRequired ? 'Open your City library' : 'VIGO cannot write to its City library'}</h1>
-        <p>{config.offline.storageError || 'The configured folder is unavailable or read-only.'}</p>
-        <small title={config.storageRoot}>{config.storageRoot}</small>
+        <h1 id="storage-recovery-title">{config.storageAccessRequired ? 'Open your City library' : 'Your library needs attention'}</h1>
+        <p className="storage-recovery-description">{config.storageAccessRequired
+          ? 'Choose your saved library folder to access your Cities.'
+          : config.offline.storageError || 'The configured folder is unavailable or read-only.'}</p>
+        <div className="storage-recovery-location">
+          <FolderOpen size={17} aria-hidden="true" />
+          <div><span>Library folder</span><p title={config.storageRoot}>{config.storageRoot}</p></div>
+        </div>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         <div className="storage-recovery-actions">
           <button type="button" className="button button-primary" onClick={onChooseFolder} disabled={busy}>
@@ -164,6 +171,7 @@ export function StorageRecovery({
             Use default folder
           </button>
         </div>
+        <p className="storage-recovery-note">Your existing Cities stay in their saved folder.</p>
       </div>
     </section>
   )

@@ -73,6 +73,7 @@ import { journeyContinuityIssue } from './journeyIntegrity.mjs'
 import { entityFeedScope } from './networkTruth'
 import {
   joinScenarioSegmentGeometry,
+  reachTimeBands,
   routeHasPublishedShape,
   scenarioEdgeEditError,
   scenarioEdgeGeometryForBranch,
@@ -2165,7 +2166,7 @@ export default function App() {
             walkSpeedKph: scenarioWalkSpeedKph,
             surfaceSampling: reachSurfaceSampling,
             rasterSize: reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize,
-            cutoffsMinutes: [scenarioCutoffMinutes],
+            cutoffsMinutes: reachTimeBands(scenarioCutoffMinutes),
             // The final baseline surface is rendered after transit/routing
             // seeds are known. Avoid spending a second full OSM traversal on
             // a provisional walk-only surface for every scenario run.

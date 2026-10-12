@@ -1,8 +1,11 @@
+import type { Geometry } from 'geojson'
 import { emptyCollection, type FeatureCollection } from './featureGeometry'
 
 import type { LngLat } from '../domain'
 import {
+  reachBandColor,
   reachDifferenceColor,
+  reachDisplayedBands,
   reachTimeColor,
   type ReachResult,
   type ScenarioStopDraft,
@@ -44,12 +47,19 @@ export function scenarioContourFeatures(
   cutoffMinutes: number,
 ): FeatureCollection {
   if (!analysis) return emptyCollection
-  const surfaces = view === 'comparison'
-    ? ['baseline', 'scenario'] as const
-    : [view] as const
+  if (view !== 'comparison') {
+    const bands = reachDisplayedBands(analysis, cutoffMinutes)
+    const color = reachBandColor(bands, bands.length - 1)
+    return {
+      type: 'FeatureCollection',
+      features: analysis.surface.contours[view].features
+        .filter((feature) => Number(feature.properties?.cutoffMinutes) === cutoffMinutes)
+        .map((feature) => ({ ...feature, properties: { ...feature.properties, color } })),
+    }
+  }
   return {
     type: 'FeatureCollection',
-    features: surfaces.flatMap((surface) => (
+    features: (['baseline', 'scenario'] as const).flatMap((surface) => (
       analysis.surface.contours[surface].features.filter((feature) => (
         Number(feature.properties?.cutoffMinutes) === cutoffMinutes
       ))
@@ -57,15 +67,93 @@ export function scenarioContourFeatures(
   }
 }
 
+type AreaRing = LngLat[]
+type AreaPolygon = AreaRing[]
+
+function areaPolygons(geometry: Geometry | undefined): AreaPolygon[] {
+  if (geometry?.type === 'Polygon') return [geometry.coordinates as AreaPolygon]
+  if (geometry?.type === 'MultiPolygon') return geometry.coordinates as AreaPolygon[]
+  return []
+}
+
+const mercatorX = (lng: number) => (lng + 180) / 360
+const mercatorY = (lat: number) => (1 - Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)) / Math.PI) / 2
+const mercatorLat = (y: number) => Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180 / Math.PI
+
+export type ReachBandImage = {
+  canvas: HTMLCanvasElement
+  /** Top-left, top-right, bottom-right, bottom-left corners for a MapLibre canvas source. */
+  coordinates: [LngLat, LngLat, LngLat, LngLat]
+}
+
+/**
+ * Paints nested travel-time bands into one image, nearest band last, so each
+ * place shows exactly one band colour. Rasterizing avoids triangulating rings
+ * from different cutoffs, which can touch along water and unreachable cells.
+ */
+export function reachBandImage(
+  analysis: ReachResult | null | undefined,
+  view: ScenarioView,
+  cutoffMinutes: number,
+  longestSidePx = 1600,
+): ReachBandImage | null {
+  if (!analysis?.surface.areas || view === 'comparison' || typeof document === 'undefined') return null
+  const bands = reachDisplayedBands(analysis, cutoffMinutes)
+  const features = analysis.surface.areas[view].features
+  const layers = bands.map((band, index) => ({
+    color: reachBandColor(bands, index),
+    polygons: areaPolygons(features.find((feature) => Number(feature.properties?.cutoffMinutes) === band)?.geometry),
+  })).filter((layer) => layer.polygons.length)
+  if (!layers.length) return null
+  let [west, north, east, south] = [Infinity, Infinity, -Infinity, -Infinity]
+  for (const ring of layers.at(-1)!.polygons.map(([exterior]) => exterior)) {
+    for (const [lng, lat] of ring) {
+      const x = mercatorX(lng)
+      const y = mercatorY(lat)
+      west = Math.min(west, x); east = Math.max(east, x)
+      north = Math.min(north, y); south = Math.max(south, y)
+    }
+  }
+  const spanX = east - west
+  const spanY = south - north
+  if (!(spanX > 0 && spanY > 0)) return null
+  const scale = longestSidePx / Math.max(spanX, spanY)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.ceil(spanX * scale))
+  canvas.height = Math.max(1, Math.ceil(spanY * scale))
+  const context = canvas.getContext('2d')
+  if (!context) return null
+  for (const layer of [...layers].reverse()) {
+    context.fillStyle = layer.color
+    context.beginPath()
+    for (const polygon of layer.polygons) {
+      for (const ring of polygon) {
+        ring.forEach(([lng, lat], index) => {
+          const x = (mercatorX(lng) - west) * scale
+          const y = (mercatorY(lat) - north) * scale
+          if (index) context.lineTo(x, y)
+          else context.moveTo(x, y)
+        })
+        context.closePath()
+      }
+    }
+    context.fill('evenodd')
+  }
+  const left = west * 360 - 180
+  const right = east * 360 - 180
+  const top = mercatorLat(north)
+  const bottom = mercatorLat(south)
+  return { canvas, coordinates: [[left, top], [right, top], [right, bottom], [left, bottom]] }
+}
+
 export function scenarioAreaFeatures(
   analysis: ReachResult | null | undefined,
   view: ScenarioView,
   cutoffMinutes: number,
 ): FeatureCollection {
-  if (!analysis?.surface.areas) return emptyCollection
-  const surfaces = view === 'comparison'
-    ? ['baseline', 'scenario'] as const
-    : [view] as const
+  // Single-surface views are painted as time bands by reachBandImage.
+  if (!analysis?.surface.areas || view !== 'comparison') return emptyCollection
+  const surfaces = ['baseline', 'scenario'] as const
   return {
     type: 'FeatureCollection',
     features: surfaces.flatMap((surface) => (

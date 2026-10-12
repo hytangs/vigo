@@ -5,18 +5,31 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Bus,
   CalendarDays,
+  Car,
   CheckCircle2,
   ChevronRight,
   Clock3,
+  Footprints,
   LoaderCircle,
   MapPin,
   Navigation2,
   Plus,
+  RotateCcw,
+  Ship,
+  TrainFront,
+  TramFront,
   Trash2,
 } from 'lucide-react'
-import { useState, type KeyboardEvent } from 'react'
-import { formatRoutingMinutes, routingPlanRouteSequence } from '../app/presentation'
+import { useState, type CSSProperties, type KeyboardEvent } from 'react'
+import {
+  formatRoutingMinutes,
+  isSameStationTransfer,
+  routingLegColor,
+  routingLegTextColor,
+  routingPlanRouteSequence,
+} from '../app/presentation'
 import {
   routingPlanJourneyMinutes,
   routingPlanStartWaitMinutes,
@@ -41,6 +54,8 @@ import { maxRoutingPointCount, routingPointRoleLabel } from '../routingPointSequ
 import { formatScheduleClock } from '../scheduledVehicles'
 
 export type RoutingScopeStatus = 'ready' | 'building' | 'failed' | 'missing'
+
+const travelModeIcons = { transit: TrainFront, walk: Footprints, drive: Car } satisfies Record<RoutingTravelMode, unknown>
 
 const travelModeChoices = [
   ['transit', 'Transit'],
@@ -102,6 +117,62 @@ function routingAccessHintText(hint: RoutingAccessAvailabilityHint) {
     return `${role}: no station access candidate was found within the ${hint.probeWalkKm.toFixed(1)} km diagnostic search. A longer path may exist.`
   }
   return `${role}: the station-access diagnostic could not complete${hint.detail ? ` (${hint.detail})` : '.'}`
+}
+
+function RouteTypeIcon({ routeType }: { routeType?: number }) {
+  if (routeType === 3 || routeType === 11) return <Bus size={12} aria-hidden="true" />
+  if (routeType === 0 || routeType === 5) return <TramFront size={12} aria-hidden="true" />
+  if (routeType === 4) return <Ship size={12} aria-hidden="true" />
+  return <TrainFront size={12} aria-hidden="true" />
+}
+
+/** Proportional walk / wait / ride bar with the boarded services as route-coloured badges. */
+function JourneyLegStrip({ plan }: { plan: RoutingPlan }) {
+  let previousEnd = plan.legs[0]?.startMinutes ?? plan.departMinutes
+  const segments = plan.legs.flatMap((leg, index) => {
+    const wait = Math.max(0, leg.startMinutes - previousEnd)
+    previousEnd = Math.max(previousEnd, leg.endMinutes)
+    const color = routingLegColor(leg)
+    return [
+      ...wait > 0 ? [<span key={`wait-${index}`} className="pathfinder-leg-segment is-wait" style={{ flexGrow: wait }} />] : [],
+      <span
+        key={index}
+        className={classNames('pathfinder-leg-segment', `is-${leg.type}`)}
+        style={{ flexGrow: Math.max(leg.durationMinutes, 0.5), ...color ? { '--leg-color': color } : {} } as CSSProperties}
+      />,
+    ]
+  })
+  const steps = plan.legs.filter((leg) => leg.type === 'ride'
+    || (leg.durationMinutes >= 1 && !isSameStationTransfer(leg)))
+  return (
+    <span className="pathfinder-leg-strip" aria-hidden="true">
+      <span className="pathfinder-leg-bar">{segments}</span>
+      <span className="pathfinder-leg-steps">
+        {steps.map((leg, index) => {
+          const color = routingLegColor(leg)
+          return (
+            <span key={index} className="pathfinder-leg-step">
+              {index ? <ChevronRight size={11} className="pathfinder-leg-sep" /> : null}
+              {leg.type === 'ride' ? (
+                <span
+                  className="pathfinder-leg-badge"
+                  style={color ? { '--leg-color': color, '--leg-text': routingLegTextColor(color) } as CSSProperties : undefined}
+                >
+                  <RouteTypeIcon routeType={leg.routeType} />
+                  {leg.routeShortName || leg.routeId || 'Ride'}
+                </span>
+              ) : (
+                <span className="pathfinder-leg-walk">
+                  {leg.type === 'drive' ? <Car size={12} /> : <Footprints size={12} />}
+                  {formatRoutingMinutes(leg.durationMinutes)}
+                </span>
+              )}
+            </span>
+          )
+        })}
+      </span>
+    </span>
+  )
 }
 
 export function PathfinderRouteList({
@@ -192,9 +263,9 @@ export function PathfinderRouteList({
               lessWalking >= 1 ? `${formatRoutingMinutes(lessWalking)} less walking` : '',
               timeTradeoff,
             ].filter(Boolean).join(' · ')
-            const routeSequence = [plan.travelMode === 'walk' ? 'Walk only' : routingPlanRouteSequence(plan) || plan.detail,
-              plan.waypoints?.length ? `via ${plan.waypoints.length} stop${plan.waypoints.length === 1 ? '' : 's'}` : '',
-            ].filter(Boolean).join(' · ')
+            const routeSequence = plan.legs.length ? ''
+              : plan.travelMode === 'walk' ? 'Walk only' : routingPlanRouteSequence(plan) || plan.detail
+            const waypointNote = plan.waypoints?.length ? `via ${plan.waypoints.length} stop${plan.waypoints.length === 1 ? '' : 's'}` : ''
             return (
               <button
                 key={plan.id}
@@ -205,7 +276,7 @@ export function PathfinderRouteList({
                 role="radio"
                 aria-checked={selected}
                 tabIndex={selected || (!displayedPlans.some(candidate => candidate.id === selectedPlanId) && plan === displayedPlans[0]) ? 0 : -1}
-                aria-label={`${formatScheduleClock(plan.departMinutes)} to ${formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}, ${formatRoutingMinutes(totalElapsedMinutes)} total${plan.timePreference === 'depart' ? ' from requested departure' : ''}, ${plan.transfers} transfer${plan.transfers === 1 ? '' : 's'}, ${formatRoutingMinutes(plan.walkMinutes)} walking. ${tradeoff || (plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival')}. Open journey.`}
+                aria-label={`${formatScheduleClock(plan.departMinutes)} to ${formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}, ${formatRoutingMinutes(totalElapsedMinutes)} total${plan.timePreference === 'depart' ? ' from requested departure' : ''}, ${plan.transfers} transfer${plan.transfers === 1 ? '' : 's'}, ${formatRoutingMinutes(plan.walkMinutes)} walking${plan.travelMode === 'transit' && plan.legs.some((leg) => leg.type === 'ride') ? `, via ${routingPlanRouteSequence(plan).replaceAll(' -> ', ' then ')}` : ''}. ${tradeoff || (plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival')}. Open journey.`}
               >
                 <span className="pathfinder-route-time">
                   <strong>{formatScheduleClock(plan.departMinutes)} → {formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</strong>
@@ -226,8 +297,9 @@ export function PathfinderRouteList({
                   <span><b>{formatRoutingMinutes(plan.walkMinutes)}</b><small>{plan.travelMode === 'drive' ? 'access' : 'walk'}</small></span>
                   {plan.travelMode !== 'walk' ? <span><b>{formatRoutingMinutes(plan.rideMinutes)}</b><small>{plan.travelMode === 'drive' ? 'drive' : 'ride'}</small></span> : <span><b>0</b><small>vehicles</small></span>}
                 </span>
+                {plan.legs.length ? <JourneyLegStrip plan={plan} /> : null}
                 <span className="pathfinder-route-footer">
-                  <span className="pathfinder-route-sequence">{routeSequence}</span>
+                  <span className="pathfinder-route-sequence">{[routeSequence, waypointNote].filter(Boolean).join(' · ')}</span>
                   <span className="pathfinder-route-open">Details <ChevronRight size={13} aria-hidden="true" /></span>
                 </span>
               </button>
@@ -406,37 +478,140 @@ export function SidebarPathfinderBox({
     onScheduleTimeChange(Math.max(0, Math.min(1435, hours * 60 + minutes)))
   }
 
+  const routingOptions = routingMode === 'transit' ? <details className="studio-disclosure is-compact pathfinder-options">
+        <summary>
+          <span>Options</span>
+          <b>{effectiveMaxTransfers === undefined ? '' : `≤${effectiveMaxTransfers} transfers · `}{routingDepartureWindowMinutes ? 'Later departures' : 'Exact time'} · {routingMaxWalkKm.toFixed(1)} km access{routingAllowStreetTransfers === false ? ' · No street transfers' : ''}{effectiveTransferBufferMinutes > 0 ? ` · ${effectiveTransferBufferMinutes} min buffer` : ''}</b>
+        </summary>
+        <div className="pathfinder-options-body">
+          {departNow || routingTimePreference === 'depart' ? (
+            <div className="pathfinder-option-group">
+              <label>Departure search</label>
+              <div className="pathfinder-mini-switch" role="group" aria-label="Departure search window">
+                <button type="button" className={classNames(routingDepartureWindowMinutes === 0 && 'is-active')} onClick={() => onRoutingDepartureWindowChange(0)} aria-pressed={routingDepartureWindowMinutes === 0}>Exact time</button>
+                <button type="button" className={classNames(routingDepartureWindowMinutes === 20 && 'is-active')} onClick={() => onRoutingDepartureWindowChange(20)} aria-pressed={routingDepartureWindowMinutes === 20}>Later departures</button>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="pathfinder-option-group">
+            <label htmlFor="pathfinder-max-transfers">Maximum transfers</label>
+            <select
+              id="pathfinder-max-transfers"
+              value={effectiveMaxTransfers ?? ''}
+              disabled={transferLimitUnavailable}
+              aria-describedby={transferLimitUnavailable ? 'pathfinder-transfer-limit-note' : undefined}
+              onChange={(event) => onRoutingMaxTransfersChange(event.currentTarget.value === '' ? undefined : Number(event.currentTarget.value))}
+            >
+              <option value="">Unlimited</option>
+              {Array.from({ length: 32 }, (_, count) => (
+                <option key={count} value={count}>{count === 0 ? '0 — Direct services only' : count}</option>
+              ))}
+            </select>
+            {transferLimitUnavailable ? <p id="pathfinder-transfer-limit-note">Transfer limits are available for routes without via points.</p> : null}
+          </div>
+
+          <div className="pathfinder-option-group">
+            <label htmlFor="pathfinder-street-transfers">Walking transfers</label>
+            <label className="pathfinder-option-check" htmlFor="pathfinder-street-transfers">
+              <input
+                id="pathfinder-street-transfers"
+                type="checkbox"
+                checked={routingAllowStreetTransfers}
+                aria-describedby="pathfinder-street-transfers-help"
+                onChange={(event) => onRoutingAllowStreetTransfersChange(event.currentTarget.checked)}
+              />
+              <span>Allow walks between stations or stops</span>
+            </label>
+            <small id="pathfinder-street-transfers-help">
+              {routingAllowStreetTransfers
+                ? 'Include walking connections between separate stations or stops. Station paths and fare eligibility may remain unverified.'
+                : 'Change services at the same stop or within one station. Walking to your first stop and from your last stop is still allowed; station paths may remain unverified.'}
+            </small>
+          </div>
+
+          <div className="pathfinder-option-group">
+            <label htmlFor="pathfinder-transfer-buffer">Minimum transfer buffer</label>
+            <select
+              id="pathfinder-transfer-buffer"
+              value={effectiveTransferBufferMinutes}
+              disabled={transferLimitUnavailable}
+              aria-describedby="pathfinder-transfer-buffer-help"
+              onChange={(event) => onRoutingMinimumTransferBufferChange(Number(event.currentTarget.value))}
+            >
+              {[0, 1, 2, 3, 5, 10, 15, 20, 30, 60].map(minutes => (
+                <option key={minutes} value={minutes}>{minutes === 0 ? '0 min — No extra buffer' : `${minutes} min`}</option>
+              ))}
+            </select>
+            <small id="pathfinder-transfer-buffer-help">{transferLimitUnavailable
+              ? 'Transfer buffers are available for routes without via points.'
+              : 'Extra time before boarding your next service, after any transfer walk. Your first boarding is unaffected.'}</small>
+          </div>
+
+          <div className="pathfinder-option-group pathfinder-walk-limit">
+            <label htmlFor="pathfinder-walk-range">Access/egress limit <strong>{routingMaxWalkKm.toFixed(1)} km</strong></label>
+            <input
+              id="pathfinder-walk-range"
+              type="range"
+              min={0.2}
+              max={5}
+              step={0.1}
+              value={routingMaxWalkKm}
+              onChange={(event) => onRoutingMaxWalkKmChange(Number(event.currentTarget.value))}
+              aria-valuetext={`${routingMaxWalkKm.toFixed(1)} kilometers`}
+            />
+            <div className="pathfinder-walk-presets" role="group" aria-label="Access and egress walk limit presets">
+              {routingMaxWalkOptions.map((km) => {
+                const selected = Math.abs(routingMaxWalkKm - km) < 0.05
+                return (
+                  <button key={km} type="button" className={classNames(selected && 'is-active')} onClick={() => onRoutingMaxWalkKmChange(km)} aria-pressed={selected}>
+                    {km.toFixed(1)}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="pathfinder-option-group">
+            <label htmlFor="pathfinder-long-walk">Walk-only fallback</label>
+            <label className="pathfinder-option-check" htmlFor="pathfinder-long-walk">
+              <input
+                id="pathfinder-long-walk"
+                type="checkbox"
+                checked={routingAllowLongWalk}
+                onChange={(event) => onRoutingAllowLongWalkChange(event.currentTarget.checked)}
+              />
+              <span>Allow longer end-to-end walks</span>
+            </label>
+            <small>
+              {routingAllowLongWalk
+                ? 'Transit may be compared with a graph-verified walk beyond the endpoint access limit.'
+                : 'Walk-only results stay within the endpoint access limit; transit is not replaced by a long walk.'}
+            </small>
+          </div>
+        </div>
+      </details> : null
+
   return (
     <section className="sidebar-section sidebox sidebox-pathfinder pathfinder-query" aria-label="Routing controls">
       <form className="pathfinder-composer" onSubmit={(event) => { event.preventDefault(); if (canRun) onRunRouting() }}>
-        <div className="pathfinder-composer-heading">
-          <span><strong>Route points</strong><small>{points.length}/{maxRoutingPointCount}</small></span>
-          <button type="button" className="pathfinder-new-route" onClick={onClearRouting} disabled={!points.length}>
-            <Plus size={14} aria-hidden="true" /><span>New route</span>
+        <div className="pathfinder-setup-head">
+          <div className="pathfinder-mode-switch" role="group" aria-label="Travel mode">
+            {travelModeChoices.map(([mode, label]) => {
+              const Icon = travelModeIcons[mode]
+              return (
+                <button key={mode} type="button" className={classNames(routingMode === mode && 'is-active')} onClick={() => onRoutingModeChange(mode)} aria-pressed={routingMode === mode}>
+                  <Icon size={14} aria-hidden="true" /><span>{label}</span>
+                </button>
+              )
+            })}
+          </div>
+          <button type="button" className="pathfinder-new-route" onClick={onClearRouting} disabled={!points.length} aria-label="New route" title="Clear points and start a new route">
+            <RotateCcw size={14} aria-hidden="true" />
           </button>
         </div>
-        <div className="pathfinder-stage pathfinder-stage-mode">
-          <div className="studio-tabs pathfinder-mode-selector" role="group" aria-label="Travel mode">
-            {travelModeChoices.map(([mode, label]) => (
-              <button key={mode} type="button" className={classNames(routingMode === mode && 'is-active')} onClick={() => onRoutingModeChange(mode)} aria-pressed={routingMode === mode}>{label}</button>
-            ))}
-          </div>
-        </div>
-        {routingMode === 'transit' ? <div className="pathfinder-stage pathfinder-data-mode">
-          <div className="studio-tabs pathfinder-segmented" role="group" aria-label="Transit data mode" aria-describedby="pathfinder-data-mode-help">
-            <button type="button" className={classNames(routingDataMode === 'realtime' && 'is-active')} aria-pressed={routingDataMode === 'realtime'} onClick={() => onRoutingDataModeChange('realtime')}>Realtime</button>
-            <button type="button" className={classNames(routingDataMode === 'scheduled' && 'is-active')} aria-pressed={routingDataMode === 'scheduled'} onClick={() => onRoutingDataModeChange('scheduled')}>Scheduled</button>
-          </div>
-          <p className="pathfinder-points-hint" id="pathfinder-data-mode-help">{routingDataMode === 'scheduled'
-            ? 'Published timetable for your chosen date and time.'
-            : 'Live updates where available; scheduled times otherwise.'}</p>
-        </div> : null}
+
         <div className="pathfinder-stage pathfinder-stage-points">
-          <div className="pathfinder-stage-actions">
-            <button type="button" className="pathfinder-swap" onClick={() => onReorderRoutingPoints([...points].reverse())} disabled={points.length < 2} aria-label="Reverse route sequence">
-              <ArrowUpDown size={14} aria-hidden="true" /><span>Reverse</span>
-            </button>
-          </div>
           <div className="pathfinder-location-stack">
             {pointRows.map((point, index) => {
               const role = index === 0 ? 'From' : index === pointRows.length - 1 ? 'To' : `Via ${index}`
@@ -446,7 +621,7 @@ export function SidebarPathfinderBox({
                   <span className={classNames('pathfinder-location-mark', index === 0 ? 'is-origin' : index === pointRows.length - 1 ? 'is-destination' : 'is-waypoint')} aria-hidden="true" />
                   <button type="button" className="pathfinder-coordinate-point" aria-label={`${point ? 'Repick' : 'Pick'} ${role.toLowerCase()} on map`} aria-pressed={selected} onClick={() => onPickRoutingPoint(index)} disabled={index > points.length}>
                     <small>{role}</small>
-                    <strong>{point ? `${point.coordinate[1].toFixed(5)}, ${point.coordinate[0].toFixed(5)}` : 'Pick on map'}</strong>
+                    <strong className={classNames(!point && 'is-empty')}>{point ? `${point.coordinate[1].toFixed(5)}, ${point.coordinate[0].toFixed(5)}` : selected ? 'Click the map…' : 'Pick on map'}</strong>
                   </button>
                   {point ? <span className="pathfinder-location-actions">
                     <button type="button" onClick={() => movePoint(index, -1)} disabled={index === 0} aria-label={`Move ${role.toLowerCase()} earlier`}><ArrowUp size={13} /></button>
@@ -456,18 +631,28 @@ export function SidebarPathfinderBox({
                 </div>
               )
             })}
+            <div className="pathfinder-stop-controls" role="group" aria-label="Add route points">
+              <button type="button" className="pathfinder-add-stop" onClick={() => onPickRoutingPoint(null)} disabled={mapPointLimitReached || routingEnabled} title={`${points.length} of ${maxRoutingPointCount} route points`}>
+                <Plus size={14} aria-hidden="true" /><span>Add stop</span>
+              </button>
+              {routingEnabled ? <button type="button" className="pathfinder-map-pick is-active" onClick={onToggleRouting}><CheckCircle2 size={14} aria-hidden="true" /><span>Done</span></button> : null}
+              <button type="button" className="pathfinder-swap" onClick={() => onReorderRoutingPoints([...points].reverse())} disabled={points.length < 2} aria-label="Reverse route sequence" title="Reverse route">
+                <ArrowUpDown size={14} aria-hidden="true" />
+              </button>
+            </div>
           </div>
-          <div className="pathfinder-stop-controls" role="group" aria-label="Add route points">
-            <button type="button" className="pathfinder-add-stop" onClick={() => onPickRoutingPoint(null)} disabled={mapPointLimitReached || routingEnabled}>
-              <Plus size={15} aria-hidden="true" /><span>Add point</span>
-            </button>
-            {routingEnabled ? <button type="button" className="pathfinder-map-pick is-active" onClick={onToggleRouting}><CheckCircle2 size={15} aria-hidden="true" /><span>Done picking</span></button> : null}
-          </div>
-          {routingEnabled ? <p className="pathfinder-points-hint" role="status">{pickLabel}</p> : null}
+          {routingEnabled ? <p className="pathfinder-points-hint" role="status">{pickLabel} on the map</p> : null}
         </div>
 
         <div className="pathfinder-stage pathfinder-stage-time">
           <div className="pathfinder-when" aria-label="Journey time and date">
+            <div className="pathfinder-when-head">
+              <span>When</span>
+              {routingMode === 'transit' ? <div className="pathfinder-mini-switch" role="group" aria-label="Transit data mode" aria-describedby="pathfinder-data-mode-help">
+                <button type="button" className={classNames(routingDataMode === 'realtime' && 'is-active')} aria-pressed={routingDataMode === 'realtime'} onClick={() => onRoutingDataModeChange('realtime')}>Realtime</button>
+                <button type="button" className={classNames(routingDataMode === 'scheduled' && 'is-active')} aria-pressed={routingDataMode === 'scheduled'} onClick={() => onRoutingDataModeChange('scheduled')}>Scheduled</button>
+              </div> : null}
+            </div>
             {departNow ? <div className="pathfinder-time-field pathfinder-depart-now" title="Each run departs at the current time in the transit agency’s timezone.">
               <Clock3 size={14} aria-hidden="true" />
               <strong>Depart now</strong>
@@ -492,22 +677,24 @@ export function SidebarPathfinderBox({
               </label>
             </div>
             {routingMode === 'transit' ? <label className={classNames('pathfinder-date-field', routingServiceDateAvailability === 'outside' && 'is-outside')}>
-              <CalendarDays size={15} aria-hidden="true" />
-              <span>
-                <small>Service date</small>
-                <input
-                  type="date"
-                  value={routingServiceDate}
-                  min={routingServiceCoverage?.completeStartDate}
-                  max={routingServiceCoverage?.completeEndDate}
-                  onChange={(event) => onRoutingServiceDateChange(event.currentTarget.value)}
-                  aria-label="Routing service date"
-                />
-              </span>
+              <CalendarDays size={14} aria-hidden="true" />
+              <input
+                type="date"
+                value={routingServiceDate}
+                min={routingServiceCoverage?.completeStartDate}
+                max={routingServiceCoverage?.completeEndDate}
+                onChange={(event) => onRoutingServiceDateChange(event.currentTarget.value)}
+                aria-label="Routing service date"
+              />
             </label> : null}
             </>}
+            {routingMode === 'transit' ? <p className="pathfinder-points-hint" id="pathfinder-data-mode-help">{routingDataMode === 'scheduled'
+              ? 'Published timetable for your chosen date and time.'
+              : 'Live updates where available; scheduled times otherwise.'}</p> : null}
           </div>
         </div>
+
+        {routingOptions}
 
         <div className="pathfinder-stage pathfinder-stage-route">
           <button type="submit" className="pathfinder-directions-button" disabled={!canRun}>
@@ -617,119 +804,7 @@ export function SidebarPathfinderBox({
           onSelect={onSelectRoutingPlan}
       />
 
-      {routingMode === 'transit' ? <details className="studio-disclosure pathfinder-options">
-        <summary>
-          <span>Route options</span>
-          <b>{effectiveMaxTransfers === undefined ? '' : `≤${effectiveMaxTransfers} transfers · `}{routingDepartureWindowMinutes ? 'Later departures' : 'Exact time'} · {routingMaxWalkKm.toFixed(1)} km access{routingAllowStreetTransfers === false ? ' · No street transfers' : ''}{effectiveTransferBufferMinutes > 0 ? ` · ${effectiveTransferBufferMinutes} min buffer` : ''}</b>
-        </summary>
-        <div className="pathfinder-options-body">
-          {departNow || routingTimePreference === 'depart' ? (
-            <div className="pathfinder-option-group">
-              <label>Departure search</label>
-              <div className="studio-tabs pathfinder-segmented" role="group" aria-label="Departure search window">
-                <button type="button" className={classNames(routingDepartureWindowMinutes === 0 && 'is-active')} onClick={() => onRoutingDepartureWindowChange(0)} aria-pressed={routingDepartureWindowMinutes === 0}>Exact time</button>
-                <button type="button" className={classNames(routingDepartureWindowMinutes === 20 && 'is-active')} onClick={() => onRoutingDepartureWindowChange(20)} aria-pressed={routingDepartureWindowMinutes === 20}>Later departures</button>
-              </div>
-            </div>
-          ) : null}
 
-          <div className="pathfinder-option-group">
-            <label htmlFor="pathfinder-max-transfers">Maximum transfers</label>
-            <select
-              id="pathfinder-max-transfers"
-              value={effectiveMaxTransfers ?? ''}
-              disabled={transferLimitUnavailable}
-              aria-describedby={transferLimitUnavailable ? 'pathfinder-transfer-limit-note' : undefined}
-              onChange={(event) => onRoutingMaxTransfersChange(event.currentTarget.value === '' ? undefined : Number(event.currentTarget.value))}
-            >
-              <option value="">Unlimited</option>
-              {Array.from({ length: 32 }, (_, count) => (
-                <option key={count} value={count}>{count === 0 ? '0 — Direct services only' : count}</option>
-              ))}
-            </select>
-            {transferLimitUnavailable ? <p id="pathfinder-transfer-limit-note">Transfer limits are available for routes without via points.</p> : null}
-          </div>
-
-          <div className="pathfinder-option-group">
-            <label htmlFor="pathfinder-street-transfers">Walking transfers</label>
-            <label className="pathfinder-option-check" htmlFor="pathfinder-street-transfers">
-              <input
-                id="pathfinder-street-transfers"
-                type="checkbox"
-                checked={routingAllowStreetTransfers}
-                aria-describedby="pathfinder-street-transfers-help"
-                onChange={(event) => onRoutingAllowStreetTransfersChange(event.currentTarget.checked)}
-              />
-              <span>Allow walks between stations or stops</span>
-            </label>
-            <small id="pathfinder-street-transfers-help">
-              {routingAllowStreetTransfers
-                ? 'Include walking connections between separate stations or stops. Station paths and fare eligibility may remain unverified.'
-                : 'Change services at the same stop or within one station. Walking to your first stop and from your last stop is still allowed; station paths may remain unverified.'}
-            </small>
-          </div>
-
-          <div className="pathfinder-option-group">
-            <label htmlFor="pathfinder-transfer-buffer">Minimum transfer buffer</label>
-            <select
-              id="pathfinder-transfer-buffer"
-              value={effectiveTransferBufferMinutes}
-              disabled={transferLimitUnavailable}
-              aria-describedby="pathfinder-transfer-buffer-help"
-              onChange={(event) => onRoutingMinimumTransferBufferChange(Number(event.currentTarget.value))}
-            >
-              {[0, 1, 2, 3, 5, 10, 15, 20, 30, 60].map(minutes => (
-                <option key={minutes} value={minutes}>{minutes === 0 ? '0 min — No extra buffer' : `${minutes} min`}</option>
-              ))}
-            </select>
-            <small id="pathfinder-transfer-buffer-help">{transferLimitUnavailable
-              ? 'Transfer buffers are available for routes without via points.'
-              : 'Extra time before boarding your next service, after any transfer walk. Your first boarding is unaffected.'}</small>
-          </div>
-
-          <div className="pathfinder-option-group pathfinder-walk-limit">
-            <label htmlFor="pathfinder-walk-range">Access/egress limit <strong>{routingMaxWalkKm.toFixed(1)} km</strong></label>
-            <input
-              id="pathfinder-walk-range"
-              type="range"
-              min={0.2}
-              max={5}
-              step={0.1}
-              value={routingMaxWalkKm}
-              onChange={(event) => onRoutingMaxWalkKmChange(Number(event.currentTarget.value))}
-              aria-valuetext={`${routingMaxWalkKm.toFixed(1)} kilometers`}
-            />
-            <div className="pathfinder-walk-presets" role="group" aria-label="Access and egress walk limit presets">
-              {routingMaxWalkOptions.map((km) => {
-                const selected = Math.abs(routingMaxWalkKm - km) < 0.05
-                return (
-                  <button key={km} type="button" className={classNames(selected && 'is-active')} onClick={() => onRoutingMaxWalkKmChange(km)} aria-pressed={selected}>
-                    {km.toFixed(1)}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="pathfinder-option-group">
-            <label htmlFor="pathfinder-long-walk">Walk-only fallback</label>
-            <label className="pathfinder-option-check" htmlFor="pathfinder-long-walk">
-              <input
-                id="pathfinder-long-walk"
-                type="checkbox"
-                checked={routingAllowLongWalk}
-                onChange={(event) => onRoutingAllowLongWalkChange(event.currentTarget.checked)}
-              />
-              <span>Allow longer end-to-end walks</span>
-            </label>
-            <small>
-              {routingAllowLongWalk
-                ? 'Transit may be compared with a graph-verified walk beyond the endpoint access limit.'
-                : 'Walk-only results stay within the endpoint access limit; transit is not replaced by a long walk.'}
-            </small>
-          </div>
-        </div>
-      </details> : null}
     </section>
   )
 }

@@ -352,6 +352,35 @@ export function reachTimeColor(progress: number): [number, number, number] {
   return [...reachTimeRamp.at(-1)?.[1] ?? [255, 103, 87]] as [number, number, number]
 }
 
+const reachBandSteps = [5, 10, 15, 20, 30, 60]
+
+/**
+ * Round-minute isochrone bands below the budget. The exact budget is always
+ * the last band, and a band within half a step of it is dropped as a sliver.
+ */
+export function reachTimeBands(budgetMinutes: number): number[] {
+  const step = reachBandSteps.find((candidate) => budgetMinutes / candidate <= 4) ?? reachBandSteps.at(-1)!
+  const bands: number[] = []
+  for (let band = step; band <= budgetMinutes - step / 2; band += step) bands.push(band)
+  return [...bands, budgetMinutes]
+}
+
+/** Bands available in a result at or below the displayed cutoff. */
+export function reachDisplayedBands(analysis: ReachResult | null | undefined, cutoffMinutes: number): number[] {
+  const requested = analysis?.request.cutoffsMinutes ?? []
+  const bands = requested.filter((band) => band < cutoffMinutes)
+  return [...bands, cutoffMinutes]
+}
+
+/** A band covers (previous, band]; colour it by its midpoint on the elapsed-time ramp. */
+export function reachBandColor(bands: readonly number[], index: number): string {
+  const lower = index > 0 ? bands[index - 1] : 0
+  const upper = bands[index]
+  const top = bands.at(-1) ?? upper
+  const [red, green, blue] = reachTimeColor(top > 0 ? (lower + upper) / 2 / top : 1)
+  return `rgb(${red}, ${green}, ${blue})`
+}
+
 export function reachDifferenceColor(deltaMinutes: number): [number, number, number] {
   const normalized = Number.isFinite(deltaMinutes)
     ? Math.max(-1, Math.min(1, deltaMinutes / reachDifferenceCapMinutes))

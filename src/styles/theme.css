@@ -597,64 +597,99 @@
 /* Pathfinder reads as one editor-like form, not a stack of cards. */
 .pathfinder-composer {
   display: grid;
-  gap: 13px;
+  gap: 10px;
   padding: 0;
   border: 0;
   background: transparent;
 }
 
-.pathfinder-composer-heading {
-  min-width: 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 2px 0 1px;
-}
-
-.pathfinder-composer-heading > span {
+.pathfinder-setup-head {
   min-width: 0;
   display: grid;
-  gap: 3px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
 }
 
-.pathfinder-composer-heading strong {
-  color: var(--text-strong);
-  font-size: 0.84rem;
-  font-weight: 690;
-  line-height: 1.2;
+.pathfinder-mode-switch,
+.pathfinder-mini-switch {
+  min-width: 0;
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--panel-soft);
 }
 
-.pathfinder-composer-heading small {
-  color: var(--text-muted);
-  font-size: 0.67rem;
-  line-height: 1.35;
-}
-
-.pathfinder-new-route {
-  min-height: 32px;
+.pathfinder-mode-switch button,
+.pathfinder-mini-switch button {
+  min-width: 0;
+  min-height: 30px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  flex: 0 0 auto;
-  padding: 0 9px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pathfinder-mode-switch button:hover:not(.is-active),
+.pathfinder-mini-switch button:hover:not(.is-active) {
+  color: var(--text-strong);
+}
+
+.pathfinder-mode-switch button.is-active,
+.pathfinder-mini-switch button.is-active {
   color: var(--text-strong);
   background: var(--control-surface-strong);
-  font-size: 0.67rem;
-  font-weight: 650;
-  white-space: nowrap;
+  box-shadow: 0 1px 3px color-mix(in srgb, #000 14%, transparent);
 }
 
-.pathfinder-new-route:hover {
+.pathfinder-mode-switch button.is-active svg {
+  color: var(--vigo-lime-strong);
+}
+
+.pathfinder-mini-switch {
+  padding: 2px;
+  border-radius: 8px;
+}
+
+.pathfinder-mini-switch button {
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 0.64rem;
+}
+
+.pathfinder-new-route {
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.pathfinder-new-route:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pathfinder-new-route:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--accent) 36%, var(--border-strong));
   background: var(--hover-surface);
-}
-
-.pathfinder-new-route svg {
-  color: var(--vigo-lime-strong);
 }
 
 .pathfinder-stage {
@@ -663,38 +698,6 @@
   gap: 8px;
   padding: 0;
   border: 0;
-}
-
-.pathfinder-stage-actions {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-}
-
-.pathfinder-stage-actions .pathfinder-swap {
-  position: static;
-  width: auto;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  margin-left: auto;
-  padding: 0 6px;
-  border: 0;
-  border-radius: 8px;
-  color: var(--text-muted);
-  background: transparent;
-  transform: none;
-  font-size: 0.66rem;
-  font-weight: 590;
-}
-
-.pathfinder-stage-actions .pathfinder-swap:hover:not(:disabled) {
-  border: 0;
-  color: var(--text-strong);
-  background: var(--hover-surface);
 }
 
 .pathfinder-location-stack {
@@ -709,12 +712,12 @@
 .pathfinder-location-field {
   position: relative;
   min-width: 0;
-  min-height: 58px;
+  min-height: 46px;
   display: grid;
   grid-template-columns: 12px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 9px;
-  padding: 7px 8px 7px 13px;
+  gap: 10px;
+  padding: 4px 8px 4px 13px;
   background: var(--control-surface-strong);
 }
 
@@ -734,9 +737,9 @@
 
 .pathfinder-coordinate-point {
   display: grid;
-  gap: 5px;
+  gap: 2px;
   min-width: 0;
-  padding: 5px 0;
+  padding: 4px 0;
   border: 0;
   color: var(--text-strong);
   background: transparent;
@@ -746,14 +749,25 @@
 
 .pathfinder-coordinate-point small {
   color: var(--text-muted);
-  font-size: 0.65rem;
+  font-size: 0.6rem;
+  font-weight: 640;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .pathfinder-coordinate-point strong {
-  font-size: 0.72rem;
-  font-weight: 550;
+  overflow: hidden;
+  font-size: 0.74rem;
+  font-weight: 560;
   font-variant-numeric: tabular-nums;
-  line-height: 1.45;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pathfinder-coordinate-point strong.is-empty {
+  color: var(--text-muted);
+  font-weight: 500;
 }
 
 .pathfinder-coordinate-point:disabled {
@@ -769,11 +783,22 @@
 .pathfinder-location-mark {
   position: relative;
   z-index: 1;
+  overflow: visible;
   width: 8px;
   height: 8px;
   border: 2px solid var(--text-soft);
   border-radius: 50%;
   background: var(--control-surface-strong);
+}
+
+.pathfinder-location-field:has(+ .pathfinder-location-field) .pathfinder-location-mark::after {
+  content: "";
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 50%;
+  height: 28px;
+  border-left: 2px dotted var(--border-strong);
+  transform: translateX(-50%);
 }
 
 .pathfinder-location-mark.is-waypoint {
@@ -785,15 +810,6 @@
   border-color: var(--vigo-lime-strong);
   border-radius: 2px;
   background: var(--vigo-lime);
-}
-
-.pathfinder-date-field small {
-  color: var(--text-muted);
-  font-size: 0.64rem;
-  font-weight: 640;
-  letter-spacing: 0.055em;
-  line-height: 1;
-  text-transform: uppercase;
 }
 
 .pathfinder-location-actions {
@@ -898,44 +914,26 @@
 
 .pathfinder-stop-controls {
   min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 8px;
+  border-top: 1px solid var(--border);
 }
 
-.pathfinder-stop-controls .pathfinder-add-stop,
-.pathfinder-stop-controls .pathfinder-map-pick {
-  width: 100%;
-  min-height: 36px;
-  padding: 0 9px;
-  border: 1px solid var(--border-strong);
-  border-radius: 9px;
-  color: var(--text-strong);
-  background: var(--control-surface-strong);
-  font-size: 0.69rem;
-  font-weight: 650;
+.pathfinder-stop-controls .pathfinder-swap {
+  position: static;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  transform: none;
 }
 
-.pathfinder-stop-controls .pathfinder-add-stop:hover:not(:disabled),
-.pathfinder-stop-controls .pathfinder-map-pick:hover:not(:disabled),
-.pathfinder-stop-controls .pathfinder-map-pick.is-active {
-  border-color: color-mix(in srgb, var(--accent) 38%, var(--border-strong));
-  color: var(--text-strong);
+.pathfinder-stop-controls .pathfinder-swap:hover:not(:disabled) {
+  border: 0;
   background: var(--hover-surface);
-}
-
-.pathfinder-stop-controls .pathfinder-map-pick.is-active {
-  box-shadow: inset 3px 0 0 var(--vigo-lime-strong);
-}
-
-.pathfinder-stop-controls .pathfinder-map-pick.is-active svg {
-  color: var(--vigo-lime-strong);
-}
-
-.pathfinder-stop-controls .pathfinder-add-stop:disabled,
-.pathfinder-stop-controls .pathfinder-map-pick:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
 }
 
 .pathfinder-points-hint {
@@ -954,9 +952,27 @@
 .pathfinder-when {
   display: grid;
   gap: 8px;
-  padding: 0;
-  border: 0;
-  background: transparent;
+  padding: 9px 10px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--control-surface-strong);
+}
+
+.pathfinder-when-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.pathfinder-when-head > span {
+  color: var(--text-muted);
+  font-size: 0.6rem;
+  font-weight: 640;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .pathfinder-when-row {
@@ -1006,7 +1022,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 36px;
+  min-height: 34px;
   color: var(--text-strong);
   font-size: 13px;
 }
@@ -1020,8 +1036,10 @@
 }
 
 .pathfinder-date-field {
-  min-height: 44px;
-  padding: 4px 10px;
+  min-height: 36px;
+  padding: 0 9px;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 4px;
 }
 
 .pathfinder-date-field.is-outside {
@@ -1244,8 +1262,33 @@
 }
 
 .pathfinder-options {
-  margin-top: 7px;
+  margin-top: 0;
   overflow: visible;
+}
+
+/* Setup panels: a single-line disclosure that reads as part of the form. */
+.studio-disclosure.is-compact {
+  border-top: 0;
+  border-bottom: 0;
+}
+
+.studio-disclosure.is-compact > summary {
+  min-height: 34px;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 6px 2px;
+  color: var(--text-strong);
+  font-size: 0.74rem;
+}
+
+.studio-disclosure.is-compact > summary::before {
+  width: 10px;
+  color: var(--text-muted);
+  font-size: 16px;
+}
+
+.studio-disclosure.is-compact > summary > b {
+  font-size: 0.66rem;
 }
 
 .pathfinder-options-body {
@@ -1646,4 +1689,79 @@
 
 .app-shell .map-vehicle-journey > div + div {
   border-top-color: var(--border);
+}
+
+.pathfinder-leg-strip {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.pathfinder-leg-bar {
+  display: flex;
+  gap: 2px;
+  height: 5px;
+}
+
+.pathfinder-leg-segment {
+  min-width: 3px;
+  flex-basis: 0;
+  border-radius: 999px;
+  background: var(--leg-color, var(--vigo-lime-strong));
+}
+
+.pathfinder-leg-segment.is-walk {
+  background: repeating-linear-gradient(90deg, var(--text-muted) 0 3px, transparent 3px 5px);
+  opacity: 0.7;
+}
+
+.pathfinder-leg-segment.is-drive {
+  background: var(--text-soft);
+}
+
+.pathfinder-leg-segment.is-wait {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.pathfinder-leg-steps {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 2px;
+}
+
+.pathfinder-leg-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pathfinder-leg-sep {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.pathfinder-leg-badge,
+.pathfinder-leg-walk {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+  font-size: 0.72rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.pathfinder-leg-badge {
+  padding: 1px 7px 1px 5px;
+  border-radius: 5px;
+  color: var(--leg-text, var(--text-strong));
+  background: var(--leg-color, var(--panel-soft));
+}
+
+.pathfinder-leg-walk {
+  padding: 1px 2px;
+  color: var(--text-muted);
+  font-weight: 560;
 }

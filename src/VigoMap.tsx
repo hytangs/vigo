@@ -17,6 +17,7 @@ import {
   existingScenarioComparisonLayerIds,
   reachComparisonLayerIds,
   reachResultLayerIds,
+  setReachBandImage,
   setVisibility,
   stopLayerIds,
 } from './map/layers'
@@ -24,6 +25,7 @@ import { accessFeatures, directionLabel, routeDisplayName, routeFeatures, segmen
 import {
   reachComparisonAreaFeatures,
   reachComparisonContourFeatures,
+  reachBandImage,
   reachComparisonEdgeFeatures,
   scenarioAreaFeatures,
   scenarioContourFeatures,
@@ -553,6 +555,10 @@ export function VigoMap({
       : emptyCollection,
     [reachResult, scenarioCutoffMinutes, scenarioRenderMode, scenarioView],
   )
+  const reachBandImageData = useMemo(
+    () => scenarioRenderMode === 'area' ? reachBandImage(reachResult, scenarioView, scenarioCutoffMinutes) : null,
+    [reachResult, scenarioCutoffMinutes, scenarioRenderMode, scenarioView],
+  )
   const scenarioAccessEdgesGeoJson = useMemo(
     () => scenarioRenderMode === 'streets'
       ? scenarioEdgeFeatures(reachResult, scenarioView, scenarioCutoffMinutes)
@@ -954,6 +960,7 @@ export function VigoMap({
     const update = () => {
       ensureLayers(map, comparisonEntries.length)
       setMapSourceData(source(map, 'vigo-scenario-area'), scenarioAreaGeoJson)
+      setReachBandImage(map, reachBandImageData)
       setStreetMapSourceData(source(map, 'vigo-scenario-access-edges'), scenarioAccessEdgesGeoJson)
       setMapSourceData(source(map, 'vigo-service-edges'), serviceDecomposition?.featureCollection ?? emptyCollection)
       setMapSourceData(source(map, 'vigo-scenario-contours'), scenarioContoursGeoJson)
@@ -967,7 +974,7 @@ export function VigoMap({
         setMapSourceData(source(map, `vigo-scenario-comparison-${index}-contours`), comparisonContoursGeoJson[index] ?? emptyCollection)
       })
       setVisibility(map, reachResultLayerIds, scenarioFocus)
-      setVisibility(map, ['vigo-scenario-area', 'vigo-scenario-contours'], scenarioFocus && scenarioRenderMode === 'area')
+      setVisibility(map, ['vigo-reach-bands', 'vigo-scenario-area', 'vigo-scenario-contours'], scenarioFocus && scenarioRenderMode === 'area')
       setVisibility(map, ['vigo-scenario-access-edges'], scenarioFocus && scenarioRenderMode === 'streets')
       setVisibility(map, existingScenarioComparisonLayerIds(map), false)
       setVisibility(map, reachComparisonLayerIds(comparisonEntries.length), scenarioFocus)
@@ -980,7 +987,7 @@ export function VigoMap({
       if (mapRemovedRef.current) return
       map.off('load', update)
     }
-  }, [comparisonAccessEdgesGeoJson, comparisonAreasGeoJson, comparisonContoursGeoJson, comparisonEntries, scenarioAccessEdgesGeoJson, reachResult, scenarioAreaGeoJson, scenarioContoursGeoJson, scenarioFocus, scenarioRenderMode, scenarioSketchGeoJson, serviceDecomposition])
+  }, [comparisonAccessEdgesGeoJson, comparisonAreasGeoJson, comparisonContoursGeoJson, comparisonEntries, scenarioAccessEdgesGeoJson, reachBandImageData, reachResult, scenarioAreaGeoJson, scenarioContoursGeoJson, scenarioFocus, scenarioRenderMode, scenarioSketchGeoJson, serviceDecomposition])
 
   // Editing overlays or refreshing unrelated state must not reset a user's
   // pan/zoom. Only a newly selected accessibility result changes the viewport.

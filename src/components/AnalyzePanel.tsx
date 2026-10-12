@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRight,
   CircleDot,
@@ -27,7 +27,9 @@ import { AnalysisOriginPicker } from './AnalysisOriginPicker'
 import { OperationProgress } from './OperationProgress'
 import { AnalysisNumberField, ReachSettings } from './ReachSettings'
 import {
+  reachBandColor,
   reachDifferenceCapMinutes,
+  reachDisplayedBands,
   reachDifferenceGradient,
   reachTimeGradient,
   scenarioReachedAreaKm2,
@@ -210,15 +212,42 @@ function serviceTimeLabel(minutes: number) {
 }
 
 function ReachSurfaceLegend({
+  analysis,
   view,
+  renderMode,
   cutoffMinutes,
   terminalWalkKm,
 }: {
+  analysis: ReachResult
   view: ScenarioView
+  renderMode: ScenarioRenderMode
   cutoffMinutes: number
   terminalWalkKm: number
 }) {
   const difference = view === 'comparison'
+  if (!difference && renderMode === 'area') {
+    const surface = view === 'scenario' ? 'scenario' : 'baseline'
+    const bands = reachDisplayedBands(analysis, cutoffMinutes)
+    const areas = bands.map((band) => scenarioReachedAreaKm2(analysis, surface, band))
+    const largest = Math.max(...areas, Number.EPSILON)
+    return (
+      <div className="reach-surface-legend" role="group" aria-label={`${surface === 'baseline' ? 'Baseline' : 'Scenario'} travel time bands`}>
+        <div className="reach-surface-legend-head">
+          <strong>{surface === 'baseline' ? 'Baseline' : 'Scenario'}</strong>
+          <small>Area reached by elapsed time · final walk ≤ {terminalWalkKm} km</small>
+        </div>
+        <ol className="reach-band-list">
+          {bands.map((band, index) => (
+            <li key={band} style={{ '--reach-band': reachBandColor(bands, index), '--reach-band-share': `${areas[index] / largest * 100}%` } as CSSProperties}>
+              <span className="reach-band-label">≤ {band} min</span>
+              <span className="reach-band-bar" aria-hidden="true" />
+              <b>{reachDecimal(areas[index], areas[index] < 10 ? 1 : 0)} km²</b>
+            </li>
+          ))}
+        </ol>
+      </div>
+    )
+  }
   return (
     <div
       className={classNames('reach-surface-legend', difference && 'is-difference')}
@@ -715,7 +744,7 @@ export function AnalyzePanel({
       : dataPreparing ? 'Data is being prepared. You can choose the origin while it runs.'
         : mode === 'compare' && feeds.length >= 2 && !comparisonReady ? 'Select at least two GTFS feeds above.'
           : 'Finish the data setup above, then run the analysis.'
-    : !origin ? onSetOrigin ? 'Choose an origin below or click the map.' : 'Click the map to choose an origin.'
+    : !origin ? onSetOrigin ? 'Search for a stop above or click the map.' : 'Click the map to choose an origin.'
       : routeAnalysisLoading ? 'Loading the selected route’s timetable…'
         : roadInferencePending ? 'Finish the scenario road trace before running Reach.' : ''
   const routeOptions = useMemo(() => {
@@ -859,16 +888,16 @@ export function AnalyzePanel({
         ) : null}
 
         <div className="reach-query-card">
-          {origin || !onSetOrigin ? <div className="reach-origin-row">
-            <span className="reach-origin-icon"><MapPin size={16} aria-hidden="true" /></span>
+          <div className={classNames('reach-origin-row', !origin && 'is-empty')}>
+            <span className="reach-origin-icon"><MapPin size={14} aria-hidden="true" /></span>
             <div>
               <span className="reach-section-kicker">Origin</span>
-              <strong>{origin ? origin.label : 'Choose a point on the map'}</strong>
+              <strong>{origin ? origin.label : onSetOrigin ? 'Click the map or search stops' : 'Choose a point on the map'}</strong>
             </div>
             {origin ? (
-              <button type="button" className="reach-mini-action" onClick={onClearOrigin}>Clear</button>
+              <button type="button" className="reach-origin-clear" onClick={onClearOrigin} aria-label="Clear origin" title="Clear origin"><X size={14} aria-hidden="true" /></button>
             ) : null}
-          </div> : null}
+          </div>
           {onSetOrigin ? <AnalysisOriginPicker origin={origin} stops={stops} onSetOrigin={onSetOrigin} disabled={loading} /> : null}
 
           <div className="reach-query-fields">
@@ -881,7 +910,7 @@ export function AnalyzePanel({
               />
             </label>
             <label className="reach-field">
-              <span>Departure</span>
+              <span>Departs</span>
               <input
                 type="time"
                 value={`${String(Math.floor(departMinutes / 60) % 24).padStart(2, '0')}:${String(Math.round(departMinutes) % 60).padStart(2, '0')}`}
@@ -901,7 +930,7 @@ export function AnalyzePanel({
 
         {mode === 'single' ? (
           <details
-            className="studio-disclosure reach-scenario-builder"
+            className="studio-disclosure is-compact reach-scenario-builder"
             open={scenarioEditorOpen}
             onToggle={(event) => setScenarioEditorOpen(event.currentTarget.open)}
           >
@@ -1464,7 +1493,9 @@ export function AnalyzePanel({
             </div> : null}
           </div>
           <ReachSurfaceLegend
+            analysis={analysis}
             view={view}
+            renderMode={renderMode}
             cutoffMinutes={cutoffMinutes}
             terminalWalkKm={view === 'scenario'
               ? analysis.surface.reachability?.scenarioTerminalWalkKm ?? analysis.request.maxWalkKm

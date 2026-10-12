@@ -655,19 +655,11 @@
 .pathfinder-date-field {
   min-width: 0;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text-muted);
   background: var(--panel);
-}
-
-.pathfinder-date-field > span {
-  min-width: 0;
-  display: grid;
-  gap: 0;
 }
 
 .pathfinder-date-field.is-outside {
@@ -860,6 +852,34 @@
   color: var(--text-strong);
 }
 
+.pathfinder-option-group > small,
+.pathfinder-option-group > p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  line-height: 1.45;
+}
+
+.pathfinder-option-group > .pathfinder-mini-switch {
+  justify-self: stretch;
+}
+
+.pathfinder-option-group > .pathfinder-option-check {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  color: var(--text-strong);
+  font-size: 0.7rem;
+  font-weight: 520;
+  cursor: pointer;
+}
+
+.pathfinder-option-group > .pathfinder-option-check > input {
+  margin: 0;
+  accent-color: var(--vigo-lime-strong);
+}
+
 .pathfinder-option-group > select {
   width: 100%;
   min-height: 32px;
@@ -914,14 +934,6 @@
 
   .pathfinder-location-field {
     min-height: 50px;
-  }
-
-  .pathfinder-composer-heading {
-    gap: 8px;
-  }
-
-  .pathfinder-composer-heading .pathfinder-new-route {
-    padding: 0 7px;
   }
 }
 

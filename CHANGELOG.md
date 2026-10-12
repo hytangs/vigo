@@ -2,6 +2,8 @@
 
 ## 0.5.1
 
+- Refine Studio journey cards, stop search, library recovery and responsive controls; display Reach results as nested travel-time bands with a matching legend.
+
 - Move completed journey legs, alternatives, and intermediate stops into response containers without duplicating their JSON trees. Initialize the alternatives cache only for searches that collect alternatives.
 - Reuse bounded leg geometry and metadata across Route alternatives and the primary journey within one search; refresh clocks for every output leg.
 - Skip provably dominated reboarding searches in the scalar timetable scan. Preserve transfer rules, equal-time closure and journey selection; reuse two bytes of query workspace per stop.

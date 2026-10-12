@@ -63,8 +63,12 @@ window.checkAnalysisRequest = async () => {
   await until(() => !document.querySelector('.reach-run').disabled)
   flushSync(() => document.querySelector('.reach-run').click())
   await until(() => requests.length === 3 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
-  for (const request of requests) {
+  // A single run adds round-minute display bands below the exact budget; comparisons compute the budget only.
+  assert(JSON.stringify(requests[0].cutoffsMinutes) === '[10,20,30,37.25]', 'Single Reach must band below the exact budget')
+  for (const request of requests.slice(1)) {
     assert(JSON.stringify(request.cutoffsMinutes) === '[37.25]', 'App computed an unrequested time window')
+  }
+  for (const request of requests) {
     assert(request.maxTransfers === 0 && request.maxWalkKm === 0.35 && request.walkSpeedKph === 4.65, 'App lost precise travel limits')
     assert(request.origin.coordinate[0] === -71.058987654 && request.origin.coordinate[1] === 42.360123456, 'Origin precision was lost')
   }

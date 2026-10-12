@@ -19,6 +19,7 @@ export function baseCanvasColor(basemap: Basemap, appearance: Appearance) {
 
 function firstVigoLayerId(map: MapLibreMap) {
   return [
+    'vigo-reach-bands',
     'vigo-scenario-area',
     'vigo-coverage',
     'vigo-scenario-routes',

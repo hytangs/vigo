@@ -5,6 +5,7 @@ import {
   formatRoutingMinutes,
   isSameStationTransfer,
   routingDataModeLabel,
+  routingLegColor,
   routingLegDetail,
   routingLegPrimaryLabel,
   routingRealtimeDetail,
@@ -69,7 +70,7 @@ export function RoutingItinerary({ plan }: { plan: RoutingPlan }) {
         const immediateVehicleChange = ride && previousLeg?.type === 'ride'
           && previousLeg.tripId !== leg.tripId && wait === 0
         const transfer = isSameStationTransfer(leg)
-        const color = ride && /^#?[\da-f]{6}$/i.test(leg.routeColor ?? '') ? `#${leg.routeColor!.replace('#', '')}` : undefined
+        const color = routingLegColor(leg)
         const title = ride || transfer ? routingLegPrimaryLabel(leg) : `${leg.type === 'drive' ? 'Drive' : 'Walk'} to ${leg.toName}`
         return <li key={index} className={classNames('journey-leg', ride && 'is-ride')} style={color ? { '--journey-line': color } as CSSProperties : undefined}>
           <time className="journey-clock">{formatScheduleClock(leg.startMinutes)}</time>

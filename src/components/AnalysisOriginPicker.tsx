@@ -18,9 +18,17 @@ export function analysisStopOrigin(stop: StopMetric): RoutingPoint | null {
 }
 
 export function searchAnalysisStops(stops: StopMetric[], search: string): StopMetric[] {
-  const terms = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
+  const phrase = search.trim().toLocaleLowerCase().replace(/\s+/g, ' ')
+  const terms = phrase.split(' ').filter(Boolean)
+  // Exact names first, then names starting with or containing the whole phrase.
+  const rank = (stop: StopMetric) => {
+    const name = stop.name.toLocaleLowerCase()
+    return !phrase ? 0 : name === phrase ? 0 : name.startsWith(phrase) ? 1 : name.includes(phrase) ? 2 : 3
+  }
   return stops.filter(stop => analysisStopOrigin(stop) && terms.every(term => `${stop.name} ${stop.id}`.toLocaleLowerCase().includes(term)))
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) || a.id.localeCompare(b.id))
+    .map(stop => ({ stop, rank: rank(stop) }))
+    .sort((a, b) => a.rank - b.rank || a.stop.name.localeCompare(b.stop.name, undefined, { numeric: true, sensitivity: 'base' }) || a.stop.id.localeCompare(b.stop.id))
+    .map(({ stop }) => stop)
 }
 
 type CoordinateResult = { point: RoutingPoint; error?: never; field?: never } | { point?: never; error: string; field: 'latitude' | 'longitude' }

@@ -36,6 +36,8 @@ export function AnalysisNumberField({ label, value, min, max, unit, integer = fa
   </div>
 }
 
+const reachBudgetPresets = [15, 30, 45, 60, 90, 120]
+
 export function ReachSettings({ cutoffMinutes, maxWalkKm, walkSpeedKph, maxTransfers, surfaceSampling, hasScenarioChanges,
   onCutoffChange, onMaxWalkKmChange, onWalkSpeedChange, onMaxTransfersChange, onSurfaceSamplingChange }: {
   cutoffMinutes: number; maxWalkKm: number; walkSpeedKph: number; maxTransfers?: number
@@ -51,14 +53,20 @@ export function ReachSettings({ cutoffMinutes, maxWalkKm, walkSpeedKph, maxTrans
       <input className="reach-budget-slider" type="range" min={1} max={240} step={0.25} value={cutoffMinutes}
         aria-label="Adjust time budget" aria-valuetext={`${cutoffMinutes} minutes`}
         onChange={event => onCutoffChange(Number(event.currentTarget.value))} />
-      <div className="reach-budget-scale" aria-hidden="true"><span>1 min</span><span>4 hours</span></div>
+      <div className="reach-budget-presets" role="group" aria-label="Time budget presets">
+        {reachBudgetPresets.map(minutes => (
+          <button key={minutes} type="button" aria-pressed={cutoffMinutes === minutes} onClick={() => onCutoffChange(minutes)}>
+            {minutes < 60 ? `${minutes}m` : `${minutes / 60}h`}
+          </button>
+        ))}
+      </div>
     </div>
-    {onMaxTransfersChange ? <AnalysisNumberField label="Maximum transit rides" value={maxTransfers === undefined ? undefined : maxTransfers + 1}
-      min={1} max={32} integer optional help="1 ride means no transfers. Leave empty for automatic."
-      onChange={value => onMaxTransfersChange(value === undefined ? undefined : value - 1)} /> : null}
-    <details className="studio-disclosure reach-advanced">
-      <summary><span>Walking & map</span><b>{maxWalkKm} km final walk</b></summary>
+    <details className="studio-disclosure is-compact reach-advanced">
+      <summary><span>Limits & method</span><b>{maxTransfers === undefined ? 'Auto rides' : `≤ ${maxTransfers + 1} ride${maxTransfers ? 's' : ''}`} · {maxWalkKm} km walk</b></summary>
       <div className="reach-walking-settings">
+        {onMaxTransfersChange ? <AnalysisNumberField label="Maximum transit rides" value={maxTransfers === undefined ? undefined : maxTransfers + 1}
+          min={1} max={32} integer optional help="1 ride means no transfers. Leave empty for automatic."
+          onChange={value => onMaxTransfersChange(value === undefined ? undefined : value - 1)} /> : null}
         <AnalysisNumberField label="Final walk limit" value={maxWalkKm} min={0.2} max={5} unit="km"
           onChange={value => { if (value !== undefined) onMaxWalkKmChange(value) }} />
         <AnalysisNumberField label="Walking speed" value={walkSpeedKph} min={1} max={8} unit="km/h" disabled={surfaceSampling === 'cell-center'}

@@ -1,6 +1,6 @@
 import { emptyCollection } from './featureGeometry'
 
-import { type ExpressionSpecification, type FilterSpecification, type Map as MapLibreMap } from 'maplibre-gl'
+import { type CanvasSource, type ExpressionSpecification, type FilterSpecification, type Map as MapLibreMap } from 'maplibre-gl'
 import { ensureVehicleDirectionSprite, vehicleHeadingLayer, vehicleMarkerLayer } from '../app/mapDirections'
 import type { LayerState, NetworkLens } from '../domain'
 import { reachComparisonColor } from '../reach'
@@ -24,6 +24,7 @@ const vehicleLayerIds = ['vigo-vehicle-pairs', 'vigo-vehicle-indicator-label', '
 const routingLayerIds = ['vigo-routing-walk-casing', 'vigo-routing-walk', 'vigo-routing-drive-casing', 'vigo-routing-drive', 'vigo-routing-ride-casing', 'vigo-routing-ride', 'vigo-routing-labels', 'vigo-routing-pin-halo', 'vigo-routing-pins']
 
 export const reachResultLayerIds = [
+  'vigo-reach-bands',
   'vigo-scenario-area',
   'vigo-service-edges',
   'vigo-scenario-contours',
@@ -36,6 +37,31 @@ export const reachResultLayerIds = [
 ]
 
 export const localBasemapLayerIds = ['vigo-local-water', 'vigo-local-shore', 'vigo-local-rivers', 'vigo-local-roads-casing', 'vigo-local-roads']
+
+/**
+ * Replaces the travel-time band canvas. A canvas source needs no fetch (data
+ * and blob URLs are outside the app's connect-src policy), and is rebuilt
+ * because a new result can change the canvas size.
+ */
+export function setReachBandImage(map: MapLibreMap, image: { canvas: HTMLCanvasElement; coordinates: [number, number][] } | null) {
+  const current = map.getSource('vigo-reach-bands') as CanvasSource | undefined
+  if (current?.getCanvas() === image?.canvas && map.getLayer('vigo-reach-bands')) return
+  if (map.getLayer('vigo-reach-bands')) map.removeLayer('vigo-reach-bands')
+  if (map.getSource('vigo-reach-bands')) map.removeSource('vigo-reach-bands')
+  if (!image) return
+  map.addSource('vigo-reach-bands', {
+    type: 'canvas',
+    canvas: image.canvas,
+    coordinates: image.coordinates as [[number, number], [number, number], [number, number], [number, number]],
+    animate: false,
+  })
+  map.addLayer({
+    id: 'vigo-reach-bands',
+    type: 'raster',
+    source: 'vigo-reach-bands',
+    paint: { 'raster-opacity': 0.42, 'raster-fade-duration': 0 },
+  }, map.getLayer('vigo-scenario-area') ? 'vigo-scenario-area' : undefined)
+}
 
 export function reachComparisonLayerIds(count: number) {
   return Array.from({ length: count }, (_, index) => [
@@ -164,10 +190,9 @@ export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
       source: 'vigo-scenario-contours',
       paint: {
         'line-color': [
-          'match',
-          ['get', 'surface'],
-          'scenario', '#35d0a1',
-          '#6da8ff',
+          'coalesce',
+          ['get', 'color'],
+          ['match', ['get', 'surface'], 'scenario', '#35d0a1', '#6da8ff'],
         ] as ExpressionSpecification,
         'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.6, 12, 1, 16, 1.4] as ExpressionSpecification,
         'line-opacity': 0.8,
