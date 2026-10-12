@@ -214,6 +214,24 @@ assert(Number.isSafeInteger(randomStopCount) && randomStopCount >= 6 && randomSt
 assert(Number.isSafeInteger(randomRunCount) && randomRunCount >= 1 && randomRunCount <= 256)
 assert(Number.isSafeInteger(randomBoardingCap) && randomBoardingCap >= 1 && randomBoardingCap <= 32)
 let state=initialSeed, comparisons=0, reverseComparisons=0
+// Boarding dominance must preserve a later one-boarding ingress to a run
+// previously reached with two boardings, and must reset with resident reuse.
+const dominanceTrips = [
+  [[0,10],[1,20],[2,30],[3,40],[5,50]],
+  [[4,0],[1,15]],
+]
+const dominanceKernel = new TimetableKernel(input(dominanceTrips))
+for (let repeat = 0; repeat < 3; repeat++) {
+  for (const [origins, walks] of [[[0,2],[0,25]], [[4,2],[0,25]], [[4,2],[0,35]], [[4],[0]]]) {
+    const query = {...regressionQuery,originStops:origins,originWalkSeconds:walks,
+      originCandidateIndices:origins.map((_, i)=>i),destinationStops:[5],horizon:60}
+    const expected = enumerate(dominanceTrips,[],Array(6).fill(0),query,4).sort(compare)[0]
+    const result = dominanceKernel.routeScalarCsa(query)
+    assert.deepEqual([result.bestArrival,result.bestBoardings],expected.slice(0,2))
+    replayScalar(result,dominanceTrips,[],Array(6).fill(0),Array(6).fill(0),query,4,'boarding-dominance')
+  }
+}
+
 const seedCount = Number(process.env.VIGO_ORACLE_SEEDS ?? 120)
 assert(Number.isSafeInteger(seedCount) && seedCount > 0)
 // Use high bits: the low bits of this generator alternate predictably and

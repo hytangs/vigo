@@ -458,6 +458,27 @@ impl City {
     }
 }
 type GridPoint = (i32, i32);
+// Split corner-touching boundary walks into simple cycles before simplification.
+fn split_touching_rings(ring: Vec<GridPoint>) -> Vec<Vec<GridPoint>> {
+    let mut positions = HashMap::new();
+    let mut path = Vec::new();
+    let mut rings = Vec::new();
+    for point in ring {
+        if let Some(&start) = positions.get(&point) {
+            let mut cycle = path[start..].to_vec();
+            cycle.push(point);
+            rings.push(cycle);
+            for vertex in &path[start + 1..] {
+                positions.remove(vertex);
+            }
+            path.truncate(start + 1);
+        } else {
+            positions.insert(point, path.len());
+            path.push(point);
+        }
+    }
+    rings
+}
 fn coordinate(p: GridPoint, w: usize, h: usize, b: &[f64]) -> [f64; 2] {
     [
         b[0] + p.0 as f64 / w as f64 * (b[2] - b[0]),
@@ -465,8 +486,12 @@ fn coordinate(p: GridPoint, w: usize, h: usize, b: &[f64]) -> [f64; 2] {
     ]
 }
 fn signed_area(r: &[[f64; 2]]) -> f64 {
+    let origin = r[0];
     r.windows(2)
-        .map(|p| p[0][0] * p[1][1] - p[1][0] * p[0][1])
+        .map(|p| {
+            (p[0][0] - origin[0]) * (p[1][1] - origin[1])
+                - (p[1][0] - origin[0]) * (p[0][1] - origin[1])
+        })
         .sum::<f64>()
         / 2.
 }
@@ -539,19 +564,21 @@ fn area_rings(values: &[f64], w: usize, h: usize, b: &[f64], cutoff: f64) -> Vec
                 }
             }
             if ring.len() >= 4 && ring.last() == Some(&start) {
-                let points = &ring[..ring.len() - 1];
-                let mut simple = vec![];
-                for i in 0..points.len() {
-                    let a = points[(i + points.len() - 1) % points.len()];
-                    let p = points[i];
-                    let c = points[(i + 1) % points.len()];
-                    if (p.0 - a.0) * (c.1 - p.1) != (p.1 - a.1) * (c.0 - p.0) {
-                        simple.push(coordinate(p, w, h, b));
+                for ring in split_touching_rings(ring) {
+                    let points = &ring[..ring.len() - 1];
+                    let mut simple = vec![];
+                    for i in 0..points.len() {
+                        let a = points[(i + points.len() - 1) % points.len()];
+                        let p = points[i];
+                        let c = points[(i + 1) % points.len()];
+                        if (p.0 - a.0) * (c.1 - p.1) != (p.1 - a.1) * (c.0 - p.0) {
+                            simple.push(coordinate(p, w, h, b));
+                        }
                     }
-                }
-                if simple.len() >= 3 {
-                    simple.push(simple[0]);
-                    rings.push(simple);
+                    if simple.len() >= 3 {
+                        simple.push(simple[0]);
+                        rings.push(simple);
+                    }
                 }
             }
         }
@@ -566,8 +593,12 @@ fn areas(values: &[f64], w: usize, h: usize, b: &[f64], cutoffs: &[f64]) -> Valu
         let mut parents: Vec<Option<usize>> = vec![None; rings.len()];
         let mut depth = vec![0; rings.len()];
         for i in 0..rings.len() {
+            let probe = [
+                (rings[i][0][0] + rings[i][1][0]) / 2.,
+                (rings[i][0][1] + rings[i][1][1]) / 2.,
+            ];
             for j in (0..i).rev() {
-                if contains(&rings[j], rings[i][0]) {
+                if contains(&rings[j], probe) {
                     parents[i] = Some(j);
                     depth[i] = depth[j] + 1;
                     break;
@@ -608,12 +639,12 @@ fn contours(values: &[f64], w: usize, h: usize, b: &[f64], cutoffs: &[f64]) -> V
         &[(0, 1)],
         &[(3, 1)],
         &[(1, 2)],
-        &[(3, 2), (0, 1)],
+        &[(3, 0), (1, 2)],
         &[(0, 2)],
         &[(3, 2)],
         &[(2, 3)],
         &[(0, 2)],
-        &[(0, 3), (1, 2)],
+        &[(0, 1), (2, 3)],
         &[(1, 2)],
         &[(3, 1)],
         &[(0, 1)],
@@ -623,26 +654,32 @@ fn contours(values: &[f64], w: usize, h: usize, b: &[f64], cutoffs: &[f64]) -> V
     let mut features = vec![];
     for &cutoff in cutoffs {
         let mut segments = vec![];
-        for y in 0..h - 1 {
-            for x in 0..w - 1 {
+        let value_at = |x: i32, y: i32| {
+            if x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h {
+                let v = values[y as usize * w + x as usize];
+                if v.is_finite() { v } else { f64::INFINITY }
+            } else {
+                f64::INFINITY
+            }
+        };
+        // A masked collar closes contours at the extent without inventing time.
+        for y in -1..h as i32 {
+            for x in -1..w as i32 {
                 let v = [
-                    values[y * w + x],
-                    values[y * w + x + 1],
-                    values[(y + 1) * w + x + 1],
-                    values[(y + 1) * w + x],
+                    value_at(x, y),
+                    value_at(x + 1, y),
+                    value_at(x + 1, y + 1),
+                    value_at(x, y + 1),
                 ];
-                if v.iter().any(|n| !n.is_finite()) {
-                    continue;
-                }
                 let state = v
                     .iter()
                     .enumerate()
                     .fold(0, |state, (i, &n)| state | (usize::from(n <= cutoff) << i));
                 let interpolate = |a: f64, b: f64| {
-                    if (b - a).abs() < 1e-9 {
+                    if !a.is_finite() || !b.is_finite() || (b - a).abs() < 1e-9 {
                         0.5
                     } else {
-                        ((cutoff - a) / (b - a)).clamp(0., 1.)
+                        ((cutoff - a) / (b - a)).clamp(1e-6, 1. - 1e-6)
                     }
                 };
                 let edges = [
@@ -653,8 +690,12 @@ fn contours(values: &[f64], w: usize, h: usize, b: &[f64], cutoffs: &[f64]) -> V
                 ];
                 let coord = |p: [f64; 2]| {
                     [
-                        ((b[0] + (p[0] + 0.5) / w as f64 * (b[2] - b[0])) * 1e6).round() as i64,
-                        ((b[3] - (p[1] + 0.5) / h as f64 * (b[3] - b[1])) * 1e6).round() as i64,
+                        ((b[0] + (p[0] + 0.5).clamp(0., w as f64) / w as f64 * (b[2] - b[0]))
+                            * 1e12)
+                            .round() as i64,
+                        ((b[3] - (p[1] + 0.5).clamp(0., h as f64) / h as f64 * (b[3] - b[1]))
+                            * 1e12)
+                            .round() as i64,
                     ]
                 };
                 for &(a, z) in cases[state] {
@@ -672,7 +713,7 @@ fn contours(values: &[f64], w: usize, h: usize, b: &[f64], cutoffs: &[f64]) -> V
         let mut walk = |start: [i64; 2], first: usize| {
             let mut point = start;
             let mut edge = Some(first);
-            let mut line = vec![[point[0] as f64 / 1e6, point[1] as f64 / 1e6]];
+            let mut line = vec![[point[0] as f64 / 1e12, point[1] as f64 / 1e12]];
             while let Some(i) = edge {
                 if visited[i] {
                     break;
@@ -680,7 +721,7 @@ fn contours(values: &[f64], w: usize, h: usize, b: &[f64], cutoffs: &[f64]) -> V
                 visited[i] = true;
                 let (a, b) = segments[i];
                 point = if a == point { b } else { a };
-                line.push([point[0] as f64 / 1e6, point[1] as f64 / 1e6]);
+                line.push([point[0] as f64 / 1e12, point[1] as f64 / 1e12]);
                 edge = nodes[&point].iter().copied().find(|&i| !visited[i]);
             }
             if line.len() >= 2 {
@@ -707,6 +748,102 @@ fn contours(values: &[f64], w: usize, h: usize, b: &[f64], cutoffs: &[f64]) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn check_cell_mask(v: &[f64], w: usize, h: usize) {
+        let bounds = [-74., 40., -73.9, 40.1];
+        let result = areas(v, w, h, &bounds, &[1.]);
+        let mut polygons: Vec<Vec<Vec<[f64; 2]>>> = Vec::new();
+        for feature in result["features"].as_array().unwrap() {
+            polygons.extend(
+                serde_json::from_value::<Vec<Vec<Vec<[f64; 2]>>>>(
+                    feature["geometry"]["coordinates"].clone(),
+                )
+                .unwrap(),
+            );
+        }
+        let contour_result = contours(v, w, h, &bounds, &[1.]);
+        let lines: Vec<Vec<[f64; 2]>> = contour_result["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|f| {
+                serde_json::from_value::<Vec<Vec<[f64; 2]>>>(f["geometry"]["coordinates"].clone())
+                    .unwrap()
+            })
+            .collect();
+        for line in &lines {
+            assert_eq!(line.first(), line.last(), "closed cutoff contour");
+        }
+        for y in 0..h {
+            for x in 0..w {
+                let point = [
+                    bounds[0] + (x as f64 + 0.5) / w as f64 * (bounds[2] - bounds[0]),
+                    bounds[3] - (y as f64 + 0.5) / h as f64 * (bounds[3] - bounds[1]),
+                ];
+                let covered = polygons.iter().any(|p| {
+                    contains(&p[0], point) && !p[1..].iter().any(|hole| contains(hole, point))
+                });
+                assert_eq!(
+                    lines.iter().filter(|line| contains(line, point)).count() % 2 == 1,
+                    v[y * w + x].is_finite() && v[y * w + x] <= 1.,
+                    "contour sample {x},{y}"
+                );
+                assert_eq!(
+                    covered,
+                    v[y * w + x].is_finite() && v[y * w + x] <= 1.,
+                    "cell {x},{y}: {v:?}"
+                );
+            }
+        }
+        for polygon in &polygons {
+            for ring in polygon {
+                assert_eq!(ring.first(), ring.last());
+                let vertices: std::collections::HashSet<_> = ring[..ring.len() - 1]
+                    .iter()
+                    .map(|p| (p[0].to_bits(), p[1].to_bits()))
+                    .collect();
+                assert_eq!(vertices.len(), ring.len() - 1, "simple boundary rings");
+            }
+        }
+    }
+    #[test]
+    fn cell_polygon_masks_and_nested_islands() {
+        for mask in 0..512 {
+            let v: Vec<_> = (0..9)
+                .map(|i| {
+                    if mask & (1 << i) != 0 {
+                        0.
+                    } else {
+                        f64::INFINITY
+                    }
+                })
+                .collect();
+            check_cell_mask(&v, 3, 3);
+        }
+        let nested: Vec<_> = (0usize..121)
+            .map(|i| {
+                let x = i % 11;
+                let y = i / 11;
+                if x.min(y).min(10 - x).min(10 - y) % 2 == 0 {
+                    0.
+                } else {
+                    f64::INFINITY
+                }
+            })
+            .collect();
+        check_cell_mask(&nested, 11, 11);
+        check_cell_mask(&[1.], 1, 1);
+        check_cell_mask(&[0., 1., 2., 3., 0.5, 1., 2., 3., 0., 0.5, 1., 2.], 4, 3);
+        let mut seed = 20261012u32;
+        for _ in 0..300 {
+            let v: Vec<_> = (0..120)
+                .map(|_| {
+                    seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                    if seed >> 31 != 0 { 0. } else { f64::INFINITY }
+                })
+                .collect();
+            check_cell_mask(&v, 12, 10);
+        }
+    }
     #[test]
     fn preserves_holes_and_disconnected_cells() {
         let mut v = vec![0.; 25];

@@ -135,7 +135,7 @@ fn leg(v: &Value, geometry: bool) -> Value {
         out["route"]["shortName"] = pick(&v["route"], &["shortName"]).clone();
         out["route"]["longName"] = pick(&v["route"], &["longName"]).clone();
         if let Some(stops) = v["intermediateStops"].as_array() {
-            out["intermediateStops"] = json!(
+            out["intermediateStops"] = Value::Array(
                 stops
                     .iter()
                     .map(|s| {
@@ -144,7 +144,7 @@ fn leg(v: &Value, geometry: bool) -> Value {
                         stop["departureTime"] = clock(&integer(&s["departure"]));
                         stop
                     })
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>(),
             );
         }
         out["quality"] = json!({"geometry":source,"schedule":if v["sourceEqualTime"] == true || v["bridgedUntimedGapCount"].as_f64().unwrap_or(0.) > 0. {"source_time_limitations"} else {"timetable"}});
@@ -192,7 +192,7 @@ fn leg(v: &Value, geometry: bool) -> Value {
                     components.push(component);
                 }
             }
-            out["components"] = json!(components);
+            out["components"] = Value::Array(components);
         }
     }
     if v["endpointConnector"].is_object() {
@@ -230,8 +230,8 @@ fn journey(v: &Value, geometry: bool) -> Value {
         .unwrap_or_default();
     if let Some(segments) = v["segments"].as_array() {
         for segment in segments {
-            if let Some(part) = journey(segment, geometry)["legs"].as_array() {
-                legs.extend(part.clone());
+            if let Value::Array(part) = journey(segment, geometry)["legs"].take() {
+                legs.extend(part);
             }
         }
     }
@@ -244,7 +244,10 @@ fn journey(v: &Value, geometry: bool) -> Value {
         "walkingSeconds":seconds(v,&["walkingSeconds"],&["walkMinutes"]),
         "waitingSeconds":seconds(v,&["waitingSeconds"],&["waitMinutes"]),
         "ridingSeconds":seconds(v,&["rideSeconds"],&["rideMinutes"]),
-        "boardings":boardings,"transfers":boardings.saturating_sub(1),"legs":legs});
+        "boardings":boardings,"transfers":boardings.saturating_sub(1)});
+    // These legs already own their geometry and stop values. Move them into
+    // the response rather than serializing and allocating the tree again.
+    out["legs"] = Value::Array(legs);
     // Rounded public clocks determine elapsed durations. Component rounding
     // is independent; retain unknown values instead of inventing evidence.
     let mut walking = 0i64;
@@ -586,7 +589,7 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
                     }
                 }
                 if !alternatives.is_empty() {
-                    out["alternatives"] = json!(alternatives);
+                    out["alternatives"] = Value::Array(alternatives);
                 }
             }
         }
@@ -791,7 +794,7 @@ mod tests {
                 "coordinates":[[-77.,39.],[null,null],[-77.01,39.01]],
                 "intermediateStops":[{"stopId":"interior","name":"Concourse","coordinate":[null,null],"arrival":29400,"departure":29400}],
                 "departureMinutes":480,"arrivalMinutes":500}]});
-        transit["choices"] = json!([transit.clone(), walk.clone(), walk.clone()]);
+        transit["choices"] = json!([transit.clone(), walk.clone(), walk]);
         let result = format("route", &q, &transit);
         let ride = &result["journey"]["legs"][0];
         assert_eq!(ride["from"]["stop"]["id"], "A");
@@ -844,7 +847,7 @@ mod tests {
         let mut with_choices = raw.clone();
         let mut later = raw.clone();
         later["arrival"] = json!(90720);
-        with_choices["choices"] = json!([raw.clone(), raw.clone(), later.clone(), later]);
+        with_choices["choices"] = json!([raw.clone(), raw, later.clone(), later]);
         let choices = format("route", &q, &with_choices);
         assert_eq!(choices["journey"], out["journey"]);
         assert_eq!(choices["alternatives"].as_array().unwrap().len(), 1);

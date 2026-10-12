@@ -211,7 +211,7 @@ mod tests {
         let ride = start.extend(piece(1., 4., false, "first"), false);
         let onward = piece(10., 20., false, "onward");
         let a = walk.extend(onward.clone(), false);
-        let b = ride.extend(onward.clone(), false);
+        let b = ride.extend(onward, false);
         assert!(Arc::ptr_eq(&a.pieces[1], &b.pieces[1]));
         let selected = select(vec![b, a], false, true);
         assert_eq!(selected[0].metrics(false), [20., 1., 5.]);

@@ -2,6 +2,11 @@
 
 ## 0.5.1
 
+- Move completed journey legs, alternatives, and intermediate stops into response containers without duplicating their JSON trees. Initialize the alternatives cache only for searches that collect alternatives.
+- Reuse bounded leg geometry and metadata across Route alternatives and the primary journey within one search; refresh clocks for every output leg.
+- Skip provably dominated reboarding searches in the scalar timetable scan. Preserve transfer rules, equal-time closure and journey selection; reuse two bytes of query workspace per stop.
+- Correct Node and standalone Rust Reach polygons for nested islands and corner-touching holes; share ring classification with Studio while preserving raster cell boundaries. Close interpolated contours at no-data and extent boundaries.
+- Reuse prepared SQL statements during GTFS frequency expansion and ride-leg headsign lookup; remove duplicate Reach cell counting and contour helpers.
 - Reduce first-date timetable sorting with trip-block reads, preserving canonical connection order and existing City files.
 - Prioritize queued Studio point queries with bounded waiting for analytical jobs; preserve preparation order and existing memory limits.
 - Index service calendars once and share equal immutable timetable columns across retained dates. Preserve published 0.5 City compatibility.

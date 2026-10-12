@@ -12,7 +12,7 @@ enum LegKey {
     Walk(Option<u32>, Option<u32>, u64, [usize; 2]),
 }
 
-/// Immutable evidence shared only inside one matrix request. Timetable, options,
+/// Immutable evidence shared only inside one Route search or Matrix request. Timetable, options,
 /// and endpoint candidates cannot change during that request. No route answers
 /// or mutable street frontiers survive it; output clocks are always refreshed.
 #[derive(Default)]
@@ -385,7 +385,7 @@ impl City {
                 v["stopIds"] = json!(&ids[first..=last]);
                 v["stopCount"] = json!(last - first);
                 let calls = t.kernel.ride_calls(trip);
-                v["intermediateStops"] = json!(calls[first + 1..last].iter().map(|c| {
+                v["intermediateStops"] = Value::Array(calls[first + 1..last].iter().map(|c| {
                     let id = &t.stop_ids[c.stop as usize];
                     let stop = self.stop(id)?;
                     Ok(json!({"stopId":id,"name":stop.name,"coordinate":[stop.lon,stop.lat],

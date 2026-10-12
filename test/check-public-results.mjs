@@ -133,6 +133,14 @@ try {
     const map = cli(runtime, 'reach', { serviceDate: base.serviceDate, time: base.time, origin: base.origin, rasterSize: 48, cutoffsMinutes: [15, 30], maxWalkKm: .2, reachFormat: 'map' })
     assertPublic(map, { reachFormat: 'map' })
     assert.deepEqual(map.areas, reach.fullAreas || reach.areas)
+    for (const key of ['contours', 'fullContours']) {
+      for (const feature of reach[key]?.features ?? []) {
+        for (const line of feature.geometry.coordinates) {
+          assert.deepEqual(line[0], line.at(-1), `${runtime} ${key} must close at mask and extent boundaries`)
+          checks++
+        }
+      }
+    }
     assert(!Object.hasOwn(map, 'surface') && !Object.hasOwn(map, 'stops') && !Object.hasOwn(map, 'contours'))
     assert.equal(map.meta.queryFingerprint, reach.meta.queryFingerprint)
     assert.equal(reach.surface.valuesSeconds.length, 48 * 48)

@@ -741,6 +741,10 @@ impl City {
             .take()
             .and_then(|mut rows| rows.pop().flatten());
         let mut choices = vec![];
+        // Alternatives share one timetable, options, and endpoint witnesses.
+        // Reuse immutable leg evidence within this search; clocks are refreshed.
+        let mut materialization =
+            collect.then(super::materialize::MatrixMaterializationCache::default);
         if collect && let Some(j) = journey.as_ref() {
             let candidates = super::point::alternatives(
                 &mut self.timetable.as_mut().unwrap().kernel,
@@ -760,7 +764,7 @@ impl City {
                     true,
                     &opt,
                     [&a, &b],
-                    None,
+                    materialization.as_mut(),
                 )?;
                 choice["status"] = json!("ready");
                 choice["mode"] = json!("transit");
@@ -768,7 +772,14 @@ impl City {
             }
         }
         let mut output = if let Some(j) = journey.as_ref() {
-            let mut j = self.materialize(j, [&origin, &destination], true, &opt, [&a, &b], None)?;
+            let mut j = self.materialize(
+                j,
+                [&origin, &destination],
+                true,
+                &opt,
+                [&a, &b],
+                materialization.as_mut(),
+            )?;
             j["status"] = json!("ready");
             j["mode"] = json!("transit");
             j

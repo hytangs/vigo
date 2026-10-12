@@ -115,6 +115,43 @@ function stitchContourSegments(segments) {
   return lines
 }
 
+// Raster cell edges are directed with reachable space on their right. At a
+// corner contact, keep that orientation instead of reversing an arbitrary edge.
+export function stitchAreaSegments(segments) {
+  const outgoing = new Map()
+  segments.forEach(([start], index) => {
+    const key = contourPointKey(start)
+    const edges = outgoing.get(key) ?? []
+    edges.push(index)
+    outgoing.set(key, edges)
+  })
+  const visited = new Uint8Array(segments.length)
+  const rings = []
+  for (let first = 0; first < segments.length; first++) {
+    if (visited[first]) continue
+    const ring = [segments[first][0]]
+    const startKey = contourPointKey(ring[0])
+    let index = first
+    while (index !== undefined) {
+      const [start, end] = segments[index]
+      visited[index] = 1
+      ring.push(end)
+      const key = contourPointKey(end)
+      if (key === startKey) break
+      const dx = end[0] - start[0], dy = end[1] - start[1]
+      const candidates = (outgoing.get(key) ?? []).filter(i => !visited[i])
+      const turn = i => {
+        const next = segments[i][1]
+        const nx = next[0] - end[0], ny = next[1] - end[1]
+        return Math.atan2(dx * ny - dy * nx, dx * nx + dy * ny)
+      }
+      index = candidates.length > 1 ? candidates.sort((a, b) => turn(a) - turn(b))[0] : candidates[0]
+    }
+    rings.push(ring)
+  }
+  return rings
+}
+
 export function boundaryContoursFromAreas(areas) {
   return featureCollection(areas.features.map(feature => ({
     ...feature,
@@ -172,9 +209,31 @@ function orientAreaRing(ring, counterClockwise) {
   return counterClockwiseRing === counterClockwise ? ring : [...ring].reverse()
 }
 
-function areaPolygons(rings) {
+// Cell boundaries can meet at a corner. Split a closed walk at repeated
+// vertices before computing area, so touching rings cannot cancel each other.
+function splitTouchingRings(ring) {
+  const positions = new Map()
+  const path = []
+  const rings = []
+  for (const point of ring) {
+    const key = contourPointKey(point)
+    const start = positions.get(key)
+    if (start !== undefined) {
+      rings.push([...path.slice(start), point])
+      for (let i = start + 1; i < path.length; i++) positions.delete(contourPointKey(path[i]))
+      path.length = start + 1
+    } else {
+      positions.set(key, path.length)
+      path.push(point)
+    }
+  }
+  return rings
+}
+
+export function areaPolygons(rings) {
   const records = rings
     .filter((ring) => ring.length >= 4 && ring[0][0] === ring.at(-1)[0] && ring[0][1] === ring.at(-1)[1])
+    .flatMap(splitTouchingRings)
     .map((ring) => {
       const simplified = simplifyAreaRing(ring)
       const bounds = [Infinity, Infinity, -Infinity, -Infinity]
@@ -187,12 +246,14 @@ function areaPolygons(rings) {
     .filter((record) => record.absoluteArea > 0)
     .sort((left, right) => right.absoluteArea - left.absoluteArea)
   for (const record of records) {
+    const probe = [(record.ring[0][0] + record.ring[1][0]) / 2,
+      (record.ring[0][1] + record.ring[1][1]) / 2]
     record.parent = records.findLast((candidate) => (
       candidate !== record
       && candidate.absoluteArea > record.absoluteArea
       && candidate.bounds[0] <= record.bounds[0] && candidate.bounds[1] <= record.bounds[1]
       && candidate.bounds[2] >= record.bounds[2] && candidate.bounds[3] >= record.bounds[3]
-      && pointInRing(record.ring[0], candidate.ring)
+      && pointInRing(probe, candidate.ring)
     )) ?? null
     record.depth = record.parent ? record.parent.depth + 1 : 0
   }

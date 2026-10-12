@@ -624,6 +624,9 @@ impl Default for ScalarPredecessor {
 struct ScalarWorkspace {
     allow_post_ride_transfers: bool,
     epoch: u32,
+    // Lower bound over this epoch's labels, including labels later replaced.
+    // A stale smaller value only prevents pruning; readiness is not required.
+    minimum_stop_boardings: Vec<u16>,
     active_stop_generation: Vec<u32>,
     active_state_mask: Vec<u8>,
     labels: Vec<ScalarLabel>,
@@ -646,6 +649,7 @@ impl ScalarWorkspace {
         Self {
             allow_post_ride_transfers: true,
             epoch: 0,
+            minimum_stop_boardings: vec![u16::MAX; stop_count],
             active_stop_generation: vec![0; stop_count],
             active_state_mask: vec![0; stop_count],
             labels: vec![ScalarLabel::default(); state_count],
@@ -664,6 +668,7 @@ impl ScalarWorkspace {
     }
 
     fn ensure_dimensions(&mut self, stops: usize, runs: usize) {
+        self.minimum_stop_boardings.resize(stops, u16::MAX);
         self.active_stop_generation.resize(stops, 0);
         self.active_state_mask.resize(stops, 0);
         self.labels
@@ -697,7 +702,8 @@ impl ScalarWorkspace {
     }
 
     fn byte_length(&self) -> usize {
-        self.active_stop_generation.len() * std::mem::size_of::<u32>()
+        self.minimum_stop_boardings.len() * std::mem::size_of::<u16>()
+            + self.active_stop_generation.len() * std::mem::size_of::<u32>()
             + self.active_state_mask.len() * std::mem::size_of::<u8>()
             + self.labels.len() * std::mem::size_of::<ScalarLabel>()
             + self.predecessors.len() * std::mem::size_of::<ScalarPredecessor>()
@@ -1204,8 +1210,10 @@ fn relax_connection_scan(
     if workspace.active_stop_generation[stop] != epoch {
         workspace.active_stop_generation[stop] = epoch;
         workspace.active_state_mask[stop] = 0;
+        workspace.minimum_stop_boardings[stop] = u16::MAX;
     }
     workspace.active_state_mask[stop] |= 1 << (state & (STATE_STRIDE - 1));
+    workspace.minimum_stop_boardings[stop] = workspace.minimum_stop_boardings[stop].min(boardings);
     workspace.labels[state] = ScalarLabel {
         arrival,
         generation: epoch,
@@ -4111,7 +4119,19 @@ impl TimetableKernel {
                     }
                     let journey = bucket_journeys[offset];
                     let mut boarding_state = NO_STATE;
-                    if can_reach_boarding {
+                    // An already boarded run needs no new boarding search if
+                    // even the smallest stop boarding count cannot improve it.
+                    // The sequence guard preserves the first-boardable-position
+                    // envelope; equal-time buckets retain their full closure.
+                    let boarding_dominated = workspace.run_generation[run] == epoch
+                        && !scan_time_needs_closure[time_index]
+                        && workspace.expanded_run_start[run] >= 0
+                        && workspace.expanded_run_start[run] as usize <= connection
+                        && journey.sequence >= forward_workspace.scalar_first_boarding[run]
+                        && workspace.labels[workspace.run_predecessor_state[run] as usize]
+                            .boardings
+                            <= workspace.minimum_stop_boardings[stop];
+                    if can_reach_boarding && !boarding_dominated {
                         let mut active_states = workspace.active_state_mask[stop];
                         while active_states != 0 {
                             let flags = active_states.trailing_zeros() as usize;

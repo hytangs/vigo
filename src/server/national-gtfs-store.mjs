@@ -1506,6 +1506,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     const insertFrequencyTrip = db.prepare('INSERT OR IGNORE INTO trips VALUES(?,?,?,?)')
     const tripShapeLookup = db.prepare('SELECT shape_id FROM trip_shapes WHERE trip_id=?')
     const insertFrequencyTripShape = db.prepare('INSERT OR IGNORE INTO trip_shapes VALUES(?,?)')
+    const copyFrequencyTripDetails = db.prepare('INSERT INTO trip_details SELECT ?,headsign,short_name FROM trip_details WHERE trip_id=?')
     const knownStopIds = new Set(db.prepare('SELECT stop_id FROM stops').all().map((row) => row.stop_id))
     const insertConnection = db.prepare('INSERT INTO connections VALUES(?,?,?,?,?,?,?,?,?)')
     const insertConnectionPermission = db.prepare('INSERT INTO connection_permissions VALUES(?,?,?,?)')
@@ -1576,7 +1577,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
           if (frequencyTripIds.has(instance.tripId)) continue
           frequencyTripIds.add(instance.tripId)
           insertFrequencyTrip.run(instance.tripId, trip.route_id, trip.service_id, trip.direction_id)
-          db.prepare('INSERT INTO trip_details SELECT ?,headsign,short_name FROM trip_details WHERE trip_id=?').run(instance.tripId, row.trip_id)
+          copyFrequencyTripDetails.run(instance.tripId, row.trip_id)
           const shape = tripShapeLookup.get(row.trip_id)?.shape_id
           if (shape) insertFrequencyTripShape.run(instance.tripId, shape)
           exactFrequencyExpandedTripCount += 1
@@ -2644,6 +2645,7 @@ function openNationalStore(storePath, options = {}) {
         from_stop_id, to_stop_id, departure, arrival, stop_sequence
       FROM connections WHERE trip_id=? ORDER BY stop_sequence
     `),
+    tripHeadsignLookup: db.prepare('SELECT headsign FROM trip_details WHERE trip_id=?'),
     tripShapeLookup: shapeTablesReady ? db.prepare('SELECT shape_id FROM trip_shapes WHERE trip_id=?') : null,
     shapePointsLookup: shapeTablesReady ? db.prepare('SELECT lon, lat FROM shape_points WHERE shape_id=? ORDER BY sequence') : null,
     staticTopology,
@@ -5409,7 +5411,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
       routeShortName: route.short_name || route.long_name || first.route_id, routeColor: route.color || undefined,
       tripId: first.trip_id, directionId: first.direction_id || undefined, serviceId: first.service_id,
       serviceDate: kernel.tripServiceDates?.[step.kernelTripIndex] || request.serviceDate,
-      headsign: store.db.prepare('SELECT headsign FROM trip_details WHERE trip_id=?').get(first.trip_id)?.headsign ?? null,
+      headsign: store.tripHeadsignLookup.get(first.trip_id)?.headsign ?? null,
       intermediateStops: connections.slice(0, -1).map((c, i) => ({ stopId: c.to_stop_id,
         name: stopLookup.get(c.to_stop_id)?.name ?? c.to_stop_id, arrival: c.arrival,
         departure: connections[i + 1].from_stop_id === c.to_stop_id ? connections[i + 1].departure : null })),

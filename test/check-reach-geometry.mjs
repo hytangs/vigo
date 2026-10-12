@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import './check-reach-blocks.mjs'
 import { rasterBoundaryAreas as rasterAreas, boundaryContoursFromAreas } from '../src/server/reach-boundaries.mjs'
+import { rasterAreas as cellAreas, rasterContours as publicContours } from '../src/server/reach.mjs'
 import { createSsrTestServer } from './helpers/ssr-test-server.mjs'
 
 const polygonsOf = collection => collection.features.flatMap(feature => feature.geometry.type === 'Polygon'
@@ -20,6 +21,7 @@ function checkSurface(values, width, height, cutoff = 1, bounds = [0, 0, width, 
   const areas = rasterAreas(values, width, height, bounds, [cutoff], 'baseline')
   const polygons = polygonsOf(areas)
   const contours = boundaryContoursFromAreas(areas)
+  assert.deepEqual(publicContours(values, width, height, bounds, [cutoff], 'baseline'), contours, 'Public contours share closed interpolated boundaries')
   assert.deepEqual(contours.features.flatMap(feature => feature.geometry.coordinates), polygons.flat(), 'Fill and outline must use identical closed boundaries')
   assert.deepEqual([...values], original, 'Display interpolation must not change travel times or missing cells')
   for (const polygon of polygons) for (const [index, ring] of polygon.entries()) {
@@ -35,6 +37,36 @@ function checkSurface(values, width, height, cutoff = 1, bounds = [0, 0, width, 
   }
   return polygons
 }
+// CLI cell polygons preserve the exact raster mask, including nested islands.
+function checkCells(values, width, height, bounds = [-74, 40, -73.9, 40.1]) {
+  const original = [...values]
+  const polygons = polygonsOf(cellAreas(values, width, height, bounds, [1], 'baseline'))
+  assert.deepEqual([...values], original)
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const point = [bounds[0] + (x + .5) / width * (bounds[2] - bounds[0]),
+      bounds[3] - (y + .5) / height * (bounds[3] - bounds[1])]
+    assert.equal(covered(point, polygons), Number.isFinite(values[y * width + x]) && values[y * width + x] <= 1,
+      `CLI cell classification at ${x},${y}; mask=${[...values].map(v => Number.isFinite(v) ? 1 : 0).join('')}`)
+  }
+  // Public cell vertices use six decimal places; sum those represented cells.
+  const xs = Array.from({length: width + 1}, (_, x) => +(bounds[0] + x / width * (bounds[2] - bounds[0])).toFixed(6))
+  const ys = Array.from({length: height + 1}, (_, y) => +(bounds[3] - y / height * (bounds[3] - bounds[1])).toFixed(6))
+  let expectedArea = 0
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    if (Number.isFinite(values[y * width + x]) && values[y * width + x] <= 1) expectedArea += (xs[x + 1] - xs[x]) * (ys[y] - ys[y + 1])
+  }
+  const actualArea = polygons.reduce((sum, polygon) => sum + polygon.reduce((a, ring) => a + area(ring), 0), 0)
+  assert(Math.abs(actualArea - expectedArea) < 1e-9, 'CLI polygon area equals reachable cell area')
+  for (const polygon of polygons) for (const ring of polygon) {
+    assert.deepEqual(ring[0], ring.at(-1))
+    assert.equal(new Set(ring.slice(0, -1).map(p => p.join(','))).size, ring.length - 1,
+      'Touching boundaries must be split into simple rings')
+  }
+  return polygons
+}
+for (let mask = 0; mask < 512; mask++) {
+  checkCells(Float64Array.from({length: 9}, (_, i) => mask & (1 << i) ? 0 : Infinity), 3, 3)
+}
 // Exhaust every small no-data mask, including diagonal contacts, narrow gaps,
 // isolated cells, interior holes and surfaces touching every extent edge.
 for (let mask = 0; mask < 512; mask++) {
@@ -45,6 +77,19 @@ const nested = Float64Array.from({ length: 121 }, (_, i) => {
   const x = i % 11, y = Math.floor(i / 11), edge = Math.min(x, y, 10 - x, 10 - y)
   return edge % 2 === 0 ? 0 : Infinity
 })
+assert.deepEqual(checkCells(nested, 11, 11).map(p => p.length), [2, 2, 2])
+let cellSeed = 20261012
+for (let sample = 0; sample < 300; sample++) {
+  const values = Float64Array.from({length: 120}, () => {
+    cellSeed = (Math.imul(cellSeed, 1664525) + 1013904223) >>> 0
+    return cellSeed >>> 31 ? 0 : Infinity
+  })
+  checkCells(values, 12, 10)
+}
+const cornerHoles = new Float64Array(16)
+cornerHoles[5] = Infinity; cornerHoles[10] = Infinity
+checkCells(cornerHoles, 4, 4)
+console.log('CLI cell polygons: 512 masks, 300 seeded rasters, nested islands, touching holes, simple rings and represented area passed.')
 const nestedPolygons = checkSurface(nested, 11, 11)
 assert.equal(nestedPolygons.length, 3)
 assert.deepEqual(nestedPolygons.map(p => p.length), [2, 2, 2], 'Each nested island owns its immediate hole')

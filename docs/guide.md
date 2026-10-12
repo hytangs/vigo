@@ -748,9 +748,17 @@ The requested extent sets the analytical grid; it is not a maximum trip distance
 
 The default `reachFormat: "full"` includes the requested grid and available full-extent output. `surface.valuesSeconds` is row-major from the northwest corner; `null` means unreached. Read its bounds and dimensions together with the values. `fullSurface` describes the separate full reached extent when available.
 
-`areas` are GeoJSON polygons around reachable cells. `contours` are isolines. For a map, request `reachFormat: "map"` to return the full reached-area polygons and their bounds without raster values, stop lists, or duplicate contour representations. Map output cannot be used for raster comparison.
+`areas` are GeoJSON polygons around reachable cells, preserving holes and nested islands. `contours` interpolate the sampled travel times and close at the grid extent and no-data boundaries. Diagonal-only cells remain disconnected. The raw raster remains the reference for numerical analysis. For a map, request `reachFormat: "map"` to return the full reached-area polygons and their bounds without raster values, stop lists, or duplicate contour representations. Map output cannot be used for raster comparison.
 
 For detailed network evidence, use `includeStreetEdges: true` or `--street-edges` with full output. Returned directed intervals retain their explicitly named units. Keep this evidence separate from the public second-valued raster. See [the output dictionary](standalone.html#reach-output) for raster ordering and edge decoding.
+
+### Compare with R5 and OTP
+
+Use `surfaceSampling: "cell-center"` for a coordinate-destination travel-time surface. The default `street` mode samples reached street edges and leaves cells away from those edges unfilled; it can look more fragmented than an interpolated grid isochrone. Studio draws interpolated boundaries and identifies its block-interior estimates separately from computed travel times.
+
+Match the origin, service date, departure time, modes, walking and transfer rules, cutoff, spatial extent and grid resolution. VIGO Reach evaluates a fixed departure. Conveyal's R5 analysis can aggregate a departure window at a chosen percentile; match that temporal statistic before comparing boundaries. OTP's Travel Time API provides a departure-time snapshot. Public VIGO raster values are seconds, while requests specify `cutoffsMinutes`.
+
+For quantitative agreement, compare travel times at the same coordinates using Matrix, then classify them at the same cutoff. A longitude/latitude grid and a Web Mercator grid do not have identical cell centers. Compare interpolated contours separately from cell polygons; raster resolution affects their apparent shape. See [Conveyal's isochrone methodology](https://docs.conveyal.com/analysis) and [OTP's Travel Time API](https://docs.opentripplanner.org/en/v2.2.0/sandbox/TravelTime/).
 
 ### Inspect a destination in Studio
 
