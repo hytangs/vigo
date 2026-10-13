@@ -63,9 +63,12 @@ try {
   // Retry retains authorization even if another import previously used public.
   const broken = path.join(directory, 'retry.osm.pbf')
   await fs.writeFile(broken, 'Invalid PBF')
-  const failed = await wait((await request(`${base}/national-osm-import`, 'POST', {
+  assert((await request('/api/health')).routingRuntime.workerCount > 0, 'Prior routing keeps the street snapshot open')
+  const replacement = (await request(`${base}/national-osm-import`, 'POST', {
     sourcePath: broken, privateAccess: 'endpoints',
-  }, 202)).job, 'failed')
+  }, 202)).job
+  assert.equal((await request('/api/health')).routingRuntime.workerCount, 0, 'Street replacement retires timetable workers before writing snapshots')
+  const failed = await wait(replacement, 'failed')
   await fs.copyFile(inputs.osmPath, broken)
   const retried = await wait((await request(`${base}/national-job-retry`, 'POST', { jobId: failed.id }, 202)).job)
   assert.equal(retried.privateAccess, 'endpoints')

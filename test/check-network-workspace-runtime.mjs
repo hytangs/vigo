@@ -11,6 +11,7 @@ import { createProvider } from '../src/agency/provider.mjs'
 import { createAgencyFixture, observationTime, realtimeFixture, tripUpdate } from './fixtures/agency.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
+await fs.mkdir(path.join(root, 'temp'), { recursive: true })
 const directory = await fs.mkdtemp(path.join(root, 'temp', 'network-workspace-runtime-'))
 const storePath = path.join(directory, 'schedule.sqlite'), agencyDirectory = path.join(directory, 'agency')
 createAgencyFixture(storePath)

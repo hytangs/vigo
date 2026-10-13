@@ -2282,7 +2282,13 @@ async function launchNationalImportWorker(projectId, kind, job, workerUrl, worke
   try {
     if (kind === 'osm') {
       streetPreparationManager.invalidate(streetStoreFile(projectId))
-      await nationalRouteWorkerPool.retire(streetStoreFile(projectId))
+      // Timetable workers also map this City's street files. Release every
+      // owner before replacement, including on Windows where mapped files
+      // cannot be atomically overwritten by the import process.
+      const project = await readProjectMetadata(projectId)
+      await Promise.all([
+        streetStoreFile(projectId), ...projectNationalRoutingStorePaths(projectId, project),
+      ].map(storePath => nationalRouteWorkerPool.retire(storePath)))
     }
     await persistNationalJob(projectId, job)
     return new PreparationProcess(workerUrl, { workerData })
@@ -4312,6 +4318,11 @@ async function route(request, response) {
 
     if (cityMaintenance.has(projectId)) {
       const error = new Error('This City is temporarily unavailable while cleanup finishes.')
+      error.statusCode = 409
+      throw error
+    }
+    if (routingRequest && nationalImportProjects.get(projectId)?.has('osm')) {
+      const error = new Error('Street data is being replaced. Retry routing when the import finishes.')
       error.statusCode = 409
       throw error
     }

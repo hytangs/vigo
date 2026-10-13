@@ -47,6 +47,15 @@ jobs:
             release/rust/*.tar.gz.sha256
           compression-level: 0
           if-no-files-found: error
+      - name: Install pinned Electron runtime
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            node node_modules/electron/install.js && exit 0
+            sleep 2
+          done
+          exit 1
+      - run: npm run build
       - run: xvfb-run -a npm run check:studio-runtime
         if: runner.os == 'Linux'
       - run: npm run check:studio-runtime

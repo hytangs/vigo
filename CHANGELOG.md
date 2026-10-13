@@ -2,6 +2,8 @@
 
 ## 0.5.2
 
+- Release all City routing workers before replacing street snapshots, including timetable workers holding mapped files on Windows. Reject new routing requests during replacement and preserve retry behavior.
+
 - Refresh native walking evidence for parent-station selections and prepare paired station endpoints together. Preserve Route and Matrix geometry across repeated parent, platform, and map-point requests without changing station access costs.
 
 - Bundle the searchable guide and CLI/HTTP reference in Studio Settings. Read offline in the selected light or dark appearance; retain browser links to source documents and schema downloads.
