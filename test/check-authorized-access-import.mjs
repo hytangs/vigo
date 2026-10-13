@@ -21,6 +21,7 @@ try {
   }
   const { project } = await request('/api/projects', 'POST', { name: 'Authorized endpoint fixture' }, 201)
   const base = `/api/projects/${project.id}`
+  const overlayPath = path.join(directory, 'cities', project.id, '.vigo', 'osm', 'street-index.sqlite.terminal-access-v1.json')
   const wait = async (job, expected = 'complete') => {
     const deadline = Date.now() + 60_000
     while (['running', 'queued'].includes(job.status) && Date.now() < deadline) {
@@ -52,6 +53,7 @@ try {
   assert.equal(job.privateAccess, 'endpoints')
   assert.equal(job.result.terminalAccess.model, 'authorized_endpoints')
   assert.equal((await request(base)).project.osmStreetIndex.terminalAccess.model, 'authorized_endpoints')
+  await fs.access(overlayPath)
   await route('ready')
   const reachBody = { origin: { source: 'map', coordinate: [-77.054, 38.9], label: 'Residence' },
     serviceDate: '2026-07-15', serviceDay: 'weekday', departMinutes: 475, mode: 'transit',
@@ -75,6 +77,7 @@ try {
   await route('ready')
   await wait((await request(`${base}/national-osm-import`, 'POST', { sourcePath: inputs.osmPath, privateAccess: 'public' }, 202)).job)
   assert.equal((await request(base)).project.osmStreetIndex.terminalAccess.model, 'public')
+  await assert.rejects(fs.access(overlayPath), { code: 'ENOENT' }, 'Public replacement removes the previous private overlay')
   await route('blocked')
   console.log('Authorized access: upload, local import, retry, validation, gate routing and return to public passed.')
 } finally {
