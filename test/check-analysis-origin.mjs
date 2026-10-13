@@ -59,16 +59,19 @@ try {
   assert.match(markup, /Choose origin/)
   await writeFile(path.join(directory, 'main.cjs'), `const { app, BrowserWindow }=require('electron');
 const assert=require('node:assert/strict');
+const {layoutFrame}=require(${JSON.stringify(path.join(root, 'test/helpers/layout-frame.cjs'))});
+app.disableHardwareAcceleration();
 app.setPath('userData',${JSON.stringify(path.join(directory, 'profile'))});
 app.whenReady().then(async()=>{try{
- const window=new BrowserWindow({show:true,width:390,height:800,webPreferences:{backgroundThrottling:false,nodeIntegration:false,contextIsolation:true,sandbox:true}});
+ const window=new BrowserWindow({show:false,width:390,height:800,webPreferences:{offscreen:true,backgroundThrottling:false,nodeIntegration:false,contextIsolation:true,sandbox:true}});
  window.webContents.on('console-message',event=>{if(event.level==='error')console.error(event.message)});
  const evaluate=code=>window.webContents.executeJavaScript(code);
  const wait=async(code)=>{const until=Date.now()+10000;while(Date.now()<until){if(await evaluate(code))return;await new Promise(resolve=>setTimeout(resolve,30));}throw Error('Condition timed out: '+code+'; '+await evaluate('JSON.stringify({focused:document.hasFocus(),active:document.activeElement?.outerHTML,text:document.body.innerText})'))};
  const key=async(keyCode)=>{const before=await evaluate('window.keyUps');window.webContents.sendInputEvent({type:'keyDown',keyCode});if(keyCode==='Enter')window.webContents.sendInputEvent({type:'char',keyCode:'\\r'});window.webContents.sendInputEvent({type:'keyUp',keyCode});await wait('window.keyUps > '+before);};
  await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/origin-test.html`)});
- app.focus({steal:true});window.focus();window.webContents.focus();
- await wait('document.hasFocus()');
+ // Offscreen input avoids desktop/window-manager focus races in CI while
+ // still exercising Chromium's native Enter, Tab, Escape and default actions.
+ await layoutFrame(window);window.webContents.focus();
  await wait("!!document.querySelector('.analysis-origin-toggle')");
  await evaluate("document.querySelector('.analysis-origin-toggle').focus()"); await key('Enter');
  await wait("!!document.querySelector('input[type=search]') && document.activeElement === document.querySelector('input[type=search]')");

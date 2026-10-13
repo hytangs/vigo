@@ -14,10 +14,11 @@ const city = path.join(directory, 'city')
 const token = 'public-synthetic-test-token'
 const body = JSON.stringify({ requireTransitRide: true, diagnostics: 'trace', origin: { stopId: 'A' }, destination: { stopId: 'B' }, serviceDate: '2026-07-15', time: '07:55', maxWalkKm: .2 })
 let server, port, checks = 0
+const launchServer = () => spawn(binary, ['serve', '--city', city, '--port', '0', '--max-body-bytes', '1048576', '--request-timeout-ms', '250', '--query-timeout-ms', '250', '--max-connections', '4', '--max-queue', '2'], { env: { PATH: '', VIGO_API_TOKEN: token, RAYON_NUM_THREADS: '2' } })
 try {
   const { gtfsPath, osmPath } = await writeCliFixtureInputs(directory)
   execFileSync(process.execPath, ['public/vigo.mjs', 'build', `--gtfs=${gtfsPath}`, `--osm=${osmPath}`, `--output=${city}`], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] })
-  server = spawn(binary, ['serve', '--city', city, '--port', '0', '--max-body-bytes', '1048576', '--request-timeout-ms', '250', '--query-timeout-ms', '250', '--max-connections', '4', '--max-queue', '2'], { env: { PATH: '', VIGO_API_TOKEN: token, RAYON_NUM_THREADS: '2' } })
+  server = launchServer()
   const listeningPort = () => new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('HTTP startup timed out')), 15000)
     let text = ''
@@ -25,7 +26,7 @@ try {
     server.once('exit', code => { clearTimeout(timer); reject(new Error(`Server exited ${code}: ${text}`)) })
   })
   port = await listeningPort()
-  const origin = `http://127.0.0.1:${port}`
+  let origin = `http://127.0.0.1:${port}`
   assert.equal(execFileSync(binary, ['health', '--port', String(port)], { env: { PATH: '', VIGO_CITY: '/nonexistent' }, encoding: 'utf8', timeout: 5000 }).trim(), 'ready')
   assert.equal(execFileSync(binary, ['health'], { env: { PATH: '', PORT: String(port) }, encoding: 'utf8', timeout: 5000 }).trim(), 'ready')
   checks += 2
@@ -133,11 +134,17 @@ try {
     while ((await fetch(`${origin}/readyz`)).status !== 200) {
       assert(Date.now() < firstRecovery); await new Promise(resolve => setTimeout(resolve, 25))
     }
+    // Worker readiness does not mean the overload queue has drained. Isolate
+    // pipe backpressure from admission pressure with a fresh, ready server.
+    server.kill(); await once(server, 'exit')
+    server = launchServer()
+    port = await listeningPort()
+    origin = `http://127.0.0.1:${port}`
     const nextWorker = Number(execFileSync('pgrep', ['-P', String(server.pid)], { encoding: 'utf8' }).trim())
     process.kill(nextWorker, 'SIGSTOP')
     const large = JSON.stringify({ ...JSON.parse(body), origin: { stopId: 'A', name: 'x'.repeat(512 * 1024) } })
     const stalled = await fetch(`${origin}/v1/route`, { method: 'POST', headers, body: large, signal: AbortSignal.timeout(5000) })
-    assert.equal(stalled.status, 504, 'Deadline must cover a full worker input pipe'); checks++
+    assert.equal(stalled.status, 504, `Deadline must cover a full worker input pipe: ${await stalled.text()}`); checks++
     const recoveredBy = Date.now() + 5000
     while ((await fetch(`${origin}/readyz`)).status !== 200) {
       assert(Date.now() < recoveredBy); await new Promise(resolve => setTimeout(resolve, 25))
