@@ -3379,6 +3379,16 @@ export async function ensureNationalGtfsOsmStopTransfers(
   }
 }
 
+function coordinateAccessPoint(store, point) {
+  const id = explicitRoutingStopId(point)
+  const stop = id ? store.stopLookup.get(id) : null
+  // A parent selection pays coordinate/station access, just as the single
+  // endpoint path does. Pair its frontiers so both witnesses share one token.
+  return stop?.location_type === 1
+    ? { coordinate: [stop.lon, stop.lat], source: 'map' }
+    : point
+}
+
 function prepareNativeCoordinateAccessPair(
   store,
   origin,
@@ -3388,6 +3398,8 @@ function prepareNativeCoordinateAccessPair(
   streetStorageIdentity,
   disableCache = false,
 ) {
+  origin = coordinateAccessPoint(store, origin)
+  destination = coordinateAccessPoint(store, destination)
   if (
     !streetStorePath
     || explicitRoutingStopId(origin)
@@ -3466,8 +3478,10 @@ function bindPreparedNativeCoordinateAccessPair(
       sourceStorageIdentity: store.sourceStorageIdentity,
       streetStorePath: path.resolve(streetStorePath),
       streetStorageIdentity,
-      originCoordinate: [...origin.coordinate],
-      destinationCoordinate: [...destination.coordinate],
+      originCoordinate: [...coordinateAccessPoint(store, origin).coordinate],
+      destinationCoordinate: [...coordinateAccessPoint(store, destination).coordinate],
+      originStopId: explicitRoutingStopId(origin),
+      destinationStopId: explicitRoutingStopId(destination),
       maxWalkKm,
     },
   }
@@ -3483,6 +3497,8 @@ function preparedNativeCoordinateAccessPairMatches(
   streetStorageIdentity,
 ) {
   const binding = prepared?.binding
+  const originCoordinate = coordinateAccessPoint(store, origin)?.coordinate
+  const destinationCoordinate = coordinateAccessPoint(store, destination)?.coordinate
   return (
     Boolean(binding)
     && binding.store === store
@@ -3490,10 +3506,12 @@ function preparedNativeCoordinateAccessPairMatches(
     && binding.streetStorePath === path.resolve(streetStorePath)
     && binding.streetStorageIdentity === streetStorageIdentity
     && binding.maxWalkKm === maxWalkKm
-    && binding.originCoordinate[0] === origin?.coordinate?.[0]
-    && binding.originCoordinate[1] === origin?.coordinate?.[1]
-    && binding.destinationCoordinate[0] === destination?.coordinate?.[0]
-    && binding.destinationCoordinate[1] === destination?.coordinate?.[1]
+    && binding.originStopId === explicitRoutingStopId(origin)
+    && binding.destinationStopId === explicitRoutingStopId(destination)
+    && binding.originCoordinate[0] === originCoordinate?.[0]
+    && binding.originCoordinate[1] === originCoordinate?.[1]
+    && binding.destinationCoordinate[0] === destinationCoordinate?.[0]
+    && binding.destinationCoordinate[1] === destinationCoordinate?.[1]
   )
 }
 
@@ -3644,7 +3662,7 @@ function preparePointAccessStops(
 ) {
   const native = prepareNativeCoordinateAccessRole(
     store,
-    point,
+    coordinateAccessPoint(store, point),
     maxWalkKm,
     streetStorePath,
     streetStorageIdentity,
@@ -3680,8 +3698,6 @@ function prepareAccessStops(
     streetStorageIdentity,
     accessRole,
   ])
-  const cached = boundedCacheGet(store.accessStopsCache, cacheKey)
-  if (cached) return cached
   const selectedStop = explicitStopId ? store.stopLookup.get(explicitStopId) : null
   if (explicitStopId && !selectedStop) {
     boundedCacheSet(store.accessStopsCache, cacheKey, [], 20_000)
@@ -3695,11 +3711,13 @@ function prepareAccessStops(
       error.code = 'VIGO_STATION_ACCESS_UNSUPPORTED'
       throw error
     }
-    const selected = preparePointAccessStops(store, { coordinate: [selectedStop.lon, selectedStop.lat], source: 'map' },
+    // Native frontier tokens are query-local. Cache the immutable frontier in
+    // Rust, never these candidate labels across requests or endpoint roles.
+    return preparePointAccessStops(store, { coordinate: [selectedStop.lon, selectedStop.lat], source: 'map' },
       maxWalkKm, streetStorePath, streetStorageIdentity, accessRole)
-    boundedCacheSet(store.accessStopsCache, cacheKey, selected, 20_000)
-    return selected
   }
+  const cached = boundedCacheGet(store.accessStopsCache, cacheKey)
+  if (cached) return cached
   if (selectedStop) {
     const stationId = ''
     const memberIds = stationId

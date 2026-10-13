@@ -2,6 +2,8 @@
 
 ## 0.5.2
 
+- Refresh native walking evidence for parent-station selections and prepare paired station endpoints together. Preserve Route and Matrix geometry across repeated parent, platform, and map-point requests without changing station access costs.
+
 - Bundle the searchable guide and CLI/HTTP reference in Studio Settings. Read offline in the selected light or dark appearance; retain browser links to source documents and schema downloads.
 - Update current documentation and release examples to 0.5.2. Replace obsolete 0.4.2 screenshots with a link to their archived release record.
 - Remove Studio Ask, City agency skills, and their conversation tests and evaluation fixtures. Retain Network, Routes, Route, Analyze, and existing City evidence.
