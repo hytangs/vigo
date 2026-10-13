@@ -69,7 +69,7 @@ export function ReachSettings({ cutoffMinutes, maxWalkKm, walkSpeedKph, maxTrans
           onChange={value => onMaxTransfersChange(value === undefined ? undefined : value - 1)} /> : null}
         <AnalysisNumberField label="Final walk limit" value={maxWalkKm} min={0.2} max={5} unit="km"
           onChange={value => { if (value !== undefined) onMaxWalkKmChange(value) }} />
-        <AnalysisNumberField label="Walking speed" value={walkSpeedKph} min={1} max={8} unit="km/h" disabled={surfaceSampling === 'cell-center'}
+        <AnalysisNumberField label="Walking speed" value={surfaceSampling === 'cell-center' ? 4.8 : walkSpeedKph} min={1} max={8} unit="km/h" disabled={surfaceSampling === 'cell-center'}
           onChange={value => { if (value !== undefined) onWalkSpeedChange(value) }} />
         {onSurfaceSamplingChange ? <label className="reach-field reach-setting-method">
           <span>Area calculation</span>
@@ -77,7 +77,7 @@ export function ReachSettings({ cutoffMinutes, maxWalkKm, walkSpeedKph, maxTrans
             <option value="street">Reachable streets</option>
             <option value="cell-center" disabled={hasScenarioChanges}>Routes to grid points</option>
           </select>
-          <small>{surfaceSampling === 'cell-center' ? 'Samples routes at grid points, walking at 4.8 km/h.' : 'Follows the streets you can reach, including service changes.'}</small>
+          <small>{surfaceSampling === 'cell-center' ? 'Routes to each cell centre, walking at 4.8 km/h.' : 'Counts a cell when part of a street is reachable. Includes service changes.'}</small>
         </label> : null}
       </div>
     </details>

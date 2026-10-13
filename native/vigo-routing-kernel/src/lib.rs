@@ -3085,6 +3085,11 @@ impl CoordinateKernel {
     }
 
     #[cfg_attr(feature = "node", napi)]
+    pub fn has_authorized_endpoint_access(&self) -> bool {
+        self.terminal_access.is_some()
+    }
+
+    #[cfg_attr(feature = "node", napi)]
     pub fn public_access_components(&self) -> napi::Result<Vec<u32>> {
         let profile = self.profile.as_ref().ok_or_else(|| {
             Error::from_reason(
@@ -4713,6 +4718,7 @@ impl CoordinateKernel {
         &mut self,
         mut input: StreetSurfaceInput,
     ) -> napi::Result<StreetSurfaceResult> {
+        let mut endpoint_seeds = None;
         if let Some(members) = input.seed_member_indices.take() {
             let count = input.seed_durations_minutes.len();
             if members.len() != count
@@ -4743,6 +4749,7 @@ impl CoordinateKernel {
             let mut coordinates = Vec::new();
             let mut durations = Vec::new();
             let mut distances = Vec::new();
+            let mut endpoints = self.terminal_access.as_ref().map(|_| Vec::new());
             for (seed, member) in members.into_iter().enumerate() {
                 let arrival = input.seed_durations_minutes[seed];
                 if member == -1 {
@@ -4759,6 +4766,9 @@ impl CoordinateKernel {
                     coordinates.extend_from_slice(&point);
                     durations.push(arrival + distance * 60.0 / (input.walk_speed_kph * 1000.0));
                     distances.push(distance);
+                    if let Some(endpoints) = endpoints.as_mut() {
+                        endpoints.push(seed == 0);
+                    }
                     continue;
                 }
                 if member < 0 || member as usize >= profile.member_lons.len() {
@@ -4776,6 +4786,9 @@ impl CoordinateKernel {
                     ]);
                     durations.push(arrival + seconds / 60.0);
                     distances.push(distance);
+                    if let Some(endpoints) = endpoints.as_mut() {
+                        endpoints.push(false);
+                    }
                 };
                 for &anchor in profile.member_anchor_indices(member) {
                     add(anchor as usize, 0.0, 0.0);
@@ -4804,6 +4817,7 @@ impl CoordinateKernel {
             input.seed_coordinates = coordinates;
             input.seed_durations_minutes = durations;
             input.seed_walk_distances_m = Some(distances);
+            endpoint_seeds = endpoints;
         } else if input.seed_coordinates.len() == input.seed_durations_minutes.len() * 2 {
             let mut distances = input
                 .seed_walk_distances_m
@@ -4836,6 +4850,8 @@ impl CoordinateKernel {
             &self.snapshot,
             self.snapshot.reciprocal_edge_flags(),
             &mut self.surface_snap_cache,
+            self.terminal_access.as_deref(),
+            endpoint_seeds.as_deref(),
             input,
         )
     }
@@ -5409,6 +5425,33 @@ impl CoordinateKernel {
             destination_access.as_deref(),
             input.maximum_distance_m,
         );
+        // A terminal frontier charges travel to the public boundary. Staying
+        // at the identical attached coordinate requires none of that travel.
+        // Use the original attachments, as Matrix does for coordinate identity.
+        let path = if input.origin_lon == input.destination_lon
+            && input.origin_lat == input.destination_lat
+            && (origin_access.is_some() || destination_access.is_some())
+        {
+            edge_attachment::choose(
+                path,
+                edge_attachment::path(
+                    &self.snapshot,
+                    origin_access
+                        .as_ref()
+                        .map_or(origins.as_slice(), |a| a.original_snaps.as_slice()),
+                    destination_access
+                        .as_ref()
+                        .map_or(destinations.as_slice(), |a| a.original_snaps.as_slice()),
+                    [
+                        [input.origin_lon, input.origin_lat],
+                        [input.destination_lon, input.destination_lat],
+                    ],
+                    input.maximum_distance_m,
+                )?,
+            )
+        } else {
+            path
+        };
         let mut result = street_path_result(
             &self.snapshot,
             self.terminal_access.as_deref(),

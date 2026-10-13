@@ -403,6 +403,7 @@ export type JobRecord = {
   error?: string
   failureCode?: string
   retryable?: boolean
+  privateAccess?: 'public' | 'endpoints'
   retryOf?: string
   sourceFile?: string
   preparation?: {
@@ -462,6 +463,7 @@ export type VigoProject = {
     sourceBytes: number
     bytes: number
     storageLayout?: string
+    terminalAccess?: { model: 'public' | 'authorized_endpoints'; authorizedGateNodes?: number }
     runtimeCompaction?: {
       storageLayout?: string
       beforeBytes?: number

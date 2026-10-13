@@ -2,7 +2,7 @@
 
 This repository contains Engine and Studio. Keep language bindings, private datasets, notebooks, generated data, release archives, and local workspaces outside it. Follow the [quickstart](../docs/guide.md#vigo-cli-quickstart) to install and build.
 
-The current release line is [VIGO 0.5.1](../docs/releases/0.5.1.md).
+The current release line is [VIGO 0.5.2](../docs/releases/0.5.2.md).
 
 ## Make a change
 
@@ -22,7 +22,7 @@ Use the relevant lane while developing, then run `npm test` before submitting. R
 | TypeScript / UI state | `npm run typecheck` · `npm run check:ui` |
 | Maps and desktop interactions | `npm run check:map` · `npm run check:studio-runtime` |
 | Transit / streets / Reach | `npm run check:routing` · `npm run check:rust-routing-kernel` |
-| Network, realtime inspection, Ask | `npm run check:agency` · `npm run check:gtfs` |
+| Network and realtime inspection | `npm run check:agency` · `npm run check:gtfs` |
 | CLI contract and City portability | `npm run check:cli` |
 | Documentation readers | `npm run docs:build` · `npm run docs:standalone` · `npm run check:docs` |
 
@@ -30,7 +30,7 @@ Use the relevant lane while developing, then run `npm test` before submitting. R
 
 Use `docs/guide.md` for user documentation, `docs/developer.md` for implementation and research guidance, and `docs/history.md` for dated records. The remaining CLI, standalone, and shared reference sources feed packaged documentation. Add chapters to these canonical files rather than creating a Markdown file for every topic.
 
-Actual-model evaluations are opt-in, never part of deterministic tests. `npm run evaluate:intelligence -- --output intelligence.jsonl` exercises the configured provider; `node scripts/evaluate-network-briefing.mjs --output briefing.json` evaluates a synthetic briefing. The latter requires a new output path and `VIGO_AGENCY_LLM_*` settings; use `--variant stale` for expired evidence. Retain provider, input, and revision provenance, and distinguish these runs from live service evidence.
+Actual-model evaluations are opt-in, never part of deterministic tests. `node scripts/evaluate-network-briefing.mjs --output briefing.json` evaluates a synthetic briefing. It requires a new output path and `VIGO_AGENCY_LLM_*` settings; use `--variant stale` for expired evidence. Retain provider, input, and revision provenance, and distinguish these runs from live service evidence.
 
 ## Packaging and releases
 

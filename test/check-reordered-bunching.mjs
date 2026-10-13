@@ -10,7 +10,6 @@ import { vehicleAlert } from '../src/agency/vehicleIndicators.ts'
 import { eventSentences } from '../src/agency/communications.mjs'
 import { summarizeEvidence } from '../src/agency/evidenceSummary.mjs'
 import { briefingFacts } from '../src/agency/briefing.mjs'
-import { compactResult } from '../src/agency/queryAgent.mjs'
 import { observationReportMarkdown } from '../src/agency/observationExport.ts'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -60,10 +59,6 @@ try {
   assert.match(summarizeEvidence(trace), /smallest local scheduled interval is 10 minutes.*scheduled 20 minutes apart/)
   assert.match(eventSentences(event, context)[0].text, /smallest local scheduled interval after trip reordering/)
   assert.match(briefingFacts(trace)[0].text, /smallest local scheduled interval after trip reordering/)
-  const compact = JSON.parse(compactResult(result, 'anomaly_scan')).data.events[0].evidence
-  assert.equal(compact.comparisonBasis, 'reordered-predictions')
-  assert.equal(compact.scheduledPairSeparationMinutes, 20)
-  assert.equal(compact.interveningTrips[0].basis, 'position')
   assert.match(observationReportMarkdown(live, { exportedAt: live.generatedAt }), /smallest local scheduled interval 600 s; scheduled separation of these trips 1200 s/)
   for (const patch of [{ timestamp: now - 181 }, { timestamp: now + 181 }, { startDate: '20260912' }, { startTime: 'different' }, { currentStopSequence: 10 }, { currentStopSequence: 999 }, { stopId: 'A' }, { routeId: 'other' }, { id: 'other' }]) {
     const changed = structuredClone(snapshot)

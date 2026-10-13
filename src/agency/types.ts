@@ -129,30 +129,17 @@ export type ToolResult = {
   presentation?: { routeIds?: string[]; stopIds?: string[]; location?: { id: string; label: string; coordinate: [number, number] } }
 }
 
-export type QueryAnswer = {
+export type BriefingAnswer = {
   synthesis?: { method?: string; unavailable?: boolean }
   investigation?: BriefingInvestigation
   briefingPreferences?: BriefingPreferences
   diagnosis?: NetworkDiagnosis
   narrative?: NetworkNarrative
   scheduleIdentity?: string
-  selection?: WorkspaceSelection
   timezone?: string | null
-  runtime?: {
-    capturedAt: string
-    modelConnection: { model: string | null; protocol: string | null; endpoint: string | null; transport: string | null; endpointLocation: 'loopback' | 'other' | 'unknown'; inferenceLocation: 'unverified'; externalModelApi: 'not-configured-directly' | 'unverified' | 'unknown' }
-    networkTools: Array<{ tool: string; label: string; endpoint: string | null }>
-    networkToolCalls: Array<{ tool: string; completed: boolean }>
-    limits: string
-  }
-  timing?: { totalMs: number; modelCalls: number; modelMs: number; toolMs: number; inputTokens: number | null; outputTokens: number | null; firstResponseMs?: number | null; loadMs?: number | null; promptMs?: number | null; generationMs?: number | null }
   entryId?: number
-  responseBasis?: 'computed' | 'model_with_sources' | 'model_only'
   aiGenerated?: boolean
   model?: string
-  citations?: number[]
-  scopeNote?: string
-  report?: { title: string; method: string; inputs: Record<string, unknown>; rows: Record<string, unknown>[] }
   answer: string
   trace: Array<{ tool: string; arguments: Record<string, unknown>; result: ToolResult }>
   evidenceRefs: string[]
@@ -175,7 +162,6 @@ export type RiderDraft = {
 }
 
 export interface ProviderState {
-  web?: { provider: 'off' | 'duckduckgo' | 'wikipedia' | 'brave' | 'searxng'; baseUrl: string; hasKey: boolean; searchAvailable: boolean; readAvailable: boolean }
   available: boolean
   model: string | null
   baseUrl?: string

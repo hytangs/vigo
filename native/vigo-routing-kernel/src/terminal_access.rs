@@ -27,8 +27,10 @@ pub(crate) struct TerminalAccessGraph {
     lats: Vec<f64>,
     public_nodes: Vec<u32>,
     public_to_local: Vec<u32>,
-    forward: Vec<Vec<(u32, f64)>>,
-    reverse: Vec<Vec<(u32, f64)>>,
+    forward: Vec<Vec<(u32, f64, u32)>>,
+    reverse: Vec<Vec<(u32, f64, u32)>>,
+    edge_targets: Vec<u32>,
+    edge_distances: Vec<f64>,
     boundary: Vec<bool>,
     cells: HashMap<(i32, i32), Vec<u32>>,
     public_count: u32,
@@ -100,9 +102,11 @@ impl TerminalAccessGraph {
                 .forward
                 .iter()
                 .chain(&self.reverse)
-                .map(|v| v.capacity() * size_of::<(u32, f64)>())
+                .map(|v| v.capacity() * size_of::<(u32, f64, u32)>())
                 .sum::<usize>()
             + self.boundary.capacity()
+            + self.edge_targets.capacity() * size_of::<u32>()
+            + self.edge_distances.capacity() * size_of::<f64>()
             + self.cells.capacity() * (size_of::<((i32, i32), Vec<u32>)>() + 1)
             + self.cells.values().map(|v| v.capacity() * 4).sum::<usize>()
     }
@@ -127,6 +131,8 @@ impl TerminalAccessGraph {
             || file.public_nodes.len() != count
             || file.edge_sources.len() != file.edge_targets.len()
             || file.edge_sources.len() != file.edge_distances_m.len()
+            || file.edge_sources.len()
+                > (u32::MAX as usize).saturating_sub(snapshot.header.edge_count)
             || file.boundary_components.is_empty()
             || file
                 .boundary_components
@@ -169,11 +175,12 @@ impl TerminalAccessGraph {
         }
         let mut forward = vec![Vec::new(); count];
         let mut reverse = vec![Vec::new(); count];
-        for ((&from, &to), &distance) in file
+        for (edge, ((&from, &to), &distance)) in file
             .edge_sources
             .iter()
             .zip(&file.edge_targets)
             .zip(&file.edge_distances_m)
+            .enumerate()
         {
             if from as usize >= count
                 || to as usize >= count
@@ -182,13 +189,25 @@ impl TerminalAccessGraph {
             {
                 return Err(Error::from_reason("Terminal access edge is invalid."));
             }
-            forward[from as usize].push((to, distance));
-            reverse[to as usize].push((from, distance));
+            forward[from as usize].push((to, distance, edge as u32));
+            reverse[to as usize].push((from, distance, edge as u32));
         }
         let mut boundary = vec![false; components];
         for component in file.boundary_components {
             boundary[component as usize] = true;
         }
+        let edge_targets = file
+            .edge_targets
+            .iter()
+            .map(|&local| {
+                let public = file.public_nodes[local as usize];
+                if public == u32::MAX {
+                    public_count as u32 + local
+                } else {
+                    public
+                }
+            })
+            .collect();
         Ok(Self {
             lons: file.node_lons,
             lats: file.node_lats,
@@ -196,6 +215,8 @@ impl TerminalAccessGraph {
             public_to_local,
             forward,
             reverse,
+            edge_targets,
+            edge_distances: file.edge_distances_m,
             boundary,
             cells,
             public_count: public_count as u32,
@@ -218,6 +239,65 @@ impl TerminalAccessGraph {
             let local = self.public_to_local[global as usize];
             (local != u32::MAX).then_some(local)
         }
+    }
+
+    pub(crate) fn surface_node_count(&self) -> usize {
+        self.public_count as usize + self.lons.len()
+    }
+
+    pub(crate) fn surface_edge_count(&self) -> usize {
+        self.edge_targets.len()
+    }
+
+    pub(crate) fn surface_edge_target(&self, edge: usize) -> u32 {
+        self.edge_targets[edge]
+    }
+
+    pub(crate) fn surface_edge_distance(&self, edge: usize) -> f64 {
+        self.edge_distances[edge]
+    }
+
+    pub(crate) fn surface_coordinate(&self, node: u32) -> [f64; 2] {
+        let local = node as usize - self.public_count as usize;
+        [self.lons[local], self.lats[local]]
+    }
+
+    pub(crate) fn surface_boundary(&self, components: &[i32], node: u32) -> bool {
+        node < self.public_count && self.boundary[components[node as usize] as usize]
+    }
+
+    pub(crate) fn surface_neighbors(&self, node: u32) -> impl Iterator<Item = (u32, usize)> + '_ {
+        self.local_node(node)
+            .into_iter()
+            .flat_map(|local| self.forward[local as usize].iter())
+            .map(|&(target, _, edge)| (self.global_node(target), edge as usize))
+    }
+
+    pub(crate) fn surface_projections(
+        &self,
+        snapshot: &Snapshot,
+        snaps: &[Snap],
+        point: [f64; 2],
+    ) -> napi::Result<Vec<(usize, u32, f64, f64)>> {
+        let mut result = Vec::new();
+        if snaps.len() != 2 {
+            return Ok(result);
+        }
+        let [a, b] = [snaps[0].node, snaps[1].node];
+        let pa = self.coordinate(snapshot, a)?;
+        let pb = self.coordinate(snapshot, b)?;
+        let Some((offset, fraction)) = projection(point, pa, pb) else {
+            return Ok(result);
+        };
+        for (from, to, t) in [(a, b, fraction), (b, a, 1.0 - fraction)] {
+            if let Some((_, edge)) = self
+                .surface_neighbors(from)
+                .find(|&(target, _)| target == to)
+            {
+                result.push((edge, from, t, offset));
+            }
+        }
+        Ok(result)
     }
 
     pub(crate) fn coordinate(&self, snapshot: &Snapshot, node: u32) -> napi::Result<[f64; 2]> {
@@ -303,10 +383,10 @@ impl TerminalAccessGraph {
         let mut ordered: Vec<_> = nearby.iter().copied().collect();
         ordered.sort_unstable();
         for from in ordered {
-            for &(to, length) in &self.forward[from as usize] {
+            for &(to, length, _) in &self.forward[from as usize] {
                 if from >= to
                     || !nearby.contains(&to)
-                    || !self.reverse[from as usize].iter().any(|&(n, _)| n == to)
+                    || !self.reverse[from as usize].iter().any(|&(n, _, _)| n == to)
                 {
                     continue;
                 }
@@ -409,7 +489,7 @@ impl TerminalAccessGraph {
                 }
             }
             if let Some(local) = self.local_node(node) {
-                for &(target, weight) in &(if reverse {
+                for &(target, weight, _) in &(if reverse {
                     &self.reverse
                 } else {
                     &self.forward

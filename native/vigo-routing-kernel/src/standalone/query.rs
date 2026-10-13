@@ -160,6 +160,14 @@ impl City {
                 return Err(error);
             }
         };
+        if matches!(command, "route" | "matrix" | "reach" | "isochrone")
+            && matches!(request["diagnostics"].as_str(), Some("profile" | "trace"))
+        {
+            raw["timing"]["timetableActivationMs"] = json!(self.timetable_activation_ms);
+            if !self.timetable_preparation_profile.is_null() {
+                raw["timing"]["timetablePreparation"] = self.timetable_preparation_profile.clone();
+            }
+        }
         if let Some(date) = clock_date {
             raw["clockDate"] = json!(date);
         }
@@ -302,6 +310,8 @@ impl City {
         validate_request(command, request)?;
         self.validate_wheelchair_request(request)?;
         let started = Instant::now();
+        self.timetable_activation_ms = 0.;
+        self.timetable_preparation_profile = Value::Null;
         let reserved = arrival_reserve(command, request)?;
         let effective = reserved.as_ref().map_or(request, |(query, _)| query);
         let mut result = match command {

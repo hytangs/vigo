@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { ProjectsPage, StorageRecovery } from '../../src/components/studio/CityLibrary'
 import { CityPanel } from '../../src/components/CityPanel'
+import { ImportPanel } from '../../src/components/studio/CitySources'
 import { cityReadiness } from '../../src/app/cityReadiness'
 import { emptyCityProject } from '../../src/app/projectState'
 import '../../src/App.css'
@@ -17,6 +18,7 @@ const projects = ['Boston', 'Washington', 'Anchorage'].map((name, index) => ({
   jobs: index === 2 ? [{ status: 'running', kind: 'national-osm-import' }] : [],
 }))
 let requests = [], resets = [], opened = '', managed = '', failScan = false, slowScan = false, libraryOpened = false
+const streetAccessRequests = []
 const originalFetch = window.fetch
 window.fetch = async (input, options = {}) => {
   const url = String(input)
@@ -39,11 +41,17 @@ window.fetch = async (input, options = {}) => {
 const config = { storageRoot: '/Cities/Transit networks', canChangeStorageRoot: true, offline: { storageWritable: true, gtfsImport: true, offlineBasemap: true } }
 function Fixture() {
   const [view, setView] = useState('cities'), [section, setSection] = useState('preferences'), [query, setQuery] = useState(''), [appearance, setAppearance] = useState('light'), [basemap, setBasemap] = useState('minimal'), [empty, setEmpty] = useState(false)
-  window.fixture = { setView, setEmpty, setAppearance, setQuery, setSection }
+  const [accessCity, setAccessCity] = useState('boston'), [accessReady, setAccessReady] = useState(true)
+  window.fixture = { setView, setEmpty, setAppearance, setQuery, setSection, setAccessCity, setAccessReady }
   return <main className={`app-shell appearance-${appearance} accent-graphite ${view === 'cities' ? 'page-projects' : 'page-project view-data'}`}>
     <header className="topbar" style={{ margin: 0, display: 'flex', justifyContent: 'space-between', padding: '12px 24px' }}><b>VIGO <span style={{ fontWeight: 400 }}>· Interface fixture</span></b><button type="button" className="button button-secondary" onClick={() => setView(view === 'cities' ? 'settings' : 'cities')}>{view === 'cities' ? 'Settings' : 'Cities'}</button></header>
     <div className="app-frame" style={{ display: 'block', overflow: 'auto' }}>
-      {view === 'library-access' ? <StorageRecovery config={{ ...config, storageAccessRequired: true, offline: { ...config.offline, storageWritable: false, storageError: 'Open your saved library folder. Existing Cities remain there.' } }} busy={false} error="" onChooseFolder={() => { libraryOpened = true }} onUseDefault={noop} /> : view === 'cities' ? <ProjectsPage projects={empty ? [] : projects} selectedProject={projects[0]} query={query} onQueryChange={setQuery} previewLoading={false} onOpenProject={id => { opened = id }} onOpenProjectData={id => { managed = id }} onOpenSettings={() => setView('settings')} onCreateProject={noop} onRenameProject={noop} onDeleteProject={noop} onRefresh={noop} />
+      {view === 'imports' ? <div style={{ maxWidth: 520, margin: '20px auto', padding: 16 }}><ImportPanel cityId={accessCity} canPrepareAuthorizedAccess={accessReady}
+        staticFeeds={[]} isImporting={false} isOsmImporting={false} importMessage="" osmStreetReady osmStreetMessage=""
+        realtimeSnapshot={null} realtimeMessage="" realtimeRequest={null} isRealtimeLoading={false}
+        onFiles={noop} onNationalGtfsPath={noop} onNationalOsmPath={noop} onOsmFiles={(_files, policy) => streetAccessRequests.push(policy)}
+        onConnectRealtime={noop} onDisconnectRealtime={noop} onCancelGtfs={noop} onRetryGtfs={noop} onCancelOsm={noop} onRetryOsm={noop} /></div>
+        : view === 'library-access' ? <StorageRecovery config={{ ...config, storageAccessRequired: true, offline: { ...config.offline, storageWritable: false, storageError: 'Open your saved library folder. Existing Cities remain there.' } }} busy={false} error="" onChooseFolder={() => { libraryOpened = true }} onUseDefault={noop} /> : view === 'cities' ? <ProjectsPage projects={empty ? [] : projects} selectedProject={projects[0]} query={query} onQueryChange={setQuery} previewLoading={false} onOpenProject={id => { opened = id }} onOpenProjectData={id => { managed = id }} onOpenSettings={() => setView('settings')} onCreateProject={noop} onRenameProject={noop} onDeleteProject={noop} onRefresh={noop} />
         : <CityPanel projects={empty ? [] : projects} projectId="boston" projectName="Boston" projectRegion="Massachusetts" feedCount={1} routeCount={20} stopCount={400} appearance={appearance} basemap={basemap} localBasemapAvailable runtimeConfig={config} health={{ ok: true, version: '0.5.0' }} busy={false} error="" section={section} onSectionChange={setSection} onChooseFolder={noop} onAppearanceChange={setAppearance} onBasemapChange={setBasemap} onCityReset={noop} onCityRemoved={async () => true} feeds={<p>City sources fixture</p>} />}
     </div>
   </main>
@@ -57,7 +65,7 @@ window.checkCities = async () => {
   flushSync(() => window.fixture.setView('library-access'))
   assert(document.getElementById('storage-recovery-title')?.textContent === 'Open your City library', 'Permission gate must not claim the saved library is broken')
   assert(!libraryOpened, 'Opening a saved library must require an action')
-  assert(document.querySelector('.storage-recovery small')?.textContent === config.storageRoot, 'Keep the saved library location visible')
+  assert(document.querySelector('.storage-recovery-location p')?.textContent === config.storageRoot, 'Keep the saved library location visible')
   click('.storage-recovery .button-primary')
   assert(libraryOpened, 'Open library button must request folder selection')
 
@@ -117,11 +125,70 @@ window.checkSettings = async () => {
   click('#settings-tab-appearance')
   return { lazyMeasurement: true, keyboardNavigation: true, themes: true, mapChoice: true, staleRequestGuard: true, activeImportGuard: true, retry: true, emptyLibrary: true }
 }
+window.checkStreetAccess = async () => {
+  flushSync(() => window.fixture.setView('imports')); await settle()
+  const control = () => document.querySelector('select[aria-label="Pedestrian access"]')
+  assert(control().value === 'public', 'Public permission must be the default')
+  flushSync(() => { control().value = 'endpoints'; control().dispatchEvent(new Event('change', { bubbles: true })) })
+  const upload = document.querySelector('input[accept=".osm.pbf,.pbf,application/octet-stream"]')
+  const files = new DataTransfer(); files.items.add(new File(['fixture'], 'fixture.pbf'))
+  upload.files = files.files; upload.dispatchEvent(new Event('change', { bubbles: true }))
+  assert(streetAccessRequests.at(-1) === 'endpoints', 'The selected policy must reach file import')
+  flushSync(() => window.fixture.setAccessCity('washington')); await settle()
+  assert(control().value === 'public', 'An uncommitted permission choice cannot leak into another City')
+  flushSync(() => window.fixture.setAccessReady(false)); await settle()
+  assert(control().querySelector('[value="endpoints"]').disabled, 'Authorization requires a prepared timetable')
+  flushSync(() => window.fixture.setAccessReady(true)); await settle()
+  return { publicDefault: true, selectedPolicyImported: true, cityIsolation: true, timetableGuard: true }
+}
+window.checkDocumentation = async (dark = false) => {
+  requests = []
+  flushSync(() => { window.fixture.setView('settings'); window.fixture.setAppearance(dark ? 'dark' : 'light') })
+  click('#settings-tab-documentation')
+  click('.settings-docs-toolbar button:first-child')
+  const ready = async () => {
+    const deadline = Date.now() + 10000
+    while (Date.now() < deadline) {
+      const frame = document.querySelector('.settings-docs-frame')
+      const doc = frame?.contentDocument
+      if (frame?.getAttribute('aria-busy') === 'false' && doc?.documentElement.dataset.theme === (dark ? 'dark' : 'light')) return doc
+      await settle()
+    }
+    throw Error('Bundled documentation did not load')
+  }
+  let doc = await ready()
+  assert(doc.documentElement.dataset.embedded === 'true', 'Reader is not embedded')
+  assert(getComputedStyle(doc.querySelector('.site-header')).display === 'none', 'Reader repeats the app header')
+  doc.querySelector('#navigation').open = true
+  const search = doc.querySelector('#search')
+  search.value = 'routing'; search.dispatchEvent(new Event('input', { bubbles: true }))
+  const result = doc.querySelector('#search-links a')
+  assert(result, 'Offline documentation search has no results')
+  result.click(); await settle()
+  assert(doc.querySelectorAll('.doc-page:not([hidden])').length === 1, 'Search did not select one page')
+  const source = doc.querySelector('.page-meta a')
+  assert(source.href.startsWith('https://github.com/hytangs/vigo/blob/v') && source.target === '_blank', 'Source link replaces Studio')
+  assert(doc.documentElement.scrollWidth <= doc.documentElement.clientWidth + 1, 'Embedded reader overflows')
+  click('.settings-docs-toolbar button[aria-pressed=true]')
+  assert(document.querySelector('.settings-docs-frame').getAttribute('aria-busy') === 'false', 'Selected guide starts an endless loading state')
+  click('.settings-docs-toolbar button:last-child')
+  doc = await ready()
+  assert(doc.body.dataset.product === 'VIGO Rust', 'Reference selector does not load the bundled native manual')
+  const schema = await originalFetch(document.querySelector('.settings-docs-toolbar a').href).then(response => response.json())
+  assert(schema.openapi === '3.1.0' && schema.info.version === '0.5.2', 'API schema is missing or stale')
+  const codePage = [...doc.querySelectorAll('.doc-page')].find(page => page.querySelector('.copy'))
+  doc.defaultView.location.hash = codePage.dataset.page; await settle()
+  codePage.querySelector('.copy').click(); await settle()
+  assert(/copied|manually/i.test(doc.querySelector('#copy-status').textContent), 'Copy control gives no outcome')
+  assert(!requests.length, 'Reading documentation loaded City or routing state')
+  assert(!document.querySelector('.settings-documentation [role=alert]'), 'Reader reported a load error')
+  return { width: innerWidth, dark, offlineSearch: true, referenceAndSchema: true, sourceLinksExternal: true, noRoutingLoad: true }
+}
 window.checkLayout = async (view, dark = false) => {
   flushSync(() => { window.fixture.setView(view); window.fixture.setAppearance(dark ? 'dark' : 'light') })
   const root = document.querySelector('.app-frame'); root.scrollTop = 0
   assert(root.scrollWidth <= root.clientWidth + 1, 'Horizontal overflow: ' + view + ' at ' + innerWidth)
-  for (const element of document.querySelectorAll(view === 'cities' ? '.city-card-actions button, .city-library-actions button' : '.settings-navigation button, .settings-theme')) {
+  for (const element of document.querySelectorAll(view === 'cities' ? '.city-card-actions button, .city-library-actions button' : view === 'imports' ? '.city-walking-access select, .osm-import-strip button' : '.settings-navigation button, .settings-theme')) {
     element.scrollIntoView({ block: 'center' })
     const box = element.getBoundingClientRect()
     assert(box.width > 0 && box.height >= 32 && box.right <= innerWidth + 1, 'Control clipped')

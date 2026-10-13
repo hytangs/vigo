@@ -196,9 +196,14 @@ function simplifyAreaRing(ring) {
     const previous = points[(index + points.length - 1) % points.length]
     const current = points[index]
     const next = points[(index + 1) % points.length]
-    const cross = (current[0] - previous[0]) * (next[1] - current[1])
-      - (current[1] - previous[1]) * (next[0] - current[0])
-    if (Math.abs(cross) > 1e-12) simplified.push(current)
+    const ax = current[0] - previous[0], ay = current[1] - previous[1]
+    const bx = next[0] - current[0], by = next[1] - current[1]
+    const left = ax * by, right = ay * bx
+    // An absolute area tolerance can erase real bends in degree coordinates,
+    // including the small collars that keep exact-cutoff samples inside.
+    // Remove only forward collinearity within multiplication roundoff.
+    const roundoff = 8 * Number.EPSILON * (Math.abs(left) + Math.abs(right))
+    if (Math.abs(left - right) > roundoff || ax * bx + ay * by < 0) simplified.push(current)
   }
   if (simplified.length < 3) return ring
   return [...simplified, simplified[0]]

@@ -2283,6 +2283,21 @@ export function serializePublicResult(kind, request, result) {
     const projection = binding.formatPublicResult(`{"kind":${JSON.stringify(kind)},"request":${JSON.stringify({ ...request, diagnostics: 'profile' })},"result":${raw}}`)
     return `${projection.slice(0, -1)},"trace":${raw}}`
   }
+  if (kind === 'route' && (request?.diagnostics ?? 'none') === 'none' && result?.result) {
+    // The default route projection consumes these four diagnostic fields.
+    // Keep its public metadata while avoiding serialization and native parsing
+    // of the much larger search/kernel trace. Never mutate the retained plan.
+    const projectPlan = plan => {
+      if (!plan?.diagnostics) return plan
+      const { realtime, realtimeRouting, timeReserves, clockDate } = plan.diagnostics
+      return { ...plan, diagnostics: { realtime, realtimeRouting, timeReserves, clockDate } }
+    }
+    result = {
+      ...result,
+      result: projectPlan(result.result),
+      ...(Array.isArray(result.choices) ? { choices: result.choices.map(projectPlan) } : {}),
+    }
+  }
   return binding.formatPublicResult(JSON.stringify({ kind, request, result }))
 }
 

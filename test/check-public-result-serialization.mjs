@@ -8,7 +8,10 @@ const plan = { status: 'ready', travelMode: 'transit', departMinutes: 480, arriv
   legs: [{ type: 'ride', startMinutes: 480, endMinutes: 482, fromStopId: 'feed\u001fA', toStopId: 'feed\u001fB',
     tripId: 'feed\u001fT', coordinates: [[-71, 42], [-71.1, 42.1]],
     routeShortName: '北 "A"', diagnostics: { sentinel: 4294967295 } }],
-  diagnostics: { searchStats: { queryMs: .5 }, sentinel: 4294967295 } }
+  diagnostics: { searchStats: { queryMs: .5, kernel: { sourceIdentity: 'immutable source metadata', states: Array(100).fill(4294967295) } },
+    realtimeRouting: { applied: true, snapshotId: 'fixture-snapshot' },
+    timeReserves: { arrivalBufferMinutes: 2, planningArrivalMinutes: 480 },
+    clockDate: '2026-07-05', sentinel: 4294967295 } }
 const kinds = {
   route: { result: plan, choices: [plan, { ...plan, arriveMinutes: 483 }] },
   matrix: { query: { origins: [{ id: 'a', point: { stopId: 'A' } }], destinations: [{ id: 'b', point: { stopId: 'B' } }] },
@@ -16,7 +19,7 @@ const kinds = {
   reach: { cutoffsMinutes: [5], surface: { width: 1, height: 1, values: [2], bounds: [-71, 42, -70, 43] } },
 }
 let checks = 0
-for (const [kind, body] of Object.entries(kinds)) for (const diagnostics of ['none', 'summary', 'profile', 'trace']) {
+for (const [kind, body] of Object.entries(kinds)) for (const diagnostics of [undefined, 'none', 'summary', 'profile', 'trace']) {
   const request = { id: 'request_1', diagnostics, includeLimitations: true, includeGeometry: true }
   const raw = { kind, status: 'ready', resultSchemaVersion: 1, city: { revisionId: 'test', accessibility: { profile: 'standard' } },
     query: { serviceDate: '2026-07-06', mode: 'transit', timeMinutes: 480 }, timing: { computeMs: .5 },
@@ -27,6 +30,7 @@ for (const [kind, body] of Object.entries(kinds)) for (const diagnostics of ['no
   const actual = formatPublicResult(kind, request, raw)
   assert.deepEqual(actual, expected)
   assert.deepEqual(JSON.parse(publicResultJson(raw, request)), { ...expected, accessibility: raw.city.accessibility, sequence: 1 })
+  assert.equal(JSON.stringify(raw), saved, 'Serialization must preserve the original result and its diagnostics')
   if (diagnostics === 'trace') {
     assert.deepEqual(actual.trace, JSON.parse(saved))
     actual.trace.query.mode = 'changed'

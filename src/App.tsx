@@ -8,7 +8,7 @@ import { quietMapLabel, type MapScope } from './components/studio/presentation'
 import { ArrowLeft, XCircle } from 'lucide-react'
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
-import type { OperationalEvent, ToolResult } from './agency/types'
+import type { OperationalEvent } from './agency/types'
 import { apiJson, apiProgressJson, type ApiProgress } from './app/api'
 import { requestDesktopHomeFolder, subscribeDesktopCommands, syncDesktopChromeState } from './app/desktopBridge'
 import { mergeGtfsRouteAnalysis, routeHasCompleteGtfsAnalysis, type GtfsRouteAnalysis } from './app/gtfsAnalysis'
@@ -69,7 +69,6 @@ import {
 } from './domain'
 import { SearchPalette } from './features/search/SearchPalette'
 import { buildSearchResults, type SearchResult } from './features/search/searchModel'
-import { journeyContinuityIssue } from './journeyIntegrity.mjs'
 import { entityFeedScope } from './networkTruth'
 import {
   joinScenarioSegmentGeometry,
@@ -104,7 +103,6 @@ import {
 import { scopedRouteServiceKey, type RouteRenderMode } from './routeServices'
 import {
   type RoutingDataMode,
-  type RoutingPlan,
   type RoutingPoint,
   type RoutingTimePreference,
   type RoutingTravelMode,
@@ -238,9 +236,7 @@ export default function App() {
   const [routingDestination, setRoutingDestination] = useState<RoutingPoint | null>(null)
   const [analysisOrigin, setAnalysisOrigin] = useState<RoutingPoint | null>(null)
   const [analyzeMode, setAnalyzeMode] = useState<AnalyzeMode>('single')
-  const [agencyPlan, setAgencyPlan] = useState<RoutingPlan | null>(null)
   const [agencyLocation, setAgencyLocation] = useState<{ id: string; label: string; coordinate: [number, number]; stopId?: string } | undefined>()
-  const [agencyReach, setAgencyReach] = useState<ReachResult | null>(null)
   const [reachResult, setReachResult] = useState<ReachResult | null>(null)
   const [reachComparison, setReachComparison] = useState<ReachComparisonResult[] | null>(null)
   const [serviceDecomposition, setServiceDecomposition] = useState<ServiceEdgeDecomposition | null>(null)
@@ -902,9 +898,6 @@ export default function App() {
       setApiError('')
       if (nextSelectedId) {
         setSelectedProjectId(nextSelectedId)
-        setPage('projects')
-      } else {
-        setPage('projects')
       }
     } catch (error) {
       if (sequence !== projectsLoadSequence.current) return
@@ -1087,8 +1080,6 @@ export default function App() {
     )))
     if (selectedProjectId !== cleanedProject.id) return
     setOpenedNetworkProjectId('')
-    setAgencyPlan(null)
-    setAgencyReach(null)
 
     cancelRouteAnalysis()
     invalidateAnalyzeResult()
@@ -2041,7 +2032,7 @@ export default function App() {
               serviceDay: routingServiceDay,
               maxWalkKm: reachMaxWalkKm,
               maxTransfers: reachMaxTransfers,
-              walkSpeedKph: scenarioWalkSpeedKph,
+              walkSpeedKph: reachSurfaceSampling === 'cell-center' ? 4.8 : scenarioWalkSpeedKph,
               surfaceSampling: reachSurfaceSampling,
               rasterSize: reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize,
               cutoffsMinutes: [scenarioCutoffMinutes],
@@ -2163,7 +2154,7 @@ export default function App() {
             serviceDay: routingServiceDay,
             maxWalkKm: reachMaxWalkKm,
             maxTransfers: reachMaxTransfers,
-            walkSpeedKph: scenarioWalkSpeedKph,
+            walkSpeedKph: reachSurfaceSampling === 'cell-center' ? 4.8 : scenarioWalkSpeedKph,
             surfaceSampling: reachSurfaceSampling,
             rasterSize: reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize,
             cutoffsMinutes: reachTimeBands(scenarioCutoffMinutes),
@@ -2566,6 +2557,7 @@ export default function App() {
     file: File,
     action: 'national-gtfs-upload' | 'national-osm-upload',
     replaceProjectSchedule = false,
+    privateAccess: 'public' | 'endpoints' = 'public',
   ) {
     const parameters = new URLSearchParams({ fileName: file.name })
     if (action === 'national-gtfs-upload' && replaceProjectSchedule) {
@@ -2575,6 +2567,7 @@ export default function App() {
       parameters.set('preloadServiceDate', routingServiceDate)
       parameters.set('preloadServiceDay', routingServiceDay)
     }
+    if (action === 'national-osm-upload') parameters.set('privateAccess', privateAccess)
     const response = await fetch(
       `/api/projects/${encodeURIComponent(selectedProject.id)}/${action}?${parameters}`,
       {
@@ -2642,14 +2635,14 @@ export default function App() {
     }
   }
 
-  async function handleNationalOsmPath(sourcePath: string) {
+  async function handleNationalOsmPath(sourcePath: string, privateAccess: 'public' | 'endpoints' = 'public') {
     if (!sourcePath || isOsmImporting) return
     setIsOsmImporting(true)
     setOsmStreetMessage('Starting local street index')
     try {
       const job = await startPreparation('national-osm-import', sourcePath.split(/[\\/]/).pop() || 'OSM streets', async () => (await apiJson<{ job: JobRecord }>(`/api/projects/${encodeURIComponent(selectedProject.id)}/national-osm-import`, {
         method: 'POST',
-        body: JSON.stringify({ sourcePath }),
+        body: JSON.stringify({ sourcePath, privateAccess }),
       })).job)
       setOsmImportJobId(job.id)
       await waitForImportJob(selectedProject.id, job.id, setOsmStreetMessage, 'Street indexing failed')
@@ -2662,13 +2655,13 @@ export default function App() {
     }
   }
 
-  async function handleOsmFiles(filesLike: FileList | File[]) {
+  async function handleOsmFiles(filesLike: FileList | File[], privateAccess: 'public' | 'endpoints' = 'public') {
     const file = Array.from(filesLike).find((candidate) => /\.pbf$/i.test(candidate.name))
     if (!file || isOsmImporting) return
     setIsOsmImporting(true)
     try {
       setOsmStreetMessage(`Staging ${file.name} for SQLite street indexing...`)
-      const job = await startPreparation('national-osm-import', file.name, () => uploadProjectSourceFile(file, 'national-osm-upload'))
+      const job = await startPreparation('national-osm-import', file.name, () => uploadProjectSourceFile(file, 'national-osm-upload', false, privateAccess))
       setOsmImportJobId(job.id)
       await waitForImportJob(selectedProject.id, job.id, setOsmStreetMessage, 'Street indexing failed')
       await refreshImportedProject(selectedProject.id, true)
@@ -2779,6 +2772,7 @@ export default function App() {
       setBasemap(result.config.basemap)
       setSetupOpen(false)
       setApiError('')
+      setPage('projects')
       await loadProjects()
     } catch (error) {
       setSetupError(error instanceof Error ? error.message : 'Setup failed.')
@@ -2804,6 +2798,7 @@ export default function App() {
       setRuntimeConfig(result.config)
       setHealth((current) => current ? { ...current, storageRoot: result.config.storageRoot, config: result.config, offline: result.config.offline } : current)
       setApiError('')
+      setPage('projects')
       await loadProjects()
     } catch (error) {
       setSetupError(error instanceof Error ? error.message : 'The City library is still unavailable.')
@@ -2844,8 +2839,6 @@ export default function App() {
   }
 
   function clearAgencyMap() {
-    setAgencyPlan(null)
-    setAgencyReach(null)
     setAgencyLocation(undefined)
   }
 
@@ -2854,7 +2847,7 @@ export default function App() {
       const stop = findNetworkStop(preview.stops, stopIds[0])
       if (stop && typeof stop.lon === 'number' && typeof stop.lat === 'number' && Number.isFinite(stop.lon) && Number.isFinite(stop.lat)) location = { id: stop.id, label: stop.name, coordinate: [stop.lon, stop.lat] }
     }
-    setAgencyPlan(null); setAgencyReach(null); setAgencyLocation(location ? { ...location, stopId: stopIds.length === 1 ? stopIds[0] : undefined } : undefined)
+    setAgencyLocation(location ? { ...location, stopId: stopIds.length === 1 ? stopIds[0] : undefined } : undefined)
     if (!routeIds.length && !stopIds.length) { setSelectedRouteId(''); setMapScope('network') }
     const route = routeIds.length === 1 ? findNetworkRoute(preview.routes, routeIds[0]) : undefined
     if (route || routeIds[0]) { setSelectedRouteId(route?.id ?? routeIds[0]); setMapScope('route'); setRouteRenderMode('service') }
@@ -2875,16 +2868,6 @@ export default function App() {
     if (!routeIds.some(Boolean) && !stopIds.some(Boolean)) return
     setAgencyBrowseRequest(request => request + 1)
     setAgencyMapOpen(false)
-  }
-
-  function presentAgencyResult(result: ToolResult) {
-    const data = result.data as { plan?: RoutingPlan; surface?: unknown }
-    if (data?.plan && journeyContinuityIssue(data.plan)) { setAgencyPlan(null); return }
-    if (data?.plan) { setAgencyLocation(undefined); setAgencyPlan(data.plan); setAgencyReach(null); setMapScope('route') }
-    else if (data?.surface) { setAgencyLocation(undefined); setAgencyReach(result.data as ReachResult); setAgencyPlan(null); setMapScope('network') }
-    else if (result.presentation?.location) locateAgencyEntities([], [], result.presentation.location)
-    else if (result.presentation?.routeIds?.length === 1 || result.presentation?.stopIds?.length === 1) locateAgencyEntities(result.presentation.routeIds ?? [], result.presentation.stopIds ?? [])
-    if (window.innerWidth <= 760 && (data?.plan || data?.surface)) setAgencyMapOpen(true)
   }
 
   function openAnalyzeView() {
@@ -2962,6 +2945,7 @@ export default function App() {
     && routingPlan?.status === 'ready'
   const sourceDeletionDisabled = isImporting || isOsmImporting || preparationJobs.some((job) => isPreparationJob(job) && isActiveTask(job))
   const importPanelProps = {
+    cityId: selectedProject.id,
     osmDelete: selectedProject.osmStreetIndex ? <CitySourceDelete key={`${selectedProject.id}:${selectedProject.osmStreetIndex.fileName}`} projectId={selectedProject.id} kind="osm" name={selectedProject.osmStreetIndex.fileName} disabled={sourceDeletionDisabled} onDeleted={applyCityReset} /> : undefined,
     isImporting,
     isOsmImporting,
@@ -2971,6 +2955,8 @@ export default function App() {
     gtfsError: pendingPreparations[`${selectedProject.id}:national-gtfs-import`]?.error,
     osmError: pendingPreparations[`${selectedProject.id}:national-osm-import`]?.error,
     osmStreetReady: selectedProject.osmStreetIndex?.status === 'ready',
+    osmAccessModel: selectedProject.osmStreetIndex?.terminalAccess?.model ?? 'public',
+    canPrepareAuthorizedAccess: selectedProject.routingStore?.status === 'ready',
     osmStreetMessage,
     realtimeSnapshot,
     realtimeMessage,
@@ -3070,7 +3056,6 @@ export default function App() {
             surfaceSampling={reachSurfaceSampling}
             onSurfaceSamplingChange={(value) => {
               setReachSurfaceSampling(value)
-              if (value === 'cell-center') setScenarioWalkSpeedKph(4.8)
               invalidateAnalyzeResult()
             }}
             cutoffMinutes={scenarioCutoffMinutes}
@@ -3273,13 +3258,14 @@ export default function App() {
       )}
 
       <div className="app-frame">
-      {storageRecoveryRequired && runtimeConfig ? (
+      {storageRecoveryRequired && runtimeConfig && !(page === 'project' && activeRouteTool === 'data' && dataSection === 'preferences') ? (
         <StorageRecovery
           config={runtimeConfig}
           busy={setupBusy}
           error={setupError}
           onChooseFolder={chooseRecoveryFolder}
           onUseDefault={() => void recoverStorageRoot(runtimeConfig.defaultStorageRoot)}
+          onOpenSettings={openSettingsView}
         />
       ) : page === 'projects' ? (
         <ProjectsPage
@@ -3379,19 +3365,19 @@ export default function App() {
           scheduleTimeMinutes={scheduleTimeMinutes}
           scheduleServiceDate={routingServiceDate}
           routingEnabled={activeRouteTool === 'pathfinder' && routingEnabled}
-          routingOrigin={activeRouteTool === 'agency' ? agencyPlan?.origin ?? null : activeRouteTool === 'analyze' ? analysisOrigin : routingOrigin}
-          routingWaypoints={activeRouteTool === 'agency' ? agencyPlan?.waypoints ?? emptyRoutingPoints : activeRouteTool === 'analyze' ? emptyRoutingPoints : routingWaypoints}
-          routingDestination={activeRouteTool === 'agency' ? agencyPlan?.destination ?? null : activeRouteTool === 'analyze' ? reachInspection.point : routingDestination}
-          routingPlan={activeRouteTool === 'agency' ? agencyPlan : activeRouteTool === 'analyze' ? reachInspection.plan : routingPlan}
-          routingFocus={activeRouteTool === 'pathfinder' || activeRouteTool === 'agency' && Boolean(agencyPlan)}
-          analysisFocus={activeRouteTool === 'analyze' || activeRouteTool === 'agency' && Boolean(agencyReach)}
+          routingOrigin={activeRouteTool === 'agency' ? null : activeRouteTool === 'analyze' ? analysisOrigin : routingOrigin}
+          routingWaypoints={activeRouteTool === 'agency' ? emptyRoutingPoints : activeRouteTool === 'analyze' ? emptyRoutingPoints : routingWaypoints}
+          routingDestination={activeRouteTool === 'agency' ? null : activeRouteTool === 'analyze' ? reachInspection.point : routingDestination}
+          routingPlan={activeRouteTool === 'agency' ? null : activeRouteTool === 'analyze' ? reachInspection.plan : routingPlan}
+          routingFocus={activeRouteTool === 'pathfinder'}
+          analysisFocus={activeRouteTool === 'analyze'}
           analysisInspector={activeRouteTool === 'analyze' ? <>
             {!reachInspection.point && reachInspection.sources.length > 0 && !scenarioPointPicking
               ? <div className="reach-map-hint">Click a place to see travel time and the journey</div> : null}
             <ReachPointInspector inspection={reachInspection} />
           </> : undefined}
           onInspectReachPoint={activeRouteTool === 'analyze' && reachInspection.sources.length ? reachInspection.inspect : undefined}
-          reachResult={activeRouteTool === 'agency' ? agencyReach : activeRouteTool === 'analyze' ? reachResult : null}
+          reachResult={activeRouteTool === 'analyze' ? reachResult : null}
           reachComparison={activeRouteTool === 'analyze' ? reachComparison : null}
           serviceDecomposition={activeRouteTool === 'analyze' ? serviceDecomposition : null}
           scenarioView={scenarioView}
@@ -3442,7 +3428,6 @@ export default function App() {
           onConnect={(request) => void refreshRealtimeRequest(request)}
           onDisconnect={disconnectRealtime}
           onLocate={locateAgencyEntities}
-          onResult={presentAgencyResult}
           onOpenData={openDataView}
           mapOpen={agencyMapOpen}
           tripTarget={agencyTripTarget}

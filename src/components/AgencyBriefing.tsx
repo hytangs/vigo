@@ -1,17 +1,18 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { ArrowRight, LoaderCircle, RefreshCw, Radio } from 'lucide-react'
+import { Download, LoaderCircle, RefreshCw, Radio } from 'lucide-react'
 import { apiJson, apiProgressJson } from '../app/api'
-import type { AgencyState, QueryAnswer } from '../agency/types'
+import type { AgencyState, BriefingAnswer } from '../agency/types'
 import type { BriefingPreferences } from '../agency/networkAssessmentTypes'
 import { briefingRefreshAt } from '../agency/briefingSchedule.mjs'
-import type { NotebookEntry } from './AgencyNotebook'
+import { downloadText } from '../agency/exports'
+import { AgencyProviderSettings } from './AgencyProviderSettings'
 import { NetworkAssessment } from './NetworkAssessment'
 
 const defaults: BriefingPreferences = { intervalMinutes: 15, automatic: true }
 
-export function AgencyBriefing({ endpoint, state, onOpen, onLocateStop }: { endpoint: string; state: AgencyState; onOpen: (id: number) => void; onLocateStop?: (stopId: string) => void }) {
+export function AgencyBriefing({ endpoint, state, onProviderChange, onLocateStop }: { endpoint: string; state: AgencyState; onProviderChange: () => void; onLocateStop?: (stopId: string) => void }) {
   const generateLabelId = useId()
-  const [briefing, setBriefing] = useState<QueryAnswer | null>(null)
+  const [briefing, setBriefing] = useState<BriefingAnswer | null>(null)
   const [preferences, setPreferences] = useState<BriefingPreferences>(defaults)
   const [ready, setReady] = useState(false)
   const [loadAttempt, setLoadAttempt] = useState(0)
@@ -43,7 +44,7 @@ export function AgencyBriefing({ endpoint, state, onOpen, onLocateStop }: { endp
     if (request.current) return
     const controller = new AbortController(); request.current = controller; setBusy(true); setError(''); setActivity('Assessing current service…')
     try {
-      const answer = await apiProgressJson<QueryAnswer>(endpoint, { method: 'POST', body: JSON.stringify({ action: 'briefing', force }), signal: controller.signal }, progress => setActivity(progress.detail), preliminary => { if (!controller.signal.aborted && latestEndpoint.current === endpoint) setBriefing(preliminary) })
+      const answer = await apiProgressJson<BriefingAnswer>(endpoint, { method: 'POST', body: JSON.stringify({ action: 'briefing', force }), signal: controller.signal }, progress => setActivity(progress.detail), preliminary => { if (!controller.signal.aborted && latestEndpoint.current === endpoint) setBriefing(preliminary) })
       if (!controller.signal.aborted && latestEndpoint.current === endpoint) { setBriefing(answer); retryAfter.current = 0; if (answer.briefingPreferences) setPreferences(answer.briefingPreferences) }
     } catch (error) {
       if (!controller.signal.aborted && latestEndpoint.current === endpoint) { setError(error instanceof Error ? error.message : 'Could not prepare the assessment.'); retryAfter.current = now + preferences.intervalMinutes * 60000 }
@@ -52,7 +53,7 @@ export function AgencyBriefing({ endpoint, state, onOpen, onLocateStop }: { endp
   useEffect(() => {
     const controller = new AbortController()
     setReady(false); setBriefing(null); setError(''); retryAfter.current = 0
-    void apiJson<{ entry: NotebookEntry | null; preferences: BriefingPreferences; current: boolean }>(endpoint, { method: 'POST', body: JSON.stringify({ action: 'briefing-latest' }), signal: controller.signal })
+    void apiJson<{ entry: { id: number; answer: BriefingAnswer } | null; preferences: BriefingPreferences; current: boolean }>(endpoint, { method: 'POST', body: JSON.stringify({ action: 'briefing-latest' }), signal: controller.signal })
       .then(({ entry, preferences, current }) => {
         if (controller.signal.aborted) return
         setPreferences(preferences); setBriefing(entry ? { ...entry.answer, entryId: entry.id, ...(!current ? { diagnosis: undefined } : {}) } : null); setReady(true)
@@ -95,7 +96,8 @@ export function AgencyBriefing({ endpoint, state, onOpen, onLocateStop }: { endp
       {briefing && !busy ? <p>{sourceUnavailable ? 'Service data is no longer current.' : 'Briefing expired.'}</p> : null}
       <button className="agency-button" aria-label="Update network briefing" aria-labelledby={generateLabelId} disabled={!ready || busy} onClick={() => void generate(true)}><span id={generateLabelId}>{briefing ? 'Update briefing' : 'Generate briefing'}</span> <RefreshCw size={14} /></button>
     </>}
-    {briefing?.entryId ? <footer><span>{current ? briefing.aiGenerated ? `AI briefing · ${briefing.model || 'connected model'}` : 'Computed snapshot · AI briefing unavailable' : 'Previous assessment retained'}</span><button className="agency-text-button" onClick={() => onOpen(briefing.entryId!)}>Open evidence <ArrowRight size={13} /></button></footer> : null}
+    {briefing?.entryId ? <footer><span>{current ? briefing.aiGenerated ? `AI briefing · ${briefing.model || 'connected model'}` : 'Computed snapshot' : 'Previous assessment retained'}</span><button className="agency-text-button" onClick={() => downloadText('network-briefing.json', JSON.stringify(briefing, null, 2), 'application/json')}>Export evidence <Download size={13} /></button></footer> : null}
+    <AgencyProviderSettings endpoint={endpoint} provider={state.provider} onChange={onProviderChange} />
     {error ? <div className="agency-error" role="alert"><p>{error}</p>{!ready ? <button className="agency-text-button" onClick={() => setLoadAttempt(value => value + 1)}>Retry briefing <RefreshCw size={13} /></button> : null}</div> : null}
   </section>
 }

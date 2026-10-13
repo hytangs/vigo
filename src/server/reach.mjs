@@ -1,5 +1,6 @@
 import { areaPolygons, boundaryContoursFromAreas, rasterBoundaryAreas, stitchAreaSegments } from './reach-boundaries.mjs'
 import { blockInteriorEstimates } from './reach-blocks.mjs'
+import { reachChangeCounts } from './reach-comparison.mjs'
 import { resolveServiceDay } from './service-day.mjs'
 import { integralNumber, timingMilliseconds } from './number-utils.mjs'
 
@@ -1148,7 +1149,8 @@ export async function computeReachResult(
   const scenarioTerminalWalkMinutes = baselineTerminalWalkMinutes
   let baselineReachablePixels = 0
   let scenarioReachablePixels = 0
-  let improvedPixels = 0
+  const changeCountsByCutoff = reachChangeCounts(baselineRaster.values, scenarioRaster.values, request.cutoffsMinutes)
+  const improvedPixels = changeCountsByCutoff.at(-1).improvedPixels
   const baselineAreaMetrics = areaMetrics(
     baselineRaster.areaValues,
     request.rasterSize,
@@ -1165,13 +1167,6 @@ export async function computeReachResult(
   )
   baselineReachablePixels = baselineAreaMetrics.byCutoff.find((entry) => entry.cutoffMinutes === maximumCutoff)?.reachablePixels ?? 0
   scenarioReachablePixels = scenarioAreaMetrics.byCutoff.find((entry) => entry.cutoffMinutes === maximumCutoff)?.reachablePixels ?? 0
-  for (let index = 0; index < baselineRaster.values.length; index += 1) {
-    const baseline = baselineRaster.values[index]
-    const scenario = scenarioRaster.values[index]
-    if (scenario <= maximumCutoff && (!Number.isFinite(baseline) || scenario < baseline - 0.05)) {
-      improvedPixels += 1
-    }
-  }
 
   const encodedBaseline = encodeRaster(baselineRaster.values)
   const encodedScenario = hasScenarioChanges
@@ -1193,6 +1188,7 @@ export async function computeReachResult(
       baselineReachablePixels,
       scenarioReachablePixels,
       improvedPixels,
+      changeCountsByCutoff,
       maximumCutoffMinutes: maximumCutoff,
       transitStopSeeds: baselineTransitSeeds.length,
       transitStopsByCutoff: transitStopCountsByCutoff(transitStops, request.cutoffsMinutes),

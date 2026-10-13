@@ -6,7 +6,6 @@ import { DatabaseSync } from 'node:sqlite'
 import { AgencyContext } from '../src/agency/agencyContext.mjs'
 import { deriveOperationalState } from '../src/agency/realtimeIntelligence.mjs'
 import { createToolRegistry } from '../src/agency/toolRegistry.mjs'
-import { compactResult } from '../src/agency/queryAgent.mjs'
 import { stopBoard } from '../src/agency/stopBoard.mjs'
 import { describeVehicleArrival } from '../src/agency/vehicleTrip.mjs'
 import { createAgencyFixture, realtimeFixture, tripUpdate, observationTime } from './fixtures/agency.mjs'
@@ -49,11 +48,6 @@ try {
   const tomorrow = stopBoard(context, null, { stopId: 'B', windowMinutes: 1440, event: 'departure', nextPerRoute: true }, afterService)
   assert.equal(tomorrow.rows.length, 2, 'Next-service lookup reaches across a service break')
   assert.ok(tomorrow.rows.every(row => row.serviceDate === '2026-09-14'))
-  const compact = JSON.parse(compactResult(result, 'stop_arrivals'))
-  assert.equal(compact.data.rows.find(row => row.route === 'R').departure.scheduled.time, '12:20')
-  assert.equal(compact.data.rows.find(row => row.route === 'R').departure.predicted, null)
-  assert.doesNotMatch(JSON.stringify(compact), /example.org/, 'Feed URLs stay out of model context')
-
   const destinationTime = observationTime + 27 * 60
   const targetUpdate = tripUpdate('T2', 0, { vehicleId: 'fleet-42', vehicleLabel: '42', stopTimeUpdates: [
     { stopId: 'B', stopSequence: 30, arrival: { delay: 60 }, departure: { delay: 60 } },

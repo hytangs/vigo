@@ -36,6 +36,22 @@ try {
   const access = (point, role) => kernel.routeEndpoint({ longitude: point[0], latitude: point[1], maximumWalkM: 5000, role, disableCache: true })
   const publicAccess = Object.fromEntries(['origin', 'destination'].map(role => [role, access(origin, role).distancesM[0]]))
   kernel.configureTerminalAccess(file)
+  assert.equal(kernel.hasAuthorizedEndpointAccess(), true)
+  const surface = point => kernel.streetSurface({ seedCoordinates: point, seedDurationsMinutes: [0],
+    maximumWalkM: 5000, walkSpeedKph: 4.8, maximumDurationMinutes: 30,
+    bounds: [-0.003, 37.999, 0.012, 38.012], width: 16, height: 16,
+    nodeEvidenceLimit: 1000, edgeEvidenceLimit: 1000,
+    expandBoundsToReachedEdges: false,
+    independentTerminalWalk: false, includeNodes: true, includeEdges: true })
+  const nodeTime = (result, point) => result.nodeEvidence.find(node => Math.abs(node.longitude - point[0]) < 1e-12 && Math.abs(node.latitude - point[1]) < 1e-12)?.durationMinutes
+  for (const start of [origin, home]) {
+    const raster = surface(start)
+    assert(Math.abs(nodeTime(raster, target) - (publicDistance + (start === home ? 200 : 0)) / 80) < 1e-9,
+      'Reach cannot use private roads as through shortcuts or reenter the public middle')
+    assert.equal(nodeTime(raster, home), start === home ? 0 : 200 / 80,
+      'Private destinations and origins remain reachable on their mapped endpoint paths')
+    assert(raster.reachedEdgeCount > fixture.values.edgeTargets.length / 4)
+  }
   for (const role of ['origin', 'destination']) {
     const result = access(home, role)
     assert(Math.abs(result.distancesM[0] - publicAccess[role] - 200) < 0.001)
@@ -61,6 +77,16 @@ try {
   assert.equal(query(target, home).distanceM, 200 + query(target, origin).distanceM)
   assert.equal(query(home, neighbor).distanceM, 100)
   assert.equal(query(home, neighbor, 99).found, false)
+  const offNetworkHome = [home[0], home[1] + 0.00004]
+  for (const limit of [1, 5000]) {
+    const staying = query(offNetworkHome, offNetworkHome, limit)
+    assert.equal(staying.found, true)
+    assert.equal(staying.distanceM, 0, 'An identical private endpoint does not pay its snap distance twice')
+    assert.equal(staying.originSnapDistanceM + staying.destinationSnapDistanceM, 0)
+    assert.deepEqual(staying.coordinates, [...offNetworkHome, ...offNetworkHome])
+    assert.deepEqual(kernel.routeStreetMatrix({ originCoordinates: offNetworkHome,
+      destinationCoordinates: offNetworkHome, maximumDistanceM: limit }).distancesM, [0])
+  }
   assert.equal(query(home, target, fromHome.distanceM - 0.1).found, false)
   const points = [home, neighbor, origin, target]
   const matrix = kernel.routeStreetMatrix({ originCoordinates: points.flat(), destinationCoordinates: points.flat(), maximumDistanceM: 5000 })

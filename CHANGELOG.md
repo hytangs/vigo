@@ -1,5 +1,28 @@
 # Version history
 
+## 0.5.2
+
+- Bundle the searchable guide and CLI/HTTP reference in Studio Settings. Read offline in the selected light or dark appearance; retain browser links to source documents and schema downloads.
+- Update current documentation and release examples to 0.5.2. Replace obsolete 0.4.2 screenshots with a link to their archived release record.
+- Remove Studio Ask, City agency skills, and their conversation tests and evaluation fixtures. Retain Network, Routes, Route, Analyze, and existing City evidence.
+- Keep the Network tool registry focused on service inspection. Remove its duplicate journey, walking-outing, place-search, and general web-search adapters; structured routing interfaces continue to own Route, Reach, and Matrix.
+- Move optional model settings and evidence export into the service briefing. Restore previously saved Ask tabs to Network and retain notebook records without migrating City data.
+- Save Studio journeys, Reach results, and City comparisons as JSON, GeoJSON, or CSV. Preserve service clocks, source geometry, and request/result records.
+- Add readable itinerary downloads, dated route filenames, and a compact Save control with download/error feedback. Save every completed journey alternative together, retaining selection and initial waiting separately from journey duration.
+- Show City comparison differences from the first feed at the selected cutoff, with matching JSON/CSV summaries. Keep missing stop counts and incompatible query settings unavailable; reject incomplete geometry and preliminary exports.
+- Correct scenario improvement counts at shorter cutoffs and display slower or lost cells alongside gains. Retain raw counts before display rounding and prevent saving preliminary computations. Treat unavailable route timings as unavailable.
+- Use an exact monotone queue for reached-street propagation, retaining the existing ordering for equal times and a heap fallback for nonmonotone inputs.
+- Parse only the standalone stop fields consumed by routing when opening a prepared City. Preserve legacy null/type checks and all published 0.5 layouts.
+- Add service activation and preparation-stage timings to standalone profile/trace output; keep setup, source/realtime, indexing, and kernel construction distinct.
+- Consolidate Node timetable readiness reporting for compiled and loaded kernels. Reuse up to 64 exact next-departure diagnostics within the active service context, clearing them on service changes and source replacement; report their lookup time separately in Reach diagnostics.
+- Reject strictly later scalar timetable candidates before computing tie-breakers, and skip boarding checks when every reached label is still in the future. Capped point queries omit intermediate predecessor writes while retaining exact final journey certification, transfer rules, and equal-time ties.
+- Avoid sending unused search diagnostics through the native formatter for ordinary Node Route responses. Preserve full journeys, geometry, realtime metadata, arrival reserves, and all requested diagnostic levels.
+- Expose public or authorized endpoint pedestrian access when importing streets in Studio, including uploads and retries. Retain public access by default and remove stale endpoint overlays when replacing streets.
+- Correct endpoint overlays to reproduce the public graph's node restrictions, honor private-path prohibitions and pedestrian directions, and connect unqualified mapped gates only under explicit endpoint authorization.
+- Keep journeys to the identical authorized endpoint at zero distance, matching Matrix without charging a street snap twice.
+- Include authorized origin and destination connections in street Reach without private through shortcuts. Retain planned comparisons, walking-speed controls and street/node evidence. Accept documented one-to-four-minute point Reach cutoffs in the Node runtime.
+- Honor one-to-four-minute and fractional street Reach budgets in Node; exclude later transit stops and walking arrivals. Preserve contour bends and exact-cutoff samples in geographic coordinates with a scale-aware collinearity check. Clarify sampled area and street versus cell-centre reach.
+
 ## 0.5.1
 
 - Refine Studio journey cards, stop search, library recovery and responsive controls; display Reach results as nested travel-time bands with a matching legend.

@@ -1,6 +1,6 @@
 import { quietMapLabel } from './presentation'
 import { Activity, ChevronDown, Download, FileArchive, Navigation2, Radio, RefreshCw, TableProperties, XCircle } from 'lucide-react'
-import { useRef, type DragEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { requestDesktopGtfsFile, requestDesktopOsmFile } from '../../app/desktopBridge'
 import { getTableProfiles, hasOperationsData } from '../../app/projectState'
 import type { RealtimeInspectRequest } from '../../app/realtime'
@@ -8,6 +8,7 @@ import { classNames, formatNumber, type FeedSummary, type JobRecord, type Realti
 import { RealtimePanel } from '../RealtimePanel'
 
 export type CityImportProps = {
+  cityId?: string
   staticFeeds: VigoProject['feeds']
   osmDelete?: ReactNode
   isImporting: boolean
@@ -19,14 +20,16 @@ export type CityImportProps = {
   osmError?: string
   osmStreetReady: boolean
   osmStreetMessage: string
+  osmAccessModel?: 'public' | 'authorized_endpoints'
+  canPrepareAuthorizedAccess?: boolean
   realtimeSnapshot: RealtimeSnapshot | null
   realtimeMessage: string
   realtimeRequest: RealtimeInspectRequest | null
   isRealtimeLoading: boolean
   onFiles: (files: FileList | File[]) => void
   onNationalGtfsPath: (path: string) => void
-  onNationalOsmPath: (path: string) => void
-  onOsmFiles: (files: FileList | File[]) => void
+  onNationalOsmPath: (path: string, privateAccess?: 'public' | 'endpoints') => void
+  onOsmFiles: (files: FileList | File[], privateAccess?: 'public' | 'endpoints') => void
   onConnectRealtime: (request: RealtimeInspectRequest) => void
   onDisconnectRealtime: () => void
   onCancelGtfs: () => void
@@ -42,8 +45,12 @@ export function ImportPanel(props: CityImportProps & { library?: (chooseGtfs: ()
     onCancelGtfs, onRetryGtfs, onCancelOsm, onRetryOsm, library } = props
   const fileRef = useRef<HTMLInputElement>(null)
   const osmFileRef = useRef<HTMLInputElement>(null)
+  const [privateAccess, setPrivateAccess] = useState<'public' | 'endpoints'>(props.osmAccessModel === 'authorized_endpoints' ? 'endpoints' : 'public')
+  useEffect(() => {
+    setPrivateAccess(props.osmAccessModel === 'authorized_endpoints' ? 'endpoints' : 'public')
+  }, [props.cityId, props.osmAccessModel])
   const chooseGtfs = () => { if (!isImporting && !requestDesktopGtfsFile(onNationalGtfsPath)) fileRef.current?.click() }
-  const chooseOsm = () => { if (!isOsmImporting && !requestDesktopOsmFile(onNationalOsmPath)) osmFileRef.current?.click() }
+  const chooseOsm = () => { if (!isOsmImporting && !requestDesktopOsmFile(path => onNationalOsmPath(path, privateAccess))) osmFileRef.current?.click() }
   const gtfsFailed = gtfsJob?.status === 'failed' || gtfsJob?.status === 'cancelled'
   const osmFailed = osmJob?.status === 'failed' || osmJob?.status === 'cancelled'
   const liveAttention = Boolean(realtimeMessage || realtimeSnapshot?.feeds?.some(feed => feed.error)
@@ -74,9 +81,24 @@ export function ImportPanel(props: CityImportProps & { library?: (chooseGtfs: ()
         <button type="button" onClick={chooseOsm} disabled={isOsmImporting}>{osmStreetReady ? 'Replace' : 'Add streets'}</button>
         {osmDelete}
         <input ref={osmFileRef} hidden type="file" accept=".osm.pbf,.pbf,application/octet-stream" onChange={event => {
-          if (event.currentTarget.files) onOsmFiles(event.currentTarget.files)
+          if (event.currentTarget.files) onOsmFiles(event.currentTarget.files, privateAccess)
           event.currentTarget.value = ''
         }} />
+      </div>
+      <div className="city-walking-access">
+        <label>Pedestrian access
+          <select aria-label="Pedestrian access" value={privateAccess} disabled={isOsmImporting}
+            onChange={event => setPrivateAccess(event.target.value as 'public' | 'endpoints')}>
+            <option value="public">Public paths only</option>
+            <option value="endpoints" disabled={!props.canPrepareAuthorizedAccess}>Authorized endpoints</option>
+          </select>
+        </label>
+        <small>{privateAccess === 'endpoints'
+          ? 'Allow private paths and gates with unspecified access at authorized endpoints. Explicit closures remain excluded.'
+          : 'Private paths and gates without permission stay excluded.'} Applies when you add or replace streets.
+          {!props.canPrepareAuthorizedAccess ? ' Add a timetable to enable authorized access.' : ''}
+          {osmStreetReady ? ` Current: ${props.osmAccessModel === 'authorized_endpoints' ? 'authorized endpoints' : 'public paths'}.` : ''}
+        </small>
       </div>
       {isOsmImporting || osmFailed || osmError ? <div className="city-import-status" role="status"><span>{osmError || osmStreetMessage || 'Preparing street network…'}</span>
         <button type="button" className="import-job-action" onClick={isOsmImporting ? onCancelOsm : osmError ? chooseOsm : onRetryOsm}>

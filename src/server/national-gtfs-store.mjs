@@ -5,6 +5,7 @@ import { estimatedPathwaySeconds } from './gtfs/pathway-cost.mjs'
 import { recoverNativeArriveByBoundary } from './gtfs/arrive-by-reconstruction.mjs'
 import { prepareServiceTransfers, expandTransferSteps } from './gtfs/transfer-paths.mjs'
 import { readServiceTimetable } from './gtfs/service-timetable.mjs'
+import { createTransitDepartureLookup } from './gtfs/transit-departures.mjs'
 import { timetableForTransferSelection, validateTransferSelection } from './gtfs/transfer-selection.mjs'
 import { boundedInteger, defaultTimetableBudgetBytes, timetableBudgetBytes } from './runtime/resource-limits.mjs'
 import {
@@ -4326,6 +4327,57 @@ function loadPersistedActiveServiceKernel(
   }
 }
 
+function activeServiceKernelMemoryDelta(before, after) {
+  return {
+    rssBytes: after.rss - before.rss,
+    heapUsedBytes: after.heapUsed - before.heapUsed,
+    externalBytes: after.external - before.external,
+    arrayBufferBytes: after.arrayBuffers - before.arrayBuffers,
+  }
+}
+
+// Loaded snapshots and freshly compiled slices have one readiness contract.
+// Persistence and read failures are added by the branch that owns that work.
+function activeServiceKernelReadyStatus(store, kernel, services, nativeTimetableKernel) {
+  return {
+    ready: true,
+    reason: 'ready',
+    schemaVersion: kernel.schemaVersion,
+    sourceStorageIdentity: kernel.sourceStorageIdentity,
+    accessPolicyIdentity: nationalRoutingAccessPolicyIdentity,
+    serviceKey: kernel.serviceKey,
+    serviceCalendarKey: store.activeServiceCalendarKey,
+    activeServices: services.size,
+    activeSegments: kernel.activeSegmentCount,
+    trips: kernel.tripIds.length,
+    stops: kernel.stopIds.length,
+    runs: kernel.runCount,
+    transfers: kernel.transferCount,
+    engine: 'rust_exact_connection_scan',
+    heuristicMode: 'none',
+    transferProjectionVersion: kernel.transferProjectionVersion,
+    transferProjectionVerified: kernel.transferProjectionVerified,
+    sourceExpandedTransferEdges: kernel.sourceExpandedTransferEdges,
+    excludedNonServiceTransferEdges: kernel.excludedNonServiceTransferEdges,
+    excludedNonServiceStationMembers: kernel.excludedNonServiceStationMembers,
+    sourceTypedArrayBytes: kernel.sourceTypedArrayBytes,
+    nativeIndexBytes: kernel.nativeIndexBytes,
+    nativeWorkspaceBytes: kernel.nativeWorkspaceBytes,
+    typedArrayBytes: kernel.typedArrayBytes,
+    estimatedBytes: kernel.estimatedBytes,
+    nativeMemoryBudget: {
+      limitBytes: activeServiceKernelMaxEstimatedBytes || null,
+      usedBytes: kernel.estimatedBytes,
+      remainingBytes: activeServiceKernelMaxEstimatedBytes > 0
+        ? activeServiceKernelMaxEstimatedBytes - kernel.estimatedBytes : null,
+    },
+    compileMs: kernel.compileMs,
+    buildMs: kernel.buildMs,
+    memoryDelta: kernel.memoryDelta,
+    nativeTimetableKernel,
+  }
+}
+
 function prepareActiveServiceKernel(store, services, serviceKey) {
   if (store.activeServiceKernel?.serviceKey === serviceKey) return store.activeServiceKernelStatus
   const skipped = (reason, detail, extra = {}) => {
@@ -4374,50 +4426,10 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
     }
     kernel.buildMs = Number((performance.now() - startedAt).toFixed(3))
     const memoryAfter = process.memoryUsage()
-    kernel.memoryDelta = {
-      rssBytes: memoryAfter.rss - memoryBefore.rss,
-      heapUsedBytes: memoryAfter.heapUsed - memoryBefore.heapUsed,
-      externalBytes: memoryAfter.external - memoryBefore.external,
-      arrayBufferBytes: memoryAfter.arrayBuffers - memoryBefore.arrayBuffers,
-    }
+    kernel.memoryDelta = activeServiceKernelMemoryDelta(memoryBefore, memoryAfter)
     store.activeServiceKernel = kernel
     store.activeServiceKernelStatus = {
-      ready: true,
-      reason: 'ready',
-      schemaVersion: kernel.schemaVersion,
-      sourceStorageIdentity: kernel.sourceStorageIdentity,
-      accessPolicyIdentity: nationalRoutingAccessPolicyIdentity,
-      serviceKey,
-      serviceCalendarKey: store.activeServiceCalendarKey,
-      activeServices: services.size,
-      activeSegments: kernel.activeSegmentCount,
-      trips: kernel.tripIds.length,
-      stops: kernel.stopIds.length,
-      runs: kernel.runCount,
-      transfers: kernel.transferCount,
-      engine: 'rust_exact_connection_scan',
-      heuristicMode: 'none',
-      transferProjectionVersion: kernel.transferProjectionVersion,
-      transferProjectionVerified: kernel.transferProjectionVerified,
-      sourceExpandedTransferEdges: kernel.sourceExpandedTransferEdges,
-      excludedNonServiceTransferEdges: kernel.excludedNonServiceTransferEdges,
-      excludedNonServiceStationMembers: kernel.excludedNonServiceStationMembers,
-      sourceTypedArrayBytes: kernel.sourceTypedArrayBytes,
-      nativeIndexBytes: kernel.nativeIndexBytes,
-      nativeWorkspaceBytes: kernel.nativeWorkspaceBytes,
-      typedArrayBytes: kernel.typedArrayBytes,
-      estimatedBytes: kernel.estimatedBytes,
-      nativeMemoryBudget: {
-        limitBytes: activeServiceKernelMaxEstimatedBytes || null,
-        usedBytes: kernel.estimatedBytes,
-        remainingBytes: activeServiceKernelMaxEstimatedBytes > 0
-          ? activeServiceKernelMaxEstimatedBytes - kernel.estimatedBytes
-          : null,
-      },
-      compileMs: 0,
-      buildMs: kernel.buildMs,
-      memoryDelta: kernel.memoryDelta,
-      nativeTimetableKernel,
+      ...activeServiceKernelReadyStatus(store, kernel, services, nativeTimetableKernel),
       ...persistedKernel,
       kernel: undefined,
     }
@@ -4554,50 +4566,10 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
     const memoryAfter = process.memoryUsage()
     const buildMs = Number((performance.now() - startedAt).toFixed(3))
     kernel.buildMs = buildMs
-    kernel.memoryDelta = {
-      rssBytes: memoryAfter.rss - memoryBefore.rss,
-      heapUsedBytes: memoryAfter.heapUsed - memoryBefore.heapUsed,
-      externalBytes: memoryAfter.external - memoryBefore.external,
-      arrayBufferBytes: memoryAfter.arrayBuffers - memoryBefore.arrayBuffers,
-    }
+    kernel.memoryDelta = activeServiceKernelMemoryDelta(memoryBefore, memoryAfter)
     store.activeServiceKernel = kernel
     store.activeServiceKernelStatus = {
-      ready: true,
-      reason: 'ready',
-      schemaVersion: kernel.schemaVersion,
-      sourceStorageIdentity: kernel.sourceStorageIdentity,
-      accessPolicyIdentity: nationalRoutingAccessPolicyIdentity,
-      serviceKey,
-      serviceCalendarKey: store.activeServiceCalendarKey,
-      activeServices: services.size,
-      activeSegments: activeSegmentCount,
-      trips: tripIds.length,
-      stops: stopCount,
-      runs: runCount,
-      transfers: transferCount,
-      engine: 'rust_exact_connection_scan',
-      heuristicMode: 'none',
-      transferProjectionVersion: kernel.transferProjectionVersion,
-      transferProjectionVerified: kernel.transferProjectionVerified,
-      sourceExpandedTransferEdges,
-      excludedNonServiceTransferEdges,
-      excludedNonServiceStationMembers,
-      sourceTypedArrayBytes: kernel.sourceTypedArrayBytes,
-      nativeIndexBytes: kernel.nativeIndexBytes,
-      nativeWorkspaceBytes: kernel.nativeWorkspaceBytes,
-      typedArrayBytes: kernel.typedArrayBytes,
-      estimatedBytes: kernel.estimatedBytes,
-      nativeMemoryBudget: {
-        limitBytes: activeServiceKernelMaxEstimatedBytes || null,
-        usedBytes: kernel.estimatedBytes,
-        remainingBytes: activeServiceKernelMaxEstimatedBytes > 0
-          ? activeServiceKernelMaxEstimatedBytes - kernel.estimatedBytes
-          : null,
-      },
-      compileMs,
-      buildMs,
-      memoryDelta: kernel.memoryDelta,
-      nativeTimetableKernel,
+      ...activeServiceKernelReadyStatus(store, kernel, services, nativeTimetableKernel),
       ...(persistedKernel.persistenceState === 'read_error' ? {
         snapshotReadState: persistedKernel.persistenceState,
         snapshotReadError: persistedKernel.persistenceError,
@@ -5801,19 +5773,9 @@ function annotateReachSurface(surface, { transitSeedCount = 0, scenarioSeedCount
 }
 
 function earliestActiveTransitDeparture(store, departure) {
-  const row = store.db.prepare(`
-    SELECT
-      MIN(connection.departure) AS next_departure
-    FROM connections AS connection
-    INNER JOIN active_services AS active_service
-      ON active_service.service_id = connection.service_id
-    WHERE connection.departure >= ?
-      AND connection.departure <= ?
-  `).get(departure, departure + 24 * 60 * 60)
-  const nextDeparture = row?.next_departure == null
-    ? Number.NaN
-    : Number(row.next_departure)
-  return Number.isFinite(nextDeparture) ? nextDeparture : null
+  if (!store.activeServices.size) return null
+  store.transitDepartureLookup ??= createTransitDepartureLookup(store.db)
+  return store.transitDepartureLookup(store.activeServiceDate, departure)
 }
 
 function reachTransitStatus({
@@ -5889,6 +5851,7 @@ function reachTransitStatus({
  */
 export function routeNationalGtfsReach(storePath, request, options = {}) {
   validateArrivalBuffer(request, false)
+  const streetStorePath = options.streetStorePath ?? request.streetStorePath
   const sampling = request.surfaceSampling ?? 'street'
   const mode = request.mode ?? 'transit'
   if (!['street', 'cell-center'].includes(sampling)) throw new Error('Reach surfaceSampling must be street or cell-center.')
@@ -5901,14 +5864,13 @@ export function routeNationalGtfsReach(storePath, request, options = {}) {
   if (request.scenarioOverlay || request.excludedRouteIds?.length || request.excludedTripIds?.length) {
     throw new Error('Planned transit changes require transit Reach with street sampling.')
   }
-  const streetStorePath = options.streetStorePath ?? request.streetStorePath
   if (!streetStorePath) throw new Error('Reach requires a City with streets.')
   const maxWalkKm = Number(request.maxWalkKm ?? 1.2)
   const speed = Number(request.walkSpeedKph ?? walkingSpeedKph)
   const cutoff = Number(request.cutoffMinutes ?? 90)
   if (!Number.isFinite(maxWalkKm) || maxWalkKm < 0.2 || maxWalkKm > 5
     || !Number.isFinite(speed) || speed < 1 || speed > 8
-    || !Number.isFinite(cutoff) || cutoff < 5 || cutoff > 240) throw new Error('Invalid Reach walking or cutoff limits.')
+    || !Number.isFinite(cutoff) || cutoff < 1 || cutoff > 240) throw new Error('Invalid Reach walking or cutoff limits.')
   if (mode === 'transit' && speed !== walkingSpeedKph) {
     throw new Error(`Cell-center transit Reach uses the City walking speed of ${walkingSpeedKph} km/h.`)
   }
@@ -5996,7 +5958,7 @@ function routeNationalGtfsStreetReach(storePath, request, options = {}) {
     request.walkSpeedKph,
     nationalRoutingAccessPolicy.walkingSpeedKph,
   )))
-  const cutoffMinutes = Math.max(5, Math.min(240, numeric(request.cutoffMinutes, 90)))
+  const cutoffMinutes = Math.max(1, Math.min(240, numeric(request.cutoffMinutes, 90)))
   const departure = Math.round(departureMinutes * 60)
   const horizon = departure + Math.round(cutoffMinutes * 60)
   const excludedRouteIds = [...new Set(
@@ -6043,7 +6005,9 @@ function routeNationalGtfsStreetReach(storePath, request, options = {}) {
   const residentStarted = performance.now()
   const activeKernel = ensureActiveServiceKernel(store, services).kernel
   const residentPrepareMs = performance.now() - residentStarted
+  const departureLookupStarted = performance.now()
   const earliestScheduledDeparture = earliestActiveTransitDeparture(store, departure)
+  const departureLookupMs = Number((performance.now() - departureLookupStarted).toFixed(3))
   if (!activeKernel) {
     if (!services.size) {
       report('surface', 0.76, 'Building the origin-only pedestrian context')
@@ -6080,6 +6044,7 @@ function routeNationalGtfsStreetReach(storePath, request, options = {}) {
             residentTrips: 0,
             residentConnections: 0,
             residentPrepareMs: Number(residentPrepareMs.toFixed(3)),
+            departureLookupMs,
             nationalConnectionScan: false,
           },
           search: {
@@ -6579,6 +6544,7 @@ function routeNationalGtfsStreetReach(storePath, request, options = {}) {
         residentConnections: activeKernel.activeSegmentCount,
         compileMs: timingMilliseconds(activeKernel.compileMs),
         residentPrepareMs: Number(residentPrepareMs.toFixed(3)),
+        departureLookupMs,
         nationalConnectionScan: true,
         ...(overlayDiagnostics ? { scenarioOverlay: overlayDiagnostics } : {}),
       },

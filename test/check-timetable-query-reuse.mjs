@@ -85,6 +85,38 @@ for (const arriveBy of [false, true]) {
 // Duplicating the destination preserves the exact problem. Compare complete
 // witnesses, including walking ties, across point and shared Matrix requests.
 let pointChecks = 0
+// Alternate the capped arrival proof (which omits intermediate predecessors)
+// with unrestricted queries that must still return their own full chain.
+// Long access walks reach stops before any label there is boardable; changing
+// the clock and endpoint on the same kernel must discard old arrival bounds.
+for (const maximumBoardings of [3, undefined, 1, undefined, 3]) {
+  for (const departure of [900, 590, 628]) {
+    for (const [origin, destination] of [[0, 31], [32, 63], [31, 0]]) {
+      for (const walk of [0, 17, 400]) {
+        const request = {
+          originStops: [origin], originWalkSeconds: [walk], originCandidateIndices: [0],
+          destinationStops: [destination], destinationWalkSeconds: [11], destinationCandidateIndices: [0],
+          departure, horizon: 1800, maximumBoardings,
+          allowPreRideTransfers: false, allowPostRideTransfers: false,
+        }
+        const actual = reused.routeScalarCsa(request)
+        const expected = new TimetableKernel(fixture).routeScalarCsa(request)
+        const semantics = result => Object.fromEntries(Object.entries(result).filter(([key]) => !key.endsWith('Ns')))
+        assert.deepEqual(semantics(actual), semantics(expected))
+        const general = reused.routeMatrixCsa(timetableMatrixRequest([origin], [destination, destination], {
+          departure, horizon: 1800, maximumBoardings, originWalkSeconds: [walk], destinationWalkSeconds: [11, 11],
+          allowPreRideTransfers: [false], allowPostRideTransfers: [false, false],
+        }))
+        assert.equal(actual.bestArrival ?? Infinity, general.times[0])
+        if (actual.status === 'ready') {
+          assert.equal(actual.bestBoardings, general.journeys[0].boardings)
+          assert(actual.chainKinds.includes(2), 'Both capped and unrestricted queries retain the final ride chain')
+        }
+        pointChecks++
+      }
+    }
+  }
+}
 for (const arriveBy of [false, true]) {
   for (const maximumBoardings of [undefined, 1, 3]) {
     for (const departure of [590, 609, 628, 647]) {

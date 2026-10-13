@@ -7,7 +7,6 @@ import JSZip from 'jszip'
 import { quoteBoardingFare, farePriceLabel } from '../src/fares.mjs'
 import { parseFareAmount } from '../src/farePresentation.mjs'
 import { fareEventDay } from '../src/fareTime.mjs'
-import { compactResult } from '../src/agency/queryAgent.mjs'
 import { addGtfsFares, prepareGtfsFares, writeGtfsFareCatalog } from '../src/server/gtfs-fare-store.mjs'
 import { buildNationalGtfsStore, buildNationalGtfsCityStore, mergeNationalGtfsStores, addNationalGtfsFares, routeNationalGtfsStore, disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
 
@@ -182,9 +181,6 @@ try {
   const annotated = addNationalGtfsFares(storePath, plan)
   assert.equal(farePriceLabel(annotated.legs.find(leg => leg.type === 'ride').fare.options), '$2.40')
   assert.equal(plan.legs.find(leg => leg.type === 'ride').fare, undefined, 'Fare annotation leaves the routed plan untouched.')
-  const context = JSON.parse(compactResult({ ok: true, data: { plan: annotated }, warnings: [] }, 'route_plan'))
-  assert.equal(context.data.plan.fares.boardings[0].options[0].amount, 2.4, 'Ask receives fare evidence, not just the UI.')
-  assert.match(context.data.plan.fares.basis, /Do not sum/)
   const dbSchedule = new DatabaseSync(':memory:')
   dbSchedule.exec("CREATE TABLE connections(trip_id TEXT, stop_sequence INTEGER, departure INTEGER, arrival INTEGER, from_stop_id TEXT, to_stop_id TEXT); INSERT INTO connections VALUES('TR',1,28800,29400,'S','T'); CREATE TABLE fare_catalogs(scope TEXT, data TEXT)")
   const timed = catalog()

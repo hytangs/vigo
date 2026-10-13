@@ -38,6 +38,8 @@ type RoutingPlanRuntime = {
 }
 
 function finiteRuntimeMs(value: unknown) {
+  if ((typeof value !== 'number' && typeof value !== 'string')
+    || (typeof value === 'string' && !value.trim())) return undefined
   const number = Number(value)
   return Number.isFinite(number) && number >= 0 ? number : undefined
 }

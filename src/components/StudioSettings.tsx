@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { Check, Circle, FolderOpen, HardDrive, Info, Moon, Palette, RefreshCw, Sun } from 'lucide-react'
+import { BookOpen, Check, Circle, FolderOpen, HardDrive, Info, Moon, Palette, RefreshCw, Sun } from 'lucide-react'
 import { apiJson } from '../app/api'
 import { formatBytes } from '../app/presentation'
 import type { HealthResponse, VigoRuntimeConfig } from '../app/runtimeConfig'
 import { basemapOptions } from '../app/uiOptions'
 import { basemapDescriptions, basemapLabels, type Appearance, type Basemap, type VigoProject } from '../domain'
 import { CityDataControl } from './CityDataControl'
+import { StudioDocumentation } from './StudioDocumentation'
 
 const settingPages = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'storage', label: 'Storage', icon: HardDrive },
+  { id: 'documentation', label: 'Documentation', icon: BookOpen },
   { id: 'about', label: 'About VIGO', icon: Info },
 ] as const
 
@@ -94,7 +96,7 @@ export function StudioSettings({ appearance, basemap, localBasemapAvailable, run
           <div className="settings-section-heading"><div><h2 id="settings-city-storage-title">City storage</h2><p>Inspect one City at a time.</p></div></div>
           {projects.length ? <CityDataControl projects={projects} defaultProjectId={projectId} onCityReset={onCityReset} onCityRemoved={onCityRemoved} /> : <p className="settings-note">No Cities in this library yet.</p>}
         </section>
-      </> : <>
+      </> : page === 'documentation' ? <StudioDocumentation appearance={appearance} /> : <>
         <section className="settings-section settings-about" aria-labelledby="settings-about-title">
           <span className="eyebrow">Local by design</span><h2 id="settings-about-title">VIGO Studio <span>{health?.version || '—'}</span></h2>
           <p>Explore a network. Find a journey. Understand what is within reach.</p>

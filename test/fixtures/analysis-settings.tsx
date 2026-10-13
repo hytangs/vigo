@@ -26,11 +26,11 @@ function Fixture() {
           <div className="sidebar-panel-head"><h1 className="studio-page-title">Analyze</h1></div>
           <AnalyzePanel mode="single" origin={{ coordinate: [-71.1, 42.36], label: 'Starting point', source: 'map' }}
             serviceDate="2026-10-07" departMinutes={535} maxWalkKm={walk} walkSpeedKph={speed} maxTransfers={transfers}
-            cutoffMinutes={limit} surfaceSampling={surface} cases={[]} feeds={[]} comparisonFeedIds={[]} routes={[]} stops={[]}
+            cutoffMinutes={limit} surfaceSampling={surface} renderMode="area" onRenderModeChange={() => {}} cases={[]} feeds={[]} comparisonFeedIds={[]} routes={[]} stops={[]}
             analysis={null} preparationTasks={[]} routingStoreAvailable streetGraphAvailable
             onMaxWalkKmChange={setWalk} onWalkSpeedChange={setSpeed} onMaxTransfersChange={setTransfers}
             onCutoffChange={setLimit} onSurfaceSamplingChange={setSurface} onModeChange={() => {}}
-            onRun={() => { state.submitted = { ...state.current } }} onServiceDateChange={() => {}} onDepartMinutesChange={() => {}} />
+            onRun={() => { state.submitted = { ...state.current, speed: surface === 'cell-center' ? 4.8 : state.current.speed } }} onServiceDateChange={() => {}} onDepartMinutesChange={() => {}} />
         </section>
       </aside>
       <section style={{ minWidth: 0, overflow: 'hidden', padding: 16 }} aria-label="Progress example">

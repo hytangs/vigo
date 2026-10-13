@@ -1236,6 +1236,15 @@
 .routing-detail-head h2 small { color: var(--text-muted); font-size: 14px; font-weight: 500; letter-spacing: 0; }
 .routing-detail-head button { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: var(--control-surface); color: var(--text-muted); cursor: pointer; }
 .routing-detail-head button:hover { color: var(--text-strong); background: var(--hover-surface); }
+.result-export-actions { display: grid; gap: 6px; min-width: 0; margin: 10px 0 16px; color: var(--text-muted); font-size: 12px; }
+.result-export-controls { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.result-export-controls select { flex: 1; min-width: 0; width: 0; }
+.result-export-controls select, .result-export-actions button { min-height: 34px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--control-surface); color: var(--text); font: inherit; }
+.result-export-actions button { display: inline-flex; flex-shrink: 0; align-items: center; gap: 5px; cursor: pointer; }
+.result-export-actions button:enabled:hover { background: var(--hover-surface); color: var(--text-strong); }
+.result-export-actions button:disabled, .result-export-actions select:disabled { opacity: .5; cursor: default; }
+.result-export-actions small { overflow-wrap: anywhere; font-size: 11px; line-height: 1.5; }
+.result-export-actions small.is-error { color: var(--danger); }
 .journey-eyebrow { margin: 0; color: var(--text-muted); font-size: 12px; font-weight: 600; }
 .journey-time-range { display: flex; gap: 10px; align-items: center; margin: 0; color: var(--text-strong); font-size: 18px; font-weight: 550; font-variant-numeric: tabular-nums; }
 .journey-time-range > span { color: var(--text-muted); }
@@ -1265,3 +1274,7 @@
 .journey-finish > strong { position: relative; min-width: 0; padding-left: 16px; color: var(--text-strong); font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
 .journey-finish { margin-bottom: 24px; }
 .journey-finish > strong::before { left: -3px; background: var(--text-strong); border-color: var(--text-strong); }
+.city-walking-access { display: grid; gap: 6px; margin: 10px 0; }
+.city-walking-access label { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.city-walking-access select { max-width: 100%; min-height: 32px; padding: 5px 8px; color: var(--text-strong); background: var(--panel-strong); border: 1px solid var(--border); border-radius: 6px; }
+.city-walking-access small { color: var(--text-muted); line-height: 1.45; }

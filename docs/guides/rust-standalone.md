@@ -1,6 +1,6 @@
 # VIGO Rust standalone manual
 
-VIGO 0.5.1 · CLI and HTTP reference · Prepared City format 1
+VIGO 0.5.2 · CLI and HTTP reference · Prepared City format 1
 
 VIGO runs routing and isochrone queries from a single Rust executable. The executable contains the routing kernels, City loader, JSON interface, and HTTP server. It needs no Node, Python, browser, external routing service, or internet connection at query time. SQLite is compiled in. City data is supplied separately and opened read-only.
 
@@ -1356,8 +1356,8 @@ Terminate HTTPS at a reverse proxy or hosting platform. Give its upstream timeou
 Build the native service image from the repository root:
 
 ```sh
-docker build -f deploy/Dockerfile -t vigo:0.5.1 .
-export VIGO_IMAGE=vigo:0.5.1
+docker build -f deploy/Dockerfile -t vigo:0.5.2 .
+export VIGO_IMAGE=vigo:0.5.2
 export VIGO_CITY=/absolute/path/to/prepared-city
 # Set VIGO_API_TOKEN through your deployment secret store.
 docker compose -f deploy/compose.yml up -d --wait

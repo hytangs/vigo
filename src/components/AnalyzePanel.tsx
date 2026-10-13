@@ -26,6 +26,9 @@ import { ResultMetric } from './UiPrimitives'
 import { AnalysisOriginPicker } from './AnalysisOriginPicker'
 import { OperationProgress } from './OperationProgress'
 import { AnalysisNumberField, ReachSettings } from './ReachSettings'
+import { ResultExportActions } from './ResultExportActions'
+import { exportReachResults, reachExportEntries, reachGeometryAvailable } from '../app/resultExports'
+import { reachTransitStops, reachResultDifference, reachScenarioDifference } from '../app/resultSummary'
 import {
   reachBandColor,
   reachDifferenceCapMinutes,
@@ -35,8 +38,8 @@ import {
   scenarioReachedAreaKm2,
   reachComparisonColor,
   scenarioImprovedPixels,
+  scenarioWorsenedPixels,
   scenarioReachablePixels,
-  scenarioTransitStopsAtCutoff,
   scenarioInsertedStopsForEdge,
   scenarioEdgeEditError,
   scenarioEdgeIndexes,
@@ -309,17 +312,14 @@ function ReachRenderModePicker({
 }
 
 function transitStopsForSelectedCutoff(analysis: ReachResult, surface: 'baseline' | 'scenario', cutoffMinutes: number): number | null {
-  if (analysis.diagnostics.preliminary) return null
-  const entries = surface === 'scenario'
-    ? analysis.summary.scenarioTransitStopsByCutoff ?? analysis.summary.transitStopsByCutoff
-    : analysis.summary.transitStopsByCutoff
-  const exact = entries?.find(entry => entry.cutoffMinutes === cutoffMinutes)
-  // The shared helper can fall back to an earlier cutoff or full-window seeds.
-  // Those are useful elsewhere, but cannot establish this exact UI measure.
-  return exact && Number.isFinite(exact.stops) ? scenarioTransitStopsAtCutoff(analysis, surface, cutoffMinutes) : null
+  return reachTransitStops(analysis, surface, cutoffMinutes)
 }
 
 const reachDecimal = (value: number, digits: number) => value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+const reachDelta = (value: number, digits = 0) => {
+  const rounded = Number(value.toFixed(digits))
+  return `${rounded > 0 ? '+' : ''}${reachDecimal(rounded, digits)}`
+}
 
 export function ReachMetricCards({
   analysis,
@@ -339,7 +339,7 @@ export function ReachMetricCards({
     : analysis.diagnostics.raster.baselineNetwork
   return (
     <div className="reach-metric-grid" aria-label={`${surface === 'baseline' ? 'Baseline' : 'Scenario'} network reach metrics`}>
-      <ResultMetric value={`${reachDecimal(areaKm2, 2)} km²`} label={`area reached by ${cutoffMinutes} min`} />
+      <ResultMetric value={`${reachDecimal(areaKm2, 2)} km²`} label={`sampled area reached by ${cutoffMinutes} min`} />
       <ResultMetric value={stops === null ? 'Unavailable' : formatNumber(stops)} label={`stops reached by ${cutoffMinutes} min`} detail={stops === null ? 'Update Reach to compute this cutoff.' : undefined} />
       <details className="reach-supporting-metrics"><summary>Network details</summary>
         <ResultMetric value={typeof network?.reachedEdgeLengthKm === 'number' && Number.isFinite(network.reachedEdgeLengthKm) ? `${reachDecimal(network.reachedEdgeLengthKm, 1)} km` : 'Unavailable'} label={`OSM streets · full ${analysis.summary.maximumCutoffMinutes} min window`} />
@@ -708,7 +708,11 @@ export function AnalyzePanel({
   useEffect(() => {
     if (hasScenarioChanges) setScenarioEditorOpen(true)
   }, [hasScenarioChanges])
-  const improvedPixels = scenarioImprovedPixels(analysis, cutoffMinutes)
+  const improvedPixels = useMemo(() => scenarioImprovedPixels(analysis, cutoffMinutes), [analysis, cutoffMinutes])
+  const worsenedPixels = useMemo(() => scenarioWorsenedPixels(analysis, cutoffMinutes), [analysis, cutoffMinutes])
+  const scenarioDifference = useMemo(() => analysis ? reachScenarioDifference(analysis, cutoffMinutes) : null, [analysis, cutoffMinutes])
+  const comparisonExportEntries = useMemo(() => reachExportEntries(null, comparison), [comparison, cutoffMinutes])
+  const analysisExportEntries = useMemo(() => reachExportEntries(analysis, null), [analysis, cutoffMinutes])
   const roadInferencePending = mode === 'single' && interventions.some((intervention) => (
     hasLineSettings(intervention.kind)
     && intervention.geometryMode === 'auto-road'
@@ -1389,11 +1393,15 @@ export function AnalyzePanel({
               <small>Same origin and departure · independent timetables</small>
             </div>
           </div>
+          <ResultExportActions label="Save City comparison" resultKey={comparisonExportEntries}
+            disabled={loading || comparison.some(entry => entry.result.diagnostics.preliminary || cutoffMinutes > entry.result.summary.maximumCutoffMinutes)}
+            unavailable={reachGeometryAvailable(comparisonExportEntries, cutoffMinutes) ? {} : { geojson: 'Update Reach to retain geometry for this cutoff' }}
+            onExport={format => exportReachResults(comparisonExportEntries, format, cutoffMinutes)} />
           <ReachRenderModePicker renderMode={renderMode} onRenderModeChange={onRenderModeChange} terminalWalkKm={maxWalkKm} />
           <div className="reach-comparison-result-head">
             <div>
               <strong>Selected feeds</strong>
-              <small>Colors on the map match the rows below.</small>
+              <small>{cutoffMinutes} min · differences from the first feed</small>
             </div>
             <span>OSM walking</span>
           </div>
@@ -1405,14 +1413,20 @@ export function AnalyzePanel({
               const networkKm = entry.result.diagnostics.raster.baselineNetwork?.reachedEdgeLengthKm
               const color = reachComparisonColor(index)
               const feed = feeds.find((candidate) => candidate.id === entry.feedId)
+              const difference = index ? reachResultDifference(comparison[0].result, entry.result, cutoffMinutes) : null
               return (
                 <article key={entry.feedId} className="reach-comparison-result">
                   <span className="reach-comparison-swatch" style={{ background: color }} aria-hidden="true" />
                   <div>
-                    <strong>GTFS {index + 1} · {entry.feedName}</strong>
+                    <strong>{entry.feedName}{index === 0 ? <span className="reach-reference-label">Reference</span> : null}</strong>
                     <small>{formatNumber(feed?.routeCount ?? 0)} routes · {formatNumber(feed?.stopCount ?? 0)} stops · {formatNumber(feed?.tripCount ?? 0)} trips · {stops === null ? 'Update Reach for this cutoff' : `${formatNumber(stops)} stops reached by ${cutoffMinutes} min`}</small>
                   </div>
                   <b>{areaKm2.toFixed(2)} km²</b>
+                  {index ? <p className="reach-comparison-difference">
+                    {difference ? <>{reachDelta(difference.areaKm2, 2)} km² · {difference.transitStops === null
+                      ? 'stop difference unavailable at this cutoff' : `${reachDelta(difference.transitStops)} reached stops`}</>
+                      : 'Different query settings · difference unavailable'}
+                  </p> : null}
                   <small>{typeof networkKm === 'number' && Number.isFinite(networkKm) ? `${reachDecimal(networkKm, 1)} km OSM streets · full ${entry.result.summary.maximumCutoffMinutes} min window` : 'Street length unavailable'} · {formatNumber(pixels)} cells</small>
                 </article>
               )
@@ -1469,6 +1483,10 @@ export function AnalyzePanel({
               <small>{analysis.request.serviceDate} · {serviceTimeLabel(analysis.request.departMinutes)}</small>
             </div>
           </div>
+          <ResultExportActions label="Save Reach results" resultKey={analysisExportEntries}
+            disabled={loading || analysis.diagnostics.preliminary || cutoffMinutes > analysis.summary.maximumCutoffMinutes}
+            unavailable={reachGeometryAvailable(analysisExportEntries, cutoffMinutes) ? {} : { geojson: 'Update Reach to retain geometry for this cutoff' }}
+            onExport={format => exportReachResults(analysisExportEntries, format, cutoffMinutes)} />
           <div className="reach-result-toolbar">
             <ReachRenderModePicker renderMode={renderMode} onRenderModeChange={onRenderModeChange} terminalWalkKm={analysis.surface.reachability?.baselineTerminalWalkKm ?? analysis.request.maxWalkKm} />
             {hasScenarioChanges ? <div className="reach-result-view">
@@ -1518,8 +1536,13 @@ export function AnalyzePanel({
             <span><b>{scenarioReachedAreaKm2(analysis, 'baseline', cutoffMinutes).toFixed(2)} km²</b><small>baseline area</small></span>
             <ArrowRight size={16} aria-hidden="true" />
             <span><b>{scenarioReachedAreaKm2(analysis, 'scenario', cutoffMinutes).toFixed(2)} km²</b><small>scenario area</small></span>
-            <span className="is-gain"><b>+{formatNumber(improvedPixels)}</b><small>faster or newly reached</small></span>
+            <span className="is-gain"><b>{formatNumber(improvedPixels)}</b><small>cells faster or newly reached</small></span>
+            <span><b>{formatNumber(worsenedPixels)}</b><small>cells slower or lost</small></span>
           </div> : null}
+          {hasScenarioChanges && scenarioDifference ? <p className="reach-scenario-difference">
+            {reachDelta(scenarioDifference.areaKm2, 2)} km² · {scenarioDifference.transitStops === null
+              ? 'stop difference unavailable at this cutoff' : `${reachDelta(scenarioDifference.transitStops)} reached stops`} from baseline
+          </p> : null}
           <details className="reach-method-record">
             <summary>Method and limits</summary>
             <dl>

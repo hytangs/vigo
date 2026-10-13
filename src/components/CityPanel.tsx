@@ -61,7 +61,7 @@ export function CityPanel({
         <div className="city-surface-title">
           <span className="eyebrow">{section === 'feeds' ? 'City data' : 'Studio'}</span>
           <h1 id="city-surface-title">{section === 'feeds' ? projectName : 'Settings'}</h1>
-          {section === 'preferences' ? <p>Appearance, storage, and local availability.</p> : null}
+          {section === 'preferences' ? <p>Appearance, storage, documentation, and local availability.</p> : null}
         </div>
         {projects.length > 0 ? <button
           type="button"

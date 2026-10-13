@@ -1,4 +1,4 @@
-# VIGO 0.5.1 developer guide
+# VIGO 0.5.2 developer guide
 
 Canonical source for the [documentation reader](guide.html). Edit the relevant chapter, then rebuild the reader.
 
@@ -127,17 +127,19 @@ For current admission budgets, restart behavior, and test coverage, see
 
 `public/main.mjs` owns windows, menus, dialogs, and the `vigo://studio` resource scheme. `public/preload.cjs` exposes a small desktop bridge to an isolated renderer without Node access. Engine runs in a utility process; packaged Studio has no TCP listener. Packaging copies the shared `public/` distribution once.
 
-Network shares one route/station selection across its tabs, map, line diagram, and Ask. Known feed namespaces resolve against the City timetable; ambiguous bare IDs cannot select an agency. Station scope includes platforms, while a platform keeps its own events. Saved answers retain their original selection and observation; background responses do not move the map.
+Network shares one route/station selection across its tabs, map, and line diagram. Known feed namespaces resolve against the City timetable; ambiguous bare IDs cannot select an agency. Station scope includes platforms, while a platform keeps its own events. Briefings retain their original observation; background assessments do not move the map.
 
 | Surface | Owner |
 | --- | --- |
 | Trip times and patterns | `AgencyTripTimetable`, `NetworkTimetable` |
 | Map and line | `VigoMap`, `AgencyRouteLine` |
 | Station board and evidence | `StopArrivalBoard`, `AgencyEvidence` |
-| Ask and saved work | `AgencyPanel`, `AgencyAnswer`, notebook |
+| Network briefing and retained evidence | `AgencyPanel`, `AgencyBriefing`, notebook |
 | Route/vehicle timing | `src/agency/routeOperations.mjs` |
 
-Vehicle matching preserves service dates, including previous-day overnight trips. Network assessments share an immutable observation; method and denominators are documented in [service assessment](#network-service-assessment). Old ledger records remain readable, but new guidance requires current source identity. Model-history compatibility filters protect previously internal context and are not disposable legacy code.
+The Network service owns observation polling, timetable inspection, briefings, and retained operational evidence. Its tool registry does not call Route, Reach, Matrix, online place search, or general web search. Those routing operations use the structured Studio controls and the CLI. Ask and City skill installation/execution are removed; existing notebook records remain readable without a schema migration. Optional model settings and evidence export belong to the service briefing.
+
+Vehicle matching preserves service dates, including previous-day overnight trips. Network assessments share an immutable observation; method and denominators are documented in [service assessment](#network-service-assessment). Old ledger records remain readable, but new guidance requires current source identity. Notebook retrieval filters protect previously internal context in retained records.
 
 Studio Reach retains packed reached-edge data, lazily reuses decoded coordinates across cutoffs, and serializes large map-source replacement. Changing a displayed cutoff does not require rebuilding the street graph. Runtime fixtures check map updates and rapid cutoff changes.
 
@@ -250,7 +252,11 @@ Portable binary timetable snapshots and prepared station access can be reused af
 
 Queries are recomputed. `disableCache: true` on transit Route/Matrix disables access/path caches while retaining the prepared City. Larger walking matrices may build temporary destination indexes; that setup belongs in the measured request.
 
+Node Reach retains up to 64 next-departure schedule diagnostics per opened source store and active service context. This lookup preserves raw SQLite times and the inclusive 24-hour horizon; changing the service context clears it, and replacing the source creates a new lookup. It is immutable schedule metadata and remains available with `disableCache: true`. Reach still recomputes the timetable frontier and pedestrian surface. Measure first or changed departure clocks separately from repeated clocks; `diagnostics.timetable.departureLookupMs` exposes this cost alongside `residentPrepareMs`, search and surface timing. A faster repeated diagnostic lookup does not establish a faster native search or City opening.
+
 #### Native timetable preparation
+
+Standalone profile/trace output includes `timing.timetableActivationMs`, the time spent activating the service timetable during that request. A source preparation also reports `timing.timetablePreparation` with `setupMs`, `sourceAndRealtimeMs`, `indexMs`, and `kernelMs`. Setup includes calendar resolution and retiring the preceding timetable; source includes SQLite loading and realtime application. These scopes belong to execution and exclude public formatting, serialization, transport, and initial City opening. A reused timetable has no new preparation record. Profile scopes can overlap total execution; do not add them to it.
 
 Since 0.4.1, Rust constructs per-stop departure order, deduplicates transfers, expands station fallback links, and packs transfer adjacency. JavaScript resolves source IDs and passes typed arrays to the native preparation operator. This runs on active-timetable cache misses; loading a compatible persisted snapshot bypasses it.
 
@@ -343,11 +349,30 @@ the proof and any fallback; no trip choice or tie criterion is removed.
 
 Retaining scratch trades some resident memory for fewer allocations. Native `workspaceBytes` diagnostics include the journey arrays and their retained capacities. Scalar-only users do not allocate journey scratch.
 
+The scalar point scan rejects strictly later arrivals before computing boarding
+and walking tie-breakers; equal arrivals still receive the full comparison.
+An epoch-scoped lower bound on stop arrival skips boarding searches when every
+label is in the future. It uses eight additional workspace bytes per stop and
+does not change prepared data. The preliminary unrestricted scan for a capped
+point query retains labels and its forward run envelope but omits predecessor
+writes and intermediate chain construction. Exact capped rounds still recover
+the final journey with the existing boarding and walking objectives.
+
+For ordinary Node Route responses, the adapter passes only the plan diagnostic
+fields consumed by the shared Rust public formatter: realtime metadata, arrival
+reserves, and the service clock date. This avoids serializing and parsing unused
+search trees. Full journeys, alternatives, and geometry remain present; requested
+summary, profile, and trace responses retain their existing diagnostic input.
+
 ### Coordinate routes and materialization
 
 For capped fastest depart-at queries, the Node adapter permits the fused Rust call to return the selected access and egress witnesses, including walking geometry. The existing native guard uses this compact result only for certified one- or two-boarding routes. Uncapped queries, balanced preferences, departure-window alternatives, and arrive-by deadline certification retain the full candidate frontier. The change removes candidate conversion and subsequent path calls without limiting the search.
 
 The standalone adapter retains immutable route metadata and trip-to-shape identifiers within each opened City. Journeys still reconstruct their active timetable stop sequence and geometry on every request. The metadata maps are bounded by the City's route/trip counts, are released with that City, and remain separate from endpoint or answer caches.
+
+When opening an access context, the standalone stop projection parses only the normalized fields it consumes and validates JSON in skipped fields. Coordinate type checks and the null-coordinate exception for location types 3/4 remain unchanged. This changes reader allocations, not the portable City layout.
+
+Reached-street propagation uses a monotone queue keyed by exact finite nonnegative floating-point duration bits. Equal-time entries use the existing walking-distance, node, seed, and witness ordering. A nonmonotone insertion falls back to the original heap. This does not round times, change walking budgets, or alter Pareto dominance. Node and standalone use the same operator. Compare full rasters and edge evidence, alongside measured execution and process memory, when evaluating queue changes.
 
 Compiled GTFS shapes and their geometric alignment candidates are retained separately in a City-owned least-recently-used store, limited to 4,096 shapes and 256 MiB of estimated geometry storage, matching the Node interface's shape-cache limits. Lookups examine the most recently used entries first. This avoids the much smaller standalone cache repeatedly evicting geometry on varied city-wide workloads; the larger upper bound can increase resident memory. Sizes are accounted again after alignment grows candidate data. Oversized shapes are used for the current request and released. Timetable paths, realtime stop sequences, and selected shape slices are still reconstructed for each journey; the store does not retain route answers.
 
@@ -434,7 +459,7 @@ The independent suite validates the generated graph and timetable models under t
 
 ## Runtime limits and recovery
 
-The following admission limits and recovery behavior apply to VIGO 0.5.1.
+The following admission limits and recovery behavior apply to VIGO 0.5.2.
 See [public results](reference/results.md) for the current result schemas.
 
 ### Memory and request admission
@@ -545,11 +570,11 @@ memory exhaustion.
 
 ## Agency operations prototype
 
-This backend prototype is outside the main Network / Routes / Ask workspace. Its API, records and service tests remain available for research. The workflow below describes internal API actions, not additional Studio buttons or a supported public integration API.
+This backend prototype is outside the main Network / Routes workspace. Its API, records and service tests remain available for research. The workflow below describes internal API actions, not additional Studio buttons or a supported public integration API.
 
 The [operational replay](#one-bus-one-control-point) adds a synthetic holding decision through procedure selection, alternative comparison, approval, sandbox receipt and evidence-driven withdrawal. It reuses this ledger in separate replay storage. Internal knowledge and staff annotations are excluded from model context by default; approval alone does not authorize model disclosure.
 
-The City operations ledger keeps findings, source evidence, staff decisions and rider guidance together. It works without a model. Ask can read approved public operational context and historical comparisons; mutations require explicit API requests from an authorized principal.
+The City operations ledger keeps findings, source evidence, staff decisions and rider guidance together. It works without a model. Internal tools can read approved public operational context and historical comparisons; mutations require explicit API requests from an authorized principal.
 
 ### Handle a finding
 
@@ -564,7 +589,7 @@ Evidence remains as captured until `operations-refresh` is used. A changed timet
 
 `knowledge-save` accepts SOPs, maintenance records, document excerpts and operating notes. Each record has a source reference, scope and review date. New entries and revisions start as drafts. Approval applies to that exact version. Expired or draft material cannot be linked as approved guidance.
 
-Keep source excerpts concise and identify their document revision or page. The API also supports exact stop scope. Content stays in the City ledger; no document crawler, embedding service or remote knowledge database is introduced. Ask's `operational_context` tool retrieves up to five dated, versioned excerpts and labels their status. Retrieved text is treated as evidence, never executable instructions. If used in Ask, these excerpts enter the configured model's context under the existing provider behavior.
+Keep source excerpts concise and identify their document revision or page. The API also supports exact stop scope. Content stays in the City ledger; no document crawler, embedding service or remote knowledge database is introduced. The internal `operational_context` tool retrieves up to five dated, versioned excerpts and labels their status. Retrieved text is treated as evidence, never executable instructions.
 
 ### Prepare and deliver rider guidance
 
@@ -593,7 +618,7 @@ The shipped application remains a local, single-owner workspace. Its trusted hos
 | Viewer | Read records, evidence and history |
 | Operator | Viewer access; track findings, record decisions, draft knowledge and messages |
 | Reviewer | Operator access; approve another author's knowledge/message, release and record delivery |
-| Admin | Reviewer access; configure connections and skills; explicit same-author approval capability for the local owner |
+| Admin | Reviewer access; configure connections; explicit same-author approval capability for the local owner |
 
 There is no hosted login, SSO, agency directory or multi-user deployment in this change. A hosting integration must authenticate each request and supply its authorized principal through the trusted boundary; exposing the default local-owner service as a shared server would not provide user isolation. Admin approval is attributed in the ledger, not disguised as an independent reviewer.
 
@@ -630,7 +655,7 @@ LAMP reconstructed stop events can include final arrival predictions. Saved resu
 
 The briefing starts with the distribution of conditions across reporting service. It then identifies shared locations, longer waits relative to the same scheduled departures, and what remains unreported. It is generated from the shared Agency observation and retained with its route and trip evidence.
 
-The computed assessment appears immediately. It leads with the spread of late predictions, then prioritizes shared-area delays separately from longer rider waits. Whole-minute descriptions support the finding; quantiles and route counts remain evidence, not the headline. Ask receives a compact version of the same diagnosis through `network_overview`.
+The computed assessment appears immediately. It leads with the spread of late predictions, then prioritizes shared-area delays separately from longer rider waits. Whole-minute descriptions support the finding; quantiles and route counts remain evidence, not the headline. The `network_overview` tool exposes a compact version of the same diagnosis.
 
 When a provider is configured and late predictions are present, a bounded investigation follows. The model chooses a focus and candidate explanations, then up to two additional evidence checks. Agency notices and upstream predictions are always checked. It assesses the resulting facts as plausible, weakened or unresolved, cites support and counterevidence, and chooses what to observe next. Two schema-constrained model calls have a shared 75-second deadline; no larger model is required. Invalid assessments retain the computed briefing and completed checks.
 
@@ -744,11 +769,11 @@ The distinction between headway regularity, schedule adherence and onboard delay
 
 ### AI and privacy
 
-Optional review uses two model calls: choose an evidence check, then select an existing candidate or escalate. The server always supplies both the applicable procedure and computed alternatives. It does not spend a call choosing the only remaining mandatory check. Candidate IDs and evidence references are validated; the model cannot add durations, causes, recovery, approval or delivery. Ask's `compare_holding` tool exposes the same comparison for an already-open synthetic case.
+Optional review uses two model calls: choose an evidence check, then select an existing candidate or escalate. The server always supplies both the applicable procedure and computed alternatives. It does not spend a call choosing the only remaining mandatory check. Candidate IDs and evidence references are validated; the model cannot add durations, causes, recovery, approval or delivery. The internal `compare_holding` tool exposes the same comparison for an already-open synthetic case.
 
 Actual staff context now defaults to **internal**. Internal SOPs, tracked finding notes and notebook annotations are excluded from model retrieval. Legacy answers that consulted internal-context tools without the current data policy are conservatively excluded from subsequent model history/retrieval. New answers produced under the public-context policy remain available. A document must be explicitly marked public, approved and unexpired before its excerpt may reach the model. Legacy approval alone does not authorize disclosure.
 
-The replay model receives only public synthetic data and has no web or publishing tools. User questions and permitted context still go to the configured inference endpoint. Localhost is not proof of local inference, forwarding policy, retention or security. This is a data-selection boundary, not security certification or erasure of material already transmitted by older versions.
+The replay model receives only public synthetic data and has no web or publishing tools. The public synthetic case and its selected evidence checks go to the configured inference endpoint. Localhost is not proof of local inference, forwarding policy, retention or security. This is a data-selection boundary, not security certification or erasure of material already transmitted by older versions.
 
 ### Evaluation and reproduction
 

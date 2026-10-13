@@ -20,12 +20,25 @@ impl Segment {
                 / (self.end - self.start)
     }
 
-    fn coordinate(self, graph: &StreetGraph<'_>, fraction: f64) -> [f64; 2] {
-        let a = self.from_node as usize;
-        let b = graph.edge_targets[self.edge] as usize;
+    #[inline(always)]
+    fn coordinate<const ENDPOINTS: bool>(
+        self,
+        graph: &StreetGraph<'_, ENDPOINTS>,
+        fraction: f64,
+    ) -> [f64; 2] {
+        if !ENDPOINTS {
+            let a = self.from_node as usize;
+            let b = graph.edge_targets[self.edge] as usize;
+            return [
+                graph.node_lons[a] + fraction * (graph.node_lons[b] - graph.node_lons[a]),
+                graph.node_lats[a] + fraction * (graph.node_lats[b] - graph.node_lats[a]),
+            ];
+        }
+        let a = graph.coordinate(self.from_node);
+        let b = graph.coordinate(graph.target(self.edge));
         [
-            graph.node_lons[a] + fraction * (graph.node_lons[b] - graph.node_lons[a]),
-            graph.node_lats[a] + fraction * (graph.node_lats[b] - graph.node_lats[a]),
+            a[0] + fraction * (b[0] - a[0]),
+            a[1] + fraction * (b[1] - a[1]),
         ]
     }
 
@@ -113,7 +126,11 @@ impl Profiles {
         self.heads[segment.edge] = index;
     }
 
-    fn envelope(mut self, graph: &StreetGraph<'_>, input: &StreetSurfaceInput) -> Vec<Segment> {
+    fn envelope<const ENDPOINTS: bool>(
+        mut self,
+        graph: &StreetGraph<'_, ENDPOINTS>,
+        input: &StreetSurfaceInput,
+    ) -> Vec<Segment> {
         // Order only the touched edge IDs. Sorting all 64-byte candidate
         // records needlessly moves geometry for the entire reached network.
         self.edges.sort_unstable();
@@ -167,8 +184,7 @@ impl Profiles {
                     end,
                     start_minutes: best.at(start),
                     end_minutes: best.at(end),
-                    end_walk_m: best.end_walk_m
-                        - (best.end - end) * graph.edge_distances_m[best.edge],
+                    end_walk_m: best.end_walk_m - (best.end - end) * graph.distance(best.edge),
                     ..*best
                 };
                 if let Some(previous) = result.last_mut()
@@ -191,8 +207,8 @@ impl Profiles {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn reachable_segment(
-    graph: &StreetGraph<'_>,
+fn reachable_segment<const ENDPOINTS: bool>(
+    graph: &StreetGraph<'_, ENDPOINTS>,
     input: &StreetSurfaceInput,
     edge: usize,
     from_node: u32,
@@ -210,7 +226,7 @@ fn reachable_segment(
     };
     let remaining = (input.maximum_walk_m - start_walk_m)
         .min((maximum_minutes - start_minutes) / minutes_per_meter);
-    let length = graph.edge_distances_m[edge];
+    let length = graph.distance(edge);
     if remaining <= DISTANCE_EPSILON_M || start >= 1.0 {
         return None;
     }
@@ -232,11 +248,11 @@ fn reachable_segment(
     })
 }
 
-fn raster_segment(
+fn raster_segment<const ENDPOINTS: bool>(
     values: &mut [f64],
     bounds: &[f64],
     size: [usize; 2],
-    graph: &StreetGraph<'_>,
+    graph: &StreetGraph<'_, ENDPOINTS>,
     input: &StreetSurfaceInput,
     segment: Segment,
     fractions: &mut Vec<f64>,
@@ -269,6 +285,30 @@ pub(super) fn compute(
     snapshot: &Snapshot,
     reciprocal_edge_flags: &[u8],
     snaps: &mut SurfaceSnapCache,
+    terminal: Option<&TerminalAccessGraph>,
+    endpoint_seeds: Option<&[bool]>,
+    input: StreetSurfaceInput,
+) -> napi::Result<StreetSurfaceResult> {
+    if terminal.is_some() {
+        compute_graph::<true>(
+            snapshot,
+            reciprocal_edge_flags,
+            snaps,
+            terminal,
+            endpoint_seeds,
+            input,
+        )
+    } else {
+        compute_graph::<false>(snapshot, reciprocal_edge_flags, snaps, None, None, input)
+    }
+}
+
+fn compute_graph<const ENDPOINTS: bool>(
+    snapshot: &Snapshot,
+    reciprocal_edge_flags: &[u8],
+    snaps: &mut SurfaceSnapCache,
+    terminal: Option<&TerminalAccessGraph>,
+    endpoint_seeds: Option<&[bool]>,
     input: StreetSurfaceInput,
 ) -> napi::Result<StreetSurfaceResult> {
     let started = Instant::now();
@@ -308,13 +348,19 @@ pub(super) fn compute(
             "Street surface seed durations or walking distances are inconsistent.",
         ));
     }
-    let graph = StreetGraph::open(snapshot)?;
+    let mut graph = StreetGraph::<ENDPOINTS>::open(snapshot)?;
+    graph.terminal = terminal;
+    let components = if ENDPOINTS {
+        snapshot.i32_array("componentByNode")?
+    } else {
+        &[]
+    };
     let (width, height) = (input.width as usize, input.height as usize);
     let mut values = vec![f64::INFINITY; width * height];
     let mut labels = Vec::<SurfaceLabel>::new();
-    let mut heads = PagedVec::new(graph.node_lats.len(), u32::MAX);
-    let mut queue = BinaryHeap::<LabelQueueEntry>::new();
-    let mut profiles = Profiles::new(graph.edge_targets.len());
+    let mut heads = PagedVec::new(graph.node_count(), u32::MAX);
+    let mut queue = SurfaceQueue::new();
+    let mut profiles = Profiles::new(graph.edge_count());
     let mut diagnostics = SearchDiagnostics::default();
     let minutes_per_meter = 60.0 / (input.walk_speed_kph * 1000.0);
     let mut workspace = SnapWorkspace::default();
@@ -326,7 +372,7 @@ pub(super) fn compute(
             .as_ref()
             .map_or(0.0, |d| d[seed]);
         let arrival = input.seed_durations_minutes[seed];
-        let (snaps, projection) = snaps.attach(
+        let (mut sources, mut projection) = snaps.attach(
             snapshot,
             reciprocal_edge_flags,
             &mut workspace,
@@ -334,13 +380,66 @@ pub(super) fn compute(
             input.seed_coordinates[seed * 2 + 1],
         )?;
         let mut snapped = false;
+        if ENDPOINTS
+            && endpoint_seeds.is_none_or(|flags| flags[seed])
+            && let Some(terminal) = terminal
+            && let Some(attachment) = terminal.attach(
+                snapshot,
+                &sources,
+                input.seed_coordinates[seed * 2],
+                input.seed_coordinates[seed * 2 + 1],
+                (input.maximum_walk_m - initial).max(0.0),
+                false,
+            )?
+        {
+            if sources.len() != attachment.original_snaps.len()
+                || !sources
+                    .iter()
+                    .zip(&attachment.original_snaps)
+                    .all(|(a, b)| a.node == b.node && a.distance_m == b.distance_m)
+            {
+                projection = None;
+            }
+            for (edge, node, fraction, offset) in terminal.surface_projections(
+                snapshot,
+                &attachment.original_snaps,
+                [
+                    input.seed_coordinates[seed * 2],
+                    input.seed_coordinates[seed * 2 + 1],
+                ],
+            )? {
+                if let Some(segment) = reachable_segment(
+                    &graph,
+                    &input,
+                    graph.edge_targets.len() + edge,
+                    node,
+                    fraction,
+                    arrival + offset * minutes_per_meter,
+                    initial + offset,
+                    seed as u32,
+                ) {
+                    profiles.push(segment, &input);
+                    snapped = true;
+                }
+            }
+            // Only the journey origin can leave its internal region. Those
+            // exits enter ordinary public propagation with the full walk cost.
+            sources = attachment.original_snaps.clone();
+            sources.extend_from_slice(&attachment.boundary_snaps);
+            sources.sort_by(|a, b| {
+                a.node
+                    .cmp(&b.node)
+                    .then_with(|| a.distance_m.total_cmp(&b.distance_m))
+            });
+            sources.dedup_by_key(|s| s.node);
+        }
         if let Some(p) = projection {
             let start_minutes = arrival + p.projection_distance_m * minutes_per_meter;
             let start_walk = initial + p.projection_distance_m;
             let reverse = (graph.edge_offsets[p.right.node as usize] as usize
                 ..graph.edge_offsets[p.right.node as usize + 1] as usize)
-                .filter(|&e| graph.edge_targets[e] == p.left.node)
-                .min_by(|&a, &b| graph.edge_distances_m[a].total_cmp(&graph.edge_distances_m[b]));
+                .filter(|&e| graph.target(e) == p.left.node)
+                .min_by(|&a, &b| graph.distance(a).total_cmp(&graph.distance(b)));
             for (edge, node, fraction) in std::iter::once((p.edge_index, p.left.node, p.fraction))
                 .chain(reverse.map(|e| (e, p.right.node, 1.0 - p.fraction)))
             {
@@ -359,7 +458,7 @@ pub(super) fn compute(
                 }
             }
         }
-        for snap in snaps {
+        for snap in sources {
             let retained = push_surface_label(
                 &mut heads,
                 &mut labels,
@@ -392,7 +491,12 @@ pub(super) fn compute(
         let current = labels[entry.label_index];
         diagnostics.settled_labels = diagnostics.settled_labels.saturating_add(1);
         let node = current.node as usize;
-        for edge in graph.edge_offsets[node] as usize..graph.edge_offsets[node + 1] as usize {
+        let public_edges = if !ENDPOINTS || node < graph.node_lats.len() {
+            graph.edge_offsets[node] as usize..graph.edge_offsets[node + 1] as usize
+        } else {
+            0..0
+        };
+        for edge in public_edges {
             diagnostics.relaxed_edges = diagnostics.relaxed_edges.saturating_add(1);
             if let Some(segment) = reachable_segment(
                 &graph,
@@ -411,7 +515,7 @@ pub(super) fn compute(
                         &mut labels,
                         &mut queue,
                         &input.seed_durations_minutes,
-                        graph.edge_targets[edge],
+                        graph.target(edge),
                         segment.end_minutes,
                         segment.end_walk_m,
                         input.maximum_walk_m,
@@ -422,6 +526,44 @@ pub(super) fn compute(
                     )
                 {
                     diagnostics.retained_labels = diagnostics.retained_labels.saturating_add(1);
+                }
+            }
+        }
+        if ENDPOINTS && let Some(terminal) = terminal {
+            for (target, edge) in terminal.surface_neighbors(current.node) {
+                diagnostics.relaxed_edges = diagnostics.relaxed_edges.saturating_add(1);
+                if let Some(segment) = reachable_segment(
+                    &graph,
+                    &input,
+                    graph.edge_targets.len() + edge,
+                    current.node,
+                    0.0,
+                    current.duration_minutes,
+                    current.walk_distance_m,
+                    current.seed_index,
+                ) {
+                    profiles.push(segment, &input);
+                    // A destination can enter private streets and interior
+                    // public islands, but cannot reenter the public middle.
+                    if segment.end == 1.0
+                        && !terminal.surface_boundary(components, target)
+                        && push_surface_label(
+                            &mut heads,
+                            &mut labels,
+                            &mut queue,
+                            &input.seed_durations_minutes,
+                            target,
+                            segment.end_minutes,
+                            segment.end_walk_m,
+                            input.maximum_walk_m,
+                            input.maximum_duration_minutes,
+                            input.seed_durations_minutes[current.seed_index as usize],
+                            current.seed_index,
+                            input.independent_terminal_walk,
+                        )
+                    {
+                        diagnostics.retained_labels = diagnostics.retained_labels.saturating_add(1);
+                    }
                 }
             }
         }
@@ -440,7 +582,7 @@ pub(super) fn compute(
         .1;
     let reached_edge_length_m = segments
         .iter()
-        .map(|s| (s.end - s.start) * graph.edge_distances_m[s.edge])
+        .map(|s| (s.end - s.start) * graph.distance(s.edge))
         .sum();
     let mut full_bounds = input.bounds.clone();
     if input.expand_bounds_to_reached_edges {
@@ -464,10 +606,7 @@ pub(super) fn compute(
             include(s.coordinate(&graph, s.end));
         }
         for l in labels.iter().filter(|l| l.active) {
-            include([
-                graph.node_lons[l.node as usize],
-                graph.node_lats[l.node as usize],
-            ]);
+            include(graph.coordinate(l.node));
         }
         if bounds.iter().all(|v| v.is_finite()) {
             if bounds[0] == bounds[2] {
@@ -509,8 +648,7 @@ pub(super) fn compute(
     }
     let mut node_evidence = HashMap::<u32, (f64, f64)>::new();
     for label in labels.iter().filter(|l| l.active) {
-        let lon = graph.node_lons[label.node as usize];
-        let lat = graph.node_lats[label.node as usize];
+        let [lon, lat] = graph.coordinate(label.node);
         let duration = if input.independent_terminal_walk {
             input.seed_durations_minutes[label.seed_index as usize]
         } else {
@@ -537,8 +675,8 @@ pub(super) fn compute(
         .into_iter()
         .map(
             |(node, (duration_minutes, walk_distance_m))| StreetSurfaceNode {
-                longitude: graph.node_lons[node as usize],
-                latitude: graph.node_lats[node as usize],
+                longitude: graph.coordinate(node)[0],
+                latitude: graph.coordinate(node)[1],
                 duration_minutes,
                 walk_distance_m,
             },
@@ -593,13 +731,10 @@ pub(super) fn compute(
                 });
                 continue;
             }
-            for node in [s.from_node, graph.edge_targets[s.edge]] {
+            for node in [s.from_node, graph.target(s.edge)] {
                 let id = *node_ids.entry(node).or_insert_with(|| {
                     let id = (coordinates.len() / 2) as u32;
-                    coordinates.extend([
-                        graph.node_lons[node as usize],
-                        graph.node_lats[node as usize],
-                    ]);
+                    coordinates.extend([graph.coordinate(node)[0], graph.coordinate(node)[1]]);
                     id
                 });
                 endpoints.push(id);

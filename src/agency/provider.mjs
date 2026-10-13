@@ -58,7 +58,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
   config.contextTokens = contextSize(environment.VIGO_AGENCY_LLM_CONTEXT_TOKENS)
   // Local prefill plus a constrained tool form can exceed the cloud request
   // budget on a busy laptop. Keep an explicit override and a bounded timeout;
-  // streamed activity still reaches Ask while the local model is working.
+  // streamed activity still reaches the briefing while the local model is working.
   const configuredTimeoutMs = environment.VIGO_AGENCY_LLM_TIMEOUT_MS === undefined ? null : Number(environment.VIGO_AGENCY_LLM_TIMEOUT_MS)
   if (configuredTimeoutMs !== null && (!Number.isInteger(configuredTimeoutMs) || configuredTimeoutMs < 1000 || configuredTimeoutMs > 300_000)) throw new Error('Provider timeout must be between 1,000 and 300,000 milliseconds.')
   let source = 'environment', testedAt = null, revision = 0, callSequence = 0, connectionAttempt = 0
@@ -92,7 +92,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
   }
   async function completeWith(connection, messages, tools, signal, options = {}) {
     if (options.networkReasoning && connection.protocol === 'openai' && modelStudioEndpoint(connection)) connection = { ...connection, reasoningEffort: 'low' }
-    if (!connection.baseUrl || !connection.model) throw new Error('Connect an AI provider in Ask to use natural-language queries.')
+    if (!connection.baseUrl || !connection.model) throw new Error('Connect an AI provider in the Network service briefing.')
     if (connection.protocol === 'ollama') {
       const requiredTool = options.toolChoice?.type === 'function' ? options.toolChoice.function?.name : null
       const choice = (options.structuredTools || requiredTool) && tools?.length ? providerChoice(messages, tools, options.initialTools, options.selectionOnly, requiredTool) : null
@@ -186,7 +186,7 @@ export function createProvider(environment = process.env, fetcher = globalThis.f
     forRequest() {
       const connection = { ...config }, startedAtRevision = revision
       return { available: this.available, reviewUnverifiedReplies: true, model: this.model, runtime: modelRuntimeFacts(connection), complete(messages, tools, signal, options) {
-        if (revision !== startedAtRevision) throw new Error('The model connection changed. Ask again to use the new connection.')
+        if (revision !== startedAtRevision) throw new Error('The model connection changed. Retry with the new connection.')
         return completeWith(connection, messages, tools, signal, options)
       } }
     },

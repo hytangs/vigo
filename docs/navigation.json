@@ -3,7 +3,7 @@
   "version_file": "package.json",
   "product": "VIGO",
   "label": "Engine & Studio",
-  "description": "VIGO 0.5.1 documentation. Build a City, query journeys, matrices and reachable areas, and operate your routing service.",
+  "description": "VIGO 0.5.2 documentation. Build a City, query journeys, matrices and reachable areas, and operate your routing service.",
   "logo": "public/vigo-wordmark.png",
   "links": [
     {
@@ -156,7 +156,7 @@
       "source": "docs/guide.md",
       "title": "Inspect service",
       "group": "Studio",
-      "section": "network-routes-and-ask"
+      "section": "network-and-routes"
     },
     {
       "id": "cli",
@@ -188,8 +188,8 @@
     },
     {
       "id": "release",
-      "source": "docs/releases/0.5.1.md",
-      "title": "What’s new in 0.5.1",
+      "source": "docs/releases/0.5.2.md",
+      "title": "What’s new in 0.5.2",
       "group": "Reference and operation"
     },
     {

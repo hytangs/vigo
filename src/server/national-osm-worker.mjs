@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { buildTerminalAccessStore } from './terminal-access-store.mjs'
 import { preparationInput, publishPreparation } from './runtime/preparation-channel.mjs'
 import {
   buildNationalOsmStore,
@@ -86,6 +87,13 @@ try {
   })
   const cch = compactCch(buildNativeStreetCchIndex(workerData.outputPath))
   if (!cch.ready) throw new Error('The Rust pedestrian CCH did not load after it was built.')
+  let terminalAccess = { model: 'public' }
+  if (workerData.privateAccess === 'endpoints') {
+    publishProgress({ phase: 'Preparing authorized endpoint access', progress: 0.99,
+      detail: 'Linking mapped private paths and gates to the public network' })
+    terminalAccess = await buildTerminalAccessStore({ pbfPath: workerData.pbfPath,
+      streetStorePath: workerData.outputPath, routingStorePath: workerData.routingStorePath })
+  }
 
   publishPreparation({
     type: 'complete',
@@ -96,6 +104,7 @@ try {
       runtimeCompaction,
       driveSnapshot: runtimeCompaction.drive,
       cch,
+      terminalAccess,
     },
   })
 } catch (error) {

@@ -79,6 +79,7 @@ macro_rules! fields {
     ($t:ty, $($f:ident),+) => { impl Heap for $t { fn heap_bytes(&self) -> usize { 0 $(+ self.$f.heap_bytes())+ } } };
 }
 fields!(Stop, id, name, parent);
+fields!(StopRecord, name, lon, lat, parent_station, location_type);
 fields!(Transfer, to_stop_id, provenance);
 fields!(TransferStep, from_stop_id, to_stop_id);
 fields!(TransferShortcut, to_stop_id, steps);

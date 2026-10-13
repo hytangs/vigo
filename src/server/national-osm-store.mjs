@@ -618,6 +618,9 @@ export async function buildNationalOsmStore({
     db.close()
     invalidateStreetStore(outputPath)
     await fs.rename(tempPath, outputPath)
+    // An endpoint overlay belongs to its exact compiled public graph. A fresh
+    // import starts with public permission; rebuild any selected overlay later.
+    await fs.rm(`${outputPath}.terminal-access-v1.json`, { force: true })
     let driveAccelerator = {
       ready: false,
       source: null,

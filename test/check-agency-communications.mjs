@@ -6,7 +6,6 @@ import { draftRouteMessage, draftRiderMessage } from '../src/agency/communicatio
 import { AgencyContext } from '../src/agency/agencyContext.mjs'
 import { deriveOperationalState } from '../src/agency/realtimeIntelligence.mjs'
 import { createToolRegistry } from '../src/agency/toolRegistry.mjs'
-import { compactResult } from '../src/agency/queryAgent.mjs'
 
 import { createAgencyFixture, realtimeFixture, tripUpdate, observationTime } from './fixtures/agency.mjs'
 
@@ -22,7 +21,7 @@ try {
   const state = deriveOperationalState(context, snapshot, observationTime)
   const callTool = createToolRegistry({ context, state, snapshot, adapters: {} })
   const alertResult = await callTool('service_alerts', { routeNames: ['R'] })
-  const projected = JSON.parse(compactResult(alertResult, 'service_alerts')).data.events[0]
+  const projected = alertResult.data.events[0]
   assert.equal(projected.evidence.alertDescription, snapshot.alerts[0].description)
   assert.equal(projected.evidence.alertCause, 'CONSTRUCTION')
   assert.equal(projected.evidence.alertUrl, snapshot.alerts[0].url)

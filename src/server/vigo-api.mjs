@@ -2349,6 +2349,7 @@ async function stageUploadedProjectFile(projectId, request, { kind, extensions }
       ...(kind === 'gtfs' && url.searchParams.get('preloadServiceDay')
         ? { preloadServiceDay: url.searchParams.get('preloadServiceDay') }
         : {}),
+      ...(kind === 'osm' ? { privateAccess: url.searchParams.get('privateAccess') ?? 'public' } : {}),
     }
   } catch (error) {
     await handle.close().catch(() => {})
@@ -2689,6 +2690,12 @@ async function startNationalGtfsMerge(projectId, body = {}, options = {}) {
 }
 
 async function startNationalOsmImport(projectId, body) {
+  const privateAccess = body?.privateAccess ?? 'public'
+  if (!['public', 'endpoints'].includes(privateAccess)) {
+    const error = new Error('Pedestrian access must be public or endpoints.')
+    error.statusCode = 400
+    throw error
+  }
   const sourcePath = path.resolve(String(body?.sourcePath ?? ''))
   const cleanupSource = body?.cleanupSource === true
   const sourceName = path.basename(String(body?.fileName || sourcePath))
@@ -2698,7 +2705,9 @@ async function startNationalOsmImport(projectId, body) {
     error.statusCode = 400
     throw error
   }
-  await readProjectMetadata(projectId)
+  const project = await readProjectMetadata(projectId)
+  const routingStorePath = privateAccess === 'endpoints'
+    ? (await requireRoutingStore(projectId, project, '__project__')).storePath : undefined
   reserveNationalImportProject(projectId, 'osm')
   const job = {
     schemaVersion: jobSchemaVersion,
@@ -2707,6 +2716,7 @@ async function startNationalOsmImport(projectId, body) {
     sourcePath: cleanupSource ? undefined : sourcePath,
     retrySourcePath: sourcePath,
     sourceFile: sourceName,
+    privateAccess,
     stagedUpload: cleanupSource,
     projectId,
     retryable: true,
@@ -2722,6 +2732,8 @@ async function startNationalOsmImport(projectId, body) {
       pbfPath: sourcePath,
       outputPath,
       buildDrivingProfile: true,
+      privateAccess,
+      routingStorePath,
     },
   )
   let terminalMessageReceived = false
@@ -2754,6 +2766,7 @@ async function startNationalOsmImport(projectId, body) {
             driveAccelerator: message.result.driveAccelerator,
             driveSnapshot: message.result.driveSnapshot,
             cch: message.result.cch,
+            terminalAccess: message.result.terminalAccess,
             directionRestrictedWayCount: message.result.directionRestrictedWayCount,
             directionExcludedWayCount: message.result.directionExcludedWayCount,
             uncertainConveyingWayCount: message.result.uncertainConveyingWayCount,
@@ -2899,6 +2912,7 @@ async function retryNationalImportJob(projectId, jobId) {
     cleanupSource: previous.stagedUpload === true,
     preloadServiceDate: previous.preloadServiceDate,
     preloadServiceDay: previous.preloadServiceDay,
+    privateAccess: previous.privateAccess,
   }
   const retried = previous.kind === 'national-osm-import'
     ? await startNationalOsmImport(projectId, common)
@@ -4324,7 +4338,7 @@ async function route(request, response) {
       if (request.method === 'GET') sendJson(response, 200, await agency.state(projectId, { routeId: url.searchParams.get('routeId') || '', stopId: url.searchParams.get('stopId') || '', eventType: url.searchParams.get('eventType') || '' }))
       else if (request.method === 'POST') await withRequestAbort(request, response, async (signal) => {
         const body = await readBody(request)
-        if (!['ask', 'briefing', 'run-skill'].includes(body.action) || !String(request.headers.accept ?? '').includes('application/x-ndjson')) {
+        if (body.action !== 'briefing' || !String(request.headers.accept ?? '').includes('application/x-ndjson')) {
           sendJson(response, 200, await agency.handle(projectId, body, signal)); return
         }
         response.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' })
@@ -4560,7 +4574,6 @@ async function route(request, response) {
 }
 
 const agency = createAgencyService({
-  skillDirectory: process.env.VIGO_AGENCY_SKILLS_DIR || path.join(staticRoot || path.resolve('public'), 'agency-skills'),
   async context(projectId) {
     const project = await readProjectMetadata(projectId)
     const { storePath } = await requireRoutingStore(projectId, project)
@@ -4568,10 +4581,6 @@ const agency = createAgencyService({
     return { storePath, cityName: project.name, agencyDirectory: path.join(path.dirname(storePath), '..', 'agency'), feedIds: project.feeds.filter(feed => feed.routingStore?.status === 'ready').map(feed => feed.id) }
   },
   inspectRealtime: inspectRealtimeFeed,
-  route: runNationalRoute,
-  streetMatrix: runNationalStreetMatrix,
-  reach: runReach,
-  matrix: runNationalMatrix,
 })
 
 const server = http.createServer((request, response) => {

@@ -1,4 +1,4 @@
-// Shared by Ask and the network briefing. This guides interpretation rather
+// Used by the Network briefing. This guides interpretation rather
 // than assigning a severity score or prescribing a fixed narrative.
 export const operationalInterpretation = `Separate measurement, service condition, possible cause, rider consequence and action. Explain priorities through those distinctions in ordinary prose, without printing them as five headings.
 Priority: say why one service merits checking before another, using compared spacing, cancellations, affected reporting trips, spatial extent or retained persistence. Record order is not a priority ranking. Maximum lateness alone does not rank rider impact; do not assume rail passenger volumes. Distinguish first to investigate from confirmed most disrupted. If priorities cannot be ordered from available evidence, say what comparison would decide.

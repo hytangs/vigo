@@ -19,10 +19,10 @@ namesDb.exec("INSERT INTO calendar_dates VALUES('S',20260914,2)")
 namesDb.close()
 let context
 try {
-  const placeParameters = toolDefinitions.find(tool => tool.name === 'place_search').parameters
-  assert.throws(() => validateArguments({ query: 'x'.repeat(201) }, placeParameters), /too long/)
+  const scopeParameters = toolDefinitions.find(tool => tool.name === 'service_alerts').parameters
+  assert.throws(() => validateArguments({ search: 'x'.repeat(201) }, scopeParameters), /too long/)
   for (const key of ['__proto__', 'constructor', 'toString']) {
-    assert.throws(() => validateArguments({ query: 'A', [key]: 'unexpected' }, placeParameters), /Unknown arguments/)
+    assert.throws(() => validateArguments({ search: 'A', [key]: 'unexpected' }, scopeParameters), /Unknown arguments/)
   }
   const q = (sql, limit = 100, options) => gtfsQuery(file, { sql, limit }, options)
   assert.equal((await q('SELECT count(*) AS n FROM main.trips')).rows[0].n, 3)

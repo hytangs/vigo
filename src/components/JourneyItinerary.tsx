@@ -16,6 +16,8 @@ import type { RoutingPlan } from '../routingModel'
 import { routingPointRoleLabel } from '../routingPointSequence'
 import { formatScheduleClock } from '../scheduledVehicles'
 import { RoutingFare } from './RoutingFare'
+import { ResultExportActions } from './ResultExportActions'
+import { exportJourney, journeyGeometryAvailable } from '../app/resultExports'
 
 function routingChoiceExplanation(plan: RoutingPlan) {
   if (plan.choiceLabel === 'Earliest arrival') {
@@ -144,6 +146,9 @@ export function RoutingDetailPanel({
         <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="Close routing details" title="Close details"><X size={18} aria-hidden="true" /></button>
       </header>
       <div className="routing-detail-scroll">
+        <ResultExportActions label="Save journey" formats={['json', 'md', 'geojson', 'csv']} resultKey={plan}
+          unavailable={journeyGeometryAvailable(plan) ? {} : { geojson: 'Complete path geometry is unavailable. Save JSON or an itinerary.' }}
+          onExport={format => exportJourney(plan, format)} />
         <RoutingItinerary plan={plan} />
         <details className="routing-details">
           <summary>

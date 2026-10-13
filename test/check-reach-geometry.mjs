@@ -15,7 +15,11 @@ function inRing([x, y], ring) {
   return inside
 }
 const covered = (point, polygons) => polygons.some(([outer, ...holes]) => inRing(point, outer) && !holes.some(hole => inRing(point, hole)))
-const area = ring => ring.slice(1).reduce((sum, p, i) => sum + ring[i][0] * p[1] - p[0] * ring[i][1], 0) / 2
+const area = ring => {
+  const [x, y] = ring[0]
+  return ring.slice(1).reduce((sum, p, i) => sum
+    + (ring[i][0] - x) * (p[1] - y) - (p[0] - x) * (ring[i][1] - y), 0) / 2
+}
 function checkSurface(values, width, height, cutoff = 1, bounds = [0, 0, width, height]) {
   const original = [...values]
   const areas = rasterAreas(values, width, height, bounds, [cutoff], 'baseline')
@@ -99,6 +103,16 @@ assert(slopedPolygons.flat(2).some(([x, y]) => Math.abs(x % .5) > .01 && Math.ab
 checkSurface(slope, 4, 4, 2)
 checkSurface(new Float64Array([1]), 1, 1, 1)
 checkSurface([0, null, NaN, 0], 2, 2)
+// Geographic coordinates and exact-cutoff samples must retain the same
+// classification as a local grid, including small islands and narrow bends.
+let contourSeed = 20261013
+const contourRandom = () => ((contourSeed = (Math.imul(contourSeed, 1664525) + 1013904223) >>> 0) / 2 ** 32)
+for (let sample = 0; sample < 200; sample++) {
+  const values = Array.from({ length: 120 }, () => contourRandom() < .2 ? Infinity : Math.floor(contourRandom() * 16) / 2)
+  for (const cutoff of [1, 2, 3, 4]) {
+    checkSurface(values, 12, 10, cutoff, [-71.12, 42.28, -71.1, 42.3])
+  }
+}
 console.log('Reach boundaries: interpolated slopes, 512 masks, extent closure, disconnected islands, nested holes, equal cutoffs and unchanged samples passed.')
 const server = await createSsrTestServer({ configFile: false, server: { host: '127.0.0.1', port: 0 } })
 globalThis.window = { atob }

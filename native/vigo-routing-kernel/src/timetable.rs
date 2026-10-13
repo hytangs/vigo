@@ -627,6 +627,7 @@ struct ScalarWorkspace {
     // Lower bound over this epoch's labels, including labels later replaced.
     // A stale smaller value only prevents pruning; readiness is not required.
     minimum_stop_boardings: Vec<u16>,
+    earliest_stop_arrival: Vec<f64>,
     active_stop_generation: Vec<u32>,
     active_state_mask: Vec<u8>,
     labels: Vec<ScalarLabel>,
@@ -650,6 +651,7 @@ impl ScalarWorkspace {
             allow_post_ride_transfers: true,
             epoch: 0,
             minimum_stop_boardings: vec![u16::MAX; stop_count],
+            earliest_stop_arrival: vec![f64::INFINITY; stop_count],
             active_stop_generation: vec![0; stop_count],
             active_state_mask: vec![0; stop_count],
             labels: vec![ScalarLabel::default(); state_count],
@@ -669,6 +671,7 @@ impl ScalarWorkspace {
 
     fn ensure_dimensions(&mut self, stops: usize, runs: usize) {
         self.minimum_stop_boardings.resize(stops, u16::MAX);
+        self.earliest_stop_arrival.resize(stops, f64::INFINITY);
         self.active_stop_generation.resize(stops, 0);
         self.active_state_mask.resize(stops, 0);
         self.labels
@@ -703,6 +706,7 @@ impl ScalarWorkspace {
 
     fn byte_length(&self) -> usize {
         self.minimum_stop_boardings.len() * std::mem::size_of::<u16>()
+            + self.earliest_stop_arrival.len() * std::mem::size_of::<f64>()
             + self.active_stop_generation.len() * std::mem::size_of::<u32>()
             + self.active_state_mask.len() * std::mem::size_of::<u8>()
             + self.labels.len() * std::mem::size_of::<ScalarLabel>()
@@ -1154,7 +1158,8 @@ fn scalar_objective_better(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn relax_connection_scan(
+#[inline(always)]
+fn relax_connection_scan<const RETAIN_JOURNEY: bool>(
     workspace: &mut ScalarWorkspace,
     epoch: u32,
     best: &mut BestState,
@@ -1175,6 +1180,13 @@ fn relax_connection_scan(
         + usize::from(has_ride) * 4
         + usize::from(egress_ready) * 2
         + usize::from(needs_board_slack);
+    // Most transfer/alighting candidates are already too late. Reject those
+    // before loading their predecessor and computing the secondary objective;
+    // equal arrivals still need the complete boarding/walking comparison.
+    let retained = workspace.labels[state];
+    if arrival > best.arrival || (retained.generation == epoch && arrival > retained.arrival) {
+        return NO_STATE;
+    }
     let predecessor_boardings = if from_state >= 0 {
         workspace.labels[from_state as usize].boardings
     } else {
@@ -1191,7 +1203,6 @@ fn relax_connection_scan(
     } else {
         0
     });
-    let retained = workspace.labels[state];
     if retained.generation == epoch
         && !scalar_objective_better(
             arrival,
@@ -1204,31 +1215,32 @@ fn relax_connection_scan(
     {
         return NO_STATE;
     }
-    if arrival > best.arrival {
-        return NO_STATE;
-    }
     if workspace.active_stop_generation[stop] != epoch {
         workspace.active_stop_generation[stop] = epoch;
         workspace.active_state_mask[stop] = 0;
         workspace.minimum_stop_boardings[stop] = u16::MAX;
+        workspace.earliest_stop_arrival[stop] = f64::INFINITY;
     }
     workspace.active_state_mask[stop] |= 1 << (state & (STATE_STRIDE - 1));
     workspace.minimum_stop_boardings[stop] = workspace.minimum_stop_boardings[stop].min(boardings);
+    workspace.earliest_stop_arrival[stop] = workspace.earliest_stop_arrival[stop].min(arrival);
     workspace.labels[state] = ScalarLabel {
         arrival,
         generation: epoch,
         boardings,
         walking_seconds,
     };
-    workspace.predecessors[state] = ScalarPredecessor {
-        state: from_state,
-        trip,
-        duration,
-        board_sequence_twice: (board_sequence * 2.0) as u32,
-        alight_sequence_twice: (alight_sequence * 2.0) as u32,
-        kind,
-        _padding: [0; 3],
-    };
+    if RETAIN_JOURNEY {
+        workspace.predecessors[state] = ScalarPredecessor {
+            state: from_state,
+            trip,
+            duration,
+            board_sequence_twice: (board_sequence * 2.0) as u32,
+            alight_sequence_twice: (alight_sequence * 2.0) as u32,
+            kind,
+            _padding: [0; 3],
+        };
+    }
     // A query cannot relax more than the source-bounded event/state product,
     // which is far below u32::MAX under TimetableKernel's admission guards.
     stats.relaxed_stops += 1;
@@ -1474,7 +1486,7 @@ fn relax_reverse_transfer_target_deadline(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn expand_connection_scan_transfer_edges(
+fn expand_connection_scan_transfer_edges<const RETAIN_JOURNEY: bool>(
     workspace: &mut ScalarWorkspace,
     epoch: u32,
     best: &mut BestState,
@@ -1492,7 +1504,7 @@ fn expand_connection_scan_transfer_edges(
     for edge in &transfer_edges[start..end] {
         let target = edge.stop();
         let duration = edge.duration();
-        relax_connection_scan(
+        relax_connection_scan::<RETAIN_JOURNEY>(
             workspace,
             epoch,
             best,
@@ -3793,13 +3805,12 @@ impl TimetableKernel {
         &mut self,
         input: TimetableQueryInput,
     ) -> napi::Result<TimetableQueryResult> {
-        self.route_scalar_csa_impl(&input, true)
+        self.route_scalar_csa_impl::<true>(&input)
     }
 
-    fn route_scalar_csa_impl(
+    fn route_scalar_csa_impl<const RETAIN_JOURNEY: bool>(
         &mut self,
         input: &TimetableQueryInput,
-        retain_journey: bool,
     ) -> napi::Result<TimetableQueryResult> {
         let started = Instant::now();
         if input.origin_stops.len() != input.origin_walk_seconds.len()
@@ -3829,13 +3840,13 @@ impl TimetableKernel {
         if let Some(maximum) = input.maximum_boardings {
             boarding_layers(Some(maximum))?;
             self.query.forward_workspace.scalar_identity = None;
-            let unrestricted = self.route_scalar_csa_impl(
-                &TimetableQueryInput {
-                    maximum_boardings: None,
-                    ..input.clone()
-                },
-                true,
-            )?;
+            // The exact rounds below construct the final journey. This first
+            // scan needs only its arrival, boarding bound and run envelope;
+            // retain all label/tie semantics without writing unused predecessors.
+            let unrestricted = self.route_scalar_csa_impl::<false>(&TimetableQueryInput {
+                maximum_boardings: None,
+                ..input.clone()
+            })?;
             if unrestricted.status == "blocked" {
                 return Ok(TimetableQueryResult {
                     query_ns: started.elapsed().as_nanos() as f64,
@@ -4023,7 +4034,7 @@ impl TimetableKernel {
         for index in 0..input.origin_stops.len() {
             let stop = input.origin_stops[index] as usize;
             let arrival = input.departure + input.origin_walk_seconds[index];
-            let state = relax_connection_scan(
+            let state = relax_connection_scan::<RETAIN_JOURNEY>(
                 workspace,
                 epoch,
                 &mut best,
@@ -4045,7 +4056,7 @@ impl TimetableKernel {
             }
             origin_seeds = origin_seeds.saturating_add(1);
             if input.allow_pre_ride_transfers {
-                expand_connection_scan_transfer_edges(
+                expand_connection_scan_transfer_edges::<RETAIN_JOURNEY>(
                     workspace,
                     epoch,
                     &mut best,
@@ -4111,7 +4122,10 @@ impl TimetableKernel {
                     let run = event.run();
                     let can_reach_boarding = scan_flags & SCAN_CAN_BOARD != 0
                         && workspace.active_stop_generation[stop] == epoch
-                        && workspace.active_state_mask[stop] != 0;
+                        && workspace.active_state_mask[stop] != 0
+                        // A reached stop can still have only future labels.
+                        // Slack and transfer rules can only delay boarding.
+                        && workspace.earliest_stop_arrival[stop] <= connection_departure;
                     // Most departures are unreachable. Do not load their cold
                     // arrival and journey columns or inspect boarding states.
                     if !can_reach_boarding && workspace.run_generation[run] != epoch {
@@ -4281,7 +4295,7 @@ impl TimetableKernel {
                         let bridge_arrival = connection_departure;
                         if bridge_arrival <= input.horizon && bridge_arrival <= best.arrival {
                             let bridge_stop = event.source_stop();
-                            let bridge_state = relax_connection_scan(
+                            let bridge_state = relax_connection_scan::<RETAIN_JOURNEY>(
                                 workspace,
                                 epoch,
                                 &mut best,
@@ -4299,7 +4313,7 @@ impl TimetableKernel {
                                 0,
                             );
                             if bridge_state >= 0 {
-                                expand_connection_scan_transfer_edges(
+                                expand_connection_scan_transfer_edges::<RETAIN_JOURNEY>(
                                     workspace,
                                     epoch,
                                     &mut best,
@@ -4323,7 +4337,7 @@ impl TimetableKernel {
                         continue;
                     }
                     let alight_stop = arrival.to as usize;
-                    let alight_state = relax_connection_scan(
+                    let alight_state = relax_connection_scan::<RETAIN_JOURNEY>(
                         workspace,
                         epoch,
                         &mut best,
@@ -4341,7 +4355,7 @@ impl TimetableKernel {
                         0,
                     );
                     if alight_state >= 0 {
-                        expand_connection_scan_transfer_edges(
+                        expand_connection_scan_transfer_edges::<RETAIN_JOURNEY>(
                             workspace,
                             epoch,
                             &mut best,
@@ -4365,7 +4379,7 @@ impl TimetableKernel {
         }
         let scan_ns = scan_started.elapsed().as_nanos() as f64;
 
-        if best.state >= 0 && retain_journey {
+        if best.state >= 0 {
             forward_workspace.scalar_runs.fill(0);
             for run in workspace.touched_runs.iter().copied() {
                 set_run_bit(&mut forward_workspace.scalar_runs, run as usize);
@@ -4403,7 +4417,7 @@ impl TimetableKernel {
             });
         }
 
-        let (chain, chain_ns) = if retain_journey {
+        let (chain, chain_ns) = if RETAIN_JOURNEY {
             let chain_started = Instant::now();
             let mut chain = Vec::<JourneyChainStep>::new();
             let mut state = best.state;

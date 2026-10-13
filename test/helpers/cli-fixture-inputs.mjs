@@ -31,6 +31,10 @@ function writeNode(node, pbf) {
   pbf.writeSVarintField(1, node.id)
   pbf.writeSVarintField(8, node.lat)
   pbf.writeSVarintField(9, node.lon)
+  if (node.keys?.length) {
+    pbf.writePackedVarint(2, node.keys)
+    pbf.writePackedVarint(3, node.values)
+  }
 }
 
 function writeWay(way, pbf) {
@@ -50,9 +54,21 @@ function writePrimitiveBlock(block, pbf) {
   pbf.writeMessage(2, writePrimitiveGroup, block.group)
 }
 
-function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffset, platformOutline, wheelchair) {
+function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffset, platformOutline, wheelchair, terminalNodeTags, terminalWayTags) {
+  const strings = ['', 'highway', 'residential', 'footway', 'service', 'access', 'private', 'foot', 'platform', 'area', 'yes', 'wheelchair']
+  const stringIndex = value => {
+    let index = strings.indexOf(value)
+    if (index < 0) { index = strings.length; strings.push(value) }
+    return index
+  }
+  const tagged = (record, tags) => {
+    if (!tags || !Object.keys(tags).length) return record
+    const entries = Object.entries(tags)
+    return { ...record, keys: [...(record.keys ?? []), ...entries.map(([key]) => stringIndex(key))],
+      values: [...(record.values ?? []), ...entries.map(([, value]) => stringIndex(value))] }
+  }
   const raw = pbfMessage(writePrimitiveBlock, {
-    strings: ['', 'highway', 'residential', 'footway', 'service', 'access', 'private', 'foot', 'platform', 'area', 'yes', 'wheelchair'],
+    strings,
     group: {
       nodes: [
         { id: 1, lat: 389_000_000, lon: -770_500_000 },
@@ -70,7 +86,7 @@ function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffs
           { id: 5, lat: 389_000_000, lon: -770_535_000 },
           { id: 6, lat: 389_000_000, lon: -770_520_000 },
         ] : []),
-      ].map((node) => ({ ...node, id: node.id + nodeIdOffset })),
+      ].map((node) => ({ ...tagged(node, terminalNodeTags?.[node.id]), id: node.id + nodeIdOffset })),
       ways: [
         { id: 10, keys: wheelchair ? [1, 11] : [1], values: wheelchair ? [2, 10] : [2], refs: [1, 1, 1] },
         ...(platformOutline ? [{ id: 14, keys: [1, 9], values: [8, 10], refs: [10, 1, 1, 1, -3] }] : []),
@@ -79,7 +95,7 @@ function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffs
           { id: 12, keys: [1, 5], values: [4, 6], refs: [5, 1] },
           { id: 13, keys: [1, 7], values: [3, 6], refs: [6, -5] },
         ] : []),
-      ].map((way) => ({ ...way, refs: [way.refs[0] + nodeIdOffset, ...way.refs.slice(1)] })),
+      ].map((way) => ({ ...tagged(way, terminalWayTags?.[way.id]), refs: [way.refs[0] + nodeIdOffset, ...way.refs.slice(1)] })),
     },
   })
   const framedBlock = (type, payload) => {
@@ -95,7 +111,7 @@ function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffs
   ]))
 }
 
-export async function writeCliFixtureInputs(directory, { terminalAccess = false, unreferencedNodes = 0, nodeIdOffset = 0, platformOutline = false, wheelchair = false } = {}) {
+export async function writeCliFixtureInputs(directory, { terminalAccess = false, unreferencedNodes = 0, nodeIdOffset = 0, platformOutline = false, wheelchair = false, terminalNodeTags = {}, terminalWayTags = {} } = {}) {
   const gtfsPath = path.join(directory, 'fixture.zip')
   const osmPath = path.join(directory, 'fixture.osm.pbf')
   const zip = new JSZip()
@@ -108,6 +124,6 @@ export async function writeCliFixtureInputs(directory, { terminalAccess = false,
   addTable('stop_times.txt', 'trip_id,arrival_time,departure_time,stop_id,stop_sequence\nT1,08:00:00,08:00:00,A,1\nT1,08:10:00,08:10:00,X,2\nT2,08:15:00,08:15:00,X,1\nT2,08:30:00,08:30:00,B,2\n')
   addTable('calendar.txt', 'service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nWKD,1,1,1,1,1,0,0,20260101,20261231\n')
   fs.writeFileSync(gtfsPath, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
-  writeOsmFixture(osmPath, terminalAccess, unreferencedNodes, nodeIdOffset, platformOutline, wheelchair)
+  writeOsmFixture(osmPath, terminalAccess, unreferencedNodes, nodeIdOffset, platformOutline, wheelchair, terminalNodeTags, terminalWayTags)
   return { gtfsPath, osmPath }
 }

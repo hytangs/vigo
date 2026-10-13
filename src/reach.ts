@@ -589,6 +589,7 @@ export type ReachResult = {
     baselineReachablePixels: number
     scenarioReachablePixels: number
     improvedPixels: number
+    changeCountsByCutoff?: Array<{ cutoffMinutes: number; improvedPixels: number; worsenedPixels: number }>
     maximumCutoffMinutes: number
     transitStopSeeds: number
     transitStopsByCutoff?: Array<{ cutoffMinutes: number; stops: number }>
@@ -741,7 +742,7 @@ export function reachComparisonColor(index: number) {
 }
 
 function decodeScenarioRaster(base64: string) {
-  const binary = window.atob(base64)
+  const binary = atob(base64)
   const values = new Uint16Array(binary.length / 2)
   for (let index = 0; index < values.length; index += 1) {
     values[index] = binary.charCodeAt(index * 2) | (binary.charCodeAt(index * 2 + 1) << 8)
@@ -778,7 +779,10 @@ export function scenarioImprovedPixels(
   cutoffMinutes: number,
 ) {
   if (!analysis) return 0
-  if (Number.isFinite(analysis.summary.improvedPixels)) return analysis.summary.improvedPixels
+  const exact = analysis.summary.changeCountsByCutoff?.find(entry => entry.cutoffMinutes === cutoffMinutes)
+  if (exact) return exact.improvedPixels
+  if (cutoffMinutes === analysis.summary.maximumCutoffMinutes
+    && Number.isFinite(analysis.summary.improvedPixels)) return analysis.summary.improvedPixels
   const raster = analysis.surface.raster
   const threshold = cutoffMinutes * raster.scale
   const baseline = scenarioRasterValues(analysis, 'baseline')
@@ -790,6 +794,23 @@ export function scenarioImprovedPixels(
       && scenario[index] <= threshold
       && (baseline[index] === raster.nodata || scenario[index] < baseline[index])
     ) count += 1
+  }
+  return count
+}
+
+/** Cells reached by the baseline cutoff whose scenario is slower or blocked. */
+export function scenarioWorsenedPixels(analysis: ReachResult | null, cutoffMinutes: number) {
+  if (!analysis) return 0
+  const exact = analysis.summary.changeCountsByCutoff?.find(entry => entry.cutoffMinutes === cutoffMinutes)
+  if (exact) return exact.worsenedPixels
+  const raster = analysis.surface.raster
+  const threshold = cutoffMinutes * raster.scale
+  const baseline = scenarioRasterValues(analysis, 'baseline')
+  const scenario = scenarioRasterValues(analysis, 'scenario')
+  let count = 0
+  for (let index = 0; index < baseline.length; index += 1) {
+    if (baseline[index] !== raster.nodata && baseline[index] <= threshold
+      && (scenario[index] === raster.nodata || scenario[index] > baseline[index])) count += 1
   }
   return count
 }

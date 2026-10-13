@@ -1,5 +1,32 @@
 'use strict';
 
+// The same reader runs standalone and inside Studio; no second content tree.
+const readerOptions = new URLSearchParams(location.search);
+if (readerOptions.get('embedded') === '1') {
+  document.documentElement.dataset.embedded = 'true';
+  document.documentElement.dataset.theme = readerOptions.get('theme') === 'dark' ? 'dark' : 'light';
+  for (const link of document.querySelectorAll('a[href]')) {
+    const href = link.getAttribute('href');
+    if (href.startsWith('#')) continue;
+    let target = new URL(href, location.href);
+    const bundled = { 'guide.html': 'guide', 'standalone.html': 'reference', 'standalone-openapi.json': 'schema' }[target.pathname.split('/').pop()];
+    if (bundled && !/^[a-z]+:|^\/\//i.test(href)) {
+      const hash = target.hash;
+      target = new URL(readerOptions.get(bundled) || href, location.href);
+      target.hash = hash;
+      if (bundled === 'schema') link.download = 'standalone-openapi.json';
+      else target.search = readerOptions.toString();
+      link.href = target.href;
+    } else if (!link.hasAttribute('download')) {
+      // Repository source links are not bundled pages. Open them in the
+      // browser without navigating Studio or replacing the offline reader.
+      link.href = new URL(href, document.body.dataset.sourceRoot).href;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+    }
+  }
+}
+
 const pages = [...document.querySelectorAll('.doc-page')];
 const input = document.querySelector('#search');
 const navigation = document.querySelector('#navigation');

@@ -32,11 +32,12 @@ app.whenReady().then(async()=>{try{
  const window=new BrowserWindow({show:false,width:1280,height:900,webPreferences:{offscreen:true,backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
  await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/navigation-fixture.html`)});
  await window.webContents.executeJavaScript('new Promise((resolve,reject)=>{const timer=setInterval(()=>{if(window.checkCities){clearInterval(timer);resolve()}},20);setTimeout(()=>{clearInterval(timer);reject(Error("Fixture timed out"))},15000)})');
- const behavior={cities:await window.webContents.executeJavaScript('window.checkCities()'),settings:await window.webContents.executeJavaScript('window.checkSettings()')};
+ const behavior={cities:await window.webContents.executeJavaScript('window.checkCities()'),settings:await window.webContents.executeJavaScript('window.checkSettings()'),streetAccess:await window.webContents.executeJavaScript('window.checkStreetAccess()')};
  const results=[];
  for(const [width,height] of [[320,640],[390,844],[760,708],[1280,900]]){
   await resizeLayout(window,width,height);
-  for(const view of ['cities','settings'])results.push(await window.webContents.executeJavaScript('window.checkLayout('+JSON.stringify(view)+')'));
+  for(const view of ['cities','settings','imports'])for(const dark of view==='imports'?[false,true]:[false])results.push(await window.webContents.executeJavaScript('window.checkLayout('+JSON.stringify(view)+','+dark+')'));
+  for(const dark of [false,true])results.push(await window.webContents.executeJavaScript('window.checkDocumentation('+dark+')'));
  }
  await window.webContents.executeJavaScript('window.checkLayout("cities")');
  fs.writeFileSync(${JSON.stringify(path.join(directory, 'cities.png'))},(await layoutFrame(window)).toPNG());
@@ -44,6 +45,9 @@ app.whenReady().then(async()=>{try{
  const screenshot=await layoutFrame(window);
  if(screenshot.isEmpty())throw Error('Layout fixture screenshot is empty');
  fs.writeFileSync(${JSON.stringify(path.join(directory, 'settings-dark.png'))},screenshot.toPNG());
+ await resizeLayout(window,390,844);
+ await window.webContents.executeJavaScript('window.checkLayout("imports",true)');
+ fs.writeFileSync(${JSON.stringify(path.join(directory, 'street-access-dark.png'))},(await layoutFrame(window)).toPNG());
  await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/app-settings-fixture.html`)});
  await window.webContents.executeJavaScript('new Promise((resolve,reject)=>{const timer=setInterval(()=>{if(window.checkAppSettings){clearInterval(timer);resolve()}},20);setTimeout(()=>{clearInterval(timer);reject(Error("App fixture timed out"))},15000)})');
  const appBehavior=await window.webContents.executeJavaScript('window.checkAppSettings()');

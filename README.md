@@ -60,17 +60,17 @@ Keep a resident `stream` or `serve` process open for repeated queries. The nativ
 
 Scheduled transit supports Route, Matrix, and Reach. Supported realtime Trip Updates apply to transit Route; supplied traffic applies to driving Route and Matrix. [Query support](docs/guide.md#choose-a-supported-combination) describes the available combinations. Wheelchair routing uses a [separately prepared strict profile](docs/guides/rust-standalone.md#wheelchair-routing).
 
-## VIGO 0.5.1
+## VIGO 0.5.2
 
-This version reduces repeated preparation and output work:
+This version streamlines Studio and routing:
 
-- Indexed service calendars and shared timetable columns across retained dates.
-- Bounded date retention, with unused collection cache capacity available to the active scenario.
-- Shared Matrix computation through walking and geometry reconstruction for repeated endpoints.
-- Lower allocation overhead in Reach, journey materialization, and alternative selection.
-- Per-request service dates for Python resident-process reuse.
+- Searchable offline documentation inside **Settings → Documentation**.
+- Journey downloads and clearer City/scenario comparisons.
+- Less redundant point-query, Reach propagation, and response-formatting work.
+- Explicit authorized endpoint access for private pedestrian paths.
+- A focused Network workspace, with the former Ask interface and City skills removed.
 
-Published 0.5 Cities remain readable without rebuilding. API 1.0, City format 1, and Result schema 1 are unchanged. [Release notes](docs/releases/0.5.1.md) · [Prepared-data compatibility](docs/reference/format-0.5.0.md)
+Published 0.5 Cities remain readable without rebuilding. API 1.0, City format 1, and Result schema 1 are unchanged. [Release notes](docs/releases/0.5.2.md) · [Prepared-data compatibility](docs/reference/format-0.5.0.md)
 
 ## Develop and contribute
 

@@ -35,7 +35,7 @@ try {
     assert.equal(night.coverage.unknownTrips, 0, 'Unscheduled daytime trips are not missing overnight service')
     assert.match(networkNarrative(night).overview, /between scheduled runs.*12:05 EDT/)
     assert.doesNotMatch(networkNarrative(night).overview, /disrupt|normal|healthy|unknown/)
-    assert.deepEqual(compactDiagnosis(night).serviceContext, night.serviceContext, 'Ask receives the same service-hours facts')
+    assert.deepEqual(compactDiagnosis(night).serviceContext, night.serviceContext, 'Network tools receive the same service-hours facts')
 
     const day = assess('2026-09-14T16:06:00Z')
     assert.equal(day.serviceContext.phase, 'scheduled_service')
@@ -120,5 +120,5 @@ try {
     assert.match(networkNarrative(night).overview, /Frequency-based service.*unknown/)
     assert.doesNotMatch(networkNarrative(night).overview, /between scheduled runs/)
   })
-  console.log('Service hours: local clock, planned overnight gaps, prior-date trips, night service, missing predictions, frequency limits, expired calendars, shared Ask context and service-start expiry passed.')
+  console.log('Service hours: local clock, planned overnight gaps, prior-date trips, night service, missing predictions, frequency limits, expired calendars, shared Network context and service-start expiry passed.')
 } finally { await fs.rm(root, { recursive: true, force: true }) }

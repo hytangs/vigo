@@ -115,7 +115,7 @@ export function diagnoseNetwork(context, state) {
   }
 }
 
-// Ask gets the same calculated assessment, without thousands of stop rows or
+// Network tools get the same calculated assessment, without thousands of stop rows or
 // full trip histories in the small local model's context.
 export function compactDiagnosis(diagnosis) {
   return { ...diagnosis, concentrations: diagnosis.concentrations.slice(0, 3),

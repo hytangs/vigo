@@ -21,9 +21,26 @@ pub(crate) struct Materialized {
     pub transfer_shortcuts: Vec<(String, Vec<TransferShortcut>)>,
     pub declared_pathway_stops: Vec<String>,
     pub station_members: Vec<(String, Vec<String>)>,
-    pub stop_records: Vec<(String, Value)>,
+    pub stop_records: Vec<(String, StopRecord)>,
     pub forbidden_transfer_pairs: Vec<String>,
     pub stop_access_index: AccessIndex,
+}
+
+// The standalone engine consumes only these normalized stop fields. Deserialize
+// them directly instead of allocating each record's editor and GTFS metadata.
+// Value retains the existing null/type checks for legacy prepared Cities.
+#[derive(Deserialize)]
+pub(crate) struct StopRecord {
+    #[serde(default)]
+    pub name: Value,
+    #[serde(default)]
+    pub lon: Value,
+    #[serde(default)]
+    pub lat: Value,
+    #[serde(default)]
+    pub parent_station: Value,
+    #[serde(default)]
+    pub location_type: Value,
 }
 
 #[derive(Deserialize)]

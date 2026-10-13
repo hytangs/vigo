@@ -1,5 +1,7 @@
 export { RoutingDetailPanel } from './JourneyItinerary'
 import { OperationProgress } from './OperationProgress'
+import { ResultExportActions } from './ResultExportActions'
+import { exportJourneys } from '../app/resultExports'
 import {
   AlertTriangle,
   ArrowDown,
@@ -308,6 +310,9 @@ export function PathfinderRouteList({
         </div>
       ) : null}
 
+      {readyPlans.length > 1 ? <ResultExportActions key={selectedPlanId} label={`Save all ${readyPlans.length} journeys`} buttonLabel="Save all" formats={['json', 'csv']}
+        disabled={alternativesLoading} resultKey={plans}
+        onExport={format => exportJourneys(readyPlans, format, selectedPlanId)} /> : null}
       {earliestTransit ? <details className="pathfinder-result-context"><summary>Search details</summary><p>{earliestTransit}</p></details> : null}
       {alternativesLoading ? (
         <div className="pathfinder-alternatives" role="status" aria-live="polite">

@@ -1,28 +1,22 @@
 import { realtimeSources } from '../shared/realtime-sources.mjs'
-import { queryRuntimeFacts, withRuntimeActivity } from '../agency/runtimeFacts.mjs'
 import { indexedEntityId, workspaceSelection, selectedStopIds, eventInSelection } from '../agency/workspaceSelection.mjs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { createNotebook } from '../agency/notebook.mjs'
-import { networkBriefing, synthesizeEvidence } from '../agency/briefing.mjs'
+import { networkBriefing } from '../agency/briefing.mjs'
 import { AgencyContext } from '../agency/agencyContext.mjs'
 import { createObservationHistory, deriveOperationalState, defaultPolicy } from '../agency/realtimeIntelligence.mjs'
-import { createSkillRegistry } from '../agency/skillRegistry.mjs'
 import { createToolRegistry } from '../agency/toolRegistry.mjs'
 import { createProvider } from '../agency/provider.mjs'
-import { queryAgency } from '../agency/queryAgent.mjs'
-import { createPlaceSearch } from '../agency/placeSearch.mjs'
 import { routeOperations, vehicleDetails } from '../agency/routeOperations.mjs'
 import { stopBoard } from '../agency/stopBoard.mjs'
-import { createWebResearch } from '../agency/webResearch.mjs'
-import { readPublicPage } from './agency-web.mjs'
 import { createOperationsStore } from '../agency/operationsStore.mjs'
 import { operationsActions, handleOperations } from '../agency/operationsService.mjs'
 import { authorize, recordIdentity } from '../agency/operations.mjs'
 import { createReplayService } from '../agency/replayService.mjs'
 import { briefingPreferences, defaultBriefingPreferences, briefingStatus } from '../agency/briefingSchedule.mjs'
 
-export function createAgencyService(adapters, { provider = createProvider(), web = createWebResearch({ readPage: readPublicPage }), clock = () => Date.now(), policy = defaultPolicy, refreshMs = 10_000,
+export function createAgencyService(adapters, { provider = createProvider(), clock = () => Date.now(), policy = defaultPolicy, refreshMs = 10_000,
   access = async () => ({ id: 'local-owner', role: 'admin' }) } = {}) {
   const sessions = new Map()
   const revisions = new Map()
@@ -73,8 +67,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
         // against. Reimport/merge must obtain new source-scoped observations.
         const retained = saved.scheduleIdentity === scheduleIdentity ? saved : { request: saved.request }
         session = { notebook, storePath, modified: stat.mtimeMs, context, snapshot: retained.snapshot ?? null, request: retained.request ?? null, generation: 0, inFlight: null, timer: null,
-          active: 0, retired: false, disposed: false, history: createObservationHistory(policy, retained), skills: createSkillRegistry({ directory: adapters.skillDirectory, installedDirectory: path.join(notebook.directory, 'skills'), preferences: notebook.get('skills') ?? {} }), lastRead: clock() }
-        session.places = createPlaceSearch({ stops: session.context.stops })
+          active: 0, retired: false, disposed: false, history: createObservationHistory(policy, retained), lastRead: clock() }
         session.operations = operations
         session.scheduleIdentity = scheduleIdentity
       } catch (error) { operations?.close(); context?.close(); notebook.close(); throw error }
@@ -91,7 +84,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
     const state = deriveOperationalState(session.context, session.snapshot, clock() / 1000, policy)
     try { session.operations.observe(state, session.scheduleIdentity); session.storageError = null }
     catch (error) { session.storageError = `Operations history could not be retained: ${error.message}` }
-    return { ...state, ...session.history.update(state), warnings: [...state.warnings, ...session.skills.warnings(), ...(session.storageError ? [session.storageError] : []), ...(session.refreshError ? [session.refreshError] : [])], provider: { ...(provider.status?.() ?? { available: provider.available, model: provider.model }), web: web.status() } }
+    return { ...state, ...session.history.update(state), warnings: [...state.warnings, ...(session.storageError ? [session.storageError] : []), ...(session.refreshError ? [session.refreshError] : [])], provider: provider.status?.() ?? { available: provider.available, model: provider.model } }
   }
 
   async function refresh(session) {
@@ -189,9 +182,7 @@ export function createAgencyService(adapters, { provider = createProvider(), web
       if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.action !== 'string') throw Object.assign(new Error('Choose an Agency action.'), { statusCode: 400 })
       // Principal comes from the trusted host, never from request JSON or a model tool.
       const principal = await access(projectId)
-      authorize(principal, ['notebook-clear-ask', 'briefing-settings', 'web-connect', 'provider-models', 'provider-connect', 'provider-disconnect', 'skill-install', 'skill-enabled'].includes(body.action) ? 'configure' : body.action === 'notebook-note' ? 'finding' : 'read')
-      if (body.action === 'web-status') return web.status()
-      if (body.action === 'web-connect') return web.connect(body.connection, signal)
+      authorize(principal, ['briefing-settings', 'provider-models', 'provider-connect', 'provider-disconnect'].includes(body.action) ? 'configure' : body.action === 'notebook-note' ? 'finding' : 'read')
       if (body.action === 'provider-status') return provider.status()
       if (body.action === 'provider-models') return provider.models(body.connection, signal)
       if (body.action === 'provider-connect') return provider.connect(body.connection, signal)
@@ -222,82 +213,38 @@ export function createAgencyService(adapters, { provider = createProvider(), web
           case 'connection': return { request: session.request }
           case 'notebook': return { entries: session.notebook.list(body.query ?? {}) }
           case 'notebook-entry': { const entries = []; let id = body.id; while (id && entries.length < 30) { const entry = session.notebook.read(id); entries.unshift(entry); id = entry.parentId } return { entries } }
-          case 'notebook-clear-ask': return session.notebook.clearAskHistory()
           case 'notebook-note': return session.notebook.annotate(body.id, body.notes, body.previousNotes)
           case 'briefing-settings': { const preferences = briefingPreferences(body.preferences); session.notebook.set('briefing-preferences', preferences); return { preferences } }
           case 'briefing-latest': {
             const entry = session.notebook.latest('briefing'), preferences = session.notebook.get('briefing-preferences') ?? defaultBriefingPreferences
             return { entry, ...briefingStatus(entry, preferences, clock(), session.scheduleIdentity) }
           }
-          case 'skills': return { skills: session.skills.list() }
-          case 'skill-install': return { skills: session.skills.install(body.skill) }
-          case 'skill-enabled': { const skill = session.skills.setEnabled(body.id, body.enabled); session.notebook.set('skills', Object.fromEntries(session.skills.list().map((item) => [item.id, item.enabled]))); return { skill } }
         }
+        if (!['connect', 'disconnect', 'tool', 'briefing'].includes(body.action)) throw Object.assign(new Error('Unknown Agency action.'), { statusCode: 400 })
         const state = current(session)
         const activities = []
         const inference = provider.forRequest?.() ?? provider
-        const research = web.forRequest()
         const progress = (item) => { if (item.preliminary) { onProgress?.(item); return }; const previous = activities.findIndex((entry) => entry.phase === item.phase); if (previous < 0) activities.push(item); else activities[previous] = item; onProgress?.(item) }
-        const askHistoryRevision = session.notebook.get('ask-history-revision') ?? 0
-        const retain = (title, answer, kind = 'ask') => {
-          if (kind === 'ask' && askHistoryRevision !== (session.notebook.get('ask-history-revision') ?? 0)) throw Object.assign(new Error('Ask history was cleared while this answer was running. Start a new chat.'), { statusCode: 409 })
-          const entry = session.notebook.save({ title, answer, activities, kind, parentId: body.parentId ?? null }); return { ...answer, entryId: entry.id } }
-        const callTool = createToolRegistry({ context: session.context, state, snapshot: session.snapshot, notebook: session.notebook, operations: session.operations, scheduleIdentity: session.scheduleIdentity, places: session.places, web: research, signal, now: clock,
-          adapters: { compareHolding: (caseId, abort) => { session.replay ??= createReplayService(path.join(session.notebook.directory, 'replay'), projectId); return session.replay.compare(caseId, abort) }, streetMatrix: adapters.streetMatrix ? (request, abort) => adapters.streetMatrix(projectId, request, abort) : undefined, matrix: (request, abort) => adapters.matrix(projectId, request, abort), route: (request, abort) => adapters.route(projectId, request, abort), reach: (request, abort) => adapters.reach(projectId, request, abort) } })
+        const callTool = createToolRegistry({ context: session.context, state, snapshot: session.snapshot, notebook: session.notebook, operations: session.operations, scheduleIdentity: session.scheduleIdentity, signal, now: clock,
+          adapters: {
+            compareHolding: (caseId, abort) => {
+              session.replay ??= createReplayService(path.join(session.notebook.directory, 'replay'), projectId)
+              return session.replay.compare(caseId, abort)
+            },
+          },
+        })
         switch (body.action) {
           case 'connect': return { snapshot: await this.connect(projectId, body.request) }
           case 'disconnect': return this.disconnect(projectId)
           case 'tool': return callTool(body.name, body.arguments ?? {})
           case 'briefing': {
             session.briefingJob = networkBriefing({ context: session.context, state, provider: inference, callTool, signal, scheduleIdentity: session.scheduleIdentity, onProgress: progress })
-              .then(answer => retain('Network briefing', { ...answer, scheduleIdentity: session.scheduleIdentity }, 'briefing'))
+              .then(answer => {
+                const entry = session.notebook.save({ title: 'Network briefing', answer: { ...answer, scheduleIdentity: session.scheduleIdentity }, activities, kind: 'briefing' })
+                return { ...answer, entryId: entry.id }
+              })
               .finally(() => { session.briefingJob = null })
             return { ...await session.briefingJob, briefingPreferences: briefingSettings }
-          }
-          case 'ask': {
-            const selection = workspaceSelection(session.context, body.selection, session.feedIds)
-            const history = []
-            let parentId = body.parentId
-            while (parentId && history.length < 6) {
-              const previous = session.notebook.read(parentId)
-              // Retain the most recent journey inputs, even across intervening
-              // explanations. Older plans must not overwrite a later revision.
-              const categories = [['route_plan', 'walk_route', 'walk_compare', 'find_walk', 'reach'], ['place_search'], ['web_search', 'web_read', 'reference_lookup'], ['inspect_service', 'service_timing', 'stop_arrivals', 'realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message']]
-              const retained = categories.flatMap(tools => history.some(item => item.requests?.some(call => tools.includes(call.tool))) ? [] : (previous.answer.trace ?? []).filter(call => call.result.ok && tools.includes(call.tool)).slice(-2))
-              if (!history.some(item => item.pendingJourney || item.requests?.some(call => call.tool === 'route_plan'))) {
-                for (const slot of previous.answer.pendingJourney?.slots ?? []) {
-                  session.places.restore(slot.choices)
-                  if (slot.fixed?.placeId) session.places.restore([{ ...slot.fixed, id: slot.fixed.placeId, name: slot.fixed.label, sourceUrl: `https://www.openstreetmap.org/${slot.fixed.placeId.slice(4)}` }])
-                }
-              }
-              for (const call of retained) {
-                if (call.tool === 'place_search') session.places.restore(call.result.data.matches)
-                if (call.tool === 'find_walk') session.places.restore(call.result.data.visits)
-                if (call.tool === 'route_plan') for (const endpoint of call.result.data?.clarification?.endpoints ?? []) session.places.restore(endpoint.matches)
-              }
-              const requests = retained.map(call => ({ tool: call.tool, arguments: call.arguments }))
-              const findings = retained.filter(call => ['route_plan', 'walk_route', 'place_search', 'web_search', 'web_read', 'reference_lookup', 'find_walk', 'walk_compare', 'inspect_service', 'service_timing', 'stop_arrivals', 'realtime_status', 'anomaly_scan', 'service_alerts', 'draft_rider_message'].includes(call.tool))
-              history.unshift({ pendingJourney: previous.answer.pendingJourney, selection: previous.answer.selection, question: previous.title, answer: previous.answer.answer, privateContext: previous.answer.dataPolicyVersion !== 1 && (previous.answer.trace ?? []).some(call => ['operational_context', 'recall_notebook'].includes(call.tool)), observedAt: previous.answer.generatedAt, requests, findings })
-              parentId = previous.parentId
-            }
-            return retain(body.question, await queryAgency({ question: body.question, selection, context: session.context, state, callTool, provider: inference, signal, onProgress: progress, history, placesAvailable: session.places.enabled, placeEndpoint: session.places.endpoint, placeDetailsEndpoint: session.places.detailsEndpoint, webStatus: research }))
-          }
-          case 'run-skill': {
-            const result = await session.skills.run(body.id, body.inputs ?? {}, callTool, progress, { signal, generatedAt: state.generatedAt })
-            const trace = result.results
-            const fallback = await synthesizeEvidence({ trace, provider: { available: false } })
-            let summary = fallback, warning
-            try { if (result.status === 'complete') summary = await synthesizeEvidence({ trace, provider: inference, signal, instructions: result.skill.instructions, onProgress: progress }) }
-            catch (error) { warning = error.message }
-            if (result.status !== 'complete' || signal?.aborted) {
-              const completed = trace.filter((call) => call.result.ok).length
-              warning = `${signal?.aborted ? 'Study stopped' : 'Study incomplete'}. ${completed} of ${result.skill.steps.length} checks completed. Completed evidence is saved.`
-              summary = { text: `${warning}${completed ? `\n\n${fallback.text}` : ''}`, aiGenerated: false }
-            }
-            const rows = trace.flatMap(({ tool, result }) => result.data.rows ?? (tool === 'anomaly_scan' ? (result.data.events ?? []).filter((event) => event.evidence.observedHeadwaySeconds != null).map((event) => ({ route: event.routeName || event.routeId, reference_stop: event.stopName || event.stopId, observed_at: event.observedAt, predicted_minutes: event.evidence.observedHeadwaySeconds / 60, scheduled_minutes: event.evidence.scheduledHeadwaySeconds / 60, difference_minutes: (event.evidence.observedHeadwaySeconds - event.evidence.scheduledHeadwaySeconds) / 60 })) : []))
-            const answer = { answer: summary.text, scopeNote: fallback.scopeNote, aiGenerated: summary.aiGenerated, model: summary.model, citations: summary.citations, trace, report: { title: result.skill.name, method: result.skill.instructions, inputs: body.inputs ?? {}, rows }, generatedAt: state.generatedAt, evidenceRefs: [...new Set(trace.flatMap((call) => call.result.provenance))], warnings: [...new Set(trace.flatMap((call) => call.result.warnings)), ...(warning ? [warning] : [])], providerAvailable: provider.available }
-            answer.runtime = withRuntimeActivity(queryRuntimeFacts({ provider: inference, webStatus: research, placesAvailable: session.places.enabled, placeEndpoint: session.places.endpoint, placeDetailsEndpoint: session.places.detailsEndpoint, generatedAt: state.generatedAt }), trace)
-            return retain(result.skill.name, answer, 'research')
           }
           default: throw Object.assign(new Error('Unknown Agency action.'), { statusCode: 400 })
         }

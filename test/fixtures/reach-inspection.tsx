@@ -120,8 +120,10 @@ window.checkQuietMaps = async () => {
     await check(view+' journey '+(dark?'dark':'light'))
   }
   flushSync(()=>{window.inspectionSetView('analysis');window.inspectionSetResult(result);window.inspectionSetOrigin(true);window.inspectionSetJourney(null)})
-  await until(async()=> (await map.getSource('vigo-scenario-area').getData()).features.length>0)
-  assert(map.getLayoutProperty('vigo-scenario-area','visibility')==='visible','Reachable area is hidden')
+  await until(()=>map.getSource('vigo-reach-bands')?.getCanvas()?.width>0)
+  const bands=map.getSource('vigo-reach-bands').getCanvas()
+  assert(bands.getContext('2d').getImageData(Math.floor(bands.width/2),Math.floor(bands.height/2),1,1).data[3]>0,'Reach time bands contain no painted area')
+  assert(map.getLayoutProperty('vigo-reach-bands','visibility')==='visible','Reachable time bands are hidden')
   await check('reachable area')
   return checks
 }

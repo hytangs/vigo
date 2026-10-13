@@ -139,12 +139,14 @@ export function StorageRecovery({
   error,
   onChooseFolder,
   onUseDefault,
+  onOpenSettings,
 }: {
   config: VigoRuntimeConfig
   busy: boolean
   error: string
   onChooseFolder: () => void
   onUseDefault: () => void
+  onOpenSettings: () => void
 }) {
   return (
     <section className="storage-recovery" aria-labelledby="storage-recovery-title" aria-busy={busy}>
@@ -170,6 +172,7 @@ export function StorageRecovery({
           <button type="button" className="button button-secondary" onClick={onUseDefault} disabled={busy}>
             Use default folder
           </button>
+          <button type="button" className="button button-secondary" onClick={onOpenSettings}>Settings</button>
         </div>
         <p className="storage-recovery-note">Your existing Cities stay in their saved folder.</p>
       </div>

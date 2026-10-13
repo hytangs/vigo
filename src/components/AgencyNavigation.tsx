@@ -1,11 +1,10 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Download, FileText, Map, MoreHorizontal, Radio, RefreshCw } from 'lucide-react'
 
-export type AgencyMode = 'briefing' | 'live' | 'ask'
+export type AgencyMode = 'briefing' | 'live'
 const views = [
   { id: 'briefing', label: 'Network' },
   { id: 'live', label: 'Routes' },
-  { id: 'ask', label: 'Ask' },
 ] as const
 
 export function AgencyNavigation({ mode, onChange, health, mapOpen, onToggleMap, onRefresh, onFeeds, onExport, onExportReport }: {

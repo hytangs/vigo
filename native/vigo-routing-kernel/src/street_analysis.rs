@@ -4,6 +4,7 @@ use super::{
 #[cfg(not(feature = "node"))]
 use crate::standalone_types as napi;
 use crate::street_snapshot::Snapshot;
+use crate::terminal_access::TerminalAccessGraph;
 use cch::paged::PagedVec;
 use napi::bindgen_prelude::*;
 #[cfg(feature = "node")]
@@ -186,15 +187,16 @@ pub struct TimedConnectorResult {
     pub query_ns: f64,
 }
 
-struct StreetGraph<'a> {
+struct StreetGraph<'a, const ENDPOINTS: bool = false> {
     node_lats: &'a [f64],
     node_lons: &'a [f64],
     edge_offsets: &'a [u32],
     edge_targets: &'a [u32],
     edge_distances_m: &'a [f64],
+    terminal: Option<&'a TerminalAccessGraph>,
 }
 
-impl<'a> StreetGraph<'a> {
+impl<'a, const ENDPOINTS: bool> StreetGraph<'a, ENDPOINTS> {
     fn open(snapshot: &'a Snapshot) -> napi::Result<Self> {
         Ok(Self {
             node_lats: snapshot.f64_array("nodeLats")?,
@@ -202,7 +204,61 @@ impl<'a> StreetGraph<'a> {
             edge_offsets: snapshot.u32_array("edgeOffsets")?,
             edge_targets: snapshot.u32_array("edgeTargets")?,
             edge_distances_m: snapshot.f64_array("edgeDistances")?,
+            terminal: None,
         })
+    }
+
+    #[inline(always)]
+    fn node_count(&self) -> usize {
+        if ENDPOINTS {
+            self.terminal
+                .map_or(self.node_lats.len(), |t| t.surface_node_count())
+        } else {
+            self.node_lats.len()
+        }
+    }
+
+    #[inline(always)]
+    fn edge_count(&self) -> usize {
+        self.edge_targets.len()
+            + if ENDPOINTS {
+                self.terminal.map_or(0, |t| t.surface_edge_count())
+            } else {
+                0
+            }
+    }
+
+    #[inline(always)]
+    fn coordinate(&self, node: u32) -> [f64; 2] {
+        if !ENDPOINTS || (node as usize) < self.node_lats.len() {
+            [self.node_lons[node as usize], self.node_lats[node as usize]]
+        } else {
+            self.terminal
+                .expect("private surface vertex requires its graph")
+                .surface_coordinate(node)
+        }
+    }
+
+    #[inline(always)]
+    fn target(&self, edge: usize) -> u32 {
+        if !ENDPOINTS || edge < self.edge_targets.len() {
+            self.edge_targets[edge]
+        } else {
+            self.terminal
+                .expect("private surface edge requires its graph")
+                .surface_edge_target(edge - self.edge_targets.len())
+        }
+    }
+
+    #[inline(always)]
+    fn distance(&self, edge: usize) -> f64 {
+        if !ENDPOINTS || edge < self.edge_distances_m.len() {
+            self.edge_distances_m[edge]
+        } else {
+            self.terminal
+                .expect("private surface edge requires its graph")
+                .surface_edge_distance(edge - self.edge_targets.len())
+        }
     }
 }
 
@@ -261,6 +317,10 @@ impl Ord for LabelQueueEntry {
     }
 }
 
+#[path = "surface_queue.rs"]
+mod surface_queue;
+use surface_queue::SurfaceQueue;
+
 #[derive(Default)]
 struct SearchDiagnostics {
     snapped_seeds: u32,
@@ -303,7 +363,7 @@ fn validate_common_limits(
 fn push_surface_label(
     frontier_heads: &mut PagedVec<u32>,
     labels: &mut Vec<SurfaceLabel>,
-    queue: &mut BinaryHeap<LabelQueueEntry>,
+    queue: &mut SurfaceQueue,
     seed_arrivals_minutes: &[f64],
     node: u32,
     duration_minutes: f64,
@@ -572,9 +632,18 @@ pub(super) fn street_surface(
     snapshot: &Snapshot,
     reciprocal_edge_flags: &[u8],
     snaps: &mut SurfaceSnapCache,
+    terminal: Option<&TerminalAccessGraph>,
+    endpoint_seeds: Option<&[bool]>,
     input: StreetSurfaceInput,
 ) -> napi::Result<StreetSurfaceResult> {
-    surface::compute(snapshot, reciprocal_edge_flags, snaps, input)
+    surface::compute(
+        snapshot,
+        reciprocal_edge_flags,
+        snaps,
+        terminal,
+        endpoint_seeds,
+        input,
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -879,7 +948,7 @@ pub(super) fn timed_connectors(
     let started = Instant::now();
     let (seed_count, target_count) = validate_timed_connector_input(&input)?;
 
-    let graph = StreetGraph::open(snapshot)?;
+    let graph = StreetGraph::<false>::open(snapshot)?;
     let targets =
         prepare_connector_targets(snapshot, reciprocal_edge_flags, &input.target_coordinates)?;
     let mut seeds = Vec::with_capacity(seed_count);

@@ -325,6 +325,8 @@ pub struct City {
     pub(crate) timetable_cache: super::timetable_cache::TimetableCache,
     pub(crate) query_workspace: Option<crate::timetable::TimetableQueryWorkspace>,
     pub(crate) timetable_preparations: u64,
+    pub(crate) timetable_activation_ms: f64,
+    pub(crate) timetable_preparation_profile: Value,
     pub(crate) calendar: std::sync::OnceLock<super::calendar::CalendarIndex>,
     pub(crate) timetable_blocks: Option<TimetableBlockPool>,
     pub(crate) speed: f64,
@@ -441,20 +443,20 @@ impl City {
         let records = std::mem::take(&mut access.materialized.stop_records);
         let mut stops = Vec::with_capacity(records.len());
         for (id, s) in records {
-            let location = s["location_type"].as_u64().unwrap_or(0) as u32;
-            let coordinate = |key: &str| -> Result<f64> {
-                match s[key].as_f64() {
+            let location = s.location_type.as_u64().unwrap_or(0) as u32;
+            let coordinate = |value: &Value| -> Result<f64> {
+                match value.as_f64() {
                     Some(value) => Ok(value),
-                    None if s[key].is_null() && [3, 4].contains(&location) => Ok(f64::NAN),
+                    None if value.is_null() && [3, 4].contains(&location) => Ok(f64::NAN),
                     _ => fail("Invalid stop coordinate"),
                 }
             };
             stops.push(Stop {
                 id,
-                name: s["name"].as_str().unwrap_or("").to_owned(),
-                lon: coordinate("lon")?,
-                lat: coordinate("lat")?,
-                parent: s["parent_station"].as_str().unwrap_or("").to_owned(),
+                name: s.name.as_str().unwrap_or("").to_owned(),
+                lon: coordinate(&s.lon)?,
+                lat: coordinate(&s.lat)?,
+                parent: s.parent_station.as_str().unwrap_or("").to_owned(),
                 location,
             });
         }
@@ -618,6 +620,8 @@ impl City {
             timetable_cache: super::timetable_cache::TimetableCache::from_env()?,
             query_workspace: None,
             timetable_preparations: 0,
+            timetable_activation_ms: 0.,
+            timetable_preparation_profile: Value::Null,
             calendar: Default::default(),
             timetable_blocks: Some(Default::default()),
             speed,
@@ -760,6 +764,13 @@ impl City {
         Ok(date)
     }
     pub(crate) fn activate(&mut self, request: &Value) -> Result<()> {
+        let started = std::time::Instant::now();
+        let result = self.activate_inner(request);
+        self.timetable_activation_ms += started.elapsed().as_secs_f64() * 1000.;
+        result
+    }
+    fn activate_inner(&mut self, request: &Value) -> Result<()> {
+        let started = std::time::Instant::now();
         let date = Self::validated_service_date(request)?;
         let date_text = request["serviceDate"].as_str().unwrap();
         let allow = flag(request, "allowStreetTransfers", true)?;
@@ -863,6 +874,8 @@ impl City {
             [],
             |r| r.get(0),
         )?;
+        let calendar_ms = started.elapsed().as_secs_f64() * 1000.;
+        let source_started = std::time::Instant::now();
         let mut source = read_service_timetable(ServiceTimetableInput {
             store_path: str_path(&self.path.join("routing/project.sqlite"))?,
             stop_ids: self.stops.iter().map(|s| s.id.clone()).collect(),
@@ -873,6 +886,8 @@ impl City {
             maximum_departure_seconds: coverage_end,
         })?;
         let realtime = super::realtime::apply(&mut source, request, &self.metadata, now)?;
+        let source_ms = source_started.elapsed().as_secs_f64() * 1000.;
+        let index_started = std::time::Instant::now();
         let index: HashMap<String, u32> = source
             .stop_ids
             .iter()
@@ -1013,6 +1028,8 @@ impl City {
             p.transfer_to = to;
             p.transfer_duration = duration;
         }
+        let index_ms = index_started.elapsed().as_secs_f64() * 1000.;
+        let kernel_started = std::time::Instant::now();
         let kernel = TimetableKernel::new(TimetableKernelInput {
             stop_count: source.stop_count,
             run_count: source.run_count,
@@ -1036,6 +1053,8 @@ impl City {
             same_stop_transfer_minimum: Some(same_stop_transfer_minimum),
             minimum_transfer_buffer_seconds: Some(buffer as u32 * 60),
         })?;
+        self.timetable_preparation_profile = json!({"setupMs":calendar_ms,"sourceAndRealtimeMs":source_ms,
+            "indexMs":index_ms,"kernelMs":kernel_started.elapsed().as_secs_f64()*1000.});
         self.timetable = Some(Timetable {
             kernel,
             stop_ids: source.stop_ids,

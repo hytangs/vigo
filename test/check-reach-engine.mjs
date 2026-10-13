@@ -203,6 +203,15 @@ try {
     assert(progress[index].progress >= progress[index - 1].progress)
   }
 
+  for (const cutoffMinutes of [1, 1.25, 2, 2.5, 4, 4.75, 5]) {
+    const short = routeNationalGtfsReach(storePath, request({ cutoffMinutes }), { streetStorePath })
+    assert(short.stops.every(stop => stop.durationMinutes <= cutoffMinutes),
+      `A ${cutoffMinutes}-minute Reach must not count later transit stops: ${JSON.stringify(short.stops.map(stop => [stop.stopId, stop.durationMinutes]))}`)
+    assert(short.surface.values.every(value => !Number.isFinite(value) || value <= cutoffMinutes + 1e-9),
+      `A ${cutoffMinutes}-minute street surface must not retain later walking arrivals.`)
+    assert(short.surface.values.some(Number.isFinite), 'Short Reach retains the origin walking context.')
+  }
+
   const selectedOrigin = { coordinate: [8, 47], label: 'Imported origin', source: 'stop', stopId: 'feed-local::O' }
   const selectedDestination = { coordinate: [8, 47.005], label: 'Imported destination', source: 'stop', stopId: 'feed-local::D' }
   const selectedRequest = request({ origin: selectedOrigin })
@@ -419,6 +428,7 @@ try {
   assert.equal(outsideWindow.stops.length, 0)
   assert.equal(outsideWindow.diagnostics.transit.status, 'outside_window')
   assert.equal(outsideWindow.diagnostics.transit.earliestScheduledDepartureMinutes, 481)
+  assert(outsideWindow.diagnostics.timetable.departureLookupMs >= 0)
 
   const noService = routeNationalGtfsReach(
     storePath,
@@ -427,6 +437,7 @@ try {
   )
   assert.equal(noService.stops.length, 0)
   assert.equal(noService.diagnostics.transit.status, 'no_service')
+  assert(noService.diagnostics.timetable.departureLookupMs >= 0)
 
   const noServiceWindow = routeNationalGtfsReach(
     storePath,
@@ -437,6 +448,8 @@ try {
   assert.equal(noServiceWindow.diagnostics.transit.status, 'no_service_window')
 
   const replay = routeNationalGtfsReach(storePath, request(), { streetStorePath })
+  assert.deepEqual(replay.diagnostics.transit, first.diagnostics.transit,
+    'Changing clocks and visiting an empty service date must preserve the original transit diagnostic.')
   assert.deepEqual(
     replay.stops,
     first.stops,
