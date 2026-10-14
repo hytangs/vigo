@@ -39,3 +39,6 @@ has had a reasonable opportunity to investigate.
 Ordinary defects, documentation errors, and non-sensitive hardening ideas can
 use the public issue tracker. The [contribution guide](.github/CONTRIBUTING.md)
 describes the supported verification lanes and repository boundaries.
+
+See [resource limits](docs/guides/resource-limits.md) for bounded admission,
+container-aware memory budgets, and explicit swap configuration.

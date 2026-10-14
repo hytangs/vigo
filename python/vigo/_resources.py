@@ -84,10 +84,12 @@ def worker_count() -> int:
             pass
     memory_limits = []
     try:
-        memory_limits.append(int(os.sysconf("SC_PHYS_PAGES")) * int(os.sysconf("SC_PAGE_SIZE")))
+        sysconf = getattr(os, "sysconf", None)
+        if sysconf is not None:
+            memory_limits.append(int(sysconf("SC_PHYS_PAGES")) * int(sysconf("SC_PAGE_SIZE")))
     except (AttributeError, OSError, TypeError, ValueError):
         pass
-    if os.name == "posix" and Path("/proc/self/cgroup").is_file():
+    if Path("/proc/self/cgroup").is_file():
         memory, cpus = _linux_limits()
         memory_limits.extend(memory)
         cpu_limits.extend(cpus)
