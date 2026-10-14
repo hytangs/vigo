@@ -2,6 +2,8 @@
 
 Python batch concurrency and Engine query concurrency have different costs. `City.iter_run(queries, workers=2)` overlaps complete queries using separate resident processes. Each owns its prepared City. The native HTTP service uses one supervised query worker with bounded admission, deadlines, cancellation and recovery; its routing kernel can parallelize supported work internally. On a 2 CPU / 2 GiB deployment, keep one resident query process and two native threads. Additional processes are not a free speedup.
 
+The native endpoint-access pool also follows available CPU parallelism (including Linux quota/affinity) and a positive `RAYON_NUM_THREADS` cap, up to four threads. With one available thread it runs sequentially without creating a pool. This shares one City and preserves exact endpoint searches.
+
 ## Capacity-aware defaults
 
 At startup, native cache defaults use the smallest reported Linux physical-memory, cgroup v2 `memory.max`/`memory.high`, or cgroup v1 memory limit. Visible ancestor limits are included. Unlimited values are ignored. Non-Linux and unknown-capacity installations retain the existing bounded cache defaults. Explicit cache settings remain operator overrides.

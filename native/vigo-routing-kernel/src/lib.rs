@@ -145,12 +145,48 @@ fn retain_native_thread_code() {
 // use the process-wide pool. If the private pool cannot be created, the exact
 // operations run sequentially rather than changing routing semantics.
 static ENDPOINT_ACCESS_POOL: LazyLock<Option<rayon::ThreadPool>> = LazyLock::new(|| {
+    let threads = endpoint_thread_count(
+        std::thread::available_parallelism().map_or(1, usize::from),
+        std::env::var("RAYON_NUM_THREADS")
+            .ok()
+            .and_then(|v| v.parse().ok()),
+    );
+    if threads == 1 {
+        return None;
+    }
     rayon::ThreadPoolBuilder::new()
-        .num_threads(ENDPOINT_ACCESS_THREAD_COUNT)
+        .num_threads(threads)
         .thread_name(|index| format!("vigo-endpoint-access-{index}"))
         .build()
         .ok()
 });
+
+fn endpoint_thread_count(available: usize, configured: Option<usize>) -> usize {
+    available
+        .max(1)
+        .min(ENDPOINT_ACCESS_THREAD_COUNT)
+        .min(configured.filter(|&n| n > 0).unwrap_or(usize::MAX))
+}
+
+#[cfg(test)]
+mod endpoint_thread_tests {
+    #[test]
+    fn endpoint_pool_respects_device_and_operator_limits() {
+        for (available, configured, expected) in [
+            (1, None, 1),
+            (2, None, 2),
+            (64, None, 4),
+            (64, Some(2), 2),
+            (2, Some(8), 2),
+            (64, Some(0), 4),
+        ] {
+            assert_eq!(
+                super::endpoint_thread_count(available, configured),
+                expected
+            );
+        }
+    }
+}
 
 #[cfg(unix)]
 fn prefetch_street_snapshot(snapshot_path: String) {
