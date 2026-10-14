@@ -4,6 +4,19 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish verified revision-named assets to the release
+        type: boolean
+        default: false
+      release_tag:
+        description: Existing release tag matching package.json (original assets are preserved)
+        type: string
+        default: v0.5.2
+
+concurrency:
+  group: release-${{ github.event.inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -109,16 +122,32 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
           path: release
           merge-multiple: true
+      - name: Stage immutable revision assets
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+        run: |
+          python3 test/check-release-assets.py
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ -z "$RELEASE_TAG" ]; then
+            RELEASE_TAG="v$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')"
+          fi
+          python3 scripts/prepare-release-assets.py release verified-release --tag "$RELEASE_TAG"
       - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
         with:
-          subject-path: release/*
+          subject-path: verified-release/*
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: verified-release
+          path: verified-release/*
+          compression-level: 0
+          if-no-files-found: error
 
   publish:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && inputs.publish)
     needs: attest
     runs-on: ubuntu-24.04
     permissions:
@@ -127,15 +156,20 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
+          name: verified-release
           path: release
-          merge-multiple: true
       - name: Publish verified release assets
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" release/* --clobber
+            gh release upload "$RELEASE_TAG" release/*
           else
-            gh release create "$RELEASE_TAG" release/* --verify-tag --prerelease --title "VIGO Studio ${{ github.ref_name }}" --generate-notes
+            gh release create "$RELEASE_TAG" release/* --verify-tag --title "VIGO $RELEASE_TAG" --generate-notes
           fi
+      - name: Update release download links
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+        run: python3 scripts/update-release-notes.py "$RELEASE_TAG" release
