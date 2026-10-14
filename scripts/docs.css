@@ -430,17 +430,19 @@ mark { padding: 0 1px; border-radius: 3px; background: var(--mark); color: inher
   .sidebar { position: fixed; top: var(--header); left: 0; bottom: 0; z-index: 40; width: min(var(--sidebar), 86vw); height: auto; transform: translateX(-102%); transition: transform .25s var(--ease); box-shadow: var(--shadow-lg); }
   .sidebar.open { transform: none; }
   .scrim { position: fixed; inset: var(--header) 0 0 0; z-index: 35; display: block; background: rgba(8, 12, 10, 0.4); }
-  [data-embedded] .sidebar { top: 0; }
-  [data-embedded] .scrim { inset: 0; }
+  :root[data-embedded] { --header: 48px; }
+  [data-embedded] .site-header { display: flex; }
+  [data-embedded] .site-header .brand, [data-embedded] .header-links, [data-embedded] #theme-toggle { display: none; }
+  [data-embedded] .sidebar { top: var(--header); height: calc(100dvh - var(--header)); }
+  [data-embedded] .scrim { inset: var(--header) 0 0; }
   .brand-section, .version-pill { display: none; }
   .site-header { padding: 0 12px 0 16px; gap: 8px; }
   .site-header .search-trigger { width: auto; flex: 1; max-width: 360px; }
   main { padding: 32px 22px 72px; }
   .heading-anchor { display: none; }
-  [data-embedded] .menu-button { display: none; }
-  [data-embedded] .sidebar { position: static; transform: none; width: auto; height: auto; box-shadow: none; border-right: 0; border-bottom: 1px solid var(--border); }
-  [data-embedded] #chapters { max-height: 40vh; }
-  [data-embedded] .scrim { display: none !important; }
+  [data-embedded] .menu-button { display: inline-grid; }
+  [data-embedded] .sidebar-search { display: none; }
+  [data-embedded] main { padding: 24px clamp(16px, 4vw, 32px) 48px; }
 }
 @media (max-width: 640px) {
   body { font-size: 15.5px; }

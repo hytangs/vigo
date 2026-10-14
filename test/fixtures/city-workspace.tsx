@@ -157,7 +157,18 @@ window.checkDocumentation = async (dark = false) => {
   }
   let doc = await ready()
   assert(doc.documentElement.dataset.embedded === 'true', 'Reader is not embedded')
-  assert(getComputedStyle(doc.querySelector('.site-header')).display === 'none', 'Reader repeats the app header')
+  const compact = doc.defaultView.innerWidth <= 960
+  const header = doc.querySelector('.site-header')
+  assert((getComputedStyle(header).display !== 'none') === compact, 'Embedded navigation does not match the reader width')
+  if (compact) {
+    const menu = doc.querySelector('.menu-button')
+    menu.click(); await settle()
+    assert(doc.querySelector('#sidebar').classList.contains('open'), 'Compact reader navigation cannot open')
+    menu.click(); await settle()
+    assert(!doc.querySelector('#sidebar').classList.contains('open'), 'Compact reader navigation cannot close')
+    doc.defaultView.scrollTo(0, 200); await settle()
+    assert(Math.abs(header.getBoundingClientRect().top) < 1, 'Compact reader navigation scrolls away')
+  }
   doc.querySelector('[data-search-open]').click()
   const search = doc.querySelector('#search')
   search.value = 'routing'; search.dispatchEvent(new Event('input', { bubbles: true }))
