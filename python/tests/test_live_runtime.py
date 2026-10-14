@@ -52,6 +52,19 @@ class LiveRuntimeTest(unittest.TestCase):
         cls.city.close()
         cls.temporary.cleanup()
 
+    def test_parallel_batch_preserves_order_dates_and_full_journeys(self) -> None:
+        queries = [vigo.Matrix({"a": "A"}, {"b": "B"}, include_journeys=True,
+                               include_geometry=True, depart_at=clock, service_date=date)
+                   for date in ("2026-07-15", "2026-07-18", "2026-07-15")
+                   for clock in ("07:55", "08:05")]
+        expected = self.city.run(queries)
+        actual = list(self.city.iter_run(iter(queries), workers=2))
+        for before, after in zip(expected, actual):
+            self.assertEqual(before.rows, after.rows)
+            self.assertEqual(before.query, after.query)
+        self.assertEqual(len(actual), len(queries))
+        self.assertLessEqual(len(self.city._streams), self.city._stream_limit)
+
     def test_route_alternatives_match_engine_and_preserve_details(self) -> None:
         def journey(value):
             # Compare itinerary content; process timing/cache diagnostics differ.

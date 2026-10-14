@@ -367,6 +367,23 @@ with vigo.open("./boston") as city:
 
 Reach's radius bounds the computed area; increasing it changes the analysis, not just the map zoom. Keep the grid, date, time, walking assumptions, and origin aligned. Compare checks grid compatibility but does not establish that all study assumptions match. Report newly reachable and no-longer-reachable cells beside duration changes among comparable cells. Reach alone does not measure jobs, people, or other opportunities.
 
+### Run independent queries concurrently
+
+For independent school matrices or other batches, use bounded concurrency while keeping complete Results in input order:
+
+```python
+from contextlib import closing
+
+# queries is an iterable of vigo.Route, vigo.Matrix, or vigo.Reach objects.
+with closing(city.iter_run(queries, workers=2)) as results:
+    for index, result in enumerate(results):
+        result.export(f"outputs/query-{index}.json")
+```
+
+The iterator limits pending queries and retained responses. It avoids accumulating the entire batch; `city.run(queries, workers=2)` can instead return a list when `queries` is a sequence and all Results fit in memory. The same methods work on a Scenario. No itinerary fields are removed or approximated.
+
+Start with two workers and measure your own workload. Each worker owns a resident Engine process and prepared City. Effective concurrency is capped by CPU/memory capacity (at most four); startup and additional memory can outweigh gains for small batches. Errors surface in input order and stop iteration; already submitted queries may complete. Closing waits for active queries. The default `workers=1` preserves serial execution. See the [execution reference](reference.md) for the full contract.
+
 ### Retain every batch outcome
 
 `city.run([query, ...])` executes sequentially and stops at the first exception. Use an explicit loop when a study must preserve each success, blocked outcome, and query failure. Opening the City happens outside this loop: a setup failure is a failure of the batch setup, not one blocked journey per request.

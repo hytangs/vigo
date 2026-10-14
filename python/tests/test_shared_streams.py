@@ -16,6 +16,20 @@ class FakeStream:
 
 
 class SharedStreamsTest(unittest.TestCase):
+    def test_serial_queries_prefer_recent_worker_after_a_batch(self):
+        runtime = RuntimeInfo("0.5.2", "1.0", "test", "unused", ("unused",),
+                              {"output": {"requestServiceDate": True}})
+        with tempfile.TemporaryDirectory() as directory, patch("vigo.model._QueryStream", FakeStream):
+            city = City(Path(directory), runtime, {})
+            city._stream_limit = 2
+            with (city._stream("2026-07-15") as first,
+                  city._stream("2026-07-15") as second):
+                self.assertIsNot(first, second)
+            for _ in range(3):
+                with city._stream("2026-07-15") as preferred:
+                    self.assertIs(preferred, second)
+            city.close()
+
     def test_reuse_bounded_concurrency_failure_and_recovery(self):
         runtime = RuntimeInfo("0.5.1", "1.0", "test", "unused", ("unused",),
                               {"output": {"requestServiceDate": True}})

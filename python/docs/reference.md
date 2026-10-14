@@ -138,6 +138,10 @@ results = city.run(requests)
 
 `City.run(query)` and `Scenario.run(query)` are the execution primitives. `city.route(...)`, `city.matrix(...)`, and `city.reach(...)` are convenience constructors with exactly the same behavior. A sequence executes in input order and returns a list; it stops at the first exception. Use an explicit [batch loop](guide.md#retain-every-batch-outcome) to retain failures individually.
 
+`City.iter_run(queries, workers=1)` and `Scenario.iter_run(...)` accept any iterable and yield complete Results in input order. Set `workers=2` to overlap independent queries in resident processes; `run(sequence, workers=2)` returns those Results as a list. Worker counts must be integers from 1 to 4, and are capped by the City's CPU/memory capacity. A single Query still executes once. The default remains serial.
+
+Parallel iteration consumes at most the effective worker count of queries ahead. It preserves every result field, including journeys and geometry. Exceptions are raised at their input position; no further input is consumed after that exception, but already submitted queries may have run. Closing the iterator cancels queued work and waits for active queries under their normal timeouts. Use `contextlib.closing` when stopping early. Each resident worker holds its own prepared City, so higher concurrency uses more memory and is not always faster. Older engines without per-request service dates may serialize queries for the same date.
+
 Depart-at minimizes arrival time, then boardings, then walking. Arrive-by maximizes departure time; among journeys leaving at that boundary and arriving by the deadline, it minimizes boardings, then walking, then actual arrival.
 
 `Route` and `Matrix` accept `max_transfers=0` for at most one boarding,

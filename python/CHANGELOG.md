@@ -2,6 +2,9 @@
 
 ## 0.5.2
 
+- Prefer the most recently used matching resident worker after parallel batches, avoiding repeated mode preparation in subsequent serial queries.
+- Add ordered `City.iter_run` and `Scenario.iter_run` batches with bounded resident-process concurrency; `run(sequence, workers=2)` also supports parallel batches. Serial execution remains the default.
+
 - Maintain Python in the shared VIGO repository with independent package builds and same-commit engine integration.
 - Support opt-in Route alternatives, ranking and arrival slack; retain choice details and alternative-search metadata.
 - Decode resident UTF-8 response bytes directly with the optional accelerated decoder, avoiding an intermediate Python string. Standard-library fallback, request validation and full itinerary detail remain unchanged.

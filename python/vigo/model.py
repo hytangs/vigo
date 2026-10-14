@@ -13,7 +13,7 @@ import threading
 import time
 import weakref
 from collections import deque
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -728,6 +728,45 @@ def _submit_job(operation: Callable[[], Any]) -> Job:
     return Job(future)
 
 
+def _validate_workers(workers: int) -> None:
+    if type(workers) is not int or not 1 <= workers <= 4:
+        raise ValueError("workers must be an integer from 1 to 4")
+
+
+def _iter_results(
+    queries: Iterable[Query], execute: Callable[[Query], Result], workers: int,
+) -> Iterator[Result]:
+    if workers == 1:
+        for query in queries:
+            yield execute(query)
+        return
+    source = iter(queries)
+    pending: deque[Future[Result]] = deque()
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="vigo-batch")
+    try:
+        for _ in range(workers):
+            try:
+                query = next(source)
+            except StopIteration:
+                break
+            pending.append(pool.submit(execute, query))
+        while pending:
+            # Observe failures in input order before scheduling more work.
+            result = pending.popleft().result()
+            yield result
+            del result
+            try:
+                query = next(source)
+            except StopIteration:
+                continue
+            pending.append(pool.submit(execute, query))
+    finally:
+        for future in pending:
+            future.cancel()
+        # Running queries retain their normal timeout and finish before return.
+        pool.shutdown(wait=True, cancel_futures=True)
+
+
 class City:
     """One immutable VIGO City revision opened for queries."""
 
@@ -791,17 +830,24 @@ class City:
         return self.run(Reach(origin, **options))
 
     @overload
-    def run(self, query: Query) -> Result: ...
+    def run(self, query: Query, *, workers: int = 1) -> Result: ...
 
     @overload
-    def run(self, query: Sequence[Query]) -> list[Result]: ...
+    def run(self, query: Sequence[Query], *, workers: int = 1) -> list[Result]: ...
 
-    def run(self, query: Query | Sequence[Query]) -> Result | list[Result]:
+    def run(self, query: Query | Sequence[Query], *, workers: int = 1) -> Result | list[Result]:
+        _validate_workers(workers)
         if isinstance(query, Sequence) and not isinstance(query, (str, bytes)):
-            return [self._execute(item, None) for item in query]
+            return list(self.iter_run(query, workers=workers))
         if not isinstance(query, (Route, Matrix, Reach)):
             raise InvalidQuery("query must be Route, Matrix, or Reach")
         return self._execute(query, None)
+
+    def iter_run(self, queries: Iterable[Query], *, workers: int = 1) -> Iterator[Result]:
+        """Yield complete Results in input order with bounded query concurrency."""
+        _validate_workers(workers)
+        return _iter_results(queries, lambda query: self._execute(query, None),
+                             min(workers, self._stream_limit))
 
     def supports(self, query: Query) -> Support:
         return self._support(query, None)
@@ -1002,7 +1048,9 @@ class City:
             while True:
                 if not self._closing_streams:
                     idle = [key for key in self._streams if key not in self._stream_users]
-                    key = next((key for key in idle if self._streams[key]._request_date == service_date),
+                    # Prefer the most recently used matching worker so serial calls
+                    # after a parallel batch retain its prepared modes and caches.
+                    key = next((key for key in reversed(idle) if self._streams[key]._request_date == service_date),
                                idle[-1] if idle else None)
                     if key is None and len(self._streams) < self._stream_limit:
                         key = f"resident-{len(self._streams)}"
@@ -1257,17 +1305,24 @@ class Scenario:
         return self.run(Reach(origin, **options))
 
     @overload
-    def run(self, query: Query) -> Result: ...
+    def run(self, query: Query, *, workers: int = 1) -> Result: ...
 
     @overload
-    def run(self, query: Sequence[Query]) -> list[Result]: ...
+    def run(self, query: Sequence[Query], *, workers: int = 1) -> list[Result]: ...
 
-    def run(self, query: Query | Sequence[Query]) -> Result | list[Result]:
+    def run(self, query: Query | Sequence[Query], *, workers: int = 1) -> Result | list[Result]:
+        _validate_workers(workers)
         if isinstance(query, Sequence) and not isinstance(query, (str, bytes)):
-            return [self.city._execute(item, self) for item in query]
+            return list(self.iter_run(query, workers=workers))
         if not isinstance(query, (Route, Matrix, Reach)):
             raise InvalidQuery("query must be Route, Matrix, or Reach")
         return self.city._execute(query, self)
+
+    def iter_run(self, queries: Iterable[Query], *, workers: int = 1) -> Iterator[Result]:
+        """Yield ordered Results using this Scenario for every query."""
+        _validate_workers(workers)
+        return _iter_results(queries, lambda query: self.city._execute(query, self),
+                             min(workers, self.city._stream_limit))
 
     def supports(self, query: Query) -> Support:
         return self.city._support(query, self)

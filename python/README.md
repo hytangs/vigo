@@ -73,3 +73,5 @@ Planned-service scenarios support Reach, and supplied traffic supports driving R
 The [offline reader](docs/index.html) includes search and printable documentation. See [contributing](CONTRIBUTING.md) for tests, engine integration, and wheel builds, or [troubleshooting](docs/guide.md#troubleshooting) for runtime problems.
 
 Licensed under [Apache-2.0](LICENSE).
+
+For independent batches, `city.iter_run(queries, workers=2)` yields complete Results in input order while bounding pending work and retained responses. The default remains serial. See [concurrent batches](docs/guide.md#run-independent-queries-concurrently) for resource limits and early-exit cleanup.
