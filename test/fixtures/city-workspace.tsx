@@ -144,14 +144,13 @@ window.checkStreetAccess = async () => {
 window.checkDocumentation = async (dark = false) => {
   requests = []
   flushSync(() => { window.fixture.setView('settings'); window.fixture.setAppearance(dark ? 'dark' : 'light') })
-  click('#settings-tab-documentation')
-  click('.settings-docs-toolbar button:first-child')
+  click('#settings-tab-documentation'); await settle()
   const ready = async () => {
     const deadline = Date.now() + 10000
     while (Date.now() < deadline) {
       const frame = document.querySelector('.settings-docs-frame')
       const doc = frame?.contentDocument
-      if (frame?.getAttribute('aria-busy') === 'false' && doc?.documentElement.dataset.theme === (dark ? 'dark' : 'light')) return doc
+      if (frame?.getAttribute('aria-busy') === 'false' && doc?.readyState === 'complete' && doc.querySelector('#search') && doc?.documentElement.dataset.theme === (dark ? 'dark' : 'light')) return doc
       await settle()
     }
     throw Error('Bundled documentation did not load')
@@ -159,7 +158,7 @@ window.checkDocumentation = async (dark = false) => {
   let doc = await ready()
   assert(doc.documentElement.dataset.embedded === 'true', 'Reader is not embedded')
   assert(getComputedStyle(doc.querySelector('.site-header')).display === 'none', 'Reader repeats the app header')
-  doc.querySelector('#navigation').open = true
+  doc.querySelector('[data-search-open]').click()
   const search = doc.querySelector('#search')
   search.value = 'routing'; search.dispatchEvent(new Event('input', { bubbles: true }))
   const result = doc.querySelector('#search-links a')
@@ -167,13 +166,12 @@ window.checkDocumentation = async (dark = false) => {
   result.click(); await settle()
   assert(doc.querySelectorAll('.doc-page:not([hidden])').length === 1, 'Search did not select one page')
   const source = doc.querySelector('.page-meta a')
-  assert(source.href.startsWith('https://github.com/hytangs/vigo/blob/v') && source.target === '_blank', 'Source link replaces Studio')
+  assert(source.href.startsWith('https://github.com/hytangs/vigo/blob/main/') && source.target === '_blank', 'Source link replaces Studio')
   assert(doc.documentElement.scrollWidth <= doc.documentElement.clientWidth + 1, 'Embedded reader overflows')
-  click('.settings-docs-toolbar button[aria-pressed=true]')
-  assert(document.querySelector('.settings-docs-frame').getAttribute('aria-busy') === 'false', 'Selected guide starts an endless loading state')
-  click('.settings-docs-toolbar button:last-child')
-  doc = await ready()
-  assert(doc.body.dataset.product === 'VIGO Rust', 'Reference selector does not load the bundled native manual')
+  const frame = document.querySelector('.settings-docs-frame')
+  doc.querySelector('#chapters [data-nav=http-api]').click(); await settle()
+  assert(document.querySelector('.settings-docs-frame') === frame && frame.getAttribute('aria-busy') === 'false', 'Guide navigation reloads the embedded reader')
+  assert(!doc.querySelector('#page-http-api').hidden, 'Integrated HTTP reference did not open')
   const schema = await originalFetch(document.querySelector('.settings-docs-toolbar a').href).then(response => response.json())
   assert(schema.openapi === '3.1.0' && schema.info.version === '0.5.2', 'API schema is missing or stale')
   const codePage = [...doc.querySelectorAll('.doc-page')].find(page => page.querySelector('.copy'))
