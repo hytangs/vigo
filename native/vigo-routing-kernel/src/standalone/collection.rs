@@ -280,6 +280,7 @@ impl Collection {
             "scope":"unique shared street and timetable owners plus all resident scenarios; retained capacity estimates, not RSS; excludes active query temporaries, transport and UI"});
         json!({"schema":"vigo.scenarios.info.v1","status":"ok","name":self.manifest.name,
             "allocator":super::allocator_memory(),"memory":memory,
+            "resourcePolicy":{"memoryCapacityBytes":crate::resources::memory_capacity(),"swapCountsAsRam":false},
             "engineVersion":env!("CARGO_PKG_VERSION"),"defaultScenario":self.manifest.default_scenario,
             "scenarios":self.manifest.scenarios.iter().map(|s| json!({"id":s.id,"name":s.name})).collect::<Vec<_>>(),
             "residency":{"maximumScenarios":self.manifest.maximum_resident_scenarios,"loadedScenarios":self.cities.len(),

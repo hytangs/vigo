@@ -22,6 +22,7 @@ from types import MappingProxyType
 from typing import Any, TypeGuard, TypeVar, overload
 
 from ._json import copy_json, loads
+from ._resources import worker_count as _job_worker_count
 from ._tables import write_result_tables
 from .runtime import (
     API_VERSION,
@@ -50,20 +51,6 @@ _SERVICE_DAYS = {
     6: "sunday",
 }
 
-
-def _job_worker_count() -> int:
-    cpu_limit = max(1, min(4, (os.cpu_count() or 2) // 2))
-    sysconf = getattr(os, "sysconf", None)
-    if sysconf is None:
-        return 1
-    try:
-        physical_bytes = int(sysconf("SC_PHYS_PAGES")) * int(
-            sysconf("SC_PAGE_SIZE")
-        )
-    except (AttributeError, OSError, TypeError, ValueError):
-        return 1
-    memory_limit = max(1, min(4, physical_bytes // (6 * 1024**3)))
-    return min(cpu_limit, memory_limit)
 
 
 _EXECUTOR = ThreadPoolExecutor(

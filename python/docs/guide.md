@@ -681,7 +681,7 @@ Matrix requires advertised resident execution. Supplied traffic for Drive Route/
 
 ### Keep a City open
 
-With the bundled engine, all Route modes (including waypoints and supplied traffic), Matrix, and Reach share resident processes by service date. A City keeps one to four processes according to CPU and physical memory. Changing dates reclaims the least recently used idle process. Active queries finish before eviction or `City.close()` releases their process.
+With the bundled engine, all Route modes (including waypoints and supplied traffic), Matrix, and Reach share resident processes by service date. A City keeps one to four processes according to CPU and resident memory capacity. On Linux, affinity and cgroup CPU quotas limit concurrency, while cgroup memory limits and `memory.high` cap the host RAM budget. Limits are read when sizing the executor/City; recreate the City after changing resource limits. Swap is not counted as RAM. Changing dates reclaims the least recently used idle process. Active queries finish before eviction or `City.close()` releases their process.
 
 VIGO Python 0.5 requires Engine 0.5. All queries use the documented `stream` protocol. Detailed Python Results request its explicit trace output. Opening several City objects does not share their routing processes.
 

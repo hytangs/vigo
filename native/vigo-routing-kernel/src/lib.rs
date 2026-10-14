@@ -75,6 +75,7 @@ pub use fares::node::{
 pub use route_alternatives::route_alternative_request;
 #[cfg(feature = "node")]
 pub use route_materialization::stop_sequence_line;
+mod resources;
 mod shared_streets;
 mod snapshot_validation;
 mod street_kernel;
@@ -107,7 +108,7 @@ static MAXIMUM_ENDPOINT_CACHE_BYTES: LazyLock<usize> = LazyLock::new(|| {
     std::env::var("VIGO_ENDPOINT_CACHE_MAX_BYTES")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(64 * 1024 * 1024usize)
+        .unwrap_or_else(|| resources::cache_budget(64 * 1024 * 1024, 64))
         .min(256 * 1024 * 1024)
 });
 const MAXIMUM_MATRIX_PAIRS: usize = 100_000;

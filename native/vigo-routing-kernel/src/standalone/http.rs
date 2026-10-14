@@ -374,6 +374,8 @@ struct State {
     requests: Mutex<HashMap<String, Arc<AtomicBool>>>,
     request_bytes: Arc<ByteBudget>,
     response_bytes: Arc<ByteBudget>,
+    request_capacity: usize,
+    response_capacity: usize,
 }
 fn setting(
     o: &HashMap<String, String>,
@@ -430,6 +432,9 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
         requests: Mutex::new(HashMap::new()),
         request_bytes: Arc::default(),
         response_bytes: Arc::default(),
+        request_capacity: crate::resources::cache_budget(REQUEST_BYTES, 32).max(maximum + 1024),
+        response_capacity: crate::resources::cache_budget(RESPONSE_BYTES, 16)
+            .max(WORKER_LINE_BYTES),
     });
     let supervisor = state.clone();
     let city = city.to_owned();
@@ -490,7 +495,7 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                 ) {
                     Ok(v) => match supervisor
                         .response_bytes
-                        .reserve(v.bytes.capacity(), RESPONSE_BYTES)
+                        .reserve(v.bytes.capacity(), supervisor.response_capacity)
                     {
                         Some(lease) => (
                             if v.failed { 400 } else { 200 },
@@ -654,7 +659,7 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
         if ["/", "/docs", "/docs/"].contains(&path) {
             return Ok(Response::Static(
                 "text/html; charset=utf-8",
-                include_bytes!("../../../../docs/standalone.html"),
+                include_bytes!("../../../../docs/guide.html"),
             ));
         }
         if [
@@ -742,7 +747,7 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
     }
     // Reserve before accepting/uploading the body, even for chunked framing.
     // Leave small normalization headroom for endpoint kind and URL flags.
-    let Some(lease) = state.request_bytes.reserve(length.unwrap_or(state.maximum).saturating_add(1024), REQUEST_BYTES) else {
+    let Some(lease) = state.request_bytes.reserve(length.unwrap_or(state.maximum).saturating_add(1024), state.request_capacity) else {
         return Ok((503, error("Request memory capacity reached")));
     };
     if let Some(expect) = get("Expect")? {

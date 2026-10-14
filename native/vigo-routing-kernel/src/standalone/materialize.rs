@@ -147,7 +147,7 @@ impl Default for ShapeCache {
             maximum_bytes: std::env::var("VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(64 * 1024 * 1024usize)
+                .unwrap_or_else(|| crate::resources::cache_budget(64 * 1024 * 1024, 64))
                 .min(256 * 1024 * 1024),
             maximum_entries: std::env::var("VIGO_SHAPE_GEOMETRY_CACHE_MAX_ENTRIES")
                 .ok()

@@ -641,7 +641,7 @@ impl City {
         if let Some(object) = access.as_object_mut() {
             object.remove("profileKey");
         }
-        json!({"schemaVersion":"vigo.standalone.city.v1","name":self.manifest["name"],"revisionId":self.manifest["revisionId"],"sources":self.manifest["sources"],"runtime":"rust","accessibility":self.metadata["accessibility"],"routing":self.manifest["routingStore"],"streets":self.manifest["streetStore"],"warnings":self.metadata["routingLimitations"],"memory":{
+        json!({"schemaVersion":"vigo.standalone.city.v1","name":self.manifest["name"],"revisionId":self.manifest["revisionId"],"sources":self.manifest["sources"],"runtime":"rust","resourcePolicy":{"memoryCapacityBytes":crate::resources::memory_capacity(),"swapCountsAsRam":false},"accessibility":self.metadata["accessibility"],"routing":self.manifest["routingStore"],"streets":self.manifest["streetStore"],"warnings":self.metadata["routingLimitations"],"memory":{
             "ledger":self.memory_ledger(),"sharedStreetOwners":self.street.shared_street_owners(),"street":self.street.diagnostics(),"access":access,
             "timetable":self.timetable.as_ref().map(|t| t.kernel.diagnostics()),
             "timetablePreparations":self.timetable_preparations,

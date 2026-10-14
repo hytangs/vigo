@@ -20,7 +20,9 @@ impl TimetableCache {
             Ok(value) => value
                 .parse::<usize>()
                 .map_err(|_| "VIGO_TIMETABLE_CACHE_BYTES must be a nonnegative integer")?,
-            Err(std::env::VarError::NotPresent) => DEFAULT_BYTES,
+            Err(std::env::VarError::NotPresent) => {
+                crate::resources::cache_budget(DEFAULT_BYTES, 32)
+            }
             Err(error) => return Err(error.into()),
         };
         Ok(Self {

@@ -66,7 +66,10 @@ try {
       fs.chmodSync(path.join(entry.parentPath, entry.name), entry.isDirectory() ? 0o755 : 0o644)
     }
   }
-  for (const folder of [city, collection]) {
+  for (const [folder, memory] of [[city, '2g'], [collection, '2g'], [collection, '256m']]) {
+    env.VIGO_MEMORY = memory
+    env.VIGO_MEMORY_SWAP = memory
+    const memoryBytes = memory === '2g' ? 2 * 1024 ** 3 : 256 * 1024 ** 2
     env.VIGO_CITY = folder
     const before = inventory(folder)
     await compose('up', '-d', '--wait', '--wait-timeout', '90')
@@ -75,7 +78,8 @@ try {
     assert.equal(inspected.Image, verifiedImage, 'Check the exact image even if its tag changes during validation')
     assert.equal(inspected.Config.User, '65532:65532')
     assert.equal(inspected.HostConfig.ReadonlyRootfs, true)
-    assert.equal(inspected.HostConfig.Memory, 2 * 1024 ** 3)
+    assert.equal(inspected.HostConfig.Memory, memoryBytes)
+    assert.equal(inspected.HostConfig.MemorySwap, memoryBytes)
     assert.equal(inspected.HostConfig.NanoCpus, 2 * 1e9)
     assert.equal(inspected.HostConfig.PidsLimit, 64)
     assert.equal(inspected.HostConfig.Init, true)
@@ -119,6 +123,10 @@ try {
     const request = folder === city ? base : { ...base, scenarioId: 's0' }
     const route = await post('route', request)
     assert.equal(route.journey.arrivalTime, '08:30:00')
+    const policyInfo = await (await fetch(`${origin}/v1/info`, { headers })).json()
+    assert(policyInfo.resourcePolicy.memoryCapacityBytes > 0 && policyInfo.resourcePolicy.memoryCapacityBytes <= memoryBytes)
+    assert.equal(policyInfo.resourcePolicy.swapCountsAsRam, false)
+    checks += 3
     assert(route.journey.legs.some(leg => leg.geometry?.coordinates?.length > 1))
     const arrive = await post('route', { ...request, time: '08:30', timePreference: 'arrive_by' })
     assert.equal(arrive.journey.arrivalTime, '08:30:00')
@@ -159,7 +167,7 @@ try {
   assert.equal(fs.existsSync(absent), false, 'A misspelled City path must not create an empty directory')
   checks += 2
   console.log(JSON.stringify({ status: 'passed', image, imageId: verifiedImage, checks, cpus: 2, memoryLimitBytes: 2 * 1024 ** 3,
-    fixtures: ['prepared-city', 'shared-scenario-collection'], readOnly: true, restart: 'verified' }, null, 2))
+    fixtures: ['prepared-city', 'shared-scenario-collection', '256-MiB-collection'], readOnly: true, restart: 'verified' }, null, 2))
 } catch (error) {
   // Preserve startup evidence before cleanup removes the failed container.
   const logs = await compose('logs', '--no-color', '--tail', '50').catch(() => null)
