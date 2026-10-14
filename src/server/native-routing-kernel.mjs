@@ -2367,3 +2367,8 @@ export function serializePublicResult(kind, request, result) {
 export function renderPublicText(result) {
   return loadNativeBinding().renderPublicText(JSON.stringify(result))
 }
+
+// Keep detailed Python choices in the same order and bounds as public Route.
+export function selectDetailedRouteChoices(request, result) {
+  return JSON.parse(loadNativeBinding().selectDetailedRouteChoices(JSON.stringify({ request, result })))
+}

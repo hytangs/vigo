@@ -94,6 +94,8 @@ String clocks support service-day hours through `29:59`. For example, `depart_at
 
 ## Route
 
+Opt-in alternatives use `alternatives=3` (0–9), `alternative_ranking="pareto"` or `"ranked"`, and `alternative_slack_minutes=15` (0–120). Ranking and slack require a nonzero alternatives count; omitted values use engine defaults. Alternatives require a runtime advertising canonical detailed alternatives and depart-at transit without waypoints or a departure window. `result.value` stays the primary journey; `result.choices` returns independent copies of the engine-selected choices, and `result.alternative_search` retains search coverage and completion metadata. `iter_journeys()` and `iter_legs()` still describe the primary Route; use `choices` or full JSON to inspect alternatives.
+
 Transit Route and Matrix compare a feasible direct walk by default. Use `require_transit_ride=True` to require a vehicle boarding, or `mode="walk"` for a walking journey. `horizon_minutes` sets the transit search horizon (1–2880 minutes; default 480).
 
 Route includes point-to-point, depart-at, arrive-by, departure-window, walking, driving, and batch use.
@@ -112,6 +114,9 @@ Route includes point-to-point, depart-at, arrive-by, departure-window, walking, 
 | `require_transit_ride` | `False` | Require at least one vehicle boarding |
 | `horizon_minutes` | `480` | Timetable search horizon, 1–2880 minutes |
 | `disable_cache` | `False` | Disable transit street-access and walking-path caches |
+| `alternatives` | `0` | Additional Route journeys requested, 0–9; opt-in |
+| `alternative_ranking` | `None` | Engine default `pareto`, or `ranked` |
+| `alternative_slack_minutes` | `None` | Engine default 15; arrival slack from 0 to 120 minutes |
 
 Choose departure or arrival time, never both. A nonzero departure window applies to depart-at only.
 

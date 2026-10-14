@@ -40,7 +40,7 @@ const queryFamilies = Object.freeze([
     horizonMinutes: Object.freeze({ min: 1, max: 2_880, default: 480 }),
     label: 'Route',
     maxTransfers: Object.freeze({ min: 0, max: 31, default: null }),
-    alternatives: Object.freeze({ min: 0, max: 9, default: 0, rankings: Object.freeze(['pareto', 'ranked']), timePreferences: Object.freeze(['depart_at']) }),
+    alternatives: Object.freeze({ min: 0, max: 9, default: 0, detailedChoices: true, rankings: Object.freeze(['pareto', 'ranked']), timePreferences: Object.freeze(['depart_at']) }),
     purpose: 'Find and explain journeys between ordered points.',
     interfaces: Object.freeze({ studio: supported, python: supported, cli: supported }),
     options: Object.freeze([

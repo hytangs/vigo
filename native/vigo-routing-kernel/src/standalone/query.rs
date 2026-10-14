@@ -522,17 +522,39 @@ impl City {
         })?;
         self.project_candidates(result)
     }
-    fn matrix_candidates(&mut self, points: &[Point], role: &str, opt: &Options) -> Result<Vec<Candidates>> {
+    fn matrix_candidates(
+        &mut self,
+        points: &[Point],
+        role: &str,
+        opt: &Options,
+    ) -> Result<Vec<Candidates>> {
         if points.iter().any(|point| point.stop.is_some()) {
-            return points.iter().map(|point| self.candidates(point, role, opt)).collect();
+            return points
+                .iter()
+                .map(|point| self.candidates(point, role, opt))
+                .collect();
         }
-        let coordinates = points.iter().map(|point| point.coordinate).collect::<Vec<_>>();
-        self.street.route_endpoint_batch(&coordinates, EndpointRoleInput {
-            longitude: 0., latitude: 0., maximum_walk_m: opt.walk_m,
-            walking_speed_kph: Some(opt.walk_speed.unwrap_or(self.speed)),
-            access_padding_factor: Some(self.padding), access_overhead_seconds: Some(self.overhead),
-            role: role.into(), disable_cache: Some(opt.disable_cache),
-        })?.into_iter().map(|result| self.project_candidates(result)).collect()
+        let coordinates = points
+            .iter()
+            .map(|point| point.coordinate)
+            .collect::<Vec<_>>();
+        self.street
+            .route_endpoint_batch(
+                &coordinates,
+                EndpointRoleInput {
+                    longitude: 0.,
+                    latitude: 0.,
+                    maximum_walk_m: opt.walk_m,
+                    walking_speed_kph: Some(opt.walk_speed.unwrap_or(self.speed)),
+                    access_padding_factor: Some(self.padding),
+                    access_overhead_seconds: Some(self.overhead),
+                    role: role.into(),
+                    disable_cache: Some(opt.disable_cache),
+                },
+            )?
+            .into_iter()
+            .map(|result| self.project_candidates(result))
+            .collect()
     }
     fn project_candidates(&self, result: EndpointRoleResult) -> Result<Candidates> {
         let t = self.timetable.as_ref().ok_or("Timetable is not active")?;

@@ -52,6 +52,36 @@ class LiveRuntimeTest(unittest.TestCase):
         cls.city.close()
         cls.temporary.cleanup()
 
+    def test_route_alternatives_match_engine_and_preserve_details(self) -> None:
+        def journey(value):
+            # Compare itinerary content; process timing/cache diagnostics differ.
+            return {key: item for key, item in value.items() if key != "diagnostics"} if value else value
+        for ranking in ("pareto", "ranked"):
+            with self.subTest(ranking=ranking):
+                result = self.city.route("A", "B", depart_at="07:55", service_date="2026-07-15",
+                                         alternatives=3, alternative_ranking=ranking,
+                                         alternative_slack_minutes=20, max_walk_km=0.2)
+                expected = _one_shot(self.city.runtime, self.city.path, "route", {
+                    "origin": {"stopId": "A"}, "destination": {"stopId": "B"},
+                    "time": "07:55", "serviceDate": "2026-07-15", "maxWalkKm": 0.2,
+                    "alternatives": 3, "alternativeRanking": ranking, "alternativeSlackMinutes": 20,
+                }, [], 60)
+                self.assertEqual(journey(result.value), journey(expected["result"]))
+                self.assertEqual(tuple(map(journey, result.choices)), tuple(map(journey, expected.get("choices", []))))
+                self.assertEqual(result.alternative_search, expected["alternativeSearch"])
+                self.assertEqual(result.alternative_search["ranking"], ranking)
+                self.assertEqual(result.query["alternativeRanking"], ranking)
+                self.assertEqual(result.query["alternatives"], 3)
+                self.assertLessEqual(len(result.choices), 3)
+                if result.choices:
+                    original = result.choices
+                    changed = result.choices
+                    changed[0]["legs"] = []
+                    self.assertEqual(result.choices, original)
+        for options in ({"arrive_by": "09:00"}, {"mode": "walk"},
+                        {"waypoints": ["C"]}, {"departure_window_minutes": 5}):
+            self.assertFalse(self.city.supports(vigo.Route("A", "B", alternatives=1, **options)).supported)
+
     def test_dates_reuse_one_idle_engine_process(self) -> None:
         if self.city.runtime.capabilities.get("output", {}).get("requestServiceDate") is not True:
             self.skipTest("runtime does not advertise per-request service dates")

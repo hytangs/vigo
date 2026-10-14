@@ -38,12 +38,16 @@ def main() -> None:
     assert result.rows == tuple(copy.deepcopy(row) for row in payload["rows"])
     assert loads(encoded) == json.loads(encoded)
 
+    wire = encoded.encode("utf-8")
+    assert loads(wire) == loads(wire.decode("utf-8"))
     functions = {
         "deepcopy_rows": lambda: tuple(copy.deepcopy(row) for row in payload["rows"]),
         "result_rows": lambda: result.rows,
         "first_row_only": lambda: next(result.iter_rows()),
         "stdlib_decode": lambda: json.loads(encoded),
         "selected_decode": lambda: loads(encoded),
+        "wire_via_text": lambda: loads(wire.decode("utf-8")),
+        "wire_direct": lambda: loads(wire),
     }
     timings = {
         name: statistics.median(timeit.repeat(function, number=args.iterations, repeat=args.repeats))

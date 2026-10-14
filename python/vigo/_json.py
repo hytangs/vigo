@@ -7,7 +7,7 @@ from collections.abc import Callable
 from importlib import import_module
 from typing import Any
 
-loads: Callable[[str], Any]
+loads: Callable[[str | bytes], Any]
 try:
     loads = import_module("orjson").loads
 except ImportError:

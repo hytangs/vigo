@@ -6,7 +6,7 @@ import path from 'node:path'
 import { spawn, execFileSync } from 'node:child_process'
 import { once } from 'node:events'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
-import { renderPublicText } from '../src/server/native-routing-kernel.mjs'
+import { renderPublicText, formatPublicResult } from '../src/server/native-routing-kernel.mjs'
 import { standaloneBinary } from './helpers/standalone-runtime.mjs'
 import { classifyResponse } from '../scripts/lib/benchmark-response.mjs'
 const root = path.resolve(import.meta.dirname, '..')
@@ -105,6 +105,15 @@ try {
       assert.deepEqual(alternatives.alternativeSearch, { coverage: 'requested_time', ranking: alternativeRanking,
         maximumJourneys: 3, arrivalSlackMinutes: 15, status: 'complete' })
       assert((alternatives.alternatives ?? []).length <= 2)
+      if (runtime === 'node') {
+        const trace = cli(runtime, 'route', { ...base, alternatives: 2, alternativeRanking, diagnostics: 'trace' }).trace
+        assert.deepEqual(trace.alternativeSearch, alternatives.alternativeSearch)
+        assert(trace.choices.length <= 2)
+        const projected = trace.choices.map(choice => formatPublicResult('route', base,
+          { ...trace, result: choice, choices: [], alternativeSearch: null }).journey)
+        assert.deepEqual(projected, alternatives.alternatives ?? [])
+        checks += 3
+      }
       alternativeResults.push(alternatives)
     }
     for (const invalid of [{ alternatives: 10 }, { alternatives: 1, timePreference: 'arrive_by' }, { alternativeRanking: 'ranked' },

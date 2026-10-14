@@ -12,7 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.5.1"
+VERSION = "0.5.2"
 API_VERSION = "1.0"
 CITY_FORMAT_VERSION = 1
 RESULT_SCHEMA_VERSION = 1

@@ -717,14 +717,24 @@ impl DynamicCchQuery {
                 let remaining = maximum_distance - distance;
                 for (offset, &weight) in forward_weights[edge_start..edge_end].iter().enumerate() {
                     if weight <= remaining {
-                        self.offer_distance_from(cch.up_head[edge_start + offset], distance + weight, source, generation);
+                        self.offer_distance_from(
+                            cch.up_head[edge_start + offset],
+                            distance + weight,
+                            source,
+                            generation,
+                        );
                     }
                 }
             } else {
                 for (offset, &weight) in forward_weights[edge_start..edge_end].iter().enumerate() {
                     let candidate = distance.saturating_add(weight).min(cch::INF_WEIGHT);
                     if candidate <= maximum_distance {
-                        self.offer_distance_from(cch.up_head[edge_start + offset], candidate, source, generation);
+                        self.offer_distance_from(
+                            cch.up_head[edge_start + offset],
+                            candidate,
+                            source,
+                            generation,
+                        );
                     }
                 }
             }
@@ -8583,6 +8593,15 @@ fn flatten_path(
         coordinates.push(node_lats[*node as usize]);
     }
     Ok(coordinates)
+}
+
+#[cfg_attr(feature = "node", napi)]
+pub fn select_detailed_route_choices(input: String) -> Result<String> {
+    let v: serde_json::Value =
+        serde_json::from_str(&input).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let selected = presentation::detailed_route_choices(&v["request"], &v["result"])
+        .map_err(napi::Error::from_reason)?;
+    serde_json::to_string(&selected).map_err(|e| napi::Error::from_reason(e.to_string()))
 }
 
 // The public JSON boundary is shared by standalone and Node transports.

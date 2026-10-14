@@ -239,9 +239,16 @@ fn leg(v: &mut Value, geometry: bool) -> Value {
 }
 // Matrix cells are independent after routing. Reuse the bounded routing pool
 // to project large rows/columns in parallel, retaining their exact order.
-fn project_values(values: &mut [Value], geometry: bool, project: fn(&mut Value, bool) -> Value) -> Vec<Value> {
+fn project_values(
+    values: &mut [Value],
+    geometry: bool,
+    project: fn(&mut Value, bool) -> Value,
+) -> Vec<Value> {
     if values.len() < 64 {
-        return values.iter_mut().map(|value| project(value, geometry)).collect();
+        return values
+            .iter_mut()
+            .map(|value| project(value, geometry))
+            .collect();
     }
     let (left, right) = values.split_at_mut(values.len() / 2);
     let (mut left, right) = crate::join_endpoint_access(
@@ -252,7 +259,9 @@ fn project_values(values: &mut [Value], geometry: bool, project: fn(&mut Value, 
     left
 }
 fn journey_row(row: &mut Value, geometry: bool) -> Value {
-    row.as_array_mut().map_or(Value::Null, |cells| Value::Array(project_values(cells, geometry, journey)))
+    row.as_array_mut().map_or(Value::Null, |cells| {
+        Value::Array(project_values(cells, geometry, journey))
+    })
 }
 fn journey(v: &mut Value, geometry: bool) -> Value {
     if v.is_null() || v["status"] == "blocked" {
@@ -760,13 +769,11 @@ pub fn format_owned(kind: &str, request: &Value, mut raw: Value) -> Value {
                         }
                     }
                 }
-                out["durationsSeconds"] = Value::Array(
-                    durations.into_iter().map(Value::Array).collect(),
-                );
+                out["durationsSeconds"] =
+                    Value::Array(durations.into_iter().map(Value::Array).collect());
                 if has_journeys {
-                    out["journeys"] = Value::Array(
-                        journeys.into_iter().map(Value::Array).collect(),
-                    );
+                    out["journeys"] =
+                        Value::Array(journeys.into_iter().map(Value::Array).collect());
                 }
             }
             let endpoints = out["query"].clone();
@@ -919,9 +926,19 @@ mod tests {
                             "fromStopId":"feed\u{1f}a","toStopId":"feed\u{1f}b","tripId":format!("trip-{i}"),
                             "coordinates":[[-77.,38.],[-77.01,38.01]]}]})
                 }).collect())).collect::<Vec<_>>();
-                let expected = input.clone().iter_mut().map(|row| Value::Array(
-                    row.as_array_mut().unwrap().iter_mut().map(|cell| journey(cell, geometry)).collect()
-                )).collect::<Vec<_>>();
+                let expected = input
+                    .clone()
+                    .iter_mut()
+                    .map(|row| {
+                        Value::Array(
+                            row.as_array_mut()
+                                .unwrap()
+                                .iter_mut()
+                                .map(|cell| journey(cell, geometry))
+                                .collect(),
+                        )
+                    })
+                    .collect::<Vec<_>>();
                 assert_eq!(project_values(&mut input, geometry, journey_row), expected);
             }
         }
@@ -1233,4 +1250,76 @@ pub fn text(result: &Value) -> Option<String> {
         }
     }
     Some(text)
+}
+
+/// Select detailed Python/Node choices using the public journey selection rule.
+/// Only opt-in alternatives take this path; raw itinerary fields remain intact.
+pub(crate) fn detailed_route_choices(request: &Value, raw: &Value) -> Result<Value, String> {
+    let options = crate::route_alternatives::parse(request)?.ok_or("alternatives are required")?;
+    let search = options.descriptor(&raw["alternativeSearch"]);
+    let primary_raw = &raw["result"];
+    let primary = route_journey(&mut primary_raw.clone(), request, true);
+    let mut detailed = Vec::new();
+    let mut projected = Vec::new();
+    for choice in raw["choices"].as_array().into_iter().flatten() {
+        if choice == primary_raw {
+            continue;
+        }
+        let public = route_journey(&mut choice.clone(), request, true);
+        if public.is_null() || public == primary || projected.contains(&public) {
+            continue;
+        }
+        detailed.push(choice.clone());
+        projected.push(public);
+    }
+    // Carry a temporary index through the shared selector; it never escapes.
+    for (index, public) in projected.iter_mut().enumerate() {
+        public["__detailIndex"] = json!(index);
+    }
+    let selected = crate::route_alternatives::select(&primary, projected, &search);
+    let choices: Vec<_> = selected
+        .iter()
+        .map(|public| {
+            detailed[public["__detailIndex"]
+                .as_u64()
+                .expect("selection preserves index") as usize]
+                .take()
+        })
+        .collect();
+    Ok(json!({"choices":choices,"alternativeSearch":search}))
+}
+
+#[cfg(test)]
+mod detailed_choice_tests {
+    use super::*;
+
+    #[test]
+    fn selected_choices_retain_raw_details_and_public_order() {
+        let plan = |trip: &str, arrival: u64| {
+            json!({
+                "status":"ready","departure":28800,"arrival":arrival,
+                "walkingSeconds":0,"waitingSeconds":0,"rideSeconds":arrival-28800,"boardings":1,
+                "legs":[{"kind":"ride","fromStopId":"A","toStopId":"B","tripId":trip,
+                    "routeId":"R","departure":28800,"arrival":arrival}],
+                "retainedDetail":{"nested":[1,2,3]}
+            })
+        };
+        let primary = plan("first", 29400);
+        let later = plan("later", 30000);
+        let latest = plan("latest", 30600);
+        let raw = json!({"kind":"route","result":primary,
+            "choices":[latest,later,primary,later],"alternativeSearch":{"status":"complete"}});
+        let request = json!({"alternatives":1,"alternativeRanking":"ranked"});
+        let selected = detailed_route_choices(&request, &raw).unwrap();
+        assert_eq!(selected["choices"], json!([later]));
+        assert_eq!(selected["alternativeSearch"]["maximumJourneys"], 2);
+        assert!(!selected.to_string().contains("__detailIndex"));
+        let mut projected = raw.clone();
+        projected["choices"] = selected["choices"].clone();
+        projected["alternativeSearch"] = selected["alternativeSearch"].clone();
+        assert_eq!(
+            format_owned("route", &request, raw)["alternatives"],
+            format_owned("route", &request, projected)["alternatives"]
+        );
+    }
 }

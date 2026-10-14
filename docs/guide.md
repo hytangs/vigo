@@ -11,7 +11,7 @@ VIGO 0.5.2 turns GTFS timetables and OpenStreetMap streets into a reusable City.
 - **[Build your first City](#vigo-cli-quickstart)** Download public Boston inputs, prepare the network, and run a complete request.
 - **[Run a routing service](guides/rust-standalone.md)** Open a prepared City with the standalone Rust executable and serve JSON over HTTP.
 - **[Explore in Studio](#vigo-studio-desktop-guide)** Manage sources, inspect service, plan journeys, and compare reachable areas.
-- **[Work in Python](https://github.com/hytangs/vigo/tree/main/python/docs)** Build and reuse a City in scripts and notebooks with VIGO Python 0.5.1.
+- **[Work in Python](https://github.com/hytangs/vigo/tree/main/python/docs)** Build and reuse a City in scripts and notebooks with VIGO Python 0.5.2.
 
 ### Choose the right interface
 

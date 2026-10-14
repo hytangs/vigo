@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.2
+
+- Maintain Python in the shared VIGO repository with independent package builds and same-commit engine integration.
+- Support opt-in Route alternatives, ranking and arrival slack; retain choice details and alternative-search metadata.
+- Decode resident UTF-8 response bytes directly with the optional accelerated decoder, avoiding an intermediate Python string. Standard-library fallback, request validation and full itinerary detail remain unchanged.
+
+
 ## 0.5.1
 
 - Reuse idle Engine processes across dates when per-request dates are advertised; retain legacy date-specific streams for older compatible engines.

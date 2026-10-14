@@ -2,6 +2,8 @@
 
 ## 0.5.2
 
+- Keep detailed Python Route alternatives in the same order and count as public CLI/HTTP choices through the shared native selector, retaining all detailed itinerary fields.
+
 - Batch large uncached coordinate endpoint searches across four bounded workers, keep dominance keys contiguous, and project large matrix results in parallel while preserving input order, full itineraries, geometry and routing selection.
 
 - Add opt-in Route alternatives to both runtimes: `alternatives` (0–9), `alternativeRanking` (`pareto` or `ranked`) and `alternativeSlackMinutes`, with `--alternatives` and `--alternative-ranking` flags. One Rust kernel request and one public selection rule serve both; ranked results count each sequence of vehicles once. Off by default; journey windows are unchanged.

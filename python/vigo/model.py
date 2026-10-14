@@ -111,6 +111,9 @@ class Route:
     require_transit_ride: bool = False
     horizon_minutes: float = 480
     disable_cache: bool = False
+    alternatives: int = 0
+    alternative_ranking: str | None = None
+    alternative_slack_minutes: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,18 +340,22 @@ class _QueryStream:
                     self._publish(VigoError("VIGO response exceeds 64 MiB"))
                     return
                 try:
-                    # Drop wire bytes before JSON decoding; otherwise the
-                    # stdlib decoder temporarily retains three full copies.
-                    line = encoded.decode("utf-8")
-                    del encoded
-                    value = loads(line)
+                    if loads is json.loads:
+                        # The stdlib needs text; release wire bytes before decoding.
+                        line = encoded.decode("utf-8")
+                        del encoded
+                        value = loads(line)
+                        del line
+                    else:
+                        # Accelerated decoders consume UTF-8 bytes directly.
+                        value = loads(encoded)
+                        del encoded
                     if not isinstance(value, dict):
                         raise TypeError("query stream returned a non-object")
                     if not self._publish(value):
                         return
                     # Do not keep a decoded Result alive in the idle reader.
                     del value
-                    del line
                 except (ValueError, TypeError) as error:
                     self._publish(error)
                     return
@@ -487,6 +494,16 @@ class Result:
         if self.kind == "reach":
             return copy_json(self._payload.get("surface"))
         return copy_json(self._payload.get("change"))
+
+    @property
+    def choices(self) -> tuple[dict[str, Any], ...]:
+        """Independent journey choices returned by opt-in Route alternatives."""
+        return tuple(copy_json(choice) for choice in self._payload.get("choices", ()))
+
+    @property
+    def alternative_search(self) -> dict[str, Any]:
+        """Coverage, ranking and completion status of alternative search."""
+        return copy_json(dict(self._payload.get("alternativeSearch") or {}))
 
     @property
     def rows(self) -> tuple[dict[str, Any], ...]:
@@ -829,6 +846,25 @@ class City:
             capability = self._query_capability("matrix" if isinstance(query, Matrix) else "route")
             if query.disable_cache and (query.mode != "transit" or not capability.get("transitStreetCacheControl")):
                 return Support(False, "disable_cache", ("transit runtime with street cache control",))
+            if isinstance(query, Route):
+                if type(query.alternatives) is not int or not 0 <= query.alternatives <= 9:
+                    raise InvalidQuery("alternatives must be an integer from 0 to 9")
+                if query.alternative_ranking not in (None, "pareto", "ranked"):
+                    raise InvalidQuery("alternative_ranking must be pareto or ranked")
+                if query.alternative_slack_minutes is not None and (
+                    not _finite(query.alternative_slack_minutes)
+                    or not 0 <= query.alternative_slack_minutes <= 120
+                ):
+                    raise InvalidQuery("alternative_slack_minutes must be finite and between 0 and 120")
+                if not query.alternatives and (
+                    query.alternative_ranking is not None or query.alternative_slack_minutes is not None
+                ):
+                    raise InvalidQuery("alternative settings require alternatives > 0")
+                if query.alternatives:
+                    if capability.get("alternatives", {}).get("detailedChoices") is not True:
+                        return Support(False, "alternatives", ("runtime with canonical detailed Route alternatives",))
+                    if query.mode != "transit" or query.arrive_by is not None or query.waypoints or query.departure_window_minutes:
+                        return Support(False, "alternatives_combination", ("depart-at transit without waypoints or a window",))
             if isinstance(query, Matrix):
                 if not capability.get("resident"):
                     return Support(False, "resident_matrix", ("runtime with resident Matrix support",))
@@ -1026,6 +1062,9 @@ class City:
             "disableCache": query.disable_cache,
             **({"maxTransfers": query.max_transfers} if query.max_transfers is not None else {}),
             "departureWindowMinutes": query.departure_window_minutes,
+            **({"alternatives": query.alternatives} if query.alternatives else {}),
+            **({"alternativeRanking": query.alternative_ranking} if query.alternative_ranking is not None else {}),
+            **({"alternativeSlackMinutes": query.alternative_slack_minutes} if query.alternative_slack_minutes is not None else {}),
             **(
                 {"traffic": _thaw(scenario.traffic), "routingDataMode": "realtime"}
                 if scenario and scenario.traffic is not None

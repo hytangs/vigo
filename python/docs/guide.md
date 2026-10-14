@@ -1,10 +1,10 @@
-# VIGO Python 0.5.1 guide
+# VIGO Python 0.5.2 guide
 
 Canonical source for the [documentation reader](index.html). Edit the relevant chapter, then rebuild the reader.
 
 ## Routing from Python, without rebuilding the network.
 
-VIGO Python 0.5.1 gives scripts and notebooks a small set of objects for transport analysis. Build or open a City, run Route, Matrix, or Reach, and retain the Result. Reuse one open City for repeated work.
+VIGO Python 0.5.2 gives scripts and notebooks a small set of objects for transport analysis. Build or open a City, run Route, Matrix, or Reach, and retain the Result. Reuse one open City for repeated work.
 
 ### Start with a working example
 
@@ -49,18 +49,18 @@ Use a context manager, retain the open City, and request Matrix journeys or geom
 
 ### Reference and support
 
-[Read these docs offline](index.html) · [Python API](reference.md) · [Troubleshooting](#troubleshooting) · [Notebooks](../notebooks/README.md) · [0.5.1 release notes](releases/0.5.1.md) · [Contributing](../CONTRIBUTING.md)
+[Read these docs offline](index.html) · [Python API](reference.md) · [Troubleshooting](#troubleshooting) · [Notebooks](../notebooks/README.md) · [0.5.2 release notes](releases/0.5.2.md) · [Contributing](../CONTRIBUTING.md)
 
 ## Your first Python query
 
-Install VIGO Python 0.5.1, select Engine 0.5, and open a prepared City. The example below asks for a journey from Harvard Square to South Station.
+Install VIGO Python 0.5.2, select Engine 0.5, and open a prepared City. The example below asks for a journey from Harvard Square to South Station.
 
 ### 1. Install
 
 For a packaged installation, select the wheel matching your OS and CPU from [VIGO Python releases](https://github.com/hytangs/vigo/tree/main/python/releases). Replace the filename below with the downloaded file:
 
 ```sh
-python -m pip install "/path/to/vigo-0.5.1-py3-none-PLATFORM.whl[speed]"
+python -m pip install "/path/to/vigo-0.5.2-py3-none-PLATFORM.whl[speed]"
 ```
 
 Platform wheels include Node, the headless CLI bundle, and the Rust kernel. The optional `speed` extra adds accelerated JSON decoding. Omit the extra for the dependency-free Python package; the packaged Engine is still included. Python 3.10 or newer is required.
@@ -541,7 +541,7 @@ Timing describes execution, not accuracy. Synthetic integration tests check cont
 | Source checkout or universal development wheel | Select a compatible external Engine | Wrapper development or an independently managed Engine |
 | Python with a complete Studio installation | Select the app or extracted distribution | Reusing the Engine shipped with Studio |
 
-Python requires version 3.10 or newer. Install a local platform wheel with `python -m pip install /path/to/vigo-0.5.1-py3-none-PLATFORM.whl`, substituting its real filename. The package has no mandatory Python dependencies. `tqdm` is optional for Build progress.
+Python requires version 3.10 or newer. Install a local platform wheel with `python -m pip install /path/to/vigo-0.5.2-py3-none-PLATFORM.whl`, substituting its real filename. The package has no mandatory Python dependencies. `tqdm` is optional for Build progress.
 
 For a source install, run `python -m pip install -e .` from the wrapper checkout, then select a compatible runtime explicitly. An adjacent Engine checkout is not automatically selected. Maintainers can [stage and build a headless platform wheel](../CONTRIBUTING.md#build-a-headless-wheel).
 
@@ -683,7 +683,7 @@ If importing the package exposes none of the documented functions, inspect `vigo
 ### Reduce Python overhead
 
 Install `python -m pip install ".[speed]"` from this checkout to enable optional
-`orjson` decoding of resident responses. Without it, Python uses the standard
+`orjson` decoding directly from resident UTF-8 response bytes, avoiding an intermediate Python string. Without it, Python uses the standard
 JSON decoder. Request encoding and exports retain strict finite-number checks
 and existing formatting. Decoding acceleration does not change routing or
 cache policy. The detailed trace is still requested to preserve Result fields.

@@ -342,6 +342,27 @@ class VigoPythonTest(unittest.TestCase):
         self.assertEqual(json.loads(route.export(self.root / "route.json").read_text()), expected)
         self.assertEqual(route.duration_minutes, 12.5)
 
+    def test_alternative_validation_and_older_engine_capability(self) -> None:
+        with vigo.open(self.city_path, runtime=self.command) as city:
+            for options in ({"alternatives": True}, {"alternatives": -1}, {"alternatives": 10},
+                            {"alternative_ranking": "ranked"}, {"alternatives": 1, "alternative_ranking": "unknown"},
+                            {"alternatives": 1, "alternative_slack_minutes": float("nan")},
+                            {"alternatives": 1, "alternative_slack_minutes": 121}):
+                with self.subTest(options=options), self.assertRaises(vigo.InvalidQuery):
+                    city.supports(vigo.Route("A", "B", **options))
+            support = city.supports(vigo.Route("A", "B", alternatives=1))
+            self.assertFalse(support.supported)
+            self.assertEqual(support.reason, "alternatives")
+
+    def test_accelerated_stream_decoder_receives_bytes(self) -> None:
+        received = []
+        def decode(value):
+            received.append(type(value))
+            return json.loads(value)
+        with vigo.open(self.city_path, runtime=self.command) as city, patch.object(model, "loads", decode):
+            city.route("A", "B", depart_at="08:00", service_date="2026-09-04")
+        self.assertEqual(received, [bytes])
+
     def test_route_json_preserves_unicode_and_independent_mutation(self) -> None:
         with vigo.open(self.city_path, runtime=self.command) as city:
             route = city.route("JSON", "B", depart_at="08:00", service_date="2026-09-04")

@@ -58,7 +58,7 @@ import {
   routeNationalStreetMatrix,
   routeNationalStreetStore,
 } from '../server/national-osm-store.mjs'
-import { buildNativeStreetCchIndex, formatPublicResult, routeAlternativeRequest } from '../server/native-routing-kernel.mjs'
+import { buildNativeStreetCchIndex, formatPublicResult, routeAlternativeRequest, selectDetailedRouteChoices } from '../server/native-routing-kernel.mjs'
 import { buildTerminalAccessStore } from '../server/terminal-access-store.mjs'
 import {
   composeOrderedRoutingFailure,
@@ -503,7 +503,7 @@ async function computeRouteRequest(
         }
   }
   const queryMs = performance.now() - queryStarted
-  return {
+  const result = {
     schemaVersion: 'vigo.result.route.v1',
     ...publicResultMetadata,
     kind: 'route',
@@ -522,6 +522,8 @@ async function computeRouteRequest(
       maxWalkKm: options.maxWalkKm,
       maxTransfers: options.maxTransfers,
       departureWindowMinutes: options.departureWindowMinutes,
+      ...(alternatives ? { alternatives: alternatives.count, alternativeRanking: alternatives.ranking,
+        alternativeSlackMinutes: alternatives.arrivalSlackSeconds / 60 } : {}),
       horizonMinutes: options.horizonMinutes,
       horizonScope: 'timetable_scan',
       requireTransitRide: request.requireTransitRide === true,
@@ -541,6 +543,8 @@ async function computeRouteRequest(
       endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)),
     },
   }
+  if (alternatives) Object.assign(result, selectDetailedRouteChoices(presentationRequest(request, args), result))
+  return result
 }
 
 async function runRouteRequest(args: CliArguments) {

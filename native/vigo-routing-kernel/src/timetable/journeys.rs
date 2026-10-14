@@ -216,7 +216,13 @@ struct FrontierLabel {
 
 impl FrontierLabel {
     fn new(index: usize, label: &Label) -> Self {
-        Self { index, time: label.time, walking: label.walking, end: label.end, boardings: label.boardings }
+        Self {
+            index,
+            time: label.time,
+            walking: label.walking,
+            end: label.end,
+            boardings: label.boardings,
+        }
     }
 }
 
@@ -377,7 +383,8 @@ impl JourneyWorkspace {
                     .map(Vec::capacity)
                     .sum::<usize>())
                 * std::mem::size_of::<usize>()
-            + self.labels.fronts.iter().map(Vec::capacity).sum::<usize>() * std::mem::size_of::<FrontierLabel>()
+            + self.labels.fronts.iter().map(Vec::capacity).sum::<usize>()
+                * std::mem::size_of::<FrontierLabel>()
             + self.run_generation.capacity() * std::mem::size_of::<u32>()
     }
 }
