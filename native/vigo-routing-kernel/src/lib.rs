@@ -163,8 +163,7 @@ static ENDPOINT_ACCESS_POOL: LazyLock<Option<rayon::ThreadPool>> = LazyLock::new
 
 fn endpoint_thread_count(available: usize, configured: Option<usize>) -> usize {
     available
-        .max(1)
-        .min(ENDPOINT_ACCESS_THREAD_COUNT)
+        .clamp(1, ENDPOINT_ACCESS_THREAD_COUNT)
         .min(configured.filter(|&n| n > 0).unwrap_or(usize::MAX))
 }
 
