@@ -149,6 +149,24 @@ try {
       assert(info.residency.evictions > 0)
       checks += 3
     }
+    if (memory === '256m') {
+      // Exercise bounded concurrent admission and repeated eviction with full
+      // results. Synthetic endurance verifies invariants, not regional capacity.
+      for (let round = 0; round < 30; round++) {
+        const replies = await Promise.all([0, 1].map(n => post('route', { ...base, scenarioId: `s${n}` })))
+        assert.deepEqual(replies[0].journey, route.journey)
+        assert.equal(replies[1].journey.arrivalTime, '08:31:00')
+        assert(replies[1].journey.legs.some(leg => leg.geometry?.coordinates?.length > 1))
+        const repeated = await post('matrix', { ...options, origins: [from], destinations: [destination], includeJourneys: true })
+        assert.deepEqual(repeated.durationsSeconds, matrix.durationsSeconds)
+        assert(Array.isArray(matrix.journeys) && matrix.journeys[0][0], 'Full Matrix journeys must be returned')
+        assert.deepEqual(repeated.journeys, matrix.journeys)
+      }
+      const events = (await docker('exec', id, 'cat', '/sys/fs/cgroup/memory.events')).stdout
+      assert(!/^oom(?:_kill|_group_kill)? [1-9]/m.test(events), events)
+      assert.equal(JSON.parse((await docker('inspect', id)).stdout)[0].RestartCount, 0)
+      checks += 2
+    }
     await compose('restart', '--timeout', '5', 'engine')
     await compose('up', '-d', '--wait', '--wait-timeout', '90')
     const restartedId = (await compose('ps', '-q', 'engine')).stdout.trim()

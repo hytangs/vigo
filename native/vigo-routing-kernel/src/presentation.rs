@@ -839,6 +839,9 @@ pub fn format_owned(kind: &str, request: &Value, mut raw: Value) -> Value {
         "info" | "inspect" => {
             out = json!({"schema":"vigo.info.v1","status":"ok","name":raw["name"],"revision":revision,
                 "memory":raw["memory"],"counts":raw["counts"],"sources":public_sources(&raw["sources"]),"datasetLimitations":pick(&raw,&["datasetLimitations","warnings"]),"engineVersion":env!("CARGO_PKG_VERSION")});
+            if let Some(policy) = raw.get("resourcePolicy") {
+                out["resourcePolicy"] = policy.clone();
+            }
             if out["counts"].is_null() {
                 out["counts"] = json!({"routes":raw["routing"]["routeCount"],"stops":raw["routing"]["stopCount"],"trips":raw["routing"]["tripCount"],"connections":raw["routing"]["connectionCount"],"streetNodes":raw["streets"]["nodeCount"],"streetEdges":raw["streets"]["edgeCount"]});
             }
