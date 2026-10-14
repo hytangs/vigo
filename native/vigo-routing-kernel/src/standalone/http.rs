@@ -659,7 +659,7 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
         if ["/", "/docs", "/docs/"].contains(&path) {
             return Ok(Response::Static(
                 "text/html; charset=utf-8",
-                include_bytes!("../../../../docs/guide.html"),
+                include_bytes!("../../../../docs/standalone.html"),
             ));
         }
         if [
