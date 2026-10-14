@@ -8,7 +8,7 @@ COPY rust-toolchain.toml ./
 COPY native/vigo-routing-kernel/Cargo.toml native/vigo-routing-kernel/Cargo.lock ./native/vigo-routing-kernel/
 COPY native/vigo-routing-kernel/vendor ./native/vigo-routing-kernel/vendor
 COPY native/vigo-routing-kernel/src ./native/vigo-routing-kernel/src
-COPY docs/standalone.html docs/standalone-openapi.json ./docs/
+COPY docs/guide.html docs/standalone-openapi.json ./docs/
 COPY scripts/package-standalone.py ./scripts/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/source/native/vigo-routing-kernel/target \
