@@ -1,5 +1,5 @@
 import { gtfsTableEntry, streamGtfsZipCsv } from './gtfs-zip-reader.mjs'
-import { quoteBoardingFare, fareNeedsScheduledTime, prepareBoardingFares } from '../fares.mjs'
+import { engineFareNeedsScheduledTime, fareEngineFromJson, quoteEngineFare } from '../fares.mjs'
 import { WeightedLruCache } from './weighted-lru-cache.mjs'
 
 // Kept separate from the routing graph: fare data never changes path selection.
@@ -30,21 +30,18 @@ function databaseState(db) {
   return state
 }
 
+// The saved catalog's fare engine. Unreadable or oversized data becomes an
+// engine whose quotes explain that fares are unavailable.
 function catalogForScope(state, scope) {
   if (!state.scopes.has(scope)) return null
-  let catalog = state.catalogs.get(scope)
-  if (!catalog) {
-    let bytes = 128
-    try {
-      const raw = state.catalogQuery.get(scope)?.data
-      if (typeof raw !== 'string' || raw.length > 16 * 1024 * 1024) throw new Error('Invalid fare catalog size.')
-      catalog = JSON.parse(raw)
-      if (catalog?.version !== 1 || !catalog.tables) throw new Error('Invalid fare catalog.')
-      bytes = raw.length * 2
-    } catch { catalog = { version: 1, tables: {}, unavailableReason: invalidFare.reason } }
-    state.catalogs.set(scope, catalog, { bytes })
+  let engine = state.catalogs.get(scope)
+  if (!engine) {
+    const raw = state.catalogQuery.get(scope)?.data
+    const valid = typeof raw === 'string' && raw.length <= 16 * 1024 * 1024
+    engine = fareEngineFromJson(valid ? raw : '')
+    state.catalogs.set(scope, engine, { bytes: valid ? raw.length * 4 : 128 })
   }
-  return catalog
+  return engine
 }
 
 // Find a unique contiguous stop sequence in linear time, including loop routes.
@@ -136,7 +133,7 @@ export function prepareGtfsFares(db) {
     for (const row of sizes) {
       if (prepared >= 8 || bytes + row.bytes > 8 * 1024 * 1024) { skipped++; continue }
       bytes += row.bytes
-      if (prepareBoardingFares(catalogForScope(state, row.scope))) prepared++
+      if (catalogForScope(state, row.scope).usable()) prepared++
       else skipped++
     }
   } catch { /* Fare data is optional; routing preparation remains usable. */ }
@@ -157,12 +154,12 @@ export function addGtfsFares(db, plan) {
       const separator = leg.routeId?.lastIndexOf('\u001f') ?? -1
       const scope = separator < 0 ? '' : leg.routeId.slice(0, separator)
       const prefix = scope ? `${scope}\u001f` : ''
-      const catalog = catalogForScope(state, scope)
-      if (!catalog || (prefix && ![leg.fromStopId, leg.toStopId].every(id => id?.startsWith(prefix)))) return { ...leg, fare: missingFare }
+      const engine = catalogForScope(state, scope)
+      if (!engine || (prefix && ![leg.fromStopId, leg.toStopId].every(id => id?.startsWith(prefix)))) return { ...leg, fare: missingFare }
       const unscoped = value => value?.startsWith(prefix) ? value.slice(prefix.length) : value
       const ids = { routeId: unscoped(leg.routeId), fromStopId: unscoped(leg.fromStopId), toStopId: unscoped(leg.toStopId) }
-      const scheduled = leg.scheduleMode === 'realtime-adjusted' && fareNeedsScheduledTime(catalog, ids) ? scheduledFareLeg(db, state, leg) : leg
-      return { ...leg, fare: quoteBoardingFare(catalog, { ...scheduled, ...ids }, plan.diagnostics?.serviceDate) }
+      const scheduled = leg.scheduleMode === 'realtime-adjusted' && engineFareNeedsScheduledTime(engine, ids) ? scheduledFareLeg(db, state, leg) : leg
+      return { ...leg, fare: quoteEngineFare(engine, { ...scheduled, ...ids }, plan.diagnostics?.serviceDate) }
     } catch { return { ...leg, fare: invalidFare } }
   })
   const annotated = { ...plan, legs }

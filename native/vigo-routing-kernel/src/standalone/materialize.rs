@@ -1,4 +1,4 @@
-use super::query::{Candidates, Options, Point, haversine};
+use super::query::{Candidates, Options, Point};
 use super::{City, Result, memory::Heap};
 use crate::{ShapeGeometry, TimetableMatrixJourney, TimetableMatrixLeg};
 use rusqlite::OptionalExtension;
@@ -323,6 +323,7 @@ impl City {
                 continue;
             }
             let mut coordinates = [origin.coordinate, destination.coordinate];
+            let last = journey.legs.len() - 1;
             for (j, (key, index)) in [("from", leg.from_stop), ("to", leg.to_stop)]
                 .into_iter()
                 .enumerate()
@@ -334,6 +335,17 @@ impl City {
                     v[format!("{key}StopId")] = json!(id);
                 } else {
                     v[key] = json!({"coordinate":coordinates[j]});
+                    // A journey that starts or ends at a selected stop names it.
+                    let endpoint = if j == 0 && i == 0 {
+                        origin.stop.as_ref()
+                    } else if j == 1 && i == last {
+                        destination.stop.as_ref()
+                    } else {
+                        None
+                    };
+                    if let Some(id) = endpoint {
+                        v[key]["name"] = json!(self.stop(id)?.name);
+                    }
                 }
             }
             if let Some(trip) = leg.trip {
@@ -352,8 +364,10 @@ impl City {
                     }
                 };
                 v["route"] = route.clone();
-                let details = if let Some(value) =
-                    cache.as_ref().and_then(|c| c.trip_details.get(trip_id))
+                let details = if let Some(value) = cache
+                    .as_ref()
+                    .and_then(|c| c.trip_details.get(trip_id))
+                    .or_else(|| self.trip_details.get(trip_id))
                 {
                     value.clone()
                 } else {
@@ -363,6 +377,12 @@ impl City {
                     if let Some(cache) = cache.as_mut() {
                         cache.insert_trip_details(trip_id, &value);
                     }
+                    // Trip descriptions are immutable City data, like route
+                    // metadata; keep a bounded City-wide copy.
+                    if self.trip_details.len() >= 65_536 {
+                        self.trip_details.clear();
+                    }
+                    self.trip_details.insert(trip_id.clone(), value.clone());
                     value
                 };
                 v["serviceId"] = details["service"].clone();
@@ -381,6 +401,16 @@ impl City {
                     leg.board_sequence.ok_or("Missing board sequence")?,
                     leg.alight_sequence.ok_or("Missing alight sequence")?,
                 )?;
+                // Source timing limitations, flagged exactly as Node flags them.
+                let board = leg.board_sequence.ok_or("Missing board sequence")?;
+                let alight = leg.alight_sequence.ok_or("Missing alight sequence")?;
+                let gaps = t.kernel.ride_bridged_gaps(trip, board, alight);
+                if gaps > 0 {
+                    v["bridgedUntimedGapCount"] = json!(gaps);
+                }
+                if leg.arrival == leg.departure && leg.from_stop != leg.to_stop {
+                    v["sourceEqualTime"] = json!(true);
+                }
                 let ids: Vec<_> = indexes.iter().map(|&i| &t.stop_ids[i as usize]).collect();
                 v["stopIds"] = json!(&ids[first..=last]);
                 v["stopCount"] = json!(last - first);
@@ -396,9 +426,8 @@ impl City {
                         .iter()
                         .map(|id| self.stop(id).map(|s| [s.lon, s.lat]))
                         .collect::<Result<_>>()?;
-                    let mut selected = trip_coordinates[first..=last].to_vec();
-                    let mut prepared_distance = None;
-                    let mut source = "stop_sequence";
+                    let located = |point: [f64; 2]| point.iter().all(|v| v.is_finite());
+                    let mut shaped = None;
                     let shape_id = match self.trip_shape_ids.entry(trip_id.clone()) {
                         std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                         std::collections::hash_map::Entry::Vacant(entry) => {
@@ -421,30 +450,28 @@ impl City {
                             if alignment.len() == trip_coordinates.len()
                                 && alignment[first] < alignment[last]
                             {
-                                // The immutable shape already contains exact
-                                // cumulative distances. Reuse that column instead
-                                // of repeating trigonometry for every ride.
-                                prepared_distance = Some(shape.geometry.section_distance_m(
+                                // One line definition for every runtime: the
+                                // stops plus every distinct aligned shape vertex.
+                                let (line, meters) = shape.geometry.leg_polyline(
                                     alignment[first] as usize,
                                     alignment[last] as usize,
-                                )?);
-                                selected = shape
-                                    .geometry
-                                    .coordinate_slice(
-                                        alignment[first] as usize..=alignment[last] as usize,
-                                    )?
-                                    .to_vec();
-                                source = "gtfs_shape";
+                                    Some(trip_coordinates[first]).filter(|p| located(*p)),
+                                    Some(trip_coordinates[last]).filter(|p| located(*p)),
+                                )?;
+                                shaped = Some((line, Some(meters), "gtfs_shape"));
                             }
                             self.shape_cache.put(id, shape);
                         }
                     }
-                    v["distanceMeters"] = json!(prepared_distance.unwrap_or_else(|| {
-                        selected
-                            .windows(2)
-                            .map(|p| haversine(p[0], p[1]))
-                            .sum::<f64>()
-                    }));
+                    let (selected, distance, source) = shaped.unwrap_or_else(|| {
+                        let (line, distance) = crate::route_materialization::stop_sequence_polyline(
+                            &trip_coordinates[first..=last],
+                        );
+                        (line, distance, "stop_sequence")
+                    });
+                    if let Some(distance) = distance {
+                        v["distanceMeters"] = json!(distance);
+                    }
                     v["coordinates"] = json!(selected);
                     v["geometrySource"] = json!(source);
                 }
@@ -570,7 +597,7 @@ mod tests {
         cache.put("a".into(), shape());
         cache.put("b".into(), shape());
         let mut a = cache.take("a").unwrap();
-        let points = a.geometry.coordinate_slice(0..=1).unwrap().to_vec();
+        let points = a.geometry.leg_polyline(0, 1, None, None).unwrap().0;
         let stops = points.clone();
         assert_eq!(a.align(&stops).unwrap(), vec![0, 1]);
         cache.put("a".into(), a);
@@ -581,8 +608,9 @@ mod tests {
                 .take("a")
                 .unwrap()
                 .geometry
-                .coordinate_slice(0..=1)
-                .unwrap(),
+                .leg_polyline(0, 1, None, None)
+                .unwrap()
+                .0,
             points
         );
         assert!(cache.take("c").is_some());

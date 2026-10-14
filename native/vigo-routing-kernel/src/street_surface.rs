@@ -546,7 +546,7 @@ fn compute_graph<const ENDPOINTS: bool>(
                     // A destination can enter private streets and interior
                     // public islands, but cannot reenter the public middle.
                     if segment.end == 1.0
-                        && !terminal.surface_boundary(components, target)
+                        && !terminal.is_boundary(components, target)
                         && push_surface_label(
                             &mut heads,
                             &mut labels,

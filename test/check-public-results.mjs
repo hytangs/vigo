@@ -32,13 +32,14 @@ function assertPublic(result, request = result.query) {
 try {
   const inputs = await writeCliFixtureInputs(directory)
   execFileSync(process.execPath, ['public/vigo.mjs', 'build', `--gtfs=${inputs.gtfsPath}`, `--osm=${inputs.osmPath}`, `--output=${city}`], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] })
-  function cli(runtime, kind, query) {
+  function cli(runtime, kind, query, stdio = undefined) {
     const node = runtime === 'node'
     return JSON.parse(execFileSync(node ? process.execPath : standaloneBinary,
       [...(node ? ['public/vigo.mjs'] : []), kind, '--city', city, '--request', '-', ...(node ? ['--service-date', query.serviceDate ?? base.serviceDate] : [])],
-      { cwd: root, input: JSON.stringify(query), encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }))
+      { cwd: root, input: JSON.stringify(query), encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, stdio }))
   }
   const results = []
+  const alternativeResults = []
   for (const runtime of ['rust', 'node']) {
     // The wrapper transport must preserve the complete detailed result while
     // omitting the public projection. Errors remain framed and recoverable.
@@ -97,6 +98,20 @@ try {
     checks++
     assert(trace.journey.legs.some(l => l.geometry?.coordinates?.length > 1))
     assert.equal(trace.journey.arrivalTime, result.journey.arrivalTime)
+    for (const alternativeRanking of ['pareto', 'ranked']) {
+      const alternatives = cli(runtime, 'route', { ...base, alternatives: 2, alternativeRanking })
+      assertPublic(alternatives)
+      assert.deepEqual(alternatives.journey, result.journey)
+      assert.deepEqual(alternatives.alternativeSearch, { coverage: 'requested_time', ranking: alternativeRanking,
+        maximumJourneys: 3, arrivalSlackMinutes: 15, status: 'complete' })
+      assert((alternatives.alternatives ?? []).length <= 2)
+      alternativeResults.push(alternatives)
+    }
+    for (const invalid of [{ alternatives: 10 }, { alternatives: 1, timePreference: 'arrive_by' }, { alternativeRanking: 'ranked' },
+      { alternatives: 1, alternativeSlackMinutes: 121 }]) {
+      assert.throws(() => cli(runtime, 'route', { ...base, ...invalid }, 'pipe'), undefined, `${runtime} accepted ${JSON.stringify(invalid)}`)
+    }
+    checks += 6
     const noJourney = cli(runtime, 'route', { ...base, maxTransfers: 0 })
     assert.equal(noJourney.status, 'not_found')
     assertPublic(noJourney)
@@ -150,6 +165,42 @@ try {
     checks += 12
   }
   assert.equal(results[0].journey.arrivalTime, results[1].journey.arrivalTime)
+  // Both runtimes return the same requested alternatives.
+  const stable = ({ meta: { computeUs, requestId, ...meta }, ...rest }) => ({ ...rest, meta })
+  // Parallel and sequential access projection of the same matrix must
+  // preserve every itinerary field, including geometry, in both directions.
+  // Start with caching enabled and fresh coordinates to use the sequential
+  // path; the following uncached request must ignore those cache entries.
+  for (const arrive of [false, true]) {
+    for (const compact of [false, true]) {
+      const origin = { coordinate: [-77.05, 38.9] }
+      const destination = { coordinate: [-77.03, 38.91] }
+      const center = arrive ? origin : destination
+      const points = Array.from({ length: 68 }, (_, i) => ({ coordinate: [center.coordinate[0] + i * 1e-7, center.coordinate[1]] }))
+      const query = { kind: 'matrix', serviceDate: base.serviceDate, time: arrive ? '08:30' : base.time,
+        timePreference: arrive ? 'arrive_by' : 'depart_at', maxWalkKm: .2, requireTransitRide: true,
+        disableCache: true, includeJourneys: true, includeGeometry: !compact,
+        ...(compact ? { journeyFormat: 'compact' } : {}),
+        origins: arrive ? points : [origin], destinations: arrive ? [destination] : points }
+      const requests = [{ ...query, disableCache: false }, query]
+      const responses = execFileSync(standaloneBinary, ['stream', '--city', city], {
+        input: requests.map((request, i) => JSON.stringify({ ...request, id: `batch-${i}` })).join('\n') + '\n',
+        encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
+      }).trim().split('\n').map(line => JSON.parse(line))
+      const [sequential, batch] = responses
+      assert.equal(batch.status, 'ok')
+      assert.equal(sequential.status, 'ok')
+      for (let i = 0; i < points.length; i++) {
+        const row = arrive ? i : 0; const column = arrive ? 0 : i
+        assert.deepEqual(batch.durationsSeconds[row][column], sequential.durationsSeconds[row][column])
+        assert.deepEqual(batch.journeys[row][column], sequential.journeys[row][column])
+        checks++
+      }
+    }
+  }
+  assert.deepEqual(stable(alternativeResults[2]), stable(alternativeResults[0]))
+  assert.deepEqual(stable(alternativeResults[3]), stable(alternativeResults[1]))
+  checks += 2
   {
     const child = spawn(standaloneBinary, ['serve', '--city', city, '--port', '0'], { env: { ...process.env, VIGO_API_TOKEN: 'public-contract-test-token' } })
     servers.push(child)

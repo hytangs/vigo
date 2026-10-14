@@ -830,20 +830,3 @@ export function scenarioReachedAreaKm2(
     / (analysis.surface.raster.width * analysis.surface.raster.height)
   return scenarioReachablePixels(analysis, surface, cutoffMinutes) * pixelAreaKm2
 }
-
-export function scenarioTransitStopsAtCutoff(
-  analysis: ReachResult | null,
-  surface: ScenarioSurface,
-  cutoffMinutes: number,
-) {
-  if (!analysis) return 0
-  const entries = surface === 'scenario'
-    ? analysis.summary.scenarioTransitStopsByCutoff ?? analysis.summary.transitStopsByCutoff
-    : analysis.summary.transitStopsByCutoff
-  const exact = entries?.find((entry) => entry.cutoffMinutes === cutoffMinutes)
-  if (exact) return exact.stops
-  const nearest = entries
-    ?.filter((entry) => entry.cutoffMinutes <= cutoffMinutes)
-    .at(-1)
-  return nearest?.stops ?? analysis.summary.transitStopSeeds
-}

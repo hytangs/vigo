@@ -242,6 +242,8 @@ pub(super) fn certify(
         transfer_penalty_seconds: 0.0,
         walk_reluctance: 0.0,
         collect_alternatives: Some(false),
+        alternative_ranking: None,
+        alternative_limit: None,
         restriction_mode: Some(restriction.to_owned()),
         deadline_objective: Some(false),
     };

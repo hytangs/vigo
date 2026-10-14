@@ -259,7 +259,8 @@ try {
   for (const leg of colocatedWalkLegs) {
     assert.equal(leg.durationMinutes, 0)
     assert.equal(leg.distanceKm, 0)
-    assert.equal(leg.coordinates.length, 1)
+    // A zero-length walk is a degenerate two-position line, valid GeoJSON.
+    assert.equal(leg.coordinates.length, 2)
     assert.deepEqual(leg.coordinates[0], leg.coordinates.at(-1))
   }
 

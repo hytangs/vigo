@@ -4,6 +4,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { performance } from 'node:perf_hooks'
 import { fileURLToPath } from 'node:url'
+import { publicWalkLine } from './geometry-utils.mjs'
 import { projectAccessProfileToTimetable } from './gtfs/stop-projection.mjs'
 
 const require = createRequire(import.meta.url)
@@ -230,25 +231,29 @@ export function alignNativeShapeStops(shape, coordinates) {
   return indices.length ? indices : null
 }
 
-// Clipping is synchronous and invokes no JS callbacks. Reuse one small output
-// buffer per worker; each returned point array belongs to its caller.
-const shapeRenderScratch = new Float64Array(512 * 2)
-const shapeFromScratch = new Float64Array(2)
-const shapeToScratch = new Float64Array(2)
-export function clipNativeShapeCoordinates(shape, start, end, from = null, to = null, limit = 512) {
-  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start
-    || end >= shape.pointCount || !Number.isInteger(limit) || limit < 2 || limit > 0xffffffff) {
+function unpackLine(line) {
+  const coordinates = []
+  for (let index = 0; index + 1 < line.coordinates.length; index += 2) {
+    coordinates.push([line.coordinates[index], line.coordinates[index + 1]])
+  }
+  return { coordinates, distanceKm: line.distanceM == null ? null : line.distanceM / 1000 }
+}
+
+const finiteEndpoint = point => (Array.isArray(point) && point.length === 2 && point.every(Number.isFinite)
+  ? Float64Array.from(point) : null)
+
+// The one public ride line shared with the Rust standalone: boarding stop,
+// every distinct aligned shape vertex, alighting stop, and that line's length.
+export function nativeShapeLegPolyline(shape, start, end, from = null, to = null) {
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || end >= shape.pointCount) {
     throw new Error('Invalid shape clipping bounds.')
   }
-  if ((from && (from.length !== 2 || !from.every(Number.isFinite)))
-    || (to && (to.length !== 2 || !to.every(Number.isFinite)))) throw new Error('Invalid shape endpoint.')
-  const packed = limit === 512 ? shapeRenderScratch : new Float64Array(limit * 2)
-  if (from) shapeFromScratch.set(from)
-  if (to) shapeToScratch.set(to)
-  const count = shape.clipCoordinates(start, end, packed, from ? shapeFromScratch : null, to ? shapeToScratch : null)
-  const points = []
-  for (let i = 0; i < count; i++) points.push([packed[i * 2], packed[i * 2 + 1]])
-  return points
+  return unpackLine(shape.legPolyline(start, end, finiteEndpoint(from), finiteEndpoint(to)))
+}
+
+// Stop coordinates when no shape aligns; a missing coordinate leaves distance null.
+export function nativeStopSequencePolyline(coordinates) {
+  return unpackLine(loadNativeBinding().stopSequenceLine(packCoordinates(coordinates)))
 }
 
 export function nativeStableKeySuffix(value) {
@@ -1119,6 +1124,30 @@ export function routeNativeTimetablePareto(kernel, request) {
   }
 }
 
+// One alternatives request for both runtimes: the kernel sets the boarding
+// bound and ranking, and falls back from corridor pruning itself.
+export function routeNativeTimetableAlternatives(kernel, request) {
+  const record = prepareNativeTimetableKernel(kernel)
+  const { maximumBoardings, ...endpoints } = timetableEndpointQuery(request)
+  const result = record.kernel.routeAlternativesCsa({
+    ...endpoints,
+    departure: request.departure,
+    horizon: request.horizon,
+    earliestArrival: request.earliestArrival,
+    arrivalSlackSeconds: request.arrivalSlackSeconds,
+    bestBoardings: request.bestBoardings,
+    ...(maximumBoardings === undefined ? {} : { maximumBoardings }),
+    ranking: request.ranking,
+    ...(request.limit === undefined || request.limit === null ? {} : { limit: request.limit }),
+  })
+  return { ...result, queryMs: normalizeNativeMilliseconds(result.queryNs) }
+}
+
+// Validates the shared alternatives contract; null when alternatives are off.
+export function routeAlternativeRequest(request) {
+  return loadNativeBinding().routeAlternativeRequest(JSON.stringify(request)) ?? null
+}
+
 export function nativeStreetCchPrepared(storePath) {
   return Boolean(nativeKernelCache.get(path.resolve(storePath))?.streetCch)
 }
@@ -1410,6 +1439,7 @@ function candidateFromNativeValues(
     parent_station: target.parent_station,
     location_type: target.location_type,
     distanceKm: distanceM / 1000,
+    distanceM,
     accessSeconds,
     exactStopAccess: exact,
     walkSource: exact ? 'coordinate-colocation' : 'osm-rust',
@@ -1720,7 +1750,10 @@ function coordinatePairsFromFlat(values) {
  * the completed egress leg later, so destination coordinates must be flipped
  * exactly once here.
  */
-export function materializeNativeStreetPath(storePath, nativeStreetPath, maximumPoints = 160) {
+// Vertex cap for public walking geometry; the Rust runtimes use the same value.
+export const publicWalkMaximumPoints = 512
+
+export function materializeNativeStreetPath(storePath, nativeStreetPath, maximumPoints = publicWalkMaximumPoints) {
   const record = preparedKernelRecord(storePath)
   const result = record.kernel.materializePath({
     queryToken: nativeStreetPath.queryToken,
@@ -1753,14 +1786,10 @@ function normalizeNativeStreetPathResult(result, fromCoordinate, toCoordinate) {
   }
   // Native path reconstruction is directed and ordered. Reversing its nodes
   // by endpoint proximity can invent edges that are absent from the graph.
-  const coordinates = []
-  for (const coordinate of [fromCoordinate, ...graphCoordinates, toCoordinate]) {
-    if (!coordinatesExactlyEqual(coordinates.at(-1), coordinate)) {
-      coordinates.push(coordinate)
-    }
-  }
+  const coordinates = publicWalkLine(fromCoordinate, graphCoordinates, toCoordinate)
   return {
     distanceKm: result.distanceM / 1000,
+    distanceM: result.distanceM,
     coordinates,
     originSnapDistanceKm: result.originSnapDistanceM / 1000,
     destinationSnapDistanceKm: result.destinationSnapDistanceM / 1000,
@@ -2233,7 +2262,6 @@ export function routeNativeAccessMemberPath(
   toCoordinate,
   maximumDistanceKm,
   maximumPoints = 160,
-  stopTransfer = false,
 ) {
   const record = preparedKernelRecord(storePath)
   if (!record.profileMembers || !record.profileKey) {
@@ -2254,7 +2282,6 @@ export function routeNativeAccessMemberPath(
         destinationMemberIndex,
         maximumDistanceM: maximumDistanceKm * 1000,
         maximumPoints,
-        stopTransfer,
       })
       if (result.found && (!best || result.distanceM < best.distanceM)) best = result
     }
@@ -2262,6 +2289,42 @@ export function routeNativeAccessMemberPath(
   return best
     ? normalizeNativeStreetPathResult(best, fromCoordinate, toCoordinate)
     : null
+}
+
+// The transfer witness shared with the Rust standalone: a bounded path between
+// the physical stop coordinates used to price generated transfers.
+export function routeNativeStopTransferPath(storePath, fromCoordinate, toCoordinate, maximumDistanceKm, maximumPoints) {
+  const result = preparedKernelRecord(storePath).kernel.routeStopTransferPath({
+    originLon: fromCoordinate[0],
+    originLat: fromCoordinate[1],
+    destinationLon: toCoordinate[0],
+    destinationLat: toCoordinate[1],
+    maximumDistanceM: maximumDistanceKm * 1000,
+    maximumPoints,
+  })
+  return normalizeNativeStreetPathResult(result, fromCoordinate, toCoordinate)
+}
+
+// The shared street-level reason a free endpoint has no transit access.
+export function diagnoseNativeEndpointStreetAccess(storePath, coordinate, bounds) {
+  return preparedKernelRecord(storePath).kernel.diagnoseEndpointStreetAccess(coordinate[0], coordinate[1],
+    ['west', 'south', 'east', 'north'].map(key => (typeof bounds?.[key] === 'number' ? bounds[key] : NaN)))
+}
+
+// The fare engine shared with the Rust standalone runtime, for one saved catalog.
+export function createNativeFareCatalog(json) {
+  return new (loadNativeBinding().FareCatalog)(json)
+}
+
+// Engine primitives, exposed so checks can compare them with the JS runtime.
+export function nativeFarePrimitives() {
+  const binding = loadNativeBinding()
+  return {
+    currencyScales: binding.fareCurrencyScales(),
+    parseAmount: (amount, currency) => binding.nativeParseFareAmount(String(amount), String(currency)),
+    eventDay: (serviceDate, seconds, agencyTimezone, eventTimezone) => binding.nativeFareEventDay(serviceDate, seconds, agencyTimezone, eventTimezone),
+    publicUrl: text => binding.nativePublicFareUrl(text),
+  }
 }
 
 export function disposeNativeRoutingKernel(storePath) {

@@ -874,7 +874,7 @@ try {
   })
   assert.equal(plan.status, 'ready')
   assert.deepEqual(plan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName), ['1', '2'])
-  assert.equal(plan.legs.find((leg) => leg.type === 'ride')?.geometrySource, 'shape')
+  assert.equal(plan.legs.find((leg) => leg.type === 'ride')?.geometrySource, 'gtfs_shape')
   assert.equal(plan.legs.find((leg) => leg.type === 'ride')?.coordinates.length, 4)
   assert.equal(plan.transfers, 1)
   assert(plan.durationMinutes >= 30 && plan.durationMinutes <= 32)
@@ -902,7 +902,7 @@ try {
     maxWalkKm: 0.25,
   })
   assert.equal(compactKernelPlan.status, 'ready')
-  assert.equal(compactKernelPlan.legs.find((leg) => leg.type === 'ride')?.geometrySource, 'shape')
+  assert.equal(compactKernelPlan.legs.find((leg) => leg.type === 'ride')?.geometrySource, 'gtfs_shape')
   assert.equal(compactKernelPlan.diagnostics.algorithm, 'rust_exact_connection_scan_bounded_pareto_no_heuristic')
   assert.deepEqual(
     compactKernelPlan.diagnostics.methodUsed,
@@ -1050,11 +1050,15 @@ try {
     assert.deepEqual(connected.legs[0].endpointConnector.coordinates[0], endpointRequest.origin.coordinate,
       'Transit output must retain the coordinate connector already charged by the native access search.')
     assert.equal(connected.legs[0].endpointConnector.streetPathVerified, false)
-    assert.deepEqual(connected.legs[0].endpointConnector.coordinates.at(-1), connected.legs[0].coordinates[0],
+    // The leg line runs from the requested coordinate; its first hop is the
+    // separately labeled connector to the mapped access path.
+    assert.deepEqual(connected.legs[0].coordinates[0], endpointRequest.origin.coordinate)
+    assert.deepEqual(connected.legs[0].endpointConnector.coordinates.at(-1), connected.legs[0].coordinates[1],
       'The off-street connector ends where the mapped access geometry begins.')
     assert.deepEqual(connected.legs.at(-1).endpointConnector.coordinates.at(-1), endpointRequest.destination.coordinate,
       'Egress must expose its connection to the requested coordinate separately from the OSM path.')
-    assert.deepEqual(connected.legs.at(-1).endpointConnector.coordinates[0], connected.legs.at(-1).coordinates.at(-1),
+    assert.deepEqual(connected.legs.at(-1).coordinates.at(-1), endpointRequest.destination.coordinate)
+    assert.deepEqual(connected.legs.at(-1).endpointConnector.coordinates[0], connected.legs.at(-1).coordinates.at(-2),
       'The mapped egress geometry ends where the coordinate connector begins.')
   }
 
@@ -2388,11 +2392,14 @@ try {
     origin: { coordinate: [8.0001, 46.9992], label: 'Intervening coordinate query', source: 'map' },
   })
   assert.equal(offStreetTransitPlan.status, 'ready')
-  assert.notDeepEqual(
-    offStreetTransitPlan.legs[0]?.coordinates?.[0],
-    offStreetTransitPlan.origin.coordinate,
-    'Transit access geometry must begin on the verified OSM path, not draw a straight jump from an off-street map click.',
-  )
+  // The access line starts at the map click. Its straight hop onto the OSM path
+  // is exactly the unverified endpoint connector, never a verified street path.
+  const offStreetAccess = offStreetTransitPlan.legs[0]
+  assert.deepEqual(offStreetAccess.coordinates[0], offStreetTransitPlan.origin.coordinate)
+  assert.deepEqual(offStreetAccess.endpointConnector?.coordinates,
+    [offStreetAccess.coordinates[0], offStreetAccess.coordinates[1]],
+    'An off-street map click must label its straight jump instead of presenting it as OSM geometry.')
+  assert.equal(offStreetAccess.endpointConnector.streetPathVerified, false)
   const refreshedTokenPlan = routeNationalGtfsStore(parentModeAccessStorePath, tokenOwnershipRequest)
   assert.equal(
     refreshedTokenPlan.status,

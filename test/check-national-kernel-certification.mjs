@@ -428,7 +428,7 @@ try {
     assert.equal(connection.streetPathVerified, false,
       'A modeled station transfer must not claim a public-street path witness.')
     assert.equal(connection.transferSource, 'parent_station_fallback')
-    assert.equal(connection.geometrySource, 'station-transfer-schematic')
+    assert.equal(connection.geometrySource, 'unverified_transfer')
     assert.deepEqual(connection.coordinates, [[0.010, 0], [0.011, 0]])
   } finally {
     disposeNationalGtfsStore(stationStorePath)

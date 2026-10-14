@@ -121,7 +121,7 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { journeyContinuityIssue } from '../journeyIntegrity.mjs'
-import { haversineKm } from './geometry-utils.mjs'
+import { haversineKm, publicWalkLine } from './geometry-utils.mjs'
 import { addGtfsFares, prepareGtfsFares, copyGtfsFareCatalogs, readGtfsFareCatalog, writeGtfsFareCatalog } from './gtfs-fare-store.mjs'
 import { createGtfsZipImportBudget, gtfsTableEntry, inspectGtfsZip, streamGtfsZipCsv } from './gtfs-zip-reader.mjs'
 import { assertMatrixSize } from './matrix-size.mjs'
@@ -135,13 +135,16 @@ import {
 import { nationalRideGeometry } from './national-route-geometry.mjs'
 import {
   buildNativeStopTransferGraph,
+  diagnoseNativeEndpointStreetAccess,
   materializeNativeCoordinateEndpointCandidates,
   materializeNativeStreetPath,
   nativeStreetAccessPermission,
+  publicWalkMaximumPoints,
   normalizeNativeMilliseconds,
   prepareNativeTimetableKernel,
   rasterNativeStreetSurface,
   routeNativeAccessMemberPath,
+  routeNativeStopTransferPath,
   routeNativeCoordinateFrontier,
   routeNativeCoordinateFrontiers,
   routeNativeCoordinateTimetableMany,
@@ -153,6 +156,7 @@ import {
   routeNativeTimetableMatrix,
   routeNativeTimetableOverlayMany,
   routeNativeTimetablePareto,
+  routeNativeTimetableAlternatives,
   routeNativeTimetableScalar,
 } from './native-routing-kernel.mjs'
 import { integralNumber, numeric, timingMilliseconds } from './number-utils.mjs'
@@ -216,6 +220,7 @@ const preparedNativeCoordinateAccessPair = Symbol(
 )
 const departureWindowAlternativePlans = Symbol('vigo.internal.departure-window-alternative-plans')
 const alternativeArrivalSlackSeconds = 15 * 60
+const routeAlternativeCollector = Symbol('vigo.internal.route-alternatives')
 const staticTopologyMinimumFreeBytes = 2 * 1024 * 1024 * 1024
 const staticTopologyReserveFloorBytes = 128 * 1024 * 1024
 const staticTopologyTransientWorkspaceBytes = 64 * 1024 * 1024
@@ -396,139 +401,55 @@ function nativeStreetPathCacheKey({
   ].join('|')
 }
 
-function cachedNativeStreetPath(
-  store,
-  {
-    streetStorePath,
-    streetStorageIdentity,
-    fromCoordinate,
-    toCoordinate,
-    maximumDistanceKm,
-    maximumPoints = 160,
-  },
-  diagnostics = null,
-) {
-  if (diagnostics?.disableCache === true) {
-    if (diagnostics) diagnostics.misses += 1
-    const pathResult = streetPathBetween(
-      streetStorePath,
-      fromCoordinate,
-      toCoordinate,
-      maximumDistanceKm,
-      maximumPoints,
-    )
-    if (!pathResult) return null
-    if (diagnostics) diagnostics.queryMs += timingMilliseconds(pathResult.nativeQueryMs)
-    return { ...pathResult, nativeCacheHit: false }
-  }
-  const key = nativeStreetPathCacheKey({
-    kind: 'street-path',
-    streetStorePath,
-    streetStorageIdentity,
-    fromCoordinate,
-    toCoordinate,
-    maximumDistanceKm,
-    maximumPoints,
-  })
-  const cached = store.nativeStreetPathCache.get(key)
+// Street path witnesses are immutable for one street store. Reuse them unless
+// the request disables caches; diagnostics count every lookup either way.
+function cachedNativePath(store, keyFields, compute, diagnostics) {
+  const key = diagnostics?.disableCache === true ? null : nativeStreetPathCacheKey(keyFields)
+  const cached = key ? store.nativeStreetPathCache.get(key) : null
   if (cached) {
     if (diagnostics) diagnostics.hits += 1
-    return {
-      ...cached,
-      nativeCacheHit: true,
-      nativeQueryMs: 0,
-    }
+    return { ...cached, nativeCacheHit: true, nativeQueryMs: 0 }
   }
   if (diagnostics) diagnostics.misses += 1
-  const pathResult = streetPathBetween(
-    streetStorePath,
-    fromCoordinate,
-    toCoordinate,
-    maximumDistanceKm,
-    maximumPoints,
-  )
+  const pathResult = compute()
   if (!pathResult) return null
-  store.nativeStreetPathCache.set(
-    key,
-    pathResult,
-    estimateNativeStreetPathWeight(pathResult),
-  )
+  if (key) store.nativeStreetPathCache.set(key, pathResult, estimateNativeStreetPathWeight(pathResult))
   if (diagnostics) diagnostics.queryMs += timingMilliseconds(pathResult.nativeQueryMs)
   return { ...pathResult, nativeCacheHit: false }
 }
 
-function cachedNativeAccessMemberPath(
-  store,
-  {
-    streetStorePath,
-    streetStorageIdentity,
-    fromStopId,
-    toStopId,
-    fromCoordinate,
-    toCoordinate,
-    maximumDistanceKm,
-    maximumPoints = 160,
-    stopTransfer = false,
-  },
-  diagnostics = null,
-) {
-  if (diagnostics?.disableCache === true) {
-    if (diagnostics) diagnostics.misses += 1
+function cachedNativeStreetPath(store, {
+  streetStorePath, streetStorageIdentity, fromCoordinate, toCoordinate, maximumDistanceKm, maximumPoints = publicWalkMaximumPoints,
+}, diagnostics = null) {
+  return cachedNativePath(store, {
+    kind: 'street-path', streetStorePath, streetStorageIdentity, fromCoordinate, toCoordinate, maximumDistanceKm, maximumPoints,
+  }, () => streetPathBetween(streetStorePath, fromCoordinate, toCoordinate, maximumDistanceKm, maximumPoints), diagnostics)
+}
+
+function cachedNativeAccessMemberPath(store, {
+  streetStorePath, streetStorageIdentity, fromStopId, toStopId, fromCoordinate, toCoordinate, maximumDistanceKm,
+  maximumPoints = publicWalkMaximumPoints,
+}, diagnostics = null) {
+  return cachedNativePath(store, {
+    kind: 'access-member-path', streetStorePath, streetStorageIdentity, fromStopId, toStopId,
+    fromCoordinate, toCoordinate, maximumDistanceKm, maximumPoints,
+  }, () => {
     nativeCoordinateAccessProfile(store, streetStorePath, streetStorageIdentity)
-    const pathResult = routeNativeAccessMemberPath(
-      streetStorePath,
-      fromStopId,
-      toStopId,
-      fromCoordinate,
-      toCoordinate,
-      maximumDistanceKm,
-      maximumPoints,
-      stopTransfer,
-    )
-    if (!pathResult) return null
-    if (diagnostics) diagnostics.queryMs += timingMilliseconds(pathResult.nativeQueryMs)
-    return { ...pathResult, nativeCacheHit: false }
-  }
-  const key = nativeStreetPathCacheKey({
-    kind: stopTransfer ? 'stop-transfer-path' : 'access-member-path',
-    streetStorePath,
-    streetStorageIdentity,
-    fromStopId,
-    toStopId,
-    fromCoordinate,
-    toCoordinate,
-    maximumDistanceKm,
-    maximumPoints,
-  })
-  const cached = store.nativeStreetPathCache.get(key)
-  if (cached) {
-    if (diagnostics) diagnostics.hits += 1
-    return {
-      ...cached,
-      nativeCacheHit: true,
-      nativeQueryMs: 0,
-    }
-  }
-  if (diagnostics) diagnostics.misses += 1
-  nativeCoordinateAccessProfile(store, streetStorePath, streetStorageIdentity)
-  const pathResult = routeNativeAccessMemberPath(
-    streetStorePath,
-    fromStopId,
-    toStopId,
-    fromCoordinate,
-    toCoordinate,
-    maximumDistanceKm,
-    maximumPoints,
-    stopTransfer,
-  )
-  if (!pathResult) return null
-  store.nativeStreetPathCache.set(
-    key,
-    pathResult,
-    estimateNativeStreetPathWeight(pathResult),
-  )
-  if (diagnostics) diagnostics.queryMs += timingMilliseconds(pathResult.nativeQueryMs)
-  return { ...pathResult, nativeCacheHit: false }
+    return routeNativeAccessMemberPath(streetStorePath, fromStopId, toStopId, fromCoordinate, toCoordinate,
+      maximumDistanceKm, maximumPoints)
+  }, diagnostics)
+}
+
+// A transfer walk uses the standalone runtime's witness: the bounded path
+// between the physical stops that priced it, then the general street path.
+function cachedNativeTransferPath(store, {
+  streetStorePath, streetStorageIdentity, fromCoordinate, toCoordinate, maximumDistanceKm,
+}, diagnostics = null) {
+  return cachedNativePath(store, {
+    kind: 'stop-transfer-path', streetStorePath, streetStorageIdentity, fromCoordinate, toCoordinate,
+    maximumDistanceKm, maximumPoints: publicWalkMaximumPoints,
+  }, () => routeNativeStopTransferPath(streetStorePath, fromCoordinate, toCoordinate, maximumDistanceKm, publicWalkMaximumPoints)
+    ?? streetPathBetween(streetStorePath, fromCoordinate, toCoordinate, maximumDistanceKm, publicWalkMaximumPoints), diagnostics)
 }
 
 function nativeStreetPathCacheDiagnostics(store) {
@@ -2646,7 +2567,7 @@ function openNationalStore(storePath, options = {}) {
         from_stop_id, to_stop_id, departure, arrival, stop_sequence
       FROM connections WHERE trip_id=? ORDER BY stop_sequence
     `),
-    tripHeadsignLookup: db.prepare('SELECT headsign FROM trip_details WHERE trip_id=?'),
+    tripDetailsLookup: db.prepare('SELECT headsign, short_name FROM trip_details WHERE trip_id=?'),
     tripShapeLookup: shapeTablesReady ? db.prepare('SELECT shape_id FROM trip_shapes WHERE trip_id=?') : null,
     shapePointsLookup: shapeTablesReady ? db.prepare('SELECT lon, lat FROM shape_points WHERE shape_id=? ORDER BY sequence') : null,
     staticTopology,
@@ -2915,6 +2836,11 @@ function activeServiceKernelSearchGeneralizedCost(
   )
 }
 
+// Public stop coordinates, including missing station-node values, as stored.
+function stopCoordinate(stop) {
+  return stop ? [stop.lon, stop.lat] : undefined
+}
+
 function appendDistinctCoordinate(coordinates, coordinate) {
   if (!Array.isArray(coordinate) || coordinate.length !== 2 || !coordinate.every(Number.isFinite)) return coordinates
   const previous = coordinates.at(-1)
@@ -3031,13 +2957,141 @@ function pointToAccessCoordinates(
   return appendTransferCompletion(coordinates)
 }
 
+// The off-street hop from a free coordinate to its street attachment. The
+// public projection drops sub-micrometer gaps and measures the hop itself.
 function endpointConnector(coordinate, streetCoordinate, reverse = false) {
-  if (!streetCoordinate || (coordinate[0] === streetCoordinate[0] && coordinate[1] === streetCoordinate[1])) return undefined
+  if (!streetCoordinate) return undefined
   return {
     source: 'coordinate-snap', streetPathVerified: false,
     coordinates: reverse ? [streetCoordinate, coordinate] : [coordinate, streetCoordinate],
     distanceKm: haversineKm(coordinate, streetCoordinate),
   }
+}
+
+const streetCoverageBounds = new Map()
+
+// The City's street coverage, as recorded with its local basemap.
+function streetCoverage(streetStorePath, streetStorageIdentity) {
+  const key = `${path.resolve(streetStorePath)}\u0000${streetStorageIdentity ?? ''}`
+  if (!streetCoverageBounds.has(key)) {
+    if (streetCoverageBounds.size >= 16) streetCoverageBounds.delete(streetCoverageBounds.keys().next().value)
+    streetCoverageBounds.set(key, readNationalOsmStoreMetadata(streetStorePath).localBasemap?.bounds ?? null)
+  }
+  return streetCoverageBounds.get(key)
+}
+
+// One endpoint of a blocked Route, diagnosed exactly as the Rust runtime does:
+// candidates within budget; otherwise the shared street-level reason and, when
+// no street fault explains it, a wider probe that reports the walk needed.
+function publicEndpointAccess(store, request, point, role, candidateCount, maxWalkKm, streetStorageIdentity) {
+  const maximumWalkMeters = maxWalkKm * 1000
+  const status = { coordinate: point.coordinate, role, maximumWalkMeters, candidateCount, code: 'available' }
+  if (candidateCount) return status
+  if (explicitRoutingStopId(point)) return { ...status, code: 'station_access_unavailable' }
+  if (!request.streetStorePath) return { ...status, code: 'none_within_walk_budget' }
+  const bounds = streetCoverage(request.streetStorePath, streetStorageIdentity)
+  nativeCoordinateAccessProfile(store, request.streetStorePath, streetStorageIdentity)
+  status.code = diagnoseNativeEndpointStreetAccess(request.streetStorePath, point.coordinate, bounds)
+  if (status.code === 'outside_coverage') status.coverageBounds = bounds
+  if (status.code !== 'none_within_walk_budget' || maximumWalkMeters >= 5000) return status
+  const probeWalkMeters = Math.min(Math.max(maximumWalkMeters * 2, maximumWalkMeters + 500), 5000) / 1000 * 1000
+  status.probeWalkMeters = probeWalkMeters
+  const probe = prepareNativeCoordinateAccessRole(store, point, probeWalkMeters / 1000, request.streetStorePath,
+    streetStorageIdentity, role, request.__disableNativeStreetPathCache === true)?.candidates ?? []
+  if (probe.length) {
+    status.code = 'outside_selected_budget'
+    status.suggestedWalkMeters = Math.min(...probe.map(candidate => candidate.distanceM))
+  }
+  return status
+}
+
+// Access or egress geometry with the standalone runtime's line and labels.
+// `witness` runs from the free endpoint toward the stop; egress is reversed.
+function publicAccessGeometry(endpoint, witness, stopPoint, exactStation, timing, egress) {
+  if (exactStation) {
+    const line = [endpoint, stopPoint ?? endpoint]
+    return { coordinates: egress ? line.reverse() : line, geometrySource: 'station_selection', distanceMeters: 0 }
+  }
+  const stop = stopPoint ?? witness.at(-1)
+  // Collapse repeated vertices in travel order, as the Rust runtime does.
+  const line = egress ? publicWalkLine(stop, [...witness].reverse(), endpoint) : publicWalkLine(endpoint, witness, stop)
+  return {
+    coordinates: line,
+    geometrySource: timing.accessCost ? 'osm_and_station_path' : 'osm',
+    streetSegmentVerified: true,
+    // A linked station's interior is inferred until its pathways say otherwise.
+    ...(timing.accessCost ? { stationAccessStatus: 'unverified' } : {}),
+    endpointConnector: endpointConnector(endpoint, witness[0], egress),
+  }
+}
+
+function pathwayTransferSource(source) {
+  return source === 'gtfs_pathway' || source === 'gtfs_pathway_estimated'
+}
+
+// One transfer walk as the Rust standalone publishes it: the rule priced at
+// this duration supplies its source and cost; a generated or unruled transfer
+// shows a street witness only when that path fits the priced time.
+function transferWalkEvidence(store, request, step, from, to, context) {
+  const { streetStorageIdentity, maxWalkKm, diagnostics } = context
+  const duration = step.duration
+  const coordinates = [stopCoordinate(from) ?? [NaN, NaN], stopCoordinate(to) ?? [NaN, NaN]]
+  const located = coordinates.flat().every(Number.isFinite)
+  const evidence = { streetPathVerified: false }
+  let distanceM
+  let sourceOnly = false
+  const rows = store.transfers.get(step.fromStopId) ?? []
+  const rule = rows.find(row => row.to_stop_id === step.toStopId
+    && row.min_transfer_time != null && Math.trunc(row.min_transfer_time) <= duration + 0.001)
+  // Only an OSM-certified transfer is a street walk. A station link without a
+  // transfer row keeps its modeled time and claims no path.
+  const linked = rows.find(row => row.to_stop_id === step.toStopId)?.provenance ?? 'parent_station_fallback'
+  if (!rule && linked !== 'osm_certified_radial') {
+    sourceOnly = true
+    evidence.transferSource = linked
+  }
+  if (rule) {
+    const source = rule.provenance ?? 'unknown'
+    evidence.transferSource = source
+    if (source !== 'osm_certified_radial') {
+      sourceOnly = true
+      if (!located) {
+        evidence.stationGeometryStatus = 'incomplete'
+        if (rule.path_distance_m == null) evidence.stationDistanceStatus = 'lower_bound'
+      }
+      distanceM = rule.path_distance_m ?? (located ? haversineKm(...coordinates) * 1000 : 0)
+      evidence.geometrySource = pathwayTransferSource(source) ? 'gtfs_pathway' : 'stop_coordinate_fallback'
+      if (pathwayTransferSource(source)) {
+        evidence.stationPathSources = [source]
+        evidence.accessCost = { street: { seconds: 0, distanceKm: 0 }, station: {
+          stopIds: [step.fromStopId, step.toStopId], sources: [source], seconds: duration, distanceKm: distanceM / 1000,
+        } }
+      }
+    }
+  }
+  if (!sourceOnly && duration > 0 && request.streetStorePath && located) {
+    const path = cachedNativeTransferPath(store, {
+      streetStorePath: request.streetStorePath, streetStorageIdentity,
+      fromCoordinate: coordinates[0], toCoordinate: coordinates[1],
+      maximumDistanceKm: Math.max(maxWalkKm * 1000, duration * walkingSpeedKph / 3.6) / 1000,
+    }, diagnostics)
+    evidence.nativeStreetQueryMs = timingMilliseconds(path?.nativeQueryMs)
+    // Never attach a longer, newly searched path to an already priced walk.
+    if (path && path.distanceM * 3.6 / walkingSpeedKph <= duration + 0.061) {
+      evidence.coordinates = publicWalkLine(coordinates[0], path.coordinates, coordinates[1])
+      evidence.geometrySource = 'osm'
+      evidence.streetSegmentVerified = true
+      evidence.streetPathVerified = true
+      distanceM ??= path.distanceM
+    }
+  }
+  if (distanceM === undefined && rule?.path_distance_m != null) distanceM = rule.path_distance_m
+  if (distanceM !== undefined) evidence.distanceMeters = distanceM
+  if (!evidence.coordinates) {
+    evidence.coordinates = coordinates.filter(point => point.every(Number.isFinite))
+    evidence.geometrySource ??= 'unverified_transfer'
+  }
+  return evidence
 }
 
 function minuteCoordinate(value) {
@@ -3699,10 +3753,7 @@ function prepareAccessStops(
     accessRole,
   ])
   const selectedStop = explicitStopId ? store.stopLookup.get(explicitStopId) : null
-  if (explicitStopId && !selectedStop) {
-    boundedCacheSet(store.accessStopsCache, cacheKey, [], 20_000)
-    return []
-  }
+  if (explicitStopId && !selectedStop) return []
   if (selectedStop?.location_type === 1) {
     // A station centroid is a coordinate, not a free alias for every platform.
     // Its access path must pay the same street and pathway costs as a map point.
@@ -3719,19 +3770,12 @@ function prepareAccessStops(
   const cached = boundedCacheGet(store.accessStopsCache, cacheKey)
   if (cached) return cached
   if (selectedStop) {
-    const stationId = ''
-    const memberIds = stationId
-      ? [stationId, ...(store.stationMembers.get(stationId) ?? [])]
-      : [selectedStop.stop_id]
-    const uniqueMembers = [...new Set(memberIds)]
-      .map((stopId) => store.stopLookup.get(stopId))
-      .filter(Boolean)
-    const serviceAnchor = selectedStop.location_type === 1 ? selectedStop : (store.stopLookup.get(stationId) ?? selectedStop)
-    const profile = sampledAnchorServiceProfile(store, serviceAnchor)
+    // A platform or child stop is exact; it is never expanded to its siblings.
+    const profile = sampledAnchorServiceProfile(store, selectedStop)
     const accessPriority = profile.hasHeavyRail
       ? `selected-rail:${selectedStop.stop_id}`
       : profile.modes.length ? `selected-${profile.modes.join('-')}:${selectedStop.stop_id}` : undefined
-    const selected = uniqueMembers.map((stop) => exactStationAccessCandidate(stop, accessPriority))
+    const selected = [exactStationAccessCandidate(selectedStop, accessPriority)]
     boundedCacheSet(store.accessStopsCache, cacheKey, selected, 20_000)
     return selected
   }
@@ -5285,76 +5329,38 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
     nativeStreetPathDiagnostics,
   )
   accessGeometryMs = performance.now() - accessGeometryStartedAt
+  const accessStopCoordinate = stopCoordinate(stopLookup.get(firstAccessStop.stop_id))
+  const accessTiming = stationAccessTiming(firstAccessStop)
   legs.push({
     type: 'walk', travelMode: 'walk', walkSource: firstAccessStop.walkSource || (request.streetStorePath ? 'osm' : 'direct'),
     fromName: origin.label, toName: firstAccessStop.name, toStopId: firstAccessStop.stop_id,
+    from: { coordinate: origin.coordinate }, to: { coordinate: accessStopCoordinate },
     streetPathVerified: firstAccessStop.streetPathVerified === true,
     stationPathSources: firstAccessStop.accessTransferSources,
-    ...stationAccessTiming(firstAccessStop),
+    ...accessTiming,
     startMinutes: departureMinutes, endMinutes: minuteCoordinate(firstAccess.arrival),
     durationMinutes: secondsToMinutes(firstAccess.arrival - departure), distanceKm: firstAccessStop.distanceKm,
-    stopCount: 0, coordinates: accessCoordinates,
-    endpointConnector: endpointConnector(origin.coordinate, accessCoordinates[0]),
+    stopCount: 0,
+    ...publicAccessGeometry(origin.coordinate, accessCoordinates, accessStopCoordinate, exactStationAccess, accessTiming, false),
   })
   for (const step of chain) {
     if (step.kind === 'access') continue
     if (step.kind === 'transfer') {
       const from = stopLookup.get(step.fromStopId)
       const to = stopLookup.get(step.toStopId)
-      const transfer = store.transfers.get(step.fromStopId)
-        ?.find((rule) => rule.to_stop_id === step.toStopId)
-      const transferSource = transfer?.provenance ?? 'parent_station_fallback'
-      const located = [from?.lon, from?.lat, to?.lon, to?.lat].every(Number.isFinite)
-      let transferPath = null
-      if (
-        transferSource === 'osm_certified_radial'
-        && request.streetStorePath
-        && Number.isFinite(from?.lon)
-        && Number.isFinite(from?.lat)
-        && Number.isFinite(to?.lon)
-        && Number.isFinite(to?.lat)
-      ) {
-        const transferPathInput = {
-          stopTransfer: true,
-          streetStorePath: request.streetStorePath,
-          streetStorageIdentity,
-          fromStopId: step.fromStopId,
-          toStopId: step.toStopId,
-          fromCoordinate: [from.lon, from.lat],
-          toCoordinate: [to.lon, to.lat],
-          maximumDistanceKm: Math.max(maxWalkKm, osmTransferMaximumWalkM / 1000),
-        }
-        // Generated transfer weights use physical stop coordinates. Public
-        // endpoint entrance anchors can describe a different, longer path.
-        transferPath = cachedNativeAccessMemberPath(
-          store,
-          transferPathInput,
-          nativeStreetPathDiagnostics,
-        ) ?? cachedNativeStreetPath(
-          store,
-          transferPathInput,
-          nativeStreetPathDiagnostics,
-        )
-      }
+      const evidence = transferWalkEvidence(store, request, step, from, to, {
+        streetStorageIdentity, maxWalkKm, diagnostics: nativeStreetPathDiagnostics,
+      })
       legs.push({
         type: 'walk', travelMode: 'walk', walkSource: 'transfer', fromStopId: step.fromStopId, toStopId: step.toStopId,
-        transferSource,
         fromName: from?.name ?? step.fromStopId, toName: to?.name ?? step.toStopId,
+        from: { coordinate: stopCoordinate(from) }, to: { coordinate: stopCoordinate(to) },
         startMinutes: minuteCoordinate(step.arrival - step.duration), endMinutes: minuteCoordinate(step.arrival),
         durationMinutes: secondsToMinutes(step.duration),
-        distanceKm: transferPath?.distanceKm ?? (transfer?.path_distance_m != null ? transfer.path_distance_m / 1000 : undefined)
-          ?? (located ? haversineKm([from.lon, from.lat], [to.lon, to.lat]) : 0),
+        distanceKm: evidence.distanceMeters === undefined ? undefined : evidence.distanceMeters / 1000,
         stopCount: 0,
-        coordinates: transferPath?.coordinates
-          ?? [from, to].filter(stop => Number.isFinite(stop?.lon) && Number.isFinite(stop?.lat)).map(stop => [stop.lon, stop.lat]),
-        ...(!located ? { stationGeometryStatus: 'incomplete',
-          ...(transfer?.path_distance_m == null ? { stationDistanceStatus: 'lower_bound' } : {}) } : {}),
-        // Source transfer/pathway times and the station fallback describe their
-        // own connections, not a detour through the external street network.
-        geometrySource: transferPath ? 'osm-rust-selected-transfer'
-          : transferSource === 'parent_station_fallback' ? 'station-transfer-schematic' : 'stop-coordinate-fallback',
-        streetPathVerified: Boolean(transferPath),
-        nativeStreetQueryMs: timingMilliseconds(transferPath?.nativeQueryMs),
+        ...evidence,
+        transferSource: evidence.transferSource ?? 'parent_station_fallback',
       })
       continue
     }
@@ -5385,6 +5391,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
     const sourceWholeMinuteTimes = sourceEqualTime
       && first.departure % 60 === 0
       && last.arrival % 60 === 0
+    const tripDetails = store.tripDetailsLookup.get(first.trip_id)
     const shapeExtractionStartedAt = performance.now()
     const geometry = nationalRideGeometry(store, connections, stopLookup)
     shapeExtractionMs += performance.now() - shapeExtractionStartedAt
@@ -5399,11 +5406,17 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
       routeFeatureId: first.route_id, routeId: first.route_id,
       routeType: route.route_type,
       routeShortName: route.short_name || route.long_name || first.route_id, routeColor: route.color || undefined,
+      // Source route fields exactly as the standalone runtime publishes them.
+      route: { shortName: route.short_name ?? null, longName: route.long_name ?? null,
+        type: route.route_type ?? null, color: route.color ?? null },
+      from: { coordinate: stopCoordinate(from) }, to: { coordinate: stopCoordinate(to) },
       tripId: first.trip_id, directionId: first.direction_id || undefined, serviceId: first.service_id,
       serviceDate: kernel.tripServiceDates?.[step.kernelTripIndex] || request.serviceDate,
-      headsign: store.tripHeadsignLookup.get(first.trip_id)?.headsign ?? null,
+      headsign: tripDetails?.headsign ?? null,
+      tripShortName: tripDetails?.short_name ?? null,
       intermediateStops: connections.slice(0, -1).map((c, i) => ({ stopId: c.to_stop_id,
-        name: stopLookup.get(c.to_stop_id)?.name ?? c.to_stop_id, arrival: c.arrival,
+        name: stopLookup.get(c.to_stop_id)?.name ?? c.to_stop_id,
+        coordinate: stopCoordinate(stopLookup.get(c.to_stop_id)), arrival: c.arrival,
         departure: connections[i + 1].from_stop_id === c.to_stop_id ? connections[i + 1].departure : null })),
       startMinutes: minuteCoordinate(first.departure), endMinutes: minuteCoordinate(last.arrival),
       durationMinutes: secondsToMinutes(last.arrival - first.departure), distanceKm: geometry.distanceKm,
@@ -5434,16 +5447,20 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
     nativeStreetPathDiagnostics,
   )
   egressGeometryMs = performance.now() - egressGeometryStartedAt
+  const egressStopCoordinate = stopCoordinate(lastStop)
+  const egressTiming = stationAccessTiming(bestStop)
   legs.push({
     type: 'walk', travelMode: 'walk', walkSource: bestStop.walkSource || (request.streetStorePath ? 'osm' : 'direct'),
     fromStopId: bestStop.stop_id, fromName: lastStop?.name ?? bestStop.stop_id, toName: destination.label,
+    from: { coordinate: egressStopCoordinate }, to: { coordinate: destination.coordinate },
     streetPathVerified: bestStop.streetPathVerified === true,
     stationPathSources: bestStop.accessTransferSources,
-    ...stationAccessTiming(bestStop),
+    ...egressTiming,
     startMinutes: minuteCoordinate(egressStart), endMinutes: minuteCoordinate(bestArrival),
     durationMinutes: secondsToMinutes(bestArrival - egressStart), distanceKm: bestStop.distanceKm,
-    stopCount: 0, coordinates: [...destinationToStopCoordinates].reverse(),
-    endpointConnector: endpointConnector(destination.coordinate, destinationToStopCoordinates[0], true),
+    stopCount: 0,
+    ...publicAccessGeometry(destination.coordinate, destinationToStopCoordinates, egressStopCoordinate,
+      exactStationEgress, egressTiming, true),
   })
   const legNormalizationStartedAt = performance.now()
   const stationAccess = annotateStationAccess(legs, {
@@ -7025,6 +7042,7 @@ function routeNationalGtfsArriveByStore(
   storePath,
   request,
   streetStorageIdentity = currentStreetStoreStorageIdentity(request.streetStorePath),
+  onEndpointCandidates = null,
 ) {
   const store = openNationalStore(storePath)
   const started = performance.now()
@@ -7210,6 +7228,7 @@ function routeNationalGtfsArriveByStore(
     destinationStops = nativeCoordinateAccess?.destination
       ?? preparePointAccessStops(store, request.destination, maxWalkKm, request.streetStorePath, streetStorageIdentity, 'destination', request.__disableNativeStreetPathCache === true)
   }
+  onEndpointCandidates?.(request.origin, request.destination, originStops, destinationStops)
   const arriveByCoordinateAccessReuseStart =
     preparedArriveByCoordinateAccess?.reuseCount ?? 0
   const fallbackRetryWithPreparedCoordinateAccess = () => {
@@ -7794,7 +7813,18 @@ export function routeNationalGtfsStore(storePath, request) {
     }
   }
   const routingCoverage = store.routingCoverage
+  // Endpoint candidates, once known, explain a blocked result the same way
+  // in every runtime: per-endpoint access codes and no_access versus no_path.
+  let publicAccessContext = null
   const decorateResult = (plan) => {
+    if (plan?.status === 'blocked' && publicAccessContext) {
+      const { origin, destination, originStops, destinationStops } = publicAccessContext
+      plan = { ...plan, reason: !originStops.length || !destinationStops.length ? 'no_access' : 'no_path',
+        access: {
+          origin: publicEndpointAccess(store, request, origin, 'origin', originStops.length, maxWalkKm, streetStorageIdentity),
+          destination: publicEndpointAccess(store, request, destination, 'destination', destinationStops.length, maxWalkKm, streetStorageIdentity),
+        } }
+    }
     plan = attachRoutingDataProvenance(plan, store, request)
     const resultStatus = routingResultStatus(plan)
     const transitResult = plan?.travelMode === 'transit'
@@ -7876,7 +7906,10 @@ export function routeNationalGtfsStore(storePath, request) {
   const directWalk = dominantDirectWalkPlan(request, maxWalkKm)
   if (directWalk) return decorateResult(directWalk)
   if (request.timePreference === 'arrive') {
-    const routedArrivePlan = routeNationalGtfsArriveByStore(storePath, request, streetStorageIdentity)
+    const routedArrivePlan = routeNationalGtfsArriveByStore(storePath, request, streetStorageIdentity,
+      (origin, destination, originStops, destinationStops) => {
+        publicAccessContext = { origin, destination, originStops, destinationStops }
+      })
     const transitPreferredPlan = transitDominatingDirectWalkPlan(
       request,
       maxWalkKm,
@@ -7972,7 +8005,8 @@ export function routeNationalGtfsStore(storePath, request) {
           // JS certifiers and alternative collection still need all candidates.
           retainFullFrontier: request.maxTransfers === undefined
             || request.routingPreference === 'balanced'
-            || Array.isArray(request[departureWindowAlternativePlans]),
+            || Array.isArray(request[departureWindowAlternativePlans])
+            || Boolean(request[routeAlternativeCollector]),
           enableDirectWalkDominance: !transitRideRequired(request),
           disableCache: request.__disableNativeStreetPathCache === true,
         },
@@ -8041,6 +8075,7 @@ export function routeNationalGtfsStore(storePath, request) {
         nativeCoordinateAccess.diagnostics.candidateRestrictionMs = candidateRestrictionMs
       }
     }
+    publicAccessContext = { origin, destination, originStops, destinationStops }
     const accessPreparationMs = fusedCoordinateTimetable
       ? Number((
           nativeCoordinateAccess.diagnostics.profileReadinessMs
@@ -8201,6 +8236,78 @@ export function routeNationalGtfsStore(storePath, request) {
           schemaVersion: 'vigo.routing.native-timetable.v3',
           engineQueryMs: timingMilliseconds(kernelSearch.queryMs),
           scalar: kernelSearch.nativeTimetableKernel,
+        }
+        const materializationContext = () => ({
+          request,
+          origin,
+          destination,
+          originStops,
+          destinationStops,
+          departureMinutes,
+          departure,
+          horizon,
+          maxWalkKm,
+          serviceDateResolution,
+          services,
+          startedAt: started,
+          accessPreparationMs,
+          serviceActivationMs,
+          serviceKernelPreparationMs,
+          nativeTimetableKernel,
+          streetStorageIdentity,
+          nativeCoordinateAccess,
+          realtimeTimetable,
+        })
+        // Opt-in alternatives send the standalone runtime's kernel request:
+        // every endpoint candidate, the final transit witness, and the shared
+        // ranking. Each returned chain becomes an ordinary plan.
+        const collectRouteAlternatives = () => {
+          const collector = request[routeAlternativeCollector]
+          if (!collector || selectedKernelSearch.status !== 'ready') return
+          let candidateOrigins = originStops
+          let candidateDestinations = destinationStops
+          if (fusedCoordinateTimetable && !paretoSearch) {
+            candidateOrigins = materializeNativeCoordinateEndpointCandidates(
+              request.streetStorePath, fusedCoordinateTimetable.endpoints, 'origin',
+            )
+            candidateDestinations = materializeNativeCoordinateEndpointCandidates(
+              request.streetStorePath, fusedCoordinateTimetable.endpoints, 'destination',
+            )
+          }
+          const { arrivalSlackSeconds, ranking, limit } = collector.alternatives
+          const raw = routeNativeTimetableAlternatives(activeKernel, {
+            originSeeds: activeServiceKernelAccessSeeds(activeKernel, candidateOrigins),
+            destinationSeeds: activeServiceKernelAccessSeeds(activeKernel, candidateDestinations),
+            allowPreRideTransfers,
+            allowPostRideTransfers: allowsTerminalTransfers(candidateDestinations),
+            maxTransfers: request.maxTransfers,
+            departure,
+            horizon,
+            earliestArrival: selectedKernelSearch.bestArrival,
+            arrivalSlackSeconds,
+            bestBoardings: selectedKernelSearch.chain.filter((step) => step.kind === 'ride').length,
+            ranking,
+            limit,
+          })
+          collector.search = raw.supported
+            ? { status: 'complete' }
+            : { status: 'unavailable', reason: raw.reason ?? '' }
+          const context = {
+            ...materializationContext(),
+            originStops: candidateOrigins,
+            destinationStops: candidateDestinations,
+          }
+          for (const alternative of raw.alternatives ?? []) {
+            const plan = materializeActiveServiceKernelPlan(store, activeKernel, {
+              ...selectedKernelSearch,
+              bestArrival: alternative.bestArrival,
+              bestBoardings: alternative.bestBoardings,
+              bestDestinationIndex: alternative.bestDestinationIndex,
+              chain: nativeTimetableChain(activeKernel, alternative),
+            }, context)
+            if (!plan) throw new Error('Rust alternative timetable result could not be materialized.')
+            collector.plans.push(decorateResult(withReturnedStationAdvisory(store, plan)))
+          }
         }
 
         // Scalar arrival dominance can discard a later stop label with less
@@ -8388,6 +8495,7 @@ export function routeNationalGtfsStore(storePath, request) {
                 Math.min(selectedKernelSearch.bestArrival, horizon) / 60
                 - earlyDirectComparison.diagnostics.directWalkDistanceKm / walkingSpeedKph * 60
             }
+            collectRouteAlternatives()
             return decorateResult(earlyDirectComparison)
           }
         }
@@ -8423,27 +8531,7 @@ export function routeNationalGtfsStore(storePath, request) {
             performance.now() - candidateAssemblyStartedAt
         }
 
-        const kernelMaterializationContext = {
-          request,
-          origin,
-          destination,
-          originStops,
-          destinationStops,
-          departureMinutes,
-          departure,
-          horizon,
-          maxWalkKm,
-          serviceDateResolution,
-          services,
-          startedAt: started,
-          accessPreparationMs,
-          serviceActivationMs,
-          serviceKernelPreparationMs,
-          nativeTimetableKernel,
-          streetStorageIdentity,
-          nativeCoordinateAccess,
-          realtimeTimetable,
-        }
+        const kernelMaterializationContext = materializationContext()
         if (selectedKernelSearch.status === 'blocked') {
           const serviceDateRetry = realtimeTimetable?.ready ? null : fallbackRetryRequest(store, request)
           if (serviceDateRetry) return routeNationalGtfsStore(storePath, serviceDateRetry)
@@ -8527,6 +8615,7 @@ export function routeNationalGtfsStore(storePath, request) {
           }
         }
         const visiblePlan = withReturnedStationAdvisory(store, kernelPlan)
+        collectRouteAlternatives()
         return decorateResult(visiblePlan)
       } catch (error) {
         store.activeServiceKernelStatus = {
@@ -8578,6 +8667,14 @@ export function routeNationalGtfsStore(storePath, request) {
   } finally {
     // Routing is resident-only; the persisted store stays open in the project cache.
   }
+}
+
+// Opt-in point alternatives: the primary plan, the transit alternatives the
+// shared kernel returns for it, and the search status for the public result.
+export function routeNationalGtfsStoreWithAlternatives(storePath, request, alternatives) {
+  const collector = { alternatives, plans: [], search: null }
+  const plan = routeNationalGtfsStore(storePath, { ...request, [routeAlternativeCollector]: collector })
+  return { plan, choices: collector.plans, alternativeSearch: collector.search }
 }
 
 function routeNationalGtfsParetoAlternatives(storePath, request, centerMinutes, requestedCount = 5) {

@@ -2,6 +2,14 @@
 
 ## 0.5.2
 
+- Batch large uncached coordinate endpoint searches across four bounded workers, keep dominance keys contiguous, and project large matrix results in parallel while preserving input order, full itineraries, geometry and routing selection.
+
+- Add opt-in Route alternatives to both runtimes: `alternatives` (0–9), `alternativeRanking` (`pareto` or `ranked`) and `alternativeSlackMinutes`, with `--alternatives` and `--alternative-ranking` flags. One Rust kernel request and one public selection rule serve both; ranked results count each sequence of vehicles once. Off by default; journey windows are unchanged.
+- Return the same public Route result from the Rust and Node runtimes for the same request and City. Share one transit line rule (boarding stop, aligned shape vertices, alighting stop, exact `distanceMeters`), transfer and access walk geometry with `endpointConnector`, leg coordinates and route names, `not_found` access reasons, `computeScope`, `queryFingerprint` and stream `sequence`. Only OSM-certified transfers follow a street path; parent-station links keep a straight, unverified line. Summary and profile diagnostics remain runtime-specific.
+- Price standalone Route legs with GTFS Fares v1/v2. Node and standalone use one Rust fare engine for amounts, currency scales, service-day clocks and fare URLs; the JavaScript fare-time module is removed.
+- Release a City's import reservation as soon as its job reports a final status, so routing and follow-up imports no longer see a transient 409 after `complete`. Node stream options are defaults: each line's own fields, including `serviceDate`, take precedence.
+- Route standalone transfer walks over the stop-transfer street path before the general street search. Skip unreached stops and inactive trip runs with per-query bitsets in the scalar scan, spread integer hash keys, cache trip details per City, and move rather than copy result trees into the public projection.
+
 - Release all City routing workers before replacing street snapshots, including timetable workers holding mapped files on Windows. Reject new routing requests during replacement and preserve retry behavior.
 
 - Refresh native walking evidence for parent-station selections and prepare paired station endpoints together. Preserve Route and Matrix geometry across repeated parent, platform, and map-point requests without changing station access costs.

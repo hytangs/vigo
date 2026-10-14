@@ -3,6 +3,7 @@ import { emptyCollection, isFiniteLngLat, mapColor, type FeatureCollection } fro
 import { routingLabelAnchor } from '../app/mapPresentation'
 import type { MapPreview } from '../domain'
 import type { RoutingPlan, RoutingPoint } from '../routingModel'
+import { shapedRideGeometry } from '../app/presentation'
 import { routingPinLabel } from '../routingPointSequence'
 import { serviceKeyForRoute, serviceVehicleIsVisible, type ServiceVehicleFrame } from '../serviceVehicles'
 
@@ -78,7 +79,8 @@ export function routingLineFeatures(plan: RoutingPlan | null | undefined): Featu
         routeColor: mapColor(leg.routeColor, '#7ddfe8'),
         durationMinutes: leg.durationMinutes,
         tripId: leg.tripId ?? '',
-        geometrySource: leg.type === 'ride' ? leg.geometrySource ?? 'stop_sequence' : '',
+        // Map styles key on the GTFS-shape distinction, whatever the vocabulary.
+        geometrySource: leg.type === 'ride' ? (shapedRideGeometry(leg.geometrySource) ? 'shape' : leg.geometrySource ?? 'stop_sequence') : '',
         shapeId: leg.shapeId ?? '',
       },
     }))
@@ -101,7 +103,7 @@ export function routingLineFeatures(plan: RoutingPlan | null | undefined): Featu
         legType: leg.type,
         routeShortName,
         routeColor: mapColor(leg.routeColor, '#7ddfe8'),
-        geometrySource: leg.geometrySource ?? 'stop_sequence',
+        geometrySource: shapedRideGeometry(leg.geometrySource) ? 'shape' : leg.geometrySource ?? 'stop_sequence',
       },
     }]
   })

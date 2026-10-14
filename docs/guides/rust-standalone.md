@@ -323,6 +323,8 @@ Use `vigo route --help` for the general command overview. `--name value` and `--
 | `--max-street KM` | Route, Matrix | Independent street-route distance cap |
 | `--horizon MINUTES` | Route, Matrix | Search horizon |
 | `--arrive-by` | Route, Matrix | Arrive-by time direction; false restores depart-at |
+| `--alternatives N` | Route | Additional transit journeys, 0–9 |
+| `--alternative-ranking pareto\|ranked` | Route | How alternatives are chosen |
 | `--cutoffs 15,30,45` | Reach | Travel-time cutoffs |
 | `--raster-size N` | Reach | Square grid width and height |
 | `--radius KM` | Reach | Reporting extent radius |
@@ -482,11 +484,35 @@ For transit coordinate requests, a direct OSM walk competes with transit by defa
 
 ### Journey geometry
 
-Route includes its materialized leg geometry by default. Set `includeGeometry: false` to omit coordinate arrays from the public response. Matrix geometry remains opt-in. Transit shape geometry is aligned using the shared native shape code. Missing source shapes fall back to a labeled stop sequence. Fare annotations and Studio's balanced/preference presentation are not part of this interface.
+Route includes its materialized leg geometry by default. Set `includeGeometry: false` to omit coordinate arrays from the public response. Matrix geometry remains opt-in. A transit leg's line runs from the boarding stop through the aligned source-shape vertices to the alighting stop; `distanceMeters` is the length of that line. Missing source shapes fall back to a labeled stop sequence. Transit legs carry GTFS fare annotations when the City publishes fares. Studio's balanced/preference presentation is not part of this interface.
 
-## 7. Via points and departure windows
+## 7. Alternatives, via points, and departure windows
 
-Plan a journey through intermediate points or compare departures over a time window.
+Ask for several journeys at one time, plan through intermediate points, or compare departures over a time window.
+
+### Alternative journeys
+
+`alternatives` (0–9, default 0) asks a depart-at transit Route for additional transit journeys at the requested time. The primary journey stays in `journey`; the others appear in `alternatives`, earliest arrival first. Both runtimes return the same alternatives for the same request.
+
+`alternativeRanking` chooses them:
+
+- `pareto` (default) keeps only trade-offs: an alternative must beat every other returned journey on arrival, boardings, or walking. It uses no more boardings than the primary journey. When more trade-offs exist than requested, the fewest boardings and the least walking are kept first.
+- `ranked` keeps the earliest arrivals even when another journey is better in every respect, then prefers fewer boardings and less walking. It admits one more boarding than the primary journey, within `maxTransfers`. Journeys on the same sequence of vehicles count once, whatever stops they use to change or leave.
+
+`alternativeSlackMinutes` (0–120, default 15) bounds how much later than the primary journey an alternative may arrive. `alternativeSearch` records `coverage: "requested_time"`, `ranking`, `maximumJourneys` (including the primary), `arrivalSlackMinutes`, and `status`. A search that exceeds the kernel's label budget reports `status: "unavailable"` with a `reason` and returns the primary journey alone. Alternatives are transit journeys; a faster direct walk remains the primary journey. Requests that combine alternatives with arrive-by, via points, or a journey window are rejected.
+
+```json query=route
+{
+  "origin": {"stopId": "A"},
+  "destination": {"stopId": "B"},
+  "serviceDate": "2026-07-15",
+  "time": "07:50",
+  "alternatives": 3,
+  "alternativeRanking": "ranked",
+  "maxWalkKm": 0.2,
+  "requireTransitRide": true
+}
+```
 
 ### Via points
 
@@ -971,10 +997,13 @@ To draw one leg as GeoJSON, use `{type: "LineString", coordinates: leg.coordinat
 | `gtfs_shape` | A source shape aligned and sliced between the selected stops |
 | `stop_sequence` | A fallback line through stop coordinates, which need not follow the street or track |
 | `osm` | A walking path found in the prepared street graph |
+| `osm_and_station_path` | A street path joined to the selected station path |
+| `gtfs_pathway` | A GTFS pathway transfer, drawn between the located stops |
+| `stop_coordinate_fallback` | A transfer priced by a GTFS transfer rule, drawn between the stops |
 | `station_selection` | Selected-stop endpoint connector; no street path was checked for that leg |
-| `unverified_transfer` | Endpoint line for which no street path was materialized |
+| `unverified_transfer` | A transfer line with no materialized path, including a link between platforms of one parent station |
 
-These labels apply to materialized transit legs. `streetPathVerified: true` identifies a graph-verified walking leg; false is explicit for the two connector fallbacks. Ride legs and direct Walk/Drive legs do not use that flag in this version. Missing does not mean false. Graph verification does not establish wheelchair access, station-interior access, or fare eligibility.
+Only transfers certified from OSM follow a street path; a parent-station link keeps its modeled time and a straight line. These labels apply to materialized transit legs. `streetPathVerified: true` identifies a graph-verified walking leg; false is explicit for the fallback labels. Ride legs and direct Walk/Drive legs do not use that flag in this version. Missing does not mean false. Graph verification does not establish wheelchair access, station-interior access, or fare eligibility.
 
 Route always materializes geometry. Matrix journeys only add `coordinates`, `geometrySource`, and geometry-derived distances when `includeGeometry` is true. This changes detail, not whether the duration cell is reachable.
 

@@ -144,6 +144,8 @@ fn run() -> Result<()> {
         "max-walk",
         "max-street",
         "max-transfers",
+        "alternatives",
+        "alternative-ranking",
         "horizon",
         "arrive-by",
         "street-edges",
@@ -186,6 +188,7 @@ fn run() -> Result<()> {
             "arrive-by" | "max-street" | "horizon" => {
                 ["route", "matrix"].contains(&command.as_str())
             }
+            "alternatives" | "alternative-ranking" => command == "route",
             _ => ["route", "matrix", "reach", "isochrone", "stream"].contains(&command.as_str()),
         };
         if !allowed {
@@ -225,6 +228,8 @@ fn run() -> Result<()> {
         // reduce pipe writes without retaining a second complete response.
         let mut stdout = io::BufWriter::with_capacity(64 * 1024, io::stdout().lock());
         let mut bytes = Vec::new();
+        // Like the Node stream, number each nonblank request line from one.
+        let mut sequence = 0_u64;
         loop {
             bytes.clear();
             let read = reader
@@ -240,6 +245,7 @@ fn run() -> Result<()> {
             if bytes.iter().all(u8::is_ascii_whitespace) {
                 continue;
             }
+            sequence += 1;
             let value: std::result::Result<Value, _> = serde_json::from_slice(&bytes);
             let result = match value {
                 Ok(mut q) => {
@@ -261,6 +267,10 @@ fn run() -> Result<()> {
                 }
                 Err(e) => error(e),
             };
+            let mut result = result;
+            if command == "stream" {
+                result["sequence"] = json!(sequence);
+            }
             serde_json::to_writer(&mut stdout, &result)?;
             writeln!(stdout)?;
             stdout.flush()?;
@@ -362,6 +372,7 @@ fn apply_flags(q: &mut Value, o: &HashMap<String, String>) -> Result<()> {
         ("time", "time"),
         ("mode", "mode"),
         ("diagnostics", "diagnostics"),
+        ("alternative-ranking", "alternativeRanking"),
     ] {
         if let Some(v) = o.get(cli) {
             if key == "time" {
@@ -386,6 +397,7 @@ fn apply_flags(q: &mut Value, o: &HashMap<String, String>) -> Result<()> {
         ("raster-size", "rasterSize"),
         ("radius", "extentRadiusKm"),
         ("max-transfers", "maxTransfers"),
+        ("alternatives", "alternatives"),
     ] {
         if let Some(v) = o.get(cli) {
             q[key] = serde_json::from_str(v)?;

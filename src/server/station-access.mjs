@@ -41,21 +41,24 @@ export function annotateStationAccess(legs, {
       if (id && (subway || (stationId && stationId !== id))) stationStops.add(id)
     }
   }
+  // The same rule as the Rust runtime: a leg touching a station, or already
+  // marked as linked-station access, is source_path only when every station
+  // step is a published pathway. Recomputing an annotated leg is idempotent.
   for (const [index, leg] of legs.entries()) {
-    if (leg.type !== 'walk' || leg.stationAccessStatus
+    if (leg.type !== 'walk'
       || (index === 0 && exactStationAccess)
       || (index === legs.length - 1 && exactStationEgress)
       || (leg.fromStopId && leg.fromStopId === leg.toStopId)) continue
     const stopIds = [...new Set([leg.fromStopId, leg.toStopId].filter(id => stationStops.has(id)))]
-    if (!stopIds.length) continue
-    const sources = leg.stationPathSources ?? [leg.transferSource]
-    const sourcePath = sources.length > 0 && sources.every(isPathway)
+    if (!stopIds.length && !leg.stationAccessStatus) continue
+    const sources = leg.stationPathSources
+    const sourcePath = Array.isArray(sources) && sources.length > 0 && sources.every(isPathway)
     leg.stationAccessStatus = sourcePath ? 'source_path' : 'unverified'
     leg.stationAccessStopIds = stopIds
     if (!sourcePath) {
       // Preserve the narrower street-segment result, while withdrawing the
       // whole-leg claim when the entrance/platform connection is unknown.
-      leg.streetSegmentVerified = leg.streetPathVerified === true
+      leg.streetSegmentVerified = leg.streetSegmentVerified === true || leg.streetPathVerified === true
       leg.streetPathVerified = false
     }
   }

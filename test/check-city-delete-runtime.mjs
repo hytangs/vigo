@@ -6,12 +6,13 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 const root = path.resolve(import.meta.dirname, '..')
-const directory = await fs.mkdtemp(path.join(root, 'temp', 'city-delete-runtime-'))
+const directory = await checkDirectory(root, 'city-delete-runtime-')
 const fixture = `import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {flushSync} from 'react-dom';
 import {ProjectEditorDialog} from '/src/components/ProjectDialogs.tsx';
 import '/src/App.css';import '/src/index.css';
+import { checkDirectory } from './helpers/check-directory.mjs'
 let submitted=0,closed=0;
 function Fixture(){
  const [busy,setBusy]=useState(false),[error,setError]=useState('');

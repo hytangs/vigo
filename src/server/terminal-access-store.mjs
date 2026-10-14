@@ -18,8 +18,7 @@ function authorizedTags(tags) {
 }
 
 export function authorizedPrivateWay(tags) {
-  const access = String(tags.access ?? '').trim().toLowerCase()
-  const foot = String(tags.foot ?? '').trim().toLowerCase()
+  const access = tag(tags.access), foot = tag(tags.foot)
   if (access !== 'private' && foot !== 'private') return false
   if (foot === 'no' || (access === 'no' && foot !== 'private')) return false
   return nationalOsmWayWalkable(authorizedTags(tags))
@@ -79,14 +78,13 @@ export async function buildTerminalAccessStore({ pbfPath, streetStorePath, routi
   const publicNodes = new Uint8Array(ids.length)
   const permissions = new Uint8Array(ids.length)
   const authorizedGates = new Set()
-  const saveNode = (id, point, tags) => {
-    const index = byId.get(id)
-    if (index !== undefined) {
-      lons[index] = point[0]; lats[index] = point[1]
-      const publicAllowed = nationalOsmNodeWalkable(tags), authorized = authorizedEndpointNodeWalkable(tags)
-      permissions[index] = Number(publicAllowed) | (Number(authorized) << 1)
-      if (!publicAllowed && authorized && gates.has(tag(tags.barrier))) authorizedGates.add(id)
-    }
+  // Most PBF nodes lie on no candidate way. Callers resolve membership before
+  // decoding coordinates or tags, as the street compiler does.
+  const saveNode = (index, id, point, tags) => {
+    lons[index] = point[0]; lats[index] = point[1]
+    const publicAllowed = nationalOsmNodeWalkable(tags), authorized = authorizedEndpointNodeWalkable(tags)
+    permissions[index] = Number(publicAllowed) | (Number(authorized) << 1)
+    if (!publicAllowed && authorized && gates.has(tag(tags.barrier))) authorizedGates.add(id)
   }
   const segments = (refs, visit) => {
     for (let i = 1; i < refs.length; i += 1) {
@@ -98,9 +96,15 @@ export async function buildTerminalAccessStore({ pbfPath, streetStorePath, routi
   }
   await forEachPbfBlock(pbfPath, async (block) => {
     for (const group of block.groups) forEachPrimitiveEntity(block, group, {
-      node(node) { saveNode(node.id, coordinate(block, node.lat, node.lon), wayTags(node, block.strings)) },
+      node(node) {
+        const index = byId.get(node.id)
+        if (index !== undefined) saveNode(index, node.id, coordinate(block, node.lat, node.lon), wayTags(node, block.strings))
+      },
       denseNodes(dense) {
-        for (let i = 0; i < dense.ids.length; i += 1) saveNode(dense.ids[i], coordinate(block, dense.lats[i], dense.lons[i]), denseNodeTags(dense, i, block.strings))
+        for (let i = 0; i < dense.ids.length; i += 1) {
+          const index = byId.get(dense.ids[i])
+          if (index !== undefined) saveNode(index, dense.ids[i], coordinate(block, dense.lats[i], dense.lons[i]), denseNodeTags(dense, i, block.strings))
+        }
       },
       way(way) {
         const tags = wayTags(way, block.strings)

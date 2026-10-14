@@ -31,6 +31,16 @@ fn clock(seconds: &Value) -> Value {
     })
 }
 fn clean(v: &mut Value) {
+    // JavaScript cannot distinguish 1200 from 1200.0. Publish the integral form
+    // so every runtime writes the same bytes for the same value.
+    if let Value::Number(n) = v
+        && n.is_f64()
+        && let Some(number) = n.as_f64()
+        && number.fract() == 0.
+        && number.abs() <= 9_007_199_254_740_991.
+    {
+        *v = json!(number as i64);
+    }
     match v {
         Value::Number(n) if n.as_u64() == Some(u32::MAX as u64) => *v = Value::Null,
         Value::Array(a) => a.iter_mut().for_each(clean),
@@ -62,7 +72,11 @@ fn point(v: &Value) -> Value {
     if let Some(s) = v.get("stopId") {
         p["stop"] = identifier(s);
     }
-    if let Some(name) = v.get("name").filter(|x| !x.is_null()) {
+    // Requests name a free endpoint with the documented `label`.
+    if let Some(name) = ["name", "label"]
+        .iter()
+        .find_map(|k| v.get(*k).filter(|x| !x.is_null()))
+    {
         p["name"] = name.clone();
     }
     if coordinate(&v["coordinate"]) {
@@ -83,7 +97,7 @@ fn endpoint(leg: &Value, side: &str) -> Value {
     }
     p
 }
-fn leg(v: &Value, geometry: bool) -> Value {
+fn leg(v: &mut Value, geometry: bool) -> Value {
     let raw_kind = pick(v, &["kind", "type"]).as_str().unwrap_or("walk");
     let kind = if raw_kind == "ride" {
         "transit"
@@ -195,13 +209,21 @@ fn leg(v: &Value, geometry: bool) -> Value {
             out["components"] = Value::Array(components);
         }
     }
-    if v["endpointConnector"].is_object() {
-        out["endpointConnector"] = v["endpointConnector"].clone();
-        if !geometry {
-            out["endpointConnector"]
-                .as_object_mut()
-                .unwrap()
-                .remove("coordinates");
+    // The straight hop between a free coordinate and its street attachment.
+    // Runtimes supply only its points; sub-micrometer gaps are rounding noise.
+    if let Some(points) = v["endpointConnector"]["coordinates"]
+        .as_array()
+        .filter(|a| a.len() == 2 && a.iter().all(coordinate))
+    {
+        let point = |p: &Value| [p[0].as_f64().unwrap(), p[1].as_f64().unwrap()];
+        let (a, b) = (point(&points[0]), point(&points[1]));
+        if (a[0] - b[0]).abs() >= 1e-10 || (a[1] - b[1]).abs() >= 1e-10 {
+            let mut connector = json!({"source":"coordinate-snap","streetPathVerified":false,
+                "distanceKm":crate::route_materialization::haversine_km(a, b)});
+            if geometry {
+                connector["coordinates"] = json!([a, b]);
+            }
+            out["endpointConnector"] = connector;
         }
     }
     // Missing station-node coordinates are valid source data, but not valid
@@ -211,11 +233,28 @@ fn leg(v: &Value, geometry: bool) -> Value {
             .as_array()
             .is_some_and(|a| a.len() >= 2 && a.iter().all(coordinate))
     {
-        out["geometry"] = json!({"type":"LineString","coordinates":v["coordinates"]});
+        out["geometry"] = json!({"type":"LineString","coordinates":v["coordinates"].take()});
     }
     out
 }
-fn journey(v: &Value, geometry: bool) -> Value {
+// Matrix cells are independent after routing. Reuse the bounded routing pool
+// to project large rows/columns in parallel, retaining their exact order.
+fn project_values(values: &mut [Value], geometry: bool, project: fn(&mut Value, bool) -> Value) -> Vec<Value> {
+    if values.len() < 64 {
+        return values.iter_mut().map(|value| project(value, geometry)).collect();
+    }
+    let (left, right) = values.split_at_mut(values.len() / 2);
+    let (mut left, right) = crate::join_endpoint_access(
+        || project_values(left, geometry, project),
+        || project_values(right, geometry, project),
+    );
+    left.extend(right);
+    left
+}
+fn journey_row(row: &mut Value, geometry: bool) -> Value {
+    row.as_array_mut().map_or(Value::Null, |cells| Value::Array(project_values(cells, geometry, journey)))
+}
+fn journey(v: &mut Value, geometry: bool) -> Value {
     if v.is_null() || v["status"] == "blocked" {
         return Value::Null;
     }
@@ -225,10 +264,10 @@ fn journey(v: &Value, geometry: bool) -> Value {
         return Value::Null;
     }
     let mut legs: Vec<_> = v["legs"]
-        .as_array()
-        .map(|a| a.iter().map(|v| leg(v, geometry)).collect())
+        .as_array_mut()
+        .map(|a| a.iter_mut().map(|v| leg(v, geometry)).collect())
         .unwrap_or_default();
-    if let Some(segments) = v["segments"].as_array() {
+    if let Some(segments) = v["segments"].as_array_mut() {
         for segment in segments {
             if let Value::Array(part) = journey(segment, geometry)["legs"].take() {
                 legs.extend(part);
@@ -276,7 +315,7 @@ fn journey(v: &Value, geometry: bool) -> Value {
     }
     out
 }
-fn route_journey(v: &Value, q: &Value, geometry: bool) -> Value {
+fn route_journey(v: &mut Value, q: &Value, geometry: bool) -> Value {
     let mut result = journey(v, geometry);
     complete_journey_endpoints(&mut result, &q["origin"], &q["destination"]);
     result
@@ -287,8 +326,29 @@ fn complete_journey_endpoints(result: &mut Value, origin: &Value, destination: &
     {
         for (index, side, endpoint) in [(0, "from", origin), (legs.len() - 1, "to", destination)] {
             let current = &mut legs[index][side];
-            if current["stop"].is_null() && !coordinate(&current["coordinate"]) {
-                let resolved = point(endpoint);
+            let resolved = point(endpoint);
+            // An endpoint at another stop keeps that stop's own details. The
+            // requested point carries the caller's stop reference and label;
+            // otherwise a stop keeps its name and a free coordinate has none.
+            let own_stop = !current["stop"].is_null();
+            if own_stop && current["stop"] != resolved["stop"] {
+                continue;
+            }
+            if !own_stop && !resolved["stop"].is_null() {
+                current["stop"] = resolved["stop"].clone();
+            }
+            if let Some(fields) = current.as_object_mut() {
+                match resolved.get("name") {
+                    Some(name) => {
+                        fields.insert("name".into(), name.clone());
+                    }
+                    None if fields.get("stop").is_none_or(Value::is_null) => {
+                        fields.remove("name");
+                    }
+                    None => (),
+                }
+            }
+            if !own_stop && !coordinate(&current["coordinate"]) {
                 for (key, value) in resolved.as_object().unwrap() {
                     if current[key].is_null() {
                         current[key] = value.clone();
@@ -459,10 +519,31 @@ fn convert_minutes(v: &Value) -> Value {
             .map_or(Value::Null, |n| json!((n * 60.).round() as i64))
     }
 }
-/// Both transports and the Node addon call this exact projection.
+/// Both transports and the Node addon call this exact projection. The raw
+/// result stays intact; `format_owned` produces the same output without copies.
 pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
+    format_owned(kind, request, raw.clone())
+}
+
+fn plan_of(raw: &mut Value) -> &mut Value {
+    if raw["result"].is_object() {
+        &mut raw["result"]
+    } else {
+        raw
+    }
+}
+
+fn take_first(v: &mut Value, keys: &[&str]) -> Value {
+    keys.iter()
+        .find(|k| v.get(**k).is_some_and(|x| !x.is_null()))
+        .map_or(Value::Null, |k| v[*k].take())
+}
+
+/// The public projection of an owned raw result. Bulky geometry, alternatives
+/// and Reach evidence move into the output instead of being copied.
+pub fn format_owned(kind: &str, request: &Value, mut raw: Value) -> Value {
     if kind == "native" {
-        return raw.clone();
+        return raw;
     }
     if kind == "compare" {
         if raw.get("before").is_some() {
@@ -470,29 +551,39 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
         }
         let mut result = json!({"schema":"vigo.compare.v1","status":"ok","counts":{"comparable":raw["commonCells"],"newlyReachable":raw["newlyReachableCells"],"noLongerReachable":raw["noLongerReachableCells"]},"meanChangeSeconds":raw["meanChangeMinutes"].as_f64().map(|n|n*60.)});
         if request["diagnostics"] == "trace" {
-            result["trace"] = raw.clone();
+            result["trace"] = raw;
         }
         return result;
     }
+    // A trace is the lossless internal result, captured before anything moves.
+    let trace = (request["diagnostics"] == "trace").then(|| raw.clone());
     let kind = if kind == "isochrone" { "reach" } else { kind };
-    let q = if raw["query"].is_object() {
-        &raw["query"]
+    let runtime_query = if raw["query"].is_object() {
+        raw["query"].take()
+    } else {
+        Value::Null
+    };
+    let q = if runtime_query.is_object() {
+        &runtime_query
     } else {
         request
-    };
-    let plan = if raw["result"].is_object() {
-        &raw["result"]
-    } else {
-        raw
     };
     let geometry = request["includeGeometry"]
         .as_bool()
         .unwrap_or(kind == "route");
-    let compute = pick(&raw["timing"], &["computeMs", "totalMs"]).as_f64();
-    let revision = pick(raw, &["cityRevision", "revisionId"])
+    // One scope for every runtime: service-date activation, search and
+    // materialization. Node reports its activation separately as openMs.
+    let compute = pick(&raw["timing"], &["computeMs", "totalMs"])
+        .as_f64()
+        .map(|ms| ms + raw["timing"]["openMs"].as_f64().unwrap_or(0.));
+    let revision = pick(&raw, &["cityRevision", "revisionId"])
         .as_str()
-        .or_else(|| raw["city"]["revisionId"].as_str());
-    let mut fingerprint_query = q.clone();
+        .or_else(|| raw["city"]["revisionId"].as_str())
+        .map(str::to_owned);
+    // Hash the caller's request (stop references canonicalized), so the same
+    // request has one fingerprint in every runtime. Output switches are excluded.
+    let mut fingerprint_query = request.clone();
+    let _ = normalize_points(&mut fingerprint_query);
     if let Some(o) = fingerprint_query.as_object_mut() {
         for k in [
             "id",
@@ -505,17 +596,11 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
             o.remove(k);
         }
     }
-    // Hash supplied observation/scenario content, never expose entire snapshots.
-    for key in ["realtimeSnapshot", "scenario"] {
-        if let Some(v) = request.get(key) {
-            fingerprint_query[key] = v.clone();
-        }
-    }
     let mut meta = json!({"engineVersion":env!("CARGO_PKG_VERSION"),"cityRevision":revision,
         "requestId":request.get("id").cloned().unwrap_or_else(||json!(request_id())),
         "queryFingerprint":digest(&json!({"kind":kind,"query":fingerprint_query,"cityRevision":revision})),
         "computeUs":compute.map(|n|(n*1000.).round() as i64),
-        "computeScope":if raw["runtime"] == "rust" {"query_dispatch_including_materialization"} else {"routing_call"}});
+        "computeScope":"query_dispatch_including_materialization"});
     for key in ["realtimeSnapshot", "scenario"] {
         if let Some(v) = request.get(key).filter(|v| !v.is_null()) {
             meta[format!("{key}Fingerprint")] = json!(digest(v));
@@ -538,25 +623,52 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
     query["dataMode"] = pick(q, &["routingDataMode", "dataMode"])
         .as_str()
         .map_or(json!("scheduled"), |s| json!(s));
+    // Echo endpoints as the caller sent them; runtime defaults never name them.
+    let endpoints = json!({
+        "origin": if request["origin"].is_null() { &q["origin"] } else { &request["origin"] },
+        "destination": if request["destination"].is_null() { &q["destination"] } else { &request["destination"] },
+    });
     for key in ["origin", "destination"] {
-        if !q[key].is_null() {
-            query[key] = point(&q[key]);
+        if !endpoints[key].is_null() {
+            query[key] = point(&endpoints[key]);
         }
     }
     let mut out = json!({"schema":format!("vigo.{kind}.v1"),"status":"ok","mode":pick(q,&["mode"]),"query":query,"meta":meta});
-    if !pick(plan, &["mode", "travelMode"]).is_null() {
-        out["mode"] = pick(plan, &["mode", "travelMode"]).clone();
+    let plan_mode = pick(plan_of(&mut raw), &["mode", "travelMode"]).clone();
+    if !plan_mode.is_null() {
+        out["mode"] = plan_mode;
     }
     if out["mode"].is_null() {
         out["mode"] = json!("transit");
     }
     match kind {
         "route" => {
-            out["journey"] = route_journey(plan, q, geometry);
+            // A journey window describes its sampling. Opt-in alternatives
+            // report a search status; the request supplies the rest.
+            let ranked_search = raw
+                .get_mut("alternativeSearch")
+                .filter(|w| w.is_object())
+                .and_then(|status| {
+                    let alternatives = crate::route_alternatives::parse(request).ok()??;
+                    Some(alternatives.descriptor(status))
+                });
+            let window = raw
+                .get_mut("window")
+                .filter(|w| w.is_object())
+                .map(Value::take)
+                .or_else(|| ranked_search.clone());
+            let mut choices = take_first(&mut raw, &["choices", "journeys"]);
+            let plan = plan_of(&mut raw);
+            // Node's detailed response retains the selected plan in choices too.
+            // It cannot become a distinct alternative; compare before moving.
+            let selected: Vec<bool> = choices
+                .as_array()
+                .map_or(vec![], |items| items.iter().map(|c| c == &*plan).collect());
+            out["journey"] = route_journey(plan, &endpoints, geometry);
             if out["journey"].is_null() {
                 out["status"] = json!("not_found");
                 if plan["access"].is_object() {
-                    out["access"] = plan["access"].clone();
+                    out["access"] = plan["access"].take();
                 }
                 out["reason"] = json!({"code":pick(plan,&["reason"]).as_str().unwrap_or("no_path"),"message":"No journey found within the requested constraints."});
             } else {
@@ -569,18 +681,16 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
                     out["warnings"] = json!([{"code":"station_path_inferred","message":"Part of this journey uses inferred station access; physical passage is not fully verified."}]);
                 }
             }
-            if raw["window"].is_object() {
-                out["alternativeSearch"] = raw["window"].clone();
+            if let Some(window) = window {
+                out["alternativeSearch"] = window;
             }
-            if let Some(choices) = pick(raw, &["choices", "journeys"]).as_array() {
+            if let Some(choices) = choices.as_array_mut() {
                 let mut alternatives = Vec::new();
-                for choice in choices {
-                    // Node's detailed response retains the selected plan in
-                    // choices too. It cannot become a distinct alternative.
-                    if choice == plan {
+                for (choice, selected) in choices.iter_mut().zip(selected) {
+                    if selected {
                         continue;
                     }
-                    let candidate = route_journey(choice, q, geometry);
+                    let candidate = route_journey(choice, &endpoints, geometry);
                     if !candidate.is_null()
                         && candidate != out["journey"]
                         && !alternatives.contains(&candidate)
@@ -588,14 +698,18 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
                         alternatives.push(candidate);
                     }
                 }
+                if let Some(search) = &ranked_search {
+                    alternatives =
+                        crate::route_alternatives::select(&out["journey"], alternatives, search);
+                }
                 if !alternatives.is_empty() {
                     out["alternatives"] = Value::Array(alternatives);
                 }
             }
         }
         "matrix" => {
-            if let Some(distances) = raw.get("distancesMeters") {
-                out["distancesMeters"] = distances.clone();
+            if let Some(distances) = raw.get_mut("distancesMeters") {
+                out["distancesMeters"] = distances.take();
             }
 
             for key in ["origins", "destinations"] {
@@ -615,21 +729,17 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
                 }
             }
             if raw["access"].is_object() {
-                out["access"] = raw["access"].clone();
+                out["access"] = raw["access"].take();
             }
             if raw["durationsMinutes"].is_array() {
                 out["durationsSeconds"] = convert_minutes(&raw["durationsMinutes"]);
-                if let Some(rows) = raw["journeys"].as_array() {
-                    out["journeys"] = json!(
-                        rows.iter()
-                            .map(|r| r.as_array().map(|a| a
-                                .iter()
-                                .map(|v| journey(v, geometry))
-                                .collect::<Vec<_>>()))
-                            .collect::<Vec<_>>()
-                    );
+                if let Some(rows) = raw["journeys"].as_array_mut() {
+                    // Each projected journey already owns its JSON tree. Move
+                    // rows into the result instead of serializing those trees
+                    // through json! again (including all intermediate stops).
+                    out["journeys"] = Value::Array(project_values(rows, geometry, journey_row));
                 }
-            } else if let Some(rows) = raw["rows"].as_array() {
+            } else if let Some(rows) = raw["rows"].as_array_mut() {
                 let origin_count = q["origins"].as_array().map_or(0, Vec::len);
                 let destination_count = q["destinations"].as_array().map_or(0, Vec::len);
                 let mut durations = vec![vec![Value::Null; destination_count]; origin_count];
@@ -644,15 +754,19 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
                     {
                         durations[i as usize][j as usize] =
                             convert_minutes(&row["durationMinutes"]);
-                        if let Some(v) = row.get("journey") {
+                        if let Some(v) = row.get_mut("journey") {
                             has_journeys = true;
                             journeys[i as usize][j as usize] = journey(v, geometry);
                         }
                     }
                 }
-                out["durationsSeconds"] = json!(durations);
+                out["durationsSeconds"] = Value::Array(
+                    durations.into_iter().map(Value::Array).collect(),
+                );
                 if has_journeys {
-                    out["journeys"] = json!(journeys);
+                    out["journeys"] = Value::Array(
+                        journeys.into_iter().map(Value::Array).collect(),
+                    );
                 }
             }
             let endpoints = out["query"].clone();
@@ -671,13 +785,13 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
             }
         }
         "reach" => {
-            out["cutoffsSeconds"] = convert_minutes(pick(raw, &["cutoffsMinutes"]));
+            out["cutoffsSeconds"] = convert_minutes(pick(&raw, &["cutoffsMinutes"]));
             if out["cutoffsSeconds"].is_null() {
                 out["cutoffsSeconds"] = convert_minutes(&q["cutoffsMinutes"]);
             }
             if request["reachFormat"] == "map" {
-                out["areas"] = pick(raw, &["fullAreas", "areas"]).clone();
-                out["bounds"] = pick(raw, &["mapBounds"]).clone();
+                out["areas"] = take_first(&mut raw, &["fullAreas", "areas"]);
+                out["bounds"] = pick(&raw, &["mapBounds"]).clone();
                 if out["bounds"].is_null() {
                     out["bounds"] = pick(&raw["surface"], &["fullBounds", "bounds"]).clone();
                 }
@@ -697,31 +811,39 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
                 }
 
                 for key in ["contours", "areas", "fullContours", "fullAreas"] {
-                    if let Some(v) = raw.get(key) {
-                        out[key] = v.clone();
+                    if let Some(v) = raw.get_mut(key) {
+                        out[key] = v.take();
                     }
                 }
+                let evidence =
+                    ["edges", "nodes"].map(|key| raw["surface"].get_mut(key).map(Value::take));
                 let s = &raw["surface"];
                 out["surface"] = json!({"width":s["width"],"height":s["height"],"bounds":s["bounds"],"valuesSeconds":convert_minutes(&s["values"])});
                 if s["fullValues"].is_array() {
                     out["fullSurface"] = json!({"width":s["width"],"height":s["height"],"bounds":s["fullBounds"],"valuesSeconds":convert_minutes(&s["fullValues"])});
                 }
-                for key in ["edges", "nodes"] {
-                    if !s[key].is_null() {
-                        out["surface"][key] = s[key].clone();
+                for (key, value) in ["edges", "nodes"].into_iter().zip(evidence) {
+                    if let Some(value) = value.filter(|v| !v.is_null()) {
+                        out["surface"][key] = value;
                     }
                 }
             }
         }
         "info" | "inspect" => {
             out = json!({"schema":"vigo.info.v1","status":"ok","name":raw["name"],"revision":revision,
-                "memory":raw["memory"],"counts":raw["counts"],"sources":public_sources(&raw["sources"]),"datasetLimitations":pick(raw,&["datasetLimitations","warnings"]),"engineVersion":env!("CARGO_PKG_VERSION")});
+                "memory":raw["memory"],"counts":raw["counts"],"sources":public_sources(&raw["sources"]),"datasetLimitations":pick(&raw,&["datasetLimitations","warnings"]),"engineVersion":env!("CARGO_PKG_VERSION")});
             if out["counts"].is_null() {
                 out["counts"] = json!({"routes":raw["routing"]["routeCount"],"stops":raw["routing"]["stopCount"],"trips":raw["routing"]["tripCount"],"connections":raw["routing"]["connectionCount"],"streetNodes":raw["streets"]["nodeCount"],"streetEdges":raw["streets"]["edgeCount"]});
             }
         }
-        _ => return raw.clone(),
+        _ => return trace.unwrap_or(raw),
     }
+    let raw = raw;
+    let plan = if raw["result"].is_object() {
+        &raw["result"]
+    } else {
+        &raw
+    };
     if matches!(kind, "route" | "matrix" | "reach") {
         let realtime = pick(&plan["diagnostics"], &["realtime", "realtimeRouting"]);
         if !realtime.is_null() {
@@ -740,7 +862,7 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
     }
     let level = request["diagnostics"].as_str().unwrap_or("none");
     if level != "none" {
-        out["diagnostics"] = summary(raw);
+        out["diagnostics"] = summary(&raw);
     }
     if ["profile", "trace"].contains(&level) {
         let mut timings = json!({});
@@ -753,11 +875,15 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
     }
     clean(&mut out);
     // Trace is intentionally an unstable, lossless copy of the internal ABI.
-    if level == "trace" {
-        out["trace"] = raw.clone();
+    if let Some(trace) = trace {
+        out["trace"] = trace;
     }
     if let Some(id) = request.get("id") {
         out["id"] = id.clone();
+    }
+    // A resident stream numbers its request lines; keep that in sorted order.
+    if let Some(sequence) = raw.get("sequence").filter(|v| v.is_u64()) {
+        out["sequence"] = sequence.clone();
     }
     if kind == "route" {
         let date = raw
@@ -781,6 +907,26 @@ pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn parallel_matrix_projection_preserves_order_nulls_and_geometry() {
+        for (rows, columns) in [(128, 1), (1, 128), (17, 17)] {
+            for geometry in [false, true] {
+                let mut input = (0..rows).map(|row| Value::Array((0..columns).map(|column| {
+                    let i = row * columns + column;
+                    if i % 7 == 0 { return Value::Null; }
+                    json!({"departureMinutes":i,"arrivalMinutes":i + 2,"transfers":0,
+                        "legs":[{"kind":"ride","departureMinutes":i,"arrivalMinutes":i + 2,
+                            "fromStopId":"feed\u{1f}a","toStopId":"feed\u{1f}b","tripId":format!("trip-{i}"),
+                            "coordinates":[[-77.,38.],[-77.01,38.01]]}]})
+                }).collect())).collect::<Vec<_>>();
+                let expected = input.clone().iter_mut().map(|row| Value::Array(
+                    row.as_array_mut().unwrap().iter_mut().map(|cell| journey(cell, geometry)).collect()
+                )).collect::<Vec<_>>();
+                assert_eq!(project_values(&mut input, geometry, journey_row), expected);
+            }
+        }
+    }
+
     use super::*;
     #[test]
     fn missing_station_coordinates_and_walking_alternatives() {
@@ -804,11 +950,16 @@ mod tests {
         assert!(ride["intermediateStops"][0].get("coordinate").is_none());
         assert_eq!(result["alternatives"].as_array().unwrap().len(), 1);
         let alternative = &result["alternatives"][0]["legs"][0];
-        assert_eq!(alternative["from"], point(&q["origin"]));
-        assert_eq!(alternative["to"], point(&q["destination"]));
+        // Public numbers use their integral form; compare like with like.
+        let public = |mut v: Value| {
+            clean(&mut v);
+            v
+        };
+        assert_eq!(alternative["from"], public(point(&q["origin"])));
+        assert_eq!(alternative["to"], public(point(&q["destination"])));
         assert_eq!(
             alternative["geometry"]["coordinates"],
-            walk["legs"][0]["coordinates"]
+            public(walk["legs"][0]["coordinates"].clone())
         );
         let mut walking_primary = walk.clone();
         walking_primary["choices"] = json!([walk]);

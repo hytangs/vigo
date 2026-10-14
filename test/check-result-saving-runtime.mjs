@@ -4,10 +4,10 @@ import electron from 'electron'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { checkDirectory } from './helpers/check-directory.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
-await fs.mkdir(path.join(root, 'temp'), { recursive: true })
-const directory = await fs.mkdtemp(path.join(root, 'temp', 'result-saving-'))
+const directory = await checkDirectory(root, 'result-saving-')
 const server = await createServer({ root, cacheDir: path.join(directory, 'cache'), configFile: false, plugins: [react(), {
   name: 'result-saving',
   configureServer(server) { server.middlewares.use(async (request, response, next) => {

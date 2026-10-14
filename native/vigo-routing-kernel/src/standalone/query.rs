@@ -195,16 +195,28 @@ impl City {
         } else {
             request
         };
-        let mut result = crate::presentation::format(command, projection, &raw);
+        let (mut result, retained) = if trace {
+            (
+                crate::presentation::format(command, projection, &raw),
+                Some(raw),
+            )
+        } else {
+            // Move the raw tree's geometry into the public result; account for
+            // both trees as they existed at formatting time.
+            let raw_bytes =
+                super::memory::output_accounting().then(|| super::memory::Heap::heap_bytes(&raw));
+            let result = crate::presentation::format_owned(command, projection, raw);
+            if let Some(raw_bytes) = raw_bytes {
+                super::memory::record_output_bytes(command, raw_bytes, &result);
+            }
+            (result, None)
+        };
         if !self.metadata["accessibility"].is_null() {
             result["accessibility"] = self.metadata["accessibility"].clone();
         }
-        if trace {
+        if let Some(raw) = retained {
             result["trace"] = raw;
             super::memory::record_output(command, &Value::Null, &result);
-        } else {
-            super::memory::record_output(command, &raw, &result);
-            drop(raw);
         }
         if release_memory {
             super::release_preparation_memory();
@@ -451,48 +463,20 @@ impl City {
             return Ok(status);
         }
         let b = &self.street_bounds;
-        if b["west"].as_f64().is_some_and(|v| point.coordinate[0] < v)
-            || b["east"].as_f64().is_some_and(|v| point.coordinate[0] > v)
-            || b["south"].as_f64().is_some_and(|v| point.coordinate[1] < v)
-            || b["north"].as_f64().is_some_and(|v| point.coordinate[1] > v)
-        {
-            status["code"] = json!("outside_coverage");
-            status["coverageBounds"] = b.clone();
-            return Ok(status);
-        }
-        let (snaps, _) = street_attachment_with_workspace(
-            &self.street.snapshot,
-            self.street.snapshot.reciprocal_edge_flags(),
-            &mut SnapWorkspace::default(),
+        let bounds =
+            ["west", "south", "east", "north"].map(|key| b[key].as_f64().unwrap_or(f64::NAN));
+        let code = self.street.diagnose_endpoint_street_access(
             point.coordinate[0],
             point.coordinate[1],
+            bounds.to_vec(),
         )?;
-        if snaps.is_empty() {
-            status["code"] = json!("no_street_attachment");
+        status["code"] = json!(code);
+        if code == "outside_coverage" {
+            status["coverageBounds"] = b.clone();
+        }
+        if code != "none_within_walk_budget" {
             return Ok(status);
         }
-        if let Some(profile) = &self.street.profile {
-            let components = self.street.snapshot.i32_array("componentByNode")?;
-            let (connected, _) = street_attachment_in_components(
-                &self.street.snapshot,
-                self.street.snapshot.reciprocal_edge_flags(),
-                &mut SnapWorkspace::default(),
-                point.coordinate[0],
-                point.coordinate[1],
-                Some(&profile.public_components),
-            )?;
-            if connected.is_empty()
-                && snaps.iter().all(|s| {
-                    !profile
-                        .public_components
-                        .contains(&components[s.node as usize])
-                })
-            {
-                status["code"] = json!("disconnected_street_attachment");
-                return Ok(status);
-            }
-        }
-        status["code"] = json!("none_within_walk_budget");
         if probe && opt.walk_m < 5000. {
             let mut wider = Options::parse(
                 &json!({"timeMinutes":opt.time/60.,"maxWalkKm":(opt.walk_m*2.).max(opt.walk_m+500.).min(5000.)/1000.}),
@@ -537,6 +521,18 @@ impl City {
             disable_cache: Some(opt.disable_cache),
         })?;
         self.project_candidates(result)
+    }
+    fn matrix_candidates(&mut self, points: &[Point], role: &str, opt: &Options) -> Result<Vec<Candidates>> {
+        if points.iter().any(|point| point.stop.is_some()) {
+            return points.iter().map(|point| self.candidates(point, role, opt)).collect();
+        }
+        let coordinates = points.iter().map(|point| point.coordinate).collect::<Vec<_>>();
+        self.street.route_endpoint_batch(&coordinates, EndpointRoleInput {
+            longitude: 0., latitude: 0., maximum_walk_m: opt.walk_m,
+            walking_speed_kph: Some(opt.walk_speed.unwrap_or(self.speed)),
+            access_padding_factor: Some(self.padding), access_overhead_seconds: Some(self.overhead),
+            role: role.into(), disable_cache: Some(opt.disable_cache),
+        })?.into_iter().map(|result| self.project_candidates(result)).collect()
     }
     fn project_candidates(&self, result: EndpointRoleResult) -> Result<Candidates> {
         let t = self.timetable.as_ref().ok_or("Timetable is not active")?;
@@ -690,10 +686,20 @@ impl City {
         (unique, indices)
     }
     pub fn route(&mut self, q: &Value) -> Result<Value> {
-        self.route_options(q, false)
+        let mut result = self.route_options(q, false)?;
+        // Every published journey prices its boardings: plain, window and ordered.
+        let date = q["serviceDate"].as_str().unwrap_or_default().to_owned();
+        self.annotate_fares(&mut result, &date);
+        if let Some(choices) = result.get_mut("choices").and_then(Value::as_array_mut) {
+            for choice in choices {
+                self.annotate_fares(choice, &date);
+            }
+        }
+        Ok(result)
     }
     fn route_options(&mut self, q: &Value, collect: bool) -> Result<Value> {
         let opt = Options::parse(q)?;
+        let requested = crate::route_alternatives::parse(q)?;
         let origin = self.point(&q["origin"])?;
         let destination = self.point(&q["destination"])?;
         let mode = q["mode"].as_str().unwrap_or("transit");
@@ -751,12 +757,15 @@ impl City {
             .take()
             .and_then(|mut rows| rows.pop().flatten());
         let mut choices = vec![];
+        let mut alternative_search = None;
         // Alternatives share one timetable, options, and endpoint witnesses.
         // Reuse immutable leg evidence within this search; clocks are refreshed.
-        let mut materialization =
-            collect.then(super::materialize::MatrixMaterializationCache::default);
-        if collect && let Some(j) = journey.as_ref() {
-            let candidates = super::point::alternatives(
+        let mut materialization = (collect || requested.is_some())
+            .then(super::materialize::MatrixMaterializationCache::default);
+        if (collect || requested.is_some())
+            && let Some(j) = journey.as_ref()
+        {
+            let (candidates, unsupported) = super::point::alternatives(
                 &mut self.timetable.as_mut().unwrap().kernel,
                 &Self::matrix_input(
                     std::slice::from_ref(&a),
@@ -765,8 +774,12 @@ impl City {
                     true,
                 ),
                 j,
-                15. * 60.,
+                requested.as_ref(),
             )?;
+            alternative_search = requested.as_ref().map(|_| match &unsupported {
+                None => json!({"status":"complete"}),
+                Some(reason) => json!({"status":"unavailable","reason":reason}),
+            });
             for candidate in candidates {
                 let mut choice = self.materialize(
                     &candidate,
@@ -820,6 +833,10 @@ impl City {
                 choices.push(output.clone());
             }
             output["choices"] = json!(super::alternatives::select(choices, opt.arrive, 5));
+        } else if let Some(search) = alternative_search {
+            // Transit alternatives only; the shared public projection selects.
+            output["choices"] = Value::Array(choices);
+            output["alternativeSearch"] = search;
         }
         output["diagnostics"] = json!({"search":{"startSeconds":opt.start,"endSeconds":opt.end,"horizonScope":"timetable_scan","maxTransfers":q["maxTransfers"],"allowStreetTransfers":q.get("allowStreetTransfers").unwrap_or(&Value::Bool(true)),"minimumTransferBufferMinutes":q.get("minimumTransferBufferMinutes").unwrap_or(&json!(0))},"native":result});
         output["diagnostics"]["originAccess"] = a.diagnostics(&origin)?;
@@ -995,14 +1012,8 @@ impl City {
                 })
                 .collect::<Vec<_>>()
         });
-        let a = search_origins
-            .iter()
-            .map(|p| self.candidates(p, "origin", &opt))
-            .collect::<Result<Vec<_>>>()?;
-        let b = search_destinations
-            .iter()
-            .map(|p| self.candidates(p, "destination", &opt))
-            .collect::<Result<Vec<_>>>()?;
+        let a = self.matrix_candidates(&search_origins, "origin", &opt)?;
+        let b = self.matrix_candidates(&search_destinations, "destination", &opt)?;
         let include = flag(q, "includeJourneys", false)?;
         let mut result = self
             .timetable
@@ -1246,7 +1257,9 @@ impl City {
             return Ok(json!({"status":"blocked","reason":"before_service_day","mode":mode}));
         }
         Ok(
-            json!({"status":"ready","mode":mode,"departureMinutes":departure/60.,"arrivalMinutes":arrival/60.,"durationMinutes":seconds/60.,"distanceMeters":distance,"transfers":0,"legs":[{"kind":mode,"departureMinutes":departure/60.,"arrivalMinutes":arrival/60.,"durationMinutes":seconds/60.,"distanceMeters":distance,"coordinates":coordinates}],"diagnostics":diagnostics}),
+            json!({"status":"ready","mode":mode,"departureMinutes":departure/60.,"arrivalMinutes":arrival/60.,"durationMinutes":seconds/60.,"distanceMeters":distance,"transfers":0,"legs":[{"kind":mode,"departureMinutes":departure/60.,"arrivalMinutes":arrival/60.,"durationMinutes":seconds/60.,"distanceMeters":distance,"coordinates":coordinates,
+                // A routed street path between the two free endpoints.
+                "geometrySource":"osm","streetPathVerified":true}],"diagnostics":diagnostics}),
         )
     }
     fn street_matrix(
@@ -1778,6 +1791,9 @@ fn validate_request(command: &str, q: &Value) -> Result<()> {
             "waypoints",
             "windowMinutes",
             "windowStepMinutes",
+            "alternatives",
+            "alternativeRanking",
+            "alternativeSlackMinutes",
         ],
         "matrix" => &[
             "origins",

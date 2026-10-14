@@ -338,6 +338,8 @@ pub struct City {
     // bounded by the City's routes/trips and never contain query answers.
     pub(crate) route_metadata: HashMap<String, Value>,
     pub(crate) trip_shape_ids: HashMap<String, Option<String>>,
+    pub(crate) trip_details: HashMap<String, Value>,
+    pub(crate) fare_engines: HashMap<String, Option<crate::fares::FareEngine>>,
     pub(crate) transfer_rows: HashMap<String, usize>,
     pub(crate) transfer_shortcut_rows: HashMap<String, usize>,
 }
@@ -603,6 +605,8 @@ impl City {
             shape_cache: super::materialize::ShapeCache::default(),
             route_metadata: HashMap::new(),
             trip_shape_ids: HashMap::new(),
+            trip_details: HashMap::new(),
+            fare_engines: HashMap::new(),
             path,
             db,
             manifest,

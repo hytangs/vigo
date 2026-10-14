@@ -9,10 +9,10 @@ import { createAgencyService } from '../src/server/agency-api.mjs'
 import { createNotebook } from '../src/agency/notebook.mjs'
 import { createProvider } from '../src/agency/provider.mjs'
 import { createAgencyFixture, observationTime, realtimeFixture, tripUpdate } from './fixtures/agency.mjs'
+import { checkDirectory } from './helpers/check-directory.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
-await fs.mkdir(path.join(root, 'temp'), { recursive: true })
-const directory = await fs.mkdtemp(path.join(root, 'temp', 'network-workspace-runtime-'))
+const directory = await checkDirectory(root, 'network-workspace-runtime-')
 const storePath = path.join(directory, 'schedule.sqlite'), agencyDirectory = path.join(directory, 'agency')
 createAgencyFixture(storePath)
 const notebook = createNotebook(agencyDirectory)

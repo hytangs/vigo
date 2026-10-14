@@ -12,9 +12,16 @@ static OUTPUT_ACCOUNTING: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| std::env::var("VIGO_MEMORY_ACCOUNTING").is_ok_and(|v| v == "1"));
 static LAST_OUTPUT: std::sync::Mutex<(usize, usize)> = std::sync::Mutex::new((0, 0));
 pub(crate) fn record_output(command: &str, raw: &Value, public: &Value) {
+    if *OUTPUT_ACCOUNTING {
+        record_output_bytes(command, raw.heap_bytes(), public);
+    }
+}
+pub(crate) fn output_accounting() -> bool {
+    *OUTPUT_ACCOUNTING
+}
+pub(crate) fn record_output_bytes(command: &str, raw: usize, public: &Value) {
     if *OUTPUT_ACCOUNTING && !matches!(command, "info" | "inspect") {
-        *LAST_OUTPUT.lock().unwrap_or_else(|e| e.into_inner()) =
-            (raw.heap_bytes(), public.heap_bytes());
+        *LAST_OUTPUT.lock().unwrap_or_else(|e| e.into_inner()) = (raw, public.heap_bytes());
     }
 }
 pub(crate) fn output_ledger() -> Value {
@@ -165,7 +172,14 @@ impl City {
         let cache = inactive_timetables
             + self.shape_cache.retained_bytes()
             + self.route_metadata.heap_bytes()
-            + self.trip_shape_ids.heap_bytes();
+            + self.trip_shape_ids.heap_bytes()
+            + self.trip_details.heap_bytes()
+            + self
+                .fare_engines
+                .values()
+                .flatten()
+                .map(crate::fares::FareEngine::estimated_bytes)
+                .sum::<usize>();
         json!({"street":street,"cityDictionaryHeapBytes":dictionary,
             "timetableSourceOwnedHeapBytes":tt.map_or(0, |t|t.kernel.owned_source_bytes())
                 + self.timetable_blocks.as_ref().map_or(0, |p| p.unique_bytes() + p.index_bytes()),

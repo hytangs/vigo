@@ -9,6 +9,7 @@ import {
   routingLegDetail,
   routingLegPrimaryLabel,
   routingRealtimeDetail,
+  shapedRideGeometry,
 } from '../app/presentation'
 import { routingPlanRuntime, routingPlanStartWaitMinutes, routingPlanTotalElapsedMinutes } from '../app/routingPlan'
 import { classNames } from '../domain'
@@ -82,7 +83,7 @@ export function RoutingItinerary({ plan }: { plan: RoutingPlan }) {
             <div className="journey-leg-heading"><strong>{title}</strong><span>{formatRoutingLegDuration(leg)}</span></div>
             {ride ? <><p className="journey-stop">{leg.fromName}</p><p className="journey-leg-meta">{leg.stopCount > 0 ? `${leg.stopCount} scheduled stop${leg.stopCount === 1 ? '' : 's'}` : 'Transit ride'}</p><div className="journey-arrival"><span>{leg.toName}</span><time>{formatScheduleClock(leg.endMinutes)}</time></div></> : <p className="journey-leg-meta">{transfer ? 'Station connection' : `From ${leg.fromName}`}{leg.distanceKm > 0 ? ` · ${leg.distanceKm < 1 ? `${Math.round(leg.distanceKm * 1000)} m` : `${leg.distanceKm.toFixed(1)} km`}` : ''}</p>}
             {leg.stationAccessStatus !== 'unverified' && leg.transferSource === 'parent_station_fallback' ? <p className="journey-caution">Assumed station connection time</p> : null}
-            {(ride && (leg.sourceEqualTime || leg.geometrySource !== 'shape')) || leg.type === 'drive' ? <details className="journey-leg-evidence"><summary>Path &amp; timing</summary><p>{routingLegDetail(leg)}</p></details> : null}
+            {(ride && (leg.sourceEqualTime || !shapedRideGeometry(leg.geometrySource))) || leg.type === 'drive' ? <details className="journey-leg-evidence"><summary>Path &amp; timing</summary><p>{routingLegDetail(leg)}</p></details> : null}
           </div>
         </li>
       })}

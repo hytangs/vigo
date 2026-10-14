@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import { quoteBoardingFare, farePriceLabel } from '../src/fares.mjs'
 import { parseFareAmount } from '../src/farePresentation.mjs'
-import { fareEventDay } from '../src/fareTime.mjs'
+import { nativeFarePrimitives } from '../src/server/native-routing-kernel.mjs'
 import { addGtfsFares, prepareGtfsFares, writeGtfsFareCatalog } from '../src/server/gtfs-fare-store.mjs'
 import { buildNationalGtfsStore, buildNationalGtfsCityStore, mergeNationalGtfsStores, addNationalGtfsFares, routeNationalGtfsStore, disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
 
@@ -47,6 +47,21 @@ for (const currency of Intl.supportedValuesOf('currency')) {
     assert.equal(parseFareAmount(text, currency), expected, `${currency}: ${text}`)
   }
 }
+// One Rust engine prices fares for both runtimes. Its currency scales and
+// amount validation must equal this runtime's Intl data, case by case.
+const engine = nativeFarePrimitives()
+const intlScales = Intl.supportedValuesOf('currency')
+  .map(currency => `${currency}:${new Intl.NumberFormat('en-US', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits}`)
+assert.deepEqual(engine.currencyScales, intlScales, 'Regenerate the Rust currency table from this runtime\'s Intl data.')
+for (const currency of [...Intl.supportedValuesOf('currency'), 'usd', 'ZZZ']) {
+  for (const text of fareAmountCases) assert.equal(engine.parseAmount(text, currency) ?? null, parseFareAmount(text, currency), `${currency}: ${text}`)
+}
+for (const [link, expected] of [['https://example.com/fares', 'https://example.com/fares'], [' HTTP://Example.COM:80', 'http://example.com/'],
+  ['javascript:alert(1)', null], ['https://user:secret@example.com/', null], ['https://example.com/../x', null]]) {
+  assert.equal(engine.publicUrl(link) ?? null, expected, link)
+}
+// The engine takes whole service seconds; these cases are written in minutes.
+const fareEventDay = (date, minutes, agency, event) => engine.eventDay(date, minutes * 60, agency, event) ?? null
 for (const currency of ['usd', 'US', 'ZZZ', '', null, undefined]) assert.equal(parseFareAmount('2', currency), null)
 assert.equal(parseFareAmount('2.400', 'USD'), 2.4)
 assert.equal(parseFareAmount('1.23', 'JPY'), null)

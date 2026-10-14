@@ -52,6 +52,43 @@ impl TimetableKernel {
 
     // Materialize the active (including realtime) stop sequence without copying
     // the whole resident timetable into a second adapter-owned representation.
+    /// Untimed gaps the ride bridges between consecutive source segments,
+    /// counted on the same selected span as the public leg reconstruction.
+    pub(crate) fn ride_bridged_gaps(&self, trip: u32, board: f64, alight: f64) -> u32 {
+        let trip = trip as usize;
+        if trip + 1 >= self.trip_start.len() {
+            return 0;
+        }
+        let (mut count, mut started, mut previous) = (0, false, None::<usize>);
+        for i in self.trip_start[trip] as usize..self.trip_start[trip + 1] as usize {
+            let sequence = f64::from(self.sequence[i]);
+            if sequence < board {
+                previous = Some(i);
+                continue;
+            }
+            if self.continuity_break[i] != 0 && started {
+                break;
+            }
+            if let Some(p) = previous
+                && self.continuity_break[i] == 0
+                && self.to_stop[p] != self.from_stop[i]
+            {
+                let bridge = f64::from(self.sequence[p]) + 0.5;
+                if bridge >= board {
+                    count += 1;
+                    if bridge >= alight {
+                        break;
+                    }
+                }
+            }
+            started = true;
+            if sequence >= alight {
+                break;
+            }
+            previous = Some(i);
+        }
+        count
+    }
     pub(crate) fn ride_stop_sequence(
         &self,
         trip: u32,
@@ -166,9 +203,26 @@ struct Label {
     active: bool,
 }
 
+// Keep dominance keys contiguous. The full witness stays in the arena;
+// frontier scans need not chase a large, scattered Label for every comparison.
+#[derive(Clone, Copy)]
+struct FrontierLabel {
+    index: usize,
+    time: f64,
+    walking: f64,
+    end: f64,
+    boardings: u32,
+}
+
+impl FrontierLabel {
+    fn new(index: usize, label: &Label) -> Self {
+        Self { index, time: label.time, walking: label.walking, end: label.end, boardings: label.boardings }
+    }
+}
+
 struct Labels {
     arena: Vec<Label>,
-    fronts: Vec<Vec<usize>>,
+    fronts: Vec<Vec<FrontierLabel>>,
     touched_fronts: Vec<usize>,
     reverse: bool,
 }
@@ -185,7 +239,8 @@ impl Labels {
         let state = candidate.stop * 4
             + usize::from(candidate.boardings > 0) * 2
             + usize::from(candidate.transfer);
-        let dominates = |a: &Label, b: &Label| {
+        let key = FrontierLabel::new(self.arena.len(), &candidate);
+        let dominates = |a: &FrontierLabel, b: &FrontierLabel| {
             a.time <= b.time
                 && a.boardings <= b.boardings
                 && a.walking <= b.walking
@@ -196,16 +251,16 @@ impl Labels {
         };
         if self.fronts[state]
             .iter()
-            .any(|&i| dominates(&self.arena[i], &candidate))
+            .any(|entry| dominates(entry, &key))
         {
             return Ok(());
         }
         // A frontier can become empty while replacing dominated labels. Mark
         // it before retention so each touched state is recorded only once.
         let first_in_state = self.fronts[state].is_empty();
-        self.fronts[state].retain(|&i| {
-            if dominates(&candidate, &self.arena[i]) {
-                self.arena[i].active = false;
+        self.fronts[state].retain(|entry| {
+            if dominates(&key, entry) {
+                self.arena[entry.index].active = false;
                 false
             } else {
                 true
@@ -219,7 +274,7 @@ impl Labels {
         if first_in_state {
             self.touched_fronts.push(state);
         }
-        self.fronts[state].push(self.arena.len());
+        self.fronts[state].push(key);
         self.arena.push(candidate);
         Ok(())
     }
@@ -316,13 +371,13 @@ impl JourneyWorkspace {
             + (self.labels.touched_fronts.capacity()
                 + self.boarding_stops.capacity()
                 + self.runs.capacity()
-                + self.labels.fronts.iter().map(Vec::capacity).sum::<usize>()
                 + self
                     .boarding_labels
                     .iter()
                     .map(Vec::capacity)
                     .sum::<usize>())
                 * std::mem::size_of::<usize>()
+            + self.labels.fronts.iter().map(Vec::capacity).sum::<usize>() * std::mem::size_of::<FrontierLabel>()
             + self.run_generation.capacity() * std::mem::size_of::<u32>()
     }
 }
@@ -666,8 +721,8 @@ impl TimetableKernel {
                                 ..target_offsets[target + 1] as usize)
                                 .any(|seed| {
                                     let stop = target_stops[seed] as usize;
-                                    labels.fronts[stop * 4 + 2].iter().any(|&i| {
-                                        labels.arena[i].time + target_walks[seed]
+                                    labels.fronts[stop * 4 + 2].iter().any(|entry| {
+                                        entry.time + target_walks[seed]
                                             <= if reverse { -bound } else { bound }
                                     })
                                 })
@@ -702,7 +757,8 @@ impl TimetableKernel {
                         ));
                     for (stop, access, transfer_stop) in terminal {
                         for phase in 0..=usize::from(!reverse && allow_transfer) {
-                            for &i in &labels.fronts[stop * 4 + 2 + phase] {
+                            for entry in &labels.fronts[stop * 4 + 2 + phase] {
+                                let i = entry.index;
                                 let label = &labels.arena[i];
                                 let time = label.time + access;
                                 if reverse && time > end_time {

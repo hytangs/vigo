@@ -16,6 +16,7 @@ import {
   routeNativeWalkMatrix,
   routeNativeStreetPath,
   normalizeNativeMilliseconds,
+  publicWalkMaximumPoints,
 } from './native-routing-kernel.mjs'
 import { haversineKm } from './geometry-utils.mjs'
 import { assertMatrixSize } from './matrix-size.mjs'
@@ -2625,7 +2626,7 @@ function acceleratedNodesInBounds(accelerator, coordinateValue, maxDistanceKm) {
   return candidates
 }
 
-export function streetPathBetween(storePath, fromCoordinate, toCoordinate, maxDistanceKm) {
+export function streetPathBetween(storePath, fromCoordinate, toCoordinate, maxDistanceKm, maximumPoints = publicWalkMaximumPoints) {
   openRuntimeStreetStore(storePath)
   if (!nativeStreetCchPrepared(storePath)) {
     const error = new Error(
@@ -2639,6 +2640,7 @@ export function streetPathBetween(storePath, fromCoordinate, toCoordinate, maxDi
     fromCoordinate,
     toCoordinate,
     maxDistanceKm,
+    maximumPoints,
   )
 }
 
@@ -3221,7 +3223,7 @@ export function routeNationalStreetStore(storePath, request) {
       originCoordinate,
       destinationCoordinate,
       maxStreetKm,
-      800,
+      publicWalkMaximumPoints,
     )
     const fallbackSearchMs = performance.now() - startedAt
     search = {

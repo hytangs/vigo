@@ -5,8 +5,7 @@ import { createViteTestServer } from './helpers/vite-test-server.mjs'
 import { runElectronCheck } from './helpers/electron-check.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
-await fs.mkdir(path.join(root, 'temp'), { recursive: true })
-const directory = await fs.mkdtemp(path.join(root, 'temp', 'transfer-selection-ui-'))
+const directory = await checkDirectory(root, 'transfer-selection-ui-')
 const screenshotPath = path.join(directory, 'transfer-options.png')
 const fixture = `
 import React,{useState} from 'react';
@@ -14,6 +13,7 @@ import {createRoot} from 'react-dom/client';
 import {SidebarPathfinderBox} from '/src/components/PathfinderPanel.tsx';
 import {useNationalRouting} from '/src/app/useNationalRouting.ts';
 import '/src/App.css'; import '/src/index.css';
+import { checkDirectory } from './helpers/check-directory.mjs'
 document.documentElement.dataset.appearance='light';
 const origin={coordinate:[0,0],label:'Origin',source:'map'};
 const destination={coordinate:[.05,0],label:'Destination',source:'map'};

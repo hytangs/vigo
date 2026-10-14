@@ -60,18 +60,21 @@ impl From<TimetableParetoAlternative> for Chain {
     }
 }
 
+/// Alternatives around `best`. A window sample keeps the bounded Pareto
+/// frontier and fails loudly; an opt-in request uses its own ranking and
+/// reports an unsupported search as its status instead.
 pub(super) fn alternatives(
     kernel: &mut TimetableKernel,
     input: &TimetableMatrixQueryInput,
     best: &TimetableMatrixJourney,
-    slack: f64,
-) -> Result<Vec<TimetableMatrixJourney>> {
+    request: Option<&crate::route_alternatives::RouteAlternativeRequest>,
+) -> Result<(Vec<TimetableMatrixJourney>, Option<String>)> {
     let departure = if input.arrive_by {
         best.departure
     } else {
         input.departure
     };
-    let request = TimetableParetoQueryInput {
+    let result = kernel.route_alternatives_csa(TimetableAlternativeQueryInput {
         origin_stops: input.origin_stops.clone(),
         origin_walk_seconds: input.origin_walk_seconds.clone(),
         origin_candidate_indices: (0..input.origin_stops.len() as u32).collect(),
@@ -87,37 +90,34 @@ pub(super) fn alternatives(
         } else {
             best.arrival
         },
-        boarding_upper_bound: best.boardings,
-        candidate_destination_index: 0,
-        candidate_walking_seconds: f64::MAX,
-        arrival_slack_seconds: if input.arrive_by { 0. } else { slack },
-        transfer_penalty_seconds: 0.,
-        walk_reluctance: 0.,
-        collect_alternatives: Some(true),
-        restriction_mode: None,
-        deadline_objective: Some(false),
-    };
-    let mut result = kernel.route_pareto_round_csa(request.clone())?;
-    if !result.supported && result.reason.as_deref() == Some("origin_outside_kernel") {
-        result = kernel.route_pareto_round_csa(TimetableParetoQueryInput {
-            restriction_mode: Some("anchor-only".into()),
-            ..request
-        })?;
-    }
+        arrival_slack_seconds: match request {
+            Some(request) => request.arrival_slack_seconds,
+            None if input.arrive_by => 0.,
+            None => WINDOW_ARRIVAL_SLACK_SECONDS,
+        },
+        best_boardings: best.boardings,
+        maximum_boardings: request.and(input.maximum_boardings),
+        ranking: request.map(|r| r.ranking.clone()),
+        limit: request.and_then(|r| r.limit),
+    })?;
     if !result.supported {
-        return Err(format!(
-            "Alternative search failed: {}",
-            result.reason.unwrap_or_default()
-        )
-        .into());
+        let reason = result.reason.unwrap_or_default();
+        if request.is_some() {
+            return Ok((vec![], Some(reason)));
+        }
+        return Err(format!("Alternative search failed: {reason}").into());
     }
-    result
+    let journeys = result
         .alternatives
         .unwrap_or_default()
         .into_iter()
         .map(|chain| reconstruct(kernel, input, departure, chain.into()))
-        .collect()
+        .collect::<Result<_>>()?;
+    Ok((journeys, None))
 }
+
+/// Window samples admit alternatives arriving up to 15 minutes later.
+pub(super) const WINDOW_ARRIVAL_SLACK_SECONDS: f64 = 15. * 60.;
 
 pub(super) fn route(
     kernel: &mut TimetableKernel,
@@ -203,6 +203,8 @@ pub(super) fn route(
             transfer_penalty_seconds: 0.,
             walk_reluctance: 0.,
             collect_alternatives: None,
+            alternative_ranking: None,
+            alternative_limit: None,
             restriction_mode: None,
             deadline_objective: Some(true),
         };

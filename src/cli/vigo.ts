@@ -11,7 +11,7 @@ import { createInterface } from 'node:readline'
 import Papa from 'papaparse'
 import packageJson from '../../package.json'
 import { CliUsageError, parseArguments, validateInvocation, value, values, enabled } from './arguments.mjs'
-import { publicResult, publicResultJson, presentationRequest, normalizePublicPoint, publicError } from './presentation.mjs'
+import { publicResult, publicResultJson, presentationRequest, normalizePublicPoint, publicError, streamLineArgs } from './presentation.mjs'
 import { commands, usage } from './commands.mjs'
 import { handleOutputErrors, readJsonObject, writeJsonResult, writeOutputFile } from './io.mjs'
 import { assertMatrixSize } from '../server/matrix-size.mjs'
@@ -45,6 +45,7 @@ import {
   addNationalGtfsFares,
   routeNationalGtfsMatrix,
   routeNationalGtfsStore,
+  routeNationalGtfsStoreWithAlternatives,
 } from '../server/national-gtfs-store.mjs'
 import {
   readNationalOsmStoreMetadata,
@@ -57,7 +58,7 @@ import {
   routeNationalStreetMatrix,
   routeNationalStreetStore,
 } from '../server/national-osm-store.mjs'
-import { buildNativeStreetCchIndex, formatPublicResult } from '../server/native-routing-kernel.mjs'
+import { buildNativeStreetCchIndex, formatPublicResult, routeAlternativeRequest } from '../server/native-routing-kernel.mjs'
 import { buildTerminalAccessStore } from '../server/terminal-access-store.mjs'
 import {
   composeOrderedRoutingFailure,
@@ -71,7 +72,14 @@ import type { ServiceDay } from '../domain'
 import type { RoutingExecutionStatus, RoutingPlan, RoutingPoint, RoutingTimePreference } from '../routingModel'
 
 type CliArguments = Map<string, string[]>
-type RouteResult = { plan: RoutingPlan | undefined; choices?: RoutingPlan[]; profileSampleCount: number; elapsedMs: number }
+type RouteResult = {
+  plan: RoutingPlan | undefined
+  choices?: RoutingPlan[]
+  alternativeSearch?: Record<string, unknown> | null
+  profileSampleCount: number
+  elapsedMs: number
+}
+type RouteAlternatives = { count: number; ranking: string; arrivalSlackSeconds: number; limit?: number | null }
 
 const cliStartedAt = performance.now()
 const rawOsmWorkingSetMultiplier = 80
@@ -237,8 +245,22 @@ function decorateCliRoutingPlan(plan: RoutingPlan | undefined) {
   }
 }
 
-function routeOne(storePath: string, request: Record<string, unknown>, departureWindowMinutes: number): RouteResult {
+function routeOne(
+  storePath: string, request: Record<string, unknown>, departureWindowMinutes: number,
+  alternatives: RouteAlternatives | null = null,
+): RouteResult {
   const startedAt = performance.now()
+  const priced = (plan: RoutingPlan) => decorateCliRoutingPlan(addNationalGtfsFares(storePath, plan))
+  if (alternatives) {
+    const routed = routeNationalGtfsStoreWithAlternatives(storePath, request, alternatives)
+    return {
+      plan: priced(routed.plan),
+      choices: routed.choices.map(priced),
+      alternativeSearch: routed.alternativeSearch,
+      profileSampleCount: 0,
+      elapsedMs: performance.now() - startedAt,
+    }
+  }
   if (request.timePreference === 'depart' && departureWindowMinutes > 0) {
     const profile = routeNationalGtfsDepartureWindow(storePath, {
       ...request,
@@ -392,6 +414,14 @@ async function computeRouteRequest(
   const options = runtimeOptions(args, request)
   const mode = String(value(args, 'mode', String(request.mode ?? 'transit')))
   validateArrivalBuffer({ ...request, timePreference: options.timePreference, mode })
+  // The shared contract also rejects alternatives with arrive-by, windows,
+  // ordered stops and street modes.
+  const alternatives = routeAlternativeRequest({
+    ...presentationRequest(request, args),
+    mode,
+    timePreference: options.timePreference,
+    departureWindowMinutes: options.departureWindowMinutes,
+  }) as RouteAlternatives | null
   if (!['transit', 'walk', 'drive'].includes(mode)) {
     throw new Error('route mode must be transit, walk, or drive')
   }
@@ -453,17 +483,19 @@ async function computeRouteRequest(
   if (waypoints.length) {
     const points = validateOrderedRoutingPoints(origin, waypoints, destination)
     const components = await routeOrderedRoutingSegments(points, baseRequest, routeSegment)
+    // Ordered journeys price their boardings like every other published journey.
+    const priced = (plan: RoutingPlan) => (mode === 'transit' ? addNationalGtfsFares(storePath, plan) : plan)
     routed = {
       plan: components.failedIndex >= 0
         ? composeOrderedRoutingFailure(components.failedPlan, components.failedIndex, points, components.componentPlans)
-        : components.choices[0],
-      choices: components.choices,
+        : priced(components.choices[0]),
+      choices: components.choices?.map(priced),
       profileSampleCount: components.componentPlans.length,
       elapsedMs: performance.now() - queryStarted,
     }
   } else {
     routed = mode === 'transit'
-      ? routeOne(storePath, baseRequest, options.departureWindowMinutes)
+      ? routeOne(storePath, baseRequest, options.departureWindowMinutes, alternatives)
       : {
           plan: routeNationalStreetStore(streetStorePath!, baseRequest) as RoutingPlan,
           profileSampleCount: 1,
@@ -500,6 +532,7 @@ async function computeRouteRequest(
     },
     result: routed.plan ?? null,
     ...(routed.choices ? { choices: routed.choices } : {}),
+    ...(routed.alternativeSearch ? { alternativeSearch: routed.alternativeSearch } : {}),
     warnings: request.includeLimitations === true ? readNationalGtfsStoreMetadata(storePath).routingLimitations ?? [] : [],
     timing: {
       buildMs: null,
@@ -532,6 +565,9 @@ async function runRoute(args: CliArguments) {
   const outPath = path.resolve(outputValue)
   if (!value(args, 'city') || !inputValue || !outputValue) {
     throw new Error('route requires --city, --input, and --output')
+  }
+  if (args.has('alternatives') || args.has('alternative-ranking')) {
+    throw new Error('Route alternatives return JSON journeys; omit --input for a single route')
   }
   for (const filePath of [odPath]) {
     if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`)
@@ -757,12 +793,16 @@ async function runRouteStream(args: CliArguments) {
       const requestStarted = performance.now()
       let id = `request_${sequence}`
       try {
-        const input = presentationRequest(JSON.parse(line), args) as Record<string, unknown>
+        const parsed = JSON.parse(line)
+        // Stream options, including the date that prepares the first City
+        // slice, are defaults: a line's own fields take precedence.
+        const lineArgs = streamLineArgs(parsed, args)
+        const input = presentationRequest(parsed, lineArgs) as Record<string, unknown>
         if (typeof input.id === 'string' && input.id.trim()) id = input.id.trim()
         if (!['route', 'matrix', 'reach'].includes(String(input.kind))) {
           throw new Error('stream requires kind: route, matrix, or reach on every line')
         }
-        const requestArgs = new Map(args)
+        const requestArgs = new Map(lineArgs)
         if (typeof input.serviceDate === 'string') requestArgs.set('service-date', [input.serviceDate])
         if (typeof input.serviceDay === 'string') requestArgs.set('service-day', [input.serviceDay])
         for (const [field, option] of [['maxWalkKm', 'max-walk'], ['maxTransfers', 'max-transfers'], ['departureWindowMinutes', 'departure-window']]) {
@@ -792,10 +832,11 @@ async function runRouteStream(args: CliArguments) {
         if (streamOutput === 'detailed') {
           await writeNdjson({ schema: 'vigo.stream.detail.v1', id, sequence, status: 'ok', trace: detailed })
         } else {
-          await writeNdjson(detailed, input, args)
+          await writeNdjson(detailed, input, lineArgs)
         }
       } catch (error) {
-        await writeNdjson({ ...publicError(error instanceof Error ? error.message : String(error), id), sequence })
+        const { status, ...failure } = publicError(error instanceof Error ? error.message : String(error), id)
+        await writeNdjson({ ...failure, sequence, status })
       }
     }
   } finally {

@@ -85,6 +85,11 @@ try {
   assert.match(details, /Arrive at Destination/)
   assert.doesNotMatch(details, /Why this journey is shown|sidebox-itinerary-summary|label="Ready"/)
   assert.deepEqual(detailPlan, unchanged, 'Itinerary presentation never mutates routing results')
+  // Current results name GTFS shapes 'gtfs_shape'; saved results may say 'shape'.
+  const currentVocabulary = renderToStaticMarkup(createElement(RoutingDetailPanel, { plan: { ...detailPlan,
+    legs: [detailPlan.legs[0], { ...detailPlan.legs[1], geometrySource: 'gtfs_shape' }] }, onClose() {} }))
+  assert.equal(currentVocabulary, details)
+  assert.doesNotMatch(currentVocabulary, /map line inferred from stops/)
 
   const simple = { ...detailPlan, id: 'simple', departMinutes: 480, arriveMinutes: 530,
     durationMinutes: 50, transfers: 1, walkMinutes: 25, recommended: true, choiceLabel: 'Earliest arrival',

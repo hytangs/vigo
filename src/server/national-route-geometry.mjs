@@ -1,7 +1,4 @@
-import { createNativeShapeGeometry, createNativeShapeGeometrySource, alignNativeShapeStops, clipNativeShapeCoordinates } from './native-routing-kernel.mjs'
-import {
-  haversineKm,
-} from './geometry-utils.mjs'
+import { createNativeShapeGeometry, createNativeShapeGeometrySource, alignNativeShapeStops, nativeShapeLegPolyline, nativeStopSequencePolyline } from './native-routing-kernel.mjs'
 import { numeric } from './number-utils.mjs'
 
 function shapeIdForTrip(store, tripId) {
@@ -136,7 +133,7 @@ function clipPreparedShapeCoordinatesThroughStops(preparedShape, stopCoordinates
   if (!preparedShape?.native?.pointCount || !stopCoordinates?.length || stopCoordinates.length < 2) return null
   const indices = alignPreparedShapeStopIndices(preparedShape, stopCoordinates, store)
   if (!indices) return null
-  return clipNativeShapeCoordinates(preparedShape.native, indices[0], indices.at(-1), stopCoordinates[0], stopCoordinates.at(-1))
+  return nativeShapeLegPolyline(preparedShape.native, indices[0], indices.at(-1), stopCoordinates[0], stopCoordinates.at(-1))
 }
 
 /**
@@ -146,31 +143,14 @@ function clipPreparedShapeCoordinatesThroughStops(preparedShape, stopCoordinates
  */
 export function clipNationalShapeCoordinatesThroughStops(shapeCoordinates, stopCoordinates) {
   const native = createNativeShapeGeometry(shapeCoordinates ?? [])
-  return clipPreparedShapeCoordinatesThroughStops({ native }, stopCoordinates)
+  return clipPreparedShapeCoordinatesThroughStops({ native }, stopCoordinates)?.coordinates ?? null
 }
 
-// The caller owns this newly materialized array. Compact sampled duplicates
-// and sum the same retained edges in one pass, without two more array copies.
-function finishRideGeometry(coordinates, geometrySource, shapeId) {
-  const sourceLength = coordinates.length
-  let length = sourceLength ? 1 : 0
-  let previous = coordinates[0]
-  let distanceKm = 0
-  for (let index = 1; index < sourceLength; index += 1) {
-    const coordinate = coordinates[index]
-    if (previous[0] === coordinate[0] && previous[1] === coordinate[1]) continue
-    distanceKm += haversineKm(previous, coordinate)
-    coordinates[length++] = coordinate
-    previous = coordinate
-  }
-  if (length === 1 && sourceLength >= 2) {
-    coordinates[length++] = coordinates[0]
-    distanceKm += haversineKm(coordinates[0], coordinates[0])
-  }
-  coordinates.length = length
-  return { coordinates, distanceKm, geometrySource, shapeId }
+function rideGeometry(line, geometrySource, shapeId) {
+  return { coordinates: line.coordinates, distanceKm: line.distanceKm, geometrySource, shapeId }
 }
 
+// Rust owns this line definition for both runtimes, including its distance.
 export function nationalRideGeometry(store, connections, stopLookup) {
   const first = connections[0]
   const last = connections.at(-1)
@@ -193,11 +173,11 @@ export function nationalRideGeometry(store, connections, stopLookup) {
     const firstShapeIndex = alignment.shapeIndices[firstSegment - alignment.startSegment]
     const lastShapeIndex = alignment.shapeIndices[lastSegment - alignment.startSegment + 1]
     if (Number.isInteger(firstShapeIndex) && Number.isInteger(lastShapeIndex) && lastShapeIndex > firstShapeIndex) {
-      const coordinates = clipNativeShapeCoordinates(
+      const line = nativeShapeLegPolyline(
         alignedShape.native, firstShapeIndex, lastShapeIndex,
         from ? [from.lon, from.lat] : null, to ? [to.lon, to.lat] : null,
       )
-      return finishRideGeometry(coordinates, 'shape', alignment.shapeId)
+      return rideGeometry(line, 'gtfs_shape', alignment.shapeId)
     }
   }
   const stopCoordinates = []
@@ -211,11 +191,10 @@ export function nationalRideGeometry(store, connections, stopLookup) {
     }
   }
   const shape = cachedNationalShapeCoordinates(store, first.trip_id)
-  const shapeCoordinates = shape && stopCoordinates.length >= 2
+  const shapeLine = shape && stopCoordinates.length >= 2
     ? clipPreparedShapeCoordinatesThroughStops(shape, stopCoordinates, store)
     : null
-  return finishRideGeometry(
-    shapeCoordinates ?? stopCoordinates, shapeCoordinates ? 'shape' : 'stop_sequence',
-    shapeCoordinates ? shape.shapeId : undefined,
-  )
+  return shapeLine
+    ? rideGeometry(shapeLine, 'gtfs_shape', shape.shapeId)
+    : rideGeometry(nativeStopSequencePolyline(stopCoordinates), 'stop_sequence')
 }

@@ -113,7 +113,11 @@ export type RoutingLeg = {
   directionId?: string
   transferAction?: 'interchange' | 'same-route-change' | 'platform-change'
   connectingRouteShortName?: string
-  geometrySource?: 'shape' | 'stop_sequence' | 'osm-rust-selected-transfer' | 'stop-coordinate-fallback' | 'station-transfer-schematic'
+  // Shared with the standalone runtime; the hyphenated and 'shape' values
+  // remain readable in results saved by earlier versions.
+  geometrySource?: 'gtfs_shape' | 'stop_sequence' | 'osm' | 'osm_and_station_path' | 'gtfs_pathway'
+    | 'stop_coordinate_fallback' | 'unverified_transfer' | 'station_selection'
+    | 'shape' | 'osm-rust-selected-transfer' | 'stop-coordinate-fallback' | 'station-transfer-schematic'
   shapeId?: string
   startMinutes: number
   endMinutes: number

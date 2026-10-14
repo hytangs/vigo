@@ -2503,8 +2503,9 @@ async function startNationalGtfsImport(projectId, body) {
           finishedAt: now(),
           updatedAt: now(),
         })
-        await persistNationalJob(projectId, job)
+        // A poll can observe 'complete' now; a follow-up import must not see 409.
         releaseNationalImportProject(projectId, 'gtfs')
+        await persistNationalJob(projectId, job)
       } else if (message?.type === 'failed') {
         terminalMessageReceived = true
         Object.assign(job, { status: 'failed', phase: 'Import failed', error: message.error ?? 'Unknown import error', finishedAt: now(), updatedAt: now() })
@@ -2794,9 +2795,11 @@ async function startNationalOsmImport(projectId, body) {
         terminalMessageReceived = true
         Object.assign(job, { status: 'failed', phase: 'Street indexing failed', error: message.error ?? 'Unknown OSM error', finishedAt: now(), updatedAt: now() })
       }
+      // A client can observe the terminal status as soon as it is set. Free
+      // routing before awaiting persistence, so 'complete' never meets a 409.
+      if (job.status !== 'running') releaseNationalImportProject(projectId, 'osm')
       if (message?.type === 'progress') await persistNationalJobProgress(projectId, job)
       else await persistNationalJob(projectId, job)
-      if (job.status !== 'running') releaseNationalImportProject(projectId, 'osm')
     } catch (error) {
       if (job.cancelRequested) return
       Object.assign(job, { status: 'failed', phase: 'Street indexing failed', error: error instanceof Error ? error.stack || error.message : String(error), finishedAt: now(), updatedAt: now() })

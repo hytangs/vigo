@@ -197,7 +197,14 @@ try {
       assert.equal(walk.distanceKm, 0.24)
     } else {
       assert(walk.durationMinutes > 2)
-      assert(walk.durationMinutes * 60 >= walk.distanceKm / 4.8 * 3600)
+      // An unverified link claims no measured distance; its time still covers
+      // the drawn straight line at walking speed.
+      assert.equal(walk.distanceKm, undefined)
+      const [[lon1, lat1], [lon2, lat2]] = walk.coordinates
+      const rad = Math.PI / 180
+      const lineKm = 2 * 6371.0088 * Math.asin(Math.sqrt(Math.sin((lat2 - lat1) * rad / 2) ** 2
+        + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin((lon2 - lon1) * rad / 2) ** 2))
+      assert(walk.durationMinutes * 60 >= lineKm / 4.8 * 3600 - 0.5)
     }
   }
   console.log('GTFS pathway and parent-station walking times preserve boarding feasibility.')

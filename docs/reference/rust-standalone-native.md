@@ -749,6 +749,8 @@ Source: `native/vigo-routing-kernel/src/timetable.rs`.
 | `transferPenaltySeconds` | `f64` | Yes | Generalized-cost penalty associated with additional boardings. |
 | `walkReluctance` | `f64` | Yes | Walking cost multiplier used by the native Pareto objective. |
 | `collectAlternatives` | `Option<bool>` | No | Return arrival/boarding/walking trade-offs inside the supplied bounds. |
+| `alternativeRanking` | `Option<String>` | No | `pareto` (default) returns nondominated completions; `ranked` returns the earliest distinct completions, including dominated ones. |
+| `alternativeLimit` | `Option<u32>` | No | Maximum ranked completions returned; Pareto frontiers are complete. |
 | `restrictionMode` | `Option<String>` | No | Optional exact corridor restriction mode used by the production Pareto certifier. |
 | `allowPostRideTransfers` | `Option<bool>` | No | Allow transfer-graph movement after the last ride; per-destination arrays where typed. |
 | `deadlineObjective` | `Option<bool>` | No | At a fixed latest departure, minimize boardings, then walking, then arrival, subject to the supplied hard arrival bound. |

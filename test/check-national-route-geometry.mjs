@@ -3,12 +3,12 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createNativeShapeGeometry, createNativeShapeGeometrySource, alignNativeShapeStops, clipNativeShapeCoordinates } from '../src/server/native-routing-kernel.mjs'
+import { createNativeShapeGeometry, createNativeShapeGeometrySource, alignNativeShapeStops, nativeShapeLegPolyline } from '../src/server/native-routing-kernel.mjs'
 import { nationalRideGeometry, clipNationalShapeCoordinatesThroughStops } from '../src/server/national-route-geometry.mjs'
 import { lineDistanceKm } from '../src/server/geometry-utils.mjs'
 
-// Combining cleanup with distance must preserve degenerate lines, signed zero,
-// edge summation order, and the caller's stop coordinates.
+// Combining cleanup with distance must preserve degenerate lines, signed zero
+// and the caller's stop coordinates. Rust measures the line for both runtimes.
 for (const [points, expected] of [
   [[[0, 0], [0, 0]], [[0, 0], [0, 0]]],
   [[[0, 0], [1, 0], [1, 0], [0, 0]], [[0, 0], [1, 0], [0, 0]]],
@@ -21,7 +21,7 @@ for (const [points, expected] of [
   }))
   const actual = nationalRideGeometry({}, connections, lookup)
   assert.deepEqual(actual.coordinates, expected)
-  assert.equal(actual.distanceKm, lineDistanceKm(expected))
+  assert(Math.abs(actual.distanceKm - lineDistanceKm(expected)) <= 1e-12 * Math.max(1, actual.distanceKm))
   assert.deepEqual(points, saved)
 }
 
@@ -81,7 +81,7 @@ store.activeServiceKernel = {
   stopIds: ['A', 'B', 'D'], fromStop: [0, 1], toStop: [1, 2],
 }
 assert.deepEqual(leg(1, 'B', 'D').coordinates, coordinates.slice(1))
-assert.equal(leg(1, 'B', 'D').geometrySource, 'shape')
+assert.equal(leg(1, 'B', 'D').geometrySource, 'gtfs_shape')
 store.activeServiceKernel = kernel
 assert.deepEqual(leg(2, 'C', 'B').coordinates, coordinates.slice(2, 4))
 
@@ -119,7 +119,7 @@ const repeatedStore = { ...store, activeServiceKernel: null, shapeGeometryCache:
 const repeatedLeg = () => nationalRideGeometry(repeatedStore, [{
   trip_id: 'repeated', from_stop_id: 'A', to_stop_id: 'D',
 }], stops)
-assert.equal(repeatedLeg().geometrySource, 'shape')
+assert.equal(repeatedLeg().geometrySource, 'gtfs_shape')
 const retainedShape = repeatedStore.shapeGeometryCache.get('repeated')
 assert.equal(retainedShape.coordinates, undefined)
 assert.equal(retainedShape.distinctIndices, undefined)
@@ -149,7 +149,7 @@ try {
   assert.equal(native.pointCount, coordinates.length)
   assert.equal(source.readShape('missing'), null)
   assert.equal(source.readShape('single'), null)
-  assert.deepEqual(clipNativeShapeCoordinates(native, 0, coordinates.length - 1), coordinates)
+  assert.deepEqual(nativeShapeLegPolyline(native, 0, coordinates.length - 1).coordinates, coordinates)
   assert.deepEqual(Array.from(alignNativeShapeStops(native, coordinates)), [0, 1, 2, 3, 4, 5])
   const sourceStore = { ...store, activeServiceKernel: { ...kernel }, nativeShapeSource: source,
     shapeGeometryCache: new Map(), shapeGeometryCacheBytes: 0, shapeGeometryCacheMaxBytes: 1 }
@@ -159,7 +159,7 @@ try {
   source.close()
   source.close()
   assert.throws(() => source.readShape('loop'), /closed/)
-  assert.deepEqual(clipNativeShapeCoordinates(native, 3, 5), coordinates.slice(3))
+  assert.deepEqual(nativeShapeLegPolyline(native, 3, 5).coordinates, coordinates.slice(3))
 } finally {
   fs.rmSync(directory, { recursive: true, force: true })
 }

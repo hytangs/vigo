@@ -49,8 +49,31 @@ struct ScalarRunBoarding {
     boardings: u16,
 }
 
+/// Multiplicative hashing for dense run indices. A probed-only map needs no
+/// DoS-resistant hash, and the high bits must vary for hashbrown's tags.
+#[derive(Default)]
+struct RunHasher(u64);
+
+impl std::hash::Hasher for RunHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.0 = (self.0.rotate_left(8) ^ u64::from(byte)).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        }
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        self.0 = (value as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    }
+}
+
+type RunMap<V> = HashMap<usize, V, std::hash::BuildHasherDefault<RunHasher>>;
+
 fn retain_scalar_bucket_boarding(
-    profiles: &mut HashMap<usize, Vec<ScalarRunBoarding>>,
+    profiles: &mut RunMap<Vec<ScalarRunBoarding>>,
     run: usize,
     candidate: ScalarRunBoarding,
 ) -> bool {
@@ -73,6 +96,8 @@ const SCAN_RUN_MASK: u32 = (1 << 29) - 1;
 const EXIT_TIME_MASK: u32 = (1 << 20) - 1;
 const EXIT_RELATIVE_SEGMENT_MASK: u32 = (1 << 15) - 1;
 const MAX_PARETO_LABELS: usize = 2_000_000;
+// Dominated completions retained for ranked alternatives; they never expand.
+const MAX_RANKED_TERMINALS: usize = 65_536;
 const MAX_PROFILE_BOARDINGS: usize = 32;
 const MAX_OVERLAY_STOPS: usize = 4_096;
 const MAX_OVERLAY_CONNECTIONS: usize = 1_000_000;
@@ -472,6 +497,11 @@ pub struct TimetableParetoQueryInput {
     pub walk_reluctance: f64,
     /// Return arrival/boarding/walking trade-offs inside the supplied bounds.
     pub collect_alternatives: Option<bool>,
+    /// `pareto` (default) returns nondominated completions; `ranked` returns
+    /// the earliest distinct completions, including dominated ones.
+    pub alternative_ranking: Option<String>,
+    /// Maximum ranked completions returned; Pareto frontiers are complete.
+    pub alternative_limit: Option<u32>,
     /// Optional exact corridor restriction mode used by the production Pareto certifier.
     pub restriction_mode: Option<String>,
     pub allow_post_ride_transfers: Option<bool>,
@@ -558,6 +588,31 @@ pub struct TimetableParetoAlternative {
     pub chain_arrivals: Vec<f64>,
 }
 
+/// Alternatives around a known primary journey. Both runtimes send this one
+/// request so their candidate sets cannot drift.
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+pub struct TimetableAlternativeQueryInput {
+    pub origin_stops: Vec<u32>,
+    pub origin_walk_seconds: Vec<f64>,
+    pub origin_candidate_indices: Vec<u32>,
+    pub destination_stops: Vec<u32>,
+    pub destination_walk_seconds: Vec<f64>,
+    pub destination_candidate_indices: Vec<u32>,
+    pub departure: f64,
+    pub horizon: f64,
+    pub allow_pre_ride_transfers: bool,
+    pub allow_post_ride_transfers: Option<bool>,
+    /// The primary arrival for depart-at searches; the deadline for arrive-by.
+    pub earliest_arrival: f64,
+    pub arrival_slack_seconds: f64,
+    pub best_boardings: u32,
+    pub maximum_boardings: Option<u32>,
+    pub ranking: Option<String>,
+    pub limit: Option<u32>,
+}
+
 #[cfg_attr(feature = "node", napi(object))]
 #[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
@@ -642,6 +697,21 @@ struct ScalarWorkspace {
     touched_runs: Vec<u32>,
     reverse_reached_stops: Vec<u32>,
     reverse_reached_runs: Vec<u32>,
+    // Compact mirrors of this epoch's reached stops and active runs. The scan
+    // tests these cache-resident bits before touching the per-stop and per-run
+    // columns; most scanned departures are unreachable.
+    reached_stop_bits: Vec<u64>,
+    active_run_bits: Vec<u64>,
+}
+
+#[inline(always)]
+fn bit_is_set(bits: &[u64], index: usize) -> bool {
+    bits[index >> 6] & (1 << (index & 63)) != 0
+}
+
+#[inline(always)]
+fn set_bit(bits: &mut [u64], index: usize) {
+    bits[index >> 6] |= 1 << (index & 63);
 }
 
 impl ScalarWorkspace {
@@ -666,6 +736,8 @@ impl ScalarWorkspace {
             touched_runs: Vec::with_capacity(run_count),
             reverse_reached_stops: vec![0; stop_count],
             reverse_reached_runs: vec![0; run_count],
+            reached_stop_bits: vec![0; stop_count.div_ceil(64)],
+            active_run_bits: vec![0; run_count.div_ceil(64)],
         }
     }
 
@@ -685,10 +757,14 @@ impl ScalarWorkspace {
         self.run_predecessor_state.resize(runs, NO_STATE);
         self.run_board_sequence.resize(runs, 0);
         self.run_generation.resize(runs, 0);
+        self.reached_stop_bits.resize(stops.div_ceil(64), 0);
+        self.active_run_bits.resize(runs.div_ceil(64), 0);
     }
 
     fn begin_query(&mut self) -> u32 {
         self.touched_runs.clear();
+        self.reached_stop_bits.fill(0);
+        self.active_run_bits.fill(0);
         self.epoch = self.epoch.wrapping_add(1);
         if self.epoch == 0 {
             for label in &mut self.labels {
@@ -707,6 +783,8 @@ impl ScalarWorkspace {
     fn byte_length(&self) -> usize {
         self.minimum_stop_boardings.len() * std::mem::size_of::<u16>()
             + self.earliest_stop_arrival.len() * std::mem::size_of::<f64>()
+            + (self.reached_stop_bits.len() + self.active_run_bits.len())
+                * std::mem::size_of::<u64>()
             + self.active_stop_generation.len() * std::mem::size_of::<u32>()
             + self.active_state_mask.len() * std::mem::size_of::<u8>()
             + self.labels.len() * std::mem::size_of::<ScalarLabel>()
@@ -1022,6 +1100,8 @@ struct ProfileWorkspace {
     frontier_head: Vec<i32>,
     run_generation: Vec<u32>,
     labels: Vec<ProfileLabel>,
+    // Ranked alternatives: every destination completion, in creation order.
+    terminals: Vec<u32>,
     overflowed: bool,
     // Query-local overlay identity edges preserve a same-stop interchange
     // minimum. Ordinary explicit walk edges already include their duration.
@@ -1038,6 +1118,7 @@ impl ProfileWorkspace {
             frontier_head: vec![NO_STATE; state_count],
             run_generation: vec![0; run_count],
             labels: Vec::new(),
+            terminals: Vec::new(),
             overflowed: false,
             identity_transfer_edges: Vec::new(),
         }
@@ -1052,6 +1133,7 @@ impl ProfileWorkspace {
             self.epoch = 1;
         }
         self.labels.clear();
+        self.terminals.clear();
         self.overflowed = false;
         self.epoch
     }
@@ -1074,6 +1156,7 @@ impl ProfileWorkspace {
             + self.frontier_head.len() * std::mem::size_of::<i32>()
             + self.run_generation.len() * std::mem::size_of::<u32>()
             + self.labels.capacity() * std::mem::size_of::<ProfileLabel>()
+            + self.terminals.capacity() * std::mem::size_of::<u32>()
             + self.identity_transfer_edges.capacity() * std::mem::size_of::<bool>()
     }
 }
@@ -1101,6 +1184,7 @@ struct ParetoBest {
     collect_alternatives: bool,
     minimum_arrival: f64,
     prune_dominated_alternatives: bool,
+    retain_terminals: bool,
     ride_horizon: f64,
 }
 
@@ -1217,6 +1301,7 @@ fn relax_connection_scan<const RETAIN_JOURNEY: bool>(
     }
     if workspace.active_stop_generation[stop] != epoch {
         workspace.active_stop_generation[stop] = epoch;
+        set_bit(&mut workspace.reached_stop_bits, stop);
         workspace.active_state_mask[stop] = 0;
         workspace.minimum_stop_boardings[stop] = u16::MAX;
         workspace.earliest_stop_arrival[stop] = f64::INFINITY;
@@ -1850,23 +1935,96 @@ fn collect_pareto_alternatives(
     frontier
         .into_iter()
         .map(|(label, arrival, boardings, walking, destination)| {
-            let chain = profile_label_chain(labels, label as i32);
-            TimetableParetoAlternative {
-                best_arrival: arrival,
-                best_boardings: boardings as u32,
-                best_destination_index: destination,
-                best_walking_seconds: walking,
-                chain_kinds: chain.iter().map(|step| step.0).collect(),
-                chain_from_stops: chain.iter().map(|step| step.1).collect(),
-                chain_to_stops: chain.iter().map(|step| step.2).collect(),
-                chain_trip_or_candidate: chain.iter().map(|step| step.3).collect(),
-                chain_board_sequences: chain.iter().map(|step| step.4).collect(),
-                chain_alight_sequences: chain.iter().map(|step| step.5).collect(),
-                chain_durations: chain.iter().map(|step| step.6).collect(),
-                chain_arrivals: chain.iter().map(|step| step.7).collect(),
-            }
+            pareto_alternative(
+                arrival,
+                boardings,
+                walking,
+                destination,
+                &profile_label_chain(labels, label as i32),
+            )
         })
         .collect()
+}
+
+fn pareto_alternative(
+    arrival: f64,
+    boardings: u16,
+    walking: f64,
+    destination: u32,
+    chain: &[JourneyChainStep],
+) -> TimetableParetoAlternative {
+    TimetableParetoAlternative {
+        best_arrival: arrival,
+        best_boardings: boardings as u32,
+        best_destination_index: destination,
+        best_walking_seconds: walking,
+        chain_kinds: chain.iter().map(|step| step.0).collect(),
+        chain_from_stops: chain.iter().map(|step| step.1).collect(),
+        chain_to_stops: chain.iter().map(|step| step.2).collect(),
+        chain_trip_or_candidate: chain.iter().map(|step| step.3).collect(),
+        chain_board_sequences: chain.iter().map(|step| step.4).collect(),
+        chain_alight_sequences: chain.iter().map(|step| step.5).collect(),
+        chain_durations: chain.iter().map(|step| step.6).collect(),
+        chain_arrivals: chain.iter().map(|step| step.7).collect(),
+    }
+}
+
+/// The earliest distinct completions in (arrival, boardings, walking) order.
+/// Completions riding the same sequence of vehicles are one option, whatever
+/// stops they use to change or leave; the best-ranked completion represents
+/// it. Staying aboard is the same vehicle, so a re-boarding never counts.
+fn collect_ranked_alternatives(
+    labels: &[ProfileLabel],
+    terminals: &[u32],
+    destinations: &ScalarWorkspace,
+    limit: usize,
+) -> Vec<TimetableParetoAlternative> {
+    let mut ranked: Vec<(f64, u16, f64, u32, u32)> = terminals
+        .iter()
+        .map(|&index| {
+            let label = &labels[index as usize];
+            let stop = label.state as usize / STATE_STRIDE;
+            let egress = destinations.destination_egress[stop];
+            (
+                label.arrival + egress,
+                label.boardings,
+                label.walking_seconds + egress,
+                index,
+                destinations.destination_candidate[stop] as u32,
+            )
+        })
+        .collect();
+    ranked.sort_by(|left, right| {
+        left.0
+            .total_cmp(&right.0)
+            .then(left.1.cmp(&right.1))
+            .then(left.2.total_cmp(&right.2))
+            .then(left.3.cmp(&right.3))
+    });
+    let mut rides = std::collections::HashSet::new();
+    let mut alternatives = Vec::new();
+    for (arrival, boardings, walking, label, destination) in ranked {
+        if alternatives.len() >= limit {
+            break;
+        }
+        let chain = profile_label_chain(labels, label as i32);
+        let mut vehicles: Vec<i32> = chain
+            .iter()
+            .filter(|step| step.0 == 2)
+            .map(|step| step.3)
+            .collect();
+        vehicles.dedup();
+        if rides.insert(vehicles) {
+            alternatives.push(pareto_alternative(
+                arrival,
+                boardings,
+                walking,
+                destination,
+                &chain,
+            ));
+        }
+    }
+    alternatives
 }
 
 fn generalized_candidate_better(
@@ -1966,6 +2124,11 @@ fn add_round_label(
         workspace.frontier_generation[state] = epoch;
         workspace.frontier_head[state] = NO_STATE;
     }
+    let terminal = destination_workspace.destination_generation[stop] == destination_epoch
+        && destination_workspace.destination_candidate[stop] >= 0
+        && has_ride
+        && egress_ready
+        && (destination_workspace.allow_post_ride_transfers || kind != 1);
     let mut previous = NO_STATE;
     let mut existing = workspace.frontier_head[state];
     while existing >= 0 {
@@ -1977,6 +2140,30 @@ fn add_round_label(
             && retained.walking_seconds <= walking_seconds
         {
             stats.dominated_candidate_labels = stats.dominated_candidate_labels.saturating_add(1);
+            // A ranked search keeps this completion as an inactive witness:
+            // it is reported, but never expanded, so the frontier is unchanged.
+            if best.retain_terminals
+                && terminal
+                && arrival + destination_workspace.destination_egress[stop] <= arrival_upper_bound
+                && workspace.terminals.len() < MAX_RANKED_TERMINALS
+                && workspace.labels.len() < MAX_PARETO_LABELS
+            {
+                workspace.terminals.push(workspace.labels.len() as u32);
+                workspace.labels.push(ProfileLabel {
+                    state: state as u32,
+                    arrival,
+                    boardings,
+                    walking_seconds,
+                    predecessor,
+                    kind,
+                    trip,
+                    board_sequence,
+                    alight_sequence,
+                    duration,
+                    next: NO_STATE,
+                    active: false,
+                });
+            }
             return NO_STATE;
         }
         if retained.active
@@ -2017,14 +2204,12 @@ fn add_round_label(
     });
     workspace.frontier_head[state] = label;
     stats.relaxed_stops = stats.relaxed_stops.saturating_add(1);
-    if destination_workspace.destination_generation[stop] == destination_epoch
-        && destination_workspace.destination_candidate[stop] >= 0
-        && has_ride
-        && egress_ready
-        && (destination_workspace.allow_post_ride_transfers || kind != 1)
-    {
+    if terminal {
         let destination_arrival = arrival + destination_workspace.destination_egress[stop];
         if destination_arrival <= arrival_upper_bound {
+            if best.retain_terminals && workspace.terminals.len() < MAX_RANKED_TERMINALS {
+                workspace.terminals.push(label as u32);
+            }
             let destination_walking =
                 walking_seconds + destination_workspace.destination_egress[stop];
             let generalized = generalized_seconds(
@@ -3920,6 +4105,8 @@ impl TimetableKernel {
                 transfer_penalty_seconds: 0.0,
                 walk_reluctance: 0.0,
                 collect_alternatives: None,
+                alternative_ranking: None,
+                alternative_limit: None,
                 restriction_mode: None,
                 deadline_objective: None,
             })?;
@@ -4092,7 +4279,7 @@ impl TimetableKernel {
             )
         };
         let mut time_index = scan_time_lower_bound(scan_times, scan_start);
-        let mut bucket_boardings = HashMap::<usize, Vec<ScalarRunBoarding>>::new();
+        let mut bucket_boardings = RunMap::<Vec<ScalarRunBoarding>>::default();
         while time_index < scan_times.len() {
             let connection_departure = scan_times[time_index] as f64;
             // Every remaining journey must spend at least the smallest legal
@@ -4111,7 +4298,9 @@ impl TimetableKernel {
             // Within a zero-time bucket, a later segment can be boarded first.
             // Its lower boarding count does not dominate a newly reachable
             // earlier segment. Retain both until this timestamp is closed.
-            bucket_boardings.clear();
+            if !bucket_boardings.is_empty() {
+                bucket_boardings.clear();
+            }
             loop {
                 let previous_changes = (stats.relaxed_stops, stats.expanded_trip_runs);
                 stats.scanned_departures += (end - start) as u32;
@@ -4120,6 +4309,13 @@ impl TimetableKernel {
                     let scan_flags = event.flags();
                     let stop = event.source_stop();
                     let run = event.run();
+                    // Unreachable source and inactive run: nothing to board or ride.
+                    if !bit_is_set(&workspace.active_run_bits, run)
+                        && (scan_flags & SCAN_CAN_BOARD == 0
+                            || !bit_is_set(&workspace.reached_stop_bits, stop))
+                    {
+                        continue;
+                    }
                     let can_reach_boarding = scan_flags & SCAN_CAN_BOARD != 0
                         && workspace.active_stop_generation[stop] == epoch
                         && workspace.active_state_mask[stop] != 0
@@ -4233,6 +4429,7 @@ impl TimetableKernel {
                             }
                             if !run_active {
                                 workspace.run_generation[run] = epoch;
+                                set_bit(&mut workspace.active_run_bits, run);
                                 workspace.touched_runs.push(run as u32);
                             }
                             workspace.expanded_run_start[run] = connection as i32;
@@ -4269,7 +4466,11 @@ impl TimetableKernel {
                     let mut boarding = workspace.expanded_run_start[run];
                     let mut predecessor = workspace.run_predecessor_state[run];
                     let mut board_sequence = workspace.run_board_sequence[run] as f64;
-                    if let Some(frontier) = bucket_boardings.get(&run) {
+                    // Only zero-time buckets retain alternative boardings; avoid
+                    // hashing every active run when there are none.
+                    if !bucket_boardings.is_empty()
+                        && let Some(frontier) = bucket_boardings.get(&run)
+                    {
                         let mut boardings = workspace.labels[predecessor as usize]
                             .boardings
                             .saturating_add(1);
@@ -6622,6 +6823,62 @@ impl TimetableKernel {
         })
     }
 
+    /// Alternatives around a known primary journey. Pareto keeps the
+    /// nondominated arrival/boarding/walking trade-offs that use at most the
+    /// primary's boardings. Ranked keeps the earliest distinct completions,
+    /// dominated ones included, with at most one additional boarding.
+    #[cfg_attr(feature = "node", napi)]
+    pub fn route_alternatives_csa(
+        &mut self,
+        input: TimetableAlternativeQueryInput,
+    ) -> napi::Result<TimetableParetoQueryResult> {
+        let ranked = input.ranking.as_deref() == Some("ranked");
+        let cap = input
+            .maximum_boardings
+            .unwrap_or(u32::MAX)
+            .min(MAX_PROFILE_BOARDINGS as u32);
+        let boarding_upper_bound = if ranked {
+            input.best_boardings.saturating_add(1).min(cap)
+        } else {
+            input.best_boardings
+        }
+        .max(input.best_boardings.min(cap));
+        let request = TimetableParetoQueryInput {
+            origin_stops: input.origin_stops,
+            origin_walk_seconds: input.origin_walk_seconds,
+            origin_candidate_indices: input.origin_candidate_indices,
+            destination_stops: input.destination_stops,
+            destination_walk_seconds: input.destination_walk_seconds,
+            destination_candidate_indices: input.destination_candidate_indices,
+            departure: input.departure,
+            horizon: input.horizon,
+            allow_pre_ride_transfers: input.allow_pre_ride_transfers,
+            allow_post_ride_transfers: input.allow_post_ride_transfers,
+            earliest_arrival: input.earliest_arrival,
+            boarding_upper_bound,
+            candidate_destination_index: 0,
+            candidate_walking_seconds: f64::MAX,
+            arrival_slack_seconds: input.arrival_slack_seconds,
+            transfer_penalty_seconds: 0.0,
+            walk_reluctance: 0.0,
+            collect_alternatives: Some(true),
+            alternative_ranking: input.ranking,
+            alternative_limit: input.limit,
+            restriction_mode: None,
+            deadline_objective: Some(false),
+        };
+        let result = self.route_pareto_round_csa(request.clone())?;
+        // The corridor is an accelerator. An origin outside it repeats the
+        // same bounded search without corridor pruning.
+        if !result.supported && result.reason.as_deref() == Some("origin_outside_kernel") {
+            return self.route_pareto_round_csa(TimetableParetoQueryInput {
+                restriction_mode: Some("anchor-only".into()),
+                ..request
+            });
+        }
+        Ok(result)
+    }
+
     #[cfg_attr(feature = "node", napi)]
     pub fn route_pareto_round_csa(
         &mut self,
@@ -6743,6 +7000,16 @@ impl TimetableKernel {
         let transfer_penalty_seconds = input.transfer_penalty_seconds.max(0.0);
         let walk_reluctance = input.walk_reluctance.max(0.0);
         let collect_alternatives = input.collect_alternatives.unwrap_or(false);
+        let ranked_alternatives = collect_alternatives
+            && match input.alternative_ranking.as_deref() {
+                None | Some("pareto") => false,
+                Some("ranked") => true,
+                Some(_) => {
+                    return Err(Error::from_reason(
+                        "Alternative ranking must be pareto or ranked.",
+                    ));
+                }
+            };
         let deadline_objective = input.deadline_objective.unwrap_or(false);
         let generalized_upper_bound = generalized_seconds(
             input.earliest_arrival,
@@ -6891,7 +7158,9 @@ impl TimetableKernel {
             // Keep the anchor-only expansion as an independent reference for
             // both corridor and target-dominance pruning.
             prune_dominated_alternatives: collect_alternatives
+                && !ranked_alternatives
                 && restriction_mode != ParetoRestrictionMode::Only,
+            retain_terminals: ranked_alternatives,
             // Arrival slack never extends the admitted timetable, including
             // when searching only for the primary journey.
             ride_horizon: input.horizon,
@@ -7034,12 +7303,21 @@ impl TimetableKernel {
             ));
         }
         let alternatives = collect_alternatives.then(|| {
-            collect_pareto_alternatives(
-                &profile_workspace.labels,
-                destination_workspace,
-                destination_epoch,
-                arrival_upper_bound,
-            )
+            if ranked_alternatives {
+                collect_ranked_alternatives(
+                    &profile_workspace.labels,
+                    &profile_workspace.terminals,
+                    destination_workspace,
+                    input.alternative_limit.map_or(usize::MAX, |n| n as usize),
+                )
+            } else {
+                collect_pareto_alternatives(
+                    &profile_workspace.labels,
+                    destination_workspace,
+                    destination_epoch,
+                    arrival_upper_bound,
+                )
+            }
         });
         let result = |chain: Vec<JourneyChainStep>,
                       improved_candidate: bool|

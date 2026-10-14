@@ -79,7 +79,9 @@ try {
   })
   const pathQuery = { originMemberIndex: 0, destinationMemberIndex: 1, maximumDistanceM: 1000, maximumPoints: 256 }
   const entrancePath = street.routeAccessMemberPath(pathQuery)
-  const transferPath = street.routeAccessMemberPath({ ...pathQuery, stopTransfer: true })
+  // Transfer geometry is routed between the physical stop coordinates.
+  const transferPath = street.routeStopTransferPath({ originLon: 0, originLat: 38, destinationLon: 0.005,
+    destinationLat: 38, maximumDistanceM: 1000, maximumPoints: 256 })
   assert.equal(transferPath.found, true)
   assert.equal(transferPath.distanceM, transfers.distancesM[edge])
   assert(entrancePath.distanceM > transferPath.distanceM + 50)

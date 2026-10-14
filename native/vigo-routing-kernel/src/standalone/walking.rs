@@ -5,6 +5,11 @@ use crate::{CoordinateKernel, MaterializePathInput, StreetPathInput, TimetableMa
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
+/// Vertices closer than this are one public vertex (about 10 micrometers).
+fn same_point(a: [f64; 2], b: [f64; 2]) -> bool {
+    (a[0] - b[0]).abs() < 1e-10 && (a[1] - b[1]).abs() < 1e-10
+}
+
 fn pathway(source: &str) -> bool {
     matches!(source, "gtfs_pathway" | "gtfs_pathway_estimated")
 }
@@ -120,6 +125,7 @@ impl City {
         let mut distance = None;
         let mut source_only = false;
         let mut selected_path = None;
+        let mut rule_distance = None;
         if let Some(role) = role {
             if endpoints[role].stop.is_some() {
                 value["geometrySource"] = json!("station_selection");
@@ -154,7 +160,7 @@ impl City {
                 query_token: evidence.query_token,
                 role: if role == 0 { "origin" } else { "destination" }.into(),
                 member_index: member as u32,
-                maximum_points: 512,
+                maximum_points: crate::PUBLIC_WALK_POINTS,
             });
             let stop = self.stop(self.members.get(member).ok_or("Unknown access member")?)?;
             street_coordinates[1 - role] = [stop.lon, stop.lat];
@@ -220,7 +226,18 @@ impl City {
                             .is_some_and(|s| s.trunc() <= duration + 0.001)
                 })
             });
+            // Only an OSM-certified transfer is a street walk. A station link
+            // without a transfer row keeps its modeled time and claims no path.
+            let linked = row
+                .and_then(|rows| rows.iter().find(|r| r.to_stop_id == *to))
+                .and_then(|r| r.provenance.as_deref())
+                .unwrap_or("parent_station_fallback");
+            if transfer.is_none() && linked != "osm_certified_radial" {
+                source_only = true;
+                value["transferSource"] = json!(linked);
+            }
             if let Some(transfer) = transfer {
+                rule_distance = transfer.path_distance_m;
                 let source = transfer.provenance.as_deref().unwrap_or("unknown");
                 value["transferSource"] = json!(source);
                 if source != "osm_certified_radial" {
@@ -260,22 +277,35 @@ impl City {
                 Some(input) => selected_street_path(&mut self.street, input)?,
                 None => None,
             };
-            let (path_coordinates, path_distance, found) =
-                if let Some((coordinates, distance)) = selected {
-                    (coordinates, distance, true)
-                } else {
-                    let path = self.street.route_path(StreetPathInput {
-                        origin_lon: street_coordinates[0][0],
-                        origin_lat: street_coordinates[0][1],
-                        destination_lon: street_coordinates[1][0],
-                        destination_lat: street_coordinates[1][1],
-                        maximum_distance_m: opt
-                            .walk_m
-                            .max(duration * opt.walk_speed.unwrap_or(self.speed) / 3.6),
-                        maximum_points: 512,
-                    })?;
-                    (path.coordinates, path.distance_m, path.found)
+            let (path_coordinates, path_distance, found) = if let Some((coordinates, distance)) =
+                selected
+            {
+                (coordinates, distance, true)
+            } else {
+                let input = || StreetPathInput {
+                    origin_lon: street_coordinates[0][0],
+                    origin_lat: street_coordinates[0][1],
+                    destination_lon: street_coordinates[1][0],
+                    destination_lat: street_coordinates[1][1],
+                    maximum_distance_m: opt
+                        .walk_m
+                        .max(duration * opt.walk_speed.unwrap_or(self.speed) / 3.6),
+                    maximum_points: crate::PUBLIC_WALK_POINTS,
                 };
+                // Generated transfers were priced between physical stops.
+                // A bounded stop-to-stop search finds that witness without
+                // a metropolitan CCH query; only a miss falls back to it.
+                let transfer = if role.is_none() {
+                    Some(self.street.route_stop_transfer_path(input())?).filter(|path| path.found)
+                } else {
+                    None
+                };
+                let path = match transfer {
+                    Some(path) => path,
+                    None => self.street.route_path(input())?,
+                };
+                (path.coordinates, path.distance_m, path.found)
+            };
             // Never attach a longer, newly searched path to an already priced
             // walk and then claim that path fits the timetable's walking cost.
             if found
@@ -286,6 +316,21 @@ impl City {
                     .chunks_exact(2)
                     .map(|p| [p[0], p[1]])
                     .collect();
+                // The straight hop from a free coordinate to its street attachment.
+                let connector = match role {
+                    Some(0) => street
+                        .first()
+                        .filter(|point| !same_point(**point, coordinates[0]))
+                        .map(|point| [coordinates[0], *point]),
+                    Some(1) => street
+                        .last()
+                        .filter(|point| !same_point(**point, coordinates[1]))
+                        .map(|point| [*point, coordinates[1]]),
+                    _ => None,
+                };
+                if let Some(connector) = connector {
+                    value["endpointConnector"] = json!({"coordinates":connector});
+                }
                 let mut combined = if role == Some(1) {
                     station_coordinates.clone()
                 } else {
@@ -297,8 +342,7 @@ impl City {
                 }
                 combined.insert(0, coordinates[0]);
                 combined.push(coordinates[1]);
-                combined
-                    .dedup_by(|a, b| (a[0] - b[0]).abs() < 1e-10 && (a[1] - b[1]).abs() < 1e-10);
+                combined.dedup_by(|a, b| same_point(*a, *b));
                 if let Some(first) = combined.first_mut() {
                     *first = coordinates[0];
                 }
@@ -320,6 +364,12 @@ impl City {
                     value["distanceMeters"] = json!(path_distance);
                 }
             }
+        }
+        // A generated transfer without an attached path keeps its priced distance.
+        if value.get("distanceMeters").is_none()
+            && let Some(distance) = rule_distance
+        {
+            value["distanceMeters"] = json!(distance);
         }
         if geometry && value.get("coordinates").is_none() {
             value["coordinates"] = json!(

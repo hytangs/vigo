@@ -581,3 +581,25 @@ for (const example of horizonCases) {
   assert.deepEqual([capped.bestArrival, capped.bestBoardings], example.primary.slice(0, 2), example.name)
 }
 console.log(`Ride horizons and legal terminal walks matched explicit fixtures (${horizonComparisons} bounded comparisons).`)
+
+// Requested alternatives: Pareto keeps trade-offs only. Ranked also keeps
+// dominated completions that end at an already reached stop, counts a
+// vehicle once even across a re-boarding, and honors slack and limit.
+{
+  const kernel = horizonTestKernel([[[0, 1, 100, 200]], [[0, 1, 120, 230]], [[0, 2, 110, 150], [2, 1, 160, 240]]])
+  const request = {
+    originStops: [0], originWalkSeconds: [0], originCandidateIndices: [0],
+    destinationStops: [1], destinationWalkSeconds: [0], destinationCandidateIndices: [0],
+    departure: 0, horizon: 1000, allowPreRideTransfers: false, allowPostRideTransfers: false,
+    earliestArrival: 200, arrivalSlackSeconds: 60, bestBoardings: 1,
+  }
+  const found = (options) => kernel.routeAlternativesCsa({ ...request, ...options }).alternatives
+    .map((plan) => [plan.bestArrival, plan.bestBoardings])
+  assert.deepEqual(found({}), [[200, 1]])
+  assert.deepEqual(found({ ranking: 'pareto' }), [[200, 1]])
+  assert.deepEqual(found({ ranking: 'ranked' }), [[200, 1], [230, 1], [240, 1]])
+  assert.deepEqual(found({ ranking: 'ranked', limit: 2 }), [[200, 1], [230, 1]])
+  assert.deepEqual(found({ ranking: 'ranked', arrivalSlackSeconds: 35 }), [[200, 1], [230, 1]])
+  assert.throws(() => found({ ranking: 'best' }), /pareto or ranked/)
+  console.log('Requested Pareto and ranked alternatives matched an explicit fixture.')
+}

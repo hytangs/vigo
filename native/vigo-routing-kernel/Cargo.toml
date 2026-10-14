@@ -12,7 +12,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["node"]
-node = ["dep:napi", "dep:napi-derive"]
+node = ["dep:napi", "dep:napi-derive", "dep:chrono", "dep:chrono-tz"]
 standalone = ["dep:httparse", "dep:chrono", "dep:chrono-tz", "dep:flate2"]
 
 [[bin]]

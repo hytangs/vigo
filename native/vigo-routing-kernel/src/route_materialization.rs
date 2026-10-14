@@ -79,7 +79,7 @@ fn shape_nodes(points: &[[f64; 2]]) -> Vec<ShapeNode> {
     nodes
 }
 
-fn haversine_km(a: [f64; 2], b: [f64; 2]) -> f64 {
+pub(crate) fn haversine_km(a: [f64; 2], b: [f64; 2]) -> f64 {
     let radians = |v: f64| v * std::f64::consts::PI / 180.0;
     let dlat = radians(b[1] - a[1]);
     let dlon = radians(b[0] - a[0]);
@@ -218,20 +218,16 @@ impl ShapeGeometry {
         self.points.len() as u32
     }
 
-    /// Export a bounded leg into a caller-owned scratch buffer. Full source
-    /// coordinates stay native, and no new external buffer is allocated.
+    /// The canonical public line for a ride between aligned shape indices.
     #[cfg(feature = "node")]
-    #[napi]
-    pub fn clip_coordinates(
+    #[napi(js_name = "legPolyline")]
+    pub fn leg_polyline_js(
         &self,
-        env: napi::Env,
         start: u32,
         end: u32,
-        mut output: Float64ArraySlice<'_>,
         from: Option<Float64Array>,
         to: Option<Float64Array>,
-    ) -> Result<u32> {
-        use napi::JsValue;
+    ) -> Result<LegPolyline> {
         let endpoint = |value: Option<Float64Array>| -> Result<Option<[f64; 2]>> {
             match value {
                 Some(v) if v.len() == 2 && v.iter().all(|x| x.is_finite()) => {
@@ -243,36 +239,9 @@ impl ShapeGeometry {
                 )),
             }
         };
-        // Copy endpoints before borrowing output; callers may pass views of
-        // the same ArrayBuffer for these arguments.
-        let from = endpoint(from)?;
-        let to = endpoint(to)?;
-        let mut buffer = std::ptr::null_mut();
-        let mut ordinary = false;
-        // SAFETY: Node-API supplies valid handles for this synchronous call.
-        // Read the actual backing buffer, without invoking property getters.
-        // A SharedArrayBuffer could be modified concurrently and is rejected.
-        let valid = unsafe {
-            napi::sys::napi_get_typedarray_info(
-                env.raw(),
-                output.raw(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &mut buffer,
-                std::ptr::null_mut(),
-            ) == napi::sys::Status::napi_ok
-                && napi::sys::napi_is_arraybuffer(env.raw(), buffer, &mut ordinary)
-                    == napi::sys::Status::napi_ok
-        };
-        if !valid || !ordinary {
-            return Err(Error::from_reason(
-                "Shape output requires an ordinary ArrayBuffer.",
-            ));
-        }
-        // SAFETY: output is not shared, endpoints have been copied, and the
-        // remainder of this call neither invokes JS nor retains the slice.
-        self.clip_into(start, end, unsafe { output.as_mut() }, from, to)
+        let (line, distance_m) =
+            self.leg_polyline(start as usize, end as usize, endpoint(from)?, endpoint(to)?)?;
+        Ok(LegPolyline::new(&line, Some(distance_m)))
     }
 
     /// Returns source-order point indices, or an empty array when no monotone
@@ -301,81 +270,43 @@ impl ShapeGeometry {
 }
 
 impl ShapeGeometry {
-    #[cfg(feature = "node")]
-    fn clip_into(
+    /// Boarding stop, every distinct source vertex between the aligned indices,
+    /// then alighting stop. The distance is this exact line's length.
+    pub(crate) fn leg_polyline(
         &self,
-        start: u32,
-        end: u32,
-        output: &mut [f64],
+        start: usize,
+        end: usize,
         from: Option<[f64; 2]>,
         to: Option<[f64; 2]>,
-    ) -> Result<u32> {
-        let maximum_points = output.len() / 2;
-        let start = start as usize;
-        let end = end as usize;
-        if start > end || end >= self.points.len() || maximum_points < 2 {
+    ) -> Result<(Vec<[f64; 2]>, f64)> {
+        if start > end || end >= self.points.len() {
             return Err(Error::from_reason("Invalid shape clipping bounds."));
         }
-        let indices = self.distinct_indices.as_deref();
-        let begin = indices.map_or(start + 1, |v| v.partition_point(|&i| i as usize <= start));
-        let finish = indices.map_or(end + 1, |v| v.partition_point(|&i| i as usize <= end));
-        let source_count = 1 + finish - begin;
-        let last = if source_count == 1 {
-            start
-        } else {
-            indices.map_or(end, |v| v[finish - 1] as usize)
-        };
-        let has_from = usize::from(from.is_some());
-        let skip_first = usize::from(from.is_some_and(|p| p == self.points[start]));
-        let has_to = usize::from(to.is_some_and(|p| p != self.points[last]));
-        let count = source_count + has_from - skip_first + has_to;
-        let stride = (count - 1).div_ceil(maximum_points - 1).max(1);
-        let mut written = 0;
-        let mut append = |position: usize| {
-            let point = if let Some(point) = from.filter(|_| position == 0) {
-                point
-            } else {
-                let source = position + skip_first - has_from;
-                if source >= source_count {
-                    to.expect("present endpoint")
-                } else {
-                    // Preserve signed zero when a slice begins inside a run.
-                    let index = if source == 0 {
-                        start
-                    } else {
-                        indices.map_or(start + source, |v| v[begin + source - 1] as usize)
-                    };
-                    self.points[index]
-                }
-            };
-            output[written * 2..written * 2 + 2].copy_from_slice(&point);
-            written += 1;
-        };
-        for position in (0..count - 1).step_by(stride) {
-            append(position);
+        let first = self.points[start];
+        let last = self.points[end];
+        let mut line = Vec::with_capacity(end - start + 3);
+        let mut distance_km = self.prefix[end] - self.prefix[start];
+        if let Some(point) = from.filter(|point| *point != first) {
+            distance_km += haversine_km(point, first);
+            line.push(point);
         }
-        append(count - 1);
-        Ok(written as u32)
+        line.push(first);
+        // Signed zero and the first coordinate of each repeated run survive.
+        for &point in &self.points[start + 1..=end] {
+            if line.last() != Some(&point) {
+                line.push(point);
+            }
+        }
+        if let Some(point) = to.filter(|point| *point != last) {
+            distance_km += haversine_km(last, point);
+            line.push(point);
+        }
+        if line.len() == 1 {
+            line.push(first);
+        }
+        Ok((line, distance_km * 1000.0))
     }
 
-    #[cfg(all(feature = "standalone", not(feature = "node")))]
-    pub(crate) fn coordinate_slice(
-        &self,
-        range: std::ops::RangeInclusive<usize>,
-    ) -> Result<&[[f64; 2]]> {
-        self.points
-            .get(range)
-            .ok_or_else(|| Error::from_reason("Shape alignment exceeds source coordinates"))
-    }
-    #[cfg(all(feature = "standalone", not(feature = "node")))]
-    pub(crate) fn section_distance_m(&self, first: usize, last: usize) -> Result<f64> {
-        if first > last || last >= self.prefix.len() {
-            return Err(Error::from_reason(
-                "Shape alignment exceeds source coordinates",
-            ));
-        }
-        Ok((self.prefix[last] - self.prefix[first]) * 1000.)
-    }
     fn from_points(points: Vec<[f64; 2]>) -> Result<Self> {
         if points.len() > u32::MAX as usize {
             return Err(Error::from_reason(
@@ -582,6 +513,59 @@ impl ShapeGeometry {
         }
         indices
     }
+}
+
+/// The line used when no shape aligns: stop coordinates with consecutive
+/// identical stops collapsed. A missing coordinate makes the distance unknown.
+pub(crate) fn stop_sequence_polyline(stops: &[[f64; 2]]) -> (Vec<[f64; 2]>, Option<f64>) {
+    let mut line: Vec<[f64; 2]> = Vec::with_capacity(stops.len());
+    for &point in stops {
+        if line.last() != Some(&point) {
+            line.push(point);
+        }
+    }
+    if line.len() == 1 && stops.len() >= 2 {
+        line.push(line[0]);
+    }
+    let located = line.iter().flatten().all(|v| v.is_finite());
+    let distance = located.then(|| {
+        line.windows(2)
+            .map(|pair| haversine_km(pair[0], pair[1]))
+            .sum::<f64>()
+            * 1000.0
+    });
+    (line, distance)
+}
+
+/// A ride line for JavaScript: packed longitude/latitude pairs and meters.
+#[cfg(feature = "node")]
+#[napi(object)]
+pub struct LegPolyline {
+    pub coordinates: Float64Array,
+    pub distance_m: Option<f64>,
+}
+
+#[cfg(feature = "node")]
+impl LegPolyline {
+    fn new(line: &[[f64; 2]], distance_m: Option<f64>) -> Self {
+        Self {
+            coordinates: line.iter().flatten().copied().collect::<Vec<_>>().into(),
+            distance_m,
+        }
+    }
+}
+
+#[cfg(feature = "node")]
+#[napi]
+pub fn stop_sequence_line(values: Float64Array) -> Result<LegPolyline> {
+    if !values.len().is_multiple_of(2) {
+        return Err(Error::from_reason(
+            "Stop coordinates must be longitude/latitude pairs.",
+        ));
+    }
+    let stops: Vec<[f64; 2]> = values.chunks_exact(2).map(|v| [v[0], v[1]]).collect();
+    let (line, distance) = stop_sequence_polyline(&stops);
+    Ok(LegPolyline::new(&line, distance))
 }
 
 /// Preserve JavaScript String iteration: valid surrogate pairs are one code

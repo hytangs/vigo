@@ -278,7 +278,10 @@ def specification(native):
     schemas['Traffic'] = {'oneOf':[raw,observations]}
     clock_common = {**common,'arrivalBufferMinutes':number(0,60,0,integer=True,description='Caller-selected arrival reserve. Positive values require arrive-by Transit Route/Matrix without via points; reserve the final minutes of the original horizon. Not a calibrated probability.'),'realtimeSnapshot':ref('RealtimeSnapshot'),'traffic':ref('Traffic')}
     schemas['RouteRequest'] = obj({**clock_common,'includeGeometry':boolean(True),'origin':ref('Point'),'destination':ref('Point'),'via':array(ref('Point'),0,16),'waypoints':array(ref('Point'),0,16),
-        'windowMinutes':number(0,240,0),'windowStepMinutes':number(1,60,1)},['origin','destination'],allOf=[clock_rule,transit_date,mode_rule,{'not':{'required':['via','waypoints']}}],
+        'windowMinutes':number(0,240,0),'windowStepMinutes':number(1,60,1),
+        'alternatives':number(0,9,0,integer=True,description='Additional transit journeys for a depart-at transit query at the requested time; 0 turns alternatives off. Not combined with arrive-by, via points or journey windows.'),
+        'alternativeRanking':text('pareto','ranked',default='pareto',description='pareto returns nondominated arrival/boarding/walking trade-offs; ranked returns the earliest distinct vehicle sequences, dominated ones included. Requires alternatives.'),
+        'alternativeSlackMinutes':number(0,120,15,description='Latest arrival admitted for an alternative, in minutes after the primary arrival. Requires alternatives.')},['origin','destination'],allOf=[clock_rule,transit_date,mode_rule,{'not':{'required':['via','waypoints']}}],
         description='Additional mode constraints, source identities, freshness, and via/window combinations are validated by the runtime. Route includes available leg GeoJSON by default. Set includeGeometry: false to omit coordinate arrays. Geometry retains source precision and provenance; inferred station links remain labeled.')
     matrix_fields = {k:v for k,v in clock_common.items() if k!='realtimeSnapshot'}
     schemas['MatrixRequest'] = obj({**matrix_fields,'origins':array(ref('Point'),1,65536),'destinations':array(ref('Point'),1,65536),'includeJourneys':boolean(),'includeGeometry':boolean(), 'journeyFormat':{**text('full','compact'),'default':'full','description':'Requires transit includeJourneys. Compact retains the exact timed trip/stop/boarding witness, without display metadata or walking evidence; it cannot include geometry.'}},['origins','destinations'],allOf=[clock_rule,transit_date,mode_rule],description='At most 65536 pairs. Journeys require transit; geometry requires full journeys. No realtime transit.')
@@ -390,7 +393,7 @@ def specification(native):
             'queryFingerprint':text(),'computeUs':nullable_seconds,'computeScope':text()},
             ['engineVersion','cityRevision','requestId','queryFingerprint','computeUs','computeScope'],strict=False),
         'diagnostics':{'type':'object'},'profile':{'type':'object'},'trace':{'type':'object'},'warnings':array({'type':'object'}),'datasetLimitations':{},'id':{}}
-    schemas['RouteResult'] = obj({**public_common,'schema':{'const':'vigo.route.v1'},'journey':nullable(ref('PublicJourney')),'reason':{'type':'object'},'alternativeSearch':{'type':'object'},'access':{'type':'object'},'alternatives':array(nullable(ref('PublicJourney')))},['schema','status','query','meta','journey'],strict=False)
+    schemas['RouteResult'] = obj({**public_common,'schema':{'const':'vigo.route.v1'},'journey':nullable(ref('PublicJourney')),'reason':{'type':'object'},'alternativeSearch':{'type':'object','description':'Present when alternatives were searched. Journey windows report their sampling; requested alternatives report coverage requested_time, ranking, maximumJourneys (including the primary), arrivalSlackMinutes and status (complete or unavailable, with reason).'},'access':{'type':'object'},'alternatives':array(nullable(ref('PublicJourney')))},['schema','status','query','meta','journey'],strict=False)
     schemas['MatrixResult'] = obj({**public_common,'schema':{'const':'vigo.matrix.v1'},'durationsSeconds':array(array(nullable_seconds)),'journeys':array(array(nullable(ref('PublicJourney'))))},['schema','status','query','meta','durationsSeconds'],strict=False)
     public_surface = obj({'width':seconds,'height':seconds,'bounds':array(number(),4,4),'valuesSeconds':array(nullable_seconds)},['width','height','bounds','valuesSeconds'],strict=False)
     schemas['ReachResult'] = obj({**public_common,'schema':{'const':'vigo.reach.v1'},'surface':public_surface,'fullSurface':public_surface,'bounds':array(number(),4,4),'cutoffsSeconds':array(seconds),
@@ -422,7 +425,7 @@ def specification(native):
 PAGE_NAMES = [
     ('quickstart', 'Quickstart'), ('installation', 'Installation'), ('city-data', 'City data'),
     ('cli', 'Command line'), ('points-and-time', 'Points, time, and units'), ('route', 'Route'),
-    ('via-and-windows', 'Via points and departure windows'), ('matrix', 'Matrix'),
+    ('via-and-windows', 'Alternatives, via points, and windows'), ('matrix', 'Matrix'),
     ('reach', 'Reach and isochrones'), ('scenarios', 'Scenarios'), ('compare', 'Compare results'),
     ('realtime', 'Realtime and traffic'), ('results', 'Results and errors'), ('streaming', 'Streaming'),
     ('http-api', 'HTTP API'), ('deployment', 'Deployment'), ('clients', 'Client integration'),
@@ -547,7 +550,8 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__); parser.add_argument('--check',action='store_true'); args=parser.parse_args()
     source=SOURCE.read_text(encoding='utf-8'); native,native_md=native_contracts()
     public_results=(ROOT/'docs/reference/results.md').read_text(encoding='utf-8')
-    public_results=public_results.replace('(../guides/rust-standalone.md#journey-windows)', '(#journey-windows)')
+    for anchor in ['journey-windows', 'alternative-journeys']:
+        public_results=public_results.replace(f'(../guides/rust-standalone.md#{anchor})', f'(#{anchor})')
     # This reference is embedded in a single-file manual served by the binary;
     # its source-relative Markdown link is not available beside that manual.
     public_results=public_results.replace('(../guide.md#known-limits)', '(https://github.com/hytangs/vigo/blob/main/docs/guide.md#known-limits)')

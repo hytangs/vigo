@@ -1,6 +1,8 @@
 // Shared kernels convert Vec buffers into Node typed arrays only in addon builds.
 #![cfg_attr(not(feature = "node"), allow(clippy::useless_conversion))]
 mod edge_attachment;
+pub(crate) mod fares;
+pub(crate) mod route_alternatives;
 use bincode::Options;
 #[cfg(all(feature = "standalone", not(feature = "node")))]
 pub mod standalone;
@@ -27,12 +29,18 @@ use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 use std::time::SystemTime;
 
+/// Vertex cap for public walking geometry, shared by every runtime so the same
+/// witness produces the same line.
+pub(crate) const PUBLIC_WALK_POINTS: u32 = 512;
+
 #[derive(Default)]
 struct IntegerHasher(u64);
 
 impl Hasher for IntegerHasher {
+    // Fibonacci mixing: hashbrown takes its probe tag from the high bits,
+    // which an identity hash leaves zero for every small index.
     fn finish(&self) -> u64 {
-        self.0
+        self.0.wrapping_mul(0x9e37_79b9_7f4a_7c15)
     }
 
     fn write(&mut self, bytes: &[u8]) {
@@ -57,6 +65,16 @@ type IntegerHashSet<T> = HashSet<T, BuildHasherDefault<IntegerHasher>>;
 mod coordinate_matrix;
 mod route_materialization;
 pub use route_materialization::{ShapeGeometry, ShapeGeometrySource, stable_key_suffix};
+// Addon exports defined in crate-private modules.
+#[cfg(feature = "node")]
+pub use fares::node::{
+    FareEventDayResult, NativeFareCatalog, fare_currency_scales, native_fare_event_day,
+    native_parse_fare_amount, native_public_fare_url,
+};
+#[cfg(feature = "node")]
+pub use route_alternatives::route_alternative_request;
+#[cfg(feature = "node")]
+pub use route_materialization::stop_sequence_line;
 mod shared_streets;
 mod snapshot_validation;
 mod street_kernel;
@@ -108,7 +126,7 @@ const MAXIMUM_ACCESS_PROFILE_SNAPSHOT_BYTES: u64 = 4_u64 * 1024 * 1024 * 1024;
 // serve every legal request without a distance-range fallback.
 const CCH_DISTANCE_UNITS_PER_METER: f64 = 10_000.0;
 const CCH_MAXIMUM_QUERY_DISTANCE_M: f64 = 5_000.0;
-const ENDPOINT_ACCESS_THREAD_COUNT: usize = 2;
+const ENDPOINT_ACCESS_THREAD_COUNT: usize = 4;
 
 #[cfg(all(feature = "node", not(test)))]
 #[napi(module_exports)]
@@ -119,8 +137,9 @@ fn retain_native_thread_code() {
     napi::bindgen_prelude::retain_current_module_for_unload_safety();
 }
 
-// A single coordinate OD has exactly two independent directed street-access
-// roles. A private two-worker pool avoids both global-pool oversubscription and
+// Point queries have two directed access roles; large matrices can project
+// four independent coordinate groups. A private bounded pool avoids both
+// global-pool oversubscription and
 // per-request thread creation, while leaving offline/batch Rayon work free to
 // use the process-wide pool. If the private pool cannot be created, the exact
 // operations run sequentially rather than changing routing semantics.
@@ -674,6 +693,8 @@ impl DynamicCchQuery {
                 if self.source_generations[node as usize] != generation {
                     self.source_generations[node as usize] = generation;
                     self.forward_nodes.push(node);
+                } else {
+                    break;
                 }
                 node = elimination_tree_parent[node as usize];
             }
@@ -688,16 +709,23 @@ impl DynamicCchQuery {
             }
             let edge_start = cch.up_first_out[node as usize] as usize;
             let edge_end = cch.up_first_out[node as usize + 1] as usize;
-            for (edge_offset, &weight) in forward_weights[edge_start..edge_end].iter().enumerate() {
-                let edge = edge_start + edge_offset;
-                let candidate = distance.saturating_add(weight).min(cch::INF_WEIGHT);
-                if candidate <= maximum_distance {
-                    self.offer_distance_from(
-                        cch.up_head[edge],
-                        candidate,
-                        self.distance_sources[node as usize],
-                        generation,
-                    );
+            let source = self.distance_sources[node as usize];
+            if maximum_distance < cch::INF_WEIGHT {
+                // A feasible edge cannot exceed the remaining budget. Test
+                // before addition: no saturation or infinity clamp is needed
+                // for the overwhelmingly common finite walking envelope.
+                let remaining = maximum_distance - distance;
+                for (offset, &weight) in forward_weights[edge_start..edge_end].iter().enumerate() {
+                    if weight <= remaining {
+                        self.offer_distance_from(cch.up_head[edge_start + offset], distance + weight, source, generation);
+                    }
+                }
+            } else {
+                for (offset, &weight) in forward_weights[edge_start..edge_end].iter().enumerate() {
+                    let candidate = distance.saturating_add(weight).min(cch::INF_WEIGHT);
+                    if candidate <= maximum_distance {
+                        self.offer_distance_from(cch.up_head[edge_start + offset], candidate, source, generation);
+                    }
                 }
             }
             let (bucket_start, bucket_end) = buckets.range(node as usize);
@@ -2766,9 +2794,6 @@ pub struct AccessMemberPathInput {
     pub destination_member_index: u32,
     pub maximum_distance_m: f64,
     pub maximum_points: u32,
-    /// Use the physical stop coordinates used to generate stop transfers,
-    /// rather than the public entrance anchors used for endpoint access.
-    pub stop_transfer: Option<bool>,
 }
 
 #[cfg_attr(feature = "node", napi(object))]
@@ -3033,6 +3058,41 @@ pub struct CoordinateKernel {
     destination_cache_bytes: usize,
 }
 
+impl CoordinateKernel {
+    fn stop_transfer_path(
+        &mut self,
+        origin: [f64; 2],
+        destination: [f64; 2],
+        maximum_distance_m: f64,
+        maximum_points: u32,
+        started: Instant,
+    ) -> napi::Result<StreetPathResult> {
+        let reciprocal = self.snapshot.reciprocal_edge_flags();
+        let origins = snaps_for_coordinate(&self.snapshot, reciprocal, origin[0], origin[1])?;
+        let destinations =
+            snaps_for_coordinate(&self.snapshot, reciprocal, destination[0], destination[1])?;
+        let path = run_point_path(
+            &self.snapshot,
+            &mut self.path_workspace,
+            &mut self.reverse_path_workspace,
+            &origins,
+            &destinations,
+            [origin, destination],
+            PointPathOptions {
+                maximum_distance_m,
+                contract_chains: false,
+            },
+        )?;
+        street_path_result(
+            &self.snapshot,
+            self.terminal_access.as_deref(),
+            path,
+            maximum_points,
+            started,
+        )
+    }
+}
+
 #[cfg_attr(feature = "node", napi)]
 impl CoordinateKernel {
     #[cfg_attr(feature = "node", napi(constructor))]
@@ -3082,6 +3142,58 @@ impl CoordinateKernel {
         self.terminal_access = Some(shared_streets::terminal(&self.snapshot, &path)?);
         self.clear_endpoint_caches();
         Ok(())
+    }
+
+    /// Why a free coordinate has no transit access within its walking budget,
+    /// before any wider probe. Bounds are [west, south, east, north]; NaN means
+    /// unbounded. Every runtime publishes this same street-level diagnosis.
+    #[cfg_attr(feature = "node", napi)]
+    pub fn diagnose_endpoint_street_access(
+        &self,
+        longitude: f64,
+        latitude: f64,
+        bounds: Vec<f64>,
+    ) -> napi::Result<String> {
+        let bound = |index: usize| bounds.get(index).copied().filter(|v| !v.is_nan());
+        if bound(0).is_some_and(|west| longitude < west)
+            || bound(2).is_some_and(|east| longitude > east)
+            || bound(1).is_some_and(|south| latitude < south)
+            || bound(3).is_some_and(|north| latitude > north)
+        {
+            return Ok("outside_coverage".into());
+        }
+        let reciprocal = self.snapshot.reciprocal_edge_flags();
+        let (snaps, _) = street_attachment_with_workspace(
+            &self.snapshot,
+            reciprocal,
+            &mut SnapWorkspace::default(),
+            longitude,
+            latitude,
+        )?;
+        if snaps.is_empty() {
+            return Ok("no_street_attachment".into());
+        }
+        if let Some(profile) = &self.profile {
+            let components = self.snapshot.i32_array("componentByNode")?;
+            let (connected, _) = street_attachment_in_components(
+                &self.snapshot,
+                reciprocal,
+                &mut SnapWorkspace::default(),
+                longitude,
+                latitude,
+                Some(&profile.public_components),
+            )?;
+            if connected.is_empty()
+                && snaps.iter().all(|s| {
+                    !profile
+                        .public_components
+                        .contains(&components[s.node as usize])
+                })
+            {
+                return Ok("disconnected_street_attachment".into());
+            }
+        }
+        Ok("none_within_walk_budget".into())
     }
 
     #[cfg_attr(feature = "node", napi)]
@@ -4318,7 +4430,7 @@ impl CoordinateKernel {
                     query_token: endpoints.query_token,
                     role: "origin".to_owned(),
                     member_index: endpoints.origin_path_member_indices[origin],
-                    maximum_points: 160,
+                    maximum_points: PUBLIC_WALK_POINTS,
                 })?
                 .coordinates;
             let destination_path_coordinates = self
@@ -4326,7 +4438,7 @@ impl CoordinateKernel {
                     query_token: endpoints.query_token,
                     role: "destination".to_owned(),
                     member_index: endpoints.destination_path_member_indices[destination],
-                    maximum_points: 160,
+                    maximum_points: PUBLIC_WALK_POINTS,
                 })?
                 .coordinates;
             let compact = CompactEndpointRouteResult::from_full(
@@ -5495,30 +5607,16 @@ impl CoordinateKernel {
             ));
         }
         let started = Instant::now();
-        let coordinate = |member: usize| {
-            if input.stop_transfer.unwrap_or(false) {
-                let stop = profile.member_stop_keys[member] as usize;
-                [profile.stop_lons[stop], profile.stop_lats[stop]]
-            } else {
-                [profile.member_lons[member], profile.member_lats[member]]
-            }
-        };
-        let origin = coordinate(origin_member);
-        let destination = coordinate(destination_member);
-        let snaps = |member, point: [f64; 2]| {
-            if input.stop_transfer.unwrap_or(false) {
-                snaps_for_coordinate(
-                    &self.snapshot,
-                    self.snapshot.reciprocal_edge_flags(),
-                    point[0],
-                    point[1],
-                )
-            } else {
-                Ok(profile.member_snap_frontier(member))
-            }
-        };
-        let origins = snaps(origin_member, origin)?;
-        let destinations = snaps(destination_member, destination)?;
+        let origin = [
+            profile.member_lons[origin_member],
+            profile.member_lats[origin_member],
+        ];
+        let destination = [
+            profile.member_lons[destination_member],
+            profile.member_lats[destination_member],
+        ];
+        let origins = profile.member_snap_frontier(origin_member);
+        let destinations = profile.member_snap_frontier(destination_member);
         let path = run_point_path(
             &self.snapshot,
             &mut self.path_workspace,
@@ -5537,6 +5635,28 @@ impl CoordinateKernel {
             path,
             input.maximum_points,
             started,
+        )
+    }
+
+    /// The witness for a generated stop transfer: a bounded path between the
+    /// physical stop coordinates used to price it, not public entrance anchors.
+    /// Both runtimes materialize transfer walks with this exact search.
+    #[cfg_attr(feature = "node", napi)]
+    pub fn route_stop_transfer_path(
+        &mut self,
+        input: StreetPathInput,
+    ) -> napi::Result<StreetPathResult> {
+        if !input.maximum_distance_m.is_finite() || input.maximum_distance_m <= 0.0 {
+            return Err(Error::from_reason(
+                "maximumDistanceM must be a positive finite number.",
+            ));
+        }
+        self.stop_transfer_path(
+            [input.origin_lon, input.origin_lat],
+            [input.destination_lon, input.destination_lat],
+            input.maximum_distance_m,
+            input.maximum_points,
+            Instant::now(),
         )
     }
 
@@ -8469,13 +8589,14 @@ fn flatten_path(
 pub mod presentation;
 #[cfg_attr(feature = "node", napi)]
 pub fn format_public_result(input: String) -> Result<String> {
-    let v: serde_json::Value =
+    let mut v: serde_json::Value =
         serde_json::from_str(&input).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     presentation::validate(&v["request"]).map_err(napi::Error::from_reason)?;
-    serde_json::to_string(&presentation::format(
+    let result = v["result"].take();
+    serde_json::to_string(&presentation::format_owned(
         v["kind"].as_str().unwrap_or("route"),
         &v["request"],
-        &v["result"],
+        result,
     ))
     .map_err(|e| napi::Error::from_reason(e.to_string()))
 }
@@ -8491,3 +8612,6 @@ pub fn render_public_text(input: String) -> Result<Option<String>> {
 #[cfg(test)]
 #[path = "../vendor/cch/src/paged.rs"]
 mod paged_scratch_tests;
+
+#[cfg(feature = "standalone")]
+mod endpoint_batch;

@@ -382,7 +382,7 @@ vigo route --city ./boston --request ./journey.json \
 
 Check `status`, then the chronological `journey.legs`. Walking competes with transit; set `requireTransitRide: true` to require a boarding. A `not_found` result can reflect the date, timetable, access network, or constraints; it does not automatically mean the physical locations are disconnected. Use [blocked-Route diagnostics](#result-1) to identify the next check.
 
-For a walking journey, use `"mode": "walk"` with coordinate endpoints. For an arrive-by transit journey, add `--time-preference arrive` and set `--time` to the deadline. For alternatives around a departure, use `--departure-window 10` to sample within ten minutes either side of the requested time; inspect `alternatives` and the [Route contract](#route-1) before treating that list as a continuous timetable profile.
+For a walking journey, use `"mode": "walk"` with coordinate endpoints. For an arrive-by transit journey, add `--time-preference arrive` and set `--time` to the deadline. For alternatives around a departure, use `--departure-window 10` to sample within ten minutes either side of the requested time; inspect `alternatives` and the [Route contract](#route-1) before treating that list as a continuous timetable profile. For several journeys at the requested time, add `--alternatives 3` (JSON `alternatives`); `--alternative-ranking ranked` also lists journeys that another journey beats in every respect. Both runtimes return the same [alternative journeys](standalone.html#alternative-journeys).
 
 ### Reach one destination by a deadline
 

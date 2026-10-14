@@ -262,7 +262,8 @@ impl TerminalAccessGraph {
         [self.lons[local], self.lats[local]]
     }
 
-    pub(crate) fn surface_boundary(&self, components: &[i32], node: u32) -> bool {
+    // A public vertex in a street component holding a transit access anchor.
+    pub(crate) fn is_boundary(&self, components: &[i32], node: u32) -> bool {
         node < self.public_count && self.boundary[components[node as usize] as usize]
     }
 
@@ -425,12 +426,11 @@ impl TerminalAccessGraph {
     ) -> napi::Result<Option<Arc<TerminalAttachment>>> {
         let snaps = self.snaps(snapshot, public, lon, lat)?;
         let components = snapshot.i32_array("componentByNode")?;
-        let is_boundary = |node: u32| {
-            node < self.public_count && self.boundary[components[node as usize] as usize]
-        };
         if snaps.len() == public.len()
             && snaps.iter().zip(public).all(|(a, b)| {
-                a.node == b.node && a.distance_m == b.distance_m && is_boundary(a.node)
+                a.node == b.node
+                    && a.distance_m == b.distance_m
+                    && self.is_boundary(components, a.node)
             })
         {
             return Ok(None);
@@ -463,7 +463,7 @@ impl TerminalAccessGraph {
             if distances.get(&node) != Some(&distance) {
                 continue;
             }
-            if is_boundary(node) {
+            if self.is_boundary(components, node) {
                 boundary_snaps.push(Snap {
                     node,
                     distance_m: distance,

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createNativeShapeGeometry, alignNativeShapeStops, clipNativeShapeCoordinates } from '../src/server/native-routing-kernel.mjs'
+import { createNativeShapeGeometry, alignNativeShapeStops, nativeShapeLegPolyline, nativeStopSequencePolyline } from '../src/server/native-routing-kernel.mjs'
 import { stableKeySuffix, stablePlanId } from '../src/server/routing-plan-identity.mjs'
 import { alignPreparedShapeStopIndices, shapeDistancePrefix } from './helpers/shape-alignment-reference.mjs'
 
@@ -59,9 +59,15 @@ for (const latitude of [0, 39, 61, 89.999, -89.999]) {
   }
 }
 
-// Clipping must preserve the old distinct-then-stride sampler, even when
-// sampling makes nonadjacent equal points adjacent or the line is degenerate.
+// A ride line is the boarding stop, every distinct aligned vertex and the
+// alighting stop; its length is the shape distance plus both connectors.
+// Repeated points keep the first of each run, and signed zero compares equal.
 const distinct = points => points.filter((p, i) => i === 0 || p[0] !== points[i - 1][0] || p[1] !== points[i - 1][1])
+const haversineKm = (a, b) => {
+  const rad = Math.PI / 180
+  const h = Math.sin((b[1] - a[1]) * rad / 2) ** 2 + Math.cos(a[1] * rad) * Math.cos(b[1] * rad) * Math.sin((b[0] - a[0]) * rad / 2) ** 2
+  return 2 * 6371.0088 * Math.asin(Math.min(1, Math.sqrt(h)))
+}
 let clippingCases = 0
 const clippingShapes = [
   [[0, 0], [-0, 0], [0, -0], [1, 1], [1, 1], [-0, -0], [0, 0]],
@@ -82,17 +88,26 @@ for (const shape of clippingShapes) {
   for (const [start, end] of slices) {
     for (const from of [null, shape[start], [-77, 38]]) {
       for (const to of [null, shape[end], [-76, 40]]) {
-        for (const limit of [2, 17, 512]) {
-          const points = distinct([...(from ? [from] : []), ...shape.slice(start, end + 1), ...(to ? [to] : [])])
-          const stride = Math.max(1, Math.ceil((points.length - 1) / (limit - 1)))
-          const expected = points.filter((_, i) => i % stride === 0 || i === points.length - 1)
-          assert.deepEqual(clipNativeShapeCoordinates(native, start, end, from, to, limit), expected)
-          clippingCases += 1
-        }
+        const first = shape[start], last = shape[end]
+        const fromConnector = from && (from[0] !== first[0] || from[1] !== first[1]) ? from : null
+        const toConnector = to && (to[0] !== last[0] || to[1] !== last[1]) ? to : null
+        let points = distinct([...(fromConnector ? [fromConnector] : []), ...shape.slice(start, end + 1), ...(toConnector ? [toConnector] : [])])
+        if (points.length === 1) points = [points[0], points[0]]
+        let distanceKm = (fromConnector ? haversineKm(fromConnector, first) : 0) + (toConnector ? haversineKm(last, toConnector) : 0)
+        for (let i = start + 1; i <= end; i += 1) distanceKm += haversineKm(shape[i - 1], shape[i])
+        const line = nativeShapeLegPolyline(native, start, end, from, to)
+        assert.deepEqual(line.coordinates, points)
+        assert(Math.abs(line.distanceKm - distanceKm) <= 1e-9 * Math.max(1, distanceKm), `${line.distanceKm} vs ${distanceKm}`)
+        clippingCases += 1
       }
     }
   }
 }
+assert.throws(() => nativeShapeLegPolyline(createNativeShapeGeometry([[0, 0], [1, 1]]), 1, 0), /bounds/)
+assert.throws(() => nativeShapeLegPolyline(createNativeShapeGeometry([[0, 0], [1, 1]]), 0, 2), /bounds/)
+// Without an aligned shape, stops form the line; an unknown stop leaves no distance.
+assert.deepEqual(nativeStopSequencePolyline([[0, 0], [0, 0], [0.001, 0]]).coordinates, [[0, 0], [0.001, 0]])
+assert(Math.abs(nativeStopSequencePolyline([[0, 0], [0.001, 0]]).distanceKm - haversineKm([0, 0], [0.001, 0])) < 1e-12)
 assert.throws(() => createNativeShapeGeometry([[NaN, 0], [0, 0]]), /finite/)
 assert.throws(() => alignNativeShapeStops(createNativeShapeGeometry([[0, 0], [1, 1]]), [[Infinity, 0], [1, 1]]), /finite/)
 const cached = createNativeShapeGeometry([[0, 0], [0.001, 0]])
@@ -105,15 +120,3 @@ assert.equal(cached.estimatedBytes, populatedBytes, 'Repeated coordinates must r
 for (let i = 0; i < 5000; i += 1) alignNativeShapeStops(cached, [[i / 1e8, 0], [0.001, 0]])
 assert(cached.estimatedBytes < baseBytes + 2048 * 512, 'Candidate reuse must stay bounded after eviction.')
 console.log(JSON.stringify({ check: 'native-materialization', status: 'passed', identifiers: identifiers.length, alignments, clippingCases }))
-
-// The scratch buffer never escapes into returned point arrays. Native writes
-// reject shared backing stores and tolerate aliased input endpoint views.
-const scratchShape = createNativeShapeGeometry([[0, 0], [1, 1]])
-assert.throws(() => scratchShape.clipCoordinates(0, 1, new Float64Array(new SharedArrayBuffer(32))), /ordinary ArrayBuffer/)
-assert.throws(() => scratchShape.clipCoordinates(0, 1, new Float64Array(2)), /bounds/)
-const scratch = new Float64Array([2, 2, 3, 3, 0, 0, 0, 0])
-assert.equal(scratchShape.clipCoordinates(0, 1, scratch, scratch.subarray(0, 2), scratch.subarray(2, 4)), 4)
-assert.deepEqual(Array.from(scratch), [2, 2, 0, 0, 1, 1, 3, 3])
-const owned = clipNativeShapeCoordinates(scratchShape, 0, 1)
-clipNativeShapeCoordinates(scratchShape, 0, 1, [3, 3], [4, 4])
-assert.deepEqual(owned, [[0, 0], [1, 1]])

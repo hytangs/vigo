@@ -1,5 +1,10 @@
 import type { RoutingPlan } from '../routingModel'
 
+/** A ride drawn from published GTFS shape vertices, in current or saved results. */
+export function shapedRideGeometry(source: string | undefined): boolean {
+  return source === 'gtfs_shape' || source === 'shape'
+}
+
 export function formatRoutingMinutes(minutes: number) {
   const rounded = Math.max(0, Math.round(minutes))
   if (rounded < 60) return `${rounded}m`
@@ -83,7 +88,7 @@ export function routingLegDetail(leg: RoutingPlan['legs'][number]) {
         ? 'published in the same minute; sub-minute runtime not distinguished'
         : 'published with equal stop timestamps; runtime not distinguished'
       : ''
-    const geometryDetail = leg.geometrySource === 'shape'
+    const geometryDetail = shapedRideGeometry(leg.geometrySource)
       ? ''
       : 'map line inferred from stops'
     return [scheduleDetail, timingDetail, geometryDetail].filter(Boolean).join(' · ')

@@ -209,7 +209,9 @@ try {
               const journey = matrix.journeys[i][j]
               assert.equal(journey !== null, point.status === 'ready')
               if (!journey) return
-              assert.deepEqual(journey.legs, point.legs, 'Path direction, costs, station evidence, and geometry must survive frontier replacement')
+              // Route prices its rides; Matrix journeys carry no fare annotation.
+              const unpriced = point.legs.map(({ fare, ...leg }) => leg)
+              assert.deepEqual(journey.legs, unpriced, 'Path direction, costs, station evidence, and geometry must survive frontier replacement')
               for (const key of ['departureMinutes', 'arrivalMinutes', 'transfers']) assert.equal(journey[key], point[key])
             })
           }

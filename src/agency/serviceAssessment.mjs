@@ -123,19 +123,3 @@ export async function assessService(environment, args) {
   return { kind: 'service_assessment', presentationVersion: 2, asOf: state.generatedAt, requested: args, preface, sections, inspections,
     meaning: 'Verified checks and explicit capability limits. The model may prioritize these sections; it must not rewrite facts, add a cause, or omit a requested check.' }
 }
-
-export function assessmentChoices(data, targets = serviceAssessmentTool.parameters.properties.targets) {
-  return { name: 'finish_assessment', description: `Choose the relevant completed sections for a complete answer, keeping every named target. Request missing checks when needed. ${Object.entries(serviceChecks).map(([key, title]) => `${key}: ${title}`).join('; ')}`,
-    parameters: object({ sectionIds: { type: 'array', items: { type: 'string', enum: data.sections.map(row => row.id) }, minItems: 1, maxItems: data.sections.length },
-      missingChecks: { type: 'array', items: { type: 'string', enum: Object.keys(serviceChecks) }, maxItems: 3 },
-      correctTargets: { ...targets, description: 'Only when the checked scope does not match the question: select the correct targets to replace it. Do not use to omit an explicitly requested entity.' } }, ['sectionIds', 'missingChecks']) }
-}
-
-export function renderAssessment(data, ids = data.sections.map(row => row.id)) {
-  if (!ids.length || new Set(ids).size !== ids.length || ids.some(id => !data.sections.some(row => row.id === id))) throw new Error('Choose each completed check at most once.')
-  const byId = new Map(data.sections.map(row => [row.id, row]))
-  const selected = ids.map(id => byId.get(id))
-  if (new Set(selected.map(row => row.target)).size !== new Set(data.sections.map(row => row.target)).size) throw new Error('Include each completed check target; do not omit a requested entity.')
-  const titles = { conditions: 'Service to check', spacing: 'Departure spacing', causes: 'Agency notices and causes', alert_coverage: 'Notice coverage', history: 'Retained history', occupancy: 'Reported occupancy', coverage: 'Coverage', outlook: 'Scheduled exposure', interventions: 'Operational options', resources: 'Fleet and crew', rider_impact: 'Rider impact', data_quality: 'Data quality', communications: 'Rider message drafts', alternatives: 'Alternative journeys' }
-  return [data.preface, ...selected.map(row => selected.length > 1 ? `### ${titles[row.check] || row.title}${row.target !== 'Network' ? ` · ${row.target}` : ''}\n\n${row.text}` : row.text)].filter(Boolean).join('\n\n')
-}

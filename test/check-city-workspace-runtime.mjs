@@ -4,9 +4,10 @@ import electronPath from 'electron'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { checkDirectory } from './helpers/check-directory.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
-const directory = await fs.mkdtemp(path.join(root, 'temp', 'city-workspace-runtime-'))
+const directory = await checkDirectory(root, 'city-workspace-runtime-')
 const fixture = `import '/test/fixtures/city-workspace.tsx';`
 const server = await createServer({ root, cacheDir: path.join(directory, 'vite-cache'), configFile: false, plugins: [react(), {
   name: 'navigation-fixture',
