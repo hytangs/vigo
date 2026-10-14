@@ -1,15 +1,52 @@
-name: Python checks
+name: Python package
 
 on:
   push:
+    branches: [main]
+    tags: ['python-v*']
+    paths:
+      - 'python/**'
+      - 'native/**'
+      - 'src/**'
+      - 'scripts/**'
+      - 'test/**'
+      - 'package*.json'
+      - 'rust-toolchain.toml'
+      - '.nvmrc'
+      - '.github/workflows/**'
+      - 'tsconfig*.json'
+      - 'vite.config.*'
+      - 'public/**'
   pull_request:
+    paths:
+      - 'python/**'
+      - 'native/**'
+      - 'src/**'
+      - 'scripts/**'
+      - 'test/**'
+      - 'package*.json'
+      - 'rust-toolchain.toml'
+      - '.nvmrc'
+      - '.github/workflows/**'
+      - 'tsconfig*.json'
+      - 'vite.config.*'
+      - 'public/**'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+defaults:
+  run:
+    working-directory: python
+
+concurrency:
+  group: python-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
 jobs:
   test:
+    timeout-minutes: 30
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -47,47 +84,37 @@ jobs:
         run: python scripts/check-wheel.py dist
 
   integration:
+    timeout-minutes: 30
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, windows-2022]
     steps:
-      - name: Require a pinned engine commit for release wheels
-        if: github.ref_type == 'tag'
-        shell: bash
-        env:
-          ENGINE_REF: ${{ vars.VIGO_ENGINE_REF }}
-        run: test "${#ENGINE_REF}" -eq 40 && [[ "$ENGINE_REF" =~ ^[0-9a-fA-F]+$ ]]
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          repository: hytangs/vigo
-          ref: ${{ vars.VIGO_ENGINE_REF || 'main' }}
-          path: engine
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
-          node-version-file: engine/.nvmrc
+          node-version-file: .nvmrc
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12"
       - name: Verify release engine identity and version
         if: github.ref_type == 'tag'
         env:
-          ENGINE_REF: ${{ vars.VIGO_ENGINE_REF }}
+          ENGINE_REF: ${{ github.sha }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: python scripts/check-release-engine.py --engine engine
+        run: python scripts/check-release-engine.py --engine ..
       - run: python -m pip install ".[progress,speed]" pytest
       - run: npm ci --ignore-scripts
-        working-directory: engine
+        working-directory: .
       - run: npm run build:rust-routing-kernel
-        working-directory: engine
+        working-directory: .
       - run: npm run build:cli
-        working-directory: engine
-      - run: python scripts/prepare-runtime.py --engine engine
+        working-directory: .
+      - run: python scripts/prepare-runtime.py --engine ..
       - name: Prepare public fixture
-        working-directory: engine
-        run: node ../scripts/prepare-integration.mjs
+        working-directory: .
+        run: node python/scripts/prepare-integration.mjs
       - name: Build self-contained platform wheel
         env:
           VIGO_BUNDLE_RUNTIME: build/headless
@@ -101,12 +128,13 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wheel-${{ matrix.os }}
-          path: dist/*.whl
+          path: python/dist/*.whl
           if-no-files-found: error
 
   release:
     if: github.ref_type == 'tag'
     needs: [test, integration]
+    timeout-minutes: 30
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -121,10 +149,13 @@ jobs:
         with:
           pattern: wheel-*
           merge-multiple: true
-          path: dist
+          path: python/dist
       - run: python -m twine check dist/*
       - name: Publish verified wheel and source archive
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" dist/* --verify-tag --prerelease --title "VIGO Python ${{ github.ref_name }}" --notes-file docs/releases/0.5.1.md
+        shell: bash
+        run: |
+          VERSION=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --prerelease --title "VIGO Python $VERSION" --notes-file "docs/releases/$VERSION.md"

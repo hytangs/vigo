@@ -11,7 +11,7 @@ VIGO 0.5.2 turns GTFS timetables and OpenStreetMap streets into a reusable City.
 - **[Build your first City](#vigo-cli-quickstart)** Download public Boston inputs, prepare the network, and run a complete request.
 - **[Run a routing service](guides/rust-standalone.md)** Open a prepared City with the standalone Rust executable and serve JSON over HTTP.
 - **[Explore in Studio](#vigo-studio-desktop-guide)** Manage sources, inspect service, plan journeys, and compare reachable areas.
-- **[Work in Python](https://github.com/hytangs/vigo-py/tree/main/docs)** Build and reuse a City in scripts and notebooks with VIGO Python 0.5.1.
+- **[Work in Python](https://github.com/hytangs/vigo/tree/main/python/docs)** Build and reuse a City in scripts and notebooks with VIGO Python 0.5.1.
 
 ### Choose the right interface
 
@@ -20,7 +20,7 @@ VIGO 0.5.2 turns GTFS timetables and OpenStreetMap streets into a reusable City.
 | Node CLI | [Installation and packaging](guides/cli-only.md) | Builds Cities from GTFS and OSM; queries through the shared Rust kernel |
 | Rust executable | [HTTP and standalone manual](standalone.html) | Queries a prepared City; includes an HTTP server and needs no Node or Python |
 | Studio | [Desktop guide](#vigo-studio-desktop-guide) | Desktop application with its own project library |
-| Python | [Python documentation](https://github.com/hytangs/vigo-py/tree/main/docs) | Python objects backed by a resident Engine process |
+| Python | [Python documentation](https://github.com/hytangs/vigo/tree/main/python/docs) | Python objects backed by a resident Engine process |
 
 A City is the complete prepared data directory. Build it once and keep it intact. For repeated queries, keep a process resident with `stream`, `serve`, or an open Python City.
 
@@ -851,7 +851,7 @@ Choose a file below in the [interactive reader](guide.html#viewer). Files are re
 
 ### Python exports
 
-Python's `Result.to_dict()` retains its detailed, minute-valued payload. Use the [Python Result reference](https://github.com/hytangs/vigo-py/blob/main/docs/guide.md#results) to interpret those exports. This viewer accepts public Engine schemas only.
+Python's `Result.to_dict()` retains its detailed, minute-valued payload. Use the [Python Result reference](https://github.com/hytangs/vigo/blob/main/python/docs/guide.md#results) to interpret those exports. This viewer accepts public Engine schemas only.
 
 ## Combine timetables and live feeds
 
@@ -1572,7 +1572,7 @@ An invalid one-shot request or failed operation exits nonzero. Streaming errors 
 
 ### Python and services
 
-[VIGO Python](https://github.com/hytangs/vigo-py/tree/main/docs) runs the same resident query protocol and exposes its own detailed Result properties. It requires Engine 0.5.0's current API; it is not a direct Python/Rust binding.
+[VIGO Python](https://github.com/hytangs/vigo/tree/main/python/docs) runs the same resident query protocol and exposes its own detailed Result properties. It requires Engine 0.5.0's current API; it is not a direct Python/Rust binding.
 
 Use [Engine deployment](#deploy-the-routing-engine) for the Node service or the [Rust HTTP manual](standalone.html#http-api) for a standalone deployment. Studio's internal application API is not a public integration boundary.
 

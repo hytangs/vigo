@@ -5,3 +5,9 @@
 - Preserve existing format identifiers, field meanings, units, required layouts and portable references. New optional indexes must remain ignorable by old readers and unnecessary for old Cities.
 - Follow `docs/reference/format-0.5.0.md`. Run `npm run check:format-050` for reader, writer or prepared-data changes; the release gate also runs through `check:standalone`.
 - Never regenerate the frozen `test/fixtures/format-0.5.0` archive or change its hashes to bypass a compatibility failure. Extend coverage while retaining historical fixtures.
+
+# Package ownership
+
+- `python/` owns the independently versioned Python distribution, its dependencies, documentation and tests. Run its tools from that directory and follow `python/AGENTS.md`.
+- Native routing computation stays in the engine; Python wraps the public protocol. Source-wheel installation must not require npm or Rust.
+- Python integration and bundled wheels build the engine from this same checkout. Keep Python release tags (`python-v<VERSION>`) separate from engine tags (`v<VERSION>`).

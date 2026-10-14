@@ -24,9 +24,9 @@ classifiers = [
 
 [project.urls]
 VIGO = "https://github.com/hytangs/vigo"
-Repository = "https://github.com/hytangs/vigo-py"
-Documentation = "https://github.com/hytangs/vigo-py/tree/main/docs"
-Issues = "https://github.com/hytangs/vigo-py/issues"
+Repository = "https://github.com/hytangs/vigo"
+Documentation = "https://github.com/hytangs/vigo/tree/main/python/docs"
+Issues = "https://github.com/hytangs/vigo/issues"
 
 [project.optional-dependencies]
 progress = ["tqdm>=4.66"]

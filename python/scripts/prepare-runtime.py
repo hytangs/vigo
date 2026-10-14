@@ -149,6 +149,10 @@ def main() -> None:
             raise SystemExit("Engine must advertise resident Route, Matrix, and Reach")
         manifest = {
             "schemaVersion": 1, "productVersion": caps["productVersion"],
+            "sourceCommit": subprocess.check_output(
+                ["git", "-C", str(engine), "rev-parse", "HEAD"], text=True).strip(),
+            "sourceDirty": bool(subprocess.check_output(
+                ["git", "-C", str(engine), "status", "--porcelain"], text=True).strip()),
             "nodeVersion": NODE_VERSION, "nodeArchiveSha256": digest,
             "wheelPlatform": wheel_platform, "rustTarget": rust_target,
             "files": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()

@@ -2,6 +2,8 @@
 
 **Build transport networks and query journeys, travel-time matrices, and reachable areas from Python.**
 
+The independently versioned Python package is maintained in `python/` in the VIGO repository. Its source installation and unit tests do not require npm or Rust. See [contributing](CONTRIBUTING.md) for package and integration workflows.
+
 VIGO Python wraps the [VIGO engine](https://github.com/hytangs/vigo). Keep a City open, run queries against its prepared network, and export results for analysis. The package imports as `vigo`.
 
 [Quickstart](docs/guide.md#your-first-python-query) · [API reference](docs/reference.md) · [Guide](docs/guide.md) · [Examples](examples/decompose_result.py) · [Notebooks](notebooks/README.md)

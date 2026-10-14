@@ -76,4 +76,4 @@ See the [resident protocol](../guide.md#keep-the-engine-resident) for a complete
 
 From a source checkout, run `npm run package:cli`, then `npm run check:cli-package`. The checks exercise the extracted package. A native archive is specific to its platform; use its matching runtime and retain the manifest when reporting a problem.
 
-For HTTP, use [the native service](../guide.md#deploy-the-routing-engine). For Python objects and notebooks, use [VIGO Python](https://github.com/hytangs/vigo-py/tree/main/docs).
+For HTTP, use [the native service](../guide.md#deploy-the-routing-engine). For Python objects and notebooks, use [VIGO Python](https://github.com/hytangs/vigo/tree/main/python/docs).

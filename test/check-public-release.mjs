@@ -51,7 +51,6 @@ const bannedRoots = [
   'bench/',
   'benchmarks/',
   'paper/',
-  'python/',
   'release/',
   'tmp/',
   'output/',
@@ -98,7 +97,16 @@ for (const file of files) {
     assert.equal(createHash('sha256').update(fs.readFileSync(absolute)).digest('hex'), frozenInputs.get(file),
       `Frozen synthetic input changed: ${file}`)
   } else {
-    assert(!bannedExtensions.has(path.extname(file).toLowerCase()), `Generated or private data file is present: ${file}`)
+    const pythonNotebook = /^python\/notebooks\/[^/]+\.ipynb$/u.test(file)
+    if (pythonNotebook) {
+      const notebook = JSON.parse(fs.readFileSync(absolute, 'utf8'))
+      assert.equal(notebook.nbformat, 4)
+      for (const cell of notebook.cells) if (cell.cell_type === 'code') {
+        assert.equal(cell.execution_count, null, `Executed notebook: ${file}`)
+        assert.deepEqual(cell.outputs, [], `Stored notebook output: ${file}`)
+      }
+    }
+    assert(pythonNotebook || !bannedExtensions.has(path.extname(file).toLowerCase()), `Generated or private data file is present: ${file}`)
   }
   assert(!/(?:^|\/)\.env(?:\.|$)/u.test(file), `Environment file is present: ${file}`)
   assert(!/(?:^|\/)(?:debug|scratch)(?:[._-]|$)/iu.test(file), `Debug or scratch file is present: ${file}`)
@@ -179,7 +187,7 @@ console.log(JSON.stringify({
   excludedPublicationMaterial: true,
   excludedPrivateData: true,
   excludedExperimentScripts: true,
-  excludedLanguageBindings: true,
+  pythonPackageIncluded: true,
   publicDependencySources: true,
   immutableWorkflowActions: true,
   isolatedReleaseAttestation: true,

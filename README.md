@@ -4,7 +4,7 @@
 
 Build a reusable **City**, then query transit, walking, or driving journeys, calculate origin–destination matrices, and map reachable areas. VIGO combines a Rust routing engine with a command-line compiler, an HTTP service, a desktop workspace, and a separate Python package.
 
-[Documentation](docs/guide.md) · [Rust CLI & HTTP](docs/guides/rust-standalone.md) · [Python](https://github.com/hytangs/vigo-py) · [Downloads](https://github.com/hytangs/vigo/releases)
+[Documentation](docs/guide.md) · [Rust CLI & HTTP](docs/guides/rust-standalone.md) · [Python](https://github.com/hytangs/vigo/tree/main/python) · [Downloads](https://github.com/hytangs/vigo/releases)
 
 ## Choose your interface
 
@@ -13,7 +13,7 @@ Build a reusable **City**, then query transit, walking, or driving journeys, cal
 | **Native engine** | Route, Matrix, and Reach queries from one executable; resident streams and HTTP services | [Rust guide](docs/guides/rust-standalone.md) |
 | **Command-line compiler** | Build Cities from GTFS ZIPs and OSM PBFs; prepare scenarios and run queries | [CLI quickstart](docs/guide.md#vigo-cli-quickstart) |
 | **VIGO Studio** | Inspect networks and live service, plan journeys, and explore scenarios visually | [Desktop guide](docs/guide.md#vigo-studio-desktop-guide) |
-| **VIGO Python** | Automate studies, run batches, and export journey and leg tables | [Python repository](https://github.com/hytangs/vigo-py) |
+| **VIGO Python** | Automate studies, run batches, and export journey and leg tables | [Python package](https://github.com/hytangs/vigo/tree/main/python) |
 
 The native executable queries prepared Cities without Node.js. The compiler imports source data. Studio includes its runtime; Python platform wheels include a headless runtime.
 

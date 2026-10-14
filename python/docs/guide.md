@@ -57,7 +57,7 @@ Install VIGO Python 0.5.1, select Engine 0.5, and open a prepared City. The exam
 
 ### 1. Install
 
-For a packaged installation, select the wheel matching your OS and CPU from [VIGO Python releases](https://github.com/hytangs/vigo-py/releases). Replace the filename below with the downloaded file:
+For a packaged installation, select the wheel matching your OS and CPU from [VIGO Python releases](https://github.com/hytangs/vigo/tree/main/python/releases). Replace the filename below with the downloaded file:
 
 ```sh
 python -m pip install "/path/to/vigo-0.5.1-py3-none-PLATFORM.whl[speed]"
@@ -796,7 +796,7 @@ Keep runtime preparation, computation, Python call duration, and export time sep
 
 Include the wrapper and Engine versions, OS/CPU, runtime selection method, smallest failing Python request, exact exception or Result status, and whether the failure occurs on the first or a repeated query. Include a shareable synthetic fixture when possible. Describe City inputs and build options without uploading licensed feeds, credentials, private paths, or private study results.
 
-Report Python packaging, argument conversion, process lifetime, and Python exports in [VIGO Python issues](https://github.com/hytangs/vigo-py/issues). Shared transport computation belongs in [VIGO Engine issues](https://github.com/hytangs/vigo/issues).
+Report Python packaging, argument conversion, process lifetime, and Python exports in [VIGO Python issues](https://github.com/hytangs/vigo/issues). Shared transport computation belongs in [VIGO Engine issues](https://github.com/hytangs/vigo/issues).
 
 [Documentation](#routing-from-python-without-rebuilding-the-network) · [Reference](reference.md) · [Runtime](#runtime-and-loading)
 

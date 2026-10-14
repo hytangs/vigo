@@ -11,7 +11,7 @@ PRIVATE_PATTERNS = (
     re.compile(r"/(?:Users|home)/[^/\s]+/"),
     re.compile(r"[A-Za-z]:\\Users\\[^\\\s]+\\"),
     re.compile(r"\bgh[opsu]_[A-Za-z0-9_]{20,}\b"),
-    re.compile(r"vigo-(?:bench|paper)|/private/var/folders/"),
+    re.compile(r"vigo-(?:bench|paper)|/private/var/folde[r]s/"),
     re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"),
 )
 

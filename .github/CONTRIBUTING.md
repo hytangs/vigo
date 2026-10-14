@@ -1,6 +1,6 @@
 # Contributing to VIGO
 
-This repository contains Engine and Studio. Keep language bindings, private datasets, notebooks, generated data, release archives, and local workspaces outside it. Follow the [quickstart](../docs/guide.md#vigo-cli-quickstart) to install and build.
+This repository contains Engine, Studio and the independently packaged Python interface in `python/`. Keep private datasets, executed notebooks, generated data, release archives and local workspaces outside tracked source. Public Python tutorial notebooks belong in `python/notebooks/` with empty outputs. Follow the [quickstart](../docs/guide.md#vigo-cli-quickstart) to install and build.
 
 The current release line is [VIGO 0.5.2](../docs/releases/0.5.2.md).
 
@@ -41,3 +41,7 @@ Run `npm run check:release` before a release-affecting change. On each supported
 `check:public` also tests the host archiver with a small fixture. Archive paths belong to `scripts/lib/studio-paths.mjs`; pass the produced file directly to the uploader instead of duplicating filename rules in CI. The release workflow verifies supported OS/CPU targets and City portability. A local pass establishes only that host's results.
 
 Tests validate the declared model and interfaces, not observed service, passenger impact, operational feasibility, or general model quality. See [accuracy](../docs/developer.md#checking-routing-accuracy) and [security reporting](../SECURITY.md).
+
+## Python package
+
+The independently versioned Python distribution lives in [`python/`](../python/README.md). Follow its [contributor guide](../python/CONTRIBUTING.md) for Python-only tests and wheels. Engine and Python integration use the same repository commit. Python release tags are `python-v<VERSION>`; engine tags remain `v<VERSION>`. Python source installs do not require frontend dependencies.
