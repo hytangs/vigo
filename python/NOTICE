@@ -1,0 +1,8 @@
+VIGO Python
+Copyright 2026 VIGO contributors
+
+Platform wheels include the shared VIGO Engine, Node.js, and the Rust routing
+kernel. Their license and attribution texts are installed in vigo/_runtime/:
+ENGINE-LICENSE, ENGINE-NOTICE, NODE-LICENSE, CCH-LICENSE, CCH-NOTICE, and
+THIRD-PARTY-NOTICES. Source distributions contain the Python interface and
+build scripts; no runtime binaries are included in the source archive.

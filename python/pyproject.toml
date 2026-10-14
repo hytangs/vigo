@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vigo"
+version = "0.5.1"
+description = "Python interface for building and querying VIGO City models."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+keywords = ["gtfs", "public-transit", "routing", "transportation", "vigo"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+VIGO = "https://github.com/hytangs/vigo"
+Repository = "https://github.com/hytangs/vigo-py"
+Documentation = "https://github.com/hytangs/vigo-py/tree/main/docs"
+Issues = "https://github.com/hytangs/vigo-py/issues"
+
+[project.optional-dependencies]
+progress = ["tqdm>=4.66"]
+speed = ["orjson>=3.10,<4"]
+
+[tool.setuptools.packages.find]
+include = ["vigo*"]
+
+[tool.ruff.lint]
+typing-extensions = false
