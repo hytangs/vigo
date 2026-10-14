@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
-"""Generate the offline Rust manual and OpenAPI contracts using only the standard library."""
+"""Generate the engine OpenAPI document and native field reference using only the standard library."""
 import argparse
-import base64
-import html
 import json
 from pathlib import Path
 import re
@@ -10,8 +8,6 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.dont_write_bytecode = True
-sys.path.insert(0, str(ROOT / 'scripts'))
-from docs_renderer import markdown, slug
 SOURCE = ROOT / 'docs/guides/rust-standalone.md'
 VERSION = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))['version']
 OPERATIONS = {
@@ -224,7 +220,7 @@ def native_contracts():
         register(request, False)
         register(response, True)
     lines = ['# Native Rust field reference', '', f'Generated for VIGO {VERSION} from public Rust structs. Regenerate with `npm run docs:standalone`.', '',
-             'Use the [standalone manual](../guides/rust-standalone.md#18-native-operation-reference) for units, index domains, and examples. In requests, an optional field accepts omission or null. Result objects include every listed field; an unavailable optional value is null. Native arrays become JSON arrays, and non-finite result numbers become null. The runtime also checks compatible array lengths, indices, and values.', '',
+             'Use the [native operation reference](../guides/rust-standalone.md#18-native-operation-reference) for units, index domains, and examples. In requests, an optional field accepts omission or null. Result objects include every listed field; an unavailable optional value is null. Native arrays become JSON arrays, and non-finite result numbers become null. The runtime also checks compatible array lengths, indices, and values.', '',
              '| Operation | Input | Result |', '| --- | --- | --- |', '| `timetable.identifiers` | No input object | Active identifier arrays |']
     for op, (request, response) in OPERATIONS.items():
         lines.append(f'| `{op}` | [{request}](#{request.lower()}) | [{response}](#{response.lower()}) |')
@@ -422,144 +418,11 @@ def specification(native):
 
 
 
-PAGE_NAMES = [
-    ('quickstart', 'Quickstart'), ('installation', 'Installation'), ('city-data', 'City data'),
-    ('cli', 'Command line'), ('points-and-time', 'Points, time, and units'), ('route', 'Route'),
-    ('via-and-windows', 'Alternatives, via points, and windows'), ('matrix', 'Matrix'),
-    ('reach', 'Reach and isochrones'), ('scenarios', 'Scenarios'), ('compare', 'Compare results'),
-    ('realtime', 'Realtime and traffic'), ('results', 'Results and errors'), ('streaming', 'Streaming'),
-    ('http-api', 'HTTP API'), ('deployment', 'Deployment'), ('clients', 'Client integration'),
-    ('native-api', 'Native API'), ('troubleshooting', 'Troubleshooting'), ('validation', 'Compatibility'),
-]
-OUTPUT_PAGES = [
-    ('route-output', 'Route output'), ('matrix-output', 'Matrix output'),
-    ('reach-output', 'Reach output'), ('comparison-output', 'Comparison output'),
-    ('diagnostics-output', 'Diagnostics and native output'),
-]
-PAGE_GROUPS = [
-    ('Getting started', ['overview', 'quickstart', 'installation', 'city-data']),
-    ('Routing', ['route', 'via-and-windows', 'matrix', 'reach', 'scenarios', 'compare', 'realtime']),
-    ('Results', ['results']+[key for key,_ in OUTPUT_PAGES]),
-    ('Reference', ['cli', 'points-and-time', 'streaming', 'http-api', 'clients', 'native-api', 'native-fields']),
-    ('Operations', ['runtime-behavior', 'deployment', 'troubleshooting', 'walking-evidence', 'validation', 'audit-record']),
-]
-
-
-def page(source,native,audit,walking):
-    source=source.replace('../standalone.html','#overview').replace('../standalone-openapi.json','standalone-openapi.json').replace('../reference/rust-standalone-audit.md','#audit-record').replace('../reference/rust-standalone-native.md','#native-fields')
-    source=source.replace('../reference/walking-evidence.md','#walking-evidence')
-    source=source.replace('../reference/results.md','#results')
-    preamble,*parts=re.split(r'(?=^## \d+\. )',source,flags=re.M)
-    assert len(parts)==len(PAGE_NAMES), 'Give every manual chapter a page and navigation label'
-    pages={}
-    runtime_body=preamble.split('## Shared scenario collections',1)[1]
-    pages['runtime-behavior']={'title':'Runtime and scenario collections','label':'Runtime and collections','body':'## Shared scenario collections\n'+runtime_body}
-    overview=f'''VIGO runs transit, walking, and driving queries from a standalone Rust executable. Use the command line for individual jobs or serve a prepared City over HTTP.
-
-## Start with Boston
-
-Follow the [Boston quickstart](#quickstart) to route from Harvard Square to South Station. The [data instructions](#city-data) show where to download the MBTA timetable and OpenStreetMap streets, and how to compile them into `boston/`. Then start a local service:
-
-```sh
-./vigo serve --city ./boston --port 8080
-```
-
-Open `http://127.0.0.1:8080/` for this manual. The [quickstart](#quickstart) walks through a request and its response.
-
-## Guides and reference
-
-- **[Route](#route)** Find a journey by transit, walking, or driving. Set a departure time or an arrival deadline.
-- **[Matrix](#matrix)** Calculate travel times for many origin–destination pairs in one request.
-- **[Reach and isochrones](#reach)** Find streets and areas reachable by transit or walking within a time limit.
-- **[Scenarios](#scenarios)** Measure service changes with temporary exclusions, schedules, and overlays in Reach.
-- **[HTTP API](#http-api)** Connect an application using JSON requests. Look up endpoints, limits, and status codes.
-- **[Deployment](#deployment)** Configure authentication, containers, and process supervision for your own server.
-
-## Runtime and data
-
-The executable includes the routing kernels, HTTP server, and SQLite. Network preparation uses the separate VIGO compiler. Once a City is prepared, queries need no Node, Python, or internet connection.
-
-This manual covers VIGO {VERSION}. See [Compatibility](#validation) for supported operations, interface differences, and build information.
-'''
-    pages['overview']={'title':'Routing and isochrones','label':'Overview','body':overview,'legacy':'vigo-rust-standalone-manual'}
-    for (key,title),part in zip(PAGE_NAMES,parts):
-        heading,body=part.split('\n',1)
-        if key=='results':
-            body,*details=re.split(r'(?=^### (?:'+ '|'.join(re.escape(title) for _,title in OUTPUT_PAGES)+r')$)',body,flags=re.M)
-            assert len(details)==len(OUTPUT_PAGES), 'Keep each output reference on its own page'
-            for (output_key,output_title),detail in zip(OUTPUT_PAGES,details):
-                detail_heading,detail_body=detail.split('\n',1)
-                assert detail_heading=='### '+output_title
-                detail_body=re.sub(r'^(#{4,6}) ',lambda m:m[1][2:]+' ',detail_body,flags=re.M)
-                pages[output_key]={'title':output_title,'label':output_title,'body':detail_body}
-                if slug(output_title)!=output_key: pages[output_key]['legacy']=slug(output_title)
-        body=re.sub(r'^(#{3,6}) ',lambda m:m[1][1:]+' ',body,flags=re.M)
-        pages[key]={'title':title,'label':title,'body':body,'legacy':slug(heading[3:])}
-    native=native.replace('../guides/rust-standalone.md#18-native-operation-reference','#native-api')
-    index,*types=re.split(r'(?=^## )',native,flags=re.M)
-    # Type definitions have their own pages; the operation table is the index.
-    index=re.sub(r'^# [^\n]+\n+Generated[^\n]+\n+', '', index)
-    pages['native-fields']={'title':'Native fields','label':'Native fields','body':index}
-    for part in types:
-        heading,body=part.split('\n',1)
-        title=heading[3:]
-        pages[slug(title)]={'title':title,'label':title,'body':body,'parent':'native-fields'}
-    pages['audit-record']={'title':'Test record','label':'Test record','body':audit.split('\n',1)[1]}
-    walking=walking.replace('../guide.md#vigo-cli-quickstart','#city-data').replace('../guides/rust-standalone.md','#city-data')
-    pages['walking-evidence']={'title':'Walking evidence','label':'Walking evidence','body':walking.split('\n',1)[1]}
-    order=[key for _,keys in PAGE_GROUPS for key in keys]
-    type_order=[slug(part.splitlines()[0][3:]) for part in types]
-    used={key:1 for key in pages}
-    used.update({p['legacy']:1 for p in pages.values() if p.get('legacy')})
-    nav=[]
-    for group,keys in PAGE_GROUPS:
-        links=''.join(f'<a href="#{key}" data-nav="{key}">{html.escape(pages[key]["label"])}</a>' for key in keys)
-        nav.append(f'<section class="nav-group"><h2>{group}</h2>{links}</section>')
-    articles=[]
-    def page_title(p, field='title'):
-        title=html.escape(p[field])
-        return re.sub(r'(?<=[a-z])(?=[A-Z])','<wbr>',title) if p.get('parent') else title
-    for key,p in pages.items():
-        sequence=type_order if p.get('parent') else order
-        position=sequence.index(key)
-        pagination=[]
-        for offset,label in [(-1,'Previous'),(1,'Next')]:
-            neighbor=position+offset
-            if 0<=neighbor<len(sequence):
-                target=sequence[neighbor]
-                pagination.append(f'<a class="{label.lower()}" href="#{target}" rel="{("prev" if offset==-1 else "next")}"><span>{label}</span>{page_title(pages[target],"label")}</a>')
-        legacy=f'<span class="anchor" id="{p["legacy"]}"></span>' if p.get('legacy') else ''
-        breadcrumb='<p class="breadcrumb"><a href="#native-fields">Native fields</a></p>' if p.get('parent') else ''
-        hidden='' if key=='overview' else ' hidden'
-        body=markdown(p['body'],used,key)
-        if key=='overview': body=body.replace('<ul>','<ul class="topic-index">',1)
-        headings=re.findall(r'<h2 id="([^"]+)">(.+?)</h2>',body)
-        outline='<aside class="page-outline" aria-label="On this page"><p>On this page</p><nav>'+''.join(f'<a href="#{identifier}">{title}</a>' for identifier,title in headings)+'</nav></aside>' if len(headings)>1 else ''
-        articles.append(f'<article class="doc-page" id="page-{key}" data-page="{key}" data-title="{html.escape(p["title"],quote=True)}" data-nav="{p.get("parent",key)}"{hidden}>{legacy}{breadcrumb}<h1 id="{key}" tabindex="-1">{page_title(p)}</h1>{outline}<div class="page-body">{body}</div><nav class="pagination" aria-label="Page navigation">{"".join(pagination)}</nav></article>')
-    css=(ROOT/'scripts/docs.css').read_text(encoding='utf-8')
-    javascript=(ROOT/'scripts/docs.js').read_text(encoding='utf-8')
-    logo=base64.b64encode((ROOT/'public/vigo-wordmark.png').read_bytes()).decode()
-    return f'''<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="description" content="VIGO documentation: routing, matrices, isochrones, and deployment."><title>Documentation — VIGO</title><style>{css}</style></head>
-<body data-product="VIGO Rust" data-source-root="https://github.com/hytangs/vigo/blob/v{VERSION}/docs/"><a class="skip" href="#content">Skip to content</a><header class="site-header"><a class="brand" href="#overview" aria-label="VIGO documentation"><img src="data:image/png;base64,{logo}" alt="VIGO" width="148" height="28"></a><span class="site-title">Rust &amp; HTTP <span class="version">{VERSION}</span></span><div class="header-actions"><a href="standalone-openapi.json" download>API schema</a><button id="print" type="button">Print page</button></div></header>
-<details class="sidebar" id="navigation" open><summary>Contents</summary><div class="sidebar-body"><div class="search-box"><label class="sr-only" for="search">Search documentation</label><input id="search" type="search" placeholder="Search documentation" autocomplete="off" aria-controls="search-results"></div><div id="search-results" hidden><p id="search-status" role="status"></p><div id="search-links"></div></div><nav id="chapters" aria-label="Documentation">{''.join(nav)}</nav></div></details>
-<main id="content" tabindex="-1">{''.join(articles)}</main><span id="copy-status" class="sr-only" role="status"></span><noscript><style>.doc-page[hidden],.platform-group [role="tabpanel"][hidden]{{display:block!important}}.pagination,.platform-tabs,.page-outline{{display:none}}</style></noscript><script>{javascript}</script></body></html>\n'''
-
-
 def main():
     parser=argparse.ArgumentParser(description=__doc__); parser.add_argument('--check',action='store_true'); args=parser.parse_args()
-    source=SOURCE.read_text(encoding='utf-8'); native,native_md=native_contracts()
-    public_results=(ROOT/'docs/reference/results.md').read_text(encoding='utf-8')
-    for anchor in ['journey-windows', 'alternative-journeys']:
-        public_results=public_results.replace(f'(../guides/rust-standalone.md#{anchor})', f'(#{anchor})')
-    # This reference is embedded in a single-file manual served by the binary;
-    # its source-relative Markdown link is not available beside that manual.
-    public_results=public_results.replace('(../guide.md#known-limits)', '(https://github.com/hytangs/vigo/blob/main/docs/guide.md#known-limits)')
-    public_results=public_results.replace('(../guide.md#upgrade-and-rollback)', '(https://github.com/hytangs/vigo/blob/main/docs/guide.md#upgrade-and-rollback)')
-    source=source.replace('<!-- PUBLIC_RESULTS -->', '\n'.join('##'+line if line.startswith('#') else line for line in public_results.splitlines()[1:]))
-    audit=(ROOT/'docs/reference/rust-standalone-audit.md').read_text(encoding='utf-8')
-    walking=(ROOT/'docs/reference/walking-evidence.md').read_text(encoding='utf-8')
-    products={'docs/reference/rust-standalone-native.md':native_md,'docs/standalone-openapi.json':json.dumps(specification(native),indent=2,ensure_ascii=False)+'\n','docs/standalone.html':page(source,native_md,audit,walking)}
+    native,native_md=native_contracts()
+    # The HTML guide that embeds these contracts is built by scripts/build-docs.py.
+    products={'docs/reference/rust-standalone-native.md':native_md,'docs/standalone-openapi.json':json.dumps(specification(native),indent=2,ensure_ascii=False)+'\n'}
     for name,body in products.items():
         path=ROOT/name
         if args.check:

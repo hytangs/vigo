@@ -14,7 +14,7 @@
 !native/vigo-routing-kernel/vendor/
 !native/vigo-routing-kernel/vendor/**
 !docs/
-!docs/standalone.html
+!docs/guide.html
 !docs/standalone-openapi.json
 !scripts/
 !scripts/package-standalone.py

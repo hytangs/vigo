@@ -659,7 +659,7 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
         if ["/", "/docs", "/docs/"].contains(&path) {
             return Ok(Response::Static(
                 "text/html; charset=utf-8",
-                include_bytes!("../../../../docs/standalone.html"),
+                include_bytes!("../../../../docs/guide.html"),
             ));
         }
         if [
@@ -973,7 +973,7 @@ fn respond_with_headers(
     };
     write!(
         stream,
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'\r\n{headers}\r\n",
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'none'; connect-src 'self'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'\r\n{headers}\r\n",
         body.len()
     )?;
     let deadline = Instant::now() + Duration::from_secs(10);

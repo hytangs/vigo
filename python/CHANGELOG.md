@@ -2,6 +2,7 @@
 
 ## 0.5.2
 
+- Replace the four single-cell notebooks with one runnable walkthrough, `examples/walkthrough.ipynb`: it opens or builds a City and covers Route (arrive-by and alternatives), Matrix with blocked pairs, journey and leg tables, Reach, a Scenario comparison, parallel and outcome-keeping batches, and a reproducible study record. Rewrite the README around installation, a first journey, and reading Results correctly.
 - Prefer the most recently used matching resident worker after parallel batches, avoiding repeated mode preparation in subsequent serial queries.
 - Add ordered `City.iter_run` and `Scenario.iter_run` batches with bounded resident-process concurrency; `run(sequence, workers=2)` also supports parallel batches. Serial execution remains the default.
 

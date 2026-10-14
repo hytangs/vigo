@@ -1,6 +1,6 @@
 # Contributing to VIGO
 
-This repository contains Engine, Studio and the independently packaged Python interface in `python/`. Keep private datasets, executed notebooks, generated data, release archives and local workspaces outside tracked source. Public Python tutorial notebooks belong in `python/notebooks/` with empty outputs. Follow the [quickstart](../docs/guide.md#vigo-cli-quickstart) to install and build.
+This repository contains Engine, Studio and the independently packaged Python interface in `python/`. Keep private datasets, executed notebooks, generated data, release archives and local workspaces outside tracked source. Public Python tutorial notebooks belong in `python/notebooks/` with empty outputs. Follow the [quickstart](../docs/guide.md#quickstart) to install and build.
 
 The current release line is [VIGO 0.5.2](../docs/releases/0.5.2.md).
 
@@ -24,11 +24,11 @@ Use the relevant lane while developing, then run `npm test` before submitting. R
 | Transit / streets / Reach | `npm run check:routing` · `npm run check:rust-routing-kernel` |
 | Network and realtime inspection | `npm run check:agency` · `npm run check:gtfs` |
 | CLI contract and City portability | `npm run check:cli` |
-| Documentation readers | `npm run docs:build` · `npm run docs:standalone` · `npm run check:docs` |
+| Documentation guide | `npm run docs:build` · `npm run docs:standalone` · `npm run check:docs` |
 
-`check:docs` verifies the generated reader is current and validates local links, document anchors, assets, documented npm scripts, and guide/package versions across Markdown and HTML. Keep the docs index connected to current guides; preserve version history in release notes and the changelog.
+`check:docs` verifies the generated guide is current and validates local links, document anchors, assets, documented npm scripts, and guide/package versions across Markdown and HTML. Keep the docs index connected to current guides; preserve version history in release notes and the changelog.
 
-Use `docs/guide.md` for user documentation, `docs/developer.md` for implementation and research guidance, and `docs/history.md` for dated records. The remaining CLI, standalone, and shared reference sources feed packaged documentation. Add chapters to these canonical files rather than creating a Markdown file for every topic.
+Use `docs/guide.md` for user documentation, `docs/developer.md` for implementation and research guidance, and `docs/history.md` for dated records. `docs/guides/rust-standalone.md` is the engine manual and the README of engine archives, and `docs/guides/cli-only.md` is the compiler archive README; both, with the shared references, also feed the guide. Add chapters to these canonical files rather than creating a Markdown file for every topic.
 
 Actual-model evaluations are opt-in, never part of deterministic tests. `node scripts/evaluate-network-briefing.mjs --output briefing.json` evaluates a synthetic briefing. It requires a new output path and `VIGO_AGENCY_LLM_*` settings; use `--variant stale` for expired evidence. Retain provider, input, and revision provenance, and distinguish these runs from live service evidence.
 

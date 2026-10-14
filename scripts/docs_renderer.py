@@ -1,4 +1,11 @@
-"""Small, offline Markdown renderer for the VIGO documentation sources."""
+"""Small, offline Markdown renderer for the VIGO documentation sources.
+
+It supports the subset the sources use: headings, paragraphs, flat lists,
+tables, fenced code, block quotes and GitHub alert callouts. Two conventions
+add structure without leaving plain Markdown: a list whose every item starts
+with a bold link becomes a card grid, and consecutive fenced blocks carrying
+``tab="Label"`` (or ``platform=unix|windows``) become one tabbed example.
+"""
 
 import html
 import re
@@ -47,34 +54,162 @@ def inline(source):
     return re.sub(r"\x00(\d+)\x00", lambda m: tokens[int(m[1])], source)
 
 
-def code_block(source, language):
-    if language in ("json", "ndjson"):
-        pieces = []
-        offset = 0
-        for match in re.finditer(
-            r'"(?:\\.|[^"\\])*"|(?<![\w.])-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\b(?:true|false|null)\b',
-            source,
-        ):
-            pieces.append(html.escape(source[offset : match.start()]))
-            token = match[0]
-            kind = (
-                "key"
-                if token.startswith('"') and re.match(r"\s*:", source[match.end() :])
-                else "string"
-                if token.startswith('"')
-                else "literal"
-            )
-            pieces.append(f'<span class="syntax-{kind}">{html.escape(token)}</span>')
-            offset = match.end()
-        pieces.append(html.escape(source[offset:]))
-        body = "".join(pieces)
-    else:
-        body = html.escape(source)
+def _tokens(source, pattern, kinds):
+    """Escape source while wrapping regex groups in syntax spans."""
+    pieces = []
+    offset = 0
+    for match in re.finditer(pattern, source, re.MULTILINE):
+        kind = next(
+            (kinds[name] for name, value in match.groupdict().items() if value),
+            None,
+        )
+        pieces.append(html.escape(source[offset : match.start()]))
+        token = html.escape(match[0])
+        pieces.append(f'<span class="syntax-{kind}">{token}</span>' if kind else token)
+        offset = match.end()
+    pieces.append(html.escape(source[offset:]))
+    return "".join(pieces)
+
+
+def _json(source):
+    pieces = []
+    offset = 0
+    for match in re.finditer(
+        r'"(?:\\.|[^"\\])*"|(?<![\w.])-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\b(?:true|false|null)\b',
+        source,
+    ):
+        pieces.append(html.escape(source[offset : match.start()]))
+        token = match[0]
+        kind = (
+            "key"
+            if token.startswith('"') and re.match(r"\s*:", source[match.end() :])
+            else "string"
+            if token.startswith('"')
+            else "literal"
+        )
+        pieces.append(f'<span class="syntax-{kind}">{html.escape(token)}</span>')
+        offset = match.end()
+    pieces.append(html.escape(source[offset:]))
+    return "".join(pieces)
+
+
+SHELL = (
+    r"(?P<comment>(?:^|(?<=\s))#[^\n]*)"
+    r"|(?P<string>'[^'\n]*'|\"(?:\\.|[^\"\\\n])*\")"
+    r"|(?P<variable>\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)"
+    r"|(?P<flag>(?<![\w/.-])--?[A-Za-z][\w-]*)"
+)
+PYTHON = (
+    r"(?P<comment>#[^\n]*)"
+    r"|(?P<string>\"\"\"[\s\S]*?\"\"\"|'''[\s\S]*?'''|[rbf]?\"(?:\\.|[^\"\\\n])*\"|[rbf]?'(?:\\.|[^'\\\n])*')"
+    r"|(?P<keyword>\b(?:import|from|as|with|def|return|if|elif|else|for|in|while|try|except|raise|class|None|True|False|and|or|not|is|lambda|yield|async|await|print)\b)"
+    r"|(?P<literal>\b\d+(?:\.\d+)?\b)"
+)
+SCRIPT = (
+    r"(?P<comment>//[^\n]*|/\*[\s\S]*?\*/)"
+    r"|(?P<string>'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"|`(?:\\.|[^`\\])*`)"
+    r"|(?P<keyword>\b(?:const|let|var|function|return|if|else|for|of|in|new|throw|await|async|import|export|from|null|undefined|true|false|typeof)\b)"
+    r"|(?P<literal>\b\d+(?:\.\d+)?\b)"
+)
+INI = r"(?P<comment>^[;#][^\n]*)|(?P<key>^\[[^\]\n]+\])|(?P<flag>^[A-Za-z][\w.]*(?==))"
+LANGUAGES = {
+    "json": "JSON",
+    "jsonl": "NDJSON",
+    "ndjson": "NDJSON",
+    "sh": "Shell",
+    "bash": "Shell",
+    "powershell": "PowerShell",
+    "python": "Python",
+    "js": "JavaScript",
+    "javascript": "JavaScript",
+    "ini": "INI",
+    "text": "",
+}
+
+
+def highlight(source, language):
+    if language in ("json", "ndjson", "jsonl"):
+        return _json(source)
+    kinds = {
+        "comment": "comment",
+        "string": "string",
+        "variable": "literal",
+        "flag": "key",
+        "keyword": "keyword",
+        "literal": "literal",
+        "key": "key",
+    }
+    if language in ("sh", "bash", "powershell"):
+        return _tokens(source, SHELL, kinds)
+    if language == "python":
+        return _tokens(source, PYTHON, kinds)
+    if language in ("js", "javascript"):
+        return _tokens(source, SCRIPT, kinds)
+    if language == "ini":
+        return _tokens(source, INI, kinds)
+    return html.escape(source)
+
+
+def code_block(source, language, label=True):
+    name = LANGUAGES.get(language, language.upper() if language else "")
+    head = (
+        f'<span class="code-language">{html.escape(name)}</span>' if label and name else ""
+    )
     return (
-        '<div class="code-block"><button class="copy" type="button" aria-label="Copy code">Copy</button><pre tabindex="0"><code>'
-        + body
+        f'<div class="code-block" data-language="{html.escape(language or "text", quote=True)}">{head}'
+        '<button class="copy" type="button" aria-label="Copy code">Copy</button><pre tabindex="0"><code>'
+        + highlight(source, language)
         + "</code></pre></div>"
     )
+
+
+FENCE = re.compile(
+    r"^```([\w-]*)(?:\s+(?:platform=(unix|windows)|tab=\"([^\"]+)\"))?[^\n]*$"
+)
+ALERTS = {
+    "NOTE": "Note",
+    "TIP": "Tip",
+    "IMPORTANT": "Important",
+    "WARNING": "Warning",
+    "CAUTION": "Caution",
+}
+
+
+def _tab_group(alternatives, prefix, aria_label):
+    buttons = []
+    panels = []
+    for n, (label, language, body) in enumerate(alternatives):
+        identifier = f"{prefix}-{slug(label) or n}"
+        buttons.append(
+            f'<button type="button" role="tab" id="{identifier}" aria-controls="{identifier}-panel" aria-selected="{str(n == 0).lower()}" tabindex="{0 if n == 0 else -1}" data-tab="{html.escape(label, quote=True)}">{html.escape(label)}</button>'
+        )
+        panels.append(
+            f'<div role="tabpanel" id="{identifier}-panel" aria-labelledby="{identifier}"'
+            + (" hidden" if n else "")
+            + ">"
+            + code_block(body, language, label=False)
+            + "</div>"
+        )
+    return (
+        f'<div class="tab-group"><div class="tab-list" role="tablist" aria-label="{html.escape(aria_label, quote=True)}">'
+        + "".join(buttons)
+        + "</div>"
+        + "".join(panels)
+        + "</div>"
+    )
+
+
+def _cards(items):
+    cards = []
+    for item in items:
+        match = re.match(r"^\*\*\[([^\]]+)\]\(([^)]+)\)\*\*\s*(.*)$", item)
+        title, href, description = match[1], match[2], match[3]
+        cards.append(
+            f'<li><a class="card" href="{href}"><strong>{inline(title)}</strong>'
+            + (f"<span>{inline(description)}</span>" if description else "")
+            + "</a></li>"
+        )
+    return '<ul class="cards">' + "".join(cards) + "</ul>"
 
 
 def markdown(source, used=None, page_key="", prefix_headings=False):
@@ -88,50 +223,37 @@ def markdown(source, used=None, page_key="", prefix_headings=False):
             i += 1
             continue
         if line.startswith("```"):
-            platform = re.match(r"^```(\w+) platform=(unix|windows)$", line)
-            if platform:
+            first = FENCE.match(line)
+            if first and (first[2] or first[3]):
                 alternatives = []
+                platform = bool(first[2])
                 while i < len(lines):
-                    match = re.match(r"^```(\w+) platform=(unix|windows)$", lines[i])
-                    if not match:
+                    match = FENCE.match(lines[i])
+                    if not match or not (match[2] if platform else match[3]):
                         break
                     body = []
                     i += 1
                     while i < len(lines) and not lines[i].startswith("```"):
                         body.append(lines[i])
                         i += 1
-                    alternatives.append((match[2], match[1], "\n".join(body)))
+                    label = (
+                        ("macOS / Linux" if match[2] == "unix" else "Windows")
+                        if platform
+                        else match[3]
+                    )
+                    alternatives.append((label, match[1], "\n".join(body)))
                     i += 1
                     while i < len(lines) and not lines[i].strip():
                         i += 1
-                number = used.get("_platform_groups", 0) + 1
-                used["_platform_groups"] = number
-                prefix = (
-                    f"{page_key}--platform-{number}"
-                    if prefix_headings
-                    else f"platform-{number}"
-                )
-                buttons = []
-                panels = []
-                for n, (system, language, body) in enumerate(alternatives):
-                    label = "macOS / Linux" if system == "unix" else "Windows"
-                    identifier = f"{prefix}-{system}"
-                    buttons.append(
-                        f'<button type="button" role="tab" id="{identifier}" aria-controls="{identifier}-panel" aria-selected="{str(n == 0).lower()}" tabindex="{0 if n == 0 else -1}">{label}</button>'
-                    )
-                    panels.append(
-                        f'<div role="tabpanel" id="{identifier}-panel" aria-labelledby="{identifier}"'
-                        + (" hidden" if n else "")
-                        + ">"
-                        + code_block(body, language)
-                        + "</div>"
-                    )
+                number = used.get("_tab_groups", 0) + 1
+                used["_tab_groups"] = number
+                prefix = f"{page_key}--tabs-{number}" if prefix_headings else f"tabs-{number}"
                 output.append(
-                    '<div class="platform-group"><div class="platform-tabs" role="tablist" aria-label="Operating system">'
-                    + "".join(buttons)
-                    + "</div>"
-                    + "".join(panels)
-                    + "</div>"
+                    _tab_group(
+                        alternatives,
+                        prefix,
+                        "Operating system" if platform else "Example",
+                    )
                 )
                 continue
             lang = line[3:].split(" ")[0]
@@ -198,16 +320,8 @@ def markdown(source, used=None, page_key="", prefix_headings=False):
                     if n:
                         identifier += "-" + str(n)
                     attributes = f' id="{identifier}" data-search-label="{html.escape(label, quote=True)}" tabindex="-1"'
-                cells = "".join(
-                    '<td data-column="'
-                    + html.escape(
-                        html.unescape(re.sub(r"<[^>]+>", "", rows[0][n])), quote=True
-                    )
-                    + '">'
-                    + cell
-                    + "</td>"
-                    for n, cell in enumerate(row)
-                )
+                # Narrow screens label stacked cells from the header at runtime.
+                cells = "".join("<td>" + cell + "</td>" for cell in row)
                 body.append("<tr" + attributes + ">" + cells + "</tr>")
             body = "".join(body)
             output.append(
@@ -230,23 +344,46 @@ def markdown(source, used=None, page_key="", prefix_headings=False):
                 while i < len(lines) and lines[i].startswith("  "):
                     item.append(lines[i].strip())
                     i += 1
-                items.append("<li>" + inline(" ".join(item)) + "</li>")
+                items.append(" ".join(item))
+            if not ordered and all(
+                re.match(r"^\*\*\[[^\]]+\]\([^)]+\)\*\*", item) for item in items
+            ):
+                output.append(_cards(items))
+                continue
             tag = "ol" if ordered else "ul"
-            output.append("<" + tag + ">" + "".join(items) + "</" + tag + ">")
+            output.append(
+                "<"
+                + tag
+                + ">"
+                + "".join("<li>" + inline(item) + "</li>" for item in items)
+                + "</"
+                + tag
+                + ">"
+            )
             continue
-        if line.startswith("> "):
+        if line.startswith(">"):
             quote = []
-            while i < len(lines) and lines[i].startswith("> "):
-                quote.append(lines[i][2:])
+            while i < len(lines) and lines[i].startswith(">"):
+                quote.append(lines[i][1:].strip())
                 i += 1
-            output.append("<blockquote>" + inline(" ".join(quote)) + "</blockquote>")
+            alert = re.fullmatch(r"\[!(\w+)\]", quote[0]) if quote else None
+            if alert and alert[1] in ALERTS:
+                kind = alert[1].lower()
+                text = " ".join(part for part in quote[1:] if part)
+                output.append(
+                    f'<aside class="callout callout-{kind}"><p class="callout-title">{ALERTS[alert[1]]}</p><p>{inline(text)}</p></aside>'
+                )
+            else:
+                output.append(
+                    "<blockquote><p>" + inline(" ".join(quote)) + "</p></blockquote>"
+                )
             continue
         paragraph = [line]
         i += 1
         while (
             i < len(lines)
             and lines[i].strip()
-            and not re.match(r"^(#|```|\||- |[0-9]+\. |> |<!--)", lines[i])
+            and not re.match(r"^(#|```|\||- |[0-9]+\. |>|<!--)", lines[i])
         ):
             paragraph.append(lines[i])
             i += 1

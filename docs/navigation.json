@@ -1,322 +1,151 @@
 {
   "output": "docs/guide.html",
   "version_file": "package.json",
+  "versions": {
+    "python": "python/pyproject.toml"
+  },
   "product": "VIGO",
-  "label": "Engine & Studio",
-  "description": "VIGO 0.5.2 documentation. Build a City, query journeys, matrices and reachable areas, and operate your routing service.",
-  "logo": "public/vigo-wordmark.png",
+  "description": "VIGO {version} documentation: build a City from GTFS and OpenStreetMap, then answer Route, Matrix and Reach questions from the engine, its HTTP API, Studio or Python.",
   "links": [
-    {
-      "label": "Rust / HTTP",
-      "href": "standalone.html"
-    },
-    {
-      "label": "Python",
-      "href": "https://github.com/hytangs/vigo-py/tree/main/docs"
-    },
-    {
-      "label": "GitHub",
-      "href": "https://github.com/hytangs/vigo"
-    }
+    {"label": "Releases", "href": "https://github.com/hytangs/vigo/releases"},
+    {"label": "API schema", "href": "standalone-openapi.json", "download": true},
+    {"label": "GitHub", "href": "https://github.com/hytangs/vigo", "icon": "github"}
+  ],
+  "home": {
+    "eyebrow": "Open-source transit routing you can explain",
+    "actions": [
+      {"label": "Build your first City", "href": "#quickstart", "primary": true},
+      {"label": "Install", "href": "#install"},
+      {"label": "HTTP API", "href": "#http-api"}
+    ],
+    "facts": [
+      {"value": "Offline", "label": "No network access at query time"},
+      {"value": "One City", "label": "Built once, opened by every runtime"},
+      {"value": "v1 schemas", "label": "Stable public Results"},
+      {"value": "Apache-2.0", "label": "Open source"}
+    ]
+  },
+  "assets": ["docs/standalone-openapi.json"],
+  "groups": [
+    {"id": "start", "title": "Get started"},
+    {"id": "data", "title": "Cities and data"},
+    {"id": "routing", "title": "Routing"},
+    {"id": "results", "title": "Results"},
+    {"id": "studio", "title": "Studio"},
+    {"id": "engine", "title": "Engine and HTTP API"},
+    {"id": "operate", "title": "Operate"},
+    {"id": "python", "title": "Python"},
+    {"id": "project", "title": "Project"}
   ],
   "pages": [
-    {
-      "id": "overview",
-      "source": "docs/guide.md",
-      "title": "Overview",
-      "group": "Getting started",
-      "section": "build-a-network-answer-a-transport-question"
-    },
-    {
-      "id": "quickstart",
-      "source": "docs/guide.md",
-      "title": "Build your first City",
-      "group": "Getting started",
-      "section": "vigo-cli-quickstart"
-    },
-    {
-      "id": "installation",
-      "source": "docs/guides/cli-only.md",
-      "title": "Install the CLI",
-      "group": "Getting started"
-    },
-    {
-      "id": "concepts",
-      "source": "docs/guide.md",
-      "title": "Core concepts",
-      "group": "Getting started",
-      "section": "core-concepts"
-    },
-    {
-      "id": "workflows",
-      "source": "docs/guide.md",
-      "title": "Practical workflows",
-      "group": "Getting started",
-      "section": "work-with-a-city"
-    },
-    {
-      "id": "route",
-      "source": "docs/guide.md",
-      "title": "Route",
-      "group": "Queries and results",
-      "section": "route-1"
-    },
-    {
-      "id": "matrix",
-      "source": "docs/guide.md",
-      "title": "Matrix",
-      "group": "Queries and results",
-      "section": "matrix-1"
-    },
-    {
-      "id": "reach",
-      "source": "docs/guide.md",
-      "title": "Reach",
-      "group": "Queries and results",
-      "section": "reach-and-isochrones"
-    },
-    {
-      "id": "scenarios",
-      "source": "docs/guide.md",
-      "title": "Scenarios",
-      "group": "Queries and results",
-      "section": "scenario-semantics"
-    },
-    {
-      "id": "results",
-      "source": "docs/reference/results.md",
-      "title": "Read a Result",
-      "group": "Queries and results"
-    },
-    {
-      "id": "viewer",
-      "source": "docs/guide.md",
-      "title": "Result viewer",
-      "group": "Queries and results",
-      "tool": "viewer",
-      "section": "inspect-a-saved-result"
-    },
-    {
-      "id": "feeds",
-      "source": "docs/guide.md",
-      "title": "GTFS and live feeds",
-      "group": "Network and evidence",
-      "section": "combine-timetables-and-live-feeds"
-    },
-    {
-      "id": "realtime",
-      "source": "docs/guide.md",
-      "title": "Realtime and traffic",
-      "group": "Network and evidence",
-      "section": "realtime-journey-routing"
-    },
-    {
-      "id": "streets",
-      "source": "docs/guide.md",
-      "title": "Street routing",
-      "group": "Network and evidence",
-      "section": "street-routing"
-    },
-    {
-      "id": "walking",
-      "source": "docs/reference/walking-evidence.md",
-      "title": "Walking evidence",
-      "group": "Network and evidence"
-    },
-    {
-      "id": "uncertainty",
-      "source": "docs/guide.md",
-      "title": "Time reserves",
-      "group": "Network and evidence",
-      "section": "travel-time-uncertainty"
-    },
-    {
-      "id": "fares",
-      "source": "docs/guide.md",
-      "title": "Fares",
-      "group": "Network and evidence",
-      "section": "published-fares-on-itineraries"
-    },
-    {
-      "id": "limits",
-      "source": "docs/guide.md",
-      "title": "Known limits",
-      "group": "Network and evidence",
-      "section": "known-limits"
-    },
-    {
-      "id": "studio",
-      "source": "docs/guide.md",
-      "title": "Desktop setup",
-      "group": "Studio",
-      "section": "vigo-studio-desktop-guide"
-    },
-    {
-      "id": "network",
-      "source": "docs/guide.md",
-      "title": "Inspect service",
-      "group": "Studio",
-      "section": "network-and-routes"
-    },
-    {
-      "id": "cli",
-      "source": "docs/guide.md",
-      "title": "Command line",
-      "group": "Reference and operation",
-      "section": "command-line"
-    },
-    {
-      "id": "deployment",
-      "source": "docs/guide.md",
-      "title": "Deploy Engine",
-      "group": "Reference and operation",
-      "section": "deploy-the-routing-engine"
-    },
-    {
-      "id": "upgrade",
-      "source": "docs/guide.md",
-      "title": "Upgrade and rollback",
-      "group": "Reference and operation",
-      "section": "upgrade-and-rollback"
-    },
-    {
-      "id": "troubleshooting",
-      "source": "docs/guide.md",
-      "title": "Troubleshooting",
-      "group": "Reference and operation",
-      "section": "troubleshooting-1"
-    },
-    {
-      "id": "release",
-      "source": "docs/releases/0.5.2.md",
-      "title": "What’s new in 0.5.2",
-      "group": "Reference and operation"
-    },
-    {
-      "id": "developers",
-      "source": "docs/developer.md",
-      "title": "Developer resources",
-      "group": "Reference and operation",
-      "section": "developer-resources"
-    },
-    {
-      "id": "architecture",
-      "source": "docs/developer.md",
-      "title": "Architecture",
-      "group": "Developer resources",
-      "nav": false,
-      "parent": "developers",
-      "section": "architecture"
-    },
-    {
-      "id": "local-basemap",
-      "source": "docs/developer.md",
-      "title": "Local OSM basemap",
-      "group": "Developer resources",
-      "nav": false,
-      "parent": "developers",
-      "section": "local-osm-basemap"
-    },
-    {
-      "id": "performance",
-      "source": "docs/developer.md",
-      "title": "Measuring performance",
-      "group": "Developer resources",
-      "nav": false,
-      "parent": "developers",
-      "section": "measuring-performance"
-    },
-    {
-      "id": "query-performance",
-      "source": "docs/developer.md",
-      "title": "Timetable query performance",
-      "group": "Developer resources",
-      "nav": false,
-      "parent": "developers",
-      "section": "timetable-query-performance"
-    },
-    {
-      "id": "routing-accuracy",
-      "source": "docs/developer.md",
-      "title": "Checking routing accuracy",
-      "group": "Developer resources",
-      "nav": false,
-      "parent": "developers",
-      "section": "checking-routing-accuracy"
-    },
-    {
-      "id": "runtime-recovery",
-      "source": "docs/developer.md",
-      "title": "Runtime limits and recovery",
-      "group": "Developer resources",
-      "nav": false,
-      "parent": "developers",
-      "section": "runtime-limits-and-recovery"
-    },
-    {
-      "id": "agency-operations",
-      "source": "docs/developer.md",
-      "title": "Agency operations prototype",
-      "group": "Developer resources",
-      "nav": false,
-      "parent": "developers",
-      "section": "agency-operations-prototype"
-    },
-    {
-      "id": "lamp-runtime-study",
-      "source": "docs/developer.md",
-      "title": "Saved LAMP running-time studies",
-      "group": "Developer resources",
-      "nav": false,
-      "parent": "developers",
-      "section": "saved-lamp-running-time-studies"
-    },
-    {
-      "id": "network-service-assessment",
-      "source": "docs/developer.md",
-      "title": "Network service assessment",
-      "group": "Developer resources",
-      "nav": false,
-      "parent": "developers",
-      "section": "network-service-assessment"
-    },
-    {
-      "id": "operational-replay",
-      "source": "docs/developer.md",
-      "title": "One bus, one control point",
-      "group": "Developer resources",
-      "nav": false,
-      "parent": "developers",
-      "section": "one-bus-one-control-point"
-    },
-    {
-      "id": "gtfs-support",
-      "source": "docs/developer.md",
-      "title": "GTFS support",
-      "group": "Developer resources",
-      "nav": false,
-      "parent": "developers",
-      "section": "gtfs-support-matrix"
-    },
-    {
-      "id": "benchmarking",
-      "source": "docs/developer.md",
-      "title": "Service benchmarking",
-      "group": "Developer resources",
-      "nav": false,
-      "parent": "developers",
-      "section": "reproduce-a-service-workload"
-    }
+    {"id": "overview", "title": "Welcome", "group": "start", "source": "docs/guide.md", "section": "build-a-network-answer-a-transport-question"},
+    {"id": "install", "title": "Install", "heading": "Install VIGO", "group": "start", "source": "docs/guide.md", "section": "install-vigo"},
+    {"id": "quickstart", "title": "Quickstart", "heading": "Quickstart: Boston in ten minutes", "group": "start", "source": "docs/guide.md", "section": "quickstart"},
+    {"id": "concepts", "title": "Core concepts", "group": "start", "source": "docs/guide.md", "section": "core-concepts"},
+    {"id": "workflows", "title": "Practical workflows", "group": "start", "source": "docs/guide.md", "section": "work-with-a-city"},
+
+    {"id": "city-data", "title": "Build a City", "group": "data", "source": "docs/guide.md", "section": "build-a-city"},
+    {"id": "feeds", "title": "Multiple and live feeds", "heading": "Combine timetables and live feeds", "group": "data", "source": "docs/guide.md", "section": "combine-timetables-and-live-feeds"},
+    {"id": "scenario-collections", "title": "Scenario collections", "group": "data", "source": "docs/guides/rust-standalone.md", "section": "shared-scenario-collections"},
+    {"id": "wheelchair", "title": "Wheelchair routing", "group": "data", "source": "docs/guides/rust-standalone.md", "section": "wheelchair-routing"},
+
+    {"id": "route", "title": "Route", "group": "routing", "source": "docs/guide.md", "section": "route"},
+    {"id": "matrix", "title": "Matrix", "group": "routing", "source": "docs/guide.md", "section": "matrix"},
+    {"id": "reach", "title": "Reach and isochrones", "group": "routing", "source": "docs/guide.md", "section": "reach-and-isochrones"},
+    {"id": "scenarios", "title": "Scenarios", "group": "routing", "source": "docs/guide.md", "section": "scenario-semantics"},
+    {"id": "realtime", "title": "Realtime transit", "heading": "Realtime journey routing", "group": "routing", "source": "docs/guide.md", "section": "realtime-journey-routing"},
+    {"id": "streets", "title": "Streets and traffic", "heading": "Street routing and traffic", "group": "routing", "source": "docs/guide.md", "section": "street-routing"},
+    {"id": "uncertainty", "title": "Time reserves", "heading": "Travel-time uncertainty", "group": "routing", "source": "docs/guide.md", "section": "travel-time-uncertainty"},
+    {"id": "fares", "title": "Fares", "heading": "Published fares on itineraries", "group": "routing", "source": "docs/guide.md", "section": "published-fares-on-itineraries"},
+
+    {"id": "results", "title": "Read a Result", "group": "results", "source": "docs/reference/results.md"},
+    {"id": "walking", "title": "Walking evidence", "heading": "Walking costs and source evidence", "group": "results", "source": "docs/reference/walking-evidence.md"},
+    {"id": "viewer", "title": "Result viewer", "heading": "Inspect a saved Result", "group": "results", "source": "docs/guide.md", "section": "inspect-a-saved-result", "tool": "viewer"},
+    {"id": "limits", "title": "Known limits", "group": "results", "source": "docs/guide.md", "section": "known-limits"},
+
+    {"id": "studio", "title": "Studio desktop", "heading": "VIGO Studio", "group": "studio", "source": "docs/guide.md", "section": "vigo-studio-desktop-guide"},
+    {"id": "network", "title": "Network and live service", "heading": "Network and Routes", "group": "studio", "source": "docs/guide.md", "section": "network-and-routes"},
+
+    {"id": "engine", "title": "Engine overview", "heading": "The VIGO engine", "group": "engine", "source": "docs/guides/rust-standalone.md", "intro": true},
+    {"id": "cli", "title": "Engine CLI", "heading": "Engine command line", "group": "engine", "source": "docs/guides/rust-standalone.md", "section": "4-cli-command-reference"},
+    {"id": "compiler-cli", "title": "Compiler CLI", "heading": "Compiler command line", "group": "engine", "source": "docs/guide.md", "section": "command-line"},
+    {"id": "requests", "title": "Points, time and fields", "heading": "Points, clocks, units, and common fields", "group": "engine", "source": "docs/guides/rust-standalone.md", "section": "5-points-clocks-units-and-common-fields"},
+    {"id": "route-api", "title": "Route requests", "group": "engine", "source": "docs/guides/rust-standalone.md", "section": "6-route"},
+    {"id": "alternatives", "title": "Alternatives, via and windows", "heading": "Alternatives, via points, and departure windows", "group": "engine", "source": "docs/guides/rust-standalone.md", "section": "7-alternatives-via-points-and-departure-windows"},
+    {"id": "matrix-api", "title": "Matrix requests", "group": "engine", "source": "docs/guides/rust-standalone.md", "section": "8-matrix"},
+    {"id": "reach-api", "title": "Reach requests", "group": "engine", "source": "docs/guides/rust-standalone.md", "section": "9-reach-and-isochrones"},
+    {"id": "scenario-api", "title": "Scenario requests", "group": "engine", "source": "docs/guides/rust-standalone.md", "section": "10-scenarios"},
+    {"id": "compare", "title": "Compare results", "heading": "Compare saved Reach results", "group": "engine", "source": "docs/guides/rust-standalone.md", "section": "11-compare-saved-reach-results"},
+    {"id": "observations", "title": "Realtime and traffic input", "heading": "Realtime transit and supplied traffic", "group": "engine", "source": "docs/guides/rust-standalone.md", "section": "12-realtime-transit-and-supplied-traffic"},
+    {"id": "engine-output", "title": "Output and errors", "heading": "Public results and diagnostics", "group": "engine", "source": "docs/guides/rust-standalone.md", "section": "13-public-results-and-diagnostics", "exclude": ["route-output", "matrix-output", "reach-output", "comparison-output", "diagnostics-and-native-output"]},
+    {"id": "route-output", "title": "Route output", "group": "engine", "parent": "engine-output", "source": "docs/guides/rust-standalone.md", "section": "route-output"},
+    {"id": "matrix-output", "title": "Matrix output", "group": "engine", "parent": "engine-output", "source": "docs/guides/rust-standalone.md", "section": "matrix-output"},
+    {"id": "reach-output", "title": "Reach output", "group": "engine", "parent": "engine-output", "source": "docs/guides/rust-standalone.md", "section": "reach-output"},
+    {"id": "comparison-output", "title": "Comparison output", "group": "engine", "parent": "engine-output", "source": "docs/guides/rust-standalone.md", "section": "comparison-output"},
+    {"id": "diagnostics-output", "title": "Diagnostics and native output", "group": "engine", "parent": "engine-output", "source": "docs/guides/rust-standalone.md", "section": "diagnostics-and-native-output"},
+    {"id": "streaming", "title": "Streaming", "heading": "Resident NDJSON streaming", "group": "engine", "source": "docs/guides/rust-standalone.md", "section": "14-resident-ndjson-streaming"},
+    {"id": "http-api", "title": "HTTP API", "heading": "HTTP API and server operation", "group": "engine", "source": "docs/guides/rust-standalone.md", "section": "15-http-api-and-server-operation", "tool": "console"},
+    {"id": "clients", "title": "Client integration", "group": "engine", "source": "docs/guides/rust-standalone.md", "section": "17-client-integration"},
+    {"id": "native-api", "title": "Native operations", "heading": "Native operation reference", "group": "engine", "source": "docs/guides/rust-standalone.md", "section": "18-native-operation-reference"},
+    {"id": "native-fields", "title": "Native fields", "heading": "Native field reference", "group": "engine", "source": "docs/reference/rust-standalone-native.md", "children": "h2", "children_nav": true},
+
+    {"id": "deployment", "title": "Deploy", "heading": "Deploy the routing engine", "group": "operate", "source": "docs/guide.md", "section": "deploy-the-routing-engine"},
+    {"id": "hosting", "title": "Authentication and hosting", "heading": "Authentication and generic deployment", "group": "operate", "source": "docs/guides/rust-standalone.md", "section": "16-authentication-and-generic-deployment"},
+    {"id": "resource-limits", "title": "Resource limits", "heading": "Resource limits and constrained serving", "group": "operate", "source": "docs/guides/resource-limits.md"},
+    {"id": "runtime", "title": "Runtime memory and caching", "group": "operate", "source": "docs/guides/rust-standalone.md", "section": "runtime-memory-and-caching"},
+    {"id": "upgrade", "title": "Upgrade and rollback", "group": "operate", "source": "docs/guide.md", "section": "upgrade-and-rollback"},
+    {"id": "troubleshooting", "title": "Troubleshooting", "group": "operate", "sections": [
+      {"source": "docs/guide.md", "section": "troubleshooting"},
+      {"source": "docs/guides/rust-standalone.md", "section": "19-troubleshooting", "title": "Engine and HTTP service"}
+    ]},
+    {"id": "compatibility", "title": "Compatibility and validation", "heading": "Validation and compatibility", "group": "operate", "source": "docs/guides/rust-standalone.md", "section": "20-validation-and-compatibility"},
+    {"id": "audit-record", "title": "Engine audit record", "group": "operate", "parent": "compatibility", "source": "docs/reference/rust-standalone-audit.md"},
+
+    {"id": "python", "title": "Python overview", "heading": "VIGO Python", "badge": "VIGO Python {python}", "group": "python", "source": "python/docs/guide.md", "section": "routing-from-python-without-rebuilding-the-network"},
+    {"id": "python-quickstart", "title": "Your first Python query", "badge": "VIGO Python {python}", "group": "python", "source": "python/docs/guide.md", "section": "your-first-python-query"},
+    {"id": "python-concepts", "title": "Concepts in Python", "heading": "VIGO concepts in Python", "badge": "VIGO Python {python}", "group": "python", "source": "python/docs/guide.md", "section": "vigo-concepts"},
+    {"id": "python-workflows", "title": "Python workflows", "heading": "Workflows", "badge": "VIGO Python {python}", "group": "python", "source": "python/docs/guide.md", "section": "workflows"},
+    {"id": "python-results", "title": "Python Results", "heading": "Results and exports", "badge": "VIGO Python {python}", "group": "python", "source": "python/docs/guide.md", "section": "results"},
+    {"id": "python-journeys", "title": "Journey tables", "heading": "Decompose journeys for analysis", "badge": "VIGO Python {python}", "group": "python", "source": "python/docs/guide.md", "section": "decompose-journeys-for-analysis"},
+    {"id": "python-runtime", "title": "Runtime and loading", "badge": "VIGO Python {python}", "group": "python", "source": "python/docs/guide.md", "section": "runtime-and-loading"},
+    {"id": "python-examples", "title": "Examples and notebook", "heading": "VIGO Python examples", "badge": "VIGO Python {python}", "group": "python", "source": "python/examples/README.md"},
+    {"id": "python-api", "title": "Python API reference", "heading": "Python API reference", "badge": "VIGO Python {python}", "group": "python", "source": "python/docs/reference.md"},
+    {"id": "python-troubleshooting", "title": "Python troubleshooting", "heading": "Troubleshooting VIGO Python", "badge": "VIGO Python {python}", "group": "python", "source": "python/docs/guide.md", "section": "troubleshooting"},
+
+    {"id": "release", "title": "What’s new in 0.5.2", "group": "project", "source": "docs/releases/0.5.2.md"},
+    {"id": "release-0-5-1", "title": "VIGO 0.5.1", "group": "project", "parent": "release", "source": "docs/releases/0.5.1.md"},
+    {"id": "release-0-5-0", "title": "VIGO 0.5.0", "group": "project", "parent": "release", "source": "docs/releases/0.5.0.md"},
+    {"id": "history", "title": "Historical records", "group": "project", "parent": "release", "source": "docs/history.md"},
+    {"id": "format", "title": "Prepared-data contract", "heading": "Permanent VIGO 0.5 data baseline", "group": "project", "source": "docs/reference/format-0.5.0.md"},
+    {"id": "developers", "title": "Developer resources", "group": "project", "source": "docs/developer.md", "section": "developer-resources"},
+    {"id": "architecture", "title": "Architecture", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "architecture"},
+    {"id": "local-basemap", "title": "Local OSM basemap", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "local-osm-basemap"},
+    {"id": "performance", "title": "Measuring performance", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "measuring-performance"},
+    {"id": "query-performance", "title": "Timetable query performance", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "timetable-query-performance"},
+    {"id": "routing-accuracy", "title": "Checking routing accuracy", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "checking-routing-accuracy"},
+    {"id": "runtime-recovery", "title": "Runtime limits and recovery", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "runtime-limits-and-recovery"},
+    {"id": "gtfs-support", "title": "GTFS support", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "gtfs-support-matrix"},
+    {"id": "benchmarking", "title": "Service benchmarking", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "reproduce-a-service-workload"},
+    {"id": "agency-operations", "title": "Agency operations prototype", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "agency-operations-prototype"},
+    {"id": "lamp-runtime-study", "title": "Saved LAMP running-time studies", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "saved-lamp-running-time-studies"},
+    {"id": "network-service-assessment", "title": "Network service assessment", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "network-service-assessment"},
+    {"id": "operational-replay", "title": "One bus, one control point", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "one-bus-one-control-point"}
   ],
-  "readers": [
-    {
-      "source": "docs/guides/rust-standalone.md",
-      "output": "docs/standalone.html"
-    },
-    {
-      "source": "docs/reference/rust-standalone-native.md",
-      "output": "docs/standalone.html",
-      "default": "native-fields"
-    }
-  ]
+  "aliases": {
+    "docs/guides/rust-standalone.md": "engine",
+    "docs/guides/rust-standalone.md#1-quickstart": "quickstart",
+    "docs/guides/rust-standalone.md#harvard-square-to-south-station": "quickstart--3-plan-a-journey",
+    "docs/guides/rust-standalone.md#several-origins-and-destinations": "quickstart--5-compute-a-matrix",
+    "docs/guides/rust-standalone.md#keep-boston-loaded-for-repeated-requests": "quickstart--7-keep-the-city-loaded",
+    "docs/guides/rust-standalone.md#2-installation-and-build": "install",
+    "docs/guides/rust-standalone.md#use-a-package": "install--engine",
+    "docs/guides/rust-standalone.md#build-from-source": "install--build-from-source",
+    "docs/guides/rust-standalone.md#package-contents": "install--engine",
+    "docs/guides/rust-standalone.md#3-prepare-and-manage-city-data": "city-data",
+    "docs/guides/rust-standalone.md#download-bostons-timetable-and-streets": "quickstart--1-download-the-boston-inputs",
+    "docs/guides/rust-standalone.md#compile-boston-once": "quickstart--2-build-the-city",
+    "docs/guides/rust-standalone.md#copy-and-load-the-city": "city-data--copy-and-load-a-city",
+    "docs/guides/rust-standalone.md#update-a-network": "city-data--update-a-network",
+    "python/docs/index.html": "python"
+  }
 }

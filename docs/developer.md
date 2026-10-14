@@ -1,6 +1,6 @@
 # VIGO 0.5.2 developer guide
 
-Canonical source for the [documentation reader](guide.html). Edit the relevant chapter, then rebuild the reader.
+Canonical source for the developer chapters of the [VIGO guide](guide.html). Edit the relevant chapter, then run `npm run docs:build`.
 
 ## Developer resources
 
@@ -26,7 +26,7 @@ A passing public synthetic fixture verifies the exercised behavior. Use the exac
 
 ### Maintain the documentation
 
-Markdown is the source for the searchable reader. Run `npm run docs:build` after changing a page, then `npm run check:docs`. The standalone manual and OpenAPI file are generated with `npm run docs:standalone`. Both readers work offline and include print styles. Release artifacts use these generated readers; there is no separately maintained PDF manuscript.
+Markdown is the source for the single offline guide, `docs/guide.html`. `docs/navigation.json` lists its pages: each one renders a Markdown file, a section of one, or several sections composed in order, and `aliases` keep links to retired anchors working. Run `npm run docs:build` after changing a page, then `npm run check:docs`. `npm run docs:standalone` regenerates the OpenAPI document and native field reference from the Rust structs. The same guide is embedded by the engine at `/`, bundled by Studio, and shipped in engine archives; it works offline and includes print styles. There is no separately maintained PDF manuscript.
 
 ### Research interfaces
 

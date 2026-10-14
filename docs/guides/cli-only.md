@@ -24,7 +24,7 @@ On Windows, use `node .\vigo.mjs` in place of `vigo`, or configure your own comm
 
 ## Build a City
 
-Follow [Build your first City](../guide.md#vigo-cli-quickstart) for data download links, source coverage, exact commands, and a complete Boston example. From local inputs:
+Follow [Build your first City](../guide.md#quickstart) for data download links, source coverage, exact commands, and a complete Boston example. From local inputs:
 
 ```sh
 vigo build --gtfs feed.zip --osm region.osm.pbf --output ./city
@@ -59,7 +59,7 @@ vigo route --city ./city --request route.json \
   --service-date 2026-10-05 --time 08:00 --output result.json
 ```
 
-Choose a date covered by the feed. The [Route](../guide.md#route-1), [Matrix](../guide.md#matrix-1), and [Reach](../guide.md#reach-and-isochrones) references define the request shapes. Public results use seconds and explicit schemas; [read the response](../reference/results.md) before consuming it.
+Choose a date covered by the feed. The [Route](../guide.md#route), [Matrix](../guide.md#matrix), and [Reach](../guide.md#reach-and-isochrones) references define the request shapes. Public results use seconds and explicit schemas; [read the response](../reference/results.md) before consuming it.
 
 ## Keep the engine resident
 
@@ -70,7 +70,7 @@ vigo stream --city ./city --service-date 2026-10-05 \
   < queries.ndjson > results.ndjson
 ```
 
-See the [resident protocol](../guide.md#keep-the-engine-resident) for a complete request file. Reuse the process to avoid reopening the network for every query. Check every response, including per-query errors.
+See the [resident protocol](../guide.md#keep-the-compiler-resident) for a complete request file. Reuse the process to avoid reopening the network for every query. Check every response, including per-query errors.
 
 ## Package and verify
 

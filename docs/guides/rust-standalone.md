@@ -6,7 +6,16 @@ VIGO runs routing and isochrone queries from a single Rust executable. The execu
 
 This manual describes the **standalone Rust interface**. Requests retain `vigo.standalone.query.v1`; public results share `vigo.route.v1`, `vigo.matrix.v1`, and `vigo.reach.v1` with the Node CLI. Studio and the private Python worker protocol remain separate. Run `vigo capabilities` to identify the executable before integrating it.
 
-Read this manual in the [searchable offline reader](../standalone.html). The [OpenAPI specification](../standalone-openapi.json) contains the HTTP request contracts and native input/output types. The [audit record](../reference/rust-standalone-audit.md) describes tested coverage and remaining boundaries.
+- **[Command line](#4-cli-command-reference)** Commands, flags, files, and standard input.
+- **[Requests and fields](#5-points-clocks-units-and-common-fields)** Points, clocks, units, and the fields every query shares.
+- **[Route](#6-route)** Journeys, alternatives, via points, and departure windows.
+- **[Matrix](#8-matrix)** Travel times for many origins and destinations in one request.
+- **[Reach](#9-reach-and-isochrones)** Rasters, polygons, contours, and street evidence.
+- **[HTTP API](#15-http-api-and-server-operation)** Endpoints, limits, status codes, and authentication.
+- **[Output and errors](#13-public-results-and-diagnostics)** Public results, trace output, and diagnostics.
+- **[Native operations](#18-native-operation-reference)** Packed-array kernel calls and their field reference.
+
+This manual is also part of the searchable, offline [VIGO guide](../guide.html), which the engine serves at `/`. The [OpenAPI specification](../standalone-openapi.json) contains the HTTP request contracts and native input/output types. The [audit record](../reference/rust-standalone-audit.md) describes tested coverage and remaining boundaries.
 
 ## Shared scenario collections
 
@@ -32,7 +41,15 @@ For wheelchair routing, add `"wheelchair": true` to the source specification or 
 
 Source paths are relative to the manifest. Optional `sha256` values pin each input. The compiler prepares street data once and creates relative references to it. Move the collection as one directory. Its checksum inventory records physical files once. `prepareDates` precompiles up to 32 service dates, reusing identical service sets; other dates remain queryable through the source timetable. A single-City build accepts repeated `--prepare-date` options.
 
+## Runtime memory and caching
+
+A resident `stream` or `serve` process keeps its City, timetable, and street indexes ready between requests. This chapter describes what it shares, what it retains, and how to account for memory.
+
+### Shared data across scenarios
+
 Resident Cities share immutable street arrays and CCH indexes by canonical path. Timetable source columns share equal immutable blocks across resident scenarios. A hash selects candidates, and every reuse checks all values; changes occupy independent blocks without an overlay chain. The collection holds weak references to shared blocks, so evicting their last timetable view releases the data. Stop and trip identities, search indexes, endpoint caches and realtime state remain scenario-specific. The collection still stores separate transit databases and prepared access profiles.
+
+### Timetable preparation and retention
 
 Scheduled timetables retain a service-clock prefix through at least 06:00 the next day. Longer requests extend that prefix in six-hour blocks; narrower requests reuse it. Future days are read only through the loaded departure bound. Realtime uses the unfiltered source so an update can move a later trip into the query window. `GET /v1/info` reports `timetablePreparations` and `timetableCoverageEndSeconds` for each resident scenario.
 
@@ -40,9 +57,13 @@ Cold startup opens the City and prepares the first requested service date. Timet
 
 Each standalone City also retains up to eight inactive scheduled timetables, with a default 128 MiB budget set by `VIGO_TIMETABLE_CACHE_BYTES`. Returning to a retained date and transfer policy reuses its prepared arrays and indexes. Entries use exact dates and sufficient time coverage, preserving calendar exceptions, overnight service and timezone offsets. Least recently used entries are evicted; oversized entries and realtime snapshots are not retained. Set the budget to `0` to disable date retention. This is an additional budget, separate from the active timetable, street data and preparation temporaries. A standalone City receives the full budget. In a scenario collection, retained entries keep their byte allocation and the selected scenario can borrow unused capacity from the collection budget. This avoids a fixed per-scenario share; it does not evict another resident's retained dates to make room. Separate workers each have their own budget. Shared blocks are charged in full for cache admission. `memory.timetableCache` reports entries, charged `retainedBytes`, `budgetBytes`, hits and evictions. Collection residency reports aggregate `inactiveTimetableBudgetBytes` and `inactiveTimetableRetainedBytes`. Retained-date activation does not trigger Linux preparation-memory trimming unless retention evicts another timetable. Matrix and Reach still reclaim their temporary allocations after completion. The owner-level memory ledger includes inactive timetables and counts shared blocks once. Calendar rules load once per City as weekday masks plus dated exceptions. Standalone Cities also share equal immutable source-column blocks across retained dates; date-specific scan indexes remain separate. The first-date layout stays contiguous until another date is retained. `memory.calendarIndexBytes` and `memory.timetableSharedColumns` expose the index and shared storage.
 
+### Query workspaces and residency
+
 One timetable query workspace belongs to the sequential worker and is lent to the selected scenario. Boarding layers, predecessors and generation tags are rebound to its stop and run dimensions; results never cross scenarios. Reusable street-search buffers move with the active request. Exact street attachments for Reach are shared only after scenario-specific station exits are resolved, with a limit of 16,384 coordinates per street graph.
 
 The least recently used City is evicted before opening another when `maximumResidentScenarios` is reached, retaining the street graph even with a one-City budget. `VIGO_MAX_RESIDENT_SCENARIOS` overrides this count from 1 to 16; this bounds resident scenarios, not total bytes. `GET /v1/info` reports current residency, unique timetable block bytes, column-view bytes and query-workspace bytes without opening every scenario. Timetable `sourceArrayBytes` measures logical column contents, including shared values; do not sum it as exclusive memory.
+
+### Memory ledger
 
 The collection's `memory` ledger separates network allocations, query workspaces, caches, SQLite allocations and mapped file lengths. Its `trackedHeapBytes` counts shared street and timetable owners once. Each City's `memory.ledger` provides the component breakdown. Vector capacities are counted; hash-table and JSON-container overheads are estimates. Mapped file lengths are not resident memory. Record process-tree PSS/anonymous memory and cgroup file cache alongside the ledger; active-query temporaries, serialized responses and the application UI have separate lifetimes.
 
@@ -52,17 +73,11 @@ Node routing workers in one process share admitted immutable street snapshots an
 
 The Node driving kernel retains typed views of its immutable integer road arrays; callers must not mutate them while the kernel exists. The standalone constructor moves owned arrays. Traffic updates use separate mutable weights and leave the base graph intact. `sourceArrayBytes` is logical array storage, shared with JavaScript when `zeroCopyArrays` is true, and must not be added twice.
 
+### Caches and responses
+
 The HTTP supervisor forwards the worker's validated JSON bytes without constructing another journey or raster object tree. The 64 MiB response limit still applies. `Server-Timing`'s `serialize` entry measures supervisor serialization; forwarded results report zero there, and serialization in the query worker remains part of end-to-end HTTP time.
 
 The endpoint and shape cache byte budgets apply to the whole collection: each resident receives a share of the configured budget. The defaults allow 64 MiB for each endpoint role and 64 MiB for shape geometry across all residents. Set `VIGO_ENDPOINT_CACHE_MAX_BYTES` and `VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES` to change those totals. Street search and isochrone lookup pages are allocated only where a query writes. Path scratch above 32 MiB and each dynamic CCH workspace above 64 MiB are discarded before the next query; the inverse street order is retained separately. Access-profile format 6 uses bitmap ranks and offsets for nonempty buckets, and requires rebuilding earlier prepared profiles. On Linux with glibc, freed temporary pages are returned after timetable preparation, Matrix, and Reach. Measure the working set for your region and workload; timetable data and mapped street pages remain outside the result-cache budgets.
-
-Calendar queries include services on adjacent dates when their trips overlap the search interval. GTFS clocks use local noon minus twelve elapsed hours, including daylight-saving changes. `journey.clockDate` anchors every journey and leg clock; a transit leg's `serviceDate` identifies its actual operating date. Hours can exceed 23.
-
-A named HTTP request (`id` containing up to 128 letters, digits, hyphens, underscores or periods) can be canceled through `DELETE /v1/requests/{id}`. The cancellation returns 202; the original request returns 499. Running work is terminated and its worker replaced; queued work is skipped. Retrying an ID while it is active returns 409.
-
-Waiting routes and matrices of at most 1,024 cells receive up to 32 turns or 250 ms of worker time before the oldest waiting analytical request. FIFO order is preserved within each group, and one admission limit covers both groups. This prevents a submitted batch of Reach jobs from monopolizing the waiting queue. The worker completes its current query before switching; a long running query still contributes to latency.
-
-For map display, Reach accepts `reachFormat: "map"`. It returns the full reached-area polygons as `areas`, their `bounds`, and the usual query metadata, without stop lists, duplicate contour representations or raster values. The polygons match `fullAreas` from `reachFormat: "full"`, which remains the default for analysis and raster comparisons. Output selection does not change the search.
 
 ## 1. Quickstart
 
@@ -152,7 +167,7 @@ curl --fail-with-body http://127.0.0.1:8080/v1/route \
   -H 'Content-Type: application/json' --data-binary @route.json
 ```
 
-The default listener is `127.0.0.1:8080`. Open `http://127.0.0.1:8080/` for this offline manual. For production settings, see [Deployment](#16-authentication-and-generic-deployment). Separate network-build time, fresh-process time to first answer, and resident request latency when measuring performance.
+The default listener is `127.0.0.1:8080`. Open `http://127.0.0.1:8080/` to read the VIGO guide from the running service and send requests from its API console. For production settings, see [Deployment](#16-authentication-and-generic-deployment). Separate network-build time, fresh-process time to first answer, and resident request latency when measuring performance.
 
 ## 2. Installation and build
 
@@ -301,6 +316,7 @@ All paths are local filesystem paths. Every data command requires `--city DIR` o
 | `native` | Low-level Rust operations | `operation` and typed `input` |
 | `stream` | Resident NDJSON request/response process | One JSON object per stdin line |
 | `serve` | Resident HTTP service | City and server flags |
+| `health` | Check a running service's readiness without loading a City | `--host`, `--port` |
 
 Use `vigo route --help` for the general command overview. `--name value` and `--name=value` both work. Unknown options, irrelevant options, repeated options, and extra positional arguments fail. Boolean flags are bare for true or use `--pretty=false`; `--pretty false` is not the boolean syntax. The internal `_worker` command is reserved for the HTTP supervisor.
 
@@ -329,6 +345,11 @@ Use `vigo route --help` for the general command overview. `--name value` and `--
 | `--raster-size N` | Reach | Square grid width and height |
 | `--radius KM` | Reach | Reporting extent radius |
 | `--street-edges` | Reach | Include directed street evidence |
+| `--scenario ID` | Data commands on a collection | Select a scenario; omission uses `defaultScenario` |
+| `--wheelchair` | Route, Matrix, Reach | Require the City's strict wheelchair profile |
+| `--format text\|json` | One-shot JSON commands | Terminal text or JSON; pipes and files use JSON |
+| `--diagnostics LEVEL` | Query commands | `none`, `summary`, `profile`, or `trace` |
+| `--include-geometry`, `--include-limitations` | Query commands | Route geometry is on by default; Matrix geometry and limitations are opt-in |
 
 Server flags are listed in the [HTTP API reference](#15-http-api-and-server-operation). Other controls, including transfer buffers, realtime, scenarios, via points, and journey geometry, belong in JSON. CLI query flags override fields from the request file. Stream flags override every line, so omit a stream-level service date when sending different dates.
 
@@ -382,7 +403,7 @@ Exact identifiers are case-sensitive. Multi-feed IDs may contain a feed scope an
 
 ### Service time and walking policy
 
-Transit times are service-day clocks, including after-midnight GTFS hours. The query does not automatically merge adjacent service dates. Street-only queries still require a clock but can omit `serviceDate`.
+Transit times are service-day clocks, including after-midnight GTFS hours. Calendar queries include services on adjacent dates when their trips overlap the search interval. GTFS clocks use local noon minus twelve elapsed hours, including daylight-saving changes. `journey.clockDate` anchors every journey and leg clock; a transit leg's `serviceDate` identifies its actual operating date, and hours can exceed 23. Street-only queries still require a clock but can omit `serviceDate`.
 
 The depart-at timetable search ends at departure plus horizon; arrive-by searches back to the later of midnight and arrival minus horizon. A transit egress walk may extend beyond the depart-at scan horizon. Direct walking is bounded by physical walking duration as well as its distance cap. Drive routing uses its street-distance limit and supplied static metric; `horizonMinutes` does not add a drive travel-time cutoff.
 
@@ -397,7 +418,7 @@ and native operations. `diagnostics.timeReserves` records both deadlines and
 `calibratedProbability: false`. Route and journey clocks retain their actual
 modeled times; Matrix scalar durations include the reserve. Combine with
 `minimumTransferBufferMinutes` for time at intermediate changes. See
-[Travel-time uncertainty](https://github.com/hytangs/vigo/blob/main/docs/guide.md#travel-time-uncertainty) for the Boston
+[Travel-time uncertainty](../guide.md#travel-time-uncertainty) for the Boston
 example and calibration requirements; a margin is not a probability guarantee.
 
 ## 6. Route
@@ -583,6 +604,12 @@ Supply `origins` and `destinations` arrays with at least one point each. Use poi
 
 `journeyFormat` defaults to `"full"`, retaining stop names, route details, stop sequences, and walking evidence. Analytical callers can explicitly request `"compact"` with `includeJourneys: true`: it returns the same selected trips, stops, boarding sequences, leg clocks, transfers, and walking/riding/waiting durations without display metadata or walking-evidence annotations. Compact does not accept `includeGeometry: true`. For duration-only workloads, leave `includeJourneys` false. Compare performance at the same output detail; the Node Matrix interface returns compact witnesses.
 
+### Repeated endpoints
+
+Transit Matrix keeps repeated endpoints grouped through transit search, direct walking and journey geometry, then expands completed answers into the requested row and column order. Exact-stop and coordinate endpoints retain their respective routing semantics. Trace diagnostics expose `matrixReuse.requestedPairs`, `searchPairs`, `uniqueOrigins` and `uniqueDestinations`. The 65,536-pair response limit still applies; this reuse does not approximate or merge distinct endpoints.
+
+Run `node scripts/benchmark-service-reuse.mjs --reference /path/to/baseline-vigo --samples 31 --output comparison.json` to compare two executables on a generated public fixture. The check compares complete answers and reports date preparation, retained-date switches, repeated and distinct Matrix pairs. Engine execution time and the detailed-output round trip are recorded separately. This small fixture tests reuse and regressions; metropolitan scaling needs a separate workload.
+
 ## 9. Reach and isochrones
 
 Reach finds the streets and areas accessible from an origin within a set of travel-time limits. Transit queries combine timetable travel with walking over the prepared street network. Use `mode: "walk"` for walking only, or call `isochrone` as an alias of `reach`.
@@ -633,6 +660,10 @@ latitude  = north - (y + 0.5) / height * (north - south)
 ```
 
 `fullSurface.valuesSeconds` uses `fullSurface.bounds` and the same dimensions, with bounds recomputed from reached street evidence when available. Those bounds can be smaller or larger than the requested view. Never interpret full values using the requested bounds. `areas`/`fullAreas` are GeoJSON FeatureCollections of MultiPolygons; `contours`/`fullContours` contain MultiLineStrings. Features carry `cutoffMinutes`. Areas preserve holes and disconnected components; isolines interpolate the raster rather than inventing a convex hull through unreachable space. Raster resolution affects presentation and area estimates. See [Reach output](#reach-output) for decoding and interpretation.
+
+### Map output
+
+For map display, Reach accepts `reachFormat: "map"`. It returns the full reached-area polygons as `areas`, their `bounds`, and the usual query metadata, without stop lists, duplicate contour representations or raster values. The polygons match `fullAreas` from `reachFormat: "full"`, which remains the default for analysis and raster comparisons. Output selection does not change the search.
 
 ### Street evidence
 
@@ -755,7 +786,7 @@ Python here is an optional client utility. The Rust command still requires a Cit
 
 ### Interpret changes
 
-`deltaMinutes` is **after minus before** for cells reachable in both. Negative means faster. `commonCells`, `newlyReachableCells`, `noLongerReachableCells`, and `meanChangeMinutes` distinguish changes in travel time from changes in reachability. Delta nulls are not zero changes. Mean change covers common cells only.
+The public result, `vigo.compare.v1`, reports changes **after minus before**. `counts` splits the `comparable` cells, reachable in both, into `faster`, `slower`, and `unchanged`, and counts `newlyReachable` and `noLongerReachable` cells separately. `meanChangeSeconds` averages comparable cells only, is negative when travel got faster, and is null when no cell is comparable. Request `diagnostics: "trace"` for the per-cell `deltaMinutes` grid described in [Comparison output](#comparison-output); a null delta is not a zero change.
 
 Hold origin, clock/date, walking policy, cutoffs, and grid fixed when interpreting a scenario effect. The comparator does not certify all those experiment settings or compare City revisions.
 
@@ -837,7 +868,7 @@ Default output is a compact journey or analysis result. See the [public result c
 
 Stream consumers may select `--stream-output=detailed` after checking that `capabilities.output.streamFormats` includes `detailed`. This returns the internal `vigo.stream.detail.v1` envelope without constructing the public projection; its `trace` contains the routing outcome. This format is an unstable wrapper interface. See the public result reference for envelope and error semantics.
 
-<!-- PUBLIC_RESULTS -->
+The [public result contract](../reference/results.md) defines the default output. The rest of this chapter documents the internal trace.
 
 ### Trace reference (debug only)
 
@@ -900,7 +931,7 @@ A Route result describes one journey, a sequence through via points, or a sample
 
 #### Journey clocks and totals
 
-For the [quickstart](#1-quickstart), the following is an exact selection of fields. Legs, diagnostics, and metadata are omitted:
+For the [reference fixture route](#reference-fixture), the following is an exact selection of fields. Legs, diagnostics, and metadata are omitted:
 
 ```json output=route-summary
 {
@@ -945,7 +976,7 @@ describes only the street portion. A source-backed pathway can report
 labelled a verified OSM walk. `unverifiedStationAccessLegs` counts unresolved
 station connections in the returned journey.
 
-`legs` is ordered from origin to destination. The quickstart contains two zero-duration station-selection walk legs around two rides. **Waiting is represented by gaps between legs**, not separate wait legs:
+`legs` is ordered from origin to destination. The fixture route contains two zero-duration station-selection walk legs around two rides. **Waiting is represented by gaps between legs**, not separate wait legs:
 
 | Step | Clock | Meaning |
 | --- | --- | --- |
@@ -1015,7 +1046,7 @@ Via routes have ordered `segments` and a top-level duration spanning them. They 
 
 Window routes have the selected journey at the top level and up to five retained alternatives in `choices`, ordered by arrival. `window.searches` counts sampled departure times, including unsuccessful and deduplicated searches; it is not the number of choices. Retained choices are not a continuous enumeration of every departure.
 
-Reversing A → B to B → A in the quickstart produces this exact field selection:
+Reversing A → B to B → A in the fixture route produces this exact field selection:
 
 ```json output=blocked-route
 {"status": "blocked", "mode": "transit", "reason": "no_path"}
@@ -1266,13 +1297,13 @@ Native responses contain `operation` and a typed object under `result`, plus out
 
 Timetable operations use indices from `timetable.identifiers` for the same active service date and policy. `stopIds[index]` resolves a stop index; `tripIds[index]` and `routeIds[index]` resolve a trip and its route. `routeIds` is parallel to trips, not a deduplicated route catalog. `accessMemberStopIds` belongs to prepared endpoint-access members, a separate domain. Do not reuse saved numeric indices across changed preparations or timetable activations.
 
-Native `timetable.matrix` returns a flat origin-major `times` array of **service-day clock seconds**. For one A → B pair, the quickstart departure gives `[30600]`, an 08:30 arrival. Arrive-by gives latest departure clocks instead. `journeys` is null when not requested; an unreachable numeric slot serializes as null. Street and drive native matrices use flat distances in meters and, for drive, durations in seconds. Read the operation-specific type before interpreting an array named `times`, `values`, or `distancesM`.
+Native `timetable.matrix` returns a flat origin-major `times` array of **service-day clock seconds**. For one A → B pair, the fixture route's departure gives `[30600]`, an 08:30 arrival. Arrive-by gives latest departure clocks instead. `journeys` is null when not requested; an unreachable numeric slot serializes as null. Street and drive native matrices use flat distances in meters and, for drive, durations in seconds. Read the operation-specific type before interpreting an array named `times`, `values`, or `distancesM`.
 
 ## 14. Resident NDJSON streaming
 
 Keep a City loaded while sending a sequence of JSON queries through standard input. Streaming returns one result for each request, in order.
 
-One-shot commands open a City for each invocation. `stream` keeps a City resident and reads one object per line. Every line requires `kind`; an optional `id` is echoed even for query errors. Output is one compact JSON object per line, in input order. Blank lines are ignored. There is no startup handshake or `sequence` field in the public Rust stream.
+One-shot commands open a City for each invocation. `stream` keeps a City resident and reads one object per line. Every line requires `kind`; an optional `id` is echoed even for query errors. Output is one compact JSON object per line, in input order, carrying the request `id` and a `sequence` number like the compiler's stream. Blank lines are ignored, and there is no startup handshake.
 
 Transit can reuse a prepared service snapshot only when its source database, access policy, active services, transfer projection, dictionaries, and array layout validate. Missing or invalid optional timetable snapshots fall back to source preparation without writing City files. Realtime and disabled street transfers use source preparation. For repeated calls, keep `stream` or `serve` resident; measure fresh-process startup separately from warm query time. The runtime retains immutable shape/alignment data in a bounded cache (1,024 shapes and 64 MiB by default; configurable through `VIGO_SHAPE_GEOMETRY_CACHE_MAX_ENTRIES` and `VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES`) and shares same-request endpoint evidence even when answer caches are disabled. The shape limit is an upper bound, not reserved memory; it trades a larger possible resident footprint for less repeated geometry preparation.
 
@@ -1297,7 +1328,7 @@ Start the HTTP service with `vigo serve` and send query JSON to the endpoints be
 
 | Method/path | Response | Authentication |
 | --- | --- | --- |
-| `GET /`, `/docs`, `/docs/` | Self-contained HTML manual | Public static content |
+| `GET /`, `/docs`, `/docs/` | The offline VIGO guide, including this manual and an API console | Public static content |
 | `GET /openapi.json`, `/docs/openapi.json` | OpenAPI specification | Public static content |
 | `GET /healthz` | 200 liveness, status ready/recovering | Public, no City data |
 | `GET /readyz` | 200 ready, 503 while recovering | Public, no City data |
@@ -1308,8 +1339,9 @@ Start the HTTP service with `vigo serve` and send query JSON to the endpoints be
 | `POST /v1/reach`, `/v1/isochrone` | Reach request/result | Bearer when configured |
 | `POST /v1/compare` | Saved Reach comparison | Bearer when configured |
 | `POST /v1/native` | Typed native operation | Bearer when configured |
+| `DELETE /v1/requests/{id}` | Cancel a named request | Bearer when configured |
 
-The path selects the command; a body `kind` is overwritten accordingly. Send JSON with `Content-Type: application/json`. Content-Length and bounded chunked HTTP/1.1 bodies are supported. Duplicate/conflicting length headers are rejected. Connections close after a response; there is no keep-alive, WebSocket, HTTP/2, gzip, streaming response, or browser CORS policy in the service. Other methods/paths return 404 after authentication. A same-origin application or reverse proxy can provide a browser integration policy.
+The path selects the command; a body `kind` is overwritten accordingly. Send JSON with `Content-Type: application/json`. Content-Length and bounded chunked HTTP/1.1 bodies are supported. Duplicate/conflicting length headers are rejected. Connections close after a response; there is no keep-alive, WebSocket, HTTP/2, gzip, streaming response, or browser CORS policy in the service. Other methods/paths return 404 after authentication. A same-origin application or reverse proxy can provide a browser integration policy. Every response carries a restrictive `Content-Security-Policy`; it allows the embedded guide's API console to call this service's own endpoints (`connect-src 'self'`) and nothing else.
 
 ### Server limits
 
@@ -1327,7 +1359,13 @@ The executable runs an HTTP front end and a supervised child worker. The worker 
 
 Queued HTTP requests retain encoded JSON; only the worker expands nested query fields. Across connections, uploads and queued requests share a 64 MiB encoded-byte admission budget (including normalization headroom). Chunked uploads reserve their configured maximum before reading. Pending response buffers share a 128 MiB budget until socket writes finish. Capacity exhaustion returns 503, including before `100 Continue` for rejected uploads. These bounds cover transport buffers, not total process RSS or the City working set; response reading can additionally hold one worker result of up to 64 MiB. Closing, canceling, or expiring a request releases its reservation when its retained work is discarded.
 
+Waiting routes and matrices of at most 1,024 cells receive up to 32 turns or 250 ms of worker time before the oldest waiting analytical request. FIFO order is preserved within each group, and one admission limit covers both groups. This prevents a submitted batch of Reach jobs from monopolizing the waiting queue. The worker completes its current query before switching; a long running query still contributes to latency.
+
 Headers are limited to 16 KiB and 64 header entries. Worker output is limited to 64 MiB per result. Response writing has a 10-second deadline; startup allows up to 60 seconds for a City worker. Oversized responses or worker exits can appear as 504, so split high-detail matrices/rasters rather than retrying the same oversized query indefinitely.
+
+### Cancel a request
+
+A named HTTP request (`id` containing up to 128 letters, digits, hyphens, underscores or periods) can be canceled through `DELETE /v1/requests/{id}`. The cancellation returns 202; the original request returns 499. Running work is terminated and its worker replaced; queued work is skipped. Retrying an ID while it is active returns 409.
 
 ### Status codes
 
@@ -1338,9 +1376,11 @@ Headers are limited to 16 KiB and 64 header entries. Worker output is limited to
 | 401 | Missing/incorrect bearer token |
 | 404 | Unsupported path or method |
 | 408 | Request read deadline |
+| 409 | A request with the same `id` is still active |
 | 413 | Request body over limit |
 | 417 | Unsupported Expect header |
 | 431 | Header byte limit |
+| 499 | The request was canceled through `DELETE /v1/requests/{id}` |
 | 503 | Connection/queue/buffer capacity or worker unavailable; readiness also uses this |
 | 504 | Query deadline, worker failure, or response-channel failure |
 
@@ -1394,7 +1434,7 @@ docker compose -f deploy/compose.yml up -d --wait
 
 The image runs as UID/GID 65532 on Debian glibc, with the native executable and its embedded documentation. Compose mounts the City read-only and defaults to 2 CPUs, 2 GiB, a bounded query queue, bounded caches, and limited log storage. The built-in `vigo health` command checks worker readiness without loading a City or requiring an external runtime. Give UID 65532 read and traversal access to the City.
 
-See the [deployment guide](https://github.com/hytangs/vigo/blob/main/docs/guide.md#deploy-the-routing-engine) for the complete configuration and container acceptance check.
+See [Deploy the routing engine](../guide.md#deploy-the-routing-engine) for the complete configuration and container acceptance check.
 
 ### Process manager
 
@@ -1501,7 +1541,7 @@ Native Matrix returns a flat array of **clock times in seconds**: arrival clocks
 
 `timetable.pareto` exposes native arrival/boarding/walking trade-offs; it is distinct from sampled departure windows. Native overlays operate on packed caller-supplied arrays. `realtime.compile` compiles explicit effective call times; it does not fetch/decode a provider feed. The native field reference lists every public operation and nested input/result type from the Rust definitions. Optional request fields may be omitted or set to null. Native result objects include every declared field; unavailable optional values are null. The runtime also enforces semantic limits and compatible array domains.
 
-The complete generated dictionary is in [Native Rust field reference](../reference/rust-standalone-native.md). It is also included in the offline reader and archive.
+The complete generated dictionary is in [Native Rust field reference](../reference/rust-standalone-native.md). It is also part of the offline guide and the engine archive.
 
 ## 19. Troubleshooting
 
@@ -1521,7 +1561,7 @@ The complete generated dictionary is in [Native Rust field reference](../referen
 | HTTP 503 | Read readiness; reduce concurrent work/queue pressure or add measured capacity |
 | HTTP 504 | Inspect worker logs; reduce matrix size, geometry, raster detail, or split jobs before increasing deadlines |
 | Browser request fails | Check same-origin/proxy configuration; native service does not implement CORS |
-| Unsupported request field | Check the Rust manual/OpenAPI; Node CLI/Studio fields are not interchangeable |
+| Unsupported request field | Check this manual or the OpenAPI document; Studio's internal fields and compiler-only flags are not interchangeable |
 | High memory | City size, worker replication, Rayon threads, concurrent request bodies, and detailed results all contribute |
 
 Do not use repeated cached-query timing as a cold-start measurement. `disableCache` leaves loaded City data, prepared artifacts, OS page cache, and other resident state in place. Measure invocation-to-result or client request-to-response explicitly when reporting those boundaries.
@@ -1564,11 +1604,11 @@ npm run docs:standalone
 npm run check:standalone-docs
 ```
 
-The documentation check verifies generated HTML/specification, links/contracts, and executable JSON examples. Packaging validates every archive member and payload hash and reruns the adapter suites against the extracted binary. Node/Python are used for development validation only.
+The documentation check verifies the generated guide and specification, links and contracts, and the executable JSON examples. Packaging validates every archive member and payload hash and reruns the adapter suites against the extracted binary. Node/Python are used for development validation only.
 
 ### Update the documentation
 
-For maintenance, edit this Markdown source and regenerate the offline manual/OpenAPI with `npm run docs:standalone`. Native field schemas are derived from the Rust public structs. Check generated files before packaging so the embedded documentation describes the same executable.
+For maintenance, edit this Markdown source. `npm run docs:standalone` regenerates the OpenAPI document and the native field reference from the Rust public structs, and `npm run docs:build` rebuilds the guide that the executable embeds. Check generated files before packaging so the embedded documentation describes the same executable.
 
 
 ## Wheelchair routing
@@ -1623,9 +1663,3 @@ and [OSM wheelchair tags](https://wiki.openstreetmap.org/wiki/Key:wheelchair).
 The public synthetic regression is `npm run check:wheelchair`; it checks
 accessible alternatives through both CLIs and authenticated HTTP, as well as
 Matrix, Reach, reverse routing and profile mismatch rejection.
-
-### Matrix reuse
-
-Transit Matrix keeps repeated endpoints grouped through transit search, direct walking and journey geometry, then expands completed answers into the requested row and column order. Exact-stop and coordinate endpoints retain their respective routing semantics. Trace diagnostics expose `matrixReuse.requestedPairs`, `searchPairs`, `uniqueOrigins` and `uniqueDestinations`. The 65,536-pair response limit still applies; this reuse does not approximate or merge distinct endpoints.
-
-Run `node scripts/benchmark-service-reuse.mjs --reference /path/to/baseline-vigo --samples 31 --output comparison.json` to compare two executables on a generated public fixture. The check compares complete answers and reports date preparation, retained-date switches, repeated and distinct Matrix pairs. Engine execution time and the detailed-output round trip are recorded separately. This small fixture tests reuse and regressions; metropolitan scaling needs a separate workload.

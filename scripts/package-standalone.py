@@ -19,7 +19,7 @@ CRATE = ROOT / "native/vigo-routing-kernel"
 def source_fingerprint(run):
     digest = hashlib.sha256()
     inputs = run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--",
-                  "native/vigo-routing-kernel", "rust-toolchain.toml", "docs/standalone.html", "docs/standalone-openapi.json"], capture_output=True).stdout
+                  "native/vigo-routing-kernel", "rust-toolchain.toml", "docs/guide.html", "docs/standalone-openapi.json"], capture_output=True).stdout
     for relative in sorted(set(inputs.split(b"\0")) - {b""}):
         file = ROOT / os.fsdecode(relative)
         if file.is_file():
@@ -75,7 +75,8 @@ def main():
         env["CFLAGS"] = " ".join([env.get("CFLAGS", ""), shlex.quote(f"-ffile-prefix-map={Path.home()}=/vigo-home"), shlex.quote(f"-ffile-prefix-map={ROOT}=/vigo-source")])
         env["CC_SHELL_ESCAPED_FLAGS"] = "1"
     if not args.notices_only:
-        run([os.environ.get("VIGO_PYTHON") or os.sys.executable, str(ROOT / "scripts/build-standalone-docs.py"), "--check"], stdout=subprocess.DEVNULL)
+        for generator in ("build-standalone-docs.py", "build-docs.py"):
+            run([os.environ.get("VIGO_PYTHON") or os.sys.executable, str(ROOT / "scripts" / generator), "--check"], stdout=subprocess.DEVNULL)
         source_hash = source_fingerprint(run)
         run([cargo, "build", *common, "--release", "--bin", "vigo", "--target", target], env=env)
     metadata = json.loads(run([cargo, "metadata", *common, "--offline", "--filter-platform", target, "--format-version", "1"], capture_output=True, encoding="utf-8").stdout)
@@ -109,7 +110,7 @@ def main():
     binary = Path(metadata["target_directory"]) / target / "release" / executable
     archive = release / f"{name}.tar.gz"
     embedded_docs = {name: (ROOT / "docs" / name).read_bytes()
-                     for name in ("standalone.html", "standalone-openapi.json")}
+                     for name in ("guide.html", "standalone-openapi.json")}
     image = binary.read_bytes()
     for document_name, contents in embedded_docs.items():
         if contents not in image:
@@ -129,8 +130,15 @@ def main():
         del image
         for file in ("LICENSE", "NOTICE"):
             shutil.copy2(ROOT / file, stage / file)
-        guide = (ROOT / "docs/guides/rust-standalone.md").read_text(encoding="utf-8")
-        (stage / "README.md").write_text(guide.replace("../reference/rust-standalone-audit.md", "AUDIT.md").replace("../reference/rust-standalone-native.md", "NATIVE.md").replace("../reference/walking-evidence.md", "standalone.html#walking-evidence").replace("../standalone.html", "standalone.html").replace("../standalone-openapi.json", "standalone-openapi.json"), encoding="utf-8")
+        manual = (ROOT / "docs/guides/rust-standalone.md").read_text(encoding="utf-8")
+        for source, packaged in {"../reference/rust-standalone-audit.md": "AUDIT.md", "../reference/rust-standalone-native.md": "NATIVE.md",
+                                 "../reference/walking-evidence.md": "guide.html#walking", "../reference/results.md": "guide.html#results",
+                                 "../guide.md#travel-time-uncertainty": "guide.html#uncertainty", "../guide.md#deploy-the-routing-engine": "guide.html#deployment",
+                                 "../guide.html": "guide.html", "../standalone-openapi.json": "standalone-openapi.json"}.items():
+            manual = manual.replace(f"]({source}", f"]({packaged}")
+        # Other source-relative links have no file beside the extracted README.
+        manual = re.sub(r"\]\((\.\./[^)#\s]+)(#[^)\s]*)?\)", lambda m: "](https://github.com/hytangs/vigo/blob/v" + version + "/docs/" + m[1][3:] + (m[2] or "") + ")", manual)
+        (stage / "README.md").write_text(manual, encoding="utf-8")
         shutil.copy2(ROOT / "docs/reference/rust-standalone-audit.md", stage / "AUDIT.md")
         native = (ROOT / "docs/reference/rust-standalone-native.md").read_text(encoding="utf-8")
         (stage / "NATIVE.md").write_text(native.replace("../guides/rust-standalone.md", "README.md"), encoding="utf-8")

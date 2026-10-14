@@ -159,9 +159,6 @@
 .settings-navigation > p { margin: 14px 12px 0; color: var(--text-muted); font-size: 11px; line-height: 1.6; }
 .settings-content { min-width: 0; }
 .settings-docs-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; font-size: 12px; }
-.settings-docs-toolbar > div { display: flex; flex-wrap: wrap; gap: 4px; }
-.settings-docs-toolbar button { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-strong); color: var(--text-muted); font: inherit; cursor: pointer; }
-.settings-docs-toolbar button[aria-pressed=true] { background: var(--active-surface); color: var(--text-strong); }
 .settings-docs-toolbar a { color: var(--text-strong); }
 .settings-docs-frame { display: block; width: 100%; height: max(540px, calc(100dvh - 230px)); border: 1px solid var(--border); border-radius: 8px; background: var(--panel-strong); }
 .settings-section { min-width: 0; padding: 0 0 30px; margin-bottom: 30px; border-bottom: 1px solid var(--border); }

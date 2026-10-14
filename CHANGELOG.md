@@ -16,6 +16,8 @@
 
 - Refresh native walking evidence for parent-station selections and prepare paired station endpoints together. Preserve Route and Matrix geometry across repeated parent, platform, and map-point requests without changing station access costs.
 
+- Merge the Studio/engine guide, the CLI/HTTP reference, Results, Python, and developer documentation into one offline guide, `docs/guide.html`, generated from the same Markdown. The engine serves it at `/`, Studio and engine archives bundle it, and it adds command-palette search, light/dark themes, a Result viewer with journey, matrix and raster previews, and an API console when served by `vigo serve`. `docs/standalone.html` is retired. Quickstart and recipes now use request JSON that both runtimes accept unchanged.
+- Rewrite the repository README around the City → query → Result model, a runnable quickstart for both runtimes, and the single offline guide.
 - Bundle the searchable guide and CLI/HTTP reference in Studio Settings. Read offline in the selected light or dark appearance; retain browser links to source documents and schema downloads.
 - Update current documentation and release examples to 0.5.2. Replace obsolete 0.4.2 screenshots with a link to their archived release record.
 - Remove Studio Ask, City agency skills, and their conversation tests and evaluation fixtures. Retain Network, Routes, Route, Analyze, and existing City evidence.

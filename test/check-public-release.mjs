@@ -97,7 +97,7 @@ for (const file of files) {
     assert.equal(createHash('sha256').update(fs.readFileSync(absolute)).digest('hex'), frozenInputs.get(file),
       `Frozen synthetic input changed: ${file}`)
   } else {
-    const pythonNotebook = /^python\/notebooks\/[^/]+\.ipynb$/u.test(file)
+    const pythonNotebook = /^python\/examples\/[^/]+\.ipynb$/u.test(file)
     if (pythonNotebook) {
       const notebook = JSON.parse(fs.readFileSync(absolute, 'utf8'))
       assert.equal(notebook.nbformat, 4)

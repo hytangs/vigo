@@ -55,7 +55,10 @@ let localLinks = 0, checkedAnchors = 0, scriptReferences = 0
 const linkedFiles = new Set(['docs/guide.md'])
 for (const [file, source] of sources) {
   // Check examples as well as prose: a documented npm command must still exist.
-  for (const match of (file === 'docs/history.md' ? '' : source).matchAll(/\bnpm run ([\w:-]+)/gu)) {
+  // Historical records, including their page in the generated guide, keep old commands.
+  const current = file === 'docs/history.md' ? ''
+    : file === 'docs/guide.html' ? source.replace(/<article[^>]*\bid="page-history"[\s\S]*?<\/article>/u, '') : source
+  for (const match of current.matchAll(/\bnpm run ([\w:-]+)/gu)) {
     assert(Object.hasOwn(manifest.scripts, match[1]), `${file} documents an unknown npm script: ${match[1]}`)
     scriptReferences += 1
   }
@@ -97,6 +100,8 @@ assert.equal(describe({ schema: 'vigo.route.v1', status: 'not_found', journey: n
 assert.equal(describe({ schema: 'vigo.reach.v1', status: 'ok', surface: { valuesSeconds: [0, null, 900] } })['Reachable cells'], '2')
 assert.equal(describe({ schema: 'vigo.reach.v1', status: 'ok', areas: { type: 'FeatureCollection', features: [] } }).Surface, 'Map areas (raster omitted)')
 assert.equal(describe({ schema: 'vigo.error.v1', status: 'error', error: { message: '<script>untrusted</script>' } }).Error, '<script>untrusted</script>')
+assert.equal(describe({ schema: 'vigo.compare.v1', status: 'ok', counts: { comparable: 3, faster: 1, slower: 1, unchanged: 1, newlyReachable: 2, noLongerReachable: 0 }, meanChangeSeconds: -90 })['Mean change'], '−1 min 30 s')
+assert.equal(describe({ schema: 'vigo.compare.v1', status: 'ok', counts: { comparable: 0 }, meanChangeSeconds: null })['Mean change'], 'No comparable entries')
 assert.throws(() => describe({ status: 'ready', rows: [] }), /public VIGO/)
 assert.throws(() => describe({ schema: 'vigo.matrix.v1', status: 'ok', durationsSeconds: [[1], [1, 2]] }), /rectangular/)
 assert.throws(() => describe({ schema: 'vigo.matrix.v1', status: 'ok', durationsSeconds: [['12']] }), /finite/)

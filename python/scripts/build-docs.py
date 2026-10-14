@@ -229,7 +229,7 @@ def validate_sources():
         for path in [
             ROOT / "README.md",
             ROOT / "CONTRIBUTING.md",
-            ROOT / "notebooks/README.md",
+            ROOT / "examples/README.md",
         ]
         if path.exists()
     )

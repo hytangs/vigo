@@ -15,7 +15,7 @@ const packagedDocs = process.env.VIGO_STANDALONE_DOCS_DIR
 const docsDirectory = packagedDocs ? path.resolve(packagedDocs) : path.join(root, 'docs')
 // Packaged Markdown uses the platform newline; parse the same examples on Windows.
 const manual = fs.readFileSync(path.join(docsDirectory, packagedDocs ? 'README.md' : 'guides/rust-standalone.md'), 'utf8').replace(/\r\n/g, '\n')
-const html = fs.readFileSync(path.join(docsDirectory, 'standalone.html'), 'utf8')
+const html = fs.readFileSync(path.join(docsDirectory, 'guide.html'), 'utf8')
 const spec = JSON.parse(fs.readFileSync(path.join(docsDirectory, 'standalone-openapi.json'), 'utf8'))
 const python = process.env.VIGO_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
 execFileSync(python, ['test/check-standalone-docs-portability.py'], { cwd: root })
@@ -257,6 +257,10 @@ try {
     assert.equal(response.status, 200)
     assert.match(response.headers.get('content-type'), /text\/html/)
     assert.equal(await response.text(), html); checks++
+    // The guide's API console may call only the service that served it.
+    const policy = response.headers.get('content-security-policy')
+    assert.match(policy, /default-src 'none'/)
+    assert.match(policy, /connect-src 'self'(;|$)/)
   }
   for (const url of ['/openapi.json', '/docs/openapi.json', '/standalone-openapi.json', '/docs/standalone-openapi.json']) {
     const response = await fetch(base + url)

@@ -26,7 +26,7 @@ Transit uses native connection scans over immutable prepared timetable data. For
 
 Planned Reach changes compile bounded overlay services into chronological connections. Resident and overlay events share stop/run state and directed transfer adjacency. Exclusions apply to the requested overlay; the baseline remains immutable. Equal-time events must preserve legal boarding independent of input ordering.
 
-There is **no implicit boarding slack**. Published minimums and forbidden transfers govern changing vehicles; staying aboard retains its trip state. A zero-time overlay identity edge requires the same declared GTFS stop identity. Other connectors need a directed OSM path. Identity links do not waive explicit transfer restrictions. See the [Route contract](../../docs/guide.md#route-1) and [GTFS support matrix](../../docs/developer.md#gtfs-support-matrix).
+There is **no implicit boarding slack**. Published minimums and forbidden transfers govern changing vehicles; staying aboard retains its trip state. A zero-time overlay identity edge requires the same declared GTFS stop identity. Other connectors need a directed OSM path. Identity links do not waive explicit transfer restrictions. See the [Route contract](../../docs/guide.md#route) and [GTFS support matrix](../../docs/developer.md#gtfs-support-matrix).
 
 ## Reach and street access
 

@@ -60,6 +60,5 @@ jobs:
           name: release-documentation
           path: |
             docs/guide.html
-            docs/standalone.html
             docs/standalone-openapi.json
           if-no-files-found: error

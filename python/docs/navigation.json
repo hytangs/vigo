@@ -143,9 +143,9 @@
       "section": "troubleshooting"
     },
     {
-      "id": "notebooks",
-      "source": "notebooks/README.md",
-      "title": "Notebooks",
+      "id": "examples",
+      "source": "examples/README.md",
+      "title": "Examples",
       "group": "Resources"
     },
     {

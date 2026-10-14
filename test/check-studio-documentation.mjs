@@ -15,14 +15,13 @@ await evaluate('document.querySelector("#settings-tab-documentation").click()');
 await until(() => evaluate('Boolean(document.querySelector("iframe")?.contentDocument?.querySelector("#chapters"))')).catch(async error => { throw Error(error.message + await evaluate('document.body.innerText + document.querySelector("iframe")?.src')) });
 const guide = await evaluate('document.querySelector("iframe").src');
 assert.match(guide, /^vigo:\\/\\/studio\\/assets\\/guide\\.html/);
-await evaluate('Array.from(document.querySelector("iframe").contentDocument.querySelectorAll("a")).find(link => new URL(link.href).pathname.endsWith("standalone.html")).click()');
-await until(() => evaluate('Boolean(document.querySelector("iframe").contentWindow.location.pathname.endsWith("standalone.html") && document.querySelector("iframe").contentDocument?.querySelector("#chapters"))'));
-const reference = await evaluate('document.querySelector("iframe").contentWindow.location.href');
-assert.match(reference, /^vigo:\\/\\/studio\\/assets\\/standalone\\.html/);
-assert.equal(new URL(reference).searchParams.get('embedded'), '1');
+assert.equal(new URL(guide).searchParams.get('embedded'), '1');
+// One bundled guide covers Studio, the engine reference, and the HTTP API.
+await evaluate('document.querySelector("iframe").contentDocument.querySelector("[data-nav=http-api]").click()');
+await until(() => evaluate('Boolean(document.querySelector("iframe").contentDocument.querySelector("#page-http-api:not([hidden])"))'));
 assert.equal(await evaluate('Boolean(document.querySelector("[role=alert]"))'), false);
-const schemaUrl = new URL(reference).searchParams.get('schema');
-const schema = await (await net.fetch(new URL(schemaUrl, reference).href)).json();
+const schemaUrl = await evaluate('Array.from(document.querySelector("iframe").contentDocument.querySelectorAll("a[download]")).find(link => link.download === "standalone-openapi.json").href');
+const schema = await (await net.fetch(schemaUrl)).json();
 assert.equal(schema.openapi, '3.1.0');
 const response = await net.fetch(guide);
 assert.equal(response.status, 200);
@@ -36,4 +35,4 @@ if (!health.config.offline.storageWritable) {
   await until(() => evaluate('Boolean(document.querySelector("#settings-tab-documentation"))'));
 }
 `)
-console.log('Studio documentation opens bundled production pages, follows offline reference links, and reads the local API schema.')
+console.log('Studio documentation opens the bundled guide, navigates to the HTTP API reference offline, and reads the local API schema.')

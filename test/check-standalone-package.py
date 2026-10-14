@@ -37,7 +37,7 @@ def main():
     expected = archive.with_name(archive.name + ".sha256").read_text(encoding="utf-8").split()[0]
     assert hashlib.sha256(archive.read_bytes()).hexdigest() == expected, "Archive digest mismatch"
     executable = "vigo.exe" if os.name == "nt" else "vigo"
-    allowed = {executable, "LICENSE", "NOTICE", "README.md", "AUDIT.md", "NATIVE.md", "standalone.html", "standalone-openapi.json", "THIRD-PARTY-NOTICES.txt", "manifest.json"}
+    allowed = {executable, "LICENSE", "NOTICE", "README.md", "AUDIT.md", "NATIVE.md", "guide.html", "standalone-openapi.json", "THIRD-PARTY-NOTICES.txt", "manifest.json"}
     with tempfile.TemporaryDirectory(prefix="vigo-extracted-") as directory:
         destination = Path(directory)
         with tarfile.open(archive) as tar:

@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory() as folder:
     crate.mkdir(parents=True)
     source = crate / "lib.rs"
     source.write_text("original source")
-    docs = root / "docs/standalone.html"
+    docs = root / "docs/guide.html"
     docs.parent.mkdir()
     docs.write_text("original embedded documentation")
     run = lambda command, **kw: subprocess.run(command, cwd=root, check=True, **kw)

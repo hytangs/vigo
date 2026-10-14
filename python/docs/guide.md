@@ -49,7 +49,7 @@ Use a context manager, retain the open City, and request Matrix journeys or geom
 
 ### Reference and support
 
-[Read these docs offline](index.html) · [Python API](reference.md) · [Troubleshooting](#troubleshooting) · [Notebooks](../notebooks/README.md) · [0.5.2 release notes](releases/0.5.2.md) · [Contributing](../CONTRIBUTING.md)
+[Read these docs offline](index.html) · [Python API](reference.md) · [Troubleshooting](#troubleshooting) · [Examples](../examples/README.md) · [0.5.2 release notes](releases/0.5.2.md) · [Contributing](../CONTRIBUTING.md)
 
 ## Your first Python query
 
@@ -76,7 +76,7 @@ export VIGO_RUNTIME=/path/to/headless-runtime
 
 ### 2. Prepare the City
 
-Use a complete City built with Engine 0.5. Keep the entire directory, including its timetable and street files. If starting with raw inputs, follow the [Engine Boston tutorial](https://github.com/hytangs/vigo/blob/main/docs/guide.md#vigo-cli-quickstart), or build from local files in Python:
+Use a complete City built with Engine 0.5. Keep the entire directory, including its timetable and street files. If starting with raw inputs, follow the [Engine Boston tutorial](https://github.com/hytangs/vigo/blob/main/docs/guide.md#quickstart), or build from local files in Python:
 
 ```python
 import vigo
@@ -246,7 +246,7 @@ waypoints is currently unsupported.
 
 ## Workflows
 
-These examples use the public `vigo` package and a complete City at `./boston`. Replace the paths, points, and service date with values covered by your data. They describe scheduled model outputs, not observed journeys. See the [reference](reference.md) for all arguments and the [notebooks](../notebooks/README.md) for interactive versions.
+These examples use the public `vigo` package and a complete City at `./boston`. Replace the paths, points, and service date with values covered by your data. They describe scheduled model outputs, not observed journeys. See the [reference](reference.md) for all arguments and the [walkthrough notebook](../examples/walkthrough.ipynb) for an interactive, end-to-end version.
 
 ### Find a journey
 
