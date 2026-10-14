@@ -5,6 +5,8 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
+import { checkDirectory } from './helpers/check-directory.mjs'
+
 const root = path.resolve(import.meta.dirname, '..')
 const directory = await checkDirectory(root, 'city-intake-runtime-')
 const fixture = `import React from 'react';
@@ -12,7 +14,6 @@ import {createRoot} from 'react-dom/client';
 import {flushSync} from 'react-dom';
 import {EmptyOperationsStart} from '/src/components/studio/CitySources.tsx';
 import '/src/App.css'; import '/src/index.css';
-import { checkDirectory } from './helpers/check-directory.mjs'
 let connected=0;
 const noop=()=>{};
 flushSync(()=>createRoot(document.getElementById('root')).render(React.createElement('main',{className:'app-shell appearance-light project-empty page-project',style:{height:'100vh',display:'grid'}},React.createElement(EmptyOperationsStart,{

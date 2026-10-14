@@ -5,6 +5,8 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
+import { checkDirectory } from './helpers/check-directory.mjs'
+
 const root = path.resolve(import.meta.dirname, '..')
 const directory = await checkDirectory(root, 'navigation-runtime-')
 const fixture = `import React,{useState} from 'react';
@@ -13,7 +15,6 @@ import {flushSync} from 'react-dom';
 import {PrimaryNav} from '/src/components/PrimaryNav.tsx';
 import '/src/App.css';
 import '/src/index.css';
-import { checkDirectory } from './helpers/check-directory.mjs'
 function Fixture(){
  const [view,setView]=useState('agency');
  return React.createElement('main',{className:'app-shell page-project view-'+view},

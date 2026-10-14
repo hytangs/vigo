@@ -4,12 +4,13 @@ import electronPath from 'electron'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { checkDirectory } from './helpers/check-directory.mjs'
+
 const root = path.resolve(import.meta.dirname, '..')
 const directory = await checkDirectory(root, 'journey-options-')
 const fixture = `import React,{useState} from 'react';import {createRoot} from 'react-dom/client';import {flushSync} from 'react-dom';
 import {buildSearchResults} from '/src/features/search/searchModel.ts';
 import {PathfinderRouteList,RoutingDetailPanel} from '/src/components/PathfinderPanel.tsx';import '/src/App.css';import '/src/index.css';
-import { checkDirectory } from './helpers/check-directory.mjs'
 const base={status:'ready',travelMode:'transit',timePreference:'depart',departMinutes:480,maxWalkKm:1.2,origin:{label:'Starting point'},destination:{label:'Destination'},waitMinutes:1,rideMinutes:24,diagnostics:{routingDataMode:'scheduled',serviceDate:'2026-10-07',departureWindow:{centerMinutes:480}}};
 const plans=[{...base,id:'early',arriveMinutes:530,durationMinutes:50,transfers:1,walkMinutes:25,recommended:true,choiceLabel:'Earliest arrival'},
 {...base,id:'direct',arriveMinutes:536,durationMinutes:56,transfers:0,walkMinutes:17,choiceLabel:'Fewest transfers'},
