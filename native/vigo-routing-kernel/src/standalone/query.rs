@@ -224,7 +224,7 @@ impl City {
         Ok(result)
     }
     fn shift_early_arrival(&self, query: &mut Value) -> Result<Option<String>> {
-        use chrono::{NaiveDate, TimeZone};
+        use chrono::NaiveDate;
         let opt = Options::parse(query)?;
         if !opt.arrive {
             return Ok(None);
@@ -257,14 +257,7 @@ impl City {
             .and_then(Value::as_str)
             .unwrap_or("UTC")
             .parse()?;
-        let epoch = |day: NaiveDate| -> Result<i64> {
-            Ok(zone
-                .from_local_datetime(&day.and_hms_opt(12, 0, 0).unwrap())
-                .single()
-                .ok_or("Ambiguous service noon")?
-                .timestamp()
-                - 43200)
-        };
+        let epoch = |day: NaiveDate| super::calendar::service_epoch(zone, day);
         let initial = epoch(date)?;
         let mut time = opt.time;
         while time < horizon + reserve + window {

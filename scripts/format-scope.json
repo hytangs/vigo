@@ -1,0 +1,7 @@
+[
+  "src/server/local-http-security.mjs",
+  "src/server/routing-data-mode.mjs",
+  "src/server/native-timing.mjs",
+  "test/helpers/published-050.mjs",
+  "scripts/run-checks.mjs"
+]

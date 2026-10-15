@@ -203,7 +203,99 @@ try {
   assert.equal(formatted.status, 200)
   assert.equal((await formatted.json()).trace.arrivalMinutes, 510); checks++
   await status(prefix + 'Content-Length: 8388608\r\nExpect: 100-continue\r\n\r\n', 100)
-  console.log(`Standalone HTTP checks passed (${checks} checks: framing, slow bodies, bounds, worker termination and recovery).`)
+  // With a token, Host and Origin are not policed; the bearer token is the boundary.
+  await status(`GET /v1/capabilities HTTP/1.1\r\nHost: rebound.example\r\nOrigin: http://rebound.example\r\nAuthorization: Bearer ${token}\r\n\r\n`, 200)
+  await status('GET /v1/capabilities HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n', 401)
+
+  // Without a token, a loopback service accepts only requests addressed to a
+  // loopback name and browser requests from its own origin (DNS rebinding and
+  // cross-site requests). Health and the static guide stay public.
+  server.kill(); await once(server, 'exit')
+  const serverStderr = () => { let text = ''; server.stderr.on('data', data => { text += data }); return () => text }
+  server = spawn(binary, ['serve', '--city', city, '--port', '0', '--request-timeout-ms', '3000'], { env: { PATH: '', RAYON_NUM_THREADS: '2' } })
+  port = await listeningPort()
+  const local = `127.0.0.1:${port}`
+  const get = (target, extra = '') => `GET ${target} HTTP/1.1\r\nHost: ${local}\r\n${extra}\r\n`
+  const forbidden = await status(`GET /v1/capabilities HTTP/1.1\r\nHost: rebound.example:${port}\r\n\r\n`, 403)
+  assert.equal(JSON.parse(forbidden.split('\r\n\r\n')[1]).error.code, 'forbidden')
+  await status(`GET /v1/capabilities HTTP/1.1\r\nHost: 127.0.0.2:${port}\r\n\r\n`, 403)
+  await status('GET /v1/capabilities HTTP/1.0\r\n\r\n', 403)
+  await status(get('/v1/capabilities'), 200)
+  await status(`GET /v1/capabilities HTTP/1.1\r\nHost: localhost:${port}\r\n\r\n`, 200)
+  await status(`GET /v1/capabilities HTTP/1.1\r\nHost: [::1]:${port}\r\n\r\n`, 200)
+  await status(get('/v1/capabilities', `Origin: http://${local}\r\n`), 200)
+  await status(get('/v1/capabilities', 'Origin: http://rebound.example\r\n'), 403)
+  await status(get('/v1/capabilities', 'Origin: null\r\n'), 403)
+  await status(get('/v1/capabilities', `Origin: http://localhost:${port}\r\n`), 403)
+  await status(get('/v1/capabilities', `Origin: http://${local}\r\nOrigin: http://${local}\r\n`), 400)
+  await status(`POST /v1/route HTTP/1.1\r\nHost: ${local}\r\nOrigin: http://rebound.example\r\nContent-Type: text/plain\r\nContent-Length: ${body.length}\r\n\r\n${body}`, 403)
+  await status(`GET /healthz HTTP/1.1\r\nHost: rebound.example\r\nOrigin: http://rebound.example\r\n\r\n`, 200)
+  await status(`GET /readyz HTTP/1.1\r\nHost: rebound.example\r\n\r\n`, 200)
+  const localRoute = await fetch(`http://${local}/v1/route`, { method: 'POST', headers: { 'content-type': 'application/json' }, body })
+  assert.equal(localRoute.status, 200); await localRoute.arrayBuffer(); checks++
+
+  if (process.platform !== 'win32') {
+    // A failed worker start keeps readiness at 503, is logged once per failure
+    // streak and is retried with backoff until the City returns.
+    const stderrText = serverStderr()
+    const moved = `${city}-moved`
+    fs.renameSync(city, moved)
+    const idle = Number(execFileSync('pgrep', ['-P', String(server.pid)], { encoding: 'utf8' }).trim())
+    process.kill(idle, 'SIGKILL')
+    const failingBy = Date.now() + 5000
+    while ((await fetch(`http://${local}/readyz`)).status !== 503) {
+      assert(Date.now() < failingBy, 'Readiness must report a missing worker'); await new Promise(resolve => setTimeout(resolve, 25))
+    }
+    await new Promise(resolve => setTimeout(resolve, 1500))
+    assert.equal((await fetch(`http://${local}/readyz`)).status, 503); checks++
+    const unavailableStarted = Date.now()
+    const unavailable = await fetch(`http://${local}/v1/route`, { method: 'POST', headers: { 'content-type': 'application/json' }, body })
+    assert.equal(unavailable.status, 503); await unavailable.arrayBuffer(); checks++
+    assert(Date.now() - unavailableStarted < 1000, 'Recovering workers must reject new work promptly')
+    assert.equal(stderrText().match(/City worker failed to start/g)?.length, 1, stderrText()); checks++
+    fs.renameSync(moved, city)
+    const restoredBy = Date.now() + 20000
+    while ((await fetch(`http://${local}/readyz`)).status !== 200) {
+      assert(Date.now() < restoredBy, 'Worker must recover after its City returns'); await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    assert.match(stderrText(), /City worker recovered after \d+ failed starts/); checks++
+    const restoredRoute = await fetch(`http://${local}/v1/route`, { method: 'POST', headers: { 'content-type': 'application/json' }, body })
+    assert.equal(restoredRoute.status, 200); await restoredRoute.arrayBuffer(); checks++
+
+    // Descriptor exhaustion must fail individual accepts, not stop the
+    // service. Hold idle connections past a low descriptor limit, then release.
+    server.kill(); await once(server, 'exit')
+    server = spawn('/bin/sh', ['-c', 'ulimit -n 48 && exec "$0" "$@"', binary, 'serve', '--city', city, '--port', '0', '--request-timeout-ms', '60000', '--max-connections', '128'],
+      { env: { PATH: '', RAYON_NUM_THREADS: '2' } })
+    const exhaustedStderr = serverStderr()
+    port = await listeningPort()
+    const idleSockets = []
+    try {
+      for (let n = 0; n < 64; n++) {
+        const socket = net.connect(port, '127.0.0.1')
+        socket.on('error', () => {})
+        idleSockets.push(socket)
+        await once(socket, 'connect')
+        socket.write('GET /healthz HTTP/1.1\r\n')
+      }
+      const exhaustedBy = Date.now() + 5000
+      while (!/HTTP accept failed/.test(exhaustedStderr())) {
+        assert(Date.now() < exhaustedBy, `Expected an accept failure: ${exhaustedStderr()}`); await new Promise(resolve => setTimeout(resolve, 25))
+      }
+      assert.equal(server.exitCode, null, 'Accept failures must not stop the server'); checks++
+    } finally {
+      for (const socket of idleSockets) socket.destroy()
+    }
+    const acceptRecoveredBy = Date.now() + 5000
+    while (true) {
+      const reply = await fetch(`http://127.0.0.1:${port}/healthz`).then(r => r.status, () => 0)
+      if (reply === 200) break
+      assert(Date.now() < acceptRecoveredBy, 'Service must accept again after descriptors free'); await new Promise(resolve => setTimeout(resolve, 25))
+    }
+    assert.equal(exhaustedStderr().match(/HTTP accept failed/g)?.length, 1, exhaustedStderr()); checks++
+    assert.equal(server.exitCode, null); checks++
+  }
+  console.log(`Standalone HTTP checks passed (${checks} checks: framing, slow bodies, bounds, local Host/Origin policy, accept failures, worker termination and recovery).`)
 } finally {
   if (server && server.exitCode === null) { server.kill(); await once(server, 'exit') }
   fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })

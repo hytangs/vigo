@@ -1332,14 +1332,14 @@ Start the HTTP service with `vigo serve` and send query JSON to the endpoints be
 | `GET /openapi.json`, `/docs/openapi.json` | OpenAPI specification | Public static content |
 | `GET /healthz` | 200 liveness, status ready/recovering | Public, no City data |
 | `GET /readyz` | 200 ready, 503 while recovering | Public, no City data |
-| `GET /v1/capabilities` | Runtime features and compatibility | Bearer when configured |
-| `GET /v1/info` | Loaded City summary | Bearer when configured |
-| `POST /v1/route` | Route request/result | Bearer when configured |
-| `POST /v1/matrix` | Matrix request/result | Bearer when configured |
-| `POST /v1/reach`, `/v1/isochrone` | Reach request/result | Bearer when configured |
-| `POST /v1/compare` | Saved Reach comparison | Bearer when configured |
-| `POST /v1/native` | Typed native operation | Bearer when configured |
-| `DELETE /v1/requests/{id}` | Cancel a named request | Bearer when configured |
+| `GET /v1/capabilities` | Runtime features and compatibility | Bearer when configured; otherwise local Host/Origin |
+| `GET /v1/info` | Loaded City summary | Bearer when configured; otherwise local Host/Origin |
+| `POST /v1/route` | Route request/result | Bearer when configured; otherwise local Host/Origin |
+| `POST /v1/matrix` | Matrix request/result | Bearer when configured; otherwise local Host/Origin |
+| `POST /v1/reach`, `/v1/isochrone` | Reach request/result | Bearer when configured; otherwise local Host/Origin |
+| `POST /v1/compare` | Saved Reach comparison | Bearer when configured; otherwise local Host/Origin |
+| `POST /v1/native` | Typed native operation | Bearer when configured; otherwise local Host/Origin |
+| `DELETE /v1/requests/{id}` | Cancel a named request | Bearer when configured; otherwise local Host/Origin |
 
 The path selects the command; a body `kind` is overwritten accordingly. Send JSON with `Content-Type: application/json`. Content-Length and bounded chunked HTTP/1.1 bodies are supported. Duplicate/conflicting length headers are rejected. Connections close after a response; there is no keep-alive, WebSocket, HTTP/2, gzip, streaming response, or browser CORS policy in the service. Other methods/paths return 404 after authentication. A same-origin application or reverse proxy can provide a browser integration policy. Every response carries a restrictive `Content-Security-Policy`; it allows the embedded guide's API console to call this service's own endpoints (`connect-src 'self'`) and nothing else.
 
@@ -1374,6 +1374,7 @@ A named HTTP request (`id` containing up to 128 letters, digits, hyphens, unders
 | 200 | Computed result, including blocked Route; or successful metadata/documentation |
 | 400 | Invalid query, JSON, or HTTP framing |
 | 401 | Missing/incorrect bearer token |
+| 403 | Without a token: request not addressed to a loopback name, or a browser `Origin` other than the service's own |
 | 404 | Unsupported path or method |
 | 408 | Request read deadline |
 | 409 | A request with the same `id` is still active |
@@ -1384,7 +1385,7 @@ A named HTTP request (`id` containing up to 128 letters, digits, hyphens, unders
 | 503 | Connection/queue/buffer capacity or worker unavailable; readiness also uses this |
 | 504 | Query deadline, worker failure, or response-channel failure |
 
-The service logs its listening address to stderr. Health routes avoid the computation queue but still share the connection limit. Use bounded retries with backoff for 503; for 504 first reduce the workload or inspect worker logs. Do not treat a transport error as an unreachable trip.
+The service logs its listening address to stderr. Health routes avoid the computation queue but still share the connection limit. A failed accept or connection setup, such as descriptor exhaustion, drops that connection and the service keeps listening; accept failures pause briefly before the next attempt. If a replacement City worker fails to start, the first failure of each streak is logged with its reason, `/readyz` returns 503 and queries return 503 while restarts back off exponentially from 250 ms to at most 10 seconds. Use bounded retries with backoff for 503; for 504 first reduce the workload or inspect worker logs. Do not treat a transport error as an unreachable trip.
 
 ## 16. Authentication and generic deployment
 
@@ -1405,7 +1406,7 @@ The environment variables for the Rust runtime are:
 | `VIGO_ENDPOINT_CACHE_MAX_BYTES` | Shared endpoint-cache budget |
 | `VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES` | Shared geometry-cache budget |
 
-A non-loopback bind requires a token at least 16 characters long. Set it through your deployment secret mechanism and send `Authorization: Bearer ...`. The static manual/specification and health endpoints remain public; they contain no query or City data. The token is not a CLI argument and the service does not persist tokens or query bodies.
+A non-loopback bind requires a token at least 16 characters long. Set it through your deployment secret mechanism and send `Authorization: Bearer ...`. Without a token, a loopback service accepts data requests only when `Host` is `127.0.0.1`, `localhost` or `[::1]` (with an optional port) and any `Origin` header is that same `http://` origin; other requests return 403 `forbidden`. This blocks DNS-rebinding and cross-site browser requests, as in Studio. Clients that send a different `Host`, such as a local reverse proxy, should set `VIGO_API_TOKEN`. The static manual/specification and health endpoints remain public; they contain no query or City data. The token is not a CLI argument and the service does not persist tokens or query bodies.
 
 ```sh
 export VIGO_CITY=/srv/vigo/city

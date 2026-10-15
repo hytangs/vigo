@@ -14,7 +14,11 @@ const args = process.argv.slice(2)
 assert(args.length === 2 && args[0] === '--image', 'Usage: node test/check-deployment.mjs --image VERIFIED_IMAGE')
 const image = args[1]
 const toolchain = fs.readFileSync(path.join(root, 'rust-toolchain.toml'), 'utf8').match(/channel\s*=\s*"([^"]+)"/)[1]
-assert(fs.readFileSync(path.join(root, 'deploy/Dockerfile'), 'utf8').includes(`FROM rust:${toolchain}-slim-bookworm AS build`), 'The image must use the pinned Rust compiler')
+const dockerfile = fs.readFileSync(path.join(root, 'deploy/Dockerfile'), 'utf8')
+assert(dockerfile.includes(`FROM rust:${toolchain}-slim-bookworm@sha256:`), 'The image must use the pinned Rust compiler')
+const baseImages = dockerfile.match(/^FROM .+$/gm) ?? []
+assert.equal(baseImages.length, 2)
+assert(baseImages.every(line => /@sha256:[a-f0-9]{64}(?: AS \w+)?$/.test(line)), 'Both base images must be pinned by manifest digest')
 fs.mkdirSync(path.join(root, 'temp'), { recursive: true })
 const directory = fs.mkdtempSync(path.join(root, 'temp/deployment-'))
 const project = `vigo-check-${process.pid}-${crypto.randomBytes(3).toString('hex')}`

@@ -61,7 +61,7 @@ jobs:
       - name: Install test tools
         run: python -m pip install mypy pytest ruff tqdm
       - name: Check code
-        run: python -m ruff check vigo tests scripts
+        run: python -m ruff check vigo tests scripts examples
       - name: Check types
         run: python -m mypy vigo
       - name: Run tests

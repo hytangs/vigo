@@ -7,7 +7,9 @@ export class CliUsageError extends Error {
   }
 }
 
+/** @param {Map<string, string[]>} args @param {string} name @param {string} [fallback] */
 export const value = (args, name, fallback = '') => args.get(name)?.at(-1) ?? fallback
+/** @param {Map<string, string[]>} args @param {string} name */
 export const values = (args, name) => args.get(name) ?? []
 export const enabled = (args, name) => ['1', 'true', 'yes'].includes(value(args, name).toLowerCase())
 

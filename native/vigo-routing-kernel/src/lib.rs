@@ -1,5 +1,9 @@
 // Shared kernels convert Vec buffers into Node typed arrays only in addon builds.
 #![cfg_attr(not(feature = "node"), allow(clippy::useless_conversion))]
+#[cfg(all(feature = "node", feature = "standalone"))]
+compile_error!(
+    "The node addon and standalone executable use different buffer representations. Build standalone with --no-default-features --features standalone."
+);
 mod edge_attachment;
 pub(crate) mod fares;
 pub(crate) mod route_alternatives;
@@ -8668,5 +8672,5 @@ pub fn render_public_text(input: String) -> Result<Option<String>> {
 #[path = "../vendor/cch/src/paged.rs"]
 mod paged_scratch_tests;
 
-#[cfg(feature = "standalone")]
+#[cfg(all(feature = "standalone", not(feature = "node")))]
 mod endpoint_batch;

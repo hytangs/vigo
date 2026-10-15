@@ -1,28 +1,35 @@
+// @ts-check
+/** @param {unknown} value */
 function normalizedHostname(value) {
-  const hostname = String(value ?? '').trim().toLowerCase().replace(/\.$/, '')
+  const hostname = String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, '')
   return hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname
 }
 
+/** @param {unknown} value */
 function isLoopbackHostname(value) {
   const hostname = normalizedHostname(value)
   return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1'
 }
 
+/** @param {unknown} value */
 export function isLoopbackRemoteAddress(value) {
   const address = normalizedHostname(value)
-  return address === '127.0.0.1'
-    || address === '::1'
-    || address === '::ffff:127.0.0.1'
+  return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1'
 }
 
+/** @param {{host: string, transport: string, unsafeNonLoopback?: boolean}} options */
 export function assertLocalBindHost({ host, transport, unsafeNonLoopback = false }) {
   if (transport !== 'tcp' || isLoopbackHostname(host) || unsafeNonLoopback) return
   throw new Error(
-    `Refusing non-loopback VIGO_HOST "${host}". The local API has no remote-service authentication. `
-    + 'Set VIGO_UNSAFE_ALLOW_NON_LOOPBACK=1 only for an isolated host where remote socket access remains blocked.',
+    `Refusing non-loopback VIGO_HOST "${host}". The local API has no remote-service authentication. ` +
+      'Set VIGO_UNSAFE_ALLOW_NON_LOOPBACK=1 only for an isolated host where remote socket access remains blocked.',
   )
 }
 
+/** @param {import("node:http").IncomingMessage} request */
 function requestHostUrl(request) {
   const hostHeader = String(request.headers.host ?? '').trim()
   if (!hostHeader) return null
@@ -34,6 +41,7 @@ function requestHostUrl(request) {
   }
 }
 
+/** @param {import("node:http").IncomingMessage} request @param {{staticRoot?: string}} [options] */
 export function localRequestAccess(request, { staticRoot = '' } = {}) {
   if (!isLoopbackRemoteAddress(request.socket?.remoteAddress)) {
     return { allowed: false, error: 'VIGO only accepts connections from the local machine.' }
@@ -49,25 +57,38 @@ export function localRequestAccess(request, { staticRoot = '' } = {}) {
 
   try {
     const origin = new URL(originValue)
-    const originOnly = origin.pathname === '/' && !origin.search && !origin.hash && !origin.username && !origin.password
-    const viteDevOrigin = !staticRoot
-      && ['127.0.0.1', 'localhost'].includes(normalizedHostname(origin.hostname))
-      && origin.port === '5178'
+    const originOnly =
+      origin.pathname === '/' &&
+      !origin.search &&
+      !origin.hash &&
+      !origin.username &&
+      !origin.password
+    const viteDevOrigin =
+      !staticRoot &&
+      ['127.0.0.1', 'localhost'].includes(normalizedHostname(origin.hostname)) &&
+      origin.port === '5178'
     const sameLocalOrigin = origin.origin === requestHost.origin
     if (
-      !originOnly
-      || origin.protocol !== 'http:'
-      || !isLoopbackHostname(origin.hostname)
-      || (!sameLocalOrigin && !viteDevOrigin)
+      !originOnly ||
+      origin.protocol !== 'http:' ||
+      !isLoopbackHostname(origin.hostname) ||
+      (!sameLocalOrigin && !viteDevOrigin)
     ) {
-      return { allowed: false, error: 'VIGO only accepts browser requests from the same local origin.' }
+      return {
+        allowed: false,
+        error: 'VIGO only accepts browser requests from the same local origin.',
+      }
     }
     return { allowed: true, origin: origin.origin }
   } catch {
-    return { allowed: false, error: 'VIGO only accepts browser requests from the same local origin.' }
+    return {
+      allowed: false,
+      error: 'VIGO only accepts browser requests from the same local origin.',
+    }
   }
 }
 
+/** @param {import("node:http").ServerResponse} response @param {string} origin */
 export function applyLocalCors(response, origin) {
   if (!origin) return
   response.setHeader('Access-Control-Allow-Origin', origin)

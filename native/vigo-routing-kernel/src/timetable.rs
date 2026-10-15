@@ -1,7 +1,7 @@
 #[cfg(not(feature = "node"))]
 mod columns;
 mod source;
-#[cfg(feature = "standalone")]
+#[cfg(all(feature = "standalone", not(feature = "node")))]
 pub(crate) use columns::TimetableBlockPool;
 #[cfg(not(feature = "node"))]
 type SourceU32 = columns::Column<u32>;
@@ -3606,7 +3606,7 @@ impl TimetableQueryWorkspace {
                 .as_ref()
                 .map_or(0, journeys::JourneyWorkspace::byte_length)
     }
-    #[cfg(feature = "standalone")]
+    #[cfg(all(feature = "standalone", not(feature = "node")))]
     fn rebind(&mut self, stops: usize, runs: usize, trips: usize) {
         // Epochs must invalidate all labels, even when two schedules have the
         // same dimensions. Scalar continuation belongs to one request only.
@@ -3658,7 +3658,7 @@ impl Default for TimetableQueryWorkspace {
     }
 }
 impl TimetableKernel {
-    #[cfg(feature = "standalone")]
+    #[cfg(all(feature = "standalone", not(feature = "node")))]
     pub(crate) fn share_source_columns(&mut self, pool: &mut TimetableBlockPool) -> bool {
         let mut changed = false;
         changed |= pool.share_u32(&mut self.departure_seconds);
@@ -3674,7 +3674,7 @@ impl TimetableKernel {
         changed |= pool.share_u8(&mut self.can_alight);
         changed
     }
-    #[cfg(feature = "standalone")]
+    #[cfg(all(feature = "standalone", not(feature = "node")))]
     pub(crate) fn source_block_references(&self) -> usize {
         self.departure_seconds.block_references()
             + self.arrival_seconds.block_references()
@@ -3688,7 +3688,7 @@ impl TimetableKernel {
             + self.can_board.block_references()
             + self.can_alight.block_references()
     }
-    #[cfg(feature = "standalone")]
+    #[cfg(all(feature = "standalone", not(feature = "node")))]
     pub(crate) fn owned_source_bytes(&self) -> usize {
         self.departure_seconds.allocated_bytes()
             + self.arrival_seconds.allocated_bytes()
@@ -3704,11 +3704,11 @@ impl TimetableKernel {
             + self.forbidden_same_stop.capacity()
             + self.same_stop_transfer_minimum.capacity() * 4
     }
-    #[cfg(feature = "standalone")]
+    #[cfg(all(feature = "standalone", not(feature = "node")))]
     pub(crate) fn take_query_workspace(&mut self) -> TimetableQueryWorkspace {
         std::mem::take(&mut self.query)
     }
-    #[cfg(feature = "standalone")]
+    #[cfg(all(feature = "standalone", not(feature = "node")))]
     pub(crate) fn retained_schedule_bytes(&self) -> usize {
         self.owned_source_bytes()
             + self.diagnostics().native_index_bytes as usize
@@ -3724,7 +3724,7 @@ impl TimetableKernel {
             + self.can_board.shared_retained_bytes()
             + self.can_alight.shared_retained_bytes()
     }
-    #[cfg(feature = "standalone")]
+    #[cfg(all(feature = "standalone", not(feature = "node")))]
     pub(crate) fn install_query_workspace(&mut self, mut query: TimetableQueryWorkspace) {
         query.rebind(
             self.stop_count,

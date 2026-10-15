@@ -17,7 +17,7 @@ Run these commands from `python/`. Python development and source-wheel builds re
 ```bash
 python -m pip install -e ".[progress]" pytest ruff mypy
 python -m pytest -q
-python -m ruff check vigo tests scripts
+python -m ruff check vigo tests scripts examples
 python -m mypy vigo
 python scripts/build-docs.py --check
 python scripts/check-notebooks.py

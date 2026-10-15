@@ -96,6 +96,16 @@
               }
             }
           },
+          "403": {
+            "description": "Tokenless loopback request with a non-local Host or Origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "408": {
             "description": "Request read deadline",
             "content": {
@@ -246,6 +256,16 @@
           },
           "401": {
             "description": "Bearer authentication failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tokenless loopback request with a non-local Host or Origin",
             "content": {
               "application/json": {
                 "schema": {
@@ -412,6 +432,16 @@
               }
             }
           },
+          "403": {
+            "description": "Tokenless loopback request with a non-local Host or Origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "408": {
             "description": "Request read deadline",
             "content": {
@@ -562,6 +592,16 @@
           },
           "401": {
             "description": "Bearer authentication failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tokenless loopback request with a non-local Host or Origin",
             "content": {
               "application/json": {
                 "schema": {
@@ -728,6 +768,16 @@
               }
             }
           },
+          "403": {
+            "description": "Tokenless loopback request with a non-local Host or Origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "408": {
             "description": "Request read deadline",
             "content": {
@@ -848,6 +898,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Tokenless loopback request with a non-local Host or Origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -919,6 +979,16 @@
           },
           "401": {
             "description": "Bearer authentication failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tokenless loopback request with a non-local Host or Origin",
             "content": {
               "application/json": {
                 "schema": {
@@ -1034,6 +1104,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Tokenless loopback request with a non-local Host or Origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -1055,6 +1135,16 @@
           },
           "401": {
             "description": "Bearer authentication failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tokenless loopback request with a non-local Host or Origin",
             "content": {
               "application/json": {
                 "schema": {

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Keep this compiler pin equal to rust-toolchain.toml; check:deployment verifies it.
-FROM rust:1.97.1-slim-bookworm AS build
+FROM rust:1.97.1-slim-bookworm@sha256:2775a09d208ff0d7c1f50490c45b62db929e87ba1dcbc3f2132ac71a704bcdd3 AS build
 RUN apt-get update && apt-get install -y --no-install-recommends python3 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /source
@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && python3 scripts/package-standalone.py --notices-only /THIRD-PARTY-NOTICES.txt
 
 # glibc supports returning freed query/preparation memory to the operating system.
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 COPY --from=build /vigo /vigo
 COPY --from=build /THIRD-PARTY-NOTICES.txt /THIRD-PARTY-NOTICES.txt
 COPY LICENSE NOTICE /

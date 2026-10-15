@@ -28,11 +28,13 @@ field meanings, units and time conventions; additions must remain optional.
 
 Both execute transit, arrive-by, walking, matrix and reach queries. The test is
 also part of `check:standalone`, used by the engine and release CI matrices.
-With `GH_TOKEN` or `GITHUB_TOKEN` (`actions: read`), it retrieves the original
-archive-only CI build (run `37885649818`) and verifies the pinned archive SHA-256.
-Without a token, it checks the release download against the same hash. CI artifacts
-have limited retention; if the original artifact is unavailable, the gate accepts `VIGO_050_REFERENCE_BINARY` pointing to an extracted package whose
-manifest, source identity and executable hash are verified.
+The original archive-only CI build (run `37885649818`) is preserved in the
+`v0.5.0` release under `*-baseline-c8da84fff781.tar.gz` asset names. Downloads
+require no GitHub token and do not expire with Actions artifact retention.
+Every platform retains its original pinned SHA-256; the later, differently
+packaged 0.5.0 downloads are not interchangeable with these baseline assets.
+For offline checks, `VIGO_050_REFERENCE_BINARY` may point to an extracted
+package whose manifest, source identity and executable hash are verified.
 
 The small synthetic GTFS/OSM and prepared archive live in
 `test/fixtures/format-0.5.0`. Never regenerate that archive, change its pinned

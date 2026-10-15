@@ -362,6 +362,75 @@ fn next_job(pending: &mut VecDeque<Job>, short_streak: &mut usize, short_time: D
     };
     job
 }
+// Consecutive-failure pacing: each failure doubles the wait up to a cap, and
+// callers report only the first failure of a streak so a persistent fault
+// cannot flood stderr.
+struct Backoff {
+    base: Duration,
+    cap: Duration,
+    failures: u32,
+    retry_at: Option<Instant>,
+}
+impl Backoff {
+    fn new(base: Duration, cap: Duration) -> Self {
+        Self {
+            base,
+            cap,
+            failures: 0,
+            retry_at: None,
+        }
+    }
+    fn ready(&self, now: Instant) -> bool {
+        self.retry_at.is_none_or(|at| now >= at)
+    }
+    fn fail(&mut self, now: Instant) -> Duration {
+        let delay = self
+            .base
+            .saturating_mul(1 << self.failures.min(16))
+            .min(self.cap);
+        self.failures = self.failures.saturating_add(1);
+        self.retry_at = Some(now + delay);
+        delay
+    }
+    fn succeed(&mut self) -> u32 {
+        self.retry_at = None;
+        std::mem::take(&mut self.failures)
+    }
+}
+const WORKER_RETRY_BASE: Duration = Duration::from_millis(250);
+const WORKER_RETRY_CAP: Duration = Duration::from_secs(10);
+// Replace a missing worker unless a failed start is still backing off.
+// Readiness stays false until a replacement reports ready.
+fn restart(
+    worker: &mut Option<Worker>,
+    backoff: &mut Backoff,
+    city: &str,
+    timeout: Duration,
+    ready: &AtomicBool,
+) {
+    if worker.is_none() && backoff.ready(Instant::now()) {
+        match Worker::open(city, timeout) {
+            Ok((replacement, _)) => {
+                let failures = backoff.succeed();
+                if failures > 0 {
+                    eprintln!("VIGO City worker recovered after {failures} failed starts");
+                }
+                *worker = Some(replacement);
+            }
+            Err(e) => {
+                let delay = backoff.fail(Instant::now());
+                if backoff.failures == 1 {
+                    eprintln!(
+                        "VIGO City worker failed to start: {e}; retrying with backoff (next in {} ms, at most {} s)",
+                        delay.as_millis(),
+                        backoff.cap.as_secs()
+                    );
+                }
+            }
+        }
+    }
+    ready.store(worker.is_some(), Ordering::Release);
+}
 struct State {
     token: Option<String>,
     maximum: usize,
@@ -440,6 +509,7 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
     let city = city.to_owned();
     thread::spawn(move || {
         let mut worker = Some(worker);
+        let mut backoff = Backoff::new(WORKER_RETRY_BASE, WORKER_RETRY_CAP);
         let mut pending = VecDeque::new();
         let mut short_streak = 0;
         let mut short_time = Duration::ZERO;
@@ -457,8 +527,13 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                             drop(worker.take());
                         }
                         if worker.is_none() {
-                            worker = Worker::open(&city, startup_timeout).ok().map(|v| v.0);
-                            supervisor.ready.store(worker.is_some(), Ordering::Release);
+                            restart(
+                                &mut worker,
+                                &mut backoff,
+                                &city,
+                                startup_timeout,
+                                &supervisor.ready,
+                            );
                         }
                         continue;
                     }
@@ -481,8 +556,13 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                 continue;
             }
             if worker.is_none() {
-                worker = Worker::open(&city, startup_timeout).ok().map(|v| v.0);
-                supervisor.ready.store(worker.is_some(), Ordering::Release);
+                restart(
+                    &mut worker,
+                    &mut backoff,
+                    &city,
+                    startup_timeout,
+                    &supervisor.ready,
+                );
             }
             let queue_us = job.queued_at.elapsed().as_micros() as u64;
             let compute_started = Instant::now();
@@ -533,8 +613,13 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
             response.1.queue_us = Some(queue_us);
             let _ = job.response.send(response);
             if worker.is_none() {
-                worker = Worker::open(&city, startup_timeout).ok().map(|v| v.0);
-                supervisor.ready.store(worker.is_some(), Ordering::Release);
+                restart(
+                    &mut worker,
+                    &mut backoff,
+                    &city,
+                    startup_timeout,
+                    &supervisor.ready,
+                );
             }
         }
     });
@@ -545,29 +630,58 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
         info["name"]
     );
     let active = Arc::new(AtomicUsize::new(0));
+    // Accept and per-socket failures (EMFILE, ECONNABORTED, a reset before
+    // setup) affect one connection, not the service. Pause after accept
+    // errors so descriptor exhaustion cannot spin, and log once per streak.
+    let mut accept_errors = Backoff::new(Duration::from_millis(10), Duration::from_secs(1));
+    let mut socket_errors = Backoff::new(Duration::ZERO, Duration::ZERO);
     for stream in server.incoming() {
-        let mut stream = stream?;
-        stream.set_write_timeout(Some(io_timeout))?;
+        let mut stream = match stream {
+            Ok(stream) => {
+                let failures = accept_errors.succeed();
+                if failures > 1 {
+                    eprintln!("VIGO HTTP accept recovered after {failures} errors");
+                }
+                stream
+            }
+            Err(e) => {
+                let delay = accept_errors.fail(Instant::now());
+                if accept_errors.failures == 1 {
+                    eprintln!("VIGO HTTP accept failed: {e}; retrying");
+                }
+                thread::sleep(delay);
+                continue;
+            }
+        };
+        if let Err(e) = stream.set_write_timeout(Some(io_timeout)) {
+            socket_errors.fail(Instant::now());
+            if socket_errors.failures == 1 {
+                eprintln!("VIGO HTTP connection setup failed: {e}; dropping connection");
+            }
+            continue;
+        }
         if active
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
                 (n < connections).then_some(n + 1)
             })
             .is_err()
         {
-            stream.set_write_timeout(Some(Duration::from_millis(50)))?;
+            let _ = stream.set_write_timeout(Some(Duration::from_millis(50)));
             let _ = respond(&mut stream, 503, error("Connection capacity reached"));
             continue;
         }
-        let active = active.clone();
-        let state = state.clone();
-        thread::spawn(move || {
-            struct Lease(Arc<AtomicUsize>);
-            impl Drop for Lease {
-                fn drop(&mut self) {
-                    self.0.fetch_sub(1, Ordering::AcqRel);
-                }
+        struct Lease(Arc<AtomicUsize>);
+        impl Drop for Lease {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::AcqRel);
             }
-            let _lease = Lease(active);
+        }
+        // The lease moves into the handler, so a refused thread spawn drops
+        // it with the connection and returns the slot.
+        let lease = Lease(active.clone());
+        let state = state.clone();
+        let spawned = thread::Builder::new().spawn(move || {
+            let _lease = lease;
             let result = handle(&mut stream, &state);
             let response = result.unwrap_or_else(|e| {
                 Response::Json((
@@ -589,6 +703,19 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                 }
             };
         });
+        match spawned {
+            Ok(_) => {
+                socket_errors.succeed();
+            }
+            Err(e) => {
+                socket_errors.fail(Instant::now());
+                if socket_errors.failures == 1 {
+                    eprintln!(
+                        "VIGO HTTP connection thread failed to start: {e}; dropping connection"
+                    );
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -601,6 +728,65 @@ fn constant_eq(a: &[u8], b: &[u8]) -> bool {
         diff |= usize::from(x ^ b.get(i).copied().unwrap_or(0));
     }
     diff == 0
+}
+// Normalize a loopback `host[:port]` authority; other names yield None.
+// Port 80 is dropped so `localhost` and `localhost:80` compare equal.
+fn loopback_authority(value: &str) -> Option<String> {
+    let value = value.trim().to_ascii_lowercase();
+    let (name, port) = match value.strip_prefix('[') {
+        Some(rest) => rest.split_once(']')?,
+        None => value.split_at(value.find(':').unwrap_or(value.len())),
+    };
+    let port = match port {
+        "" => None,
+        port => {
+            let digits = port.strip_prefix(':')?;
+            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            Some(digits.parse::<u16>().ok()?).filter(|&port| port != 80)
+        }
+    };
+    let name = name.strip_suffix('.').unwrap_or(name);
+    let name = match name {
+        "127.0.0.1" | "localhost" => name.to_owned(),
+        "::1" => "[::1]".to_owned(),
+        _ => return None,
+    };
+    Some(port.map_or(name.clone(), |port| format!("{name}:{port}")))
+}
+// Without a token the loopback bind is the only boundary. Mirror the Studio
+// API (src/server/local-http-security.mjs): the request must be addressed to
+// a loopback name, which defeats DNS rebinding, and a browser Origin must be
+// that same loopback origin.
+fn local_request_access(
+    host: Option<&[u8]>,
+    origin: Option<&[u8]>,
+) -> std::result::Result<(), &'static str> {
+    let host = host
+        .and_then(|v| std::str::from_utf8(v).ok())
+        .and_then(loopback_authority)
+        .ok_or("VIGO only accepts requests addressed to the local runtime")?;
+    let Some(origin) = origin else {
+        return Ok(());
+    };
+    let same = std::str::from_utf8(origin)
+        .ok()
+        .map(|v| v.trim().to_ascii_lowercase())
+        .and_then(|v| {
+            let authority = v.strip_prefix("http://")?;
+            let authority = authority.strip_suffix('/').unwrap_or(authority);
+            if authority.contains(['/', '?', '#', '@']) {
+                return None;
+            }
+            loopback_authority(authority)
+        })
+        .is_some_and(|origin| origin == host);
+    if same {
+        Ok(())
+    } else {
+        Err("VIGO only accepts browser requests from the same local origin")
+    }
 }
 fn remaining(stream: &TcpStream, deadline: Instant) -> std::io::Result<()> {
     let remaining = deadline
@@ -637,7 +823,7 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
     let mut request = httparse::Request::new(&mut headers);
     request.parse(&bytes[..header_end]).map_err(|_| invalid())?;
     let target = request.path.ok_or_else(invalid)?;
-    let (path, parameters) = target.split_once('?').unwrap_or((target, ""));
+    let (path, _parameters) = target.split_once('?').unwrap_or((target, ""));
     let method = request.method.ok_or_else(invalid)?;
     let get = |name: &str| -> std::io::Result<Option<&[u8]>> {
         let mut values = request
@@ -676,7 +862,32 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
             ));
         }
     }
-    (|| -> std::io::Result<(u16, Body)> {
+    handle_api(stream, state, &request, &bytes[header_end..], deadline).map(Response::Json)
+}
+fn handle_api(
+    stream: &mut TcpStream,
+    state: &State,
+    request: &httparse::Request<'_, '_>,
+    buffered: &[u8],
+    deadline: Instant,
+) -> std::io::Result<(u16, Body)> {
+    let target = request.path.ok_or_else(invalid)?;
+    let (path, parameters) = target.split_once('?').unwrap_or((target, ""));
+    let method = request.method.ok_or_else(invalid)?;
+    let get = |name: &str| -> std::io::Result<Option<&[u8]>> {
+        let mut values = request
+            .headers
+            .iter()
+            .filter(|h| h.name.eq_ignore_ascii_case(name));
+        let value = values.next().map(|v| v.value);
+        if values.next().is_some() {
+            return Err(invalid());
+        }
+        Ok(value)
+    };
+    if request.version == Some(1) && get("Host")?.is_none() {
+        return Err(invalid());
+    }
     if method == "GET" && ["/healthz", "/readyz"].contains(&path) {
         let ready = state.ready.load(Ordering::Acquire);
         return Ok((
@@ -688,19 +899,30 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
             json!({"status":if ready {"ready"} else {"recovering"},"runtime":"rust","version":env!("CARGO_PKG_VERSION")}).into(),
         ));
     }
-    if state.token.as_ref().is_some_and(|t| {
-        !constant_eq(
-            get("Authorization").ok().flatten().unwrap_or(&[]),
-            format!("Bearer {t}").as_bytes(),
-        )
-    }) {
-        return Ok((401, error("Bearer authentication required")));
+    match &state.token {
+        Some(t) => {
+            if !constant_eq(
+                get("Authorization").ok().flatten().unwrap_or(&[]),
+                format!("Bearer {t}").as_bytes(),
+            ) {
+                return Ok((401, error("Bearer authentication required")));
+            }
+        }
+        None => {
+            if let Err(message) = local_request_access(get("Host")?, get("Origin")?) {
+                return Ok((403, error(message)));
+            }
+        }
     }
     if method == "GET" && path == "/v1/capabilities" {
         return Ok((200, capabilities().into()));
     }
     if method == "GET" && path == "/v1/info" {
-        return dispatch(state, Request::read(b"{}", "info", "").map_err(|_| invalid())?, None);
+        return dispatch(
+            state,
+            Request::read(b"{}", "info", "").map_err(|_| invalid())?,
+            None,
+        );
     }
     if method == "DELETE" && path.starts_with("/v1/requests/") {
         let id = path.trim_start_matches("/v1/requests/");
@@ -747,7 +969,10 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
     }
     // Reserve before accepting/uploading the body, even for chunked framing.
     // Leave small normalization headroom for endpoint kind and URL flags.
-    let Some(lease) = state.request_bytes.reserve(length.unwrap_or(state.maximum).saturating_add(1024), state.request_capacity) else {
+    let Some(lease) = state.request_bytes.reserve(
+        length.unwrap_or(state.maximum).saturating_add(1024),
+        state.request_capacity,
+    ) else {
         return Ok((503, error("Request memory capacity reached")));
     };
     if let Some(expect) = get("Expect")? {
@@ -756,7 +981,7 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
         }
         stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
     }
-    let buffered = bytes[header_end..].to_vec();
+    let buffered = buffered.to_vec();
     let mut body = Vec::new();
     let mut input = std::io::Cursor::new(buffered).chain(DeadlineReader { stream, deadline });
     if chunked.is_some() {
@@ -825,13 +1050,15 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
     };
     drop(body);
     dispatch(state, query, Some(lease))
-    })().map(Response::Json)
 }
 fn dispatch(
     state: &State,
     query: Request,
     lease: Option<ByteLease>,
 ) -> std::io::Result<(u16, Body)> {
+    if !state.ready.load(Ordering::Acquire) {
+        return Ok((503, error("City worker is recovering")));
+    }
     let canceled = Arc::new(AtomicBool::new(false));
     let id = query.id.clone();
     if let Some(id) = &id {
@@ -911,6 +1138,7 @@ fn respond(stream: &mut TcpStream, status: u16, body: Body) -> std::io::Result<(
     if value["error"]["code"] == "invalid_request" {
         let code = match status {
             401 => "unauthorized",
+            403 => "forbidden",
             404 => "endpoint_not_found",
             408 => "request_timeout",
             409 => "request_id_conflict",
@@ -962,6 +1190,7 @@ fn respond_with_headers(
         200 => "OK",
         400 => "Bad Request",
         401 => "Unauthorized",
+        403 => "Forbidden",
         404 => "Not Found",
         408 => "Request Timeout",
         413 => "Content Too Large",
@@ -1138,6 +1367,111 @@ mod scheduling_tests {
             .is_err()
         );
         assert!(Request::read(b"[]", "route", "").is_err());
+    }
+    #[test]
+    fn tokenless_loopback_accepts_only_local_host_and_same_origin() {
+        let allowed = |host: Option<&str>, origin: Option<&str>| {
+            local_request_access(host.map(str::as_bytes), origin.map(str::as_bytes)).is_ok()
+        };
+        for host in [
+            "127.0.0.1",
+            "127.0.0.1:8080",
+            "LOCALHOST:8080",
+            "localhost.",
+            "[::1]",
+            "[::1]:9",
+            "localhost:80",
+        ] {
+            assert!(allowed(Some(host), None), "{host}");
+        }
+        for host in [
+            "",
+            "evil.example",
+            "evil.example:8080",
+            "127.0.0.2",
+            "localhost.evil.example",
+            "::1",
+            "[::1]x",
+            "localhost:",
+            "localhost:99999",
+            "localhost:8080:1",
+            "localhost:+80",
+            "127.0.0.1@evil.example",
+        ] {
+            assert!(!allowed(Some(host), None), "{host}");
+        }
+        assert!(!allowed(None, None));
+        assert!(local_request_access(Some(b"\xff"), None).is_err());
+        for (host, origin) in [
+            ("127.0.0.1:8080", "http://127.0.0.1:8080"),
+            ("127.0.0.1:8080", "HTTP://127.0.0.1:8080/"),
+            ("localhost", "http://localhost:80"),
+            ("[::1]:8080", "http://[::1]:8080"),
+        ] {
+            assert!(allowed(Some(host), Some(origin)), "{host} {origin}");
+        }
+        for (host, origin) in [
+            ("127.0.0.1:8080", "http://evil.example"),
+            ("127.0.0.1:8080", "null"),
+            ("127.0.0.1:8080", ""),
+            ("127.0.0.1:8080", "https://127.0.0.1:8080"),
+            ("127.0.0.1:8080", "http://127.0.0.1:8081"),
+            ("127.0.0.1:8080", "http://localhost:8080"),
+            ("127.0.0.1:8080", "http://127.0.0.1:8080/docs"),
+            ("127.0.0.1:8080", "http://user@127.0.0.1:8080"),
+            ("127.0.0.1:8080", "http://127.0.0.1:8080?x"),
+            ("evil.example", "http://evil.example"),
+        ] {
+            assert!(!allowed(Some(host), Some(origin)), "{host} {origin}");
+        }
+    }
+    #[test]
+    fn backoff_doubles_to_cap_and_resets_after_success() {
+        let start = Instant::now();
+        let mut backoff = Backoff::new(Duration::from_millis(250), Duration::from_secs(2));
+        assert!(backoff.ready(start));
+        let delays: Vec<_> = (0..6).map(|_| backoff.fail(start).as_millis()).collect();
+        assert_eq!(delays, [250, 500, 1000, 2000, 2000, 2000]);
+        assert_eq!(backoff.failures, 6);
+        assert!(!backoff.ready(start + Duration::from_millis(1999)));
+        assert!(backoff.ready(start + Duration::from_secs(2)));
+        assert_eq!(backoff.succeed(), 6);
+        assert!(backoff.ready(start));
+        assert_eq!(backoff.fail(start), Duration::from_millis(250));
+        assert_eq!(backoff.failures, 1);
+        let mut long = Backoff::new(Duration::from_secs(1), Duration::from_secs(10));
+        for _ in 0..100 {
+            long.fail(start);
+        }
+        assert_eq!(long.fail(start), Duration::from_secs(10));
+    }
+    #[test]
+    fn failed_worker_start_keeps_readiness_false_and_backs_off() {
+        let ready = AtomicBool::new(true);
+        let mut worker = None;
+        let mut backoff = Backoff::new(Duration::from_secs(60), Duration::from_secs(60));
+        // The test harness rejects the worker arguments, so the start fails.
+        restart(
+            &mut worker,
+            &mut backoff,
+            "/nonexistent-city",
+            Duration::from_secs(5),
+            &ready,
+        );
+        assert!(worker.is_none());
+        assert!(!ready.load(Ordering::Acquire));
+        assert_eq!(backoff.failures, 1);
+        // A second call inside the backoff window does not spawn again.
+        ready.store(true, Ordering::Release);
+        restart(
+            &mut worker,
+            &mut backoff,
+            "/nonexistent-city",
+            Duration::from_secs(5),
+            &ready,
+        );
+        assert_eq!(backoff.failures, 1);
+        assert!(!ready.load(Ordering::Acquire));
     }
     #[test]
     fn byte_budget_rejects_overflow_and_reclaims_every_lease() {

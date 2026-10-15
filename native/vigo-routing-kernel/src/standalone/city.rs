@@ -1,6 +1,6 @@
 use super::{Result, access::AccessContext, fail, flag, number};
 use crate::*;
-use chrono::{Datelike, NaiveDate, TimeZone};
+use chrono::{Datelike, NaiveDate};
 use memmap2::Mmap;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde_json::{Value, json};
@@ -689,14 +689,7 @@ impl City {
             .and_then(Value::as_str)
             .unwrap_or("UTC")
             .parse()?;
-        let epoch = |day: NaiveDate| -> Result<i64> {
-            Ok(zone
-                .from_local_datetime(&day.and_hms_opt(12, 0, 0).unwrap())
-                .single()
-                .ok_or("Ambiguous service noon")?
-                .timestamp()
-                - 43200)
-        };
+        let epoch = |day: NaiveDate| super::calendar::service_epoch(zone, day);
         let origin = epoch(date)?;
         let maximum = self.metadata["maximumServiceTimeSeconds"]
             .as_f64()

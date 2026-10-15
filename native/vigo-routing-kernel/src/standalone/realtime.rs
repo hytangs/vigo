@@ -1,6 +1,6 @@
 use super::{Result, fail};
 use crate::*;
-use chrono::{NaiveDate, TimeZone};
+use chrono::NaiveDate;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
@@ -49,12 +49,7 @@ pub(crate) fn apply(
     let clock = |epoch: i64| -> Result<f64> {
         let tz = zone
             .ok_or("Absolute realtime timestamps require realtimeSnapshot.timezone (IANA name)")?;
-        // GTFS uses local noon minus twelve elapsed hours, including DST days.
-        let noon = tz
-            .from_local_datetime(&date.and_hms_opt(12, 0, 0).unwrap())
-            .single()
-            .ok_or("Service date has no unambiguous local noon")?;
-        Ok((epoch - (noon.timestamp() - 43_200)) as f64)
+        Ok((epoch - super::calendar::service_epoch(tz, date)?) as f64)
     };
     let mut exact: HashMap<&str, Vec<usize>> = HashMap::new();
     let mut local: HashMap<&str, Vec<usize>> = HashMap::new();

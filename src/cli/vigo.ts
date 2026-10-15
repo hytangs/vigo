@@ -232,7 +232,9 @@ function routeSequence(plan: RoutingPlan | undefined) {
     .join(' > ')
 }
 
-function decorateCliRoutingPlan(plan: RoutingPlan | undefined) {
+function decorateCliRoutingPlan(plan: RoutingPlan): RoutingPlan
+function decorateCliRoutingPlan(plan: RoutingPlan | undefined): RoutingPlan | undefined
+function decorateCliRoutingPlan(plan: RoutingPlan | undefined): RoutingPlan | undefined {
   if (!plan) return plan
   const routingStatus: RoutingExecutionStatus = plan.diagnostics.routingStatus ?? routingResultStatus(plan)
   return {
@@ -281,34 +283,6 @@ function routeOne(
   }
 }
 
-function engineDescriptor(results: Iterable<RouteResult>) {
-  const algorithms = new Set<string>()
-  const methods = new Set<string>()
-  for (const result of results) {
-    const algorithm = result.plan?.diagnostics.algorithm
-    if (algorithm) algorithms.add(algorithm)
-    const methodUsed = result.plan?.diagnostics.methodUsed
-    for (const method of Array.isArray(methodUsed) ? methodUsed : methodUsed ? [methodUsed] : []) {
-      if (method) methods.add(String(method))
-    }
-  }
-  const algorithmList = [...algorithms].sort()
-  return {
-    name: 'VIGO',
-    algorithm: algorithmList.length === 1
-      ? algorithmList[0]
-      : algorithmList.length
-        ? 'mixed_exact_routing'
-        : 'no_route_executed',
-    algorithms: algorithmList,
-    methods: [...methods].sort(),
-    storage: 'sqlite-persisted-resident-compiled',
-    persistentStore: 'sqlite',
-    queryExecutor: 'resident-active-service-kernel',
-    sqlRouteExecutor: false,
-  }
-}
-
 function resolveRuntimePaths(args: CliArguments) {
   const cityValue = value(args, 'city')
   if (!cityValue) throw new Error('a query requires --city')
@@ -337,7 +311,7 @@ function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {
     throw new Error('Unknown routing option; use --objective=earliest_arrival')
   }
   const preference = value(args, 'time-preference', String(request.timePreference ?? 'depart'))
-  const timePreference = ({ depart_at: 'depart', arrive_by: 'arrive' }[preference] ?? preference) as RoutingTimePreference
+  const timePreference = (preference === 'depart_at' ? 'depart' : preference === 'arrive_by' ? 'arrive' : preference) as RoutingTimePreference
   if (!['depart', 'arrive'].includes(timePreference)) throw new Error(`Invalid --time-preference value: ${timePreference}`)
   const objective = String(args.has('objective') ? value(args, 'objective') : request.objective ?? 'earliest_arrival')
   if (objective !== 'earliest_arrival') {
@@ -483,12 +457,14 @@ async function computeRouteRequest(
   if (waypoints.length) {
     const points = validateOrderedRoutingPoints(origin, waypoints, destination)
     const components = await routeOrderedRoutingSegments(points, baseRequest, routeSegment)
+    if (!components) throw new Error('Ordered routing returned no components')
+    if (components.failedIndex < 0 && !components.choices?.length) throw new Error('Ordered routing returned no choices')
     // Ordered journeys price their boardings like every other published journey.
     const priced = (plan: RoutingPlan) => (mode === 'transit' ? addNationalGtfsFares(storePath, plan) : plan)
     routed = {
       plan: components.failedIndex >= 0
         ? composeOrderedRoutingFailure(components.failedPlan, components.failedIndex, points, components.componentPlans)
-        : priced(components.choices[0]),
+        : priced(components.choices![0]),
       choices: components.choices?.map(priced),
       profileSampleCount: components.componentPlans.length,
       elapsedMs: performance.now() - queryStarted,
@@ -728,7 +704,7 @@ function ndjsonPoint(
     ? coordinatePoint(coordinate[0], coordinate[1], explicitLabel || fallbackLabel)
     : null
   if (!point) throw new Error(`${fallbackLabel} requires a valid [longitude, latitude] coordinate`)
-  return { ...point, source: typeof candidate.source === 'string' ? candidate.source : 'map' }
+  return { ...point, source: candidate.source === 'stop' || candidate.source === 'search' ? candidate.source : 'map' }
 }
 
 const ndjsonSerializationMarker = '__VIGO_NDJSON_SERIALIZATION_MS__'
@@ -817,9 +793,10 @@ async function runRouteStream(args: CliArguments) {
           const minutes = parseNdjsonTime(clock, 'time')
           requestArgs.set('time', [`${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`])
         }
-        const prepare: typeof prepareRuntime = async (_store, _street, date, day, mode = 'transit') => ({
-          elapsedMs: await prepareMode(mode, date, day),
-        })
+        const prepare: typeof prepareRuntime = async (_store, _street, date, day, mode = 'transit') => {
+          if (!date) throw new Error('Stream preparation requires an explicit service date')
+          return { elapsedMs: await prepareMode(mode, date, day) }
+        }
         let result
         if (input.kind === 'route') result = await computeRouteRequest(requestArgs, input, paths, prepare)
         else if (input.kind === 'reach') result = await computeReachRequest(requestArgs, input, paths, prepare)
@@ -1390,7 +1367,7 @@ function startJsonCompiler(command: string, compilerArguments: string[], label: 
   return {
     child,
     startedAt,
-    outcome: promise.then((result) => ({ result }), (error) => ({ error })),
+    outcome: promise.then((result) => ({ result }), (error: unknown) => ({ error: error instanceof Error ? error : new Error(String(error)) })),
   }
 }
 
@@ -1522,7 +1499,7 @@ async function runBuildScenarios(args: CliArguments) {
         `--output=${compilerStage}`, `--city-name=${scenario.name}`,
       ], `Scenario ${scenario.id}`)
       const result = await compiler.outcome
-      if (result.error) throw result.error
+      if ('error' in result) throw result.error
       publishCity(compilerStage, cityPath)
       if (!firstCity) {
         const shared = path.join(staged, 'streets', osm.sha256)
@@ -1581,7 +1558,7 @@ async function runBuildCity(args: CliArguments) {
       `--city-name=${path.basename(outputDirectory)}`,
     ], 'City compiler')
     const outcome = await compiler.outcome
-    if (outcome.error) throw outcome.error
+    if ('error' in outcome) throw outcome.error
     buildProgress('city')({ phase: 'Saving City' })
     publishCity(stagingDirectory, outputDirectory, { replace: replaceExisting })
     process.stdout.write(`${JSON.stringify(outcome.result, null, 2)}\n`)
@@ -1671,7 +1648,7 @@ async function runCityCompiler(args: CliArguments) {
       `--wheelchair=${wheelchair}`, `--output-store=${stagedRoutingStore}`,
     ], 'GTFS compiler')
     const gtfsOutcome = await gtfsCompiler.outcome
-    if (gtfsOutcome.error) throw gtfsOutcome.error
+    if ('error' in gtfsOutcome) throw gtfsOutcome.error
     gtfsBuildMs = performance.now() - gtfsStarted
 
     let streetResult: Record<string, unknown>
@@ -1680,7 +1657,7 @@ async function runCityCompiler(args: CliArguments) {
     } else {
       osmCompiler ??= startOsmCompiler(osmPbf, stagedStreetStore, streetModes, wheelchair)
       const outcome = await osmCompiler.outcome
-      if (outcome.error) throw outcome.error
+      if ('error' in outcome) throw outcome.error
       streetResult = outcome.result
       osmBuildMs = performance.now() - osmCompiler.startedAt
     }
@@ -1693,7 +1670,7 @@ async function runCityCompiler(args: CliArguments) {
 
     if (osmDriveCompiler) {
       const outcome = await osmDriveCompiler.outcome
-      if (outcome.error) throw outcome.error
+      if ('error' in outcome) throw outcome.error
       osmDrivePreparation = outcome.result
     }
 
@@ -1718,7 +1695,7 @@ async function runCityCompiler(args: CliArguments) {
       streetRoutingCompiler = startJsonCompiler('_prepare-osm-routing',
         [`--street-store=${stagedStreetStore}`], 'Street routing compiler')
       const outcome = await streetRoutingCompiler.outcome
-      if (outcome.error) throw outcome.error
+      if ('error' in outcome) throw outcome.error
       streetCch = outcome.result as ReturnType<typeof buildNativeStreetCchIndex>
     }
     streetCchBuildMs = performance.now() - streetCchStarted
@@ -1830,7 +1807,7 @@ async function runCityCompiler(args: CliArguments) {
         runtimeCompaction: {
           storageLayout: osmRuntimeCompaction.storageLayout,
           bytesSaved: osmRuntimeCompaction.bytesSaved,
-          driveSnapshot: osmRuntimeCompaction.drive?.snapshotPath
+          driveSnapshot: osmRuntimeCompaction.drive && 'snapshotPath' in osmRuntimeCompaction.drive && osmRuntimeCompaction.drive.snapshotPath
             ? path.basename(osmRuntimeCompaction.drive.snapshotPath)
             : null,
         },
@@ -2101,7 +2078,8 @@ try {
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error)
   const command = error instanceof CliUsageError ? error.command : activeCommand
-  const publicCommand = Object.hasOwn(commands, command) && commands[command].usage ? command : ''
+  const descriptor = Object.hasOwn(commands, command) ? commands[command as keyof typeof commands] : undefined
+  const publicCommand = descriptor && 'usage' in descriptor ? command : ''
   process.stderr.write(`VIGO${command ? ` ${command}` : ''}: ${message}\n`)
   process.stderr.write(`Run "vigo${publicCommand ? ` ${publicCommand}` : ''} --help" for usage.\n`)
   process.exitCode = 2

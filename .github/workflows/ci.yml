@@ -26,6 +26,7 @@ jobs:
       - run: npm audit --audit-level=high
       - run: npm run check:public
       - run: npm run typecheck
+      - run: npm run format:check
       - run: npm run check:security
       - run: npm run check:package-publication
       - run: npm run check:rust-routing-targets

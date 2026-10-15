@@ -1,0 +1,149 @@
+{
+  "check:studio": [
+    "test/check-package-audit.mjs",
+    "test/check-static-assets.mjs",
+    "test/check-check-runner.mjs"
+  ],
+  "check:map": [
+    "test/check-map-viewport.mjs",
+    "test/check-online-basemaps.mjs",
+    "test/check-local-basemap.mjs",
+    "test/check-map-presentation.mjs",
+    "test/check-scheduled-vehicles.mjs",
+    "test/check-gtfs-inspector.mjs",
+    "test/check-network-truth-fixtures.mjs"
+  ],
+  "check:osm-pbf": [
+    "test/check-osm-pbf-safety.mjs",
+    "test/check-osm-node-access.mjs"
+  ],
+  "check:store-admission": [
+    "test/check-national-store-admission.mjs",
+    "test/check-national-osm-store-admission.mjs",
+    "test/check-low-memory-street-build.mjs"
+  ],
+  "check:security": [
+    "test/check-local-http-security.mjs",
+    "test/check-realtime-url-security.mjs",
+    "test/check-cch-manifest.mjs"
+  ],
+  "check:national": [
+    "test/check-matrix-materialization.mjs",
+    "test/check-national-routing-store.mjs"
+  ],
+  "check:accuracy": [
+    "test/check-native-materialization.mjs",
+    "test/check-national-route-geometry.mjs",
+    "test/check-ordered-objective.mjs",
+    "test/check-routing-accuracy.mjs",
+    "test/check-multitransfer-quality.mjs"
+  ],
+  "check:national-choices": [
+    "test/check-national-route-choices.mjs",
+    "test/check-route-alternatives.mjs",
+    "test/check-route-horizon.mjs",
+    "test/check-bounded-search.mjs",
+    "test/check-equal-time-routing.mjs",
+    "test/check-arrive-by-boundary.mjs"
+  ],
+  "check:reach-scenarios": [
+    "test/check-scenario-timing.mjs",
+    "test/check-scenario-drafts.mjs",
+    "test/check-scenario-branches.mjs",
+    "test/check-scenario-schedules.mjs",
+    "test/check-street-network-surface.mjs",
+    "test/check-service-edge-decomposition.mjs",
+    "test/check-analysis-cutoff-presentation.mjs",
+    "test/check-reach-comparison.mjs",
+    "test/check-reach-geometry.mjs"
+  ],
+  "check:reach-engine": [
+    "test/check-transit-departures.mjs",
+    "test/check-reach-engine.mjs"
+  ],
+  "check:national-focused": [
+    "test/check-station-access.mjs",
+    "test/check-transfer-walking-floor.mjs",
+    "test/check-national-stop-access-index.mjs",
+    "test/check-national-parent-transfer-routing.mjs",
+    "test/check-parent-minimum-routing.mjs",
+    "test/check-street-transfer-selection.mjs"
+  ],
+  "check:atlas": [
+    "test/check-transport-atlas.mjs",
+    "test/check-project-atlas-api.mjs"
+  ],
+  "check:cli-package": [
+    "test/check-cli-package-publication.mjs",
+    "test/check-cli-package.mjs"
+  ],
+  "check:packaged": [
+    "test/check-package-audit.mjs",
+    "test/check-packaged-studio.mjs"
+  ],
+  "check:studio-runtime": [
+    "test/check-network-workspace-runtime.mjs",
+    "test/check-preparation-electron.mjs",
+    "test/check-journey-options-runtime.mjs",
+    "test/check-city-workspace-runtime.mjs",
+    "test/check-city-data-runtime.mjs",
+    "test/check-startup-trace-runtime.mjs",
+    "test/check-studio-documentation.mjs",
+    "test/check-city-delete-runtime.mjs",
+    "test/check-polling.mjs",
+    "test/check-engine-recovery-runtime.mjs",
+    "test/check-city-intake-runtime.mjs",
+    "test/check-primary-navigation-runtime.mjs",
+    "test/check-street-transfer-selection-ui.mjs",
+    "test/check-scenario-draft-lifecycle.mjs",
+    "test/check-map-runtime.mjs",
+    "test/check-map-controls-runtime.mjs",
+    "test/check-analysis-origin.mjs",
+    "test/check-analysis-settings-runtime.mjs",
+    "test/check-result-saving-runtime.mjs"
+  ],
+  "check:agency": [
+    "test/check-network-workspace.mjs",
+    "test/check-agency-realtime.mjs",
+    "test/check-reordered-bunching.mjs",
+    "test/check-vehicle-indicators.mjs",
+    "test/check-alert-policy.mjs",
+    "test/check-alert-applicability.mjs",
+    "test/check-agency-efficiency.mjs",
+    "test/check-agency-tools.mjs",
+    "test/check-service-assessment-text.mjs",
+    "test/check-agency-clock.mjs",
+    "test/check-agency-communications.mjs",
+    "test/check-agency-provider.mjs",
+    "test/check-agency-snapshot.mjs",
+    "test/check-agency-operations.mjs",
+    "test/check-operational-replay.mjs",
+    "test/check-agency-route-line.mjs",
+    "test/check-added-service-display.mjs",
+    "test/check-agency-vehicle-details.mjs",
+    "test/check-stop-board.mjs",
+    "test/check-agency-arrivals.mjs",
+    "test/check-agency-service-timing.mjs",
+    "test/check-agency-presentation.mjs",
+    "test/check-agency-notebook.mjs",
+    "test/check-agency-route-browser.mjs",
+    "test/check-agency-observation-export.mjs",
+    "test/check-agency-briefing.mjs",
+    "test/check-network-diagnosis.mjs",
+    "test/check-network-narrative.mjs",
+    "test/check-agency-service-hours.mjs"
+  ],
+  "check:public-results": [
+    "test/check-public-result-serialization.mjs",
+    "test/check-public-results.mjs",
+    "test/check-service-benchmark.mjs"
+  ],
+  "check:correctness": [
+    "test/check-ordered-objective.mjs",
+    "test/check-routing-accuracy.mjs",
+    "test/check-multi-stop-routing-quality.mjs",
+    "test/check-ordered-route-api.mjs",
+    "test/check-arrive-by-boundary.mjs",
+    "test/check-transfer-walking-floor.mjs"
+  ]
+}

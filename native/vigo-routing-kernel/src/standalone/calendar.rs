@@ -1,10 +1,20 @@
 //! Immutable calendar rules; dates are views over weekday masks and exceptions.
 //! Service-clock offsets and overnight coverage are resolved by City, not here.
 use super::Result;
-use chrono::{Datelike, NaiveDate};
+use chrono::{Datelike, NaiveDate, TimeZone};
 use rusqlite::Connection;
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem::size_of;
+
+/// GTFS service time starts twelve elapsed hours before local noon, even on DST days.
+pub(crate) fn service_epoch(zone: chrono_tz::Tz, day: NaiveDate) -> Result<i64> {
+    Ok(zone
+        .from_local_datetime(&day.and_hms_opt(12, 0, 0).unwrap())
+        .single()
+        .ok_or("Service date has no unambiguous local noon")?
+        .timestamp()
+        - 43_200)
+}
 
 struct Weekly {
     service: usize,
@@ -161,5 +171,26 @@ mod tests {
         let index = CalendarIndex::load(&db).unwrap();
         assert!(!index.complete(&BTreeSet::from(["a\u{1f}weekday".into()])));
         assert!(index.complete(&index.services_on(NaiveDate::from_ymd_opt(2024, 2, 29).unwrap())));
+    }
+}
+
+#[cfg(test)]
+mod service_clock_tests {
+    use super::*;
+    #[test]
+    fn service_epoch_tracks_dst_and_rejects_missing_local_dates() {
+        let zone = chrono_tz::America::New_York;
+        let epoch = |date| {
+            service_epoch(zone, NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap()).unwrap()
+        };
+        assert_eq!(epoch("2026-03-08") - epoch("2026-03-07"), 23 * 3600);
+        assert_eq!(epoch("2026-11-01") - epoch("2026-10-31"), 25 * 3600);
+        assert!(
+            service_epoch(
+                chrono_tz::Pacific::Apia,
+                NaiveDate::from_ymd_opt(2011, 12, 30).unwrap()
+            )
+            .is_err()
+        );
     }
 }

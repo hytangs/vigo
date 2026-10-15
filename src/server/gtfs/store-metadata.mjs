@@ -393,6 +393,10 @@ export function currentStreetStoreStorageIdentity(storePath) {
   return snapshot
 }
 
+/**
+ * @param {string} storePath
+ * @returns {{routingLimitations?: unknown[], blockingRoutingFeatures?: unknown[], featureInventory?: {excludedTripCount?: number}, routeCount?: number, stopCount?: number, tripCount?: number, connectionCount?: number, departureIndexState?: string}}
+ */
 export function readNationalGtfsStoreMetadata(storePath) {
   const db = new DatabaseSync(storePath, { readOnly: true })
   try {

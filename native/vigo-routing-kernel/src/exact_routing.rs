@@ -671,7 +671,7 @@ pub struct DriveKernel {
 }
 
 impl DriveKernel {
-    #[cfg(feature = "standalone")]
+    #[cfg(all(feature = "standalone", not(feature = "node")))]
     pub(crate) fn memory_ledger(&self) -> serde_json::Value {
         fn metric(m: &cch::Metric) -> usize {
             (m.forward.capacity() + m.backward.capacity()) * 4

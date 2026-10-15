@@ -119,7 +119,7 @@ pub struct ShapeGeometrySource {
     db: Option<Connection>,
 }
 
-#[cfg(feature = "standalone")]
+#[cfg(all(feature = "standalone", not(feature = "node")))]
 impl ShapeGeometrySource {
     pub(crate) fn sqlite_heap_bytes(&self) -> usize {
         self.db

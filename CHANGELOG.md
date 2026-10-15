@@ -2,6 +2,11 @@
 
 ## 0.5.2
 
+- Preserve the exact permanent 0.5.0 baseline as public, non-expiring archives; compatibility checks no longer need a GitHub token. Pin Docker base manifests by digest.
+- Type-check the CLI and selected JavaScript boundaries, include the Python notebook in linting, and report all independent checks with per-check timings. Share the GTFS service-clock calculation and diagnose unsupported mixed Rust build features explicitly.
+
+- Harden `vigo serve`. Without `VIGO_API_TOKEN`, data endpoints accept only loopback `Host` names and same-origin browser requests, returning 403 `forbidden` otherwise, as Studio does; health, the guide and token authentication are unchanged. Accept and connection-setup failures, including descriptor exhaustion, no longer stop the server. Failed City worker restarts are logged once per streak and retried with exponential backoff (250 ms to 10 s) while `/readyz` reports 503.
+
 - Keep detailed Python Route alternatives in the same order and count as public CLI/HTTP choices through the shared native selector, retaining all detailed itinerary fields.
 
 - Batch large uncached coordinate endpoint searches across four bounded workers, keep dominance keys contiguous, and project large matrix results in parallel while preserving input order, full itineraries, geometry and routing selection.
