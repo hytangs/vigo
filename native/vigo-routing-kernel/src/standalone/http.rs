@@ -244,17 +244,34 @@ impl Drop for Worker {
 }
 impl Worker {
     fn open(city: &str, timeout: Duration) -> Result<(Self, Value)> {
-        let mut child = Command::new(env::current_exe()?)
+        Self::open_with(city, timeout, |task| {
+            thread::Builder::new().spawn(task).map(|_| ())
+        })
+    }
+    fn open_with(
+        city: &str,
+        timeout: Duration,
+        mut spawn: impl FnMut(Box<dyn FnOnce() + Send>) -> std::io::Result<()>,
+    ) -> Result<(Self, Value)> {
+        let child = Command::new(env::current_exe()?)
             .args(["_worker", "--city", city])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()?;
-        let mut stdin = child.stdin.take().ok_or("Missing worker input")?;
         let (input, writes) = mpsc::sync_channel::<Vec<u8>>(1);
+        let (sender, output) = mpsc::sync_channel(1);
+        // Own the child before any fallible setup. Every error below kills and
+        // reaps it; dropping the channels also releases any started I/O thread.
+        let mut worker = Self {
+            child,
+            input,
+            output,
+        };
+        let mut stdin = worker.child.stdin.take().ok_or("Missing worker input")?;
         // A stopped child can fill its stdin pipe. Keep that blocking write off
         // the supervisor so the same deadline covers dispatch and computation.
-        thread::spawn(move || {
+        spawn(Box::new(move || {
             for bytes in writes {
                 if stdin
                     .write_all(&bytes)
@@ -264,10 +281,9 @@ impl Worker {
                     break;
                 }
             }
-        });
-        let stdout = child.stdout.take().ok_or("Missing worker output")?;
-        let (sender, output) = mpsc::sync_channel(1);
-        thread::spawn(move || {
+        }))?;
+        let stdout = worker.child.stdout.take().ok_or("Missing worker output")?;
+        spawn(Box::new(move || {
             let mut reader = BufReader::new(stdout);
             loop {
                 let mut line = Vec::new();
@@ -285,12 +301,7 @@ impl Worker {
                     break;
                 }
             }
-        });
-        let worker = Self {
-            child,
-            input,
-            output,
-        };
+        }))?;
         let startup = worker
             .output
             .recv_timeout(timeout)
@@ -507,7 +518,7 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
     });
     let supervisor = state.clone();
     let city = city.to_owned();
-    thread::spawn(move || {
+    thread::Builder::new().spawn(move || {
         let mut worker = Some(worker);
         let mut backoff = Backoff::new(WORKER_RETRY_BASE, WORKER_RETRY_CAP);
         let mut pending = VecDeque::new();
@@ -622,7 +633,7 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                 );
             }
         }
-    });
+    })?;
     let server = TcpListener::bind((host, port))?;
     eprintln!(
         "VIGO Rust listening on {} (City: {})",
@@ -1234,6 +1245,33 @@ impl Read for DeadlineReader<'_> {
 #[cfg(test)]
 mod scheduling_tests {
     use super::*;
+    #[test]
+    fn worker_thread_refusal_returns_an_error_at_either_startup_stage() {
+        for failed_stage in [1, 2] {
+            let mut attempts = 0;
+            let result =
+                Worker::open_with("missing-test-city", Duration::from_millis(100), |task| {
+                    attempts += 1;
+                    if attempts == failed_stage {
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::WouldBlock,
+                            "injected thread limit",
+                        ))
+                    } else {
+                        thread::Builder::new().spawn(task).map(|_| ())
+                    }
+                });
+            assert_eq!(attempts, failed_stage);
+            assert!(
+                result
+                    .err()
+                    .unwrap()
+                    .to_string()
+                    .contains("injected thread limit")
+            );
+        }
+    }
+
     #[test]
     fn response_forwarding_validates_without_rebuilding_the_body() {
         let bytes = br#"{"journey":{"legs":[{"geometry":[1,2.123456789,3]}]},"meta":{"computeUs":1234},"status":"ok"}"#.to_vec();
