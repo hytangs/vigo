@@ -1,0 +1,234 @@
+{
+  "case": "standard/route-labels",
+  "city": "standard",
+  "kind": "route",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origin": {
+      "coordinate": [-77.05,38.9],
+      "label": "Home"
+    },
+    "destination": {
+      "coordinate": [-77.03,38.91],
+      "name": "Office"
+    },
+    "maxWalkKm": 0.2,
+    "requireTransitRide": true
+  },
+  "result": {
+    "journey": {
+      "arrivalTime": "08:30:00",
+      "boardings": 2,
+      "clockDate": "2026-07-15",
+      "departureTime": "07:55:00",
+      "durationSeconds": 2100,
+      "legs": [
+        {
+          "arrivalTime": "07:55:00",
+          "departureTime": "07:55:00",
+          "distanceMeters": 0,
+          "durationSeconds": 0,
+          "from": {
+            "coordinate": [-77.05,38.9],
+            "name": "Home"
+          },
+          "geometry": {
+            "coordinates": [[-77.05,38.9],[-77.05,38.9]],
+            "type": "LineString"
+          },
+          "quality": {
+            "geometrySource": "unverified_transfer",
+            "streetGeometry": "unverified"
+          },
+          "to": {
+            "coordinate": [-77.05,38.9],
+            "name": "Alpha",
+            "stop": {
+              "feed": null,
+              "id": "A"
+            }
+          },
+          "type": "walk"
+        },
+        {
+          "arrivalTime": "08:10:00",
+          "departureTime": "08:00:00",
+          "directionId": "0",
+          "distanceMeters": 1029,
+          "durationSeconds": 600,
+          "fare": {
+            "code": "missing_catalog",
+            "reason": "Fare data was not imported with this timetable.",
+            "status": "unavailable"
+          },
+          "from": {
+            "coordinate": [-77.05,38.9],
+            "name": "Alpha",
+            "stop": {
+              "feed": null,
+              "id": "A"
+            }
+          },
+          "geometry": {
+            "coordinates": [[-77.05,38.9],[-77.04,38.905]],
+            "type": "LineString"
+          },
+          "headsign": null,
+          "intermediateStops": [],
+          "quality": {
+            "geometry": "stop_sequence",
+            "schedule": "timetable"
+          },
+          "route": {
+            "color": "",
+            "id": {
+              "feed": null,
+              "id": "R1"
+            },
+            "longName": "First Route",
+            "name": "R1",
+            "shortName": "R1",
+            "type": 3
+          },
+          "service": {
+            "feed": null,
+            "id": "WKD"
+          },
+          "serviceDate": "2026-07-15",
+          "to": {
+            "coordinate": [-77.04,38.905],
+            "name": "Transfer",
+            "stop": {
+              "feed": null,
+              "id": "X"
+            }
+          },
+          "trip": {
+            "feed": null,
+            "id": "T1"
+          },
+          "tripShortName": null,
+          "type": "transit"
+        },
+        {
+          "arrivalTime": "08:30:00",
+          "departureTime": "08:15:00",
+          "directionId": "0",
+          "distanceMeters": 1029,
+          "durationSeconds": 900,
+          "fare": {
+            "code": "missing_catalog",
+            "reason": "Fare data was not imported with this timetable.",
+            "status": "unavailable"
+          },
+          "from": {
+            "coordinate": [-77.04,38.905],
+            "name": "Transfer",
+            "stop": {
+              "feed": null,
+              "id": "X"
+            }
+          },
+          "geometry": {
+            "coordinates": [[-77.04,38.905],[-77.03,38.91]],
+            "type": "LineString"
+          },
+          "headsign": null,
+          "intermediateStops": [],
+          "quality": {
+            "geometry": "stop_sequence",
+            "schedule": "timetable"
+          },
+          "route": {
+            "color": "",
+            "id": {
+              "feed": null,
+              "id": "R2"
+            },
+            "longName": "Second Route",
+            "name": "R2",
+            "shortName": "R2",
+            "type": 3
+          },
+          "service": {
+            "feed": null,
+            "id": "WKD"
+          },
+          "serviceDate": "2026-07-15",
+          "to": {
+            "coordinate": [-77.03,38.91],
+            "name": "Bravo",
+            "stop": {
+              "feed": null,
+              "id": "B"
+            }
+          },
+          "trip": {
+            "feed": null,
+            "id": "T2"
+          },
+          "tripShortName": null,
+          "type": "transit"
+        },
+        {
+          "arrivalTime": "08:30:00",
+          "departureTime": "08:30:00",
+          "distanceMeters": 0,
+          "durationSeconds": 0,
+          "from": {
+            "coordinate": [-77.03,38.91],
+            "name": "Bravo",
+            "stop": {
+              "feed": null,
+              "id": "B"
+            }
+          },
+          "geometry": {
+            "coordinates": [[-77.03,38.91],[-77.03,38.91]],
+            "type": "LineString"
+          },
+          "quality": {
+            "geometrySource": "unverified_transfer",
+            "streetGeometry": "unverified"
+          },
+          "to": {
+            "coordinate": [-77.03,38.91],
+            "name": "Office"
+          },
+          "type": "walk"
+        }
+      ],
+      "ridingSeconds": 1500,
+      "transfers": 1,
+      "waitingSeconds": 600,
+      "walkingSeconds": 0
+    },
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "transit",
+    "query": {
+      "dataMode": "scheduled",
+      "destination": {
+        "coordinate": [-77.03,38.91],
+        "name": "Office"
+      },
+      "origin": {
+        "coordinate": [-77.05,38.9],
+        "name": "Home"
+      },
+      "requestedTime": "07:55:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "depart_at"
+    },
+    "schema": "vigo.route.v1",
+    "status": "ok"
+  }
+}

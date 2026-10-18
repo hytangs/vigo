@@ -1,0 +1,90 @@
+{
+  "case": "standard/capabilities",
+  "city": "standard",
+  "kind": "capabilities",
+  "exitCode": 0,
+  "request": null,
+  "result": {
+    "cityFormat": "vigo.city.v1",
+    "commands": ["info","route","matrix","reach","compare","native","stream","serve","health","capabilities"],
+    "compare": {
+      "kinds": ["reach"]
+    },
+    "compatibility": {
+      "automaticEditorBranchRetiming": false,
+      "studioResultEnvelope": false
+    },
+    "dataPreparation": "Load a prepared City. Raw GTFS/OSM import remains a separate build step.",
+    "http": {
+      "boundedConnections": true,
+      "boundedQueue": true,
+      "maxRequestBytes": 8388608,
+      "maxWorkerResponseBytes": 67108864,
+      "workerTerminationOnDeadline": true
+    },
+    "matrix": {
+      "journeyGeometry": true,
+      "journeys": true,
+      "realtimeTransit": false,
+      "traffic": true
+    },
+    "modes": ["transit","walk","drive"],
+    "nativeOperations": ["timetable.identifiers","timetable.route","timetable.arrive_by","timetable.matrix","timetable.many","timetable.arrive_by_many","timetable.pareto","timetable.overlay","access.endpoint","access.endpoints","street.path","street.matrix","street.surface","street.connectors","drive.route","drive.matrix","realtime.compile"],
+    "output": {
+      "clock": "service-day HH:MM:SS; hours can exceed 23",
+      "diagnostics": ["none","summary","profile","trace"],
+      "durationUnit": "seconds",
+      "geometry": "opt-in includeGeometry",
+      "schemas": ["vigo.route.v1","vigo.matrix.v1","vigo.reach.v1"],
+      "streamFormats": ["public","detailed"],
+      "trace": "unstable internal ABI"
+    },
+    "reach": {
+      "geojson": true,
+      "modes": ["transit","walk"],
+      "raster": true,
+      "realtimeTransit": false,
+      "scenarios": ["frequency","explicit-scheduled-trips","compiled-overlay"],
+      "streets": true,
+      "timePreferences": ["depart_at"]
+    },
+    "requestSchema": "vigo.standalone.query.v1",
+    "route": {
+      "alternatives": {
+        "coverage": "sampled",
+        "maximum": 5
+      },
+      "arrivalWindows": true,
+      "departureWindows": true,
+      "fareAnnotations": true,
+      "realtime": true,
+      "requestedAlternatives": {
+        "maximum": 9,
+        "rankings": ["pareto","ranked"],
+        "timePreferences": ["depart_at"]
+      },
+      "transferControls": true,
+      "transitShapes": true,
+      "waypoints": true
+    },
+    "routingStoreFormat": "vigo.routing.store.v4",
+    "runtime": "rust",
+    "scenarioCollections": {
+      "boundedResidency": true,
+      "format": "vigo.scenarios.v1",
+      "selector": "scenarioId",
+      "sharedStreets": true
+    },
+    "schemaVersion": "vigo.standalone.capabilities.v1",
+    "standalone": true,
+    "timePreferences": ["depart_at","arrive_by"],
+    "version": "0.5.2",
+    "wheelchair": {
+      "dataMode": "scheduled",
+      "modes": ["transit","walk"],
+      "requiresCityProfile": "wheelchair-strict-v1",
+      "supported": true,
+      "unknownData": "exclude"
+    }
+  }
+}

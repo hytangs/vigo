@@ -1,0 +1,75 @@
+{
+  "case": "standard/route-walk-dateless",
+  "city": "standard",
+  "kind": "route",
+  "exitCode": 0,
+  "request": {
+    "time": "07:55",
+    "mode": "walk",
+    "origin": {
+      "coordinate": [-77.05,38.9]
+    },
+    "destination": {
+      "coordinate": [-77.03,38.91]
+    }
+  },
+  "result": {
+    "journey": {
+      "arrivalTime": "08:20:43",
+      "boardings": 0,
+      "clockDate": null,
+      "departureTime": "07:55:00",
+      "durationSeconds": 1543,
+      "legs": [
+        {
+          "arrivalTime": "08:20:43",
+          "departureTime": "07:55:00",
+          "distanceMeters": 2057,
+          "durationSeconds": 1543,
+          "from": {
+            "coordinate": [-77.05,38.9]
+          },
+          "geometry": {
+            "coordinates": [[-77.05,38.9],[-77.04,38.905],[-77.03,38.91]],
+            "type": "LineString"
+          },
+          "quality": {
+            "geometrySource": "osm",
+            "streetGeometry": "verified"
+          },
+          "to": {
+            "coordinate": [-77.03,38.91]
+          },
+          "type": "walk"
+        }
+      ],
+      "ridingSeconds": 0,
+      "transfers": 0,
+      "waitingSeconds": 0,
+      "walkingSeconds": 1543
+    },
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "walk",
+    "query": {
+      "dataMode": "scheduled",
+      "destination": {
+        "coordinate": [-77.03,38.91]
+      },
+      "origin": {
+        "coordinate": [-77.05,38.9]
+      },
+      "requestedTime": "07:55:00",
+      "serviceDate": null,
+      "timePreference": "depart_at"
+    },
+    "schema": "vigo.route.v1",
+    "status": "ok"
+  }
+}

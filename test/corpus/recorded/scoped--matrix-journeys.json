@@ -1,0 +1,103 @@
+{
+  "case": "scoped/matrix-journeys",
+  "city": "scoped",
+  "kind": "matrix",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origins": [
+      {
+        "stop": {
+          "feed": "one",
+          "id": "A"
+        }
+      }
+    ],
+    "destinations": [
+      {
+        "stop": {
+          "feed": "two",
+          "id": "B"
+        }
+      }
+    ],
+    "maxWalkKm": 0.2,
+    "includeJourneys": true
+  },
+  "result": {
+    "durationsSeconds": [[1543]],
+    "journeys": [
+      [
+        {
+          "arrivalTime": "08:20:43",
+          "boardings": 0,
+          "departureTime": "07:55:00",
+          "durationSeconds": 1543,
+          "legs": [
+            {
+              "arrivalTime": "08:20:43",
+              "departureTime": "07:55:00",
+              "distanceMeters": 2057,
+              "durationSeconds": 1543,
+              "from": {
+                "stop": {
+                  "feed": "one",
+                  "id": "A"
+                }
+              },
+              "quality": {
+                "geometrySource": "unknown",
+                "streetGeometry": "unverified"
+              },
+              "to": {
+                "stop": {
+                  "feed": "two",
+                  "id": "B"
+                }
+              },
+              "type": "walk"
+            }
+          ],
+          "ridingSeconds": 0,
+          "transfers": 0,
+          "waitingSeconds": 0,
+          "walkingSeconds": 1543
+        }
+      ]
+    ],
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "transit",
+    "query": {
+      "dataMode": "scheduled",
+      "destinations": [
+        {
+          "stop": {
+            "feed": "two",
+            "id": "B"
+          }
+        }
+      ],
+      "origins": [
+        {
+          "stop": {
+            "feed": "one",
+            "id": "A"
+          }
+        }
+      ],
+      "requestedTime": "07:55:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "depart_at"
+    },
+    "schema": "vigo.matrix.v1",
+    "status": "ok"
+  }
+}

@@ -1,0 +1,5685 @@
+{
+  "components": {
+    "schemas": {
+      "AccessComponent": {
+        "description": "One part of an access walk's cost.",
+        "properties": {
+          "distanceMeters": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "durationSeconds": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sources": {
+            "description": "Evidence types, sorted and unique, such as `osm` or `gtfs_pathway`.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": {
+            "$ref": "#/components/schemas/AccessComponentType"
+          }
+        },
+        "required": [
+          "type",
+          "durationSeconds",
+          "distanceMeters"
+        ],
+        "type": "object"
+      },
+      "AccessComponentType": {
+        "enum": [
+          "street",
+          "station"
+        ],
+        "type": "string"
+      },
+      "AccessReport": {
+        "description": "How a place attached to the street network, reported when access fails.",
+        "properties": {
+          "candidateCount": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "code": {
+            "description": "Such as `available` or `no_access`.",
+            "type": "string"
+          },
+          "coordinate": {
+            "$ref": "#/components/schemas/Coordinate"
+          },
+          "maximumWalkMeters": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "probeWalkMeters": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "role": {
+            "description": "`origin` or `destination`.",
+            "type": "string"
+          },
+          "suggestedWalkMeters": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "role",
+          "code",
+          "candidateCount",
+          "coordinate",
+          "maximumWalkMeters"
+        ],
+        "type": "object"
+      },
+      "Accessibility": {
+        "description": "The wheelchair profile a Result was computed under.",
+        "properties": {
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "maximumSlope": {
+            "type": "number"
+          },
+          "minimumWidthMeters": {
+            "type": "number"
+          },
+          "profile": {
+            "description": "`wheelchair-strict-v1`.",
+            "type": "string"
+          },
+          "stationPaths": {
+            "type": "string"
+          },
+          "unknownData": {
+            "description": "`exclude`: unknown accessibility counts as inaccessible.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile",
+          "unknownData",
+          "stationPaths",
+          "maximumSlope",
+          "minimumWidthMeters",
+          "limitations"
+        ],
+        "type": "object"
+      },
+      "AlternativeRanking": {
+        "oneOf": [
+          {
+            "const": "pareto",
+            "description": "Nondominated arrival, boarding and walking trade-offs.",
+            "type": "string"
+          },
+          {
+            "const": "ranked",
+            "description": "The earliest distinct vehicle sequences, dominated ones included.",
+            "type": "string"
+          }
+        ]
+      },
+      "AlternativeSearch": {
+        "description": "How alternatives were found: requested alternatives, or a journey window.",
+        "properties": {
+          "arrivalSlackMinutes": {
+            "type": "number"
+          },
+          "coverage": {
+            "description": "`requested_time` for requested alternatives, `sampled` for a window.",
+            "type": "string"
+          },
+          "direction": {
+            "description": "Window sampling direction.",
+            "type": "string"
+          },
+          "maximumJourneys": {
+            "description": "Includes the primary journey.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "minutes": {
+            "type": "number"
+          },
+          "ranking": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "searches": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "description": "`complete` or `unavailable`.",
+            "type": "string"
+          },
+          "stepMinutes": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "coverage",
+          "maximumJourneys",
+          "arrivalSlackMinutes"
+        ],
+        "type": "object"
+      },
+      "Bounds": {
+        "description": "`[west, south, east, north]` in WGS84 degrees.",
+        "items": false,
+        "maxItems": 4,
+        "minItems": 4,
+        "prefixItems": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "number"
+          }
+        ],
+        "type": "array"
+      },
+      "Capabilities": {
+        "description": "Check these before relying on an optional feature.",
+        "properties": {
+          "cityFormat": {
+            "type": "string"
+          },
+          "commands": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "compare": {
+            "$ref": "#/components/schemas/CompareCapabilities"
+          },
+          "compatibility": {
+            "$ref": "#/components/schemas/CompatibilityCapabilities"
+          },
+          "dataPreparation": {
+            "type": "string"
+          },
+          "http": {
+            "$ref": "#/components/schemas/HttpCapabilities"
+          },
+          "matrix": {
+            "$ref": "#/components/schemas/MatrixCapabilities"
+          },
+          "modes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "nativeOperations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "output": {
+            "$ref": "#/components/schemas/OutputCapabilities"
+          },
+          "reach": {
+            "$ref": "#/components/schemas/ReachCapabilities"
+          },
+          "requestSchema": {
+            "type": "string"
+          },
+          "route": {
+            "$ref": "#/components/schemas/RouteCapabilities"
+          },
+          "routingStoreFormat": {
+            "type": "string"
+          },
+          "runtime": {
+            "description": "`rust`.",
+            "type": "string"
+          },
+          "scenarioCollections": {
+            "$ref": "#/components/schemas/CollectionCapabilities"
+          },
+          "schemaVersion": {
+            "description": "`vigo.standalone.capabilities.v1`.",
+            "type": "string"
+          },
+          "standalone": {
+            "type": "boolean"
+          },
+          "timePreferences": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version": {
+            "description": "Executable version.",
+            "type": "string"
+          },
+          "wheelchair": {
+            "$ref": "#/components/schemas/WheelchairCapabilities"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "version",
+          "runtime",
+          "standalone",
+          "commands",
+          "modes",
+          "timePreferences",
+          "cityFormat",
+          "routingStoreFormat",
+          "requestSchema",
+          "dataPreparation",
+          "output",
+          "route",
+          "matrix",
+          "reach",
+          "compare",
+          "wheelchair",
+          "scenarioCollections",
+          "http",
+          "nativeOperations",
+          "compatibility"
+        ],
+        "type": "object"
+      },
+      "CityCounts": {
+        "properties": {
+          "connections": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "routes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stops": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "streetEdges": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "streetNodes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "trips": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "routes",
+          "stops",
+          "trips",
+          "connections",
+          "streetNodes",
+          "streetEdges"
+        ],
+        "type": "object"
+      },
+      "CityRevisions": {
+        "properties": {
+          "after": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "before": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "before",
+          "after"
+        ],
+        "type": "object"
+      },
+      "CitySources": {
+        "properties": {
+          "gtfs": {
+            "items": {
+              "$ref": "#/components/schemas/GtfsSource"
+            },
+            "type": "array"
+          },
+          "osm": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OsmSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "gtfs",
+          "osm"
+        ],
+        "type": "object"
+      },
+      "Clock": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          }
+        ],
+        "description": "A service-day clock: `HH:MM` or `HH:MM:SS` (hours may exceed 23), or minutes\nafter the start of the service day."
+      },
+      "CollectionCapabilities": {
+        "properties": {
+          "boundedResidency": {
+            "type": "boolean"
+          },
+          "format": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "sharedStreets": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "format",
+          "selector",
+          "sharedStreets",
+          "boundedResidency"
+        ],
+        "type": "object"
+      },
+      "CollectionInfoResult": {
+        "description": "A loaded scenario collection.",
+        "properties": {
+          "allocator": {
+            "description": "Allocator statistics when available. Diagnostic."
+          },
+          "defaultScenario": {
+            "type": "string"
+          },
+          "engineVersion": {
+            "type": "string"
+          },
+          "id": {},
+          "memory": {
+            "description": "Diagnostic; its fields may change."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "residency": {
+            "description": "Resident scenarios and shared timetable accounting. Diagnostic."
+          },
+          "resourcePolicy": {
+            "$ref": "#/components/schemas/ResourcePolicy"
+          },
+          "scenarios": {
+            "items": {
+              "$ref": "#/components/schemas/CollectionScenario"
+            },
+            "type": "array"
+          },
+          "schema": {
+            "const": "vigo.scenarios.info.v1",
+            "type": "string"
+          },
+          "sequence": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OkStatus"
+          }
+        },
+        "required": [
+          "schema",
+          "status",
+          "name",
+          "defaultScenario",
+          "scenarios",
+          "engineVersion",
+          "memory",
+          "residency",
+          "allocator"
+        ],
+        "type": "object"
+      },
+      "CollectionScenario": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "CompareCapabilities": {
+        "properties": {
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "kinds"
+        ],
+        "type": "object"
+      },
+      "CompareCounts": {
+        "properties": {
+          "comparable": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "faster": {
+            "description": "Omitted when comparing internal trace results.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "newlyReachable": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "noLongerReachable": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "slower": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unchanged": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "comparable",
+          "newlyReachable",
+          "noLongerReachable"
+        ],
+        "type": "object"
+      },
+      "CompareRequest": {
+        "description": "`POST /v1/compare`: two saved Results of the same query family.",
+        "properties": {
+          "after": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RouteResult"
+              },
+              {
+                "$ref": "#/components/schemas/MatrixResult"
+              },
+              {
+                "$ref": "#/components/schemas/ReachResult"
+              },
+              {
+                "description": "An internal result from `diagnostics: \"trace\"`. Unstable.",
+                "type": "object"
+              }
+            ],
+            "description": "A Result of the same family as `before`."
+          },
+          "before": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RouteResult"
+              },
+              {
+                "$ref": "#/components/schemas/MatrixResult"
+              },
+              {
+                "$ref": "#/components/schemas/ReachResult"
+              },
+              {
+                "description": "An internal result from `diagnostics: \"trace\"`. Unstable.",
+                "type": "object"
+              }
+            ],
+            "description": "A saved `vigo.route.v1`, `vigo.matrix.v1` or `vigo.reach.v1` Result.\nInternal trace results are also accepted, without stability guarantees."
+          },
+          "diagnostics": {
+            "$ref": "#/components/schemas/DiagnosticsLevel",
+            "description": "`trace` adds the internal comparison."
+          },
+          "id": {}
+        },
+        "required": [
+          "before",
+          "after"
+        ],
+        "type": "object"
+      },
+      "CompareResult": {
+        "description": "Changes between two saved Results, after minus before, in seconds.",
+        "properties": {
+          "afterStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QueryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "beforeStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QueryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cityRevisions": {
+            "$ref": "#/components/schemas/CityRevisions"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/CompareCounts",
+            "description": "Matrix and Reach: cell and pair counts."
+          },
+          "durationChangeSeconds": {
+            "description": "Route: change in journey duration.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id": {},
+          "meanChangeSeconds": {
+            "description": "Matrix and Reach: mean over mutually reachable entries; `null` when none.",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "schema": {
+            "const": "vigo.compare.v1",
+            "type": "string"
+          },
+          "sequence": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OkStatus"
+          },
+          "trace": true,
+          "transferChange": {
+            "description": "Route: change in transfers.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "schema",
+          "status"
+        ],
+        "type": "object"
+      },
+      "CompatibilityCapabilities": {
+        "properties": {
+          "automaticEditorBranchRetiming": {
+            "type": "boolean"
+          },
+          "studioResultEnvelope": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "automaticEditorBranchRetiming",
+          "studioResultEnvelope"
+        ],
+        "type": "object"
+      },
+      "Coordinate": {
+        "description": "`[longitude, latitude]` in WGS84 degrees.",
+        "items": false,
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          },
+          {
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          }
+        ],
+        "type": "array"
+      },
+      "CutoffFeature": {
+        "properties": {
+          "geometry": {
+            "$ref": "#/components/schemas/CutoffGeometry"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/CutoffProperties"
+          },
+          "type": {
+            "const": "Feature",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "properties",
+          "geometry"
+        ],
+        "type": "object"
+      },
+      "CutoffFeatures": {
+        "description": "A GeoJSON `FeatureCollection` of cutoff areas or contours.",
+        "properties": {
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/CutoffFeature"
+            },
+            "type": "array"
+          },
+          "type": {
+            "const": "FeatureCollection",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "features"
+        ],
+        "type": "object"
+      },
+      "CutoffGeometry": {
+        "oneOf": [
+          {
+            "properties": {
+              "coordinates": {
+                "items": {
+                  "items": {
+                    "items": {
+                      "$ref": "#/components/schemas/Coordinate"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              "type": {
+                "const": "MultiPolygon",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "coordinates"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "coordinates": {
+                "items": {
+                  "items": {
+                    "$ref": "#/components/schemas/Coordinate"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              "type": {
+                "const": "MultiLineString",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "coordinates"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "CutoffProperties": {
+        "properties": {
+          "cutoffMinutes": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "cutoffMinutes"
+        ],
+        "type": "object"
+      },
+      "DataMode": {
+        "enum": [
+          "scheduled",
+          "realtime"
+        ],
+        "type": "string"
+      },
+      "DatasetLimitation": {
+        "description": "A dataset or model limitation of the City.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "count": {
+            "description": "Affected source records.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "exactness": {
+            "description": "Such as `unsupported` or `unknown`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
+      "DiagnosticsLevel": {
+        "enum": [
+          "none",
+          "summary",
+          "profile",
+          "trace"
+        ],
+        "type": "string"
+      },
+      "Endpoint": {
+        "description": "A place on a journey. A free coordinate has no `stop` or `name`.",
+        "properties": {
+          "coordinate": {
+            "$ref": "#/components/schemas/Coordinate"
+          },
+          "name": {
+            "type": "string"
+          },
+          "stop": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        },
+        "type": "object"
+      },
+      "EndpointConnector": {
+        "description": "The straight hop between a free coordinate and its street attachment.",
+        "properties": {
+          "coordinates": {
+            "items": {
+              "$ref": "#/components/schemas/Coordinate"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "distanceKm": {
+            "type": "number"
+          },
+          "source": {
+            "description": "`coordinate-snap`.",
+            "type": "string"
+          },
+          "streetPathVerified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "source",
+          "streetPathVerified",
+          "distanceKm"
+        ],
+        "type": "object"
+      },
+      "Enumerated": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "format": "int64",
+            "type": "integer"
+          }
+        ],
+        "description": "A GTFS-Realtime enumeration, by name or by numeric code."
+      },
+      "ErrorDetail": {
+        "description": "Handle `code` and the HTTP status, not message text.",
+        "properties": {
+          "code": {
+            "description": "Such as `invalid_request`, `stop_not_found`, `scenario_not_found`,\n`unsupported_mode`, `file_not_found`, `permission_denied` or\n`city_unavailable`.",
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ErrorResult": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          },
+          "id": {},
+          "schema": {
+            "const": "vigo.error.v1",
+            "type": "string"
+          },
+          "sequence": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ErrorStatus"
+          }
+        },
+        "required": [
+          "schema",
+          "status",
+          "error"
+        ],
+        "type": "object"
+      },
+      "ErrorStatus": {
+        "enum": [
+          "error"
+        ],
+        "type": "string"
+      },
+      "Fare": {
+        "description": "The published fare for a ride, or why there is none.",
+        "discriminator": {
+          "mapping": {
+            "published": "#/components/schemas/PublishedFare",
+            "unavailable": "#/components/schemas/UnavailableFare"
+          },
+          "propertyName": "status"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PublishedFare"
+          },
+          {
+            "$ref": "#/components/schemas/UnavailableFare"
+          }
+        ]
+      },
+      "FareOption": {
+        "properties": {
+          "amount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "media": {
+            "description": "Fare media name; empty when unspecified.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "productId": {
+            "type": "string"
+          },
+          "riderCategory": {
+            "description": "Fares v2 only; empty when unspecified.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "productId",
+          "name",
+          "amount",
+          "media"
+        ],
+        "type": "object"
+      },
+      "GtfsSource": {
+        "properties": {
+          "feed": {
+            "description": "The feed's scope.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "feed"
+        ],
+        "type": "object"
+      },
+      "HttpCapabilities": {
+        "properties": {
+          "boundedConnections": {
+            "type": "boolean"
+          },
+          "boundedQueue": {
+            "type": "boolean"
+          },
+          "maxRequestBytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxWorkerResponseBytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "workerTerminationOnDeadline": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "maxRequestBytes",
+          "maxWorkerResponseBytes",
+          "boundedConnections",
+          "boundedQueue",
+          "workerTerminationOnDeadline"
+        ],
+        "type": "object"
+      },
+      "Identifier": {
+        "description": "A feed-scoped GTFS identifier, such as a stop, route, trip or service.\n`feed` is `null` in a City built from a single unscoped feed.",
+        "properties": {
+          "feed": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "feed",
+          "id"
+        ],
+        "type": "object"
+      },
+      "InfoResult": {
+        "description": "A loaded City: identity, sources, size and limits.",
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/CityCounts"
+          },
+          "datasetLimitations": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetLimitation"
+            },
+            "type": "array"
+          },
+          "engineVersion": {
+            "type": "string"
+          },
+          "id": {},
+          "memory": {
+            "description": "Process memory accounting. Diagnostic; its fields may change."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resourcePolicy": {
+            "$ref": "#/components/schemas/ResourcePolicy"
+          },
+          "revision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schema": {
+            "const": "vigo.info.v1",
+            "type": "string"
+          },
+          "sequence": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sources": {
+            "$ref": "#/components/schemas/CitySources"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OkStatus"
+          }
+        },
+        "required": [
+          "schema",
+          "status",
+          "name",
+          "revision",
+          "engineVersion",
+          "counts",
+          "sources",
+          "datasetLimitations",
+          "memory"
+        ],
+        "type": "object"
+      },
+      "IntermediateStop": {
+        "properties": {
+          "arrivalTime": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "coordinate": {
+            "$ref": "#/components/schemas/Coordinate"
+          },
+          "departureTime": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "stop": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        },
+        "required": [
+          "arrivalTime",
+          "departureTime"
+        ],
+        "type": "object"
+      },
+      "Journey": {
+        "description": "One way to make the trip. Clocks are service-day `HH:MM:SS` (hours may\nexceed 23); durations are integer seconds.",
+        "properties": {
+          "arrivalTime": {
+            "type": "string"
+          },
+          "boardings": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "clockDate": {
+            "description": "Date anchoring every clock in this journey. Route only; `null` for a\nwalking or driving journey without a service date.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "departureTime": {
+            "type": "string"
+          },
+          "drivingSeconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "durationSeconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "legs": {
+            "items": {
+              "$ref": "#/components/schemas/Leg"
+            },
+            "type": "array"
+          },
+          "ridingSeconds": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "transfers": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "waitingSeconds": {
+            "description": "Gaps before and between legs. Not a reliability margin.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "walkingSeconds": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "departureTime",
+          "arrivalTime",
+          "durationSeconds",
+          "walkingSeconds",
+          "waitingSeconds",
+          "ridingSeconds",
+          "boardings",
+          "transfers",
+          "legs"
+        ],
+        "type": "object"
+      },
+      "JourneyFormat": {
+        "oneOf": [
+          {
+            "enum": [
+              "full"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "compact",
+            "description": "The exact timed trip, stop and boarding witness, without display\nmetadata or walking evidence.",
+            "type": "string"
+          }
+        ]
+      },
+      "Leg": {
+        "discriminator": {
+          "mapping": {
+            "drive": "#/components/schemas/StreetLeg",
+            "transit": "#/components/schemas/TransitLeg",
+            "walk": "#/components/schemas/StreetLeg"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/StreetLeg"
+          },
+          {
+            "$ref": "#/components/schemas/TransitLeg"
+          }
+        ]
+      },
+      "LineString": {
+        "description": "A GeoJSON `LineString`.",
+        "properties": {
+          "coordinates": {
+            "items": {
+              "$ref": "#/components/schemas/Coordinate"
+            },
+            "type": "array"
+          },
+          "type": {
+            "const": "LineString",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "coordinates"
+        ],
+        "type": "object"
+      },
+      "MatrixAccess": {
+        "description": "Matrix access reports, keyed by endpoint index.",
+        "properties": {
+          "destinations": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/AccessReport"
+            },
+            "type": "object"
+          },
+          "origins": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/AccessReport"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "origins",
+          "destinations"
+        ],
+        "type": "object"
+      },
+      "MatrixCapabilities": {
+        "properties": {
+          "journeyGeometry": {
+            "type": "boolean"
+          },
+          "journeys": {
+            "type": "boolean"
+          },
+          "realtimeTransit": {
+            "type": "boolean"
+          },
+          "traffic": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "journeys",
+          "journeyGeometry",
+          "traffic",
+          "realtimeTransit"
+        ],
+        "type": "object"
+      },
+      "MatrixQuery": {
+        "properties": {
+          "arrivalReserveSeconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "dataMode": {
+            "$ref": "#/components/schemas/DataMode"
+          },
+          "destinations": {
+            "items": {
+              "$ref": "#/components/schemas/QueryPlace"
+            },
+            "type": "array"
+          },
+          "origins": {
+            "items": {
+              "$ref": "#/components/schemas/QueryPlace"
+            },
+            "type": "array"
+          },
+          "planningArrivalTime": {
+            "type": "string"
+          },
+          "requestedTime": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serviceDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timePreference": {
+            "$ref": "#/components/schemas/TimePreference"
+          }
+        },
+        "required": [
+          "serviceDate",
+          "timePreference",
+          "requestedTime",
+          "dataMode",
+          "origins",
+          "destinations"
+        ],
+        "type": "object"
+      },
+      "MatrixRequest": {
+        "additionalProperties": false,
+        "description": "`POST /v1/matrix`: travel times between every origin and destination.",
+        "properties": {
+          "allowLongWalk": {
+            "default": true,
+            "type": "boolean"
+          },
+          "allowStreetTransfers": {
+            "default": true,
+            "description": "Default `true`.",
+            "type": "boolean"
+          },
+          "arrivalBufferMinutes": {
+            "default": 0,
+            "format": "uint32",
+            "maximum": 60,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "dataMode": {
+            "$ref": "#/components/schemas/DataMode",
+            "description": "Alias of `routingDataMode`."
+          },
+          "destinations": {
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "maxItems": 65536,
+            "minItems": 1,
+            "type": "array"
+          },
+          "diagnostics": {
+            "$ref": "#/components/schemas/DiagnosticsLevel",
+            "default": "none",
+            "description": "Added detail: `summary` counters, `profile` timings, or the\nunstable internal `trace`. Default `none`."
+          },
+          "disableCache": {
+            "default": false,
+            "type": "boolean"
+          },
+          "horizonMinutes": {
+            "default": 480,
+            "maximum": 2880,
+            "minimum": 1,
+            "type": "number"
+          },
+          "id": {
+            "description": "Caller's identifier, echoed as `id` and `meta.requestId`."
+          },
+          "includeGeometry": {
+            "default": false,
+            "description": "Include GeoJSON on legs.",
+            "type": "boolean"
+          },
+          "includeJourneys": {
+            "default": false,
+            "type": "boolean"
+          },
+          "includeLimitations": {
+            "default": false,
+            "description": "Add the City's dataset limitations to the Result. Default `false`.",
+            "type": "boolean"
+          },
+          "journeyFormat": {
+            "$ref": "#/components/schemas/JourneyFormat",
+            "default": "full"
+          },
+          "kind": {
+            "description": "Query kind on a resident stream.",
+            "type": "string"
+          },
+          "maxStreetKm": {
+            "default": 50,
+            "maximum": 1000,
+            "minimum": 0.05,
+            "type": "number"
+          },
+          "maxTransfers": {
+            "format": "uint32",
+            "maximum": 31,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxWalkKm": {
+            "default": 1.2,
+            "description": "Default 1.2.",
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "minimumTransferBufferMinutes": {
+            "default": 0,
+            "description": "Default 0.",
+            "format": "uint32",
+            "maximum": 60,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/Mode",
+            "default": "transit"
+          },
+          "origins": {
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "maxItems": 65536,
+            "minItems": 1,
+            "type": "array"
+          },
+          "requireCompleteServiceCoverage": {
+            "default": false,
+            "type": "boolean"
+          },
+          "requireTransitRide": {
+            "default": false,
+            "type": "boolean"
+          },
+          "routingDataMode": {
+            "$ref": "#/components/schemas/DataMode"
+          },
+          "scenarioId": {
+            "description": "Member of the loaded scenario collection; omitted selects its default.",
+            "type": "string"
+          },
+          "serviceDate": {
+            "description": "`YYYY-MM-DD`. Required for transit.",
+            "format": "date",
+            "type": "string"
+          },
+          "serviceDay": {
+            "$ref": "#/components/schemas/ServiceDay"
+          },
+          "time": {
+            "$ref": "#/components/schemas/Clock"
+          },
+          "timeMinutes": {
+            "maximum": 4319,
+            "minimum": 0,
+            "type": "number"
+          },
+          "timePreference": {
+            "$ref": "#/components/schemas/TimePreferenceInput",
+            "default": "depart_at"
+          },
+          "traffic": {
+            "$ref": "#/components/schemas/Traffic"
+          },
+          "walkSpeedKph": {
+            "description": "Default from the City. Walking Route and Matrix, and Reach.",
+            "maximum": 8,
+            "minimum": 1,
+            "type": "number"
+          },
+          "wheelchair": {
+            "description": "Require a City prepared with the wheelchair-strict-v1 profile.\nOmitted inherits the City's profile; `false` rejects a wheelchair City.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "origins",
+          "destinations"
+        ],
+        "type": "object"
+      },
+      "MatrixResult": {
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/MatrixAccess"
+          },
+          "accessibility": {
+            "$ref": "#/components/schemas/Accessibility"
+          },
+          "datasetLimitations": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetLimitation"
+            },
+            "type": "array"
+          },
+          "diagnostics": {
+            "$ref": "#/components/schemas/SearchSummary"
+          },
+          "distancesMeters": {
+            "description": "Driving distances, `[origin][destination]`.",
+            "items": {
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "durationsSeconds": {
+            "description": "`[origin][destination]` seconds; `null` when unreachable, never zero.",
+            "items": {
+              "items": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "id": {},
+          "journeys": {
+            "description": "Same order as `durationsSeconds`, with `includeJourneys`.",
+            "items": {
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Journey"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/Mode"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/Profile"
+          },
+          "query": {
+            "$ref": "#/components/schemas/MatrixQuery"
+          },
+          "scenarioId": {
+            "type": "string"
+          },
+          "schema": {
+            "const": "vigo.matrix.v1",
+            "type": "string"
+          },
+          "sequence": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/QueryStatus"
+          },
+          "trace": true
+        },
+        "required": [
+          "schema",
+          "status",
+          "mode",
+          "query",
+          "meta",
+          "durationsSeconds"
+        ],
+        "type": "object"
+      },
+      "Meta": {
+        "description": "How this Result was computed and how to reproduce it.",
+        "properties": {
+          "cityRevision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "computeScope": {
+            "description": "`query_dispatch_including_materialization`.",
+            "type": "string"
+          },
+          "computeUs": {
+            "description": "Service-date activation, search and materialization, in microseconds.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "engineVersion": {
+            "type": "string"
+          },
+          "queryFingerprint": {
+            "description": "Hash of the request (stop references canonicalized, output switches\nexcluded) and the City revision.",
+            "type": "string"
+          },
+          "realtime": {
+            "$ref": "#/components/schemas/RealtimeReport"
+          },
+          "realtimeSnapshotFingerprint": {
+            "type": "string"
+          },
+          "requestId": {
+            "description": "The caller's `id` when given; otherwise generated."
+          },
+          "scenarioFingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engineVersion",
+          "cityRevision",
+          "requestId",
+          "queryFingerprint",
+          "computeUs",
+          "computeScope"
+        ],
+        "type": "object"
+      },
+      "Mode": {
+        "enum": [
+          "transit",
+          "walk",
+          "drive"
+        ],
+        "type": "string"
+      },
+      "Notice": {
+        "description": "A code for programs and a message for people.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ObservedTraffic": {
+        "description": "Observed traffic. One of `observedAt`, `fetchedAt` or `timestamp` is\nrequired, and one of `observations`, `segments` or `edgeUpdates`.",
+        "properties": {
+          "edgeUpdates": {
+            "items": {
+              "$ref": "#/components/schemas/TrafficObservation"
+            },
+            "type": "array"
+          },
+          "expiresAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "fetchedAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "observations": {
+            "items": {
+              "$ref": "#/components/schemas/TrafficObservation"
+            },
+            "type": "array"
+          },
+          "observedAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/TrafficObservation"
+            },
+            "type": "array"
+          },
+          "streetSourceFingerprint": {
+            "type": "string"
+          },
+          "timestamp": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "ttlSeconds": {
+            "description": "Default 300.",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "OkStatus": {
+        "enum": [
+          "ok"
+        ],
+        "type": "string"
+      },
+      "OsmSource": {
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "OutputCapabilities": {
+        "properties": {
+          "clock": {
+            "type": "string"
+          },
+          "diagnostics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "durationUnit": {
+            "type": "string"
+          },
+          "geometry": {
+            "type": "string"
+          },
+          "schemas": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "streamFormats": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "trace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemas",
+          "streamFormats",
+          "diagnostics",
+          "clock",
+          "durationUnit",
+          "geometry",
+          "trace"
+        ],
+        "type": "object"
+      },
+      "Place": {
+        "additionalProperties": false,
+        "properties": {
+          "baselineStopId": {
+            "type": "string"
+          },
+          "baselineStopIndex": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "coordinate": {
+            "$ref": "#/components/schemas/Coordinate"
+          },
+          "editStatus": {
+            "type": "string"
+          },
+          "id": {
+            "description": "Caller's label for a Matrix endpoint, echoed in `query`."
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "stop": {
+            "$ref": "#/components/schemas/StopInput"
+          },
+          "stopId": {
+            "description": "Older form of `stop`: an ID, scoped as `feed` + U+001F + `id`.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Point": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/Coordinate"
+          },
+          {
+            "$ref": "#/components/schemas/Place"
+          }
+        ],
+        "description": "A place: a bare `[longitude, latitude]`, or an object naming a stop and/or\ncoordinate. A selected stop overrides the coordinate unless `source` is\n`map`."
+      },
+      "PreparedTraffic": {
+        "properties": {
+          "edgeIndices": {
+            "items": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "edgeTimeUnits": {
+            "items": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "snapshotKey": {
+            "type": "string"
+          },
+          "streetSourceFingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "snapshotKey",
+          "streetSourceFingerprint",
+          "edgeIndices",
+          "edgeTimeUnits"
+        ],
+        "type": "object"
+      },
+      "Profile": {
+        "description": "Measured timings, with `diagnostics: \"profile\"` or `\"trace\"`. Scopes can\noverlap; do not add them.",
+        "properties": {
+          "note": {
+            "type": "string"
+          },
+          "timingsUs": {
+            "additionalProperties": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "description": "Dotted scope names to integer microseconds.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "timingsUs",
+          "note"
+        ],
+        "type": "object"
+      },
+      "PublishedFare": {
+        "properties": {
+          "agencyUrl": {
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/FareOption"
+            },
+            "type": "array"
+          },
+          "source": {
+            "description": "The feed the fare came from.",
+            "type": "string"
+          },
+          "standard": {
+            "description": "`GTFS Fares v1` or `GTFS Fares v2`.",
+            "type": "string"
+          },
+          "status": {
+            "const": "published",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "standard",
+          "options"
+        ],
+        "type": "object"
+      },
+      "QueryPlace": {
+        "description": "A requested place, in public form.",
+        "properties": {
+          "coordinate": {
+            "$ref": "#/components/schemas/Coordinate"
+          },
+          "id": {
+            "description": "The caller's Matrix endpoint `id`."
+          },
+          "name": {
+            "type": "string"
+          },
+          "stop": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        },
+        "type": "object"
+      },
+      "QueryStatus": {
+        "oneOf": [
+          {
+            "enum": [
+              "ok"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "not_found",
+            "description": "A valid outcome: nothing satisfies the request.",
+            "type": "string"
+          }
+        ]
+      },
+      "ReachCapabilities": {
+        "properties": {
+          "geojson": {
+            "type": "boolean"
+          },
+          "modes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "raster": {
+            "type": "boolean"
+          },
+          "realtimeTransit": {
+            "type": "boolean"
+          },
+          "scenarios": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "streets": {
+            "type": "boolean"
+          },
+          "timePreferences": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "modes",
+          "timePreferences",
+          "raster",
+          "geojson",
+          "streets",
+          "realtimeTransit",
+          "scenarios"
+        ],
+        "type": "object"
+      },
+      "ReachFormat": {
+        "oneOf": [
+          {
+            "enum": [
+              "full"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "map",
+            "description": "Areas for the full reached extent, without rasters or stop lists.",
+            "type": "string"
+          }
+        ]
+      },
+      "ReachMode": {
+        "description": "Reach covers transit and walking only.",
+        "enum": [
+          "transit",
+          "walk"
+        ],
+        "type": "string"
+      },
+      "ReachQuery": {
+        "properties": {
+          "dataMode": {
+            "$ref": "#/components/schemas/DataMode"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/QueryPlace"
+          },
+          "requestedTime": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serviceDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timePreference": {
+            "$ref": "#/components/schemas/TimePreference"
+          }
+        },
+        "required": [
+          "serviceDate",
+          "timePreference",
+          "requestedTime",
+          "dataMode",
+          "origin"
+        ],
+        "type": "object"
+      },
+      "ReachRequest": {
+        "additionalProperties": false,
+        "description": "`POST /v1/reach` (and `/v1/isochrone`): where an origin reaches within cutoffs.",
+        "properties": {
+          "allowStreetTransfers": {
+            "default": true,
+            "description": "Default `true`.",
+            "type": "boolean"
+          },
+          "bounds": {
+            "$ref": "#/components/schemas/Bounds"
+          },
+          "cutoffsMinutes": {
+            "default": [
+              15,
+              30,
+              45,
+              60
+            ],
+            "description": "Default `[15, 30, 45, 60]`.",
+            "items": {
+              "maximum": 240,
+              "minimum": 1,
+              "type": "number"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "type": "array"
+          },
+          "dataMode": {
+            "$ref": "#/components/schemas/DataMode",
+            "description": "Alias of `routingDataMode`."
+          },
+          "diagnostics": {
+            "$ref": "#/components/schemas/DiagnosticsLevel",
+            "default": "none",
+            "description": "Added detail: `summary` counters, `profile` timings, or the\nunstable internal `trace`. Default `none`."
+          },
+          "disableCache": {
+            "default": false,
+            "type": "boolean"
+          },
+          "extentRadiusKm": {
+            "default": 8,
+            "description": "Default 8.",
+            "maximum": 40,
+            "minimum": 1,
+            "type": "number"
+          },
+          "id": {
+            "description": "Caller's identifier, echoed as `id` and `meta.requestId`."
+          },
+          "includeGeometry": {
+            "default": false,
+            "description": "Include GeoJSON on legs.",
+            "type": "boolean"
+          },
+          "includeLimitations": {
+            "default": false,
+            "description": "Add the City's dataset limitations to the Result. Default `false`.",
+            "type": "boolean"
+          },
+          "includeNodes": {
+            "default": false,
+            "type": "boolean"
+          },
+          "includeStreetEdges": {
+            "default": false,
+            "type": "boolean"
+          },
+          "kind": {
+            "description": "Query kind on a resident stream.",
+            "type": "string"
+          },
+          "maxTransfers": {
+            "format": "uint32",
+            "maximum": 31,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxWalkKm": {
+            "default": 1.2,
+            "description": "Default 1.2.",
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "minimumTransferBufferMinutes": {
+            "default": 0,
+            "description": "Default 0.",
+            "format": "uint32",
+            "maximum": 60,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/ReachMode",
+            "default": "transit"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/Point"
+          },
+          "rasterSize": {
+            "default": 96,
+            "description": "Cells per side. Default 96.",
+            "format": "uint32",
+            "maximum": 1024,
+            "minimum": 16,
+            "type": "integer"
+          },
+          "reachFormat": {
+            "$ref": "#/components/schemas/ReachFormat",
+            "default": "full"
+          },
+          "requireCompleteServiceCoverage": {
+            "default": false,
+            "type": "boolean"
+          },
+          "routingDataMode": {
+            "$ref": "#/components/schemas/DataMode"
+          },
+          "scenario": {
+            "$ref": "#/components/schemas/Scenario"
+          },
+          "scenarioId": {
+            "description": "Member of the loaded scenario collection; omitted selects its default.",
+            "type": "string"
+          },
+          "serviceDate": {
+            "description": "`YYYY-MM-DD`. Required for transit.",
+            "format": "date",
+            "type": "string"
+          },
+          "serviceDay": {
+            "$ref": "#/components/schemas/ServiceDay"
+          },
+          "surfaceSampling": {
+            "$ref": "#/components/schemas/SurfaceSampling",
+            "default": "street"
+          },
+          "time": {
+            "$ref": "#/components/schemas/Clock"
+          },
+          "timeMinutes": {
+            "maximum": 4319,
+            "minimum": 0,
+            "type": "number"
+          },
+          "timePreference": {
+            "$ref": "#/components/schemas/ReachTimePreference",
+            "default": "depart_at"
+          },
+          "walkSpeedKph": {
+            "description": "Default from the City. Walking Route and Matrix, and Reach.",
+            "maximum": 8,
+            "minimum": 1,
+            "type": "number"
+          },
+          "wheelchair": {
+            "description": "Require a City prepared with the wheelchair-strict-v1 profile.\nOmitted inherits the City's profile; `false` rejects a wheelchair City.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "origin"
+        ],
+        "type": "object"
+      },
+      "ReachResult": {
+        "properties": {
+          "accessibility": {
+            "$ref": "#/components/schemas/Accessibility"
+          },
+          "areas": {
+            "$ref": "#/components/schemas/CutoffFeatures",
+            "description": "Areas within each cutoff. With `reachFormat: \"map\"`, these cover the\nfull reached extent."
+          },
+          "bounds": {
+            "$ref": "#/components/schemas/Bounds",
+            "description": "Full reached extent, with `reachFormat: \"map\"`."
+          },
+          "contours": {
+            "$ref": "#/components/schemas/CutoffFeatures"
+          },
+          "cutoffsSeconds": {
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "datasetLimitations": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetLimitation"
+            },
+            "type": "array"
+          },
+          "diagnostics": {
+            "$ref": "#/components/schemas/SearchSummary"
+          },
+          "fullAreas": {
+            "$ref": "#/components/schemas/CutoffFeatures"
+          },
+          "fullContours": {
+            "$ref": "#/components/schemas/CutoffFeatures"
+          },
+          "fullSurface": {
+            "$ref": "#/components/schemas/ReachSurface",
+            "description": "The same grid over the complete reached extent."
+          },
+          "id": {},
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/Mode"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/Profile"
+          },
+          "query": {
+            "$ref": "#/components/schemas/ReachQuery"
+          },
+          "scenarioId": {
+            "type": "string"
+          },
+          "scenarioStops": {
+            "description": "Stops added by a scenario.",
+            "items": {
+              "$ref": "#/components/schemas/ReachStop"
+            },
+            "type": "array"
+          },
+          "schema": {
+            "const": "vigo.reach.v1",
+            "type": "string"
+          },
+          "sequence": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/QueryStatus"
+          },
+          "stops": {
+            "items": {
+              "$ref": "#/components/schemas/ReachStop"
+            },
+            "type": "array"
+          },
+          "surface": {
+            "$ref": "#/components/schemas/ReachSurface"
+          },
+          "trace": true
+        },
+        "required": [
+          "schema",
+          "status",
+          "mode",
+          "query",
+          "meta",
+          "cutoffsSeconds",
+          "areas"
+        ],
+        "type": "object"
+      },
+      "ReachStop": {
+        "description": "A stop reached by Reach, and when.",
+        "properties": {
+          "coordinate": {
+            "$ref": "#/components/schemas/Coordinate"
+          },
+          "durationSeconds": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "stop": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        },
+        "required": [
+          "durationSeconds"
+        ],
+        "type": "object"
+      },
+      "ReachSurface": {
+        "description": "Reached time on a regular grid, row-major from the northwest corner.",
+        "properties": {
+          "bounds": {
+            "$ref": "#/components/schemas/Bounds"
+          },
+          "edges": {
+            "$ref": "#/components/schemas/StreetEdges",
+            "description": "Reached street intervals, with `includeStreetEdges`."
+          },
+          "height": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nodes": {
+            "description": "Reached street nodes, with `includeNodes`.",
+            "items": {
+              "$ref": "#/components/schemas/SurfaceNode"
+            },
+            "type": "array"
+          },
+          "valuesSeconds": {
+            "description": "Seconds per cell; `null` when unreachable.",
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "type": "array"
+          },
+          "width": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "width",
+          "height",
+          "bounds",
+          "valuesSeconds"
+        ],
+        "type": "object"
+      },
+      "ReachTimePreference": {
+        "description": "Reach searches forward in time only.",
+        "enum": [
+          "depart_at",
+          "depart"
+        ],
+        "type": "string"
+      },
+      "RealtimeCoverage": {
+        "properties": {
+          "appliedUpdates": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "rejectedUpdates": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "appliedUpdates",
+          "rejectedUpdates",
+          "complete"
+        ],
+        "type": "object"
+      },
+      "RealtimeReport": {
+        "description": "How a supplied realtime snapshot was admitted and applied.",
+        "properties": {
+          "appliedTrips": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "canceledTrips": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/RealtimeCoverage"
+          },
+          "dateMismatches": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "duplicateTrips": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "feedTripUpdates": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "invalidTrips": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "omittedPastPrefixStops": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "pastPrefixTrips": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "staleTrips": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "description": "Such as `applied` or `stale_fallback`.",
+            "type": "string"
+          },
+          "unmatchedTrips": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "mode",
+          "coverage",
+          "feedTripUpdates",
+          "appliedTrips",
+          "canceledTrips",
+          "staleTrips",
+          "unmatchedTrips",
+          "invalidTrips",
+          "duplicateTrips",
+          "dateMismatches",
+          "pastPrefixTrips",
+          "omittedPastPrefixStops"
+        ],
+        "type": "object"
+      },
+      "RealtimeSnapshot": {
+        "description": "Trip Updates applied to one Route request. Freshness is checked against\nthe current time.",
+        "properties": {
+          "feedTimestamp": {
+            "description": "POSIX seconds.",
+            "format": "uint64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "incrementality": {
+            "$ref": "#/components/schemas/Enumerated",
+            "description": "`FULL_DATASET` or `0`."
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "tripUpdates": {
+            "items": {
+              "$ref": "#/components/schemas/TripUpdate"
+            },
+            "maxItems": 100000,
+            "minItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "tripUpdates"
+        ],
+        "type": "object"
+      },
+      "RequestedAlternatives": {
+        "properties": {
+          "maximum": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rankings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "timePreferences": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "maximum",
+          "rankings",
+          "timePreferences"
+        ],
+        "type": "object"
+      },
+      "ResourcePolicy": {
+        "properties": {
+          "memoryCapacityBytes": {
+            "description": "Detected memory capacity; `null` when unknown.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "swapCountsAsRam": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "memoryCapacityBytes",
+          "swapCountsAsRam"
+        ],
+        "type": "object"
+      },
+      "Response": {
+        "description": "Any document the engine writes for a query, keyed by its `schema`.",
+        "discriminator": {
+          "mapping": {
+            "vigo.compare.v1": "#/components/schemas/CompareResult",
+            "vigo.error.v1": "#/components/schemas/ErrorResult",
+            "vigo.info.v1": "#/components/schemas/InfoResult",
+            "vigo.matrix.v1": "#/components/schemas/MatrixResult",
+            "vigo.reach.v1": "#/components/schemas/ReachResult",
+            "vigo.route.v1": "#/components/schemas/RouteResult",
+            "vigo.scenarios.info.v1": "#/components/schemas/CollectionInfoResult",
+            "vigo.stream.detail.v1": "#/components/schemas/StreamDetail"
+          },
+          "propertyName": "schema"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/RouteResult"
+          },
+          {
+            "$ref": "#/components/schemas/MatrixResult"
+          },
+          {
+            "$ref": "#/components/schemas/ReachResult"
+          },
+          {
+            "$ref": "#/components/schemas/CompareResult"
+          },
+          {
+            "$ref": "#/components/schemas/InfoResult"
+          },
+          {
+            "$ref": "#/components/schemas/CollectionInfoResult"
+          },
+          {
+            "$ref": "#/components/schemas/StreamDetail"
+          },
+          {
+            "$ref": "#/components/schemas/ErrorResult"
+          }
+        ]
+      },
+      "RouteAccess": {
+        "properties": {
+          "destination": {
+            "$ref": "#/components/schemas/AccessReport"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/AccessReport"
+          }
+        },
+        "required": [
+          "origin",
+          "destination"
+        ],
+        "type": "object"
+      },
+      "RouteCapabilities": {
+        "properties": {
+          "alternatives": {
+            "$ref": "#/components/schemas/SampledAlternatives"
+          },
+          "arrivalWindows": {
+            "type": "boolean"
+          },
+          "departureWindows": {
+            "type": "boolean"
+          },
+          "fareAnnotations": {
+            "type": "boolean"
+          },
+          "realtime": {
+            "type": "boolean"
+          },
+          "requestedAlternatives": {
+            "$ref": "#/components/schemas/RequestedAlternatives"
+          },
+          "transferControls": {
+            "type": "boolean"
+          },
+          "transitShapes": {
+            "type": "boolean"
+          },
+          "waypoints": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "realtime",
+          "transferControls",
+          "waypoints",
+          "departureWindows",
+          "arrivalWindows",
+          "alternatives",
+          "requestedAlternatives",
+          "transitShapes",
+          "fareAnnotations"
+        ],
+        "type": "object"
+      },
+      "RouteQuery": {
+        "description": "The request as the engine understood it. Endpoints echo the caller's places.",
+        "properties": {
+          "arrivalReserveSeconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "dataMode": {
+            "$ref": "#/components/schemas/DataMode"
+          },
+          "destination": {
+            "$ref": "#/components/schemas/QueryPlace"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/QueryPlace"
+          },
+          "planningArrivalTime": {
+            "type": "string"
+          },
+          "requestedTime": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serviceDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timePreference": {
+            "$ref": "#/components/schemas/TimePreference"
+          }
+        },
+        "required": [
+          "serviceDate",
+          "timePreference",
+          "requestedTime",
+          "dataMode",
+          "origin",
+          "destination"
+        ],
+        "type": "object"
+      },
+      "RouteRequest": {
+        "additionalProperties": false,
+        "description": "`POST /v1/route`: journeys between two places.",
+        "properties": {
+          "allowLongWalk": {
+            "default": true,
+            "type": "boolean"
+          },
+          "allowStreetTransfers": {
+            "default": true,
+            "description": "Default `true`.",
+            "type": "boolean"
+          },
+          "alternativeRanking": {
+            "$ref": "#/components/schemas/AlternativeRanking",
+            "default": "pareto"
+          },
+          "alternativeSlackMinutes": {
+            "default": 15,
+            "description": "Latest admitted arrival, in minutes after the primary arrival. Default 15.",
+            "maximum": 120,
+            "minimum": 0,
+            "type": "number"
+          },
+          "alternatives": {
+            "default": 0,
+            "description": "Additional depart-at transit journeys; 0 turns alternatives off.",
+            "format": "uint32",
+            "maximum": 9,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "arrivalBufferMinutes": {
+            "default": 0,
+            "description": "Arrival reserve for arrive-by transit without via points.",
+            "format": "uint32",
+            "maximum": 60,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "dataMode": {
+            "$ref": "#/components/schemas/DataMode",
+            "description": "Alias of `routingDataMode`."
+          },
+          "destination": {
+            "$ref": "#/components/schemas/Point"
+          },
+          "diagnostics": {
+            "$ref": "#/components/schemas/DiagnosticsLevel",
+            "default": "none",
+            "description": "Added detail: `summary` counters, `profile` timings, or the\nunstable internal `trace`. Default `none`."
+          },
+          "disableCache": {
+            "default": false,
+            "type": "boolean"
+          },
+          "horizonMinutes": {
+            "default": 480,
+            "description": "Default 480.",
+            "maximum": 2880,
+            "minimum": 1,
+            "type": "number"
+          },
+          "id": {
+            "description": "Caller's identifier, echoed as `id` and `meta.requestId`."
+          },
+          "includeGeometry": {
+            "default": true,
+            "description": "Include GeoJSON on legs.",
+            "type": "boolean"
+          },
+          "includeLimitations": {
+            "default": false,
+            "description": "Add the City's dataset limitations to the Result. Default `false`.",
+            "type": "boolean"
+          },
+          "kind": {
+            "description": "Query kind on a resident stream.",
+            "type": "string"
+          },
+          "maxStreetKm": {
+            "default": 50,
+            "description": "Default 50.",
+            "maximum": 1000,
+            "minimum": 0.05,
+            "type": "number"
+          },
+          "maxTransfers": {
+            "format": "uint32",
+            "maximum": 31,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxWalkKm": {
+            "default": 1.2,
+            "description": "Default 1.2.",
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "minimumTransferBufferMinutes": {
+            "default": 0,
+            "description": "Default 0.",
+            "format": "uint32",
+            "maximum": 60,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/Mode",
+            "default": "transit",
+            "description": "Default `transit`."
+          },
+          "origin": {
+            "$ref": "#/components/schemas/Point"
+          },
+          "realtimeSnapshot": {
+            "$ref": "#/components/schemas/RealtimeSnapshot"
+          },
+          "requireCompleteServiceCoverage": {
+            "default": false,
+            "type": "boolean"
+          },
+          "requireTransitRide": {
+            "default": false,
+            "description": "Default `false`: a direct walk may answer the query.",
+            "type": "boolean"
+          },
+          "routingDataMode": {
+            "$ref": "#/components/schemas/DataMode"
+          },
+          "scenarioId": {
+            "description": "Member of the loaded scenario collection; omitted selects its default.",
+            "type": "string"
+          },
+          "serviceDate": {
+            "description": "`YYYY-MM-DD`. Required for transit.",
+            "format": "date",
+            "type": "string"
+          },
+          "serviceDay": {
+            "$ref": "#/components/schemas/ServiceDay"
+          },
+          "time": {
+            "$ref": "#/components/schemas/Clock"
+          },
+          "timeMinutes": {
+            "maximum": 4319,
+            "minimum": 0,
+            "type": "number"
+          },
+          "timePreference": {
+            "$ref": "#/components/schemas/TimePreferenceInput",
+            "default": "depart_at",
+            "description": "Default `depart_at`."
+          },
+          "traffic": {
+            "$ref": "#/components/schemas/Traffic"
+          },
+          "via": {
+            "description": "Ordered intermediate places.",
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "maxItems": 16,
+            "minItems": 0,
+            "type": "array"
+          },
+          "walkSpeedKph": {
+            "description": "Default from the City. Walking Route and Matrix, and Reach.",
+            "maximum": 8,
+            "minimum": 1,
+            "type": "number"
+          },
+          "waypoints": {
+            "description": "Alias of `via`.",
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "maxItems": 16,
+            "minItems": 0,
+            "type": "array"
+          },
+          "wheelchair": {
+            "description": "Require a City prepared with the wheelchair-strict-v1 profile.\nOmitted inherits the City's profile; `false` rejects a wheelchair City.",
+            "type": "boolean"
+          },
+          "windowMinutes": {
+            "default": 0,
+            "description": "Sample later departures (or earlier deadlines) over this many minutes.",
+            "maximum": 240,
+            "minimum": 0,
+            "type": "number"
+          },
+          "windowStepMinutes": {
+            "default": 1,
+            "maximum": 60,
+            "minimum": 1,
+            "type": "number"
+          }
+        },
+        "required": [
+          "origin",
+          "destination"
+        ],
+        "type": "object"
+      },
+      "RouteResult": {
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/RouteAccess"
+          },
+          "accessibility": {
+            "$ref": "#/components/schemas/Accessibility"
+          },
+          "alternativeSearch": {
+            "$ref": "#/components/schemas/AlternativeSearch"
+          },
+          "alternatives": {
+            "description": "Further distinct journeys; omitted when there are none.",
+            "items": {
+              "$ref": "#/components/schemas/Journey"
+            },
+            "type": "array"
+          },
+          "datasetLimitations": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetLimitation"
+            },
+            "type": "array"
+          },
+          "diagnostics": {
+            "$ref": "#/components/schemas/SearchSummary"
+          },
+          "id": {
+            "description": "The caller's `id`."
+          },
+          "journey": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Journey"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`null` when `status` is `not_found`."
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/Mode"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/Profile"
+          },
+          "query": {
+            "$ref": "#/components/schemas/RouteQuery"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/Notice",
+            "description": "Why no journey was found."
+          },
+          "scenarioId": {
+            "type": "string"
+          },
+          "schema": {
+            "const": "vigo.route.v1",
+            "type": "string"
+          },
+          "sequence": {
+            "description": "Line number on a resident stream.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/QueryStatus"
+          },
+          "trace": {
+            "description": "The unstable internal result, with `diagnostics: \"trace\"`."
+          },
+          "warnings": {
+            "description": "Qualifications of the returned journey.",
+            "items": {
+              "$ref": "#/components/schemas/Notice"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema",
+          "status",
+          "mode",
+          "query",
+          "meta",
+          "journey"
+        ],
+        "type": "object"
+      },
+      "SampledAlternatives": {
+        "properties": {
+          "coverage": {
+            "type": "string"
+          },
+          "maximum": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "coverage",
+          "maximum"
+        ],
+        "type": "object"
+      },
+      "Scenario": {
+        "additionalProperties": false,
+        "description": "A request-scoped service change. Use `services` or a compiled `overlay`.",
+        "properties": {
+          "cityRevision": {
+            "type": "string"
+          },
+          "excludedRouteIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "excludedTripIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "overlay": {
+            "description": "A compiled native overlay; see the native field reference."
+          },
+          "services": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioService"
+            },
+            "maxItems": 128,
+            "minItems": 0,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "ScenarioService": {
+        "additionalProperties": false,
+        "properties": {
+          "addedStopDwellMinutes": {
+            "default": 0,
+            "description": "Default 0.",
+            "maximum": 10,
+            "minimum": 0,
+            "type": "number"
+          },
+          "averageSpeedKph": {
+            "default": 22,
+            "description": "Default 22.",
+            "maximum": 300,
+            "minimum": 1,
+            "type": "number"
+          },
+          "bidirectional": {
+            "type": "boolean"
+          },
+          "dwellMinutes": {
+            "default": 0.35,
+            "description": "Default 0.35.",
+            "maximum": 60,
+            "minimum": 0,
+            "type": "number"
+          },
+          "endMinutes": {
+            "default": 1500,
+            "description": "Default 1500.",
+            "maximum": 4319,
+            "minimum": 0,
+            "type": "number"
+          },
+          "headwayMinutes": {
+            "default": 12,
+            "description": "Default 12.",
+            "maximum": 1440,
+            "minimum": 0.1,
+            "type": "number"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/ServiceOperation",
+            "default": "add",
+            "description": "Default `add`."
+          },
+          "scheduleMode": {
+            "$ref": "#/components/schemas/ScheduleMode"
+          },
+          "scheduledTrips": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduledTrip"
+            },
+            "type": "array"
+          },
+          "segmentDistancesKm": {
+            "items": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "segmentRuntimeMinutes": {
+            "items": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "sourceRouteId": {
+            "type": "string"
+          },
+          "startMinutes": {
+            "default": 300,
+            "description": "Default 300.",
+            "maximum": 4319,
+            "minimum": 0,
+            "type": "number"
+          },
+          "stops": {
+            "description": "At least two places, in service order.",
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "minItems": 2,
+            "type": "array"
+          },
+          "timeModel": {
+            "$ref": "#/components/schemas/TimeModel",
+            "default": "estimate-distance",
+            "description": "Default `estimate-distance`."
+          }
+        },
+        "required": [
+          "stops"
+        ],
+        "type": "object"
+      },
+      "ScheduleMode": {
+        "enum": [
+          "frequency",
+          "preserve-trips"
+        ],
+        "type": "string"
+      },
+      "ScheduleQuality": {
+        "oneOf": [
+          {
+            "const": "timetable",
+            "description": "Modeled timetable times, not observed punctuality.",
+            "type": "string"
+          },
+          {
+            "const": "source_time_limitations",
+            "description": "The source repeats times or bridges untimed stops.",
+            "type": "string"
+          }
+        ]
+      },
+      "ScheduledTrip": {
+        "properties": {
+          "arrivalOffsetsSeconds": {
+            "items": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "canAlight": {
+            "items": {
+              "format": "uint8",
+              "maximum": 1,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "canBoard": {
+            "description": "One 0/1 flag per stop.",
+            "items": {
+              "format": "uint8",
+              "maximum": 1,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "departureOffsetsSeconds": {
+            "items": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "departureSeconds": {
+            "maximum": 1048575,
+            "minimum": 0,
+            "type": "number"
+          },
+          "tripId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "departureSeconds",
+          "arrivalOffsetsSeconds",
+          "departureOffsetsSeconds"
+        ],
+        "type": "object"
+      },
+      "SearchSummary": {
+        "description": "Search counters, with `diagnostics: \"summary\"` or more. Counters without\ninstrumentation are omitted.",
+        "properties": {
+          "algorithm": {
+            "type": "string"
+          },
+          "cchAccelerated": {
+            "type": "boolean"
+          },
+          "destinationCandidates": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "dominatedTripBoardings": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "expandedTripRuns": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "explicitTransferChecks": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "forwardSearches": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "originCandidates": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "relaxedStops": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "reverseSearches": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "scannedDepartures": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "ServiceDay": {
+        "enum": [
+          "weekday",
+          "saturday",
+          "sunday"
+        ],
+        "type": "string"
+      },
+      "ServiceOperation": {
+        "enum": [
+          "add",
+          "augment",
+          "replace"
+        ],
+        "type": "string"
+      },
+      "StationPath": {
+        "oneOf": [
+          {
+            "enum": [
+              "inferred"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "source_path",
+            "description": "A published GTFS pathway.",
+            "type": "string"
+          }
+        ]
+      },
+      "StationTime": {
+        "oneOf": [
+          {
+            "const": "estimated",
+            "description": "Untimed stairs or gates priced by routing estimates.",
+            "type": "string"
+          }
+        ]
+      },
+      "StopInput": {
+        "additionalProperties": false,
+        "description": "A stop reference. Omit `feed`, or send `null`, for an unscoped feed.",
+        "properties": {
+          "feed": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "StopTimeEvent": {
+        "properties": {
+          "delay": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "time": {
+            "description": "POSIX seconds.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "uncertainty": {
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "StopTimeUpdate": {
+        "properties": {
+          "arrival": {
+            "$ref": "#/components/schemas/StopTimeEvent"
+          },
+          "departure": {
+            "$ref": "#/components/schemas/StopTimeEvent"
+          },
+          "scheduleRelationship": {
+            "$ref": "#/components/schemas/Enumerated",
+            "description": "`SCHEDULED`, `SKIPPED` or `NO_DATA`, or their codes 0 to 2."
+          },
+          "stopId": {
+            "type": "string"
+          },
+          "stopSequence": {
+            "format": "uint32",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "StreamDetail": {
+        "description": "`stream --stream-output=detailed`: the internal result without a public\nprojection. `trace` is the unstable internal ABI.",
+        "properties": {
+          "id": true,
+          "schema": {
+            "const": "vigo.stream.detail.v1",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OkStatus"
+          },
+          "trace": true
+        },
+        "required": [
+          "schema",
+          "status",
+          "id",
+          "trace"
+        ],
+        "type": "object"
+      },
+      "StreetEdges": {
+        "description": "Reached street intervals in indexed form. Every per-interval array has\n`count` entries.",
+        "properties": {
+          "count": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "durationMinutes": {
+            "description": "Elapsed minutes at each interval end.",
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "edgeIds": {
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "encoding": {
+            "description": "`indexed-json`.",
+            "type": "string"
+          },
+          "endFractions": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "endpoints": {
+            "description": "From/to local node indices, `2 * count` long.",
+            "items": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "fromDurationMinutes": {
+            "description": "Elapsed minutes at each interval start.",
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "nodeCount": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nodes": {
+            "description": "Flat longitude/latitude pairs, `2 * nodeCount` long.",
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "schemaVersion": {
+            "description": "`vigo.standalone.street-edges.v2`.",
+            "type": "string"
+          },
+          "startFractions": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "transitArrivalMinutes": {
+            "description": "Elapsed minutes at the transit seed; −1 for the direct-origin seed.",
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "walkDistanceM": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "encoding",
+          "count",
+          "nodeCount",
+          "nodes",
+          "endpoints",
+          "edgeIds",
+          "durationMinutes",
+          "fromDurationMinutes",
+          "startFractions",
+          "endFractions",
+          "walkDistanceM",
+          "transitArrivalMinutes"
+        ],
+        "type": "object"
+      },
+      "StreetLeg": {
+        "description": "A walking or driving leg.",
+        "properties": {
+          "arrivalTime": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "components": {
+            "description": "Street and station costs and their sources, when station access applies.",
+            "items": {
+              "$ref": "#/components/schemas/AccessComponent"
+            },
+            "type": "array"
+          },
+          "departureTime": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "distanceMeters": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "durationSeconds": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "endpointConnector": {
+            "$ref": "#/components/schemas/EndpointConnector"
+          },
+          "from": {
+            "$ref": "#/components/schemas/Endpoint"
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/LineString"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/StreetQuality"
+          },
+          "to": {
+            "$ref": "#/components/schemas/Endpoint"
+          },
+          "type": {
+            "enum": [
+              "walk",
+              "drive"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "from",
+          "to",
+          "departureTime",
+          "arrivalTime",
+          "durationSeconds",
+          "quality"
+        ],
+        "type": "object"
+      },
+      "StreetQuality": {
+        "properties": {
+          "geometrySource": {
+            "description": "Where the line came from: `osm`, `osm_and_station_path`, `gtfs_pathway`,\n`station_selection`, `unverified_transfer` or `unknown`. Treat other\nvalues as unverified.",
+            "type": "string"
+          },
+          "stationPath": {
+            "$ref": "#/components/schemas/StationPath"
+          },
+          "stationTime": {
+            "$ref": "#/components/schemas/StationTime"
+          },
+          "streetGeometry": {
+            "$ref": "#/components/schemas/StreetVerification"
+          }
+        },
+        "required": [
+          "streetGeometry",
+          "geometrySource"
+        ],
+        "type": "object"
+      },
+      "StreetVerification": {
+        "enum": [
+          "verified",
+          "unverified"
+        ],
+        "type": "string"
+      },
+      "SurfaceNode": {
+        "properties": {
+          "durationMinutes": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "latitude": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "longitude": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "walkDistanceM": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "longitude",
+          "latitude",
+          "durationMinutes",
+          "walkDistanceM"
+        ],
+        "type": "object"
+      },
+      "SurfaceSampling": {
+        "enum": [
+          "street",
+          "cell-center"
+        ],
+        "type": "string"
+      },
+      "TimeModel": {
+        "enum": [
+          "estimate-distance",
+          "preserve-scheduled",
+          "infer-road"
+        ],
+        "type": "string"
+      },
+      "TimePreference": {
+        "description": "The time preference a Result reports, after aliases are resolved.",
+        "enum": [
+          "depart_at",
+          "arrive_by"
+        ],
+        "type": "string"
+      },
+      "TimePreferenceInput": {
+        "description": "`depart` and `arrive` are accepted aliases.",
+        "enum": [
+          "depart_at",
+          "arrive_by",
+          "depart",
+          "arrive"
+        ],
+        "type": "string"
+      },
+      "Timestamp": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "POSIX milliseconds, or an RFC 3339 date-time."
+      },
+      "Traffic": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/PreparedTraffic"
+          },
+          {
+            "$ref": "#/components/schemas/ObservedTraffic"
+          }
+        ],
+        "description": "Supplied traffic for driving: prepared edge times, or observations."
+      },
+      "TrafficObservation": {
+        "description": "Directed geometry or edge indices, and exactly one cost effect.",
+        "properties": {
+          "closed": {
+            "type": "boolean"
+          },
+          "coordinates": {
+            "items": {
+              "$ref": "#/components/schemas/Coordinate"
+            },
+            "type": "array"
+          },
+          "delayFactor": {
+            "type": "number"
+          },
+          "edgeIndices": {
+            "items": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "factor": {
+            "type": "number"
+          },
+          "fromCoordinate": {
+            "$ref": "#/components/schemas/Coordinate"
+          },
+          "multiplier": {
+            "type": "number"
+          },
+          "speedKph": {
+            "type": "number"
+          },
+          "toCoordinate": {
+            "$ref": "#/components/schemas/Coordinate"
+          },
+          "travelTimeSeconds": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "TransitLeg": {
+        "description": "A ride on one scheduled trip.",
+        "properties": {
+          "arrivalTime": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "departureTime": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "directionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "distanceMeters": {
+            "description": "Length of the returned line, boarding to alighting stop.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "durationSeconds": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "endpointConnector": {
+            "$ref": "#/components/schemas/EndpointConnector"
+          },
+          "fare": {
+            "$ref": "#/components/schemas/Fare"
+          },
+          "from": {
+            "$ref": "#/components/schemas/Endpoint"
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/LineString"
+          },
+          "headsign": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "intermediateStops": {
+            "items": {
+              "$ref": "#/components/schemas/IntermediateStop"
+            },
+            "type": "array"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/TransitQuality"
+          },
+          "route": {
+            "$ref": "#/components/schemas/TransitRoute"
+          },
+          "service": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "serviceDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "to": {
+            "$ref": "#/components/schemas/Endpoint"
+          },
+          "trip": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tripShortName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "const": "transit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "from",
+          "to",
+          "departureTime",
+          "arrivalTime",
+          "durationSeconds",
+          "route",
+          "trip",
+          "service",
+          "serviceDate",
+          "directionId",
+          "headsign",
+          "tripShortName",
+          "quality"
+        ],
+        "type": "object"
+      },
+      "TransitQuality": {
+        "properties": {
+          "geometry": {
+            "description": "Where the line came from: `gtfs_shape` (aligned to the feed's shape),\n`stop_sequence` (straight lines between stops) or `unknown`.",
+            "type": "string"
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/ScheduleQuality"
+          }
+        },
+        "required": [
+          "geometry",
+          "schedule"
+        ],
+        "type": "object"
+      },
+      "TransitRoute": {
+        "properties": {
+          "color": {
+            "description": "GTFS `route_color`, without `#`; empty when the feed gives none.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "longName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "Short name, else long name.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shortName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "description": "GTFS `route_type`.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "shortName",
+          "longName",
+          "color",
+          "type"
+        ],
+        "type": "object"
+      },
+      "TripDescriptor": {
+        "properties": {
+          "startDate": {
+            "type": "string"
+          },
+          "tripId": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "TripUpdate": {
+        "properties": {
+          "delaySeconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "directionId": true,
+          "routeId": {
+            "type": "string"
+          },
+          "scheduleRelationship": {
+            "$ref": "#/components/schemas/Enumerated",
+            "description": "`SCHEDULED`, `CANCELED` or `DELETED`, or their codes 0, 3 and 7."
+          },
+          "sourceFeedTimestamp": {
+            "format": "uint64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "sourceScope": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string"
+          },
+          "stopTimeUpdates": {
+            "items": {
+              "$ref": "#/components/schemas/StopTimeUpdate"
+            },
+            "type": "array"
+          },
+          "timestamp": {
+            "format": "uint64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "trip": {
+            "$ref": "#/components/schemas/TripDescriptor"
+          },
+          "tripId": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UnavailableFare": {
+        "properties": {
+          "code": {
+            "description": "Such as `missing_catalog`, `no_rule` or `invalid_data`.",
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "const": "unavailable",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "code",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "WheelchairCapabilities": {
+        "properties": {
+          "dataMode": {
+            "type": "string"
+          },
+          "modes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "requiresCityProfile": {
+            "type": "string"
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "unknownData": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "supported",
+          "requiresCityProfile",
+          "modes",
+          "dataMode",
+          "unknownData"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Route, Matrix, Reach and Compare over a prepared City. Generated from the vigo-model types. Bearer authentication is optional only on a loopback listener without a configured token.",
+    "title": "VIGO API",
+    "version": "0.5.2"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Offline guide"
+          }
+        },
+        "security": [],
+        "summary": "Offline guide"
+      }
+    },
+    "/docs": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Offline guide"
+          }
+        },
+        "security": [],
+        "summary": "Offline guide"
+      }
+    },
+    "/docs/": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Offline guide"
+          }
+        },
+        "security": [],
+        "summary": "Offline guide"
+      }
+    },
+    "/docs/openapi.json": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This document"
+          }
+        },
+        "security": [],
+        "summary": "This document"
+      }
+    },
+    "/docs/standalone-openapi.json": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This document"
+          }
+        },
+        "security": [],
+        "summary": "This document"
+      }
+    },
+    "/healthz": {
+      "get": {
+        "operationId": "healthz",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "runtime": {
+                      "const": "rust"
+                    },
+                    "status": {
+                      "enum": [
+                        "ready",
+                        "recovering"
+                      ],
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "runtime",
+                    "version"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Ready, or live while recovering"
+          }
+        },
+        "security": [],
+        "summary": "Liveness"
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This document"
+          }
+        },
+        "security": [],
+        "summary": "This document"
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "readyz",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "runtime": {
+                      "const": "rust"
+                    },
+                    "status": {
+                      "enum": [
+                        "ready",
+                        "recovering"
+                      ],
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "runtime",
+                    "version"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Ready"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "runtime": {
+                      "const": "rust"
+                    },
+                    "status": {
+                      "enum": [
+                        "ready",
+                        "recovering"
+                      ],
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "runtime",
+                    "version"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Recovering"
+          }
+        },
+        "security": [],
+        "summary": "Readiness"
+      }
+    },
+    "/standalone-openapi.json": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This document"
+          }
+        },
+        "security": [],
+        "summary": "This document"
+      }
+    },
+    "/v1/capabilities": {
+      "get": {
+        "operationId": "capabilities",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Capabilities"
+                }
+              }
+            },
+            "description": "Supported commands, modes and options."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Bearer authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Tokenless loopback request with a non-local Host or Origin"
+          }
+        },
+        "summary": "Capabilities"
+      }
+    },
+    "/v1/compare": {
+      "post": {
+        "operationId": "compare",
+        "parameters": [
+          {
+            "description": "Diagnostic detail; must agree with the body when both are set.",
+            "in": "query",
+            "name": "diagnostics",
+            "schema": {
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Alias of `diagnostics`.",
+            "in": "query",
+            "name": "vigo_diagnostics",
+            "schema": {
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Same as the body field.",
+            "in": "query",
+            "name": "includeGeometry",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Same as the body field.",
+            "in": "query",
+            "name": "includeLimitations",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompareResult"
+                }
+              }
+            },
+            "description": "Changes from `before` to `after`."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Bearer authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Tokenless loopback request with a non-local Host or Origin"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request read deadline"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request ID already active"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Body limit"
+          },
+          "417": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Unsupported Expect header"
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Header limit"
+          },
+          "499": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request canceled"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Capacity or worker unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Query deadline or worker failed"
+          }
+        },
+        "summary": "Compare saved Results"
+      }
+    },
+    "/v1/info": {
+      "get": {
+        "operationId": "info",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/InfoResult"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CollectionInfoResult"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "The loaded City or scenario collection."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Bearer authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Tokenless loopback request with a non-local Host or Origin"
+          }
+        },
+        "summary": "Info"
+      }
+    },
+    "/v1/isochrone": {
+      "post": {
+        "operationId": "isochrone",
+        "parameters": [
+          {
+            "description": "Diagnostic detail; must agree with the body when both are set.",
+            "in": "query",
+            "name": "diagnostics",
+            "schema": {
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Alias of `diagnostics`.",
+            "in": "query",
+            "name": "vigo_diagnostics",
+            "schema": {
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Same as the body field.",
+            "in": "query",
+            "name": "includeGeometry",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Same as the body field.",
+            "in": "query",
+            "name": "includeLimitations",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReachRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReachResult"
+                }
+              }
+            },
+            "description": "Same as `/v1/reach`."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Bearer authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Tokenless loopback request with a non-local Host or Origin"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request read deadline"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request ID already active"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Body limit"
+          },
+          "417": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Unsupported Expect header"
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Header limit"
+          },
+          "499": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request canceled"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Capacity or worker unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Query deadline or worker failed"
+          }
+        },
+        "summary": "Reach (alias)"
+      }
+    },
+    "/v1/matrix": {
+      "post": {
+        "operationId": "matrix",
+        "parameters": [
+          {
+            "description": "Diagnostic detail; must agree with the body when both are set.",
+            "in": "query",
+            "name": "diagnostics",
+            "schema": {
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Alias of `diagnostics`.",
+            "in": "query",
+            "name": "vigo_diagnostics",
+            "schema": {
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Same as the body field.",
+            "in": "query",
+            "name": "includeGeometry",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Same as the body field.",
+            "in": "query",
+            "name": "includeLimitations",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MatrixRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatrixResult"
+                }
+              }
+            },
+            "description": "Travel times for every origin and destination."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Bearer authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Tokenless loopback request with a non-local Host or Origin"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request read deadline"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request ID already active"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Body limit"
+          },
+          "417": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Unsupported Expect header"
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Header limit"
+          },
+          "499": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request canceled"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Capacity or worker unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Query deadline or worker failed"
+          }
+        },
+        "summary": "Matrix"
+      }
+    },
+    "/v1/native": {
+      "post": {
+        "operationId": "native",
+        "parameters": [
+          {
+            "description": "Diagnostic detail; must agree with the body when both are set.",
+            "in": "query",
+            "name": "diagnostics",
+            "schema": {
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Alias of `diagnostics`.",
+            "in": "query",
+            "name": "vigo_diagnostics",
+            "schema": {
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Same as the body field.",
+            "in": "query",
+            "name": "includeGeometry",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Same as the body field.",
+            "in": "query",
+            "name": "includeLimitations",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "A native kernel operation. Diagnostic; see the native field reference.",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "The kernel's raw output. Diagnostic.",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Raw native output."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Bearer authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Tokenless loopback request with a non-local Host or Origin"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request read deadline"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request ID already active"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Body limit"
+          },
+          "417": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Unsupported Expect header"
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Header limit"
+          },
+          "499": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request canceled"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Capacity or worker unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Query deadline or worker failed"
+          }
+        },
+        "summary": "Native operation"
+      }
+    },
+    "/v1/reach": {
+      "post": {
+        "operationId": "reach",
+        "parameters": [
+          {
+            "description": "Diagnostic detail; must agree with the body when both are set.",
+            "in": "query",
+            "name": "diagnostics",
+            "schema": {
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Alias of `diagnostics`.",
+            "in": "query",
+            "name": "vigo_diagnostics",
+            "schema": {
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Same as the body field.",
+            "in": "query",
+            "name": "includeGeometry",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Same as the body field.",
+            "in": "query",
+            "name": "includeLimitations",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReachRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReachResult"
+                }
+              }
+            },
+            "description": "Reached area and times."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Bearer authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Tokenless loopback request with a non-local Host or Origin"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request read deadline"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request ID already active"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Body limit"
+          },
+          "417": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Unsupported Expect header"
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Header limit"
+          },
+          "499": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request canceled"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Capacity or worker unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Query deadline or worker failed"
+          }
+        },
+        "summary": "Reach"
+      }
+    },
+    "/v1/requests/{id}": {
+      "delete": {
+        "operationId": "cancelRequest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Cancellation requested; running work is terminated and its worker replaced."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Bearer authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Tokenless loopback request with a non-local Host or Origin"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "No active request with this ID"
+          }
+        },
+        "summary": "Cancel an active or queued named request"
+      }
+    },
+    "/v1/route": {
+      "post": {
+        "operationId": "route",
+        "parameters": [
+          {
+            "description": "Diagnostic detail; must agree with the body when both are set.",
+            "in": "query",
+            "name": "diagnostics",
+            "schema": {
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Alias of `diagnostics`.",
+            "in": "query",
+            "name": "vigo_diagnostics",
+            "schema": {
+              "enum": [
+                "none",
+                "summary",
+                "profile",
+                "trace"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Same as the body field.",
+            "in": "query",
+            "name": "includeGeometry",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Same as the body field.",
+            "in": "query",
+            "name": "includeLimitations",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteResult"
+                }
+              }
+            },
+            "description": "A journey, or `not_found` when none satisfies the request."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Bearer authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Tokenless loopback request with a non-local Host or Origin"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request read deadline"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request ID already active"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Body limit"
+          },
+          "417": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Unsupported Expect header"
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Header limit"
+          },
+          "499": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Request canceled"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Capacity or worker unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResult"
+                }
+              }
+            },
+            "description": "Query deadline or worker failed"
+          }
+        },
+        "summary": "Route"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "servers": [
+    {
+      "description": "Default local listener",
+      "url": "http://127.0.0.1:8080"
+    }
+  ]
+}

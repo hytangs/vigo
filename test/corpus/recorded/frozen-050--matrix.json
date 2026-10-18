@@ -1,0 +1,75 @@
+{
+  "case": "frozen-050/matrix",
+  "city": "frozen-050",
+  "kind": "matrix",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "08:00",
+    "origins": [
+      {
+        "stop": {
+          "feed": null,
+          "id": "A"
+        }
+      }
+    ],
+    "destinations": [
+      {
+        "stop": {
+          "feed": null,
+          "id": "B"
+        }
+      },
+      {
+        "stop": {
+          "feed": null,
+          "id": "X"
+        }
+      }
+    ],
+    "maxWalkKm": 1.2
+  },
+  "result": {
+    "durationsSeconds": [[1543,600]],
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "transit",
+    "query": {
+      "dataMode": "scheduled",
+      "destinations": [
+        {
+          "stop": {
+            "feed": null,
+            "id": "B"
+          }
+        },
+        {
+          "stop": {
+            "feed": null,
+            "id": "X"
+          }
+        }
+      ],
+      "origins": [
+        {
+          "stop": {
+            "feed": null,
+            "id": "A"
+          }
+        }
+      ],
+      "requestedTime": "08:00:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "depart_at"
+    },
+    "schema": "vigo.matrix.v1",
+    "status": "ok"
+  }
+}

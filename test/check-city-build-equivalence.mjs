@@ -116,7 +116,9 @@ try {
   }
   zip.file('stops.txt', validStops)
   const raw = path.join(root, 'raw.sqlite')
+  await fs.writeFile(`${raw}.building-journal`, 'interrupted unpublished compiler journal')
   await buildNationalGtfsStore({ zipPath: inputs.gtfsPath, outputPath: raw })
+  await assert.rejects(fs.stat(`${raw}.building-journal`), { code: 'ENOENT' })
   assert.equal(inspectNationalStaticTopologySidecar(raw).ready, true, 'Standalone raw builds still publish complete topology.')
   const topologySource = path.join(root, 'topology-source.sqlite')
   await fs.copyFile(raw, topologySource)

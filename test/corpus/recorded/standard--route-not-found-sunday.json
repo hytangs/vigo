@@ -1,0 +1,76 @@
+{
+  "case": "standard/route-not-found-sunday",
+  "city": "standard",
+  "kind": "route",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-19",
+    "time": "07:55",
+    "origin": {
+      "stop": {
+        "feed": null,
+        "id": "A"
+      }
+    },
+    "destination": {
+      "stop": {
+        "feed": null,
+        "id": "B"
+      }
+    },
+    "maxWalkKm": 0.2,
+    "requireTransitRide": true
+  },
+  "result": {
+    "access": {
+      "destination": {
+        "candidateCount": 1,
+        "code": "available",
+        "coordinate": [-77.03,38.91],
+        "maximumWalkMeters": 200,
+        "role": "destination"
+      },
+      "origin": {
+        "candidateCount": 1,
+        "code": "available",
+        "coordinate": [-77.05,38.9],
+        "maximumWalkMeters": 200,
+        "role": "origin"
+      }
+    },
+    "journey": null,
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "transit",
+    "query": {
+      "dataMode": "scheduled",
+      "destination": {
+        "stop": {
+          "feed": null,
+          "id": "B"
+        }
+      },
+      "origin": {
+        "stop": {
+          "feed": null,
+          "id": "A"
+        }
+      },
+      "requestedTime": "07:55:00",
+      "serviceDate": "2026-07-19",
+      "timePreference": "depart_at"
+    },
+    "reason": {
+      "code": "no_path",
+      "message": "No journey found within the requested constraints."
+    },
+    "schema": "vigo.route.v1",
+    "status": "not_found"
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "case": "standard/isochrone",
+  "city": "standard",
+  "kind": "isochrone",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origin": {
+      "coordinate": [-77.05,38.9]
+    },
+    "maxWalkKm": 1.2,
+    "rasterSize": 24,
+    "cutoffsMinutes": [20]
+  },
+  "result": {
+    "areas": {
+      "features": [
+        {
+          "geometry": {
+            "coordinates": [[[[-77.05769520576949,38.9059887411666],[-77.05769520576949,38.9],[-77.03460958846101,38.9],[-77.03460958846101,38.911977482333214],[-77.0423047942305,38.911977482333214],[-77.0423047942305,38.9059887411666],[-77.05769520576949,38.9059887411666]]]],
+            "type": "MultiPolygon"
+          },
+          "properties": {
+            "cutoffMinutes": 20
+          },
+          "type": "Feature"
+        }
+      ],
+      "type": "FeatureCollection"
+    },
+    "contours": {
+      "features": [
+        {
+          "geometry": {
+            "coordinates": [[[-77.038457191346,38.911977482333],[-77.042304794231,38.90898311175],[-77.046152397115,38.905988741167],[-77.053847602885,38.905988741167],[-77.057695205769,38.902994370583],[-77.053847602885,38.9],[-77.046152397115,38.9],[-77.038457191346,38.9],[-77.034609588461,38.902994370583],[-77.034609588461,38.90898311175],[-77.038457191346,38.911977482333]]],
+            "type": "MultiLineString"
+          },
+          "properties": {
+            "cutoffMinutes": 20
+          },
+          "type": "Feature"
+        }
+      ],
+      "type": "FeatureCollection"
+    },
+    "cutoffsSeconds": [1200],
+    "fullAreas": {
+      "features": [
+        {
+          "geometry": {
+            "coordinates": [[[[-77.05000000000001,38.90057871494683],[-77.05000000000001,38.9],[-77.04942128505317,38.9],[-77.04942128505317,38.90028935747341],[-77.04826385515952,38.90028935747341],[-77.04826385515952,38.90086807242025],[-77.04710642526584,38.90086807242025],[-77.04710642526584,38.90144678736708],[-77.04594899537219,38.90144678736708],[-77.04594899537219,38.90202550231392],[-77.0447915654785,38.90202550231392],[-77.0447915654785,38.902604217260745],[-77.04363413558485,38.902604217260745],[-77.04363413558485,38.903182932207585],[-77.04247670569119,38.903182932207585],[-77.04247670569119,38.90376164715441],[-77.04131927579752,38.90376164715441],[-77.04131927579752,38.90434036210125],[-77.04016184590384,38.90434036210125],[-77.04016184590384,38.90491907704808],[-77.03900441601019,38.90491907704808],[-77.03900441601019,38.90549779199492],[-77.0378469861165,38.90549779199492],[-77.0378469861165,38.906076506941744],[-77.03842570106335,38.906076506941744],[-77.03842570106335,38.90578714946833],[-77.03958313095701,38.90578714946833],[-77.03958313095701,38.9052084345215],[-77.04074056085068,38.9052084345215],[-77.04074056085068,38.904629719574665],[-77.04189799074435,38.904629719574665],[-77.04189799074435,38.90405100462783],[-77.04305542063801,38.90405100462783],[-77.04305542063801,38.903472289681],[-77.04421285053168,38.903472289681],[-77.04421285053168,38.902893574734165],[-77.04537028042535,38.902893574734165],[-77.04537028042535,38.90231485978733],[-77.04652771031901,38.90231485978733],[-77.04652771031901,38.9017361448405],[-77.04768514021268,38.9017361448405],[-77.04768514021268,38.901157429893665],[-77.04884257010634,38.901157429893665],[-77.04884257010634,38.90057871494683],[-77.05000000000001,38.90057871494683]]],[[[-77.0378469861165,38.906365864415164],[-77.0378469861165,38.906076506941744],[-77.03668955622285,38.906076506941744],[-77.03668955622285,38.906655221888585],[-77.03726827116968,38.906655221888585],[-77.03726827116968,38.906365864415164],[-77.0378469861165,38.906365864415164]]],[[[-77.03668955622285,38.906944579362],[-77.03668955622285,38.906655221888585],[-77.03611084127601,38.906655221888585],[-77.03611084127601,38.906944579362],[-77.03668955622285,38.906944579362]]]],
+            "type": "MultiPolygon"
+          },
+          "properties": {
+            "cutoffMinutes": 20
+          },
+          "type": "Feature"
+        }
+      ],
+      "type": "FeatureCollection"
+    },
+    "fullContours": {
+      "features": [
+        {
+          "geometry": {
+            "coordinates": [[[-77.036400198749,38.906944579362],[-77.036689556223,38.906799900625],[-77.036400198749,38.906655221889],[-77.036110841276,38.906799900625],[-77.036400198749,38.906944579362]],[[-77.036978913696,38.906655221889],[-77.03726827117,38.906510543152],[-77.037557628643,38.906365864415],[-77.037846986117,38.906221185678],[-77.037557628643,38.906076506942],[-77.036978913696,38.906076506942],[-77.036689556223,38.906221185678],[-77.036689556223,38.906510543152],[-77.036978913696,38.906655221889]],[[-77.03813634359,38.906076506942],[-77.038425701063,38.905931828205],[-77.038715058537,38.905787149468],[-77.039293773484,38.905787149468],[-77.039583130957,38.905642470732],[-77.039583130957,38.905353113258],[-77.03987248843,38.905208434522],[-77.040451203377,38.905208434522],[-77.040740560851,38.905063755785],[-77.040740560851,38.904774398311],[-77.041029918324,38.904629719575],[-77.041608633271,38.904629719575],[-77.041897990744,38.904485040838],[-77.041897990744,38.904195683365],[-77.042187348218,38.904051004628],[-77.042766063165,38.904051004628],[-77.043055420638,38.903906325891],[-77.043055420638,38.903616968418],[-77.043344778111,38.903472289681],[-77.043923493058,38.903472289681],[-77.044212850532,38.903327610944],[-77.044212850532,38.903038253471],[-77.044502208005,38.902893574734],[-77.045080922952,38.902893574734],[-77.045370280425,38.902748895997],[-77.045370280425,38.902459538524],[-77.045659637899,38.902314859787],[-77.046238352846,38.902314859787],[-77.046527710319,38.902170181051],[-77.046527710319,38.901880823577],[-77.046817067792,38.901736144841],[-77.047395782739,38.901736144841],[-77.047685140213,38.901591466104],[-77.047685140213,38.90130210863],[-77.047974497686,38.901157429894],[-77.048553212633,38.901157429894],[-77.048842570106,38.901012751157],[-77.048842570106,38.900723393684],[-77.04913192758,38.900578714947],[-77.049710642527,38.900578714947],[-77.05,38.90043403621],[-77.05,38.900144678737],[-77.049710642527,38.9],[-77.049421285053,38.900144678737],[-77.04913192758,38.900289357473],[-77.048553212633,38.900289357473],[-77.04826385516,38.90043403621],[-77.04826385516,38.900723393684],[-77.047974497686,38.90086807242],[-77.047395782739,38.90086807242],[-77.047106425266,38.901012751157],[-77.047106425266,38.90130210863],[-77.046817067792,38.901446787367],[-77.046238352846,38.901446787367],[-77.045948995372,38.901591466104],[-77.045948995372,38.901880823577],[-77.045659637899,38.902025502314],[-77.045080922952,38.902025502314],[-77.044791565479,38.902170181051],[-77.044791565479,38.902459538524],[-77.044502208005,38.902604217261],[-77.043923493058,38.902604217261],[-77.043634135585,38.902748895997],[-77.043634135585,38.903038253471],[-77.043344778111,38.903182932208],[-77.042766063165,38.903182932208],[-77.042476705691,38.903327610944],[-77.042476705691,38.903616968418],[-77.042187348218,38.903761647154],[-77.041608633271,38.903761647154],[-77.041319275798,38.903906325891],[-77.041319275798,38.904195683365],[-77.041029918324,38.904340362101],[-77.040451203377,38.904340362101],[-77.040161845904,38.904485040838],[-77.040161845904,38.904774398311],[-77.03987248843,38.904919077048],[-77.039293773484,38.904919077048],[-77.03900441601,38.905063755785],[-77.03900441601,38.905353113258],[-77.038715058537,38.905497791995],[-77.03813634359,38.905497791995],[-77.037846986117,38.905642470732],[-77.037846986117,38.905931828205],[-77.03813634359,38.906076506942]]],
+            "type": "MultiLineString"
+          },
+          "properties": {
+            "cutoffMinutes": 20
+          },
+          "type": "Feature"
+        }
+      ],
+      "type": "FeatureCollection"
+    },
+    "fullSurface": {
+      "bounds": [-77.05000000000001,38.9,-77.03611084127601,38.906944579362],
+      "height": 24,
+      "valuesSeconds": [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,1155,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,1111,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,1066,1111,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,893,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,848,848,893,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,804,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,759,759,804,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,714,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,670,670,714,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,625,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,580,580,625,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,536,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,491,491,536,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,446,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,402,402,446,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,357,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,312,312,357,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,268,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,223,223,268,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,179,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,134,134,179,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,89,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,45,45,89,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+      "width": 24
+    },
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "transit",
+    "query": {
+      "dataMode": "scheduled",
+      "origin": {
+        "coordinate": [-77.05,38.9]
+      },
+      "requestedTime": "07:55:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "depart_at"
+    },
+    "schema": "vigo.reach.v1",
+    "status": "ok",
+    "stops": [
+      {
+        "coordinate": [-77.04,38.905],
+        "durationSeconds": 900,
+        "name": "Transfer",
+        "stop": {
+          "feed": null,
+          "id": "X"
+        }
+      }
+    ],
+    "surface": {
+      "bounds": [-77.14234246923392,38.828135106000715,-76.95765753076607,38.97186489399928],
+      "height": 24,
+      "nodes": [],
+      "valuesSeconds": [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,1053,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,0,0,594,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+      "width": 24
+    }
+  }
+}

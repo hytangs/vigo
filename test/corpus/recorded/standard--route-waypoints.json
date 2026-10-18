@@ -1,0 +1,99 @@
+{
+  "case": "standard/route-waypoints",
+  "city": "standard",
+  "kind": "route",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origin": {
+      "coordinate": [-77.05,38.9]
+    },
+    "destination": {
+      "coordinate": [-77.03,38.91]
+    },
+    "maxWalkKm": 0.2,
+    "mode": "walk",
+    "waypoints": [
+      {
+        "coordinate": [-77.04,38.905]
+      }
+    ]
+  },
+  "result": {
+    "journey": {
+      "arrivalTime": "08:20:43",
+      "boardings": 0,
+      "clockDate": "2026-07-15",
+      "departureTime": "07:55:00",
+      "durationSeconds": 1543,
+      "legs": [
+        {
+          "arrivalTime": "08:07:51",
+          "departureTime": "07:55:00",
+          "distanceMeters": 1029,
+          "durationSeconds": 771,
+          "from": {
+            "coordinate": [-77.05,38.9]
+          },
+          "geometry": {
+            "coordinates": [[-77.05,38.9],[-77.04,38.905]],
+            "type": "LineString"
+          },
+          "quality": {
+            "geometrySource": "osm",
+            "streetGeometry": "verified"
+          },
+          "to": {},
+          "type": "walk"
+        },
+        {
+          "arrivalTime": "08:20:43",
+          "departureTime": "08:07:51",
+          "distanceMeters": 1029,
+          "durationSeconds": 772,
+          "from": {},
+          "geometry": {
+            "coordinates": [[-77.04,38.905],[-77.03,38.91]],
+            "type": "LineString"
+          },
+          "quality": {
+            "geometrySource": "osm",
+            "streetGeometry": "verified"
+          },
+          "to": {
+            "coordinate": [-77.03,38.91]
+          },
+          "type": "walk"
+        }
+      ],
+      "ridingSeconds": 0,
+      "transfers": 0,
+      "waitingSeconds": 0,
+      "walkingSeconds": 1543
+    },
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "walk",
+    "query": {
+      "dataMode": "scheduled",
+      "destination": {
+        "coordinate": [-77.03,38.91]
+      },
+      "origin": {
+        "coordinate": [-77.05,38.9]
+      },
+      "requestedTime": "07:55:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "depart_at"
+    },
+    "schema": "vigo.route.v1",
+    "status": "ok"
+  }
+}

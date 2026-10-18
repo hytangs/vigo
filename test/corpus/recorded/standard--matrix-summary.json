@@ -1,0 +1,73 @@
+{
+  "case": "standard/matrix-summary",
+  "city": "standard",
+  "kind": "matrix",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origins": [
+      {
+        "stop": {
+          "feed": null,
+          "id": "A"
+        }
+      }
+    ],
+    "destinations": [
+      {
+        "stop": {
+          "feed": null,
+          "id": "B"
+        }
+      }
+    ],
+    "maxWalkKm": 0.2,
+    "diagnostics": "summary"
+  },
+  "result": {
+    "diagnostics": {
+      "dominatedTripBoardings": 0,
+      "expandedTripRuns": 2,
+      "explicitTransferChecks": 0,
+      "forwardSearches": 1,
+      "relaxedStops": 3,
+      "reverseSearches": 0,
+      "scannedDepartures": 2
+    },
+    "durationsSeconds": [[1543]],
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "transit",
+    "query": {
+      "dataMode": "scheduled",
+      "destinations": [
+        {
+          "stop": {
+            "feed": null,
+            "id": "B"
+          }
+        }
+      ],
+      "origins": [
+        {
+          "stop": {
+            "feed": null,
+            "id": "A"
+          }
+        }
+      ],
+      "requestedTime": "07:55:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "depart_at"
+    },
+    "schema": "vigo.matrix.v1",
+    "status": "ok"
+  }
+}

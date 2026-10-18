@@ -1,0 +1,235 @@
+{
+  "case": "fares/matrix-journeys",
+  "city": "fares",
+  "kind": "matrix",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origins": [
+      {
+        "stop": {
+          "feed": null,
+          "id": "A"
+        }
+      }
+    ],
+    "destinations": [
+      {
+        "stop": {
+          "feed": null,
+          "id": "B"
+        }
+      }
+    ],
+    "maxWalkKm": 0.2,
+    "requireTransitRide": true,
+    "includeJourneys": true
+  },
+  "result": {
+    "durationsSeconds": [[2100]],
+    "journeys": [
+      [
+        {
+          "arrivalTime": "08:30:00",
+          "boardings": 2,
+          "departureTime": "07:55:00",
+          "durationSeconds": 2100,
+          "legs": [
+            {
+              "arrivalTime": "07:55:00",
+              "departureTime": "07:55:00",
+              "distanceMeters": 0,
+              "durationSeconds": 0,
+              "from": {
+                "coordinate": [-77.05,38.9],
+                "name": "Alpha",
+                "stop": {
+                  "feed": null,
+                  "id": "A"
+                }
+              },
+              "quality": {
+                "geometrySource": "station_selection",
+                "streetGeometry": "unverified"
+              },
+              "to": {
+                "coordinate": [-77.05,38.9],
+                "name": "Alpha",
+                "stop": {
+                  "feed": null,
+                  "id": "A"
+                }
+              },
+              "type": "walk"
+            },
+            {
+              "arrivalTime": "08:10:00",
+              "departureTime": "08:00:00",
+              "directionId": "0",
+              "durationSeconds": 600,
+              "from": {
+                "coordinate": [-77.05,38.9],
+                "name": "Alpha",
+                "stop": {
+                  "feed": null,
+                  "id": "A"
+                }
+              },
+              "headsign": null,
+              "intermediateStops": [],
+              "quality": {
+                "geometry": "unknown",
+                "schedule": "timetable"
+              },
+              "route": {
+                "color": "",
+                "id": {
+                  "feed": null,
+                  "id": "R1"
+                },
+                "longName": "First Route",
+                "name": "R1",
+                "shortName": "R1",
+                "type": 3
+              },
+              "service": {
+                "feed": null,
+                "id": "WKD"
+              },
+              "serviceDate": "2026-07-15",
+              "to": {
+                "coordinate": [-77.04,38.905],
+                "name": "Transfer",
+                "stop": {
+                  "feed": null,
+                  "id": "X"
+                }
+              },
+              "trip": {
+                "feed": null,
+                "id": "T1"
+              },
+              "tripShortName": null,
+              "type": "transit"
+            },
+            {
+              "arrivalTime": "08:30:00",
+              "departureTime": "08:15:00",
+              "directionId": "0",
+              "durationSeconds": 900,
+              "from": {
+                "coordinate": [-77.04,38.905],
+                "name": "Transfer",
+                "stop": {
+                  "feed": null,
+                  "id": "X"
+                }
+              },
+              "headsign": null,
+              "intermediateStops": [],
+              "quality": {
+                "geometry": "unknown",
+                "schedule": "timetable"
+              },
+              "route": {
+                "color": "",
+                "id": {
+                  "feed": null,
+                  "id": "R2"
+                },
+                "longName": "Second Route",
+                "name": "R2",
+                "shortName": "R2",
+                "type": 3
+              },
+              "service": {
+                "feed": null,
+                "id": "WKD"
+              },
+              "serviceDate": "2026-07-15",
+              "to": {
+                "coordinate": [-77.03,38.91],
+                "name": "Bravo",
+                "stop": {
+                  "feed": null,
+                  "id": "B"
+                }
+              },
+              "trip": {
+                "feed": null,
+                "id": "T2"
+              },
+              "tripShortName": null,
+              "type": "transit"
+            },
+            {
+              "arrivalTime": "08:30:00",
+              "departureTime": "08:30:00",
+              "distanceMeters": 0,
+              "durationSeconds": 0,
+              "from": {
+                "coordinate": [-77.03,38.91],
+                "name": "Bravo",
+                "stop": {
+                  "feed": null,
+                  "id": "B"
+                }
+              },
+              "quality": {
+                "geometrySource": "station_selection",
+                "streetGeometry": "unverified"
+              },
+              "to": {
+                "coordinate": [-77.03,38.91],
+                "name": "Bravo",
+                "stop": {
+                  "feed": null,
+                  "id": "B"
+                }
+              },
+              "type": "walk"
+            }
+          ],
+          "ridingSeconds": 1500,
+          "transfers": 1,
+          "waitingSeconds": 600,
+          "walkingSeconds": 0
+        }
+      ]
+    ],
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "transit",
+    "query": {
+      "dataMode": "scheduled",
+      "destinations": [
+        {
+          "stop": {
+            "feed": null,
+            "id": "B"
+          }
+        }
+      ],
+      "origins": [
+        {
+          "stop": {
+            "feed": null,
+            "id": "A"
+          }
+        }
+      ],
+      "requestedTime": "07:55:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "depart_at"
+    },
+    "schema": "vigo.matrix.v1",
+    "status": "ok"
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "case": "standard/matrix-ids",
+  "city": "standard",
+  "kind": "matrix",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origins": [
+      {
+        "coordinate": [-77.05,38.9],
+        "id": "home"
+      }
+    ],
+    "destinations": [
+      {
+        "coordinate": [-77.03,38.91],
+        "id": "work"
+      }
+    ],
+    "maxWalkKm": 0.2
+  },
+  "result": {
+    "durationsSeconds": [[1543]],
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "transit",
+    "query": {
+      "dataMode": "scheduled",
+      "destinations": [
+        {
+          "coordinate": [-77.03,38.91],
+          "id": "work"
+        }
+      ],
+      "origins": [
+        {
+          "coordinate": [-77.05,38.9],
+          "id": "home"
+        }
+      ],
+      "requestedTime": "07:55:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "depart_at"
+    },
+    "schema": "vigo.matrix.v1",
+    "status": "ok"
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "case": "standard/matrix-unreachable",
+  "city": "standard",
+  "kind": "matrix",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origins": [
+      {
+        "stop": {
+          "feed": null,
+          "id": "A"
+        }
+      },
+      {
+        "stop": {
+          "feed": null,
+          "id": "B"
+        }
+      }
+    ],
+    "destinations": [
+      {
+        "stop": {
+          "feed": null,
+          "id": "B"
+        }
+      },
+      {
+        "stop": {
+          "feed": null,
+          "id": "A"
+        }
+      },
+      {
+        "coordinate": [-77,39]
+      }
+    ],
+    "maxWalkKm": 0.2,
+    "requireTransitRide": true
+  },
+  "result": {
+    "access": {
+      "destinations": {
+        "2": {
+          "candidateCount": 0,
+          "code": "no_street_attachment",
+          "coordinate": [-77,39],
+          "maximumWalkMeters": 200,
+          "role": "destination"
+        }
+      },
+      "origins": {}
+    },
+    "durationsSeconds": [[2100,null,null],[null,null,null]],
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "transit",
+    "query": {
+      "dataMode": "scheduled",
+      "destinations": [
+        {
+          "stop": {
+            "feed": null,
+            "id": "B"
+          }
+        },
+        {
+          "stop": {
+            "feed": null,
+            "id": "A"
+          }
+        },
+        {
+          "coordinate": [-77,39]
+        }
+      ],
+      "origins": [
+        {
+          "stop": {
+            "feed": null,
+            "id": "A"
+          }
+        },
+        {
+          "stop": {
+            "feed": null,
+            "id": "B"
+          }
+        }
+      ],
+      "requestedTime": "07:55:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "depart_at"
+    },
+    "schema": "vigo.matrix.v1",
+    "status": "ok"
+  }
+}

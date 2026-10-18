@@ -1,0 +1,27 @@
+{
+  "case": "walk-only/route-drive-unprepared",
+  "city": "walk-only",
+  "kind": "route",
+  "exitCode": 2,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origin": {
+      "coordinate": [-77.05,38.9]
+    },
+    "destination": {
+      "coordinate": [-77.03,38.91]
+    },
+    "maxWalkKm": 0.2,
+    "requireTransitRide": true,
+    "mode": "drive"
+  },
+  "result": {
+    "error": {
+      "code": "unsupported_mode",
+      "message": "Driving is not prepared in this City; rebuild with street-modes walk,drive"
+    },
+    "schema": "vigo.error.v1",
+    "status": "error"
+  }
+}

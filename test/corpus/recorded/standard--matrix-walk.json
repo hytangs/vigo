@@ -1,0 +1,52 @@
+{
+  "case": "standard/matrix-walk",
+  "city": "standard",
+  "kind": "matrix",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "mode": "walk",
+    "origins": [
+      {
+        "coordinate": [-77.05,38.9]
+      }
+    ],
+    "destinations": [
+      {
+        "coordinate": [-77.03,38.91]
+      }
+    ]
+  },
+  "result": {
+    "distancesMeters": [[2057.0514]],
+    "durationsSeconds": [[1543]],
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "walk",
+    "query": {
+      "dataMode": "scheduled",
+      "destinations": [
+        {
+          "coordinate": [-77.03,38.91]
+        }
+      ],
+      "origins": [
+        {
+          "coordinate": [-77.05,38.9]
+        }
+      ],
+      "requestedTime": "07:55:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "depart_at"
+    },
+    "schema": "vigo.matrix.v1",
+    "status": "ok"
+  }
+}

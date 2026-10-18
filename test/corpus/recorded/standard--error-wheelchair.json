@@ -1,0 +1,33 @@
+{
+  "case": "standard/error-wheelchair",
+  "city": "standard",
+  "kind": "route",
+  "exitCode": 2,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origin": {
+      "stop": {
+        "feed": null,
+        "id": "A"
+      }
+    },
+    "destination": {
+      "stop": {
+        "feed": null,
+        "id": "B"
+      }
+    },
+    "maxWalkKm": 0.2,
+    "requireTransitRide": true,
+    "wheelchair": true
+  },
+  "result": {
+    "error": {
+      "code": "invalid_request",
+      "message": "Wheelchair routing requires a City built with --wheelchair"
+    },
+    "schema": "vigo.error.v1",
+    "status": "error"
+  }
+}

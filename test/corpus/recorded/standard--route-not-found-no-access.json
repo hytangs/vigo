@@ -1,0 +1,67 @@
+{
+  "case": "standard/route-not-found-no-access",
+  "city": "standard",
+  "kind": "route",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origin": {
+      "coordinate": [-77.0498,38.9001]
+    },
+    "destination": {
+      "coordinate": [-77.0495,38.90025]
+    },
+    "maxWalkKm": 0.01,
+    "requireTransitRide": true
+  },
+  "result": {
+    "access": {
+      "destination": {
+        "candidateCount": 0,
+        "code": "none_within_walk_budget",
+        "coordinate": [-77.0495,38.90025],
+        "maximumWalkMeters": 10,
+        "probeWalkMeters": 510,
+        "role": "destination"
+      },
+      "origin": {
+        "candidateCount": 0,
+        "code": "outside_selected_budget",
+        "coordinate": [-77.0498,38.9001],
+        "maximumWalkMeters": 10,
+        "probeWalkMeters": 510,
+        "role": "origin",
+        "suggestedWalkMeters": 20.571
+      }
+    },
+    "journey": null,
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "transit",
+    "query": {
+      "dataMode": "scheduled",
+      "destination": {
+        "coordinate": [-77.0495,38.90025]
+      },
+      "origin": {
+        "coordinate": [-77.0498,38.9001]
+      },
+      "requestedTime": "07:55:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "depart_at"
+    },
+    "reason": {
+      "code": "no_access",
+      "message": "No journey found within the requested constraints."
+    },
+    "schema": "vigo.route.v1",
+    "status": "not_found"
+  }
+}

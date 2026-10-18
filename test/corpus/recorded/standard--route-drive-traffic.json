@@ -1,0 +1,89 @@
+{
+  "case": "standard/route-drive-traffic",
+  "city": "standard",
+  "kind": "route",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origin": {
+      "coordinate": [-77.05,38.9]
+    },
+    "destination": {
+      "coordinate": [-77.03,38.91]
+    },
+    "maxWalkKm": 0.2,
+    "requireTransitRide": true,
+    "mode": "drive",
+    "traffic": {
+      "observedAt": 1784113200000,
+      "observations": [
+        {
+          "fromCoordinate": [-77.05,38.9],
+          "toCoordinate": [-77.04,38.905],
+          "delayFactor": 3
+        }
+      ]
+    }
+  },
+  "result": {
+    "journey": {
+      "arrivalTime": "08:03:14",
+      "boardings": 0,
+      "clockDate": "2026-07-15",
+      "departureTime": "07:55:00",
+      "drivingSeconds": 494,
+      "durationSeconds": 494,
+      "legs": [
+        {
+          "arrivalTime": "08:03:14",
+          "departureTime": "07:55:00",
+          "distanceMeters": 2057,
+          "durationSeconds": 494,
+          "from": {
+            "coordinate": [-77.05,38.9]
+          },
+          "geometry": {
+            "coordinates": [[-77.05000000000001,38.900000000000006],[-77.04,38.905],[-77.03,38.910000000000004]],
+            "type": "LineString"
+          },
+          "quality": {
+            "geometrySource": "osm",
+            "streetGeometry": "verified"
+          },
+          "to": {
+            "coordinate": [-77.03,38.91]
+          },
+          "type": "drive"
+        }
+      ],
+      "ridingSeconds": 0,
+      "transfers": 0,
+      "waitingSeconds": 0,
+      "walkingSeconds": 0
+    },
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "drive",
+    "query": {
+      "dataMode": "scheduled",
+      "destination": {
+        "coordinate": [-77.03,38.91]
+      },
+      "origin": {
+        "coordinate": [-77.05,38.9]
+      },
+      "requestedTime": "07:55:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "depart_at"
+    },
+    "schema": "vigo.route.v1",
+    "status": "ok"
+  }
+}

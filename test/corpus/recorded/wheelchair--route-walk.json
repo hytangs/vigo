@@ -1,0 +1,105 @@
+{
+  "case": "wheelchair/route-walk",
+  "city": "wheelchair",
+  "kind": "route",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origin": {
+      "stop": {
+        "feed": null,
+        "id": "A"
+      }
+    },
+    "destination": {
+      "stop": {
+        "feed": null,
+        "id": "B"
+      }
+    },
+    "maxWalkKm": 5,
+    "requireTransitRide": false,
+    "mode": "walk",
+    "wheelchair": true
+  },
+  "result": {
+    "accessibility": {
+      "limitations": ["Unknown vehicle, boarding and street accessibility is excluded; coverage may be sparse.","Coordinate attachments are geometric; door-to-street access is not verified.","Elevator outages, temporary obstructions and individual chair dimensions are not modeled."],
+      "maximumSlope": 0.083,
+      "minimumWidthMeters": 0.9,
+      "profile": "wheelchair-strict-v1",
+      "stationPaths": "published-wheelchair-time-or-dimensioned-step-free",
+      "unknownData": "exclude"
+    },
+    "journey": {
+      "arrivalTime": "08:20:43",
+      "boardings": 0,
+      "clockDate": "2026-07-15",
+      "departureTime": "07:55:00",
+      "durationSeconds": 1543,
+      "legs": [
+        {
+          "arrivalTime": "08:20:43",
+          "departureTime": "07:55:00",
+          "distanceMeters": 2057,
+          "durationSeconds": 1543,
+          "from": {
+            "stop": {
+              "feed": null,
+              "id": "A"
+            }
+          },
+          "geometry": {
+            "coordinates": [[-77.05,38.9],[-77.04,38.905],[-77.03,38.91]],
+            "type": "LineString"
+          },
+          "quality": {
+            "geometrySource": "osm",
+            "streetGeometry": "verified"
+          },
+          "to": {
+            "stop": {
+              "feed": null,
+              "id": "B"
+            }
+          },
+          "type": "walk"
+        }
+      ],
+      "ridingSeconds": 0,
+      "transfers": 0,
+      "waitingSeconds": 0,
+      "walkingSeconds": 1543
+    },
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "walk",
+    "query": {
+      "dataMode": "scheduled",
+      "destination": {
+        "stop": {
+          "feed": null,
+          "id": "B"
+        }
+      },
+      "origin": {
+        "stop": {
+          "feed": null,
+          "id": "A"
+        }
+      },
+      "requestedTime": "07:55:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "depart_at"
+    },
+    "schema": "vigo.route.v1",
+    "status": "ok"
+  }
+}

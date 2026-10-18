@@ -1,0 +1,32 @@
+{
+  "case": "standard/error-unknown-stop",
+  "city": "standard",
+  "kind": "route",
+  "exitCode": 2,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origin": {
+      "stop": {
+        "feed": null,
+        "id": "NOPE"
+      }
+    },
+    "destination": {
+      "stop": {
+        "feed": null,
+        "id": "B"
+      }
+    },
+    "maxWalkKm": 0.2,
+    "requireTransitRide": true
+  },
+  "result": {
+    "error": {
+      "code": "stop_not_found",
+      "message": "A requested stop is not present in this City."
+    },
+    "schema": "vigo.error.v1",
+    "status": "error"
+  }
+}

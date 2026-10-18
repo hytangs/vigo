@@ -1,0 +1,32 @@
+{
+  "case": "standard/error-service-day",
+  "city": "standard",
+  "kind": "route",
+  "exitCode": 2,
+  "request": {
+    "time": "07:55",
+    "origin": {
+      "stop": {
+        "feed": null,
+        "id": "A"
+      }
+    },
+    "destination": {
+      "stop": {
+        "feed": null,
+        "id": "B"
+      }
+    },
+    "maxWalkKm": 0.2,
+    "requireTransitRide": true,
+    "serviceDay": "weekday"
+  },
+  "result": {
+    "error": {
+      "code": "invalid_request",
+      "message": "serviceDate (YYYY-MM-DD) is required for transit"
+    },
+    "schema": "vigo.error.v1",
+    "status": "error"
+  }
+}

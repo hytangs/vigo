@@ -1,0 +1,31 @@
+{
+  "case": "standard/error-missing-time",
+  "city": "standard",
+  "kind": "route",
+  "exitCode": 2,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "origin": {
+      "stop": {
+        "feed": null,
+        "id": "A"
+      }
+    },
+    "destination": {
+      "stop": {
+        "feed": null,
+        "id": "B"
+      }
+    },
+    "maxWalkKm": 0.2,
+    "requireTransitRide": true
+  },
+  "result": {
+    "error": {
+      "code": "invalid_request",
+      "message": "time (HH:MM) or timeMinutes is required"
+    },
+    "schema": "vigo.error.v1",
+    "status": "error"
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "case": "frozen-050/info",
+  "city": "frozen-050",
+  "kind": "info",
+  "exitCode": 0,
+  "request": null,
+  "result": {
+    "counts": {
+      "connections": 2,
+      "routes": 2,
+      "stops": 3,
+      "streetEdges": 4,
+      "streetNodes": 3,
+      "trips": 2
+    },
+    "datasetLimitations": [],
+    "engineVersion": "0.5.2",
+    "memory": {
+      "access": {
+        "anchorCount": 0,
+        "cchBucketBuildNs": 0,
+        "cchBucketBytes": 0,
+        "cchBucketEntries": 0,
+        "cchTargetNodeCount": 0,
+        "configured": true,
+        "endpointCacheEntries": 0,
+        "endpointCacheEstimatedBytes": 0,
+        "endpointCacheMaximumBytesPerRole": 0,
+        "endpointCacheMaximumEntriesPerRole": 0,
+        "estimatedBytes": 0,
+        "gridCellCount": 0,
+        "linkedAccessEdgeCount": 0,
+        "memberCount": 0,
+        "snapCount": 0,
+        "snapReferenceCount": 0,
+        "snapStorageDeduplicationRatio": 0,
+        "snappedMemberCount": 0,
+        "stationGroupCount": 0
+      },
+      "calendarIndexBytes": 0,
+      "driveLoaded": false,
+      "geometry": {
+        "entries": 0,
+        "estimatedBytes": 0,
+        "maximumBytes": 0,
+        "maximumEntries": 0
+      },
+      "ledger": {
+        "cityCacheHeapBytes": 0,
+        "cityDictionaryHeapBytes": 0,
+        "contextMappedFileBytes": 0,
+        "drive": null,
+        "inactiveTimetableHeapBytes": 0,
+        "lastOutput": null,
+        "scope": "retained capacities; hash/JSON container overhead estimated; mappings are file lengths, not RSS; active-query temporaries and transport/UI allocations measured separately",
+        "sqliteHeapBytes": 0,
+        "street": {
+          "accessHeapBytes": 0,
+          "accessMappedFileBytes": 0,
+          "cacheHeapBytes": 0,
+          "cchForwardScratchBytes": 0,
+          "cchPathScratchBytes": 0,
+          "cchReverseScratchBytes": 0,
+          "sharedHeapBytes": 0,
+          "sharedMappedFileBytes": 0,
+          "tileScratchBytes": 0,
+          "workspaceHeapBytes": 0
+        },
+        "timetableIndexHeapBytes": 0,
+        "timetableSourceOwnedHeapBytes": 0,
+        "timetableWorkspaceHeapBytes": 0
+      },
+      "scope": "estimated retained native allocations and mapped file sizes; not RSS or container peak",
+      "sharedStreetOwners": 0,
+      "street": {
+        "accessProfileBytes": 0,
+        "edgeCount": 0,
+        "nativeResidentBytes": 0,
+        "nodeCount": 0,
+        "reverseEdgeCount": 0,
+        "reverseGraphBytes": 0,
+        "sharedStreetOwners": 0,
+        "snapshotBytes": 0,
+        "snapshotVersion": 0,
+        "workspaceBytes": 0
+      },
+      "timetable": null,
+      "timetableCache": {
+        "budgetBytes": 0,
+        "entries": 0,
+        "evictions": 0,
+        "hits": 0,
+        "retainedBytes": 0
+      },
+      "timetableCoverageEndSeconds": null,
+      "timetablePreparations": 0,
+      "timetableSharedColumns": {
+        "indexBytes": 0,
+        "references": 0,
+        "uniqueBlocks": 0,
+        "uniqueBytes": 0
+      }
+    },
+    "name": "city",
+    "resourcePolicy": {
+      "memoryCapacityBytes": null,
+      "swapCountsAsRam": false
+    },
+    "revision": "city-revision",
+    "schema": "vigo.info.v1",
+    "sources": {
+      "gtfs": [
+        {
+          "feed": "fixture",
+          "name": "fixture.zip"
+        }
+      ],
+      "osm": {
+        "name": "fixture.osm.pbf"
+      }
+    },
+    "status": "ok"
+  }
+}

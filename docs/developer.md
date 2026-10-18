@@ -101,6 +101,85 @@ orchestration, and public interfaces.
 
 JavaScript owns request validation, identity resolution, orchestration, cancellation, and presentation. Rust owns active-timetable departure/transfer indexing, realtime timetable reconstruction, station path compilation, graph search, and timetable propagation; see the [kernel implementation map](../native/vigo-routing-kernel/UNIFIED_ROUTING_KERNEL.md). Source-feature omissions remain explicit in results; shared implementation alone does not prove correctness. [Independent checks](#checking-routing-accuracy) validate the declared model.
 
+### Rust-native compiler migration (1.0 development)
+
+The `vigo-v1-dev` branch evolves toward a Rust-native mobility computation
+engine with language-specific application layers. Rust should own computation
+and canonical data semantics; TypeScript owns interaction, and Python owns
+research integration. The migration is incremental, with no Rust percentage
+target and no wholesale Studio, CLI, or Python rewrite.
+
+The starting point already has native service-timetable reads, departure and
+transfer indexes, selected-journey geometry, scenario routing, and binary
+snapshot readers and writers. The remaining compiler work must be measured
+rather than inferred from implementation language.
+
+The first candidate is `compiler::compile_gtfs_connections` in the existing
+Rust crate. It streams admitted `stop_times` rows from SQLite, expands exact
+frequency trips, and writes connections, permissions, trip details and shape
+references using the published 0.5 schema. ZIP/CSV admission, source scoping,
+calendars, accessibility policy, City publication, and application orchestration
+remain in JavaScript. The Rust operator is available to the addon and native
+library; the standalone executable does **not** yet build a City from raw data.
+
+The default connection compiler remains JavaScript. Select the experimental
+operator for a build with the internal environment switch:
+
+```sh
+VIGO_GTFS_CONNECTION_COMPILER=rust node public/vigo.mjs build \
+  --gtfs feed.zip --osm streets.osm.pbf --output candidate-city
+```
+
+`VIGO_GTFS_CONNECTION_COMPILER=js` explicitly selects the retained compiler.
+Unknown values and native errors fail the build; there is no automatic fallback.
+The coordinator closes its staging and routing SQLite handles before handing
+ownership to Rust, then reopens the routing database for the remaining stages.
+Rust writes in a transaction and rolls back on an operator error. These are
+private, unpublished build files, never a runtime City's writable interface.
+The operator emits start/completion progress rather than row-level callbacks.
+
+The migration preserves current semantics, including the existing inclusive
+exact-frequency endpoint, untimed-gap behavior, exclusions, and pickup/drop-off
+permissions. A change to these semantics needs its own correctness review.
+Neither a new language nor a passing differential test makes the reference
+algorithm correct for every source feed.
+
+Run `npm run check:compiler` for seeded connection-table parity, full routing
+tables and Route/Matrix/Reach geometry across two scenario Cities, and the
+permanent 0.5 reader/writer gate. Only per-build identity and per-request timing
+fields are excluded from public-result comparison. The original frozen City
+archive and hashes remain unchanged. The published 0.5 runtime must read Cities
+from **both** compiler backends. The public Result field meanings, units and
+clocks remain unchanged; see the [permanent format contract](reference/format-0.5.0.md).
+
+Use `npm run profile:compiler -- --runs 3 --output output/compiler-profile.json`
+after creating the output directory. The default fixture has 10,000 trips and
+200,000 stop-time rows; `--gtfs /path/to/feed.zip` measures a supplied feed locally.
+Each sample builds a new routing store in a fresh process. The report records
+input, source-tree and native-library hashes, phase wall times, connection-stage
+time, total build time, runner wall time, and process peak RSS. It alternates
+backend order. OS cache state and competing host workloads are uncontrolled;
+phase intervals are not CPU profiles, and process RSS is not a stage-specific
+peak. This covers GTFS import and static topology, not OSM preprocessing or
+complete City preparation. Private inputs and measurements stay outside the
+public repository.
+
+The subsequent migration gates are:
+
+| Stage | Scope and acceptance evidence |
+| --- | --- |
+| GTFS compiler | Retain the JS oracle; compare admitted rows, calendars, exclusions, geometry and routed results on multiple real cities, including large feeds, frequency service, after-midnight service, scoped feeds and wheelchair profiles. Measure build time, memory and temporary storage before changing the default. |
+| OSM graph construction | Profile parsing, filtering, graph building and index preparation independently. Migrate the measured stage while preserving directed access, restrictions, station evidence and geometry. |
+| Scenario representation | Move canonical validation and incremental compilation behind a shared Rust representation; preserve stable identities, immutable shared streets, isolation and schedule semantics. |
+| City storage | Consolidate ownership of existing layouts and validation in Rust without requiring valid published 0.5 Cities to rebuild. New indexes remain optional to old readers and unnecessary to old Cities. |
+| Command and binding interfaces | Add native build orchestration after the operators compose independently; make Rust authoritative for shared validation, then generate or wrap language interfaces while retaining the public request/result contract. |
+
+Changing a default requires semantic parity, bidirectional historical-format
+compatibility, a meaningful resource improvement under a matched workload,
+and review of maintenance and deployment cost. Synthetic checks establish an
+initial regression boundary; they do not establish a cross-city performance
+claim or complete the 1.0 migration.
+
 ### Module boundaries
 
 | Area | Ownership |

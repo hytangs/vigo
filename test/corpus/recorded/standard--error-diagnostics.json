@@ -1,0 +1,33 @@
+{
+  "case": "standard/error-diagnostics",
+  "city": "standard",
+  "kind": "route",
+  "exitCode": 2,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origin": {
+      "stop": {
+        "feed": null,
+        "id": "A"
+      }
+    },
+    "destination": {
+      "stop": {
+        "feed": null,
+        "id": "B"
+      }
+    },
+    "maxWalkKm": 0.2,
+    "requireTransitRide": true,
+    "diagnostics": "verbose"
+  },
+  "result": {
+    "error": {
+      "code": "invalid_request",
+      "message": "diagnostics must be none, summary, profile, or trace"
+    },
+    "schema": "vigo.error.v1",
+    "status": "error"
+  }
+}

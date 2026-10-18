@@ -11,6 +11,7 @@ Vigo Projects/
 release/
 
 # Build and tool caches
+/target/
 __pycache__/
 *.py[cod]
 .vite/

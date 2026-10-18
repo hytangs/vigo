@@ -40,10 +40,13 @@ try {
   const reference = await published050(temporary)
   execFileSync('tar',['-xzf',path.join(fixture,'city.tar.gz'),'-C',temporary])
   verify(standaloneBinary,path.join(temporary,'city'))
-  const candidate = path.join(temporary,'candidate')
-  execFileSync(process.execPath,[cli,'build','--gtfs',path.join(fixture,'fixture.zip'),
-    '--gtfs-scope','fixture','--osm',path.join(fixture,'fixture.osm.pbf'),'--street-modes','walk',
-    '--prepare-date',manifest.serviceDate,'--output',candidate],{cwd:root,stdio:['ignore','ignore','pipe'],timeout:120000})
-  verify(reference,candidate)
-  console.log('Published 0.5.0 City reader and writer compatibility passed: route, arrive-by, walk, matrix, reach.')
+  for (const backend of ['js', 'rust']) {
+    const candidate = path.join(temporary, `candidate-${backend}`)
+    execFileSync(process.execPath,[cli,'build','--gtfs',path.join(fixture,'fixture.zip'),
+      '--gtfs-scope','fixture','--osm',path.join(fixture,'fixture.osm.pbf'),'--street-modes','walk',
+      '--prepare-date',manifest.serviceDate,'--output',candidate],{cwd:root,
+      env:{...process.env,VIGO_GTFS_CONNECTION_COMPILER:backend},stdio:['ignore','ignore','pipe'],timeout:120000})
+    verify(reference,candidate)
+  }
+  console.log('Published 0.5.0 City reader and both compiler writers compatibility passed: route, arrive-by, walk, matrix, reach.')
 } finally { fs.rmSync(temporary,{recursive:true,force:true}) }

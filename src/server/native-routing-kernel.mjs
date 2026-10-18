@@ -415,6 +415,12 @@ export function compileNativeRealtimeTimetable(input) {
   return binding.compileRealtimeTimetable(input)
 }
 
+export function compileNativeGtfsConnections(input) {
+  const binding = loadNativeBinding()
+  if (typeof binding.compileGtfsConnections !== 'function') throw new Error('Rust routing binding lacks GTFS connection compilation. Rebuild the native kernel.')
+  return binding.compileGtfsConnections(input)
+}
+
 export function readNativeServiceTimetable(input) {
   const binding = loadNativeBinding()
   if (typeof binding.readServiceTimetable !== 'function') throw new Error('Rust routing binding lacks service timetable compilation. Rebuild the native kernel.')

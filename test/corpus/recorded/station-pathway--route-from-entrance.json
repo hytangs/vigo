@@ -1,0 +1,194 @@
+{
+  "case": "station-pathway/route-from-entrance",
+  "city": "station-pathway",
+  "kind": "route",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origin": {
+      "coordinate": [-77.0405,38.90475]
+    },
+    "destination": {
+      "stop": {
+        "feed": null,
+        "id": "B"
+      }
+    },
+    "maxWalkKm": 1.2,
+    "maxTransfers": 2,
+    "requireTransitRide": true
+  },
+  "result": {
+    "journey": {
+      "arrivalTime": "08:30:00",
+      "boardings": 1,
+      "clockDate": "2026-07-15",
+      "departureTime": "07:55:00",
+      "durationSeconds": 2100,
+      "legs": [
+        {
+          "arrivalTime": "07:55:40",
+          "components": [
+            {
+              "distanceMeters": 51,
+              "durationSeconds": 39,
+              "type": "street"
+            },
+            {
+              "distanceMeters": 90,
+              "durationSeconds": 1,
+              "sources": ["gtfs_pathway"],
+              "type": "station"
+            }
+          ],
+          "departureTime": "07:55:00",
+          "distanceMeters": 141,
+          "durationSeconds": 40,
+          "from": {
+            "coordinate": [-77.0405,38.90475]
+          },
+          "geometry": {
+            "coordinates": [[-77.0405,38.90475],[-77.04,38.905],[-77.039,38.9051]],
+            "type": "LineString"
+          },
+          "quality": {
+            "geometrySource": "osm_and_station_path",
+            "stationPath": "source_path",
+            "streetGeometry": "verified"
+          },
+          "to": {
+            "coordinate": [-77.039,38.9051],
+            "name": "Platform",
+            "stop": {
+              "feed": null,
+              "id": "Y"
+            }
+          },
+          "type": "walk"
+        },
+        {
+          "arrivalTime": "08:30:00",
+          "departureTime": "08:15:00",
+          "directionId": "0",
+          "distanceMeters": 950,
+          "durationSeconds": 900,
+          "fare": {
+            "code": "missing_catalog",
+            "reason": "Fare data was not imported with this timetable.",
+            "status": "unavailable"
+          },
+          "from": {
+            "coordinate": [-77.039,38.9051],
+            "name": "Platform",
+            "stop": {
+              "feed": null,
+              "id": "Y"
+            }
+          },
+          "geometry": {
+            "coordinates": [[-77.039,38.9051],[-77.03,38.91]],
+            "type": "LineString"
+          },
+          "headsign": null,
+          "intermediateStops": [],
+          "quality": {
+            "geometry": "stop_sequence",
+            "schedule": "timetable"
+          },
+          "route": {
+            "color": "",
+            "id": {
+              "feed": null,
+              "id": "R2"
+            },
+            "longName": "Subway",
+            "name": "R2",
+            "shortName": "R2",
+            "type": 1
+          },
+          "service": {
+            "feed": null,
+            "id": "WKD"
+          },
+          "serviceDate": "2026-07-15",
+          "to": {
+            "coordinate": [-77.03,38.91],
+            "name": "Bravo",
+            "stop": {
+              "feed": null,
+              "id": "B"
+            }
+          },
+          "trip": {
+            "feed": null,
+            "id": "T2"
+          },
+          "tripShortName": null,
+          "type": "transit"
+        },
+        {
+          "arrivalTime": "08:30:00",
+          "departureTime": "08:30:00",
+          "distanceMeters": 0,
+          "durationSeconds": 0,
+          "from": {
+            "coordinate": [-77.03,38.91],
+            "name": "Bravo",
+            "stop": {
+              "feed": null,
+              "id": "B"
+            }
+          },
+          "geometry": {
+            "coordinates": [[-77.03,38.91],[-77.03,38.91]],
+            "type": "LineString"
+          },
+          "quality": {
+            "geometrySource": "station_selection",
+            "streetGeometry": "unverified"
+          },
+          "to": {
+            "coordinate": [-77.03,38.91],
+            "name": "Bravo",
+            "stop": {
+              "feed": null,
+              "id": "B"
+            }
+          },
+          "type": "walk"
+        }
+      ],
+      "ridingSeconds": 900,
+      "transfers": 0,
+      "waitingSeconds": 1160,
+      "walkingSeconds": 40
+    },
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "transit",
+    "query": {
+      "dataMode": "scheduled",
+      "destination": {
+        "stop": {
+          "feed": null,
+          "id": "B"
+        }
+      },
+      "origin": {
+        "coordinate": [-77.0405,38.90475]
+      },
+      "requestedTime": "07:55:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "depart_at"
+    },
+    "schema": "vigo.route.v1",
+    "status": "ok"
+  }
+}

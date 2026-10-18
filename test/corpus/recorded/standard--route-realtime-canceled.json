@@ -1,0 +1,105 @@
+{
+  "case": "standard/route-realtime-canceled",
+  "city": "standard",
+  "kind": "route",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origin": {
+      "stop": {
+        "feed": null,
+        "id": "A"
+      }
+    },
+    "destination": {
+      "stop": {
+        "feed": null,
+        "id": "B"
+      }
+    },
+    "maxWalkKm": 0.2,
+    "requireTransitRide": true,
+    "realtimeSnapshot": {
+      "feedTimestamp": 1784113200,
+      "tripUpdates": [
+        {
+          "tripId": "T1",
+          "scheduleRelationship": "CANCELED"
+        }
+      ]
+    }
+  },
+  "result": {
+    "access": {
+      "destination": {
+        "candidateCount": 1,
+        "code": "available",
+        "coordinate": [-77.03,38.91],
+        "maximumWalkMeters": 200,
+        "role": "destination"
+      },
+      "origin": {
+        "candidateCount": 1,
+        "code": "available",
+        "coordinate": [-77.05,38.9],
+        "maximumWalkMeters": 200,
+        "role": "origin"
+      }
+    },
+    "journey": null,
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "realtime": {
+        "appliedTrips": 0,
+        "canceledTrips": 1,
+        "coverage": {
+          "appliedUpdates": 1,
+          "complete": true,
+          "rejectedUpdates": 0
+        },
+        "dateMismatches": 0,
+        "duplicateTrips": 0,
+        "feedTripUpdates": 1,
+        "invalidTrips": 0,
+        "mode": "full-snapshot",
+        "omittedPastPrefixStops": 0,
+        "pastPrefixTrips": 0,
+        "staleTrips": 0,
+        "status": "applied",
+        "unmatchedTrips": 0
+      },
+      "realtimeSnapshotFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "transit",
+    "query": {
+      "dataMode": "realtime",
+      "destination": {
+        "stop": {
+          "feed": null,
+          "id": "B"
+        }
+      },
+      "origin": {
+        "stop": {
+          "feed": null,
+          "id": "A"
+        }
+      },
+      "requestedTime": "07:55:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "depart_at"
+    },
+    "reason": {
+      "code": "no_path",
+      "message": "No journey found within the requested constraints."
+    },
+    "schema": "vigo.route.v1",
+    "status": "not_found"
+  }
+}

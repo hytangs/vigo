@@ -1,0 +1,87 @@
+{
+  "case": "station-unpriced/route-blocked",
+  "city": "station-unpriced",
+  "kind": "route",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origin": {
+      "coordinate": [-77.0405,38.90475]
+    },
+    "destination": {
+      "stop": {
+        "feed": null,
+        "id": "B"
+      }
+    },
+    "maxWalkKm": 1.2,
+    "maxTransfers": 2,
+    "requireTransitRide": true,
+    "includeLimitations": true
+  },
+  "result": {
+    "access": {
+      "destination": {
+        "candidateCount": 1,
+        "code": "available",
+        "coordinate": [-77.03,38.91],
+        "maximumWalkMeters": 1200,
+        "role": "destination"
+      },
+      "origin": {
+        "candidateCount": 0,
+        "code": "none_within_walk_budget",
+        "coordinate": [-77.0405,38.90475],
+        "maximumWalkMeters": 1200,
+        "probeWalkMeters": 2400,
+        "role": "origin"
+      }
+    },
+    "datasetLimitations": [
+      {
+        "code": "unpriced_pathways",
+        "count": 2,
+        "detail": "Pathways without traversal time, length, or distinct located endpoints are excluded. Their declared station connectivity still suppresses inferred shortcuts.",
+        "exactness": "unsupported"
+      },
+      {
+        "code": "station_entrances",
+        "count": 1,
+        "detail": "Station entrances are inventoried, but the routing graph does not yet use the complete GTFS entrance hierarchy for access and egress.",
+        "exactness": "unsupported"
+      }
+    ],
+    "journey": null,
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "transit",
+    "query": {
+      "dataMode": "scheduled",
+      "destination": {
+        "stop": {
+          "feed": null,
+          "id": "B"
+        }
+      },
+      "origin": {
+        "coordinate": [-77.0405,38.90475]
+      },
+      "requestedTime": "07:55:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "depart_at"
+    },
+    "reason": {
+      "code": "no_access",
+      "message": "No journey found within the requested constraints."
+    },
+    "schema": "vigo.route.v1",
+    "status": "not_found"
+  }
+}

@@ -4,6 +4,7 @@
 compile_error!(
     "The node addon and standalone executable use different buffer representations. Build standalone with --no-default-features --features standalone."
 );
+pub mod compiler;
 mod edge_attachment;
 pub(crate) mod fares;
 pub(crate) mod route_alternatives;

@@ -1,0 +1,21 @@
+[package]
+name = "vigo-model"
+description = "Typed public requests and Results for VIGO, with their JSON Schema."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[[bin]]
+name = "vigo-model-gen"
+path = "src/bin/vigo-model-gen.rs"
+
+[dev-dependencies]
+# Validates corpus records against the generated schema; no network features.
+jsonschema = { version = "0.59", default-features = false }

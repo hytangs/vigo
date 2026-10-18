@@ -1,0 +1,33 @@
+{
+  "case": "collection/error-unknown-scenario",
+  "city": "collection",
+  "kind": "route",
+  "exitCode": 2,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "07:55",
+    "origin": {
+      "stop": {
+        "feed": null,
+        "id": "A"
+      }
+    },
+    "destination": {
+      "stop": {
+        "feed": null,
+        "id": "B"
+      }
+    },
+    "maxWalkKm": 0.2,
+    "requireTransitRide": true,
+    "scenarioId": "missing"
+  },
+  "result": {
+    "error": {
+      "code": "scenario_not_found",
+      "message": "Unknown scenarioId: missing"
+    },
+    "schema": "vigo.error.v1",
+    "status": "error"
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "case": "collection/info",
+  "city": "collection",
+  "kind": "info",
+  "exitCode": 0,
+  "request": null,
+  "result": {
+    "allocator": null,
+    "defaultScenario": "current",
+    "engineVersion": "0.5.2",
+    "memory": {
+      "cacheHeapBytes": 0,
+      "lastOutput": null,
+      "mappedFileBytes": 0,
+      "networkHeapBytes": 0,
+      "scope": "unique shared street and timetable owners plus all resident scenarios; retained capacity estimates, not RSS; excludes active query temporaries, transport and UI",
+      "sqliteHeapBytes": 0,
+      "trackedHeapBytes": 0,
+      "workspaceHeapBytes": 0
+    },
+    "name": "Corpus scenarios",
+    "residency": {
+      "cityOpens": 1,
+      "evictions": 0,
+      "inactiveTimetableBudgetBytes": 134217728,
+      "inactiveTimetableRetainedBytes": 0,
+      "loadedScenarios": 1,
+      "maximumScenarios": 2,
+      "scenarios": [
+        {
+          "id": "current",
+          "memory": {
+            "access": {
+              "anchorCount": 0,
+              "cchBucketBuildNs": 0,
+              "cchBucketBytes": 0,
+              "cchBucketEntries": 0,
+              "cchTargetNodeCount": 0,
+              "configured": true,
+              "endpointCacheEntries": 0,
+              "endpointCacheEstimatedBytes": 0,
+              "endpointCacheMaximumBytesPerRole": 0,
+              "endpointCacheMaximumEntriesPerRole": 0,
+              "estimatedBytes": 0,
+              "gridCellCount": 0,
+              "linkedAccessEdgeCount": 0,
+              "memberCount": 0,
+              "snapCount": 0,
+              "snapReferenceCount": 0,
+              "snapStorageDeduplicationRatio": 0,
+              "snappedMemberCount": 0,
+              "stationGroupCount": 0
+            },
+            "calendarIndexBytes": 0,
+            "driveLoaded": false,
+            "geometry": {
+              "entries": 0,
+              "estimatedBytes": 0,
+              "maximumBytes": 0,
+              "maximumEntries": 0
+            },
+            "ledger": {
+              "cityCacheHeapBytes": 0,
+              "cityDictionaryHeapBytes": 0,
+              "contextMappedFileBytes": 0,
+              "drive": null,
+              "inactiveTimetableHeapBytes": 0,
+              "lastOutput": null,
+              "scope": "retained capacities; hash/JSON container overhead estimated; mappings are file lengths, not RSS; active-query temporaries and transport/UI allocations measured separately",
+              "sqliteHeapBytes": 0,
+              "street": {
+                "accessHeapBytes": 0,
+                "accessMappedFileBytes": 0,
+                "cacheHeapBytes": 0,
+                "cchForwardScratchBytes": 0,
+                "cchPathScratchBytes": 0,
+                "cchReverseScratchBytes": 0,
+                "sharedHeapBytes": 0,
+                "sharedMappedFileBytes": 0,
+                "tileScratchBytes": 0,
+                "workspaceHeapBytes": 0
+              },
+              "timetableIndexHeapBytes": 0,
+              "timetableSourceOwnedHeapBytes": 0,
+              "timetableWorkspaceHeapBytes": 0
+            },
+            "scope": "estimated retained native allocations and mapped file sizes; not RSS or container peak",
+            "sharedStreetOwners": 0,
+            "street": {
+              "accessProfileBytes": 0,
+              "edgeCount": 0,
+              "nativeResidentBytes": 0,
+              "nodeCount": 0,
+              "reverseEdgeCount": 0,
+              "reverseGraphBytes": 0,
+              "sharedStreetOwners": 0,
+              "snapshotBytes": 0,
+              "snapshotVersion": 0,
+              "workspaceBytes": 0
+            },
+            "timetable": null,
+            "timetableCache": {
+              "budgetBytes": 0,
+              "entries": 0,
+              "evictions": 0,
+              "hits": 0,
+              "retainedBytes": 0
+            },
+            "timetableCoverageEndSeconds": null,
+            "timetablePreparations": 0,
+            "timetableSharedColumns": null
+          }
+        }
+      ],
+      "sharedStreetGraphs": 1,
+      "timetableBlockIndexBytes": 0,
+      "timetableBlockReferences": 0,
+      "timetableColumnViewBytes": 0,
+      "timetableQueryWorkspaces": 0,
+      "timetableSharedBlockBytes": 0,
+      "timetableUniqueBlocks": 0,
+      "timetableWorkspaceBytes": 0
+    },
+    "resourcePolicy": {
+      "memoryCapacityBytes": null,
+      "swapCountsAsRam": false
+    },
+    "scenarios": [
+      {
+        "id": "current",
+        "name": "Current service"
+      },
+      {
+        "id": "faster",
+        "name": "Faster R2"
+      }
+    ],
+    "schema": "vigo.scenarios.info.v1",
+    "status": "ok"
+  }
+}
