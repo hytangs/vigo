@@ -10,7 +10,7 @@ const directory = await mkdtemp(path.join(tmpdir(), 'vigo-cutoff-presentation-')
 const server = await createServer({ configFile: false, cacheDir: path.join(directory, 'vite-cache'), server: { host: '127.0.0.1', port: 0 } })
 try {
   // Initializing Vite also prepares component-imported CSS for SSR.
-  const { AnalyzePanel, ReachMetricCards, ReachTransitStatusNotice } = await server.ssrLoadModule('/src/components/AnalyzePanel.tsx')
+  const { AnalyzePanelView, ReachMetricCards, ReachTransitStatusNotice } = await server.ssrLoadModule('/src/components/AnalyzePanel.tsx')
   const area = { bounds: [-72, 41, -70, 43], width: 1, height: 1, pixelAreaKm2: 1, byCutoff: [{ cutoffMinutes: 45, reachablePixels: 1, areaKm2: 1234.56 }, { cutoffMinutes: 46, reachablePixels: 1, areaKm2: 1250 }, { cutoffMinutes: 90, reachablePixels: 1, areaKm2: 2345.67 }] }
   const result = {
     summary: {
@@ -61,7 +61,7 @@ try {
   assert.doesNotMatch(notice(preliminary), /0 transit stops/)
   const change = { id: 'edit', name: 'Add a stop', kind: 'change-line', stops: [],
     headwayMinutes: 10, startMinutes: 300, endMinutes: 1500, averageSpeedKph: 25, bidirectional: true }
-  const panel = (intervention) => renderToStaticMarkup(createElement(AnalyzePanel, {
+  const panel = (intervention) => renderToStaticMarkup(createElement(AnalyzePanelView, {
     mode: 'single', origin: null, serviceDate: '2026-07-20', departMinutes: 480,
     maxWalkKm: 1.2, walkSpeedKph: 4.8, cutoffMinutes: 45, renderMode: 'area',
     cases: [{ id: 'case', name: 'Case', interventions: [intervention] }],

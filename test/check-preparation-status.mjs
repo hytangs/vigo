@@ -59,7 +59,7 @@ for (const routingMode of ['walk', 'drive']) {
 const cacheDir = await mkdtemp(path.join(tmpdir(), 'vigo-preparation-check-'))
 const server = await createServer({ configFile: false, cacheDir, plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: 'custom' })
 try {
-  const { AnalyzePanel } = await server.ssrLoadModule('/src/components/AnalyzePanel.tsx')
+  const { AnalyzePanelView } = await server.ssrLoadModule('/src/components/AnalyzePanel.tsx')
   const { BackgroundTasks } = await server.ssrLoadModule('/src/components/BackgroundTasks.tsx')
   const props = {
     mode: 'single', origin: null, serviceDate: '2026-09-13', departMinutes: 480,
@@ -67,7 +67,7 @@ try {
     comparisonFeedIds: [], routes: [], stops: [], analysis: null, preparationTasks: [],
     routingStoreAvailable: true, streetGraphAvailable: false,
   }
-  const render = (patch) => renderToStaticMarkup(createElement(AnalyzePanel, { ...props, ...patch }))
+  const render = (patch) => renderToStaticMarkup(createElement(AnalyzePanelView, { ...props, ...patch }))
   const missing = render({})
   assert.doesNotMatch(missing, /reach-data-setup|View tasks/)
   assert.match(missing, /class="reach-run" disabled/)

@@ -1,6 +1,7 @@
-import { useLayoutEffect, useState } from 'react'
+import { useLayoutEffect } from 'react'
 import type { VigoProject } from '../domain'
 import type { ScenarioDraft } from '../reach'
+import { createStore, memoizeLast, useStore } from './store'
 
 export type CityDataGroup = { id: string; name: string; feedIds: string[] }
 export type CityDataGroups = { groups: CityDataGroup[]; cases: Record<string, string>; caseScope: string }
@@ -14,10 +15,13 @@ function initial(caseScope: string, feeds: string[], cases: string[]): CityDataG
     cases: Object.fromEntries(cases.map(id => [id, 'baseline'])), caseScope }
 }
 
+// Shown while another City's stored groups are still open.
+const unopenedGroups = memoizeLast((caseScope: string) => initial(caseScope, [], []))
+
 function read(key: string, caseScope: string, feeds: string[], cases: string[]) {
   try {
     const text = localStorage.getItem(key)
-    if (!text) return { key, value: initial(caseScope, feeds, cases), dirty: false, error: '' }
+    if (!text) return { key, value: initial(caseScope, feeds, cases), error: '' }
     if (text.length > 128_000) throw Error('Group list is too large.')
     const data = JSON.parse(text)
     if (data.version !== 1 || !Array.isArray(data.groups) || data.groups.length > 64
@@ -28,10 +32,9 @@ function read(key: string, caseScope: string, feeds: string[], cases: string[]) 
       || !Object.values(data.cases).every(id => typeof id === 'string')) throw Error('Invalid group list.')
     return { key, value: { groups: data.groups as CityDataGroup[],
       // Keep missing group/feed references visible; never silently widen a case.
-      cases: data.caseScope === caseScope ? data.cases as Record<string, string> : {}, caseScope }, dirty: false, error: '' }
+      cases: data.caseScope === caseScope ? data.cases as Record<string, string> : {}, caseScope }, error: '' }
   } catch {
-    return { key, value: { groups: [], cases: {}, caseScope }, dirty: false,
-      error: 'Saved groups could not be read. Your stored copy is unchanged.' }
+    return { key, value: { groups: [], cases: {}, caseScope }, error: 'Saved groups could not be read. Your stored copy is unchanged.' }
   }
 }
 
@@ -47,33 +50,50 @@ export function caseFeedSelection(value: CityDataGroups, caseId: string, project
   return { group, feedIds, error }
 }
 
-export function useCityDataGroups(project: VigoProject, caseScope: string, cases: ScenarioDraft[]) {
+const unopened = () => ({ key: '', value: initial('', [], []), error: '', saveError: '' })
+
+/** The open City's feed groups, persisted per City in local storage. */
+export const cityDataGroups = createStore(unopened())
+
+export const resetCityDataGroups = () => cityDataGroups.set(unopened())
+
+type GroupState = ReturnType<typeof cityDataGroups.get>
+
+function persist(key: string, value: CityDataGroups) {
+  try {
+    localStorage.setItem(key, JSON.stringify({ version: 1, ...value }))
+    return ''
+  } catch { return 'Groups could not be saved. Keep Studio open and try again.' }
+}
+
+/** Open the groups stored for this City and case scope, unless they already are. */
+export function openCityDataGroups(project: VigoProject, caseScope: string, cases: ScenarioDraft[]) {
+  const key = cityDataGroupsKey(project)
+  const state = cityDataGroups.get()
+  if (state.key === key && state.value.caseScope === caseScope) return
+  cityDataGroups.set({ ...read(key, caseScope, project.feeds.map(feed => feed.id), cases.map(entry => entry.id)), saveError: '' })
+}
+
+/** Read and edit one City's groups. Edits addressed to another City are ignored. */
+export function cityDataGrouping(project: VigoProject, caseScope: string, cases: ScenarioDraft[], state: GroupState = cityDataGroups.get()) {
   const key = cityDataGroupsKey(project)
   const readCurrent = () => read(key, caseScope, project.feeds.map(feed => feed.id), cases.map(entry => entry.id))
-  const [state, setState] = useState(readCurrent)
-  const [saveError, setSaveError] = useState('')
-  useLayoutEffect(() => {
-    if (state.key !== key || state.value.caseScope !== caseScope) {
-      setState(readCurrent())
-      setSaveError('')
-    }
-  })
-  useLayoutEffect(() => {
-    if (!state.dirty || state.key !== key || state.value.caseScope !== caseScope) return
-    try {
-      localStorage.setItem(key, JSON.stringify({ version: 1, ...state.value }))
-      setSaveError('')
-    } catch { setSaveError('Groups could not be saved. Keep Studio open and try again.') }
-  }, [key, caseScope, state])
+  const opened = (current: GroupState) => current.key === key && current.value.caseScope === caseScope
   function update(change: (value: CityDataGroups) => CityDataGroups) {
-    setState(current => current.key !== key || current.value.caseScope !== caseScope || current.error
-      ? current : { ...current, value: change(current.value), dirty: true })
+    const current = cityDataGroups.get()
+    if (!opened(current) || current.error) return
+    const value = change(current.value)
+    cityDataGroups.set({ value, saveError: persist(key, value) })
   }
   return {
-    value: state.key === key && state.value.caseScope === caseScope ? state.value : initial(caseScope, [], []),
-    error: state.error || saveError,
+    value: opened(state) ? state.value : unopenedGroups(caseScope),
+    error: state.error || state.saveError,
     readFailed: Boolean(state.error),
-    retry: () => state.error ? setState(readCurrent()) : setState(current => ({ ...current, dirty: true })),
+    retry: () => {
+      const current = cityDataGroups.get()
+      if (current.error) cityDataGroups.set(readCurrent())
+      else if (opened(current)) cityDataGroups.set({ saveError: persist(key, current.value) })
+    },
     saveGroup: (id: string, name: string, feedIds?: string[]) => {
       if (!name.trim()) return
       update(value => ({ ...value, groups: value.groups.some(g => g.id === id)
@@ -86,6 +106,11 @@ export function useCityDataGroups(project: VigoProject, caseScope: string, cases
         feedIds: group.feedIds.includes(feedId) ? group.feedIds.filter(id => id !== feedId) : [...group.feedIds, feedId] }) })),
     assignCase: (caseId: string, groupId: string) => update(value => ({ ...value, cases: { ...value.cases, [caseId]: groupId } })),
   }
+}
+
+export function useCityDataGroups(project: VigoProject, caseScope: string, cases: ScenarioDraft[]) {
+  useLayoutEffect(() => { openCityDataGroups(project, caseScope, cases) })
+  return cityDataGrouping(project, caseScope, cases, useStore(cityDataGroups, state => state))
 }
 
 export type CityDataGrouping = ReturnType<typeof useCityDataGroups>

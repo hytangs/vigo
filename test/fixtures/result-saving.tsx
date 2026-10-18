@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { RoutingDetailPanel } from '../../src/components/JourneyItinerary'
 import { PathfinderRouteList } from '../../src/components/PathfinderPanel'
-import { AnalyzePanel } from '../../src/components/AnalyzePanel'
+import { AnalyzePanelView } from '../../src/components/AnalyzePanel'
 import { ResultExportActions } from '../../src/components/ResultExportActions'
 import '../../src/App.css'
 import '../../src/index.css'
@@ -88,7 +88,7 @@ function Fixture() {
           {mode === 'journey' ? <PathfinderRouteList plans={plans} selectedPlanId={selected}
             alternativesLoading={variant === 'loading'} onSelect={setSelected} />
             : mode === 'error' ? <ResultExportActions label="Save failure example" onExport={() => { throw Error('Could not prepare this result. Try again.') }} />
-            : <AnalyzePanel mode={mode === 'city' ? 'compare' : 'single'} origin={origin}
+            : <AnalyzePanelView mode={mode === 'city' ? 'compare' : 'single'} origin={origin}
               serviceDate={result.request.serviceDate} departMinutes={1440} maxWalkKm={1.2} walkSpeedKph={4.8}
               cutoffMinutes={cutoff} surfaceSampling="street" renderMode="area" onRenderModeChange={() => {}}
               cases={mode === 'reach' ? cases : []} activeCaseId="case-a" activeInterventionId="remove" view="comparison"

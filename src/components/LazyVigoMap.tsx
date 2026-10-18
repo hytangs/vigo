@@ -1,4 +1,5 @@
-import { lazy, Suspense } from 'react'
+import { lazy, memo, Suspense } from 'react'
+import { countRender } from '../app/renderCounts'
 import type { VigoMapProps } from '../VigoMap'
 
 const MapCanvas = lazy(async () => {
@@ -7,7 +8,9 @@ const MapCanvas = lazy(async () => {
   return { default: module.VigoMap }
 })
 
-export function LazyVigoMap(props: VigoMapProps) {
+/** The map renders only when one of its own inputs changes. */
+export const LazyVigoMap = memo(function LazyVigoMap(props: VigoMapProps) {
+  countRender('VigoMap')
   return (
     <Suspense
       fallback={
@@ -22,4 +25,4 @@ export function LazyVigoMap(props: VigoMapProps) {
       <MapCanvas {...props} />
     </Suspense>
   )
-}
+})
