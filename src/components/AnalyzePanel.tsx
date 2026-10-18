@@ -2,7 +2,6 @@ import { type CSSProperties, type FormEvent, useEffect, useMemo, useRef, useStat
 import {
   ArrowRight,
   CircleDot,
-  Database,
   Eraser,
   Expand,
   LoaderCircle,
@@ -27,8 +26,12 @@ import { AnalysisOriginPicker } from './AnalysisOriginPicker'
 import { OperationProgress } from './OperationProgress'
 import { AnalysisNumberField, ReachSettings } from './ReachSettings'
 import { ResultExportActions } from './ResultExportActions'
-import { exportReachResults, reachExportEntries, reachGeometryAvailable } from '../app/resultExports'
-import { reachTransitStops, reachResultDifference, reachScenarioDifference } from '../app/resultSummary'
+import { exportComparison, exportReachResults, reachExportEntries, reachGeometryAvailable } from '../app/resultExports'
+import { rankedCompareEntries, type CompareVariant, type ComparisonRun } from '../app/comparison'
+import { reachTransitStops, reachScenarioDifference } from '../app/resultSummary'
+import { maximumScenarios } from '../app/scenarioLibrary'
+import type { CityDataGroup } from '../app/cityDataGroups'
+import type { ScenarioSaveState } from '../app/useScenarioLibrary'
 import {
   reachBandColor,
   reachDifferenceCapMinutes,
@@ -36,10 +39,8 @@ import {
   reachDifferenceGradient,
   reachTimeGradient,
   scenarioReachedAreaKm2,
-  reachComparisonColor,
   scenarioImprovedPixels,
   scenarioWorsenedPixels,
-  scenarioReachablePixels,
   scenarioInsertedStopsForEdge,
   scenarioEdgeEditError,
   scenarioEdgeIndexes,
@@ -49,7 +50,6 @@ import {
   type ScenarioChangeKind,
   type ScenarioGeometryMode,
   type ReachResult,
-  type ReachComparisonResult,
   type ScenarioRouteScope,
   type ScenarioRenderMode,
   type ScenarioStopDraft,
@@ -83,6 +83,10 @@ type AnalyzePanelProps = {
   renderMode: ScenarioRenderMode
   cases: ScenarioDraft[]
   caseGroupLabel?: string
+  scenarioGroups?: CityDataGroup[]
+  scenarioSaveState?: ScenarioSaveState
+  onRenameCase?: (caseId: string, name: string) => void
+  onAssignCaseGroup?: (caseId: string, groupId: string) => void
   feeds: ComparisonFeedOption[]
   comparisonFeedIds: string[]
   activeCaseId: string
@@ -97,7 +101,13 @@ type AnalyzePanelProps = {
   progress: ApiProgress | null
   error: string
   analysis: ReachResult | null
-  comparison: ReachComparisonResult[] | null
+  comparisonRun?: ComparisonRun | null
+  compareReferenceOptions?: CompareVariant[]
+  compareReferenceId?: string
+  compareScenarioIds?: string[]
+  onCompareReferenceChange?: (id: string) => void
+  onCompareScenarioChange?: (id: string, selected: boolean) => void
+  onSelectComparisonVariant?: (id: string) => void
   serviceDecomposition: ServiceEdgeDecomposition | null
   serviceDecompositionLoading: boolean
   serviceDecompositionError: string
@@ -617,6 +627,10 @@ function interventionDetails(
   ].join(' · ')
 }
 
+function scenarioSaveLabel(state: ScenarioSaveState) {
+  return { loading: 'Loading…', saved: 'Saved in City', unsaved: 'Unsaved', saving: 'Saving…', error: 'Not saved', unavailable: 'Not saved' }[state]
+}
+
 export function AnalyzePanel({
   mode,
   origin,
@@ -631,6 +645,10 @@ export function AnalyzePanel({
   renderMode,
   cases,
   caseGroupLabel,
+  scenarioGroups = [],
+  scenarioSaveState = 'saved',
+  onRenameCase = () => {},
+  onAssignCaseGroup = () => {},
   feeds,
   comparisonFeedIds,
   activeCaseId,
@@ -650,7 +668,13 @@ export function AnalyzePanel({
   preparationTasks,
   streetGraphBuilding,
   routingStoreBuilding,
-  comparison,
+  comparisonRun = null,
+  compareReferenceOptions = [],
+  compareReferenceId = '',
+  compareScenarioIds = [],
+  onCompareReferenceChange = () => {},
+  onCompareScenarioChange = () => {},
+  onSelectComparisonVariant = () => {},
   serviceDecomposition,
   serviceDecompositionLoading,
   serviceDecompositionError,
@@ -711,15 +735,17 @@ export function AnalyzePanel({
   const improvedPixels = useMemo(() => scenarioImprovedPixels(analysis, cutoffMinutes), [analysis, cutoffMinutes])
   const worsenedPixels = useMemo(() => scenarioWorsenedPixels(analysis, cutoffMinutes), [analysis, cutoffMinutes])
   const scenarioDifference = useMemo(() => analysis ? reachScenarioDifference(analysis, cutoffMinutes) : null, [analysis, cutoffMinutes])
-  const comparisonExportEntries = useMemo(() => reachExportEntries(null, comparison), [comparison, cutoffMinutes])
   const analysisExportEntries = useMemo(() => reachExportEntries(analysis, null), [analysis, cutoffMinutes])
   const roadInferencePending = mode === 'single' && interventions.some((intervention) => (
     hasLineSettings(intervention.kind)
     && intervention.geometryMode === 'auto-road'
     && intervention.geometryStatus !== 'ready'
   ))
-  const comparisonReady = comparisonFeedIds.length >= 2
-    && comparisonFeedIds.every((feedId) => feeds.some((feed) => feed.id === feedId))
+  const compareTimetableIds = feeds.length >= 2
+    ? comparisonFeedIds.filter((feedId) => feeds.some((feed) => feed.id === feedId) && `timetable:${feedId}` !== compareReferenceId)
+    : []
+  const comparisonReady = compareReferenceOptions.some((option) => option.id === compareReferenceId)
+    && (compareScenarioIds.length > 0 || compareTimetableIds.length > 0)
   const serviceEdgeSummary = useMemo(() => {
     const counts = { added: 0, maintained: 0, removed: 0 }
     for (const feature of serviceDecomposition?.featureCollection.features ?? []) {
@@ -738,15 +764,15 @@ export function AnalyzePanel({
     && !roadInferencePending
     && (mode === 'compare' ? comparisonReady : routingStoreAvailable),
   )
-  const transitSetup = preparationState(mode === 'compare' ? feeds.length >= 2 : routingStoreAvailable,
-    preparationTasks, mode === 'compare' ? ['national-gtfs-import'] : ['national-gtfs-import', 'national-gtfs-merge'], routingStoreBuilding)
+  const transitSetup = preparationState(routingStoreAvailable,
+    preparationTasks, ['national-gtfs-import', 'national-gtfs-merge'], routingStoreBuilding)
   const streetSetup = preparationState(streetGraphAvailable, preparationTasks, ['national-osm-import'], streetGraphBuilding)
   const dataPreparing = [transitSetup, streetSetup].some((state) => state.status === 'working')
   const setupHint = !streetGraphAvailable || !(mode === 'compare' ? comparisonReady : routingStoreAvailable)
     ? [transitSetup, streetSetup].some((state) => state.status === 'paused')
       ? 'Task updates are paused. Open background tasks to reconnect.'
       : dataPreparing ? 'Data is being prepared. You can choose the origin while it runs.'
-        : mode === 'compare' && feeds.length >= 2 && !comparisonReady ? 'Select at least two GTFS feeds above.'
+        : mode === 'compare' && routingStoreAvailable && !comparisonReady ? 'Choose a scenario or timetable to compare above.'
           : 'Finish the data setup above, then run the analysis.'
     : !origin ? onSetOrigin ? 'Search for a stop above or click the map.' : 'Click the map to choose an origin.'
       : routeAnalysisLoading ? 'Loading the selected route’s timetable…'
@@ -856,38 +882,43 @@ export function AnalyzePanel({
 
         {mode === 'compare' ? (
           <div className="reach-comparison-picker">
-            <div className="reach-panel-heading">
-              <span>
-                <strong>Choose feeds</strong>
-              </span>
-              <span className="reach-selection-count"><Database size={13} aria-hidden="true" /> {comparisonFeedIds.length} selected</span>
+            <label className="reach-field">
+              <span>Compare against</span>
+              <select value={compareReferenceId} onChange={(event) => onCompareReferenceChange(event.currentTarget.value)}>
+                {compareReferenceOptions.map((option) => <option key={option.id} value={option.id}>{option.label} · {option.detail}</option>)}
+              </select>
+            </label>
+            <div className="compare-variant-group" role="group" aria-label="Saved scenarios to compare">
+              <span className="reach-section-kicker">Saved scenarios</span>
+              {cases.length ? cases.map((entry) => (
+                <label className="reach-comparison-scenario-option" key={entry.id}>
+                  <input type="checkbox" checked={compareScenarioIds.includes(entry.id)} onChange={(event) => onCompareScenarioChange(entry.id, event.currentTarget.checked)} />
+                  <span>
+                    <strong>{entry.name}</strong>
+                    <small>{scenarioGroups.find((group) => group.id === entry.groupId)?.name ?? 'No timetable group'} · {entry.interventions.length ? `${entry.interventions.length} change${entry.interventions.length === 1 ? '' : 's'}` : 'no changes'}</small>
+                  </span>
+                </label>
+              )) : <small className="reach-comparison-selection-note">Save a scenario in Reach to compare it here.</small>}
             </div>
             {feeds.length >= 2 ? (
-              <div className="reach-comparison-feed-list" role="group" aria-label="GTFS feeds to compare">
-                {feeds.map((feed, index) => (
+              <div className="compare-variant-group reach-comparison-feed-list" role="group" aria-label="GTFS feeds to compare">
+                <span className="reach-section-kicker">Timetables</span>
+                {feeds.map((feed) => (
                   <label className="reach-comparison-feed-option" key={feed.id}>
                     <input
                       type="checkbox"
                       checked={comparisonFeedIds.includes(feed.id)}
+                      disabled={`timetable:${feed.id}` === compareReferenceId}
                       onChange={(event) => onComparisonFeedChange(feed.id, event.currentTarget.checked)}
                     />
                     <span>
-                      <strong>GTFS {index + 1} · {feed.name}</strong>
+                      <strong>{feed.name}</strong>
                       <small>{formatNumber(feed.routeCount)} routes · {formatNumber(feed.stopCount)} stops · {formatNumber(feed.tripCount)} trips</small>
                     </span>
                   </label>
                 ))}
-                <small className="reach-comparison-selection-note">
-                  Choose at least two feeds. Two feeds also enable street-service comparison.
-                </small>
               </div>
-            ) : (
-              <div className="reach-empty-case">
-                <strong>Load at least two indexed GTFS feeds first.</strong>
-                <span>Open City, add the GTFS ZIPs you want to compare, then return here.</span>
-                <button type="button" onClick={onOpenData}>Open City</button>
-              </div>
-            )}
+            ) : null}
           </div>
         ) : null}
 
@@ -940,51 +971,73 @@ export function AnalyzePanel({
           >
             <summary>
               <span>Scenario</span>
-              <b>{hasScenarioChanges ? `${interventions.length} change${interventions.length === 1 ? '' : 's'} · ${activeCase?.name ?? 'Case'}` : 'No changes'}</b>
+              <b>{activeCase ? `${activeCase.name}${hasScenarioChanges ? ` · ${interventions.length} change${interventions.length === 1 ? '' : 's'}` : ''}` : 'No changes'}</b>
             </summary>
             <div className="reach-scenario-content">
-              <div className="reach-scenario-heading">
-                <span>
-                  <strong>Service changes</strong>
-                </span>
-                <button
-                  type="button"
-                  className="reach-icon-action"
-                  onClick={onAddCase}
-                  disabled={cases.length >= 6}
-                  aria-label="Add comparison case"
-                  title="Add case"
-                >
-                  <Plus size={14} />
-                </button>
+              <div className="scenario-library">
+                <div className="scenario-library-head">
+                  <strong>Saved scenarios</strong>
+                  <span className="scenario-save-state" data-state={scenarioSaveState} role="status">{scenarioSaveLabel(scenarioSaveState)}</span>
+                  <button
+                    type="button"
+                    className="reach-icon-action"
+                    onClick={onAddCase}
+                    disabled={cases.length >= maximumScenarios}
+                    aria-label="New scenario"
+                    title="New scenario"
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+                <div className="scenario-library-list" role="radiogroup" aria-label="Saved scenarios">
+                  {cases.map((entry) => {
+                    const group = scenarioGroups.find((candidate) => candidate.id === entry.groupId)
+                    return (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={entry.id === activeCase?.id}
+                        className={classNames('scenario-library-row', entry.id === activeCase?.id && 'is-active')}
+                        onClick={() => onSelectCase(entry.id)}
+                      >
+                        <span className="scenario-library-name">{entry.name}</span>
+                        <small>{group?.name ?? 'No timetable group'} · {entry.interventions.length ? `${entry.interventions.length} change${entry.interventions.length === 1 ? '' : 's'}` : 'no changes'}</small>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
-
-        {mode === 'single' ? <div className="reach-case-tabs" role="group" aria-label="Comparison cases">
-          {cases.map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              aria-pressed={entry.id === activeCase?.id}
-              className={classNames(entry.id === activeCase?.id && 'is-active')}
-              onClick={() => onSelectCase(entry.id)}
-            >
-              {entry.name}
-              <small>{entry.interventions.length}</small>
-            </button>
-          ))}
-        </div> : null}
-
-        {mode === 'single' && caseGroupLabel ? <button type="button" className="city-case-group-link" onClick={onOpenData}>Feed group · {caseGroupLabel}</button> : null}
-        {mode === 'single' && activeCase && cases.length > 1 ? (
-          <button
-            type="button"
-            className="reach-danger-action"
-            onClick={() => onRemoveCase(activeCase.id)}
-          >
-            <Trash2 size={13} />
-            Remove {activeCase.name}
-          </button>
-        ) : null}
+              {activeCase ? (
+                <div className="scenario-active">
+                  <label className="reach-field">
+                    <span>Name</span>
+                    <input
+                      type="text"
+                      value={activeCase.name}
+                      maxLength={80}
+                      onChange={(event) => onRenameCase(activeCase.id, event.currentTarget.value)}
+                      onBlur={(event) => { if (!event.currentTarget.value.trim()) onRenameCase(activeCase.id, 'Untitled scenario') }}
+                    />
+                  </label>
+                  <label className="reach-field">
+                    <span>Runs on</span>
+                    <select value={activeCase.groupId ?? ''} onChange={(event) => onAssignCaseGroup(activeCase.id, event.currentTarget.value)}>
+                      <option value="" disabled>Choose timetables</option>
+                      {scenarioGroups.map((group) => <option key={group.id} value={group.id}>{group.name} · {group.feedIds.length} timetable{group.feedIds.length === 1 ? '' : 's'}</option>)}
+                    </select>
+                  </label>
+                  <div className="scenario-active-actions">
+                    <button type="button" className="city-case-group-link" onClick={onOpenData}>{caseGroupLabel ? 'Edit timetable groups' : 'Choose timetables'}</button>
+                    {cases.length > 1 ? (
+                      <button type="button" className="reach-danger-action" onClick={() => onRemoveCase(activeCase.id)}>
+                        <Trash2 size={13} />
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
 
         {mode === 'single' ? <div className="reach-intervention-add">
           <label className="reach-field">
@@ -1368,7 +1421,7 @@ export function AnalyzePanel({
             {loading
               ? 'Cancel analysis'
               : mode === 'compare'
-                ? comparison ? 'Refresh comparison' : 'Compare City versions'
+                ? comparisonRun ? 'Refresh comparison' : 'Compare'
                 : analysis ? 'Update Reach' : 'Run Reach'}
           </button>
           {loading || !canRun ? (
@@ -1385,54 +1438,66 @@ export function AnalyzePanel({
         {error ? <p className="reach-inline-note is-error" role="alert">{error}</p> : null}
       </form>
 
-      {mode === 'compare' && comparison && comparison.length >= 2 ? (
-        <section className="reach-results" aria-label="GTFS comparison results">
+      {mode === 'compare' && comparisonRun ? (
+        <section className="reach-results compare-results" aria-label="Comparison results">
           <div className="reach-results-heading">
             <div>
-              <strong>City comparison</strong>
-              <small>Same origin and departure · independent timetables</small>
+              <strong>Compare · {comparisonRun.cutoffMinutes} min</strong>
+              <small>Against {comparisonRun.reference.label} · {comparisonRun.serviceDate} · {serviceTimeLabel(comparisonRun.departMinutes)}</small>
             </div>
           </div>
-          <ResultExportActions label="Save City comparison" resultKey={comparisonExportEntries}
-            disabled={loading || comparison.some(entry => entry.result.diagnostics.preliminary || cutoffMinutes > entry.result.summary.maximumCutoffMinutes)}
-            unavailable={reachGeometryAvailable(comparisonExportEntries, cutoffMinutes) ? {} : { geojson: 'Update Reach to retain geometry for this cutoff' }}
-            onExport={format => exportReachResults(comparisonExportEntries, format, cutoffMinutes)} />
+          <ResultExportActions label="Save comparison" resultKey={comparisonRun}
+            disabled={loading} formats={['csv', 'json', 'geojson']}
+            onExport={(format) => exportComparison(comparisonRun, analysis, format)} />
+          <div className="compare-reference">
+            <span className="reach-reference-label">Reference</span>
+            <strong>{comparisonRun.reference.label}</strong>
+            <b>{comparisonRun.reference.areaKm2.toFixed(2)} km²</b>
+            <small>{comparisonRun.reference.stops === null ? 'Stops unavailable' : `${formatNumber(comparisonRun.reference.stops)} stops reached`}</small>
+          </div>
+          <div className="compare-ranking" role="radiogroup" aria-label="Variants ranked by reach gained">
+            {(() => {
+              const ranked = rankedCompareEntries(comparisonRun.entries)
+              const largest = Math.max(...ranked.map((entry) => Math.abs(entry.stats?.areaDeltaKm2 ?? 0)), 1e-9)
+              return ranked.map((entry, index) => {
+                const stats = entry.stats
+                const selected = entry.variant.id === comparisonRun.selectedId
+                const gain = stats?.areaDeltaKm2 ?? 0
+                return (
+                  <button
+                    key={entry.variant.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    disabled={!stats || loading}
+                    className={classNames('compare-variant', selected && 'is-selected', !stats && 'is-failed')}
+                    onClick={() => onSelectComparisonVariant(entry.variant.id)}
+                  >
+                    <span className="compare-variant-name">
+                      <strong>{entry.variant.label}</strong>
+                      {index === 0 && stats && gain > 0 ? <em>Most reach</em> : null}
+                      <small>{entry.variant.kind === 'scenario' ? 'Scenario' : entry.variant.kind === 'group' ? 'Timetable group' : 'Timetable'}{entry.variant.detail ? ` · ${entry.variant.detail}` : ''}</small>
+                    </span>
+                    {stats ? <>
+                      <span className="compare-variant-area">
+                        <b>{stats.areaKm2.toFixed(2)} km²</b>
+                        <small data-tone={gain > 0.005 ? 'good' : gain < -0.005 ? 'alert' : 'same'}>{reachDelta(gain, 2)} km²</small>
+                      </span>
+                      <span className="compare-variant-bar" aria-hidden="true"><i data-tone={gain >= 0 ? 'good' : 'alert'} style={{ width: `${Math.round(Math.abs(gain) / largest * 100)}%` }} /></span>
+                      <small className="compare-variant-detail">
+                        {formatNumber(stats.newPixels)} cells newly reached · {formatNumber(stats.lostPixels)} lost
+                        {stats.commonPixels ? ` · ${stats.meanSavedMinutes >= 0 ? 'saves' : 'adds'} ${reachDecimal(Math.abs(stats.meanSavedMinutes), 1)} min where both reach` : ''}
+                        {stats.stopsDelta !== null ? ` · ${reachDelta(stats.stopsDelta)} stops` : ''}
+                      </small>
+                    </> : <small className="compare-variant-detail is-error">{entry.error ?? 'Not measured'}</small>}
+                  </button>
+                )
+              })
+            })()}
+          </div>
+          {analysis && comparisonRun.selectedId ? <p className="compare-map-note">The map shows time change from {comparisonRun.reference.label} to {comparisonRun.entries.find((entry) => entry.variant.id === comparisonRun.selectedId)?.variant.label}. Choose another variant to compare it.</p> : null}
           <ReachRenderModePicker renderMode={renderMode} onRenderModeChange={onRenderModeChange} terminalWalkKm={maxWalkKm} />
-          <div className="reach-comparison-result-head">
-            <div>
-              <strong>Selected feeds</strong>
-              <small>{cutoffMinutes} min · differences from the first feed</small>
-            </div>
-            <span>OSM walking</span>
-          </div>
-          <div className="reach-comparison-result-list">
-            {comparison.map((entry, index) => {
-              const pixels = scenarioReachablePixels(entry.result, 'baseline', cutoffMinutes)
-              const areaKm2 = scenarioReachedAreaKm2(entry.result, 'baseline', cutoffMinutes)
-              const stops = transitStopsForSelectedCutoff(entry.result, 'baseline', cutoffMinutes)
-              const networkKm = entry.result.diagnostics.raster.baselineNetwork?.reachedEdgeLengthKm
-              const color = reachComparisonColor(index)
-              const feed = feeds.find((candidate) => candidate.id === entry.feedId)
-              const difference = index ? reachResultDifference(comparison[0].result, entry.result, cutoffMinutes) : null
-              return (
-                <article key={entry.feedId} className="reach-comparison-result">
-                  <span className="reach-comparison-swatch" style={{ background: color }} aria-hidden="true" />
-                  <div>
-                    <strong>{entry.feedName}{index === 0 ? <span className="reach-reference-label">Reference</span> : null}</strong>
-                    <small>{formatNumber(feed?.routeCount ?? 0)} routes · {formatNumber(feed?.stopCount ?? 0)} stops · {formatNumber(feed?.tripCount ?? 0)} trips · {stops === null ? 'Update Reach for this cutoff' : `${formatNumber(stops)} stops reached by ${cutoffMinutes} min`}</small>
-                  </div>
-                  <b>{areaKm2.toFixed(2)} km²</b>
-                  {index ? <p className="reach-comparison-difference">
-                    {difference ? <>{reachDelta(difference.areaKm2, 2)} km² · {difference.transitStops === null
-                      ? 'stop difference unavailable at this cutoff' : `${reachDelta(difference.transitStops)} reached stops`}</>
-                      : 'Different query settings · difference unavailable'}
-                  </p> : null}
-                  <small>{typeof networkKm === 'number' && Number.isFinite(networkKm) ? `${reachDecimal(networkKm, 1)} km OSM streets · full ${entry.result.summary.maximumCutoffMinutes} min window` : 'Street length unavailable'} · {formatNumber(pixels)} cells</small>
-                </article>
-              )
-            })}
-          </div>
-          {comparisonFeedIds.length === 2 ? (
+          {feeds.length >= 2 && comparisonFeedIds.length === 2 ? (
             <div className="reach-service-edges">
               <div>
                 <strong>Street service change</strong>
@@ -1463,14 +1528,12 @@ export function AnalyzePanel({
           <details className="reach-method-record">
             <summary>Comparison method and limits</summary>
             <dl>
-              <div><dt>Snapshot</dt><dd>{comparison[0].result.request.serviceDate} · {serviceTimeLabel(comparison[0].result.request.departMinutes)} · one origin</dd></div>
-              <div><dt>Measure</dt><dd>Reachable raster cells within {cutoffMinutes} total elapsed minutes; final walking consumes remaining time and is capped at {comparison[0].result.surface.reachability?.baselineTerminalWalkKm ?? comparison[0].result.request.maxWalkKm} km; not people or opportunities</dd></div>
-              <div><dt>Access</dt><dd>{comparison[0].result.request.maxWalkKm} km at {comparison[0].result.request.walkSpeedKph ?? walkSpeedKph} km/h · OSM pedestrian network</dd></div>
-              <div><dt>Surface</dt><dd>Complete reached-street vector extent · no rectangular map crop</dd></div>
+              <div><dt>Snapshot</dt><dd>{comparisonRun.serviceDate} · {serviceTimeLabel(comparisonRun.departMinutes)} · one origin</dd></div>
+              <div><dt>Measure</dt><dd>Reachable raster cells within {comparisonRun.cutoffMinutes} total elapsed minutes on one shared grid; final walking is capped at {maxWalkKm} km; not people or opportunities</dd></div>
+              <div><dt>Reference</dt><dd>{comparisonRun.reference.label} is computed once and reused for every variant</dd></div>
+              <div><dt>Minutes saved</dt><dd>Mean change over cells every compared network reaches within the budget; newly reached and lost cells are counted separately</dd></div>
             </dl>
-            <ul>
-              {Array.from(new Map(comparison.flatMap((entry) => entry.result.limitations.map((limitation) => [limitation.code, limitation]))).values()).map((limitation) => <li key={limitation.code}>{limitation.detail}</li>)}
-            </ul>
+            {analysis ? <ul>{analysis.limitations.map((limitation) => <li key={limitation.code}>{limitation.detail}</li>)}</ul> : null}
           </details>
         </section>
       ) : null}

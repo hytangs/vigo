@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ArrowLeft, Check, ChevronRight, Clipboard, FileText, MapPin, Radio, X } from 'lucide-react'
 import { apiJson } from '../app/api'
 import type { AgencyState, OperationalEvent, RiderDraft, ToolResult } from '../agency/types'
+import { AgencyRouteBadge } from './AgencyRouteBadge'
 
 export const minutes = (seconds: number) => `${Number((seconds / 60).toFixed(1))} min`
 export const shortId = (id: string) => id.split('\u001f').at(-1) || id
@@ -58,7 +59,7 @@ export function AgencyEvidence({ historical = false, event, state, projectId, on
     <button className="agency-text-button" onClick={onBack}><ArrowLeft size={15} /> {historical ? 'Back to conversation' : 'Back to service updates'}</button>
     <div className="agency-section-label"><Radio size={13} /> Operational evidence <span>{event.severity}</span></div>
     <h2>{event.title}</h2>
-    <div className="agency-evidence-context">{route ? <span className="agency-route-label" style={{ '--line-color': route.color } as React.CSSProperties}>{route.name}</span> : null}<span>{event.stopId ? event.stopName || state.stopNames?.[event.stopId] || shortId(event.stopId) : 'Network observation'}</span>{event.directionId != null ? <span>Direction {event.directionId}</span> : null}</div>
+    <div className="agency-evidence-context">{route ? <AgencyRouteBadge name={route.name} color={route.color} /> : null}<span>{event.stopId ? event.stopName || state.stopNames?.[event.stopId] || shortId(event.stopId) : 'Network observation'}</span>{event.directionId != null ? <span>Direction {event.directionId}</span> : null}</div>
     <p className="agency-caption">{historical ? 'Saved evidence from this answer.' : 'Evidence held at the selected observation.'} The map and line view show the latest available feed reports.</p>
     {!historical && hasNewerReport ? <div className="agency-notice">A newer report is available. <button className="agency-text-button" onClick={() => onUpdate(latest)}>Update evidence</button></div> : null}
     {!historical && !stillCurrent ? <div className="agency-notice">This event is no longer among the current observations. Its retained evidence is shown below.</div> : null}

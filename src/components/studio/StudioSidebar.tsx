@@ -63,6 +63,7 @@ export function VigoSidebar({
   routingTimePreference,
   routingMode,
   routingDataMode,
+  routingNetwork,
   routingDepartureWindowMinutes,
   routingMaxWalkKm,
   routingMaxTransfers,
@@ -158,6 +159,7 @@ export function VigoSidebar({
   | 'routingTimePreference'
   | 'routingMode'
   | 'routingDataMode'
+  | 'routingNetwork'
   | 'routingDepartureWindowMinutes'
   | 'routingMaxWalkKm'
   | 'routingMaxTransfers'
@@ -196,6 +198,7 @@ export function VigoSidebar({
   const isDataPanel = page === 'project' && activeRouteTool === 'data'
   const isPathfinderPanel = page === 'project' && activeRouteTool === 'pathfinder'
   const isAnalyzePanel = page === 'project' && activeRouteTool === 'analyze'
+  const queryWorkspace = isPathfinderPanel || isAnalyzePanel
   const panelTitle = page === 'projects'
     ? 'Cities'
     : isDataPanel
@@ -265,14 +268,17 @@ export function VigoSidebar({
         onOpenAnalyze={onOpenAnalyze}
         onOpenSettings={onOpenSettings}
       />
-      <section className={classNames('sidebar-panel', page === 'project' && `is-${activeRouteTool}`)} aria-label="City panel">
-        <div className="sidebar-panel-head">
-          <div className="sidebar-panel-title">
-            <h1 className="studio-page-title">{panelTitle}</h1>
+      <section className={classNames('sidebar-panel', page === 'project' && `is-${activeRouteTool}`)} aria-label={queryWorkspace ? panelTitle : 'City panel'} data-map-occluder="">
+        {/* Route and Analyze are named by the top bar; the panel starts with the task itself. */}
+        {queryWorkspace ? null : (
+          <div className="sidebar-panel-head">
+            <div className="sidebar-panel-title">
+              <h1 className="studio-page-title">{panelTitle}</h1>
+            </div>
+            {panelSubtitle ? <p>{panelSubtitle}</p> : null}
+            {panelContextLine ? <span className="sidebar-context-line">{panelContextLine}</span> : null}
           </div>
-          {panelSubtitle ? <p>{panelSubtitle}</p> : null}
-          {panelContextLine ? <span className="sidebar-context-line">{panelContextLine}</span> : null}
-        </div>
+        )}
 
         {page === 'projects' ? (
           <div className="sidebar-section">
@@ -389,6 +395,7 @@ export function VigoSidebar({
                 routingTimePreference={routingTimePreference}
                 routingMode={routingMode}
                 routingDataMode={routingDataMode}
+                routingNetwork={routingNetwork}
                 routingDepartureWindowMinutes={routingDepartureWindowMinutes}
                 routingMaxWalkKm={routingMaxWalkKm}
                 routingMaxTransfers={routingMaxTransfers}

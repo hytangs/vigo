@@ -321,17 +321,20 @@ export const reachDifferenceCapMinutes = 15
 export const reachTimeGradient = 'linear-gradient(90deg, #3550ff 0%, #00c2ff 20%, #35d0a1 40%, #ffd166 60%, #ff9645 80%, #ff6757 100%)'
 export const reachDifferenceGradient = 'linear-gradient(90deg, #ff6757 0%, #94a3b8 50%, #35d0a1 100%)'
 
+// Luminance falls monotonically with travel time, so "nearer" always reads
+// brighter on the dark canvas and the ramp survives greyscale and colour-vision
+// deficiency. It starts at the VIGO signal chartreuse and ends in deep violet.
 const reachTimeRamp: ReadonlyArray<readonly [number, Rgb]> = [
-  [0, [53, 80, 255]],
-  [0.2, [0, 194, 255]],
-  [0.4, [53, 208, 161]],
-  [0.6, [255, 209, 102]],
-  [0.8, [255, 150, 69]],
-  [1, [255, 103, 87]],
+  [0, [236, 255, 140]],
+  [0.2, [184, 242, 92]],
+  [0.4, [70, 214, 150]],
+  [0.6, [36, 164, 198]],
+  [0.8, [66, 102, 214]],
+  [1, [108, 60, 182]],
 ]
-const reachDifferenceSlow: Rgb = [255, 103, 87]
-const reachDifferenceSame: Rgb = [148, 163, 184]
-const reachDifferenceFast: Rgb = [53, 208, 161]
+const reachDifferenceSlow: Rgb = [255, 111, 111]
+const reachDifferenceSame: Rgb = [139, 149, 164]
+const reachDifferenceFast: Rgb = [74, 222, 154]
 
 function blendRgb(left: Rgb, right: Rgb, progress: number): [number, number, number] {
   const bounded = Math.max(0, Math.min(1, progress))
@@ -472,6 +475,8 @@ export type ScenarioChangeDraft = {
 export type ScenarioDraft = {
   id: string
   name: string
+  /** The timetable group (remix of the City's networks) this scenario runs on. */
+  groupId?: string
   interventions: ScenarioChangeDraft[]
 }
 
@@ -552,6 +557,60 @@ export type ReachTransitStatus = {
   reachedStops?: number
 }
 
+type CompactReachSurface = Omit<ReachResult['surface'], 'contours' | 'areas' | 'raster'> & {
+  raster: Omit<ScenarioRaster, 'scenario'> & { scenario?: string }
+  areas?: { baseline: FeatureCollection<Geometry, GeoJsonProperties>; scenario?: FeatureCollection<Geometry, GeoJsonProperties> }
+  contours?: ReachResult['surface']['contours']
+  compact?: { contours: 'from-areas'; scenario: 'baseline' | 'own' }
+}
+
+function contoursFromAreas(areas: FeatureCollection<Geometry, GeoJsonProperties>): FeatureCollection<Geometry, GeoJsonProperties> {
+  return {
+    type: 'FeatureCollection',
+    features: areas.features.map((feature) => {
+      const id = `${feature.properties?.surface}-${feature.properties?.cutoffMinutes}`
+      const geometry = feature.geometry
+      const lines = geometry.type === 'Polygon' ? geometry.coordinates : geometry.type === 'MultiPolygon' ? geometry.coordinates.flat() : []
+      return { ...feature, id, properties: { ...feature.properties, id }, geometry: { type: 'MultiLineString', coordinates: lines } }
+    }),
+  }
+}
+
+/**
+ * Restore a Reach result sent as Studio's compact payload (`payload: 'compact'`):
+ * outlines come from the area fills, and an unchanged scenario shares the
+ * baseline surface.
+ */
+export function inflateReachResult(result: ReachResult): ReachResult {
+  const surface = result.surface as unknown as CompactReachSurface
+  if (!surface?.compact) return result
+  const shared = surface.compact.scenario === 'baseline'
+  const baselineAreas = surface.areas?.baseline
+  const scenarioAreas = shared && baselineAreas
+    ? {
+        ...baselineAreas,
+        features: baselineAreas.features.map((feature) => {
+          const id = `scenario-area-${feature.properties?.cutoffMinutes}`
+          return { ...feature, id, properties: { ...feature.properties, surface: 'scenario', id } }
+        }),
+      }
+    : surface.areas?.scenario
+  const areas = baselineAreas && scenarioAreas ? { baseline: baselineAreas, scenario: scenarioAreas } : undefined
+  const blocks = surface.blockEstimates
+  const { compact: _compact, areas: _areas, contours, ...rest } = surface
+  return {
+    ...result,
+    surface: {
+      ...rest,
+      raster: { ...surface.raster, scenario: surface.raster.scenario ?? surface.raster.baseline },
+      ...(blocks ? { blockEstimates: { ...blocks, scenario: blocks.scenario ?? blocks.baseline } } : {}),
+      ...(areas
+        ? { areas, contours: { baseline: contoursFromAreas(areas.baseline), scenario: contoursFromAreas(areas.scenario) } }
+        : { contours: contours ?? { baseline: { type: 'FeatureCollection', features: [] }, scenario: { type: 'FeatureCollection', features: [] } } }),
+    },
+  }
+}
+
 export type ReachResult = {
   schemaVersion: 'vigo.result.reach.v1'
   request: {
@@ -590,6 +649,7 @@ export type ReachResult = {
     scenarioReachablePixels: number
     improvedPixels: number
     changeCountsByCutoff?: Array<{ cutoffMinutes: number; improvedPixels: number; worsenedPixels: number }>
+    changeStatsByCutoff?: Array<{ cutoffMinutes: number; newPixels: number; lostPixels: number; commonPixels: number; meanSavedMinutes: number }> | null
     maximumCutoffMinutes: number
     transitStopSeeds: number
     transitStopsByCutoff?: Array<{ cutoffMinutes: number; stops: number }>
@@ -750,11 +810,24 @@ function decodeScenarioRaster(base64: string) {
   return values
 }
 
+// Each panel render reads cell counts; decode a raster once per result instead
+// of allocating a new copy every time.
+const decodedRasters = new WeakMap<object, Map<string, Uint16Array>>()
+
 function scenarioRasterValues(
   analysis: ReachResult,
   surface: ScenarioSurface,
 ) {
-  return decodeScenarioRaster(analysis.surface.raster[surface])
+  const raster = analysis.surface.raster
+  let decoded = decodedRasters.get(raster)
+  if (!decoded) decodedRasters.set(raster, decoded = new Map())
+  const encoded = raster[surface]
+  let values = decoded.get(encoded)
+  if (!values) {
+    values = decodeScenarioRaster(encoded)
+    decoded.set(encoded, values)
+  }
+  return values
 }
 
 export function scenarioReachablePixels(

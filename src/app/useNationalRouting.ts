@@ -29,6 +29,9 @@ type NationalRouteResponse = {
 }
 const noRoutingChoices: RoutingPlan[] = []
 
+/** A saved scenario to route on: its timetables and compiled planned changes. */
+export type RouteScenarioRequest = { key: string; feedIds: string[]; scenario: unknown }
+
 type UseNationalRoutingOptions = {
   active: boolean
   projectId: string
@@ -52,6 +55,7 @@ type UseNationalRoutingOptions = {
   departureWindowMinutes: RoutingDepartureWindowMinutes
   realtimeSnapshot: RealtimeSnapshot | null
   routeAllowed: boolean
+  scenario?: RouteScenarioRequest | null
 }
 
 function normalizeChoices({ choices, earliestTransit }: NationalRouteResponse) {
@@ -77,7 +81,7 @@ export function useNationalRouting({
   waypoints,
   destination,
   mode,
-  routingDataMode,
+  routingDataMode: preferredDataMode,
   departMinutes,
   timePreference,
   serviceDay,
@@ -90,6 +94,7 @@ export function useNationalRouting({
   departureWindowMinutes,
   realtimeSnapshot,
   routeAllowed,
+  scenario = null,
 }: UseNationalRoutingOptions) {
   const [readyKey, setReadyKey] = useState('')
   const [choices, setChoices] = useState<RoutingPlan[]>([])
@@ -105,6 +110,9 @@ export function useNationalRouting({
   latestSnapshot.current = realtimeSnapshot
   const routeRequestGate = useRef(new LatestRequestGate())
   const streetMode = mode !== 'transit'
+  // Scenarios plan service on the published timetable, never on live predictions.
+  const routeScenario = streetMode ? null : scenario
+  const routingDataMode: RoutingDataMode = routeScenario ? 'scheduled' : preferredDataMode
   const departNow = !streetMode && routingDataMode === 'realtime'
   // The server resolves Depart now in the selected timetable's timezone at
   // dispatch. Retain the research controls without letting them alter live work.
@@ -125,7 +133,7 @@ export function useNationalRouting({
   )
 
   const request = useMemo(() => ({ projectId, storeKey, streetKey, body: {
-    feedId,
+    ...(routeScenario ? { feedIds: routeScenario.feedIds, scenario: routeScenario.scenario } : { feedId }),
     mode,
     routingDataMode,
     origin,
@@ -149,7 +157,7 @@ export function useNationalRouting({
     maxStreetKm: mode === 'drive' ? 750 : 50,
     departureWindowMinutes: streetMode ? 0 : departureWindowMinutes,
     departureWindowDirection: !streetMode && departureWindowMinutes > 0 ? 'forward' : undefined,
-  } }), [allowLongWalk, allowStreetTransfers, minimumTransferBufferMinutes, departNow, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, runRevision, origin, projectId, requestDepartMinutes, requestServiceDate, requestServiceDay, requestTimePreference, routingDataMode, storeKey, streetKey, streetMode, waypoints])
+  } }), [allowLongWalk, allowStreetTransfers, minimumTransferBufferMinutes, departNow, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, runRevision, origin, projectId, requestDepartMinutes, requestServiceDate, requestServiceDay, requestTimePreference, routeScenario, routingDataMode, storeKey, streetKey, streetMode, waypoints])
   const completedRequest = useRef<typeof request | null>(null)
 
   const reset = useCallback(() => {

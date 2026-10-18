@@ -5,6 +5,8 @@ import electronPath from 'electron'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
+import { renderNativeLocalBasemapTile } from '../src/server/native-routing-kernel.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 await fs.mkdir(path.join(root, 'temp'), { recursive: true })
@@ -12,19 +14,32 @@ const temporary = await fs.mkdtemp(path.join(root, 'temp', 'map-runtime-'))
 let softwareLoader = null
 try {
   await fs.writeFile(path.join(temporary, 'index.html'), '<div id="map" style="width:512px;height:512px"></div><script type="module" src="/fixture.mjs"></script>')
-  const localMapData = process.env.VIGO_BASEMAP_PREVIEW_FILE
-    ? JSON.parse(await fs.readFile(process.env.VIGO_BASEMAP_PREVIEW_FILE, 'utf8'))
-    : { type: 'FeatureCollection', features: [
-      { type: 'Feature', properties: { kind: 'water' }, geometry: { type: 'Polygon', coordinates: [[[-0.005,-0.005],[0.005,-0.005],[0.005,0.005],[-0.005,0.005],[-0.005,-0.005]], [[-0.001,-0.001],[-0.001,0.001],[0.001,0.001],[0.001,-0.001],[-0.001,-0.001]]] } },
-      { type: 'Feature', properties: { kind: 'road', roadClass: 'primary' }, geometry: { type: 'LineString', coordinates: [[-0.005,0.006],[0.005,0.006]] } },
-      { type: 'Feature', properties: { kind: 'river' }, geometry: { type: 'LineString', coordinates: [[-0.008,-0.01],[-0.008,0.01]] } },
-    ] }
+  // A minimal street index in the local basemap schema. The Rust kernel cuts
+  // it into real MVT tiles, which the built Studio map loads through vigo://.
+  const localMapFeatures = [
+    { kind: 'water', rank: 1, geometry: { type: 'Polygon', coordinates: [[[-0.005,-0.005],[0.005,-0.005],[0.005,0.005],[-0.005,0.005],[-0.005,-0.005]], [[-0.001,-0.001],[-0.001,0.001],[0.001,0.001],[0.001,-0.001],[-0.001,-0.001]]] } },
+    { kind: 'road', roadClass: 'primary', rank: 5, geometry: { type: 'LineString', coordinates: [[-0.005,0.006],[0.005,0.006]] } },
+    { kind: 'river', rank: 2, geometry: { type: 'LineString', coordinates: [[-0.008,-0.01],[-0.008,0.01]] } },
+  ]
+  const storePath = path.join(temporary, 'street-index.sqlite')
+  const store = new DatabaseSync(storePath)
+  store.exec(`CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT);
+    CREATE TABLE map_features(id INTEGER PRIMARY KEY, kind TEXT NOT NULL, road_class TEXT, rank INTEGER NOT NULL, min_zoom INTEGER NOT NULL, area REAL NOT NULL, vertices INTEGER NOT NULL, geometry TEXT NOT NULL);
+    CREATE VIRTUAL TABLE map_features_rtree USING rtree(id,west,east,south,north,min_lod,max_lod,min_rank,max_rank,min_zoom,max_zoom);`)
+  localMapFeatures.forEach((feature, index) => {
+    const points = feature.geometry.type === 'Polygon' ? feature.geometry.coordinates.flat() : feature.geometry.coordinates
+    const lon = points.map((point) => point[0]), lat = points.map((point) => point[1])
+    store.prepare('INSERT INTO map_features VALUES(?,?,?,?,?,?,?,?)').run(index + 1, feature.kind, feature.roadClass ?? null, feature.rank, 0, 0, points.length, JSON.stringify(feature.geometry))
+    store.prepare('INSERT INTO map_features_rtree VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(index + 1, Math.min(...lon), Math.max(...lon), Math.min(...lat), Math.max(...lat), 0, 2, feature.rank, feature.rank, 0, 22)
+  })
+  store.prepare("INSERT INTO metadata VALUES('localBasemap',?)").run(JSON.stringify({ schemaVersion: 'vigo.local-basemap.v1', counts: { road: 1, water: 1, river: 1, coastline: 0 }, bounds: { west: -0.008, east: 0.005, south: -0.01, north: 0.01 } }))
+  store.close()
   await fs.writeFile(path.join(temporary, 'fixture.mjs'), `
 import { Map, AttributionControl } from '../../src/app/mapRuntime.ts';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { setMapSourceData, setStreetMapSourceData } from '../../src/app/mapSourceUpdates.ts';
 import { ensureVehicleDirectionSprite, vehicleHeadingLayer, vehicleMarkerLayer } from '../../src/app/mapDirections.ts';
-import { baseCanvasColor, ensureLocalBasemapLayers, syncBasemap, removeLocalBasemap, setLocalBasemapData } from '../../src/map/basemaps.ts';
+import { baseCanvasColor, ensureLocalBasemapLayers, syncBasemap, removeLocalBasemap, installLocalBasemap } from '../../src/map/basemaps.ts';
 window.checkMap = async () => {
   console.log('Map fixture: starting GeoJSON render');
   window.attributionExecuted = false;
@@ -75,36 +90,30 @@ window.checkMap = async () => {
   if (!details || details.hasAttribute('onload') || details.hasAttribute('ontoggle') || window.attributionExecuted) throw Error('Unsafe attribution survived sanitization');
   map.removeLayer('fixture'); map.removeSource('fixture');
   map.removeLayer('vigo-vehicle-headings'); map.removeLayer('vigo-vehicles'); map.removeSource('vigo-service-vehicles');
-  const localData = ${JSON.stringify(localMapData)};
   map.addLayer({id:'vigo-offline-bg',type:'background',paint:{'background-color':baseCanvasColor('offline','light')}});
-  const localBounds = localData.metadata?.bbox;
   map.setBearing(0);
-  if (localBounds) map.fitBounds([[localBounds.west,localBounds.south],[localBounds.east,localBounds.north]],{padding:15,duration:0});
-  else map.jumpTo({center:[0,0],zoom:14});
+  map.jumpTo({center:[0,0],zoom:14.3});
   const localErrors=[]; map.on('error', event=>localErrors.push(event.error.message));
-  await setLocalBasemapData(map,localData);
+  installLocalBasemap(map,'fixture','r1');
   ensureLocalBasemapLayers(map,'light');
   await waitForRender();
-  if (!map.queryRenderedFeatures({layers:['vigo-local-roads']}).length) throw Error('Local major roads did not render');
-  if (!map.queryRenderedFeatures({layers:['vigo-local-water']}).length) throw Error('Local water did not render');
+  if (!map.queryRenderedFeatures({layers:['vigo-local-roads']}).length) throw Error('Local major roads did not render from vector tiles');
+  if (!map.queryRenderedFeatures({layers:['vigo-local-water']}).length) throw Error('Local water did not render from vector tiles');
+  if (!map.queryRenderedFeatures({layers:['vigo-local-rivers']}).length) throw Error('Local rivers did not render from vector tiles');
   if (localErrors.length) throw Error(localErrors.join('; '));
-  const tagged=revision=>({...localData,features:localData.features.map(feature=>({...feature,properties:{...feature.properties,revision}}))});
   for(let round=0;round<3;round++) {
+    // Another City's tiles replace this source without leaking geometry.
+    installLocalBasemap(map,'empty-city','r1');
+    await waitForRender();
+    if(map.queryRenderedFeatures({layers:['vigo-local-roads','vigo-local-water']}).length) throw Error('Previous City geometry reappeared after source replacement');
     removeLocalBasemap(map);
-    const pending=[setLocalBasemapData(map,tagged('old-a')),setLocalBasemapData(map,tagged('old-b'))];
-    removeLocalBasemap(map);
-    pending.push(setLocalBasemapData(map,tagged('next-city')));
-    removeLocalBasemap(map);
-    pending.push(setLocalBasemapData(map,tagged('current')));
-    const applied=await Promise.all(pending);
-    if(applied.slice(0,-1).some(Boolean) || !applied.at(-1)) throw Error('Superseded basemap update was published');
+    installLocalBasemap(map,'fixture','r'+(round+2));
     ensureLocalBasemapLayers(map,'light');
     await waitForRender();
-    const rendered=map.queryRenderedFeatures({layers:['vigo-local-roads','vigo-local-water']});
-    if(!rendered.length || rendered.some(feature=>feature.properties.revision!=='current')) throw Error('Previous City geometry reappeared after source replacement');
+    if(!map.queryRenderedFeatures({layers:['vigo-local-roads','vigo-local-water']}).length) throw Error('Reinstalled City tiles did not render');
   }
   if(localErrors.length) throw Error(localErrors.join('; '));
-  console.log('Map fixture: overlapping local updates and City replacement rendered latest geometry');
+  console.log('Map fixture: Rust vector tiles rendered and City replacement drew only the latest City');
   window.localPreviewMap=map;
   window.localPreviewDark=async()=>{syncBasemap(map,'offline','dark');await waitForRender();};
   window.localPreviewDispose=()=>{
@@ -112,10 +121,26 @@ window.checkMap = async () => {
     if(map.getSource('vigo-local-basemap') || map.getLayer('vigo-local-water')) throw Error('Local basemap resources leaked after removal');
     map.remove();document.getElementById('map').remove();
   };
-  return {rendered:true,sourceUpdate:true,sanitizedAttribution:true,offlineDirections:true,networkHeadings:true,mapRotation:true,offlineBasemap:true,latestCityGeometry:true};
+  return {rendered:true,sourceUpdate:true,sanitizedAttribution:true,offlineDirections:true,networkHeadings:true,mapRotation:true,offlineBasemap:true,vectorTiles:true,latestCityGeometry:true};
 };
 `)
   await build({ configFile: false, root: temporary, cacheDir: path.join(temporary, 'vite-cache'), plugins: [react()], publicDir: false, logLevel: 'warn', build: { chunkSizeWarningLimit: 1500 } })
+  // Vite empties dist; publish the tiles beside the built Studio afterwards.
+  const tileDirectory = (city) => path.join(temporary, 'dist', 'api', 'projects', city, 'basemap-tiles')
+  let renderedTiles = 0
+  for (let z = 0; z <= 16; z += 1) {
+    const scale = 2 ** z, column = (lon) => Math.floor((lon + 180) / 360 * scale)
+    const row = (lat) => Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * scale)
+    for (let x = column(-0.03); x <= column(0.03); x += 1) for (let y = row(0.03); y <= row(-0.03); y += 1) {
+      const tile = await renderNativeLocalBasemapTile(storePath, z, x, y)
+      if (tile.length) renderedTiles += 1
+      for (const [city, bytes] of [['fixture', tile], ['empty-city', Buffer.alloc(0)]]) {
+        await fs.mkdir(path.join(tileDirectory(city), String(z), String(x)), { recursive: true })
+        await fs.writeFile(path.join(tileDirectory(city), String(z), String(x), `${y}.mvt`), bytes)
+      }
+    }
+  }
+  assert(renderedTiles > 0, 'The fixture store must produce tiles')
   const dist = path.join(temporary, 'dist')
   await fs.writeFile(path.join(temporary, 'main.cjs'), `
 const {app,BrowserWindow,protocol,net} = require('electron');

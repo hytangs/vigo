@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { CityDataSources } from '../../src/components/studio/CityDataSources'
 import { CityPanel } from '../../src/components/CityPanel'
-import { caseFeedSelection, useCityDataGroups, cityDataGroupsKey } from '../../src/app/useCityDataGroups'
+import { caseFeedSelection } from '../../src/app/cityDataGroups'
+import { useScenarioLibrary } from '../../src/app/useScenarioLibrary'
 import { emptyCityProject } from '../../src/app/projectState'
 import '../../src/App.css'
 import '../../src/index.css'
@@ -15,12 +16,29 @@ const boston = { ...emptyCityProject(), id: 'boston', name: 'Boston', storagePat
   feeds: [makeFeed('mbta', 'MBTA · Fall 2026'), makeFeed('massport', 'Massport shuttles'), makeFeed('future', 'North–South Rail Link')],
   routingStore: { status: 'ready', routingEligibility: 'exact' }, osmStreetIndex: { status: 'ready' } }
 const dc = { ...boston, id: 'dc', name: 'Washington', storagePath: '/fixture/dc', feeds: [makeFeed('wmata', 'WMATA')] }
+// The City folder's saved scenarios, served as Studio's API serves them.
+const savedLibraries = {
+  boston: { revision: 1, library: { schemaVersion: 'vigo.studio.scenarios.v1', revision: 1,
+    groups: [{ id: 'baseline', name: 'Baseline', feedIds: ['mbta', 'massport', 'future'] }],
+    scenarios: [{ id: 'case-a', name: 'Morning commute', groupId: 'baseline', changes: [] }, { id: 'case-b', name: 'Rail extension', groupId: 'baseline', changes: [] }] } },
+}
+window.savedLibraries = savedLibraries
+window.fetch = async (input, options = {}) => {
+  const match = String(input).match(/\/api\/projects\/([^/]+)\/scenarios$/)
+  if (!match) return Response.json({ error: 'Unused fixture endpoint' }, { status: 404 })
+  const id = decodeURIComponent(match[1]), entry = savedLibraries[id] ?? { library: null, revision: 0 }
+  if (!options.method || options.method === 'GET') return Response.json(entry)
+  const body = JSON.parse(options.body)
+  if (body.baseRevision !== entry.revision) return Response.json({ error: 'changed', ...entry }, { status: 409 })
+  savedLibraries[id] = { revision: entry.revision + 1, library: { ...body.library, revision: entry.revision + 1 } }
+  return Response.json(savedLibraries[id])
+}
 let root = createRoot(document.getElementById('root')), opened = '', sourcePicks = 0
 function Fixture() {
   const [project, setProject] = useState(boston), [appearance, setAppearance] = useState('light')
-  const [cases, setCases] = useState([{ id: 'case-a', name: 'Morning commute', interventions: [] }, { id: 'case-b', name: 'Rail extension', interventions: [] }])
-  const grouping = useCityDataGroups(project, project.id, cases)
-  window.fixture = { grouping, project, setProject, setAppearance, cases }
+  const library = useScenarioLibrary(project)
+  const grouping = library.grouping, cases = library.scenarioDrafts, setCases = library.setScenarioDrafts
+  window.fixture = { grouping, library, project, setProject, setAppearance, cases }
   const props = { isImporting: false, isOsmImporting: false, osmStreetReady: true, importMessage: '', osmStreetMessage: '', realtimeSnapshot: null, realtimeMessage: '', realtimeRequest: null,
     isRealtimeLoading: false, onFiles: noop, onOsmFiles: noop, onNationalGtfsPath: noop, onNationalOsmPath: noop, onConnectRealtime: noop, onDisconnectRealtime: noop, onCancelGtfs: noop, onRetryGtfs: noop, onCancelOsm: noop, onRetryOsm: noop }
   return <main className={`app-shell appearance-${appearance} accent-graphite page-project view-data`}>
@@ -31,7 +49,7 @@ function Fixture() {
       onSectionChange={noop} onChooseFolder={noop} onAppearanceChange={setAppearance} onBasemapChange={noop} onCityReset={noop} onCityRemoved={async () => true}
       feeds={<CityDataSources key={project.id} project={project} grouping={grouping} cases={cases} {...props}
         deletingDisabled={false} onSourceDeleted={noop} onAddCase={groupId => {
-          const id = `case-${cases.length}`; setCases(current => [...current, { id, name: 'New case', interventions: [] }]); grouping.assignCase(id, groupId)
+          const id = `case-${cases.length}`; setCases(current => [...current, { id, name: 'New case', groupId, interventions: [] }])
         }} onRenameCase={(id,name) => setCases(current => current.map(entry => entry.id === id ? { ...entry,name } : entry))}
         onOpenCase={id => { opened = id }} />}
     /></div>
@@ -42,7 +60,10 @@ const assert = (condition, message) => { if (!condition) throw Error(message) }
 const click = selector => { const element = document.querySelector(selector); assert(element, 'Missing ' + selector); flushSync(() => element.click()); return element }
 const type = (selector, value) => flushSync(() => { const element = document.querySelector(selector); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(element, value); element.dispatchEvent(new Event('input', { bubbles: true })) })
 const select = (selector, value) => flushSync(() => { const element = document.querySelector(selector); element.value = value; element.dispatchEvent(new Event('change', { bubbles: true })) })
+const until = async (read, label) => { for (let i = 0; i < 200; i++) { if (read()) return; await new Promise(resolve => setTimeout(resolve, 25)) } throw Error('Fixture timed out: ' + label) }
+const loaded = () => until(() => window.fixture.library.saveState === 'saved', 'saved scenarios did not load')
 window.checkData = async () => {
+  await loaded()
   assert(document.querySelectorAll('.city-feed-entry').length === 3, 'Timetables not listed')
   assert(!document.querySelector('.data-readiness-rail') && !document.querySelector('.bundle-summary'), 'Duplicate dashboard remains')
   assert(!document.querySelector('.city-live-disclosure').open, 'Live setup exposed by default')
@@ -55,8 +76,7 @@ window.checkData = async () => {
   const group = window.fixture.grouping.value.groups.find(entry => entry.name === 'Future network')
   assert(group && group.feedIds.join() === 'mbta,future', 'Group lost selected timetables')
   assert(window.fixture.grouping.value.groups[0].feedIds.includes('mbta'), 'Adding a group removed shared feed from baseline')
-  const stored = JSON.parse(localStorage.getItem(cityDataGroupsKey(boston)))
-  assert(stored.groups.length === 2, 'Groups not persisted')
+  await until(() => savedLibraries.boston.library.groups.length === 2, 'Groups not saved to the City')
   click('.city-data-switch button:last-child')
   select('[aria-label="Feed group for Rail extension"]', group.id)
   assert(caseFeedSelection(window.fixture.grouping.value, 'case-b', boston).feedIds.join() === 'mbta,future', 'Case did not inherit its group feeds')
@@ -68,6 +88,7 @@ window.checkData = async () => {
   assert(window.fixture.grouping.value.groups.length === 1, 'Groups leaked between Cities')
   assert(caseFeedSelection(window.fixture.grouping.value, 'case-a', dc).feedIds.join() === 'wmata', 'Old callback wrote to new City')
   flushSync(() => window.fixture.setProject(boston))
+  await loaded()
   assert(caseFeedSelection(window.fixture.grouping.value, 'case-b', boston).feedIds.join() === 'mbta,future', 'Returning to City lost case membership')
   flushSync(() => window.fixture.grouping.saveGroup('empty', 'Empty', []))
   flushSync(() => window.fixture.grouping.assignCase('case-a','empty'))
@@ -77,7 +98,9 @@ window.checkData = async () => {
   const removed = { ...boston, feeds: boston.feeds.filter(feed=>feed.id!=='future') }
   assert(caseFeedSelection(window.fixture.grouping.value,'case-b',removed).error, 'Removed source silently changed a case')
   // Reload the hook rather than trusting only the last in-memory update.
+  await until(() => savedLibraries.boston.library.groups.every(group => group.id !== 'empty'), 'Removed group not saved')
   flushSync(() => { root.unmount(); root = createRoot(document.getElementById('root')); root.render(<Fixture />) })
+  await loaded()
   assert(caseFeedSelection(window.fixture.grouping.value,'case-b',boston).feedIds.join() === 'mbta,future', 'Reload lost case membership')
   const fileInput = document.querySelector('input[type=file]'); fileInput.addEventListener('click',event => { event.preventDefault(); sourcePicks++ })
   click('.city-data-actions .button'); assert(sourcePicks === 1, 'GTFS import no longer opens picker')

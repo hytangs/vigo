@@ -2,7 +2,7 @@ import { AgencyCoverageNotes } from './AgencyCoverageNotes'
 import { downloadText } from '../agency/exports'
 import { NetworkSelection } from './NetworkSelection'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Activity, ArrowRight, X } from 'lucide-react'
+import { ArrowRight, X } from 'lucide-react'
 import { apiJson } from '../app/api'
 import { startPolling } from '../app/polling'
 import { realtimeRefreshMs } from '../app/realtime'
@@ -191,17 +191,22 @@ export function AgencyPanel({ staticFeeds, onOperationalEvents, projectId, snaps
     })
   }
 
-  return <section className="agency-panel" aria-label="Network workspace">
+  return <section className="agency-panel" aria-label="Network workspace" data-map-occluder="">
     <AgencyNavigation mode={mode} onChange={next => {
       setMode(next); setSelectedEvent(null); setFeedsOpen(false)
       requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: 0 }))
     }} health={<AgencyFeedHealth feeds={state?.feeds ?? []} refreshFailed={Boolean(observationError)} />} mapOpen={mapOpen} onToggleMap={onToggleMap} onRefresh={() => void observationPolling.current?.refresh()} onFeeds={openFeeds} onExport={state && eventsReady ? () => exportObservation(state) : undefined} onExportReport={state && eventsReady ? () => downloadText('agency-observation.md', observationReportMarkdown(state, { eventFilter, refreshFailed: Boolean(observationError) })) : undefined} />
     <div className="agency-scroll" ref={scrollRef}>
       {observationError ? <div className="agency-error" role="alert"><strong>Could not refresh observations</strong><p>{observationError}</p>{observationError ? <button className="agency-text-button" onClick={() => void observationPolling.current?.refresh()}>Retry refresh <ArrowRight size={13} /></button> : null}{!state || !state.coverage.valid ? <button className="agency-text-button" onClick={onOpenData}>Open City data <ArrowRight size={13} /></button> : null}</div> : null}
-      {loading && !state ? <div className="agency-empty"><Activity size={24} /><h2>Reading the City</h2><p>Checking the indexed timetable and service calendar.</p></div> : null}
+      {loading && !state ? <div className="agency-loading" role="status" aria-live="polite">
+        <p><span className="signal-loader" aria-hidden="true" /><span>Reading the timetable and service calendar</span></p>
+        <div className="agency-loading-metrics" aria-hidden="true">{[0, 1, 2].map(index => <span className="skeleton" key={index} />)}</div>
+        <span className="skeleton agency-loading-bar" aria-hidden="true" />
+        <div className="agency-loading-rows" aria-hidden="true">{[0, 1, 2, 3].map(index => <span key={index}><span className="skeleton" /><span className="skeleton" /></span>)}</div>
+      </div> : null}
       {state ? <>
         {feedsOpen ? <div className="agency-connect"><button ref={feedSettingsCloseRef} className="agency-icon-button agency-connect-close" aria-label="Close feed settings" onClick={() => { setFeedsOpen(false); document.querySelector<HTMLElement>('.agency-more > summary')?.focus() }}><X size={15} /></button><RealtimePanel staticFeeds={staticFeeds} snapshot={snapshot} request={realtimeRequest} message={realtimeMessage} loading={realtimeLoading} onConnect={onConnect} onDisconnect={onDisconnect} /></div> : null}
-        {hasSelection && mode === 'live' && !selectedEvent ? <NetworkSelection selection={selectionReady ? state.selection : undefined} loading={!selectionReady && !observationError} onClear={clearSelection} /> : null}
+        {hasSelection && mode === 'live' && !selectedEvent ? <NetworkSelection selection={selectionReady ? state.selection : undefined} route={selectionReady ? state.routes.find(route => route.id === state.selection?.route?.id) : undefined} loading={!selectionReady && !observationError} onClear={clearSelection} /> : null}
         {!state.coverage.valid ? <div className="agency-notice"><strong>Timetable needs attention</strong><p>{state.coverage.message}</p><button className="agency-text-button" onClick={onOpenData}>Update City data <ArrowRight size={13} /></button></div> : null}
         {mode === 'live' ? <div id="agency-live" role="tabpanel" aria-labelledby="agency-tab-live">
           <div hidden={Boolean(selectedEvent) || hasSelection}><AgencyRouteBrowser state={state} initialFilter={routeFilter} onFilterChange={setRouteFilter} refreshFailed={Boolean(observationError)} onSelect={id => openRoute(id, true)} /></div>

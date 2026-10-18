@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { reachChangeCounts } from '../src/server/reach-comparison.mjs'
+import { reachChangeCounts, reachChangeStats } from '../src/server/reach-comparison.mjs'
 
 const before = new Float64Array([10, 20, 30, Infinity, 25.01, Infinity])
 const after = new Float64Array([9, 40, Infinity, 20, 25, Infinity])
@@ -13,4 +13,10 @@ assert.throws(() => reachChangeCounts([10], [], [15]), /equal lengths/)
 assert.deepEqual(reachChangeCounts([Infinity], [Infinity], [15]), [{ cutoffMinutes: 15, improvedPixels: 0, worsenedPixels: 0 }])
 // Raw values retain an improvement that rounds to one identical display value.
 assert.equal(reachChangeCounts([10.04], [9.98], [15])[0].improvedPixels, 1)
+// Newly reached, lost and shared cells; mean minutes saved over shared cells only.
+assert.deepEqual(reachChangeStats(before, after, [15, 30]), [
+  { cutoffMinutes: 15, newPixels: 0, lostPixels: 0, commonPixels: 1, meanSavedMinutes: 1 },
+  { cutoffMinutes: 30, newPixels: 1, lostPixels: 2, commonPixels: 2, meanSavedMinutes: 0.505 },
+])
+assert.deepEqual(reachChangeStats([Infinity], [Infinity], [15]), [{ cutoffMinutes: 15, newPixels: 0, lostPixels: 0, commonPixels: 0, meanSavedMinutes: 0 }])
 console.log('Reach comparisons retain cutoff-specific gains/losses, no-data cells, the existing tolerance, and raw precision before display quantization.')

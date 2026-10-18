@@ -1,6 +1,7 @@
+import crypto from 'node:crypto'
 import { areaPolygons, boundaryContoursFromAreas, rasterBoundaryAreas, stitchAreaSegments } from './reach-boundaries.mjs'
 import { blockInteriorEstimates } from './reach-blocks.mjs'
-import { reachChangeCounts } from './reach-comparison.mjs'
+import { reachChangeCounts, reachChangeStats } from './reach-comparison.mjs'
 import { resolveServiceDay } from './service-day.mjs'
 import { integralNumber, timingMilliseconds } from './number-utils.mjs'
 
@@ -371,6 +372,8 @@ function compileScenarioOverlay({
   }
   return {
     directions,
+    // The planned direction each run (frequency window or kept trip) belongs to.
+    runDirections: runs.map((run) => directions.findIndex((direction) => direction.id === run.id)),
     overlay: scenarioStops.length && runs.length ? {
       stops: scenarioStops,
       directionOffsets: directionStarts,
@@ -544,8 +547,13 @@ export function rasterAreas(values, width, height, bounds, cutoffsMinutes, surfa
   }))
 }
 
-function displayBoundarySurfaces(baseline, scenario, request, readWater) {
+// Baseline outlines repeat with the cached baseline range they come from.
+const baselineBoundaryMemo = new WeakMap()
+
+function displayBoundarySurfaces(baseline, scenario, request, readWater, baselineSource) {
   const blockEstimates = {}
+  const memoKey = JSON.stringify([request.cutoffsMinutes, request.walkSpeedKph, request.surfaceSampling, request.rasterSize])
+  const memo = baselineSource && typeof baselineSource === 'object' ? baselineBoundaryMemo.get(baselineSource) : null
   const build = (raster, surface) => {
     const size = request.rasterSize
     const estimates = request.surfaceSampling === 'street' && readWater
@@ -556,7 +564,20 @@ function displayBoundarySurfaces(baseline, scenario, request, readWater) {
     const displayValues = Float64Array.from(raster.areaValues, (value, index) => Math.min(value, estimates[index]))
     return rasterBoundaryAreas(displayValues, size, size, raster.areaBounds, request.cutoffsMinutes, surface)
   }
-  const baselineAreas = build(baseline, 'baseline')
+  const retained = memo?.get(memoKey)
+  let baselineAreas
+  if (retained) {
+    baselineAreas = retained.areas
+    blockEstimates.baseline = retained.blocks
+  } else {
+    baselineAreas = build(baseline, 'baseline')
+    if (baselineSource && typeof baselineSource === 'object') {
+      const entries = memo ?? new Map()
+      entries.set(memoKey, { areas: baselineAreas, blocks: blockEstimates.baseline })
+      if (entries.size > 4) entries.delete(entries.keys().next().value)
+      baselineBoundaryMemo.set(baselineSource, entries)
+    }
+  }
   const scenarioAreas = scenario.areaValues === baseline.areaValues
     ? featureCollection(baselineAreas.features.map(feature => ({
         ...feature,
@@ -946,13 +967,88 @@ export function compileReachScenario(value) {
     excludedTripIds,
     excludedPatternIds,
   }
+  const compiled = compileScenarioOverlay({
+    services,
+    scenarioStops,
+    serviceStopIndexes,
+  })
   return {
     scenario,
-    overlay: compileScenarioOverlay({
-      services,
-      scenarioStops,
-      serviceStopIndexes,
-    }).overlay,
+    overlay: compiled.overlay,
+    directions: compiled.directions,
+    runDirections: compiled.runDirections,
+  }
+}
+
+/**
+ * The plan point-to-point routing applies to the timetable: the same compiled
+ * runs as Reach, the trips and routes they remove, and per-direction labels
+ * and geometry so journeys can describe planned service.
+ */
+export function compileRouteScenario(value) {
+  const { scenario, overlay, directions, runDirections } = compileReachScenario(value)
+  const changed = Boolean(overlay || scenario.excludedRouteIds.length || scenario.excludedTripIds.length)
+  if (!changed) return null
+  const plan = {
+    id: scenario.id,
+    name: scenario.name,
+    overlay,
+    runDirections,
+    directions: directions.map((direction) => ({
+      id: direction.id,
+      serviceId: direction.service.id,
+      name: direction.service.name,
+      operation: direction.service.operation,
+      sourceRouteId: direction.service.sourceRouteId,
+      inbound: direction.id.endsWith(':inbound'),
+      geometry: direction.geometry?.length >= 2 ? direction.geometry : direction.stops.map((stop) => stop.coordinate),
+    })),
+    excludedRouteIds: scenario.excludedRouteIds,
+    excludedTripIds: scenario.excludedTripIds,
+  }
+  plan.identity = crypto.createHash('sha256').update(JSON.stringify(plan)).digest('hex').slice(0, 24)
+  return plan
+}
+
+function roundedCoordinates(value) {
+  return typeof value[0] === 'number'
+    ? value.map((number) => Math.round(number * 1e6) / 1e6)
+    : value.map(roundedCoordinates)
+}
+
+/**
+ * Studio's map payload for a Reach result. Outlines are the area boundaries,
+ * so they are drawn from the fills instead of sent twice; coordinates keep six
+ * decimals (about 0.1 m); and an unchanged scenario surface is not repeated.
+ * `inflateReachResult` in the client restores the full shape.
+ */
+export function compactReachResult(result) {
+  const surface = result?.surface
+  if (!surface?.raster) return result
+  const shared = surface.raster.scenario === surface.raster.baseline
+  const areas = Object.fromEntries(Object.entries(surface.areas ?? {})
+    .filter(([key]) => !shared || key !== 'scenario')
+    .map(([key, collection]) => [key, {
+      ...collection,
+      features: collection.features.map((feature) => ({
+        ...feature,
+        geometry: { ...feature.geometry, coordinates: roundedCoordinates(feature.geometry.coordinates) },
+      })),
+    }]))
+  const blockEstimates = surface.blockEstimates
+    && surface.blockEstimates.scenario === surface.blockEstimates.baseline
+    ? { baseline: surface.blockEstimates.baseline }
+    : surface.blockEstimates
+  const { contours: _contours, ...rest } = surface
+  return {
+    ...result,
+    surface: {
+      ...rest,
+      raster: shared ? { ...surface.raster, scenario: undefined } : surface.raster,
+      ...(surface.areas ? { areas } : {}),
+      ...(blockEstimates ? { blockEstimates } : {}),
+      compact: { contours: 'from-areas', scenario: shared ? 'baseline' : 'own' },
+    },
   }
 }
 
@@ -1005,6 +1101,13 @@ export async function computeReachResult(
   let stopSelection
   let transitStops
   let baselineTransitDurations
+  const phaseTimes = {}
+  let phaseStarted = performance.now()
+  const phase = (name) => {
+    const now = performance.now()
+    phaseTimes[name] = round(now - phaseStarted)
+    phaseStarted = now
+  }
   const reachResult = await runReach({
     mode: request.mode,
     surfaceSampling: request.surfaceSampling,
@@ -1033,9 +1136,13 @@ export async function computeReachResult(
       : Number.POSITIVE_INFINITY,
   )
   stopSelection = { diagnostics: reachResult.diagnostics?.stopSelection }
+  phase('baselineRangeMs')
   let scenarioReachRange = null
+  // A remix runs the scenario on a different set of the City's timetables.
+  const remixed = value?.remixed === true
   const scenarioTransitQueryChanged = (
-    request.scenario.services.length > 0
+    remixed
+    || request.scenario.services.length > 0
     || request.scenario.excludedRouteIds.length > 0
     || request.scenario.excludedTripIds.length > 0
   )
@@ -1135,9 +1242,11 @@ export async function computeReachResult(
       terminalWalkMode: 'elapsed-total',
     }
   }
+  phase('scenarioRangeMs')
   const baselineRaster = rasterFromReach(reachResult, 'baseline')
   const hasScenarioChanges = Boolean(
-    request.scenario.services.length
+    remixed
+    || request.scenario.services.length
     || request.scenario.excludedRouteIds.length
     || request.scenario.excludedTripIds.length
   )
@@ -1168,6 +1277,7 @@ export async function computeReachResult(
   baselineReachablePixels = baselineAreaMetrics.byCutoff.find((entry) => entry.cutoffMinutes === maximumCutoff)?.reachablePixels ?? 0
   scenarioReachablePixels = scenarioAreaMetrics.byCutoff.find((entry) => entry.cutoffMinutes === maximumCutoff)?.reachablePixels ?? 0
 
+  phase('metricsMs')
   const encodedBaseline = encodeRaster(baselineRaster.values)
   const encodedScenario = hasScenarioChanges
     ? encodeRaster(scenarioRaster.values)
@@ -1180,6 +1290,9 @@ export async function computeReachResult(
           : { schemaVersion: 'vigo.street.edge-ref.v1', source: 'baseline' },
       }
     : null
+  phase('encodeMs')
+  const timedBoundaries = displayBoundarySurfaces(baselineRaster, scenarioRaster, request, readDisplayWater, reachResult)
+  phase('boundariesMs')
   const result = {
     schemaVersion: 'vigo.result.reach.v1',
     request: scenarioRequestRecord(request),
@@ -1189,6 +1302,10 @@ export async function computeReachResult(
       scenarioReachablePixels,
       improvedPixels,
       changeCountsByCutoff,
+      // Same requested grid as changeCountsByCutoff.
+      changeStatsByCutoff: hasScenarioChanges
+        ? reachChangeStats(baselineRaster.values, scenarioRaster.values, request.cutoffsMinutes)
+        : null,
       maximumCutoffMinutes: maximumCutoff,
       transitStopSeeds: baselineTransitSeeds.length,
       transitStopsByCutoff: transitStopCountsByCutoff(transitStops, request.cutoffsMinutes),
@@ -1221,7 +1338,7 @@ export async function computeReachResult(
         scenario: scenarioAreaMetrics,
       },
       ...(packedEdges ? { edges: packedEdges } : {}),
-      ...displayBoundarySurfaces(baselineRaster, scenarioRaster, request, readDisplayWater),
+      ...timedBoundaries,
     },
     scenario: {
       id: request.scenario.id,
@@ -1283,6 +1400,7 @@ export async function computeReachResult(
         queryMs: propagation.queryMs,
         algorithm: propagation.algorithm,
       },
+      phases: phaseTimes,
       totalMs: round(performance.now() - startedAt),
     },
   }

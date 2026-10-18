@@ -95,13 +95,15 @@ export function reachBandImage(
   analysis: ReachResult | null | undefined,
   view: ScenarioView,
   cutoffMinutes: number,
-  longestSidePx = 1600,
+  // About 6.5 MB of canvas: crisp at City zoom without holding a 10 MB bitmap.
+  longestSidePx = 1280,
 ): ReachBandImage | null {
   if (!analysis?.surface.areas || view === 'comparison' || typeof document === 'undefined') return null
   const bands = reachDisplayedBands(analysis, cutoffMinutes)
   const features = analysis.surface.areas[view].features
+  // Nearer bands are more opaque, so time reads as a glow fading from the origin.
   const layers = bands.map((band, index) => ({
-    color: reachBandColor(bands, index),
+    color: reachBandColor(bands, index).replace(/^rgb\((.*)\)$/u, `rgba($1, ${(bands.length > 1 ? 0.86 - 0.6 * index / (bands.length - 1) : 0.62).toFixed(3)})`),
     polygons: areaPolygons(features.find((feature) => Number(feature.properties?.cutoffMinutes) === band)?.geometry),
   })).filter((layer) => layer.polygons.length)
   if (!layers.length) return null
@@ -124,20 +126,25 @@ export function reachBandImage(
   const context = canvas.getContext('2d')
   if (!context) return null
   for (const layer of [...layers].reverse()) {
-    context.fillStyle = layer.color
-    context.beginPath()
+    const path = new Path2D()
     for (const polygon of layer.polygons) {
       for (const ring of polygon) {
         ring.forEach(([lng, lat], index) => {
           const x = (mercatorX(lng) - west) * scale
           const y = (mercatorY(lat) - north) * scale
-          if (index) context.lineTo(x, y)
-          else context.moveTo(x, y)
+          if (index) path.lineTo(x, y)
+          else path.moveTo(x, y)
         })
-        context.closePath()
+        path.closePath()
       }
     }
-    context.fill('evenodd')
+    // Clear the farther band first: translucent bands must not stack.
+    context.globalCompositeOperation = 'destination-out'
+    context.fillStyle = '#000'
+    context.fill(path, 'evenodd')
+    context.globalCompositeOperation = 'source-over'
+    context.fillStyle = layer.color
+    context.fill(path, 'evenodd')
   }
   const left = west * 360 - 180
   const right = east * 360 - 180

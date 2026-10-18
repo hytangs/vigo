@@ -124,12 +124,24 @@ export function ImportPanel(props: CityImportProps & { library?: (chooseGtfs: ()
 }
 
 export function EmptyOperationsStart({ project, onOpenNetwork, ...props }: Omit<CityImportProps, 'staticFeeds'> & { project: VigoProject; onOpenNetwork: () => void }) {
+  const timetableReady = project.feeds.some((feed) => feed.routingStore?.status === 'ready')
+  const steps = [
+    { label: 'Timetable', detail: 'GTFS ZIP', state: timetableReady ? 'done' : props.isImporting ? 'working' : 'todo' },
+    { label: 'Streets', detail: 'OSM extract', state: props.osmStreetReady ? 'done' : props.isOsmImporting ? 'working' : 'todo' },
+  ] as const
   return <div className="workbench empty-workbench empty-intake">
     <section className="surface-source-intake" aria-labelledby="surface-source-intake-title">
       <div className="surface-source-intake-copy"><span className="eyebrow">City data</span>
         <h1 id="surface-source-intake-title">Set up {quietMapLabel(project.name)}</h1>
         <p>Add a timetable and a street network to begin.</p>
       </div>
+      <ol className="city-setup-progress" aria-label="Setup progress">
+        {steps.map((step, index) => <li key={step.label} data-state={step.state}>
+          <b aria-hidden="true">{step.state === 'done' ? '✓' : index + 1}</b>
+          <span><strong>{step.label}</strong><small>{step.state === 'done' ? 'Ready' : step.state === 'working' ? 'Preparing…' : step.detail}</small></span>
+        </li>)}
+        <li data-state={timetableReady && props.osmStreetReady ? 'done' : 'todo'}><b aria-hidden="true">{timetableReady && props.osmStreetReady ? '✓' : 3}</b><span><strong>Route</strong><small>{timetableReady && props.osmStreetReady ? 'Ready to open' : 'After both are ready'}</small></span></li>
+      </ol>
       <ImportPanel {...props} staticFeeds={project.feeds} />
       {hasOperationsData(project) ? <button type="button" className="button button-primary" disabled={props.isImporting || props.isOsmImporting} onClick={onOpenNetwork}>Open network</button> : null}
     </section>

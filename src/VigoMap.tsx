@@ -2,12 +2,10 @@ import { addMapControls } from './app/mapControls'
 import {
   baseCanvasColor,
   ensureLocalBasemapLayers,
-  localBasemapFeatureLimit,
   removeLocalBasemap,
-  setLocalBasemapData,
+  installLocalBasemap,
   syncBasemap,
 } from './map/basemaps'
-import { localBasemapViewport, type LocalBasemapViewport } from './map/localBasemapViewport'
 import { emptyCollection, isFiniteLngLat, lineGeometryCoordinates, stopLngLat, type FeatureCollection } from './map/featureGeometry'
 import { routingLineFeatures, routingPinFeatures, serviceVehicleFeatures } from './map/journeyFeatures'
 import {
@@ -63,7 +61,7 @@ import {
 import * as maplibregl from './app/mapRuntime'
 import { setMapSourceData, setStreetMapSourceData } from './app/mapSourceUpdates'
 import { renderedStopAtPoint } from './app/mapStopSelection'
-import { mapFitPadding, previewStopBounds } from './app/mapViewport'
+import { mapOcclusion, occludedMapFitPadding, occlusionCenterOffset, previewStopBounds } from './app/mapViewport'
 import { findNetworkStop } from './app/networkSelection'
 import { routeGeometryLabel } from './app/routePresentation'
 import { AgencyVehicleDetails, VehicleOperationalWarnings } from './components/AgencyVehicleDetails'
@@ -109,6 +107,8 @@ export type VigoMapProps = {
   localBasemapAvailable?: boolean
   localBasemapRevision?: string
   preview: MapPreview
+  /** Quiet reference lines drawn under Route and Analyze results. */
+  contextPreview?: MapPreview
   feedName: string
   layers: LayerState
   networkLens: NetworkLens
@@ -134,6 +134,8 @@ export type VigoMapProps = {
   scenarioSketchStops?: ScenarioStopDraft[]
   scenarioSketchGeometry?: LngLat[]
   scenarioPointPicking?: boolean
+  /** Changes when a floating panel opens over the map; a hidden journey is reframed. */
+  occlusionKey?: string
   onMoveScenarioStop?: (index: number, coordinate: LngLat) => void
   performanceProfile?: NetworkPerformanceProfile
   focusMode?: 'network' | 'route' | 'routing' | 'scenario'
@@ -316,8 +318,35 @@ function updateDynamicPointSource(
 }
 
 function routeFitPadding(map: MapLibreMap) {
-  const { clientWidth, clientHeight } = map.getContainer()
-  return mapFitPadding(clientWidth, clientHeight)
+  const container = map.getContainer()
+  return occludedMapFitPadding(container.clientWidth, container.clientHeight, mapOcclusion(container))
+}
+
+function boundsInView(map: MapLibreMap, bounds: LngLatBoundsLike) {
+  const box = maplibregl.LngLatBounds.convert(bounds)
+  const pins: FeatureCollection = {
+    type: 'FeatureCollection',
+    features: [box.getSouthWest(), box.getNorthEast()].map((corner) => ({
+      type: 'Feature' as const, properties: {}, geometry: { type: 'Point' as const, coordinates: [corner.lng, corner.lat] },
+    })),
+  }
+  return pinsInView(map, pins)
+}
+
+function pinsInView(map: MapLibreMap, pins: FeatureCollection) {
+  const container = map.getContainer()
+  const occlusion = mapOcclusion(container)
+  const margin = 28
+  return pins.features.every((feature) => geometryLngLats(feature.geometry).every((coordinate) => {
+    if (!isFiniteLngLat(coordinate)) return true
+    const point = map.project(coordinate)
+    return point.x >= occlusion.left + margin && point.x <= container.clientWidth - occlusion.right - margin
+      && point.y >= occlusion.top + margin && point.y <= container.clientHeight - occlusion.bottom - margin
+  }))
+}
+
+function visibleCenterOffset(map: MapLibreMap) {
+  return occlusionCenterOffset(mapOcclusion(map.getContainer()))
 }
 
 function visibleMapLayerIds(map: MapLibreMap, layerIds: string[]) {
@@ -431,9 +460,11 @@ export function VigoMap({
   scenarioSketchStops: suppliedSketchStops = emptyScenarioStops,
   scenarioSketchGeometry: suppliedSketchGeometry = emptyCoordinates,
   scenarioPointPicking = false,
+  occlusionKey = '',
   onMoveScenarioStop,
   performanceProfile: providedPerformanceProfile,
   focusMode = 'network',
+  contextPreview,
   onSelectRoute,
   onOpenTrip,
   onSelectStop,
@@ -453,12 +484,13 @@ export function VigoMap({
   const appearanceRef = useRef(appearance)
   const projectIdRef = useRef(projectId)
   const localBasemapAvailableRef = useRef(localBasemapAvailable)
-  const localBasemapRequestRef = useRef<AbortController | null>(null)
-  const localBasemapRequestKeyRef = useRef('')
-  const localBasemapRefreshTimerRef = useRef<number | null>(null)
-  const localBasemapViewportRef = useRef<LocalBasemapViewport | null>(null)
   const mapTelemetryRef = useRef<MapFirstRenderTracker | null>(null)
   const lastFitSignatureRef = useRef('')
+  // One map serves every workspace. Moving between Network and a query
+  // workspace (Route, Analyze) keeps the user's camera instead of refitting.
+  const focusModeRef = useRef(focusMode)
+  focusModeRef.current = focusMode
+  const fittedFocusModeRef = useRef(focusMode)
   const lastRoutingFitSignatureRef = useRef('')
   const lastDesktopReadySignatureRef = useRef('')
   const lastDesktopFailureSignatureRef = useRef('')
@@ -505,6 +537,7 @@ export function VigoMap({
     : { ...layers, routes: focusMode === 'route' || layers.routes }, [focusMode, layers, queryFocus])
   const layerPresentation = {
     layers: effectiveLayers,
+    contextVisible: queryFocus && Boolean(contextPreview?.routes.length),
     routingVisible: routingEnabled || Boolean(routingPlan) || queryFocus,
     reachResultVisible: scenarioFocus,
     reachComparisonCount: reachComparison?.length ?? 0,
@@ -514,6 +547,10 @@ export function VigoMap({
   const routesGeoJson = useMemo(
     () => effectiveLayers.routes || effectiveLayers.scenario ? routeFeatures(preview, selectedRouteId, highlightRouteGroup) : emptyCollection,
     [effectiveLayers.routes, effectiveLayers.scenario, highlightRouteGroup, preview, selectedRouteId],
+  )
+  const contextGeoJson = useMemo(
+    () => queryFocus && contextPreview?.routes.length ? routeFeatures(contextPreview, '') : emptyCollection,
+    [contextPreview, queryFocus],
   )
   const segmentsGeoJson = useMemo(() => (effectiveLayers.segments ? segmentFeatures(preview, performanceProfile) : emptyCollection), [effectiveLayers.segments, performanceProfile, preview])
   const stopsGeoJson = useMemo(
@@ -662,19 +699,28 @@ export function VigoMap({
       && serviceVehicleIsVisible(vehicle, preview, selectedRouteId)) ? previous : null)
   }, [fitSignature, selectedRouteId, selectedStopId, vehicleFrame, preview])
 
-  const stopSelectionRef = useRef({ projectId, selectedRouteId, selectedStopId })
+  const liveSelectionFocusRef = useRef(focusMode)
+  useEffect(() => {
+    if (liveSelectionFocusRef.current === focusMode) return
+    liveSelectionFocusRef.current = focusMode
+    if (focusMode === 'routing' || focusMode === 'scenario') setLiveSelection(null)
+  }, [focusMode])
+
+  const stopSelectionRef = useRef({ projectId, selectedRouteId, selectedStopId, focusMode })
   useEffect(() => {
     const previous = stopSelectionRef.current
-    stopSelectionRef.current = { projectId, selectedRouteId, selectedStopId }
+    stopSelectionRef.current = { projectId, selectedRouteId, selectedStopId, focusMode }
     // Search and Agency evidence share map selection. A route's automatically
     // selected first stop should not open a board over a vehicle or route card.
-    if (previous.projectId !== projectId || previous.selectedRouteId !== selectedRouteId || previous.selectedStopId === selectedStopId || routingEnabled || queryFocus) return
+    // A workspace switch restores that workspace's selection without moving the camera.
+    if (previous.projectId !== projectId || previous.selectedRouteId !== selectedRouteId || previous.selectedStopId === selectedStopId
+      || previous.focusMode !== focusMode || routingEnabled || queryFocus) return
     const stop = findNetworkStop(preview.stops, selectedStopId)
     if (stop) {
       setLiveSelection({ tone: 'stop', stopId: stop.id, eyebrow: 'Stop arrivals', title: stop.name, subtitle: '', metrics: [] })
-      mapRef.current?.easeTo({ center: stopLngLat(stop), zoom: Math.max(mapRef.current.getZoom(), 14), duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450 })
+      if (mapRef.current) mapRef.current.easeTo({ center: stopLngLat(stop), zoom: Math.max(mapRef.current.getZoom(), 14), offset: visibleCenterOffset(mapRef.current), duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450 })
     }
-  }, [projectId, selectedRouteId, selectedStopId, preview, routingEnabled, queryFocus])
+  }, [projectId, selectedRouteId, selectedStopId, preview, routingEnabled, queryFocus, focusMode])
 
   useEffect(() => {
     const container = containerRef.current
@@ -728,7 +774,7 @@ export function VigoMap({
         zoom: initialBounds ? undefined : 1.7,
         bounds: initialBounds ?? undefined,
         fitBoundsOptions: initialBounds
-          ? { padding: mapFitPadding(containerRef.current.clientWidth, containerRef.current.clientHeight), duration: 0, maxZoom: initialRoutingBounds ? 14.6 : 13.2 }
+          ? { padding: occludedMapFitPadding(containerRef.current.clientWidth, containerRef.current.clientHeight, mapOcclusion(containerRef.current)), duration: 0, maxZoom: initialRoutingBounds ? 14.6 : 13.2 }
           : undefined,
         attributionControl: false,
       })
@@ -900,6 +946,7 @@ export function VigoMap({
           markLocalSourceSubmitted(tracker, adoptedAt)
         }
         setMapSourceData(source(map, 'vigo-routes'), routesGeoJson)
+        setMapSourceData(source(map, 'vigo-context-routes'), contextGeoJson)
         setMapSourceData(source(map, 'vigo-segments'), segmentsGeoJson)
         setMapSourceData(source(map, 'vigo-stops'), stopsGeoJson)
         setMapSourceData(source(map, 'vigo-access'), accessGeoJson)
@@ -907,8 +954,13 @@ export function VigoMap({
         setMapSourceData(source(map, 'vigo-routing'), showRoutingPlan ? routingGeoJson : emptyCollection)
         setMapSourceData(source(map, 'vigo-routing-pins'), showRoutingPlan ? routingPinsGeoJson : emptyCollection)
         const shouldFit = fitSignature !== lastFitSignatureRef.current
+        const previousFocusMode = fittedFocusModeRef.current
+        fittedFocusModeRef.current = focusModeRef.current
+        const workspaceSwitch = previousFocusMode !== focusModeRef.current
+          && [previousFocusMode, focusModeRef.current].some((mode) => mode === 'routing' || mode === 'scenario')
         const hasFocusedCamera = (scenarioFocus && Boolean(focusedAnalysis))
           || (showRoutingPlan && (routingGeoJson.features.length > 0 || routingPinsGeoJson.features.length > 0))
+          || (workspaceSwitch && lastFitSignatureRef.current !== '')
         // Late city data supplies an initial context, but must not replace the
         // camera already owned by route points, a Reach result, or the user.
         if (shouldFit && hasFocusedCamera) lastFitSignatureRef.current = fitSignature
@@ -924,12 +976,17 @@ export function VigoMap({
         }
         if (showRoutingPlan && !(scenarioFocus && focusedAnalysis) && routingFitSignature !== lastRoutingFitSignatureRef.current) {
           const routingBounds = mapContentBounds(routingGeoJson, routingPinsGeoJson)
-          if (routingBounds) {
+          // Placing points must not dive to street level: the next point is
+          // usually picked from the same view. Frame the journey once it exists.
+          const pinsOnly = routingGeoJson.features.length === 0
+          if (routingBounds && pinsOnly && pinsInView(map, routingPinsGeoJson)) {
+            lastRoutingFitSignatureRef.current = routingFitSignature
+          } else if (routingBounds) {
             lastRoutingFitSignatureRef.current = routingFitSignature
             map.fitBounds(routingBounds, {
               padding: routeFitPadding(map),
               duration: 420,
-              maxZoom: 14.6,
+              maxZoom: pinsOnly ? Math.max(map.getZoom(), 9) : 14.6,
             })
           }
         }
@@ -952,7 +1009,7 @@ export function VigoMap({
       if (mapRemovedRef.current) return
       map.off('render', reportReadyIfRendered)
     }
-  }, [accessGeoJson, cityBounds, feedName, fitSignature, focusedAnalysis, mapTelemetryKey, mapVisualState, routesGeoJson, routingEnabled, routingFitSignature, routingGeoJson, routingPinsGeoJson, routingPlan, scenarioFocus, segmentsGeoJson, stopsGeoJson])
+  }, [accessGeoJson, cityBounds, contextGeoJson, feedName, fitSignature, focusedAnalysis, mapTelemetryKey, mapVisualState, routesGeoJson, routingEnabled, routingFitSignature, routingGeoJson, routingPinsGeoJson, routingPlan, scenarioFocus, segmentsGeoJson, stopsGeoJson])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1055,153 +1112,49 @@ export function VigoMap({
     const map = mapRef.current
     if (!map) return
     let cancelled = false
-    let localBasemapReadyTimer: number | null = null
-
-    const clearLocalBasemap = () => {
-      if (localBasemapRefreshTimerRef.current !== null) {
-        window.clearTimeout(localBasemapRefreshTimerRef.current)
-        localBasemapRefreshTimerRef.current = null
-      }
-      localBasemapRequestRef.current?.abort()
-      localBasemapRequestRef.current = null
-      localBasemapRequestKeyRef.current = ''
-      localBasemapViewportRef.current = null
-      setLocalBasemapStatus({ phase: 'idle', featureCount: 0 })
-      if (mapRemovedRef.current) return
-      removeLocalBasemap(map)
-    }
-
-    const reportLocalBasemapFailure = (error: unknown) => {
+    const reportOfflineReady = () => {
       const tracker = mapTelemetryRef.current
-      if (tracker && markBasemapFailed(tracker, performance.now())) {
+      if (tracker && markBasemapReady(tracker, performance.now())) {
         reportDesktopMapPhase({
-          phase: 'basemap-failed',
+          phase: 'basemap-ready',
           ...desktopMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
         })
       }
-      if (error instanceof Error && error.name !== 'AbortError') {
-        setLocalBasemapStatus({ phase: 'error', featureCount: 0, detail: error.message })
-      }
     }
-
-    const refreshLocalBasemap = async () => {
-      if (cancelled || mapRemovedRef.current || !mapReadyRef.current) return
-      if (basemap !== 'offline' || !projectIdRef.current || !localBasemapAvailableRef.current) {
-        clearLocalBasemap()
-        const tracker = mapTelemetryRef.current
-        if (basemap === 'offline' && tracker && markBasemapReady(tracker, performance.now())) {
-          reportDesktopMapPhase({
-            phase: 'basemap-ready',
-            ...desktopMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
-          })
-        }
-        return
-      }
-
-      const bounds = map.getBounds()
-      const viewport = localBasemapViewport({ west: bounds.getWest(), south: bounds.getSouth(),
-        east: bounds.getEast(), north: bounds.getNorth(), zoom: map.getZoom() },
-      map.getSource('vigo-local-basemap') ? localBasemapViewportRef.current : null)
-      if (!viewport) {
-        ensureLocalBasemapLayers(map, appearanceRef.current)
-        setLocalBasemapStatus((current) => ({ ...current, phase: current.featureCount ? 'ready' : 'empty' }))
-        return
-      }
-      const { west, south, east, north, zoom } = viewport
-      const queryKey = `${projectIdRef.current}:${west}:${south}:${east}:${north}:${zoom}`
-      if (queryKey === localBasemapRequestKeyRef.current && !localBasemapRequestRef.current?.signal.aborted) return
-
-      localBasemapRequestRef.current?.abort()
-      const controller = new AbortController()
-      localBasemapRequestRef.current = controller
-      localBasemapRequestKeyRef.current = queryKey
-      setLocalBasemapStatus((current) => ({
-        phase: 'loading',
-        featureCount: current.featureCount,
-      }))
-      const params = new URLSearchParams({
-        west: String(west),
-        south: String(south),
-        east: String(east),
-        north: String(north),
-        zoom: String(zoom),
-        limit: String(localBasemapFeatureLimit(zoom)),
-      })
-      try {
-        const response = await fetch(
-          `/api/projects/${encodeURIComponent(projectIdRef.current)}/local-basemap?${params.toString()}`,
-          { signal: controller.signal },
-        )
-        if (!response.ok) throw new Error(`Local map request failed (${response.status}).`)
-        const collection = await response.json() as FeatureCollection & { metadata?: { status?: string; detail?: string } }
-        if (cancelled || mapRemovedRef.current || controller.signal.aborted || basemapRef.current !== 'offline') return
-        if (!map.getStyle()) return
-        if (collection.metadata?.status === 'needs-import') {
-          throw new Error(collection.metadata.detail || 'Re-import the OSM PBF to prepare the local map.')
-        }
-        // A worker update may outlive an aborted fetch. Do not reuse the prior
-        // viewport once its source geometry has been replaced.
-        localBasemapViewportRef.current = null
-        const applied = await setLocalBasemapData(map, collection, controller.signal)
-        if (!applied || cancelled || mapRemovedRef.current || controller.signal.aborted || basemapRef.current !== 'offline') return
-        ensureLocalBasemapLayers(map, appearanceRef.current)
-        localBasemapViewportRef.current = viewport
-        setLocalBasemapStatus({
-          phase: collection.features.length ? 'ready' : 'empty',
-          featureCount: collection.features.length,
-          detail: collection.features.length ? undefined : 'No local map geometry in this view.',
-        })
-        const tracker = mapTelemetryRef.current
-        if (tracker && markBasemapReady(tracker, performance.now())) {
-          reportDesktopMapPhase({
-            phase: 'basemap-ready',
-            ...desktopMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
-          })
-        }
-      } catch (error) {
-        if (controller.signal.aborted || cancelled) return
-        reportLocalBasemapFailure(error)
-      } finally {
-        if (localBasemapRequestRef.current === controller) {
-          localBasemapRequestRef.current = null
-          localBasemapRequestKeyRef.current = ''
-        }
-      }
-    }
-
-    const scheduleLocalBasemapRefresh = () => {
+    // Tiles stream from the Rust kernel; MapLibre owns fetching, caching and
+    // level of detail, so a camera move never re-requests the whole viewport.
+    const install = () => {
       if (cancelled || mapRemovedRef.current) return
-      localBasemapRequestRef.current?.abort()
-      if (localBasemapRefreshTimerRef.current !== null) window.clearTimeout(localBasemapRefreshTimerRef.current)
-      localBasemapRefreshTimerRef.current = window.setTimeout(() => {
-        localBasemapRefreshTimerRef.current = null
-        void refreshLocalBasemap()
-      }, 220)
-    }
-
-    if (basemap === 'offline' && localBasemapAvailable && projectId) {
-      if (mapReadyRef.current) scheduleLocalBasemapRefresh()
-      else {
-        map.once('load', scheduleLocalBasemapRefresh)
-        map.once('idle', scheduleLocalBasemapRefresh)
-        localBasemapReadyTimer = window.setTimeout(scheduleLocalBasemapRefresh, 360)
+      if (basemap !== 'offline' || !projectId || !localBasemapAvailable) {
+        removeLocalBasemap(map)
+        setLocalBasemapStatus({ phase: 'idle', featureCount: 0 })
+        if (basemap === 'offline') reportOfflineReady()
+        return
       }
-      map.on('moveend', scheduleLocalBasemapRefresh)
-    } else {
-      clearLocalBasemap()
+      installLocalBasemap(map, projectId, localBasemapRevision)
+      ensureLocalBasemapLayers(map, appearanceRef.current)
+      setLocalBasemapStatus((current) => current.phase === 'ready' ? current : { phase: 'loading', featureCount: 0 })
     }
-
+    const handleData = (event: { sourceId?: string; isSourceLoaded?: boolean }) => {
+      if (cancelled || event.sourceId !== 'vigo-local-basemap' || !event.isSourceLoaded) return
+      // Every tile load reports source data; only the first completion changes state.
+      setLocalBasemapStatus((current) => current.phase === 'ready' ? current : { phase: 'ready', featureCount: 1 })
+      reportOfflineReady()
+    }
+    const handleError = (event: maplibregl.ErrorEvent) => {
+      if (cancelled || !('sourceId' in event) || event.sourceId !== 'vigo-local-basemap') return
+      setLocalBasemapStatus({ phase: 'error', featureCount: 0, detail: 'The local map could not be drawn. Re-import the OSM PBF if this City predates the local map.' })
+    }
+    if (mapReadyRef.current) install()
+    else map.once('load', install)
+    map.on('sourcedata', handleData)
+    map.on('error', handleError)
     return () => {
       cancelled = true
-      if (localBasemapRefreshTimerRef.current !== null) {
-        window.clearTimeout(localBasemapRefreshTimerRef.current)
-        localBasemapRefreshTimerRef.current = null
-      }
-      if (localBasemapReadyTimer !== null) window.clearTimeout(localBasemapReadyTimer)
-      map.off('load', scheduleLocalBasemapRefresh)
-      map.off('idle', scheduleLocalBasemapRefresh)
-      map.off('moveend', scheduleLocalBasemapRefresh)
-      clearLocalBasemap()
+      if (mapRemovedRef.current) return
+      map.off('load', install)
+      map.off('sourcedata', handleData)
+      map.off('error', handleError)
     }
   }, [basemap, localBasemapAvailable, localBasemapRevision, projectId])
 
@@ -1523,12 +1476,31 @@ export function VigoMap({
     }
   }, [effectiveLayers.routes, effectiveLayers.segments, onRoutingPoint, onInspectReachPoint, onSelectRoute, onSelectStop, preview, routingEnabled, scenarioFocus, scenarioPointPicking, selectedRouteId, vehicleFrame])
 
+  // A panel that opens over the map (journey details) must not hide the
+  // journey it describes: reframe only when part of it is now covered.
+  const routingBoundsRef = useRef<LngLatBoundsLike | null>(null)
+  routingBoundsRef.current = routingGeoJson.features.length ? mapContentBounds(routingGeoJson, routingPinsGeoJson) : null
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !occlusionKey) return
+    const frame = window.requestAnimationFrame(() => {
+      const bounds = routingBoundsRef.current
+      if (mapRemovedRef.current || !bounds || boundsInView(map, bounds)) return
+      map.fitBounds(bounds, {
+        padding: routeFitPadding(map),
+        duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 360,
+        maxZoom: Math.max(map.getZoom(), 9),
+      })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [occlusionKey])
+
   useEffect(() => {
     const map = mapRef.current
     if (!map || !focusLocation) return
     const focus = () => {
       if (mapRemovedRef.current) return
-      map.easeTo({ center: focusLocation.coordinate, zoom: Math.max(map.getZoom(), 14), duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450 })
+      map.easeTo({ center: focusLocation.coordinate, zoom: Math.max(map.getZoom(), 14), offset: visibleCenterOffset(map), duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450 })
       setLiveSelection({ tone: 'stop', stopId: focusLocation.stopId, eyebrow: 'Reference stop', title: focusLocation.label, subtitle: 'Selected from Agency evidence', metrics: [] })
     }
     if (map.isStyleLoaded()) focus()

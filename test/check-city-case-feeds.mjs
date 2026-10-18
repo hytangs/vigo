@@ -125,7 +125,59 @@ try {
   const grid = await send(['bus', 'rail'], { surfaceSampling: 'cell-center' })
   assert.equal(grid.status, 200, JSON.stringify(grid.body))
   assert.equal(grid.body.result.diagnostics.reach.timetable.residentTrips, 2, 'Cell-center analysis ignored the feed selection.')
+
+  // Point-to-point routing on a scenario: a planned line from B to C over new
+  // stops completes a bus-only group's trip; removing a route blocks it.
+  const plannedLine = { id: 'planned', name: 'Planned link', services: [{ id: 'link', name: 'B–C link', operation: 'add', headwayMinutes: 5,
+    startMinutes: 480, endMinutes: 540, averageSpeedKph: 30, bidirectional: false,
+    stops: [{ id: 'b', label: 'Planned B', coordinate: [8.02, 47], source: 'map' }, { id: 'c', label: 'Planned C', coordinate: [8.04, 47], source: 'map' }] }] }
+  const scenarioRoute = (feedIds, scenario) => api.requestJson(`/api/projects/${projectId}/national-route`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...query,
+      feedIds, destination: point('C'), allowLongWalk: false, routingDataMode: 'realtime', departureWindowMinutes: 0, scenario }),
+  })
+  const planned = await scenarioRoute(['bus'], plannedLine)
+  assert.equal(planned.status, 200, JSON.stringify(planned.body))
+  const plannedPlan = planned.body.choices[0]
+  assert.equal(plannedPlan.status, 'ready', `A planned line must make the bus-only trip routable: ${JSON.stringify(plannedPlan).slice(0, 600)}`)
+  const plannedRide = plannedPlan.legs.find(leg => leg.scenarioService)
+  assert(plannedRide, 'The journey must ride the planned service.')
+  assert.equal(plannedRide.routeShortName, 'B–C link', 'Planned rides carry the service name.')
+  assert.equal(plannedRide.fromName, 'Planned B')
+  assert(plannedPlan.legs.some(leg => leg.type === 'ride' && !leg.scenarioService), 'Scheduled and planned service combine in one journey.')
+  assert.equal((await pointRoute(['bus'])).body.choices[0].status, 'blocked', 'A scenario never leaks into routes without it.')
+  const removed = await scenarioRoute(['bus', 'rail'], { id: 'cut', name: 'Cut', excludedRouteIds: ['rail::R'] })
+  assert.equal(removed.status, 200, JSON.stringify(removed.body))
+  assert.equal(removed.body.choices[0].status, 'blocked', 'A removed route must not carry scenario journeys.')
+
+  // Reach on a remix compares the scenario's timetables with the baseline group.
+  const remix = await send(['express'], { baselineFeedIds: ['bus', 'rail'] })
+  assert.equal(remix.status, 200, JSON.stringify(remix.body))
+  assert.equal(remix.body.result.diagnostics.reachDispatches, 2, 'A remix runs its own scenario range.')
+  assert.equal(remix.body.result.diagnostics.reach.timetable.residentTrips, 2, 'The remix baseline uses the baseline group.')
+  assert.equal(remix.body.result.diagnostics.scenarioReach.timetable.residentTrips, 1, 'The remix scenario uses its own group.')
+  // The baseline range is reused, and Studio's compact payload derives outlines from the fills.
+  const first = await send(['bus', 'rail'], { payload: 'compact' })
+  const second = await send(['bus', 'rail'], { payload: 'compact' })
+  assert.equal(second.body.result.diagnostics.reach.totalMs, first.body.result.diagnostics.reach.totalMs, 'A repeated baseline must reuse its range.')
+  assert.equal(second.body.result.surface.contours, undefined)
+  assert.equal(second.body.result.surface.compact.scenario, 'baseline')
+  assert.equal(second.body.result.surface.raster.scenario, undefined, 'An unchanged scenario is not sent twice.')
+
+  // Saved scenarios live in the City folder, and a stale window cannot overwrite them.
+  const library = { groups: [{ id: 'baseline', name: 'Baseline', feedIds: ['bus', 'rail'] }],
+    scenarios: [{ id: 'case-a', name: 'Planned link', groupId: 'baseline', changes: [] }] }
+  assert.deepEqual((await api.requestJson(`/api/projects/${projectId}/scenarios`)).body, { library: null, revision: 0 })
+  const saveLibrary = baseRevision => api.requestJson(`/api/projects/${projectId}/scenarios`, {
+    method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ baseRevision, library }),
+  })
+  assert.equal((await saveLibrary(0)).status, 200)
+  assert.equal((await api.requestJson(`/api/projects/${projectId}/scenarios`)).body.library.scenarios[0].name, 'Planned link')
+  const stale = await saveLibrary(0)
+  assert.equal(stale.status, 409, 'A stale save must be rejected.')
+  assert.equal(stale.body.revision, 1)
+  assert(JSON.parse(await fs.readFile(path.join(meta, 'scenarios.json'), 'utf8')).scenarios.length === 1)
   console.log('City case groups: exact feed selection, cross-feed transfers, baseline and scenario, grid sampling, switching, input validation, and no per-group timetable files passed.')
+  console.log('Scenarios: planned lines and removals in point-to-point routing, remix Reach, baseline reuse, compact payloads, and saved libraries passed.')
 } finally {
   if (api) await api.stop()
   disposeNationalGtfsStore(storePath); disposeNationalOsmStore(streetPath)

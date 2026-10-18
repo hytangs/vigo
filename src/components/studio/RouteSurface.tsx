@@ -20,6 +20,10 @@ import {
 } from '../../domain'
 import { buildNetworkPerformanceProfile } from '../../networkPerformance'
 import {
+  reachBandColor,
+  reachDifferenceCapMinutes,
+  reachDifferenceGradient,
+  reachDisplayedBands,
   type ReachComparisonResult,
   type ReachResult,
   type ScenarioRenderMode,
@@ -80,6 +84,34 @@ function MapScopeControl({
   )
 }
 
+/** The travel-time ramp as an on-map key: one swatch per displayed band. */
+function ReachLegend({ result, cutoffMinutes, view }: { result: ReachResult; cutoffMinutes: number; view: ScenarioView }) {
+  const bands = reachDisplayedBands(result, cutoffMinutes)
+  if (view === 'comparison') {
+    return (
+      <div className="reach-legend is-difference" role="img" aria-label={`Travel time change, capped at ${reachDifferenceCapMinutes} minutes`}>
+        <span className="reach-legend-title">Time change</span>
+        <small className="reach-legend-end">Slower</small>
+        <span className="reach-legend-ramp" style={{ background: reachDifferenceGradient }} />
+        <small className="reach-legend-end">Faster</small>
+      </div>
+    )
+  }
+  return (
+    <div className="reach-legend" role="img" aria-label={`Travel time bands up to ${cutoffMinutes} minutes`}>
+      <span className="reach-legend-title">Travel time</span>
+      <span className="reach-legend-scale">
+        {bands.map((band, index) => (
+          <span key={band} className="reach-legend-band" style={{ '--reach-band': reachBandColor(bands, index) } as CSSProperties}>
+            <small>{band}</small>
+          </span>
+        ))}
+      </span>
+      <span className="reach-legend-unit">min</span>
+    </div>
+  )
+}
+
 const emptyVehicleFrame: ServiceVehicleFrame = { mode: 'schedule', vehicles: [], tripUpdateCount: 0, alertCount: 0 }
 
 export function RouteSurface({
@@ -127,6 +159,7 @@ export function RouteSurface({
   scenarioPointPicking,
   onMoveScenarioStop,
   routingActivity,
+  occlusionKey,
   cityPreviewLoading,
   onMapScopeChange,
   onVehicleModeChange,
@@ -179,6 +212,8 @@ export function RouteSurface({
   scenarioPointPicking: boolean
   onMoveScenarioStop?: (index: number, coordinate: [number, number]) => void
   routingActivity: RoutingActivity
+  /** Changes when a floating panel opens over the map (for example journey details). */
+  occlusionKey?: string
   cityPreviewLoading: boolean
   onMapScopeChange: (scope: MapScope) => void
   onVehicleModeChange: (mode: ServiceVehicleMode) => void
@@ -198,6 +233,15 @@ export function RouteSurface({
     [queryFocus, routingCanvasPreview, selectedRouteId, selectedStopId, visiblePreview],
   )
   const mapPreview = queryFocus ? routingCanvasPreview : isNetworkMap || scheduledNetwork ? cityMapPreview : focusedPreview
+  // Rail, tram and ferry orient a query without competing with its result.
+  // Bus-only cities fall back to their most frequent patterns.
+  const contextPreview = useMemo<MapPreview | undefined>(() => {
+    if (!queryFocus) return undefined
+    const network = buildCityPreviewLod(visiblePreview, '')
+    const fixedGuideway = network.routes.filter((route) => route.routeType !== undefined && route.routeType !== 3)
+    const routes = fixedGuideway.length ? fixedGuideway : network.routes.filter((route) => route.frequencyClass === 'high')
+    return { routes, stops: network.stops, stopPairs: [] }
+  }, [queryFocus, visiblePreview])
   const selectedMapRouteId = routingFocus || analysisFocus || isNetworkMap || scheduledNetwork ? '' : selectedRouteId
   const performanceProfile = useMemo(
     () => buildNetworkPerformanceProfile(routingFocus || analysisFocus ? visiblePreview : mapPreview, { precise: !isNetworkMap && !routingFocus && !analysisFocus }),
@@ -284,6 +328,7 @@ export function RouteSurface({
   return (
     <section className="route-surface" aria-label="GTFS map and service state" style={routeStyle}>
       <div className="service-toolbar">
+        {analysisFocus && reachResult && !reachComparison?.length ? <ReachLegend result={reachResult} cutoffMinutes={scenarioCutoffMinutes} view={scenarioView} /> : null}
         {!showAgencyLine && !routingFocus && !analysisFocus ? (
           <ServiceStateControl
             onNow={() => void scheduleNow()}
@@ -313,6 +358,7 @@ export function RouteSurface({
           localBasemapAvailable={localBasemapAvailable}
           localBasemapRevision={localBasemapRevision}
           preview={mapPreview}
+          contextPreview={contextPreview}
           feedName={feed.name}
           layers={layers}
           networkLens={networkLens}
@@ -337,6 +383,7 @@ export function RouteSurface({
           scenarioSketchStops={scenarioSketchStops}
           scenarioSketchGeometry={scenarioSketchGeometry}
           scenarioPointPicking={scenarioPointPicking}
+          occlusionKey={occlusionKey}
           onMoveScenarioStop={onMoveScenarioStop}
           routingStatusTitle={!routingOrigin && !routingDestination ? 'Choose origin and destination' : routingActivity.title}
           routingStatusDetail={!routingOrigin && !routingDestination ? 'Search for two places or pick them on the map.' : routingActivity.detail}
@@ -376,8 +423,7 @@ export function RouteSurface({
         ) : null}
         {cityPreviewLoading ? (
           <div className="surface-loading-overlay" role="status" aria-live="polite">
-            <span className="surface-preview-loading" />
-            <strong>Loading City…</strong>
+            <div><span className="signal-loader" aria-hidden="true" /><strong>Loading City…</strong></div>
           </div>
         ) : null}
 

@@ -2,7 +2,7 @@ import type { RoutingPlan } from '../routingModel'
 
 /** A ride drawn from published GTFS shape vertices, in current or saved results. */
 export function shapedRideGeometry(source: string | undefined): boolean {
-  return source === 'gtfs_shape' || source === 'shape'
+  return source === 'gtfs_shape' || source === 'shape' || source === 'scenario_plan'
 }
 
 export function formatRoutingMinutes(minutes: number) {

@@ -7,6 +7,9 @@ import { reachComparisonColor } from '../reach'
 
 const routeLayerIds = ['vigo-route-casing', 'vigo-routes', 'vigo-selected-route']
 
+// Route and Analyze keep a quiet reference network under the query result.
+const contextLayerIds = ['vigo-context-routes']
+
 const segmentLayerIds = ['vigo-segments-casing', 'vigo-segments', 'vigo-selected-segments']
 
 export const stopLayerIds = ['vigo-overview-stops', 'vigo-network-stops', 'vigo-stops', 'vigo-selected-stop']
@@ -59,7 +62,7 @@ export function setReachBandImage(map: MapLibreMap, image: { canvas: HTMLCanvasE
     id: 'vigo-reach-bands',
     type: 'raster',
     source: 'vigo-reach-bands',
-    paint: { 'raster-opacity': 0.42, 'raster-fade-duration': 0 },
+    paint: { 'raster-opacity': 0.82, 'raster-fade-duration': 0 },
   }, map.getLayer('vigo-scenario-area') ? 'vigo-scenario-area' : undefined)
 }
 
@@ -89,6 +92,9 @@ export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
   ensureVehicleDirectionSprite(map)
   if (!map.getSource('vigo-routes')) {
     map.addSource('vigo-routes', { type: 'geojson', data: emptyCollection })
+  }
+  if (!map.getSource('vigo-context-routes')) {
+    map.addSource('vigo-context-routes', { type: 'geojson', data: emptyCollection })
   }
   if (!map.getSource('vigo-segments')) {
     map.addSource('vigo-segments', { type: 'geojson', data: emptyCollection })
@@ -373,6 +379,20 @@ export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
     })
   }
 
+  if (!map.getLayer('vigo-context-routes')) {
+    map.addLayer({
+      id: 'vigo-context-routes',
+      type: 'line',
+      source: 'vigo-context-routes',
+      layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'none' },
+      paint: {
+        'line-color': ['get', 'color'] as ExpressionSpecification,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.8, 12, 1.8, 16, 3.4],
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.42, 13, 0.3, 16, 0.22],
+      },
+    })
+  }
+
   if (!map.getLayer('vigo-route-casing')) {
     map.addLayer({
       id: 'vigo-route-casing',
@@ -632,7 +652,7 @@ export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
       source: 'vigo-stops',
       maxzoom: 10.5,
       paint: {
-        'circle-color': '#2f80ed',
+        'circle-color': '#8fa3bd',
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 0.8, 6, 1.35, 10.4, 2.1],
         'circle-opacity': ['interpolate', ['linear'], ['zoom'], 2, 0.34, 6, 0.58, 10.4, 0.16],
         'circle-stroke-color': '#dff5ff',
@@ -697,7 +717,7 @@ export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
     map.addLayer({
       id: 'vigo-selected-stop', type: 'circle', source: 'vigo-stops',
       filter: ['==', ['get', 'selectedStop'], true],
-      paint: { 'circle-radius': 8, 'circle-color': '#ffffff', 'circle-stroke-color': '#2f80ed', 'circle-stroke-width': 3 },
+      paint: { 'circle-radius': 7, 'circle-color': '#cde67c', 'circle-stroke-color': '#08101b', 'circle-stroke-width': 3 },
     })
   }
 
@@ -729,12 +749,12 @@ export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
         'circle-color': [
           'case',
           ['==', ['get', 'zeroMinuteOrigin'], true],
-          '#3550ff',
+          '#cde67c',
           ['==', ['get', 'pointKind'], 'waypoint'],
-          '#f0b62e',
+          '#f7b955',
           ['==', ['get', 'pointKind'], 'destination'],
-          '#9cbd23',
-          '#13b8c7',
+          '#5ec8ff',
+          '#cde67c',
         ] as ExpressionSpecification,
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 7, 13, 11],
         'circle-opacity': 0.2,
@@ -752,20 +772,20 @@ export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
         'circle-color': [
           'case',
           ['==', ['get', 'zeroMinuteOrigin'], true],
-          '#3550ff',
+          '#cde67c',
           ['==', ['get', 'pointKind'], 'waypoint'],
-          '#f0b62e',
+          '#f7b955',
           ['==', ['get', 'pointKind'], 'destination'],
-          '#9cbd23',
-          '#13b8c7',
+          '#5ec8ff',
+          '#cde67c',
         ] as ExpressionSpecification,
         'circle-radius': [
           'interpolate', ['linear'], ['zoom'],
           7, ['case', ['==', ['get', 'zeroMinuteOrigin'], true], 5.5, 4.5],
           13, ['case', ['==', ['get', 'zeroMinuteOrigin'], true], 8, 6.5],
         ] as ExpressionSpecification,
-        'circle-stroke-color': '#f8fbff',
-        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 7, 1.5, 13, 2.5],
+        'circle-stroke-color': '#08101b',
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 7, 2, 13, 3],
         'circle-opacity': 1,
       },
     })
@@ -845,8 +865,9 @@ export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
 export function applyLayerVisibility(
   map: MapLibreMap,
   layers: LayerState,
-  options: { routingVisible?: boolean; reachResultVisible?: boolean; reachComparisonCount?: number } = {},
+  options: { routingVisible?: boolean; reachResultVisible?: boolean; reachComparisonCount?: number; contextVisible?: boolean } = {},
 ) {
+  setVisibility(map, contextLayerIds, options.contextVisible ?? false)
   setVisibility(map, routeLayerIds, layers.routes)
   setVisibility(map, segmentLayerIds, layers.segments)
   setVisibility(map, stopLayerIds, layers.stops)

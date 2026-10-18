@@ -7,6 +7,8 @@ import {
   type ReachResult, type ReachComparisonResult,
 } from '../reach'
 
+import { rankedCompareEntries, type ComparisonRun } from './comparison'
+
 export type ResultFile = { name: string; text: string; type: string }
 export type ResultExportFormat = 'json' | 'geojson' | 'csv' | 'md'
 
@@ -206,4 +208,40 @@ export function exportReachResults(entries: ReachExportEntry[], format: ResultEx
 export function reachExportEntries(analysis: ReachResult | null, comparison: ReachComparisonResult[] | null): ReachExportEntry[] {
   return comparison?.length ? comparison.map(entry => ({ name: entry.feedName, feedId: entry.feedId, result: entry.result }))
     : analysis ? [{ name: analysis.request.scenario.name, result: analysis }] : []
+}
+
+/**
+ * Compare: the ranking as a spreadsheet, the full run with the variant shown
+ * on the map, or that variant's areas beside the reference's.
+ */
+export function exportComparison(run: ComparisonRun, selected: ReachResult | null, format: ResultExportFormat): ResultFile {
+  if (format === 'md') throw new Error('Save Compare as CSV, JSON or GeoJSON.')
+  const exportedAt = new Date().toISOString()
+  const ranked = rankedCompareEntries(run.entries)
+  const identity = [run.serviceDate, run.reference.label, `${run.cutoffMinutes}min`]
+  if (format === 'csv') return file('compare', format, csv([
+    ['variant', 'kind', 'reference', 'cutoff_minutes', 'area_km2', 'area_change_km2', 'stops_reached', 'stops_change',
+      'cells_faster', 'cells_slower', 'cells_newly_reached', 'cells_no_longer_reached', 'cells_reached_by_both', 'mean_minutes_saved_on_shared_cells'],
+    [run.reference.label, run.reference.kind, run.reference.label, run.cutoffMinutes, run.reference.areaKm2, 0, run.reference.stops, 0, 0, 0, 0, 0, '', 0],
+    ...ranked.map(({ variant, stats }) => [variant.label, variant.kind, run.reference.label, run.cutoffMinutes,
+      stats?.areaKm2, stats?.areaDeltaKm2, stats?.stops, stats?.stopsDelta, stats?.fasterPixels, stats?.slowerPixels,
+      stats?.newPixels, stats?.lostPixels, stats?.commonPixels, stats?.meanSavedMinutes]),
+  ]), identity, exportedAt)
+  if (format === 'json') return file('compare', format, {
+    schemaVersion: 'vigo.studio.compare-export.v1', exportedAt,
+    cutoffMinutes: run.cutoffMinutes, serviceDate: run.serviceDate, departMinutes: run.departMinutes,
+    reference: { id: run.reference.id, label: run.reference.label, kind: run.reference.kind, feedIds: run.reference.feedIds, areaKm2: run.reference.areaKm2, stops: run.reference.stops },
+    variants: ranked.map(({ variant, stats, error }) => ({ id: variant.id, label: variant.label, kind: variant.kind, feedIds: variant.feedIds, stats, ...(error ? { error } : {}) })),
+    selectedVariantId: run.selectedId,
+    selected: selected ?? null,
+  }, identity, exportedAt)
+  if (!selected) throw new Error('Choose a variant to save its map geometry.')
+  const label = run.entries.find((entry) => entry.variant.id === run.selectedId)?.variant.label ?? 'Variant'
+  const collection: FeatureCollection<Geometry> = { type: 'FeatureCollection', features: (['baseline', 'scenario'] as const).flatMap((surface) =>
+    (selected.surface.areas?.[surface]?.features ?? [])
+      .filter((feature) => Number(feature.properties?.cutoffMinutes) === run.cutoffMinutes)
+      .map((feature) => ({ ...feature, properties: { ...feature.properties, name: surface === 'baseline' ? run.reference.label : label,
+        surface: surface === 'baseline' ? 'reference' : 'variant', serviceDate: run.serviceDate, departMinutes: run.departMinutes } }))) }
+  if (!collection.features.length) throw new Error('Update Compare to retain geometry for this cutoff, or save JSON or CSV.')
+  return file('compare', format, collection, identity, exportedAt)
 }

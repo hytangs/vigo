@@ -12,12 +12,19 @@ const project = { ...emptyCityProject(), id: 'test-city', name: 'Test City', reg
   feeds: ['first', 'second'].map(id => ({ id, name: id, source: 'local-file', provider: 'Test', importedAt: '2026-01-01', routeCount: 1, stopCount: 2, tripCount: 1, transferCandidates: 0, qualityScore: 100, requiredTables: {}, optionalTables: {}, warnings: [], routeMetrics: [], stopMetrics: [], routingStore: store })),
 }
 const config = { schemaVersion: 'vigo.config.v1', configured: true, setupRequired: false, storageRoot: '/fixture/cities', appearance: 'light', accent: 'graphite', basemap: 'none', offline: { localServer: true, storageWritable: true } }
+let savedScenarios = { library: null, revision: 0 }
 window.fetch = async (input, options = {}) => {
   const url = String(input)
   if (url === '/api/health') return Response.json({ ok: true, version: '0.5.0', config, offline: config.offline })
   if (url === '/api/config') return Response.json({ config })
   if (url === '/api/projects') return Response.json({ projects: [project] })
   if (url === '/api/projects/test-city') return Response.json({ project })
+  if (url === '/api/projects/test-city/scenarios') {
+    if (!options.method || options.method === 'GET') return Response.json(savedScenarios)
+    const body = JSON.parse(options.body)
+    savedScenarios = { revision: savedScenarios.revision + 1, library: { ...body.library, revision: savedScenarios.revision + 1 } }
+    return Response.json(savedScenarios)
+  }
   if (url === '/api/projects/test-city/reach') {
     requests.push(JSON.parse(options.body))
     // This fixture checks App request wiring; engine computation has its own real HTTP tests.
@@ -62,7 +69,10 @@ window.checkAnalysisRequest = async () => {
   }
   await until(() => !document.querySelector('.reach-run').disabled)
   flushSync(() => document.querySelector('.reach-run').click())
-  await until(() => requests.length === 3 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
+  // Compare measures the reference (the Baseline group) once, then each selected timetable against it.
+  await until(() => requests.length === 4 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
+  assert(requests[1].feedIds.join() === 'first,second' && !requests[1].baselineFeedIds, 'Compare did not measure its reference first')
+  assert(requests.slice(2).every(request => request.baselineFeedIds?.join() === 'first,second' && request.feedIds.length === 1), 'Compare variants lost their reference')
   // A single run adds round-minute display bands below the exact budget; comparisons compute the budget only.
   assert(JSON.stringify(requests[0].cutoffsMinutes) === '[10,20,30,37.25]', 'Single Reach must band below the exact budget')
   for (const request of requests.slice(1)) {
@@ -74,7 +84,7 @@ window.checkAnalysisRequest = async () => {
   }
   fill(field('Maximum transit rides'), '')
   flushSync(() => document.querySelector('.reach-run').click())
-  await until(() => requests.length === 5 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
-  assert(requests.slice(3).every(request => !('maxTransfers' in request)), 'Automatic ride limit was serialized as a number')
+  await until(() => requests.length === 7 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
+  assert(requests.slice(4).every(request => !('maxTransfers' in request)), 'Automatic ride limit was serialized as a number')
   return { singleAndComparison: true, exactLimits: true, noHiddenWindow: true, automaticLimit: true, requests: requests.length }
 }

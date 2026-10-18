@@ -4,6 +4,7 @@ import { apiJson } from '../app/api'
 import type { StopBoard, StopBoardRow } from '../agency/routeOperationsTypes'
 import { scheduleDeviation } from '../agency/presentation'
 import { AgencyFeedHealth } from './AgencyFeedHealth'
+import { AgencyRouteBadge } from './AgencyRouteBadge'
 
 export type TripTarget = Pick<StopBoardRow, 'routeId' | 'tripId' | 'serviceDate'>
 export type TripNavigation = (trip: TripTarget) => void
@@ -13,6 +14,13 @@ function clock(time: number | null, timezone: string | null, reference: number, 
   const sameDay = new Date(time * 1000).toLocaleDateString('en-CA', { timeZone: timezone }) === new Date(reference * 1000).toLocaleDateString('en-CA', { timeZone: timezone })
   return new Date(time * 1000).toLocaleString([], { timeZone: timezone, hour: 'numeric', minute: '2-digit',
     ...(!sameDay ? { month: 'short', day: 'numeric' } as const : {}), ...(precise ? { second: '2-digit', timeZoneName: 'short' } as const : {}) })
+}
+
+/** Same thresholds as the live vehicle legend: late ≥5 min warns, ≥15 min is severe. */
+function deviationTone(scheduled: number | null, current: number | null) {
+  if (scheduled === null || current === null) return undefined
+  const delta = current - scheduled
+  return delta >= 900 ? 'is-alert' : delta >= 300 ? 'is-watch' : delta <= -180 ? 'is-early' : undefined
 }
 
 function arrivalLabel(row: StopBoardRow, now: number, timezone: string | null) {
@@ -46,10 +54,10 @@ export function StopArrivalBoardView({ data, refreshError = '', showHeading = tr
       const timing = row[row.kind]
       const notRunning = row.status === 'cancelled' || row.status === 'skipped'
       return <li key={row.key} className={notRunning ? 'is-not-running' : ''}>
-        <span className="stop-board-route" style={{ '--arrival-color': row.color } as CSSProperties}>{row.routeName}</span>
+        <span className="stop-board-route"><AgencyRouteBadge name={row.routeName} color={row.color} /></span>
         <div className="stop-board-service"><strong>{openTrip ? <button type="button" className="stop-board-trip" onClick={openTrip} aria-label={`Open trip ${row.tripId} to ${row.destination}`}>To {row.destination}</button> : <>To {row.destination}</>}</strong><small>{[row.vehicleLabel ? `Vehicle ${row.vehicleLabel}` : 'Vehicle not reported', row.platform ? `Platform ${row.platform}` : row.stopName !== data.stop.name ? row.stopName : ''].filter(Boolean).join(' · ')}</small></div>
-        <div className="stop-board-time"><strong>{snapshot && !notRunning ? time(row.expected) : arrivalLabel(row, now, data.timezone)}</strong><small>{row.kind === 'departure' && !notRunning ? 'Departs · ' : ''}{row.status === 'live' ? <><Radio size={10} aria-hidden="true" /> {snapshot ? 'Recorded prediction' : `Prediction ${time(timing.current)}`}</> : row.atStop && !snapshot ? 'Reported at this stop' : notRunning ? time(timing.scheduled) : 'Schedule only'}</small></div>
-        <details className="stop-board-baseline"><summary>{row.status === 'live' ? <>Scheduled {time(timing.scheduled)}{scheduleDeviation(timing.scheduled, timing.current) ? <b> · {scheduleDeviation(timing.scheduled, timing.current)}</b> : null}</> : row.status === 'stale' ? 'Prediction out of date' : row.status === 'unresolved' ? 'Conflicting reports · schedule shown' : 'Timing details'}</summary>
+        <div className="stop-board-time"><strong className={!snapshot && (row.atStop || arrivalLabel(row, now, data.timezone) === 'Due') ? 'is-now' : undefined}>{snapshot && !notRunning ? time(row.expected) : arrivalLabel(row, now, data.timezone)}</strong><small>{row.kind === 'departure' && !notRunning ? 'Departs · ' : ''}{row.status === 'live' ? <><Radio size={10} aria-hidden="true" /> {snapshot ? 'Recorded prediction' : `Prediction ${time(timing.current)}`}</> : row.atStop && !snapshot ? 'Reported at this stop' : notRunning ? time(timing.scheduled) : 'Schedule only'}</small></div>
+        <details className="stop-board-baseline"><summary>{row.status === 'live' ? <>Scheduled {time(timing.scheduled)}{scheduleDeviation(timing.scheduled, timing.current) ? <> · <b className={deviationTone(timing.scheduled, timing.current)}>{scheduleDeviation(timing.scheduled, timing.current)}</b></> : null}</> : row.status === 'stale' ? 'Prediction out of date' : row.status === 'unresolved' ? 'Conflicting reports · schedule shown' : 'Timing details'}</summary>
           {row.timingIssue ? <p>{row.timingIssue}</p> : null}
           <dl>
             <div><dt>Service date</dt><dd>{row.serviceDate}</dd></div>
@@ -93,5 +101,9 @@ export function StopArrivalBoard({ projectId, stopId, showHeading = true, onOpen
     document.addEventListener('visibilitychange', onVisible)
     return () => { controller.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
   }, [projectId, stopId])
-  return data ? <StopArrivalBoardView key={`${projectId}/${stopId}`} data={data} onOpenTrip={onOpenTrip} refreshError={error} showHeading={showHeading} /> : <p className="stop-board-empty" role={error ? 'alert' : 'status'}>{error || 'Loading stop arrivals…'}</p>
+  if (data) return <StopArrivalBoardView key={`${projectId}/${stopId}`} data={data} onOpenTrip={onOpenTrip} refreshError={error} showHeading={showHeading} />
+  if (error) return <p className="stop-board-empty" role="alert">{error}</p>
+  return <div className="stop-board-loading" role="status" aria-label="Loading stop arrivals">
+    {[0, 1, 2, 3, 4].map(index => <span key={index} aria-hidden="true"><span className="skeleton" /><span className="skeleton" /><span className="skeleton" /></span>)}
+  </div>
 }

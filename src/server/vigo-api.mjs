@@ -27,13 +27,16 @@ import {
 } from './national-gtfs-store.mjs'
 import { readNationalOsmStoreMetadata } from './national-osm-store.mjs'
 import { readLocalBasemap, localBasemapBudgets } from './local-basemap-store.mjs'
+import { networkSignatureSvg, networkSignatureVersion } from './network-signature.mjs'
+import { renderNativeLocalBasemapTile } from './native-routing-kernel.mjs'
 import { integralNumber } from './number-utils.mjs'
 import {
   composeOrderedRoutingFailure,
   routeOrderedRoutingSegments,
   validateOrderedRoutingPoints,
 } from './ordered-route-composition.mjs'
-import { computeReachResult } from './reach.mjs'
+import { compactReachResult, compileRouteScenario, computeReachResult } from './reach.mjs'
+import { readScenarioLibrary, scenarioLibraryFileName, writeScenarioLibrary } from './scenario-library.mjs'
 import { inspectRealtimeFeed } from './realtime-inspector.mjs'
 import { normalizeRoutingDataRequest } from './routing-data-mode.mjs'
 import { resolveDepartNowRequest } from './routing-depart-now.mjs'
@@ -69,6 +72,7 @@ const projectWriteQueues = new Map()
 const cityMaintenance = new Set()
 const nationalPreviewRefreshes = new Map()
 const gtfsRouteAnalysisCache = new Map()
+const networkSignatureCache = new Map()
 const routingStoreSourceScopesCache = new Map()
 const nationalJobProgressPersistedAt = new WeakMap()
 const nationalRoutingServiceCoverageCache = new Map()
@@ -1472,14 +1476,15 @@ function invalidateProjectRuntimeCaches(projectId) {
 async function inspectCityData(projectId) {
   const project = await readProjectMetadata(projectId)
   const metaRoot = projectMetaDir(projectId)
-  const [timetables, streets, jobs, artifacts, identity] = await Promise.all([
+  const [timetables, streets, jobs, artifacts, identity, scenarios] = await Promise.all([
     measureStoragePath(path.join(metaRoot, 'routing')),
     measureStoragePath(path.join(metaRoot, 'osm')),
     measureStoragePath(path.join(metaRoot, 'jobs')),
     measureStoragePath(path.join(metaRoot, 'artifacts')),
     measureStoragePath(path.join(metaRoot, 'project.json')),
+    measureStoragePath(path.join(metaRoot, scenarioLibraryFileName)),
   ])
-  const knownEntries = new Set(['routing', 'osm', 'jobs', 'artifacts', 'project.json'])
+  const knownEntries = new Set(['routing', 'osm', 'jobs', 'artifacts', 'project.json', scenarioLibraryFileName])
   const entries = await fs.readdir(metaRoot, { withFileTypes: true }).catch((error) => {
     if (error?.code === 'ENOENT') return []
     throw error
@@ -1490,7 +1495,8 @@ async function inspectCityData(projectId) {
       .map((entry) => measureStoragePath(path.join(metaRoot, entry.name))),
   ))
   const activity = addStorageMeasures(jobs, artifacts)
-  const cleanable = addStorageMeasures(timetables, streets, activity, other)
+  // A reset removes saved scenarios with the timetables they refer to.
+  const cleanable = addStorageMeasures(timetables, streets, activity, scenarios, other)
 
   return {
     schemaVersion: 'vigo.city.data.preview.v1',
@@ -1518,6 +1524,7 @@ async function inspectCityData(projectId) {
       timetables,
       streets,
       activity,
+      scenarios,
       other,
     },
   }
@@ -3184,9 +3191,19 @@ async function runSingleNationalRoute(projectId, body, signal, options = {}) {
   }
   const routingPreference = 'fastest'
   const requireTransitRide = mode === 'transit' && options.requireTransitRide === true
+  // A scenario route runs on the scheduled timetable with the scenario's
+  // removed trips canceled and its planned services added.
+  let scenarioPlan = null
+  if (mode === 'transit' && body?.scenario) {
+    assertCaseRouteSources(body.scenario, selection?.feedIds, Boolean(selection?.sourceScopes))
+    const storeIdentity = await nationalRouteArtifactIdentity(storePath)
+    const hydrated = hydrateScenarioRouteServices(storePath, storeIdentity, { ...body, ...serviceContext })
+    scenarioPlan = compileRouteScenario(hydrated.scenario)
+  }
   const publicRoutingBody = Object.fromEntries(
-    Object.entries(body ?? {}).filter(([key]) => !key.startsWith('__')),
+    Object.entries(body ?? {}).filter(([key]) => !key.startsWith('__') && key !== 'scenario'),
   )
+  if (scenarioPlan) Object.assign(publicRoutingBody, { scenarioPlan, routingDataMode: 'scheduled' })
   const routeRequest = windowMinutes
     ? {
       ...publicRoutingBody,
@@ -3811,11 +3828,67 @@ async function runNationalStreetMatrix(projectId, body, signal) {
   )
 }
 
+// Water around a Reach origin, read once per street build and grid.
+const reachWaterCache = new Map()
+
+function readReachWater(streetPath, streetIdentity, bounds) {
+  const key = JSON.stringify([streetPath, streetIdentity, bounds])
+  const retained = reachWaterCache.get(key)
+  if (retained) return retained
+  const [west, south, east, north] = bounds
+  const water = readLocalBasemap(streetPath, { west, south, east, north }, { zoom: 15, waterOnly: true })
+  reachWaterCache.set(key, water)
+  if (reachWaterCache.size > 8) reachWaterCache.delete(reachWaterCache.keys().next().value)
+  return water
+}
+
+// Reach ranges repeat across scenarios, reruns, remixes and Compare: the
+// reference surface for every variant, and a variant when it is shown again.
+// Bounded by bytes so analysis does not grow the Studio Engine's memory.
+const reachBaselineCache = new Map()
+const reachBaselineCacheBudgetBytes = 64 * 1024 * 1024
+let reachBaselineCacheBytes = 0
+
+function reachRangeBytes(range) {
+  const surface = range?.surface
+  return 8 * ((surface?.values?.length ?? 0) + (surface?.fullValues?.length ?? 0)) + 640 * (range?.stops?.length ?? 0) + 65_536
+}
+
+// Identical ranges requested together (Compare's variants share one reference)
+// wait for one computation instead of repeating it.
+const reachRangesInFlight = new Map()
+
+function rememberReachBaseline(key, range) {
+  const bytes = reachRangeBytes(range)
+  if (bytes > reachBaselineCacheBudgetBytes / 4) return
+  reachBaselineCache.set(key, { range, bytes })
+  reachBaselineCacheBytes += bytes
+  for (const [oldest, entry] of reachBaselineCache) {
+    if (reachBaselineCacheBytes <= reachBaselineCacheBudgetBytes && reachBaselineCache.size <= 10) break
+    reachBaselineCache.delete(oldest)
+    reachBaselineCacheBytes -= entry.bytes
+  }
+}
+
 async function runReach(projectId, body, signal, onProgress, onPreliminary) {
   const project = await readProjectMetadata(projectId)
   const serviceContext = nationalRequestServiceContext(body)
   const { storePath, feed, feedId, feedIds, sourceScopes } = await requireCaseRoutingStore(projectId, project, body)
   assertCaseRouteSources(body?.scenario, feedIds, Boolean(sourceScopes))
+  // A remix compares the scenario's timetables with a different baseline set.
+  const baselineFeedIds = body?.baselineFeedIds === undefined || !feedIds
+    ? feedIds
+    : cityCaseFeedIds(project, { feedIds: body.baselineFeedIds })
+  if (baselineFeedIds !== feedIds && project.feeds.length > 1) {
+    const available = await routingStoreSourceScopes(storePath)
+    if (baselineFeedIds.some(id => !available.includes(id))) {
+      const error = new Error('The City timetable is out of date. Finish preparing its GTFS sources before comparing remixes.')
+      error.statusCode = 409
+      throw error
+    }
+  }
+  const baselineScopes = baselineFeedIds === feedIds ? sourceScopes : baselineFeedIds
+  const remixed = JSON.stringify(baselineScopes ?? null) !== JSON.stringify(sourceScopes ?? null)
   body = normalizeRoutingPointIdentities(storePath, body,
     feed?.id ?? (project.feeds.length === 1 ? project.feeds[0].id : ''))
   const streetPath = project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))
@@ -3831,7 +3904,7 @@ async function runReach(projectId, body, signal, onProgress, onPreliminary) {
     streetPath ? nationalRouteArtifactIdentity(streetPath, 'street') : Promise.resolve(null),
   ])
   const baselineIdentity = crypto.createHash('sha256').update(JSON.stringify({
-    appVersion, store: storeIdentity, street: streetIdentity, feedIds,
+    appVersion, store: storeIdentity, street: streetIdentity, feedIds: baselineFeedIds,
   })).digest('hex')
   const hydratedBody = hydrateScenarioRouteServices(
     storePath,
@@ -3851,29 +3924,59 @@ async function runReach(projectId, body, signal, onProgress, onPreliminary) {
     const ratio = Math.max(0, Math.min(1, Number(progress ?? 0)))
     return start + ratio * (end - start)
   }
+  const dispatchRange = (rangeRequest, scopes) => nationalRouteWorkerPool.dispatch(
+    storePath,
+    'reach',
+    {
+      ...rangeRequest,
+      sourceScopes: scopes,
+      streetStorePath: streetPath || undefined,
+    },
+    signal,
+    (progress) => onProgress?.({
+      ...progress,
+      phase: progress.phase === 'complete' ? 'search' : progress.phase,
+      progress: mapReachProgress(rangeRequest.stage, progress.progress),
+    }),
+  )
   return computeReachResult({
     ...hydratedBody,
     feedId,
     feedIds,
     baselineIdentity,
+    remixed,
   }, {
-    readDisplayWater: ([west, south, east, north]) => readLocalBasemap(streetPath,
-      { west, south, east, north }, { zoom: 15, waterOnly: true }),
-    runReach: (rangeRequest) => nationalRouteWorkerPool.dispatch(
-      storePath,
-      'reach',
-      {
-        ...rangeRequest,
-        sourceScopes,
-        streetStorePath: streetPath || undefined,
-      },
-      signal,
-      (progress) => onProgress?.({
-        ...progress,
-        phase: progress.phase === 'complete' ? 'search' : progress.phase,
-        progress: mapReachProgress(rangeRequest.stage, progress.progress),
-      }),
-    ),
+    readDisplayWater: (bounds) => readReachWater(streetPath, streetIdentity, bounds),
+    runReach: async (rangeRequest) => {
+      const scopes = rangeRequest.stage === 'baseline-range' ? baselineScopes : sourceScopes
+      // Street-edge bundles are large; those ranges are never retained.
+      if (rangeRequest.surface?.includeEdges) return dispatchRange(rangeRequest, scopes)
+      const key = crypto.createHash('sha256').update(JSON.stringify({
+        store: storeIdentity, street: streetIdentity, scopes: scopes ?? null, rangeRequest,
+      })).digest('hex')
+      const cached = reachBaselineCache.get(key)
+      if (cached) {
+        reachBaselineCache.delete(key)
+        reachBaselineCache.set(key, cached)
+        onProgress?.({ phase: 'search', progress: mapReachProgress(rangeRequest.stage, 1), detail: 'Reused a computed surface' })
+        return cached.range
+      }
+      const pending = reachRangesInFlight.get(key)
+      if (pending) {
+        const shared = await pending
+        onProgress?.({ phase: 'search', progress: mapReachProgress(rangeRequest.stage, 1), detail: 'Reused a computed surface' })
+        return shared
+      }
+      const computation = dispatchRange(rangeRequest, scopes)
+      reachRangesInFlight.set(key, computation)
+      try {
+        const range = await computation
+        rememberReachBaseline(key, range)
+        return range
+      } finally {
+        if (reachRangesInFlight.get(key) === computation) reachRangesInFlight.delete(key)
+      }
+    },
     buildPreliminaryStreetRaster: (surfaceRequest) => nationalRouteWorkerPool.dispatch(
       storePath,
       'street-surface',
@@ -4314,6 +4417,41 @@ async function route(request, response) {
     return true
   }
 
+  // Offline basemap as vector tiles rendered by the Rust kernel. A revision
+  // query (the street index build time) makes each tile immutable.
+  const basemapTileMatch = pathname.match(/^\/api\/projects\/([^/]+)\/basemap-tiles\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.mvt$/)
+  if (request.method === 'GET' && basemapTileMatch) {
+    const projectId = decodeURIComponent(basemapTileMatch[1])
+    const [z, x, y] = basemapTileMatch.slice(2).map(Number)
+    if (cityMaintenance.has(projectId) || nationalImportProjects.get(projectId)?.has('osm')) {
+      const error = new Error('Street data is being replaced. The local map returns when the import finishes.')
+      error.statusCode = 409
+      throw error
+    }
+    const project = await readProjectMetadata(projectId)
+    const storePath = streetStoreFile(projectId)
+    if (project.osmStreetIndex?.status !== 'ready' || !await exists(storePath)) {
+      const error = new Error('This City has no ready OSM street index. Import an .osm.pbf file first.')
+      error.statusCode = 409
+      throw error
+    }
+    if (z > 22 || x >= 2 ** z || y >= 2 ** z) {
+      const error = new Error('Tile coordinates are outside the Web Mercator pyramid.')
+      error.statusCode = 400
+      throw error
+    }
+    const tile = await renderNativeLocalBasemapTile(storePath, z, x, y)
+    const cacheControl = url.searchParams.get('v') ? 'private, max-age=31536000, immutable' : 'no-cache'
+    if (!tile.length) {
+      response.writeHead(204, { 'Cache-Control': cacheControl })
+      response.end()
+      return true
+    }
+    response.writeHead(200, { 'Content-Type': 'application/vnd.mapbox-vector-tile', 'Content-Length': tile.length, 'Cache-Control': cacheControl })
+    response.end(tile)
+    return true
+  }
+
   const projectMatch = pathname.match(/^\/api\/projects\/([^/]+)(?:\/([^/]+))?$/)
   if (projectMatch) {
     const projectId = decodeURIComponent(projectMatch[1])
@@ -4335,6 +4473,30 @@ async function route(request, response) {
         ? await readProjectMetadata(projectId)
         : await readProject(projectId)
       sendJson(response, 200, { project })
+      return true
+    }
+
+    if (request.method === 'GET' && action === 'signature') {
+      const project = await readProject(projectId)
+      const revision = [networkSignatureVersion, project.updatedAt, ...project.feeds.map((feed) => `${feed.id}:${feed.importedAt ?? ''}`)].join('|')
+      let svg = networkSignatureCache.get(projectId)?.revision === revision ? networkSignatureCache.get(projectId).svg : undefined
+      if (svg === undefined) {
+        svg = networkSignatureSvg(project.feeds.map((feed) => feed.mapPreview))
+        networkSignatureCache.delete(projectId)
+        networkSignatureCache.set(projectId, { revision, svg })
+        while (networkSignatureCache.size > 32) networkSignatureCache.delete(networkSignatureCache.keys().next().value)
+      }
+      if (!svg) {
+        response.writeHead(204, { 'Cache-Control': 'no-store' })
+        response.end()
+        return true
+      }
+      response.writeHead(200, {
+        'Content-Type': 'image/svg+xml; charset=utf-8',
+        'Content-Security-Policy': "default-src 'none'",
+        'Cache-Control': 'private, max-age=31536000, immutable',
+      })
+      response.end(svg)
       return true
     }
 
@@ -4369,6 +4531,22 @@ async function route(request, response) {
 
     if (request.method === 'GET' && action === 'city-data') {
       sendJson(response, 200, { data: await inspectCityData(projectId) })
+      return true
+    }
+
+    if (action === 'scenarios') {
+      await readProjectMetadata(projectId)
+      if (request.method === 'GET') {
+        sendJson(response, 200, await readScenarioLibrary(projectMetaDir(projectId)))
+      } else if (request.method === 'PUT') {
+        const body = await readBody(request)
+        try {
+          sendJson(response, 200, await writeScenarioLibrary(projectMetaDir(projectId), body?.library, body?.baseRevision, writeJsonAtomic))
+        } catch (error) {
+          if (error?.statusCode !== 409) throw error
+          sendJson(response, 409, { error: error.message, library: error.library, revision: error.revision })
+        }
+      } else sendJson(response, 405, { error: 'Method not allowed.' })
       return true
     }
 
@@ -4506,8 +4684,9 @@ async function route(request, response) {
       await withRequestAbort(request, response, async (signal) => {
         const body = await readBody(request)
         const streamsProgress = String(request.headers.accept ?? '').includes('application/x-ndjson')
+        const shape = body?.payload === 'compact' ? compactReachResult : (result) => result
         if (!streamsProgress) {
-          const result = await runReach(projectId, body, signal)
+          const result = shape(await runReach(projectId, body, signal))
           if (signal.aborted) throw makeAbortError()
           sendJson(response, 200, { result })
           return
@@ -4543,7 +4722,7 @@ async function route(request, response) {
             (preliminary) => write({ type: 'preliminary', result: preliminary }),
           )
           if (signal.aborted) return
-          write({ type: 'complete', result })
+          write({ type: 'complete', result: shape(result) })
           response.end()
         } catch (error) {
           if (signal.aborted || isAbortError(error)) {

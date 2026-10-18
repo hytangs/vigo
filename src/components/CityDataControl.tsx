@@ -30,6 +30,7 @@ type CityDataPreview = {
     timetables: StorageMeasure
     streets: StorageMeasure
     activity: StorageMeasure
+    scenarios?: StorageMeasure
     other: StorageMeasure
   }
 }
@@ -52,6 +53,7 @@ const cleanupCategories: Array<{
   { key: 'timetables', label: 'Timetables' },
   { key: 'streets', label: 'Street index' },
   { key: 'activity', label: 'Build records' },
+  { key: 'scenarios', label: 'Saved scenarios' },
   { key: 'other', label: 'Other managed data' },
 ]
 
@@ -216,12 +218,12 @@ export function CityDataControl({
             </div>
           </div>
 
-          <div className="city-storage-bar" aria-hidden="true">{cleanupCategories.map(({ key }) => <span key={key} data-category={key} style={{ flexGrow: preview.categories[key].bytes }} />)}</div>
+          <div className="city-storage-bar" aria-hidden="true">{cleanupCategories.map(({ key }) => <span key={key} data-category={key} style={{ flexGrow: preview.categories[key]?.bytes ?? 0 }} />)}</div>
           <ul className="city-data-breakdown" aria-label="Managed data breakdown">
             {cleanupCategories.map(({ key, label }) => (
               <li key={key}>
                 <span><i data-category={key} aria-hidden="true" />{label}</span>
-                <strong>{formatBytes(preview.categories[key].bytes)}</strong>
+                <strong>{formatBytes(preview.categories[key]?.bytes ?? 0)}</strong>
               </li>
             ))}
           </ul>

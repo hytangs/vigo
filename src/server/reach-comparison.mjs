@@ -16,3 +16,36 @@ export function reachChangeCounts(baseline, scenario, cutoffsMinutes) {
     return { cutoffMinutes, improvedPixels, worsenedPixels }
   })
 }
+
+/**
+ * Per-cutoff comparison of two surfaces on one grid: cells newly reached or
+ * lost, cells reached by both, and the mean minutes saved over the cells
+ * reached by both (positive when the scenario is faster).
+ */
+export function reachChangeStats(baseline, scenario, cutoffsMinutes) {
+  if (baseline.length !== scenario.length) throw new Error('Reach comparison rasters must have equal lengths')
+  return cutoffsMinutes.map(cutoffMinutes => {
+    let newPixels = 0
+    let lostPixels = 0
+    let commonPixels = 0
+    let savedMinutes = 0
+    for (let index = 0; index < baseline.length; index += 1) {
+      const before = baseline[index]
+      const after = scenario[index]
+      const reachedBefore = Number.isFinite(before) && before <= cutoffMinutes
+      const reachedAfter = Number.isFinite(after) && after <= cutoffMinutes
+      if (reachedBefore && reachedAfter) {
+        commonPixels++
+        savedMinutes += before - after
+      } else if (reachedAfter) newPixels++
+      else if (reachedBefore) lostPixels++
+    }
+    return {
+      cutoffMinutes,
+      newPixels,
+      lostPixels,
+      commonPixels,
+      meanSavedMinutes: commonPixels ? Math.round(savedMinutes / commonPixels * 1000) / 1000 : 0,
+    }
+  })
+}

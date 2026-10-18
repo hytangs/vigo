@@ -28,6 +28,8 @@ pub use station_access::*;
 
 mod realtime;
 pub use realtime::*;
+mod scenario;
+pub use scenario::*;
 
 mod preparation;
 pub use preparation::*;

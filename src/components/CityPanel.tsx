@@ -1,8 +1,9 @@
 import { type ReactNode, useEffect, useRef } from 'react'
 import { Database, Settings } from 'lucide-react'
 import type { HealthResponse, VigoRuntimeConfig } from '../app/runtimeConfig'
-import { type Appearance, type Basemap, type VigoProject } from '../domain'
+import { formatNumber, type Appearance, type Basemap, type VigoProject } from '../domain'
 import { StudioSettings } from './StudioSettings'
+import { NetworkSignature } from './studio/CityLibrary'
 
 export type DataSection = 'feeds' | 'preferences'
 
@@ -10,6 +11,10 @@ export function CityPanel({
   section,
   projectId,
   projectName,
+  feedCount,
+  routeCount,
+  stopCount,
+  projectRevision = '',
   appearance,
   basemap,
   localBasemapAvailable,
@@ -33,6 +38,8 @@ export function CityPanel({
   feedCount: number
   routeCount: number
   stopCount: number
+  /** Changes whenever the City's data changes; versions the network signature. */
+  projectRevision?: string
   appearance: Appearance
   basemap: Basemap
   localBasemapAvailable: boolean
@@ -58,10 +65,12 @@ export function CityPanel({
   return (
     <section ref={rootRef} className="city-surface" aria-labelledby="city-surface-title">
       <header className="city-surface-head">
+        {section === 'feeds' && routeCount ? <div className="city-surface-signature" aria-hidden="true"><NetworkSignature projectId={projectId} revision={`${projectRevision}:${routeCount}`} /></div> : null}
         <div className="city-surface-title">
           <span className="eyebrow">{section === 'feeds' ? 'City data' : 'Studio'}</span>
           <h1 id="city-surface-title">{section === 'feeds' ? projectName : 'Settings'}</h1>
           {section === 'preferences' ? <p>Appearance, storage, documentation, and local availability.</p> : null}
+          {section === 'feeds' && routeCount ? <p className="city-surface-facts">{formatNumber(routeCount)} routes · {formatNumber(stopCount)} stops · {formatNumber(feedCount)} {feedCount === 1 ? 'timetable' : 'timetables'}</p> : null}
         </div>
         {projects.length > 0 ? <button
           type="button"

@@ -20,6 +20,13 @@ import {
 
 import { attachRoutingDataProvenance, realtimeTimetableForRequest, withRealtimeQueryContext } from './gtfs/realtime-timetable.mjs'
 import {
+  decorateScenarioPlan,
+  prepareScenarioRouting,
+  scenarioAccessCandidates,
+  scenarioQueryContext,
+  scenarioTimetableFor,
+} from './gtfs/scenario-timetable.mjs'
+import {
   blockedPlan,
   incompleteServiceCoveragePlan,
   materializeDirectWalkCandidate,
@@ -3512,7 +3519,7 @@ function nativeCoordinateAccessPairForRequest(
 ) {
   const prepared = request?.[preparedNativeCoordinateAccessPair]
   if (!prepared) {
-    return prepareNativeCoordinateAccessPair(
+    return withScenarioAccessCandidates(prepareNativeCoordinateAccessPair(
       store,
       origin,
       destination,
@@ -3520,7 +3527,7 @@ function nativeCoordinateAccessPairForRequest(
       streetStorePath,
       streetStorageIdentity,
       request.__disableNativeStreetPathCache === true,
-    )
+    ), request, origin, destination, maxWalkKm, streetStorePath)
   }
   if (!preparedNativeCoordinateAccessPairMatches(
     prepared,
@@ -3548,6 +3555,59 @@ function nativeCoordinateAccessPairForRequest(
         'gtfs-store-object+gtfs-storage+street-path+street-storage+coordinates+walk-envelope',
     },
   }
+}
+
+// A planned scenario routes on a derived timetable. Requests carry the plan as
+// data (`scenarioPlan`); the resolved plan rides along as an enumerable symbol
+// so every retry, alternative and window search applies the same scenario.
+/**
+ * @template T
+ * @param {string} storePath
+ * @param {any} request
+ * @param {(request: any) => T} run
+ * @returns {T}
+ */
+function withRouteScenario(storePath, request, run) {
+  const store = openNationalStore(storePath)
+  ensureNationalStoreAccessMaterialization(store)
+  if (request.routingDataMode === 'realtime') {
+    throw Object.assign(new Error('Scenario routes use the scheduled timetable. Turn off live data to route on a scenario.'), {
+      statusCode: 400, code: 'scenario_realtime_unsupported',
+    })
+  }
+  const prepared = prepareScenarioRouting(store, request.scenarioPlan, request.streetStorePath)
+  const scoped = Object.defineProperty({ ...request }, scenarioQueryContext, { value: prepared, enumerable: true })
+  const stops = store.stopLookup
+  const routes = store.routeLookup
+  // Journeys describe planned stops and services; the store itself is untouched.
+  store.stopLookup = { get: (stopId) => prepared.stops.get(stopId) ?? stops.get(stopId) }
+  store.routeLookup = { get: (routeId) => prepared.routes.get(routeId) ?? routes.get(routeId) }
+  try {
+    return decorateScenarioPlan(run(scoped), prepared)
+  } finally {
+    store.stopLookup = stops
+    store.routeLookup = routes
+  }
+}
+
+function scenarioKernelForRequest(kernel, request) {
+  const prepared = request?.[scenarioQueryContext]
+  return prepared && kernel ? scenarioTimetableFor(kernel, prepared) : kernel
+}
+
+function scenarioAppendsStops(request) {
+  return Boolean(request?.[scenarioQueryContext]?.appended.length)
+}
+
+// New planned stops are not members of the City's access profile, so they
+// join the coordinate frontier here with their own street walking times.
+function withScenarioAccessCandidates(pair, request, origin, destination, maxWalkKm, streetStorePath) {
+  const prepared = request?.[scenarioQueryContext]
+  if (!prepared?.appended.length || !pair) return pair
+  const add = (candidates, point, role) => Array.isArray(candidates) && Array.isArray(point?.coordinate)
+    ? [...candidates, ...scenarioAccessCandidates(prepared, streetStorePath, point.coordinate, role, maxWalkKm)]
+    : candidates
+  return { ...pair, origin: add(pair.origin, origin, 'origin'), destination: add(pair.destination, destination, 'destination') }
 }
 
 function attachPreparedNativeCoordinateAccessPair(request, prepared) {
@@ -7028,8 +7088,9 @@ function routeNationalGtfsArriveByStore(
     error.activeServiceKernel = activeServiceKernelSnapshot(store)
     throw error
   }
-  const realtimeTimetable = realtimeTimetableForRequest(store, activeKernel, request, serviceDateResolution)
-  const kernel = timetableForTransferSelection(store, realtimeTimetable?.kernel ?? activeKernel, request)
+  const routingKernel = scenarioKernelForRequest(activeKernel, request)
+  const realtimeTimetable = realtimeTimetableForRequest(store, routingKernel, request, serviceDateResolution)
+  const kernel = timetableForTransferSelection(store, realtimeTimetable?.kernel ?? routingKernel, request)
   if (kernel.activeSegmentCount === 0) {
     const blocked = blockedPlan(request, earliest / 60, maxWalkKm, 'No available service',
       'No trips remain available in the realtime timetable.', { originStops: 0, destinationStops: 0 }, serviceDateResolution)
@@ -7038,6 +7099,7 @@ function routeNationalGtfsArriveByStore(
   }
   const fusedCoordinateEligible = Boolean(
     request.routingPreference !== 'balanced'
+    && !scenarioAppendsStops(request)
     && request.streetStorePath
     && !request?.[preparedNativeCoordinateAccessPair]
     && !explicitRoutingStopId(request.origin)
@@ -7695,6 +7757,9 @@ function endpointWalkLimitKm(value, fallback = 1.2) {
 }
 
 export function routeNationalGtfsStore(storePath, request) {
+  if (request?.scenarioPlan && !request[scenarioQueryContext]) {
+    return withRouteScenario(storePath, request, (scoped) => routeNationalGtfsStore(storePath, scoped))
+  }
   request = normalizeRoutingDataRequest(request)
   validateArrivalBuffer(request)
   // Departure queries must retain the cold-store direct-walk proof below.
@@ -7890,11 +7955,13 @@ export function routeNationalGtfsStore(storePath, request) {
       && store.activeServiceCalendarKey === requestedServiceCalendarKey
       ? currentActiveServiceKernel(store)
       : null
-    const residentRealtimeTimetable = residentFusedKernel
-      ? realtimeTimetableForRequest(store, residentFusedKernel, request, serviceDateResolution) : null
-    const residentQueryKernel = timetableForTransferSelection(store, residentRealtimeTimetable?.kernel ?? residentFusedKernel, request)
+    const residentRoutingKernel = scenarioKernelForRequest(residentFusedKernel, request)
+    const residentRealtimeTimetable = residentRoutingKernel
+      ? realtimeTimetableForRequest(store, residentRoutingKernel, request, serviceDateResolution) : null
+    const residentQueryKernel = timetableForTransferSelection(store, residentRealtimeTimetable?.kernel ?? residentRoutingKernel, request)
     const fusedCoordinateEligible = Boolean(
       residentQueryKernel?.activeSegmentCount > 0
+      && !scenarioAppendsStops(request)
       && request.streetStorePath
       && !request?.[preparedNativeCoordinateAccessPair]
       && !explicitRoutingStopId(origin)
@@ -8121,6 +8188,7 @@ export function routeNationalGtfsStore(storePath, request) {
         const allowPreRideTransfers = (
           allowsTerminalTransfers(originStops)
         )
+        activeKernel = scenarioKernelForRequest(activeKernel, request)
         realtimeTimetable = fusedCoordinateTimetable?.realtimeTimetable
           ?? realtimeTimetableForRequest(store, activeKernel, request, serviceDateResolution)
         if (realtimeTimetable) activeKernel = realtimeTimetable.kernel
@@ -8604,9 +8672,12 @@ export function routeNationalGtfsStore(storePath, request) {
 // Opt-in point alternatives: the primary plan, the transit alternatives the
 // shared kernel returns for it, and the search status for the public result.
 export function routeNationalGtfsStoreWithAlternatives(storePath, request, alternatives) {
-  const collector = { alternatives, plans: [], search: null }
-  const plan = routeNationalGtfsStore(storePath, { ...request, [routeAlternativeCollector]: collector })
-  return { plan, choices: collector.plans, alternativeSearch: collector.search }
+  const run = (scoped) => {
+    const collector = { alternatives, plans: [], search: null }
+    const plan = routeNationalGtfsStore(storePath, { ...scoped, [routeAlternativeCollector]: collector })
+    return { plan, choices: collector.plans, alternativeSearch: collector.search }
+  }
+  return request?.scenarioPlan && !request[scenarioQueryContext] ? withRouteScenario(storePath, request, run) : run(request)
 }
 
 function routeNationalGtfsParetoAlternatives(storePath, request, centerMinutes, requestedCount = 5) {
@@ -8812,6 +8883,12 @@ function routeNationalGtfsParetoAlternatives(storePath, request, centerMinutes, 
 // A waypoint needs alternatives at its exact clock, not another departure
 // window. The caller keeps a bounded frontier of complete journey prefixes.
 export function routeNationalGtfsOrderedSegment(storePath, request) {
+  return request?.scenarioPlan && !request[scenarioQueryContext]
+    ? withRouteScenario(storePath, request, (scoped) => orderedSegmentRoute(storePath, scoped))
+    : orderedSegmentRoute(storePath, request)
+}
+
+function orderedSegmentRoute(storePath, request) {
   const store = openNationalStore(storePath)
   const earlier = earlierArrivalClock(store, request)
   if (earlier) {
@@ -8852,6 +8929,12 @@ export function routeNationalGtfsOrderedSegment(storePath, request) {
 }
 
 export function routeNationalGtfsDepartureWindow(storePath, request) {
+  return request?.scenarioPlan && !request[scenarioQueryContext]
+    ? withRouteScenario(storePath, request, (scoped) => departureWindowRoute(storePath, scoped))
+    : departureWindowRoute(storePath, request)
+}
+
+function departureWindowRoute(storePath, request) {
   request = normalizeRoutingDataRequest(request)
   validateTransitRideRequirement(request)
   validateMaximumTransfers(request.maxTransfers)

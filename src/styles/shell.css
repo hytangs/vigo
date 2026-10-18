@@ -438,21 +438,19 @@
 }
 
 .surface-source-intake {
-  width: min(820px, 100%);
+  width: min(760px, 100%);
   min-height: min-content;
   margin-inline: auto;
   display: grid;
   align-content: start;
   grid-auto-rows: max-content;
-  gap: 18px;
+  gap: 20px;
   justify-self: center;
-  padding: clamp(28px, 6vw, 72px);
-  border: 1px solid color-mix(in srgb, var(--accent-2) 18%, var(--border));
-  border-radius: 16px;
-  background:
-    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 42%),
-    linear-gradient(145deg, color-mix(in srgb, var(--panel-strong) 88%, transparent), var(--panel));
-  box-shadow: var(--shadow-soft);
+  padding: clamp(28px, 5vw, 52px);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-lg);
+  background: radial-gradient(120% 90% at 50% 0%, var(--ink-2), var(--ink-1));
+  box-shadow: none;
 }
 
 .surface-source-intake-copy {
@@ -466,20 +464,94 @@
 }
 
 .surface-source-intake-copy h1 {
-  max-width: 16ch;
-  color: var(--text-strong);
-  font-size: clamp(2rem, 5vw, 4rem);
-  font-weight: 940;
-  line-height: 0.98;
-  letter-spacing: -0.04em;
+  color: var(--text-1);
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 3.4vw, 2.5rem);
+  font-weight: 720;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
 }
 
 .surface-source-intake-copy p {
   max-width: 54ch;
-  color: var(--text-muted);
-  font-size: 0.88rem;
-  font-weight: 760;
+  color: var(--text-3);
+  font-size: var(--type-md);
+  font-weight: 500;
   line-height: 1.5;
+}
+
+/* Two sources make a City; the third step is the payoff. */
+.city-setup-progress {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.city-setup-progress li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-md);
+  background: var(--ink-3);
+}
+
+.city-setup-progress b {
+  display: grid;
+  place-items: center;
+  flex: 0 0 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--text-2);
+  background: var(--ink-4);
+  font-size: var(--type-2xs);
+  font-weight: 700;
+}
+
+.city-setup-progress span {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.city-setup-progress strong {
+  color: var(--text-1);
+  font-size: var(--type-sm);
+  font-weight: 620;
+}
+
+.city-setup-progress small {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--type-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.city-setup-progress li[data-state="done"] b {
+  color: var(--signal-ink);
+  background: var(--signal);
+}
+
+.city-setup-progress li[data-state="working"] {
+  border-color: var(--signal-line);
+}
+
+.city-setup-progress li[data-state="working"] b {
+  box-shadow: 0 0 0 3px var(--signal-soft);
+  animation: agency-live-pulse 1.6s var(--ease-standard) infinite;
+}
+
+@media (max-width: 620px) {
+  .city-setup-progress {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .empty-intake .import-panel {
@@ -504,7 +576,7 @@
   min-height: 78px;
   margin: 9px;
   padding: 12px;
-  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  background: var(--ink-3);
 }
 
 .page-projects .shell-body {

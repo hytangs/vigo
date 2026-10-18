@@ -1,90 +1,3 @@
-/* Base product palette */
-
-.app-shell {
-  --surface-bg: #f3f4f3;
-  --panel: #f7f8f7;
-  --panel-strong: #ffffff;
-  --panel-soft: #eef0ee;
-  --border: rgba(15, 23, 42, 0.1);
-  --border-strong: rgba(15, 23, 42, 0.16);
-  --text-strong: #111315;
-  --text: #25292d;
-  --text-soft: #48515c;
-  --text-muted: #697382;
-  --success: #2f766a;
-  --warn: #a76210;
-  --danger: #c33f3f;
-  --shadow-soft: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 8px 24px rgba(15, 23, 42, 0.065);
-  --shadow-lg: 0 24px 64px rgba(15, 23, 42, 0.16);
-  --pq-radius: 10px;
-  --pq-focus: #2f766a;
-  --pq-surface-raised: #ffffff;
-  --pq-surface-hover: color-mix(in srgb, #2f766a 7%, var(--panel));
-  --workbench-surface: var(--panel);
-  --workbench-rule: var(--border);
-  color: var(--text);
-  background: var(--surface-bg);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-variant-numeric: tabular-nums;
-  text-rendering: optimizeLegibility;
-}
-
-.app-shell.appearance-light {
-  --surface-bg: #f3f4f3;
-  --panel: #f7f8f7;
-  --panel-strong: #ffffff;
-  --panel-soft: #eef0ee;
-  --border: rgba(15, 23, 42, 0.1);
-  --border-strong: rgba(15, 23, 42, 0.16);
-  --text-strong: #111315;
-  --text: #25292d;
-  --text-soft: #48515c;
-  --text-muted: #697382;
-  --success: #2f766a;
-  --warn: #a76210;
-  --danger: #c33f3f;
-  --shadow-soft: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 8px 24px rgba(15, 23, 42, 0.065);
-  --shadow-lg: 0 24px 64px rgba(15, 23, 42, 0.16);
-  --pq-focus: #2f766a;
-  --pq-surface-raised: #ffffff;
-  --pq-surface-hover: color-mix(in srgb, #2f766a 7%, var(--panel));
-  --workbench-surface: var(--panel);
-  --workbench-rule: var(--border);
-  color-scheme: light;
-  color: var(--text);
-  background: var(--surface-bg);
-}
-
-.app-shell.appearance-light.accent-blue {
-  --accent: #356f9d;
-  --accent-2: #2f766a;
-}
-
-.app-shell.appearance-light.accent-teal {
-  --accent: #2f766a;
-  --accent-2: #356f9d;
-}
-
-.app-shell.appearance-light.accent-graphite {
-  --accent: #536171;
-  --accent-2: #2f766a;
-}
-
-.app-shell.appearance-dark.accent-blue {
-  --accent: #79a9cf;
-  --accent-2: #78bcae;
-}
-
-.app-shell.appearance-dark.accent-teal {
-  --accent: #78bcae;
-  --accent-2: #79a9cf;
-}
-
-.app-shell.appearance-dark.accent-graphite {
-  --accent: #a4afbb;
-  --accent-2: #78bcae;
-}
-
 /* Integrated compact application chrome. */
 
 .topbar-project-action {
@@ -136,79 +49,9 @@
   background: color-mix(in srgb, var(--accent-2) 9%, transparent);
 }
 
-.pathfinder-directions-button {
-  border-color: #111315;
-}
-
-.app-shell.appearance-dark .pathfinder-directions-button:not(:disabled) {
-  border-color: #f2f4f7;
-  color: #090c10;
-  background: #f2f4f7;
-}
-
-/* Map overlays read as surface tools instead of a second visual theme. */
-
-.app-shell.appearance-light .service-state-readout svg {
-  color: var(--accent-2);
-}
-
-.app-shell.appearance-light :is(
-  .service-state-readout small,
-  .map-live-card > small
-) {
-  color: var(--text-muted);
-}
-
-.app-shell.appearance-light :is(
-  .service-state-readout strong,
-  .map-live-card strong
-) {
-  color: var(--text-strong);
-}
-
-.app-shell.appearance-light .map-scope-actions button {
-  color: var(--text-muted);
-}
-
-.app-shell.appearance-light .map-scope-actions button:hover:not(:disabled) {
-  color: var(--text-strong);
-  background: var(--panel-soft);
-}
-
-.app-shell.appearance-light .service-playback-toggle,
-.app-shell.appearance-light .service-state-panel select,
-.app-shell.appearance-light .service-mode-switch,
-.app-shell.appearance-light .service-mode-switch button,
-.app-shell.appearance-light .service-playback-date {
-  border-color: var(--border);
-  color: var(--text-muted);
-  background: var(--panel);
-}
-
-.app-shell.appearance-light .service-playback-toggle:hover,
-.app-shell.appearance-light .service-playback-date:hover {
-  border-color: var(--border-strong);
-  color: var(--text-strong);
-  background: var(--panel-soft);
-}
-
-.app-shell.appearance-light .service-playback-date {
-  color-scheme: light;
-}
-
-.app-shell.appearance-light .service-state-panel.is-playing .service-playback-toggle {
-  border-color: var(--accent-2);
-  color: #ffffff;
-  background: var(--accent-2);
-}
-
-.app-shell.appearance-light .service-playback-slider {
-  accent-color: var(--accent-2);
-}
-
-.map-scope-control,
-.service-state-panel {
-  border-radius: 14px;
+/* Map overlays read as surface tools; appearance tokens carry both themes. */
+.map-scope-control {
+  border-radius: var(--radius-lg);
 }
 
 /* Project switcher and dialogs use the same flat, readable hierarchy. */
@@ -251,113 +94,6 @@
   }
 }
 
-/* Final VIGO light and dark variants */
-
-.app-shell,
-.app-shell.appearance-light {
-  --vigo-ink: #0c1624;
-  --vigo-lime: #aec43a;
-  --vigo-lime-strong: #526b42;
-  --surface-bg: #f4f5f2;
-  --panel: #f8f9f6;
-  --panel-strong: #ffffff;
-  --panel-soft: #eef1ec;
-  --border: rgba(12, 22, 36, 0.1);
-  --border-strong: rgba(12, 22, 36, 0.16);
-  --text-strong: #101418;
-  --text: #272c31;
-  --text-soft: #4f5964;
-  --text-muted: #626d79;
-  --text-faint: #9aa2ab;
-  --accent: var(--vigo-lime-strong);
-  --accent-2: #2f766a;
-  --success: #47764c;
-  --warn: #9b6718;
-  --danger: #bf4541;
-  --shadow-soft: 0 8px 24px rgba(12, 22, 36, 0.06);
-  --shadow-lg: 0 22px 60px rgba(12, 22, 36, 0.14);
-  --pq-radius: 8px;
-  --control-radius: 8px;
-  --surface-radius: 12px;
-  --pq-focus: var(--vigo-lime-strong);
-  --pq-surface-raised: #ffffff;
-  --pq-surface-hover: #f4f6f3;
-  --pq-rail-width: 48px;
-  --workbench-sidebar: 360px;
-  --routing-detail-width: clamp(310px, 24vw, 360px);
-  --workbench-surface: #ffffff;
-  --workbench-rule: var(--border);
-  --topbar-surface: #ffffff;
-  --rail-surface: #f4f5f4;
-  --control-surface: #f5f6f5;
-  --control-surface-strong: #ffffff;
-  --hover-surface: #edf0ed;
-  --active-surface: #e8ece6;
-  --map-surface: #eef1ef;
-  --map-control-surface: rgba(255, 255, 255, 0.96);
-  --primary-surface: #111315;
-  --primary-surface-hover: #292d31;
-  --primary-ink: #ffffff;
-  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
-  color-scheme: light;
-  color: var(--text);
-  background: var(--surface-bg);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
-  text-rendering: optimizeLegibility;
-}
-
-.app-shell.appearance-dark {
-  --vigo-ink: #eff2f5;
-  --vigo-lime: #b4c94a;
-  --vigo-lime-strong: #b0c69b;
-  --surface-bg: #101512;
-  --panel: #151b17;
-  --panel-strong: #1a211c;
-  --panel-soft: #202821;
-  --border: rgba(219, 231, 242, 0.1);
-  --border-strong: rgba(219, 231, 242, 0.17);
-  --text-strong: #f0f3f5;
-  --text: #d7dce2;
-  --text-soft: #aeb8c3;
-  --text-muted: #88939f;
-  --text-faint: #66727f;
-  --accent: var(--vigo-lime-strong);
-  --accent-2: #78bcae;
-  --success: #78bcae;
-  --warn: #d0a15b;
-  --danger: #ee7774;
-  --shadow-soft: 0 8px 24px rgba(0, 0, 0, 0.2);
-  --shadow-lg: 0 22px 60px rgba(0, 0, 0, 0.38);
-  --pq-focus: #a6ba3f;
-  --pq-surface-raised: #151b22;
-  --pq-surface-hover: #1a222a;
-  --workbench-surface: #0f141a;
-  --workbench-rule: var(--border);
-  --topbar-surface: #151b17;
-  --rail-surface: #121813;
-  --control-surface: #202821;
-  --control-surface-strong: #252e27;
-  --hover-surface: #29352b;
-  --active-surface: color-mix(in srgb, var(--vigo-lime-strong) 10%, var(--panel-soft));
-  --map-surface: #202823;
-  --map-control-surface: rgba(21, 27, 23, 0.96);
-  --primary-surface: #eef1f3;
-  --primary-surface-hover: #ffffff;
-  --primary-ink: #0b1014;
-  color-scheme: dark;
-  color: var(--text);
-  background: var(--surface-bg);
-}
-
-.app-shell.appearance-light.accent-blue,
-.app-shell.appearance-light.accent-teal,
-.app-shell.appearance-light.accent-graphite {
-  --accent: var(--vigo-lime-strong);
-  --accent-2: #2f766a;
-}
-
 .app-shell button,
 .app-shell input,
 .app-shell select,
@@ -376,28 +112,19 @@
     transform 170ms var(--ease-standard);
 }
 
-.app-shell button:focus-visible,
-.app-shell input:focus-visible,
-.app-shell select:focus-visible,
-.app-shell textarea:focus-visible,
-.app-shell a:focus-visible,
-.app-shell summary:focus-visible {
-  outline: 2px solid var(--vigo-lime-strong);
-  outline-offset: 2px;
-}
 
 /* Compact application bar. */
 .topbar,
 .page-projects .topbar,
 .project-empty .topbar {
-  min-height: 54px;
-  height: 54px;
-  grid-template-columns: var(--workbench-sidebar) minmax(260px, 1fr) auto;
+  min-height: var(--topbar-height);
+  height: var(--topbar-height);
+  grid-template-columns: calc(var(--rail-width) + var(--panel-width) + var(--stage-gutter)) minmax(260px, 1fr) auto;
   gap: 12px;
   padding: 0;
-  border-bottom: 1px solid var(--border);
-  color: var(--text);
-  background: var(--topbar-surface);
+  border-bottom: 1px solid var(--line-1);
+  color: var(--text-2);
+  background: var(--ink-1);
   box-shadow: none;
   backdrop-filter: none;
 }
@@ -408,7 +135,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 16px;
+  padding: 0 16px 0 13px;
 }
 
 .topbar-mark-button {
@@ -462,6 +189,7 @@
   min-width: 0;
   display: flex;
   align-items: center;
+  gap: 8px;
   padding-left: 0;
   border-left: 0;
 }
@@ -469,14 +197,38 @@
 .topbar-brand b {
   min-width: 0;
   overflow: hidden;
-  color: var(--text-soft);
-  font-size: 0.76rem;
-  font-weight: 620;
-  letter-spacing: 0;
+  color: var(--text-1);
+  font-size: var(--type-sm);
+  font-weight: 640;
+  letter-spacing: -0.01em;
   line-height: 1.2;
   text-overflow: ellipsis;
   text-transform: none;
   white-space: nowrap;
+}
+
+.topbar-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: var(--type-sm);
+  font-weight: 520;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .topbar-crumb {
+    display: none;
+  }
+}
+
+.topbar-crumb::before {
+  content: "";
+  width: 1px;
+  height: 14px;
+  background: var(--line-3);
+  transform: rotate(18deg);
 }
 
 .topbar-actions {
@@ -757,10 +509,19 @@
 
 .pathfinder-coordinate-point strong {
   overflow: hidden;
-  font-size: 0.74rem;
-  font-weight: 560;
+  font-size: var(--type-sm);
+  font-weight: 620;
   font-variant-numeric: tabular-nums;
   line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pathfinder-coordinate-value {
+  overflow: hidden;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -947,6 +708,87 @@
 .pathfinder-points-hint strong {
   color: var(--text-strong);
   font-weight: 650;
+}
+
+.journey-planned {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 8px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  color: var(--signal-ink);
+  background: var(--signal);
+  font-size: var(--type-2xs);
+  font-weight: 680;
+}
+
+/* The network a route runs on: the City's timetable or a saved scenario. */
+.pathfinder-network {
+  display: grid;
+  gap: 6px;
+}
+
+.pathfinder-network-field {
+  position: relative;
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: 16px auto minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  color: var(--text-3);
+  background: var(--control-surface-strong);
+}
+
+.pathfinder-network-field > span {
+  color: var(--text-3);
+  font-size: var(--type-2xs);
+  font-weight: 640;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.pathfinder-network-field select {
+  min-width: 0;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  color: var(--text-1);
+  background: transparent;
+  font: inherit;
+  font-size: var(--type-sm);
+  font-weight: 590;
+  text-overflow: ellipsis;
+  appearance: none;
+  cursor: pointer;
+}
+
+.pathfinder-network-field select:focus-visible {
+  outline: none;
+}
+
+.pathfinder-network-field:focus-within {
+  outline: 2px solid var(--signal-text);
+  outline-offset: 2px;
+}
+
+.pathfinder-network-field > svg:last-child {
+  pointer-events: none;
+}
+
+.pathfinder-network-field.is-scenario {
+  border-color: var(--signal-line);
+  box-shadow: inset 3px 0 0 var(--signal);
+}
+
+.pathfinder-network-field.is-scenario > svg:first-child {
+  color: var(--signal-text);
+}
+
+.pathfinder-network .pathfinder-points-hint.is-error {
+  color: var(--alert);
 }
 
 .pathfinder-when {
@@ -1142,10 +984,10 @@
 
 .pathfinder-route-card {
   gap: 9px;
-  padding: 13px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--surface-radius);
-  background: var(--panel-strong);
+  padding: 13px 14px 12px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-md);
+  background: var(--ink-3);
   box-shadow: none;
 }
 
@@ -1191,28 +1033,29 @@
 
 .pathfinder-choice-sort {
   display: flex;
-  gap: 3px;
+  gap: 2px;
   padding: 3px;
-  border-radius: var(--control-radius);
-  background: var(--panel-soft);
+  border-radius: var(--radius-md);
+  background: var(--ink-4);
 }
 
 .pathfinder-choice-sort button {
   flex: 1;
-  min-height: 34px;
-  padding: 5px 6px;
+  min-height: 30px;
+  padding: 4px 6px;
   border: 0;
-  border-radius: 6px;
-  color: var(--text-soft);
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
   background: transparent;
-  font-size: 0.74rem;
+  font-size: var(--type-xs);
+  font-weight: 620;
   cursor: pointer;
 }
 
 .pathfinder-choice-sort button[aria-pressed="true"] {
-  color: var(--text-strong);
-  background: var(--panel-strong);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
+  color: var(--text-1);
+  background: var(--ink-2);
+  box-shadow: 0 0 0 1px var(--line-2), 0 1px 2px rgba(0, 0, 0, 0.22);
 }
 
 .pathfinder-result-context {
@@ -1220,7 +1063,10 @@
   font-size: 0.75rem;
 }
 
-.pathfinder-result-context summary { cursor: pointer; padding: 6px 0; }
+.pathfinder-result-context summary { display: flex; align-items: center; gap: 8px; padding: 6px 0; cursor: pointer; list-style: none; }
+.pathfinder-result-context summary::-webkit-details-marker { display: none; }
+.pathfinder-result-context summary::before { content: "›"; display: inline-block; width: 10px; font-size: 16px; line-height: 1; transition: transform var(--duration-base) var(--ease-standard); }
+.pathfinder-result-context[open] summary::before { transform: rotate(90deg); }
 .pathfinder-result-context p { margin: 4px 0 8px; line-height: 1.5; }
 
 .pathfinder-route-card::before {
@@ -1229,15 +1075,15 @@
 }
 
 .pathfinder-route-card:hover {
-  border-color: var(--border);
-  background: var(--hover-surface);
+  border-color: var(--line-3);
+  background: var(--ink-4);
   box-shadow: none;
 }
 
 .pathfinder-route-card.is-active {
-  border-color: var(--border);
-  background: var(--active-surface);
-  box-shadow: inset 3px 0 0 var(--vigo-lime-strong);
+  border-color: var(--signal-line);
+  background: var(--ink-3);
+  box-shadow: inset 3px 0 0 var(--signal), 0 0 0 3px var(--signal-soft);
 }
 
 .pathfinder-route-card.is-active::before {
@@ -1350,15 +1196,9 @@
 
 .app-shell .map-stage .maplibregl-ctrl-group {
   overflow: hidden;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--control-radius, 8px);
-  background: var(--panel-strong);
-  box-shadow: var(--shadow-soft);
 }
 
 .app-shell .map-stage .maplibregl-ctrl-group button {
-  width: 36px;
-  height: 36px;
   background-color: transparent;
 }
 
@@ -1384,12 +1224,8 @@
 .app-shell .map-stage .maplibregl-ctrl-attrib {
   max-width: calc(100% - 20px);
   box-sizing: border-box;
-  color: var(--text);
-  background: var(--panel-strong);
-  border: 1px solid var(--border-strong);
   border-radius: 9px;
   font-family: inherit;
-  font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -1413,7 +1249,7 @@
   right: auto;
   width: 26px;
   height: 26px;
-  color: var(--text);
+  color: var(--text-3);
   background: transparent;
 }
 
@@ -1572,9 +1408,8 @@
 }
 
 @media (max-width: 980px) {
-  .app-shell,
-  .app-shell.appearance-light {
-    --workbench-sidebar: 340px;
+  .app-shell {
+    --panel-width: 340px;
   }
 
   .topbar,
@@ -1764,4 +1599,228 @@
   padding: 1px 2px;
   color: var(--text-muted);
   font-weight: 560;
+}
+
+/*
+ * Stage: the map is the canvas.
+ *
+ * Network, Route and Analyze share one frame: a solid activity rail, a
+ * full-bleed map, and the tool panel floating over the map in glass. The
+ * camera measures `[data-map-occluder]` panels and frames content in the
+ * visible remainder, so nothing important lands underneath a panel.
+ */
+@media (min-width: 900px) {
+  .app-shell.has-stage .shell-body,
+  .app-shell.has-stage.page-project:not(.project-empty):not(.view-data) .shell-body,
+  .app-shell.has-stage.page-project.view-agency:not(.project-empty) .shell-body {
+    position: relative;
+    display: block;
+  }
+
+  .app-shell.has-stage .app-frame {
+    position: absolute;
+    inset: 0 0 0 var(--rail-width);
+    display: block;
+  }
+
+  .app-shell.has-stage .app-sidebar,
+  .app-shell.has-stage.page-project:not(.project-empty):not(.view-data) .app-sidebar,
+  .app-shell.has-stage.page-project.view-agency:not(.project-empty) .app-sidebar {
+    position: absolute;
+    z-index: 40;
+    inset: 0 auto 0 0;
+    width: auto;
+    display: flex;
+    align-items: flex-start;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .app-shell.has-stage .app-sidebar > * {
+    pointer-events: auto;
+  }
+
+  .app-shell.has-stage .sidebar-rail {
+    align-self: stretch;
+    width: var(--rail-width);
+    flex: 0 0 var(--rail-width);
+  }
+
+  .app-shell.has-stage .sidebar-panel,
+  .app-shell.has-stage .agency-panel {
+    width: var(--panel-width);
+    max-height: calc(100% - 2 * var(--stage-gutter));
+    border: 0;
+    border-radius: var(--radius-lg);
+    background: var(--material);
+    box-shadow: var(--elev-2);
+    backdrop-filter: var(--material-blur);
+    -webkit-backdrop-filter: var(--material-blur);
+    animation: stage-panel-in var(--duration-slow) var(--ease-emphasis) both;
+  }
+
+  .app-shell.has-stage .sidebar-panel {
+    flex: 0 0 auto;
+    margin: var(--stage-gutter);
+    padding: 22px 20px 24px;
+  }
+
+  .app-shell.has-stage.view-agency .project-workbench,
+  .app-shell.has-stage .workbench.project-workbench.route-investigation-shell {
+    position: relative;
+    height: 100%;
+    display: block;
+    padding: 0;
+    background: var(--map-surface);
+  }
+
+  .app-shell.has-stage .route-surface,
+  .app-shell.has-stage.view-agency .route-surface {
+    position: absolute;
+    inset: 0;
+    display: block;
+  }
+
+  .app-shell.has-stage .route-map-shell {
+    position: absolute;
+    inset: 0;
+    height: auto;
+  }
+
+  .app-shell.has-stage .agency-panel {
+    position: absolute;
+    z-index: 20;
+    top: var(--stage-gutter);
+    bottom: var(--stage-gutter);
+    left: var(--stage-gutter);
+    height: auto;
+    max-height: none;
+    overflow: hidden;
+  }
+
+  /* The service clock floats at the bottom of the visible map, like a transport bar. */
+  .app-shell.has-stage .route-surface > .service-toolbar {
+    position: absolute;
+    z-index: 15;
+    left: calc(var(--panel-width) + 2 * var(--stage-gutter));
+    right: 0;
+    bottom: 18px;
+    display: flex;
+    justify-content: center;
+    padding: 0 var(--stage-gutter) 0 64px;
+    background: transparent;
+    pointer-events: none;
+  }
+
+  .app-shell.has-stage .route-surface > .service-toolbar > .service-state-panel {
+    position: relative;
+    inset: auto;
+    width: min(820px, 100%);
+    transform: none;
+    border: 0;
+    border-radius: var(--radius-lg);
+    background: var(--material-strong);
+    box-shadow: var(--elev-2);
+    backdrop-filter: var(--material-blur);
+    -webkit-backdrop-filter: var(--material-blur);
+    pointer-events: auto;
+  }
+
+  .app-shell.has-stage .route-surface > .service-toolbar > .service-state-panel.is-live {
+    width: min(600px, 100%);
+  }
+
+  .app-shell.has-stage .agency-map-context,
+  .app-shell.has-stage .map-scope-control {
+    right: var(--stage-gutter);
+  }
+
+  .app-shell.has-stage .agency-map-context {
+    left: calc(var(--panel-width) + 2 * var(--stage-gutter));
+    border: 0;
+    border-radius: var(--radius-lg);
+    background: var(--material-strong);
+    box-shadow: var(--elev-2);
+    backdrop-filter: var(--material-blur);
+  }
+
+  .app-shell.has-stage .route-map-shell .map-empty,
+  .app-shell.has-stage .reach-map-hint {
+    left: calc(var(--panel-width) + 2 * var(--stage-gutter) + (100% - var(--panel-width) - 2 * var(--stage-gutter)) / 2);
+  }
+
+  /* Loading content centres in the part of the map the panel leaves visible. */
+  .app-shell.has-stage .map-loading,
+  .app-shell.has-stage .surface-loading-overlay {
+    padding-left: calc(var(--panel-width) + 2 * var(--stage-gutter));
+  }
+
+  .app-shell.has-stage .routing-detail-panel {
+    top: var(--stage-gutter);
+    right: var(--stage-gutter);
+    bottom: var(--stage-gutter);
+    border: 0;
+    border-radius: var(--radius-lg);
+    background: var(--material-strong);
+    box-shadow: var(--elev-2);
+    backdrop-filter: var(--material-blur);
+    -webkit-backdrop-filter: var(--material-blur);
+  }
+}
+
+@keyframes stage-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Map chrome reads as part of the instrument, not as browser widgets. */
+/* Beside the floating panel, camera controls and credits stack at the
+   bottom-left of the visible map, clear of right-hand cards and journeys. */
+@media (min-width: 900px) {
+  .app-shell.has-stage .map-stage .maplibregl-ctrl-top-left,
+  .app-shell.has-stage .map-stage .maplibregl-ctrl-bottom-left {
+    left: calc(var(--panel-width) + var(--stage-gutter));
+  }
+
+  .app-shell.has-stage .map-stage .maplibregl-ctrl-top-left {
+    top: auto;
+    bottom: 44px;
+  }
+
+}
+
+.app-shell .map-stage .maplibregl-ctrl-group {
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--material-strong);
+  box-shadow: var(--elev-2);
+  backdrop-filter: var(--material-blur);
+  -webkit-backdrop-filter: var(--material-blur);
+}
+
+.app-shell .map-stage .maplibregl-ctrl-group button {
+  width: 34px;
+  height: 34px;
+}
+
+.app-shell .map-stage .maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--line-1);
+}
+
+.app-shell .map-stage .maplibregl-ctrl-attrib {
+  border: 0;
+  color: var(--text-3);
+  background: var(--material-strong);
+  box-shadow: var(--elev-1);
+  font-size: var(--type-2xs);
 }

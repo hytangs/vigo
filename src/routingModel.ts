@@ -118,6 +118,9 @@ export type RoutingLeg = {
   geometrySource?: 'gtfs_shape' | 'stop_sequence' | 'osm' | 'osm_and_station_path' | 'gtfs_pathway'
     | 'stop_coordinate_fallback' | 'unverified_transfer' | 'station_selection'
     | 'shape' | 'osm-rust-selected-transfer' | 'stop-coordinate-fallback' | 'station-transfer-schematic'
+    | 'scenario_plan'
+  /** Present on rides that use a scenario's planned service rather than the published timetable. */
+  scenarioService?: { scenarioId: string; scenarioName: string; serviceId: string | null; name: string }
   shapeId?: string
   startMinutes: number
   endMinutes: number

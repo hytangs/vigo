@@ -81,7 +81,7 @@ export function RoutingItinerary({ plan }: { plan: RoutingPlan }) {
             {wait > 0 ? <p className="journey-wait"><Clock3 size={13} aria-hidden="true" />{formatRoutingMinutes(wait)} wait at {leg.fromName}</p> : null}
             {immediateVehicleChange ? <p className="journey-caution">No time between vehicles</p> : null}
             <div className="journey-leg-heading"><strong>{title}</strong><span>{formatRoutingLegDuration(leg)}</span></div>
-            {ride ? <><p className="journey-stop">{leg.fromName}</p><p className="journey-leg-meta">{leg.stopCount > 0 ? `${leg.stopCount} scheduled stop${leg.stopCount === 1 ? '' : 's'}` : 'Transit ride'}</p><div className="journey-arrival"><span>{leg.toName}</span><time>{formatScheduleClock(leg.endMinutes)}</time></div></> : <p className="journey-leg-meta">{transfer ? 'Station connection' : `From ${leg.fromName}`}{leg.distanceKm > 0 ? ` · ${leg.distanceKm < 1 ? `${Math.round(leg.distanceKm * 1000)} m` : `${leg.distanceKm.toFixed(1)} km`}` : ''}</p>}
+            {ride ? <><p className="journey-stop">{leg.fromName}</p><p className="journey-leg-meta">{leg.scenarioService ? <span className="journey-planned">Planned · {leg.scenarioService.scenarioName}</span> : null}{leg.stopCount > 0 ? `${leg.stopCount} ${leg.scenarioService ? 'planned' : 'scheduled'} stop${leg.stopCount === 1 ? '' : 's'}` : 'Transit ride'}</p><div className="journey-arrival"><span>{leg.toName}</span><time>{formatScheduleClock(leg.endMinutes)}</time></div></> : <p className="journey-leg-meta">{transfer ? 'Station connection' : `From ${leg.fromName}`}{leg.distanceKm > 0 ? ` · ${leg.distanceKm < 1 ? `${Math.round(leg.distanceKm * 1000)} m` : `${leg.distanceKm.toFixed(1)} km`}` : ''}</p>}
             {leg.stationAccessStatus !== 'unverified' && leg.transferSource === 'parent_station_fallback' ? <p className="journey-caution">Assumed station connection time</p> : null}
             {(ride && (leg.sourceEqualTime || !shapedRideGeometry(leg.geometrySource))) || leg.type === 'drive' ? <details className="journey-leg-evidence"><summary>Path &amp; timing</summary><p>{routingLegDetail(leg)}</p></details> : null}
           </div>
@@ -136,7 +136,7 @@ export function RoutingDetailPanel({
     : routingRealtimeDetail(plan)
 
   return (
-    <aside className="routing-detail-panel" aria-label="Routing details">
+    <aside className="routing-detail-panel" aria-label="Routing details" data-map-occluder="">
       <header className="routing-detail-head">
         <div>
           <p className="journey-eyebrow">{plan.travelMode === 'transit' ? routingDataModeLabel(plan) || 'Transit' : plan.travelMode === 'drive' ? 'Drive' : 'Walk'} journey</p>

@@ -33,14 +33,16 @@ import { realtimeRefreshMs, type RealtimeInspectRequest } from './app/realtime'
 import { readRoutingDataModePreference, saveRoutingDataModePreference } from './app/routingDataMode'
 import { buildRoutingActivity, localCalendarDate, serviceDayForCalendarDate, type RoutingServiceCoverage } from './app/routingPlan'
 import type { AppAccent, HealthResponse, ProjectDialogState, ProjectDraft, SetupDraft, VigoRuntimeConfig } from './app/runtimeConfig'
-import { scenarioStorageKey } from './app/scenarioDraftStorage'
 import { createScenarioRoadGeometryRequest } from './app/scenarioRoadGeometryRequest'
 import { type RoutingDepartureWindowMinutes } from './app/uiOptions'
-import { useNationalRouting } from './app/useNationalRouting'
+import { type RouteScenarioRequest, useNationalRouting } from './app/useNationalRouting'
 import { useReachInspection } from './app/useReachInspection'
 import { ReachPointInspector } from './components/ReachPointInspector'
-import { useScenarioDrafts } from './app/useScenarioDrafts'
-import { caseFeedSelection, useCityDataGroups } from './app/useCityDataGroups'
+import { useScenarioLibrary } from './app/useScenarioLibrary'
+import { compareStats, type CompareEntry, type CompareVariant, type ComparisonRun } from './app/comparison'
+import { reachTransitStops } from './app/resultSummary'
+import { caseFeedSelection } from './app/cityDataGroups'
+import { baselineGroupId, maximumScenarios, newScenario } from './app/scenarioLibrary'
 import { useStreetPreparation } from './app/useStreetPreparation'
 import { AgencyPanel } from './components/AgencyPanel'
 import { AnalyzePanel, type AnalyzeMode, type ComparisonFeedOption } from './components/AnalyzePanel'
@@ -73,6 +75,8 @@ import { entityFeedScope } from './networkTruth'
 import {
   joinScenarioSegmentGeometry,
   reachTimeBands,
+  inflateReachResult,
+  scenarioReachedAreaKm2,
   routeHasPublishedShape,
   scenarioEdgeEditError,
   scenarioEdgeGeometryForBranch,
@@ -85,7 +89,6 @@ import {
   scenarioStopFromRoutingPoint,
   scenarioStopsForEdgeBranch,
   scenarioStopsForRoute,
-  type ReachComparisonResult,
   type ReachResult,
   type ScenarioChangeDraft,
   type ScenarioChangeKind,
@@ -138,14 +141,6 @@ function newScenarioChange(
     timeModel: changesGeometry ? 'infer-road' : 'preserve-scheduled',
     geometryMode: changesGeometry ? 'auto-road' : 'published-shape',
     geometryStatus: 'idle',
-  }
-}
-
-function newScenarioDraft(index: number): ScenarioDraft {
-  return {
-    id: `case-${crypto.randomUUID()}`,
-    name: `Case ${String.fromCharCode(65 + index)}`,
-    interventions: [],
   }
 }
 
@@ -238,7 +233,9 @@ export default function App() {
   const [analyzeMode, setAnalyzeMode] = useState<AnalyzeMode>('single')
   const [agencyLocation, setAgencyLocation] = useState<{ id: string; label: string; coordinate: [number, number]; stopId?: string } | undefined>()
   const [reachResult, setReachResult] = useState<ReachResult | null>(null)
-  const [reachComparison, setReachComparison] = useState<ReachComparisonResult[] | null>(null)
+  const [comparisonRun, setComparisonRun] = useState<ComparisonRun | null>(null)
+  const [compareReferenceId, setCompareReferenceId] = useState('group:baseline')
+  const [compareScenarioSelection, setCompareScenarioSelection] = useState<string[] | null>(null)
   const [serviceDecomposition, setServiceDecomposition] = useState<ServiceEdgeDecomposition | null>(null)
   const [serviceDecompositionLoading, setServiceDecompositionLoading] = useState(false)
   const [serviceDecompositionError, setServiceDecompositionError] = useState('')
@@ -252,10 +249,6 @@ export default function App() {
   const [reachSurfaceSampling, setReachSurfaceSampling] = useState<'street' | 'cell-center'>('street')
   const [scenarioView, setScenarioView] = useState<ScenarioView>('comparison')
   const [scenarioRenderMode, setScenarioRenderMode] = useState<ScenarioRenderMode>('area')
-  const { scenarioDrafts, setScenarioDrafts, activeScenarioId, setActiveScenarioId,
-    activeScenarioChangeId, setActiveScenarioChangeId, draftStorageError } = useScenarioDrafts(
-    scenarioStorageKey(projects.find((project) => project.id === selectedProjectId)),
-  )
   const [comparisonFeedIds, setComparisonFeedIds] = useState<string[]>([])
   const comparisonFeedInitializationRef = useRef(false)
   const [scenarioStopPlacement, setScenarioStopPlacement] = useState<ScenarioStopPlacement | null>(null)
@@ -272,7 +265,7 @@ export default function App() {
     serviceDecompositionAbortRef.current?.abort()
     serviceDecompositionAbortRef.current = null
     setReachResult(null)
-    setReachComparison(null)
+    setComparisonRun(null)
     setServiceDecomposition(null)
     setServiceDecompositionLoading(false)
     setServiceDecompositionError('')
@@ -345,7 +338,15 @@ export default function App() {
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? emptyCityProject(health?.storageRoot),
     [projects, selectedProjectId, health?.storageRoot],
   )
-  const cityDataGroups = useCityDataGroups(selectedProject, scenarioStorageKey(selectedProject), scenarioDrafts)
+  const scenarioLibrary = useScenarioLibrary(selectedProject)
+  // Route can run on the scenario being edited: its timetable group and planned changes.
+  const [routeOnScenario, setRouteOnScenario] = useState(false)
+  const [routeScenarioRequest, setRouteScenarioRequest] = useState<RouteScenarioRequest | null>(null)
+  const [routeScenarioError, setRouteScenarioError] = useState('')
+  useEffect(() => { setRouteOnScenario(false) }, [selectedProject.id])
+  const { scenarioDrafts, setScenarioDrafts, activeScenarioId, setActiveScenarioId,
+    activeScenarioChangeId, setActiveScenarioChangeId, draftStorageError } = scenarioLibrary
+  const cityDataGroups = scenarioLibrary.grouping
   useEffect(() => { invalidateAnalyzeResult() }, [cityDataGroups.value, invalidateAnalyzeResult])
   const preparationJobs = selectedProject.jobs.map((job) => preparationJobUpdates[job.id] ?? job)
   const streetPreparation = useStreetPreparation({
@@ -448,7 +449,7 @@ export default function App() {
   const reachInspection = useReachInspection({
     active: page === 'project' && activeRouteTool === 'analyze',
     projectId: selectedProjectId, feedId: nationalRoutingFeed?.id ?? '',
-    result: reachResult, comparison: reachComparison,
+    result: reachResult, comparison: null,
   })
   const cityRoutingActive = page === 'project' && activeRouteTool !== 'data' && Boolean(nationalRoutingFeed)
   const storeBackedRouting = Boolean(nationalRoutingFeed)
@@ -492,7 +493,8 @@ export default function App() {
     minimumTransferBufferMinutes: routingMinimumTransferBufferMinutes,
     departureWindowMinutes: routingDepartureWindowMinutes,
     realtimeSnapshot,
-    routeAllowed: routingStreetState === 'ready',
+    routeAllowed: routingStreetState === 'ready' && !(routingMode === 'transit' && routeOnScenario && !routeScenarioRequest),
+    scenario: routeOnScenario ? routeScenarioRequest : null,
   })
   const routingMergeSourceIdentity = selectedProject.feeds
     .filter((feed) => feed.routingStore?.status === 'ready')
@@ -742,6 +744,20 @@ export default function App() {
   const activeScenario = scenarioDrafts.find(
     (entry) => entry.id === activeScenarioId,
   ) ?? scenarioDrafts[0]
+  // Compare: one reference (a timetable group or one timetable) and the variants measured against it.
+  const compareReferenceOptions = useMemo<CompareVariant[]>(() => [
+    ...cityDataGroups.value.groups.map((group) => ({
+      id: `group:${group.id}`, label: group.name, kind: 'group' as const, feedIds: [...new Set(group.feedIds)].sort(),
+      detail: `${group.feedIds.length} timetable${group.feedIds.length === 1 ? '' : 's'}`,
+    })),
+    ...(comparisonFeedOptions.length > 1 ? comparisonFeedOptions.map((feed) => ({
+      id: `timetable:${feed.id}`, label: feed.name, kind: 'timetable' as const, feedIds: [feed.id], detail: 'One timetable',
+    })) : []),
+  ], [cityDataGroups.value.groups, comparisonFeedOptions])
+  // By default Compare includes every scenario that differs from the Baseline group.
+  const compareScenarioIds = compareScenarioSelection ?? scenarioDrafts
+    .filter((entry) => entry.interventions.length || (entry.groupId && entry.groupId !== baselineGroupId))
+    .map((entry) => entry.id)
   const activeCaseFeeds = caseFeedSelection(cityDataGroups.value, activeScenarioId, selectedProject)
   const activeScenarioChange = activeScenario?.interventions.find(
     (entry) => entry.id === activeScenarioChangeId,
@@ -778,6 +794,44 @@ export default function App() {
     if (geometryMode === 'auto-road') return publishedGeometry ?? emptyCoordinates
     return scenarioSketchStops.map((stop) => stop.coordinate)
   }, [activeScenarioChange, activeScenarioRoute, scenarioSketchStops])
+  useEffect(() => {
+    if (!routeOnScenario || !activeScenario) {
+      setRouteScenarioRequest(null)
+      setRouteScenarioError('')
+      return
+    }
+    const selection = caseFeedSelection(cityDataGroups.value, activeScenario.id, selectedProject)
+    const draft = activeScenarioDraft()
+    const error = selection.error || ('error' in draft ? draft.error ?? 'Finish this scenario’s changes before routing on it.' : '')
+    setRouteScenarioError(error)
+    if (error || !('scenario' in draft)) {
+      setRouteScenarioRequest(null)
+      return
+    }
+    const feedIds = [...selection.feedIds].sort()
+    const key = JSON.stringify([feedIds, draft.scenario])
+    setRouteScenarioRequest((current) => current?.key === key ? current : { key, feedIds, scenario: draft.scenario })
+    // activeScenarioDraft reads the same scenario, group and route previews listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeOnScenario, activeScenario, cityDataGroups.value, selectedProject, preview])
+  const routingNetwork = useMemo(() => ({
+    scenarios: scenarioDrafts.map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      detail: entry.interventions.length ? `${entry.interventions.length} change${entry.interventions.length === 1 ? '' : 's'}` : 'Timetable group only',
+    })),
+    selectedId: routeOnScenario ? activeScenarioId : '',
+    error: routeOnScenario ? routeScenarioError : '',
+    onChange: (id: string) => {
+      if (!id) {
+        setRouteOnScenario(false)
+        return
+      }
+      setActiveScenarioId(id)
+      setActiveScenarioChangeId(scenarioDrafts.find((entry) => entry.id === id)?.interventions[0]?.id ?? '')
+      setRouteOnScenario(true)
+    },
+  }), [activeScenarioId, routeOnScenario, routeScenarioError, scenarioDrafts, setActiveScenarioChangeId, setActiveScenarioId])
   const activeScenarioStopPlacement = scenarioStopPlacement?.interventionId === activeScenarioChange?.id
     ? scenarioStopPlacement
     : null
@@ -1522,10 +1576,9 @@ export default function App() {
   }
 
   function addScenario(groupId = cityDataGroups.value.cases[activeScenarioId] ?? cityDataGroups.value.groups[0]?.id ?? '') {
-    if (scenarioDrafts.length >= 6) return
+    if (scenarioDrafts.length >= maximumScenarios) return
     invalidateAnalyzeResult()
-    const next = newScenarioDraft(scenarioDrafts.length)
-    cityDataGroups.assignCase(next.id, groupId)
+    const next = newScenario(scenarioDrafts.length, groupId)
     setScenarioStopPlacement(null)
     setScenarioDrafts((current) => [...current, next])
     setActiveScenarioId(next.id)
@@ -1817,6 +1870,11 @@ export default function App() {
   }
 
   function activeScenarioDraft() {
+    return scenarioRequestFor(activeScenario)
+  }
+
+  /** Compile a saved scenario's changes into the planned-service request Reach and Route take. */
+  function scenarioRequestFor(scenario: ScenarioDraft | undefined) {
     const services: ScenarioServiceDraft[] = []
     const excludedRouteIds: string[] = []
     const excludedPatternIds: Array<{ routeId: string; patternId: string }> = []
@@ -1900,7 +1958,7 @@ export default function App() {
         stops,
       }
     }
-    for (const intervention of activeScenario?.interventions ?? []) {
+    for (const intervention of scenario?.interventions ?? []) {
       const route = intervention.routeId
         ? preview.routes.find((entry) => (
           entry.id === intervention.routeId || entry.patternId === intervention.routeId
@@ -1987,8 +2045,8 @@ export default function App() {
     }
     return {
       scenario: {
-        id: activeScenario?.id ?? 'baseline-only',
-        name: activeScenario?.name ?? 'Baseline',
+        id: scenario?.id ?? 'baseline-only',
+        name: scenario?.name ?? 'Baseline',
         services,
         excludedRouteIds: [...new Set(excludedRouteIds)],
         excludedPatternIds,
@@ -1996,78 +2054,100 @@ export default function App() {
     }
   }
 
-  async function runFeedComparison(includeStreetEdges = scenarioRenderMode === 'streets') {
-    if (!analysisOrigin || comparisonFeedIds.length < 2) return
-    if (new Set(comparisonFeedIds).size !== comparisonFeedIds.length) {
-      setScenarioError('Choose each GTFS feed only once.')
-      return
+  // Compare runs every variant against one reference on the same grid. The
+  // reference surface is computed once and reused by the Studio Engine; only the
+  // selected variant's full surface stays in memory for the map.
+  function comparisonRequestBody(variant: CompareVariant, reference: CompareVariant, includeStreetEdges: boolean) {
+    return {
+      feedIds: variant.feedIds,
+      ...(reference.feedIds.join() !== variant.feedIds.join() ? { baselineFeedIds: reference.feedIds } : {}),
+      origin: analysisOrigin,
+      departMinutes: scheduleTimeMinutes,
+      serviceDate: routingServiceDate,
+      serviceDay: routingServiceDay,
+      maxWalkKm: reachMaxWalkKm,
+      maxTransfers: reachMaxTransfers,
+      walkSpeedKph: reachSurfaceSampling === 'cell-center' ? 4.8 : scenarioWalkSpeedKph,
+      surfaceSampling: reachSurfaceSampling,
+      rasterSize: reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize,
+      cutoffsMinutes: [scenarioCutoffMinutes],
+      includePreliminary: false,
+      includeStreetEdges,
+      payload: 'compact',
+      scenario: variant.scenario ?? { id: variant.id, name: variant.label, services: [], excludedRouteIds: [] },
     }
-    const selectedFeeds = comparisonFeedIds.map((feedId) => selectedProject.feeds.find((feed) => feed.id === feedId))
-    if (selectedFeeds.some((feed) => !feed || feed.routingStore?.status !== 'ready')) {
-      setScenarioError('Every selected GTFS feed needs a ready SQLite routing store.')
-      return
-    }
+  }
 
+  async function runComparison(includeStreetEdges = scenarioRenderMode === 'streets') {
+    const reference = compareReferenceOptions.find((option) => option.id === compareReferenceId) ?? compareReferenceOptions[0]
+    if (!analysisOrigin || !reference) return
+    const selection = compareVariantSelection()
+    if (!selection.variants.length) {
+      setScenarioError(selection.errors[0] ?? 'Choose at least one scenario or timetable to compare.')
+      return
+    }
     analysisAbortRef.current?.abort()
     const controller = new AbortController()
     analysisAbortRef.current = controller
-    const feedProgress = selectedFeeds.map(() => 0)
+    const progress = new Array(selection.variants.length + 1).fill(0)
+    const post = (variant: CompareVariant, index: number) => apiProgressJson<{ result: ReachResult }>(
+      `/api/projects/${encodeURIComponent(selectedProject.id)}/reach`,
+      { method: 'POST', signal: controller.signal, body: JSON.stringify(comparisonRequestBody(variant, reference, includeStreetEdges)) },
+      (update) => {
+        progress[index] = Math.max(progress[index], Math.min(1, Number(update.progress ?? progress[index])))
+        setScenarioProgress({
+          phase: index ? `${variant.label} · ${update.phase}` : `Reference · ${update.phase}`,
+          progress: progress.reduce((total, value) => total + value, 0) / progress.length,
+          detail: update.detail,
+        })
+      },
+    )
     setScenarioLoading(true)
-    setScenarioProgress({ phase: 'comparison', progress: 0, detail: 'Starting selected GTFS analyses' })
+    setScenarioProgress({ phase: 'comparison', progress: 0, detail: `Measuring ${reference.label}` })
     setScenarioError('')
     setReachResult(null)
+    setComparisonRun(null)
     try {
-      const results = await Promise.all(selectedFeeds.map(async (feed, index) => {
-        const feedName = quietMapLabel(feed!.name || feed!.fileName || `GTFS ${index + 1}`)
-        const response = await apiProgressJson<{ result: ReachResult }>(
-          `/api/projects/${encodeURIComponent(selectedProject.id)}/reach`,
-          {
-            method: 'POST',
-            signal: controller.signal,
-            body: JSON.stringify({
-              feedId: feed!.id,
-              origin: analysisOrigin,
-              departMinutes: scheduleTimeMinutes,
-              serviceDate: routingServiceDate,
-              serviceDay: routingServiceDay,
-              maxWalkKm: reachMaxWalkKm,
-              maxTransfers: reachMaxTransfers,
-              walkSpeedKph: reachSurfaceSampling === 'cell-center' ? 4.8 : scenarioWalkSpeedKph,
-              surfaceSampling: reachSurfaceSampling,
-              rasterSize: reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize,
-              cutoffsMinutes: [scenarioCutoffMinutes],
-              includePreliminary: false,
-              includeStreetEdges,
-              scenario: {
-                id: `gtfs-comparison-${index + 1}`,
-                name: `${feedName} comparison baseline`,
-                services: [],
-                excludedRouteIds: [],
-              },
-            }),
-          },
-          (progress) => {
-            feedProgress[index] = Math.max(feedProgress[index], Math.min(1, Number(progress.progress ?? feedProgress[index])))
-            setScenarioProgress({
-              phase: `GTFS ${index + 1} · ${progress.phase}`,
-              progress: feedProgress.reduce((total, value) => total + value, 0) / feedProgress.length,
-              detail: `${feedName}${progress.detail ? ` · ${progress.detail}` : ''}`,
-            })
-          },
-        )
-        return {
-          feedId: feed!.id,
-          feedName,
-          result: response.result,
-        } satisfies ReachComparisonResult
-      }))
-      setReachComparison(results)
-      setScenarioView('baseline')
+      // Sent together: the Studio Engine computes the shared reference surface once.
+      const [referenceOutcome, ...settled] = await Promise.allSettled([
+        post(reference, 0),
+        ...selection.variants.map((variant, index) => post(variant, index + 1)),
+      ])
+      if (controller.signal.aborted) return
+      if (referenceOutcome.status === 'rejected') throw referenceOutcome.reason
+      const referenceResult = inflateReachResult(referenceOutcome.value.result)
+      let best: { id: string; result: ReachResult; gain: number } | null = null
+      const entries: CompareEntry[] = selection.variants.map((variant, index) => {
+        const outcome = settled[index]
+        if (outcome.status === 'rejected') {
+          return { variant, stats: null, error: outcome.reason instanceof Error ? outcome.reason.message : 'This variant could not be measured.' }
+        }
+        const result = inflateReachResult(outcome.value.result)
+        const stats = compareStats(result, scenarioCutoffMinutes)
+        if (!best || stats.areaDeltaKm2 > best.gain) best = { id: variant.id, result, gain: stats.areaDeltaKm2 }
+        return { variant, stats }
+      })
+      const shown = best as { id: string; result: ReachResult; gain: number } | null
+      setComparisonRun({
+        reference: {
+          ...reference,
+          areaKm2: scenarioReachedAreaKm2(referenceResult, 'baseline', scenarioCutoffMinutes),
+          stops: reachTransitStops(referenceResult, 'baseline', scenarioCutoffMinutes),
+        },
+        cutoffMinutes: scenarioCutoffMinutes,
+        serviceDate: routingServiceDate,
+        departMinutes: scheduleTimeMinutes,
+        entries: [
+          ...entries,
+          ...selection.errors.map((error, index) => ({ variant: { id: `invalid-${index}`, label: error.split(':')[0], kind: 'scenario' as const, detail: '', feedIds: [] }, stats: null, error })),
+        ],
+        selectedId: shown?.id ?? '',
+      })
+      setReachResult(shown?.result ?? referenceResult)
+      setScenarioView(shown ? 'comparison' : 'baseline')
     } catch (error) {
-      const cancelled = controller.signal.aborted
-      controller.abort()
-      if (cancelled) return
-      setScenarioError(error instanceof Error ? error.message : 'GTFS comparison failed.')
+      if (controller.signal.aborted) return
+      setScenarioError(error instanceof Error ? error.message : 'Comparison failed.')
     } finally {
       if (analysisAbortRef.current === controller) {
         analysisAbortRef.current = null
@@ -2075,6 +2155,64 @@ export default function App() {
         setScenarioProgress(null)
       }
     }
+  }
+
+  /** Show another variant against the reference; the Studio Engine reuses both surfaces. */
+  async function selectComparisonVariant(variantId: string, includeStreetEdges = scenarioRenderMode === 'streets') {
+    const run = comparisonRun
+    const entry = run?.entries.find((candidate) => candidate.variant.id === variantId)
+    if (!run || !entry?.stats || !analysisOrigin) return
+    analysisAbortRef.current?.abort()
+    const controller = new AbortController()
+    analysisAbortRef.current = controller
+    setComparisonRun({ ...run, selectedId: variantId })
+    setScenarioLoading(true)
+    setScenarioError('')
+    try {
+      const response = await apiProgressJson<{ result: ReachResult }>(
+        `/api/projects/${encodeURIComponent(selectedProject.id)}/reach`,
+        { method: 'POST', signal: controller.signal, body: JSON.stringify(comparisonRequestBody(entry.variant, run.reference, includeStreetEdges)) },
+        setScenarioProgress,
+      )
+      if (controller.signal.aborted) return
+      setReachResult(inflateReachResult(response.result))
+      setScenarioView('comparison')
+    } catch (error) {
+      if (controller.signal.aborted) return
+      setScenarioError(error instanceof Error ? error.message : 'This variant could not be shown.')
+    } finally {
+      if (analysisAbortRef.current === controller) {
+        analysisAbortRef.current = null
+        setScenarioLoading(false)
+        setScenarioProgress(null)
+      }
+    }
+  }
+
+  function compareVariantSelection() {
+    const variants: CompareVariant[] = []
+    const errors: string[] = []
+    for (const entry of scenarioDrafts.filter((candidate) => compareScenarioIds.includes(candidate.id))) {
+      const selection = caseFeedSelection(cityDataGroups.value, entry.id, selectedProject)
+      const draft = scenarioRequestFor(entry)
+      const error = selection.error || ('error' in draft ? draft.error ?? 'Finish its changes first.' : '')
+      if (error || !('scenario' in draft)) {
+        errors.push(`${entry.name}: ${error}`)
+        continue
+      }
+      variants.push({
+        id: `scenario:${entry.id}`, label: entry.name, kind: 'scenario', feedIds: [...selection.feedIds].sort(),
+        detail: `${selection.group?.name ?? 'Timetables'} · ${entry.interventions.length ? `${entry.interventions.length} change${entry.interventions.length === 1 ? '' : 's'}` : 'no changes'}`,
+        scenario: draft.scenario,
+      })
+    }
+    if (comparisonFeedOptions.length > 1) {
+      for (const feed of comparisonFeedOptions.filter((candidate) => comparisonFeedIds.includes(candidate.id))) {
+        if (`timetable:${feed.id}` === compareReferenceId) continue
+        variants.push({ id: `timetable:${feed.id}`, label: feed.name, kind: 'timetable', detail: `${formatNumber(feed.routeCount)} routes · ${formatNumber(feed.stopCount)} stops`, feedIds: [feed.id] })
+      }
+    }
+    return { variants, errors }
   }
 
   async function runServiceDecomposition() {
@@ -2133,13 +2271,17 @@ export default function App() {
       setScenarioError(draft.error ?? 'Configure the active case before running it.')
       return
     }
+    const baselineGroup = cityDataGroups.value.groups.find((group) => group.id === baselineGroupId)
+    const baselineFeeds = baselineGroup && !caseFeedSelection({ ...cityDataGroups.value, cases: { baseline: baselineGroupId } }, 'baseline', selectedProject).error
+      ? [...new Set(baselineGroup.feedIds)].sort()
+      : null
     analysisAbortRef.current?.abort()
     const controller = new AbortController()
     analysisAbortRef.current = controller
     setScenarioLoading(true)
     setScenarioProgress({ phase: 'preparation', progress: 0, detail: 'Starting network Reach' })
     setScenarioError('')
-    setReachComparison(null)
+    setComparisonRun(null)
     try {
       const response = await apiProgressJson<{ result: ReachResult }>(
         `/api/projects/${encodeURIComponent(selectedProject.id)}/reach`,
@@ -2148,6 +2290,8 @@ export default function App() {
           signal: controller.signal,
           body: JSON.stringify({
             feedIds: selection.feedIds,
+            // A scenario on another group of timetables is compared with the City's baseline group.
+            ...(baselineFeeds && baselineFeeds.join() !== [...selection.feedIds].sort().join() ? { baselineFeedIds: baselineFeeds } : {}),
             origin: analysisOrigin,
             departMinutes: scheduleTimeMinutes,
             serviceDate: routingServiceDate,
@@ -2163,13 +2307,14 @@ export default function App() {
             // a provisional walk-only surface for every scenario run.
             includePreliminary: false,
             includeStreetEdges,
+            payload: 'compact',
             scenario: draft.scenario,
           }),
         },
         setScenarioProgress,
         (preliminary) => setReachResult(preliminary.result),
       )
-      setReachResult(response.result)
+      setReachResult(inflateReachResult(response.result))
       setScenarioView((activeScenario?.interventions.length ?? 0) ? 'comparison' : 'baseline')
     } catch (error) {
       if (controller.signal.aborted) return
@@ -2721,15 +2866,24 @@ export default function App() {
     }
   }, [selectedProjectId])
 
+  // Analyze runs on the scheduled timetable, so live feeds pause there instead
+  // of re-reading a full snapshot in the background, and refresh on return.
+  const realtimePollingActive = page === 'project' && activeRouteTool !== 'analyze'
+  const realtimeResumeRef = useRef(false)
   useEffect(() => {
-    if (!realtimeRequest || page !== 'project') return
+    if (!realtimeRequest || !realtimePollingActive) {
+      if (realtimeRequest) realtimeResumeRef.current = true
+      return
+    }
+    const resume = realtimeResumeRef.current
+    realtimeResumeRef.current = false
     const polling = startPolling(
       signal => refreshRealtimeRequest(realtimeRequest, { background: true, signal }),
       realtimeRefreshMs,
-      { immediate: false },
+      { immediate: resume },
     )
     return polling.stop
-  }, [page, realtimeRequest, refreshRealtimeRequest])
+  }, [realtimePollingActive, realtimeRequest, refreshRealtimeRequest])
   useEffect(() => () => realtimeAbortRef.current?.abort(), [])
 
   function connectRealtime(request: RealtimeInspectRequest) {
@@ -2938,6 +3092,8 @@ export default function App() {
   }, [hasActiveOperationsData, page, projects, selectedProjectId])
 
   const storageRecoveryRequired = Boolean(runtimeConfig && !runtimeConfig.setupRequired && !runtimeConfig.offline.storageWritable)
+  // The map is the canvas for Network, Route and Analyze; tool panels float over it.
+  const hasStage = page === 'project' && activeRouteTool !== 'data' && !isProjectEmpty && !storageRecoveryRequired
   const routingDetailOpen = page === 'project'
     && activeRouteTool === 'pathfinder'
     && routingDetailsVisible
@@ -2975,7 +3131,7 @@ export default function App() {
   }
 
   return (
-    <main className={classNames('app-shell', `appearance-${appearance}`, `accent-${accent}`, `page-${page}`, isProjectEmpty && 'project-empty', page === 'project' && activeRouteTool === 'data' && 'view-data', activeRouteTool === 'agency' && 'view-agency', agencyMapOpen && 'agency-map-open', routingDetailOpen && 'routing-detail-open', sidebarCollapsed && 'desktop-sidebar-collapsed')}>
+    <main className={classNames('app-shell', `appearance-${appearance}`, `accent-${accent}`, `page-${page}`, isProjectEmpty && 'project-empty', hasStage && 'has-stage', page === 'project' && activeRouteTool === 'data' && 'view-data', activeRouteTool === 'agency' && 'view-agency', agencyMapOpen && 'agency-map-open', routingDetailOpen && 'routing-detail-open', sidebarCollapsed && 'desktop-sidebar-collapsed')}>
       <header className="topbar">
         <div className="topbar-brand" aria-label="City header">
           <button type="button" className="topbar-mark-button" onClick={showProjects} title="Open Cities" aria-label="Open Cities">
@@ -2983,6 +3139,7 @@ export default function App() {
           </button>
           <div className="topbar-brand-copy">
             <b>{page === 'projects' ? 'Cities' : activeRouteTool === 'data' && dataSection === 'preferences' ? 'Settings' : quietMapLabel(selectedProject.name)}</b>
+            {hasStage ? <span className="topbar-crumb">{activeRouteTool === 'pathfinder' ? 'Route' : activeRouteTool === 'analyze' ? 'Analyze' : 'Network'}</span> : null}
           </div>
         </div>
 
@@ -3061,7 +3218,11 @@ export default function App() {
             cutoffMinutes={scenarioCutoffMinutes}
             renderMode={scenarioRenderMode}
             cases={scenarioDrafts}
-            caseGroupLabel={activeCaseFeeds.group?.name ?? 'Choose feed group'}
+            caseGroupLabel={activeCaseFeeds.group?.name ?? ''}
+            scenarioGroups={cityDataGroups.value.groups}
+            scenarioSaveState={scenarioLibrary.saveState}
+            onRenameCase={(id, name) => setScenarioDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, name: name.slice(0, 80) } : entry))}
+            onAssignCaseGroup={(id, groupId) => { invalidateAnalyzeResult(); cityDataGroups.assignCase(id, groupId) }}
             feeds={comparisonFeedOptions}
             comparisonFeedIds={comparisonFeedIds}
             activeCaseId={activeScenarioId}
@@ -3076,7 +3237,16 @@ export default function App() {
             progress={scenarioProgress}
             error={scenarioError || draftStorageError || (analyzeMode === 'single' ? cityDataGroups.error || activeCaseFeeds.error : '')}
             analysis={reachResult}
-            comparison={reachComparison}
+            comparisonRun={comparisonRun}
+            compareReferenceOptions={compareReferenceOptions}
+            compareReferenceId={compareReferenceId}
+            compareScenarioIds={compareScenarioIds}
+            onCompareReferenceChange={(id) => { invalidateAnalyzeResult(); setCompareReferenceId(id) }}
+            onCompareScenarioChange={(id, selected) => {
+              invalidateAnalyzeResult()
+              setCompareScenarioSelection(selected ? [...new Set([...compareScenarioIds, id])] : compareScenarioIds.filter((candidate) => candidate !== id))
+            }}
+            onSelectComparisonVariant={(id) => void selectComparisonVariant(id)}
             serviceDecomposition={serviceDecomposition}
             serviceDecompositionLoading={serviceDecompositionLoading}
             serviceDecompositionError={serviceDecompositionError}
@@ -3107,8 +3277,9 @@ export default function App() {
             }}
             onCutoffChange={(value) => {
               setScenarioCutoffMinutes(value)
-              const results = reachComparison?.map(entry => entry.result) ?? (reachResult ? [reachResult] : [])
-              if (!results.length || results.some(result => !result.request.cutoffsMinutes.includes(value))) {
+              const results = reachResult ? [reachResult] : []
+              if (!results.length || results.some(result => !result.request.cutoffsMinutes.includes(value))
+                || (comparisonRun && comparisonRun.cutoffMinutes !== value)) {
                 invalidateAnalyzeResult()
               }
             }}
@@ -3117,8 +3288,8 @@ export default function App() {
               setScenarioRenderMode(mode)
               if (mode !== 'streets') return
               if (analyzeMode !== 'single') {
-                if (scenarioLoading || reachComparison?.some((entry) => !entry.result.surface.edges)) {
-                  void runFeedComparison(true)
+                if (comparisonRun?.selectedId && reachResult && !reachResult.surface.edges) {
+                  void selectComparisonVariant(comparisonRun.selectedId, true)
                 }
               } else if (scenarioLoading || (reachResult && !reachResult.surface.edges)) {
                 void runSurfaceAnalysis(true)
@@ -3166,7 +3337,7 @@ export default function App() {
               setAnalysisOrigin(null)
             }}
             onRun={() => void runSurfaceAnalysis()}
-            onRunComparison={() => void runFeedComparison()}
+            onRunComparison={() => void runComparison()}
             onRunServiceDecomposition={() => void runServiceDecomposition()}
             onOpenData={openDataView}
             onCancel={cancelSurfaceAnalysis}
@@ -3194,7 +3365,8 @@ export default function App() {
         routingStoreConnectionCount={routingStoreConnectionCount}
         routingTimePreference={routingTimePreference}
         routingMode={routingMode}
-        routingDataMode={routingDataMode}
+        routingDataMode={routingMode === 'transit' && routeOnScenario ? 'scheduled' : routingDataMode}
+        routingNetwork={routingNetwork}
         routingDepartureWindowMinutes={routingDepartureWindowMinutes}
         routingMaxWalkKm={routingMaxWalkKm}
         routingMaxTransfers={routingMaxTransfers}
@@ -3298,6 +3470,7 @@ export default function App() {
           feedCount={selectedProject.summary.feeds}
           routeCount={selectedProject.summary.routes}
           stopCount={selectedProject.summary.stops}
+          projectRevision={selectedProject.updatedAt}
           appearance={appearance}
           basemap={basemap}
           localBasemapAvailable={selectedProject.osmStreetIndex?.status === 'ready'}
@@ -3345,7 +3518,6 @@ export default function App() {
           routeDetailStatus={selectedRoute && routeHasCompleteGtfsAnalysis(selectedRoute, preview, routingServiceDate)
             ? 'All route patterns'
             : routeAnalysisError ? 'Route detail unavailable · overview only' : 'Loading full route…'}
-          key={activeRouteTool === 'agency' ? 'network-map' : 'studio-map'}
           projectId={selectedProject.id}
           feed={activeFeed}
           focusedPreview={focusedMapPreview}
@@ -3378,7 +3550,7 @@ export default function App() {
           </> : undefined}
           onInspectReachPoint={activeRouteTool === 'analyze' && reachInspection.sources.length ? reachInspection.inspect : undefined}
           reachResult={activeRouteTool === 'analyze' ? reachResult : null}
-          reachComparison={activeRouteTool === 'analyze' ? reachComparison : null}
+          reachComparison={null}
           serviceDecomposition={activeRouteTool === 'analyze' ? serviceDecomposition : null}
           scenarioView={scenarioView}
           scenarioRenderMode={scenarioRenderMode}
@@ -3388,6 +3560,7 @@ export default function App() {
           scenarioPointPicking={scenarioPointPicking}
           onMoveScenarioStop={activeRouteTool === 'analyze' ? moveScenarioStopFromMap : undefined}
           routingActivity={routingActivity}
+          occlusionKey={routingDetailOpen ? 'journey' : ''}
           cityPreviewLoading={cityPreviewLoading}
           onMapScopeChange={(scope) => { if (activeRouteTool === 'agency' && scope === 'network') { clearAgencyMap(); returnToNetworkOverview() } setMapScope(scope) }}
           onVehicleModeChange={changeVehicleMode}

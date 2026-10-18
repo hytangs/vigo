@@ -65,9 +65,9 @@ app.whenReady().then(async()=>{try{
   await run('window.checkDownloadFeedback("Save Reach results");window.checkFeedbackReset()');
   const laterRows=Papa.parse((await save('Save Reach results','csv')).text,{header:true,skipEmptyLines:true}).data;assert.equal(laterRows[1].cutoff_minutes,'30');assert.equal(laterRows[1].slower_or_lost_cells,'2');assert.equal(laterRows[1].area_delta_km2,'-1.5');
   await run('window.showResult("city")');
-  const cityJson=JSON.parse((await save('Save City comparison','json')).text);assert.equal(cityJson.referenceFeedId,'reference');assert.equal(cityJson.selectedSummary[1].differenceFromReference.areaKm2,2.5);
-  const cityRows=Papa.parse((await save('Save City comparison','csv')).text,{header:true,skipEmptyLines:true}).data;assert.equal(cityRows.length,2);assert.equal(cityRows[1].area_delta_km2,'2.5');assert.equal(cityRows[1].transit_stop_delta,'2');
-  const cityMap=JSON.parse((await save('Save City comparison','geojson')).text);assert.equal(cityMap.features.length,2);assert(cityMap.features.every(f=>f.properties.surface==='baseline'));
+  const cityJson=JSON.parse((await save('Save comparison','json')).text);assert.equal(cityJson.reference.label,'Reference timetable');assert.equal(cityJson.variants[0].stats.areaDeltaKm2,2.5);assert.equal(cityJson.selectedVariantId,'timetable:candidate');
+  const cityRows=Papa.parse((await save('Save comparison','csv')).text,{header:true,skipEmptyLines:true}).data;assert.equal(cityRows.length,2);assert.equal(cityRows[1].area_change_km2,'2.5');assert.equal(cityRows[1].stops_change,'2');
+  const cityMap=JSON.parse((await save('Save comparison','geojson')).text);assert.deepEqual(cityMap.features.map(f=>f.properties.surface),['reference','variant']);
   const layouts=[];
   for(const width of [320,390,1280]){
     await resizeLayout(w,width,900);
@@ -75,7 +75,7 @@ app.whenReady().then(async()=>{try{
       layouts.push(await run('window.checkResultLayout('+JSON.stringify(mode)+','+dark+')'));
       fs.writeFileSync(path.join(${JSON.stringify(directory)},width+'-'+mode+'-'+(dark?'dark':'light')+'.png'),(await layoutFrame(w)).toPNG());
     }
-    if(width<760){const mobileRows=Papa.parse((await save('Save City comparison','csv')).text,{header:true,skipEmptyLines:true}).data;assert.equal(mobileRows[1].area_delta_km2,'2.5');}
+    if(width<760){const mobileRows=Papa.parse((await save('Save comparison','csv')).text,{header:true,skipEmptyLines:true}).data;assert.equal(mobileRows[1].area_change_km2,'2.5');}
   }
   fs.writeFileSync(path.join(${JSON.stringify(directory)},'verification.json'),JSON.stringify({downloaded,layouts},null,2));
   console.log(JSON.stringify({passed:true,downloaded,layouts,directory:${JSON.stringify(directory)}}));app.exit(0);

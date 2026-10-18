@@ -1,10 +1,12 @@
-import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Search, X } from 'lucide-react'
 import type { AgencyState } from '../agency/types'
 import { browseRoutes, routeBrowserFreshness, routeDelayLabel, routeHasAttention, type RouteBrowserFilter, type RouteBrowserSort } from '../agency/routeBrowser'
+import { routeDelaySeverity } from './AgencyOverview'
+import { AgencyRouteBadge } from './AgencyRouteBadge'
 
 const filters: Array<{ value: RouteBrowserFilter; label: string }> = [
-  { value: 'all', label: 'All routes' }, { value: 'attention', label: 'Needs attention' }, { value: 'reporting', label: 'Reporting' },
+  { value: 'all', label: 'All' }, { value: 'attention', label: 'To review' }, { value: 'reporting', label: 'Reporting' },
 ]
 
 export function AgencyRouteBrowser({ state, onSelect, initialFilter = 'all', onFilterChange, refreshFailed = false }: {
@@ -39,7 +41,6 @@ export function AgencyRouteBrowser({ state, onSelect, initialFilter = 'all', onF
   const hasFilters = Boolean(search.trim() || filter !== 'all')
 
   return <section className="agency-route-browser" aria-label="Route browser">
-    <header className="agency-page-heading"><h1 className="studio-page-title">Routes</h1></header>
     <div className="agency-route-search"><Search size={16} aria-hidden="true" /><input ref={searchRef} aria-label="Find a route" placeholder="Find a route" value={search} onChange={event => { setSearch(event.target.value); setLimit(50) }} />{search ? <button type="button" aria-label="Clear route search" onClick={() => { setSearch(''); setLimit(50); searchRef.current?.focus() }}><X size={14} aria-hidden="true" /></button> : null}</div>
     <div className="agency-route-filters" role="group" aria-label="Filter routes">{filters.map(item => <button type="button" key={item.value} aria-pressed={filter === item.value} onClick={() => chooseFilter(item.value)}><span>{item.label}</span><span className="agency-route-filter-count">{counts[item.value].toLocaleString()}</span></button>)}</div>
     <div className="agency-route-toolbar">
@@ -53,14 +54,14 @@ export function AgencyRouteBrowser({ state, onSelect, initialFilter = 'all', onF
       const reporting = freshness.predictions && route.reportingTrips > 0
       const alertCount = freshness.alerts ? route.alerts : 0
       return <button type="button" key={route.id} data-route-id={route.id} onClick={() => onSelect(route.id)}>
-        <span className="agency-route-label" style={{ '--line-color': route.color } as CSSProperties}>{route.name}</span>
+        <AgencyRouteBadge name={route.name} color={route.color} mode={route.mode} showMode />
         <span className="agency-route-list-detail">
           {route.longName && route.longName !== route.name ? <span>{route.longName}</span> : null}
           <small>{reporting ? `${route.reportingTrips} ${route.reportingTrips === 1 ? 'trip report' : 'trip reports'}` : freshness.predictions ? 'No current trip reports' : 'Timetable'}{alertCount ? ` · ${alertCount} ${alertCount === 1 ? 'alert' : 'alerts'}` : ''}</small>
           {delay || (reporting && route.headway === 'changed') || freshness.attentionRouteIds.has(route.id) ? <span className="agency-route-indicators">
-            {delay ? <span className="agency-route-indicator" title="Largest predicted delay among reporting trips’ next departures in the assessment window.">{delay} predicted</span> : null}
-            {reporting && route.headway === 'changed' ? <span className="agency-route-indicator" title="At least one fully reporting departure pair has different predicted spacing from the timetable.">Spacing changed</span> : null}
-            {freshness.attentionRouteIds.has(route.id) ? <span className="agency-route-indicator">Service change reported</span> : null}
+            {delay ? <span className="agency-route-indicator" data-severity={routeDelaySeverity(route)} title="Largest predicted delay among reporting trips’ next departures in the assessment window.">{delay} predicted</span> : null}
+            {reporting && route.headway === 'changed' ? <span className="agency-route-indicator" data-severity="watch" title="At least one fully reporting departure pair has different predicted spacing from the timetable.">Spacing changed</span> : null}
+            {freshness.attentionRouteIds.has(route.id) ? <span className="agency-route-indicator" data-severity="info">Service change reported</span> : null}
           </span> : null}
 
         </span>

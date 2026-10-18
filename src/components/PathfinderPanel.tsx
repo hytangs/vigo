@@ -11,9 +11,11 @@ import {
   CalendarDays,
   Car,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Clock3,
   Footprints,
+  Layers,
   LoaderCircle,
   MapPin,
   Navigation2,
@@ -54,6 +56,12 @@ import type  {
 } from '../routingModel'
 import { maxRoutingPointCount, routingPointRoleLabel } from '../routingPointSequence'
 import { formatScheduleClock } from '../scheduledVehicles'
+
+/** Stops keep their names; a point dropped on the map has no name of its own. */
+function routingPointName(point: RoutingPoint) {
+  const label = point.label.trim()
+  return point.source === 'map' || !label || /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/u.test(label) ? 'Dropped pin' : label
+}
 
 export type RoutingScopeStatus = 'ready' | 'building' | 'failed' | 'missing'
 
@@ -324,6 +332,14 @@ export function PathfinderRouteList({
   )
 }
 
+/** The timetable a route runs on: the City's own, or a saved scenario. */
+export type RoutingNetworkChoice = {
+  scenarios: Array<{ id: string; name: string; detail: string }>
+  selectedId: string
+  error: string
+  onChange: (id: string) => void
+}
+
 export type SidebarPathfinderBoxProps = {
   routingEnabled: boolean
   routingOrigin: RoutingPoint | null
@@ -336,6 +352,7 @@ export type SidebarPathfinderBoxProps = {
   routingTimePreference: RoutingTimePreference
   routingMode: RoutingTravelMode
   routingDataMode: RoutingDataMode
+  routingNetwork?: RoutingNetworkChoice
   routingDepartureWindowMinutes: RoutingDepartureWindowMinutes
   routingMaxWalkKm: number
   routingMaxTransfers?: number
@@ -384,6 +401,7 @@ export function SidebarPathfinderBox({
   routingTimePreference,
   routingMode,
   routingDataMode,
+  routingNetwork,
   routingDepartureWindowMinutes,
   routingMaxWalkKm,
   routingMaxTransfers,
@@ -626,7 +644,8 @@ export function SidebarPathfinderBox({
                   <span className={classNames('pathfinder-location-mark', index === 0 ? 'is-origin' : index === pointRows.length - 1 ? 'is-destination' : 'is-waypoint')} aria-hidden="true" />
                   <button type="button" className="pathfinder-coordinate-point" aria-label={`${point ? 'Repick' : 'Pick'} ${role.toLowerCase()} on map`} aria-pressed={selected} onClick={() => onPickRoutingPoint(index)} disabled={index > points.length}>
                     <small>{role}</small>
-                    <strong className={classNames(!point && 'is-empty')}>{point ? `${point.coordinate[1].toFixed(5)}, ${point.coordinate[0].toFixed(5)}` : selected ? 'Click the map…' : 'Pick on map'}</strong>
+                    <strong className={classNames(!point && 'is-empty')}>{point ? routingPointName(point) : selected ? 'Click the map…' : 'Pick on map'}</strong>
+                    {point ? <span className="pathfinder-coordinate-value">{point.coordinate[1].toFixed(5)}, {point.coordinate[0].toFixed(5)}</span> : null}
                   </button>
                   {point ? <span className="pathfinder-location-actions">
                     <button type="button" onClick={() => movePoint(index, -1)} disabled={index === 0} aria-label={`Move ${role.toLowerCase()} earlier`}><ArrowUp size={13} /></button>
@@ -649,12 +668,27 @@ export function SidebarPathfinderBox({
           {routingEnabled ? <p className="pathfinder-points-hint" role="status">{pickLabel} on the map</p> : null}
         </div>
 
+        {routingMode === 'transit' && routingNetwork?.scenarios.length ? <div className="pathfinder-stage pathfinder-network">
+          <label className={classNames('pathfinder-network-field', routingNetwork.selectedId && 'is-scenario')}>
+            <Layers size={14} aria-hidden="true" />
+            <span>Network</span>
+            <select value={routingNetwork.selectedId} onChange={(event) => routingNetwork.onChange(event.currentTarget.value)} aria-label="Route network">
+              <option value="">City timetable</option>
+              {routingNetwork.scenarios.map((scenario) => <option key={scenario.id} value={scenario.id}>{scenario.name} · {scenario.detail}</option>)}
+            </select>
+            <ChevronDown size={14} aria-hidden="true" />
+          </label>
+          {routingNetwork.selectedId ? <p className={classNames('pathfinder-points-hint', routingNetwork.error && 'is-error')} role={routingNetwork.error ? 'alert' : undefined}>
+            {routingNetwork.error || 'Planned service on the published timetable.'}
+          </p> : null}
+        </div> : null}
+
         <div className="pathfinder-stage pathfinder-stage-time">
           <div className="pathfinder-when" aria-label="Journey time and date">
             <div className="pathfinder-when-head">
               <span>When</span>
               {routingMode === 'transit' ? <div className="pathfinder-mini-switch" role="group" aria-label="Transit data mode" aria-describedby="pathfinder-data-mode-help">
-                <button type="button" className={classNames(routingDataMode === 'realtime' && 'is-active')} aria-pressed={routingDataMode === 'realtime'} onClick={() => onRoutingDataModeChange('realtime')}>Realtime</button>
+                <button type="button" className={classNames(routingDataMode === 'realtime' && 'is-active')} aria-pressed={routingDataMode === 'realtime'} disabled={Boolean(routingNetwork?.selectedId)} title={routingNetwork?.selectedId ? 'Scenarios run on the published timetable.' : undefined} onClick={() => onRoutingDataModeChange('realtime')}>Realtime</button>
                 <button type="button" className={classNames(routingDataMode === 'scheduled' && 'is-active')} aria-pressed={routingDataMode === 'scheduled'} onClick={() => onRoutingDataModeChange('scheduled')}>Scheduled</button>
               </div> : null}
             </div>

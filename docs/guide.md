@@ -779,7 +779,7 @@ A Scenario is an immutable set of changes tied to exactly one City revision. It 
 
 Scenarios never edit the imported GTFS or OSM, and a complete alternative feed is another City revision. Drawing geometry in an editor creates no computational change until it is attached to a valid service edit. Several nonconflicting planned changes may coexist; conflicts need an explicit resolution. A Scenario never moves to another City revision, and expired live state cannot be queried.
 
-In VIGO 0.5.2, planned service changes apply to Reach, supplied traffic to Drive Route and Drive Matrix, and supplied realtime predictions to transit Route. Transit Matrix and Reach remain scheduled. Unsupported combinations are rejected with an explanation. The [Scenario request reference](guides/rust-standalone.md#10-scenarios) lists every field.
+In VIGO 0.5.2, planned service changes apply to Reach, supplied traffic to Drive Route and Drive Matrix, and supplied realtime predictions to transit Route. Transit Matrix and Reach remain scheduled. Studio can also route transit journeys on a saved scenario, on the scheduled timetable. Unsupported combinations are rejected with an explanation. The [Scenario request reference](guides/rust-standalone.md#10-scenarios) lists every field.
 
 ### Planned service
 
@@ -1105,6 +1105,8 @@ Pick an origin and destination on the map. **Add point** inserts a via point bef
 
 Choose a travel mode. Realtime transit departs now; Scheduled exposes the date, time, and depart-at or arrive-by controls. Transfer caps are disabled while via points are present. Changing points or options updates the route, **Rerun route** submits the same coordinates again, and **New route** clears them.
 
+**Network** chooses what a transit route runs on: the City timetable or one of the City's saved scenarios. A scenario route uses the scheduled timetable of the scenario's timetable group, with its removed routes canceled and its planned lines added. Planned lines run on their stated headway and hours on every service date, and new planned stops are reached on foot over the City's streets. Rides on planned service are labeled **Planned** and drawn along the scenario's path. Realtime is unavailable while a scenario is chosen.
+
 Sort journeys by **Earliest**, **Fewer transfers**, or **Less walking**. Each card shows arrival, total time from your requested departure, transfers, walking, and its trade-off against the earliest arrival. Sorting keeps the selected journey and does not rerun the search; arrow keys, Home, and End select another journey, and **Details** opens its itinerary.
 
 #### Save a journey
@@ -1125,11 +1127,11 @@ Choose an origin on the map, or use **Choose origin** to search imported stops b
 
 #### Compare
 
-Studio's feed comparison runs Reach for each selected GTFS feed and shows the surfaces. City comparisons mark the first selected feed as the reference and show sampled-area and reached-stop differences at the selected cutoff. Scenario cases show the same measures against their baseline, together with faster or newly reached and slower or lost cell counts. Differences require the same origin, date and time, mode, sampling, and walking and transfer settings; cell counts are never subtracted across independent grids. To compare completed Results without rerunning them, use the compiler's `compare`.
+**Compare** measures saved scenarios, timetable groups, or single timetables against one reference, by default the City's **Baseline** group, from the same origin and departure. Every variant is computed on the reference's grid, and the reference surface is computed once and reused. Variants are ranked by reached area gained at the time budget; each row also counts newly reached and no-longer-reached cells, the mean minutes saved over cells both networks reach, and the change in reached stops. Choose a variant to map its travel-time change from the reference. Cell counts are never subtracted across independent grids. To compare completed Results without rerunning them, use the compiler's `compare`.
 
-Use **Save** beside Reach or comparison results for the full JSON, the selected cutoff's area geometry, or a CSV summary. `total_processing_ms` measures complete analysis processing, separate from native query timings; `area_source` distinguishes an exact-cutoff area metric from a display-raster calculation; `reference_surface` and `reference_feed_id` identify the baseline. Saving becomes available when the computation finishes.
+Use **Save** beside Reach or comparison results for the full JSON, the selected cutoff's area geometry, or a CSV summary; Compare saves its ranking as CSV, the run with the mapped variant as JSON, and the mapped pair's areas as GeoJSON. `total_processing_ms` measures complete analysis processing, separate from native query timings; `area_source` distinguishes an exact-cutoff area metric from a display-raster calculation; `reference_surface` and `reference_feed_id` identify the baseline. Saving becomes available when the computation finishes.
 
-Scenario drafts and the selected case are saved in Studio's local profile and restored when you reopen the same project and source revision. They do not travel with a City directory; reimporting GTFS or rebuilding the project starts a separate draft set. For a stop inserted on an A → B edge shared by several branches, the road path applies to each affected branch, and each branch keeps its own untouched shape and runtime. Use the engine, the compiler, or Python for Matrix queries.
+Studio saves scenarios and timetable groups in the City folder, in `.vigo/scenarios.json`, shortly after each edit. They survive restarts and reimports and travel with the City directory; a scenario that names a route a reimport removed reports it when you run it. A copy saved from another window is never overwritten: Studio shows the newer copy instead. Drafts that earlier versions kept in the browser profile move into the City folder the first time you open it. For a stop inserted on an A → B edge shared by several branches, the road path applies to each affected branch, and each branch keeps its own untouched shape and runtime. Use the engine, the compiler, or Python for Matrix queries.
 
 ### City
 

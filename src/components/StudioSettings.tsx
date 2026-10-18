@@ -100,6 +100,12 @@ export function StudioSettings({ appearance, basemap, localBasemapAvailable, run
         <section className="settings-section settings-about" aria-labelledby="settings-about-title">
           <span className="eyebrow">Local by design</span><h2 id="settings-about-title">VIGO Studio <span>{health?.version || '—'}</span></h2>
           <p>Explore a network. Find a journey. Understand what is within reach.</p>
+          <dl className="settings-about-pillars">
+            <div><dt>Passage</dt><dd>Find the way through a City, door to door, from its published timetables and streets.</dd></div>
+            <div><dt>Connection</dt><dd>See how a network joins up, and what a planned line or a remix of timetables would connect.</dd></div>
+            <div><dt>Foundation</dt><dd>Build on exact data: each City is prepared once on this computer, then every answer is offline and reproducible.</dd></div>
+          </dl>
+          <p className="settings-note">This release is VIGO 1 Poros (2026), named for an island in the Saronic Gulf whose name means a passage, a way through.</p>
           <p className="settings-note">Timetables, streets, and routing stay on this computer. Live feeds and online maps use the internet.</p>
         </section>
         <section className="settings-section" aria-labelledby="settings-health-title">

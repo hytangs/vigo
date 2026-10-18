@@ -9,39 +9,86 @@ const temporary = await mkdtemp(path.join(tmpdir(), 'vigo-draft-lifecycle-'))
 const harness = `import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
-import { useScenarioDrafts } from '/src/app/useScenarioDrafts.ts';
+import { useScenarioLibrary } from '/src/app/useScenarioLibrary.ts';
 import { createScenarioRoadGeometryRequest } from '/src/app/scenarioRoadGeometryRequest.ts';
+// A small in-page stand-in for the City folder: GET and PUT /api/projects/{id}/scenarios.
+// sessionStorage keeps it across the reload check.
+const serverKey = 'scenario-library-server', damaged = new Set();
+const saved = () => JSON.parse(sessionStorage.getItem(serverKey) || '{}');
+const realFetch = window.fetch.bind(window);
+window.puts = 0;
+window.fetch = async (input, options = {}) => {
+  const match = String(input).match(/\\/api\\/projects\\/([^/]+)\\/scenarios$/);
+  if (!match) return realFetch(input, options);
+  const id = decodeURIComponent(match[1]), state = saved(), entry = state[id] || { library: null, revision: 0 };
+  if (damaged.has(id)) return Response.json({ error: 'Saved scenarios could not be read. The file has been kept unchanged.' }, { status: 500 });
+  if (!options.method || options.method === 'GET') return Response.json(entry);
+  const body = JSON.parse(options.body);
+  if (body.baseRevision !== entry.revision) return Response.json({ error: 'changed', library: entry.library, revision: entry.revision }, { status: 409 });
+  window.puts += 1;
+  state[id] = { library: { ...body.library, revision: entry.revision + 1 }, revision: entry.revision + 1 };
+  sessionStorage.setItem(serverKey, JSON.stringify(state));
+  return Response.json(state[id]);
+};
+const city = id => ({ id, storagePath: '/library/' + id, name: id, feeds: [{ id: 'feed', importedAt: 'first' }] });
 let state, root = createRoot(document.getElementById('root'));
-const A = 'draft-lifecycle-A', B = 'draft-lifecycle-B';
-function Component({city}) { state = useScenarioDrafts(city); return React.createElement('div', null, state.scenarioDrafts[0].name); }
-function mount(city) { flushSync(() => root.render(React.createElement(React.StrictMode, null, React.createElement(Component, {city})))); }
+function Component({project}) { state = useScenarioLibrary(project); return React.createElement('div', null, state.scenarioDrafts[0].name); }
+function mount(id) { flushSync(() => root.render(React.createElement(React.StrictMode, null, React.createElement(Component, {project: city(id)})))); }
 function check(condition, text) { if (!condition) throw Error(text); }
-mount(A);
-window.runTests = () => {
-  flushSync(() => state.setScenarioDrafts([{id:'case-a', name:'Saved A', interventions:[]}]));
-  check(JSON.parse(localStorage.getItem(A)).cases[0].name === 'Saved A', 'Edit not saved');
+async function until(read, text) { for (let i = 0; i < 200; i++) { if (read()) return; await new Promise(resolve => setTimeout(resolve, 25)); } throw Error('Timed out: ' + text); }
+const ready = label => until(() => state.saveState === 'saved', label + ' did not load');
+const savedName = (id, index = 0) => saved()[id]?.library?.scenarios?.[index]?.name;
+window.runTests = async () => { try {
+  mount('A'); await ready('City A');
+  check(state.scenarioDrafts[0].name === 'Scenario A' && state.grouping.value.groups[0].feedIds.join() === 'feed', 'New City defaults');
+  check(window.puts === 0, 'Viewing a City must not write a library');
+  flushSync(() => state.setScenarioDrafts(current => [{ ...current[0], name: 'Saved A' }]));
+  await until(() => savedName('A') === 'Saved A', 'Edit not saved to the City');
   const stale = state.setScenarioDrafts;
-  mount(B);
-  check(state.scenarioDrafts[0].name === 'Case A', 'City isolation');
-  flushSync(() => stale([{id:'case-a',name:'Late old callback',interventions:[]}]))
-  check(state.scenarioDrafts[0].name === 'Case A', 'Stale callback changed new City');
-  flushSync(() => state.setScenarioDrafts([{id:'case-a',name:'Saved B',interventions:[]}]))
-  mount(A);
-  check(state.scenarioDrafts[0].name === 'Saved A', 'Switch lost draft');
-  flushSync(() => root.unmount());
-  root = createRoot(document.getElementById('root')); mount(A);
-  check(state.scenarioDrafts[0].name === 'Saved A', 'Remount lost draft');
-  localStorage.setItem('damaged', '{'); mount('damaged');
-  check(state.draftStorageError.includes('stored copy has been kept'), 'Malformed storage failure');
-  check(localStorage.getItem('damaged') === '{', 'Malformed copy erased');
+  mount('B'); await ready('City B');
+  check(state.scenarioDrafts[0].name === 'Scenario A', 'City isolation');
+  flushSync(() => stale(current => [{ ...current[0], name: 'Late old callback' }]));
+  check(state.scenarioDrafts[0].name === 'Scenario A', 'Stale callback changed new City');
+  mount('A'); await until(() => state.scenarioDrafts[0].name === 'Saved A', 'Switch lost the saved scenario');
+  flushSync(() => root.unmount()); root = createRoot(document.getElementById('root')); mount('A');
+  await until(() => state.scenarioDrafts[0].name === 'Saved A', 'Remount lost the saved scenario');
+
+  // Another window saves first: this window adopts that copy instead of overwriting it.
+  const server = saved();
+  server.A = { library: { ...server.A.library, scenarios: [{ ...server.A.library.scenarios[0], name: 'Other window' }], revision: server.A.revision + 1 }, revision: server.A.revision + 1 };
+  sessionStorage.setItem(serverKey, JSON.stringify(server));
+  flushSync(() => state.setScenarioDrafts(current => [{ ...current[0], name: 'This window' }]));
+  await until(() => state.scenarioDrafts[0].name === 'Other window', 'A conflicting save overwrote another window');
+  check(state.grouping.error.includes('another window'), 'Conflict was not explained');
+  check(savedName('A') === 'Other window', 'The newer saved copy changed');
+  flushSync(() => state.setScenarioDrafts(current => [{ ...current[0], name: 'Saved A' }]));
+  await until(() => savedName('A') === 'Saved A', 'Saving after a conflict failed');
+
+  // A copy that cannot be read is never written over; edits stay in the window.
+  damaged.add('damaged'); mount('damaged');
+  await until(() => state.saveState === 'unavailable', 'Unreadable library not reported');
+  check(state.draftStorageError.includes('kept unchanged'), 'Unreadable library message');
+  const putsBefore = window.puts;
+  flushSync(() => state.setScenarioDrafts(current => [{ ...current[0], name: 'Unsaved edit' }]));
+  await new Promise(resolve => setTimeout(resolve, 700));
+  check(state.scenarioDrafts[0].name === 'Unsaved edit' && window.puts === putsBefore, 'An unreadable library was overwritten');
+
+  // Drafts kept in this browser by earlier Studio versions move into the City once.
+  localStorage.setItem('vigo.scenarios.v1:' + JSON.stringify(['/library/legacy', 'legacy', [['feed', 'first']], '', '']), JSON.stringify({
+    cases: [{ id: 'case-a', name: 'Legacy plan', interventions: [{ id: 'line', name: 'Line', kind: 'add-line', stops: [], headwayMinutes: 10,
+      averageSpeedKph: 25, startMinutes: 300, endMinutes: 1500, bidirectional: true }] }], activeCaseId: 'case-a', activeChangeId: 'line' }));
+  mount('legacy');
+  await until(() => savedName('legacy') === 'Legacy plan', 'Browser drafts were not moved into the City');
+  check(state.scenarioDrafts[0].groupId === 'baseline', 'Migrated scenario lost its timetable group');
+
   const change = (id, geometryStatus) => ({
     id, name:id, kind:'add-line', stops:[], headwayMinutes:10, averageSpeedKph:25,
     startMinutes:300, endMinutes:1500, bidirectional:true, geometryMode:'auto-road',
     geometryStatus, geometryError:geometryStatus === 'error' ? 'Existing error' : '',
   });
   const changes = () => state.scenarioDrafts[0].interventions;
-  mount('road-lifecycle-A');
-  flushSync(() => state.setScenarioDrafts([{id:'case-road',name:'Road A',interventions:[
+  mount('road-A'); await ready('Road City A');
+  flushSync(() => state.setScenarioDrafts([{id:'case-road',name:'Road A',groupId:'baseline',interventions:[
     change('pending', 'loading'), change('ready', 'ready'), change('error', 'error'),
   ]}]));
   const cancelled = createScenarioRoadGeometryRequest('pending', state.setScenarioDrafts);
@@ -49,26 +96,25 @@ window.runTests = () => {
   check(changes()[0].geometryStatus === 'idle', 'Cancellation left road geometry loading');
   check(changes()[1].geometryStatus === 'ready', 'Cancellation cleared finished road geometry');
   check(changes()[2].geometryError === 'Existing error', 'Cancellation cleared another road error');
-  check(JSON.parse(localStorage.getItem('road-lifecycle-A')).cases[0].interventions[0].geometryStatus === 'idle', 'Cancelled loading state remained saved');
   flushSync(() => state.setScenarioDrafts(current => current.map(entry => ({...entry,
     interventions:entry.interventions.map(item => item.id === 'pending' ? {...item, geometryStatus:'loading'} : item),
   }))));
+  await until(() => saved()['road-A']?.library?.scenarios?.[0]?.changes?.length === 3, 'Road City not saved');
+  check(saved()['road-A'].library.scenarios[0].changes[0].geometryStatus === 'idle', 'A loading road path was saved as loading');
   const oldCityRequest = createScenarioRoadGeometryRequest('pending', state.setScenarioDrafts);
   flushSync(() => cancelled.abort());
   check(changes()[0].geometryStatus === 'loading', 'An old cancellation cleared a retry');
-  mount('road-lifecycle-B');
-  flushSync(() => state.setScenarioDrafts([{id:'case-road',name:'Road B',interventions:[change('pending', 'loading')]}]));
+  mount('road-B'); await ready('Road City B');
+  flushSync(() => state.setScenarioDrafts([{id:'case-road',name:'Road B',groupId:'baseline',interventions:[change('pending', 'loading')]}]));
   const newCityRequest = createScenarioRoadGeometryRequest('pending', state.setScenarioDrafts);
   flushSync(() => oldCityRequest.abort());
   check(changes()[0].geometryStatus === 'loading', 'Old City cancellation changed the new City');
   flushSync(() => newCityRequest.abort());
   check(changes()[0].geometryStatus === 'idle', 'New City cancellation failed after switching Cities');
-  mount('road-lifecycle-A');
-  check(changes()[0].geometryStatus === 'idle', 'Returning to a City restored an abandoned loading state');
-  mount(A);
-  return { switch: true, staleCallback: true, remount: true, damagedCopyRetained: true, roadCancellation:true, roadRetry:true, roadCityIsolation:true };
-};
-window.checkReload = () => { check(state.scenarioDrafts[0].name === 'Saved A', 'Reload lost draft'); return true; };
+  mount('A'); await until(() => state.scenarioDrafts[0].name === 'Saved A', 'Returning to City A');
+  return { cityFolder: true, staleCallback: true, remount: true, conflict: true, unreadableCopyKept: true, migration: true, roadCancellation: true, roadCityIsolation: true };
+} catch (error) { return { failed: error.stack || String(error) }; } };
+window.checkReload = async () => { mount('A'); await until(() => state.scenarioDrafts[0].name === 'Saved A', 'Reload lost the saved scenario'); return true; };
 `
 const server = await createServer({ root, configFile: false, optimizeDeps: {include:['react','react-dom','react-dom/client']}, server: { host:'127.0.0.1', port:0 }, plugins:[{
   name:'draft-lifecycle', configureServer(server) { server.middlewares.use((req,res,next) => {
@@ -84,7 +130,7 @@ app.whenReady().then(async () => {
   try {
     const window = new BrowserWindow({show:false,webPreferences:{backgroundThrottling:false,nodeIntegration:false,contextIsolation:true,sandbox:true}});
     await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/draft-lifecycle.html`)});
-    const result = await window.webContents.executeJavaScript('(() => { try { return window.runTests() } catch(e) { return {failed:e.stack}; } })()');
+    const result = await window.webContents.executeJavaScript('window.runTests()');
     if (result.failed) throw Error(result.failed);
     await window.loadURL(window.webContents.getURL());
     result.reload = await window.webContents.executeJavaScript('window.checkReload()');
