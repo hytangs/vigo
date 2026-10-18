@@ -71,19 +71,6 @@
   opacity: 0.42;
 }
 
-/* Pure topbar: solid shell, no glass banner. */
-.app-shell {
-  --topbar-bg: #070b10;
-  --topbar-border: rgba(220, 232, 244, 0.12);
-  --topbar-control-hover: #111a25;
-}
-
-.app-shell.appearance-light {
-  --topbar-bg: #fbfcfe;
-  --topbar-border: rgba(15, 23, 42, 0.14);
-  --topbar-control-hover: #eef3f8;
-}
-
 .topbar-mark-button:hover,
 .topbar-project-action:hover {
   background: var(--topbar-control-hover);
@@ -122,12 +109,6 @@
   .project-empty .empty-workbench {
     padding: 10px;
   }
-}
-
-/* Compact desktop surfaces */
-.app-shell {
-  --accent: #0a84ff;
-  --accent-2: #12a9b6;
 }
 
 .topbar-mark-button,
@@ -181,13 +162,6 @@
 }
 
 /* Shared controls and responsive interaction rules */
-
-.app-shell {
-  --pq-rail-width: 48px;
-  --pq-sidebar-width: clamp(320px, 26vw, 360px);
-  --pq-control-height: 36px;
-  color-scheme: light;
-}
 
 .app-shell button,
 .app-shell input,
@@ -323,7 +297,6 @@
   gap: 0;
   padding: 4px;
   border: 1px solid var(--border-strong);
-  border-radius: 12px;
   color: var(--text);
   background: var(--map-control-surface);
   box-shadow: 0 8px 24px color-mix(in srgb, var(--text-strong) 12%, transparent);
@@ -789,8 +762,15 @@
 
 .pathfinder-route-time strong,
 .pathfinder-route-time b {
-  color: var(--text-strong);
-  font-size: 0.86rem;
+  color: var(--text-1);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+}
+
+.pathfinder-route-time b {
   font-weight: 650;
 }
 
@@ -1141,54 +1121,53 @@
 /* Shared Network, Route and Analyze surface primitives. */
 .studio-page-title {
   margin: 0;
-  color: var(--text-strong);
-  font-size: 30px;
-  line-height: 1.2;
-  font-weight: 680;
-  letter-spacing: -.04em;
+  color: var(--text-1);
+  font-family: var(--font-display);
+  font-size: 26px;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.032em;
 }
 .sidebar-panel-head { min-width: 0; display: grid; gap: 8px; }
-.agency-page-heading .studio-page-title { margin-bottom: 8px; }
+/* One segmented control everywhere: workspace views, render modes, filters. */
 .studio-tabs {
   display: flex;
   align-items: stretch;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
-  padding: 0;
-  border-bottom: 1px solid var(--border);
+  padding: 3px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--ink-4);
 }
 .studio-tabs > button {
   position: relative;
   display: flex;
+  flex: 1 1 auto;
   align-items: center;
   justify-content: center;
   gap: 7px;
   min-width: 0;
-  min-height: 44px;
+  min-height: 30px;
   padding: 0 var(--studio-tab-padding, 12px);
   border: 0;
-  border-radius: 0;
-  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
   background: transparent;
   font: inherit;
-  font-size: 14px;
-  font-weight: 650;
+  font-size: var(--type-xs);
+  font-weight: 640;
+  white-space: nowrap;
   cursor: pointer;
+  transition: color var(--duration-base) var(--ease-standard), background-color var(--duration-base) var(--ease-standard), box-shadow var(--duration-base) var(--ease-standard);
 }
-.studio-tabs > button:is([aria-selected="true"], [aria-pressed="true"]) { color: var(--text-strong); }
-.studio-tabs > button:is([aria-selected="true"], [aria-pressed="true"])::after {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  left: 12px;
-  right: 12px;
-  height: 2px;
-  background: var(--vigo-lime-strong);
-  border-radius: 2px;
-}
-.studio-tabs > button:hover:not(:disabled) { color: var(--text-strong); background: var(--hover-surface); }
-.studio-tabs > button:focus-visible { outline: 2px solid var(--vigo-lime-strong); outline-offset: -2px; }
+.studio-tabs > button:is([aria-selected="true"], [aria-pressed="true"]) { color: var(--text-1); background: var(--ink-2); box-shadow: 0 0 0 1px var(--line-2), 0 1px 2px rgba(0, 0, 0, 0.22); }
+.studio-tabs > button:hover:not(:disabled) { color: var(--text-1); }
+.studio-tabs > button:focus-visible { outline: 2px solid var(--signal-text); outline-offset: -2px; }
 .studio-tabs > button:disabled { opacity: .45; cursor: default; }
+@media (max-width: 760px) {
+  .studio-tabs > button { min-height: 40px; }
+}
 .studio-disclosure { border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; }
 .studio-disclosure > summary {
   display: flex;

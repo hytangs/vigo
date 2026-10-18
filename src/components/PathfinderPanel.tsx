@@ -55,6 +55,12 @@ import type  {
 import { maxRoutingPointCount, routingPointRoleLabel } from '../routingPointSequence'
 import { formatScheduleClock } from '../scheduledVehicles'
 
+/** Stops keep their names; a point dropped on the map has no name of its own. */
+function routingPointName(point: RoutingPoint) {
+  const label = point.label.trim()
+  return point.source === 'map' || !label || /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/u.test(label) ? 'Dropped pin' : label
+}
+
 export type RoutingScopeStatus = 'ready' | 'building' | 'failed' | 'missing'
 
 const travelModeIcons = { transit: TrainFront, walk: Footprints, drive: Car } satisfies Record<RoutingTravelMode, unknown>
@@ -626,7 +632,8 @@ export function SidebarPathfinderBox({
                   <span className={classNames('pathfinder-location-mark', index === 0 ? 'is-origin' : index === pointRows.length - 1 ? 'is-destination' : 'is-waypoint')} aria-hidden="true" />
                   <button type="button" className="pathfinder-coordinate-point" aria-label={`${point ? 'Repick' : 'Pick'} ${role.toLowerCase()} on map`} aria-pressed={selected} onClick={() => onPickRoutingPoint(index)} disabled={index > points.length}>
                     <small>{role}</small>
-                    <strong className={classNames(!point && 'is-empty')}>{point ? `${point.coordinate[1].toFixed(5)}, ${point.coordinate[0].toFixed(5)}` : selected ? 'Click the map…' : 'Pick on map'}</strong>
+                    <strong className={classNames(!point && 'is-empty')}>{point ? routingPointName(point) : selected ? 'Click the map…' : 'Pick on map'}</strong>
+                    {point ? <span className="pathfinder-coordinate-value">{point.coordinate[1].toFixed(5)}, {point.coordinate[0].toFixed(5)}</span> : null}
                   </button>
                   {point ? <span className="pathfinder-location-actions">
                     <button type="button" onClick={() => movePoint(index, -1)} disabled={index === 0} aria-label={`Move ${role.toLowerCase()} earlier`}><ArrowUp size={13} /></button>

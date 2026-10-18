@@ -1,5 +1,5 @@
-import { localBasemapRemovalPending, removeLocalBasemap } from './localBasemapSource'
-export { removeLocalBasemap, setLocalBasemapData } from './localBasemapSource'
+import { removeLocalBasemap } from './localBasemapSource'
+export { installLocalBasemap, removeLocalBasemap } from './localBasemapSource'
 
 import { type ExpressionSpecification, type LayerSpecification, type Map as MapLibreMap, type StyleSpecification } from 'maplibre-gl'
 import type { Appearance, Basemap } from '../domain'
@@ -8,13 +8,13 @@ import { darkBasemapLayer, darkMapLand, darkMapWater } from './darkBasemap'
 export function baseCanvasColor(basemap: Basemap, appearance: Appearance) {
   if (basemap === 'dark') return darkMapLand
   if (appearance === 'light') {
-    if (basemap === 'none') return '#f2f5f6'
-    if (basemap === 'offline') return '#f4f2ec'
-    return '#e6eef5'
+    if (basemap === 'none') return '#f1f3f5'
+    if (basemap === 'offline') return '#eceef1'
+    return '#e8ecf0'
   }
-  if (basemap === 'none') return '#101512'
+  if (basemap === 'none') return '#0b0e12'
   if (basemap === 'offline') return darkMapLand
-  return '#151b17'
+  return '#0e1216'
 }
 
 function firstVigoLayerId(map: MapLibreMap) {
@@ -26,12 +26,6 @@ function firstVigoLayerId(map: MapLibreMap) {
     'vigo-route-casing',
     'vigo-routes',
   ].find((layerId) => map.getLayer(layerId))
-}
-
-export function localBasemapFeatureLimit(zoom: number) {
-  if (zoom < 9) return 2_000
-  if (zoom < 13) return 3_500
-  return 4_500
 }
 
 const vectorBasemapUrls: Partial<Record<Basemap, string>> = {
@@ -136,22 +130,22 @@ function roadWidth(scale: number): ExpressionSpecification {
 
 export function localBasemapLayers(appearance: Appearance): LayerSpecification[] {
   const light = appearance === 'light'
-  const water = light ? '#acd0d8' : darkMapWater
-  const shore = light ? '#91bbc5' : '#30463d'
+  const water = light ? '#c9dce8' : darkMapWater
+  const shore = light ? '#a9c4d6' : '#1b3141'
   return [
     {
-      id: 'vigo-local-water', type: 'fill', source: 'vigo-local-basemap',
+      id: 'vigo-local-water', type: 'fill', source: 'vigo-local-basemap', 'source-layer': 'basemap',
       filter: ['in', ['get', 'kind'], ['literal', ['water', 'ocean']]],
       paint: { 'fill-color': water, 'fill-antialias': true },
     },
     {
-      id: 'vigo-local-shore', type: 'line', source: 'vigo-local-basemap',
+      id: 'vigo-local-shore', type: 'line', source: 'vigo-local-basemap', 'source-layer': 'basemap',
       filter: ['in', ['get', 'kind'], ['literal', ['water', 'coastline']]],
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': shore, 'line-opacity': 0.6, 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.4, 15, 1] },
     },
     {
-      id: 'vigo-local-rivers', type: 'line', source: 'vigo-local-basemap',
+      id: 'vigo-local-rivers', type: 'line', source: 'vigo-local-basemap', 'source-layer': 'basemap',
       filter: ['==', ['get', 'kind'], 'river'],
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': water, 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.7, 12, 1.8, 16, 5] },
@@ -159,29 +153,29 @@ export function localBasemapLayers(appearance: Appearance): LayerSpecification[]
     {
       id: 'vigo-local-roads-casing',
       type: 'line',
-      source: 'vigo-local-basemap',
+      source: 'vigo-local-basemap', 'source-layer': 'basemap',
       filter: ['==', ['get', 'kind'], 'road'],
       layout: {
         'line-cap': 'round',
         'line-join': 'round',
       },
       paint: {
-        'line-color': light ? '#d0cdc3' : '#2c382f',
-        'line-opacity': light ? 0.75 : 0.8,
+        'line-color': light ? '#f5f6f8' : '#0a0d11',
+        'line-opacity': light ? 0.9 : 0.9,
         'line-width': roadWidth(1.45),
       },
     },
     {
       id: 'vigo-local-roads',
       type: 'line',
-      source: 'vigo-local-basemap',
+      source: 'vigo-local-basemap', 'source-layer': 'basemap',
       filter: ['==', ['get', 'kind'], 'road'],
       layout: {
         'line-cap': 'round',
         'line-join': 'round',
       },
       paint: {
-        'line-color': ['match', ['get', 'roadClass'], ['motorway', 'trunk'], light ? '#ebd8ab' : '#536053', 'primary', light ? '#fffdf5' : '#455346', light ? '#ffffff' : '#3c4b40'],
+        'line-color': ['match', ['get', 'roadClass'], ['motorway', 'trunk'], light ? '#c7cfd8' : '#2e3742', 'primary', light ? '#d6dce3' : '#262e38', light ? '#dfe4ea' : '#1f262e'],
         'line-opacity': light ? 0.98 : 0.9,
         'line-width': roadWidth(1),
       },
@@ -199,7 +193,7 @@ function applyLocalBasemapPaint(map: MapLibreMap, appearance: Appearance) {
 }
 
 export function ensureLocalBasemapLayers(map: MapLibreMap, appearance: Appearance) {
-  if (!map.getSource('vigo-local-basemap') || localBasemapRemovalPending(map)) return
+  if (!map.getSource('vigo-local-basemap')) return
   const before = firstVigoLayerId(map)
   for (const layer of localBasemapLayers(appearance)) if (!map.getLayer(layer.id)) map.addLayer(layer, before)
 }

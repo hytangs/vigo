@@ -321,17 +321,20 @@ export const reachDifferenceCapMinutes = 15
 export const reachTimeGradient = 'linear-gradient(90deg, #3550ff 0%, #00c2ff 20%, #35d0a1 40%, #ffd166 60%, #ff9645 80%, #ff6757 100%)'
 export const reachDifferenceGradient = 'linear-gradient(90deg, #ff6757 0%, #94a3b8 50%, #35d0a1 100%)'
 
+// Luminance falls monotonically with travel time, so "nearer" always reads
+// brighter on the dark canvas and the ramp survives greyscale and colour-vision
+// deficiency. It starts at the VIGO signal chartreuse and ends in deep violet.
 const reachTimeRamp: ReadonlyArray<readonly [number, Rgb]> = [
-  [0, [53, 80, 255]],
-  [0.2, [0, 194, 255]],
-  [0.4, [53, 208, 161]],
-  [0.6, [255, 209, 102]],
-  [0.8, [255, 150, 69]],
-  [1, [255, 103, 87]],
+  [0, [236, 255, 140]],
+  [0.2, [184, 242, 92]],
+  [0.4, [70, 214, 150]],
+  [0.6, [36, 164, 198]],
+  [0.8, [66, 102, 214]],
+  [1, [108, 60, 182]],
 ]
-const reachDifferenceSlow: Rgb = [255, 103, 87]
-const reachDifferenceSame: Rgb = [148, 163, 184]
-const reachDifferenceFast: Rgb = [53, 208, 161]
+const reachDifferenceSlow: Rgb = [255, 111, 111]
+const reachDifferenceSame: Rgb = [139, 149, 164]
+const reachDifferenceFast: Rgb = [74, 222, 154]
 
 function blendRgb(left: Rgb, right: Rgb, progress: number): [number, number, number] {
   const bounded = Math.max(0, Math.min(1, progress))

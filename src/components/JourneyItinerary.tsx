@@ -136,7 +136,7 @@ export function RoutingDetailPanel({
     : routingRealtimeDetail(plan)
 
   return (
-    <aside className="routing-detail-panel" aria-label="Routing details">
+    <aside className="routing-detail-panel" aria-label="Routing details" data-map-occluder="">
       <header className="routing-detail-head">
         <div>
           <p className="journey-eyebrow">{plan.travelMode === 'transit' ? routingDataModeLabel(plan) || 'Transit' : plan.travelMode === 'drive' ? 'Drive' : 'Walk'} journey</p>

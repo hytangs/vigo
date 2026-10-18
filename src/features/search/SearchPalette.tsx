@@ -168,7 +168,7 @@ export function SearchPalette({
               inputRef.current?.blur()
             }
           }}
-          placeholder="Search VIGO"
+          placeholder="Search stops, lines and places"
         />
 
         {value ? (

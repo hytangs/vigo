@@ -27,6 +27,8 @@ import {
 } from './national-gtfs-store.mjs'
 import { readNationalOsmStoreMetadata } from './national-osm-store.mjs'
 import { readLocalBasemap, localBasemapBudgets } from './local-basemap-store.mjs'
+import { networkSignatureSvg } from './network-signature.mjs'
+import { renderNativeLocalBasemapTile } from './native-routing-kernel.mjs'
 import { integralNumber } from './number-utils.mjs'
 import {
   composeOrderedRoutingFailure,
@@ -69,6 +71,7 @@ const projectWriteQueues = new Map()
 const cityMaintenance = new Set()
 const nationalPreviewRefreshes = new Map()
 const gtfsRouteAnalysisCache = new Map()
+const networkSignatureCache = new Map()
 const routingStoreSourceScopesCache = new Map()
 const nationalJobProgressPersistedAt = new WeakMap()
 const nationalRoutingServiceCoverageCache = new Map()
@@ -4314,6 +4317,41 @@ async function route(request, response) {
     return true
   }
 
+  // Offline basemap as vector tiles rendered by the Rust kernel. A revision
+  // query (the street index build time) makes each tile immutable.
+  const basemapTileMatch = pathname.match(/^\/api\/projects\/([^/]+)\/basemap-tiles\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.mvt$/)
+  if (request.method === 'GET' && basemapTileMatch) {
+    const projectId = decodeURIComponent(basemapTileMatch[1])
+    const [z, x, y] = basemapTileMatch.slice(2).map(Number)
+    if (cityMaintenance.has(projectId) || nationalImportProjects.get(projectId)?.has('osm')) {
+      const error = new Error('Street data is being replaced. The local map returns when the import finishes.')
+      error.statusCode = 409
+      throw error
+    }
+    const project = await readProjectMetadata(projectId)
+    const storePath = streetStoreFile(projectId)
+    if (project.osmStreetIndex?.status !== 'ready' || !await exists(storePath)) {
+      const error = new Error('This City has no ready OSM street index. Import an .osm.pbf file first.')
+      error.statusCode = 409
+      throw error
+    }
+    if (z > 22 || x >= 2 ** z || y >= 2 ** z) {
+      const error = new Error('Tile coordinates are outside the Web Mercator pyramid.')
+      error.statusCode = 400
+      throw error
+    }
+    const tile = await renderNativeLocalBasemapTile(storePath, z, x, y)
+    const cacheControl = url.searchParams.get('v') ? 'private, max-age=31536000, immutable' : 'no-cache'
+    if (!tile.length) {
+      response.writeHead(204, { 'Cache-Control': cacheControl })
+      response.end()
+      return true
+    }
+    response.writeHead(200, { 'Content-Type': 'application/vnd.mapbox-vector-tile', 'Content-Length': tile.length, 'Cache-Control': cacheControl })
+    response.end(tile)
+    return true
+  }
+
   const projectMatch = pathname.match(/^\/api\/projects\/([^/]+)(?:\/([^/]+))?$/)
   if (projectMatch) {
     const projectId = decodeURIComponent(projectMatch[1])
@@ -4335,6 +4373,30 @@ async function route(request, response) {
         ? await readProjectMetadata(projectId)
         : await readProject(projectId)
       sendJson(response, 200, { project })
+      return true
+    }
+
+    if (request.method === 'GET' && action === 'signature') {
+      const project = await readProject(projectId)
+      const revision = [project.updatedAt, ...project.feeds.map((feed) => `${feed.id}:${feed.importedAt ?? ''}`)].join('|')
+      let svg = networkSignatureCache.get(projectId)?.revision === revision ? networkSignatureCache.get(projectId).svg : undefined
+      if (svg === undefined) {
+        svg = networkSignatureSvg(project.feeds.map((feed) => feed.mapPreview))
+        networkSignatureCache.delete(projectId)
+        networkSignatureCache.set(projectId, { revision, svg })
+        while (networkSignatureCache.size > 32) networkSignatureCache.delete(networkSignatureCache.keys().next().value)
+      }
+      if (!svg) {
+        response.writeHead(204, { 'Cache-Control': 'no-store' })
+        response.end()
+        return true
+      }
+      response.writeHead(200, {
+        'Content-Type': 'image/svg+xml; charset=utf-8',
+        'Content-Security-Policy': "default-src 'none'",
+        'Cache-Control': 'private, max-age=31536000, immutable',
+      })
+      response.end(svg)
       return true
     }
 

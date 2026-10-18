@@ -30,7 +30,7 @@ window.checkNavigation=async()=>{
  const nav=document.querySelector('.sidebar-rail');
  if(!nav) throw Error('Navigation missing');
  const buttons=[...nav.querySelectorAll('button')],names=buttons.map(b=>b.getAttribute('aria-label'));
- if(names.join(',')!=='Network,Route,Analyze,City') throw Error('Unexpected destinations');
+ if(names.join(',')!=='Network,Route,Analyze,Settings') throw Error('Unexpected destinations');
  for(const button of buttons){
   const name=button.getAttribute('aria-label');
   if(button.textContent.trim()||!button.querySelector('svg')) throw Error('Primary navigation must stay icon-only');

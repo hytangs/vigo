@@ -7,13 +7,94 @@ import { writeBasemapFixture } from './helpers/basemap-fixture.mjs'
 import { buildNationalOsmStore, compactNationalOsmRuntimeStore, disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
 import { localBasemapBudgets, readLocalBasemap } from '../src/server/local-basemap-store.mjs'
 import { coastGeometryLimits, containsPoint, oceanPolygons, nearestCoastSide } from '../src/server/local-basemap-geometry.mjs'
-import { localBasemapViewport } from '../src/map/localBasemapViewport.ts'
+import { renderNativeLocalBasemapTile } from '../src/server/native-routing-kernel.mjs'
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 
 const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-local-map-'))
 const store = path.join(folder, 'street.sqlite')
 const bounds = { west: -0.1, south: -0.08, east: 0.06, north: 0.08 }
 const covers = (geometry, point) => containsPoint(geometry.coordinates[0], point) && !geometry.coordinates.slice(1).some((ring) => containsPoint(ring, point))
+
+// Minimal MVT 2.1 reader: one layer, string values, MoveTo/LineTo/ClosePath.
+function readVarint(bytes, state) {
+  let result = 0, shift = 0, byte
+  do { byte = bytes[state.position++]; result += (byte & 0x7f) * 2 ** shift; shift += 7 } while (byte & 0x80)
+  return result
+}
+function readMessage(bytes, visit) {
+  const state = { position: 0 }
+  while (state.position < bytes.length) {
+    const key = readVarint(bytes, state), field = Math.floor(key / 8), wire = key % 8
+    if (wire === 0) visit(field, readVarint(bytes, state))
+    else if (wire === 2) { const length = readVarint(bytes, state); visit(field, bytes.subarray(state.position, state.position + length)); state.position += length }
+    else throw new Error(`Unexpected protobuf wire type ${wire}`)
+  }
+}
+function readPacked(bytes) { const values = [], state = { position: 0 }; while (state.position < bytes.length) values.push(readVarint(bytes, state)); return values }
+function decodeTile(buffer) {
+  const layers = []
+  readMessage(buffer, (field, layerBytes) => {
+    if (field !== 3) return
+    const layer = { name: '', extent: 4096, version: 1, keys: [], values: [], features: [] }
+    readMessage(layerBytes, (key, value) => {
+      if (key === 1) layer.name = Buffer.from(value).toString()
+      else if (key === 15) layer.version = value
+      else if (key === 5) layer.extent = value
+      else if (key === 3) layer.keys.push(Buffer.from(value).toString())
+      else if (key === 4) readMessage(value, (valueField, text) => { if (valueField === 1) layer.values.push(Buffer.from(text).toString()) })
+      else if (key === 2) {
+        const feature = { tags: [], type: 0, geometry: [] }
+        readMessage(value, (featureField, data) => {
+          if (featureField === 2) feature.tags = readPacked(data)
+          else if (featureField === 3) feature.type = data
+          else if (featureField === 4) feature.geometry = readPacked(data)
+        })
+        layer.features.push(feature)
+      }
+    })
+    layers.push(layer)
+  })
+  return layers.map((layer) => ({ ...layer, features: layer.features.map((feature) => {
+    const properties = {}
+    for (let i = 0; i < feature.tags.length; i += 2) properties[layer.keys[feature.tags[i]]] = layer.values[feature.tags[i + 1]]
+    const parts = []
+    let x = 0, y = 0, part = null
+    for (let i = 0; i < feature.geometry.length;) {
+      const command = feature.geometry[i] & 7, count = feature.geometry[i] >> 3
+      i += 1
+      if (command === 7) { part?.push(part[0]); continue }
+      for (let n = 0; n < count; n += 1, i += 2) {
+        const dx = feature.geometry[i], dy = feature.geometry[i + 1]
+        x += (dx >> 1) ^ -(dx & 1); y += (dy >> 1) ^ -(dy & 1)
+        if (command === 1) { part = []; parts.push(part) }
+        part.push([x, y])
+      }
+    }
+    return { properties, type: feature.type, parts }
+  }) }))
+}
+const ringArea = (ring) => ring.slice(1).reduce((sum, point, i) => sum + ring[i][0] * point[1] - point[0] * ring[i][1], 0) / 2
+function tileFor([lon, lat], z) {
+  const scale = 2 ** z, radians = lat * Math.PI / 180
+  const mercatorX = (lon + 180) / 360 * scale, mercatorY = (1 - Math.log(Math.tan(radians) + 1 / Math.cos(radians)) / Math.PI) / 2 * scale
+  return { z, x: Math.floor(mercatorX), y: Math.floor(mercatorY), point: [(mercatorX - Math.floor(mercatorX)) * 4096, (mercatorY - Math.floor(mercatorY)) * 4096] }
+}
+async function tileCovers(storePath, point, kind) {
+  const tile = tileFor(point, 15)
+  const [layer] = decodeTile(await renderNativeLocalBasemapTile(storePath, tile.z, tile.x, tile.y))
+  for (const feature of layer?.features ?? []) {
+    if (feature.type !== 3 || feature.properties.kind !== kind) continue
+    // Exterior rings have positive area in tile space; holes are negative.
+    let inside = false
+    for (const ring of feature.parts) {
+      if (ringArea(ring) > 0 && inside) return true
+      if (ringArea(ring) > 0) inside = containsPoint(ring, tile.point)
+      else if (inside && containsPoint(ring, tile.point)) inside = false
+    }
+    if (inside) return true
+  }
+  return false
+}
 let api
 try {
   const pbfPath = path.join(folder, 'fixture.pbf')
@@ -90,10 +171,35 @@ try {
   const legacy = new DatabaseSync(path.join(folder, 'legacy.sqlite'))
   legacy.exec('CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT);'); legacy.close()
   assert.equal(readLocalBasemap(path.join(folder, 'legacy.sqlite'), bounds).metadata.status, 'needs-import')
-  const viewport = localBasemapViewport({ ...bounds, zoom: 12.2 }, null)
-  assert.equal(localBasemapViewport({ ...bounds, west: bounds.west + 0.001, east: bounds.east + 0.001, zoom: 12.8 }, viewport), null, 'Reuse the buffered viewport for small pans')
-  assert(localBasemapViewport({ ...bounds, zoom: 13 }, viewport), 'Refresh when entering a new detail level')
-  assert.equal(localBasemapViewport({ ...bounds, west: bounds.west + 360, east: bounds.east + 360, zoom: 12.2 }, viewport), null, 'Reuse geometry in repeated map worlds')
+  // Rust vector tiles keep every cartographic guarantee of the viewport reader.
+  assert.equal((await renderNativeLocalBasemapTile(path.join(folder, 'legacy.sqlite'), 15, 16383, 16383)).length, 0, 'Legacy stores draw empty tiles')
+  assert(await tileCovers(store, [-0.09, -0.03], 'water'), 'Tiles draw the lake')
+  assert(!await tileCovers(store, [-0.08, -0.03], 'water'), 'Tiles keep the island in the lake dry')
+  assert(await tileCovers(store, [0.01, 0.03], 'ocean'), 'Tiles put the sea on the right of a northbound coast')
+  assert(!await tileCovers(store, [-0.01, 0.03], 'ocean'), 'Tiles do not flood the mainland')
+  assert(!await tileCovers(store, [0.03, 0], 'ocean'), 'Tiles keep coastal islands dry')
+  assert(await tileCovers(store, [0.0105, 0.025], 'ocean'), 'Wholly offshore tiles need water without an intersecting coast')
+  assert(!await tileCovers(store, [-0.01, 0.065], 'ocean'))
+  const tileKinds = new Set(), tileRoadClasses = new Set()
+  const [northWest, southEast] = [tileFor([bounds.west, bounds.north], 13), tileFor([bounds.east, bounds.south], 13)]
+  let tileCount = 0
+  for (let x = northWest.x; x <= southEast.x; x += 1) for (let y = northWest.y; y <= southEast.y; y += 1) {
+    const bytes = await renderNativeLocalBasemapTile(store, 13, x, y)
+    if (!bytes.length) continue
+    const [layer] = decodeTile(bytes)
+    assert.equal(layer.name, 'basemap'); assert.equal(layer.version, 2); assert.equal(layer.extent, 4096)
+    assert(layer.features.length <= localBasemapBudgets.features)
+    for (const feature of layer.features) {
+      tileKinds.add(feature.properties.kind)
+      if (feature.properties.roadClass) tileRoadClasses.add(feature.properties.roadClass)
+      if (feature.type === 3) assert(ringArea(feature.parts[0]) > 0, 'MVT exterior rings wind clockwise in tile space')
+      for (const part of feature.parts) for (const [px, py] of part) assert(px >= -64 && px <= 4160 && py >= -64 && py <= 4160, 'Clip to the tile buffer')
+    }
+    tileCount += 1
+  }
+  assert(tileCount > 0)
+  assert.deepEqual([...tileRoadClasses].sort(), ['motorway', 'primary', 'secondary', 'tertiary'], 'Tiles keep only main roads')
+  for (const kind of ['road', 'river', 'water', 'ocean']) assert(tileKinds.has(kind), `Tiles carry ${kind}`)
   api = await startInMemoryVigoApi({ repositoryRoot: path.resolve(import.meta.dirname, '..'), environment: {
     VIGO_CONFIG_DIR: path.join(folder, 'config'), VIGO_PROJECTS_DIR: path.join(folder, 'cities'),
   } })
@@ -115,13 +221,21 @@ try {
   assert.equal(job.status, 'complete', JSON.stringify(job))
   const served = await request(`${base}/local-basemap?west=-0.1&south=-0.08&east=0.06&north=0.08&zoom=15&limit=4500`)
   assert.deepEqual(served.features, detailed.features, 'Serve retained cartography through the real import worker and API')
+  const ocean = tileFor([0.01, 0.03], 15)
+  const tileResponse = await api.fetch(`${base}/basemap-tiles/15/${ocean.x}/${ocean.y}.mvt?v=fixture`)
+  assert.equal(tileResponse.status, 200)
+  assert.equal(tileResponse.headers.get('content-type'), 'application/vnd.mapbox-vector-tile')
+  assert.match(tileResponse.headers.get('cache-control'), /immutable/, 'Versioned tiles are immutable')
+  assert(Buffer.from(await tileResponse.arrayBuffer()).equals(await renderNativeLocalBasemapTile(store, 15, ocean.x, ocean.y)), 'Serve the same tile through the real import worker and API')
+  assert.equal((await api.fetch(`${base}/basemap-tiles/15/0/0.mvt`)).status, 204, 'Empty tiles have no body')
+  assert.equal((await api.fetch(`${base}/basemap-tiles/3/9/0.mvt`)).status, 400)
   await request(`${base}/local-streets?west=-0.1&south=-0.08&east=0.06&north=0.08`, 'GET', null, 404)
   await request(`${base}/local-basemap?west=-0.1&south=-0.08&east=0.06`, 'GET', null, 400)
   await request(`${base}/local-basemap?west=200&south=0&east=201&north=1`, 'GET', null, 400)
   await request('/api/config', 'PATCH', { basemap: 'streets' })
   assert.equal((await request('/api/config')).config.basemap, 'streets', 'Keep explicit online preferences available')
   console.log(JSON.stringify({ status: 'passed', features: detailed.features.length, vertices: detailed.metadata.vertexCount,
-    payloadBytes: Buffer.byteLength(JSON.stringify(detailed)), routingCounts, offlineWater: true, snapshotIndependent: true, boundedViewport: true }))
+    payloadBytes: Buffer.byteLength(JSON.stringify(detailed)), routingCounts, offlineWater: true, snapshotIndependent: true, boundedViewport: true, vectorTiles: tileCount }))
 } finally {
   await api?.stop()
   disposeNationalOsmStore(store)

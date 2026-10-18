@@ -247,6 +247,14 @@ export function nativeStableKeySuffix(value) {
   return loadNativeBinding().stableKeySuffix(value)
 }
 
+// One offline basemap tile (MVT bytes), rendered on the libuv pool so tile
+// bursts never block the API's event loop. Empty means nothing to draw.
+export function renderNativeLocalBasemapTile(storePath, z, x, y) {
+  const binding = loadNativeBinding()
+  if (typeof binding.localBasemapTile !== 'function') throw new Error('Rust routing binding lacks offline basemap tiles. Rebuild the native kernel.')
+  return binding.localBasemapTile(storePath, z, x, y)
+}
+
 function snapshotPathForStore(storePath) {
   const resolvedStorePath = path.resolve(storePath)
   const candidate = `${resolvedStorePath}.street-accelerator-v7.bin`

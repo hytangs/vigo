@@ -9,6 +9,22 @@ import { classNames, formatNumber, type VigoProject } from '../../domain'
 import { IconButton } from '../UiPrimitives'
 import { OperationProgress } from '../OperationProgress'
 
+/** The City's own network, drawn by the local server from its map preview. */
+function NetworkSignature({ projectId, revision }: { projectId: string; revision: string }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) return <span className="city-signature-fallback" aria-hidden="true"><Map size={26} strokeWidth={1.3} /></span>
+  return (
+    <img
+      className="city-signature"
+      src={`/api/projects/${encodeURIComponent(projectId)}/signature?v=${encodeURIComponent(revision)}`}
+      alt=""
+      decoding="async"
+      draggable={false}
+      onError={() => setFailed(true)}
+    />
+  )
+}
+
 export function ProjectsPage({
   projects,
   loading = false,
@@ -85,7 +101,10 @@ export function ProjectsPage({
             const readiness = cityReadiness(project)
             return (
               <article key={project.id} className={classNames('city-library-card', isSelected && 'is-current')} aria-label={project.name}>
-                <div className="city-card-top"><Map size={23} strokeWidth={1.5} aria-hidden="true" /><span className="city-state" data-state={readiness.state}>{readiness.state === 'ready' ? <Check size={13} /> : null}{readiness.label}</span></div>
+                <div className="city-card-signature">
+                  <NetworkSignature projectId={project.id} revision={`${project.updatedAt}:${project.summary.routes}`} />
+                  <span className="city-state" data-state={readiness.state}>{readiness.state === 'ready' ? <Check size={13} /> : null}{readiness.label}</span>
+                </div>
                 <button
                   type="button"
                   className="city-card-open"

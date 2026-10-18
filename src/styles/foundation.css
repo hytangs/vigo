@@ -7,16 +7,170 @@ body,
   font-size: 14px;
 }
 
-/* Accent palettes and shared focus treatment. */
+/*
+ * VIGO Studio design tokens.
+ *
+ * One palette per appearance. Neutral ink carries the interface; the brand
+ * chartreuse (the triangle in the VIGO mark) is the only interface signal.
+ * Status hues are reserved for service data. Component rules may read the
+ * legacy aliases below, but new rules should use the canonical names.
+ */
 .app-shell {
   height: 100dvh;
   min-width: 320px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", Inter, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --type-2xs: 0.714rem;
+  --type-xs: 0.786rem;
+  --type-sm: 0.857rem;
+  --type-md: 0.929rem;
+
   --space-1: 4px;
+
+  --radius-xs: 5px;
+  --radius-sm: 7px;
   --radius-md: 10px;
-  --radius-lg: 14px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+  --control-radius: var(--radius-sm);
+  --surface-radius: var(--radius-md);
+  --pq-radius: var(--radius-sm);
+
+  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-emphasis: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-base: 180ms;
+  --duration-slow: 280ms;
+
+  --rail-width: 48px;
+  --pq-rail-width: var(--rail-width);
+  --panel-width: clamp(344px, 26vw, 392px);
+  --workbench-sidebar: var(--panel-width);
+  --pq-sidebar-width: var(--panel-width);
+  --routing-detail-width: clamp(300px, 24vw, 360px);
+  --stage-gutter: 12px;
+  --topbar-height: 48px;
+  --pq-control-height: 34px;
+
+  --good: #4ade9a;
+  --watch: #f7b955;
+  --alert: #ff6f6f;
+}
+
+.app-shell,
+.app-shell.appearance-dark {
+  --ink-0: #07090c;
+  --ink-1: #0c0f13;
+  --ink-2: #11151a;
+  --ink-3: #171c22;
+  --ink-4: #1e242b;
+  --line-1: rgba(214, 228, 255, 0.065);
+  --line-2: rgba(214, 228, 255, 0.11);
+  --line-3: rgba(214, 228, 255, 0.19);
+  --text-1: #f3f5f8;
+  --text-2: #c3cad4;
+  --text-3: #8b95a4;
+  --text-4: #5f6979;
+  --signal: #d4f25c;
+  --signal-strong: #e4ff7a;
+  --signal-text: #d4f25c;
+  --signal-ink: #10140a;
+  --signal-soft: rgba(212, 242, 92, 0.12);
+  --signal-line: rgba(212, 242, 92, 0.42);
+  --material: rgba(15, 18, 23, 0.88);
+  --material-strong: rgba(17, 21, 26, 0.93);
+  --material-blur: blur(32px) saturate(1.5);
+  --elev-1: 0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 1px 2px rgba(0, 0, 0, 0.38);
+  --elev-2: 0 0 0 1px var(--line-2), 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 18px 46px -14px rgba(0, 0, 0, 0.7), 0 3px 10px rgba(0, 0, 0, 0.34);
+  --elev-3: 0 0 0 1px var(--line-2), 0 28px 80px -18px rgba(0, 0, 0, 0.78), 0 6px 18px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+}
+
+.app-shell.appearance-light {
+  --ink-0: #e7eaee;
+  --ink-1: #f3f4f6;
+  --ink-2: #f9fafb;
+  --ink-3: #ffffff;
+  --ink-4: #eef0f3;
+  --line-1: rgba(15, 23, 42, 0.055);
+  --line-2: rgba(15, 23, 42, 0.095);
+  --line-3: rgba(15, 23, 42, 0.17);
+  --text-1: #0d1117;
+  --text-2: #363f4b;
+  --text-3: #66707e;
+  --text-4: #9aa3af;
+  --signal: #c8ec3f;
+  --signal-strong: #b8de2a;
+  --signal-text: #4f6c00;
+  --signal-ink: #10150a;
+  --signal-soft: rgba(124, 168, 0, 0.11);
+  --signal-line: rgba(96, 132, 0, 0.42);
+  --material: rgba(255, 255, 255, 0.88);
+  --material-strong: rgba(255, 255, 255, 0.94);
+  --material-blur: blur(28px) saturate(1.8);
+  --elev-1: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --elev-2: 0 0 0 1px var(--line-2), 0 18px 44px -16px rgba(15, 23, 42, 0.26), 0 2px 8px rgba(15, 23, 42, 0.07);
+  --elev-3: 0 0 0 1px var(--line-2), 0 28px 72px -20px rgba(15, 23, 42, 0.32), 0 6px 16px rgba(15, 23, 42, 0.08);
+  --good: #12925a;
+  --watch: #b06d00;
+  --alert: #d63c3c;
+  color-scheme: light;
+}
+
+/* Legacy aliases: every pre-V1 component reads these names. */
+.app-shell,
+.app-shell.appearance-dark,
+.app-shell.appearance-light {
+  --vigo-ink: var(--text-1);
+  --vigo-lime: var(--signal);
+  --vigo-lime-strong: var(--signal-text);
+  --surface-bg: var(--ink-1);
+  --panel: var(--ink-2);
+  --panel-strong: var(--ink-3);
+  --panel-soft: var(--ink-4);
+  --border: var(--line-2);
+  --border-strong: var(--line-3);
+  --text-strong: var(--text-1);
+  --text: var(--text-2);
+  --text-soft: var(--text-2);
+  --text-muted: var(--text-3);
+  --text-faint: var(--text-4);
+  --accent: var(--signal-text);
+  --accent-2: var(--signal-text);
+  --success: var(--good);
+  --warn: var(--watch);
+  --warning: var(--watch);
+  --danger: var(--alert);
+  --shadow-soft: var(--elev-1);
+  --shadow-lg: var(--elev-3);
+  --shadow-color: rgba(0, 0, 0, 0.4);
+  --pq-focus: var(--signal-text);
+  --pq-surface-raised: var(--ink-3);
+  --pq-surface-hover: var(--ink-4);
+  --workbench-surface: var(--ink-2);
+  --workbench-rule: var(--line-2);
+  --topbar-bg: var(--ink-1);
+  --topbar-border: var(--line-1);
+  --topbar-control-hover: var(--ink-4);
+  --control-surface: var(--ink-3);
+  --control-surface-strong: var(--ink-4);
+  --hover-surface: var(--ink-4);
+  --active-surface: var(--signal-soft);
+  --map-surface: var(--ink-0);
+  --map-control-surface: var(--material-strong);
+  --primary-surface: var(--signal);
+  --primary-surface-hover: var(--signal-strong);
+  --primary-ink: var(--signal-ink);
+  color: var(--text-2);
+  background: var(--ink-1);
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.003em;
+  text-rendering: optimizeLegibility;
 }
 
 .app-frame {
@@ -35,29 +189,17 @@ body,
   overflow: hidden;
 }
 
-.app-shell.appearance-light {
-  --accent: #2563eb;
-  --accent-2: #0ea5e9;
-}
-
-.app-shell.accent-blue {
-  --accent: #8eeaf3;
-  --accent-2: #6da8ff;
-}
-
-.app-shell.accent-teal {
-  --accent: #35d0a1;
-  --accent-2: #6da8ff;
-}
-
-.app-shell.accent-graphite {
-  --accent: #b8c4d2;
-  --accent-2: #7f8fa3;
-}
-
 .app-shell button:focus-visible,
 .app-shell input:focus-visible,
-.app-shell select:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent-2) 62%, transparent);
+.app-shell select:focus-visible,
+.app-shell textarea:focus-visible,
+.app-shell a:focus-visible,
+.app-shell summary:focus-visible {
+  outline: 2px solid var(--signal-text);
   outline-offset: 2px;
+}
+
+.app-shell ::selection {
+  color: var(--signal-ink);
+  background: var(--signal);
 }

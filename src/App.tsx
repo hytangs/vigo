@@ -2938,6 +2938,8 @@ export default function App() {
   }, [hasActiveOperationsData, page, projects, selectedProjectId])
 
   const storageRecoveryRequired = Boolean(runtimeConfig && !runtimeConfig.setupRequired && !runtimeConfig.offline.storageWritable)
+  // The map is the canvas for Network, Route and Analyze; tool panels float over it.
+  const hasStage = page === 'project' && activeRouteTool !== 'data' && !isProjectEmpty && !storageRecoveryRequired
   const routingDetailOpen = page === 'project'
     && activeRouteTool === 'pathfinder'
     && routingDetailsVisible
@@ -2975,7 +2977,7 @@ export default function App() {
   }
 
   return (
-    <main className={classNames('app-shell', `appearance-${appearance}`, `accent-${accent}`, `page-${page}`, isProjectEmpty && 'project-empty', page === 'project' && activeRouteTool === 'data' && 'view-data', activeRouteTool === 'agency' && 'view-agency', agencyMapOpen && 'agency-map-open', routingDetailOpen && 'routing-detail-open', sidebarCollapsed && 'desktop-sidebar-collapsed')}>
+    <main className={classNames('app-shell', `appearance-${appearance}`, `accent-${accent}`, `page-${page}`, isProjectEmpty && 'project-empty', hasStage && 'has-stage', page === 'project' && activeRouteTool === 'data' && 'view-data', activeRouteTool === 'agency' && 'view-agency', agencyMapOpen && 'agency-map-open', routingDetailOpen && 'routing-detail-open', sidebarCollapsed && 'desktop-sidebar-collapsed')}>
       <header className="topbar">
         <div className="topbar-brand" aria-label="City header">
           <button type="button" className="topbar-mark-button" onClick={showProjects} title="Open Cities" aria-label="Open Cities">
@@ -2983,6 +2985,7 @@ export default function App() {
           </button>
           <div className="topbar-brand-copy">
             <b>{page === 'projects' ? 'Cities' : activeRouteTool === 'data' && dataSection === 'preferences' ? 'Settings' : quietMapLabel(selectedProject.name)}</b>
+            {hasStage ? <span className="topbar-crumb">{activeRouteTool === 'pathfinder' ? 'Route' : activeRouteTool === 'analyze' ? 'Analyze' : 'Network'}</span> : null}
           </div>
         </div>
 
@@ -3345,7 +3348,6 @@ export default function App() {
           routeDetailStatus={selectedRoute && routeHasCompleteGtfsAnalysis(selectedRoute, preview, routingServiceDate)
             ? 'All route patterns'
             : routeAnalysisError ? 'Route detail unavailable · overview only' : 'Loading full route…'}
-          key={activeRouteTool === 'agency' ? 'network-map' : 'studio-map'}
           projectId={selectedProject.id}
           feed={activeFeed}
           focusedPreview={focusedMapPreview}
@@ -3388,6 +3390,7 @@ export default function App() {
           scenarioPointPicking={scenarioPointPicking}
           onMoveScenarioStop={activeRouteTool === 'analyze' ? moveScenarioStopFromMap : undefined}
           routingActivity={routingActivity}
+          occlusionKey={routingDetailOpen ? 'journey' : ''}
           cityPreviewLoading={cityPreviewLoading}
           onMapScopeChange={(scope) => { if (activeRouteTool === 'agency' && scope === 'network') { clearAgencyMap(); returnToNetworkOverview() } setMapScope(scope) }}
           onVehicleModeChange={changeVehicleMode}

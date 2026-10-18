@@ -191,7 +191,7 @@ export function AgencyPanel({ staticFeeds, onOperationalEvents, projectId, snaps
     })
   }
 
-  return <section className="agency-panel" aria-label="Network workspace">
+  return <section className="agency-panel" aria-label="Network workspace" data-map-occluder="">
     <AgencyNavigation mode={mode} onChange={next => {
       setMode(next); setSelectedEvent(null); setFeedsOpen(false)
       requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: 0 }))

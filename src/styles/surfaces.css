@@ -2042,11 +2042,6 @@
 
 /* Shared workbench hierarchy and detail components */
 
-.app-shell {
-  --workbench-sidebar: clamp(340px, 27vw, 390px);
-  --routing-detail-width: clamp(300px, 24vw, 360px);
-}
-
 .app-shell.page-project:not(.project-empty):not(.view-data) .shell-body {
   grid-template-columns: var(--workbench-sidebar) minmax(0, 1fr);
 }
@@ -2076,7 +2071,7 @@
 
 @media (min-width: 761px) {
   .app-shell:has(.reach-surface.is-expanded) {
-    --workbench-sidebar: clamp(380px, 43vw, 560px);
+    --panel-width: clamp(380px, 43vw, 560px);
   }
 }
 
@@ -2534,7 +2529,7 @@
 
 @media (max-width: 1180px) {
   .app-shell {
-    --workbench-sidebar: clamp(320px, 34vw, 360px);
+    --panel-width: clamp(320px, 34vw, 360px);
   }
 
   .app-shell.page-project.routing-detail-open:not(.project-empty):not(.view-data) .shell-body {

@@ -15,7 +15,7 @@ export function PrimaryNav({ page, activeRouteTool, hasActiveData, onOpenNetwork
     { id: 'agency', label: 'Network', shortcut: '1', icon: Route, open: onOpenNetwork },
     { id: 'pathfinder', label: 'Route', shortcut: '2', icon: Navigation2, open: onOpenRouting },
     { id: 'analyze', label: 'Analyze', shortcut: '3', icon: Radar, open: onOpenAnalyze },
-    { id: 'data', label: 'City', shortcut: '5', icon: Settings, open: onOpenSettings },
+    { id: 'data', label: 'Settings', shortcut: '5', icon: Settings, open: onOpenSettings },
   ] as const
   return <nav className="sidebar-rail" aria-label="VIGO Studio">{destinations.map(({ id, label, shortcut, icon: Icon, open }) => <button
     key={id} type="button" className="sidebar-rail-button" onClick={open}

@@ -45,3 +45,38 @@ export function mapFitPadding(width: number, height: number): MapFitPadding {
     left: preferred.left * horizontalScale,
   }
 }
+
+/**
+ * Floating panels cover part of a full-bleed map. Measure elements marked
+ * `data-map-occluder` against the map container so the camera frames content
+ * in the visible remainder. Overlays that would leave less than 40% of the
+ * width (narrow windows) are ignored: there the panel stacks above the map.
+ */
+export function mapOcclusion(container: Element): MapFitPadding {
+  const area = container.getBoundingClientRect()
+  const occlusion = { top: 0, right: 0, bottom: 0, left: 0 }
+  if (!area.width || !area.height) return occlusion
+  for (const element of container.ownerDocument.querySelectorAll('[data-map-occluder]')) {
+    const box = element.getBoundingClientRect()
+    if (!box.width || !box.height || box.right <= area.left || box.left >= area.right
+      || box.bottom <= area.top || box.top >= area.bottom) continue
+    if (box.left - area.left <= area.right - box.right) occlusion.left = Math.max(occlusion.left, box.right - area.left)
+    else occlusion.right = Math.max(occlusion.right, area.right - box.left)
+  }
+  return occlusion.left + occlusion.right > area.width * 0.6 ? { top: 0, right: 0, bottom: 0, left: 0 } : occlusion
+}
+
+export function occludedMapFitPadding(width: number, height: number, occlusion: MapFitPadding): MapFitPadding {
+  const base = mapFitPadding(Math.max(0, width - occlusion.left - occlusion.right), Math.max(0, height - occlusion.top - occlusion.bottom))
+  return {
+    top: base.top + occlusion.top,
+    right: base.right + occlusion.right,
+    bottom: base.bottom + occlusion.bottom,
+    left: base.left + occlusion.left,
+  }
+}
+
+/** Shift a camera target so it lands in the middle of the visible map area. */
+export function occlusionCenterOffset(occlusion: MapFitPadding): [number, number] {
+  return [(occlusion.left - occlusion.right) / 2, (occlusion.top - occlusion.bottom) / 2]
+}
