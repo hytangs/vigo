@@ -79,6 +79,16 @@ pub use fares::node::{
 pub use route_alternatives::route_alternative_request;
 #[cfg(feature = "node")]
 pub use route_materialization::stop_sequence_line;
+// Transit routes and stops as vector tiles for the Studio map.
+#[cfg(feature = "node")]
+mod mvt;
+#[cfg(feature = "node")]
+mod network_tiles;
+#[cfg(feature = "node")]
+pub use network_tiles::node::{
+    RegisterTransitNetworkTask, TransitNetworkTileTask, register_transit_network,
+    release_transit_network, transit_network_tile,
+};
 mod resources;
 mod shared_streets;
 mod snapshot_validation;

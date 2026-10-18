@@ -44,6 +44,7 @@ import { buildServiceEdgeDecomposition } from './service-decomposition.mjs'
 import { createStreetPreparationManager } from './street-preparation.mjs'
 import { compactStudioRoutingResponse } from './studio-route-response.mjs'
 import { allocateProjectTransportAtlasBudgets, compactTransportPreview, projectTransportAtlasBudgets } from './transport-atlas.mjs'
+import { bundleNetworkScope, createTransitNetworkTiles, transitNetworkCatalog } from './transit-network-tiles.mjs'
 
 const defaultHost = '127.0.0.1'
 const defaultPort = 5179
@@ -73,6 +74,7 @@ const routingStoreSourceScopesCache = new Map()
 const nationalJobProgressPersistedAt = new WeakMap()
 const nationalRoutingServiceCoverageCache = new Map()
 const nationalRoutingServiceCoverageCacheMaxEntries = 8
+const transitNetworkTiles = createTransitNetworkTiles({ readProject })
 
 function defaultStorageRoot() {
   return path.join(os.homedir(), 'Documents', 'Vigo Projects')
@@ -1467,6 +1469,7 @@ function invalidateProjectRuntimeCaches(projectId) {
   for (const key of routingStoreSourceScopesCache.keys()) {
     if (String(key).startsWith(projectMetaRoot)) routingStoreSourceScopesCache.delete(key)
   }
+  transitNetworkTiles.invalidate(projectId)
 }
 
 async function inspectCityData(projectId) {
@@ -4307,6 +4310,36 @@ async function route(request, response) {
     return true
   }
 
+  // Transit routes and stops as vector tiles rendered by the Rust kernel. The
+  // scope is the whole City or one feed; a revision query makes tiles immutable.
+  const networkTileMatch = pathname.match(/^\/api\/projects\/([^/]+)\/network-tiles\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.mvt$/)
+  if (request.method === 'GET' && networkTileMatch) {
+    const projectId = decodeURIComponent(networkTileMatch[1])
+    const [z, x, y] = networkTileMatch.slice(2).map(Number)
+    if (cityMaintenance.has(projectId)) {
+      const error = new Error('This City is temporarily unavailable while cleanup finishes.')
+      error.statusCode = 409
+      throw error
+    }
+    if (z > 22 || x >= 2 ** z || y >= 2 ** z) {
+      const error = new Error('Tile coordinates are outside the Web Mercator pyramid.')
+      error.statusCode = 400
+      throw error
+    }
+    const revision = url.searchParams.get('v') || ''
+    const scope = url.searchParams.get('scope') || bundleNetworkScope
+    const tile = await transitNetworkTiles.tile(projectId, scope, revision, z, x, y)
+    const cacheControl = tile.current ? 'private, max-age=31536000, immutable' : 'no-cache'
+    if (!tile.bytes.length) {
+      response.writeHead(204, { 'Cache-Control': cacheControl })
+      response.end()
+      return true
+    }
+    response.writeHead(200, { 'Content-Type': 'application/vnd.mapbox-vector-tile', 'Content-Length': tile.bytes.length, 'Cache-Control': cacheControl })
+    response.end(tile.bytes)
+    return true
+  }
+
   if (request.method === 'POST' && pathname === '/api/realtime/inspect') {
     const body = await readBody(request)
     const { projectId, ...feedRequest } = body
@@ -4331,9 +4364,14 @@ async function route(request, response) {
     }
 
     if (request.method === 'GET' && !action) {
-      const project = url.searchParams.get('detail') === 'metadata'
+      // The Studio opens a City from its catalog and draws the network from
+      // network-tiles; the full preview remains the default for other clients.
+      const detail = url.searchParams.get('detail')
+      const project = detail === 'metadata'
         ? await readProjectMetadata(projectId)
-        : await readProject(projectId)
+        : detail === 'catalog'
+          ? transitNetworkCatalog(await readProject(projectId))
+          : await readProject(projectId)
       sendJson(response, 200, { project })
       return true
     }

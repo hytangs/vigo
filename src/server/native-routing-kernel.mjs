@@ -2359,3 +2359,25 @@ export function renderPublicText(result) {
 export function selectDetailedRouteChoices(request, result) {
   return JSON.parse(loadNativeBinding().selectDetailedRouteChoices(JSON.stringify({ request, result })))
 }
+
+function transitNetworkBinding() {
+  const binding = loadNativeBinding()
+  if (typeof binding.transitNetworkTile !== 'function') throw new Error('Rust routing binding lacks transit network tiles. Rebuild the native kernel.')
+  return binding
+}
+
+// The transit network as vector tiles. The server registers a City's route
+// and stop overview once per revision; indexing and every tile run on the
+// libuv pool. Resolves to [routes, stops] the registered network draws.
+export function registerNativeTransitNetwork(key, networkJson) {
+  return transitNetworkBinding().registerTransitNetwork(key, networkJson)
+}
+
+export function releaseNativeTransitNetwork(key) {
+  return transitNetworkBinding().releaseTransitNetwork(key)
+}
+
+/** MVT bytes for one tile; rejects with TRANSIT_NETWORK_NOT_REGISTERED after a release. */
+export function renderNativeTransitNetworkTile(key, z, x, y) {
+  return transitNetworkBinding().transitNetworkTile(key, z, x, y)
+}
