@@ -396,6 +396,12 @@ export default function App() {
   const activeScope = useMemo(() => scopedFeedAndPreview(selectedProject, activeFeedId), [selectedProject, activeFeedId])
   const activeFeed = activeScope.feed
   const preview = activeScope.preview
+  // The opened City's network is drawn from the kernel's vector tiles for the shown scope.
+  const scopeTiles = selectedProject.networkTiles?.[activeFeed.id]
+  const networkTiles = useMemo(
+    () => scopeTiles ? { scope: activeFeed.id, ...scopeTiles } : undefined,
+    [activeFeed.id, scopeTiles],
+  )
   const comparisonFeedOptions = useMemo<ComparisonFeedOption[]>(
     () => selectedProject.feeds
       .filter((feed) => feed.routingStore?.status === 'ready')
@@ -2463,7 +2469,7 @@ export default function App() {
   }
 
   async function refreshImportedProject(projectId: string, hydrate = true) {
-    const detail = hydrate ? '' : '?detail=metadata'
+    const detail = hydrate ? '?detail=catalog' : '?detail=metadata'
     const projectResult = await apiJson<{ project: VigoProject }>(`/api/projects/${encodeURIComponent(projectId)}${detail}`)
     replaceProject(projectResult.project)
     return projectResult.project
@@ -3349,6 +3355,7 @@ export default function App() {
             ? 'All route patterns'
             : routeAnalysisError ? 'Route detail unavailable · overview only' : 'Loading full route…'}
           projectId={selectedProject.id}
+          networkTiles={networkTiles}
           feed={activeFeed}
           focusedPreview={focusedMapPreview}
           visiblePreview={workbenchMapPreview}

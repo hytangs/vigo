@@ -8,6 +8,8 @@ compile_error!(
 mod basemap_tiles;
 mod edge_attachment;
 pub(crate) mod fares;
+#[cfg(feature = "node")]
+mod network_tiles;
 pub(crate) mod route_alternatives;
 use bincode::Options;
 #[cfg(all(feature = "standalone", not(feature = "node")))]
@@ -78,6 +80,11 @@ pub use basemap_tiles::node::{LocalBasemapTileTask, local_basemap_tile};
 pub use fares::node::{
     FareEventDayResult, NativeFareCatalog, fare_currency_scales, native_fare_event_day,
     native_parse_fare_amount, native_public_fare_url,
+};
+#[cfg(feature = "node")]
+pub use network_tiles::node::{
+    RegisterTransitNetworkTask, TransitNetworkTileTask, register_transit_network,
+    release_transit_network, transit_network_tile,
 };
 #[cfg(feature = "node")]
 pub use route_alternatives::route_alternative_request;

@@ -17,15 +17,15 @@ use std::sync::{LazyLock, Mutex};
 use std::time::SystemTime;
 
 const SCHEMA_VERSION: &str = "vigo.local-basemap.v1";
-const EXTENT: f64 = 4096.0;
+pub(crate) const EXTENT: f64 = 4096.0;
 /// Tile units kept outside each edge so strokes and fills join seamlessly.
-const BUFFER: f64 = 64.0;
+pub(crate) const BUFFER: f64 = 64.0;
 const MAX_FEATURES: usize = 4_500;
 const MAX_VERTICES: usize = 80_000;
 const COAST_PIECES: usize = 4_096;
 const COAST_VERTICES: usize = 80_000;
 const CONTAINMENT_CHECKS: usize = 1_000_000;
-const MAX_LATITUDE: f64 = 85.051_128_78;
+pub(crate) const MAX_LATITUDE: f64 = 85.051_128_78;
 const POOLED_CONNECTIONS: usize = 4;
 
 type Point = [f64; 2];
@@ -217,7 +217,7 @@ fn same_point(left: Point, right: Point) -> bool {
 }
 
 /// Split a polyline into the runs that fall inside the box.
-fn clip_polyline(line: &[Point], min: Point, max: Point) -> Vec<Vec<Point>> {
+pub(crate) fn clip_polyline(line: &[Point], min: Point, max: Point) -> Vec<Vec<Point>> {
     let mut parts: Vec<Vec<Point>> = Vec::new();
     let mut current: Option<Vec<Point>> = None;
     for pair in line.windows(2) {
@@ -289,7 +289,7 @@ fn clip_ring(ring: &[Point], min: Point, max: Point) -> Vec<Point> {
     output
 }
 
-fn quantize(points: impl IntoIterator<Item = Point>) -> Vec<[i32; 2]> {
+pub(crate) fn quantize(points: impl IntoIterator<Item = Point>) -> Vec<[i32; 2]> {
     let mut result: Vec<[i32; 2]> = Vec::new();
     for [x, y] in points {
         let point = [x.round() as i32, y.round() as i32];
@@ -636,10 +636,10 @@ fn ocean_polygons(
 // MVT encoding
 // ---------------------------------------------------------------------------
 
-const GEOMETRY_LINE: u32 = 2;
+pub(crate) const GEOMETRY_LINE: u32 = 2;
 const GEOMETRY_POLYGON: u32 = 3;
 
-fn write_varint(buffer: &mut Vec<u8>, mut value: u64) {
+pub(crate) fn write_varint(buffer: &mut Vec<u8>, mut value: u64) {
     while value >= 0x80 {
         buffer.push((value as u8 & 0x7f) | 0x80);
         value >>= 7;
@@ -647,21 +647,21 @@ fn write_varint(buffer: &mut Vec<u8>, mut value: u64) {
     buffer.push(value as u8);
 }
 
-fn write_key(buffer: &mut Vec<u8>, field: u32, wire: u32) {
+pub(crate) fn write_key(buffer: &mut Vec<u8>, field: u32, wire: u32) {
     write_varint(buffer, u64::from((field << 3) | wire));
 }
 
-fn write_bytes(buffer: &mut Vec<u8>, field: u32, bytes: &[u8]) {
+pub(crate) fn write_bytes(buffer: &mut Vec<u8>, field: u32, bytes: &[u8]) {
     write_key(buffer, field, 2);
     write_varint(buffer, bytes.len() as u64);
     buffer.extend_from_slice(bytes);
 }
 
-fn zigzag(value: i32) -> u32 {
+pub(crate) fn zigzag(value: i32) -> u32 {
     ((value << 1) ^ (value >> 31)) as u32
 }
 
-fn command(id: u32, count: usize) -> u32 {
+pub(crate) fn command(id: u32, count: usize) -> u32 {
     (id & 0x7) | ((count as u32) << 3)
 }
 

@@ -18,6 +18,7 @@ import {
   type RealtimeSnapshot,
   type RouteMetric,
 } from '../../domain'
+import { contextRouteFilter as contextRouteFilterFor, type NetworkTiles } from '../../map/networkTileSource'
 import { buildNetworkPerformanceProfile } from '../../networkPerformance'
 import {
   reachBandColor,
@@ -110,6 +111,7 @@ export function RouteSurface({
   agencyLocation,
   routeDetailStatus,
   projectId,
+  networkTiles,
   feed,
   focusedPreview,
   visiblePreview,
@@ -163,6 +165,8 @@ export function RouteSurface({
   scheduleLoadStatus?: string
   routeDetailStatus?: string
   projectId: string
+  /** The City scope's network as Rust vector tiles; absent draws GeoJSON. */
+  networkTiles?: NetworkTiles
   feed: FeedSummary
   focusedPreview: MapPreview
   visiblePreview: MapPreview
@@ -222,14 +226,11 @@ export function RouteSurface({
   )
   const mapPreview = queryFocus ? routingCanvasPreview : isNetworkMap || scheduledNetwork ? cityMapPreview : focusedPreview
   // Rail, tram and ferry orient a query without competing with its result.
-  // Bus-only cities fall back to their most frequent patterns.
-  const contextPreview = useMemo<MapPreview | undefined>(() => {
-    if (!queryFocus) return undefined
-    const network = buildCityPreviewLod(visiblePreview, '')
-    const fixedGuideway = network.routes.filter((route) => route.routeType !== undefined && route.routeType !== 3)
-    const routes = fixedGuideway.length ? fixedGuideway : network.routes.filter((route) => route.frequencyClass === 'high')
-    return { routes, stops: network.stops, stopPairs: [] }
-  }, [queryFocus, visiblePreview])
+  // Bus-only cities fall back to their most frequent routes.
+  const contextRouteFilter = useMemo(
+    () => queryFocus ? contextRouteFilterFor(visiblePreview.routes) : undefined,
+    [queryFocus, visiblePreview.routes],
+  )
   const selectedMapRouteId = routingFocus || analysisFocus || isNetworkMap || scheduledNetwork ? '' : selectedRouteId
   const performanceProfile = useMemo(
     () => buildNetworkPerformanceProfile(routingFocus || analysisFocus ? visiblePreview : mapPreview, { precise: !isNetworkMap && !routingFocus && !analysisFocus }),
@@ -346,7 +347,8 @@ export function RouteSurface({
           localBasemapAvailable={localBasemapAvailable}
           localBasemapRevision={localBasemapRevision}
           preview={mapPreview}
-          contextPreview={contextPreview}
+          networkTiles={networkTiles}
+          contextRouteFilter={contextRouteFilter}
           feedName={feed.name}
           layers={layers}
           networkLens={networkLens}

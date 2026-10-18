@@ -1,4 +1,5 @@
 import { emptyCollection } from './featureGeometry'
+import { contextRouteLayerId, networkTileLayerId } from './networkTileSource'
 
 import { type CanvasSource, type ExpressionSpecification, type FilterSpecification, type Map as MapLibreMap } from 'maplibre-gl'
 import { ensureVehicleDirectionSprite, vehicleHeadingLayer, vehicleMarkerLayer } from '../app/mapDirections'
@@ -6,9 +7,6 @@ import type { LayerState, NetworkLens } from '../domain'
 import { reachComparisonColor } from '../reach'
 
 const routeLayerIds = ['vigo-route-casing', 'vigo-routes', 'vigo-selected-route']
-
-// Route and Analyze keep a quiet reference network under the query result.
-const contextLayerIds = ['vigo-context-routes']
 
 const segmentLayerIds = ['vigo-segments-casing', 'vigo-segments', 'vigo-selected-segments']
 
@@ -92,9 +90,6 @@ export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
   ensureVehicleDirectionSprite(map)
   if (!map.getSource('vigo-routes')) {
     map.addSource('vigo-routes', { type: 'geojson', data: emptyCollection })
-  }
-  if (!map.getSource('vigo-context-routes')) {
-    map.addSource('vigo-context-routes', { type: 'geojson', data: emptyCollection })
   }
   if (!map.getSource('vigo-segments')) {
     map.addSource('vigo-segments', { type: 'geojson', data: emptyCollection })
@@ -376,20 +371,6 @@ export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
         'line-dasharray': [1.4, 1.2],
       },
       layout: { 'line-cap': 'round', 'line-join': 'round', 'line-sort-key': ['get', 'tripCount'] as ExpressionSpecification },
-    })
-  }
-
-  if (!map.getLayer('vigo-context-routes')) {
-    map.addLayer({
-      id: 'vigo-context-routes',
-      type: 'line',
-      source: 'vigo-context-routes',
-      layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'none' },
-      paint: {
-        'line-color': ['get', 'color'] as ExpressionSpecification,
-        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.8, 12, 1.8, 16, 3.4],
-        'line-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.42, 13, 0.3, 16, 0.22],
-      },
     })
   }
 
@@ -862,18 +843,33 @@ export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
   }
 }
 
+/**
+ * Where the transit network draws from: vector tiles for the whole Network
+ * view, only the focused route's tiles while its detail loads, or GeoJSON.
+ */
+export type NetworkTileMode = 'network' | 'focus' | 'off'
+
 export function applyLayerVisibility(
   map: MapLibreMap,
   layers: LayerState,
-  options: { routingVisible?: boolean; reachResultVisible?: boolean; reachComparisonCount?: number; contextVisible?: boolean } = {},
+  options: { routingVisible?: boolean; reachResultVisible?: boolean; reachComparisonCount?: number; contextVisible?: boolean; networkTiles?: NetworkTileMode } = {},
 ) {
-  setVisibility(map, contextLayerIds, options.contextVisible ?? false)
+  const tiled = options.networkTiles === 'network'
+  const twins = (layerIds: string[]) => layerIds.map(networkTileLayerId)
+  setVisibility(map, [contextRouteLayerId], options.contextVisible ?? false)
   setVisibility(map, routeLayerIds, layers.routes)
+  setVisibility(map, twins(routeLayerIds), tiled && layers.routes)
   setVisibility(map, segmentLayerIds, layers.segments)
   setVisibility(map, stopLayerIds, layers.stops)
+  setVisibility(map, twins(stopLayerIds), tiled && layers.stops)
   setVisibility(map, transferLayerIds, layers.transfers)
+  setVisibility(map, twins(transferLayerIds), tiled && layers.transfers)
   setVisibility(map, coverageLayerIds, layers.coverage)
+  setVisibility(map, twins(coverageLayerIds), tiled && layers.coverage)
   setVisibility(map, scenarioLayerIds, layers.scenario)
+  setVisibility(map, twins(scenarioLayerIds), tiled && layers.scenario)
+  // A focused route draws its own tiles until its detailed patterns arrive.
+  if (options.networkTiles === 'focus') setVisibility(map, [networkTileLayerId('vigo-selected-route')], layers.routes)
   setVisibility(map, accessLayerIds, layers.access)
   setVisibility(map, vehicleLayerIds, layers.routes)
   setVisibility(map, routingLayerIds, options.routingVisible ?? true)
@@ -1000,26 +996,26 @@ export function applyNetworkLensPaint(map: MapLibreMap, networkLens: NetworkLens
   // Schematic stop-to-stop geometry is still a route. Keep it visible in
   // every lens instead of silently dropping services without shapes.txt.
   const routeFilter: FilterSpecification | null = null
+  // A GeoJSON layer and its vector tile twin always share the lens.
+  const paint = (layerId: string, apply: (id: string) => void) => {
+    for (const id of [layerId, networkTileLayerId(layerId)]) if (map.getLayer(id)) apply(id)
+  }
 
-  if (map.getLayer('vigo-routes')) {
-    map.setFilter('vigo-routes', routeFilter)
-    map.setPaintProperty('vigo-routes', 'line-color', lineColor)
-    map.setPaintProperty('vigo-routes', 'line-opacity', lineOpacity)
-  }
-  if (map.getLayer('vigo-selected-route')) {
-    map.setPaintProperty('vigo-selected-route', 'line-color', lineColor)
-  }
-  if (map.getLayer('vigo-route-casing')) {
-    map.setFilter('vigo-route-casing', routeFilter)
-    map.setPaintProperty('vigo-route-casing', 'line-opacity', networkLens === 'network' ? ['case', ['==', ['get', 'selectedPattern'], true], 0.72, 0.24] : ['case', ['==', ['get', 'selectedPattern'], true], 0.78, 0.32])
-  }
-  if (map.getLayer('vigo-transfer-stops')) {
-    map.setPaintProperty('vigo-transfer-stops', 'circle-opacity', transferOpacity)
-    map.setPaintProperty('vigo-transfer-stops', 'circle-radius', networkLens === 'transfer'
+  paint('vigo-routes', (id) => {
+    map.setFilter(id, routeFilter)
+    map.setPaintProperty(id, 'line-color', lineColor)
+    map.setPaintProperty(id, 'line-opacity', lineOpacity)
+  })
+  paint('vigo-selected-route', (id) => map.setPaintProperty(id, 'line-color', lineColor))
+  paint('vigo-route-casing', (id) => {
+    map.setFilter(id, routeFilter)
+    map.setPaintProperty(id, 'line-opacity', networkLens === 'network' ? ['case', ['==', ['get', 'selectedPattern'], true], 0.72, 0.24] : ['case', ['==', ['get', 'selectedPattern'], true], 0.78, 0.32])
+  })
+  paint('vigo-transfer-stops', (id) => {
+    map.setPaintProperty(id, 'circle-opacity', transferOpacity)
+    map.setPaintProperty(id, 'circle-radius', networkLens === 'transfer'
       ? ['interpolate', ['linear'], ['get', 'transferScore'], 0, 1.2, 100, 4.4]
       : ['interpolate', ['linear'], ['get', 'transferScore'], 0, 0.75, 100, 2.7])
-  }
-  if (map.getLayer('vigo-stops')) {
-    map.setPaintProperty('vigo-stops', 'circle-opacity', stopOpacity as ExpressionSpecification)
-  }
+  })
+  paint('vigo-stops', (id) => map.setPaintProperty(id, 'circle-opacity', stopOpacity as ExpressionSpecification))
 }

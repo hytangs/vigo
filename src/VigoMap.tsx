@@ -18,8 +18,17 @@ import {
   setReachBandImage,
   setVisibility,
   stopLayerIds,
+  type NetworkTileMode,
 } from './map/layers'
 import { accessFeatures, directionLabel, routeDisplayName, routeFeatures, segmentFeatures, stopFeatures } from './map/networkFeatures'
+import {
+  contextRouteLayerId,
+  installNetworkTiles,
+  networkTileLayerId,
+  networkTileStopLayerIds,
+  removeNetworkTiles,
+  type NetworkTiles,
+} from './map/networkTileSource'
 import {
   reachComparisonAreaFeatures,
   reachComparisonContourFeatures,
@@ -34,6 +43,7 @@ import {
 import type { GeoJsonProperties, Geometry } from 'geojson'
 import { X } from 'lucide-react'
 import {
+  type FilterSpecification,
   type GeoJSONFeatureDiff,
   type GeoJSONFeatureId,
   type GeoJSONSource,
@@ -107,8 +117,10 @@ export type VigoMapProps = {
   localBasemapAvailable?: boolean
   localBasemapRevision?: string
   preview: MapPreview
-  /** Quiet reference lines drawn under Route and Analyze results. */
-  contextPreview?: MapPreview
+  /** The City scope's transit network as vector tiles; absent means draw the preview's GeoJSON. */
+  networkTiles?: NetworkTiles
+  /** Routes of the network tiles drawn as quiet reference lines under Route and Analyze results. */
+  contextRouteFilter?: FilterSpecification
   feedName: string
   layers: LayerState
   networkLens: NetworkLens
@@ -184,6 +196,9 @@ function scheduleMapFrameUpdate(
     }
   }
 }
+
+// Route lines answer clicks and hover; their casings only frame them.
+const routeHitLayerIds = ['vigo-selected-route', 'vigo-routes'].flatMap((layerId) => [layerId, networkTileLayerId(layerId)])
 
 function textProperty(properties: GeoJsonProperties | undefined, key: string, fallback = '') {
   const value = properties?.[key]
@@ -374,16 +389,18 @@ function renderedMapFeatures(
   map: MapLibreMap,
   sourceRouteFeatures: number,
   sourceStopFeatures: number,
+  tiled: boolean,
 ) {
   const canvas = map.getCanvas()
   const container = map.getContainer()
   if (canvas.width <= 0 || canvas.height <= 0 || container.clientWidth <= 0 || container.clientHeight <= 0) return null
 
-  const routeLayers = sourceRouteFeatures > 0 && map.getSource('vigo-routes') && map.isSourceLoaded('vigo-routes')
-    ? visibleMapLayerIds(map, ['vigo-routes'])
+  const loaded = (sourceId: string) => Boolean(map.getSource(sourceId)) && map.isSourceLoaded(sourceId)
+  const routeLayers = sourceRouteFeatures > 0 && loaded(tiled ? 'vigo-network' : 'vigo-routes')
+    ? visibleMapLayerIds(map, [tiled ? networkTileLayerId('vigo-routes') : 'vigo-routes'])
     : []
-  const stopLayers = sourceStopFeatures > 0 && map.getSource('vigo-stops') && map.isSourceLoaded('vigo-stops')
-    ? visibleMapLayerIds(map, stopLayerIds)
+  const stopLayers = sourceStopFeatures > 0 && loaded(tiled ? 'vigo-network' : 'vigo-stops')
+    ? visibleMapLayerIds(map, tiled ? networkTileStopLayerIds : stopLayerIds)
     : []
   const renderedRoutes = routeLayers.length
     ? uniqueRenderedFeatureCount(map.queryRenderedFeatures({ layers: routeLayers }), 'featureId')
@@ -464,7 +481,8 @@ export function VigoMap({
   onMoveScenarioStop,
   performanceProfile: providedPerformanceProfile,
   focusMode = 'network',
-  contextPreview,
+  networkTiles,
+  contextRouteFilter,
   onSelectRoute,
   onOpenTrip,
   onSelectStop,
@@ -535,35 +553,46 @@ export function VigoMap({
   const effectiveLayers = useMemo<LayerState>(() => queryFocus
     ? { routes: false, segments: false, stops: false, transfers: false, coverage: false, scenario: false, access: false }
     : { ...layers, routes: focusMode === 'route' || layers.routes }, [focusMode, layers, queryFocus])
+  // The Network view draws routes and stops from the kernel's vector tiles. A
+  // focused route draws its on-demand detail as GeoJSON.
+  const tiledNetwork = Boolean(networkTiles) && focusMode === 'network'
+  const routesGeoJson = useMemo(
+    () => !tiledNetwork && (effectiveLayers.routes || effectiveLayers.scenario) ? routeFeatures(preview, selectedRouteId, highlightRouteGroup) : emptyCollection,
+    [effectiveLayers.routes, effectiveLayers.scenario, highlightRouteGroup, preview, selectedRouteId, tiledNetwork],
+  )
+  const networkTileMode: NetworkTileMode = !networkTiles ? 'off'
+    : tiledNetwork ? 'network'
+      : focusMode === 'route' && !routesGeoJson.features.length ? 'focus' : 'off'
+  const focusTileRouteIds = useMemo(
+    () => networkTileMode === 'focus' ? preview.routes.map(cityPublicRouteKey) : [],
+    [networkTileMode, preview.routes],
+  )
   const layerPresentation = {
     layers: effectiveLayers,
-    contextVisible: queryFocus && Boolean(contextPreview?.routes.length),
+    contextVisible: queryFocus && Boolean(networkTiles && contextRouteFilter),
     routingVisible: routingEnabled || Boolean(routingPlan) || queryFocus,
     reachResultVisible: scenarioFocus,
     reachComparisonCount: reachComparison?.length ?? 0,
+    networkTiles: networkTileMode,
   }
   const layerPresentationRef = useRef(layerPresentation)
   layerPresentationRef.current = layerPresentation
-  const routesGeoJson = useMemo(
-    () => effectiveLayers.routes || effectiveLayers.scenario ? routeFeatures(preview, selectedRouteId, highlightRouteGroup) : emptyCollection,
-    [effectiveLayers.routes, effectiveLayers.scenario, highlightRouteGroup, preview, selectedRouteId],
-  )
-  const contextGeoJson = useMemo(
-    () => queryFocus && contextPreview?.routes.length ? routeFeatures(contextPreview, '') : emptyCollection,
-    [contextPreview, queryFocus],
-  )
   const segmentsGeoJson = useMemo(() => (effectiveLayers.segments ? segmentFeatures(preview, performanceProfile) : emptyCollection), [effectiveLayers.segments, performanceProfile, preview])
   const stopsGeoJson = useMemo(
     () => (
-      effectiveLayers.stops
-      || effectiveLayers.transfers
-      || effectiveLayers.coverage
-      || effectiveLayers.access
+      !tiledNetwork && (
+        effectiveLayers.stops
+        || effectiveLayers.transfers
+        || effectiveLayers.coverage
+        || effectiveLayers.access
+      )
         ? stopFeatures(preview, selectedRouteId, selectedStopId, performanceProfile)
         : emptyCollection
     ),
-    [effectiveLayers.access, effectiveLayers.coverage, effectiveLayers.stops, effectiveLayers.transfers, performanceProfile, preview, selectedRouteId, selectedStopId],
+    [effectiveLayers.access, effectiveLayers.coverage, effectiveLayers.stops, effectiveLayers.transfers, performanceProfile, preview, selectedRouteId, selectedStopId, tiledNetwork],
   )
+  const stopsById = useMemo(() => new Map(preview.stops.map((stop) => [stop.id, stop])), [preview.stops])
+  const resolvedSelectedStopId = useMemo(() => findNetworkStop(preview.stops, selectedStopId)?.id ?? '', [preview.stops, selectedStopId])
   const accessGeoJson = useMemo(() => effectiveLayers.access ? accessFeatures(preview, selectedStopId) : emptyCollection, [effectiveLayers.access, preview, selectedStopId])
   const vehicleGeoJson = useMemo(
     () => effectiveLayers.routes
@@ -607,7 +636,9 @@ export function VigoMap({
     [reachComparison],
   )
   const focusedAnalysis = reachResult ?? comparisonEntries[0]?.result
-  const cityBounds = useMemo(() => previewStopBounds(preview), [preview.stops])
+  const stopBounds = useMemo(() => previewStopBounds(preview), [preview.stops])
+  // Tiles leave route geometry on the server, which supplies the same trimmed extent.
+  const cityBounds = (tiledNetwork ? networkTiles?.bounds : null) ?? stopBounds
   const comparisonContoursGeoJson = useMemo(
     () => scenarioRenderMode === 'area'
       ? comparisonEntries.map((entry) => reachComparisonContourFeatures(entry.result, scenarioCutoffMinutes))
@@ -634,8 +665,10 @@ export function VigoMap({
       : comparisonEntries.map(() => emptyCollection),
     [comparisonEntries, scenarioCutoffMinutes, scenarioRenderMode],
   )
-  const hasDrawableNetwork = routesGeoJson.features.length > 0 || stopsGeoJson.features.length > 0
-  const mapVisualState = routesGeoJson.features.length > 0 ? 'network' : stopsGeoJson.features.length > 0 ? 'stops-only' : 'empty'
+  const drawnRouteCount = networkTileMode === 'network' ? preview.routes.length : routesGeoJson.features.length
+  const drawnStopCount = networkTileMode === 'network' ? preview.stops.length : stopsGeoJson.features.length
+  const hasDrawableNetwork = drawnRouteCount > 0 || drawnStopCount > 0
+  const mapVisualState = drawnRouteCount > 0 ? 'network' : drawnStopCount > 0 ? 'stops-only' : 'empty'
   const routingFitSignature = useMemo(
     () => [
       routingEnabled ? 'on' : 'off',
@@ -683,9 +716,9 @@ export function VigoMap({
     if (!tracker || tracker.key !== mapTelemetryKey) return
     reportDesktopMapPhase({
       phase: 'features-prepared',
-      ...desktopMapTelemetryPayload(tracker, feedName, routesGeoJson.features.length, stopsGeoJson.features.length),
+      ...desktopMapTelemetryPayload(tracker, feedName, drawnRouteCount, drawnStopCount),
     })
-  }, [feedName, mapTelemetryKey, routesGeoJson.features.length, stopsGeoJson.features.length])
+  }, [drawnRouteCount, drawnStopCount, feedName, mapTelemetryKey])
 
   const selectionScopeRef = useRef({ fitSignature, selectedRouteId })
   useEffect(() => {
@@ -788,7 +821,7 @@ export function VigoMap({
       if (!tracker) return
       reportDesktopMapPhase({
         phase,
-        ...desktopMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
+        ...desktopMapTelemetryPayload(tracker, feedNameRef.current, drawnRouteCount, drawnStopCount),
       })
     }
     const reportBasemapReadiness = () => {
@@ -899,11 +932,11 @@ export function VigoMap({
       if (!tracker || tracker.key !== mapTelemetryKey) return
       reportDesktopMapPhase({
         phase,
-        ...desktopMapTelemetryPayload(tracker, feedName, routesGeoJson.features.length, stopsGeoJson.features.length),
+        ...desktopMapTelemetryPayload(tracker, feedName, drawnRouteCount, drawnStopCount),
       })
     }
     const reportReadyIfRendered = () => {
-      const rendered = renderedMapFeatures(map, routesGeoJson.features.length, stopsGeoJson.features.length)
+      const rendered = renderedMapFeatures(map, drawnRouteCount, drawnStopCount, networkTileMode === 'network')
       if (!rendered) return
       const { state, renderedRoutes, renderedStops } = rendered
       map.off('render', reportReadyIfRendered)
@@ -921,8 +954,8 @@ export function VigoMap({
         state,
         routeFeatures: renderedRoutes,
         stopFeatures: renderedStops,
-        sourceRouteFeatures: routesGeoJson.features.length,
-        sourceStopFeatures: stopsGeoJson.features.length,
+        sourceRouteFeatures: drawnRouteCount,
+        sourceStopFeatures: drawnStopCount,
         basemap: tracker?.basemap ?? basemapRef.current,
         basemapStatus: tracker ? basemapTelemetryStatus(tracker) : 'not-started',
         timings: tracker ? mapFirstRenderTimings(tracker) : {
@@ -946,7 +979,6 @@ export function VigoMap({
           markLocalSourceSubmitted(tracker, adoptedAt)
         }
         setMapSourceData(source(map, 'vigo-routes'), routesGeoJson)
-        setMapSourceData(source(map, 'vigo-context-routes'), contextGeoJson)
         setMapSourceData(source(map, 'vigo-segments'), segmentsGeoJson)
         setMapSourceData(source(map, 'vigo-stops'), stopsGeoJson)
         setMapSourceData(source(map, 'vigo-access'), accessGeoJson)
@@ -1009,7 +1041,7 @@ export function VigoMap({
       if (mapRemovedRef.current) return
       map.off('render', reportReadyIfRendered)
     }
-  }, [accessGeoJson, cityBounds, contextGeoJson, feedName, fitSignature, focusedAnalysis, mapTelemetryKey, mapVisualState, routesGeoJson, routingEnabled, routingFitSignature, routingGeoJson, routingPinsGeoJson, routingPlan, scenarioFocus, segmentsGeoJson, stopsGeoJson])
+  }, [accessGeoJson, cityBounds, drawnRouteCount, drawnStopCount, feedName, fitSignature, focusedAnalysis, mapTelemetryKey, mapVisualState, networkTileMode, routesGeoJson, routingEnabled, routingFitSignature, routingGeoJson, routingPinsGeoJson, routingPlan, scenarioFocus, segmentsGeoJson, stopsGeoJson])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1098,7 +1130,7 @@ export function VigoMap({
       if (ready && markBasemapReady(tracker, performance.now())) {
         reportDesktopMapPhase({
           phase: 'basemap-ready',
-          ...desktopMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
+          ...desktopMapTelemetryPayload(tracker, feedNameRef.current, drawnRouteCount, drawnStopCount),
         })
       }
     }
@@ -1106,7 +1138,7 @@ export function VigoMap({
     // queued. Route and Analyze intentionally hide GTFS layers, so waiting for
     // a rendered route or stop can prevent the basemap from ever starting.
     return scheduleMapFrameUpdate(map, mapReadyRef.current, update, () => mapRemovedRef.current)
-  }, [appearance, basemap, localBasemapAvailable, routesGeoJson.features.length, stopsGeoJson.features.length])
+  }, [appearance, basemap, drawnRouteCount, drawnStopCount, localBasemapAvailable])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1117,7 +1149,7 @@ export function VigoMap({
       if (tracker && markBasemapReady(tracker, performance.now())) {
         reportDesktopMapPhase({
           phase: 'basemap-ready',
-          ...desktopMapTelemetryPayload(tracker, feedNameRef.current, routesGeoJson.features.length, stopsGeoJson.features.length),
+          ...desktopMapTelemetryPayload(tracker, feedNameRef.current, drawnRouteCount, drawnStopCount),
         })
       }
     }
@@ -1158,12 +1190,45 @@ export function VigoMap({
     }
   }, [basemap, localBasemapAvailable, localBasemapRevision, projectId])
 
+  const contextVisible = layerPresentation.contextVisible
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReadyRef.current) return
     const presentation = layerPresentationRef.current
     applyLayerVisibility(map, presentation.layers, presentation)
-  }, [effectiveLayers, reachComparison, routingEnabled, routingPlan, scenarioFocus])
+  }, [contextVisible, effectiveLayers, networkTileMode, reachComparison, routingEnabled, routingPlan, scenarioFocus])
+
+  // The kernel's vector tiles for this City scope. Selection, route focus and
+  // the query context are filters on tile identities, so a click never
+  // refetches a tile.
+  const networkTileScope = networkTiles?.scope ?? ''
+  const networkTileRevision = networkTiles?.revision ?? ''
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const update = () => {
+      if (mapRemovedRef.current) return
+      if (!projectId || !networkTileScope) {
+        removeNetworkTiles(map)
+        return
+      }
+      ensureLayers(map)
+      installNetworkTiles(map, projectId, { scope: networkTileScope, revision: networkTileRevision })
+      const none: FilterSpecification = ['==', ['get', 'featureId'], '__none__']
+      map.setFilter(networkTileLayerId('vigo-selected-stop'), ['==', ['get', 'stopId'], resolvedSelectedStopId || '__none__'])
+      map.setFilter(networkTileLayerId('vigo-selected-route'), networkTileMode === 'focus'
+        ? ['in', ['get', 'featureId'], ['literal', focusTileRouteIds]]
+        : none)
+      map.setFilter(contextRouteLayerId, contextRouteFilter ?? none)
+      const presentation = layerPresentationRef.current
+      applyLayerVisibility(map, presentation.layers, presentation)
+    }
+    if (mapReadyRef.current) update()
+    else map.once('load', update)
+    return () => {
+      if (!mapRemovedRef.current) map.off('load', update)
+    }
+  }, [contextRouteFilter, focusTileRouteIds, networkTileMode, networkTileRevision, networkTileScope, projectId, resolvedSelectedStopId])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1324,13 +1389,15 @@ export function VigoMap({
       if (stopHit) {
         const stopId = textProperty(stopHit?.properties, 'stopId')
         if (typeof stopId === 'string' && stopId) {
+          // Tiles carry identities and styling values; names come from the catalog.
+          const stop = stopsById.get(stopId)
           onSelectStop(stopId)
           setLiveSelection({
             tone: 'stop',
             eyebrow: 'GTFS stop',
             stopId,
-            title: textProperty(stopHit.properties, 'name', stopId),
-            subtitle: textProperty(stopHit.properties, 'routes') || `Stop ${stopId}`,
+            title: stop?.name || textProperty(stopHit.properties, 'name', stopId),
+            subtitle: stop?.routes.join(', ') || textProperty(stopHit.properties, 'routes') || `Stop ${stopId}`,
             metrics: [
               { value: formatNumber(numberProperty(stopHit.properties, 'tripCount')), label: 'trips' },
               { value: formatNumber(numberProperty(stopHit.properties, 'routeCount')), label: 'routes' },
@@ -1376,8 +1443,9 @@ export function VigoMap({
           return
         }
       }
-      if (map.getLayer('vigo-routes')) {
-        const routeHit = map.queryRenderedFeatures(event.point, { layers: ['vigo-selected-route', 'vigo-routes'] })[0]
+      const routeLayers = routeHitLayerIds.filter((layerId) => map.getLayer(layerId))
+      if (routeLayers.length) {
+        const routeHit = map.queryRenderedFeatures(event.point, { layers: routeLayers })[0]
         const routeId = textProperty(routeHit?.properties, 'featureId')
         if (typeof routeId === 'string' && routeId) {
           onSelectRoute(routeId)
@@ -1423,7 +1491,7 @@ export function VigoMap({
         map.getCanvas().style.cursor = onInspectReachPoint ? 'crosshair' : ''
         return
       }
-      const layersToQuery = ['vigo-vehicle-headings', 'vigo-vehicles', 'vigo-selected-route', 'vigo-routes', 'vigo-selected-segments', 'vigo-segments'].filter((layerId) => map.getLayer(layerId))
+      const layersToQuery = ['vigo-vehicle-headings', 'vigo-vehicles', ...routeHitLayerIds, 'vigo-selected-segments', 'vigo-segments'].filter((layerId) => map.getLayer(layerId))
       const features = layersToQuery.length ? map.queryRenderedFeatures(event.point, { layers: layersToQuery }) : []
       const vehicleHit = features.find(feature => (feature.layer.id === 'vigo-vehicles' || feature.layer.id === 'vigo-vehicle-headings') && textProperty(feature.properties, 'vehicleId'))
       const stop = vehicleHit ? undefined : renderedStopAtPoint(map, event.point)
@@ -1448,7 +1516,7 @@ export function VigoMap({
         if (`stop:${id}` !== hoveredFeatureId) {
           hoveredFeatureId = `stop:${id}`
           const [lon, lat] = stop.geometry.coordinates
-          hoverTooltip.setLngLat([lon, lat]).setText(textProperty(stop.properties, 'name', id)).addTo(map)
+          hoverTooltip.setLngLat([lon, lat]).setText(stopsById.get(id)?.name || textProperty(stop.properties, 'name', id)).addTo(map)
         }
       } else clearHoverTooltip()
     }
@@ -1474,7 +1542,7 @@ export function VigoMap({
       map.getCanvas().removeEventListener('keydown', inspectMapCenter)
       map.getCanvas().style.cursor = ''
     }
-  }, [effectiveLayers.routes, effectiveLayers.segments, onRoutingPoint, onInspectReachPoint, onSelectRoute, onSelectStop, preview, routingEnabled, scenarioFocus, scenarioPointPicking, selectedRouteId, vehicleFrame])
+  }, [effectiveLayers.routes, effectiveLayers.segments, onRoutingPoint, onInspectReachPoint, onSelectRoute, onSelectStop, preview, routingEnabled, scenarioFocus, scenarioPointPicking, selectedRouteId, stopsById, vehicleFrame])
 
   // A panel that opens over the map (journey details) must not hide the
   // journey it describes: reframe only when part of it is now covered.
