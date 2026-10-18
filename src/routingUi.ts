@@ -31,14 +31,45 @@ export function buildRoutingPointFromMap(coordinate: LngLat, label: string): Rou
   }
 }
 
-function scoreTextMatch(normalizedQuery: string, normalizedValues: string[]) {
-  let score = 0
+type TextMatch = {
+  level: 0 | 1 | 2 | 3
+  score: number
+}
+
+const noTextMatch: TextMatch = { level: 0, score: 0 }
+
+// Levels are contains (1), prefix (2) and exact (3); the score orders matches
+// of the same level.
+function matchText(normalizedQuery: string, normalizedValues: string[]): TextMatch {
+  let best = noTextMatch
   for (const value of normalizedValues) {
-    if (value === normalizedQuery) score = Math.max(score, 120)
-    else if (value.startsWith(normalizedQuery)) score = Math.max(score, 92 - value.length * 0.1)
-    else if (value.includes(normalizedQuery)) score = Math.max(score, 58 - value.indexOf(normalizedQuery))
+    let match = noTextMatch
+    if (value === normalizedQuery) match = { level: 3, score: 120 }
+    else if (value.startsWith(normalizedQuery)) match = { level: 2, score: 92 - value.length * 0.1 }
+    else if (value.includes(normalizedQuery)) match = { level: 1, score: Math.max(1, 58 - value.indexOf(normalizedQuery)) }
+    if (match.score > best.score) best = match
   }
-  return score
+  return best
+}
+
+// Hits sort by rank before score. Exact names lead, then station and stop name
+// prefixes, then lines, then near-duplicate service variants, and finally stops
+// matched only inside their names or through ids, platforms or served routes.
+const searchRank = {
+  stopExact: 0,
+  lineExact: 1,
+  stopPrefix: 2,
+  line: 3,
+  variant: 4,
+  stopContains: 5,
+  stopOther: 6,
+} as const
+
+function stopSearchRank(name: TextMatch, other: TextMatch) {
+  if (name.level === 3) return searchRank.stopExact
+  if (name.level === 2) return searchRank.stopPrefix
+  if (name.level === 1) return searchRank.stopContains
+  return other.level ? searchRank.stopOther : null
 }
 
 function searchEntityScope(id = '') {
@@ -60,6 +91,15 @@ function routeGroupSubtitle(route: RouteMetric, routes: RouteMetric[], detailLab
   const directions = new Set(routes.map((item) => item.directionId ?? '').filter(Boolean)).size
   const directionLabel = directions ? `${directions} direction${directions === 1 ? '' : 's'}` : 'direction unknown'
   return `${detailLabel} · ${routes.length} variants · ${directionLabel} · ${formatNumber(trips)} trips`
+}
+
+// Separate GTFS routes sharing a feed, mode, colour and short name, such as
+// rail-replacement shuttles, are variants of one service in search.
+function routeVariantKey(route: RouteMetric, normalizeValue: (value: string) => string) {
+  const name = normalizeValue(route.shortName || '')
+  if (!name) return ''
+  const color = String(route.color || '').replace(/^#/, '').toLowerCase()
+  return `${searchEntityScope(route.id)}:${route.routeType ?? ''}:${color}:${name}`
 }
 
 const maxStopSearchGroupRadiusKm = 0.35
@@ -113,13 +153,16 @@ function stopGroupSubtitle(stop: StopMetric, stops: StopMetric[]) {
 type IndexedRouteSearchGroup = {
   route: RouteMetric
   normalizedValues: string[]
+  label: string
   subtitle: string
   tripCount: number
+  variantKey: string
 }
 
 type IndexedSearchStop = {
   stop: StopMetric
-  normalizedValues: string[]
+  nameValues: string[]
+  otherValues: string[]
   activity: number
 }
 
@@ -154,10 +197,14 @@ export function buildNetworkSearchIndex(preview: MapPreview): NetworkSearchIndex
   const groupedRoutes = Array.from(routeGroups.values())
   const preferredRoutes = groupedRoutes.map(preferredSearchRoute)
   const routeLabels = routeListLabels(preferredRoutes)
+  const variantKeys = preferredRoutes.map((route) => routeVariantKey(route, normalizeValue))
+  const variantCounts = new Map<string, number>()
+  for (const key of variantKeys) if (key) variantCounts.set(key, (variantCounts.get(key) ?? 0) + 1)
 
   return {
-    routeGroups: groupedRoutes.map((routes) => {
-      const route = preferredSearchRoute(routes)
+    routeGroups: groupedRoutes.map((routes, index) => {
+      const route = preferredRoutes[index]
+      const label = routeLabels.get(route.id) ?? routeListLabel(route)
       return {
         route,
         normalizedValues: normalizedValues(routes.flatMap((item) => [
@@ -165,20 +212,17 @@ export function buildNetworkSearchIndex(preview: MapPreview): NetworkSearchIndex
           item.shortName,
           item.longName,
         ])),
-        subtitle: routeGroupSubtitle(route, routes, routeLabels.get(route.id)),
+        label,
+        subtitle: routeGroupSubtitle(route, routes, label),
         tripCount: routes.reduce((sum, item) => sum + Math.max(0, item.tripCount || 0), 0),
+        variantKey: (variantCounts.get(variantKeys[index]) ?? 0) > 1 ? variantKeys[index] : '',
       }
     }),
     stopGroups: groupSearchStops(preview.stops, normalizeValue).map((stops) => ({
       stops: stops.map((stop) => ({
         stop,
-        normalizedValues: normalizedValues([
-          stop.id,
-          stop.name,
-          stop.parentStationName ?? '',
-          stop.platformCode ?? '',
-          ...stop.routes,
-        ]),
+        nameValues: normalizedValues([stop.name, stop.parentStationName ?? '']),
+        otherValues: normalizedValues([stop.id, stop.platformCode ?? '', ...stop.routes]),
         activity: stop.tripCount + stop.transferScore,
       })),
       subtitle: stopGroupSubtitle(stops[0], stops),
@@ -190,34 +234,104 @@ export function buildNetworkSearchIndex(preview: MapPreview): NetworkSearchIndex
 function buildNetworkStopSearchHits(index: NetworkSearchIndex, normalizedQuery: string) {
   return index.stopGroups
     .map<NetworkSearchHit | null>((group) => {
-      let preferred = group.stops[0]
-      let preferredTextScore = 0
-      let textScore = 0
+      let preferred: { candidate: IndexedSearchStop, rank: number, score: number } | null = null
       for (const candidate of group.stops) {
-        const candidateTextScore = scoreTextMatch(normalizedQuery, candidate.normalizedValues)
-        textScore = Math.max(textScore, candidateTextScore)
+        const name = matchText(normalizedQuery, candidate.nameValues)
+        const other = matchText(normalizedQuery, candidate.otherValues)
+        const rank = stopSearchRank(name, other)
+        if (rank === null) continue
+        const score = Math.max(name.score, other.score)
         if (
-          candidateTextScore > preferredTextScore
-          || (candidateTextScore === preferredTextScore && candidate.activity > preferred.activity)
-        ) {
-          preferred = candidate
-          preferredTextScore = candidateTextScore
-        }
+          !preferred
+          || rank < preferred.rank
+          || (rank === preferred.rank && score > preferred.score)
+          || (rank === preferred.rank && score === preferred.score && candidate.activity > preferred.candidate.activity)
+        ) preferred = { candidate, rank, score }
       }
-      if (textScore <= 0) return null
-      const coordinate = stopCoordinate(preferred.stop)
+      if (!preferred) return null
+      const { stop } = preferred.candidate
+      const coordinate = stopCoordinate(stop)
       if (!coordinate) return null
       return {
-        id: `stop:${preferred.stop.id}`,
+        id: `stop:${stop.id}`,
         kind: 'stop',
-        title: preferred.stop.parentStationName || preferred.stop.name || preferred.stop.id,
+        title: stop.parentStationName || stop.name || stop.id,
         subtitle: group.subtitle,
-        score: textScore + Math.min(18, Math.log10(Math.max(1, group.activity)) * 3),
-        stopId: preferred.stop.id,
+        rank: preferred.rank,
+        score: preferred.score + Math.min(18, Math.log10(Math.max(1, group.activity)) * 3),
+        stopId: stop.id,
         coordinate,
       }
     })
     .filter((hit): hit is NetworkSearchHit => Boolean(hit))
+}
+
+type RouteSearchMatch = {
+  group: IndexedRouteSearchGroup
+  match: TextMatch
+}
+
+function routeSearchHit({ route }: IndexedRouteSearchGroup, rank: number, score: number, tripCount: number, subtitle: string): NetworkSearchHit {
+  return {
+    id: `route:${route.id}`,
+    kind: 'route',
+    title: route.shortName || route.routeId || route.id,
+    subtitle,
+    rank,
+    score: score + Math.min(18, Math.log10(Math.max(1, tripCount)) * 4),
+    routeId: route.id,
+  }
+}
+
+// One result stands for every matching variant of a service; it opens the
+// variant that matches the query best.
+function routeVariantSearchHit(matches: RouteSearchMatch[]): NetworkSearchHit {
+  const ordered = [...matches].sort((left, right) => right.match.score - left.match.score || right.group.tripCount - left.group.tripCount)
+  const [best] = ordered
+  const rank = best.match.level === 3 ? searchRank.lineExact : searchRank.variant
+  const tripCount = ordered.reduce((sum, item) => sum + item.group.tripCount, 0)
+  if (ordered.length === 1) return routeSearchHit(best.group, rank, best.match.score, tripCount, best.group.subtitle)
+  const labels = ordered.slice(0, 3).map((item) => item.group.label)
+  const subtitle = `${formatNumber(ordered.length)} variants · ${labels.join(', ')}${ordered.length > labels.length ? '…' : ''}`
+  return { ...routeSearchHit(best.group, rank, best.match.score, tripCount, subtitle), variantCount: ordered.length }
+}
+
+function buildNetworkRouteSearchHits(index: NetworkSearchIndex, normalizedQuery: string) {
+  const hits: NetworkSearchHit[] = []
+  const variants = new Map<string, RouteSearchMatch[]>()
+  for (const group of index.routeGroups) {
+    const match = matchText(normalizedQuery, group.normalizedValues)
+    if (!match.level) continue
+    if (!group.variantKey) {
+      const rank = match.level === 3 ? searchRank.lineExact : searchRank.line
+      hits.push(routeSearchHit(group, rank, match.score, group.tripCount, group.subtitle))
+      continue
+    }
+    const family = variants.get(group.variantKey)
+    if (family) family.push({ group, match })
+    else variants.set(group.variantKey, [{ group, match }])
+  }
+  for (const family of variants.values()) hits.push(routeVariantSearchHit(family))
+  return hits
+}
+
+// Keep room for both services and stops so a dense set of stop names cannot
+// hide every line, then fill the remaining places in rank order.
+function balancedSearchHits(hits: NetworkSearchHit[], limit: number) {
+  const quota = Math.ceil(limit / 2)
+  const kindCounts = { route: 0, stop: 0 }
+  const chosen = new Set<NetworkSearchHit>()
+  for (const hit of hits) {
+    if (chosen.size >= limit) break
+    if (kindCounts[hit.kind] >= quota) continue
+    chosen.add(hit)
+    kindCounts[hit.kind] += 1
+  }
+  for (const hit of hits) {
+    if (chosen.size >= limit) break
+    chosen.add(hit)
+  }
+  return hits.filter((hit) => chosen.has(hit))
 }
 
 function isNetworkSearchIndex(source: MapPreview | NetworkSearchIndex): source is NetworkSearchIndex {
@@ -229,27 +343,12 @@ export function findNetworkSearchHits(source: MapPreview | NetworkSearchIndex, q
   if (!normalizedQuery) return []
   const index = isNetworkSearchIndex(source) ? source : buildNetworkSearchIndex(source)
 
-  const routeHits = index.routeGroups
-    .map<NetworkSearchHit | null>((group) => {
-      const textScore = scoreTextMatch(normalizedQuery, group.normalizedValues)
-      if (textScore <= 0) return null
-      const { route } = group
-      return {
-        id: `route:${route.id}`,
-        kind: 'route',
-        title: route.shortName || route.routeId || route.id,
-        subtitle: group.subtitle,
-        score: textScore + Math.min(18, Math.log10(Math.max(1, group.tripCount)) * 4),
-        routeId: route.id,
-      }
-    })
-    .filter((hit): hit is NetworkSearchHit => Boolean(hit))
-
+  const routeHits = buildNetworkRouteSearchHits(index, normalizedQuery)
   const stopHits = normalizedQuery.length > 1
     ? buildNetworkStopSearchHits(index, normalizedQuery)
     : []
 
-  return [...routeHits, ...stopHits]
-    .sort((left, right) => right.score - left.score)
-    .slice(0, limit)
+  const ranked = [...routeHits, ...stopHits]
+    .sort((left, right) => left.rank - right.rank || right.score - left.score)
+  return balancedSearchHits(ranked, limit)
 }

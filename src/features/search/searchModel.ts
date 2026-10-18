@@ -203,8 +203,10 @@ export function buildSearchResults({
     title: hit.title,
     subtitle: hit.subtitle,
   }))
-  const routes = networkResults.filter((result) => result.kind === 'route')
-  const stops = networkResults.filter((result) => result.kind === 'stop')
+  // Hits arrive best first. The palette renders one section per group, so keep
+  // each group together and lead with the group that holds the best hit.
+  const networkGroups = [...new Set(networkResults.map((result) => result.group))]
+  const network = networkGroups.flatMap((group) => networkResults.filter((result) => result.group === group))
   const cities = projects
     .map((project) => ({ project, score: cityMatchScore(project, normalizedQuery) }))
     .filter(({ score }) => score > 0)
@@ -215,5 +217,5 @@ export function buildSearchResults({
     .filter((command) => normalize(`${command.title} ${command.subtitle} ${command.keywords}`).includes(normalizedQuery))
     .map((command) => commandResult(command))
 
-  return uniqueResults([...routes, ...stops, ...cities, ...commands]).slice(0, 16)
+  return uniqueResults([...network, ...cities, ...commands]).slice(0, 16)
 }

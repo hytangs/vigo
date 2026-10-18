@@ -269,10 +269,12 @@ export type NetworkSearchHit = {
   kind: 'route' | 'stop'
   title: string
   subtitle: string
+  rank: number
   score: number
   routeId?: string
   stopId?: string
   coordinate?: LngLat
+  variantCount?: number
 }
 
 export type RoutingCommand = {
