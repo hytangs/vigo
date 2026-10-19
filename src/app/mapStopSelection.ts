@@ -1,6 +1,7 @@
 import type { Map as MapLibreMap, MapGeoJSONFeature } from 'maplibre-gl'
+import { networkTileStopLayerIds } from '../map/networkTileSource'
 
-export const selectableStopLayers = ['vigo-overview-stops', 'vigo-network-stops', 'vigo-transfer-stops', 'vigo-stops', 'vigo-selected-stop']
+export const selectableStopLayers = ['vigo-overview-stops', 'vigo-network-stops', 'vigo-transfer-stops', 'vigo-stops', 'vigo-selected-stop', ...networkTileStopLayerIds.filter((id) => id !== 'vigo-coverage-tiles')]
 
 /** Screen-space tolerance only. Keep the exact GTFS identity of the visible stop. */
 export function renderedStopAtPoint(map: Pick<MapLibreMap, 'getLayer' | 'queryRenderedFeatures' | 'project'>, point: { x: number; y: number }, radius = 18): MapGeoJSONFeature | undefined {

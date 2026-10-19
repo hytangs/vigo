@@ -179,6 +179,56 @@ street index build time versions the URL, so tiles are cached as immutable.
 The tile reader opens the street index read-only and adds no table or index.
 The JSON `local-basemap` endpoint remains for compatibility.
 
+### Transit network tiles from Rust
+
+Opening a City no longer ships route geometry. The Studio requests
+`GET /api/projects/{id}?detail=catalog`: project metadata, the route catalog
+and the stop catalog, with no route coordinates, stop sequences or stop pairs.
+The response also carries `networkTiles`: for the whole City and for each feed,
+a tile revision and the extent the Network view frames. The server computes that
+extent exactly as the Studio did, over every route vertex and stop with the
+outer 2% trimmed. The default response, without `detail`, is unchanged for
+other clients.
+
+The kernel draws the network (`native/vigo-routing-kernel/src/network_tiles.rs`),
+served at `GET /api/projects/{id}/network-tiles/{z}/{x}/{y}.mvt?scope=&v=`.
+The server registers each scope's route and stop overview once per revision,
+the same records the Studio used to receive as JSON. Registration splits routes
+at implausible jumps with the Studio's former rules, and ranks every vertex for
+Douglas–Peucker simplification at MapLibre's GeoJSON tolerance. A tile then
+only thresholds, clips and encodes, on the libuv pool. The `routes` layer
+carries each route's identity, color, short and long name, route type,
+frequency class, service values and geometry confidence. The `stops` layer
+carries the stop id, route count, trip count and transfer score. The revision
+hashes the routing store build times, feed identities and engine version, so
+tiles are immutable. It reuses the basemap's MVT primitives and AsyncTask
+pattern.
+
+The Studio creates a tile twin of each network layer from that layer's own
+style (`src/map/networkTileSource.ts`), so paint and lenses are defined once.
+The twins draw the Network view. Selection, the selected stop and the Route and
+Analyze context network are filters on tile ids, so a click never refetches a
+tile. A focused route still draws its full patterns from
+`gtfs-route-analysis`, fetched when the route is selected. Until that detail
+arrives, the route's own tiles stand in.
+
+The catalog still includes stops for search and selection. The server still
+constructs the overview from SQLite on first open; vector tiles remove repeated
+geometry transfer and client-side GeoJSON construction, not that initial work.
+
+Three behaviors differ by design:
+
+- **Full-day schedules.** Loading the full-day schedule merges every route's
+  patterns into Studio state. The GeoJSON map then began drawing all of them,
+  3 minutes 26 seconds after open for Boston. Tiles keep the overview, one line
+  per route, at all times. Every pattern still appears when a route is focused.
+- **Headings.** A live vehicle without a reported bearing no longer takes its
+  heading from the overview shape in the Network view. A focused route still
+  supplies one.
+- **Stop names.** Stop cards and tooltips read names and served routes from the
+  stop catalog, because tiles carry only ids and styling values.
+
+
 ## Scenarios, Route and Compare
 
 ### What the audit found
@@ -303,9 +353,10 @@ by bytes.
 
 ## Next for V1
 
-1. **Network as tiles.** Serve routes and stops as Rust vector tiles or a
-   compact binary preview, and stop shipping the full `mapPreview` when a City
-   opens.
+1. **Overview in Rust.** Build the route and stop overview from the routing
+   store in the kernel, removing the first-open SQLite pass in Node. Then
+   consider a compact stop catalog or kernel-side search instead of the
+   stop list.
 2. **A Studio state store.** Split `App.tsx` into per-workspace stores read
    through selectors, so panels subscribe to what they show and the map stops
    re-rendering for unrelated changes.

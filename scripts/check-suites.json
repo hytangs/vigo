@@ -8,6 +8,7 @@
     "test/check-map-viewport.mjs",
     "test/check-online-basemaps.mjs",
     "test/check-local-basemap.mjs",
+    "test/check-network-tiles.mjs",
     "test/check-map-presentation.mjs",
     "test/check-scheduled-vehicles.mjs",
     "test/check-gtfs-inspector.mjs",

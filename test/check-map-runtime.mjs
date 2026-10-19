@@ -6,7 +6,8 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { renderNativeLocalBasemapTile } from '../src/server/native-routing-kernel.mjs'
+import { registerNativeTransitNetwork, renderNativeLocalBasemapTile, renderNativeTransitNetworkTile } from '../src/server/native-routing-kernel.mjs'
+import { bundleNetworkScope, transitNetworkInput } from '../src/server/transit-network-tiles.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 await fs.mkdir(path.join(root, 'temp'), { recursive: true })
@@ -40,6 +41,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { setMapSourceData, setStreetMapSourceData } from '../../src/app/mapSourceUpdates.ts';
 import { ensureVehicleDirectionSprite, vehicleHeadingLayer, vehicleMarkerLayer } from '../../src/app/mapDirections.ts';
 import { baseCanvasColor, ensureLocalBasemapLayers, syncBasemap, removeLocalBasemap, installLocalBasemap } from '../../src/map/basemaps.ts';
+import { applyLayerVisibility, ensureLayers } from '../../src/map/layers.ts';
+import { contextRouteFilter, contextRouteLayerId, installNetworkTiles, networkTileLayerId, removeNetworkTiles } from '../../src/map/networkTileSource.ts';
 window.checkMap = async () => {
   console.log('Map fixture: starting GeoJSON render');
   window.attributionExecuted = false;
@@ -114,6 +117,28 @@ window.checkMap = async () => {
   }
   if(localErrors.length) throw Error(localErrors.join('; '));
   console.log('Map fixture: Rust vector tiles rendered and City replacement drew only the latest City');
+  // The transit network: Rust tiles feed twins of the Studio's GeoJSON layers.
+  ensureLayers(map);
+  installNetworkTiles(map,'fixture',{scope:'__bundle__',revision:'n1'});
+  const networkLayers={routes:true,segments:false,stops:true,transfers:true,coverage:false,scenario:false,access:false};
+  applyLayerVisibility(map,networkLayers,{networkTiles:'network'});
+  map.setFilter(networkTileLayerId('vigo-selected-stop'),['==',['get','stopId'],'network::east']);
+  await waitForRender();
+  const tiledRoutes=new Set(map.queryRenderedFeatures({layers:[networkTileLayerId('vigo-routes')]}).map(feature=>feature.properties.featureId));
+  if(!tiledRoutes.has('network::rail')||!tiledRoutes.has('network::bus')) throw Error('Network tiles did not draw both routes: '+[...tiledRoutes]);
+  if(map.queryRenderedFeatures({layers:[networkTileLayerId('vigo-network-stops')]}).length<2) throw Error('Network tile stops did not render');
+  if(map.queryRenderedFeatures({layers:[networkTileLayerId('vigo-selected-stop')]}).length!==1) throw Error('The selected stop filter must isolate one tile stop');
+  // Route and Analyze draw only fixed-guideway context under their results.
+  applyLayerVisibility(map,{...networkLayers,routes:false,stops:false,transfers:false},{networkTiles:'off',contextVisible:true});
+  map.setFilter(contextRouteLayerId,contextRouteFilter([{routeType:1},{routeType:3}]));
+  await waitForRender();
+  const context=new Set(map.queryRenderedFeatures({layers:[contextRouteLayerId]}).map(feature=>feature.properties.featureId));
+  if(context.size!==1||!context.has('network::rail')) throw Error('Context must show rail only: '+[...context]);
+  if(map.queryRenderedFeatures({layers:[networkTileLayerId('vigo-routes')]}).length) throw Error('Hidden network tiles still answer queries');
+  if(localErrors.length) throw Error(localErrors.join('; '));
+  removeNetworkTiles(map);
+  if(map.getSource('vigo-network')||map.getLayer(contextRouteLayerId)||map.getLayer(networkTileLayerId('vigo-routes'))) throw Error('Network tile resources leaked after removal');
+  console.log('Map fixture: Rust network tiles drew routes, stops, selection and context');
   window.localPreviewMap=map;
   window.localPreviewDark=async()=>{syncBasemap(map,'offline','dark');await waitForRender();};
   window.localPreviewDispose=()=>{
@@ -121,7 +146,7 @@ window.checkMap = async () => {
     if(map.getSource('vigo-local-basemap') || map.getLayer('vigo-local-water')) throw Error('Local basemap resources leaked after removal');
     map.remove();document.getElementById('map').remove();
   };
-  return {rendered:true,sourceUpdate:true,sanitizedAttribution:true,offlineDirections:true,networkHeadings:true,mapRotation:true,offlineBasemap:true,vectorTiles:true,latestCityGeometry:true};
+  return {rendered:true,sourceUpdate:true,sanitizedAttribution:true,offlineDirections:true,networkHeadings:true,mapRotation:true,offlineBasemap:true,vectorTiles:true,latestCityGeometry:true,networkTiles:true};
 };
 `)
   await build({ configFile: false, root: temporary, cacheDir: path.join(temporary, 'vite-cache'), plugins: [react()], publicDir: false, logLevel: 'warn', build: { chunkSizeWarningLimit: 1500 } })
@@ -141,6 +166,32 @@ window.checkMap = async () => {
     }
   }
   assert(renderedTiles > 0, 'The fixture store must produce tiles')
+  // A rail line and a bus line through the fixture viewport, served as the
+  // Studio requests them: /api/projects/{City}/network-tiles/z/x/y.mvt.
+  const networkKey = 'map-runtime-network'
+  await registerNativeTransitNetwork(networkKey, JSON.stringify(transitNetworkInput({ feeds: [{ id: 'network', name: 'Fixture', mapPreview: {
+    routes: [
+      { id: 'rail', shortName: 'R', longName: 'Rail', color: '#da291c', routeType: 1, tripCount: 200, geometrySource: 'shape', coordinates: [[-0.004, 0.0015], [0.004, 0.0015]], stopIds: [] },
+      { id: 'bus', shortName: 'B', longName: 'Bus', color: '#ffc72c', routeType: 3, tripCount: 80, geometrySource: 'shape', coordinates: [[-0.004, -0.0015], [0.004, -0.0015]], stopIds: [] },
+    ],
+    stops: [
+      { id: 'west', name: 'West', lon: -0.003, lat: 0.0015, routes: ['rail'], tripCount: 200, transferScore: 10 },
+      { id: 'east', name: 'East', lon: 0.003, lat: 0.0015, routes: ['rail', 'bus'], tripCount: 280, transferScore: 90 },
+    ],
+  } }] }, bundleNetworkScope)))
+  let networkTiles = 0
+  for (let z = 0; z <= 15; z += 1) {
+    const scale = 2 ** z, column = (lon) => Math.floor((lon + 180) / 360 * scale)
+    const row = (lat) => Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * scale)
+    for (let x = column(-0.03); x <= column(0.03); x += 1) for (let y = row(0.03); y <= row(-0.03); y += 1) {
+      const tile = await renderNativeTransitNetworkTile(networkKey, z, x, y)
+      if (tile.length) networkTiles += 1
+      const directory = path.join(temporary, 'dist', 'api', 'projects', 'fixture', 'network-tiles', String(z), String(x))
+      await fs.mkdir(directory, { recursive: true })
+      await fs.writeFile(path.join(directory, `${y}.mvt`), tile)
+    }
+  }
+  assert(networkTiles > 0, 'The fixture network must produce tiles')
   const dist = path.join(temporary, 'dist')
   await fs.writeFile(path.join(temporary, 'main.cjs'), `
 const {app,BrowserWindow,protocol,net} = require('electron');

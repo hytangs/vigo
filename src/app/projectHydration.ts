@@ -43,7 +43,8 @@ export function useProjectDetailHydration({
     if (pending) return pending.promise
 
     const controller = new AbortController()
-    const promise = apiJson<{ project: VigoProject }>(`/api/projects/${encodeURIComponent(projectId)}`, {
+    // The catalog omits route geometry; the map draws the network from vector tiles.
+    const promise = apiJson<{ project: VigoProject }>(`/api/projects/${encodeURIComponent(projectId)}?detail=catalog`, {
       signal: controller.signal,
     }).then((result) => {
       if (controller.signal.aborted) return undefined

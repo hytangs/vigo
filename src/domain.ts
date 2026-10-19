@@ -456,6 +456,8 @@ export type VigoProject = {
   jobs: JobRecord[]
   artifacts: ArtifactRecord[]
   routingStore?: RoutingStoreMetadata | null
+  /** The transit network's vector tiles per scope (the bundle and each feed id): revision and framed extent. */
+  networkTiles?: Record<string, { revision: string; bounds: [LngLat, LngLat] | null }>
   osmStreetIndex?: {
     schemaVersion: 'vigo.street.store.v6'
     status: 'building' | 'ready' | 'failed'
