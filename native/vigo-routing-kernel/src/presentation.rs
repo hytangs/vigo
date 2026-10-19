@@ -341,6 +341,21 @@ fn route_journey(v: &mut Value, q: &Value, geometry: bool) -> Value {
     }
     result
 }
+fn set_journey_clock_date(journey: &mut Value, date: &Value) {
+    if !journey.is_object() {
+        return;
+    }
+    journey["clockDate"] = date.clone();
+    if let Some(options) = journey
+        .get_mut("sharedLegAlternatives")
+        .and_then(|v| v.get_mut("options"))
+        .and_then(Value::as_array_mut)
+    {
+        for option in options {
+            set_journey_clock_date(&mut option["journey"], date);
+        }
+    }
+}
 fn complete_journey_endpoints(result: &mut Value, origin: &Value, destination: &Value) {
     if let Some(legs) = result.get_mut("legs").and_then(Value::as_array_mut)
         && !legs.is_empty()
@@ -920,12 +935,10 @@ pub fn format_owned(kind: &str, request: &Value, mut raw: Value) -> Value {
             .or_else(|| out["query"].get("serviceDate"))
             .cloned()
             .unwrap_or(Value::Null);
-        if out["journey"].is_object() {
-            out["journey"]["clockDate"] = date.clone();
-        }
+        set_journey_clock_date(&mut out["journey"], &date);
         if let Some(choices) = out.get_mut("alternatives").and_then(Value::as_array_mut) {
             for choice in choices {
-                choice["clockDate"] = date.clone();
+                set_journey_clock_date(choice, &date);
             }
         }
     }
