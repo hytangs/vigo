@@ -105,6 +105,7 @@ try {
   } else {
     const base = [seed(0, 0, 0), seed(4, 4, 7), seed(8, 8, 9), seed(12, 10, 8)]
     const unchanged = parity(base, base, {}, true)
+    assert.deepEqual(semantic(unchanged.candidate), semantic(unchanged.fresh), 'Unchanged cached float evidence must be bit-exact.')
     assert.equal(unchanged.candidate.diagnostics.reusedRaster, true)
     assert.equal(unchanged.candidate.diagnostics.settledLabels, 0)
     parity(base, [...base, seed(6, 6, 3)], {}, true)

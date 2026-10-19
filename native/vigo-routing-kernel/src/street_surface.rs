@@ -61,7 +61,7 @@ struct Candidate {
 
 struct Profiles {
     heads: PagedVec<u32>,
-    records: Vec<Candidate>,
+    records: SurfaceRecords<Candidate>,
     free: Vec<u32>,
     edges: Vec<u32>,
 }
@@ -70,7 +70,7 @@ impl Profiles {
     fn new(edges: usize) -> Self {
         Self {
             heads: PagedVec::new(edges, u32::MAX),
-            records: Vec::new(),
+            records: SurfaceRecords::new(),
             free: Vec::new(),
             edges: Vec::new(),
         }
@@ -130,14 +130,12 @@ impl Profiles {
     }
 
     fn envelope<const ENDPOINTS: bool>(
-        mut self,
+        self,
         graph: &StreetGraph<'_, ENDPOINTS>,
         input: &StreetSurfaceInput,
-    ) -> Vec<Segment> {
-        // Order only the touched edge IDs. Sorting all 64-byte candidate
-        // records needlessly moves geometry for the entire reached network.
-        self.edges.sort_unstable();
-        let mut result: Vec<Segment> = Vec::with_capacity(self.edges.len());
+    ) -> SurfaceRecords<Segment> {
+        // Edge IDs are sorted once before retention and materialization.
+        let mut result = SurfaceRecords::<Segment>::new();
         let mut group = Vec::new();
         let mut cuts = Vec::new();
         for edge in self.edges {
@@ -376,8 +374,10 @@ fn compute_graph<const ENDPOINTS: bool>(
         &[]
     };
     let (width, height) = (input.width as usize, input.height as usize);
-    let mut values = vec![f64::INFINITY; width * height];
-    let mut labels = Vec::<SurfaceLabel>::new();
+    if input.surface_reuse.as_deref() == Some("baseline") {
+        reuse.clear();
+    }
+    let mut labels = SurfaceRecords::<SurfaceLabel>::new();
     let mut heads = PagedVec::new(graph.node_count(), u32::MAX);
     let mut queue = SurfaceQueue::new();
     let mut profiles = Profiles::new(graph.edge_count());
@@ -388,6 +388,7 @@ fn compute_graph<const ENDPOINTS: bool>(
         reuse.restore(
             &input,
             endpoint_seeds,
+            &graph,
             &mut heads,
             &mut labels,
             &mut profiles,
@@ -604,12 +605,20 @@ fn compute_graph<const ENDPOINTS: bool>(
         }
     }
     let propagation_ns = propagation_started.elapsed().as_nanos() as f64;
+    // Search indices are no longer needed during retention and materialization.
+    drop(queue);
+    drop(heads);
+    drop(workspace);
+    // Sorting IDs improves reference locality without moving candidate geometry.
+    let order_started = Instant::now();
+    profiles.edges.sort_unstable();
+    let order_ns = order_started.elapsed().as_nanos() as f64;
     if input.surface_reuse.as_deref() == Some("baseline") {
-        reuse.remember(&input, endpoint_seeds, &labels, &profiles);
+        reuse.remember(&input, endpoint_seeds, &graph, &labels, &profiles);
     }
     let envelope_started = Instant::now();
     let segments = profiles.envelope(&graph, &input);
-    let envelope_ns = envelope_started.elapsed().as_nanos() as f64;
+    let envelope_ns = order_ns + envelope_started.elapsed().as_nanos() as f64;
     let raster_started = Instant::now();
     let reached_edge_count = segments
         .iter()
@@ -639,7 +648,7 @@ fn compute_graph<const ENDPOINTS: bool>(
         if let Some(p) = input.seed_coordinates.as_chunks::<2>().0.first() {
             include(*p);
         }
-        for s in &segments {
+        for s in segments.iter() {
             include(s.coordinate(&graph, s.start));
             include(s.coordinate(&graph, s.end));
         }
@@ -658,25 +667,16 @@ fn compute_graph<const ENDPOINTS: bool>(
             full_bounds = bounds.to_vec();
         }
     }
-    let mut full_values = input
-        .expand_bounds_to_reached_edges
-        .then(|| vec![f64::INFINITY; width * height]);
     // Under monotone seed improvements every baseline value remains a valid
-    // upper bound. If the grid and complete extent agree, only improved/new
-    // seed segments need rasterization; their minima replace that bound.
-    let reused_raster = if restored.is_some() {
-        if let Some((cached, full)) = reuse.raster(&input, &full_bounds) {
-            values = cached;
-            full_values = full;
-            true
-        } else {
-            false
-        }
-    } else {
-        false
-    };
+    // upper bound. Allocate only the grids we will actually use.
+    let cached_raster = restored.as_ref().and_then(|_| reuse.raster(&input, &full_bounds));
+    let reused_raster = cached_raster.is_some();
+    let (mut values, mut full_values) = cached_raster.unwrap_or_else(|| (
+        vec![f64::INFINITY; width * height],
+        input.expand_bounds_to_reached_edges.then(|| vec![f64::INFINITY; width * height]),
+    ));
     let mut raster_fractions = Vec::with_capacity(8);
-    for &segment in &segments {
+    for &segment in segments.iter() {
         if reused_raster
             && restored
                 .as_ref()

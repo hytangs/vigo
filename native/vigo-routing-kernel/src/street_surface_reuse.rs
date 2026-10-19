@@ -2,6 +2,9 @@
 //! Labels pruned by an old seed remain dominated by that seed's improvement.
 //! Removing or delaying a seed breaks that proof and must run a fresh search.
 use super::*;
+#[path = "surface_packed.rs"]
+mod packed;
+use packed::Packed;
 
 // Per CoordinateKernel; accounted with native caches and released with the graph.
 const MAX_BYTES: usize = 32 * 1024 * 1024;
@@ -37,9 +40,9 @@ pub(crate) struct SurfaceReuseCache {
 
 struct Baseline {
     limits: [f64; 3],
-    seeds: Vec<Seed>,
-    labels: Vec<SurfaceLabel>,
-    segments: Vec<Segment>,
+    seeds: Box<[Seed]>,
+    labels: Packed<4>,
+    segments: Packed<8>,
     raster: Option<Raster>,
 }
 
@@ -52,12 +55,16 @@ struct Raster {
 }
 
 impl SurfaceReuseCache {
+    pub(super) fn clear(&mut self) {
+        self.baseline = None;
+    }
+
     pub(crate) fn byte_length(&self) -> usize {
         self.baseline.as_ref().map_or(0, |b| {
             std::mem::size_of::<Baseline>()
-                + b.seeds.capacity() * std::mem::size_of::<Seed>()
-                + b.labels.capacity() * std::mem::size_of::<SurfaceLabel>()
-                + b.segments.capacity() * std::mem::size_of::<Segment>()
+                + b.seeds.len() * std::mem::size_of::<Seed>()
+                + b.labels.bytes()
+                + b.segments.bytes()
                 + b.raster.as_ref().map_or(0, |r| {
                     std::mem::size_of::<Raster>()
                         + 8 * (r.bounds.capacity()
@@ -105,12 +112,13 @@ impl SurfaceReuseCache {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn restore(
+    pub(super) fn restore<const ENDPOINTS: bool>(
         &self,
         input: &StreetSurfaceInput,
         endpoints: Option<&[bool]>,
+        graph: &StreetGraph<'_, ENDPOINTS>,
         heads: &mut PagedVec<u32>,
-        labels: &mut Vec<SurfaceLabel>,
+        labels: &mut SurfaceRecords<SurfaceLabel>,
         profiles: &mut Profiles,
     ) -> Option<(Vec<bool>, u32)> {
         let baseline = self.baseline.as_ref()?;
@@ -142,72 +150,157 @@ impl SurfaceReuseCache {
         }
         // Keep only unchanged seeds. Improved seeds are propagated anew, so
         // their arrival and walking evidence never retain an old time offset.
-        for old in &baseline.labels {
-            if let Some(index) = retained[old.seed_index as usize] {
+        baseline.labels.for_each(|[node, duration, walk, seed]| {
+            if let Some(index) = retained[seed as usize] {
                 let label_index = labels.len() as u32;
                 labels.push(SurfaceLabel {
+                    node: node as u32,
+                    duration_minutes: f64::from_bits(
+                        duration
+                            ^ predicted_duration(
+                                &baseline.seeds[seed as usize],
+                                f64::from_bits(walk),
+                                input.walk_speed_kph,
+                            )
+                            .to_bits(),
+                    ),
+                    walk_distance_m: f64::from_bits(walk),
                     seed_index: index,
-                    frontier_next: heads[old.node as usize],
-                    ..*old
+                    frontier_next: heads[node as usize],
+                    active: true,
                 });
-                heads[old.node as usize] = label_index;
+                heads[node as usize] = label_index;
             }
-        }
-        for old in &baseline.segments {
-            if let Some(index) = retained[old.seed as usize] {
-                profiles.push(
-                    Segment {
-                        seed: index,
-                        ..*old
-                    },
-                    input,
-                );
-            }
-        }
+        });
+        baseline
+            .segments
+            .for_each(|[edge, node, start, end, from, to, walk, seed]| {
+                if let Some(index) = retained[seed as usize] {
+                    let start = f64::from_bits(start);
+                    let end = f64::from_bits(end);
+                    let walk = f64::from_bits(walk);
+                    let distance = (end - start) * graph.distance(edge as usize);
+                    let from = f64::from_bits(
+                        from ^ predicted_duration(
+                            &baseline.seeds[seed as usize],
+                            walk - distance,
+                            input.walk_speed_kph,
+                        )
+                        .to_bits(),
+                    );
+                    let to = f64::from_bits(
+                        to ^ (from + distance * (60.0 / (input.walk_speed_kph * 1000.0))).to_bits(),
+                    );
+                    profiles.push(
+                        Segment {
+                            edge: edge as usize,
+                            from_node: node as u32,
+                            start,
+                            end,
+                            start_minutes: from,
+                            end_minutes: to,
+                            end_walk_m: walk,
+                            seed: index,
+                        },
+                        input,
+                    );
+                }
+            });
         Some((skip, labels.len() as u32))
     }
 
-    pub(super) fn remember(
+    pub(super) fn remember<const ENDPOINTS: bool>(
         &mut self,
         input: &StreetSurfaceInput,
         endpoints: Option<&[bool]>,
-        labels: &[SurfaceLabel],
+        graph: &StreetGraph<'_, ENDPOINTS>,
+        labels: &SurfaceRecords<SurfaceLabel>,
         profiles: &Profiles,
     ) {
         self.baseline = None;
         if input.independent_terminal_walk {
             return;
         }
-        let label_count = labels.iter().filter(|l| l.active).count();
-        let segment_count = profiles.records.len() - profiles.free.len();
-        let bytes = std::mem::size_of::<Baseline>()
-            + input.seed_durations_minutes.len() * std::mem::size_of::<Seed>()
-            + label_count * std::mem::size_of::<SurfaceLabel>()
-            + segment_count * std::mem::size_of::<Segment>();
-        if bytes > MAX_BYTES {
+        let overhead = std::mem::size_of::<Baseline>()
+            + input.seed_durations_minutes.len() * std::mem::size_of::<Seed>();
+        let Some(budget) = MAX_BYTES.checked_sub(overhead) else {
             return;
-        }
-        let mut segments = Vec::with_capacity(segment_count);
-        for &edge in &profiles.edges {
+        };
+        // Group neighboring nodes without changing the original order within a
+        // frontier. Sorting only indices keeps the temporary working set small.
+        let mut order = Vec::with_capacity(labels.iter().filter(|l| l.active).count());
+        order.extend(
+            labels
+                .iter()
+                .enumerate()
+                .filter_map(|(i, l)| l.active.then_some(i as u32)),
+        );
+        order.sort_unstable_by_key(|&i| (labels[i as usize].node, i));
+        let packed_labels = Packed::encode(
+            order.iter().map(|&i| {
+                let l = &labels[i as usize];
+                [
+                    u64::from(l.node),
+                    l.duration_minutes.to_bits()
+                        ^ predicted_duration(
+                            &seed(input, endpoints, l.seed_index as usize),
+                            l.walk_distance_m,
+                            input.walk_speed_kph,
+                        )
+                        .to_bits(),
+                    l.walk_distance_m.to_bits(),
+                    u64::from(l.seed_index),
+                ]
+            }),
+            budget,
+        );
+        drop(order);
+        let Some(labels) = packed_labels else {
+            return;
+        };
+        let segments = profiles.edges.iter().flat_map(|&edge| {
             let mut index = profiles.heads[edge as usize];
-            while index != u32::MAX {
+            std::iter::from_fn(move || {
+                if index == u32::MAX {
+                    return None;
+                }
                 let record = &profiles.records[index as usize];
-                segments.push(record.segment);
                 index = record.next;
-            }
-        }
+                let s = record.segment;
+                let distance = (s.end - s.start) * graph.distance(s.edge);
+                Some([
+                    s.edge as u64,
+                    u64::from(s.from_node),
+                    s.start.to_bits(),
+                    s.end.to_bits(),
+                    s.start_minutes.to_bits()
+                        ^ predicted_duration(
+                            &seed(input, endpoints, s.seed as usize),
+                            s.end_walk_m - distance,
+                            input.walk_speed_kph,
+                        )
+                        .to_bits(),
+                    s.end_minutes.to_bits()
+                        ^ (s.start_minutes + distance * (60.0 / (input.walk_speed_kph * 1000.0)))
+                            .to_bits(),
+                    s.end_walk_m.to_bits(),
+                    u64::from(s.seed),
+                ])
+            })
+        });
+        let Some(segments) = Packed::encode(segments, budget - labels.bytes()) else {
+            return;
+        };
         self.baseline = Some(Baseline {
             limits: limits(input),
             seeds: (0..input.seed_durations_minutes.len())
                 .map(|i| seed(input, endpoints, i))
                 .collect(),
-            labels: labels.iter().filter(|l| l.active).copied().collect(),
+            labels,
             segments,
             raster: None,
         });
-        if self.byte_length() > MAX_BYTES {
-            self.baseline = None;
-        }
+        debug_assert!(self.byte_length() <= MAX_BYTES);
     }
 }
 
@@ -217,4 +310,11 @@ fn limits(input: &StreetSurfaceInput) -> [f64; 3] {
         input.walk_speed_kph,
         input.maximum_duration_minutes,
     ]
+}
+
+// Arrival and elapsed walking predict almost all duration bits. Store the XOR
+// residual too: repeated edge additions do not round like one multiplication.
+// Decoding restores the original bits, never a rounded or recomputed duration.
+fn predicted_duration(seed: &Seed, walk: f64, speed: f64) -> f64 {
+    seed.arrival + (walk - f64::from_bits(seed.key.2)) * (60.0 / (speed * 1000.0))
 }

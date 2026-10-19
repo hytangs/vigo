@@ -277,6 +277,10 @@ struct AnalysisLabel {
     active: bool,
 }
 
+#[path = "surface_records.rs"]
+mod surface_records;
+use surface_records::SurfaceRecords;
+
 #[derive(Clone, Copy)]
 struct SurfaceLabel {
     node: u32,
@@ -367,7 +371,7 @@ fn validate_common_limits(
 #[allow(clippy::too_many_arguments)]
 fn push_surface_label(
     frontier_heads: &mut PagedVec<u32>,
-    labels: &mut Vec<SurfaceLabel>,
+    labels: &mut SurfaceRecords<SurfaceLabel>,
     queue: &mut SurfaceQueue,
     seed_arrivals_minutes: &[f64],
     node: u32,
