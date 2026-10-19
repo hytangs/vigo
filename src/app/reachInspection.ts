@@ -1,5 +1,5 @@
 import type { LngLat } from '../domain'
-import type { ReachComparisonResult, ReachResult, ScenarioSurface } from '../reach'
+import type { ReachResult, ScenarioSurface } from '../reach'
 import type { RoutingPoint } from '../routingModel'
 
 export type ReachPointSample = { status: 'sampled'; minutes: number; estimatedBlock?: boolean } | { status: 'outside' | 'unsampled' }
@@ -34,10 +34,8 @@ function sampleRaster(raster: Pick<ReachResult['surface']['raster'], 'bounds' | 
 
 export type ReachInspectionSource = { id: string; label: string; result: ReachResult; feedId?: string }
 
-export function reachInspectionSources(result: ReachResult | null, comparison: ReachComparisonResult[] | null): ReachInspectionSource[] {
-  return comparison?.length
-    ? comparison.map(entry => ({ id: entry.feedId, label: entry.feedName, result: entry.result, feedId: entry.feedId }))
-    : result ? [{ id: result.request.baselineIdentity, label: 'Scheduled service', result }] : []
+export function reachInspectionSources(result: ReachResult | null): ReachInspectionSource[] {
+  return result ? [{ id: result.request.baselineIdentity, label: 'Scheduled service', result }] : []
 }
 
 export function reachHasServiceChanges(result: ReachResult) {

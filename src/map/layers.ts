@@ -3,7 +3,6 @@ import { emptyCollection } from './featureGeometry'
 import { type CanvasSource, type ExpressionSpecification, type FilterSpecification, type Map as MapLibreMap } from 'maplibre-gl'
 import { ensureVehicleDirectionSprite, vehicleHeadingLayer, vehicleMarkerLayer } from '../app/mapDirections'
 import type { LayerState, NetworkLens } from '../domain'
-import { reachComparisonColor } from '../reach'
 
 const routeLayerIds = ['vigo-route-casing', 'vigo-routes', 'vigo-selected-route']
 
@@ -66,20 +65,6 @@ export function setReachBandImage(map: MapLibreMap, image: { canvas: HTMLCanvasE
   }, map.getLayer('vigo-scenario-area') ? 'vigo-scenario-area' : undefined)
 }
 
-export function reachComparisonLayerIds(count: number) {
-  return Array.from({ length: count }, (_, index) => [
-    `vigo-scenario-comparison-${index}-area`,
-    `vigo-scenario-comparison-${index}-access-edges`,
-    `vigo-scenario-comparison-${index}-contours`,
-  ]).flat()
-}
-
-export function existingScenarioComparisonLayerIds(map: MapLibreMap) {
-  return (map.getStyle().layers ?? [])
-    .map((layer) => layer.id)
-    .filter((layerId) => layerId.startsWith('vigo-scenario-comparison-'))
-}
-
 export function setVisibility(map: MapLibreMap, layerIds: string[], visible: boolean) {
   for (const layerId of layerIds) {
     if (map.getLayer(layerId)) {
@@ -88,7 +73,7 @@ export function setVisibility(map: MapLibreMap, layerIds: string[], visible: boo
   }
 }
 
-export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
+export function ensureLayers(map: MapLibreMap) {
   ensureVehicleDirectionSprite(map)
   if (!map.getSource('vigo-routes')) {
     map.addSource('vigo-routes', { type: 'geojson', data: emptyCollection })
@@ -131,17 +116,6 @@ export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
   }
   if (!map.getSource('vigo-scenario-sketch')) {
     map.addSource('vigo-scenario-sketch', { type: 'geojson', data: emptyCollection })
-  }
-  for (let index = 0; index < comparisonCount; index += 1) {
-    if (!map.getSource(`vigo-scenario-comparison-${index}-area`)) {
-      map.addSource(`vigo-scenario-comparison-${index}-area`, { type: 'geojson', data: emptyCollection })
-    }
-    if (!map.getSource(`vigo-scenario-comparison-${index}-access-edges`)) {
-      map.addSource(`vigo-scenario-comparison-${index}-access-edges`, { type: 'geojson', data: emptyCollection })
-    }
-    if (!map.getSource(`vigo-scenario-comparison-${index}-contours`)) {
-      map.addSource(`vigo-scenario-comparison-${index}-contours`, { type: 'geojson', data: emptyCollection })
-    }
   }
 
   if (!map.getLayer('vigo-scenario-area')) {
@@ -294,47 +268,6 @@ export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
     })
   }
 
-  for (let index = 0; index < comparisonCount; index += 1) {
-    const layerPrefix = `vigo-scenario-comparison-${index}`
-    const color = reachComparisonColor(index)
-    if (!map.getLayer(`${layerPrefix}-area`)) {
-      map.addLayer({
-        id: `${layerPrefix}-area`,
-        type: 'fill',
-        source: `${layerPrefix}-area`,
-        paint: {
-          'fill-color': ['get', 'color'] as ExpressionSpecification,
-          'fill-opacity': 0.16,
-          'fill-outline-color': ['get', 'color'] as ExpressionSpecification,
-        },
-      })
-    }
-    if (!map.getLayer(`${layerPrefix}-access-edges`)) {
-      map.addLayer({
-        id: `${layerPrefix}-access-edges`,
-        type: 'line',
-        source: `${layerPrefix}-access-edges`,
-        paint: {
-          'line-color': ['get', 'color'] as ExpressionSpecification,
-          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.7, 12, 1.3, 16, 2.5] as ExpressionSpecification,
-          'line-opacity': 0.84,
-        },
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-      })
-    }
-    if (!map.getLayer(`${layerPrefix}-contours`)) {
-      map.addLayer({
-        id: `${layerPrefix}-contours`,
-        type: 'line',
-        source: `${layerPrefix}-contours`,
-        paint: {
-          'line-color': color,
-          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.6, 12, 1, 16, 1.4] as ExpressionSpecification,
-          'line-opacity': 0.8,
-        },
-      })
-    }
-  }
 
   if (!map.getLayer('vigo-coverage')) {
     map.addLayer({
@@ -865,7 +798,7 @@ export function ensureLayers(map: MapLibreMap, comparisonCount = 0) {
 export function applyLayerVisibility(
   map: MapLibreMap,
   layers: LayerState,
-  options: { routingVisible?: boolean; reachResultVisible?: boolean; reachComparisonCount?: number; contextVisible?: boolean } = {},
+  options: { routingVisible?: boolean; reachResultVisible?: boolean; contextVisible?: boolean } = {},
 ) {
   setVisibility(map, contextLayerIds, options.contextVisible ?? false)
   setVisibility(map, routeLayerIds, layers.routes)
@@ -878,12 +811,7 @@ export function applyLayerVisibility(
   setVisibility(map, vehicleLayerIds, layers.routes)
   setVisibility(map, routingLayerIds, options.routingVisible ?? true)
   setVisibility(map, reachResultLayerIds, options.reachResultVisible ?? false)
-  setVisibility(map, existingScenarioComparisonLayerIds(map), false)
-  setVisibility(
-    map,
-    reachComparisonLayerIds(options.reachComparisonCount ?? 0),
-    options.reachResultVisible ?? false,
-  )
+
 }
 
 function routeLensColor(networkLens: NetworkLens): ExpressionSpecification {

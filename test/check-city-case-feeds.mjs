@@ -131,6 +131,18 @@ try {
   const plannedLine = { id: 'planned', name: 'Planned link', services: [{ id: 'link', name: 'B–C link', operation: 'add', headwayMinutes: 5,
     startMinutes: 480, endMinutes: 540, averageSpeedKph: 30, bidirectional: false,
     stops: [{ id: 'b', label: 'Planned B', coordinate: [8.02, 47], source: 'map' }, { id: 'c', label: 'Planned C', coordinate: [8.04, 47], source: 'map' }] }] }
+  // The API's reference and scenario ranges share the same resident street
+  // kernel, including station-egress resolution before the monotonicity check.
+  const referenceSurface = await send(['bus'], { rasterSize: 64 })
+  assert.equal(referenceSurface.status, 200, JSON.stringify(referenceSurface.body))
+  const addedSurface = await send(['bus'], { rasterSize: 64, scenario: plannedLine })
+  assert.equal(addedSurface.status, 200, JSON.stringify(addedSurface.body))
+  assert(addedSurface.body.result.diagnostics.scenarioReach.surface.reusedLabels > 0,
+    'Studio must reach the incremental Rust surface through its worker.')
+  const cutSurface = await send(['bus'], { rasterSize: 64, scenario: { excludedRouteIds: ['bus::R'] } })
+  assert.equal(cutSurface.status, 200, JSON.stringify(cutSurface.body))
+  assert.equal(cutSurface.body.result.diagnostics.scenarioReach.surface.reusedLabels, 0,
+    'A service cut must not reuse labels pruned by removed service.')
   const scenarioRoute = (feedIds, scenario) => api.requestJson(`/api/projects/${projectId}/national-route`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...query,
       feedIds, destination: point('C'), allowLongWalk: false, routingDataMode: 'realtime', departureWindowMinutes: 0, scenario }),

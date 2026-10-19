@@ -72,7 +72,8 @@ impl CoordinateKernel {
                 + w.linked_stations.capacity() * size_of::<LinkedSource>()
                 + w.selected.capacity() * size_of::<AccessLabel>();
         }
-        let mut cache = self.surface_snap_cache.byte_length();
+        let mut cache =
+            self.surface_snap_cache.byte_length() + self.surface_reuse_cache.byte_length();
         let mut frontiers = HashSet::new();
         for (entries, order) in [
             (&self.origin_cache, &self.origin_cache_order),
@@ -254,6 +255,7 @@ impl CoordinateKernel {
             origin_snap_workspace: SnapWorkspace::default(),
             destination_snap_workspace: SnapWorkspace::default(),
             surface_snap_cache: street_analysis::SurfaceSnapCache::default(),
+            surface_reuse_cache: street_analysis::SurfaceReuseCache::default(),
             origin_access_reduction_workspace: AccessReductionWorkspace::new(),
             destination_access_reduction_workspace: AccessReductionWorkspace::new(),
             path_workspace,

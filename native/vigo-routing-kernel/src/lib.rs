@@ -3094,6 +3094,7 @@ pub struct CoordinateKernel {
     origin_snap_workspace: SnapWorkspace,
     destination_snap_workspace: SnapWorkspace,
     surface_snap_cache: street_analysis::SurfaceSnapCache,
+    surface_reuse_cache: street_analysis::SurfaceReuseCache,
     origin_access_reduction_workspace: AccessReductionWorkspace,
     destination_access_reduction_workspace: AccessReductionWorkspace,
     path_workspace: TileWorkspace,
@@ -3195,6 +3196,7 @@ impl CoordinateKernel {
     #[cfg_attr(feature = "node", napi)]
     pub fn configure_terminal_access(&mut self, path: String) -> napi::Result<()> {
         self.terminal_access = Some(shared_streets::terminal(&self.snapshot, &path)?);
+        self.surface_reuse_cache = street_analysis::SurfaceReuseCache::default();
         self.clear_endpoint_caches();
         Ok(())
     }
@@ -5017,6 +5019,7 @@ impl CoordinateKernel {
             &self.snapshot,
             self.snapshot.reciprocal_edge_flags(),
             &mut self.surface_snap_cache,
+            &mut self.surface_reuse_cache,
             self.terminal_access.as_deref(),
             endpoint_seeds.as_deref(),
             input,
@@ -5835,7 +5838,8 @@ impl CoordinateKernel {
             + self.destination_workspace.byte_length()
             + self.path_workspace.byte_length()
             + self.reverse_path_workspace.byte_length()
-            + self.surface_snap_cache.byte_length();
+            + self.surface_snap_cache.byte_length()
+            + self.surface_reuse_cache.byte_length();
         let cch_resident_bytes = self.street_cch.as_ref().map_or(0, |index| {
             index.forward_query.byte_length()
                 + index.reverse_query.byte_length()

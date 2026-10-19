@@ -365,6 +365,7 @@ Source: `native/vigo-routing-kernel/src/street_analysis.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
+| `surfaceReuse` | `Option<String>` | No | Internal Studio reference-state retention or scenario reuse; absent means a fresh search. |
 | `bounds` | `Vec<f64>` | Yes | Geographic bounds in west, south, east, north order. |
 | `width` | `u32` | Yes | Number of raster columns. |
 | `height` | `u32` | Yes | Number of raster rows. |
@@ -399,6 +400,9 @@ Source: `native/vigo-routing-kernel/src/street_analysis.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
+| `reusedLabels` | `u32` | Always | — |
+| `reusedRaster` | `bool` | Always | — |
+| `reuseCacheBytes` | `f64` | Always | — |
 | `seedNs` | `f64` | Always | — |
 | `propagationNs` | `f64` | Always | — |
 | `envelopeNs` | `f64` | Always | — |

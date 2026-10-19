@@ -449,7 +449,7 @@ export default function App() {
   const reachInspection = useReachInspection({
     active: page === 'project' && activeRouteTool === 'analyze',
     projectId: selectedProjectId, feedId: nationalRoutingFeed?.id ?? '',
-    result: reachResult, comparison: null,
+    result: reachResult,
   })
   const cityRoutingActive = page === 'project' && activeRouteTool !== 'data' && Boolean(nationalRoutingFeed)
   const storeBackedRouting = Boolean(nationalRoutingFeed)
@@ -3550,7 +3550,6 @@ export default function App() {
           </> : undefined}
           onInspectReachPoint={activeRouteTool === 'analyze' && reachInspection.sources.length ? reachInspection.inspect : undefined}
           reachResult={activeRouteTool === 'analyze' ? reachResult : null}
-          reachComparison={null}
           serviceDecomposition={activeRouteTool === 'analyze' ? serviceDecomposition : null}
           scenarioView={scenarioView}
           scenarioRenderMode={scenarioRenderMode}

@@ -1926,6 +1926,7 @@ export function rasterNativeStreetSurface(storePath, value) {
   })
   const record = kernelRecord(storePath)
   const result = record.kernel.streetSurface({
+    surfaceReuse: value?.surfaceReuse,
     bounds,
     width,
     height,
@@ -1991,6 +1992,7 @@ export function rasterNativeStreetSurface(storePath, value) {
     diagnostics: {
       accelerated: true,
       kernel: 'rust_mmap_street_surface_v1',
+      ...(value?.surfaceReuse ? { reusedLabels: result.reusedLabels, reusedRaster: result.reusedRaster, reuseCacheBytes: result.reuseCacheBytes } : {}),
       surfaceModel: value?.independentTerminalWalk === true
         ? 'directed_osm_edge_independent_terminal_walk'
         : 'directed_osm_edge_interpolation',

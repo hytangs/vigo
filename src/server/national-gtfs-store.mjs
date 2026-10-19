@@ -5719,6 +5719,7 @@ function normalizedReachSurface(value) {
     throw new Error('Reach surface requires valid bounds and 1-1024 pixel dimensions.')
   }
   return {
+    surfaceReuse: value.surfaceReuse,
     bounds,
     width,
     height,

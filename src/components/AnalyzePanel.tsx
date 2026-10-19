@@ -735,7 +735,7 @@ export function AnalyzePanel({
   const improvedPixels = useMemo(() => scenarioImprovedPixels(analysis, cutoffMinutes), [analysis, cutoffMinutes])
   const worsenedPixels = useMemo(() => scenarioWorsenedPixels(analysis, cutoffMinutes), [analysis, cutoffMinutes])
   const scenarioDifference = useMemo(() => analysis ? reachScenarioDifference(analysis, cutoffMinutes) : null, [analysis, cutoffMinutes])
-  const analysisExportEntries = useMemo(() => reachExportEntries(analysis, null), [analysis, cutoffMinutes])
+  const analysisExportEntries = useMemo(() => reachExportEntries(analysis), [analysis, cutoffMinutes])
   const roadInferencePending = mode === 'single' && interventions.some((intervention) => (
     hasLineSettings(intervention.kind)
     && intervention.geometryMode === 'auto-road'

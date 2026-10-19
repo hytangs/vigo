@@ -12,8 +12,6 @@ import {
   applyLayerVisibility,
   applyNetworkLensPaint,
   ensureLayers,
-  existingScenarioComparisonLayerIds,
-  reachComparisonLayerIds,
   reachResultLayerIds,
   setReachBandImage,
   setVisibility,
@@ -21,10 +19,7 @@ import {
 } from './map/layers'
 import { accessFeatures, directionLabel, routeDisplayName, routeFeatures, segmentFeatures, stopFeatures } from './map/networkFeatures'
 import {
-  reachComparisonAreaFeatures,
-  reachComparisonContourFeatures,
   reachBandImage,
-  reachComparisonEdgeFeatures,
   scenarioAreaFeatures,
   scenarioContourFeatures,
   scenarioEdgeFeatures,
@@ -70,8 +65,6 @@ import type { Appearance, Basemap, LayerState, LngLat, MapPreview, NetworkLens }
 import { classNames, formatNumber } from './domain'
 import { buildNetworkPerformanceProfile, type NetworkPerformanceProfile } from './networkPerformance'
 import {
-  reachComparisonColor,
-  type ReachComparisonResult,
   type ReachResult,
   type ScenarioRenderMode,
   type ScenarioStopDraft,
@@ -126,7 +119,6 @@ export type VigoMapProps = {
   routingStatusTitle?: string
   routingStatusDetail?: string
   reachResult?: ReachResult | null
-  reachComparison?: ReachComparisonResult[] | null
   serviceDecomposition?: ServiceEdgeDecomposition | null
   scenarioView?: ScenarioView
   scenarioRenderMode?: ScenarioRenderMode
@@ -452,7 +444,6 @@ export function VigoMap({
   routingStatusTitle,
   routingStatusDetail,
   reachResult,
-  reachComparison,
   serviceDecomposition,
   scenarioView = 'baseline',
   scenarioRenderMode = 'area',
@@ -540,7 +531,6 @@ export function VigoMap({
     contextVisible: queryFocus && Boolean(contextPreview?.routes.length),
     routingVisible: routingEnabled || Boolean(routingPlan) || queryFocus,
     reachResultVisible: scenarioFocus,
-    reachComparisonCount: reachComparison?.length ?? 0,
   }
   const layerPresentationRef = useRef(layerPresentation)
   layerPresentationRef.current = layerPresentation
@@ -602,38 +592,8 @@ export function VigoMap({
       : emptyCollection,
     [reachResult, scenarioCutoffMinutes, scenarioRenderMode, scenarioView],
   )
-  const comparisonEntries = useMemo(
-    () => reachComparison ?? [],
-    [reachComparison],
-  )
-  const focusedAnalysis = reachResult ?? comparisonEntries[0]?.result
+  const focusedAnalysis = reachResult
   const cityBounds = useMemo(() => previewStopBounds(preview), [preview.stops])
-  const comparisonContoursGeoJson = useMemo(
-    () => scenarioRenderMode === 'area'
-      ? comparisonEntries.map((entry) => reachComparisonContourFeatures(entry.result, scenarioCutoffMinutes))
-      : comparisonEntries.map(() => emptyCollection),
-    [comparisonEntries, scenarioCutoffMinutes, scenarioRenderMode],
-  )
-  const comparisonAreasGeoJson = useMemo(
-    () => scenarioRenderMode === 'area'
-      ? comparisonEntries.map((entry, index) => reachComparisonAreaFeatures(
-        entry.result,
-        scenarioCutoffMinutes,
-        reachComparisonColor(index),
-      ))
-      : comparisonEntries.map(() => emptyCollection),
-    [comparisonEntries, scenarioCutoffMinutes, scenarioRenderMode],
-  )
-  const comparisonAccessEdgesGeoJson = useMemo(
-    () => scenarioRenderMode === 'streets'
-      ? comparisonEntries.map((entry, index) => reachComparisonEdgeFeatures(
-        entry.result,
-        scenarioCutoffMinutes,
-        reachComparisonColor(index),
-      ))
-      : comparisonEntries.map(() => emptyCollection),
-    [comparisonEntries, scenarioCutoffMinutes, scenarioRenderMode],
-  )
   const hasDrawableNetwork = routesGeoJson.features.length > 0 || stopsGeoJson.features.length > 0
   const mapVisualState = routesGeoJson.features.length > 0 ? 'network' : stopsGeoJson.features.length > 0 ? 'stops-only' : 'empty'
   const routingFitSignature = useMemo(
@@ -830,7 +790,7 @@ export function VigoMap({
       try {
         mapReadyRef.current = true
         const presentation = layerPresentationRef.current
-        ensureLayers(map, presentation.reachComparisonCount)
+        ensureLayers(map)
         applyLayerVisibility(map, presentation.layers, presentation)
         applyNetworkLensPaint(map, networkLens)
         const tracker = mapTelemetryRef.current
@@ -1015,7 +975,7 @@ export function VigoMap({
     const map = mapRef.current
     if (!map) return
     const update = () => {
-      ensureLayers(map, comparisonEntries.length)
+      ensureLayers(map)
       setMapSourceData(source(map, 'vigo-scenario-area'), scenarioAreaGeoJson)
       setReachBandImage(map, reachBandImageData)
       setStreetMapSourceData(source(map, 'vigo-scenario-access-edges'), scenarioAccessEdgesGeoJson)
@@ -1025,18 +985,9 @@ export function VigoMap({
         reachResult?.scenario.routes ?? emptyCollection,
       )
       setMapSourceData(source(map, 'vigo-scenario-sketch'), scenarioSketchGeoJson)
-      comparisonEntries.forEach((_entry, index) => {
-        setMapSourceData(source(map, `vigo-scenario-comparison-${index}-area`), comparisonAreasGeoJson[index] ?? emptyCollection)
-        setStreetMapSourceData(source(map, `vigo-scenario-comparison-${index}-access-edges`), comparisonAccessEdgesGeoJson[index] ?? emptyCollection)
-        setMapSourceData(source(map, `vigo-scenario-comparison-${index}-contours`), comparisonContoursGeoJson[index] ?? emptyCollection)
-      })
       setVisibility(map, reachResultLayerIds, scenarioFocus)
       setVisibility(map, ['vigo-reach-bands', 'vigo-scenario-area', 'vigo-scenario-contours'], scenarioFocus && scenarioRenderMode === 'area')
       setVisibility(map, ['vigo-scenario-access-edges'], scenarioFocus && scenarioRenderMode === 'streets')
-      setVisibility(map, existingScenarioComparisonLayerIds(map), false)
-      setVisibility(map, reachComparisonLayerIds(comparisonEntries.length), scenarioFocus)
-      setVisibility(map, reachComparisonLayerIds(comparisonEntries.length).filter((layerId) => layerId.endsWith('-area') || layerId.endsWith('-contours')), scenarioFocus && scenarioRenderMode === 'area')
-      setVisibility(map, reachComparisonLayerIds(comparisonEntries.length).filter((layerId) => layerId.endsWith('-access-edges')), scenarioFocus && scenarioRenderMode === 'streets')
     }
     if (mapReadyRef.current || map.loaded()) update()
     else map.once('load', update)
@@ -1044,7 +995,7 @@ export function VigoMap({
       if (mapRemovedRef.current) return
       map.off('load', update)
     }
-  }, [comparisonAccessEdgesGeoJson, comparisonAreasGeoJson, comparisonContoursGeoJson, comparisonEntries, scenarioAccessEdgesGeoJson, reachBandImageData, reachResult, scenarioAreaGeoJson, scenarioContoursGeoJson, scenarioFocus, scenarioRenderMode, scenarioSketchGeoJson, serviceDecomposition])
+  }, [scenarioAccessEdgesGeoJson, reachBandImageData, reachResult, scenarioAreaGeoJson, scenarioContoursGeoJson, scenarioFocus, scenarioRenderMode, scenarioSketchGeoJson, serviceDecomposition])
 
   // Editing overlays or refreshing unrelated state must not reset a user's
   // pan/zoom. Only a newly selected accessibility result changes the viewport.
@@ -1163,7 +1114,7 @@ export function VigoMap({
     if (!map || !mapReadyRef.current) return
     const presentation = layerPresentationRef.current
     applyLayerVisibility(map, presentation.layers, presentation)
-  }, [effectiveLayers, reachComparison, routingEnabled, routingPlan, scenarioFocus])
+  }, [effectiveLayers, routingEnabled, routingPlan, scenarioFocus])
 
   useEffect(() => {
     const map = mapRef.current

@@ -4691,6 +4691,17 @@
       "StreetSurfaceInput": {
         "type": "object",
         "properties": {
+          "surfaceReuse": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Internal Studio reference-state retention or scenario reuse; absent means a fresh search."
+          },
           "bounds": {
             "type": "array",
             "items": {
@@ -4814,6 +4825,20 @@
       "StreetSurfaceResult": {
         "type": "object",
         "properties": {
+          "reusedLabels": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "reusedRaster": {
+            "type": "boolean"
+          },
+          "reuseCacheBytes": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "seedNs": {
             "type": [
               "number",
@@ -5090,6 +5115,9 @@
           }
         },
         "required": [
+          "reusedLabels",
+          "reusedRaster",
+          "reuseCacheBytes",
           "seedNs",
           "propagationNs",
           "envelopeNs",

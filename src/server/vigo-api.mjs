@@ -3929,6 +3929,7 @@ async function runReach(projectId, body, signal, onProgress, onPreliminary) {
     'reach',
     {
       ...rangeRequest,
+      surface: rangeRequest.surface ? { ...rangeRequest.surface, surfaceReuse: rangeRequest.stage === 'baseline-range' ? 'baseline' : 'scenario' } : undefined,
       sourceScopes: scopes,
       streetStorePath: streetPath || undefined,
     },

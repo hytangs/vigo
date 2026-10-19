@@ -4,7 +4,7 @@ import { routingPlanJourneyMinutes, routingPlanStartWaitMinutes, routingPlanTota
 import { reachResultDifference, reachResultMetrics, reachScenarioDifference } from './resultSummary'
 import {
   scenarioImprovedPixels, scenarioWorsenedPixels, scenarioReachablePixels,
-  type ReachResult, type ReachComparisonResult,
+  type ReachResult,
 } from '../reach'
 
 import { rankedCompareEntries, type ComparisonRun } from './comparison'
@@ -205,9 +205,8 @@ export function exportReachResults(entries: ReachExportEntry[], format: ResultEx
   return save(collection)
 }
 
-export function reachExportEntries(analysis: ReachResult | null, comparison: ReachComparisonResult[] | null): ReachExportEntry[] {
-  return comparison?.length ? comparison.map(entry => ({ name: entry.feedName, feedId: entry.feedId, result: entry.result }))
-    : analysis ? [{ name: analysis.request.scenario.name, result: analysis }] : []
+export function reachExportEntries(analysis: ReachResult | null): ReachExportEntry[] {
+  return analysis ? [{ name: analysis.request.scenario.name, result: analysis }] : []
 }
 
 /**

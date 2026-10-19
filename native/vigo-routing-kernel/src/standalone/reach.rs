@@ -410,6 +410,7 @@ impl City {
             );
         }
         let mut result = self.street.street_surface(StreetSurfaceInput {
+            surface_reuse: None,
             bounds: bounds.clone(),
             width: size as u32,
             height: size as u32,

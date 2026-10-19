@@ -755,12 +755,6 @@ export type ReachResult = {
   }
 }
 
-export type ReachComparisonResult = {
-  feedId: string
-  feedName: string
-  result: ReachResult
-}
-
 export type ServiceEdgeDecomposition = {
   schemaVersion: 'vigo.service-edge-decomposition.v1'
   baselineFeedId: string
@@ -784,21 +778,6 @@ export type ServiceEdgeDecomposition = {
     stopSplit?: boolean
     [key: string]: unknown
   }
-}
-
-const reachComparisonColors = [
-  '#6da8ff',
-  '#ffb86b',
-  '#35d0a1',
-  '#c084fc',
-  '#ffd166',
-  '#7ddfe8',
-  '#ff735c',
-  '#a6e3a1',
-] as const
-
-export function reachComparisonColor(index: number) {
-  return reachComparisonColors[index % reachComparisonColors.length]
 }
 
 function decodeScenarioRaster(base64: string) {

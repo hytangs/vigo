@@ -24,7 +24,6 @@ import {
   reachDifferenceCapMinutes,
   reachDifferenceGradient,
   reachDisplayedBands,
-  type ReachComparisonResult,
   type ReachResult,
   type ScenarioRenderMode,
   type ScenarioStopDraft,
@@ -149,7 +148,6 @@ export function RouteSurface({
   analysisInspector,
   onInspectReachPoint,
   reachResult,
-  reachComparison,
   serviceDecomposition,
   scenarioView,
   scenarioRenderMode,
@@ -202,7 +200,6 @@ export function RouteSurface({
   analysisInspector?: ReactNode
   onInspectReachPoint?: (point: RoutingPoint) => void
   reachResult: ReachResult | null
-  reachComparison: ReachComparisonResult[] | null
   serviceDecomposition: ServiceEdgeDecomposition | null
   scenarioView: ScenarioView
   scenarioRenderMode: ScenarioRenderMode
@@ -328,7 +325,7 @@ export function RouteSurface({
   return (
     <section className="route-surface" aria-label="GTFS map and service state" style={routeStyle}>
       <div className="service-toolbar">
-        {analysisFocus && reachResult && !reachComparison?.length ? <ReachLegend result={reachResult} cutoffMinutes={scenarioCutoffMinutes} view={scenarioView} /> : null}
+        {analysisFocus && reachResult ? <ReachLegend result={reachResult} cutoffMinutes={scenarioCutoffMinutes} view={scenarioView} /> : null}
         {!showAgencyLine && !routingFocus && !analysisFocus ? (
           <ServiceStateControl
             onNow={() => void scheduleNow()}
@@ -375,7 +372,6 @@ export function RouteSurface({
           routingDestination={routingDestination}
           routingPlan={routingPlan}
           reachResult={reachResult}
-          reachComparison={reachComparison}
           serviceDecomposition={serviceDecomposition}
           scenarioView={scenarioView}
           scenarioRenderMode={scenarioRenderMode}

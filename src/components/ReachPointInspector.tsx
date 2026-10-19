@@ -9,7 +9,7 @@ function minutes(value: number) {
 }
 
 export function ReachPointInspector({ inspection }: { inspection: ReturnType<typeof useReachInspection> }) {
-  const { point, source, sources, plan, loading, error } = inspection
+  const { point, source, plan, loading, error } = inspection
   if (!point || !source) return null
   const result = source.result, request = result.request
   const baseline = reachPointSample(result, point.coordinate, 'baseline')
@@ -24,9 +24,6 @@ export function ReachPointInspector({ inspection }: { inspection: ReturnType<typ
       <button type="button" className="icon-button" aria-label="Close destination" onClick={inspection.close}><X size={18} /></button>
     </header>
     <div className="reach-point-scroll">
-      {sources.length > 1 ? <label className="reach-field">Timetable<select value={source.id} onChange={event => inspection.selectSource(event.target.value)}>
-        {sources.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
-      </select></label> : null}
       <div className="reach-point-time" role="status" aria-live="polite">
         {scenario ? <span>Scheduled journey</span> : null}
         {loading ? <><strong>Checking journey…</strong><span>From {request.origin.label}</span></>

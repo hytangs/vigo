@@ -47,6 +47,7 @@
     "test/check-arrive-by-boundary.mjs"
   ],
   "check:reach-scenarios": [
+    "test/check-scenario-street-surface.mjs",
     "test/check-scenario-timing.mjs",
     "test/check-scenario-drafts.mjs",
     "test/check-scenario-branches.mjs",

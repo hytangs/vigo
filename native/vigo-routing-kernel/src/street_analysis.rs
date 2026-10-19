@@ -72,6 +72,8 @@ const DISTANCE_EPSILON_M: f64 = 1e-6;
 #[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StreetSurfaceInput {
+    /// Internal Studio reference-state retention or scenario reuse; absent means a fresh search.
+    pub surface_reuse: Option<String>,
     pub bounds: Vec<f64>,
     pub width: u32,
     pub height: u32,
@@ -118,6 +120,9 @@ pub struct StreetSurfaceEdge {
 #[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct StreetSurfaceResult {
+    pub reused_labels: u32,
+    pub reused_raster: bool,
+    pub reuse_cache_bytes: f64,
     pub seed_ns: f64,
     pub propagation_ns: f64,
     pub envelope_ns: f64,
@@ -627,11 +632,13 @@ mod raster_coverage_tests {
 
 #[path = "street_surface.rs"]
 mod surface;
+pub(crate) use surface::SurfaceReuseCache;
 
 pub(super) fn street_surface(
     snapshot: &Snapshot,
     reciprocal_edge_flags: &[u8],
     snaps: &mut SurfaceSnapCache,
+    reuse: &mut SurfaceReuseCache,
     terminal: Option<&TerminalAccessGraph>,
     endpoint_seeds: Option<&[bool]>,
     input: StreetSurfaceInput,
@@ -640,6 +647,7 @@ pub(super) fn street_surface(
         snapshot,
         reciprocal_edge_flags,
         snaps,
+        reuse,
         terminal,
         endpoint_seeds,
         input,

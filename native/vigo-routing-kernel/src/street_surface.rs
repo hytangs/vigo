@@ -1,5 +1,8 @@
 //! Time and distance constrained street intervals, including partial edges.
 use super::*;
+#[path = "street_surface_reuse.rs"]
+mod reuse;
+pub(crate) use reuse::SurfaceReuseCache;
 
 #[derive(Clone, Copy)]
 struct Segment {
@@ -285,6 +288,7 @@ pub(super) fn compute(
     snapshot: &Snapshot,
     reciprocal_edge_flags: &[u8],
     snaps: &mut SurfaceSnapCache,
+    reuse: &mut SurfaceReuseCache,
     terminal: Option<&TerminalAccessGraph>,
     endpoint_seeds: Option<&[bool]>,
     input: StreetSurfaceInput,
@@ -294,12 +298,21 @@ pub(super) fn compute(
             snapshot,
             reciprocal_edge_flags,
             snaps,
+            reuse,
             terminal,
             endpoint_seeds,
             input,
         )
     } else {
-        compute_graph::<false>(snapshot, reciprocal_edge_flags, snaps, None, None, input)
+        compute_graph::<false>(
+            snapshot,
+            reciprocal_edge_flags,
+            snaps,
+            reuse,
+            None,
+            None,
+            input,
+        )
     }
 }
 
@@ -307,11 +320,18 @@ fn compute_graph<const ENDPOINTS: bool>(
     snapshot: &Snapshot,
     reciprocal_edge_flags: &[u8],
     snaps: &mut SurfaceSnapCache,
+    reuse: &mut SurfaceReuseCache,
     terminal: Option<&TerminalAccessGraph>,
     endpoint_seeds: Option<&[bool]>,
     input: StreetSurfaceInput,
 ) -> napi::Result<StreetSurfaceResult> {
     let started = Instant::now();
+    if !matches!(
+        input.surface_reuse.as_deref(),
+        None | Some("baseline" | "scenario")
+    ) {
+        return Err(Error::from_reason("Unknown street surface reuse mode."));
+    }
     if input.bounds.len() != 4
         || input.bounds.iter().any(|v| !v.is_finite())
         || input.bounds[0] >= input.bounds[2]
@@ -364,9 +384,24 @@ fn compute_graph<const ENDPOINTS: bool>(
     let mut diagnostics = SearchDiagnostics::default();
     let minutes_per_meter = 60.0 / (input.walk_speed_kph * 1000.0);
     let mut workspace = SnapWorkspace::default();
+    let restored = if input.surface_reuse.as_deref() == Some("scenario") {
+        reuse.restore(
+            &input,
+            endpoint_seeds,
+            &mut heads,
+            &mut labels,
+            &mut profiles,
+        )
+    } else {
+        None
+    };
+    let reused_labels = restored.as_ref().map_or(0, |(_, count)| *count);
     // Seed all labels before propagation. Dominance compares both arrival and
     // walking distance, so a later seed with more walking left remains eligible.
     for seed in 0..input.seed_durations_minutes.len() {
+        if restored.as_ref().is_some_and(|(skip, _)| skip[seed]) {
+            continue;
+        }
         let initial = input
             .seed_walk_distances_m
             .as_ref()
@@ -569,6 +604,9 @@ fn compute_graph<const ENDPOINTS: bool>(
         }
     }
     let propagation_ns = propagation_started.elapsed().as_nanos() as f64;
+    if input.surface_reuse.as_deref() == Some("baseline") {
+        reuse.remember(&input, endpoint_seeds, &labels, &profiles);
+    }
     let envelope_started = Instant::now();
     let segments = profiles.envelope(&graph, &input);
     let envelope_ns = envelope_started.elapsed().as_nanos() as f64;
@@ -623,8 +661,29 @@ fn compute_graph<const ENDPOINTS: bool>(
     let mut full_values = input
         .expand_bounds_to_reached_edges
         .then(|| vec![f64::INFINITY; width * height]);
+    // Under monotone seed improvements every baseline value remains a valid
+    // upper bound. If the grid and complete extent agree, only improved/new
+    // seed segments need rasterization; their minima replace that bound.
+    let reused_raster = if restored.is_some() {
+        if let Some((cached, full)) = reuse.raster(&input, &full_bounds) {
+            values = cached;
+            full_values = full;
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
     let mut raster_fractions = Vec::with_capacity(8);
     for &segment in &segments {
+        if reused_raster
+            && restored
+                .as_ref()
+                .is_some_and(|(skip, _)| skip[segment.seed as usize])
+        {
+            continue;
+        }
         raster_segment(
             &mut values,
             &input.bounds,
@@ -748,8 +807,14 @@ fn compute_graph<const ENDPOINTS: bool>(
             arrivals.push(transit_arrival.unwrap_or(-1.0));
         }
     }
+    if input.surface_reuse.as_deref() == Some("baseline") {
+        reuse.remember_raster(&input, &full_bounds, &values, full_values.as_deref());
+    }
     let packed = input.include_edges && input.edge_evidence_limit == 0;
     Ok(StreetSurfaceResult {
+        reused_labels,
+        reused_raster,
+        reuse_cache_bytes: reuse.byte_length() as f64,
         reached_pixels: values.iter().filter(|v| v.is_finite()).count() as u32,
         values,
         full_surface_values: full_values,

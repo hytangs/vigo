@@ -223,9 +223,33 @@ by store, streets, timetables and request, and identical ranges requested
 together share one computation. Water around an origin and baseline outlines
 are reused with their range. Studio asks for a compact payload: outlines are
 drawn from the area fills, coordinates keep six decimals, and an unchanged
-scenario surface is not repeated. An incremental scenario surface that reuses
-the baseline's street labels could reduce repeated work, but the kernel
-prunes labels by seed, so it needs proof of equality before it can ship.
+scenario surface is not repeated.
+
+For a changed scenario, Rust can reuse the reference street search after
+station egress is resolved. Every reference seed must still have an equal or
+earlier arrival at the same coordinate, with the same initial walking cost
+and endpoint-access role. The walking speed, walking limit and elapsed-time
+cutoff must match. Unchanged seed labels and edge intervals are retained;
+improved and added seeds are propagated again. Any label pruned by an old seed
+remains dominated by that seed's improvement. Removing or delaying a seed
+breaks that argument and falls back to the full search. Independent terminal
+walking also uses the full search.
+
+When the requested grid and complete reached extent match, the reference
+raster remains a valid upper bound. Only improved or added seed intervals
+need rasterization before taking pointwise minima. Changed extents or grids
+are fully rasterized. One reference is retained per resident street kernel,
+capped at 32 MiB, included in native memory accounting, and released with the
+kernel. Scenario queries never replace that reference. Cache misses affect
+work performed, not the computed surface or the City format.
+
+`npm run check:reach-scenarios` compares fresh and incremental rasters,
+complete directed-edge evidence and node evidence on deterministic generated
+networks, including service cuts and delays. The reproducible synthetic
+profile is `node test/check-scenario-street-surface.mjs --profile`; it reports
+alternating fresh/incremental samples, settled-label counts and retained
+bytes. Its timing covers a warm surface call plus JavaScript materialization,
+excluding the initial reference search, and is not a whole-city benchmark.
 
 ### Compare
 
@@ -234,7 +258,10 @@ against one reference on its grid. The reference surface is computed once.
 Variants are ranked by reached area gained and report newly reached and lost
 cells, mean minutes saved over cells both reach, and reached stops. Only the
 mapped variant's full surface stays in memory; choosing another reuses the
-cached ranges.
+cached ranges. The selected variant uses the normal Reach renderer and point
+inspector. The former per-feed map layers, color palette, feature builders and
+multi-result map props have been removed; selecting another variant replaces
+the displayed result and cancels any point-inspection request for the old one.
 
 ### Memory
 

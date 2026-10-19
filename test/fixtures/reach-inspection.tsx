@@ -59,15 +59,15 @@ window.fetch = (input, options = {}) => {
   }))
 }
 function Fixture() {
-  const [analysis, setAnalysis] = useState(null), [comparison, setComparison] = useState(null)
+  const [analysis, setAnalysis] = useState(null)
   const [view, setView] = useState(new URL(location.href).searchParams.get('view') || 'analysis')
   const [showOrigin, setShowOrigin] = useState(false), [journey, setJourney] = useState(null)
   const [dark, setDark] = useState(false), [active, setActive] = useState(true)
-  window.inspectionSetResult = setAnalysis; window.inspectionSetComparison = setComparison
+  window.inspectionSetResult = setAnalysis
   window.inspectionSetTheme = setDark; window.inspectionSetActive = setActive
   window.inspectionSetView = setView; window.inspectionSetOrigin = setShowOrigin; window.inspectionSetJourney = setJourney
   const analysisFocus = view === 'analysis'
-  const inspection = useReachInspection({ projectId: 'fixture', feedId: '__project__', result: analysis, comparison, active: active && analysisFocus })
+  const inspection = useReachInspection({ projectId: 'fixture', feedId: '__project__', result: analysis, active: active && analysisFocus })
   window.inspection = inspection
   return <main className={`app-shell page-project appearance-${dark ? 'dark' : 'light'}`}>
     <header className="topbar"><strong>VIGO</strong><span>{analysisFocus ? 'Accessibility' : 'Route'}</span></header>
@@ -78,7 +78,7 @@ function Fixture() {
           localBasemapAvailable={false} selectedRouteId="" selectedStopId="" realtimeSnapshot={null}
           vehicleMode="schedule" scheduleTimeMinutes={480} scheduleServiceDate="2026-07-20" routingEnabled={!analysisFocus}
           routingOrigin={showOrigin ? origin : null} routingWaypoints={[]} routingDestination={inspection.point ?? journey?.destination} routingPlan={inspection.plan ?? journey}
-          routingFocus={!analysisFocus} agencyFocus={false} analysisFocus={analysisFocus} reachResult={analysis} reachComparison={comparison} serviceDecomposition={null}
+          routingFocus={!analysisFocus} agencyFocus={false} analysisFocus={analysisFocus} reachResult={analysis} serviceDecomposition={null}
           scenarioView="baseline" scenarioRenderMode="area" scenarioCutoffMinutes={37.25} scenarioSketchStops={[]} scenarioSketchGeometry={[]}
           scenarioPointPicking={false} cityPreviewLoading={false} routingActivity={{ kind: 'idle', title: '', detail: '' }}
           onInspectReachPoint={inspection.inspect} analysisInspector={<ReachPointInspector inspection={inspection} />}
@@ -162,12 +162,12 @@ window.checkReachInspection = async () => {
   await until(async()=> (await map.getSource('vigo-routing').getData()).features.length>0)
   document.querySelector('.reach-point-journey').open=true
   assert(document.querySelectorAll('.journey-leg').length===3,'Full walking and transit itinerary is missing')
-  const branch={...result,request:{...result.request,feedIds:undefined}}
-  flushSync(()=>window.inspectionSetComparison([{feedId:'first',feedName:'First timetable',result:branch},{feedId:'second',feedName:'Second timetable',result:branch}]))
+  const branch=id=>({...result,request:{...result.request,feedIds:[id]}})
+  flushSync(()=>window.inspectionSetResult(branch('first')))
   assert(!document.querySelector('.reach-point-inspector'),'Old destination survived a changed analysis')
-  click(a);await until(()=>requests.length===3);assert(requests[2].body.feedId==='first','First comparator feed not selected')
-  const select=document.querySelector('.reach-point-inspector select');select.value='second';flushSync(()=>select.dispatchEvent(new Event('change',{bubbles:true})))
-  await until(()=>requests.length===4);assert(requests[3].body.feedId==='second'&&requests[2].signal.aborted,'Feed switch reused previous journey')
+  click(a);await until(()=>requests.length===3);assert(JSON.stringify(requests[2].body.feedIds)==='["first"]','First comparator feed not selected')
+  flushSync(()=>window.inspectionSetResult(branch('second')));click(a)
+  await until(()=>requests.length===4);assert(JSON.stringify(requests[3].body.feedIds)==='["second"]'&&requests[2].signal.aborted,'Feed switch reused previous journey')
   requests[3].respond('blocked');await until(()=>document.querySelector('.reach-point-time strong')?.textContent==='No journey found')
   flushSync(()=>window.inspection.retry());await until(()=>requests.length===5);requests[4].respond('error')
   await until(()=>document.querySelector('.reach-point-time strong')?.textContent==='Could not check journey')
@@ -179,16 +179,16 @@ window.checkReachInspection = async () => {
   map.getCanvas().dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}))
   await until(()=>requests.length===7);requests[6].respond('transit');await until(()=>window.inspection.plan?.status==='ready')
   const changed={...result,request:{...result.request,scenario:{id:'edit',name:'Proposed service',serviceCount:1}}}
-  const changedRequest=reachPointRouteRequest(reachInspectionSources(changed,null)[0],{coordinate:a,label:'A',source:'map'},'__project__')
+  const changedRequest=reachPointRouteRequest(reachInspectionSources(changed)[0],{coordinate:a,label:'A',source:'map'},'__project__')
   assert(!('scenario' in changedRequest)&&!('walkSpeedKph' in changedRequest),'Unsupported scenario or walking speed silently sent to baseline router')
-  flushSync(()=>{window.inspectionSetComparison(null);window.inspectionSetResult(changed)})
+  flushSync(()=>{window.inspectionSetResult(changed)})
   click(a);await until(()=>requests.length===8);requests[7].respond('transit');await until(()=>window.inspection.plan?.status==='ready')
   assert(document.querySelector('.reach-point-scroll').textContent.includes('journey below uses scheduled service'),'Scenario route presented as a planned-service journey')
   flushSync(()=>window.inspectionSetResult(blockResult))
   click([-71.08,42.34]);await until(()=>requests.length===9);requests[8].respond('transit');await until(()=>window.inspection.plan?.status==='ready')
   assert(document.querySelector('.reach-point-estimates').textContent.includes('9.3 min · block estimate'),'Displayed block value was presented as a routed street sample')
   assert(document.querySelector('.reach-point-scroll').textContent.includes('checks your selected point separately'),'Block shading was presented as verified interior access')
-  return { rasterCells:16, preciseClick:true, exactRequest:true, routeGeometry:true, staleCancellation:true, comparisonFeeds:true, walking:true, blockedAndRetry:true, keyboard:true, stopsRemoved:true }
+  return { rasterCells:16, preciseClick:true, exactRequest:true, routeGeometry:true, staleCancellation:true, selectedVariant:true, walking:true, blockedAndRetry:true, keyboard:true, stopsRemoved:true }
 }
 window.checkInspectionLayout = async dark => {
   flushSync(()=>window.inspectionSetTheme(dark));document.documentElement.dataset.appearance=dark?'dark':'light'
