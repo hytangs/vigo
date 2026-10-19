@@ -124,6 +124,8 @@ export type VigoMapProps = {
   focusLocation?: { id: string; label: string; coordinate: LngLat; stopId?: string }
   vehicleFrame: ServiceVehicleFrame
   routingEnabled?: boolean
+  /** Explicit search submission frames endpoints even when they are already visible. */
+  routingFocusRequest?: number
   routingOrigin?: RoutingPoint | null
   routingWaypoints?: RoutingPoint[]
   routingDestination?: RoutingPoint | null
@@ -454,6 +456,7 @@ export function VigoMap({
   focusLocation,
   vehicleFrame,
   routingEnabled = false,
+  routingFocusRequest = 0,
   routingOrigin,
   routingWaypoints: suppliedWaypoints = emptyRoutingPoints,
   routingDestination,
@@ -632,14 +635,16 @@ export function VigoMap({
   const routingFitSignature = useMemo(
     () => [
       routingEnabled ? 'on' : 'off',
-      routingOrigin?.label ?? '',
-      routingWaypoints.map((point) => `${point.label}:${point.coordinate.join(',')}`).join('|'),
-      routingDestination?.label ?? '',
+      routingFocusRequest,
+      routingOrigin?.coordinate.join(',') ?? '',
+      routingWaypoints.map((point) => point.coordinate.join(',')).join('|'),
+      routingDestination?.coordinate.join(',') ?? '',
       routingPlan?.id ?? '',
       routingGeoJson.features.length,
     ].join(':'),
-    [routingDestination?.label, routingEnabled, routingGeoJson.features.length, routingOrigin?.label, routingPlan?.id, routingWaypoints],
+    [routingDestination?.coordinate, routingEnabled, routingFocusRequest, routingGeoJson.features.length, routingOrigin?.coordinate, routingPlan?.id, routingWaypoints],
   )
+  const fittedRoutingFocusRequest = useRef(routingFocusRequest)
   const fitSignature = useMemo(
     () => {
       const routePointCount = preview.routes.reduce((sum, route) => sum + (route.coordinates?.length ?? route.stopIds.length), 0)
@@ -968,17 +973,19 @@ export function VigoMap({
         }
         if (showRoutingPlan && !(scenarioFocus && focusedAnalysis) && routingFitSignature !== lastRoutingFitSignatureRef.current) {
           const routingBounds = mapContentBounds(routingGeoJson, routingPinsGeoJson)
+          const explicitFocus = routingFocusRequest !== fittedRoutingFocusRequest.current
+          fittedRoutingFocusRequest.current = routingFocusRequest
           // Placing points must not dive to street level: the next point is
           // usually picked from the same view. Frame the journey once it exists.
           const pinsOnly = routingGeoJson.features.length === 0
-          if (routingBounds && pinsOnly && pinsInView(map, routingPinsGeoJson)) {
+          if (routingBounds && pinsOnly && !explicitFocus && pinsInView(map, routingPinsGeoJson)) {
             lastRoutingFitSignatureRef.current = routingFitSignature
           } else if (routingBounds) {
             lastRoutingFitSignatureRef.current = routingFitSignature
             map.fitBounds(routingBounds, {
               padding: routeFitPadding(map),
               duration: 420,
-              maxZoom: pinsOnly ? Math.max(map.getZoom(), 9) : 14.6,
+              maxZoom: pinsOnly && !explicitFocus ? Math.max(map.getZoom(), 9) : 14.6,
             })
           }
         }
@@ -1001,7 +1008,7 @@ export function VigoMap({
       if (mapRemovedRef.current) return
       map.off('render', reportReadyIfRendered)
     }
-  }, [accessGeoJson, cityBounds, drawnRouteCount, drawnStopCount, feedName, fitSignature, focusedAnalysis, mapTelemetryKey, mapVisualState, networkTileMode, routesGeoJson, routingEnabled, routingFitSignature, routingGeoJson, routingPinsGeoJson, routingPlan, scenarioFocus, segmentsGeoJson, stopsGeoJson])
+  }, [accessGeoJson, cityBounds, drawnRouteCount, drawnStopCount, feedName, fitSignature, focusedAnalysis, mapTelemetryKey, mapVisualState, networkTileMode, routesGeoJson, routingEnabled, routingFocusRequest, routingFitSignature, routingGeoJson, routingPinsGeoJson, routingPlan, scenarioFocus, segmentsGeoJson, stopsGeoJson])
 
   useEffect(() => {
     const map = mapRef.current

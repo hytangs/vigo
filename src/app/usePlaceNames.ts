@@ -1,6 +1,22 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { RoutingPoint } from '../routingModel'
 
+function validPlaceName(value: unknown): value is string {
+  return typeof value === 'string' && Boolean(value.trim()) && value.length <= 500
+}
+
+/** Labels are optional local metadata; the requested coordinates stay exact. */
+export async function lookupPlaceNames(projectId: string, points: RoutingPoint[], signal: AbortSignal) {
+  const query = points.map(point => point.coordinate.join(',')).join(';')
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/place?points=${query}`, { signal })
+  if (!response.ok) return []
+  const body = await response.json()
+  return points.map((_, index) => {
+    const label: unknown = body?.places?.[index]?.label
+    return validPlaceName(label) ? label.trim() : undefined
+  })
+}
+
 function placeNameUrl(projectId: string, point?: RoutingPoint) {
   const query = point ? `?points=${point.coordinate[0].toFixed(6)},${point.coordinate[1].toFixed(6)}` : ''
   return `/api/projects/${encodeURIComponent(projectId)}/place${query}`
@@ -27,7 +43,7 @@ export function createPlaceNameQueue(projectId: string, waitMs = 250) {
         timer = setTimeout(() => { controller.abort(); resolve(undefined) }, waitMs)
       })]).catch(() => undefined).finally(() => { clearTimeout(timer); controllers.delete(controller) })
       queue = queue.then(() => label).then((name: unknown) => {
-        if (!disposed) apply(typeof name === 'string' && name.trim() && name.length <= 500
+        if (!disposed) apply(validPlaceName(name)
           ? { ...point, label: name, named: true } : point)
       }).catch(() => undefined)
     },

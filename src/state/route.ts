@@ -7,6 +7,7 @@ import { scenarioRequestFor } from './analyze'
 import { scenarioLibrary } from './scenarios'
 import type { ApiRoutingStatus } from '../app/api'
 import { readRoutingDataModePreference } from '../app/routingDataMode'
+import { lookupPlaceNames } from '../app/usePlaceNames'
 import {
   buildRoutingActivity,
   type RoutingServiceCoverage,
@@ -60,10 +61,13 @@ export type RouteState = {
   routingDetailsVisible: boolean
   routingEnabled: boolean
   routingPickIndex: number | null
+  routingFocusRequest: number
   routingOrigin: RoutingPoint | null
   routingWaypoints: RoutingPoint[]
   routingDestination: RoutingPoint | null
   routingPointError: string
+  /** Display metadata is separate from query inputs, so naming never reruns routing. */
+  routingPointNames: Record<string, string>
   engine: RouteEngineState
 }
 
@@ -85,10 +89,12 @@ const initialRouteState = (): RouteState => ({
   routingDetailsVisible: false,
   routingEnabled: false,
   routingPickIndex: null,
+  routingFocusRequest: 0,
   routingOrigin: null,
   routingWaypoints: noRoutingPoints,
   routingDestination: null,
   routingPointError: '',
+  routingPointNames: {},
   engine: {
     choices: [],
     loading: false,
@@ -102,8 +108,15 @@ const initialRouteState = (): RouteState => ({
 })
 
 export const route = createStore<RouteState>(initialRouteState())
+let pointNamesRequest: AbortController | null = null
+
+function cancelPointNames() {
+  pointNamesRequest?.abort()
+  pointNamesRequest = null
+}
 
 export function resetRoute() {
+  cancelPointNames()
   routeDateAlignment.storeKey = ''
   route.set(initialRouteState())
 }
@@ -216,10 +229,12 @@ export function routingDetailOpen() {
 }
 
 export function clearRouting() {
+  cancelPointNames()
   route.set({
     routingPickIndex: null,
     routingPointError: '',
     routingOrigin: null,
+    routingPointNames: {},
     routingWaypoints: noRoutingPoints,
     routingDestination: null,
     selectedRoutingPlanId: '',
@@ -277,6 +292,39 @@ function routingPoints() {
   return [...(routingOrigin ? [routingOrigin] : []), ...routingWaypoints, ...(routingDestination ? [routingDestination] : [])]
 }
 
+const displayedPoints = memoizeLast((origin: RoutingPoint | null, waypoints: RoutingPoint[], destination: RoutingPoint | null, names: Record<string, string>) => {
+  const display = (point: RoutingPoint | null) => {
+    const label = point?.source === 'map' && !point.named ? names[point.coordinate.join(',')] : undefined
+    return point && label ? { ...point, label, named: true } : point
+  }
+  return { routingOrigin: display(origin), routingWaypoints: waypoints.map(point => display(point)!), routingDestination: display(destination) }
+})
+
+export function routingDisplayPoints() {
+  const state = route.get()
+  return displayedPoints(state.routingOrigin, state.routingWaypoints, state.routingDestination, state.routingPointNames)
+}
+
+function refreshPointNames() {
+  cancelPointNames()
+  const projectId = selectedProject().id
+  const points = routingPoints().filter(point => point.source === 'map' && !point.named && !route.get().routingPointNames[point.coordinate.join(',')])
+  if (!projectId || !points.length) return
+  const controller = new AbortController()
+  pointNamesRequest = controller
+  // Unlike click admission, this lookup never delays placing points or routing.
+  // Allow a cold City index to load, while bounding unavailable local services.
+  const timer = setTimeout(() => controller.abort(), 5000)
+  void lookupPlaceNames(projectId, points, controller.signal).then(names => {
+    if (controller.signal.aborted || pointNamesRequest !== controller || city.get().selectedProjectId !== projectId) return
+    const entries = points.flatMap((point, index) => names[index] ? [[point.coordinate.join(','), names[index]!]] : [])
+    if (entries.length) route.set(state => ({ routingPointNames: { ...state.routingPointNames, ...Object.fromEntries(entries) } }))
+  }).catch(() => { /* Coordinates remain usable when no local label is available. */ }).finally(() => {
+    clearTimeout(timer)
+    if (pointNamesRequest === controller) pointNamesRequest = null
+  })
+}
+
 export function pickRoutingPoint(index: number | null) {
   if (index === null && routingPoints().length >= maxRoutingPointCount) return
   route.set({ routingPickIndex: index, routingPointError: '', routingEnabled: true })
@@ -311,6 +359,11 @@ export function reorderRoutingPoints(points: RoutingPoint[]) {
   }
   route.set({
     routingPointError: '',
+    routingPointNames: Object.fromEntries(ordered.flatMap(point => {
+      const key = point.coordinate.join(',')
+      const label = route.get().routingPointNames[key]
+      return label ? [[key, label]] : []
+    })),
     routingOrigin: ordered[0] ?? null,
     routingWaypoints: ordered.slice(1, -1),
     routingDestination: ordered.length >= 2 ? ordered.at(-1)! : null,
@@ -321,6 +374,7 @@ export function reorderRoutingPoints(points: RoutingPoint[]) {
   resetEngine()
   setActiveRouteTool('pathfinder')
   network.set({ mapScope: 'route' })
+  refreshPointNames()
   return true
 }
 
@@ -348,7 +402,10 @@ export function runRoutingSearch(commandText: string) {
     routingTimePreference: mode === 'transit' ? command.timePreference ?? routingTimePreference : 'depart',
   }))
   const applied = reorderRoutingPoints(points as RoutingPoint[])
-  if (applied) setQuery('')
+  if (applied) {
+    route.set(state => ({ routingFocusRequest: state.routingFocusRequest + 1 }))
+    setQuery('')
+  }
   return applied
 }
 

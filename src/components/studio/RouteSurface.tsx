@@ -34,7 +34,7 @@ import {
   selectStopFromMap,
   workbenchMapPreview,
 } from '../../state/network'
-import { route, routingActivity, routingPlan, routingPointFromMap, routingDetailOpen } from '../../state/route'
+import { route, routingActivity, routingPlan, routingPointFromMap, routingDetailOpen, routingDisplayPoints } from '../../state/route'
 import { activeFeed, preview, selectedProject } from '../../state/scope'
 import { shell } from '../../state/shell'
 import { ReachPointInspector } from '../ReachPointInspector'
@@ -173,6 +173,7 @@ export function RouteSurfaceView({
   scheduleTimeMinutes,
   scheduleServiceDate,
   routingEnabled,
+  routingFocusRequest,
   routingOrigin,
   routingWaypoints,
   routingDestination,
@@ -227,6 +228,7 @@ export function RouteSurfaceView({
   scheduleTimeMinutes: number
   scheduleServiceDate: string
   routingEnabled: boolean
+  routingFocusRequest?: number
   routingOrigin: RoutingPoint | null
   routingWaypoints: RoutingPoint[]
   routingDestination: RoutingPoint | null
@@ -401,6 +403,7 @@ export function RouteSurfaceView({
           selectedStopId={selectedStopId}
           vehicleFrame={vehicleFrame}
           routingEnabled={routingEnabled}
+          routingFocusRequest={routingFocusRequest}
           routingOrigin={routingOrigin}
           routingWaypoints={routingWaypoints}
           routingDestination={routingDestination}
@@ -519,11 +522,12 @@ export const RouteSurface = memo(function RouteSurface() {
   })
   const page = useStore(shell, state => state.page)
   const nameMapPoint = usePlaceNames(project.id, page === 'project')
-  const namedMapPoint = (point: RoutingPoint) => nameMapPoint(point, named => {
-    const currentTool = shell.get().activeRouteTool
-    if (currentTool === 'analyze') analysisPointFromMap(named)
-    else if (currentTool === 'pathfinder') routingPointFromMap(named)
-  })
+  const namedMapPoint = (point: RoutingPoint) => {
+    if (shell.get().activeRouteTool === 'pathfinder') routingPointFromMap(point)
+    else if (shell.get().activeRouteTool === 'analyze') nameMapPoint(point, named => {
+      if (shell.get().activeRouteTool === 'analyze') analysisPointFromMap(named)
+    })
+  }
   const detailOpen = useStudio(routingDetailOpen)
   const scopeTiles = useStudio(() => selectedProject().networkTiles?.[activeFeed().id])
   const feed = useStudio(activeFeed)
@@ -540,9 +544,8 @@ export const RouteSurface = memo(function RouteSurface() {
   })
   const journey = useStore(route, (state) => ({
     routingEnabled: state.routingEnabled,
-    routingOrigin: state.routingOrigin,
-    routingWaypoints: state.routingWaypoints,
-    routingDestination: state.routingDestination,
+    routingFocusRequest: state.routingFocusRequest,
+    ...routingDisplayPoints(),
   }), shallowEqual)
   const plan = useStudio(routingPlan)
   const activity = useStudio(routingActivity)
@@ -591,6 +594,7 @@ export const RouteSurface = memo(function RouteSurface() {
       scheduleTimeMinutes={scheduleTimeMinutes}
       scheduleServiceDate={serviceDate}
       routingEnabled={routingFocus && journey.routingEnabled}
+      routingFocusRequest={journey.routingFocusRequest}
       routingOrigin={agencyFocus ? null : analysisFocus ? reach.analysisOrigin : journey.routingOrigin}
       routingWaypoints={agencyFocus || analysisFocus ? noRoutingPoints : journey.routingWaypoints}
       routingDestination={agencyFocus ? null : analysisFocus ? inspectionPoint : journey.routingDestination}

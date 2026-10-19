@@ -56,6 +56,7 @@ import {
   route,
   routingActivity,
   routingPlan,
+  routingDisplayPoints,
   routingNetwork,
   selectRoutingPlan,
   setRoutingAllowLongWalk,
@@ -330,6 +331,7 @@ function SidebarRouteBox() {
     routingPickIndex: state.routingPickIndex,
   }), shallowEqual)
   const routingNetworkState = useStudio(routingNetwork)
+  const points = useStudio(routingDisplayPoints)
   const engine = useStore(route, (state) => state.engine)
   const plan = useStudio(routingPlan)
   const activity = useStudio(routingActivity)
@@ -341,9 +343,9 @@ function SidebarRouteBox() {
   return (
     <SidebarPathfinderBox
       routingEnabled={settings.routingEnabled}
-      routingOrigin={settings.routingOrigin}
-      routingWaypoints={settings.routingWaypoints}
-      routingDestination={settings.routingDestination}
+      routingOrigin={points.routingOrigin}
+      routingWaypoints={points.routingWaypoints}
+      routingDestination={points.routingDestination}
       routingPlan={plan}
       routingChoices={engine.choices}
       routingScopeStatus={scope.routingScopeStatus}

@@ -15,6 +15,7 @@
     "test/check-network-truth-fixtures.mjs",
     "test/check-place-names.mjs",
     "test/check-place-name-queue.mjs",
+    "test/check-routing-search-locations.mjs",
     "test/check-place-name-runtime.mjs"
   ],
   "check:osm-pbf": [
