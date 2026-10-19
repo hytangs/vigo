@@ -7,6 +7,7 @@ import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { standaloneBinary } from './helpers/standalone-runtime.mjs'
 import { published050 } from './helpers/published-050.mjs'
+import { backfillPlaceNames } from '../src/server/place-names-backfill.mjs'
 const root = path.resolve(import.meta.dirname, '..')
 const fixture = path.join(root, 'test/fixtures/format-0.5.0')
 const manifest = JSON.parse(fs.readFileSync(path.join(fixture, 'manifest.json')))
@@ -40,11 +41,16 @@ try {
   const reference = await published050(temporary)
   execFileSync('tar',['-xzf',path.join(fixture,'city.tar.gz'),'-C',temporary])
   verify(standaloneBinary,path.join(temporary,'city'))
+  // Upgrade only the extracted copy; the permanent archive and hashes stay frozen.
+  await backfillPlaceNames({ streetPath:path.join(temporary,'city/osm/street-index.sqlite'),
+    pbfPath:path.join(fixture,'fixture.osm.pbf') })
+  verify(reference,path.join(temporary,'city'))
+  verify(standaloneBinary,path.join(temporary,'city'))
   const candidate = path.join(temporary, 'candidate')
   execFileSync(process.execPath,[cli,'build','--gtfs',path.join(fixture,'fixture.zip'),
     '--gtfs-scope','fixture','--osm',path.join(fixture,'fixture.osm.pbf'),'--street-modes','walk',
     '--prepare-date',manifest.serviceDate,'--output',candidate],{cwd:root,
     stdio:['ignore','ignore','pipe'],timeout:120000})
   verify(reference,candidate)
-  console.log('Published 0.5.0 City reader and native compiler writer compatibility passed: route, arrive-by, walk, matrix, reach.')
+  console.log('Published 0.5.0 City reader, optional place-name upgrade, and native compiler writer compatibility passed: route, arrive-by, walk, matrix, reach.')
 } finally { fs.rmSync(temporary,{recursive:true,force:true}) }

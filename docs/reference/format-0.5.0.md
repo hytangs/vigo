@@ -46,3 +46,28 @@ are still needed before claiming comprehensive format coverage.
 
 The policy is permanent; the tests are evidence for the cases they execute,
 not a proof that all future code or every possible City is compatible.
+
+## Add street names to an existing City
+
+Older Cities may lack the optional `place_streets` and `place_areas` tables.
+Coordinate labels then fall back to nearby transit stops or “Dropped pin”.
+Use the original OSM PBF to add names without rebuilding the City:
+
+```sh
+npm run backfill:project:places -- --city=/path/to/City --osm=/path/to/original.osm.pbf
+```
+
+The command verifies the source against the street store's SHA-256 fingerprint,
+stages named ways and their nodes in temporary SQLite storage, and commits the
+two name tables and an optional `placeNames` metadata receipt together. It does
+not change the timetable, routing graphs, accelerators, basemap or City manifest.
+A completed upgrade is a read-only no-op on retry. A missing source, mismatch,
+cancellation or publication error leaves the previous name tables intact.
+
+Names describe nearby streets, intersections and supported named areas from
+OSM; they are not verified postal addresses. No external geocoding is required.
+Current Rust lookups reload when the SQLite database or its WAL changes. Re-enter
+a coordinate search to refresh already displayed labels. Studio also needs a
+build containing coordinate-search naming: quit an older running Studio before
+opening the updated application, because its single-instance lock otherwise
+keeps the older process active.

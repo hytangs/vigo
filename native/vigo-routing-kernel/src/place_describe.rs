@@ -576,7 +576,7 @@ pub fn short_street_name(name: &str) -> String {
 type Identity = Option<(SystemTime, u64)>;
 
 struct Pooled {
-    identity: (Identity, Identity),
+    identity: ((Identity, Identity), (Identity, Identity)),
     index: Arc<PlaceIndex>,
     used: u64,
 }
@@ -591,10 +591,16 @@ fn identity(path: &str) -> Identity {
     ))
 }
 
+fn store_identity(path: &str) -> (Identity, Identity) {
+    // Optional name-table upgrades may commit to WAL without changing the main
+    // file. Include the WAL so a warm City cannot retain its stop-only fallback.
+    (identity(path), identity(&format!("{path}-wal")))
+}
+
 /// The index for a City, built once and rebuilt when either store changes.
 pub fn place_index(street_path: &str, routing_path: &str) -> Result<Arc<PlaceIndex>, String> {
     let key = format!("{street_path}\u{0}{routing_path}");
-    let identity = (identity(street_path), identity(routing_path));
+    let identity = (store_identity(street_path), store_identity(routing_path));
     // Held while building so concurrent first requests share one load.
     let mut guard = INDEXES
         .lock()
