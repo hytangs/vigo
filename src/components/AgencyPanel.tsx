@@ -11,7 +11,6 @@ import type { RealtimeSnapshot } from '../domain'
 import type { AgencyState, OperationalEvent, WorkspaceSelectionInput } from '../agency/types'
 import { AgencyEvidence } from './AgencyEvidence'
 import { AgencyFeedHealth } from './AgencyFeedHealth'
-import { AgencyBriefing } from './AgencyBriefing'
 import { RealtimePanel } from './RealtimePanel'
 
 import { AgencyNavigation, type AgencyMode } from './AgencyNavigation'
@@ -49,7 +48,7 @@ export function AgencyPanel({ staticFeeds, onOperationalEvents, projectId, snaps
   onLocate: (routeIds: string[], stopIds: string[], location?: { id: string; label: string; coordinate: [number, number] }) => void
   onOpenData: () => void
 }) {
-  const [mode, setMode] = useState<AgencyMode>(() => { const saved = sessionStorage.getItem(`agency-mode-${projectId}`); return ['live', 'briefing'].includes(saved || '') ? saved as AgencyMode : 'briefing' })
+  const [mode, setMode] = useState<AgencyMode>(() => { const saved = sessionStorage.getItem(`agency-mode-${projectId}`); return ['live', 'overview'].includes(saved || '') ? saved as AgencyMode : 'overview' })
   const [state, setState] = useState<AgencyState | null>(null)
   const [observationError, setObservationError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -68,7 +67,7 @@ export function AgencyPanel({ staticFeeds, onOperationalEvents, projectId, snaps
   useEffect(() => { setRouteView('trips') }, [routeId])
   const [routeFilter, setRouteFilter] = useState<'all' | 'attention' | 'reporting'>('all')
   const [selectedEvent, setSelectedEvent] = useState<OperationalEvent | null>(null)
-  const eventReturnMode = useRef<AgencyMode>('briefing')
+  const eventReturnMode = useRef<AgencyMode>('overview')
   const refreshGeneration = useRef(0)
   const observationPolling = useRef<ReturnType<typeof startPolling> | null>(null)
   const hasSnapshot = Boolean(snapshot)
@@ -210,7 +209,7 @@ export function AgencyPanel({ staticFeeds, onOperationalEvents, projectId, snaps
         {!state.coverage.valid ? <div className="agency-notice"><strong>Timetable needs attention</strong><p>{state.coverage.message}</p><button className="agency-text-button" onClick={onOpenData}>Update City data <ArrowRight size={13} /></button></div> : null}
         {mode === 'live' ? <div id="agency-live" role="tabpanel" aria-labelledby="agency-tab-live">
           <div hidden={Boolean(selectedEvent) || hasSelection}><AgencyRouteBrowser state={state} initialFilter={routeFilter} onFilterChange={setRouteFilter} refreshFailed={Boolean(observationError)} onSelect={id => openRoute(id, true)} /></div>
-          {selectedEvent ? <AgencyEvidence key={`${selectedEvent.id}/${selectedEvent.observedAt}`} event={selectedEvent} onUpdate={setSelectedEvent} state={state} projectId={projectId} onBack={returnFromEvent} onLocate={() => locate(selectedEvent.routeIds ?? (selectedEvent.routeId ? [selectedEvent.routeId] : []), selectedEvent.stopId ? [selectedEvent.stopId] : [], selectedEvent.stopCoordinate ? { coordinate: selectedEvent.stopCoordinate, label: selectedEvent.stopName || 'Reference stop' } : undefined)} /> : hasSelection ? <>
+          {selectedEvent ? <AgencyEvidence key={`${selectedEvent.id}/${selectedEvent.observedAt}`} event={selectedEvent} onUpdate={setSelectedEvent} state={state} onBack={returnFromEvent} onLocate={() => locate(selectedEvent.routeIds ?? (selectedEvent.routeId ? [selectedEvent.routeId] : []), selectedEvent.stopId ? [selectedEvent.stopId] : [], selectedEvent.stopCoordinate ? { coordinate: selectedEvent.stopCoordinate, label: selectedEvent.stopName || 'Reference stop' } : undefined)} /> : hasSelection ? <>
             {stopId ? <StopArrivalBoard onOpenTrip={onOpenTrip} key={`${projectId}/${stopId}`} projectId={projectId} stopId={stopId} showHeading={!selectionReady} /> : null}
             {!stopId && routeId ? <>
               <div className="agency-route-sections" role="group" aria-label="Route details">{([['trips', 'Trip times'], ['stops', 'Stops'], ['updates', 'Updates']] as const).map(([id, label]) => <button key={id} aria-pressed={routeView === id} onClick={() => setRouteView(id)}>{label}</button>)}</div>
@@ -220,9 +219,8 @@ export function AgencyPanel({ staticFeeds, onOperationalEvents, projectId, snaps
             {stopId || routeView === 'updates' ? <AgencyServiceEvents key={selectionKey} state={state} ready={eventsReady} filter={eventFilter} onFilter={setEventFilter} onSelect={event => selectEvent(event)} /> : null}
             {focusedRoute && !stopId ? <AgencyRouteCoverage state={state} route={focusedRoute} refreshFailed={Boolean(observationError)} /> : null}
           </> : null}
-        </div> : mode === 'briefing' ? <div id="agency-briefing" role="tabpanel" aria-labelledby="agency-tab-briefing">
+        </div> : mode === 'overview' ? <div id="agency-overview" role="tabpanel" aria-labelledby="agency-tab-overview">
           <AgencyOverview state={state} refreshFailed={Boolean(observationError)} onBrowse={browseRoutes} onRoute={id => openRoute(id)} onFeeds={openFeeds} />
-          <details className="studio-disclosure agency-secondary-section"><summary>Service briefing</summary><AgencyBriefing onLocateStop={stopId => locate([], [stopId])} endpoint={endpoint} state={state} onProviderChange={() => void observationPolling.current?.refresh()} /></details>
           {hasSelection ? <p className="agency-caption">Service updates for the selected route or stop. <button className="agency-text-button" onClick={onClearSelection}>Show all updates</button></p> : null}
           <AgencyServiceEvents defaultOpen={false} state={state} ready={eventsReady} filter={eventFilter} onFilter={setEventFilter} onSelect={event => selectEvent(event)} />
           {state.warnings.length ? <details className="agency-source-details"><summary>Coverage notes</summary><AgencyCoverageNotes warnings={state.warnings} /></details> : null}

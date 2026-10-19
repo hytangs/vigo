@@ -1,5 +1,3 @@
-import type { NetworkDiagnosis, NetworkNarrative, BriefingPreferences, BriefingInvestigation } from './networkAssessmentTypes'
-
 export type WorkspaceSelectionInput = { routeId?: string; stopId?: string }
 export type WorkspaceSelection = {
   route?: { id: string; name: string; description?: string }
@@ -108,7 +106,6 @@ export type AgencyState = {
   stopNames?: Record<string, string>
   stopLocations?: Record<string, { label: string; coordinate: [number, number] }>
   connected: boolean
-  provider: ProviderState
   coverage: Coverage
   counts: { routes: number; stops: number; vehicles: number; trips: number; matchedTrips: number; unresolvedTrips: number; alerts: number }
   feeds: FeedState[]
@@ -118,57 +115,4 @@ export type AgencyState = {
   tripHistory: Record<string, Array<{ at: string; delaySeconds: number }>>
   warnings: string[]
   policy: { freshnessSeconds: number; windowMinutes: number; historyMinutes: number }
-}
-
-export type ToolResult = {
-  ok: boolean
-  data: unknown
-  provenance: string[]
-  generatedAt: string
-  warnings: string[]
-  presentation?: { routeIds?: string[]; stopIds?: string[]; location?: { id: string; label: string; coordinate: [number, number] } }
-}
-
-export type BriefingAnswer = {
-  synthesis?: { method?: string; unavailable?: boolean }
-  investigation?: BriefingInvestigation
-  briefingPreferences?: BriefingPreferences
-  diagnosis?: NetworkDiagnosis
-  narrative?: NetworkNarrative
-  scheduleIdentity?: string
-  timezone?: string | null
-  entryId?: number
-  aiGenerated?: boolean
-  model?: string
-  answer: string
-  trace: Array<{ tool: string; arguments: Record<string, unknown>; result: ToolResult }>
-  evidenceRefs: string[]
-  generatedAt: string
-  warnings: string[]
-  providerAvailable: boolean
-}
-
-export type RiderDraft = {
-  headline: string
-  body: string
-  recommendedAction: string
-  affectedRoutes: string[]
-  affectedStops: string[]
-  evidenceRefs: string[]
-  reviewRequired: true
-  generatedBy: 'template' | 'model'
-  channel: 'app' | 'signage' | 'service-alert' | 'social'
-  language: string
-}
-
-export interface ProviderState {
-  available: boolean
-  model: string | null
-  baseUrl?: string
-  protocol?: 'openai' | 'ollama'
-  contextTokens?: number
-  reasoningEffort?: string
-  hasKey?: boolean
-  source?: string
-  testedAt?: string | null
 }

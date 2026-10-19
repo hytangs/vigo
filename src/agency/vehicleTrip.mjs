@@ -1,6 +1,5 @@
 import { localDate, rawId } from './agencyContext.mjs'
 import { fresh } from './routeOperations.mjs'
-import { agencyClock } from './agencyClock.mjs'
 
 // Resolve the public fleet label before looking at the destination, so an
 // advance assignment cannot win just because it serves the requested station.
@@ -32,26 +31,4 @@ export function vehicleTrip(context, snapshot, { vehicleId, routeId }, feeds, no
     tripId: match.trip.trip_id, serviceDate: match.serviceDate,
     routeId: match.trip.route_id, routeName: route?.short_name || route?.long_name || rawId(match.trip.route_id),
     observedAt: record.timestamp ?? feeds.get(record.sourceUrl)?.feedTimestamp ?? null }
-}
-
-export function describeVehicleArrival(board) {
-  const vehicle = board.vehicle
-  if (vehicle.issue) return vehicle.issue
-  const subject = `Vehicle ${vehicle.label}${vehicle.routeName ? ` on ${vehicle.routeName}` : ''}`
-  const row = board.rows[0]
-  if (!row) return `No upcoming time at ${board.stop.name} is available for vehicle ${vehicle.label}’s reported trip. The feed does not establish when it will arrive there.`
-  if (row.status === 'cancelled') return `${subject}’s reported trip is cancelled. Do not expect its scheduled arrival at ${board.stop.name}.`
-  if (row.status === 'skipped') return `${subject} is reported to skip ${board.stop.name} on this trip.`
-  if (row.atStop) return `${subject} is reported at ${board.stop.name} now.`
-  const now = Date.parse(board.generatedAt) / 1000
-  const today = agencyClock(board.generatedAt, board.timezone)?.date
-  const clock = seconds => {
-    const value = agencyClock(new Date(seconds * 1000).toISOString(), board.timezone)
-    return `${value.date !== today ? `${value.date} ` : ''}${value.time} ${value.zoneLabel}`
-  }
-  const timing = row[row.kind]
-  const scheduled = timing.scheduled == null ? '' : ` Scheduled ${row.kind}: ${clock(timing.scheduled)}.`
-  if (timing.current == null) return `${subject} has no ${row.status === 'stale' ? 'fresh' : row.status === 'unresolved' ? 'unambiguous' : 'reported'} ${row.kind} prediction at ${board.stop.name}.${scheduled}`
-  const minutes = Math.ceil((timing.current - now) / 60)
-  return `${subject} is expected to ${row.kind === 'departure' ? 'depart from' : 'arrive at'} ${board.stop.name} at ${clock(timing.current)} (${minutes > 0 ? `in about ${minutes} min` : 'due now'}).${scheduled}`
 }

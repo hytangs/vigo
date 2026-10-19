@@ -31,36 +31,6 @@ export class AgencyContext {
       }
       this.routeIndex = new Map(this.routes.map((route) => [route.route_id, route]))
       this.stopIndex = new Map(this.stops.map((stop) => [stop.stop_id, stop]))
-      const stopEntity = (row) => ({ kind: 'stop', id: row.stop_id, name: row.name, lat: row.lat, lon: row.lon, locationType: row.location_type })
-      // GTFS parent_station explicitly groups platforms into a station. Name
-      // lookup uses that declared identity, without a nearest-place guess.
-      const places = new Map()
-      for (const row of this.stops) {
-        if (![0, 1].includes(Number(row.location_type ?? 0))) continue
-        const parent = this.stopIndex.get(row.parent_station)
-        const place = parent && Number(parent.location_type) === 1 ? parent : row
-        if (!places.has(place.stop_id)) {
-          const names = [place.name, ...(Number(place.location_type) === 1 ? [`${place.name} station`] : [])]
-          // Exact typed and City-qualified labels still identify the same GTFS
-          // record. Do not strip words, fuzzy-match names or move coordinates.
-          places.set(place.stop_id, { ...stopEntity(place), aliases: names.flatMap(name => [name, `${name}, ${this.cityName}`]).map(name => name.toLocaleLowerCase()) })
-        }
-        places.get(place.stop_id).aliases.push(row.name.toLocaleLowerCase())
-      }
-      this.stopPlaces = [...places.values()]
-      this.routeEntities = this.routes.map(row => {
-        const names = [...new Set([row.short_name, row.long_name, rawId(row.route_id)].filter(Boolean))]
-        // Accept the exact typed labels used in the UI, just as station lookup
-        // does above. Every alias comes from an indexed record; collisions
-        // remain ambiguous rather than choosing a route by similarity.
-        return { kind: 'route', id: row.route_id, name: row.short_name || row.long_name || rawId(row.route_id), description: row.long_name,
-          aliases: names.flatMap(name => [name, `Route ${name}`]).map(name => name.toLocaleLowerCase()) }
-      })
-      this.stopsBySearchId = new Map()
-      for (const stop of this.stops) for (const key of new Set([stop.stop_id.toLocaleLowerCase(), rawId(stop.stop_id).toLocaleLowerCase()])) {
-        if (!this.stopsBySearchId.has(key)) this.stopsBySearchId.set(key, [])
-        this.stopsBySearchId.get(key).push(stopEntity(stop))
-      }
       this.calendar = this.db.prepare('SELECT * FROM calendar').all()
       this.exceptions = this.db.prepare('SELECT * FROM calendar_dates').all()
       const dates = [...this.calendar.flatMap(row => [row.start_date, row.end_date]), ...this.exceptions.filter(row => row.exception_type === 1).map(row => row.date)]
@@ -175,20 +145,4 @@ export class AgencyContext {
     return rows.filter(row => row.departure >= from && row.departure <= to)
   }
 
-  overview(epochSeconds) {
-    return { cityName: this.cityName, coverage: this.coverage(epochSeconds), counts: { routes: this.routes.length, stops: this.stops.length, trips: this.trips.length }, modes: [...new Set(this.routes.map((route) => route.route_type))], sources: this.scopes, scheduleRepresentation: 'VIGO SQLite connections; original terminal departures and untimed stop calls are not reconstructed.' }
-  }
-
-  resolve({ query = '', kind = 'all', limit = 12 }) {
-    const text = String(query).trim().toLocaleLowerCase()
-    if (!text || text.length > 200) throw new Error('Supply an entity name or ID, up to 200 characters.')
-    const exactStops = this.stopsBySearchId.get(text) ?? []
-    const entities = [
-      ...(kind === 'all' || kind === 'route' ? this.routeEntities : []),
-      ...(kind === 'all' || kind === 'stop' ? exactStops.length ? exactStops : this.stopPlaces : []),
-    ]
-    const exact = entities.filter((row) => row.id.toLocaleLowerCase() === text || rawId(row.id).toLocaleLowerCase() === text || row.name.toLocaleLowerCase() === text || row.aliases?.includes(text))
-    const matches = exact.length ? exact : entities.filter((row) => `${row.name} ${row.description ?? ''}`.toLocaleLowerCase().includes(text))
-    return { matches: matches.slice(0, Math.min(30, Math.max(1, Number(limit) || 12))).map(({ aliases, ...entity }) => entity), total: matches.length, method: exact.length ? 'exact' : 'literal substring', ambiguous: matches.length > 1 }
-  }
 }

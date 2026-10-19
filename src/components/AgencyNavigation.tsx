@@ -1,9 +1,9 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Download, FileText, Map, MoreHorizontal, Radio, RefreshCw } from 'lucide-react'
 
-export type AgencyMode = 'briefing' | 'live'
+export type AgencyMode = 'overview' | 'live'
 const views = [
-  { id: 'briefing', label: 'Network' },
+  { id: 'overview', label: 'Network' },
   { id: 'live', label: 'Routes' },
 ] as const
 

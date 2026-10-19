@@ -7,9 +7,6 @@ import { AgencyContext } from '../src/agency/agencyContext.mjs'
 import { deriveOperationalState } from '../src/agency/realtimeIntelligence.mjs'
 import { vehicleAlert } from '../src/agency/vehicleIndicators.ts'
 
-import { eventSentences } from '../src/agency/communications.mjs'
-import { summarizeEvidence } from '../src/agency/evidenceSummary.mjs'
-import { briefingFacts } from '../src/agency/briefing.mjs'
 import { observationReportMarkdown } from '../src/agency/observationExport.ts'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -54,11 +51,6 @@ try {
   const evidencePanel = renderToStaticMarkup(createElement(AgencyEvidence, { event, state: live, projectId: 'city', onBack() {}, onLocate() {}, onUpdate() {} }))
   assert.match(evidencePanel, /Local scheduled interval.*own scheduled separation is 20 min/)
   assert.doesNotMatch(evidencePanel, /undefined|NaN/)
-  const result = { ok: true, data: { events: [event], total: 1 }, provenance: event.sourceRefs, warnings: [] }
-  const trace = [{ tool: 'anomaly_scan', result }]
-  assert.match(summarizeEvidence(trace), /smallest local scheduled interval is 10 minutes.*scheduled 20 minutes apart/)
-  assert.match(eventSentences(event, context)[0].text, /smallest local scheduled interval after trip reordering/)
-  assert.match(briefingFacts(trace)[0].text, /smallest local scheduled interval after trip reordering/)
   assert.match(observationReportMarkdown(live, { exportedAt: live.generatedAt }), /smallest local scheduled interval 600 s; scheduled separation of these trips 1200 s/)
   for (const patch of [{ timestamp: now - 181 }, { timestamp: now + 181 }, { startDate: '20260912' }, { startTime: 'different' }, { currentStopSequence: 10 }, { currentStopSequence: 999 }, { stopId: 'A' }, { routeId: 'other' }, { id: 'other' }]) {
     const changed = structuredClone(snapshot)

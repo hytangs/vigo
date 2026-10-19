@@ -28,15 +28,6 @@ A passing public synthetic fixture verifies the exercised behavior. Use the exac
 
 Markdown is the source for the single offline guide, `docs/guide.html`. `docs/navigation.json` lists its pages: each one renders a Markdown file, a section of one, or several sections composed in order, and `aliases` keep links to retired anchors working. Run `npm run docs:build` after changing a page, then `npm run check:docs`. `npm run docs:standalone` regenerates the OpenAPI document and native field reference from the Rust structs. The same guide is embedded by the engine at `/`, bundled by Studio, and shipped in engine archives; it works offline and includes print styles. There is no separately maintained PDF manuscript.
 
-### Research interfaces
-
-These are bounded research tools with their own assumptions and evidence:
-
-- [Network service assessment](#network-service-assessment)
-- [LAMP running-time study](#saved-lamp-running-time-studies)
-- [Operations ledger](#agency-operations-prototype)
-- [Synthetic holding replay](#one-bus-one-control-point)
-
 ### Historical records
 
 The [validation archive](history.md#historical-records) retains dated development evidence. It is separate from the current usage instructions. Version history remains in the [changelog](../CHANGELOG.md).
@@ -158,16 +149,9 @@ calendars, accessibility policy, City publication, and application orchestration
 remain in JavaScript. The Rust operator is available to the addon and native
 library; the standalone executable does **not** yet build a City from raw data.
 
-The default connection compiler remains JavaScript. Select the experimental
-operator for a build with the internal environment switch:
-
-```sh
-VIGO_GTFS_CONNECTION_COMPILER=rust node public/vigo.mjs build \
-  --gtfs feed.zip --osm streets.osm.pbf --output candidate-city
-```
-
-`VIGO_GTFS_CONNECTION_COMPILER=js` explicitly selects the retained compiler.
-Unknown values and native errors fail the build; there is no automatic fallback.
+The Rust connection compiler is the only backend. The superseded JavaScript
+implementation and its environment selector have been removed. Native errors
+fail the build.
 The coordinator closes its staging and routing SQLite handles before handing
 ownership to Rust, then reopens the routing database for the remaining stages.
 Rust writes in a transaction and rolls back on an operator error. These are
@@ -180,21 +164,22 @@ permissions. A change to these semantics needs its own correctness review.
 Neither a new language nor a passing differential test makes the reference
 algorithm correct for every source feed.
 
-Run `npm run check:compiler` for seeded connection-table parity, full routing
-tables and Route/Matrix/Reach geometry across two scenario Cities, and the
-permanent 0.5 reader/writer gate. Only per-build identity and per-request timing
-fields are excluded from public-result comparison. The original frozen City
-archive and hashes remain unchanged. The published 0.5 runtime must read Cities
-from **both** compiler backends. The public Result field meanings, units and
-clocks remain unchanged; see the [permanent format contract](reference/format-0.5.0.md).
+Run `npm run check:compiler` for retained connection-table hashes from the removed
+0.5.2 JavaScript compiler, 80 seeded feed cases, malformed-input rollback,
+City build equivalence, the 100-case frozen routing corpus, and the permanent
+0.5 reader/writer gate. `test/fixtures/gtfs-connections-052.json` records the
+pre-removal source revision and expected normalized tables; it is an independent
+regression baseline, not a second executable compiler. The original frozen City
+archive and hashes remain unchanged. The published 0.5 runtime must read new
+Cities. Public Result meanings, units and clocks remain unchanged; see the
+[permanent format contract](reference/format-0.5.0.md).
 
 Use `npm run profile:compiler -- --runs 3 --output output/compiler-profile.json`
 after creating the output directory. The default fixture has 10,000 trips and
 200,000 stop-time rows; `--gtfs /path/to/feed.zip` measures a supplied feed locally.
 Each sample builds a new routing store in a fresh process. The report records
 input, source-tree and native-library hashes, phase wall times, connection-stage
-time, total build time, runner wall time, and process peak RSS. It alternates
-backend order. OS cache state and competing host workloads are uncontrolled;
+time, total build time, runner wall time, and process peak RSS. OS cache state and competing host workloads are uncontrolled;
 phase intervals are not CPU profiles, and process RSS is not a stage-specific
 peak. This covers GTFS import and static topology, not OSM preprocessing or
 complete City preparation. Private inputs and measurements stay outside the
@@ -204,17 +189,15 @@ The subsequent migration gates are:
 
 | Stage | Scope and acceptance evidence |
 | --- | --- |
-| GTFS compiler | Retain the JS oracle; compare admitted rows, calendars, exclusions, geometry and routed results on multiple real cities, including large feeds, frequency service, after-midnight service, scoped feeds and wheelchair profiles. Measure build time, memory and temporary storage before changing the default. |
+| GTFS compiler | Port remaining admission and preparation stages with their tests; compare retained admitted rows, calendars, exclusions, geometry and routed results. Measure build time, memory and temporary storage on matched workloads. |
 | OSM graph construction | Profile parsing, filtering, graph building and index preparation independently. Migrate the measured stage while preserving directed access, restrictions, station evidence and geometry. |
 | Scenario representation | Move canonical validation and incremental compilation behind a shared Rust representation; preserve stable identities, immutable shared streets, isolation and schedule semantics. |
 | City storage | Consolidate ownership of existing layouts and validation in Rust without requiring valid published 0.5 Cities to rebuild. New indexes remain optional to old readers and unnecessary to old Cities. |
 | Command and binding interfaces | Add native build orchestration after the operators compose independently; make Rust authoritative for shared validation, then generate or wrap language interfaces while retaining the public request/result contract. |
 
-Changing a default requires semantic parity, bidirectional historical-format
-compatibility, a meaningful resource improvement under a matched workload,
-and review of maintenance and deployment cost. Synthetic checks establish an
-initial regression boundary; they do not establish a cross-city performance
-claim or complete the 1.0 migration.
+Further migration requires semantic regression checks and bidirectional historical-format
+compatibility. Synthetic checks do not establish a cross-city performance claim
+or complete the 1.0 migration; resource measurements need matched workloads.
 
 ### Module boundaries
 
@@ -242,27 +225,39 @@ For current admission budgets, restart behavior, and test coverage, see
 
 `public/main.mjs` owns windows, menus, dialogs, and the `vigo://studio` resource scheme. `public/preload.cjs` exposes a small desktop bridge to an isolated renderer without Node access. Engine runs in a utility process; packaged Studio has no TCP listener. Packaging copies the shared `public/` distribution once.
 
-Network shares one route/station selection across its tabs, map, and line diagram. Known feed namespaces resolve against the City timetable; ambiguous bare IDs cannot select an agency. Station scope includes platforms, while a platform keeps its own events. Briefings retain their original observation; background assessments do not move the map.
+Network shares one route/station selection across its tabs, map, and line diagram. Known feed namespaces resolve against the City timetable; ambiguous bare IDs cannot select an agency. Station scope includes platforms, while a platform keeps its own events. Observation refreshes do not move the map.
 
 | Surface | Owner |
 | --- | --- |
 | Trip times and patterns | `AgencyTripTimetable`, `NetworkTimetable` |
 | Map and line | `VigoMap`, `AgencyRouteLine` |
 | Station board and evidence | `StopArrivalBoard`, `AgencyEvidence` |
-| Network briefing and retained evidence | `AgencyPanel`, `AgencyBriefing`, notebook |
+| Network overview and observation exports | `AgencyPanel`, `observationExport.mjs` |
 | Route/vehicle timing | `src/agency/routeOperations.mjs` |
 
-The Network service owns observation polling, timetable inspection, briefings, and retained operational evidence. Its tool registry does not call Route, Reach, Matrix, online place search, or general web search. Those routing operations use the structured Studio controls and the CLI. Ask and City skill installation/execution are removed; existing notebook records remain readable without a schema migration. Optional model settings and evidence export belong to the service briefing.
-
-Vehicle matching preserves service dates, including previous-day overnight trips. Network assessments share an immutable observation; method and denominators are documented in [service assessment](#network-service-assessment). Old ledger records remain readable, but new guidance requires current source identity. Notebook retrieval filters protect previously internal context in retained records.
+The Network service owns observation polling, timetable inspection, route/vehicle
+views, station boards and observation exports. Research briefings, model
+providers, rider drafts, notebooks, the operations ledger, holding replay and
+LAMP study readers are removed. Their stored files are left untouched. Network
+connection state now lives in `network.sqlite`; on first use it can read the old
+notebook observation without modifying that database. Explicit disconnects
+persist across restarts. Vehicle matching preserves service dates, including
+previous-day overnight trips.
 
 Studio Reach retains packed reached-edge data, lazily reuses decoded coordinates across cutoffs, and serializes large map-source replacement. Changing a displayed cutoff does not require rebuilding the street graph. Runtime fixtures check map updates and rapid cutoff changes.
 
 ### Storage and verification
 
-The complete CLI City directory is portable; individual databases and native files are implementation details. Studio library settings, drafts, notebooks, and connections are separate application state. The [operations ledger](#agency-operations-prototype) and [replay](#one-bus-one-control-point) remain active research interfaces with their own tests and storage. The [LAMP reader](#saved-lamp-running-time-studies) can inspect existing City studies.
+The complete CLI City directory is portable; individual databases and native files
+are implementation details. Studio library settings, drafts and feed connections
+are separate application state. Retired research data stays on disk and is no
+longer exposed through the Studio API.
 
-Use the [contribution guide](../.github/CONTRIBUTING.md) to choose checks. Routing fixtures verify feasibility and witnesses; desktop runtime fixtures verify interaction. Actual-provider evaluations are opt-in and separate from deterministic tests. No fixture or build proves field accuracy or model reliability.
+Use the [contribution guide](../.github/CONTRIBUTING.md) to choose checks. Routing
+fixtures verify feasibility and witnesses; desktop runtime fixtures verify
+interaction. Network checks include connection persistence, source replacement,
+access control, in-flight invalidation and preservation of legacy data. No fixture
+or build proves field accuracy.
 
 The [0.4.2 architecture audit](history.md#architecture-audit-for-042) records the freeze review,
 remaining cost centers, and reasons for retaining compatibility code.
@@ -654,9 +649,8 @@ simulated worker and several overlapping lifecycle suites.
 kills Engine processes, checks health after each restart, checks the retained
 window and sandbox settings, and verifies the crash limit and subsequent 503
 response. Browser polling uses
-real timers. Streaming and provider-deadline checks use real local sockets.
-Operations permissions, approval invalidation, SQLite transactions, audit history,
-and reopening retained records run against the production operations service.
+real timers. Streaming checks use real local sockets. Network persistence and
+access checks exercise the production service and real SQLite files.
 
 Canned model replies, substituted providers, worker emulators, global clock
 patches, browser-method spies, and injected storage exceptions were removed.
@@ -669,10 +663,9 @@ Pruning removes coverage previously supplied by canned model conversations,
 specific renderer refresh spies, simulated DNS changes, native-binding substitutions, forced file-deletion and
 storage-quota errors, and server-wide clock replacement. Those assertions are not counted as equivalent real integration coverage.
 The retained UI suites cover rendering, source updates, navigation, selection,
-draft persistence, and damaged-storage handling. Actual model behavior requires
-separately configured live evaluation; the release suite makes no model-quality
-claim. Frozen replay inputs and saved-study readers remain because runtime and
-research consumers still use them.
+draft persistence, and damaged-storage handling. Research model evaluations,
+synthetic holding inputs and saved-study readers have been removed with their
+retired runtime surfaces. User-owned research files remain untouched.
 
 ### Verification on this checkout
 
@@ -680,228 +673,8 @@ The dated 0.4.2 verification record is retained in the [release audit](history.m
 Checks cover native routing comparisons, TypeScript, import/request security,
 CLI/City portability, operational calculations, actual worker/Engine recovery,
 real browser interactions and the macOS ARM64 package. They do not establish
-other-platform behavior, live provider quality, or whole-process immunity to
+other-platform behavior, live feed accuracy, or whole-process immunity to
 memory exhaustion.
-
-## Agency operations prototype
-
-This backend prototype is outside the main Network / Routes workspace. Its API, records and service tests remain available for research. The workflow below describes internal API actions, not additional Studio buttons or a supported public integration API.
-
-The [operational replay](#one-bus-one-control-point) adds a synthetic holding decision through procedure selection, alternative comparison, approval, sandbox receipt and evidence-driven withdrawal. It reuses this ledger in separate replay storage. Internal knowledge and staff annotations are excluded from model context by default; approval alone does not authorize model disclosure.
-
-The City operations ledger keeps findings, source evidence, staff decisions and rider guidance together. It works without a model. Internal tools can read approved public operational context and historical comparisons; mutations require explicit API requests from an authorized principal.
-
-### Handle a finding
-
-1. Call `operations-track` for a current finding. The selected evidence, timetable identity, source references and quality summary are retained. Tracking the same event twice returns the existing record.
-2. Use `operations-transition` to acknowledge the finding, investigate, and record action. Each transition requires a note. Link approved, unexpired context relevant to the finding's route or stop when useful.
-3. Prepare rider guidance, or transition to monitoring. A missing event or stale feed leaves current availability **unknown**; it never resolves the case automatically.
-4. Resolve with an explicit outcome and evidence reference: staff-confirmed recovery, false positive, or unable to confirm. Resolved cases can be reopened for investigation. These labels are staff assessments, not independently verified ground truth.
-
-Evidence remains as captured until `operations-refresh` is used. A changed timetable requires a new finding against the new import. Every edit requires the current version; a stale client must reload before saving. Revision history preserves the preceding evidence and decisions.
-
-### Add shared context
-
-`knowledge-save` accepts SOPs, maintenance records, document excerpts and operating notes. Each record has a source reference, scope and review date. New entries and revisions start as drafts. Approval applies to that exact version. Expired or draft material cannot be linked as approved guidance.
-
-Keep source excerpts concise and identify their document revision or page. The API also supports exact stop scope. Content stays in the City ledger; no document crawler, embedding service or remote knowledge database is introduced. The internal `operational_context` tool retrieves up to five dated, versioned excerpts and labels their status. Retrieved text is treated as evidence, never executable instructions.
-
-### Prepare and deliver rider guidance
-
-Call `message-draft` with the finding, channel, and audience to create an English template from its evidence. Channels have declared product limits: app and service alert, 2,000 characters; social, 280; signage, 160. These are editable starting templates, not assertions about every downstream platform's limits. Oversized templates require editing before approval; text is never silently truncated.
-
-Audience choices are all riders, riders at a stop and accessible travel. Guidance asks riders to check departures or contact agency staff. It does not invent a disruption cause, recovery time, alternate route or guaranteed accessible connection.
-
-Saving a revision clears approval. A reviewer checks the wording and evidence, approves the saved version, then **releases it to the local outbox**. Approval and release require current unchanged evidence, an action or monitoring state, and unchanged approved knowledge. Drafts initially expire after 15 minutes; the API permits an explicit expiry within 24 hours. A new draft is required when its source evidence changes.
-
-`message-release` creates a durable local handoff containing the text, audience, channel, version, expiry, source evidence, and approval attribution. It does not transmit a message. After using the agency's own channel, staff can record its confirmation or public URL through `message-delivery`. That receipt is explicitly staff-recorded. `message-withdraw` preserves the prior revisions; staff must also remove an external copy in its channel. A repeated release request returns the same handoff rather than creating a duplicate.
-
-### Retain and compare history
-
-The first received observation in each five-minute bucket is retained for up to 90 days, capped at 25,920 samples. Samples include source clocks, coverage, quality flags and route prediction summaries. Repeated UI reads do not increase sample counts. The app must be open and its existing feed refresh active; idle suspension, shutdown and missed intervals do not generate synthetic observations.
-
-The history API compares a route with earlier service dates from the same timetable import, local weekday and hour. It first takes each day's median reported route maximum predicted departure delay, then the median across independent days. At least three earlier days are required. Insufficient coverage or sample counts remain unknown. A different import is excluded from the comparison. This is a descriptive prediction baseline, not actual vehicle performance, passenger waiting time or an anomaly detector.
-
-The history API also reports an expanding-window evaluation: each historical day's target is compared only with earlier days. It returns the number of held-out days and mean absolute error; no current or future day enters its training subset. There is no trained ML predictor. Paginated sample and record endpoints expose retained observations, staff outcomes and revisions for subsequent analysis without claiming that those annotations establish causal effects.
-
-### Access, storage and operation
-
-The shipped application remains a local, single-owner workspace. Its trusted host supplies `local-owner` with the `admin` role. No browser role selector, client-supplied identity or model tool can grant permissions. `createAgencyService` accepts a trusted `access(projectId)` callback for host-managed identity and City authorization; a missing or unauthorized identity fails closed.
-
-| Role | Capabilities |
-| --- | --- |
-| Viewer | Read records, evidence and history |
-| Operator | Viewer access; track findings, record decisions, draft knowledge and messages |
-| Reviewer | Operator access; approve another author's knowledge/message, release and record delivery |
-| Admin | Reviewer access; configure connections; explicit same-author approval capability for the local owner |
-
-There is no hosted login, SSO, agency directory or multi-user deployment in this change. A hosting integration must authenticate each request and supply its authorized principal through the trusted boundary; exposing the default local-owner service as a shared server would not provide user isolation. Admin approval is attributed in the ledger, not disguised as an independent reviewer.
-
-Each City owns `agency/operations.sqlite`, separate from the read-only timetable and existing notebook. A database records its owner and rejects reuse for a different City ID. Schema version 1 uses SQLite WAL, full synchronous commits, a bounded lock wait, indexed records and transactional audit writes. Newer schemas fail closed. Human records are capped at 10,000; capacity exhaustion reports an error instead of silently deleting decisions. Revision history is retained with human records. These are application-enforced audit records, not cryptographically tamper-proof storage against someone with filesystem access.
-
-The quality summary exposes source freshness failures, unresolved trip reports, timetable coverage and missing comparable departure pairs. Its alignment fraction uses **received reports** as its denominator. It does not claim the percentage of scheduled trips observed. `operations-health` reports database integrity, schema, counts, sample policy, last retained time, refresh activity and refresh/storage errors. History write failures are visible in Agency warnings; previous records are preserved. Live feed failures retain the previous observation while its source clocks continue aging.
-
-For a consistent backup, stop Studio and copy the entire City `agency` directory, including SQLite sidecar files if present. Retain the timetable with it to preserve evidence identity. Restore to the same City identity and verify `operations-health` before resuming. Moving or replacing the timetable invalidates comparisons that depended on its previous local identity. This feature does not add replication, continuous background hosting or a recovery-time guarantee.
-
-### API and verification
-
-Use the existing `POST /api/projects/:projectId/agency` endpoint. Every mutation supplies `id` and `version` after creation. No mutation is in the model tool catalogue.
-
-| Action group | Actions |
-| --- | --- |
-| Read | `operations-overview`, `operations-list`, `operations-record`, `operations-audit`, `operations-history`, `operations-baseline`, `operations-health` |
-| Findings | `operations-track`, `operations-refresh`, `operations-transition` |
-| Knowledge | `knowledge-save`, `knowledge-approve` |
-| Rider guidance | `message-draft`, `message-edit`, `message-approve`, `message-release`, `message-delivery`, `message-withdraw` |
-
-Lists return 50 records by default, up to 100, and accept `query.before` as the last returned ID (ascending IDs). Audit pages return 50 newest revisions and accept `before` as the last sequence. Observation pages return 100 newest samples and accept `before` as the last bucket. No external publication credentials are required or stored.
-
-`npm run check:agency` includes the operations service fixture, covering workflow notes, message revision, approval, local release, recorded receipt, audit and insufficient history. `node test/check-network-workspace-runtime.mjs` checks the active Network workspace, keyboard tabs and responsive widths. All observations and receipts in these tests are synthetic. Runtime data remain in ignored `temp/` storage.
-
-## Saved LAMP running-time studies
-
-The internal **Running-time prediction review** method and the `historical_runtime` tool read an existing MBTA LAMP study from the selected City's research directory at `lamp/study.json`. VIGO no longer includes the study-generation scripts, Python dependencies, or a retained example result.
-
-The reader reports training and evaluation dates, coverage, matched timetable errors, and route or segment summaries from the saved report. A filtered route view retains an explicitly labeled study-wide comparison. Missing studies are reported as unavailable.
-
-LAMP reconstructed stop events can include final arrival predictions. Saved results describe retrospective running-time comparisons, not independent sensor validation, live delay causes, recovery forecasts, or passenger impacts. MBTA results must not be applied to another agency because route names match.
-
-## Network service assessment
-
-The briefing starts with the distribution of conditions across reporting service. It then identifies shared locations, longer waits relative to the same scheduled departures, and what remains unreported. It is generated from the shared Agency observation and retained with its route and trip evidence.
-
-The computed assessment appears immediately. It leads with the spread of late predictions, then prioritizes shared-area delays separately from longer rider waits. Whole-minute descriptions support the finding; quantiles and route counts remain evidence, not the headline. The `network_overview` tool exposes a compact version of the same diagnosis.
-
-When a provider is configured and late predictions are present, a bounded investigation follows. The model chooses a focus and candidate explanations, then up to two additional evidence checks. Agency notices and upstream predictions are always checked. It assesses the resulting facts as plausible, weakened or unresolved, cites support and counterevidence, and chooses what to observe next. Two schema-constrained model calls have a shared 75-second deadline; no larger model is required. Invalid assessments retain the computed briefing and completed checks.
-
-### Measurements and denominators
-
-- **Service window:** the next 30 minutes, using the existing observation policy. Scheduled trips contribute only the seconds during which their indexed first departure–last arrival span intersects the window. Calendar exceptions and preceding service days with 24:00+ trips are included using the GTFS service clock. Frequency templates are explicitly excluded.
-- **Reporting coverage:** scheduled vehicle-minutes belonging to trips with a usable upcoming departure prediction or cancellation report, divided by all scheduled vehicle-minutes in the window. This weights frequent service by its actual scheduled supply. It is neither passenger coverage nor a health percentage.
-- **Timetable deviation:** one next departure per reporting trip instance. Median and 90th-percentile absolute deviations use empirical nearest ranks. Early, exactly matching, and late predictions are kept separate. Additional reporting trips outside the scheduled window remain in the timing distribution and are counted separately in coverage.
-- **Spacing:** only consecutive scheduled departures with both predictions at the same stop, direction and service date qualify. Equal intervals are retained. The same pair at multiple stops counts as one pair; its largest increase and stop extent are retained. Missing intermediate trips cannot become a measured service gap.
-- **History:** repeated late predictions require distinct source timestamps at the same trip and stop. The retained history supplies a measured duration and change, not an incident onset, actual passage history, or recovery forecast.
-
-All indexed routes receive a state. No predictions means unknown; no scheduled trips means no scheduled service in this window. A single late prediction is distinguished from several late predictions. These are descriptive states, not hidden severity thresholds or claims about an agency's on-time standard. Exact matching predictions establish only the checked next departures.
-
-### Spatial interpretation
-
-The geographic unit is an exact directed GTFS connection between stops. Overlapping scheduled-to-predicted departure windows on two or more routes identify a shared-location delay pattern. Adjacent segments connect only when the original segment observations have the same routes, overlapping windows, and a common affected trip. Connected components form the concentrations; an aggregate time envelope cannot create a new connection between otherwise separate observations. Each trip counts once in a concentration. Concentrations are ranked by summed positive departure delay across their distinct reporting trips, not the number of stop records or equal route weights.
-
-This establishes where predicted lateness overlaps. It does not establish that delay originated on that segment, a corridor travel-speed reduction, propagation, a common incident cause, or passenger demand. Reverse-direction segments and non-overlapping time windows remain separate. Stops with similar names or nearby coordinates are not merged. Labels come from the timetable; no Boston neighborhoods are embedded in the method.
-
-The implemented hierarchy is network → shared corridor/location → route → trip. Administrative regions, learned normal-variability ranges, passenger-weighted impact, and forecasts need additional agency data and validation. They are not fabricated to fill a five-layer diagram. Published alerts remain available in the shared observation and route views; the diagnosis does not infer a cause from their titles. The investigation can use an applicable notice as attributed evidence, with its stated route scope. Accessibility-only and no-effect notices are excluded from vehicle-delay explanations, while remaining available in the ordinary alerts views.
-
-### Bounded causal investigation
-
-`briefingInvestigation.mjs` chooses and executes checks through the existing tool registry. `serviceInvestigationEvidence.mjs` uses the same immutable observation as the diagnosis. `briefingInterpretation.mjs` constructs public facts and realizes the model's selected explanation. The model can select hypotheses and evidence IDs; it cannot generate new numerical observations, incident labels, probabilities or unrestricted prose in this briefing path.
-
-The candidate space is deliberately small: a shared corridor disruption, delay carried by individual trips, terminal/dispatch issues, or reporting inconsistency. The model can leave these unresolved. An upstream forecast can challenge a claim that delay began in the selected area, but does not establish an observed onset. Absent notices, missing vehicle positions and unavailable historical studies cannot be cited as support or counterevidence. Model-assessed plausible explanations precede unresolved or weakened ones. These remain working explanations, not calibrated causal classifications.
-
-A retained observation was tested with the configured local `qwen3.5:4b`. Unrestricted prose invented a blockage and confused scheduled intervals with conditions elsewhere; an early constrained version misused escalator notices. Neither behavior was accepted. The revised form separates notice effects, requires upstream evidence, and preserves support and counterevidence. In the retained test, delay already forecast upstream weakened a corridor-origin explanation. This single case does not establish general model reliability.
-
-The card shows the working explanation and next observation. An expandable investigation contains public evidence, not private model reasoning or JSON. Staff still need dispatch records, measured passage/speed data and corroborated incidents to establish a cause. The [LAMP reader](#saved-lamp-running-time-studies) can inspect an existing historical study; it does not confirm current delay causes.
-
-### Refresh and saved evidence
-
-The default is every 15 minutes while the network overview is open. Staff can choose 30 minutes, hourly, or manual. Preferences persist per City. Manual mode preserves the selected expiry interval; it stops automatic updates rather than declaring an old assessment current forever.
-
-The server reuses a current assessment across tabs and coalesces concurrent generation requests. Manual refresh explicitly requests a new assessment. Server responses carry current preferences so a tab with older settings cannot keep refreshing an hourly or paused briefing every render.
-
-Each card displays the assessment time, scheduled window and next refresh/expiry. Whole-minute headlines omit interval differences that would round to identical values; exact comparisons remain in the diagnosis. Expired cards, previous timetable revisions and loss of previously fresh prediction feeds do not retain a current-looking narrative. Saved originals remain readable and explicitly dated. A one-shot expiry timer and window-focus check handle idle tabs; there is no minute-by-minute model polling. Source conditions may change within a briefing interval: the displayed assessment time is the observation it describes, not a claim of continuous verification.
-
-### Implementation and verification
-
-`realtimeIntelligence.mjs` retains complete measurements server-side. `serviceWindow.mjs` caches timetable spans per read-only context. `serviceConcentrations.mjs`, `networkDiagnosis.mjs`, and `networkNarrative.mjs` separate spatial grouping, aggregation and communication. `briefingSchedule.mjs` owns refresh validation and expiry. `NetworkAssessment.tsx` renders both the live card and saved evidence.
-
-Run `node test/check-network-diagnosis.mjs` or `npm run check:agency`. Fixtures cover complete and incomplete coverage, equal intervals, one vote per trip, cancellations, stale and duplicate records, arrival-only updates, spatial overlap and separation, direction, no mutation of the shared observation, repeated source observations, overnight service, DST, caching, expiry, persistence and zero LLM calls for the computed briefing. UI, type, documentation and production build checks accompany the change.
-
-### Public references
-
-[GTFS Trip Updates](https://gtfs.org/documentation/realtime/feed-entities/trip-updates/) explicitly distinguishes absent realtime information from on-time service and specifies trip-instance and stop-update semantics. The implementation preserves that distinction.
-
-[TransitMatters Data Dashboard 3.0](https://transitmatters.org/blog/datadashboard3) illustrates the value of service-level measurements and bus performance analysis. VIGO's current prediction-window assessment is not equivalent to its historical performance dataset; no parity or superiority claim is made.
-
-## One bus, one control point
-
-VIGO Studio's replay API demonstrates a decision from source evidence to a withdrawn rider message. Run `npm run evaluate:replay` to exercise the backend sequence. There is no Replay panel in Studio. This uses a synthetic City X, separate storage, a fixed timetable and a controllable clock. It does not connect to dispatch or publish to riders.
-
-The implementation reuses the operations ledger, finding transitions, knowledge approvals, message revisions and outbox. New modules supply replayable inputs, applicable procedure selection, holding comparisons and a sandbox transport. VIGO's routing engine and live network assessment are unchanged.
-
-### Replay sequence in the evaluation harness
-
-1. Load the uneven-spacing scenario. Successive departures are predicted 3 and 17 minutes apart, against a 10-minute timetable. The selected bus is reported stopped at River control point.
-2. Inspect the selected applicable procedure. The synthetic SOP limits holding to 180 seconds, requires a clear berth and completed boarding, protects the following headway and caps downstream delay. An expired section and another stop's procedure are excluded.
-3. Compare no intervention, a target-headway baseline and the passenger-time optimizer. Prepare an option and review its rider message.
-4. Approve the exact option and message. Send to the sandbox: the first attempt deliberately simulates a temporary transport failure. Retry records one receipt; repeated delivery requests cannot duplicate it.
-5. Advance to the next observation. The bus is now reported in transit. The approved hold is no longer feasible, and its delivered sandbox message is withdrawn. Advancing the clock past expiry exercises a separate stale-clock case.
-
-The replay clock pauses between actions. The 90-second decision lifetime uses that clock, not the operator's wall-clock reading time. Restart restores the active run and audit. New runs preserve previous records in the replay ledger; export a run before switching to retain its complete portable review package.
-
-| Synthetic case | No hold: modeled passenger-minutes | Baseline | Optimizer | Decision |
-| --- | ---: | --- | --- | --- |
-| Even service | 400 | 0 seconds | 0 seconds | No extra hold |
-| Uneven spacing | 596 | 180 s → 584 passenger-minutes | 120 s → 580 passenger-minutes | Compare a shorter hold |
-| Stale observations | Unknown | Unavailable | Unavailable | Obtain current evidence |
-| Conflicting procedures | Not evaluated | Unavailable | Unavailable | Escalate |
-| High onboard load | 500 | 180 s → 716 passenger-minutes | 0 s → 500 passenger-minutes | No extra hold |
-
-The high-load example illustrates the trade-off: restoring headways can worsen the modeled passenger outcome. These are simulated outcomes over a small downstream horizon, not measured passenger benefits or whole-route forecasts.
-
-### Data and procedure selection
-
-The [complete input package](../src/agency/replay/holding-v1/manifest.json) contains five cases: three development scenarios and two held-out variants. Expected actions are developer-authored, not expert agency labels, and are excluded from model prompts.
-
-- `timetable.json` contains the exact miniature GTFS tables: agency, route, stops, trips, stop times, dated calendar exceptions and feed version `SYN-HOLD-1`.
-- Each case preserves **authored synthetic** VehiclePosition and TripUpdate observations using a GTFS-Realtime JSON field mapping, including source/entity timestamps. These are not captured agency feeds or records reconstructed from the derived headways.
-- `procedures.json` preserves source passages, revisions, sections, effective periods, asset scope, prerequisites and authority. Its approval identities are synthetic.
-- The manifest fixes clocks, passenger inputs, filenames, expected actions and known unknowns. Raw source contents and versions determine equality; paths, modification times and digests do not identify the evidence. This establishes equality, not authenticity or tamper resistance.
-
-This narrow replay adapter requires its explicit UTC timetable and date exceptions. Duplicate trip/stop matches, inconsistent service dates/directions, skipped stops and missing departures are rejected. It does not replace VIGO's production GTFS importer. A second agency needs real inputs, approved control points and an actual reviewer; changing a label would not establish transferability.
-
-Replay records live in the City's `agency/replay/operations.sqlite`, separate from live operations. Export includes the package, candidate, message, receipt and revisions.
-
-Knowledge records optionally carry structured `procedure` metadata. `knowledge-select` accepts exact route/stop IDs, query text and confirmed prerequisite identifiers; the server supplies the current clock. Selection removes unapproved, future, expired, out-of-scope, superseded and prerequisite-incomplete sections **before** SQLite FTS5/BM25 ranking. Conflicting limits or authority remain a conflict regardless of text rank. Results include the supporting passage and applicability explanation.
-
-`knowledge-save` accepts and preserves structured metadata with revision/section information. Replay imports its versioned example directly. PDF ingestion, semantic retrieval and an expert-labelled retrieval study are not implemented. A lexical miss returns no matching section rather than substituting an unrelated procedure.
-
-### Method and assumptions
-
-At each modeled downstream stop, `a` and `b` are predicted headways ahead and behind the selected bus, `λ` is the assumed passenger arrival rate, `L` is the supplied onboard load and `h` is additional holding in seconds:
-
-```text
-J(h) = Σ λ/2 × [(a + h)² + (b − h)²] + Lh
-h*   = [Σ λ(b − a) − L] / [2Σ λ]
-```
-
-The code evaluates the neighboring integer seconds and feasible endpoints of this convex objective. The interval intersects maximum holding, minimum following headway and maximum downstream delay constraints. Already-breached constraints, missing loads, stale sources or unconfirmed control-point presence return an unavailable result. Computation checks cancellation and a 250 ms deadline, with at most 50 downstream stops; no optimization server is needed.
-
-The baseline is `max(0, scheduled headway − current forward headway)`, clipped to the same constraints. It is a declared toy comparator, not an agency-agreed practice or an implementation of a named research model.
-
-Assumptions: stationary uniform passenger arrivals; fixed running times; no overtaking; unlimited boarding capacity; constant supplied onboard load; no additional boarding during the control-point hold. The objective counts waiting over two headways at listed stops plus onboard holding. Capacity-denied boarding, dwell changes, transfers and network propagation are absent. No observed cause, recovery time, restricted-route alternative or accessible journey is established.
-
-The distinction between headway regularity, schedule adherence and onboard delay is informed by [Xuan, Argote and Daganzo (2011)](https://www.ocf.berkeley.edu/~xuanyg/doc/Xuan_Argote_Daganzo_2011_TR-B.pdf). [Analytic holding with capacity limits](https://ris.utwente.nl/ws/portalfiles/portal/236315329/1_s2.0_S0968090X20307208_main.pdf) illustrates a material omission from this toy model. Neither paper's controller is claimed as integrated code. Vehicle-presence and departure fields follow the [GTFS-Realtime reference](https://gtfs.org/documentation/realtime/reference/).
-
-### AI and privacy
-
-Optional review uses two model calls: choose an evidence check, then select an existing candidate or escalate. The server always supplies both the applicable procedure and computed alternatives. It does not spend a call choosing the only remaining mandatory check. Candidate IDs and evidence references are validated; the model cannot add durations, causes, recovery, approval or delivery. The internal `compare_holding` tool exposes the same comparison for an already-open synthetic case.
-
-Actual staff context now defaults to **internal**. Internal SOPs, tracked finding notes and notebook annotations are excluded from model retrieval. Legacy answers that consulted internal-context tools without the current data policy are conservatively excluded from subsequent model history/retrieval. New answers produced under the public-context policy remain available. A document must be explicitly marked public, approved and unexpired before its excerpt may reach the model. Legacy approval alone does not authorize disclosure.
-
-The replay model receives only public synthetic data and has no web or publishing tools. The public synthetic case and its selected evidence checks go to the configured inference endpoint. Localhost is not proof of local inference, forwarding policy, retention or security. This is a data-selection boundary, not security certification or erasure of material already transmitted by older versions.
-
-### Evaluation and reproduction
-
-```sh
-npm run evaluate:replay
-node test/check-operational-replay.mjs
-# With an explicitly configured VIGO_AGENCY_LLM_* connection:
-npm run evaluate:replay -- --ai
-```
-
-Each evaluation writes results under `output/replay/evaluations/`. These generated reports are local outputs. The cases use synthetic inputs and developer-authored expectations; they do not establish staff decisions or observed service impact.
-
-Tests cover procedure scope, expiry, conflicts, optimizer calculations, denied approvals, outdated revisions, atomic rollback, cancellation, duplicate delivery, withdrawal and restart.
 
 ## GTFS support matrix
 

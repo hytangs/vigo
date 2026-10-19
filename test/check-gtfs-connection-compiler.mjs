@@ -4,7 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { compileNativeGtfsConnections } from '../src/server/native-routing-kernel.mjs'
-import { compileGtfsConnectionsJs, gtfsConnectionCompilerBackend } from '../src/server/gtfs/connection-compiler.mjs'
+import { createHash } from 'node:crypto'
+const baseline = JSON.parse(fs.readFileSync(new URL('./fixtures/gtfs-connections-052.json', import.meta.url))).cases
+const digest = rows => createHash('sha256').update(JSON.stringify(rows)).digest('hex')
 import { createRoutingStoreSchema } from '../src/server/gtfs/store-schema.mjs'
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-connection-parity-'))
@@ -36,43 +38,26 @@ function compare(name, data, errorPattern) {
   const f = fixture(name, data), nativePath = `${f.store}.native`
   fs.copyFileSync(f.store, nativePath)
   const before = contents(nativePath)
-  const db = new DatabaseSync(f.store), stage = new DatabaseSync(f.stagePath, { readOnly: true })
-  let js, jsError
-  try { js = compileGtfsConnectionsJs({ db, stage, excludedTripIds: new Set(f.excluded) }) }
-  catch (error) { jsError = error; db.exec('ROLLBACK') }
-  finally { db.close(); stage.close() }
   const runNative = () => compileNativeGtfsConnections({ storePath: nativePath, stopTimesPath: f.stagePath, excludedTripIds: f.excluded, cacheKib: 4096 })
   if (errorPattern) {
-    assert.match(jsError?.message ?? '', errorPattern, `${name}: JS rejection`)
     assert.throws(runNative, errorPattern, `${name}: native rejection`)
     assert.deepEqual(contents(nativePath), before, `${name}: native failure must roll back all connections and frequency metadata`)
   } else {
-    assert.ifError(jsError)
-    assert.deepEqual(runNative(), js, `${name}: counters`)
-    assert.deepEqual(contents(nativePath), contents(f.store), `${name}: persisted rows`)
+    assert.deepEqual(runNative(), baseline[name].counters, `${name}: retained counters`)
+    assert.equal(digest(contents(nativePath)), baseline[name].rowsSha256, `${name}: retained persisted rows`)
   }
-  return { js, rows: contents(nativePath) }
+  return { counters: baseline[name]?.counters, rows: contents(nativePath) }
 }
 try {
-  const original = process.env.VIGO_GTFS_CONNECTION_COMPILER
-  try {
-    delete process.env.VIGO_GTFS_CONNECTION_COMPILER
-    assert.equal(gtfsConnectionCompilerBackend(), 'js')
-    process.env.VIGO_GTFS_CONNECTION_COMPILER = 'typo'
-    assert.throws(gtfsConnectionCompilerBackend, /must be js or rust/)
-  } finally {
-    if (original === undefined) delete process.env.VIGO_GTFS_CONNECTION_COMPILER
-    else process.env.VIGO_GTFS_CONNECTION_COMPILER = original
-  }
   const stop = (sequence, id, arrival, departure = arrival, board = 1, alight = 1, trip = 'T') => [trip, sequence, id, arrival, departure, board, alight]
   compare('empty', { rows: [] })
   compare('singleton', { rows: [stop(1, 'A', 0)] })
   const gap = compare('gap-and-after-midnight', { rows: [stop(4, 'C', 90060, null, 1, 0), stop(1, 'A', null, 90000, 0), stop(2, 'B', null)] })
-  assert.equal(gap.js.bridgedUntimedGapCount, 1)
+  assert.equal(gap.counters.bridgedUntimedGapCount, 1)
   assert.deepEqual(Object.values(gap.rows.connection_permissions[0]), ['T', 1, 0, 0])
   const frequency = compare('overlapping-exact-windows', { rows: [stop(1, 'A', 100), stop(2, 'B', 120)], frequencies: [['T', 100, 160, 30, 1], ['T', 130, 190, 30, 1]] })
-  assert.equal(frequency.js.connectionCount, 4)
-  assert.equal(frequency.js.exactFrequencyExpandedTripCount, 4)
+  assert.equal(frequency.counters.connectionCount, 4)
+  assert.equal(frequency.counters.exactFrequencyExpandedTripCount, 4)
   compare('untimed-first-frequency', { rows: [stop(1, 'A', null), stop(2, 'B', 120), stop(3, 'C', 140)], frequencies: [['T', 100, 160, 30, 1]] })
   compare('excluded-inexact', { rows: [stop(1, 'A', 100), stop(2, 'B', 120)], excluded: ['T'], frequencies: [['T', 100, 160, 30, 0]] })
   compare('missing-stop', { rows: [stop(1, 'A', 100), stop(2, 'B', 120), stop(3, 'missing', 130)], frequencies: [['T', 100, 160, 30, 1]] }, /Broken GTFS reference stop_times.stop_id/)
@@ -101,5 +86,5 @@ try {
   assert.throws(() => compileNativeGtfsConnections({ storePath: `${f.store}.missing`, stopTimesPath: f.stagePath, excludedTripIds: [], cacheKib: 4096 }))
   assert.equal(fs.existsSync(`${f.store}.missing`), false)
   assert.throws(() => compileNativeGtfsConnections({ storePath: f.store, stopTimesPath: f.stagePath, excludedTripIds: [], cacheKib: 0 }), /cacheKiB/)
-  console.log('GTFS compiler parity: 80 seeded feeds, scoped identities, gaps, frequencies, permissions, malformed input and native rollback passed.')
+  console.log('Rust GTFS compiler regression: 80 seeded feeds, scoped identities, gaps, frequencies, permissions, malformed input and native rollback passed.')
 } finally { fs.rmSync(root, { recursive: true, force: true }) }

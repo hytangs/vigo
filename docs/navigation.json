@@ -125,11 +125,7 @@
     {"id": "routing-accuracy", "title": "Checking routing accuracy", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "checking-routing-accuracy"},
     {"id": "runtime-recovery", "title": "Runtime limits and recovery", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "runtime-limits-and-recovery"},
     {"id": "gtfs-support", "title": "GTFS support", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "gtfs-support-matrix"},
-    {"id": "benchmarking", "title": "Service benchmarking", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "reproduce-a-service-workload"},
-    {"id": "agency-operations", "title": "Agency operations prototype", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "agency-operations-prototype"},
-    {"id": "lamp-runtime-study", "title": "Saved LAMP running-time studies", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "saved-lamp-running-time-studies"},
-    {"id": "network-service-assessment", "title": "Network service assessment", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "network-service-assessment"},
-    {"id": "operational-replay", "title": "One bus, one control point", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "one-bus-one-control-point"}
+    {"id": "benchmarking", "title": "Service benchmarking", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "reproduce-a-service-workload"}
   ],
   "aliases": {
     "docs/guides/rust-standalone.md": "engine",

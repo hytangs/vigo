@@ -31,15 +31,13 @@ if (process.argv[2] === '--worker') {
 } else {
   const args = process.argv.slice(2), options = {}
   for (let i = 0; i < args.length; i += 2) {
-    if (!['--gtfs', '--runs', '--trips', '--backends', '--output'].includes(args[i]) || !args[i + 1]) {
-      throw new Error('Usage: profile-gtfs-compiler.mjs [--gtfs ZIP] [--runs 3] [--trips 10000] [--backends js,rust] [--output JSON]')
+    if (!['--gtfs', '--runs', '--trips', '--output'].includes(args[i]) || !args[i + 1]) {
+      throw new Error('Usage: profile-gtfs-compiler.mjs [--gtfs ZIP] [--runs 3] [--trips 10000] [--output JSON]')
     }
     options[args[i].slice(2)] = args[i + 1]
   }
   const runs = Number(options.runs ?? 3), trips = Number(options.trips ?? 10000)
-  const backends = (options.backends ?? 'js,rust').split(',')
-  if (!Number.isSafeInteger(runs) || runs < 1 || runs > 30 || !Number.isSafeInteger(trips) || trips < 1 || trips > 100000
-    || backends.some(backend => !['js', 'rust'].includes(backend))) throw new Error('Invalid profile bounds or backend.')
+  if (!Number.isSafeInteger(runs) || runs < 1 || runs > 30 || !Number.isSafeInteger(trips) || trips < 1 || trips > 100000) throw new Error('Invalid profile bounds.')
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-compiler-profile-'))
   try {
     let zipPath = options.gtfs && path.resolve(options.gtfs)
@@ -65,14 +63,14 @@ if (process.argv[2] === '--worker') {
     const sourceTreeSha256 = sourceTreeHash()
     const nativeSha256 = hash(fs.readFileSync(path.join(root, 'native/vigo-routing-kernel/vigo-routing-kernel.node')))
     const samples = []
-    for (let run = 0; run < runs; run++) for (const backend of run % 2 ? [...backends].reverse() : backends) {
+    for (let run = 0; run < runs; run++) {
       const started = performance.now()
-      const value = JSON.parse(execFileSync(process.execPath, [fileURLToPath(import.meta.url), '--worker', zipPath, path.join(scratch, `${run}-${backend}.sqlite`)], {
+      const value = JSON.parse(execFileSync(process.execPath, [fileURLToPath(import.meta.url), '--worker', zipPath, path.join(scratch, `${run}.sqlite`)], {
         cwd: root, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
-        env: { ...process.env, VIGO_GTFS_CONNECTION_COMPILER: backend }, stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe'],
       }))
-      if (value.compilation.length !== 1 || value.compilation[0].backend !== backend) throw new Error('Compiler profile did not observe the requested backend.')
-      samples.push({ run, backend, runnerWallMs: performance.now() - started, ...value })
+      if (value.compilation.length !== 1 || value.compilation[0].backend !== 'rust') throw new Error('Compiler profile did not observe the native connection compiler.')
+      samples.push({ run, backend: 'rust', runnerWallMs: performance.now() - started, ...value })
     }
     if (sourceTreeHash() !== sourceTreeSha256 || hash(fs.readFileSync(path.join(root, 'native/vigo-routing-kernel/vigo-routing-kernel.node'))) !== nativeSha256) {
       throw new Error('Source tree or native library changed during profiling; discard these measurements and rerun.')
@@ -85,7 +83,7 @@ if (process.argv[2] === '--worker') {
       input: { kind: options.gtfs ? 'supplied' : 'synthetic', sha256: hash(fs.readFileSync(zipPath)), bytes: fs.statSync(zipPath).size, ...(!options.gtfs ? { trips, stopsPerTrip: 20 } : {}) },
       boundaries: { buildWallMs: 'GTFS import through published routing store and static topology; no OSM, City sealing, or query',
         runnerWallMs: 'fresh worker process including startup, imports, build and JSON output',
-        compilation: 'connection compilation including native binding and database handoff when selected; excludes stop-time ordering',
+        compilation: 'connection compilation including native binding and database handoff; excludes stop-time ordering',
         phases: 'wall intervals between progress phase events, not CPU samples',
         peakRssKiB: 'whole worker process high-water RSS including native code; not a stage-specific peak', cache: 'fresh process and output per sample; OS filesystem cache and other host workload uncontrolled' }, samples }
     const json = JSON.stringify(report, null, 2) + '\n'

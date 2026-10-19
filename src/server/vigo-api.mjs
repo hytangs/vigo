@@ -4513,19 +4513,7 @@ async function route(request, response) {
 
     if (action === 'agency') {
       if (request.method === 'GET') sendJson(response, 200, await agency.state(projectId, { routeId: url.searchParams.get('routeId') || '', stopId: url.searchParams.get('stopId') || '', eventType: url.searchParams.get('eventType') || '' }))
-      else if (request.method === 'POST') await withRequestAbort(request, response, async (signal) => {
-        const body = await readBody(request)
-        if (body.action !== 'briefing' || !String(request.headers.accept ?? '').includes('application/x-ndjson')) {
-          sendJson(response, 200, await agency.handle(projectId, body, signal)); return
-        }
-        response.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' })
-        const write = (value) => { if (!signal.aborted && !response.destroyed && !response.writableEnded) response.write(`${JSON.stringify(value)}\n`) }
-        try {
-          const result = await agency.handle(projectId, body, signal, (progress) => write(progress.preliminary ? { ...progress.preliminary, type: 'preliminary' } : { type: 'progress', progress }))
-          write({ type: 'complete', ...result })
-        } catch (error) { if (!signal.aborted) write({ type: 'error', error: error.message }) }
-        finally { if (!response.writableEnded) response.end() }
-      })
+      else if (request.method === 'POST') sendJson(response, 200, await agency.handle(projectId, await readBody(request)))
       else sendJson(response, 405, { error: 'Method not allowed.' })
       return true
     }

@@ -33,7 +33,7 @@ try {
   assert.equal(delayed.routes[0].headway, 'unknown')
   assert.equal(delayed.routes[0].widestInterval, null, 'One reporting trip cannot establish a gap')
   const laterService = derive(realtimeFixture([tripUpdate('T1', 7200)]))
-  assert.equal(laterService.routes[0].maxDelaySeconds, null, 'Future departures outside the current window do not lead a live briefing')
+  assert.equal(laterService.routes[0].maxDelaySeconds, null, 'Future departures outside the current window do not lead the live overview')
   assert.equal(laterService.events.some((event) => event.type === 'delay'), false)
   const compressed = derive(realtimeFixture([tripUpdate('T1', 300), tripUpdate('T2')]))
   assert.equal(compressed.events.find((event) => event.type === 'bunching').evidence.headwayRatio, 0.5)
@@ -122,8 +122,6 @@ try {
   context.routes.pop()
   alert.alerts[0].activePeriods[0].end = observationTime
   assert.equal(derive(alert).counts.alerts, 0)
-  assert.equal(context.resolve({ query: 'River', kind: 'stop' }).matches[0].id, 'STA', 'Use the declared parent station for place names')
-  assert.equal(context.resolve({ query: 'A', kind: 'stop' }).matches[0].id, 'A', 'An explicit platform ID retains its identity')
   const history = createObservationHistory()
   assert.equal(history.update(delayed).tripHistory['T1/2026-09-13'].length, 1)
   assert.equal(history.update(delayed).tripHistory['T1/2026-09-13'].length, 1)

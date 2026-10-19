@@ -2,21 +2,21 @@ import { realtimeSources } from '../shared/realtime-sources.mjs'
 import { indexedEntityId, workspaceSelection, selectedStopIds, eventInSelection } from '../agency/workspaceSelection.mjs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { createNotebook } from '../agency/notebook.mjs'
-import { networkBriefing } from '../agency/briefing.mjs'
+import { createObservationStore } from '../agency/observationStore.mjs'
+
 import { AgencyContext } from '../agency/agencyContext.mjs'
 import { createObservationHistory, deriveOperationalState, defaultPolicy } from '../agency/realtimeIntelligence.mjs'
-import { createToolRegistry } from '../agency/toolRegistry.mjs'
-import { createProvider } from '../agency/provider.mjs'
 import { routeOperations, vehicleDetails } from '../agency/routeOperations.mjs'
 import { stopBoard } from '../agency/stopBoard.mjs'
-import { createOperationsStore } from '../agency/operationsStore.mjs'
-import { operationsActions, handleOperations } from '../agency/operationsService.mjs'
-import { authorize, recordIdentity } from '../agency/operations.mjs'
-import { createReplayService } from '../agency/replayService.mjs'
-import { briefingPreferences, defaultBriefingPreferences, briefingStatus } from '../agency/briefingSchedule.mjs'
 
-export function createAgencyService(adapters, { provider = createProvider(), clock = () => Date.now(), policy = defaultPolicy, refreshMs = 10_000,
+function authorize(principal, configure = false) {
+  if (!principal || typeof principal.id !== 'string' || !principal.id.trim() || principal.id.length > 120
+    || !['viewer', 'operator', 'reviewer', 'admin'].includes(principal.role) || configure && principal.role !== 'admin') {
+    throw Object.assign(new Error('This account cannot perform this action.'), { statusCode: 403 })
+  }
+}
+
+export function createAgencyService(adapters, { clock = () => Date.now(), policy = defaultPolicy, refreshMs = 10_000,
   access = async () => ({ id: 'local-owner', role: 'admin' }) } = {}) {
   const sessions = new Map()
   const revisions = new Map()
@@ -29,9 +29,7 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
     if (!session.active && !session.disposed) {
       session.disposed = true
       session.context.close()
-      session.notebook.close()
-      session.operations.close()
-      session.replay?.close()
+      session.observation.close()
     }
   }
   async function withSession(projectId, run) {
@@ -43,7 +41,7 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
     const revision = revisions.get(projectId)
     const { storePath, cityName, agencyDirectory, feedIds = [] } = await adapters.context(projectId)
     const stat = await fs.stat(storePath)
-    if (closed) throw new Error('Agency service is closed.')
+    if (closed) throw new Error('Network service is closed.')
     if (revision !== revisions.get(projectId)) throw Object.assign(new Error('City data changed. Please retry.'), { statusCode: 409 })
     let session = sessions.get(projectId)
     if (session && (session.storePath !== storePath || session.modified !== stat.mtimeMs)) {
@@ -56,21 +54,19 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
         const [oldId, old] = [...sessions].sort((a, b) => a[1].lastRead - b[1].lastRead)[0]
         retire(old); sessions.delete(oldId)
       }
-      const notebook = createNotebook(agencyDirectory || path.join(path.dirname(storePath), 'agency'))
-      let context, operations
+      const observation = createObservationStore(agencyDirectory || path.join(path.dirname(storePath), 'agency'))
+      let context
       try {
         context = new AgencyContext(storePath, cityName)
-        operations = createOperationsStore(notebook.directory, projectId, clock)
-        const saved = notebook.get('observation') ?? {}
-        const scheduleIdentity = recordIdentity([storePath, stat.size, stat.mtimeMs])
+        const saved = observation.get() ?? {}
+        const scheduleIdentity = JSON.stringify([storePath, stat.size, stat.mtimeMs])
         // A retained raw-ID snapshot belongs to the timetable it was resolved
         // against. Reimport/merge must obtain new source-scoped observations.
         const retained = saved.scheduleIdentity === scheduleIdentity ? saved : { request: saved.request }
-        session = { notebook, storePath, modified: stat.mtimeMs, context, snapshot: retained.snapshot ?? null, request: retained.request ?? null, generation: 0, inFlight: null, timer: null,
+        session = { observation, storePath, modified: stat.mtimeMs, context, snapshot: retained.snapshot ?? null, request: retained.request ?? null, generation: 0, inFlight: null, timer: null,
           active: 0, retired: false, disposed: false, history: createObservationHistory(policy, retained), lastRead: clock() }
-        session.operations = operations
         session.scheduleIdentity = scheduleIdentity
-      } catch (error) { operations?.close(); context?.close(); notebook.close(); throw error }
+      } catch (error) { context?.close(); observation.close(); throw error }
       sessions.set(projectId, session)
     }
     session.lastRead = clock()
@@ -82,9 +78,7 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
 
   function current(session) {
     const state = deriveOperationalState(session.context, session.snapshot, clock() / 1000, policy)
-    try { session.operations.observe(state, session.scheduleIdentity); session.storageError = null }
-    catch (error) { session.storageError = `Operations history could not be retained: ${error.message}` }
-    return { ...state, ...session.history.update(state), warnings: [...state.warnings, ...(session.storageError ? [session.storageError] : []), ...(session.refreshError ? [session.refreshError] : [])], provider: provider.status?.() ?? { available: provider.available, model: provider.model } }
+    return { ...state, ...session.history.update(state), warnings: [...state.warnings, ...(session.refreshError ? [session.refreshError] : [])] }
   }
 
   async function refresh(session) {
@@ -96,7 +90,7 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
       let snapshot
       try { snapshot = await adapters.inspectRealtime(request, { feedIds: session.feedIds, sourceScopes: session.context.scopes }); if (generation === session.generation) session.refreshError = null }
       catch (error) { if (generation === session.generation) session.refreshError = `Realtime refresh failed: ${error.message}`; throw error }
-      if (generation === session.generation) { session.snapshot = snapshot; const { history, tripHistory } = current(session); session.notebook.set('observation', { request: session.request, snapshot, history, tripHistory, scheduleIdentity: session.scheduleIdentity }) }
+      if (generation === session.generation) { session.snapshot = snapshot; const { history, tripHistory } = current(session); session.observation.set({ request: session.request, snapshot, history, tripHistory, scheduleIdentity: session.scheduleIdentity }) }
       return session.snapshot
     })().finally(() => { session.inFlight = null })
     return session.inFlight
@@ -115,7 +109,7 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
         session.history = createObservationHistory(policy)
         // Commit the new source before its fetch. A failed replacement must never
         // present or restore an observation from the previously connected feed.
-        session.notebook.set('observation', { request, snapshot: null, history: [], tripHistory: {} })
+        session.observation.set({ request, snapshot: null, history: [], tripHistory: {} })
       }
       const generation = session.generation
       const assertCurrent = () => {
@@ -143,18 +137,18 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
   }
 
   return {
-    async connect(projectId, request) { authorize(await access(projectId), 'configure'); return resume(projectId, request) },
+    async connect(projectId, request) { authorize(await access(projectId), true); return resume(projectId, request) },
     async disconnect(projectId) {
-      authorize(await access(projectId), 'configure')
+      authorize(await access(projectId), true)
       return withSession(projectId, async session => {
         session.generation++; clearInterval(session.timer); session.timer = null; session.request = null; session.snapshot = null; session.refreshError = null
         session.history = createObservationHistory(policy)
-        session.notebook.set('observation', null)
+        session.observation.set(null)
         return { ok: true }
       })
     },
     async state(projectId, { routeId = '', stopId = '', eventType = '' } = {}) {
-      authorize(await access(projectId), 'read')
+      authorize(await access(projectId))
       return withSession(projectId, async session => {
         const selection = workspaceSelection(session.context, { routeId, stopId }, session.feedIds)
         const stops = selectedStopIds(session.context, selection)
@@ -178,75 +172,20 @@ export function createAgencyService(adapters, { provider = createProvider(), clo
           eventCount: state.events.length, events: selected.slice(0, 500), warnings: [...state.warnings, ...(selected.length > 500 ? ['Showing the first 500 matching events. Choose a route or event type to narrow the view.'] : [])] }
       })
     },
-    async handle(projectId, body, signal, onProgress) {
-      if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.action !== 'string') throw Object.assign(new Error('Choose an Agency action.'), { statusCode: 400 })
-      // Principal comes from the trusted host, never from request JSON or a model tool.
-      const principal = await access(projectId)
-      authorize(principal, ['briefing-settings', 'provider-models', 'provider-connect', 'provider-disconnect'].includes(body.action) ? 'configure' : body.action === 'notebook-note' ? 'finding' : 'read')
-      if (body.action === 'provider-status') return provider.status()
-      if (body.action === 'provider-models') return provider.models(body.connection, signal)
-      if (body.action === 'provider-connect') return provider.connect(body.connection, signal)
-      if (body.action === 'provider-disconnect') return provider.disconnect()
+    async handle(projectId, body) {
+      if (!body || typeof body !== 'object' || Array.isArray(body)
+        || !['route-line', 'stop-board', 'vehicle', 'connection', 'connect', 'disconnect'].includes(body.action)) {
+        throw Object.assign(new Error('Unknown Network action.'), { statusCode: 400 })
+      }
+      authorize(await access(projectId), ['connect', 'disconnect'].includes(body.action))
+      if (body.action === 'connect') return { snapshot: await this.connect(projectId, body.request) }
+      if (body.action === 'disconnect') return this.disconnect(projectId)
       return withSession(projectId, async session => {
-        if (body.action.startsWith('replay-')) {
-          session.replay ??= createReplayService(path.join(session.notebook.directory, 'replay'), projectId)
-          return session.replay.handle(body, principal, signal, provider.forRequest?.() ?? provider)
-        }
-        if (operationsActions.has(body.action)) {
-          const state = current(session)
-          return handleOperations({ store: session.operations, state, context: session.context, scheduleIdentity: session.scheduleIdentity, principal, body,
-            monitoring: { active: Boolean(session.timer), refreshing: Boolean(session.inFlight), refreshError: session.refreshError || null, storageError: session.storageError || null } })
-        }
-        const briefingSettings = body.action === 'briefing' ? session.notebook.get('briefing-preferences') ?? defaultBriefingPreferences : null
         switch (body.action) {
-          case 'briefing': {
-            const entry = body.force === true ? null : session.notebook.latest('briefing')
-            if (body.force !== true && entry && (!briefingSettings.automatic || briefingStatus(entry, briefingSettings, clock(), session.scheduleIdentity).current)) return { ...entry.answer, entryId: entry.id, briefingPreferences: briefingSettings }
-            // Sharing a retained or in-flight briefing needs no new assessment.
-            // Expired and forced requests continue below with current evidence.
-            if (session.briefingJob) return { ...await session.briefingJob, briefingPreferences: briefingSettings }
-            break
-          }
           case 'route-line': return routeOperations(session.context, session.snapshot, { ...body, routeId: indexedEntityId(session.context, 'route', body.routeId, session.feedIds) }, clock() / 1000, policy)
           case 'stop-board': return stopBoard(session.context, session.snapshot, { ...body, feedIds: session.feedIds }, clock() / 1000, policy)
           case 'vehicle': return vehicleDetails(session.context, session.snapshot, body, clock() / 1000, policy)
           case 'connection': return { request: session.request }
-          case 'notebook': return { entries: session.notebook.list(body.query ?? {}) }
-          case 'notebook-entry': { const entries = []; let id = body.id; while (id && entries.length < 30) { const entry = session.notebook.read(id); entries.unshift(entry); id = entry.parentId } return { entries } }
-          case 'notebook-note': return session.notebook.annotate(body.id, body.notes, body.previousNotes)
-          case 'briefing-settings': { const preferences = briefingPreferences(body.preferences); session.notebook.set('briefing-preferences', preferences); return { preferences } }
-          case 'briefing-latest': {
-            const entry = session.notebook.latest('briefing'), preferences = session.notebook.get('briefing-preferences') ?? defaultBriefingPreferences
-            return { entry, ...briefingStatus(entry, preferences, clock(), session.scheduleIdentity) }
-          }
-        }
-        if (!['connect', 'disconnect', 'tool', 'briefing'].includes(body.action)) throw Object.assign(new Error('Unknown Agency action.'), { statusCode: 400 })
-        const state = current(session)
-        const activities = []
-        const inference = provider.forRequest?.() ?? provider
-        const progress = (item) => { if (item.preliminary) { onProgress?.(item); return }; const previous = activities.findIndex((entry) => entry.phase === item.phase); if (previous < 0) activities.push(item); else activities[previous] = item; onProgress?.(item) }
-        const callTool = createToolRegistry({ context: session.context, state, snapshot: session.snapshot, notebook: session.notebook, operations: session.operations, scheduleIdentity: session.scheduleIdentity, signal, now: clock,
-          adapters: {
-            compareHolding: (caseId, abort) => {
-              session.replay ??= createReplayService(path.join(session.notebook.directory, 'replay'), projectId)
-              return session.replay.compare(caseId, abort)
-            },
-          },
-        })
-        switch (body.action) {
-          case 'connect': return { snapshot: await this.connect(projectId, body.request) }
-          case 'disconnect': return this.disconnect(projectId)
-          case 'tool': return callTool(body.name, body.arguments ?? {})
-          case 'briefing': {
-            session.briefingJob = networkBriefing({ context: session.context, state, provider: inference, callTool, signal, scheduleIdentity: session.scheduleIdentity, onProgress: progress })
-              .then(answer => {
-                const entry = session.notebook.save({ title: 'Network briefing', answer: { ...answer, scheduleIdentity: session.scheduleIdentity }, activities, kind: 'briefing' })
-                return { ...answer, entryId: entry.id }
-              })
-              .finally(() => { session.briefingJob = null })
-            return { ...await session.briefingJob, briefingPreferences: briefingSettings }
-          }
-          default: throw Object.assign(new Error('Unknown Agency action.'), { statusCode: 400 })
         }
       })
     },

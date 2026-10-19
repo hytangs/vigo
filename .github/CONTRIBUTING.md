@@ -49,7 +49,6 @@ Run tests and Clippy for both supported configurations.
 
 Use `docs/guide.md` for user documentation, `docs/developer.md` for implementation and research guidance, and `docs/history.md` for dated records. `docs/guides/rust-standalone.md` is the engine manual and the README of engine archives, and `docs/guides/cli-only.md` is the compiler archive README; both, with the shared references, also feed the guide. Add chapters to these canonical files rather than creating a Markdown file for every topic.
 
-Actual-model evaluations are opt-in, never part of deterministic tests. `node scripts/evaluate-network-briefing.mjs --output briefing.json` evaluates a synthetic briefing. It requires a new output path and `VIGO_AGENCY_LLM_*` settings; use `--variant stale` for expired evidence. Retain provider, input, and revision provenance, and distinguish these runs from live service evidence.
 
 ## Packaging and releases
 

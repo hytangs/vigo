@@ -1,0 +1,780 @@
+{
+  "sourceCommit": "b5f683baa687f7b7f688d9d77a108996fd7c43d7",
+  "source": "Removed 0.5.2 JavaScript connection compiler, captured before removal and compared to Rust",
+  "cases": {
+    "empty": {
+      "counters": {
+        "connectionCount": 0,
+        "bridgedUntimedGapCount": 0,
+        "exactFrequencyExpandedTripCount": 0,
+        "exactFrequencyExpandedConnectionCount": 0
+      },
+      "rowsSha256": "1e9a125fd73ff856e6085701076202627a9fc4280a3e501051749db8f6cf44f4"
+    },
+    "singleton": {
+      "counters": {
+        "connectionCount": 0,
+        "bridgedUntimedGapCount": 0,
+        "exactFrequencyExpandedTripCount": 0,
+        "exactFrequencyExpandedConnectionCount": 0
+      },
+      "rowsSha256": "1e9a125fd73ff856e6085701076202627a9fc4280a3e501051749db8f6cf44f4"
+    },
+    "gap-and-after-midnight": {
+      "counters": {
+        "connectionCount": 1,
+        "bridgedUntimedGapCount": 1,
+        "exactFrequencyExpandedTripCount": 0,
+        "exactFrequencyExpandedConnectionCount": 0
+      },
+      "rowsSha256": "67ecb2c640d048833b11a124681f89d34c33d8c15abb425a26c724c8cebe13d8"
+    },
+    "overlapping-exact-windows": {
+      "counters": {
+        "connectionCount": 4,
+        "bridgedUntimedGapCount": 0,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 4
+      },
+      "rowsSha256": "e23c1656f74d90a1b5bc93e9462a3618fc309e0e9dfd65213b7654cc7f128320"
+    },
+    "untimed-first-frequency": {
+      "counters": {
+        "connectionCount": 3,
+        "bridgedUntimedGapCount": 0,
+        "exactFrequencyExpandedTripCount": 3,
+        "exactFrequencyExpandedConnectionCount": 3
+      },
+      "rowsSha256": "85211abccf8a05bf543044cc5180dfb36e0e4b5a06cfae4a8da3ee52f94e8b67"
+    },
+    "excluded-inexact": {
+      "counters": {
+        "connectionCount": 0,
+        "bridgedUntimedGapCount": 0,
+        "exactFrequencyExpandedTripCount": 0,
+        "exactFrequencyExpandedConnectionCount": 0
+      },
+      "rowsSha256": "1e9a125fd73ff856e6085701076202627a9fc4280a3e501051749db8f6cf44f4"
+    },
+    "seed-0": {
+      "counters": {
+        "connectionCount": 148,
+        "bridgedUntimedGapCount": 70,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 104
+      },
+      "rowsSha256": "9ad143087ebf51d296c69cf49a0e4ca20e69763cb5f5db5284a52e9e67275342"
+    },
+    "seed-1": {
+      "counters": {
+        "connectionCount": 143,
+        "bridgedUntimedGapCount": 47,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 128
+      },
+      "rowsSha256": "60cc7fd2b95edb36c0456824d7e5f8953897fdb94e10bd8357e4a6d4a052607d"
+    },
+    "seed-2": {
+      "counters": {
+        "connectionCount": 69,
+        "bridgedUntimedGapCount": 24,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 60
+      },
+      "rowsSha256": "de61e51b0d6f71d72eb2d540f8bf5bec65312b8f7e75e13e31ee814c8af5d529"
+    },
+    "seed-3": {
+      "counters": {
+        "connectionCount": 118,
+        "bridgedUntimedGapCount": 64,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 72
+      },
+      "rowsSha256": "e6782d9c832dc70ac697b4c640239baf9b1de33792083fc141bfe7a5e47acf2f"
+    },
+    "seed-4": {
+      "counters": {
+        "connectionCount": 49,
+        "bridgedUntimedGapCount": 49,
+        "exactFrequencyExpandedTripCount": 0,
+        "exactFrequencyExpandedConnectionCount": 0
+      },
+      "rowsSha256": "ed475af606c8f028e6ba9b76049104f2a06f2a91abf1824c375c983afdd1a0c8"
+    },
+    "seed-5": {
+      "counters": {
+        "connectionCount": 85,
+        "bridgedUntimedGapCount": 34,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 68
+      },
+      "rowsSha256": "2622b8c07134014c4bf97cd572893aca710d3d579c879ec3cfb327755b97f2a4"
+    },
+    "seed-6": {
+      "counters": {
+        "connectionCount": 65,
+        "bridgedUntimedGapCount": 35,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 40
+      },
+      "rowsSha256": "c975ee2837df26ecfad9c932ca62463be0d739df1889ffa3cadfc8d273eca60a"
+    },
+    "seed-7": {
+      "counters": {
+        "connectionCount": 87,
+        "bridgedUntimedGapCount": 48,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 52
+      },
+      "rowsSha256": "6f24e6ea19b3b62d23a115f5899649521347f02c473444f0b79983e62bf2edc8"
+    },
+    "seed-8": {
+      "counters": {
+        "connectionCount": 120,
+        "bridgedUntimedGapCount": 48,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 96
+      },
+      "rowsSha256": "7af808d4f579346b1863883e9cdea7e631a57337b50387152f17bf3bd5f86eeb"
+    },
+    "seed-9": {
+      "counters": {
+        "connectionCount": 198,
+        "bridgedUntimedGapCount": 66,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 176
+      },
+      "rowsSha256": "9f41c0b7508769c04096c0e5abb747da86b12b3829c9502e4846f2503982b798"
+    },
+    "seed-10": {
+      "counters": {
+        "connectionCount": 91,
+        "bridgedUntimedGapCount": 43,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 64
+      },
+      "rowsSha256": "7cb1dcbee93f14c1f053217cb41cc28f82b8cb3545d1a10d1f84301e361e533b"
+    },
+    "seed-11": {
+      "counters": {
+        "connectionCount": 84,
+        "bridgedUntimedGapCount": 45,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 52
+      },
+      "rowsSha256": "454a25ef35f0f57c97e9e8285ddba3b9a9dd71324c0112b31bee0d56c0e0410f"
+    },
+    "seed-12": {
+      "counters": {
+        "connectionCount": 61,
+        "bridgedUntimedGapCount": 37,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 32
+      },
+      "rowsSha256": "cc3c370ce01025c1f92ebf3d007f308b6df4e7cfd67b3846ed53c2989d854213"
+    },
+    "seed-13": {
+      "counters": {
+        "connectionCount": 128,
+        "bridgedUntimedGapCount": 68,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 80
+      },
+      "rowsSha256": "4a1e9ed0866b9caadef700fef43fc3e41dc161d63bba924b433ad963d35f781c"
+    },
+    "seed-14": {
+      "counters": {
+        "connectionCount": 211,
+        "bridgedUntimedGapCount": 76,
+        "exactFrequencyExpandedTripCount": 16,
+        "exactFrequencyExpandedConnectionCount": 180
+      },
+      "rowsSha256": "2294661e152c683fb505d3c69e0473171a0ee53eea4e978618f286a70e6ad324"
+    },
+    "seed-15": {
+      "counters": {
+        "connectionCount": 54,
+        "bridgedUntimedGapCount": 48,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 8
+      },
+      "rowsSha256": "12459d3f55de9b3074fa9db660d9c54f8089cabf8b620beebfdaf3b835601c6d"
+    },
+    "seed-16": {
+      "counters": {
+        "connectionCount": 128,
+        "bridgedUntimedGapCount": 59,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 92
+      },
+      "rowsSha256": "0e6ad2dfa24eb73540cf6257dadb070278d6b8c279068b1ca1ff41b52df56235"
+    },
+    "seed-17": {
+      "counters": {
+        "connectionCount": 97,
+        "bridgedUntimedGapCount": 43,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 72
+      },
+      "rowsSha256": "125171c7f7fc14201741ca07d642cd195e6cb69f8799ac5fd250ffe8b79cfe4d"
+    },
+    "seed-18": {
+      "counters": {
+        "connectionCount": 77,
+        "bridgedUntimedGapCount": 44,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 44
+      },
+      "rowsSha256": "3bb9e1fed0f0a2109a411aa7027f39a53833f2026810d50b3bc589595d050250"
+    },
+    "seed-19": {
+      "counters": {
+        "connectionCount": 103,
+        "bridgedUntimedGapCount": 37,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 88
+      },
+      "rowsSha256": "5a66e85b3ff3aef46d611f539d6edfc6a2a90c66d2373effa4c84834ad03c3e3"
+    },
+    "seed-20": {
+      "counters": {
+        "connectionCount": 129,
+        "bridgedUntimedGapCount": 75,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 72
+      },
+      "rowsSha256": "ef33cda50bcb362c0f95f71b17131e1c7f2ae8d9db8160202b9d44ce42209dca"
+    },
+    "seed-21": {
+      "counters": {
+        "connectionCount": 216,
+        "bridgedUntimedGapCount": 69,
+        "exactFrequencyExpandedTripCount": 20,
+        "exactFrequencyExpandedConnectionCount": 196
+      },
+      "rowsSha256": "98f94a19f4ae379a2dec4956117bd015b7e0a4963af4dfd6dd294a29192517a2"
+    },
+    "seed-22": {
+      "counters": {
+        "connectionCount": 92,
+        "bridgedUntimedGapCount": 32,
+        "exactFrequencyExpandedTripCount": 16,
+        "exactFrequencyExpandedConnectionCount": 80
+      },
+      "rowsSha256": "99ed2ffbf4adefe96ae9f561aec48b65ff8cebc00c2352e7f2485511ad99c3f5"
+    },
+    "seed-23": {
+      "counters": {
+        "connectionCount": 82,
+        "bridgedUntimedGapCount": 82,
+        "exactFrequencyExpandedTripCount": 0,
+        "exactFrequencyExpandedConnectionCount": 0
+      },
+      "rowsSha256": "96ea156d38ff5dcdf81c802668772b5ebb4d29785e0cede2fa81acb2758ffc77"
+    },
+    "seed-24": {
+      "counters": {
+        "connectionCount": 177,
+        "bridgedUntimedGapCount": 60,
+        "exactFrequencyExpandedTripCount": 16,
+        "exactFrequencyExpandedConnectionCount": 156
+      },
+      "rowsSha256": "78e972c2175971cdbc11fdb9c3c5f3915d3a1c5d19a8665635036f2c0c307073"
+    },
+    "seed-25": {
+      "counters": {
+        "connectionCount": 25,
+        "bridgedUntimedGapCount": 25,
+        "exactFrequencyExpandedTripCount": 0,
+        "exactFrequencyExpandedConnectionCount": 0
+      },
+      "rowsSha256": "20a7c8dac47ee2102b7b264a65c17d437764331470a6016ad6b8073d4e12fa7e"
+    },
+    "seed-26": {
+      "counters": {
+        "connectionCount": 93,
+        "bridgedUntimedGapCount": 60,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 44
+      },
+      "rowsSha256": "f7d399ab05a123210458962675d88fb96d1e501ffc4586c2ff446cc33a2952e7"
+    },
+    "seed-27": {
+      "counters": {
+        "connectionCount": 86,
+        "bridgedUntimedGapCount": 44,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 56
+      },
+      "rowsSha256": "07b1f022fb2aa8c13150ecef43ba25c16364803fee74e99a50dbac1a811bc809"
+    },
+    "seed-28": {
+      "counters": {
+        "connectionCount": 97,
+        "bridgedUntimedGapCount": 46,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 68
+      },
+      "rowsSha256": "a579fb5405d4cdf44aa82d95ff6d0496464ecb179a11dde451a43e6a069dc7d3"
+    },
+    "seed-29": {
+      "counters": {
+        "connectionCount": 61,
+        "bridgedUntimedGapCount": 61,
+        "exactFrequencyExpandedTripCount": 0,
+        "exactFrequencyExpandedConnectionCount": 0
+      },
+      "rowsSha256": "ffa850166b63c30cd98f4704406a027d14b25fdd82c18621554899e485cf8b6e"
+    },
+    "seed-30": {
+      "counters": {
+        "connectionCount": 55,
+        "bridgedUntimedGapCount": 55,
+        "exactFrequencyExpandedTripCount": 0,
+        "exactFrequencyExpandedConnectionCount": 0
+      },
+      "rowsSha256": "168fd7c6f1414bf8d87c21f8fab3e333b9b3383cac34bf51b682ea8bc3e472e6"
+    },
+    "seed-31": {
+      "counters": {
+        "connectionCount": 96,
+        "bridgedUntimedGapCount": 27,
+        "exactFrequencyExpandedTripCount": 24,
+        "exactFrequencyExpandedConnectionCount": 92
+      },
+      "rowsSha256": "36fbeb24c9e442fcf4cd2d7592b22ab848be1418e10b299c25be5d8585343e00"
+    },
+    "seed-32": {
+      "counters": {
+        "connectionCount": 171,
+        "bridgedUntimedGapCount": 45,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 168
+      },
+      "rowsSha256": "57dca9cf232dbae93fd98d98326c9049ec04e763af976408e650cfea94577528"
+    },
+    "seed-33": {
+      "counters": {
+        "connectionCount": 85,
+        "bridgedUntimedGapCount": 49,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 48
+      },
+      "rowsSha256": "b96e45f97b75a1052e83dd32baed413be8bf4d1ad6e4436711db1a45ab2446eb"
+    },
+    "seed-34": {
+      "counters": {
+        "connectionCount": 136,
+        "bridgedUntimedGapCount": 64,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 96
+      },
+      "rowsSha256": "b39dea42f9430bd873b31b9108da8d1f51701caef3b7a30e69e379f57e121d6c"
+    },
+    "seed-35": {
+      "counters": {
+        "connectionCount": 78,
+        "bridgedUntimedGapCount": 48,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 40
+      },
+      "rowsSha256": "e11905290464ae3c5b7a2756e3329ade2a9857105491ad930cfa71b3839d1bfc"
+    },
+    "seed-36": {
+      "counters": {
+        "connectionCount": 30,
+        "bridgedUntimedGapCount": 21,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 12
+      },
+      "rowsSha256": "bc2b03cc329ea2c8678d94ec7605547d10f0cd3df0a8a9055da9ff1143a100dc"
+    },
+    "seed-37": {
+      "counters": {
+        "connectionCount": 53,
+        "bridgedUntimedGapCount": 53,
+        "exactFrequencyExpandedTripCount": 0,
+        "exactFrequencyExpandedConnectionCount": 0
+      },
+      "rowsSha256": "6276609c94ff15ea250589d33b4b4be224653ac428b35fd392c0bdd03afe2011"
+    },
+    "seed-38": {
+      "counters": {
+        "connectionCount": 40,
+        "bridgedUntimedGapCount": 40,
+        "exactFrequencyExpandedTripCount": 0,
+        "exactFrequencyExpandedConnectionCount": 0
+      },
+      "rowsSha256": "d625047a7f9d2d98c9822285e7160771b1eff3cc388d05dff7b2f60ffa1eba7a"
+    },
+    "seed-39": {
+      "counters": {
+        "connectionCount": 52,
+        "bridgedUntimedGapCount": 34,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 24
+      },
+      "rowsSha256": "c512d2e89d42d85bb5cea3b33356ea67558c9713be01728088de4d6586f385be"
+    },
+    "seed-40": {
+      "counters": {
+        "connectionCount": 84,
+        "bridgedUntimedGapCount": 54,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 40
+      },
+      "rowsSha256": "41a173d2a4cab6fb87fd8639954347cd7670c1b0d55d0f6250b50f4ddc756b1c"
+    },
+    "seed-41": {
+      "counters": {
+        "connectionCount": 120,
+        "bridgedUntimedGapCount": 42,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 104
+      },
+      "rowsSha256": "bf6efd9c30df1bfdc6f3c6d50428df1bf9ffe776d5d9b9c6191c938898502ff2"
+    },
+    "seed-42": {
+      "counters": {
+        "connectionCount": 60,
+        "bridgedUntimedGapCount": 54,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 8
+      },
+      "rowsSha256": "4c882e05944adb355b24c8a3f1aae5fa39db6eafb26ef93b9e416d55323e6a26"
+    },
+    "seed-43": {
+      "counters": {
+        "connectionCount": 104,
+        "bridgedUntimedGapCount": 53,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 68
+      },
+      "rowsSha256": "e8765c5d550b2dc3c2ea70b191555daff61eb5c9cd90d1b833dd5a46656d5eed"
+    },
+    "seed-44": {
+      "counters": {
+        "connectionCount": 157,
+        "bridgedUntimedGapCount": 49,
+        "exactFrequencyExpandedTripCount": 20,
+        "exactFrequencyExpandedConnectionCount": 144
+      },
+      "rowsSha256": "23c79a4eb25e53b928dc7fa06af8e361af17a82eb551a2805d85b8d31b3a5094"
+    },
+    "seed-45": {
+      "counters": {
+        "connectionCount": 97,
+        "bridgedUntimedGapCount": 52,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 60
+      },
+      "rowsSha256": "11aaee73203ef7fac1549fcc26f43b44e338f1892814a5548f1f163ff0cb519c"
+    },
+    "seed-46": {
+      "counters": {
+        "connectionCount": 88,
+        "bridgedUntimedGapCount": 49,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 52
+      },
+      "rowsSha256": "ea711f937dd88aa419fee2da739fa6a838304af67d78950b2bca1e0a29153aa2"
+    },
+    "seed-47": {
+      "counters": {
+        "connectionCount": 78,
+        "bridgedUntimedGapCount": 45,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 44
+      },
+      "rowsSha256": "3c286be6393d3426b0e8fd42bf16edfa343febe8fb1fae7e0fda99f94ae10738"
+    },
+    "seed-48": {
+      "counters": {
+        "connectionCount": 71,
+        "bridgedUntimedGapCount": 41,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 40
+      },
+      "rowsSha256": "b34d173c9cac3ec0355c0746594fa69c29bbaeb2a9cdb2e95b43da1d7615b517"
+    },
+    "seed-49": {
+      "counters": {
+        "connectionCount": 97,
+        "bridgedUntimedGapCount": 58,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 52
+      },
+      "rowsSha256": "af46f03e9b97c65af70d88f8651a2834d497bd81915094429e93084d17d6da66"
+    },
+    "seed-50": {
+      "counters": {
+        "connectionCount": 102,
+        "bridgedUntimedGapCount": 60,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 56
+      },
+      "rowsSha256": "51b388bb78e1ccfda8ae7ed934ba5754c87f6c0131a96650771e104a5a4d53dd"
+    },
+    "seed-51": {
+      "counters": {
+        "connectionCount": 41,
+        "bridgedUntimedGapCount": 29,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 16
+      },
+      "rowsSha256": "a2c38d837fc4d9982938d94ec281abbde310f3135c980f103c71c89d5aca5cca"
+    },
+    "seed-52": {
+      "counters": {
+        "connectionCount": 153,
+        "bridgedUntimedGapCount": 60,
+        "exactFrequencyExpandedTripCount": 16,
+        "exactFrequencyExpandedConnectionCount": 124
+      },
+      "rowsSha256": "0394de55671325727fd7dc519154faedd928f2c0a2e69ca637f04861db946319"
+    },
+    "seed-53": {
+      "counters": {
+        "connectionCount": 177,
+        "bridgedUntimedGapCount": 63,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 152
+      },
+      "rowsSha256": "e6d1b34282a98c1797db74105c476ee4db969601000c52fe39ecde271d526f2b"
+    },
+    "seed-54": {
+      "counters": {
+        "connectionCount": 101,
+        "bridgedUntimedGapCount": 38,
+        "exactFrequencyExpandedTripCount": 16,
+        "exactFrequencyExpandedConnectionCount": 84
+      },
+      "rowsSha256": "6bcf216b3bd830c53c8c54191e0afb8135dde1d68aa2f52b0e26859948a59427"
+    },
+    "seed-55": {
+      "counters": {
+        "connectionCount": 109,
+        "bridgedUntimedGapCount": 34,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 100
+      },
+      "rowsSha256": "94c79bc09161a4ec90e7152a142fe68a99ac35fda5cf13cec070452ecbba3d61"
+    },
+    "seed-56": {
+      "counters": {
+        "connectionCount": 123,
+        "bridgedUntimedGapCount": 87,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 48
+      },
+      "rowsSha256": "e29a56706568594f540c6569a1de353fe4301427ae99917da35ca24da4e3c094"
+    },
+    "seed-57": {
+      "counters": {
+        "connectionCount": 58,
+        "bridgedUntimedGapCount": 58,
+        "exactFrequencyExpandedTripCount": 0,
+        "exactFrequencyExpandedConnectionCount": 0
+      },
+      "rowsSha256": "37ee8965a8d545d38a915dc19f12344bcaed8c29d8319bcf7c33e93a85b0a8fb"
+    },
+    "seed-58": {
+      "counters": {
+        "connectionCount": 50,
+        "bridgedUntimedGapCount": 44,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 8
+      },
+      "rowsSha256": "b629ebd33afef620884b34de2b441b1200560d7ac3819bacd42dac77b9acc13a"
+    },
+    "seed-59": {
+      "counters": {
+        "connectionCount": 85,
+        "bridgedUntimedGapCount": 52,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 44
+      },
+      "rowsSha256": "d37967199c141c6671d55b6728fd4dcd76b7533b1e4fe3b8a43d96bd6ab6891f"
+    },
+    "seed-60": {
+      "counters": {
+        "connectionCount": 57,
+        "bridgedUntimedGapCount": 42,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 20
+      },
+      "rowsSha256": "326a857bc298c94eecb8c2a20fde237a5ea04167c645df4664da8ba4b25ded4b"
+    },
+    "seed-61": {
+      "counters": {
+        "connectionCount": 135,
+        "bridgedUntimedGapCount": 57,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 104
+      },
+      "rowsSha256": "33b6fde54a9b2e962c606a699ac7994cbc00d93e60c1a374d73a6af8304acc43"
+    },
+    "seed-62": {
+      "counters": {
+        "connectionCount": 94,
+        "bridgedUntimedGapCount": 37,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 76
+      },
+      "rowsSha256": "fe061340c268caf41d9e5c89bb1b331bb31e8d27aa77ac7cdf87e778e349d06a"
+    },
+    "seed-63": {
+      "counters": {
+        "connectionCount": 42,
+        "bridgedUntimedGapCount": 42,
+        "exactFrequencyExpandedTripCount": 0,
+        "exactFrequencyExpandedConnectionCount": 0
+      },
+      "rowsSha256": "6a0f0c88bbb369c7690abfe347494275c7d89af4add0dba5f6dba52418f4c742"
+    },
+    "seed-64": {
+      "counters": {
+        "connectionCount": 99,
+        "bridgedUntimedGapCount": 30,
+        "exactFrequencyExpandedTripCount": 16,
+        "exactFrequencyExpandedConnectionCount": 92
+      },
+      "rowsSha256": "57c00d0f7cff46daa3fbf1b58bf8508f4c1383fdaf2c17e1770d734172253fec"
+    },
+    "seed-65": {
+      "counters": {
+        "connectionCount": 112,
+        "bridgedUntimedGapCount": 55,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 76
+      },
+      "rowsSha256": "a039b5b2a61c7c2f865491613baea4402266164db5341f5c76b46819ec0d4458"
+    },
+    "seed-66": {
+      "counters": {
+        "connectionCount": 122,
+        "bridgedUntimedGapCount": 59,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 84
+      },
+      "rowsSha256": "73fab80bbb6bca37138e50ac89dbf3b9e1063e67732f053cf3ac4285eb32e7d6"
+    },
+    "seed-67": {
+      "counters": {
+        "connectionCount": 66,
+        "bridgedUntimedGapCount": 51,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 20
+      },
+      "rowsSha256": "3bc87781354d42f57a50f8823d1652e46839f3af504f08324f5ba322a1144199"
+    },
+    "seed-68": {
+      "counters": {
+        "connectionCount": 123,
+        "bridgedUntimedGapCount": 45,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 104
+      },
+      "rowsSha256": "5e33fe504ddbff867bf453df4e105dbc6b5ace13fb4d71e88901c903d3ec9205"
+    },
+    "seed-69": {
+      "counters": {
+        "connectionCount": 106,
+        "bridgedUntimedGapCount": 58,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 64
+      },
+      "rowsSha256": "141897be52bedf280d278f49e43afc9306e81351d4cd7f668a24240dc76aa285"
+    },
+    "seed-70": {
+      "counters": {
+        "connectionCount": 46,
+        "bridgedUntimedGapCount": 40,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 8
+      },
+      "rowsSha256": "a366c6f56efdcbdd0c798a9a0925aaa5a576d1b53815d07419027636e3b46239"
+    },
+    "seed-71": {
+      "counters": {
+        "connectionCount": 76,
+        "bridgedUntimedGapCount": 31,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 60
+      },
+      "rowsSha256": "07b08c82a58b4d51d0bca57b84e9097f0f931f95f271ef18db7daa130ab80d6e"
+    },
+    "seed-72": {
+      "counters": {
+        "connectionCount": 60,
+        "bridgedUntimedGapCount": 48,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 16
+      },
+      "rowsSha256": "ec925670947fd6bf8c91493c7f01c41dd42c6c1d4ee335cb3605910b861d459b"
+    },
+    "seed-73": {
+      "counters": {
+        "connectionCount": 56,
+        "bridgedUntimedGapCount": 20,
+        "exactFrequencyExpandedTripCount": 12,
+        "exactFrequencyExpandedConnectionCount": 48
+      },
+      "rowsSha256": "e9aa31c6b25ad56c46118dd799f9afbecafaf86ed54cb1b7478694c346e02d4a"
+    },
+    "seed-74": {
+      "counters": {
+        "connectionCount": 119,
+        "bridgedUntimedGapCount": 74,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 60
+      },
+      "rowsSha256": "69e420d895c28552c7d7fed9a6338b471ecd7683a135f1b4b04b5e460274dd7b"
+    },
+    "seed-75": {
+      "counters": {
+        "connectionCount": 94,
+        "bridgedUntimedGapCount": 58,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 48
+      },
+      "rowsSha256": "df5723c96b84844bd0cddb1c3b90cd63b66f546bfd9eec9ff441787cf454b733"
+    },
+    "seed-76": {
+      "counters": {
+        "connectionCount": 105,
+        "bridgedUntimedGapCount": 63,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 56
+      },
+      "rowsSha256": "edafb9c1ed1fb5351f951f64930ce5a8d2ab4c13d26420023405902f97827c62"
+    },
+    "seed-77": {
+      "counters": {
+        "connectionCount": 39,
+        "bridgedUntimedGapCount": 36,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 4
+      },
+      "rowsSha256": "d17524388939796590e239afeeb5e6d2d0b3aff9b68bf0976d638ff26af33b38"
+    },
+    "seed-78": {
+      "counters": {
+        "connectionCount": 56,
+        "bridgedUntimedGapCount": 41,
+        "exactFrequencyExpandedTripCount": 4,
+        "exactFrequencyExpandedConnectionCount": 20
+      },
+      "rowsSha256": "10239a14a1d5bcd47f1bac009c076b88ffa280dec688546dafe8a02cabf29a99"
+    },
+    "seed-79": {
+      "counters": {
+        "connectionCount": 158,
+        "bridgedUntimedGapCount": 92,
+        "exactFrequencyExpandedTripCount": 8,
+        "exactFrequencyExpandedConnectionCount": 88
+      },
+      "rowsSha256": "1fef1774f2af43177265218da510915b80123c16baa9c734aff8665065bc8bf6"
+    }
+  }
+}

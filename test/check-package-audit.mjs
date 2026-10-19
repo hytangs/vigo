@@ -52,11 +52,11 @@ try {
 const original = { PATH: '/usr/bin:/bin', SystemRoot: 'windows', TMPDIR: 'temporary', LANG: 'en_US.UTF-8',
   OPENAI_API_KEY: 'fixture', GH_TOKEN: 'fixture', AWS_SECRET_ACCESS_KEY: 'fixture',
   LD_PRELOAD: 'injected', LD_LIBRARY_PATH: 'injected', ELECTRON_RUN_AS_NODE: '1',
-  VIGO_AGENCY_LLM_BASE_URL: 'http://localhost:1234', VIGO_AGENCY_LLM_API_KEY: 'fixture', VIGO_ROUTE_WORKER_URL: '/private/worker', NODE_OPTIONS: '--require=/private/file' }
+  CUSTOM_SERVICE_URL: 'http://localhost:1234', CUSTOM_SERVICE_API_KEY: 'fixture', VIGO_ROUTE_WORKER_URL: '/private/worker', NODE_OPTIONS: '--require=/private/file' }
 for (const isPackaged of [true, false]) {
   const environment = engineEnvironment({ isPackaged, env: original, nativeKernelPath: '/bundle/server/kernel.node' })
-  assert.equal(environment.VIGO_AGENCY_LLM_BASE_URL, isPackaged ? undefined : original.VIGO_AGENCY_LLM_BASE_URL)
-  assert.equal(environment.VIGO_AGENCY_LLM_API_KEY, isPackaged ? undefined : 'fixture')
+  assert.equal(environment.CUSTOM_SERVICE_URL, isPackaged ? undefined : original.CUSTOM_SERVICE_URL)
+  assert.equal(environment.CUSTOM_SERVICE_API_KEY, isPackaged ? undefined : 'fixture')
   assert.equal(environment.VIGO_ROUTE_WORKER_URL, isPackaged ? undefined : '/private/worker')
   assert.equal(environment.NODE_OPTIONS, undefined)
   for (const name of ['LD_PRELOAD', 'LD_LIBRARY_PATH', 'ELECTRON_RUN_AS_NODE']) assert.equal(environment[name], undefined)
@@ -65,5 +65,5 @@ for (const isPackaged of [true, false]) {
   assert.equal(environment.VIGO_NATIVE_ROUTING_KERNEL, '/bundle/server/kernel.node')
   assert.equal(environment.VIGO_API_TRANSPORT, 'memory')
 }
-assert.equal(original.VIGO_AGENCY_LLM_API_KEY, 'fixture', 'Do not mutate the launching shell')
+assert.equal(original.CUSTOM_SERVICE_API_KEY, 'fixture', 'Do not mutate the launching shell')
 console.log('Package audit and desktop environment isolation passed.')

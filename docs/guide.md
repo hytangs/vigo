@@ -479,7 +479,7 @@ Compare uses the retained surfaces. `counts` splits cells reachable in both into
 
 ### Investigate live service
 
-In Studio, start in **Network**: check the observation time and reporting coverage, then choose a route in **Routes**. Compare scheduled and predicted events at the same stop, and inspect a vehicle's position separately from its stop-time predictions. With a connected model, the service briefing can interpret the retained evidence; its explanation remains subject to review.
+In Studio, start in **Network**: check the observation time and reporting coverage, then choose a route in **Routes**. Compare scheduled and predicted events at the same stop, and inspect a vehicle's position separately from its stop-time predictions.
 
 Use **Route → Realtime** to query supported, matched predictions. A vehicle on the map, an alert, or an added trip in **Trip times** does not by itself make that service available to routing. See [Network and Routes](#network-and-routes) and [realtime admission](#realtime-journey-routing).
 
@@ -1095,7 +1095,7 @@ Select a project from the Studio library and import GTFS and OSM. Rebuild when t
 
 ### Network
 
-Use **Network** for reporting coverage and briefings, and **Routes** for trip times, station boards, and line views. Route and station selection is shared across the tabs. [Network and Routes](#network-and-routes) explains playback, live timing, added service, and model connections.
+Use **Network** for reporting coverage and service events, and **Routes** for trip times, station boards, and line views. Route and station selection is shared across the tabs. [Network and Routes](#network-and-routes) explains playback, live timing, added service, and source freshness.
 
 ### Route
 
@@ -1165,7 +1165,7 @@ Background tasks show measured bytes or records for steps with a known total; th
 
 ## Network and Routes
 
-Open **Network** in VIGO Studio to inspect the selected City's timetable, live reports, and retained briefings. The workspace has **Network** and **Routes** tabs; use **Route** for journey planning and **Analyze** for Reach.
+Open **Network** in VIGO Studio to inspect the selected City's timetable, live reports, and service events. The workspace has **Network** and **Routes** tabs; use **Route** for journey planning and **Analyze** for Reach.
 
 ### Read the evidence
 
@@ -1177,25 +1177,23 @@ The same map can show several kinds of evidence. Read the source and observation
 | Predicted time | A matched, admitted TripUpdate for that trip and stop | Compare the same arrival or departure with its schedule |
 | Vehicle position | A reported location and stop status at its own observation time | Locate the vehicle; check its age separately from the prediction |
 | **Estimated** playback | A position interpolated along the scheduled trip | Explore the timetable and geometry |
-| Network assessment | Computed conditions among reporting service in a stated window | Read coverage alongside delay and spacing |
-| Model explanation | An interpretation of the supplied evidence | Inspect sources, uncertainty, and the proposed next check |
+| Service event | Computed delay, spacing change, or source alert with observation timestamps | Inspect the event evidence and source age |
 
 None of these is a verified history of actual stop arrivals, and a missing prediction stays unknown. A vehicle marker or an added trip in **Trip times** does not mean Route can use that trip; routing has its own [admission rules](#realtime-journey-routing).
 
 ### Investigate a condition
 
-1. **Start with coverage.** Check the assessment time, service window, and reporting coverage in **Network**. Coverage weights scheduled vehicle-minutes with usable predictions or cancellation reports; it is not the share of passengers covered or service running on time.
+1. **Start with coverage.** Check the snapshot time, feed freshness, and reporting counts in **Network**. Reporting counts routes with current trip reports; it is not the share of passengers covered or service running on time.
 2. **Follow the route.** Open **Routes**, select the route, and inspect **Trip times** on the relevant date. Use **Stops** to confirm direction and pattern, then **Updates** for service evidence.
 3. **Inspect the same event.** Open the station board or select a vehicle in **Line view**. Compare arrival with arrival, or departure with departure, at the same stop, keeping both observation times visible.
-4. **Keep the observation attached.** **Export observations** or **Export report** retains the current evidence, and **Export evidence** in the service briefing saves its assessment and source checks.
+4. **Keep the observation attached.** **Export observations** or **Export report** retains the current evidence and source timestamps.
 
-For a journey, use **Route** and read its [Result and diagnostics](reference/results.md). The [service assessment method](developer.md#network-service-assessment) defines the reporting denominator and spacing comparisons.
+For a journey, use **Route** and read its [Result and diagnostics](reference/results.md). Event details retain the scheduled comparison, source timestamps and source references.
 
 ### See what needs attention
 
-**Network** shows reporting coverage, route comparisons, and the network briefing. A scheduled departure, a feed prediction, and an observed vehicle location are different evidence, and missing reports remain unknown. Overnight service is assessed against the timetable's active window.
+**Network** shows reporting coverage, route comparisons, and service events. A scheduled departure, a feed prediction, and an observed vehicle location are different evidence, and missing reports remain unknown.
 
-With a connected model, the briefing can interpret a pattern, propose an explanation, and suggest a next check. Hypotheses are not confirmed incidents. The briefing checks extracted route-condition claims against computed evidence and performs a model review, but neither guarantees that all prose is correct; a computed fallback is labeled separately.
 
 ### Inspect a route or station
 
@@ -1228,13 +1226,12 @@ Trips declared by GTFS-RT `ADDED` or `NEW` appear in the line view and the **Tri
 
 `test/check-agency-route-line.mjs` and `test/check-added-service-display.mjs` run with `npm run check:agency`. They cover both directions, branches, repeated and terminal stops, conflicting sequences, stale and future positions, skipped and no-data predictions, and added trips; they verify fixture behavior, not field accuracy. The interaction design drew on [TransitMatters Train Tracker](https://traintracker.transitmatters.org/) and [Swiftly's Live Operations overview](https://swiftly.zendesk.com/hc/en-us/articles/360043691571-Live-Operations-Overview); no implementation or assets were copied. Matching follows the [GTFS Realtime reference](https://gtfs.org/documentation/realtime/reference/).
 
-### Connect a model
+### Evidence limits
 
-Open **Network → Service briefing → Connect AI**, choose a provider, enter its API base URL, choose or discover a model, and connect. The connection test checks function calling, not answer quality. Local models can use a keyless endpoint if their server allows it, and API keys stay in server memory for the session. Briefing requests include the computed assessment and selected source checks; the briefing does not search the web. A localhost URL does not prove where inference runs or whether data is retained.
-
-### What this app does not establish
-
-Predicted spacing is not measured headway, and retained forecast changes are not actual vehicle progression. Reporting coverage is not service health. The briefing has no crew roster, maintenance clearance, demand model, or intervention simulator, and rider drafts require staff review; VIGO does not dispatch or publish messages. The [operations ledger](developer.md#agency-operations-prototype) and [synthetic replay](developer.md#one-bus-one-control-point) are research interfaces.
+Predicted spacing is not measured headway, and retained forecast changes are not
+actual vehicle progression. Reporting coverage is not service health. Network
+inspection does not establish delay causes, recovery forecasts or passenger
+impacts. VIGO does not dispatch vehicles or publish messages.
 
 ## Command line
 

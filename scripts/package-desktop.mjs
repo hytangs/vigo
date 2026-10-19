@@ -111,7 +111,6 @@ try {
 
 async function bundleEngine() {
   await mkdir(serverRoot, { recursive: true })
-  await cp(path.join(repositoryRoot, 'src', 'agency', 'replay', 'holding-v1'), path.join(serverRoot, 'replay', 'holding-v1'), { recursive: true })
   const rolldown = path.join(repositoryRoot, 'node_modules', 'rolldown', 'bin', 'cli.mjs')
   await assertFile(rolldown, 'Missing Rolldown. Run npm install first.')
   const bundle = (input, args) => execFileAsync(process.execPath, [rolldown, input, ...args, '--format', 'esm', '--platform', 'node'], {
@@ -123,9 +122,6 @@ async function bundleEngine() {
     '--dir', serverRoot,
     '--entryFileNames', 'vigo-api.mjs',
     '--chunkFileNames', 'api-[name].mjs',
-  ])
-  await bundle(path.join(repositoryRoot, 'src', 'server', 'agency-sql-worker.mjs'), [
-    '--file', path.join(serverRoot, 'agency-sql-worker.mjs'),
   ])
   await bundle(path.join(repositoryRoot, 'src', 'server', 'national-gtfs-worker.mjs'), [
     '--file', path.join(serverRoot, 'national-gtfs-worker.mjs'),

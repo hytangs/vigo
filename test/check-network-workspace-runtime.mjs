@@ -6,8 +6,6 @@ import electronPath from 'electron'
 import react from '@vitejs/plugin-react'
 import { createViteTestServer } from './helpers/vite-test-server.mjs'
 import { createAgencyService } from '../src/server/agency-api.mjs'
-import { createNotebook } from '../src/agency/notebook.mjs'
-import { createProvider } from '../src/agency/provider.mjs'
 import { createAgencyFixture, observationTime, realtimeFixture, tripUpdate } from './fixtures/agency.mjs'
 import { checkDirectory } from './helpers/check-directory.mjs'
 
@@ -15,28 +13,17 @@ const root = path.resolve(import.meta.dirname, '..')
 const directory = await checkDirectory(root, 'network-workspace-runtime-')
 const storePath = path.join(directory, 'schedule.sqlite'), agencyDirectory = path.join(directory, 'agency')
 createAgencyFixture(storePath)
-const notebook = createNotebook(agencyDirectory)
-const historical = notebook.save({ title: 'Historical question', kind: 'ask', answer: { answer: 'Retained evidence', trace: [] } })
-notebook.close()
 const snapshot = realtimeFixture([tripUpdate('T1', 900), tripUpdate('T2'), tripUpdate('T3')])
 const service = createAgencyService({
   context: async () => ({ storePath, cityName: 'City X', agencyDirectory }),
   inspectRealtime: async () => snapshot,
-}, { provider: createProvider({}), clock: () => observationTime * 1000 })
+}, { clock: () => observationTime * 1000 })
 let server
 try {
   for (const action of ['ask', 'skills', 'run-skill', 'skill-install', 'skill-enabled', 'notebook-clear-ask', 'web-status', 'web-connect']) {
     await assert.rejects(service.handle('fixture', { action }), error => error.statusCode === 400)
   }
-  for (const name of ['route_plan', 'reach', 'matrix', 'place_search', 'walk_route', 'walk_compare', 'find_walk', 'web_search', 'web_read']) {
-    await assert.rejects(service.handle('fixture', { action: 'tool', name }), /Unknown tool/)
-  }
-  assert.equal((await service.handle('fixture', { action: 'notebook-entry', id: historical.id })).entries[0].answer.answer, 'Retained evidence', 'Removing Ask preserves saved City records')
   await service.connect('fixture', { sources: [{ url: snapshot.feeds[0].sourceUrl, kind: 'tripUpdates' }] })
-  const briefing = await service.handle('fixture', { action: 'briefing' })
-  assert.equal(briefing.aiGenerated, false)
-  assert.equal(briefing.trace[0].tool, 'network_overview')
-  assert.equal((await service.handle('fixture', { action: 'briefing-latest' })).entry.id, briefing.entryId)
 
   const fixture = `import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
@@ -60,21 +47,14 @@ window.checkNetwork=async()=>{
  document.querySelector('.app-shell').classList.add('appearance-'+document.documentElement.dataset.appearance);
  const tabs=[...document.querySelectorAll('.agency-tabs [role=tab]')];
  if(tabs.map(b=>b.textContent).join(',')!=='Network,Routes')throw Error('Unexpected Network tabs');
- if(tabs[0].getAttribute('aria-selected')!=='true'||sessionStorage.getItem('agency-mode-fixture')!=='briefing')throw Error('Saved Ask tab did not recover to Network');
+ if(tabs[0].getAttribute('aria-selected')!=='true'||sessionStorage.getItem('agency-mode-fixture')!=='overview')throw Error('Saved Ask tab did not recover to Network');
  if(document.querySelector('#agency-ask,.agency-composer-dock'))throw Error('Conversation UI remains');
- const disclosure=[...document.querySelectorAll('details')].find(d=>d.querySelector('summary')?.textContent==='Service briefing');disclosure.open=true;
- await waitFor(()=>[...disclosure.querySelectorAll('button')].find(b=>b.textContent.includes('Export evidence')),'Briefing evidence is unavailable');
- [...disclosure.querySelectorAll('button')].find(b=>b.textContent.includes('Export evidence')).click();
- await waitFor(()=>window.exports.length,'Evidence export failed');
- if(window.exports[0].name!=='network-briefing.json'||window.exports[0].value.trace[0].tool!=='network_overview')throw Error('Export lost the computed evidence');
- disclosure.querySelector('button[aria-label="Connect AI provider"]').click();
- await waitFor(()=>disclosure.querySelector('input[type=url]'),'Briefing connection settings are unreachable');
- disclosure.querySelector('button[aria-label="Close AI settings"]').click();
+ if(document.querySelector('.agency-briefing,.agency-provider-settings'))throw Error('Retired research UI remains');
  const updates=document.querySelector('.agency-service-events');updates.open=true;
  await waitFor(()=>updates.querySelector('.agency-event'),'Service updates are missing');updates.querySelector('.agency-event').click();
  await waitFor(()=>document.querySelector('.agency-evidence'),'Evidence detail did not open');
  document.querySelector('.agency-evidence > button').click();
- await waitFor(()=>document.querySelector('#agency-briefing'),'Evidence did not return to Network');
+ await waitFor(()=>document.querySelector('#agency-overview'),'Evidence did not return to Network');
  tabs[0].dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));
  await waitFor(()=>tabs[1].getAttribute('aria-selected')==='true','Keyboard navigation failed');
  [...document.querySelectorAll('.network-selection button')].find(b=>b.textContent.includes('All routes'))?.click();
@@ -90,7 +70,7 @@ window.checkNetwork=async()=>{
  if(document.documentElement.scrollWidth>innerWidth)throw Error('Horizontal overflow');
  const color=getComputedStyle(document.querySelector('.agency-panel')).backgroundColor.match(/^rgb\\((\\d+), (\\d+), (\\d+)\\)$/);
  if(!color||(document.documentElement.dataset.appearance==='dark'?Number(color[1])>=128:Number(color[1])<=128))throw Error('Appearance did not apply to the Network panel');
- return {width:innerWidth,appearance:document.documentElement.dataset.appearance,tabs:tabs.map(b=>b.textContent),legacyTabRecovered:true,evidenceExported:true,routeSelection:true,serviceEvidence:true};
+ return {width:innerWidth,appearance:document.documentElement.dataset.appearance,tabs:tabs.map(b=>b.textContent),legacyTabRecovered:true,routeSelection:true,serviceEvidence:true};
 };`
   server = await createViteTestServer({ root, configFile: false, cacheDir: path.join(directory, 'vite-cache'), plugins: [react(), {
     name: 'network-workspace-fixture',

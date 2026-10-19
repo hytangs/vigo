@@ -307,7 +307,9 @@ numeric-buffer owners. Timetable query families now have separate modules.
 The street/access/drive kernels, engine orchestration, server, and CLI remain
 in the original crate; M1's full exit is therefore still pending.
 
-M3 has the opt-in GTFS connection operator, not a complete native City builder.
+M3 uses the Rust GTFS connection operator unconditionally. Its superseded JavaScript operator and selector are removed; retained table hashes, City checks and the frozen corpus cover regression. Raw admission and the remaining City build stages still use JavaScript, so M3 is incomplete.
+
+The Agency research surfaces are removed from Studio and the API: briefings, providers, notebook, operations ledger, replay and LAMP readers. Live Network inspection remains. Stored research data is untouched; saved observations migrate read-only into separate Network connection storage.
 Studio redesign and saved scenarios are integrated, but M5's acceptance against
 the future unified Rust server remains pending. M2, M4 and M6 have not met their
 exit criteria. The capability milestones in RFC 0002 are not implied complete

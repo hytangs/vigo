@@ -1,5 +1,4 @@
 import { compileNativeGtfsConnections } from './native-routing-kernel.mjs'
-import { compileGtfsConnectionsJs, gtfsConnectionCompilerBackend } from './gtfs/connection-compiler.mjs'
 import { MatrixJourneyCache } from './gtfs/matrix-materialization.mjs'
 import { wheelchairProfile, wheelchairDescription, wheelchairBoardingValues, wheelchairPathwaySeconds } from './wheelchair-policy.mjs'
 import { selectedSourceScopes, serviceInSources, scopedServiceResolution } from './gtfs/source-selection.mjs'
@@ -1008,7 +1007,6 @@ export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress, 
 // City feeds share the final database. Namespace references at the CSV boundary
 // so the same validation and connection compiler serve both build paths.
 async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false, sharedDatabase = null, scope = '', wheelchair = false }) {
-  const backend = gtfsConnectionCompilerBackend()
   const startedAt = performance.now()
   const archive = await inspectGtfsZip(zipPath)
   const sourceFingerprint = await sha256File(zipPath)
@@ -1444,29 +1442,24 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     report(onProgress, 'Compiling transit connections', 0.72)
     const compilationStarted = performance.now()
     let compiled
-    if (backend === 'rust') {
-      // SQLite implementations must never share open handles during a write.
-      // Transfer ownership only after all admission transactions have committed.
-      stage.close()
-      stage = null
-      db.close()
-      if (sharedDatabase) sharedDatabase.current = null
-      try {
-        compiled = compileNativeGtfsConnections({ storePath: tempPath, stopTimesPath: stagePath,
-          excludedTripIds: [...excludedTripIds], cacheKib: buildSqliteCacheKiB })
-      } finally {
-        db = new DatabaseSync(tempPath)
-        if (sharedDatabase) sharedDatabase.current = db
-        configureBuildDatabase(db)
-      }
-    } else {
-      compiled = compileGtfsConnectionsJs({ db, stage, excludedTripIds,
-        onProgress: (count) => report(onProgress, 'Compiling transit connections', 0.72 + Math.min(0.17, count / Math.max(1, counts['stop_times.txt']) * 0.17), `${count.toLocaleString()} connections`),
-      })
+    // SQLite implementations must never share open handles during a write.
+    // Transfer ownership only after all admission transactions have committed.
+    stage.close()
+    stage = null
+    db.close()
+    if (sharedDatabase) sharedDatabase.current = null
+    try {
+      compiled = compileNativeGtfsConnections({ storePath: tempPath, stopTimesPath: stagePath,
+        excludedTripIds: [...excludedTripIds], cacheKib: buildSqliteCacheKiB })
+    } finally {
+      db = new DatabaseSync(tempPath)
+      if (sharedDatabase) sharedDatabase.current = db
+      configureBuildDatabase(db)
     }
+
     const { connectionCount, bridgedUntimedGapCount, exactFrequencyExpandedTripCount, exactFrequencyExpandedConnectionCount } = compiled
     onProgress?.({ phase: 'Compiled transit connections', progress: 0.89, compiler: {
-      backend, durationMs: performance.now() - compilationStarted, connectionCount,
+      backend: 'rust', durationMs: performance.now() - compilationStarted, connectionCount,
     } })
     counts.connections = connectionCount
 
