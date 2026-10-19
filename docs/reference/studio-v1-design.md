@@ -240,8 +240,12 @@ raster remains a valid upper bound. Only improved or added seed intervals
 need rasterization before taking pointwise minima. Changed extents or grids
 are fully rasterized. One reference is retained per resident street kernel,
 capped at 32 MiB, included in native memory accounting, and released with the
-kernel. Scenario queries never replace that reference. Cache misses affect
-work performed, not the computed surface or the City format.
+kernel. If the reference labels and edge intervals exceed that budget, no
+reference is retained and subsequent scenarios run the full search. The
+budget covers retained reuse state only: loaded City data, search scratch,
+result construction and the application runtime still contribute to process
+peak memory. Scenario queries never replace that reference. Cache misses
+affect work performed, not the computed surface or the City format.
 
 `npm run check:reach-scenarios` compares fresh and incremental rasters,
 complete directed-edge evidence and node evidence on deterministic generated
@@ -250,6 +254,12 @@ profile is `node test/check-scenario-street-surface.mjs --profile`; it reports
 alternating fresh/incremental samples, settled-label counts and retained
 bytes. Its timing covers a warm surface call plus JavaScript materialization,
 excluding the initial reference search, and is not a whole-city benchmark.
+For real-city evaluation, report cache hits and full-search fallbacks
+separately. Match the City, resolved service date, origin, scenario, cutoff,
+walking limits, raster and output detail. Measure baseline preparation and
+retention as well as repeated scenario calls; compare process peak memory in
+separate processes with the same workload. Reusing labels can save search
+work without reducing total process memory.
 
 ### Compare
 
