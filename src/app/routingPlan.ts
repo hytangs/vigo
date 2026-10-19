@@ -358,7 +358,16 @@ export function normalizeReceivedRoutingPlan(plan: RoutingPlan): RoutingPlan {
     legs,
     walkMinutes: legs.reduce((sum, leg) => sum + (leg.type === 'walk' ? leg.durationMinutes : 0), 0),
   }
-  const normalizedPlan = deferInitialWalk(legNormalizedPlan, legs) ?? legNormalizedPlan
+  let normalizedPlan = deferInitialWalk(legNormalizedPlan, legs) ?? legNormalizedPlan
+  if (plan.sharedLegAlternatives) {
+    normalizedPlan = { ...normalizedPlan, sharedLegAlternatives: { ...plan.sharedLegAlternatives,
+      options: plan.sharedLegAlternatives.options.flatMap(option => {
+        const original = plan.legs[option.legIndex]
+        const legIndex = legs.indexOf(original)
+        return legIndex < 0 ? [] : [{ legIndex, plan: normalizeReceivedRoutingPlan(option.plan) }]
+      }),
+    } }
+  }
   const hasScheduledRide = legs.some((leg) => leg.type === 'ride')
   if (plan.status !== 'ready' || plan.travelMode !== 'transit' || hasScheduledRide) return normalizedPlan
 

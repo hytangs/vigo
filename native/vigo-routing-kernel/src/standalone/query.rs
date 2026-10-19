@@ -714,13 +714,20 @@ impl City {
     }
     fn route_options(&mut self, q: &Value, collect: bool) -> Result<Value> {
         let opt = Options::parse(q)?;
+        let shared_legs = flag(q, "sharedLegs", false)?;
         let requested = crate::route_alternatives::parse(q)?;
         let origin = self.point(&q["origin"])?;
         let destination = self.point(&q["destination"])?;
         let mode = q["mode"].as_str().unwrap_or("transit");
+        if shared_legs && mode != "transit" {
+            return fail("sharedLegs requires transit mode");
+        }
         if let Some(via) = q.get("via").or_else(|| q.get("waypoints"))
             && !via.as_array().ok_or("via must be an array")?.is_empty()
         {
+            if shared_legs {
+                return fail("sharedLegs is not supported with via points");
+            }
             return self.route_via(q, via);
         }
         let window = number(q, "windowMinutes", 0., 0., 240.)?;
@@ -806,6 +813,15 @@ impl City {
                 )?;
                 choice["status"] = json!("ready");
                 choice["mode"] = json!("transit");
+                if shared_legs {
+                    choice["sharedLegAlternatives"] = self.shared_leg_alternatives(
+                        &choice,
+                        &candidate,
+                        [&origin, &destination],
+                        &opt,
+                        [&a, &b],
+                    )?;
+                }
                 choices.push(choice);
             }
         }
@@ -842,6 +858,19 @@ impl City {
             if wins {
                 output = walk;
             }
+        }
+        if shared_legs
+            && output["mode"] == "transit"
+            && output["status"] == "ready"
+            && let Some(journey) = journey.as_ref()
+        {
+            output["sharedLegAlternatives"] = self.shared_leg_alternatives(
+                &output,
+                journey,
+                [&origin, &destination],
+                &opt,
+                [&a, &b],
+            )?;
         }
         if collect {
             if output["status"] == "ready" {
@@ -1611,6 +1640,7 @@ fn validate_request(command: &str, q: &Value, polling: bool) -> Result<()> {
             "alternatives",
             "alternativeRanking",
             "alternativeSlackMinutes",
+            "sharedLegs",
         ],
         "matrix" => &[
             "origins",

@@ -325,8 +325,20 @@ fn journey(v: &mut Value, geometry: bool) -> Value {
     out
 }
 fn route_journey(v: &mut Value, q: &Value, geometry: bool) -> Value {
+    let mut shared = v["sharedLegAlternatives"].take();
     let mut result = journey(v, geometry);
     complete_journey_endpoints(&mut result, &q["origin"], &q["destination"]);
+    if result.is_object() && shared.is_object() {
+        if let Some(options) = shared["options"].as_array_mut() {
+            for option in options {
+                let plan = &mut option["plan"];
+                let alternative = route_journey(plan, q, geometry);
+                option.as_object_mut().unwrap().remove("plan");
+                option["journey"] = alternative;
+            }
+        }
+        result["sharedLegAlternatives"] = shared;
+    }
     result
 }
 fn complete_journey_endpoints(result: &mut Value, origin: &Value, destination: &Value) {

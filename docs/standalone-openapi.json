@@ -7208,6 +7208,11 @@
             "maximum": 60,
             "default": 1
           },
+          "sharedLegs": {
+            "type": "boolean",
+            "default": false,
+            "description": "Bundle feasible services sharing an ordered stop pattern and proven path. Transit Route without via points only. Each option retains a complete timed journey; see shared-leg services in the guide."
+          },
           "alternatives": {
             "type": "integer",
             "minimum": 0,
@@ -10588,6 +10593,9 @@
             "items": {
               "$ref": "#/components/schemas/PublicLeg"
             }
+          },
+          "sharedLegAlternatives": {
+            "$ref": "#/components/schemas/SharedLegAlternatives"
           }
         },
         "required": [
@@ -10602,6 +10610,53 @@
           "legs"
         ],
         "additionalProperties": true
+      },
+      "SharedLegAlternatives": {
+        "type": "object",
+        "properties": {
+          "coverage": {
+            "const": "single_leg_substitutions"
+          },
+          "windowMinutes": {
+            "const": 30
+          },
+          "truncated": {
+            "type": "boolean",
+            "default": false
+          },
+          "frequency": {
+            "const": "not_calculated"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "legIndex": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "journey": {
+                  "$ref": "#/components/schemas/PublicJourney"
+                }
+              },
+              "required": [
+                "legIndex",
+                "journey"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "coverage",
+          "windowMinutes",
+          "truncated",
+          "frequency",
+          "options"
+        ],
+        "additionalProperties": false,
+        "description": "At most 32 complete replacements per journey. Each changes one leg only; options are not combinable. Does not recursively enumerate replacements."
       }
     }
   }

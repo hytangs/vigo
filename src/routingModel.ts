@@ -139,6 +139,13 @@ export type RoutingLeg = {
 }
 
 export type RoutingPlan = {
+  sharedLegAlternatives?: {
+    coverage: 'single_leg_substitutions'
+    windowMinutes: number
+    truncated: boolean
+    frequency: 'not_calculated'
+    options: Array<{ legIndex: number; plan: RoutingPlan }>
+  }
   id: string
   status: 'ready' | 'blocked'
   travelMode: RoutingTravelMode

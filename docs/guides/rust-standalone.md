@@ -535,6 +535,53 @@ Ask for several journeys at one time, plan through intermediate points, or compa
 }
 ```
 
+### Shared-leg services
+
+Set `sharedLegs: true` on a transit Route request to expose other services on the
+same leg, including services pruned by the optimal search. It is off by default.
+Both the Node and standalone Rust runtimes return
+`journey.sharedLegAlternatives.options`: each item has a zero-based `legIndex`
+and a complete `journey` with the replacement trip, times, transfers, and geometry.
+The recommended journey stays unchanged. Studio enables this for routes without
+via points and offers the services in the leg's details.
+
+Matching uses route IDs, the exact ordered stop IDs and boarding/alighting
+permissions, and an equivalent directed path. Route names do not establish
+identity: two services may share a name or have different names. A short-turn
+branch appears only on the segment it serves; express/local patterns and
+different paths remain separate. Path matching requires GTFS shapes or planned
+scenario geometry. It compares coordinates rounded to six decimals, ignoring
+consecutive duplicates and straight-line resampling. Missing shapes or
+independently digitized paths that do not match are conservatively omitted.
+
+Coverage is explicitly `single_leg_substitutions`. Each option changes one leg
+of the recommended journey, keeps the other rides fixed, and preserves feasible
+transfer times and the query deadline. It considers departures from the original
+leg's departure through 30 minutes later, with arrivals at most 30 minutes later
+than that leg. It returns the earliest-arriving feasible trip per alternate route
+ID, examines at most 256 matching rides per leg, and returns at most 32 options
+per journey. `truncated: true` indicates that a bound was reached. These bounds
+are independent of the top-level journey limit. Options are complete witnesses;
+do not combine replacements from different options into an unverified journey.
+
+The feature supports active scheduled and supplied realtime timetables,
+arrive-by requests, and journey windows. Earlier departures and combinations of
+several replacement legs are outside this initial coverage. Via points and
+street modes are rejected. No City rebuild is needed. Combined headway or
+frequency is **not** estimated (`frequency: "not_calculated"`); it requires a
+separate calculation from actual active departures.
+
+```json query=route
+{
+  "origin": {"stopId": "A"},
+  "destination": {"stopId": "B"},
+  "serviceDate": "2026-07-15",
+  "time": "07:50",
+  "sharedLegs": true,
+  "requireTransitRide": true
+}
+```
+
 ### Via points
 
 Supply `via` (alias `waypoints`) as an ordered array of at most 16 points. Do not supply both aliases. Each segment is routed in order, carrying time forward for depart-at or backward for arrive-by. Results contain `segments`, not one flattened journey. A blocked segment reports `reason: "via_leg_blocked"` and `legIndex`.

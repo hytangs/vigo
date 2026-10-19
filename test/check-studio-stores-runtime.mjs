@@ -24,6 +24,9 @@ let failure;const checked=w.webContents.executeJavaScript('window.checkStores()'
 await w.webContents.executeJavaScript('new Promise((resolve,reject)=>{const t=setInterval(()=>{if(window.coordinateSearchScreenshot){clearInterval(t);resolve()}},20);setTimeout(()=>{clearInterval(t);reject(Error("Coordinate screenshot timeout"))},15000)})');
 require('node:fs').writeFileSync(${JSON.stringify(path.join(directory,'coordinate-search.png'))},(await w.webContents.capturePage()).toPNG());
 await w.webContents.executeJavaScript('window.coordinateSearchCaptured()');
+await w.webContents.executeJavaScript('new Promise((resolve,reject)=>{const t=setInterval(()=>{if(window.sharedServicesScreenshot){clearInterval(t);resolve()}},20);setTimeout(()=>{clearInterval(t);reject(Error("Shared services screenshot timeout"))},15000)})');
+require('node:fs').writeFileSync(${JSON.stringify(path.join(directory,'shared-services.png'))},(await w.webContents.capturePage()).toPNG());
+await w.webContents.executeJavaScript('window.sharedServicesCaptured()');
 const result=await checked;if(failure)throw failure;console.log({...result,screenshot:${JSON.stringify(path.join(directory,'coordinate-search.png'))}});app.exit(0)}catch(e){console.error(e);app.exit(1)}});`)
 try{
  const env={...process.env};delete env.ELECTRON_RUN_AS_NODE

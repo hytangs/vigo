@@ -70,8 +70,9 @@ try {
     examples.push({ command: match[1], request, result })
     checks++
   }
-  assert.equal(examples.length, 12, 'Update documented example coverage deliberately')
+  assert.equal(examples.length, 13, 'Update documented example coverage deliberately')
   assert.equal(examples.find(e => e.request.alternatives)?.result.alternativeSearch?.status, 'complete')
+  assert.equal(examples.find(e => e.request.sharedLegs)?.result.sharedLegAlternatives?.coverage, 'single_leg_substitutions')
   assert.equal(examples[0].result.arrivalMinutes, 510)
   const excerpt = JSON.parse(manual.match(/```json response=quickstart\n([\s\S]*?)\n```/)[1])
   const quickstartPublic = JSON.parse(execFileSync(binary, ['route', '--city', city, '--request', '-'], { input: JSON.stringify(examples[0].request), env, encoding: 'utf8' }))

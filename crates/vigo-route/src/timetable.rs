@@ -23,6 +23,8 @@ mod transfer_paths;
 pub use transfer_paths::*;
 
 mod journeys;
+mod shared_legs;
+pub use shared_legs::*;
 mod overlay_quality;
 pub use journeys::{TimetableMatrixJourney, TimetableMatrixLeg};
 

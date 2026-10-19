@@ -280,6 +280,7 @@ def specification(native):
     clock_common = {**common,'arrivalBufferMinutes':number(0,60,0,integer=True,description='Caller-selected arrival reserve. Positive values require arrive-by Transit Route/Matrix without via points; reserve the final minutes of the original horizon. Not a calibrated probability.'),'realtimeSnapshot':ref('RealtimeSnapshot'),'traffic':ref('Traffic')}
     schemas['RouteRequest'] = obj({**clock_common,'includeGeometry':boolean(True),'origin':ref('Point'),'destination':ref('Point'),'via':array(ref('Point'),0,16),'waypoints':array(ref('Point'),0,16),
         'windowMinutes':number(0,240,0),'windowStepMinutes':number(1,60,1),
+        'sharedLegs':{**boolean(), 'description':'Bundle feasible services sharing an ordered stop pattern and proven path. Transit Route without via points only. Each option retains a complete timed journey; see shared-leg services in the guide.'},
         'alternatives':number(0,9,0,integer=True,description='Additional transit journeys for a depart-at transit query at the requested time; 0 turns alternatives off. Not combined with arrive-by, via points or journey windows.'),
         'alternativeRanking':text('pareto','ranked',default='pareto',description='pareto returns nondominated arrival/boarding/walking trade-offs; ranked returns the earliest distinct vehicle sequences, dominated ones included. Requires alternatives.'),
         'alternativeSlackMinutes':number(0,120,15,description='Latest arrival admitted for an alternative, in minutes after the primary arrival. Requires alternatives.')},['origin','destination'],allOf=[clock_rule,transit_date,mode_rule,{'not':{'required':['via','waypoints']}}],
@@ -386,8 +387,13 @@ def specification(native):
         ['type','from','to','departureTime','arrivalTime','durationSeconds','quality'],strict=False)
     schemas['PublicJourney'] = obj({'clockDate':text(description='Date anchoring all elapsed service clocks in this journey, including overnight arrive-by searches.'),'departureTime':text(),'arrivalTime':text(),'durationSeconds':seconds,
         **{k:nullable_seconds for k in ['walkingSeconds','waitingSeconds','ridingSeconds','drivingSeconds']},
-        'boardings':seconds,'transfers':seconds,'legs':array(ref('PublicLeg'))},
+        'boardings':seconds,'transfers':seconds,'legs':array(ref('PublicLeg')),
+        'sharedLegAlternatives':ref('SharedLegAlternatives')},
         ['departureTime','arrivalTime','durationSeconds','walkingSeconds','waitingSeconds','ridingSeconds','boardings','transfers','legs'],strict=False)
+    schemas['SharedLegAlternatives'] = obj({'coverage':{'const':'single_leg_substitutions'},
+        'windowMinutes':{'const':30}, 'truncated':boolean(), 'frequency':{'const':'not_calculated'},
+        'options':array(obj({'legIndex':number(0,integer=True), 'journey':ref('PublicJourney')},['legIndex','journey']))},
+        ['coverage','windowMinutes','truncated','frequency','options'],description='At most 32 complete replacements per journey. Each changes one leg only; options are not combinable. Does not recursively enumerate replacements.')
     public_common = {'schema':text(),'status':text('ok','not_found'),'mode':text('transit','walk','drive'),
         'accessibility':obj({'profile':{'const':'wheelchair-strict-v1'},'unknownData':{'const':'exclude'},'limitations':array(text())},['profile','unknownData','limitations'],strict=False),
         'query':{'type':'object'},'meta':obj({'engineVersion':text(),'cityRevision':{'type':['string','null']},'requestId':{},

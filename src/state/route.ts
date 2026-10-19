@@ -154,6 +154,7 @@ export function routingStreetState(): 'ready' | 'loading' | 'missing' {
 
 const routingPlanOf = memoizeLast((choices: RoutingPlan[], selectedId: string) => (
   choices.find((plan) => plan.id === selectedId)
+    ?? choices.flatMap(plan => plan.sharedLegAlternatives?.options ?? []).find(option => option.plan.id === selectedId)?.plan
     ?? choices.find((plan) => plan.recommended)
     ?? choices[0]
     ?? null

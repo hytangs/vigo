@@ -313,6 +313,7 @@ export function decorateScenarioPlan(result, prepared) {
       }
     }
     for (const key of ['alternatives', 'choices', 'plans']) if (Array.isArray(plan[key])) plan[key].forEach(visit)
+    for (const option of plan.sharedLegAlternatives?.options ?? []) visit(option.plan)
     for (const key of ['plan', 'profile']) if (plan[key] && typeof plan[key] === 'object') visit(plan[key])
   }
   visit(result)

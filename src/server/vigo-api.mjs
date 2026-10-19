@@ -3334,6 +3334,12 @@ function resolveStoreDepartNow(storePath, body) {
 
 async function runNationalRoute(projectId, body, signal) {
   body = normalizeRoutingDataRequest(body)
+  if (body?.sharedLegs !== undefined && typeof body.sharedLegs !== 'boolean') {
+    throw Object.assign(new Error('sharedLegs must be a boolean.'), { statusCode: 400 })
+  }
+  if (body?.sharedLegs && ((body.mode ?? 'transit') !== 'transit' || body.waypoints?.length)) {
+    throw Object.assign(new Error('sharedLegs requires transit mode without via points.'), { statusCode: 400 })
+  }
   if (
     Object.prototype.hasOwnProperty.call(body ?? {}, 'waypoints')
     && !Array.isArray(body.waypoints)

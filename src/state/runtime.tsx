@@ -554,7 +554,8 @@ function RouteRuntime() {
   }, [activeRouteTool, completeEndDate, engine.serviceDateAvailability, nationalRoutingStoreKey, settings.routingDestination, settings.routingOrigin, serviceDate, hasJourneyPoint])
 
   useEffect(() => {
-    if (settings.selectedRoutingPlanId && !engine.choices.some((plan) => plan.id === settings.selectedRoutingPlanId)) {
+    if (settings.selectedRoutingPlanId && !engine.choices.some((plan) => plan.id === settings.selectedRoutingPlanId
+      || plan.sharedLegAlternatives?.options.some(option => option.plan.id === settings.selectedRoutingPlanId))) {
       route.set({ selectedRoutingPlanId: '' })
     }
   }, [engine.choices, settings.selectedRoutingPlanId])

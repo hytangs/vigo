@@ -47,6 +47,7 @@
   "check:national-choices": [
     "test/check-national-route-choices.mjs",
     "test/check-route-alternatives.mjs",
+    "test/check-shared-legs.mjs",
     "test/check-route-horizon.mjs",
     "test/check-bounded-search.mjs",
     "test/check-equal-time-routing.mjs",

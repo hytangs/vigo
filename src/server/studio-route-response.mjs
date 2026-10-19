@@ -4,7 +4,10 @@ export function compactStudioRoutingPlan(plan) {
   if (!plan?.diagnostics) return plan
   const { searchStats, dataSemantics, departureWindow, ...diagnostics } = plan.diagnostics
   const select = (value, keys) => Object.fromEntries(keys.filter(key => value?.[key] !== undefined).map(key => [key, value[key]]))
-  return { ...plan, diagnostics: {
+  return { ...plan,
+    ...(plan.sharedLegAlternatives ? { sharedLegAlternatives: { ...plan.sharedLegAlternatives,
+      options: plan.sharedLegAlternatives.options.map(option => ({ ...option, plan: compactStudioRoutingPlan(option.plan) })),
+    } } : {}), diagnostics: {
     ...diagnostics,
     ...(searchStats ? { searchStats: select(searchStats, ['queryMs', 'engineQueryMs']) } : {}),
     ...(dataSemantics ? { dataSemantics: select(dataSemantics, ['blockingFeatures', 'limitations', 'sourceFingerprint', 'transferSemanticsVersion']) } : {}),

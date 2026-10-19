@@ -16,6 +16,7 @@ mod query;
 mod reach;
 mod realtime;
 mod scenario;
+mod shared_legs;
 mod timetable_cache;
 mod traffic;
 mod traffic_poll;

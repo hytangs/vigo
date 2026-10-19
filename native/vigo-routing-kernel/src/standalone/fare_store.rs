@@ -83,6 +83,15 @@ impl City {
 
     /// Price each boarding of a ready journey, as Node does for the same City.
     pub(crate) fn annotate_fares(&mut self, plan: &mut Value, service_date: &str) {
+        if let Some(options) = plan
+            .get_mut("sharedLegAlternatives")
+            .and_then(|v| v.get_mut("options"))
+            .and_then(Value::as_array_mut)
+        {
+            for option in options {
+                self.annotate_fares(&mut option["plan"], service_date);
+            }
+        }
         if plan["status"] != "ready" {
             return;
         }

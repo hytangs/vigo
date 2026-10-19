@@ -22,6 +22,7 @@ mod reach_boundaries;
 #[cfg(feature = "node")]
 pub use reach_boundaries::reach_boundary_areas;
 pub(crate) mod route_alternatives;
+pub(crate) mod shared_legs;
 use bincode::Options;
 #[cfg(all(feature = "standalone", not(feature = "node")))]
 pub mod standalone;

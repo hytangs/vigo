@@ -1234,6 +1234,8 @@
 .journey-leg-evidence { margin-top: 8px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 .journey-leg-evidence > summary { cursor: pointer; }
 .journey-leg-evidence p { margin: 6px 0 0; }
+.journey-shared-services button { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; padding: 9px; margin-top: 7px; text-align: left; color: var(--text-primary); background: var(--pq-surface-raised); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.journey-shared-services button small { flex-basis: 100%; color: var(--text-muted); }
 .journey-finish > strong { position: relative; min-width: 0; padding-left: 16px; color: var(--text-strong); font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
 .journey-finish { margin-bottom: 24px; }
 .journey-finish > strong::before { left: -3px; background: var(--text-strong); border-color: var(--text-strong); }

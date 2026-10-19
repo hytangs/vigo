@@ -11,6 +11,7 @@ const plan = { id: 'primary', status: 'ready', departMinutes: 480, arriveMinutes
   },
 }
 const result = { plan, choices: [plan, { ...plan, id: 'other' }], earliestTransit: { status: 'ready' } }
+plan.sharedLegAlternatives = { coverage: 'single_leg_substitutions', options: [{legIndex:0,plan:{...plan,id:'shared'}}] }
 const original = structuredClone(result), compact = compactStudioRoutingResponse(result)
 assert.deepEqual(result, original, 'Output projection cannot mutate routing results')
 assert.equal(compact.selectedPlanId, 'primary')
@@ -19,6 +20,7 @@ assert.deepEqual(compact.choices.map(p => p.legs), result.choices.map(p => p.leg
 assert.deepEqual(compact.choices[0].diagnostics.dataSemantics.limitations, plan.diagnostics.dataSemantics.limitations)
 assert.deepEqual(compact.choices[0].diagnostics.realtimeRouting, plan.diagnostics.realtimeRouting)
 assert.equal(compact.choices[0].diagnostics.departureWindow.centerMinutes, 475)
+assert.deepEqual(compact.choices[0].sharedLegAlternatives.options[0].plan.diagnostics.searchStats, {queryMs:10,engineQueryMs:2})
 assert.deepEqual(compact.choices[0].diagnostics.searchStats, { queryMs: 10, engineQueryMs: 2 })
 assert(JSON.stringify(compact).length < JSON.stringify(result).length / 20)
 const blocked = { id: 'none', status: 'blocked', diagnostics: { failure: { code: 'unsupported_feature', category: 'unsupported_feature' } } }

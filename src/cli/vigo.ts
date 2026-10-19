@@ -404,6 +404,8 @@ async function computeRouteRequest(
   const origin = analyticalPoint(request.origin, 'Origin', stopLookup)
   const destination = analyticalPoint(request.destination, 'Destination', stopLookup)
   const waypointInputs = Array.isArray(request.waypoints) ? request.waypoints : []
+  if (request.sharedLegs !== undefined && typeof request.sharedLegs !== 'boolean') throw new Error('sharedLegs must be a boolean.')
+  if (request.sharedLegs && (mode !== 'transit' || waypointInputs.length)) throw new Error('sharedLegs requires transit mode without via points.')
   const waypoints = waypointInputs.map((waypoint, index) => (
     analyticalPoint(waypoint, `Waypoint ${index + 1}`, stopLookup)
   ))
@@ -435,6 +437,7 @@ async function computeRouteRequest(
     maxTransfers: options.maxTransfers,
     streetStorePath,
     requireTransitRide: request.requireTransitRide,
+    sharedLegs: request.sharedLegs,
     __disableNativeStreetPathCache: request.disableCache === true,
     horizonMinutes: options.horizonMinutes,
     allowLongWalk: request.allowLongWalk !== false,
@@ -503,6 +506,7 @@ async function computeRouteRequest(
       horizonMinutes: options.horizonMinutes,
       horizonScope: 'timetable_scan',
       requireTransitRide: request.requireTransitRide === true,
+      ...(request.sharedLegs !== undefined ? { sharedLegs: request.sharedLegs } : {}),
       disableCache: request.disableCache === true,
       ...(request.allowStreetTransfers !== undefined ? { allowStreetTransfers: request.allowStreetTransfers } : {}),
       ...(request.minimumTransferBufferMinutes !== undefined ? { minimumTransferBufferMinutes: request.minimumTransferBufferMinutes } : {}),

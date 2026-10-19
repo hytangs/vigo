@@ -64,6 +64,14 @@ const exactStopPlan = plan('exact-stop-plan', [
   walk({ fromName: 'Destination terminal', toName: 'Destination terminal', fromStopId: 'stop-f', toStopId: 'stop-f', startMinutes: 526, endMinutes: 526, distanceKm: 0, walkSource: 'direct' }),
 ])
 const normalizedExactStopPlan = normalizeReceivedRoutingPlan(exactStopPlan)
+const sharedPlan = { ...exactStopPlan, sharedLegAlternatives: { coverage:'single_leg_substitutions',
+  windowMinutes:30, truncated:false, frequency:'not_calculated',options:[{legIndex:1,
+    plan:{...exactStopPlan,id:'shared-branch',legs:exactStopPlan.legs.map((leg,i)=>i===1?{...leg,routeId:'Branch',tripId:'Branch-trip'}:leg)},
+  }] } }
+const sharedNormalized = normalizeReceivedRoutingPlan(sharedPlan)
+assert.equal(sharedNormalized.sharedLegAlternatives.options[0].legIndex,0,'Removing the zero-time access walk remaps the shared leg')
+assert.equal(sharedNormalized.sharedLegAlternatives.options[0].plan.legs[0].tripId,'Branch-trip','The replacement uses the same normalized itinerary layout')
+assert.equal(sharedPlan.sharedLegAlternatives.options[0].legIndex,1,'Normalization must not mutate engine evidence')
 const withRealtime = (realtimeRouting, legs = exactStopPlan.legs) => ({ ...exactStopPlan, legs,
   diagnostics: { ...exactStopPlan.diagnostics, realtimeRouting } })
 assert.equal(routingRealtimeDetail(exactStopPlan), 'Scheduled times; no realtime updates applied')

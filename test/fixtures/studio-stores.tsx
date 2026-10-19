@@ -5,7 +5,7 @@ import App from '../../src/App'
 import { emptyCityProject } from '../../src/app/projectState'
 import { city } from '../../src/state/city'
 import { shell, setQuery } from '../../src/state/shell'
-import { route, routingNetwork, routeScenario, clearRouting } from '../../src/state/route'
+import { route, routingNetwork, routeScenario, clearRouting, selectRoutingPlan, routingPlan } from '../../src/state/route'
 import { analyze, analysisPointFromMap, changeReachMaxWalkKm } from '../../src/state/analyze'
 import { scenarioLibrary } from '../../src/state/scenarios'
 import { openProject, openPathfinderView, openAnalyzeView, applyCitySelection } from '../../src/state/navigation'
@@ -27,6 +27,7 @@ MapLibreMap.prototype.addControl = function(...args) { liveMap = this; return or
 const originalFitBounds = MapLibreMap.prototype.fitBounds
 MapLibreMap.prototype.fitBounds = function(...args) { cameraFits++; return originalFitBounds.apply(this, args) }
 let failDetail = false, detailReads = 0
+let sharedFixture, sharedRequest
 window.fetch = async (input, options = {}) => {
   const url = new URL(String(input), location.href)
   if (url.pathname === '/api/health') return Response.json({ ok: true, version: 'test', config, offline: config.offline })
@@ -49,6 +50,11 @@ window.fetch = async (input, options = {}) => {
       return Response.json(saved.get(id) ?? entry)
     }
     if (endpoint === 'routing-residency') return Response.json({ residency: {} })
+    if (endpoint === 'national-ready') return Response.json({routing:{ready:true}})
+    if (endpoint === 'national-route') {
+      sharedRequest = JSON.parse(options.body)
+      return Response.json({choices:sharedFixture ? [sharedFixture] : [],selectedPlanId:sharedFixture?.id})
+    }
     if (endpoint === 'place') return url.searchParams.has('points')
       ? new Promise(resolve => placeRequests.push({ signal: options.signal, reply: labels => resolve(Response.json({ places: labels.map(label => label ? { label } : null) })) }))
       : Response.json({ places: [] })
@@ -110,6 +116,38 @@ window.checkStores = async () => {
   check(document.querySelector('.maplibregl-canvas') === canvas, 'Coordinate search remounted the map')
   window.coordinateSearchEvidence = { origin: [11, 41], destination: [11.01, 41.01], labels: ['New Street & Cross Street', 'Market Square'], center: liveMap.getCenter().toArray() }
   await new Promise(resolve => { window.coordinateSearchCaptured = resolve; window.coordinateSearchScreenshot = true })
+  const ride = { type:'ride', travelMode:'transit', fromName:'Science Park', toName:'Park St',
+    fromStopId:'O', toStopId:'B', startMinutes:480, endMinutes:490, durationMinutes:10,
+    distanceKm:1.4, stopCount:2, stopIds:['O','A','B'], routeId:'F', routeShortName:'Green F',
+    tripId:'F-1', routeColor:'008000', coordinates:[[11,41],[11.01,41.01]], geometrySource:'gtfs_shape' }
+  const primary = { id:'shared-primary', status:'ready', travelMode:'transit', timePreference:'depart',
+    title:'Green F', detail:'Fixture journey', departMinutes:480, arriveMinutes:490, durationMinutes:10,
+    origin:route.get().routingOrigin, destination:route.get().routingDestination,
+    maxWalkKm:1.2, walkMinutes:0, rideMinutes:10, waitMinutes:0, transfers:0, recommended:true,
+    legs:[ride], diagnostics:{routingDataMode:'scheduled',serviceDate:'2026-10-19'} }
+  const alternate = {...primary, id:'shared-E', title:'Green E', recommended:false, choiceLabel:'Shared-leg service',
+    arriveMinutes:492, durationMinutes:12, waitMinutes:2,
+    legs:[{...ride,routeId:'E',routeShortName:'Green E',tripId:'E-1',startMinutes:482,endMinutes:492}]}
+  primary.sharedLegAlternatives = {coverage:'single_leg_substitutions',windowMinutes:30,truncated:false,
+    frequency:'not_calculated',options:[{legIndex:0,plan:alternate}]}
+  sharedFixture = primary
+  flushSync(() => route.set({routingOrigin:{...primary.origin,source:'stop',stopId:'O'},routingDestination:{...primary.destination,source:'stop',stopId:'B'}}))
+  await until(() => route.get().engine.choices[0]?.id === primary.id, 'Shared service response did not reach Studio')
+  check(sharedRequest.sharedLegs === true, 'Studio did not request shared-leg services')
+  const retainedPrimary = route.get().engine.choices[0]
+  flushSync(() => selectRoutingPlan(primary.id))
+  await until(() => document.querySelector('.journey-shared-services button'), 'Shared service missing from the detailed itinerary')
+  flushSync(() => document.querySelector('.journey-shared-services summary').click())
+  check(document.querySelector('.journey-shared-services button').textContent.includes('Green E'), 'Shared service label missing')
+  await pause(250)
+  await new Promise(resolve => { window.sharedServicesCaptured = resolve; window.sharedServicesScreenshot = true })
+  flushSync(() => document.querySelector('.journey-shared-services button').click())
+  await until(() => document.querySelector('.journey-finish')?.textContent.includes('08:12'), 'Choosing a service did not replace the journey clock')
+  check(routingPlan()?.id === alternate.id && routingPlan()?.legs[0].tripId === 'E-1', 'Selected full witness was lost')
+  await until(() => liveMap.getSource('vigo-routing')?.serialize().data?.features?.some(f=>f.properties.tripId==='E-1'), 'Map retained the primary trip after selecting another service')
+  check(route.get().engine.choices[0] === retainedPrimary && primary.legs[0].tripId === 'F-1', 'Selecting a service mutated the recommendation')
+  flushSync(() => selectRoutingPlan(primary.id))
+  await until(() => document.querySelector('.journey-finish')?.textContent.includes('08:10'), 'Returning to the recommendation failed')
   flushSync(clearRouting)
 
   // Saved scenarios still flow through the persistence owner to the workspace stores.
@@ -145,5 +183,5 @@ window.checkStores = async () => {
   await until(() => shell.get().apiError.includes('temporarily unavailable'), 'City load failure did not surface')
   await pause(250)
   check(detailReads - readsBefore === 1, 'Failed City loading retried in a render loop')
-  return { passed: true, failedLoadBounded: true, unrelatedSearchUpdates: 30, shellAndMapRenders: 0, searchUpdateMs: searchMs, persistentMap: true, savedScenarios: true, scenarioRouting: true, namedCoordinate: true, coordinateSearch: window.coordinateSearchEvidence, cityIsolation: true }
+  return { passed: true, sharedServiceSelection: true, sharedServiceMap: true, failedLoadBounded: true, unrelatedSearchUpdates: 30, shellAndMapRenders: 0, searchUpdateMs: searchMs, persistentMap: true, savedScenarios: true, scenarioRouting: true, namedCoordinate: true, coordinateSearch: window.coordinateSearchEvidence, cityIsolation: true }
 }

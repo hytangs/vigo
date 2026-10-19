@@ -19,6 +19,7 @@ import { formatScheduleClock } from '../scheduledVehicles'
 import { RoutingFare } from './RoutingFare'
 import { ResultExportActions } from './ResultExportActions'
 import { exportJourney, journeyGeometryAvailable } from '../app/resultExports'
+import { selectRoutingPlan } from '../state/route'
 
 function routingChoiceExplanation(plan: RoutingPlan) {
   if (plan.choiceLabel === 'Earliest arrival') {
@@ -84,6 +85,20 @@ export function RoutingItinerary({ plan }: { plan: RoutingPlan }) {
             {ride ? <><p className="journey-stop">{leg.fromName}</p><p className="journey-leg-meta">{leg.scenarioService ? <span className="journey-planned">Planned · {leg.scenarioService.scenarioName}</span> : null}{leg.stopCount > 0 ? `${leg.stopCount} ${leg.scenarioService ? 'planned' : 'scheduled'} stop${leg.stopCount === 1 ? '' : 's'}` : 'Transit ride'}</p><div className="journey-arrival"><span>{leg.toName}</span><time>{formatScheduleClock(leg.endMinutes)}</time></div></> : <p className="journey-leg-meta">{transfer ? 'Station connection' : `From ${leg.fromName}`}{leg.distanceKm > 0 ? ` · ${leg.distanceKm < 1 ? `${Math.round(leg.distanceKm * 1000)} m` : `${leg.distanceKm.toFixed(1)} km`}` : ''}</p>}
             {leg.stationAccessStatus !== 'unverified' && leg.transferSource === 'parent_station_fallback' ? <p className="journey-caution">Assumed station connection time</p> : null}
             {(ride && (leg.sourceEqualTime || !shapedRideGeometry(leg.geometrySource))) || leg.type === 'drive' ? <details className="journey-leg-evidence"><summary>Path &amp; timing</summary><p>{routingLegDetail(leg)}</p></details> : null}
+            {ride && plan.sharedLegAlternatives?.options.some(option => option.legIndex === index) ?
+              <details className="journey-leg-evidence journey-shared-services">
+                <summary>Other services on this leg</summary>
+                <p>Same stops and path. Choose a service to see its complete journey and transfer times.</p>
+                {plan.sharedLegAlternatives.options.filter(option => option.legIndex === index).map(option => {
+                  const alternate = option.plan.legs[index]
+                  return <button type="button" key={option.plan.id} onClick={() => selectRoutingPlan(option.plan.id)}>
+                    <strong>{alternate.routeShortName || alternate.routeId}</strong>
+                    <span>{formatScheduleClock(alternate.startMinutes)} → {formatScheduleClock(alternate.endMinutes)}</span>
+                    <small>{alternate.routeId} · Arrive {formatScheduleClock(option.plan.arriveMinutes ?? option.plan.departMinutes + option.plan.durationMinutes)}</small>
+                  </button>
+                })}
+                {plan.sharedLegAlternatives.truncated ? <p>More services may be available beyond the displayed options.</p> : null}
+              </details> : null}
           </div>
         </li>
       })}

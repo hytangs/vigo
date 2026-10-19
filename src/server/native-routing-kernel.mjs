@@ -544,6 +544,15 @@ export function routeNativeTimetableScalar(kernel, request) {
   })
 }
 
+export function sharedNativeRideOptions(kernel, query) {
+  return prepareNativeTimetableKernel(kernel).kernel.sharedRideOptions(query)
+}
+
+export function sharedNativeLegPathsMatch(a, b) {
+  const proven = (leg) => ['gtfs_shape', 'shape', 'scenario_plan'].includes(leg.geometrySource)
+  return proven(a) && proven(b) && loadNativeBinding().sharedLegPathsMatch(a.coordinates.flat(), b.coordinates.flat())
+}
+
 function timetableEndpointQuery(request) {
   return {
     originStops: request.originSeeds.map((seed) => seed.stop),
