@@ -4,7 +4,12 @@ import { writeFileSync } from 'node:fs'
 const message = (write, data) => { const pbf = new PbfWriter(); write(data, pbf); return Buffer.from(pbf.finish()) }
 const deltas = (values) => values.map((value, i) => value - (values[i - 1] ?? 0))
 
-export function writeBasemapFixture(filePath) {
+/**
+ * Write a one-block OSM PBF. `define` receives `way(points, tags)` (closed when
+ * the first and last points match) and `relation(members, tags)` with members
+ * as `[wayId, role]`; each way point is its own node.
+ */
+export function writeOsmFixture(filePath, define) {
   const strings = ['']
   const string = (value) => { let i = strings.indexOf(value); if (i === -1) { i = strings.length; strings.push(value) }; return i }
   const nodes = [], ways = [], relations = []
@@ -16,19 +21,12 @@ export function writeBasemapFixture(filePath) {
     const id = ways.length + 1
     ways.push({ id, refs, ...tags(values) }); return id
   }
-  // A northbound mainland shore: ocean is east; the island is counterclockwise.
-  way([[0, -0.1], [0, 0], [0, 0.1]], { natural: 'coastline' })
-  way([[0.025, -0.01], [0.04, -0.01], [0.04, 0.01], [0.025, 0.01], [0.025, -0.01]], { natural: 'coastline' })
-  for (const [i, highway] of ['motorway', 'primary', 'secondary', 'tertiary', 'residential', 'service', 'footway'].entries()) {
-    way([[-0.09, 0.01 + i * 0.007], [-0.01, 0.012 + i * 0.007]], { highway })
+  const relation = (members, values = {}) => {
+    const id = 100 + relations.length
+    relations.push({ id, refs: members.map(([wayId]) => wayId), roles: members.map(([, role]) => string(role)), types: members.map(() => 1), ...tags(values) })
+    return id
   }
-  way([[-0.09, -0.06], [-0.055, -0.025], [0, -0.025]], { waterway: 'river' })
-  way([[-0.05, -0.01], [-0.025, -0.01], [-0.025, 0.01], [-0.05, 0.01], [-0.05, -0.01]], { natural: 'water' })
-  // Untagged, reversed multipolygon members and a retained island hole.
-  const outerA = way([[-0.095, -0.045], [-0.065, -0.045], [-0.065, -0.015]])
-  const outerB = way([[-0.095, -0.045], [-0.095, -0.015], [-0.065, -0.015]])
-  const inner = way([[-0.085, -0.035], [-0.075, -0.035], [-0.075, -0.025], [-0.085, -0.025], [-0.085, -0.035]])
-  relations.push({ id: 100, refs: [outerB, inner, outerA], roles: [string('outer'), string('inner'), string('outer')], types: [1, 1, 1], ...tags({ type: 'multipolygon', natural: 'water' }) })
+  define({ way, relation })
   const writeTags = (value, pbf) => { pbf.writePackedVarint(2, value.keys); pbf.writePackedVarint(3, value.vals) }
   const data = message((_value, pbf) => {
     pbf.writeMessage(1, (values, p) => { for (const value of values) p.writeStringField(1, value) }, strings)
@@ -57,4 +55,22 @@ export function writeBasemapFixture(filePath) {
     frame('OSMHeader', message((_, p) => { p.writeStringField(4, 'OsmSchema-V0.6'); p.writeStringField(4, 'DenseNodes') }, null)),
     frame('OSMData', data),
   ]))
+}
+
+export function writeBasemapFixture(filePath) {
+  writeOsmFixture(filePath, ({ way, relation }) => {
+    // A northbound mainland shore: ocean is east; the island is counterclockwise.
+    way([[0, -0.1], [0, 0], [0, 0.1]], { natural: 'coastline' })
+    way([[0.025, -0.01], [0.04, -0.01], [0.04, 0.01], [0.025, 0.01], [0.025, -0.01]], { natural: 'coastline' })
+    for (const [i, highway] of ['motorway', 'primary', 'secondary', 'tertiary', 'residential', 'service', 'footway'].entries()) {
+      way([[-0.09, 0.01 + i * 0.007], [-0.01, 0.012 + i * 0.007]], { highway })
+    }
+    way([[-0.09, -0.06], [-0.055, -0.025], [0, -0.025]], { waterway: 'river' })
+    way([[-0.05, -0.01], [-0.025, -0.01], [-0.025, 0.01], [-0.05, 0.01], [-0.05, -0.01]], { natural: 'water' })
+    // Untagged, reversed multipolygon members and a retained island hole.
+    const outerA = way([[-0.095, -0.045], [-0.065, -0.045], [-0.065, -0.015]])
+    const outerB = way([[-0.095, -0.045], [-0.095, -0.015], [-0.065, -0.015]])
+    const inner = way([[-0.085, -0.035], [-0.075, -0.035], [-0.075, -0.025], [-0.085, -0.025], [-0.085, -0.035]])
+    relation([[outerB, 'outer'], [inner, 'inner'], [outerA, 'outer']], { type: 'multipolygon', natural: 'water' })
+  })
 }

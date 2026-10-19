@@ -146,6 +146,7 @@ pub(crate) struct Timetable {
     pub coverage_end: Option<u32>,
 }
 pub(crate) struct Drive {
+    pub automatic_traffic: Option<std::sync::Arc<vigo_traffic::Snapshot>>,
     pub kernel: DriveKernel,
     pub image: Image,
     pub lons: Vec<f64>,
@@ -167,6 +168,7 @@ pub struct City {
     pub(crate) members: Vec<String>,
     pub(crate) street: CoordinateKernel,
     pub(crate) drive: Option<Drive>,
+    pub(crate) polling_enabled: bool,
     pub(crate) timetable: Option<Timetable>,
     pub(crate) timetable_cache: super::timetable_cache::TimetableCache,
     pub(crate) query_workspace: Option<crate::timetable::TimetableQueryWorkspace>,
@@ -466,6 +468,7 @@ impl City {
             members,
             street,
             drive: None,
+            polling_enabled: false,
             timetable: None,
             timetable_cache: super::timetable_cache::TimetableCache::from_env()?,
             query_workspace: None,
@@ -995,6 +998,7 @@ impl City {
         let spatial_offsets = image.u32("spatialOffsets")?;
         let spatial_nodes = image.u32("spatialNodeIndices")?;
         self.drive = Some(Drive {
+            automatic_traffic: None,
             kernel,
             image,
             lons,

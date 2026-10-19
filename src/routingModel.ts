@@ -5,6 +5,8 @@ export type RoutingPoint = {
   label: string
   stopId?: string
   source: 'map' | 'stop' | 'search'
+  /** A coordinate labeled with a local street, area or stop. */
+  named?: boolean
 }
 
 export type RoutingTravelMode = 'transit' | 'walk' | 'drive'

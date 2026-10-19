@@ -82,7 +82,7 @@
     "check:corpus": "npm run build:cli-runtime --silent && npm run build:standalone --silent && node test/corpus/corpus.mjs check",
     "corpus:record": "npm run build:cli-runtime --silent && npm run build:standalone --silent && node test/corpus/corpus.mjs record",
     "check:model": "cargo test -p vigo-model",
-    "check:traffic": "npm run build:cli-runtime --silent && npm run build:standalone --silent && node test/check-traffic-snapshots.mjs && node test/check-street-routing-modes.mjs",
+    "check:traffic": "npm run build:cli-runtime --silent && npm run build:standalone --silent && node test/check-traffic-snapshots.mjs && node test/check-ndw-polling.mjs && node test/check-street-routing-modes.mjs",
     "profile:traffic": "node scripts/profile-traffic.mjs",
     "check:rust-workspace": "node test/check-rust-workspace.mjs",
     "check:portability": "node test/check-city-portability.mjs",

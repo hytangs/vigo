@@ -362,3 +362,97 @@ fn xml_character_references_do_not_change_coordinates_or_costs() {
             .is_err()
     );
 }
+
+#[test]
+fn dense_shape_vertices_are_one_chain_but_parallel_roads_still_reject() {
+    let n = 100usize;
+    let mut lons = Vec::new();
+    let mut lats = Vec::new();
+    let mut offsets = vec![0];
+    let mut targets = Vec::new();
+    for road in 0..2 {
+        for i in 0..n {
+            lons.push(5. + i as f64 * 0.00003);
+            lats.push(52. + road as f64 * 0.00001);
+            if i + 1 < n {
+                targets.push((road * n + i + 1) as u32);
+            }
+            offsets.push(targets.len() as u32);
+        }
+    }
+    let distances = vec![205; targets.len()];
+    let times = vec![100; targets.len()];
+    let g = Graph {
+        lons: &lons,
+        lats: &lats,
+        offsets: &offsets,
+        targets: &targets,
+        distances: &distances,
+        times: &times,
+    };
+    let observation = json!({"observedAt":NOW,"observations":[{"coordinates":[[5.,52.],[5.00297,52.]],"delayFactor":2}]});
+    let one = Graph {
+        lons: &lons[..n],
+        lats: &lats[..n],
+        offsets: &offsets[..=n],
+        targets: &targets[..n - 1],
+        distances: &distances[..n - 1],
+        times: &times[..n - 1],
+    };
+    let result = TrafficEngine::default()
+        .compile(one, "one", &observation)
+        .unwrap();
+    assert_eq!(result.matched_observations, 1);
+    assert_eq!(result.weights.edge_indices.len(), n - 1);
+    let result = TrafficEngine::default()
+        .compile(g, "parallel", &observation)
+        .unwrap();
+    assert_eq!(result.matched_observations, 0);
+    assert_eq!(result.rejected["ambiguous_path"], 1);
+}
+
+#[test]
+fn off_city_measurements_do_not_shorten_local_freshness() {
+    let local = SITES
+        .split("<roa:measurementSite id=")
+        .nth(1)
+        .unwrap()
+        .split("</roa:measurementSite>")
+        .next()
+        .unwrap();
+    let outside = format!(
+        "<roa:measurementSite id={}</roa:measurementSite>",
+        local
+            .replace("TEST01", "OUTSIDE")
+            .replace("52 5 52 5.002", "53 6 53 6.002")
+    );
+    let xml = SITES.replace(
+        "</roa:measurementSiteTable>",
+        &format!("{outside}</roa:measurementSiteTable>"),
+    );
+    let mut config = Configuration::read(xml.as_bytes()).unwrap();
+    assert_eq!(config.site_count(), 2);
+    config.retain_near(&[5., 5.002], &[52., 52.], 120.).unwrap();
+    assert_eq!(config.site_count(), 1);
+    assert_eq!(config.excluded_site_count(), 1);
+    let record = MEASURES
+        .split("<roa:siteMeasurements>")
+        .nth(1)
+        .unwrap()
+        .split("</roa:siteMeasurements>")
+        .next()
+        .unwrap();
+    let outside = format!(
+        "<roa:siteMeasurements>{}</roa:siteMeasurements>",
+        record
+            .replace("TEST01", "OUTSIDE")
+            .replace("06:06:00", "06:04:00")
+    );
+    let measurements = MEASURES.replace("</mc:payload>", &format!("{outside}</mc:payload>"));
+    let result = config
+        .ingest(measurements.as_bytes(), ndw_now(), 300)
+        .unwrap();
+    assert_eq!(result.observations.len(), 1);
+    assert_eq!(result.rejected["out_of_city_site"], 1);
+    assert_eq!(result.observed_at, ndw_now() - 60_000);
+}

@@ -11,7 +11,10 @@
     "test/check-map-presentation.mjs",
     "test/check-scheduled-vehicles.mjs",
     "test/check-gtfs-inspector.mjs",
-    "test/check-network-truth-fixtures.mjs"
+    "test/check-network-truth-fixtures.mjs",
+    "test/check-place-names.mjs",
+    "test/check-place-name-queue.mjs",
+    "test/check-place-name-runtime.mjs"
   ],
   "check:osm-pbf": [
     "test/check-osm-pbf-safety.mjs",

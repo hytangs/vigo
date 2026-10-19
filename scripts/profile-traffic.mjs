@@ -154,6 +154,27 @@ report.snapshot = {
   memory: process.memoryUsage(),
   note: 'Current compiler only; includes JSON and admission output, excludes provider XML. This is not a provider coverage or end-to-end city benchmark.',
 }
+// Baselines from before snapshot normalization existed remain supported. When
+// both bindings expose it, compare compilation on identical fresh kernels too.
+if (typeof kernels[0].normalizeTrafficJson === 'function') {
+  const measurements = [[], []]
+  let weights
+  for (let round = 0; round < 5; round++) {
+    for (const index of round % 2 ? [1, 0] : [0, 1]) {
+      const file = [baseline, current][index]
+      const compiler = new (require(path.resolve(file)).DriveKernel)(graph)
+      const started = performance.now()
+      const result = JSON.parse(compiler.normalizeTrafficJson(encoded, 'synthetic-grid', graph.nodeLons, graph.nodeLats, input.observedAt))
+      measurements[index].push(performance.now() - started)
+      weights ??= result.nativeInput
+      assert.deepEqual(result.nativeInput, weights, 'Both compilers must assign identical weights')
+      assert.equal(result.matchedObservations, side)
+    }
+  }
+  report.snapshotCompilation = measurements.map((samples, i) => ({
+    version: i ? 'current' : 'baseline', samplesMs: samples, medianMs: percentile(samples, 0.5),
+  }))
+}
 const json = JSON.stringify(report, null, 2) + '\n'
 if (process.argv[3]) fs.writeFileSync(process.argv[3], json)
 console.log(json)

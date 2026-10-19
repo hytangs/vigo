@@ -2408,3 +2408,9 @@ export function renderPublicText(result) {
 export function selectDetailedRouteChoices(request, result) {
   return JSON.parse(loadNativeBinding().selectDetailedRouteChoices(JSON.stringify({ request, result })))
 }
+
+export function describeNativePlaces(streetStorePath, routingStorePath, coordinates) {
+  const binding = loadNativeBinding()
+  if (typeof binding.describePlaces !== 'function') throw new Error('Rust routing binding lacks place descriptions. Rebuild the native kernel.')
+  return binding.describePlaces(streetStorePath ?? '', routingStorePath ?? '', coordinates.flatMap(([lon, lat]) => [Number(lon), Number(lat)]))
+}

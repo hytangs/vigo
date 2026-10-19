@@ -89,6 +89,8 @@ impl Matcher {
         p: [f64; 2],
         radius: f64,
         plane: &Polyline,
+        corridor: f64,
+        start: bool,
     ) -> Result<Vec<(u32, f64)>> {
         let dx = radius / (111195. * p[1].to_radians().cos().abs().max(0.01));
         let dy = radius / 111195.;
@@ -100,7 +102,10 @@ impl Matcher {
                 if let Some(cell) = self.cells.get(&(x, y)) {
                     for &n in cell {
                         let d = plane.distance(p, g.point(n));
-                        if d <= radius {
+                        if d <= radius
+                            && plane.project(g.point(n)).1 <= corridor
+                            && (!start || g.offsets[n as usize] < g.offsets[n as usize + 1])
+                        {
                             nodes.push((n, d));
                         }
                     }
@@ -112,7 +117,7 @@ impl Matcher {
         if let Some(best) = nodes.first().map(|v| v.1) {
             nodes.retain(|v| v.1 <= best + 25.);
         }
-        if nodes.len() > 16 {
+        if nodes.len() > 64 {
             return Err("ambiguous_endpoints".into());
         }
         Ok(nodes)
@@ -125,9 +130,9 @@ impl Matcher {
         // Endpoint search radius is not a license to cut corners. A narrow
         // shape corridor scales down for short links and never exceeds 30 m.
         let corridor = radius.min(30.).min((line.length * 0.05).max(1.));
-        let starts = self.candidates(g, points[0], radius, &line)?;
+        let starts = self.candidates(g, points[0], radius, &line, corridor, true)?;
         let ends = self
-            .candidates(g, *points.last().unwrap(), radius, &line)?
+            .candidates(g, *points.last().unwrap(), radius, &line, corridor, false)?
             .into_iter()
             .collect::<HashMap<_, _>>();
         if starts.is_empty() || ends.is_empty() {
@@ -135,7 +140,7 @@ impl Matcher {
         }
         let mut labels = vec![];
         let mut queue = BinaryHeap::new();
-        let mut visits = HashMap::<u32, u8>::new();
+        let mut visits = HashMap::<u32, Vec<usize>>::new();
         let mut projection = HashMap::new();
         let mut solutions: Vec<(f64, Vec<u32>)> = vec![];
         for (node, d) in starts {
@@ -156,11 +161,22 @@ impl Matcher {
                 return Err("search_budget_exceeded".into());
             }
             let l = labels[i];
-            let count = visits.entry(l.node).or_default();
-            if *count >= 2 {
+            let visited = visits.entry(l.node).or_default();
+            if visited.len() >= 2 {
                 continue;
             }
-            *count += 1;
+            // Most vertices have one arrival. Reconstruct paths only when
+            // comparing alternatives, keeping a long unique chain linear.
+            if !visited.is_empty() {
+                let prefix = label_path(&labels, i);
+                if visited.iter().any(|&previous| {
+                    let p = label_path(&labels, previous);
+                    p.is_empty() || prefix.is_empty() || same_chain(&p, &prefix)
+                }) {
+                    continue;
+                }
+            }
+            visited.push(i);
             if let Some(&d) = ends.get(&l.node)
                 && l.depth > 0
                 && l.length >= line.length * 0.7
@@ -173,11 +189,10 @@ impl Matcher {
                     at = prev;
                 }
                 path.reverse();
-                if !line.covers_path(g, labels[at].node, &path, points, corridor) {
-                    continue;
-                }
                 let score = score + d * 4.;
-                if !solutions.iter().any(|s| s.1 == path) {
+                if line.covers_path(g, labels[at].node, &path, points, corridor)
+                    && !solutions.iter().any(|s| s.1 == path)
+                {
                     solutions.push((score, path));
                     solutions.sort_by(|a, b| a.0.total_cmp(&b.0));
                 }
@@ -234,14 +249,41 @@ impl Matcher {
         if solutions.is_empty() {
             return Err("no_directed_path".into());
         }
+        // Dense OSM shape vertices yield overlapping endpoint trims of one
+        // directed chain. They are not alternative roads. A fork, rejoin or
+        // parallel carriageway has different interior edges and still rejects.
         if solutions
-            .get(1)
-            .is_some_and(|s| s.0 - solutions[0].0 <= 25.)
+            .iter()
+            .skip(1)
+            .any(|s| s.0 - solutions[0].0 <= 25. && !same_chain(&solutions[0].1, &s.1))
         {
             return Err("ambiguous_path".into());
         }
         Ok(solutions.remove(0).1)
     }
+}
+fn label_path(labels: &[Label], mut at: usize) -> Vec<u32> {
+    let mut path = vec![];
+    while let Some(prev) = labels[at].previous {
+        path.push(labels[at].edge);
+        at = prev;
+    }
+    path.reverse();
+    path
+}
+fn same_chain(a: &[u32], b: &[u32]) -> bool {
+    let Some((i, j)) = a
+        .iter()
+        .enumerate()
+        .find_map(|(i, e)| b.iter().position(|x| x == e).map(|j| (i, j)))
+    else {
+        return false;
+    };
+    // Different prefixes before the first shared edge represent distinct approaches.
+    if i > 0 && j > 0 {
+        return false;
+    }
+    a[i..].iter().zip(&b[j..]).all(|(x, y)| x == y)
 }
 #[derive(Clone, Copy)]
 struct Label {

@@ -312,7 +312,7 @@ impl City {
         if !request.is_object() {
             return fail("Request must be a JSON object");
         }
-        validate_request(command, request)?;
+        validate_request(command, request, self.polling_enabled)?;
         self.validate_wheelchair_request(request)?;
         let started = Instant::now();
         self.timetable_activation_ms = 0.;
@@ -1237,7 +1237,8 @@ impl City {
                 let d = self.drive.as_mut().unwrap();
                 let (origin_nodes, origin_snap_meters) = d.snap(origin.coordinate)?;
                 let (target_nodes, target_snap_meters) = d.snap(destination.coordinate)?;
-                let (traffic, traffic_diagnostics) = d.traffic(q.get("traffic"))?;
+                let (traffic, traffic_diagnostics) =
+                    d.traffic(q.get("traffic"), realtime_drive(q))?;
                 let r = d.kernel.route_exact(DriveQueryInput {
                     origin_nodes,
                     origin_snap_meters,
@@ -1311,7 +1312,8 @@ impl City {
                 let d = self.drive.as_mut().unwrap();
                 let a = d.pack(origins)?;
                 let b = d.pack(destinations)?;
-                let (traffic, traffic_diagnostics) = d.traffic(q.get("traffic"))?;
+                let (traffic, traffic_diagnostics) =
+                    d.traffic(q.get("traffic"), realtime_drive(q))?;
                 let r = d.kernel.route_matrix(DriveMatrixInput {
                     origin_offsets: a.0,
                     origin_nodes: a.1,
@@ -1353,7 +1355,7 @@ impl City {
                 self.load_drive()?;
                 let drive = self.drive.as_mut().unwrap();
                 if input.get("traffic").is_some_and(|v| !v.is_null()) {
-                    let (traffic, _) = drive.traffic(input.get("traffic"))?;
+                    let (traffic, _) = drive.traffic(input.get("traffic"), false)?;
                     input["traffic"] = serde_json::to_value(traffic)?;
                 }
                 let k = &mut drive.kernel;
@@ -1468,26 +1470,37 @@ impl super::city::Drive {
         }
         Ok((offsets, nodes, meters))
     }
-    fn traffic(&mut self, value: Option<&Value>) -> Result<(Option<DriveTrafficInput>, Value)> {
-        let Some(value) = value.filter(|v| !v.is_null()) else {
+    fn traffic(
+        &mut self,
+        value: Option<&Value>,
+        automatic: bool,
+    ) -> Result<(Option<DriveTrafficInput>, Value)> {
+        let snapshot = if let Some(value) = value.filter(|v| !v.is_null()) {
+            let fingerprint = self.image.header["identity"]["sourceFingerprint"]
+                .as_str()
+                .ok_or("Missing street fingerprint")?;
+            self.kernel
+                .compile_traffic(value, fingerprint, &self.lons, &self.lats)?
+        } else if automatic && value.is_none() {
+            let Some(snapshot) = &self.automatic_traffic else {
+                return Ok((
+                    None,
+                    json!({"status":"unavailable_fallback","source":"ndw-datex2-v3-avg"}),
+                ));
+            };
+            snapshot.clone()
+        } else {
             return Ok((None, Value::Null));
         };
-        let fingerprint = self.image.header["identity"]["sourceFingerprint"]
-            .as_str()
-            .ok_or("Missing street fingerprint")?;
-        let snapshot = self
-            .kernel
-            .compile_traffic(value, fingerprint, &self.lons, &self.lats)?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_millis() as i64;
-        let mut admission = snapshot.admit(now).map_err(std::io::Error::other)?;
-        let input = admission
-            .as_object_mut()
-            .unwrap()
-            .remove("nativeInput")
-            .map(serde_json::from_value)
-            .transpose()?;
+        let mut admission = snapshot.admission(now).map_err(std::io::Error::other)?;
+        let input = (admission["status"] == "applied").then(|| DriveTrafficInput {
+            snapshot_key: snapshot.weights.snapshot_key.clone(),
+            edge_indices: snapshot.weights.edge_indices.clone(),
+            edge_time_units: snapshot.weights.edge_time_units.clone(),
+        });
         admission.as_object_mut().unwrap().remove("cacheKey");
         Ok((input, admission))
     }
@@ -1559,7 +1572,7 @@ fn arrival_reserve(command: &str, q: &Value) -> Result<Option<(Value, Value)>> {
     Ok(Some((effective, diagnostics)))
 }
 
-fn validate_request(command: &str, q: &Value) -> Result<()> {
+fn validate_request(command: &str, q: &Value, polling: bool) -> Result<()> {
     let common = [
         "kind",
         "wheelchair",
@@ -1726,7 +1739,10 @@ fn validate_request(command: &str, q: &Value) -> Result<()> {
         {
             return fail("Scheduled mode cannot apply realtime or traffic input");
         }
-        if value == "realtime" && q.get("realtimeSnapshot").is_none() && q.get("traffic").is_none()
+        if value == "realtime"
+            && q.get("realtimeSnapshot").is_none()
+            && q.get("traffic").is_none()
+            && !(polling && mode == "drive" && matches!(command, "route" | "matrix"))
         {
             return fail("Realtime mode requires a supplied snapshot");
         }
@@ -1775,6 +1791,11 @@ mod reserve_tests {
     }
 }
 
+fn realtime_drive(q: &Value) -> bool {
+    q.get("routingDataMode")
+        .or_else(|| q.get("dataMode"))
+        .is_some_and(|v| v == "realtime")
+}
 fn drive_diagnostics(mut value: Value, traffic: Value) -> Value {
     if !traffic.is_null() {
         value["traffic"] = traffic;

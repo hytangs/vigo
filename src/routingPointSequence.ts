@@ -25,7 +25,7 @@ export function routingPinLabel(index: number, total: number) {
 
 export function normalizeOrderedRoutingPoints(points: RoutingPoint[]) {
   return points.map((point, index) => (
-    point.source === 'map'
+    point.source === 'map' && !point.named
       ? {
           coordinate: point.coordinate,
           label: routingPointRoleLabel(index, points.length),

@@ -8656,7 +8656,10 @@ pub fn select_detailed_route_choices(input: String) -> Result<String> {
 }
 
 // The public JSON boundary is shared by standalone and Node transports.
-pub mod presentation;
+pub mod place_describe;
+#[cfg(feature = "node")]
+pub use place_describe::node::{DescribePlaceTask, NativePlaceDescription, describe_places};
+mod presentation;
 #[cfg_attr(feature = "node", napi)]
 pub fn format_public_result(input: String) -> Result<String> {
     let mut v: serde_json::Value =

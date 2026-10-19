@@ -46,6 +46,29 @@ pub(crate) struct Collection {
     timetable_budget: usize,
 }
 impl Runtime {
+    pub(crate) fn install_traffic(&mut self, value: &Value) -> Result<()> {
+        let Self::Single(city) = self else {
+            return fail("Automatic NDW polling requires a single City");
+        };
+        city.load_drive()?;
+        let drive = city.drive.as_mut().unwrap();
+        let snapshot = if value.is_null() {
+            None
+        } else {
+            let fingerprint = drive.image.header["identity"]["sourceFingerprint"]
+                .as_str()
+                .ok_or("Missing street fingerprint")?;
+            Some(
+                drive
+                    .kernel
+                    .compile_traffic(value, fingerprint, &drive.lons, &drive.lats)?,
+            )
+        };
+        drive.automatic_traffic = snapshot;
+        city.polling_enabled = true;
+        Ok(())
+    }
+
     pub(crate) fn open(path: &str) -> Result<Self> {
         let root = fs::canonicalize(path)?;
         let manifest_path = root.join("scenarios.json");

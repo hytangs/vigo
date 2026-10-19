@@ -921,6 +921,12 @@ This City-wide modeling assumption permits mapped private streets only within th
 
 The private graph is stored separately, so public street queries are unaffected. `network.json` records the access model, and transit diagnostics report `walkingAccessPermission: "authorized_endpoints"`. The option assumes endpoint authorization; it does not infer parcel ownership, gate hours, or missing OSM links. Explicit pedestrian prohibitions stay excluded, gates marked prohibited, locked, or with unresolved opening times gain no connections, and Street Reach follows the same rules at the origin and at reached destinations. Rebuild older Cities to apply street-store schema v6, which also excludes platform area outlines from the linear walking graph.
 
+### Names for coordinate points
+
+Studio map clicks can use local street names, intersections, named areas or nearby stops instead of a generic pin label. Names are descriptive: they do not move the coordinate or change routing. The optional `place_streets` and `place_areas` tables are written during OSM import and ignored by older readers. Cities without those tables fall back to stop names. Reimport OSM to add street names to an older City.
+
+Lookup runs in Rust off the API event loop. A click waits at most 250 ms, then keeps its fallback label; clicks retain their order and pending results are discarded when changing City. Named closed ways are supported for areas; multipolygon area names are not yet included.
+
 ### Supplied traffic
 
 **No traffic provider is connected by default.** OSM supplies the baseline road graph and free-flow estimates, and live transit feeds are not a road-speed model. Driving results without an applied traffic snapshot must not be described as current traffic estimates.

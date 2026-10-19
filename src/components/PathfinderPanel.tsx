@@ -60,7 +60,7 @@ import { formatScheduleClock } from '../scheduledVehicles'
 /** Stops keep their names; a point dropped on the map has no name of its own. */
 function routingPointName(point: RoutingPoint) {
   const label = point.label.trim()
-  return point.source === 'map' || !label || /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/u.test(label) ? 'Dropped pin' : label
+  return (point.source === 'map' && !point.named) || !label || /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/u.test(label) ? 'Dropped pin' : label
 }
 
 export type RoutingScopeStatus = 'ready' | 'building' | 'failed' | 'missing'

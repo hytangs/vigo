@@ -18,6 +18,7 @@ mod realtime;
 mod scenario;
 mod timetable_cache;
 mod traffic;
+mod traffic_poll;
 mod transport;
 mod walking;
 pub use city::City;

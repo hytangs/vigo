@@ -11,3 +11,6 @@ serde_json.workspace = true
 sha2 = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 quick-xml = "0.42"
+
+[dev-dependencies]
+vigo-format = { path = "../vigo-format" }

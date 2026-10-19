@@ -32,6 +32,7 @@ import {
 import { timingMilliseconds } from './number-utils.mjs'
 import { stableKeySuffix } from './routing-plan-identity.mjs'
 import { createLocalBasemapWriter } from './local-basemap-store.mjs'
+import { createPlaceStreetWriter, placeWayNeedsNodes } from './place-names-store.mjs'
 
 // v6 also excludes platform area outlines from the linear walking graph.
 // Older graphs must be rebuilt; their outlines can trap nearby endpoints.
@@ -328,6 +329,7 @@ export async function buildNationalOsmStore({
   const insertDriveNode = db.prepare('INSERT OR IGNORE INTO drive_nodes VALUES(?,?,?)')
   const getNode = db.prepare('SELECT lat,lon FROM nodes WHERE node_id=?')
   const basemapWriter = createLocalBasemapWriter(db)
+  const placeWriter = createPlaceStreetWriter(db)
   let nodeCount = 0
   let walkNodeCount = 0
   let edgeCount = 0
@@ -388,7 +390,8 @@ export async function buildNationalOsmStore({
         forEachPrimitiveEntity(block, groupBytes, {
           way: (way) => {
             const tags = wayTags(way, block.strings)
-            if (!wayAllowed(tags) && !(includeDriving && drivable(tags)) && !basemapWriter.needsWay(way, tags)) return
+            if (!wayAllowed(tags) && !(includeDriving && drivable(tags)) && !basemapWriter.needsWay(way, tags)
+              && !placeWayNeedsNodes(way, tags)) return
             for (const nodeId of way.refs) requireNode(nodeId)
           },
         })
@@ -429,6 +432,7 @@ export async function buildNationalOsmStore({
           way: (way) => {
             const tags = wayTags(way, block.strings)
             basemapWriter.addWay(way, tags, getNode)
+            placeWriter.addWay(way, tags, getNode)
             const isWalkable = wayAllowed(tags)
             const isDrivable = includeDriving && drivable(tags)
             if (!isWalkable && !isDrivable) return

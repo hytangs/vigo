@@ -4,7 +4,7 @@ use crate::{Result, timestamp};
 use quick_xml::{events::Event, name::ResolveResult, reader::NsReader};
 use serde_json::{Value, json};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     io::{BufRead, BufReader},
 };
 const ROA: &str = "http://datex2.eu/schema/3/roadTrafficData";
@@ -203,6 +203,7 @@ pub struct Configuration {
     table: String,
     version: String,
     sites: HashMap<String, Site>,
+    excluded_sites: HashSet<String>,
     pub rejected: BTreeMap<String, usize>,
 }
 fn reject(report: &mut BTreeMap<String, usize>, reason: &str) {
@@ -250,6 +251,40 @@ impl Configuration {
             return Err("Incomplete NDW measurement site publication".into());
         }
         Ok(config)
+    }
+    /// Restrict a configuration to sites whose endpoints could match this
+    /// immutable City. Off-City records are skipped before computing freshness,
+    /// and only their IDs are retained for explicit rejection diagnostics.
+    pub fn retain_near(&mut self, lons: &[f64], lats: &[f64], radius_m: f64) -> Result<()> {
+        if lons.is_empty()
+            || lons.len() != lats.len()
+            || !radius_m.is_finite()
+            || !(0. ..=1000.).contains(&radius_m)
+            || lons.iter().any(|x| !x.is_finite() || x.abs() > 180.)
+            || lats.iter().any(|y| !y.is_finite() || y.abs() > 90.)
+        {
+            return Err("Invalid City coordinates for NDW site selection".into());
+        }
+        let west = lons.iter().copied().fold(f64::INFINITY, f64::min);
+        let east = lons.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let south = lats.iter().copied().fold(f64::INFINITY, f64::min);
+        let north = lats.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let dy = radius_m / 111195.;
+        let dx = dy / north.abs().max(south.abs()).to_radians().cos().max(0.01);
+        let inside = |p: &[f64; 2]| {
+            p[0] >= west - dx && p[0] <= east + dx && p[1] >= south - dy && p[1] <= north + dy
+        };
+        for (id, site) in std::mem::take(&mut self.sites) {
+            if inside(&site.coordinates[0]) && inside(site.coordinates.last().unwrap()) {
+                self.sites.insert(id, site);
+            } else {
+                self.excluded_sites.insert(id);
+            }
+        }
+        Ok(())
+    }
+    pub fn excluded_site_count(&self) -> usize {
+        self.excluded_sites.len()
     }
     pub fn site_count(&self) -> usize {
         self.sites.len()
@@ -304,7 +339,14 @@ impl Configuration {
                         return Err("Duplicate NDW siteMeasurements".into());
                     }
                     let Some(site) = self.sites.get(reference.attr("id")) else {
-                        reject(&mut batch.rejected, "unsupported_or_unknown_site");
+                        reject(
+                            &mut batch.rejected,
+                            if self.excluded_sites.contains(reference.attr("id")) {
+                                "out_of_city_site"
+                            } else {
+                                "unsupported_or_unknown_site"
+                            },
+                        );
                         return Ok(());
                     };
                     if site.version != reference.attr("version") {

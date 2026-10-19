@@ -25,17 +25,21 @@ pub fn import(city_path: &str, options: &HashMap<String, String>) -> Result<Valu
         .ok_or("--measurements is required")?;
     let ttl: u32 = options.get("ttl-seconds").map_or(Ok(300), |s| s.parse())?;
     let started = Instant::now();
-    let config = vigo_traffic::ndw::Configuration::read(xml(configuration)?)
+    let mut config = vigo_traffic::ndw::Configuration::read(xml(configuration)?)
         .map_err(std::io::Error::other)?;
     let config_ms = started.elapsed().as_secs_f64() * 1000.;
+    let mut city = City::open(city_path)?;
+    city.load_drive()?;
+    let drive = city.drive.as_mut().unwrap();
+    config
+        .retain_near(&drive.lons, &drive.lats, 120.)
+        .map_err(std::io::Error::other)?;
+    let city_ms = started.elapsed().as_secs_f64() * 1000. - config_ms;
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64;
     let batch = config
         .ingest(xml(measurements)?, now, ttl)
         .map_err(std::io::Error::other)?;
-    let parse_ms = started.elapsed().as_secs_f64() * 1000. - config_ms;
-    let mut city = City::open(city_path)?;
-    city.load_drive()?;
-    let drive = city.drive.as_mut().unwrap();
+    let parse_ms = started.elapsed().as_secs_f64() * 1000. - config_ms - city_ms;
     let fingerprint = drive.image.header["identity"]["sourceFingerprint"]
         .as_str()
         .ok_or("Missing street fingerprint")?;
@@ -47,11 +51,11 @@ pub fn import(city_path: &str, options: &HashMap<String, String>) -> Result<Valu
         &drive.lats,
     )?;
     let mut prepared = snapshot.prepared();
-    prepared["ingestion"] = json!({"provider":"ndw-datex2-v3-avg","configuredSites":config.site_count(),
+    prepared["ingestion"] = json!({"provider":"ndw-datex2-v3-avg","configuredSites":config.site_count(),"outOfCitySites":config.excluded_site_count(),
         "configurationRejected":config.rejected,"measurementsRejected":batch.rejected,
         "publicationTime":batch.publication_time,"acceptedMeasurements":batch.observations.len(),
         "traffic":snapshot.admit(now).map_err(std::io::Error::other)?,
-        "timingsMs":{"configuration":config_ms,"measurements":parse_ms,"matching":matching.elapsed().as_secs_f64()*1000.,"total":started.elapsed().as_secs_f64()*1000.}});
+        "timingsMs":{"configuration":config_ms,"cityAndSelection":city_ms,"measurements":parse_ms,"matching":matching.elapsed().as_secs_f64()*1000.,"total":started.elapsed().as_secs_f64()*1000.}});
     // Diagnostics never duplicate the potentially large prepared edge arrays.
     prepared["ingestion"]["traffic"]
         .as_object_mut()

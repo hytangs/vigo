@@ -25,6 +25,7 @@ import {
   readNationalGtfsStoreMetadata,
   removeNationalGtfsOsmStopTransfers,
 } from './national-gtfs-store.mjs'
+import { describeNativePlaces } from './native-routing-kernel.mjs'
 import { readNationalOsmStoreMetadata } from './national-osm-store.mjs'
 import { readLocalBasemap, localBasemapBudgets } from './local-basemap-store.mjs'
 import { networkSignatureSvg, networkSignatureVersion } from './network-signature.mjs'
@@ -594,6 +595,32 @@ function queryNumber(url, name) {
   if (raw === null || raw.trim() === '') return null
   const value = Number(raw)
   return Number.isFinite(value) ? value : null
+}
+
+const maximumPlacePoints = 256
+
+/**
+ * Short place names for map points ("Washington St & Massachusetts Ave") from
+ * the City's street names, named areas and stops. `points=lon,lat;lon,lat`;
+ * no points only loads the City's place index so the first click is warm.
+ */
+async function describeProjectPlaces(projectId, url) {
+  const project = await readProjectMetadata(projectId)
+  const raw = String(url.searchParams.get('points') ?? '').trim()
+  const points = raw ? raw.split(';').map((pair) => pair.split(',').map((value) => value.trim() ? Number(value) : NaN)) : []
+  if (points.length > maximumPlacePoints || points.some((point) => point.length !== 2
+    || !point.every(Number.isFinite) || Math.abs(point[0]) > 180 || Math.abs(point[1]) > 90)) {
+    const error = new Error(`Place names take up to ${maximumPlacePoints} lon,lat points separated by semicolons.`)
+    error.statusCode = 400
+    throw error
+  }
+  // A street index being replaced is skipped; stops still name the point.
+  const streetPath = project.osmStreetIndex?.status === 'ready' && !nationalImportProjects.get(projectId)?.has('osm')
+    && await exists(streetStoreFile(projectId)) ? streetStoreFile(projectId) : ''
+  const routingPath = project.routingStore?.status === 'ready' && await exists(projectRoutingStoreFile(projectId, project))
+    ? projectRoutingStoreFile(projectId, project) : ''
+  if (!streetPath && !routingPath) return { places: points.map(() => null) }
+  return { places: await describeNativePlaces(streetPath, routingPath, points) }
 }
 
 async function readProjectBasemap(projectId, url) {
@@ -4536,6 +4563,11 @@ async function route(request, response) {
           sendJson(response, 409, { error: error.message, library: error.library, revision: error.revision })
         }
       } else sendJson(response, 405, { error: 'Method not allowed.' })
+      return true
+    }
+
+    if (request.method === 'GET' && action === 'place') {
+      sendJson(response, 200, await describeProjectPlaces(projectId, url))
       return true
     }
 

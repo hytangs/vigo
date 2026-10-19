@@ -6,6 +6,7 @@ import { VigoSidebar } from './components/studio/StudioSidebar'
 import { quietMapLabel, type MapScope } from './components/studio/presentation'
 
 import { ArrowLeft, XCircle } from 'lucide-react'
+import { flushSync } from 'react-dom'
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import type { OperationalEvent } from './agency/types'
@@ -36,6 +37,7 @@ import type { AppAccent, HealthResponse, ProjectDialogState, ProjectDraft, Setup
 import { createScenarioRoadGeometryRequest } from './app/scenarioRoadGeometryRequest'
 import { type RoutingDepartureWindowMinutes } from './app/uiOptions'
 import { type RouteScenarioRequest, useNationalRouting } from './app/useNationalRouting'
+import { usePlaceNames } from './app/usePlaceNames'
 import { useReachInspection } from './app/useReachInspection'
 import { ReachPointInspector } from './components/ReachPointInspector'
 import { useScenarioLibrary } from './app/useScenarioLibrary'
@@ -356,6 +358,7 @@ export default function App() {
     refreshKey: activeRouteTool === 'pathfinder' ? routingMode : '',
     prepareDrive: activeRouteTool === 'pathfinder' && routingMode === 'drive',
   })
+  const nameMapPoint = usePlaceNames(selectedProject.id, page === 'project')
   const latestGtfsJob = [...preparationJobs]
     .filter((job) => job.kind === 'national-gtfs-import')
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
@@ -1473,8 +1476,14 @@ export default function App() {
     reorderRoutingPoints(points.map((point) => ({ ...point, coordinate: [...point.coordinate] })))
   }
 
+  const mapPointHandlers = useRef({ routing: routingPointFromMap, analysis: analysisPointFromMap })
+  mapPointHandlers.current = { routing: routingPointFromMap, analysis: analysisPointFromMap }
+  function namedMapPoint(handler: 'routing' | 'analysis') {
+    return (point: RoutingPoint) => nameMapPoint(point, (named) => flushSync(() => mapPointHandlers.current[handler](named)))
+  }
+
   function analysisPointFromMap(point: RoutingPoint) {
-    const mapPoint = point.source === 'map'
+    const mapPoint = point.source === 'map' && !point.named
       ? buildRoutingPointFromMap(
         point.coordinate,
         `${point.coordinate[1].toFixed(4)}, ${point.coordinate[0].toFixed(4)}`,
@@ -3565,7 +3574,7 @@ export default function App() {
           onVehicleModeChange={changeVehicleMode}
           onScheduleTimeChange={setScheduleTimeMinutes}
           onScheduleServiceDateChange={changeRoutingServiceDate}
-          onRoutingPoint={activeRouteTool === 'agency' ? undefined : activeRouteTool === 'analyze' ? analysisPointFromMap : routingPointFromMap}
+          onRoutingPoint={activeRouteTool === 'agency' ? undefined : activeRouteTool === 'analyze' ? namedMapPoint('analysis') : namedMapPoint('routing')}
           onSelectRoute={activeRouteTool === 'agency' ? (id, options) => options?.inspect === false ? locateAgencyEntities([id], []) : browseAgencyEntities([id], []) : id => selectRoute(id)}
           onSelectStop={activeRouteTool === 'agency' ? (id, options) => options?.inspect === false ? locateAgencyEntities([], [id]) : browseAgencyEntities([], [id]) : selectStop}
         />

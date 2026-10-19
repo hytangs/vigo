@@ -103,6 +103,14 @@ impl Snapshot {
     /// Freshness is evaluated even on cache hits. The returned admission is
     /// pinned for the entire route or matrix; no mid-query wall-clock reads.
     pub fn admit(&self, now: i64) -> Result<Value> {
+        let mut v = self.admission(now)?;
+        if v["status"] == "applied" {
+            v["nativeInput"] = serde_json::to_value(&self.weights).map_err(|e| e.to_string())?;
+        }
+        Ok(v)
+    }
+    /// Native callers can use the admitted weights directly, without a JSON array round trip.
+    pub fn admission(&self, now: i64) -> Result<Value> {
         let stale = self.freshness.stale(now)?;
         let status = if stale {
             "stale_fallback"
@@ -123,7 +131,6 @@ impl Snapshot {
             "snapshotKey":self.weights.snapshot_key,
             "cacheKey":format!("{status}:{}:{}:{}",self.weights.snapshot_key,self.freshness.observed_at,self.freshness.expires_at)});
         if status == "applied" {
-            v["nativeInput"] = serde_json::to_value(&self.weights).map_err(|e| e.to_string())?;
             v["mode"] = json!("cch-time-metric");
         }
         Ok(v)

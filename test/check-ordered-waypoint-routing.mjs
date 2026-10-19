@@ -49,6 +49,13 @@ assert.deepEqual(
 )
 assert.deepEqual(reorderedPicked.map((entry) => entry.coordinate[0]), [-75, -74.8, -74.9, -74.7])
 
+// A map click named by the City keeps its place through reordering; unnamed ones take their role.
+const named = { ...picked[1], label: 'Warren St & Dudley St', named: true }
+assert.deepEqual(
+  normalizeOrderedRoutingPoints([named, picked[0], picked[2]]).map((entry) => entry.label),
+  ['Warren St & Dudley St', 'Via stop 1', 'Destination'],
+)
+
 const cappedPicked = Array.from({ length: maxRoutingPointCount + 1 }, (_, index) => (
   point('Map point', -75 + index * 0.01)
 )).reduce(

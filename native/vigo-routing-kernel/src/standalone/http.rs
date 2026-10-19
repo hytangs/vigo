@@ -232,6 +232,7 @@ fn error(error: impl std::fmt::Display) -> Body {
 }
 
 struct Worker {
+    traffic_generation: Option<u64>,
     child: Child,
     input: SyncSender<Vec<u8>>,
     output: Receiver<std::result::Result<EncodedOutput, String>>,
@@ -264,6 +265,7 @@ impl Worker {
         // Own the child before any fallible setup. Every error below kills and
         // reaps it; dropping the channels also releases any started I/O thread.
         let mut worker = Self {
+            traffic_generation: None,
             child,
             input,
             output,
@@ -311,6 +313,29 @@ impl Worker {
             return fail("City worker did not become ready");
         }
         Ok((worker, startup["info"].clone()))
+    }
+    fn install_traffic(
+        &mut self,
+        publication: super::traffic_poll::Publication,
+        timeout: Duration,
+        canceled: &AtomicBool,
+    ) -> Result<()> {
+        if self.traffic_generation == Some(publication.generation) {
+            return Ok(());
+        }
+        let mut bytes = serde_json::to_vec(
+            &json!({"kind":"_traffic_install","snapshot":publication.snapshot.as_ref()}),
+        )?;
+        bytes.push(b'\n');
+        if bytes.len() > WORKER_LINE_BYTES {
+            return fail("NDW snapshot exceeds worker update limit");
+        }
+        let response = self.query(bytes, timeout, canceled)?;
+        if response.failed {
+            return fail("Worker rejected NDW snapshot");
+        }
+        self.traffic_generation = Some(publication.generation);
+        Ok(())
     }
     fn query(
         &mut self,
@@ -443,6 +468,7 @@ fn restart(
     ready.store(worker.is_some(), Ordering::Release);
 }
 struct State {
+    traffic: Option<super::traffic_poll::Poller>,
     token: Option<String>,
     maximum: usize,
     io_timeout: Duration,
@@ -498,9 +524,11 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
     let connections = setting(o, "max-connections", 32, 2, 256)?;
     let queue = setting(o, "max-queue", 8, 0, 128)?;
     let startup_timeout = Duration::from_secs(60);
+    let traffic = super::traffic_poll::Poller::start(city, o)?;
     let (worker, info) = Worker::open(city, startup_timeout)?;
     let (sender, receiver) = mpsc::sync_channel::<Job>(queue);
     let state = Arc::new(State {
+        traffic,
         token,
         maximum,
         io_timeout,
@@ -574,6 +602,18 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                     startup_timeout,
                     &supervisor.ready,
                 );
+            }
+            if let (Some(poller), Some(w)) = (&supervisor.traffic, worker.as_mut()) {
+                if let Err(e) = w.install_traffic(
+                    poller.publication(),
+                    job.deadline.saturating_duration_since(Instant::now()),
+                    &job.canceled,
+                ) {
+                    drop(worker.take());
+                    supervisor.ready.store(false, Ordering::Release);
+                    let _ = job.response.send((503, error(&e.to_string())));
+                    continue;
+                }
             }
             let queue_us = job.queued_at.elapsed().as_micros() as u64;
             let compute_started = Instant::now();
@@ -924,6 +964,16 @@ fn handle_api(
                 return Ok((403, error(message)));
             }
         }
+    }
+    if method == "GET" && path == "/v1/traffic" {
+        return Ok((
+            200,
+            state
+                .traffic
+                .as_ref()
+                .map_or(json!({"enabled":false}), |p| p.status())
+                .into(),
+        ));
     }
     if method == "GET" && path == "/v1/capabilities" {
         return Ok((200, capabilities().into()));

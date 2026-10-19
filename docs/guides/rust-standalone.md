@@ -792,9 +792,9 @@ Hold origin, clock/date, walking policy, cutoffs, and grid fixed when interpreti
 
 ## 12. Realtime transit and supplied traffic
 
-Supply transit predictions or traffic observations with a query to use them in routing. Your application is responsible for fetching and decoding the source feed.
+Supply transit predictions or traffic observations with a query to use them in routing. Your application can supply decoded feeds; the Rust HTTP server can also poll NDW traffic as described below.
 
-Each query uses only the snapshot supplied with it. Omission restores scheduled/baseline routing on the next request. Explicit `routingDataMode: "scheduled"` rejects observation input; `"realtime"` requires a snapshot or traffic. Without an explicit mode, supplied input selects its corresponding observation path.
+Without automatic polling, each query uses only the snapshot supplied with it. Omission restores scheduled/baseline routing on the next request. Explicit `routingDataMode: "scheduled"` rejects observation input; `"realtime"` requires a snapshot or traffic. Without an explicit mode, supplied input selects its corresponding observation path.
 
 ### Transit snapshot
 
@@ -853,6 +853,35 @@ Each observation identifies directed `coordinates` (2–512 points), `fromCoordi
 At most 100,000 observations and 200,000 affected edges are accepted. Geometry is matched to a connected, directed path in the prepared drive graph. The matcher checks endpoint proximity, forward progress, shape coverage in both directions (a corridor at most 30 m wide, tightened for short paths), and path length, and rejects competing paths within its ambiguity margin. Opposite directions are separate. It reports unmatched, ambiguous and search-budget failures rather than guessing. Overlapping observations retain the largest cost; the adapter does not reduce an edge below baseline travel time. This is one supplied static metric snapshot, not time-varying congestion prediction during the trip.
 
 Raw callers may provide `snapshotKey`, `edgeIndices`, and `edgeTimeUnits` (hundredths of seconds), plus the City drive `streetSourceFingerprint` in the high-level traffic object. A closed edge has weight 2147483647. Actual weights, not just the caller key, determine cache identity. Prepared snapshots must also carry `observedAt` and optional `expiresAt` or `ttlSeconds`; missing freshness is an error. The standalone native drive endpoint applies the same admission rules. `meta.traffic` discloses status, timestamps, effective snapshot key, matching counts and rejection reasons, even without trace output. The low-level in-process kernel accepts only already admitted weights.
+
+### Automatic NDW polling
+
+Start the Rust HTTP server with an optional JSON configuration:
+
+```sh
+vigo serve --city ./city --ndw-poll ./ndw.json
+```
+
+```json
+{
+  "configurationUrl": "https://opendata.ndw.nu/reistijden_configuratie_meetlocaties.xml.gz",
+  "measurementsUrl": "https://opendata.ndw.nu/reistijden_meetgegevens.xml.gz",
+  "intervalSeconds": 60,
+  "configurationRefreshSeconds": 3600,
+  "ttlSeconds": 300,
+  "timeoutSeconds": 20
+}
+```
+
+Every field is optional; `{}` selects these defaults. URLs require HTTPS, except loopback HTTP for local mirrors and tests. Redirects are rejected. Poll intervals allow 1–3600 seconds, configuration refresh 60–86400 seconds, validity 1–1800 seconds, and HTTP deadlines 1–60 seconds. Poll at the source's update cadence (normally 60 seconds), not at query cadence. Downloads are bounded to 16 MiB and decompressed XML to 256 MiB.
+
+For Drive Route or Matrix, set `routingDataMode: "realtime"` (alias `dataMode`) and omit `traffic` to use the server's latest snapshot. Scheduled requests and requests without an explicit realtime mode retain baseline costs. An inline `traffic` snapshot takes precedence. Before the first successful poll, realtime Drive returns `meta.traffic.status: "unavailable_fallback"`; after expiry it returns `stale_fallback`. Both use baseline costs.
+
+One background producer downloads and joins the feed, matches it to the City's drive CSR, and publishes completed snapshots. It retains the CSR and a bounded geometry cache, without duplicating a CCH routing kernel. Configuration is restricted to sites whose endpoints fall within 120 m of the City bounds; off-City measurements cannot shorten local validity. Their IDs are retained for `out_of_city_site` diagnostics, rather than retaining their geometry and observations. The routing worker receives a changed snapshot once and pins its admission for the whole Route or Matrix. Download and XML parsing never block the routing worker. A new metric still requires CCH customization on its first query.
+
+Failed downloads or invalid XML retain the last completed snapshot without extending its validity. Failures back off exponentially, capped at one hour. Site-version/table mismatches trigger one metadata refresh and rejoin; older publication timestamps cannot replace newer publications (observation timestamps still determine expiry). `GET /v1/traffic` exposes freshness, generation, attempts, failures, next retry, matching counts and timings under the same authentication policy as other `/v1` endpoints. A successful download alone does not imply fresh or matched traffic. City files are never rewritten.
+
+Polling currently supports a single City per Rust HTTP server, not scenario collections or the legacy Node server. It uses NDW's v3 linear travel-time profile; it does not ingest point detectors as road speeds, infer closures from missing data, or predict future traffic. See the [NDW open-data directory](https://opendata.ndw.nu/) for the upstream feeds.
 
 ### Import NDW DATEX II v3 traffic
 

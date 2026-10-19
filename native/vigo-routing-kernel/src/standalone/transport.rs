@@ -10,6 +10,7 @@ use std::{
 const HELP: &str = "VIGO — standalone Rust routing and isochrones
 
   vigo serve --city ./city --host 0.0.0.0 --port 8080
+  vigo serve --city ./city --ndw-poll ndw.json
   vigo health --port 8080
   vigo route --city ./city --request route.json
   vigo matrix --city ./city --request matrix.json
@@ -120,6 +121,7 @@ fn run() -> Result<()> {
         return fail(format!("Unknown command {command}"));
     }
     let known = [
+        "ndw-poll",
         "configuration",
         "measurements",
         "ttl-seconds",
@@ -163,6 +165,7 @@ fn run() -> Result<()> {
             return fail(format!("Unknown option --{key}"));
         }
         let allowed = match key.as_str() {
+            "ndw-poll" => command == "serve",
             "configuration" | "measurements" | "ttl-seconds" => command == "traffic-import",
             "city" => !["capabilities", "health"].contains(&command.as_str()),
             "stream-output" => command == "stream",
@@ -258,6 +261,16 @@ fn run() -> Result<()> {
             let value: std::result::Result<Value, _> = serde_json::from_slice(&bytes);
             let result = match value {
                 Ok(mut q) => {
+                    if command == "_worker" && q["kind"] == "_traffic_install" {
+                        let result = city
+                            .install_traffic(&q["snapshot"])
+                            .map(|()| serde_json::json!({"installed":true}))
+                            .unwrap_or_else(error);
+                        serde_json::to_writer(&mut stdout, &result)?;
+                        writeln!(stdout)?;
+                        stdout.flush()?;
+                        continue;
+                    }
                     let kind = q["kind"].as_str().unwrap_or("").to_owned();
                     let id = q.get("id").cloned();
                     let mut result = apply_flags(&mut q, &options)

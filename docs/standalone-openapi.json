@@ -1156,6 +1156,44 @@
         }
       }
     },
+    "/v1/traffic": {
+      "get": {
+        "operationId": "traffic",
+        "summary": "Traffic",
+        "responses": {
+          "200": {
+            "description": "Runtime metadata; inspect capabilities for supported combinations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tokenless loopback request with a non-local Host or Origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/healthz": {
       "get": {
         "operationId": "healthz",
