@@ -669,12 +669,18 @@ fn compute_graph<const ENDPOINTS: bool>(
     }
     // Under monotone seed improvements every baseline value remains a valid
     // upper bound. Allocate only the grids we will actually use.
-    let cached_raster = restored.as_ref().and_then(|_| reuse.raster(&input, &full_bounds));
+    let cached_raster = restored
+        .as_ref()
+        .and_then(|_| reuse.raster(&input, &full_bounds));
     let reused_raster = cached_raster.is_some();
-    let (mut values, mut full_values) = cached_raster.unwrap_or_else(|| (
-        vec![f64::INFINITY; width * height],
-        input.expand_bounds_to_reached_edges.then(|| vec![f64::INFINITY; width * height]),
-    ));
+    let (mut values, mut full_values) = cached_raster.unwrap_or_else(|| {
+        (
+            vec![f64::INFINITY; width * height],
+            input
+                .expand_bounds_to_reached_edges
+                .then(|| vec![f64::INFINITY; width * height]),
+        )
+    });
     let mut raster_fractions = Vec::with_capacity(8);
     for &segment in segments.iter() {
         if reused_raster

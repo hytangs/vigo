@@ -4,7 +4,7 @@
 use flate2::{Compression, read::DeflateDecoder, write::DeflateEncoder};
 use std::io::{Read, Write};
 
-const ROWS: usize = 1024;
+const ROWS: usize = 4096;
 
 pub(super) struct Packed<const N: usize> {
     blocks: Vec<Box<[u8]>>,
@@ -25,8 +25,8 @@ impl<const N: usize> Packed<N> {
         };
         let mut previous = [0; N];
         let mut columns: [Vec<u8>; N] = std::array::from_fn(|_| Vec::with_capacity(ROWS * 10));
-        let flush = |result: &mut Self, columns: &mut [Vec<u8>; N]| -> Option<()> {
-            let mut encoder = DeflateEncoder::new(Vec::new(), Compression::fast());
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::fast());
+        let mut flush = |result: &mut Self, columns: &mut [Vec<u8>; N]| -> Option<()> {
             let count = (result.count - 1) % ROWS + 1;
             encoder.write_all(&(count as u32).to_le_bytes()).ok()?;
             for column in columns.iter() {
@@ -40,7 +40,7 @@ impl<const N: usize> Packed<N> {
             }
             result
                 .blocks
-                .push(encoder.finish().ok()?.into_boxed_slice());
+                .push(encoder.reset(Vec::new()).ok()?.into_boxed_slice());
             (result.bytes() <= budget).then_some(())
         };
         for row in rows {
@@ -66,7 +66,7 @@ impl<const N: usize> Packed<N> {
     }
 
     pub(super) fn for_each(&self, mut visit: impl FnMut([u64; N])) {
-        let mut raw = Vec::with_capacity(ROWS * N * 10);
+        let mut raw = Vec::with_capacity(ROWS * N * 10 + (N + 1) * 4);
         for block in &self.blocks {
             raw.clear();
             // Blocks are created internally and never persisted or supplied by callers.
